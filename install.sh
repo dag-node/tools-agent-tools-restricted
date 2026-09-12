@@ -1257,9 +1257,10 @@ do_install() {
 
     # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by
     # the hooks (run as ai-tools), and by the CLI (run as the projects user, NOT in
-    # SANDBOX_GROUP), so every principal must read it; it does not carry any secrets. No tokens.
+    # SANDBOX_GROUP), so every principal must read it; it does not carry any secrets. Carries
+    # @AI_TOOLS_VERSION@, which every structured record reports as AI_TOOLS_VERSION.
     log "/usr/local/lib/ai-tools/log.lib.sh"
-    install -o root -g root -m 644 \
+    install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/log.lib.sh" \
         /usr/local/lib/ai-tools/log.lib.sh
 

@@ -73,6 +73,45 @@ arg, helper result) — a non-zero helper exit stays `INFO`, since it is often a
 (a path outside the allowlist). Both sinks are wrapped in `try`/`except OSError`, so a failed
 write never blocks or fails a handback. See [logging](logging.rule.md).
 
+### The session a root operation was performed for
+
+The journald record carries native fields beside its `MESSAGE` — `AI_TOOLS_SESSION_UNIT`,
+`AI_TOOLS_VERB`, `AI_TOOLS_PATH`, `AI_TOOLS_RESULT`. `AI_TOOLS_SESSION_UNIT` is the field only
+this daemon can supply: a root helper does not run in the session's unit, so the daemon's own
+record is where a `chown` is tied to the session that asked for one.
+
+```bash
+sudo journalctl _SYSTEMD_USER_UNIT=<unit> + AI_TOOLS_SESSION_UNIT=<unit>
+```
+
+`_peer_user_unit` reads the value from `/proc/<peer_pid>/cgroup` immediately after the
+`SO_PEERCRED` check, while the peer is still blocked on the response, which bounds the pid-reuse
+window; the unit's `ProtectControlGroups=yes` mounts `/sys/fs/cgroup` read-only and leaves procfs
+alone, so that read is available to the daemon. The header on the function states how the unit is
+taken out of the cgroup line and which kernel interface would close the reuse window.
+
+**The value is attribution: the `SO_PEERCRED` uid decides what is served, and this field labels
+the record afterwards.** It passes the same sanitizer as every other logged string, and an
+unreadable or unmatched cgroup leaves the field **absent** rather than guessed.
+
+journald's stream protocol reads a `MESSAGE` and the `<N>` priority and stamps its own `_` fields,
+so a custom field does not reach the journal over stderr. The daemon sends **one datagram** to
+`/run/systemd/journal/socket` with the stdlib (`socket.sendto`); `sendto` is in `@network-io`
+(included by `@system-service`), and the policy already grants
+`logging_send_syslog_msg(ai_tools_handback_t)`. `python3-systemd` would add a package dependency,
+and a `logger --journald` subprocess would fork and exec a root process holding
+`CAP_DAC_OVERRIDE` for every audit line. `_journal_entry` assembles the bytes and `_journal_send`
+sends them, so the record's shape is asserted without a socket (`tests/unit/handback.sh`);
+`AI_TOOLS_JOURNAL_SOCKET` moves the destination for that test, with the same standing as
+`AI_TOOLS_LOG_DIR` (see [tests](tests.rule.md)).
+
+**The fail direction is a missing field, never a delayed handback.** A send that fails — a full
+journald buffer, an absent socket — falls through to the stderr write, so the `MESSAGE` still
+lands and only the fields are lost; `PRIORITY` and `SYSLOG_IDENTIFIER` ride in the datagram, so
+`journalctl -t ai-tools-handback -p warning` selects this daemon's warnings whichever sink wrote
+them. `Accept=yes` spawns one process per connection, which share no state, and a datagram is
+atomic per message, so the daemon does not take a lock.
+
 ## Files
 
 - daemon `/usr/local/libexec/ai-tools/ai-tools-handback` (750 root:root, Python 3)

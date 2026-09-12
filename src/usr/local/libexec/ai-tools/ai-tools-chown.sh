@@ -27,12 +27,15 @@ set -euo pipefail
 # prefix is stated once here instead of at each site. A leading message code (msg.lib.sh states
 # the form) is printed on its own line ahead of the message, the shape tests/lib/harness.sh's
 # assert_msg reads. Matched inline, since this helper reports before msg.lib.sh is loaded.
-# The printed text is left in _warn_text for a caller that also records it through log.lib.sh.
-_warn_text=""
+# The printed text is left in _warn_text, and its code in _warn_code, for a site that also
+# records the situation through log.lib.sh: the log call passes the variable, so the code
+# literal stays at the emit call the reference index reads as its definition
+# (messaging.rule.md).
+_warn_text="" _warn_code=""
 warn() {
     local IFS=' ' code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
-    _warn_text="$*"
+    _warn_text="$*" _warn_code="${code}"
     printf 'ai-tools-chown: %s\n' "${_warn_text}" >&2
 }
 # die exits 1; a refusal that carries another status calls warn and exits with that status.
@@ -135,7 +138,8 @@ _notify_secret() {
     # The NOTICE is written once, here, where its code labels it; the log records the same text
     # (warn leaves it in _warn_text) without the component prefix the emitter adds.
     warn MSG-A6D8 "NOTICE: secret-named file written by agent considered breached, rotate the secret: ${path} (ai-tools read access revoked; owner ${old_owner} -> ${new_owner}, mode ${old_mode} -> ${new_mode})"
-    ai_tools_log_warn "${_warn_text}"
+    ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" \
+        "AI_TOOLS_PATH=${path}" "AI_TOOLS_RESULT=ok"
 }
 
 # Resolve to canonical path to block symlink traversal
@@ -153,6 +157,10 @@ ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
 readonly OWNER="${PROJECTS_USER}:@SANDBOX_GROUP@"
 readonly SECRET_OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
+
+# This run acts for one operator, so that operator rides as per-run log context
+# (logging.rule.md). The project joins it once a path matches an allowlist entry.
+AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
 
 # Classify the basename against the shared secret-name patterns, which the library reads
 # from the operator's own config (secret-handling.rule.md covers the set and how an
@@ -197,6 +205,7 @@ fi
 if [[ "${#allowed[@]}" -gt 0 ]]; then
     for dir in "${allowed[@]}"; do
         if [[ "${canonical}" == "${dir}" || "${canonical}" == "${dir}/"* ]]; then
+            AI_TOOLS_LOG_PROJECT="${dir}"
 
             # lstat (the GNU stat default), so a symlink is seen as itself and
             # refused along with the devices. A regular file must have nlink 1: a
@@ -328,7 +337,9 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                     "${current_mode}" "${new_mode}"
             else
                 ${is_dir} && _kind="directory" || _kind="file"
-                ai_tools_log_info "handed back ${_kind} ${canonical} (owner ${current_owner} -> ${target_owner}, mode ${current_mode} -> ${new_mode})"
+                ai_tools_log_structured info \
+                    "handed back ${_kind} ${canonical} (owner ${current_owner} -> ${target_owner}, mode ${current_mode} -> ${new_mode})" \
+                    "AI_TOOLS_PATH=${canonical}" "AI_TOOLS_RESULT=ok"
             fi
             exec {fd}<&-
             exit 0

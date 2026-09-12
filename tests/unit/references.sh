@@ -242,6 +242,20 @@ assert_grep '| Security model — what `SANDBOX_USER` can do |' "$(cat "${TESTDI
     "TEST-RI-13-generate-span: a name keeps the text of a backticked span in the heading"
 run_ri generate --at docs/index.md docs/a.md
 assert_grep '(a.md#ref-section-a1b2)' "${OUT}" "TEST-RI-13-generate-at: --at computes the links from where the index lives"
+# A name may carry a pipe, as a message naming an option set does: `--scope minimal|full`. Raw,
+# the pipe opens a column and shifts every later cell left. Every command that writes or reads
+# a row is driven here, because the guarantee is the round trip rather than the escaping alone:
+# `where` resolves the row's FILE cell, so it reports a live line only while the columns hold.
+fixture src/pipe.sh 'reject MSG-P1P2 "system bootstrap: unknown scope (--scope minimal|full)"'
+run_ri generate src/pipe.sh --out pipe-index.md
+assert_grep '^| p1p2 | \[MSG-P1P2\](src/pipe.sh) | system bootstrap: unknown scope (--scope minimal\\|full) | src/pipe.sh |  | reject |$' \
+    "$(cat "${TESTDIR}/pipe-index.md")" "TEST-RI-13-pipe-row: a pipe in a name is written escaped"
+run_ri where MSG-P1P2 --index pipe-index.md
+assert_grep '^src/pipe.sh:1 (1 lines) system bootstrap: unknown scope (--scope minimal|full)$' "${OUT}" \
+    "TEST-RI-13-pipe-read: a row carrying a pipe resolves to its file, and the name comes back whole"
+run_ri retire docs/a.md --index pipe-index.md --retired pipe-retired.md --release 0.16.0
+assert_grep '| system bootstrap: unknown scope (--scope minimal\\|full) |' "$(cat "${TESTDIR}/pipe-retired.md")" \
+    "TEST-RI-13-pipe-retire: a retired row re-escapes the pipe it read"
 : > "${TESTDIR}/empty.md"
 run_ri generate empty.md
 if [[ "${RC}" -eq 0 ]] && ! grep -q '^| \[' <<<"${OUT}"; then

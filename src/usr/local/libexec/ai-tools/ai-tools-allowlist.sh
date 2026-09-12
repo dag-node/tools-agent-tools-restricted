@@ -134,6 +134,7 @@ AI_TOOLS_LOG_FILE="allowlist.log"
 if ! source /usr/local/lib/ai-tools/log.lib.sh 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
 fi
 
 # ── Caller gate ──────────────────────────────────────────────────────────────────
@@ -208,6 +209,13 @@ canonical="$(realpath -e "${TARGET_PATH}" 2>/dev/null)" \
 ai_tools_assert_safe_target "${canonical}" "allowlist ${ACTION}" || exit 3
 readonly canonical
 
+# This run edits one operator's allowlist for one project, so the operator and the project
+# ride as per-run log context (logging.rule.md). AI_TOOLS_OPERATOR names the operator
+# whose launch gate the entry decides; the caller who ran the command is recorded
+# as AI_TOOLS_CALLER, so an edit made through --for keeps the two apart in the trail.
+AI_TOOLS_LOG_OPERATOR="${OPERATOR}"
+AI_TOOLS_LOG_PROJECT="${canonical}"
+
 # require_target_config: the target's allowlist must already exist. This helper applies the one
 # entry change it was asked for and does not create the file: `ai-tools-admin operators add` is
 # where an operator's config comes from -- the config files, at the modes that keep the sandbox
@@ -241,7 +249,9 @@ case "${ACTION}" in
        ai-tools-allowlist --operator ${OPERATOR} --enable ${canonical}" ;;
             *) die MSG-D3T3 "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed" ;;
         esac
-        ai_tools_log_info "operator ${caller} added ${canonical} to ${OPERATOR}'s allowlist"
+        ai_tools_log_structured info \
+            "operator ${caller} added ${canonical} to ${OPERATOR}'s allowlist" \
+            "AI_TOOLS_CALLER=${caller}" "AI_TOOLS_RESULT=ok"
         note "added ${canonical} for ${OPERATOR}"
         ;;
     remove)
@@ -259,7 +269,9 @@ case "${ACTION}" in
         fi
         ai_tools_conf_allowlist_remove "${allowlist}" "${canonical}" \
             || die MSG-K2G9 "could not remove ${canonical} from ${OPERATOR}'s allowlist -- a line naming it survived, so that project is still registered"
-        ai_tools_log_info "operator ${caller} removed ${canonical} from ${OPERATOR}'s allowlist"
+        ai_tools_log_structured info \
+            "operator ${caller} removed ${canonical} from ${OPERATOR}'s allowlist" \
+            "AI_TOOLS_CALLER=${caller}" "AI_TOOLS_RESULT=ok"
         note "removed ${canonical} for ${OPERATOR}"
         ;;
     enable)
@@ -273,7 +285,9 @@ case "${ACTION}" in
                exit 0 ;;
             *) die MSG-H9V5 "the entry is STILL disabled for ${OPERATOR}: ${canonical} -- the line was not rewritten" ;;
         esac
-        ai_tools_log_info "operator ${caller} enabled ${canonical} in ${OPERATOR}'s allowlist"
+        ai_tools_log_structured info \
+            "operator ${caller} enabled ${canonical} in ${OPERATOR}'s allowlist" \
+            "AI_TOOLS_CALLER=${caller}" "AI_TOOLS_RESULT=ok"
         note "enabled ${canonical} for ${OPERATOR}"
         ;;
     disable)
@@ -287,7 +301,9 @@ case "${ACTION}" in
             2) die MSG-H6K3 "not listed for ${OPERATOR}: ${canonical} -- there is no entry to disable" ;;
             *) die MSG-C7Q4 "could not disable ${canonical} for ${OPERATOR} -- nothing changed" ;;
         esac
-        ai_tools_log_info "operator ${caller} disabled ${canonical} in ${OPERATOR}'s allowlist"
+        ai_tools_log_structured info \
+            "operator ${caller} disabled ${canonical} in ${OPERATOR}'s allowlist" \
+            "AI_TOOLS_CALLER=${caller}" "AI_TOOLS_RESULT=ok"
         note "disabled ${canonical} for ${OPERATOR}"
         ;;
 esac

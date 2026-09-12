@@ -123,6 +123,65 @@ The test harness applies the same allowlist to every
 `sudo`, often on a live host — cannot print a crafted byte a fixture carried into a result
 message.
 
+## The fields a record carries
+
+`ai_tools_log_structured <level> <message> [FIELD=value ...]` writes one journal entry carrying
+both the `MESSAGE` an operator reads and the native journald fields a machine consumer selects on.
+`ai_tools_log_coded <level> <code> <message> [FIELD=value ...]` is the shape a **coded** situation
+takes: the code leads the `MESSAGE` text, so the root-only file sink and the plain fallback carry
+the token a reader searches on, and the same code rides as `AI_TOOLS_MSG`.
+
+| field | holds | set by |
+|---|---|---|
+| `AI_TOOLS_VERSION` | the package version that wrote the record | the library, on every structured record |
+| `AI_TOOLS_MSG` | the message code, `MSG-A6D8` | `ai_tools_log_coded`, from a well-formed code |
+| `AI_TOOLS_OPERATOR` | the operator the operation was performed for | `AI_TOOLS_LOG_OPERATOR`, per run |
+| `AI_TOOLS_PROJECT` | the project it was performed in | `AI_TOOLS_LOG_PROJECT`, per run |
+| `AI_TOOLS_RESULT` | `ok`, `refused`, `failed` | the call site |
+| `AI_TOOLS_PATH` | the path it acted on | the call site |
+
+`AI_TOOLS_SESSION_UNIT` comes from a component that does not source this library: the handback
+daemon resolves the user unit of the session a root operation was served for from its peer's
+cgroup, and sends its own journal datagram carrying the same field names through the same
+sanitizer. [handback-bridge](handback-bridge.rule.md) holds how the unit is derived and what the
+value is read for.
+
+The operator and the project are **per-run context**: a helper sets `AI_TOOLS_LOG_OPERATOR` and
+`AI_TOOLS_LOG_PROJECT` once it has resolved them, and the library reads each at call time like
+`AI_TOOLS_LOG_TAG`, so every record that run writes carries them and a call site spells only what
+varies between its own records. A run acts for one operator in one project, which is what a
+per-run variable can state accurately. A component acting for no operator, or outside any project,
+leaves the variable unset, so the field is absent rather than naming a tree the run did not touch.
+
+`AI_TOOLS_MSG` is the **one machine key**. `journalctl -o json` and `-o export`, Fluentd's
+`in_systemd` source and Vector's `journald` source each forward a journald field as a property of
+the event, so a consumer selects on the code as a top-level key instead of parsing it out of the
+`MESSAGE`. The library does not emit systemd's `MESSAGE_ID` beside it: `journalctl` and Cockpit
+read that field specially, and a UUID would be a second identity for one situation — unreadable at
+a terminal, and resolvable only by a consumer that knows how it was computed.
+
+```bash
+sudo journalctl _UID=0 AI_TOOLS_MSG=MSG-A6D8                    # every host that hit one refusal
+sudo journalctl _UID=0 AI_TOOLS_PROJECT=/home/you/project       # everything done to one project
+```
+
+**The library does not set a field journald stamps itself.** `_HOSTNAME`, `_MACHINE_ID`,
+`_BOOT_ID`, `_UID`, `_PID`, `_COMM`, `_SYSTEMD_USER_UNIT` and `_SELINUX_CONTEXT` are derived from
+the sender's kernel credentials or from journald's own state, and journald drops a field a sender
+sets in that namespace; `ai_tools_log_structured` validates each field name against
+`[A-Z][A-Z0-9_]*`, which refuses a leading underscore before the record is assembled. A field of
+this project's own naming the same thing would be the writer's account of it, so this project does
+not add a hostname field or an id for the writer's own session. `AI_TOOLS_SESSION_UNIT` names
+another process's unit, which journald has no credential of its own to stamp.
+
+**How much a field is worth follows from `_UID`, which names the account that wrote it.** For a
+root helper (`_UID=0`) these fields are written by the same root process journald credits with the
+record. For `ai-tools-hook` and `ai-tools-run` the sandbox account is the legitimate writer, so its
+fields carry the caveat
+[A tag is not an identity, `_UID` is](#a-tag-is-not-an-identity-_uid-is) states for the message
+text: the session's account of what it did, to reconcile against the root-written file sink rather
+than to take as proof.
+
 ## The tool-call trail
 
 Every tool call a session makes is recorded, one `INFO` line per call, by the `PostToolUse`

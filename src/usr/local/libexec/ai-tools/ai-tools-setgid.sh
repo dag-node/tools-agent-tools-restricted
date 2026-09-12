@@ -36,9 +36,14 @@ set -euo pipefail
 # its own line ahead of the message, the shape tests/lib/harness.sh's assert_msg reads. Matched
 # inline, since this helper reports before msg.lib.sh is loaded. Its one refusal exits 3 at its
 # own site, so there is no status for a die() to carry.
+# The code it printed is left in _warn_code, so a site that also RECORDS the situation passes
+# the variable and the code literal stays at the emit call the reference index reads as its
+# definition (messaging.rule.md).
+_warn_code=""
 warn() {
     local IFS=' ' code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    _warn_code="${code}"
     printf 'ai-tools-setgid: %s\n' "$*" >&2
 }
 
@@ -68,6 +73,7 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
 fi
 
 # Directory-skip selector from the shared library (single source of truth, also used by
@@ -124,6 +130,11 @@ ai_tools_assert_safe_target "${canonical}" "setgid normalization" || exit 3
 # owner guard then acts only on dirs the resolved operator or the sandbox account hold.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
+
+# This run normalizes one project for one operator, so the operator and the project
+# ride as per-run log context (logging.rule.md).
+AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
+AI_TOOLS_LOG_PROJECT="${canonical}"
 
 # Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the
 # allowlist is read with -- end-of-line comments, and quotes for a path carrying a space or a
@@ -225,7 +236,9 @@ _safe_setgid() {
     if ai_tools_is_owner_only "${got_mode}"; then
         if ai_tools_strip_sandbox_residue "${fd}" directory "${got_grp}" "${got_mode}" \
                 "${PROJECTS_GROUP:-}"; then
-            ai_tools_log_info "sealed ${dir} (owner-only; stripped ${AI_TOOLS_RESIDUE_ACTIONS[*]})"
+            ai_tools_log_structured info \
+                "sealed ${dir} (owner-only; stripped ${AI_TOOLS_RESIDUE_ACTIONS[*]})" \
+                "AI_TOOLS_PATH=${dir}"
         fi
         exec {fd}<&-
         return 2
@@ -236,9 +249,10 @@ _safe_setgid() {
     exec {fd}<&-
     # Record the change (the early return stays silent for a no-op dir).
     if (( regrouped )); then
-        ai_tools_log_info "normalized ${dir} (group ${grp} -> ${GROUP}, +setgid)"
+        ai_tools_log_structured info "normalized ${dir} (group ${grp} -> ${GROUP}, +setgid)" \
+            "AI_TOOLS_PATH=${dir}"
     else
-        ai_tools_log_info "normalized ${dir} (+setgid)"
+        ai_tools_log_structured info "normalized ${dir} (+setgid)" "AI_TOOLS_PATH=${dir}"
     fi
     return 0
 }
@@ -276,25 +290,30 @@ find "${expr[@]}" 2>/dev/null \
         done
         # The counts are local to this subshell (pipe); report them here.
         if (( sealed )); then
-            ai_tools_log_info "left ${sealed} owner-only path(s) under ${canonical} out of the agent's reach"
+            ai_tools_log_structured info \
+                "left ${sealed} owner-only path(s) under ${canonical} out of the agent's reach"
         fi
         # Surfaced, never silent: the owner guard is the one skip that can leave a claim having
         # granted NO ACCESS AT ALL while every other step succeeds -- an operator-owned tree claimed for a
         # different operator hits it on every directory. A count on stderr is what turns that from
         # an invisible no-op into something the claim can report.
         if (( thirdparty )); then
-            ai_tools_log_warn "left ${thirdparty} director(ies) under ${canonical} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
             if ${root_thirdparty}; then
                 warn MSG-V6Q7 "the project directory itself is owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ -- nothing was normalized, and the agent gets no access to this tree"
             else
                 warn MSG-B9V2 "left ${thirdparty} director(ies) owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ untouched -- the agent gets no access to them"
             fi
+            # The record carries the code the operator was shown, so a query selects
+            # the situation by its code while the count and the path stay in the text.
+            ai_tools_log_coded warning "${_warn_code}" \
+                "left ${thirdparty} director(ies) under ${canonical} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
         fi
         # Surfaced, never silent: a setgid the operator may have set on purpose is the one piece
         # of residue this walk declines to remove, so the operator has to hear that it stayed.
         if (( foreign )); then
-            ai_tools_log_warn "left a third-party setgid bit on ${foreign} owner-only path(s) under ${canonical}"
             warn MSG-Z3B9 "kept the setgid bit on ${foreign} owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>"
+            ai_tools_log_coded warning "${_warn_code}" \
+                "left a third-party setgid bit on ${foreign} owner-only path(s) under ${canonical}"
         fi
       } || true
 

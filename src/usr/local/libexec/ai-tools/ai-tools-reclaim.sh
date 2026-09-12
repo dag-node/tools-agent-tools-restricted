@@ -30,9 +30,14 @@ set -euo pipefail
 # printed on its own line ahead of the message, the shape tests/lib/harness.sh's assert_msg reads.
 # Matched inline, since this helper reports before msg.lib.sh is loaded. The reports that are not
 # one situation -- the pre-scan sample and its count -- print raw below, and carry no code.
+# The code it printed is left in _warn_code, for a site that also records the situation
+# through log.lib.sh: the log call passes the variable, so the code literal stays
+# at the emit call the reference index reads as its definition (messaging.rule.md).
+_warn_code=""
 warn() {
     local IFS=' ' code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    _warn_code="${code}"
     printf 'ai-tools-reclaim: %s\n' "$*" >&2
 }
 
@@ -105,9 +110,15 @@ ai_tools_assert_safe_target "${canonical}" "reclaim" || exit 3
 # reports why it reclaimed no path. The path is operator-supplied, so it prints without log_sanitize.
 ai_tools_resolve_owner "${canonical}" || {
     warn MSG-K9H2 "nothing to reclaim -- ${canonical} is not under any claimed project"
-    ai_tools_log_info "reclaim: ${canonical} not under any claimed project"
+    ai_tools_log_coded info "${_warn_code}" "reclaim: ${canonical} not under any claimed project" \
+        "AI_TOOLS_RESULT=refused"
     exit 0
 }
+
+# Past the owner resolution this run acts for one operator in one project, so the operator
+# and the project ride as per-run log context (logging.rule.md).
+AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
+AI_TOOLS_LOG_PROJECT="${canonical}"
 
 # Default reclaim walks .git but skips the heavy trees; --full descends everywhere. The lib owns
 # both defaults -- the helper only names the consumer.
@@ -127,7 +138,7 @@ done < <(find "${expr[@]}" 2>/dev/null)
 
 if (( ${#paths[@]} == 0 )); then
     warn MSG-J6B2 "nothing to reclaim under ${canonical}"
-    ai_tools_log_info "reclaim: nothing to reclaim under ${canonical}"
+    ai_tools_log_coded info "${_warn_code}" "reclaim: nothing to reclaim under ${canonical}"
     exit 0
 fi
 
@@ -142,7 +153,8 @@ done
 # point, so Enter (and a no-tty batch run) proceeds; n leaves ownership as it stands.
 if ! ai_tools_msg_confirm "Hand back all ${#paths[@]} path(s)?" y; then
     warn MSG-T9M5 "declined; ownership left as it stands"
-    ai_tools_log_info "reclaim: declined for ${canonical}"
+    ai_tools_log_coded info "${_warn_code}" "reclaim: declined for ${canonical}" \
+        "AI_TOOLS_RESULT=refused"
     exit 0
 fi
 
@@ -159,9 +171,13 @@ for path in "${paths[@]}"; do
 done
 if (( failed > 0 )); then
     warn MSG-J4W5 "handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical}"
-    ai_tools_log_warn "reclaim: handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical}"
+    ai_tools_log_coded warning "${_warn_code}" \
+        "reclaim: handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical}" \
+        "AI_TOOLS_RESULT=failed"
 else
     warn "handed back ${confirmed} path(s) under ${canonical}"
-    ai_tools_log_info "reclaim: handed back ${confirmed} agent-owned path(s) under ${canonical}"
+    ai_tools_log_structured info \
+        "reclaim: handed back ${confirmed} agent-owned path(s) under ${canonical}" \
+        "AI_TOOLS_RESULT=ok"
 fi
 exit 0

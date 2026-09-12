@@ -26,12 +26,14 @@ set -euo pipefail
 # instead of at each site. A leading message code (msg.lib.sh states the form) is printed on its
 # own line ahead of the message, the shape tests/lib/harness.sh's assert_msg reads. Matched
 # inline, since this helper reports before msg.lib.sh is loaded. The printed text is left in
-# _warn_text, which the sites that also record the condition log.
-_warn_text=""
+# _warn_text, and the code it printed in _warn_code, for the sites that also record
+# the condition: the log call passes the variable, so the code literal stays at the emit
+# call the reference index reads as its definition (messaging.rule.md).
+_warn_text="" _warn_code=""
 warn() {
     local IFS=' ' code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
-    _warn_text="$*"
+    _warn_text="$*" _warn_code="${code}"
     printf 'ai-tools-safedir: %s\n' "${_warn_text}" >&2
 }
 
@@ -98,10 +100,10 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 _reassert_mode() {
     chown "root:${GROUP}" "${GITCONFIG}" 2>/dev/null \
         || { warn MSG-Y5R2 "could not chown ${GITCONFIG} to root:${GROUP}"
-             ai_tools_log_warn "${_warn_text}"; }
+             ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"; }
     chmod 644 "${GITCONFIG}" 2>/dev/null \
         || { warn MSG-V8E9 "could not chmod ${GITCONFIG} to 644"
-             ai_tools_log_warn "${_warn_text}"; }
+             ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"; }
 }
 
 # _listed <path>: 0 when <path> is already a safe.directory entry. The read works for any
@@ -128,8 +130,12 @@ if ${REMOVE}; then
     # the path to exist, so a stale entry for a removed tree is still cleanable. No allowlist
     # gate (the CLI de-lists before removing here).
     canonical="$(realpath -m -- "${TARGET}" 2>/dev/null || printf '%s' "${TARGET}")"
+    # The project is the subject of every record this run writes, so it rides as per-run log
+    # context (logging.rule.md) instead of being named at each site.
+    AI_TOOLS_LOG_PROJECT="${canonical}"
     _confirm_cwd "Remove ${canonical} from git safe.directory?" \
-        || { ai_tools_log_info "declined removing safe.directory ${canonical}"; exit 0; }
+        || { ai_tools_log_structured info "declined removing safe.directory ${canonical}" \
+                 "AI_TOOLS_RESULT=refused"; exit 0; }
     if _listed "${canonical}"; then
         # --unset-all takes a value REGEX; escape the path so regex metacharacters in it are
         # literal and anchors match the whole line. The sed program is a single-quoted regex:
@@ -138,7 +144,7 @@ if ${REMOVE}; then
         esc="$(printf '%s' "${canonical}" | sed 's/[.[\*^$()+?{|\\]/\\&/g')"
         git config --file "${GITCONFIG}" --unset-all safe.directory "^${esc}$" 2>/dev/null || true
         _reassert_mode
-        ai_tools_log_info "removed safe.directory ${canonical}"
+        ai_tools_log_structured info "removed safe.directory ${canonical}" "AI_TOOLS_RESULT=ok"
     else
         ai_tools_log_debug "safe.directory ${canonical} not listed -- nothing to remove"
     fi
@@ -150,23 +156,28 @@ fi
 # otherwise exit 0 with no account of itself, and the CLI's own report says only that the step ran.
 canonical="$(realpath -e -- "${TARGET}" 2>/dev/null)" || {
     warn MSG-N4D4 "no such directory ${TARGET} -- not registering safe.directory"
-    ai_tools_log_warn "${_warn_text}"
+    ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=refused"
     exit 0
 }
 [[ -d "${canonical}" ]] || {
     warn MSG-F4Y6 "not a directory: ${canonical} -- not registering safe.directory"
-    ai_tools_log_warn "${_warn_text}"
+    ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=refused"
     exit 0
 }
 # resolve_owner succeeds only when some operator's allowlist covers the (non-excluded) path;
 # otherwise leave the file untouched (fail-closed, mirrors the sibling helpers).
 ai_tools_resolve_owner "${canonical}" || {
     warn MSG-P5B5 "no operator covers ${canonical} -- not registering safe.directory"
-    ai_tools_log_info "${_warn_text}"
+    ai_tools_log_coded info "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=refused"
     exit 0
 }
+# Past the resolution the operator and the project are known, so each rides as per-run log
+# context for every later record (logging.rule.md).
+AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
+AI_TOOLS_LOG_PROJECT="${canonical}"
 _confirm_cwd "Add ${canonical} to git safe.directory?" \
-    || { ai_tools_log_info "declined adding safe.directory ${canonical}"; exit 0; }
+    || { ai_tools_log_structured info "declined adding safe.directory ${canonical}" \
+             "AI_TOOLS_RESULT=refused"; exit 0; }
 
 if _listed "${canonical}"; then
     ai_tools_log_debug "safe.directory ${canonical} already listed"
@@ -174,5 +185,5 @@ if _listed "${canonical}"; then
 fi
 git config --file "${GITCONFIG}" --add safe.directory "${canonical}"
 _reassert_mode
-ai_tools_log_info "added safe.directory ${canonical}"
+ai_tools_log_structured info "added safe.directory ${canonical}" "AI_TOOLS_RESULT=ok"
 exit 0

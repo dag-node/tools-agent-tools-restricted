@@ -38,6 +38,13 @@
 # the helpers' chown.log/setgid.log/symlink.log.  Only the root daemon writes the file; the
 # agent-side client cannot (DAC), so it stays journald-only.
 #
+# Each journald record carries native fields beside its MESSAGE (AI_TOOLS_SESSION_UNIT,
+# _VERB, _PATH, _RESULT), written as one datagram to the journal socket.  The session unit
+# is the field only this daemon can supply, since a root helper does not run
+# in the session's unit; the SO_PEERCRED uid authorizes a request and this value labels
+# the record
+# afterwards.  See .claude/rules/handback-bridge.rule.md.
+#
 # Installed 750 root:root as ai-tools-handback, with @SANDBOX_USER@ substituted at install.
 # Deploying from a checkout: docs/install-from-source.md.
 
@@ -67,6 +74,26 @@ _LOG_FILE = '/var/log/ai-tools/handback.log'
 # syslog priority, so `journalctl -t ai-tools-handback -p warning` filters correctly without
 # spawning logger(1) (a subprocess the tight SystemCallFilter is better off not needing).
 _PRIO = {'error': '<3>', 'warning': '<4>', 'notice': '<5>', 'info': '<6>', 'debug': '<7>'}
+
+# The same mapping as the numeric priority the native protocol takes (RFC 5424 severity).
+# _PRIO carries the "<N>" prefix the stream protocol takes instead, so each sink reads
+# the priority in the spelling its own protocol defines.
+_PRIO_NUMBER = {'error': '3', 'warning': '4', 'notice': '5', 'info': '6', 'debug': '7'}
+
+# The identifier each journald sink files this daemon's lines under: `journalctl -t
+# ai-tools-handback -p warning` selects them whichever sink wrote them.
+_IDENTIFIER = 'ai-tools-handback'
+
+# journald's native datagram socket. AI_TOOLS_JOURNAL_SOCKET moves it for the unit test,
+# with the same standing as AI_TOOLS_LOG_DIR: the daemon's environment comes from its
+# root-owned unit, so neither an operator nor the agent can redirect this trail
+# (tests.rule.md).
+_JOURNAL_SOCKET = os.environ.get('AI_TOOLS_JOURNAL_SOCKET', '/run/systemd/journal/socket')
+
+# The peer's own systemd user unit, resolved once the SO_PEERCRED check has accepted the peer,
+# and stamped on every record from then on. Empty until then, and on a host whose cgroup
+# cannot be read, which leaves the field absent instead of wrong.
+_session_unit = ''  # noqa: N816  -- module state, deliberately not a constant
 
 
 def _sanitize(msg):
@@ -100,25 +127,98 @@ def _sanitize_unicode_controlchars(msg):
     )
 
 
-def _audit(level, msg):
-    # type: (str, str) -> None
-    # Two sinks, mirroring log.lib.sh: journald via stderr (StandardError=journal; systemd
-    # stamps the timestamp + identifier, the "<N>" prefix the priority) ALWAYS, and the
-    # root-only file with an explicit "<ts> <LEVEL> [<pid>] <msg>" line matching the helpers'
-    # format. Each sink is wrapped in try/except OSError, so a failed write never aborts or
-    # delays the handback. The
-    # message is reduced to safe-for-display characters once for both sinks; if anything was
+def _peer_user_unit(pid):
+    # type: (int) -> str
+    # The peer's systemd user unit, read from its cgroup the way journald derives
+    # _SYSTEMD_USER_UNIT: the first .service or .scope component after user@<uid>.service/.
+    # Read while the peer is still blocked on the response, which bounds the pid-reuse window;
+    # SO_PEERPIDFD (kernel 6.5+) would close it and is not taken while EL9 is a target.
+    # ProtectControlGroups=yes mounts /sys/fs/cgroup read-only and leaves procfs alone, so this
+    # read is available to the daemon. An unreadable or unmatched cgroup yields '', which leaves
+    # the field ABSENT rather than guessed -- the value is attribution, not authorization.
+    try:
+        with open('/proc/%d/cgroup' % pid) as handle:
+            text = handle.read()
+    except OSError:
+        return ''
+    for line in text.splitlines():
+        components = line.rpartition(':')[2].split('/')
+        for index, component in enumerate(components):
+            if not (component.startswith('user@') and component.endswith('.service')):
+                continue
+            for later in components[index + 1:]:
+                if later.endswith('.service') or later.endswith('.scope'):
+                    return later
+    return ''
+
+
+def _journal_entry(level, msg, fields):
+    # type: (str, str, tuple) -> bytes
+    # ONE native journald entry, as the newline-delimited bytes the protocol takes. Pure,
+    # so the record's shape is asserted without a socket (tests/unit/handback.sh).
+    #
+    # Every value is sanitized, which removes the newline that would otherwise terminate
+    # a field early, and every field NAME is a constant here, so a value cannot forge
+    # a sibling field. An empty value leaves its field out, since an absent field says
+    # "not applicable" where an empty one would read as a value.
+    entry = [
+        'MESSAGE=' + msg,
+        'PRIORITY=' + _PRIO_NUMBER.get(level, '6'),
+        'SYSLOG_IDENTIFIER=' + _IDENTIFIER,
+        'SYSLOG_FACILITY=3',
+    ]
+    for name, value in fields:
+        if value:
+            entry.append('%s=%s' % (name, _sanitize(str(value))))
+    return ('\n'.join(entry) + '\n').encode('utf-8', 'replace')
+
+
+def _journal_send(level, msg, fields):
+    # type: (str, str, tuple) -> bool
+    # Write one entry to the journal socket and report whether the datagram left. journald's
+    # stream protocol (StandardError=journal) carries a MESSAGE and the "<N>" priority,
+    # and does not carry a custom field, so a field reaches the journal as a datagram
+    # alone, which the stdlib sends in a few lines. The rejected alternatives
+    # (python3-systemd, a `logger --journald` subprocess) and the SELinux grant this send
+    # needs are stated in handback-bridge.rule.md.
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+            sock.sendto(_journal_entry(level, msg, fields), _JOURNAL_SOCKET)
+        finally:
+            sock.close()
+    except OSError:
+        return False
+    return True
+
+
+def _audit(level, msg, verb='', path='', result=''):
+    # type: (str, str, str, str, str) -> None
+    # Two sinks, mirroring log.lib.sh: journald ALWAYS -- natively, so the record carries its
+    # fields, and over stderr (StandardError=journal; systemd stamps the timestamp + identifier,
+    # the "<N>" prefix the priority) when the datagram cannot be sent -- and the root-only file
+    # with an explicit "<ts> <LEVEL> [<pid>] <msg>" line matching the helpers' format. Each sink
+    # is wrapped in try/except OSError, so a failed write costs the record its fields and never
+    # aborts, delays or refuses the handback.
+    # The message is reduced to safe-for-display characters once for both sinks; if anything was
     # replaced it is flagged inline (a non-standard byte where a path is expected is a probe
     # worth recording). The marker is pure ASCII, so it cannot itself re-trigger a replacement.
     clean = _sanitize(msg)
     if clean != msg:
         clean += '  [!] non-standard characters replaced'
     msg = clean
-    try:
-        sys.stderr.write(_PRIO.get(level, '<6>') + msg + '\n')
-        sys.stderr.flush()
-    except OSError:
-        pass
+    fields = (
+        ('AI_TOOLS_SESSION_UNIT', _session_unit),
+        ('AI_TOOLS_VERB', verb),
+        ('AI_TOOLS_PATH', path),
+        ('AI_TOOLS_RESULT', result),
+    )
+    if not _journal_send(level, msg, fields):
+        try:
+            sys.stderr.write(_PRIO.get(level, '<6>') + msg + '\n')
+            sys.stderr.flush()
+        except OSError:
+            pass
     try:
         stamp = datetime.datetime.now().astimezone().replace(microsecond=0).isoformat()
         line = '%s %-7s [%d] %s\n' % (stamp, level.upper(), os.getpid(), msg)
@@ -203,9 +303,16 @@ def main():
     peer_pid, peer_uid, _ = struct.unpack('iII', cred_raw)
     if peer_uid != expected_uid:
         _audit('warning',
-               'rejected uid %d pid %d (want uid %d)' % (peer_uid, peer_pid, expected_uid))
+               'rejected uid %d pid %d (want uid %d)' % (peer_uid, peer_pid, expected_uid),
+               result='refused')
         _send('ERR unauthorized uid %d' % peer_uid)
         sys.exit(1)
+
+    # The peer is the sandbox account, so its cgroup names the session whose request this is.
+    # Resolved here, right after the uid check and while the peer is still blocked waiting,
+    # which bounds the pid-reuse window, and stamped on every record from now on.
+    global _session_unit
+    _session_unit = _peer_user_unit(peer_pid)
 
     # Read exactly one request line.  Two independent guards prevent this blocking
     # forever or exhausting memory:
@@ -219,7 +326,8 @@ def main():
     #      Reading via the binary buffer keeps the cap in bytes rather than decoded
     #      characters, so a run of multi-byte UTF-8 cannot sneak past the limit.
     def _on_alarm(signum, frame):  # type: ignore[override]
-        _audit('warning', 'timeout: no request received in %ds' % _READ_TIMEOUT)
+        _audit('warning', 'timeout: no request received in %ds' % _READ_TIMEOUT,
+               result='failed')
         sys.exit(1)
 
     signal.signal(signal.SIGALRM, _on_alarm)
@@ -228,14 +336,14 @@ def main():
         raw = sys.stdin.buffer.readline(_MAX_LINE)
         line = raw.decode('utf-8', errors='replace').rstrip('\n')
     except OSError as exc:
-        _audit('error', 'read error: %s' % exc)
+        _audit('error', 'read error: %s' % exc, result='failed')
         _send('ERR read error')
         sys.exit(1)
     finally:
         signal.alarm(0)  # cancel the alarm once the read completes
 
     if not line:
-        _audit('warning', 'empty request from pid %d' % peer_pid)
+        _audit('warning', 'empty request from pid %d' % peer_pid, result='refused')
         _send('ERR empty request')
         sys.exit(1)
 
@@ -246,11 +354,12 @@ def main():
     arg = parts[1].strip() if len(parts) > 1 else ''
 
     if verb not in _HELPERS:
-        _audit('warning', 'unknown verb %r from pid %d' % (verb, peer_pid))
+        _audit('warning', 'unknown verb %r from pid %d' % (verb, peer_pid), result='refused')
         _send('ERR unknown verb %r' % verb)
         sys.exit(1)
     if not arg:
-        _audit('warning', 'missing argument for %s from pid %d' % (verb, peer_pid))
+        _audit('warning', 'missing argument for %s from pid %d' % (verb, peer_pid),
+               verb=verb, result='refused')
         _send('ERR missing argument for %s' % verb)
         sys.exit(1)
 
@@ -261,7 +370,8 @@ def main():
     # malformed request never reaches a helper; a well-formed one is still re-validated there.
     if not arg.startswith('/') or len(arg) > _MAX_ARG \
             or any(ord(c) < 0x20 or ord(c) == 0x7f for c in arg):
-        _audit('warning', 'rejected malformed arg for %s (pid %d)' % (verb, peer_pid))
+        _audit('warning', 'rejected malformed arg for %s (pid %d)' % (verb, peer_pid),
+               verb=verb, result='refused')
         _send('ERR malformed argument')
         sys.exit(1)
 
@@ -287,11 +397,13 @@ def main():
         )
     except subprocess.TimeoutExpired:
         _audit('error',
-               '%s timed out after %ds (pid %d)' % (verb, _HELPER_TIMEOUT, peer_pid))
+               '%s timed out after %ds (pid %d)' % (verb, _HELPER_TIMEOUT, peer_pid),
+               verb=verb, path=arg, result='failed')
         _send('ERR helper timed out')
         sys.exit(1)
     except (OSError, ValueError) as exc:
-        _audit('error', 'exec %r failed: %s' % (_HELPERS[verb], exc))
+        _audit('error', 'exec %r failed: %s' % (_HELPERS[verb], exc),
+               verb=verb, path=arg, result='failed')
         _send('ERR exec failed: %s' % exc)
         sys.exit(1)
 
@@ -314,11 +426,13 @@ def main():
     # line stays INFO and records the code; the daemon-level failures carry the
     # WARNING/ERROR levels.
     if result.returncode == 0:
-        _audit('info', 'served %s pid=%d arg=%s -> OK' % (verb, peer_pid, arg))
+        _audit('info', 'served %s pid=%d arg=%s -> OK' % (verb, peer_pid, arg),
+               verb=verb, path=arg, result='ok')
         _send('OK')
     else:
         _audit('info',
-               'served %s pid=%d arg=%s -> ERR(%d)' % (verb, peer_pid, arg, result.returncode))
+               'served %s pid=%d arg=%s -> ERR(%d)' % (verb, peer_pid, arg, result.returncode),
+               verb=verb, path=arg, result='err')
         _send('ERR helper exited %d' % result.returncode)
 
 

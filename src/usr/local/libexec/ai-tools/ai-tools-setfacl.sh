@@ -51,12 +51,14 @@ set -euo pipefail
 # assert_msg reads. Matched inline, since this helper reports before msg.lib.sh is loaded. Each
 # refusal exits at its own site: this helper's statuses are 2 (usage), 3 (an unusable library)
 # and 0 (nothing to apply), so there is no one status for a die() to carry. The printed text is
-# left in _warn_text for a caller that also records it through log.lib.sh.
-_warn_text=""
+# left in _warn_text, and the code it printed in _warn_code, for a site that also records
+# the situation through log.lib.sh: the log call passes the variable, so the code literal
+# stays at the emit call the reference index reads as its definition (messaging.rule.md).
+_warn_text="" _warn_code=""
 warn() {
     local IFS=' ' code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
-    _warn_text="$*"
+    _warn_text="$*" _warn_code="${code}"
     printf 'ai-tools-setfacl: %s\n' "${_warn_text}" >&2
 }
 
@@ -106,6 +108,7 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
 fi
 
 # Directory-skip selector from the shared library (single source of truth, also used by
@@ -138,7 +141,8 @@ _is_secret_name() {
 # log: a tree with no ACL is one the agent reaches only through the group it was chgrp'd to.
 command -v setfacl >/dev/null 2>&1 \
     || { warn MSG-V3W8 "setfacl not found -- skipping ACL normalization for ${TARGET}"
-         ai_tools_log_warn "${_warn_text}"; exit 0; }
+         ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"
+         exit 0; }
 
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
 # reference for both). Required and fail-closed like safe-paths.lib.sh: an unusable library must
@@ -170,6 +174,12 @@ ai_tools_assert_safe_target "${canonical}" "ACL grant" || exit 3
 # then acts only on paths the resolved operator or the sandbox account hold.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
+
+# This run grants one project for one operator, so the operator and the project
+# ride as per-run log context (logging.rule.md).
+AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
+AI_TOOLS_LOG_PROJECT="${canonical}"
+
 # Prepend the resolved operator's named grant (its access to agent-written files).
 readonly ACL_SPEC="user:${PROJECTS_USER}:rwX,${ACL_BASE}"
 
@@ -340,20 +350,23 @@ find "${expr[@]}" 2>/dev/null \
             esac
         done
         # The counts are local to this subshell (pipe); log them here.
-        ai_tools_log_info "ACL-normalized ${applied} path(s) under ${canonical}"
+        ai_tools_log_structured info "ACL-normalized ${applied} path(s) under ${canonical}" \
+            "AI_TOOLS_RESULT=ok"
         if (( owneronly )); then
-            ai_tools_log_info "left ${owneronly} owner-only path(s) under ${canonical} out of the agent's reach"
             warn MSG-C9Z6 "left ${owneronly} owner-only path(s) (0600/0700) out of the sandbox account's reach"
+            ai_tools_log_coded info "${_warn_code}" \
+                "left ${owneronly} owner-only path(s) under ${canonical} out of the agent's reach"
         fi
         # Surfaced for the same reason as the setgid walk's: the owner guard is the one skip
         # that can leave a claim reporting success having granted no access.
         if (( thirdparty )); then
-            ai_tools_log_warn "left ${thirdparty} path(s) under ${canonical} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
             if ${root_thirdparty}; then
                 warn MSG-M6H3 "the project directory itself is owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ -- no ACL was applied, and the agent gets no access to this tree"
             else
                 warn MSG-K8M2 "left ${thirdparty} path(s) owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ untouched -- the agent gets no access to them"
             fi
+            ai_tools_log_coded warning "${_warn_code}" \
+                "left ${thirdparty} path(s) under ${canonical} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
         fi
       } || true
 
@@ -385,18 +398,24 @@ if ${WITH_GIT} && [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
             3) git_thirdparty=$(( git_thirdparty + 1 )) ;;
         esac
     done < <(find "${gitdir}" -xdev '(' -type d -o -type f ')' -print0 2>/dev/null)
-    ai_tools_log_info "normalized ${git_applied} path(s) under ${gitdir} (group ${GROUP}, setgid dirs, ACL)"
+    ai_tools_log_structured info \
+        "normalized ${git_applied} path(s) under ${gitdir} (group ${GROUP}, setgid dirs, ACL)" \
+        "AI_TOOLS_PATH=${gitdir}" "AI_TOOLS_RESULT=ok"
     # --with-git is an explicit opt-in, so a .git the owner-only guard seals off is a share
     # that did NOT happen. Silence here would leave the operator believing history is shared.
     if (( git_owneronly )); then
-        ai_tools_log_info "left ${git_owneronly} owner-only path(s) under ${gitdir} out of the agent's reach"
         warn MSG-J8R8 "under .git, ${git_owneronly} owner-only path(s) were NOT shared (0600/0700) -- git history stays out of the sandbox account's reach"
+        ai_tools_log_coded info "${_warn_code}" \
+            "left ${git_owneronly} owner-only path(s) under ${gitdir} out of the agent's reach" \
+            "AI_TOOLS_PATH=${gitdir}"
     fi
     # Same disclosure as the main walk, for the same reason the owner-only count is disclosed
     # here: --with-git is an explicit opt-in, so a share that did not happen must be said.
     if (( git_thirdparty )); then
-        ai_tools_log_warn "left ${git_thirdparty} path(s) under ${gitdir} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
         warn MSG-D8D7 "under .git, ${git_thirdparty} path(s) were NOT shared -- owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
+        ai_tools_log_coded warning "${_warn_code}" \
+            "left ${git_thirdparty} path(s) under ${gitdir} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@" \
+            "AI_TOOLS_PATH=${gitdir}"
     fi
 fi
 

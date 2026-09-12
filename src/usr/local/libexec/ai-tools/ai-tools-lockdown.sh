@@ -39,9 +39,14 @@ log()  { printf 'ai-tools-lockdown: %s\n' "$*"; }
 # A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
 # message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since these helpers
 # report before the library is loaded.
+# The code warn printed is left in _warn_code, for a site that also records the situation
+# through log.lib.sh: the log call passes the variable, so the code literal stays
+# at the emit call the reference index reads as its definition (messaging.rule.md).
+_warn_code=""
 warn() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    _warn_code="${code}"
     printf 'ai-tools-lockdown: warn: %s\n' "$*" >&2
 }
 die() {
@@ -155,6 +160,11 @@ readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
 # ai-tools-chown gives an agent-written secret, so a secret ends up identically owned whether it
 # was locked down proactively or quarantined on write.
 readonly OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
+
+# This run locks one project down for one operator, so the operator and the project
+# ride as per-run log context (logging.rule.md).
+AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
+AI_TOOLS_LOG_PROJECT="${target}"
 # Two identities may legitimately hold a path in a claimed tree: the resolved operator and the
 # sandbox account. The seal pass acts on those only, as every other walk does -- a path held by a
 # third party (root, another developer) is left untouched.
@@ -331,7 +341,8 @@ _safe_apply() {
             "${PROJECTS_GROUP}" || true
     fi
     exec {fd}<&-
-    ai_tools_log_info "locked ${path} -> ${OWNER} ${mode}"
+    ai_tools_log_structured info "locked ${path} -> ${OWNER} ${mode}" \
+        "AI_TOOLS_PATH=${path}" "AI_TOOLS_RESULT=ok"
     printf '  locked %s  ->  %s %s\n' "$(ai_tools_log_sanitize "${path}")" "${OWNER}" "${mode}" >&2
     return 0
 }
@@ -371,7 +382,9 @@ _safe_seal() {
         "${PROJECTS_GROUP}" && rc=0
     exec {fd}<&-
     if (( rc == 0 )) && ! ${DRY_RUN}; then
-        ai_tools_log_info "sealed ${path} (owner-only; stripped ${AI_TOOLS_RESIDUE_ACTIONS[*]})"
+        ai_tools_log_structured info \
+            "sealed ${path} (owner-only; stripped ${AI_TOOLS_RESIDUE_ACTIONS[*]})" \
+            "AI_TOOLS_PATH=${path}" "AI_TOOLS_RESULT=ok"
     fi
     return "${rc}"
 }
@@ -397,7 +410,8 @@ _seal_pass() {
             ai_tools_log_info "dry-run: ${seal_count} owner-only path(s) under ${target} carry sandbox residue"
             log "${seal_count} of ${#sealed[@]} owner-only path(s) carry sandbox residue (listed above)"
         else
-            ai_tools_log_info "sealed ${seal_count} owner-only path(s) under ${target}"
+            ai_tools_log_structured info \
+                "sealed ${seal_count} owner-only path(s) under ${target}" "AI_TOOLS_RESULT=ok"
             log "sealed ${seal_count} owner-only path(s) (sandbox group, setgid and ACL entries removed)"
         fi
     elif (( ${#sealed[@]} )) && ${DRY_RUN}; then
@@ -406,8 +420,9 @@ _seal_pass() {
     # Surfaced, never silent: the one piece of residue the pass declines to remove, since it cannot
     # ask whether the operator meant it.
     if (( foreign > 0 )); then
-        ai_tools_log_warn "left a third-party setgid bit on ${foreign} owner-only path(s) under ${target}"
         warn MSG-J8H9 "kept the setgid bit on ${foreign} owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>"
+        ai_tools_log_coded warning "${_warn_code}" \
+            "left a third-party setgid bit on ${foreign} owner-only path(s) under ${target}"
     fi
 }
 
@@ -448,10 +463,13 @@ done
 
 if (( ${#hits[@]} )); then
     if (( skip_count > 0 )); then
-        ai_tools_log_warn "lockdown of ${target}: locked ${done_count} path(s), skipped ${skip_count}"
+        ai_tools_log_structured warning \
+            "lockdown of ${target}: locked ${done_count} path(s), skipped ${skip_count}" \
+            "AI_TOOLS_RESULT=failed"
         log "locked ${done_count} path(s); skipped ${skip_count} (see warnings above)"
     else
-        ai_tools_log_info "lockdown of ${target}: locked ${done_count} path(s)"
+        ai_tools_log_structured info "lockdown of ${target}: locked ${done_count} path(s)" \
+            "AI_TOOLS_RESULT=ok"
         log "locked ${done_count} path(s)"
     fi
 fi
