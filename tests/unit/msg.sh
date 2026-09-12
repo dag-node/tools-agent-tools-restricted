@@ -499,6 +499,7 @@ inline_matchers=(
     src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh
     src/usr/local/libexec/ai-tools/ai-tools-chown.sh
     src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh
+    src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh
     src/usr/local/libexec/ai-tools/ai-tools-relabel.sh
     src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh
     src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh

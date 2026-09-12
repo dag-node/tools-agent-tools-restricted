@@ -142,6 +142,12 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | b6m8 | [MSG-B6M8](../src/usr/local/libexec/ai-tools/ai-tools-chown.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-chown.sh |  | warn |
 | v6p4 | [MSG-V6P4](../src/usr/local/libexec/ai-tools/ai-tools-chown.sh) | FATAL: owner-only.lib.sh defines no residue strip | src/usr/local/libexec/ai-tools/ai-tools-chown.sh |  | warn |
 | a6d8 | [MSG-A6D8](../src/usr/local/libexec/ai-tools/ai-tools-chown.sh) | NOTICE: secret-named file written by agent considered breached, rotate the secret: ${path} (ai-tools read access revoked; owner ${old_owner} -> ${new_owner}, mode ${old_mode} -> ${new_mode}) | src/usr/local/libexec/ai-tools/ai-tools-chown.sh | tests/unit/chown.sh | warn |
+| w6a2 | [MSG-W6A2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | unknown option: ${arg} | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
+| w2b2 | [MSG-W2B2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
+| k9h2 | [MSG-K9H2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | nothing to reclaim -- ${canonical} is not under any claimed project | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
+| j6b2 | [MSG-J6B2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | nothing to reclaim under ${canonical} | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh | tests/unit/reclaim.sh | warn |
+| t9m5 | [MSG-T9M5](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | declined; ownership left as it stands | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
+| j4w5 | [MSG-J4W5](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical} | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
 | c3v2 | [MSG-C3V2](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | unknown option: ${arg} | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |
 | j9j3 | [MSG-J9J3](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |
 | v3w8 | [MSG-V3W8](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | setfacl not found -- skipping ACL normalization for ${TARGET} | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |

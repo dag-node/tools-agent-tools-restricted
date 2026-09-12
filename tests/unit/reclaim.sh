@@ -37,6 +37,9 @@ if grep -qF "nothing to reclaim" <<<"${noop_out}"; then
 else
     fail "no-op run did not report 'nothing to reclaim': ${noop_out}"
 fi
+# The code separates this outcome from the refusal of a path no allowlist covers, which says
+# 'nothing to reclaim' as well.
+assert_msg MSG-J6B2 "${noop_out}" "the empty hand-back set is reported under its own code"
 
 chown -R "${SANDBOX_USER}:${SANDBOX_GROUP}" "${proj}"
 
