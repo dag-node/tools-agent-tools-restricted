@@ -7,7 +7,9 @@
 # each file is seeded with and the parser its examples must load in, operator.conf(5)
 # and custom-claude-endpoint.conf(5) against the keys their shipped templates mention,
 # and ai-tools-messages(7) against the generator that derives it from the cross-reference
-# index. It closes
+# index. It then holds every authored page to the way a page is WRITTEN -- the font and
+# placeholder rules whose home is references/man-pages.md in the shipped ai-tools-technical-docs
+# skill, edited in lockstep with the check here -- and closes
 # by holding every config header this project writes to the fixed-width rule (72 columns, no line
 # ending on a tie word). In the two command pairs the page and the help are not copies of each
 # other -- usage() is orientation while the page is the reference -- so equality of their whole
@@ -597,5 +599,199 @@ check_config_headers() {
     fi
 }
 check_config_headers
+
+# ── The convention lint: fonts and placeholders on the authored pages ─────────────────────────
+# Every other section in this file pairs a page with what it documents. This one holds each page
+# to the way a page is WRITTEN -- the font and placeholder rules in the ai-tools-technical-docs
+# skill's references/man-pages.md, which is the convention's home and is edited with this check so
+# the two cannot disagree.
+#
+# It reads the AUTHORED pages (man1, man5, man8) and not ai-tools-messages(7): that page is
+# rendered from the runtime message strings, so its markup is decided by each emitter rather than
+# by an author, and the tools/man-messages.sh lockstep is what holds it. Pure text, no root, no
+# install.
+#
+# Three rules, each a way a page drifts silently -- a wrong font renders as cleanly as a right one:
+#
+#   (1) no pointy-bracket placeholder anywhere on the page. `<dir>` is not roff: it renders
+#       literally, and it is the spelling a shell comment uses, so it marks prose that was never
+#       brought to the page's own grammar.
+#   (2) on a SYNOPSIS line and on a .TP/.TQ tag line, every italic token is an UPPERCASE
+#       placeholder. Italic is what the reader substitutes, so a lowercase italic token there is
+#       either a literal wearing the wrong font or a placeholder in the wrong case. The rule is
+#       scoped to those lines because man-pages(7) puts filenames and emphasis in italic in
+#       running text, which stays legal; a path-shaped token is a filename wherever it appears and
+#       is skipped for the same reason.
+#   (3) the trailing positional argument's shape -- optional, repeating, or neither -- agrees
+#       between the page and the command's own usage(). It compares the brackets and the ellipsis
+#       and NOT the placeholder's name: the page names arguments in the man-page vocabulary while
+#       the help keeps its own spelling, and that difference is deliberate. What it catches is a
+#       page promising repetition its parser does not take, or dropping it where the parser does.
+section "man pages: the font and placeholder convention (unit)"
+
+MAN_ROOT="${ROOT}/src/usr/local/share/man"
+# italic_tokens: read roff on stdin, print every italic token as `<line>\t<token>`. The font
+# alternation macros interleave their arguments (.IR italic first, .RI roman first) and the \fI
+# escape does the same inline, so both forms are read -- a rule stated over one of them misses the
+# placeholders written in the other.
+italic_tokens() {
+    awk '
+      function split_args(s, out,   n, i, c, cur, inq) {
+          n = 0; cur = ""; inq = 0
+          for (i = 1; i <= length(s); i++) {
+              c = substr(s, i, 1)
+              if (c == "\"") { inq = !inq; continue }
+              if (c == " " && !inq) { if (cur != "") out[++n] = cur; cur = ""; continue }
+              cur = cur c
+          }
+          if (cur != "") out[++n] = cur
+          return n
+      }
+      { rest = $0
+        while (match(rest, /\\fI/)) {                      # inline: \fI up to the next font escape
+            rest = substr(rest, RSTART + 3)
+            if (match(rest, /\\f./)) { print NR "\t" substr(rest, 1, RSTART - 1); rest = substr(rest, RSTART) }
+            else                     { print NR "\t" rest; rest = "" }
+        }
+        if (match($0, /^\.(I|IR|RI|BI|IB)[ \t]/)) {        # macro: alternating arguments
+            macro = $0; sub(/[ \t].*$/, "", macro); sub(/^\./, "", macro)
+            args  = $0; sub(/^\.[A-Z]+[ \t]+/, "", args)
+            n = split_args(args, a)
+            for (i = 1; i <= n; i++) {
+                if      (macro == "I")                    italic = 1
+                else if (macro == "IR" || macro == "IB")   italic = (i % 2 == 1)
+                else                                      italic = (i % 2 == 0)
+                if (italic) print NR "\t" a[i]
+            }
+        }
+      }'
+}
+
+# font_scoped <page>: the lines rule (2) governs -- the SYNOPSIS body, and the tag line opening
+# each .TP/.TQ -- as `<line>\t<text>`.
+font_scoped() {
+    awk '$0==".SH SYNOPSIS"{syn=1;next} /^\.SH /{syn=0}
+         { if (syn && $0 !~ /^\.(SH|PP|br|sp|EX|EE)/) print NR"\t"$0
+           else if (prev==".TP" || prev==".TQ")       print NR"\t"$0
+           prev=$0 }' "$1"
+}
+
+check_page_convention() {
+    local page name findings line token clean scoped
+    local -a pages=()
+    mapfile -t pages < <(ls "${MAN_ROOT}"/man1/* "${MAN_ROOT}"/man5/* "${MAN_ROOT}"/man8/* 2>/dev/null)
+    if (( ${#pages[@]} == 0 )); then
+        skip "man page convention" "no authored page under ${MAN_ROOT}"; return
+    fi
+
+    findings=""
+    for page in "${pages[@]}"; do
+        name="${page##*/}"
+        while IFS= read -r line; do
+            [[ -n "${line}" ]] && findings+="${name}:${line}"$'\n'
+        done < <(grep -nE '<[a-z][a-z0-9._-]*>' "${page}" | sed 's/:/: pointy-bracket placeholder: /')
+    done
+    if [[ -z "${findings}" ]]; then
+        pass "no authored page carries a pointy-bracket placeholder (${#pages[@]} pages)"
+    else
+        fail "a placeholder is uppercase italic, not <angle-bracketed>:"$'\n'"${findings%$'\n'}"
+    fi
+
+    findings=""
+    for page in "${pages[@]}"; do
+        name="${page##*/}"
+        while IFS=$'\t' read -r line scoped; do
+            while IFS=$'\t' read -r _ token; do
+                # A macro argument may carry its own font escapes ("USER\fR[,\fP USER\fR...]\fP"),
+                # so it is split on them and each run read on its own -- the escape letters are not
+                # part of any token, and a rule reading the argument whole would see the `f` in \fR.
+                while IFS= read -r clean; do
+                    # A path is a filename in either font, so it is not read as a placeholder.
+                    [[ "${clean}" == */* || "${clean}" == '~'* ]] && continue
+                    clean="${clean#[\[(]}"; clean="${clean%%[],.)|]}"
+                    [[ -n "${clean}" && "${clean}" =~ [a-z] ]] \
+                        && findings+="${name}:${line}: lowercase italic '${clean}': ${scoped}"$'\n'
+                done < <(printf '%s\n' "${token//\\-/-}" | sed -E 's/\\f./\n/g')
+            done < <(printf '%s\n' "${scoped}" | italic_tokens)
+        done < <(font_scoped "${page}")
+    done
+    if [[ -z "${findings}" ]]; then
+        pass "every italic token on a SYNOPSIS or tag line is an uppercase placeholder"
+    else
+        fail "italic marks what the reader substitutes, so these are miscased or mis-fonted:"$'\n'"${findings%$'\n'}"
+    fi
+
+    if ! command -v man >/dev/null 2>&1; then
+        skip "man page formatting warnings" "man(1) not installed"
+    else
+        findings=""
+        for page in "${pages[@]}"; do
+            line="$(man --warnings -E UTF-8 -l "${page}" 2>&1 >/dev/null)"
+            [[ -n "${line}" ]] && findings+="${page##*/}: ${line}"$'\n'
+        done
+        if [[ -z "${findings}" ]]; then
+            pass "every authored page formats without a man(1) warning"
+        else
+            fail "man(1) reports a formatting warning:"$'\n'"${findings%$'\n'}"
+        fi
+    fi
+}
+check_page_convention
+
+# ── The trailing argument's shape, page against usage() ────────────────────────────────────────
+# arg_shape <argument text>: '', 'X', '[X]', 'X...' or '[X]...' -- the positional argument with
+# its name normalized away, since the page and the help spell a placeholder differently by design.
+# Option groups are dropped first: the option checks earlier in this file hold those, and a page
+# documents more of them than the help does.
+arg_shape() {
+    printf '%s' "$1" | sed -E \
+        -e 's/\\f.//g' -e 's/\\-/-/g' -e 's/"//g' \
+        -e 's/\[[^]]*-[^]]*\]/ /g' \
+        -e 's/(^| )-{1,2}[a-zA-Z][a-zA-Z0-9_-]*( +(<?[A-Za-z][A-Za-z0-9_-]*>?))?/ /g' \
+        -e 's/[[:space:]]+/ /g' -e 's/^ //' -e 's/ $//' \
+        -e 's/^\[ *<?[A-Za-z][A-Za-z0-9_-]*>? *\](\.\.\.)?$/[X]\1/' \
+        -e 's/^<?[A-Za-z][A-Za-z0-9_-]*>?(\.\.\.)?$/X\1/'
+}
+
+# check_arg_shapes <help-source> <page> <SECTION> <help-line-regex>: every command the page and the
+# help both document must agree on whether its positional argument is optional and whether it
+# repeats.
+check_arg_shapes() {
+    local src="$1" page="$2" what="$3" pattern="$4" cmd args help_shape man_shape mismatch="" pairs=0
+    if [[ ! -r "${src}" || ! -r "${page}" ]]; then
+        skip "${what} argument shapes" "source or page not found"; return
+    fi
+    while IFS= read -r line; do
+        cmd="$(sed -E 's/^ {4}//; s/ {2,}.*$//' <<<"${line}")"
+        [[ -n "${cmd}" ]] || continue
+        # the command path is its leading bare words (or its long option); the rest is arguments
+        args="$(sed -E 's/^(--[a-z][a-z-]*|[a-z][a-z-]*( [a-z][a-z-]*)*)//' <<<"${cmd}")"
+        cmd="${cmd%"${args}"}"; args="${args# }"
+        help_shape="$(arg_shape "${args}")"
+        # the page's tag line for the same command, with its own argument text
+        man_shape="$(man_section "${page}" "${what}" \
+            | awk -v c="${cmd}" '/^\.RS/{d++; next} /^\.RE/{if (d>0) d--; next}
+                   /^\.TP/{if (d==0) want=1; next}
+                   want && /^\.(B|BR|BI) /{ want=0
+                     s=$0; sub(/^\.(B|BR|BI) /, "", s); gsub(/"/, "", s); gsub(/\\f./, "", s)
+                     if (index(s, c) == 1) print substr(s, length(c) + 1) }' \
+            | head -1)"
+        [[ -n "${man_shape}" ]] || continue
+        man_shape="$(arg_shape "${man_shape}")"
+        pairs=$(( pairs + 1 ))
+        [[ "${help_shape}" == "${man_shape}" ]] \
+            || mismatch+="${cmd}: help '${help_shape:-none}' vs page '${man_shape:-none}'"$'\n'
+    done < <(usage_text "${src}" | grep -E "${pattern}")
+    if (( pairs == 0 )); then
+        fail "${what}: no command paired between the help and the page"
+    elif [[ -z "${mismatch}" ]]; then
+        pass "${what}: every paired command agrees on its argument's optionality and repetition (${pairs})"
+    else
+        fail "${what}: the page and the help disagree on an argument's shape:"$'\n'"${mismatch%$'\n'}"
+    fi
+}
+section "man pages: the positional argument's shape matches the command's help (unit)"
+check_arg_shapes "${CLI}"   "${MAN}"       COMMANDS '^    --[a-z]'
+check_arg_shapes "${ADMIN}" "${ADMIN_MAN}" COMMANDS '^    [a-z]'
 
 finish

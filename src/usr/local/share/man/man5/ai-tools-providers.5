@@ -6,9 +6,9 @@
 .SH NAME
 ai-tools-providers \- agent and integration manifests for Agent Tools Restricted
 .SH SYNOPSIS
-.BI /usr/local/lib/ai-tools/agents.d/ name .conf
+.BI /usr/local/lib/ai-tools/agents.d/ NAME .conf
 .br
-.BI /usr/local/lib/ai-tools/integrations.d/ name .conf
+.BI /usr/local/lib/ai-tools/integrations.d/ NAME .conf
 .SH DESCRIPTION
 A provider is a package that adds something a sandboxed session can use:
 an
@@ -235,15 +235,15 @@ Agent manifests, one per installed agent package.
 .I /usr/local/lib/ai-tools/integrations.d/
 Integration manifests, one per installed integration package.
 .TP
-.IB /usr/local/lib/ai-tools/session-env.d/ name .env.sh
+.I /usr/local/lib/ai-tools/session-env.d/NAME.env.sh
 The provider's session-environment fragment, sourced by the launcher when the
 provider is enabled.
 .TP
-.IB /usr/local/lib/ai-tools/admin-commands.d/ name
+.I /usr/local/lib/ai-tools/admin-commands.d/NAME
 The provider's command domain of
 .BR ai-tools-admin (8).
 .TP
-.IB /usr/local/lib/ai-tools/filters.d/ name .rules
+.I /usr/local/lib/ai-tools/filters.d/NAME.rules
 The provider's command-filter rules.
 .TP
 .I /etc/ai-tools/operator.conf

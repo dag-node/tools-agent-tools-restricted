@@ -7,8 +7,8 @@
 ai-tools-admin \- administer the host a sandboxed coding agent runs on
 .SH SYNOPSIS
 .B ai-tools-admin
-.I command
-.RI [ argument ]
+.I COMMAND
+.RI [ ARGUMENT ]
 .br
 .B ai-tools-admin
 .BR \-\-help | \-\-version
@@ -132,7 +132,7 @@ and not on one that did not.
 .B \-\-help
 lists the domains this host has, with a line describing each, so what it prints
 and what dispatches are one list.
-.B "<domain> \-\-help"
+.IB DOMAIN " \-\-help"
 prints that domain's own commands.
 .PP
 Installing a provider is what makes its commands exist; enabling it in
@@ -189,9 +189,9 @@ runs, and
 .B "operators list"
 is the same command spelled in full.
 .TP
-.B operators add \fR[\fIuser\fR]
+.B operators add \fR[\fIUSER\fR]
 Enrol
-.IR user ,
+.IR USER ,
 defaulting to
 .BR $SUDO_USER .
 Appends the name to
@@ -213,9 +213,9 @@ Idempotent: a re-run reconciles each of those and reports what was already in
 place.
 Refuses root and the sandbox account.
 .TP
-.B operators remove \fIuser\fR
+.B operators remove \fIUSER\fR
 Withdraw
-.IR user 's
+.IR USER 's
 enrolment: drops the name from
 .B OPERATORS
 and the account from
@@ -229,14 +229,14 @@ Report the core module and every optional group with its state
 its stability, and what it covers.
 Reports that there is no policy to manage when SELinux is disabled.
 .TP
-.B selinux groups enable \fIname\fR...
+.B selinux groups enable \fIGROUP\fR...
 Load the shipped module for each
-.IR name .
+.IR GROUP .
 Several names load in turn, so the set a toolchain declares
 .RB ( ai-tools-providers (5))
 is one command; every name is checked before any is loaded.
 Prints the group list when a
-.I name
+.I GROUP
 is not a registered group, and refuses an
 .I experimental
 group with the source-checkout command that compiles it.
@@ -245,9 +245,9 @@ same step.
 Loading a group widens what SELinux permits and does not lift the session's
 namespace filter.
 .TP
-.B selinux groups disable \fIname\fR
+.B selinux groups disable \fIGROUP\fR
 Unload the module for
-.IR name .
+.IR GROUP .
 Works for any loaded group, stable or experimental.
 .TP
 .B system bootstrap \fR[\fB\-\-scope full\fR]
@@ -271,13 +271,13 @@ Which agents it installs comes from
 and the installed manifests, so it names none of them itself.
 .RS
 .TP
-.B \-\-scope \fIminimal\fB|\fIfull
+.BR \-\-scope " " minimal | full
 How far to provision.
-.I minimal
+.B minimal
 \(em the default, and what a bare
 .B "system bootstrap"
 does \(em is the toolchain and the enabled agents.
-.I full
+.B full
 additionally runs the
 .B bootstrap
 of every integration enabled in
@@ -314,7 +314,7 @@ and
 .TP
 .B system post-upgrade
 Reconcile the
-.I <file>.rpmnew
+.I FILE.rpmnew
 copies an upgrade leaves beside the configuration files this stack owns.
 Each file gets the treatment its content calls for: the agent's
 .I settings.json
