@@ -103,6 +103,9 @@ for name in .env.local id_ed25519 server.key cert.pem .pgpass ID_ED25519; do
     fi
 done
 ${sec_ok} && pass "secret-named files -> ${PROJECTS_USER}:${PROJECTS_GROUP} 600 + NOTICE (incl. upper-case)"
+# The NOTICE's identity, asserted by code on the last run's output: the wording above is content
+# (that a breach was reported at all), the code is which situation reported it.
+assert_msg MSG-A6D8 "$(cat "${err}")" "the breach NOTICE carries its message code"
 
 # (4) The agent cannot read a quarantined secret -- asserted against the deployed file rather
 # than inferred from its mode.
@@ -117,7 +120,7 @@ fi
 us="${proj}/.npmrc"; : > "${us}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${us}"; chmod 0640 "${us}"
 err="${TESTDIR}/err2"; run "${us}" "${err}"
 if [[ "$(stat -c '%U:%G' "${us}")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(perm "${us}")" == 640 ]] \
-        && ! grep -qi 'notice' "${err}"; then
+        && ! grep -qi 'notice' "${err}" && ! grep -qxF -- MSG-A6D8 "${err}"; then
     pass "a user-owned secret is left untouched (no false breach NOTICE)"
 else
     fail "user-owned secret altered: $(stat -c '%U:%G' "${us}") $(perm "${us}")"

@@ -25,6 +25,17 @@
 
 set -euo pipefail
 
+# Every refusal and outcome line this helper prints goes through warn, so the component prefix is
+# stated once here instead of at each site. A leading message code (msg.lib.sh states the form) is
+# printed on its own line ahead of the message, the shape tests/lib/harness.sh's assert_msg reads.
+# Matched inline, since this helper reports before msg.lib.sh is loaded. The reports that are not
+# one situation -- the pre-scan sample and its count -- print raw below, and carry no code.
+warn() {
+    local IFS=' ' code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-reclaim: %s\n' "$*" >&2
+}
+
 # Args: an optional --full flag (anywhere) reclaims the heavy trees skipped by default too; the
 # remaining argument is the absolute project path.
 FULL=false
@@ -32,11 +43,11 @@ TARGET=""
 for arg in "$@"; do
     case "${arg}" in
         --full) FULL=true ;;
-        -*) printf 'ai-tools-reclaim: unknown option: %s\n' "${arg}" >&2; exit 2 ;;
+        -*) warn MSG-W6A2 "unknown option: ${arg}"; exit 2 ;;
         *)  if [[ -z "${TARGET}" ]]; then
                 TARGET="${arg}"
             else
-                printf 'ai-tools-reclaim: too many arguments\n' >&2; exit 2
+                warn MSG-W2B2 "too many arguments"; exit 2
             fi ;;
     esac
 done
@@ -93,7 +104,7 @@ ai_tools_assert_safe_target "${canonical}" "reclaim" || exit 3
 # exiting silently, so a direct `sudo ai-tools-reclaim` (past the CLI's own front-line check) still
 # reports why it reclaimed no path. The path is operator-supplied, so it prints without log_sanitize.
 ai_tools_resolve_owner "${canonical}" || {
-    printf 'ai-tools-reclaim: %s is not under any claimed project -- nothing to reclaim\n' "${canonical}" >&2
+    warn MSG-K9H2 "nothing to reclaim -- ${canonical} is not under any claimed project"
     ai_tools_log_info "reclaim: ${canonical} not under any claimed project"
     exit 0
 }
@@ -115,13 +126,12 @@ while IFS= read -r -d '' path; do
 done < <(find "${expr[@]}" 2>/dev/null)
 
 if (( ${#paths[@]} == 0 )); then
-    printf 'ai-tools-reclaim: nothing to reclaim under %s\n' "${canonical}" >&2
+    warn MSG-J6B2 "nothing to reclaim under ${canonical}"
     ai_tools_log_info "reclaim: nothing to reclaim under ${canonical}"
     exit 0
 fi
 
-printf 'ai-tools-reclaim: %d agent-owned path(s) under %s, e.g.:\n' \
-    "${#paths[@]}" "${canonical}" >&2
+warn "${#paths[@]} agent-owned path(s) under ${canonical}, e.g.:"
 for path in "${paths[@]:0:3}"; do
     read -r og m < <(stat -c '%U:%G %a' "${path}" 2>/dev/null) || { og='?'; m='?'; }
     printf '  %-18s %-4s %s\n' "${og}" "${m}" "$(ai_tools_log_sanitize "${path}")" >&2
@@ -131,7 +141,7 @@ done
 # Default yes: handing agent-written files back to their operator is the reclaim's whole
 # point, so Enter (and a no-tty batch run) proceeds; n leaves ownership as it stands.
 if ! ai_tools_msg_confirm "Hand back all ${#paths[@]} path(s)?" y; then
-    printf 'ai-tools-reclaim: declined; ownership left as it stands\n' >&2
+    warn MSG-T9M5 "declined; ownership left as it stands"
     ai_tools_log_info "reclaim: declined for ${canonical}"
     exit 0
 fi
@@ -148,11 +158,10 @@ for path in "${paths[@]}"; do
     fi
 done
 if (( failed > 0 )); then
-    printf 'ai-tools-reclaim: handed back %d path(s), %d skipped/failed under %s\n' \
-        "${confirmed}" "${failed}" "${canonical}" >&2
+    warn MSG-J4W5 "handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical}"
     ai_tools_log_warn "reclaim: handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical}"
 else
-    printf 'ai-tools-reclaim: handed back %d path(s) under %s\n' "${confirmed}" "${canonical}" >&2
+    warn "handed back ${confirmed} path(s) under ${canonical}"
     ai_tools_log_info "reclaim: handed back ${confirmed} agent-owned path(s) under ${canonical}"
 fi
 exit 0

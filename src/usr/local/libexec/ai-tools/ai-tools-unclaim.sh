@@ -87,6 +87,26 @@
 
 set -euo pipefail
 
+# Every refusal and every disclosure this helper prints goes through this pair, so the component
+# prefix is stated once here instead of at each site. A leading message code (msg.lib.sh states
+# the form) is printed on its own line ahead of the message, the shape tests/lib/harness.sh's
+# assert_msg reads. Matched inline, since this helper reports before msg.lib.sh is loaded.
+warn() {
+    local IFS=' ' code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-unclaim: %s\n' "$*" >&2
+}
+# die records the refusal as well as reporting it, so a run the CLI only sees fail leaves the
+# reason in the trail. It therefore runs only after log.lib.sh has loaded, which every refusal
+# that uses it does; the option refusal below reports through warn and exits 2 at its own site.
+die() {
+    local IFS=' '
+    warn "$@"
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then shift; fi
+    ai_tools_log_error "$*"
+    exit 1
+}
+
 readonly USAGE="usage: ai-tools-unclaim <absolute-project-path> <target-group> [--unlisted] [--full]"
 TARGET="${1:?${USAGE}}"
 TARGET_GROUP="${2:?${USAGE}}"
@@ -106,7 +126,8 @@ for _arg in "$@"; do
     case "${_arg}" in
         --unlisted) UNLISTED=true ;;
         --full)     FULL=true ;;
-        *) printf 'ai-tools-unclaim: unknown option: %s\n%s\n' "${_arg}" "${USAGE}" >&2; exit 2 ;;
+        # The usage line follows the refusal unprefixed, as orientation rather than a situation.
+        *) warn MSG-T6H6 "unknown option: ${_arg}"; printf '%s\n' "${USAGE}" >&2; exit 2 ;;
     esac
 done
 unset _arg
@@ -159,7 +180,7 @@ _is_secret_name() {
 
 # Validate the target group exists before touching anything (fail-closed).
 getent group "${TARGET_GROUP}" >/dev/null 2>&1 \
-    || { ai_tools_log_error "unknown target group '${TARGET_GROUP}' -- nothing changed"; exit 1; }
+    || die MSG-R3C7 "unknown target group '${TARGET_GROUP}' -- nothing changed"
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.
@@ -182,17 +203,17 @@ if ${UNLISTED}; then
     # functions are then undefined, so the `||` fires) all stop the pass before any mutation.
     caller_uid="${SUDO_UID:-}"
     [[ -n "${caller_uid}" ]] \
-        || { ai_tools_log_error "--unlisted needs an invoking operator (no SUDO_UID) -- nothing changed"; exit 1; }
+        || die MSG-N6X6 "--unlisted needs an invoking operator (no SUDO_UID) -- nothing changed"
     caller="$(id -un "${caller_uid}" 2>/dev/null)" \
-        || { ai_tools_log_error "--unlisted: unknown invoking uid ${caller_uid} -- nothing changed"; exit 1; }
+        || die MSG-V9Q6 "--unlisted: unknown invoking uid ${caller_uid} -- nothing changed"
     ai_tools_load_operators 2>/dev/null \
-        || { ai_tools_log_error "--unlisted: no operators configured -- nothing changed"; exit 1; }
+        || die MSG-J2Q8 "--unlisted: no operators configured -- nothing changed"
     _is_operator=false
     for op in "${AI_TOOLS_OPERATORS[@]}"; do
         [[ "${op}" == "${caller}" ]] && { _is_operator=true; break; }
     done
     ${_is_operator} \
-        || { ai_tools_log_error "--unlisted: ${caller} is not a configured operator -- nothing changed"; exit 1; }
+        || die MSG-H9D4 "--unlisted: ${caller} is not a configured operator -- nothing changed"
     PROJECTS_UID="${caller_uid}"
     # The caller's own allowlist is still read, for its '!' exclusions and for the
     # "already registered" refusal: a glob rule the operator wrote to keep a path out of reach
@@ -268,8 +289,7 @@ if ${UNLISTED}; then
     # the caller chose the wrong mode: refuse rather than run the narrower per-path gate over a
     # registered project, where the full walk is what the operator asked for.
     if _is_allowed "${canonical}"; then
-        ai_tools_log_error "--unlisted on a registered project ${canonical} -- use the listed mode; nothing changed"
-        exit 1
+        die MSG-R9H2 "--unlisted on a registered project ${canonical} -- use the listed mode; nothing changed"
     fi
 else
     _is_allowed "${canonical}" || exit 0
@@ -406,8 +426,9 @@ find "${expr[@]}" 2>/dev/null \
         # plainly and handed the command that lists them, not a silent difference between counts.
         if (( hardlinked )); then
             ai_tools_log_warn "left ${hardlinked} hardlinked file(s) under ${canonical} untouched -- they keep group @SANDBOX_GROUP@"
-            printf 'ai-tools-unclaim: left %d hardlinked file(s) untouched -- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with\n  find %s -xdev -type f -links +1 -group @SANDBOX_GROUP@\n' \
-                "${hardlinked}" "${canonical}" >&2
+            warn MSG-Z5S7 "left ${hardlinked} hardlinked file(s) untouched -- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with"
+            # The command goes out unprefixed, on its own line, so it stays copy-pasteable.
+            printf '  find %s -xdev -type f -links +1 -group @SANDBOX_GROUP@\n' "${canonical}" >&2
         fi
       } || true
 
@@ -444,8 +465,8 @@ if [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
     # but it has to be said out loud, or the operator reads a partial revert as a complete one.
     if (( git_hardlinked )); then
         ai_tools_log_warn "left ${git_hardlinked} hardlinked file(s) under ${gitdir} untouched -- they keep group @SANDBOX_GROUP@"
-        printf 'ai-tools-unclaim: left %d hardlinked file(s) in .git untouched -- a local git clone shares object files with the source repo, so changing them would change the origin. They KEEP the group they have: list them with\n  find %s -xdev -type f -links +1 -group @SANDBOX_GROUP@\n' \
-            "${git_hardlinked}" "${gitdir}" >&2
+        warn MSG-H9D7 "left ${git_hardlinked} hardlinked file(s) in .git untouched -- a local git clone shares object files with the source repo, so changing them would change the origin. They KEEP the group they have: list them with"
+        printf '  find %s -xdev -type f -links +1 -group @SANDBOX_GROUP@\n' "${gitdir}" >&2
     fi
 fi
 
@@ -463,8 +484,7 @@ if ${UNLISTED} && [[ "$(getenforce 2>/dev/null || echo Disabled)" != "Disabled" 
             ai_tools_log_info "reset SELinux label under ${canonical} (was ai_tools_project_t)"
         else
             ai_tools_log_warn "could not reset the SELinux label under ${canonical}"
-            printf 'ai-tools-unclaim: could not reset the SELinux label -- run: sudo restorecon -RF %s\n' \
-                "${canonical}" >&2
+            warn MSG-T4S2 "could not reset the SELinux label -- run: sudo restorecon -RF ${canonical}"
         fi
     fi
 fi

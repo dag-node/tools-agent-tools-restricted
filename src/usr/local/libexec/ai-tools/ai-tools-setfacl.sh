@@ -45,6 +45,21 @@
 
 set -euo pipefail
 
+# Every refusal and every disclosure this helper prints goes through warn, so the component
+# prefix is stated once here instead of at each site. A leading message code (msg.lib.sh states
+# the form) is printed on its own line ahead of the message, the shape tests/lib/harness.sh's
+# assert_msg reads. Matched inline, since this helper reports before msg.lib.sh is loaded. Each
+# refusal exits at its own site: this helper's statuses are 2 (usage), 3 (an unusable library)
+# and 0 (nothing to apply), so there is no one status for a die() to carry. The printed text is
+# left in _warn_text for a caller that also records it through log.lib.sh.
+_warn_text=""
+warn() {
+    local IFS=' ' code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    _warn_text="$*"
+    printf 'ai-tools-setfacl: %s\n' "${_warn_text}" >&2
+}
+
 # Args: an optional --with-git flag (anywhere) enables the one-shot .git normalization
 # pass; the remaining argument is the absolute project path.
 WITH_GIT=false
@@ -52,11 +67,11 @@ TARGET=""
 for arg in "$@"; do
     case "${arg}" in
         --with-git) WITH_GIT=true ;;
-        -*) printf 'ai-tools-setfacl: unknown option: %s\n' "${arg}" >&2; exit 2 ;;
+        -*) warn MSG-C3V2 "unknown option: ${arg}"; exit 2 ;;
         *)  if [[ -z "${TARGET}" ]]; then
                 TARGET="${arg}"
             else
-                printf 'ai-tools-setfacl: too many arguments\n' >&2; exit 2
+                warn MSG-J9J3 "too many arguments"; exit 2
             fi ;;
     esac
 done
@@ -118,9 +133,12 @@ _is_secret_name() {
 }
 
 # Without setfacl (or on a filesystem without ACL support) there is no ACL to apply --
-# warn once and exit cleanly (best-effort, mirrors the other helpers' fail-soft).
+# warn once and exit cleanly (best-effort, mirrors the other helpers' fail-soft). The claim
+# reports the step as applied either way, so the operator is told on stderr as well as in the
+# log: a tree with no ACL is one the agent reaches only through the group it was chgrp'd to.
 command -v setfacl >/dev/null 2>&1 \
-    || { ai_tools_log_warn "setfacl not found -- skipping ACL normalization for ${TARGET}"; exit 0; }
+    || { warn MSG-V3W8 "setfacl not found -- skipping ACL normalization for ${TARGET}"
+         ai_tools_log_warn "${_warn_text}"; exit 0; }
 
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
 # reference for both). Required and fail-closed like safe-paths.lib.sh: an unusable library must
@@ -129,7 +147,10 @@ command -v setfacl >/dev/null 2>&1 \
 source /usr/local/lib/ai-tools/owner-only.lib.sh
 if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
         || ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
-    printf 'ai-tools-setfacl: FATAL: owner-only.lib.sh defines no owner-only guard\n' >&2
+    # One library, one defect, one remedy, so the three helpers that make this check share one
+    # code (messaging.rule.md's twin rule): it is DEFINED here and cited from a printf format
+    # string in ai-tools-setgid and ai-tools-lockdown.
+    warn MSG-G4P4 "FATAL: owner-only.lib.sh defines no owner-only guard"
     exit 3
 fi
 
@@ -322,19 +343,16 @@ find "${expr[@]}" 2>/dev/null \
         ai_tools_log_info "ACL-normalized ${applied} path(s) under ${canonical}"
         if (( owneronly )); then
             ai_tools_log_info "left ${owneronly} owner-only path(s) under ${canonical} out of the agent's reach"
-            printf 'ai-tools-setfacl: left %d owner-only path(s) (0600/0700) out of the sandbox account'"'"'s reach\n' \
-                "${owneronly}" >&2
+            warn MSG-C9Z6 "left ${owneronly} owner-only path(s) (0600/0700) out of the sandbox account's reach"
         fi
         # Surfaced for the same reason as the setgid walk's: the owner guard is the one skip
         # that can leave a claim reporting success having granted no access.
         if (( thirdparty )); then
             ai_tools_log_warn "left ${thirdparty} path(s) under ${canonical} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
             if ${root_thirdparty}; then
-                printf 'ai-tools-setfacl: the project directory itself is owned by neither %s nor %s -- no ACL was applied, and the agent gets no access to this tree\n' \
-                    "${PROJECTS_USER}" "@SANDBOX_USER@" >&2
+                warn MSG-M6H3 "the project directory itself is owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ -- no ACL was applied, and the agent gets no access to this tree"
             else
-                printf 'ai-tools-setfacl: left %d path(s) owned by neither %s nor %s untouched -- the agent gets no access to them\n' \
-                    "${thirdparty}" "${PROJECTS_USER}" "@SANDBOX_USER@" >&2
+                warn MSG-K8M2 "left ${thirdparty} path(s) owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ untouched -- the agent gets no access to them"
             fi
         fi
       } || true
@@ -372,15 +390,13 @@ if ${WITH_GIT} && [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
     # that did NOT happen. Silence here would leave the operator believing history is shared.
     if (( git_owneronly )); then
         ai_tools_log_info "left ${git_owneronly} owner-only path(s) under ${gitdir} out of the agent's reach"
-        printf 'ai-tools-setfacl: %d owner-only path(s) under .git were NOT shared (0600/0700) -- git history stays out of the sandbox account'"'"'s reach\n' \
-            "${git_owneronly}" >&2
+        warn MSG-J8R8 "under .git, ${git_owneronly} owner-only path(s) were NOT shared (0600/0700) -- git history stays out of the sandbox account's reach"
     fi
     # Same disclosure as the main walk, for the same reason the owner-only count is disclosed
     # here: --with-git is an explicit opt-in, so a share that did not happen must be said.
     if (( git_thirdparty )); then
         ai_tools_log_warn "left ${git_thirdparty} path(s) under ${gitdir} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
-        printf 'ai-tools-setfacl: %d path(s) under .git were NOT shared -- owned by neither %s nor %s\n' \
-            "${git_thirdparty}" "${PROJECTS_USER}" "@SANDBOX_USER@" >&2
+        warn MSG-D8D7 "under .git, ${git_thirdparty} path(s) were NOT shared -- owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
     fi
 fi
 

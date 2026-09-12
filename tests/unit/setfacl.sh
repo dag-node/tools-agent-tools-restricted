@@ -113,11 +113,13 @@ fi
 
 # (A2c) the skip is REPORTED, not silent: under --with-git it means history the operator asked
 # to share was not shared, so a quiet skip would leave them believing the opposite.
-if setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null | grep -q 'owner-only'; then
+sealed_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
+if grep -q 'owner-only' <<<"${sealed_err}"; then
     pass "owner-only skips are reported on stderr"
 else
     fail "owner-only skips were silent"
 fi
+assert_msg MSG-C9Z6 "${sealed_err}" "the owner-only skip is reported under its own code"
 
 # (A3) self-heal: a file created later under a restrictive umask inherits group rw.
 ( umask 077; : > "${proj}/sub_born" ); mv "${proj}/sub_born" "${proj}/born"
@@ -179,6 +181,9 @@ if ${foreign}; then
     else
         fail "the owner-guard skip was silent (stderr: ${guard_err})"
     fi
+    # The code separates this report from the project-root one below, which the prose grep
+    # above matches as well.
+    assert_msg MSG-K8M2 "${guard_err}" "the owner-guard skip is reported under its own code"
 else
     skip "owner-guard reporting" "user 'nobody' not present"
 fi
@@ -219,6 +224,7 @@ if id nobody >/dev/null 2>&1; then
     else
         fail "a third-party-owned project root was not called out (stderr: ${root_err})"
     fi
+    assert_msg MSG-M6H3 "${root_err}" "the project-root case carries its own code"
 else
     skip "third-party project root" "user 'nobody' not present"
 fi

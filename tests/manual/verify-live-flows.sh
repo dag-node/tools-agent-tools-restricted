@@ -739,7 +739,9 @@ if ! ${TREE_CLAIMED}; then
 elif [[ -e "${PROJ}/src/hardlinked" ]] && [[ "$(stat -c '%h' "${PROJ}/src/hardlinked")" -gt 1 ]]; then
     check "the work tree is handed back to ${MY_GROUP}" test "$(group_of "${PROJ}/src")" = "${MY_GROUP}"
     check "group write is removed"                      test "$(mode_of "${PROJ}/src/main.c")" = 640
-    if grep -q 'hardlinked file' <<<"${UNCLAIM_OUT}" && grep -q 'links +1' <<<"${UNCLAIM_OUT}"; then
+    # The code is the refusal's identity (this script prints its own results, so it matches the
+    # code line the way harness.sh's assert_msg does); the `find` line is content and stays.
+    if grep -qxF -- MSG-Z5S7 <<<"${UNCLAIM_OUT}" && grep -q 'links +1' <<<"${UNCLAIM_OUT}"; then
         pass "the hardlink refusal is reported with the find that lists the files"
     else
         fail "hardlinked files were left without the disclosure naming them"

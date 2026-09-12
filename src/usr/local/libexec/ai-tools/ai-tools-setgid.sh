@@ -31,6 +31,17 @@
 
 set -euo pipefail
 
+# Every disclosure this helper prints goes through warn, so the component prefix is stated once
+# here instead of at each site. A leading message code (msg.lib.sh states the form) is printed on
+# its own line ahead of the message, the shape tests/lib/harness.sh's assert_msg reads. Matched
+# inline, since this helper reports before msg.lib.sh is loaded. Its one refusal exits 3 at its
+# own site, so there is no status for a die() to carry.
+warn() {
+    local IFS=' ' code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-setgid: %s\n' "$*" >&2
+}
+
 readonly TARGET="${1:?usage: ai-tools-setgid <absolute-project-path>}"
 
 # Operator-identity resolver (operator.lib.sh): resolves the operator that owns the project. A
@@ -90,7 +101,10 @@ _is_secret_name() {
 source /usr/local/lib/ai-tools/owner-only.lib.sh
 if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
         || ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
-    printf 'ai-tools-setgid: FATAL: owner-only.lib.sh defines no owner-only guard\n' >&2
+    # One library, one defect, one remedy, so this refusal shares its code with ai-tools-setfacl
+    # and ai-tools-lockdown: it is DEFINED in ai-tools-setfacl and cited here from the format
+    # string below, which keeps one situation to one definition (messaging.rule.md's twin rule).
+    printf 'MSG-G4P4\nai-tools-setgid: FATAL: owner-only.lib.sh defines no owner-only guard\n' >&2
     exit 3
 fi
 
@@ -271,19 +285,16 @@ find "${expr[@]}" 2>/dev/null \
         if (( thirdparty )); then
             ai_tools_log_warn "left ${thirdparty} director(ies) under ${canonical} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
             if ${root_thirdparty}; then
-                printf 'ai-tools-setgid: the project directory itself is owned by neither %s nor %s -- nothing was normalized, and the agent gets no access to this tree\n' \
-                    "${PROJECTS_USER}" "@SANDBOX_USER@" >&2
+                warn MSG-V6Q7 "the project directory itself is owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ -- nothing was normalized, and the agent gets no access to this tree"
             else
-                printf 'ai-tools-setgid: left %d director(ies) owned by neither %s nor %s untouched -- the agent gets no access to them\n' \
-                    "${thirdparty}" "${PROJECTS_USER}" "@SANDBOX_USER@" >&2
+                warn MSG-B9V2 "left ${thirdparty} director(ies) owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ untouched -- the agent gets no access to them"
             fi
         fi
         # Surfaced, never silent: a setgid the operator may have set on purpose is the one piece
         # of residue this walk declines to remove, so the operator has to hear that it stayed.
         if (( foreign )); then
             ai_tools_log_warn "left a third-party setgid bit on ${foreign} owner-only path(s) under ${canonical}"
-            printf 'ai-tools-setgid: kept the setgid bit on %d owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>\n' \
-                "${foreign}" >&2
+            warn MSG-Z3B9 "kept the setgid bit on ${foreign} owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>"
         fi
       } || true
 
