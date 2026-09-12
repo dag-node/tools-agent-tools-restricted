@@ -512,6 +512,8 @@ inline_matchers=(
     src/opt/ai-tools/bin/nvm-update.sh
     src/usr/local/bin/ai-tools.sh
     src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh
+    src/usr/local/lib/ai-tools/conf.lib.sh
+    src/usr/local/lib/ai-tools/providers.lib.sh
     install.sh
     selinux/install-selinux.sh
 )

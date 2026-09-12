@@ -116,6 +116,7 @@ warn_out="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/
 out_names="$(resolve "${conf}" | cut -f1 | tr '\n' ' ')"
 if [[ -z "${out_names}" && "${warn_out}" == *missing*"no manifest is installed"* ]]; then
     pass "requested-but-uninstalled agent skipped + warned"
+    assert_msg MSG-X8P4 "${warn_out}" "the uninstalled-agent warning carries its code"
 else
     fail "uninstalled agent: names='${out_names}' warn='${warn_out}'"
 fi
@@ -190,6 +191,7 @@ tamper_warn="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/d
 assert_names "world-writable manifest skipped, sibling survives" "claude-code " "${conf}"
 if [[ "${tamper_warn}" == *"skipping agent experimental"* ]]; then
     pass "untrusted manifest refusal is reported, not silent"
+    assert_msg MSG-M3A5 "${tamper_warn}" "the untrusted-manifest refusal carries its code"
 else
     fail "untrusted manifest refusal not reported: '${tamper_warn}'"
 fi
@@ -202,6 +204,7 @@ dir_warn="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/
 assert_names "world-writable manifest dir -> no agents at all" "" "${conf}"
 if [[ "${dir_warn}" == *"refusing every AI_TOOLS_AGENTS provider"* ]]; then
     pass "untrusted manifest dir refusal is reported, not silent"
+    assert_msg MSG-W3Q3 "${dir_warn}" "the untrusted-directory refusal carries its code"
 else
     fail "untrusted manifest dir refusal not reported: '${dir_warn}'"
 fi

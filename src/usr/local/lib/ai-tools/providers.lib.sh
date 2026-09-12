@@ -25,6 +25,24 @@ if [[ -n "${_AI_TOOLS_PROVIDERS_LIB_LOADED:-}" ]]; then
     return 0
 fi
 
+# _ai_tools_provider_warn [code] <message...> : report to stderr (the operator at the terminal)
+#   and, when log.lib.sh loaded, to journald (the durable trail a tamper refusal belongs in). A
+#   leading message code (msg.lib.sh states the form) goes on its own line ahead of the message,
+#   the shape tests/lib/harness.sh's assert_msg reads; matched inline, since this library takes no
+#   dependency it could read the form from. stderr for every line: this library's STDOUT is a wire
+#   format its callers read with `$(...)`, so nothing a reader parses may land there.
+#
+#   Defined ahead of the loads below, so the refusal that reports an unusable conf.lib.sh carries a
+#   code like every other. It is pure printf until log.lib.sh is loaded, which the declare -F guard
+#   already tolerates.
+_ai_tools_provider_warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools: %s\n' "$*" >&2
+    declare -F ai_tools_log_warn >/dev/null 2>&1 && ai_tools_log_warn "providers: $*"
+    return 0
+}
+
 # Shared KEY=value grammar + the trust predicate. REQUIRED: without it this file cannot parse a
 # manifest or tell a trusted input from a planted one, and guessing either would be exactly the
 # fail-open this seam exists to prevent. Return non-zero and define no resolver, so the consumer's
@@ -34,7 +52,8 @@ if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_untrusted_reason >/dev/null 2>&1; then
-    printf 'ai-tools: providers.lib.sh: conf.lib.sh missing or incomplete -- no providers resolved\n' >&2
+    _ai_tools_provider_warn MSG-P4M9 \
+        "providers.lib.sh: conf.lib.sh missing or incomplete -- no providers resolved"
     return 1
 fi
 # Logging is best-effort here (the refusals also go to stderr for the operator at the
@@ -49,14 +68,6 @@ _AI_TOOLS_PROVIDERS_LIB_LOADED=1
 : "${AI_TOOLS_AGENTS_DIR:=/usr/local/lib/ai-tools/agents.d}"
 : "${AI_TOOLS_INTEGRATIONS_DIR:=/usr/local/lib/ai-tools/integrations.d}"
 : "${AI_TOOLS_OPERATOR_CONF:=/etc/ai-tools/operator.conf}"
-
-# _ai_tools_provider_warn <message...> : report to stderr (the operator at the terminal) and, when
-#   log.lib.sh loaded, to journald (the durable trail a tamper refusal belongs in).
-_ai_tools_provider_warn() {
-    printf 'ai-tools: %s\n' "$*" >&2
-    declare -F ai_tools_log_warn >/dev/null 2>&1 && ai_tools_log_warn "providers: $*"
-    return 0
-}
 
 # ai_tools_provider_is_enabled <name> <default_enable> <allowlist_active> <allowlist>
 #   Pure enablement verdict for either provider kind, no I/O -- unit-tested over the truth table.
@@ -117,7 +128,7 @@ _ai_tools_provider_requested() {
     requested_active=no; requested_list=""
     case "$(ai_tools_provider_gate "${conf_key}")" in
         untrusted)
-            _ai_tools_provider_warn "ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") -- using the default-enabled providers only" ;;
+            _ai_tools_provider_warn MSG-C4F9 "ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") -- using the default-enabled providers only" ;;
         allowlist)
             requested_active=yes
             ai_tools_conf_read "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}" || true
@@ -134,10 +145,17 @@ _ai_tools_provider_dir_trusted() {
     local dir="$1" conf_key="$2"
     [[ -d "${dir}" ]] || return 1
     if ! ai_tools_conf_is_trusted "${dir}"; then
-        _ai_tools_provider_warn "refusing every ${conf_key} provider: ${dir} $(ai_tools_conf_untrusted_reason "${dir}")"
+        _ai_tools_provider_warn MSG-W3Q3 "refusing every ${conf_key} provider: ${dir} $(ai_tools_conf_untrusted_reason "${dir}")"
         return 1
     fi
     return 0
+}
+
+# _ai_tools_skip_integration <name> <manifest-file> : report an integration manifest the trust
+#   predicate refused. One situation met by both readers of that directory -- the enabled set and
+#   the installed-declaring set -- so it is written once and each reader calls it.
+_ai_tools_skip_integration() {
+    _ai_tools_provider_warn MSG-N9X8 "skipping integration $1: $2 $(ai_tools_conf_untrusted_reason "$2")"
 }
 
 # _ai_tools_warn_uninstalled <manifest-dir> <conf-key> <active> <list> : report each
@@ -151,7 +169,7 @@ _ai_tools_warn_uninstalled() {
     local requested_name
     for requested_name in "${requested_names[@]}"; do
         [[ -f "${dir}/${requested_name}.conf" ]] || \
-            _ai_tools_provider_warn "$(printf '%q' "${requested_name}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} -- install its ai-tools package or remove it; skipping"
+            _ai_tools_provider_warn MSG-X8P4 "enabled with nothing installed: $(printf '%q' "${requested_name}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} -- install its ai-tools package or remove it; skipping"
     done
     return 0
 }
@@ -168,7 +186,7 @@ ai_tools_enabled_agents() {
             [[ -e "${manifest_file}" ]] || continue
             agent_name="${manifest_file##*/}"; agent_name="${agent_name%.conf}"
             if ! ai_tools_conf_is_trusted "${manifest_file}"; then
-                _ai_tools_provider_warn "skipping agent ${agent_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")"
+                _ai_tools_provider_warn MSG-M3A5 "skipping agent ${agent_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")"
                 continue
             fi
             npm_package="$(ai_tools_conf_get "${manifest_file}" npm_package || true)"
@@ -287,7 +305,7 @@ ai_tools_enabled_integrations() {
             [[ -e "${manifest_file}" ]] || continue
             integration_name="${manifest_file##*/}"; integration_name="${integration_name%.conf}"
             if ! ai_tools_conf_is_trusted "${manifest_file}"; then
-                _ai_tools_provider_warn "skipping integration ${integration_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")"
+                _ai_tools_skip_integration "${integration_name}" "${manifest_file}"
                 continue
             fi
             default_enable="$(ai_tools_conf_get "${manifest_file}" default_enable || true)"
@@ -316,7 +334,7 @@ ai_tools_installed_integrations_declaring() {
         [[ -e "${manifest_file}" ]] || continue
         integration_name="${manifest_file##*/}"; integration_name="${integration_name%.conf}"
         if ! ai_tools_conf_is_trusted "${manifest_file}"; then
-            _ai_tools_provider_warn "skipping integration ${integration_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")"
+            _ai_tools_skip_integration "${integration_name}" "${manifest_file}"
             continue
         fi
         value="$(ai_tools_conf_get "${manifest_file}" "${wanted_key}")" || continue
