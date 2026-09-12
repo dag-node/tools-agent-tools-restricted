@@ -501,6 +501,7 @@ inline_matchers=(
     src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh
     src/usr/local/libexec/ai-tools/ai-tools-relabel.sh
     src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh
+    src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh
     src/usr/local/libexec/ai-tools/ai-tools-stop.sh
     src/opt/ai-tools/bin/nvm-update.sh
     src/usr/local/bin/ai-tools.sh
