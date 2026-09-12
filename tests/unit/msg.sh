@@ -487,9 +487,10 @@ else
 fi
 
 # (29) The components that report without the library -- the helpers that never source it, the
-# CLI's principal guards, which answer before it is loaded, and the stop helper, whose emitters
-# carry a fallback for the run where it did not load at all -- match a leading code inline, and
-# every inline copy is the library's own anchored form: a copy that drifts is a helper that prints
+# CLI's principal guards, which answer before it is loaded, the stop helper, whose emitters
+# carry a fallback for the run where it did not load at all, and the logger, which this library
+# SOURCES and so cannot call up into -- each match a leading code inline, and every inline copy
+# is the library's own anchored form: a copy that drifts is a helper that prints
 # a code as prose, or reads prose as a code. Checked in the source tree (the copies are text), and
 # skipped outside a checkout.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -513,6 +514,7 @@ inline_matchers=(
     src/usr/local/bin/ai-tools.sh
     src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh
     src/usr/local/lib/ai-tools/conf.lib.sh
+    src/usr/local/lib/ai-tools/log.lib.sh
     src/usr/local/lib/ai-tools/providers.lib.sh
     install.sh
     selinux/install-selinux.sh

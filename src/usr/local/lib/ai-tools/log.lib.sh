@@ -37,7 +37,9 @@
 # and a host whose logger(1) predates `--journald` falls back to it. A key=value MESSAGE is only
 # conventionally structured -- every consumer re-parses it and a value containing the delimiter
 # is ambiguous -- whereas the native protocol delimits each field itself, so a field value cannot
-# forge a sibling field, and escaping is unnecessary. Detail: .claude/rules/logging.rule.md.
+# forge a sibling field, and escaping is unnecessary. ai_tools_log_coded records a CODED
+# situation: the message code leads the recorded text, so every sink carries it, and it rides
+# as the AI_TOOLS_MSG field too. Detail: .claude/rules/logging.rule.md.
 #
 # Scope is a CALLER convention, not enforced here: log the privileged operations the
 # hooks and sudo helpers perform, the CLI's workflow milestones (project / sandbox
@@ -59,6 +61,17 @@ readonly _AI_TOOLS_LOG_LIB_LOADED=1
 # (the test suite) can, so a test run's helper logs land in a throwaway dir instead of the
 # real trail. The journald sink is unaffected. See tests.rule.md.
 readonly AI_TOOLS_LOG_DIR="${AI_TOOLS_LOG_DIR:-/var/log/ai-tools}"
+
+# The package version, substituted at deploy time (install.sh from packaging/VERSION, the RPM
+# from its own %{version}-%{release}); a source checkout reads the token unsubstituted
+# and records `dev`. Every structured record carries it as AI_TOOLS_VERSION, so a fleet query
+# reads which release wrote a record without a separate inventory pass, and a call site does
+# not spell the token. The name is PRIVATE because the CLI defines a readonly
+# AI_TOOLS_VERSION of its own and sources this library: a second assignment to a readonly
+# name aborts the caller.
+_AI_TOOLS_LOG_VERSION="@AI_TOOLS_VERSION@"
+[[ "${_AI_TOOLS_LOG_VERSION}" == @*@ ]] && _AI_TOOLS_LOG_VERSION="dev"
+readonly _AI_TOOLS_LOG_VERSION
 
 # _ai_tools_log_prio <level> -- map a level word to its syslog priority. Unknown -> info.
 _ai_tools_log_prio() {
@@ -217,9 +230,11 @@ ai_tools_log_structured() {
     message="$(_ai_tools_log_render "${raw_message}")"
 
     # SYSLOG_FACILITY 3 is `daemon`, matching the `-p daemon.<level>` the plain path sends, so a
-    # record reads the same whichever path wrote it.
+    # record reads the same whichever path wrote it. AI_TOOLS_VERSION rides in the envelope rather
+    # than in a caller's field list: it is the same value for every record this host writes.
     journal_entry+=( "MESSAGE=${message}" "PRIORITY=${priority_number}"
-                     "SYSLOG_IDENTIFIER=${tag}" "SYSLOG_FACILITY=3" )
+                     "SYSLOG_IDENTIFIER=${tag}" "SYSLOG_FACILITY=3"
+                     "AI_TOOLS_VERSION=${_AI_TOOLS_LOG_VERSION}" )
     for field in "$@"; do
         field_name="${field%%=*}"
         field_value="${field#*=}"
@@ -233,6 +248,25 @@ ai_tools_log_structured() {
     fi
 
     _ai_tools_log_write_file "${level}" "${message}"
+}
+
+# ai_tools_log_coded <level> <code> <message> [FIELD=value ...] -- record a coded situation,
+# where the code is the reftag ref-index.py minted for it. The code LEADS the recorded text,
+# so the root-only file log and a host taking the plain fallback carry the token a reader
+# searches on, and a well-formed code rides as the AI_TOOLS_MSG field too (logging.rule.md).
+#
+# The emitters print a code on its own line and leave the prose in the caller's `_warn_text`,
+# so a call site passes the code and the text apart and this joins them; the code appears
+# exactly once in the record. A malformed code is recorded as part of the text: the record
+# keeps every byte the caller passed, and the field a query selects on carries a reftag alone.
+# The form written inline here is msg.lib.sh's own (`_AI_TOOLS_MSG_CODE_RE`), since
+# that library sources THIS one and the dependency runs one way only; tests/unit/msg.sh
+# holds every inline copy to the library's form.
+ai_tools_log_coded() {
+    local level="$1" code="$2" message="$3"; shift 3
+    local fields=()
+    [[ "${code}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]] && fields=( "AI_TOOLS_MSG=${code}" )
+    ai_tools_log_structured "${level}" "${code} ${message}" "${fields[@]}" "$@"
 }
 
 # Convenience wrappers -- prefixed to avoid colliding with callers' own log()/warn().

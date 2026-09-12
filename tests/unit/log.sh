@@ -45,6 +45,9 @@ hx() { printf '%s' "$1" | od -An -tx1 | tr -s ' \n' ' '; }
 # C1, the bidi overrides/isolates, zero-width, separators, BOM, and multi-byte UTF-8.
 readonly DANGER=$'a\x1bb\xc2\x85c\xe2\x80\xaed\xe2\x81\xa6e\xe2\x80\x8bf\xe2\x80\xa8g\xef\xbb\xbfh\xc2\xadi caf\xc3\xa9'
 readonly CLEAN='/proj/src/a-b_c.TAR.gz (v1.2) [ok] ~temp #3'
+# A message code, driven for its SHAPE: it is carried into the trail by whatever reduced the text
+# around it, so what this file asserts of it is that neither reduction touches it.
+readonly REFTAG='MSG-A6D8'   # ref-index: ignore -- a shape under test, not a citation
 
 # (1) The allowlist property: any input reduces to printable-ASCII-only output.
 out="$(ai_tools_log_sanitize "${DANGER}")"
@@ -172,7 +175,47 @@ else
         pass "a malformed field name is dropped without costing the record"
     fi
 
-    # (5) A host whose logger(1) predates --journald must still get the line, through the plain
+    # (5) Every structured record reports the release that wrote it, so a fleet query can read
+    #     which hosts a record came from. The value is substituted at deploy time and a source
+    #     checkout records `dev`, so what is asserted is a present, non-empty field.
+    if [[ -z "${_AI_TOOLS_LOG_VERSION+set}" ]]; then
+        skip "package version field" "installed log.lib.sh predates the AI_TOOLS_VERSION field"
+    elif grep -qE '^AI_TOOLS_VERSION=.+$' <<<"${_entry}"; then
+        pass "a structured record reports the package version that wrote it"
+    else
+        fail "the structured entry carries no AI_TOOLS_VERSION: $(hx "${_entry}")"
+    fi
+
+    # (6) A coded record. The reftag LEADS the MESSAGE, which is how the root-only file sink
+    #     and the plain fallback carry the token a reader searches on. It is also the AI_TOOLS_MSG
+    #     field a consumer selects the situation by, and the caller's fields ride along.
+    if ! declare -F ai_tools_log_coded >/dev/null; then
+        skip "coded structured record" "installed log.lib.sh predates ai_tools_log_coded"
+    else
+        ai_tools_log_coded warning "${REFTAG}" "not in allowed projects" AI_TOOLS_RESULT=refused
+        _coded="$(cat "${_cap}")"
+        if grep -qx "MESSAGE=${REFTAG} not in allowed projects" <<<"${_coded}" \
+                && grep -qx "AI_TOOLS_MSG=${REFTAG}" <<<"${_coded}" \
+                && grep -qx 'AI_TOOLS_RESULT=refused' <<<"${_coded}"; then
+            pass "a coded record leads its MESSAGE with the reftag and emits it as AI_TOOLS_MSG"
+        else
+            fail "the coded record lost its code or a field: $(hx "${_coded}")"
+        fi
+
+        # (7) A word that is not a reftag must not reach the field a query trusts -- and must not
+        #     cost the record either, so it stays in the text with everything else the caller sent.
+        ai_tools_log_coded warning "NOTACODE" "a mislabelled situation" AI_TOOLS_RESULT=failed
+        _mislabelled="$(cat "${_cap}")"
+        if grep -qx 'MESSAGE=NOTACODE a mislabelled situation' <<<"${_mislabelled}" \
+                && ! grep -q '^AI_TOOLS_MSG=' <<<"${_mislabelled}" \
+                && grep -qx 'AI_TOOLS_RESULT=failed' <<<"${_mislabelled}"; then
+            pass "a malformed code stays in the text and never becomes AI_TOOLS_MSG"
+        else
+            fail "a malformed code was filed as a reftag, or cost the record: $(hx "${_mislabelled}")"
+        fi
+    fi
+
+    # (8) A host whose logger(1) predates --journald must still get the line, through the plain
     #     path. Structured logging is an enhancement; losing it must never lose the record.
     logger() {
         if [[ "${1:-}" == "--journald" ]]; then return 1; fi
@@ -186,6 +229,33 @@ else
     fi
 
     unset -f logger
+fi
+
+# ── a message code survives both reductions ──────────────────────────────────────────────────
+# Two reductions stand between a code and the trail: `ai_tools_log_sanitize`, and the narrower
+# MESSAGE clamp the tool-call record applies (which drops the space, `"` and `=` a key=value
+# rendering is delimited by). A code is `MSG-` and four characters, all printable ASCII with none
+# of those three, so it passes both -- a property to assert rather than assume, since a reduced
+# code is a code no query selects on. The clamp is read out of the hook rather than restated
+# here, so a range widened or narrowed there fails this case instead of quietly mangling
+# every code in the trail.
+section "logger: a message code survives both reductions (unit)"
+if [[ "$(ai_tools_log_sanitize "${REFTAG}")" == "${REFTAG}" ]]; then
+    pass "the shared allowlist leaves a message code unchanged"
+else
+    fail "the shared allowlist altered a message code: $(hx "$(ai_tools_log_sanitize "${REFTAG}")")"
+fi
+
+HOOK="/opt/ai-tools/agents/claude-code/post-tool-hook.sh"
+[[ -r "${HOOK}" ]] || HOOK="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/opt/ai-tools/agents/claude-code/post-tool-hook.sh"
+clamp_definition=""
+[[ -r "${HOOK}" ]] && clamp_definition="$(sed -n 's/^[[:space:]]*\(def clamp:.*\)$/\1/p' "${HOOK}" | head -1)"
+if ! command -v jq >/dev/null 2>&1 || [[ -z "${clamp_definition}" ]]; then
+    skip "message code under the MESSAGE clamp" "jq unavailable, or the hook defines no clamp to read"
+elif [[ "$(jq -rn --arg code "${REFTAG}" "${clamp_definition} \$code | clamp")" == "${REFTAG}" ]]; then
+    pass "the tool-call record's narrower clamp leaves a message code unchanged"
+else
+    fail "the MESSAGE clamp (${clamp_definition}) altered a message code"
 fi
 
 finish
