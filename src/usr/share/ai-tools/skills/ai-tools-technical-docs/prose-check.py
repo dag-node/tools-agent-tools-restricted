@@ -300,30 +300,41 @@ def hidden_scope_nothing(sentence):
 # section prescribes for a shell function, and the reftag families write a target the same way
 # (`FN-Q2H8: <function name>`). The line is already code: every token in it is the signature.
 # Reading it as prose reports the placeholders and the identifier the standard put there.
-CODE_SPAN_HINT = "put it in backticks; a command carries its binary"
+CODE_SPAN_HINT = ("mark it as code -- backticks in Markdown, `<c>` in an XML doc comment -- "
+                  "and a command carries its binary")
 
-# A sentence opening on a signature (`name <arg>`, `name(`, `name:`) or on one of the fragment
-# keys. A prose sentence does not reach the bracket or the colon: `The helper: ...` puts a word
-# between them.
+# A sentence opening on a signature (`name <arg>`, `name(`, `some_name:`) or on one of the
+# fragment keys. A prose sentence does not reach the bracket: `The helper <arg>` puts a word
+# between them. The colon form takes an identifier carrying an underscore or a dash
+# (`ai_tools_log:`, `FN-Q2H8:`), since a prose sentence opens on a plain word and a colon as
+# often as a contract does (`Flags: ...`, `Note: ...`).
 CONTRACT_LINE = re.compile(
-    r"^(?:[A-Za-z_][\w.-]*\s*\(?\)?\s*[<\[:]"
+    r"^(?:[A-Za-z_][\w.-]*\s*\(?\)?\s*[<\[]"
+    r"|[A-Za-z_][\w.]*[-_][\w.-]*\s*:"
     r"|(?:args?|stdin|stdout|stderr|returns?|usage|example|env|exit)\s*:)", re.I)
 
-BARE_OPTION = re.compile(r"(?:^|(?<=\s))-{1,2}[a-zA-Z][\w-]*")
+# An option and a variable each carry a `=value` tail into the span: `--verbosity=quiet`
+# and `AI_TOOLS_ASSUME_YES=1` are each one thing a reader types, and marking the name
+# alone leaves the value outside the span it belongs in. The tail stops before any
+# punctuation closing the sentence around it (`--scope=full,` and `=1.`): that mark is
+# the sentence's, not the value's.
+ASSIGNED_VALUE = r"=\S+?(?=[,;:.)]*(?:\s|$))"
+# An option opens a token: after whitespace, or after the bracket or slash that sets one beside
+# another (`[--all]`, `--help/-h`). Inside a word it is a hyphen (`well-known`).
+BARE_OPTION = re.compile(r"(?:^|(?<=[\s(\[/]))-{1,2}[a-zA-Z][\w-]*(?:" + ASSIGNED_VALUE + r")?")
 # A SUSPENDED HYPHEN carries the tail of a hyphenated compound onto the conjunction that joins it
-# to the next one: `the tree is agent-readable and -writable`. Two marks are required, namely
-# a conjunction before the token and a compound in the same sentence, so a sentence carrying
-# neither (`Pass -v and -x to the shim`) is still reported.
-SUSPENDED_HYPHEN = re.compile(r"\b(?:and|or)\s$")
-COMPOUND_WORD = re.compile(r"\w-\w")
+# to the next one: `the tree is agent-readable and -writable`. The compound stands right before
+# the conjunction and the tail is a word, so `a symlink, and -type f` and `(EACCES) and -e would`
+# are still reported.
+SUSPENDED_HYPHEN = re.compile(r"\w-[a-z]+,?\s+(?:and|or)\s$")
+SUSPENDED_TAIL = re.compile(r"^-[a-z]{3,}$")
 
 
 def bare_option(sentence):
     """An option a reader types, except the suspended hyphen that reads as a short one."""
     for match in BARE_OPTION.finditer(sentence):
-        if (match.group(0).startswith("--")
-                or not SUSPENDED_HYPHEN.search(sentence[:match.start()])
-                or not COMPOUND_WORD.search(sentence)):
+        if (not SUSPENDED_TAIL.match(match.group(0))
+                or not SUSPENDED_HYPHEN.search(sentence[:match.start()])):
             return match
     return None
 
@@ -339,13 +350,18 @@ def bare_placeholder(sentence):
     return None
 
 
+# The assignment branch takes an uppercase-initial name (`Type=oneshot`, `VERSION=1`): an HTML
+# attribute is lowercase (`<a id="...">`), and a lowercase key carrying an underscore
+# (`default_enable=no`) is the second branch's already.
 BARE_VARIABLE = re.compile(
-    r"\b(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|[a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b")
+    r"\b(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|[a-z][a-z0-9]*(?:_[a-z0-9]+)+|[A-Z][\w.-]*(?==))"
+    r"(?:" + ASSIGNED_VALUE + r"|\b)")
 
 # The roots a path may begin with. The default set is generic, the standard shipping without
 # any repository's layout; `--path-roots` replaces it.
 PATH_ROOTS = ("src/", "docs/", "tests/", "tools/", "lib/", "bin/", ".claude/",
-              "/etc/", "/opt/", "/usr/", "/var/", "/tmp/", "/run/", "~/")
+              "/etc/", "/opt/", "/usr/", "/var/", "/tmp/", "/run/", "/dev/", "/home/",
+              "/proc/", "/sys/", "~/")
 # An extension of two characters or more. A single digit is left out for the version numbers it
 # would report: `RHEL 9.5` and `0.16.0` end in a dot and a digit exactly as a man page's filename
 # does.
@@ -551,7 +567,7 @@ EXTRA_CHECKS = [
 
 PROSE_WHOLE_FILE = (".md", ".1", ".5", ".8")
 
-# How to read a path, when --prose or --source has said: True reads every line, False reads only
+# How to read a path, when `--prose` or `--source` has said: True reads every line, False reads only
 # comments and docstrings, None leaves PROSE_WHOLE_FILE to decide.
 #
 # The extension rule fails in one direction without saying so, which is what the override answers:
@@ -679,7 +695,10 @@ STANDALONE = re.compile(r"^\s*(\||#{1,6}\s|\.[A-Za-z])")
 # inside the header's first sentence.
 MACHINE_TAG = re.compile(r"^\s*(?:#|//|;|--)?\s*SPDX-[\w-]+:\s*\S+\s*$")
 FENCE = re.compile(r"^\s*(```|~~~)")
-SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+# A sentence ends on ONE period. An ellipsis is an elision -- `<arg>...` in a usage line, `..`
+# standing in for the rest of an expression -- and splitting there cuts a literal in half,
+# which costs the tail of it whatever exemption the whole carried.
+SENTENCE_SPLIT = re.compile(r"(?<=[.!?])(?<!\.\.)\s+")
 
 # The regions of a document that are not the author's prose. None of them marks the one line
 # that matters, so each is held as block state rather than matched line by line.
@@ -845,17 +864,24 @@ def sentences(source):
     file. A document's code blocks and frontmatter are skipped: they are not the author's prose.
     """
     block_path, block = None, []
-    state_path, state, previous = None, document_state(), 0
+    state_path, state, previous, fenced = None, document_state(), 0, False
     for path, number, line, text in prose_lines(source):
-        if text is not None and is_prose_file(path):
+        if text is not None:
             # A block state is only as good as the lines it was built from, and `--staged` reads
             # the lines a commit ADDS. A gap in them is a region the state never saw, so it
             # is discarded there: a region left open by a line no pass read would take every
             # line after it out of the report.
             if path != state_path or number != previous + 1:
-                state_path, state = path, document_state()
+                state_path, state, fenced = path, document_state(), False
             previous = number
-            text = document_prose(number, line, state)
+            if is_prose_file(path):
+                text = document_prose(number, line, state)
+            elif FENCE.match(text):
+                # A comment carries a fenced block the way a document does: the commands a
+                # header shows together are code, not the author's prose.
+                fenced, text = not fenced, None
+            elif fenced:
+                text = None
         if text is not None and (IGNORE_MARKER in line or MACHINE_TAG.match(line)):
             text = None
         standalone = bool(text and text.strip() and STANDALONE.match(text)
@@ -1051,6 +1077,14 @@ QUOTED_SPAN = re.compile(BACKTICK_SPAN.pattern + r"|\"[^\"]*\"")
 # every pattern here looks for: a link destination reports the filename it ends in, while
 # a bug-tracker URL reports the identifier in its query. Neither is a literal a reader types.
 URL = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s)]+")
+# A doc-comment format marks its own literals, and the mark is that format's rather than
+# Markdown's: `<c>` and a `cref`/`name` reference in an XML doc comment, `{@code}` and `{@link}`
+# in Javadoc. A literal marked that way is marked, so it is read past exactly as a backticked
+# span is -- reporting it would ask a C# or Java file to carry a second markup language.
+DOC_MARKUP = re.compile(
+    r"<(c|code)>.*?</\1>"
+    r"|<(?:see|seealso|paramref|typeparamref|inheritdoc)\b[^>]*/?>"
+    r"|\{@(?:code|link|linkplain|literal)\s[^}]*\}")
 # A Markdown link's destination, inline and reference style alike, blanked to the inline shape
 # a link already has: the link TEXT stays, since it is the author's own prose, and `bare-path`
 # reads what is left as a link and exempts it whole, a link's text and its destination being
@@ -1072,7 +1106,7 @@ def author_prose(path, text):
     labelled bad example a style guide has to contain -- so documents drop it too. A comment keeps
     its quoted text, because a message template quoted in a comment is prose this standard covers.
     """
-    text = LINK_TARGET.sub(LINK_BLANK, URL.sub(" -- ", text))
+    text = LINK_TARGET.sub(LINK_BLANK, URL.sub(" -- ", DOC_MARKUP.sub(f" {SPAN_PLACEHOLDER} ", text)))
     span = QUOTED_SPAN if is_prose_file(path) else BACKTICK_SPAN
 
     def blank(match):

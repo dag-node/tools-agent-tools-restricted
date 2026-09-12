@@ -65,7 +65,7 @@ mktestdir
 note "checker" "${PC}"
 
 # run_check <argument...>: run the checker, leaving its output in OUT and its status in RC. A
-# finding makes it exit 1, which `|| RC=$?` keeps non-fatal under set -e.
+# finding makes it exit 1, which `|| RC=$?` keeps non-fatal under `set -e`.
 RC=0 OUT=""
 run_check() {
     RC=0
@@ -351,6 +351,54 @@ silent TEST-PC-123-split-literal-coordination.md \
     'The type keeps it off other domains'"'"' `tmp_t`/`user_tmp_t` files.' \
     'The seeder reads `managed-assets.lib.sh`. It runs as root.'
 
+# A doc-comment format marks its own literals, and a file written in one is not asked to carry
+# Markdown as well. Pinned from both sides: the same sentence with the mark taken off reports.
+silent TEST-PC-124-doc-markup.cs \
+    '/// Runs the build with <c>--verbosity=quiet</c>, reported by <see cref="Builder"/>.'
+reports bare-option TEST-PC-125-doc-markup-bare.cs \
+    '/// Runs the build with --verbosity=quiet and reports what it wrote.'
+
+# An assignment is one literal: the name marked without its value leaves half of what a reader
+# types outside the span.
+reports bare-option TEST-PC-126-option-value.md "The scriptlet passes --scope=full to the seeder."
+silent TEST-PC-127-option-value-marked.md \
+    'The scriptlet passes `--scope=full` to the seeder.'
+# The value stops before the punctuation closing the sentence around it, so the finding's
+# token -- and the span a sweep wraps -- holds the assignment alone.
+run_check "$(fixture TEST-PC-129-option-value-punctuation.md \
+    "The scriptlet passes --scope=full, then the rest.")"
+assert_grep '\[--scope=full\]' "${OUT}" "TEST-PC-129: the value stops before the comma"
+# An assignment's name is uppercase-initial (`Type=oneshot`) or carries an underscore
+# (`default_enable=no`); an HTML attribute is lowercase and is not one.
+reports bare-variable TEST-PC-130-assignment.md "The unit sets Type=oneshot and nothing else."
+run_check "$(fixture TEST-PC-131-html-attribute.md \
+    '## Security model <a id="ref-section-e7n8"></a>' '' 'The section states the model.')"
+omits bare-variable "TEST-PC-131: an HTML attribute is not an assignment"
+
+# An option opens a token after a bracket or a slash as well as after a space, so the second of
+# a pair (`--help/-h`) and a bracketed one (`--check [--all]`) are reported like the first.
+reports bare-option TEST-PC-132-option-after-slash.md 'The listing is `--help`/-h and nothing else.'
+reports bare-option TEST-PC-133-option-after-bracket.md 'Run it as `--check` [--all] on the block.'
+# The suspended-hyphen exemption takes a compound right before the conjunction and a word as the
+# tail; a short option after a plain `and` is reported.
+silent TEST-PC-134-suspended-hyphen.md 'The tree is agent-readable and -writable by design.'
+reports bare-option TEST-PC-135-and-short-option.md 'It returns EACCES and -e would report it missing.'
+reports bare-option TEST-PC-136-and-after-comma.md 'A symlink is listed, and -type f excludes it.'
+# A contract line's colon form takes an identifier carrying an underscore or a dash; a prose
+# sentence opening on a plain word and a colon is read.
+reports bare-option TEST-PC-137-word-colon.sh 'x=1' '# Flags: --suggest appends the proposal.'
+silent TEST-PC-138-contract-colon.sh 'x=1' '# run_gate: pass --allow-uncommitted through to the gate.'
+# A fenced block inside a comment is code, as in a document, and the fence closes: a bare option
+# after the closing fence is reported.
+silent TEST-PC-139-comment-fence.sh 'x=1' '# Usage:' '#   ```bash' '#   podman build -t image -f file .' '#   ```'
+reports bare-option TEST-PC-140-comment-fence-closed.sh 'x=1' '# Usage:' '#   ```bash' \
+    '#   podman build -t image -f file .' '#   ```' '# Then pass --rm to it.'
+
+# An ellipsis is an elision rather than a sentence end, and a split there cuts a literal in two,
+# taking from the tail whatever exemption the whole line carried.
+silent TEST-PC-128-ellipsis.sh 'x=1' \
+    '# seed_asset <kind> <name>... -- place the shipped asset, and report what it replaced.'
+
 # A filename is spelled in one case throughout, while a product whose name ends in an extension
 # is capitalised. Pinned from both sides: the narrowing that keeps the product name out must
 # leave the uppercase filename a repository's own router carries.
@@ -387,7 +435,7 @@ assert_rc 1 "TEST-PC-15-exit-finding: exits 1 when a finding is reported"
 run_check "$(fixture TEST-PC-16-exit-clean.md 'The helper does not take a path argument.')"
 assert_rc 0 "TEST-PC-16-exit-clean: exits 0 when clean"
 
-# ── The extension decides how a file is read, and --prose/--source override it ─────────────────
+# ── The extension decides how a file is read, and `--prose`/`--source` override it ─────────────────
 # A .conf is read as SOURCE: its comments are prose and its body is not. Without the override a
 # document whose name lost its extension reads as source and scores a misleading zero.
 run_check "$(fixture TEST-PC-17-source-comment.conf 'KEY=value' '# There is nothing left to check.')"
@@ -434,7 +482,7 @@ run_check "$(fixture CLAUDE.md \
     'The control plane is root-owned and not writable by `SANDBOX_USER`.')"
 assert_rc 0 "TEST-PC-24-router-invariant: an invariant carrying no mechanism is not reported"
 
-# ── closed-set-count: a count word standing in for the members it counts (--all) ──────────────
+# ── closed-set-count: a count word standing in for the members it counts (`--all`) ──────────────
 # The pronoun form is the one that goes stale silently: a third config file makes `seeds both`
 # wrong about what it describes while reading as ordinary prose. Pinned from both directions,
 # since the exclusions carry most of the check -- widened, it reports every `both files` and
@@ -454,7 +502,7 @@ run_check --all "$(fixture TEST-PC-28-closed-set-correlative.md \
     'The manifest and the key both ship in the package.')"
 omits closed-set-count "TEST-PC-28-closed-set-correlative: enumerated members are not reported"
 
-# ── --kept: the rewrite guard, driven over a real git index ────────────────────────────────────
+# ── `--kept`: the rewrite guard, driven over a real git index ────────────────────────────────────
 if ! command -v git >/dev/null 2>&1; then
     skip "TEST-PC-30..34-kept" "git not available"
 else
@@ -597,7 +645,7 @@ else
         "TEST-PC-119-staged-frontmatter: an unclosed region does not silence the lines after it"
     git -C "${repo}" -c commit.gpgsign=false commit -qm staged-front
 
-    # ── --new: report only what the working tree ADDS against a revision ───────────────────────
+    # ── `--new`: report only what the working tree ADDS against a revision ───────────────────────
     # The failure it exists to remove is a false one: an edit renumbers every finding after it,
     # and a reader comparing two runs by line then reports each shifted finding as new.
     # The fixture inserts text ahead of two existing figures and appends a third, so a pairing
@@ -634,7 +682,7 @@ else
     assert_grep 'grants no access' "${added}" \
         "TEST-PC-39e-new-absent: a file the revision lacks reports every finding in it"
 
-    # The filter needs paths: --staged and --message name no path to read at a revision.
+    # The filter needs paths: `--staged` and `--message` name no path to read at a revision.
     if ( cd "${repo}" && python3 "${PC}" --new HEAD >/dev/null 2>&1 ); then
         fail "TEST-PC-39f-new-needs-paths: --new with no path was accepted"
     else
@@ -642,12 +690,12 @@ else
     fi
 fi
 
-# ── --message: a commit message is an artifact the standard covers like any other ──────────────
+# ── `--message`: a commit message is an artifact the standard covers like any other ──────────────
 msg="$(fixture TEST-PC-40-message.txt 'fix(x): state what changed' '' 'There is nothing left to check.')"
 run_check --message "${msg}"
 assert_rc 1 "TEST-PC-40-message: --message checks a commit message"
 
-# ── --config-header: a config file's header is fixed-width text ────────────────────────────────
+# ── `--config-header`: a config file's header is fixed-width text ────────────────────────────────
 # Both rules are pinned from both directions, and the exemptions with them: a commented default
 # is a setting, so its length is not measured and its last word is not read; a comment line
 # that closes a sentence on a tie word is not a wrapped line.
@@ -667,8 +715,8 @@ assert_rc 0 "TEST-PC-46-header-tie-sentence: a tie word closing a sentence is no
 run_check --config-header "$(fixture TEST-PC-47-header-clean.conf '# A session starts only inside' '# a listed directory.' 'KEY=value' '#OTHER=default')"
 assert_rc 0 "TEST-PC-47-header-clean: a wrapped header, a setting and a commented default are silent"
 
-# ── --wrap: the line checks on source comments, opt-in ───────────────────────────────────────
-# A source comment is read as written, so under --wrap it holds to the tie rule and a 120-column
+# ── `--wrap`: the line checks on source comments, opt-in ───────────────────────────────────────
+# A source comment is read as written, so under `--wrap` it holds to the tie rule and a 120-column
 # wrap. Opt-in, so the default run stays silent on how a line is wrapped: that is pinned first,
 # since a tree whose comments predate the rule would otherwise report every one of them.
 silent TEST-PC-48a-wrap-off-by-default.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
@@ -690,7 +738,7 @@ wrapped_silent TEST-PC-51-comment-tie-wrapped.sh 'KEY=1' '# The helper reads the
 wrapped_silent TEST-PC-52-comment-tie-sentence.sh '# Carve this subtree out.' '# Next sentence.'
 wrapped_silent TEST-PC-53-comment-tie-prose.md 'A document reflows, so a line may end on the' 'next word.'
 wrapped_silent TEST-PC-54-comment-tie-code.sh 'value="$(cat a)"    # not a comment ending on a' 'x=1'
-# A source comment wraps at 120 columns, wider than a config header's 72; --width overrides it.
+# A source comment wraps at 120 columns, wider than a config header's 72; `--width` overrides it.
 wide="# $(printf 'w%.0s' $(seq 1 125))"
 wrapped comment-width TEST-PC-55-comment-width.sh 'x=1' "${wide}"
 wrapped_silent TEST-PC-56-comment-width-under.sh 'x=1' "# $(printf 'w%.0s' $(seq 1 110))"
@@ -698,7 +746,7 @@ run_check --wrap --width 100 "$(fixture TEST-PC-57-comment-width-arg.sh 'x=1' "#
 assert_grep 'comment-width \[112>100\]' "${OUT}" "TEST-PC-57-comment-width-arg: --width lowers the column a source comment is measured against"
 # A linter directive is read by the linter, so neither line rule reads it, however long or however it ends.
 wrapped_silent TEST-PC-58-comment-directive.sh 'x=1' "# shellcheck disable=SC2154  # set by the sourced library, whose contract names the" "y=2"
-# A Markdown document is read unrendered too -- in an editor, a diff -- so under --wrap a line holds
+# A Markdown document is read unrendered too -- in an editor, a diff -- so under `--wrap` a line holds
 # to 100 columns. A table row, a fenced block, a URL line, a lone token and a man page are units
 # the rule cannot break, and each is pinned silent.
 long_md="$(printf 'word %.0s' $(seq 1 25))"
