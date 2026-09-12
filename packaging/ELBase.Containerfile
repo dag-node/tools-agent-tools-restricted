@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Shared base recipe for the EL (Rocky/RHEL) ai-tools RPM test image. All the common build/test
-# logic lives here, parameterized by the EL base image; the per-distro files (Rocky9.Containerfile,
-# Rocky10.Containerfile) are thin pins over the image this builds, so no line below is repeated.
-# Rocky 9/10 minimal both ship microdnf and the same package names installed below, so this recipe
+# logic lives in this file, parameterized by the EL base image; the per-distro files (Rocky9.Containerfile,
+# Rocky10.Containerfile) are thin pins over the image this builds, so no line here is repeated.
+# Rocky 9/10 minimal both ship microdnf and the same package names this recipe installs, so it
 # builds unchanged across them.
 #
 # Fedora is not built from THIS recipe, but only because the base images and dnf front-end differ:
@@ -11,11 +11,13 @@
 # /usr/local/sbin-vs-/usr/local/bin file conflict no longer exists -- one layout serves both.
 #
 # Build a distro image (two steps; the Makefile wraps them as `rpmtest-rocky9` / `-rocky10`):
+#   ```bash
 #   podman build -t ai-tools-rpmbase:el9 -f packaging/ELBase.Containerfile \
 #       --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9.7-minimal .
 #   podman build -t ai-tools-rpmtest:el9 -f packaging/Rocky9.Containerfile .
 #   podman run --rm -t --systemd=always ai-tools-rpmtest:el9
 #       # add --privileged if your runtime cannot mount cgroups for the --user manager
+#   ```
 #
 # Boots systemd as PID 1; the oneshot ai-tools-selftest.service runs the full
 # admin/operator/agent Quick-start workflow and `systemctl exit`s with the aggregate status,
@@ -29,7 +31,7 @@
 # enforcing host. This harness is the fast, repeatable pre-check; the box test is the gate.
 
 # The EL base image to build on. The per-distro files supply this via the Makefile; building
-# this file directly requires --build-arg BASE_IMAGE=... (no default, so the distro is explicit).
+# this file directly requires `--build-arg BASE_IMAGE=...` (no default, so the distro is explicit).
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
@@ -40,47 +42,41 @@ ARG RPM_RELEASE=""
 
 # Build + test tooling. Rocky 9 and 10 minimal both ship microdnf; add dnf (readable dependency
 # resolution), the rpm build chain + systemd-rpm-macros (for %systemd_*/%sysusers/%_userunitdir),
-# createrepo_c (a local repo so the metapackage resolves its subpackage Requires), systemd as
-# PID 1, and the utilities the workflow uses (script/runuser from util-linux, getenforce from
-# libselinux-utils, git/curl for bootstrap + claim).
+# selinux-policy-devel + policycoreutils (the spec's %build compiles the policy modules against
+# THIS image's policy headers, so the EL9 and EL10 images each build their own), createrepo_c (a
+# local repo so the metapackage resolves its subpackage Requires), systemd as PID 1, and the
+# utilities the workflow uses (script/runuser from util-linux, getenforce from libselinux-utils,
+# git/curl for bootstrap + claim).
 #
-# dbus-broker provides the per-user D-Bus the sandbox account's `systemd --user` manager needs;
-# the -minimal images omit it, and without it logind cannot sustain a lingering --user instance
+# dbus-broker provides the per-user D-Bus the sandbox account's `systemd --user manager` needs;
+# the `-minimal` images omit it, and without it logind cannot sustain a lingering `--user instance`
 # across session open/close, so the nvm-update timer drops out from under the toolchain. On a
 # full host it is present already; the test image installs it to match.
 # rpm-sign + gnupg2 are baked in here, NOT dnf-installed at sign time: the release workflow
 # runs sign-rpms.sh in this image with the signing key in the environment, and no package
 # scriptlet may ever execute while that secret is present.
-# No package below comes from the `extras` repo; disable it so a flaky refresh can't abort the install.
+# No package installed here comes from the `extras` repo; disable it so a flaky refresh can't abort the install.
 RUN sed -i '/^\[extras\]/,/^\[/ s/^enabled=1$/enabled=0/' /etc/yum.repos.d/*.repo \
     && microdnf -y install \
         dnf rpm-build rpm-sign gnupg2 systemd-rpm-macros make sed tar gzip findutils createrepo_c \
+        selinux-policy-devel policycoreutils \
         systemd dbus-broker sudo shadow-utils passwd util-linux procps-ng libselinux-utils \
         git curl which glibc-langpack-en \
     && microdnf clean all
 
 # Source tree for `make rpm` + the test suite. Copy the build inputs explicitly (a
-# .containerignore at the context root drops .git, packaging/rpmbuild, and tarballs). Only the
-# prebuilt policy packages are needed from selinux/ -- the core ai_tools.pp plus each stable
-# group's ai_tools_<group>.pp, which the Makefile CONTENT and the spec consume; experimental
-# groups ship no .pp.
-#
-# The build context is the maintainer's working tree, where locally compiled experimental groups
-# sit beside the shipped ones, so each prebuilt package is named: the image then holds exactly the
-# audited, stable set. That naming is also what the Makefile's POLICY_PP relies on here, since the
-# image has no git index to read. Keep it in step with the shipped set in packaging/Makefile, the
-# spec %install loop, and .gitignore.
-#
-# The policy sources come too, as the corresponding source a GPL .pp is conveyed with (GPLv2 s.3);
-# a glob is exact for them because .gitignore covers only *.pp.
+# .containerignore at the context root drops .git, packaging/rpmbuild, and tarballs). From
+# selinux/ only the policy SOURCES come -- the .te/.if/.fc, their Makefile, and the script that
+# derives which modules ship: the spec compiles the modules inside this image, so a .pp lying in
+# the maintainer's working tree (a local build, an experimental group) never enters it. A glob is
+# exact for the sources because .gitignore covers only *.pp.
 COPY src                            /opt/ai-tools-src/src
 COPY docs                           /opt/ai-tools-src/docs
-COPY selinux/policy/ai_tools.pp         /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/ai_tools_tmpmap.pp  /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/Makefile            /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/*.te                /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/*.if                /opt/ai-tools-src/selinux/policy/
-COPY selinux/policy/*.fc                /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/shipped-modules.sh  /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/Makefile        /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.te            /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.if            /opt/ai-tools-src/selinux/policy/
+COPY selinux/policy/*.fc            /opt/ai-tools-src/selinux/policy/
 COPY tests                          /opt/ai-tools-src/tests
 COPY packaging                      /opt/ai-tools-src/packaging
 # The licence set `make dist` bundles: LICENSE, the LICENSES/ SPDX texts, and the REUSE.toml
@@ -132,7 +128,7 @@ RUN install -m 0755 packaging/container-selftest.sh /usr/local/bin/ai-tools-self
     && install -m 0644 packaging/ai-tools-selftest.service /etc/systemd/system/ai-tools-selftest.service \
     && systemctl enable ai-tools-selftest.service
 
-# Run systemd as PID 1 so the handback socket and the sandbox --user manager come up and the
+# Run systemd as PID 1 so the handback socket and the sandbox `--user manager` come up and the
 # selftest unit fires. (OPERATOR/PROJECT/RUN_TESTS default inside the script; to customise a
 # run, edit the unit's Environment= or invoke /usr/local/bin/ai-tools-selftest via podman exec.)
 STOPSIGNAL SIGRTMIN+3

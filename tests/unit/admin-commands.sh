@@ -11,7 +11,7 @@
 # set; and a file that does not declare itself a command of this seam is not run as one. This file
 # drives each of those states and asserts the command surface comes out SMALLER and the refusal is
 # reported. The positive cases are the other half of the same contract: a trusted, declared
-# fragment is exec'd with the remaining arguments, and it is listed in --help with the summary its
+# fragment is exec'd with the remaining arguments, and it is listed in `--help` with the summary its
 # manifest declares, since a help that named something the dispatch would not run (or the reverse)
 # is the failure the one discovery function exists to prevent.
 #
@@ -43,7 +43,7 @@ if [[ ! -x "${HELPER}" ]]; then
     skip "contributed commands" "not installed at ${HELPER}"; finish; exit
 fi
 
-# exec_capable <dir>: succeed when a file created in <dir> can actually be run from it. Probes
+# exec_capable <dir>: succeed when a file created in <dir> can be run from it. Probes
 # rather than reading mount options, so it answers for whatever combination of noexec, SELinux
 # label and filesystem applies here.
 exec_capable() {
@@ -58,9 +58,8 @@ exec_capable() {
 mktestdir
 FIXTURE_ROOT="${TESTDIR}"
 if ! exec_capable "${TESTDIR}"; then
-    FIXTURE_ROOT="$(mktemp -d "${PROJECTS_HOME}/.ai-tools-admin-test.XXXXXX")"
+    mk_fixture_dir FIXTURE_ROOT "${PROJECTS_HOME}" admin-commands
     chmod 0755 "${FIXTURE_ROOT}"
-    on_teardown rm -rf "${FIXTURE_ROOT}"
 fi
 CMD_DIR="${FIXTURE_ROOT}/admin-commands.d"
 MANIFEST_DIR="${FIXTURE_ROOT}/integrations.d"
@@ -115,7 +114,7 @@ write_manifest() {
 # run_admin <args...> : the deployed helper against the fixture directories. Publishes `out` and
 # `STATUS` as globals rather than printing, so both survive -- a $(...) capture would run the whole
 # call in a subshell and leave the exit status behind in it. stdout and stderr are merged
-# deliberately: a refusal belongs in what the administrator sees, and every assertion below reads
+# deliberately: a refusal belongs in what the administrator sees, and every assertion reads
 # the run as one transcript.
 STATUS=0
 out=""
@@ -125,6 +124,23 @@ run_admin() {
         AI_TOOLS_INTEGRATIONS_DIR="${MANIFEST_DIR}" \
         "${HELPER}" "$@" < /dev/null > "${FIXTURE_ROOT}/out" 2>&1 || STATUS=$?
     out="$(cat "${FIXTURE_ROOT}/out")"
+}
+
+# refused <label> <code> <expected-status>: the run_admin this call follows must have exec'd
+# no fragment (the marker is absent), exited <expected-status>, and named the situation
+# with <code>. The status is asserted beside the code because a refusal at exit 0 is one
+# the caller reads as a command done. The label comes FIRST so the code sits in a later
+# argument, which the reference index reads as a citation rather than as a second definition
+# of it (messaging.rule.md).
+refused() {
+    local label="$1" code="$2" want="$3"
+    if [[ -f "${MARKER}" ]]; then
+        fail "${label}: a fragment was exec'd anyway"
+    elif [[ "${STATUS}" -ne "${want}" ]]; then
+        fail "${label}: expected exit ${want}, got ${STATUS}: ${out}"
+    else
+        assert_msg "${code}" "${out}" "${label}"
+    fi
 }
 
 # ── a trusted fragment dispatches, and carries its arguments ────────────────────────────────
@@ -144,7 +160,7 @@ else
     fail "arguments did not reach the fragment: $(cat "${MARKER}" 2>/dev/null)"
 fi
 
-# ── --help lists the domain and the summary its manifest declares ───────────────────────────
+# ── `--help` lists the domain and the summary its manifest declares ───────────────────────────
 run_admin --help
 if [[ "${out}" == *"demo <command>"* && "${out}" == *"the demo provider"* ]]; then
     pass "--help lists the installed domain with its manifest summary"
@@ -165,7 +181,7 @@ fi
 
 # ── an untrusted fragment is skipped and reported ───────────────────────────────────────────
 # Group-writable is the state that matters: the file is still root-owned, so only the mode
-# separates it from the case above, and it must be enough on its own.
+# separates it from the preceding case, and it must be enough on its own.
 reset_fixtures
 write_fragment tampered 770
 run_admin tampered
@@ -174,11 +190,7 @@ if [[ ! -f "${MARKER}" ]]; then
 else
     fail "a group-writable fragment ran"
 fi
-if [[ "${out}" == *"is a symlink, is not root-owned, or is writable by group/other"* ]]; then
-    pass "the untrusted fragment is reported, not silently dropped"
-else
-    fail "no report for the untrusted fragment: ${out}"
-fi
+assert_msg MSG-D3P6 "${out}" "the untrusted fragment is reported, not silently dropped"
 if [[ "${STATUS}" -eq 2 ]]; then
     pass "an untrusted domain is an unknown command (exit 2)"
 else
@@ -209,11 +221,7 @@ if [[ ! -f "${MARKER}" ]]; then
 else
     fail "a sound fragment ran beside a group/other-writable one"
 fi
-if [[ "${STATUS}" -eq 1 && "${out}" == *"refusing every contributed command"* ]]; then
-    pass "the set-wide refusal fails the command (exit 1) and says so"
-else
-    fail "expected the set-wide refusal (exit 1), got ${STATUS}: ${out}"
-fi
+refused "the set-wide refusal fails the command (exit 1) and says so" MSG-A3P2 1
 if [[ "${out}" == *"reinstall the package owning it"* ]]; then
     pass "the refusal names the remedy: reinstall the owning package"
 else
@@ -252,11 +260,7 @@ if [[ ! -f "${MARKER}" && "${STATUS}" -eq 2 ]]; then
 else
     fail "a fragment in a group-writable directory was dispatched (exit ${STATUS})"
 fi
-if [[ "${out}" == *"ignoring every contributed command"* ]]; then
-    pass "the untrusted directory is reported"
-else
-    fail "no report for the untrusted directory: ${out}"
-fi
+assert_msg MSG-V5S5 "${out}" "the untrusted directory is reported"
 chmod 755 "${CMD_DIR}"
 
 # ── a fragment must declare itself a command of this seam ───────────────────────────────────
@@ -266,38 +270,26 @@ reset_fixtures
 printf '#!/usr/bin/env bash\ntouch "%s"\n' "${MARKER}" > "${CMD_DIR}/undeclared"
 chown root:root "${CMD_DIR}/undeclared"; chmod 750 "${CMD_DIR}/undeclared"
 run_admin undeclared
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"does not declare"* ]]; then
-    pass "an undeclared executable in the directory is not run as a command"
-else
-    fail "an undeclared executable was dispatched (exit ${STATUS}): ${out}"
-fi
+refused "an undeclared executable in the directory is not run as a command" MSG-H5F8 1
 
 # One provider's command copied under another provider's name declares the name it was written
 # for, not the one it is installed as, so it is refused.
 reset_fixtures
 write_fragment impostor 750 demo
 run_admin impostor
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"does not declare"* ]]; then
-    pass "a fragment declaring another domain's name is refused"
-else
-    fail "a fragment installed under a name it does not declare ran (exit ${STATUS}): ${out}"
-fi
+refused "a fragment declaring another domain's name cites the same refusal" MSG-H5F8 1
 
 # A non-script -- the declaration cannot be read from one, and the seam runs interpreted files.
 reset_fixtures
 printf 'not a script\n' > "${CMD_DIR}/binary"
 chown root:root "${CMD_DIR}/binary"; chmod 750 "${CMD_DIR}/binary"
 run_admin binary
-if [[ "${STATUS}" -eq 1 && "${out}" == *"not a script"* ]]; then
-    pass "a file with no shebang is not run as a command"
-else
-    fail "a file with no shebang was dispatched (exit ${STATUS}): ${out}"
-fi
+refused "a file with no shebang is not run as a command" MSG-D9F7 1
 
 # ── the interface floor a fragment declares ─────────────────────────────────────────────────
 # The declared version is what the fragment NEEDS, so the direction of every case here is what
-# makes an old third-party command keep working: a floor at or below what this tool implements
-# runs, and only a floor above it is refused.
+# makes an old third-party command keep working: a floor at or under what this tool implements
+# runs, and only a floor past it is refused.
 reset_fixtures
 write_fragment old
 declare_line old api-min-version "1.0"
@@ -312,62 +304,38 @@ reset_fixtures
 write_fragment ahead
 declare_line ahead api-min-version "1.7"
 run_admin ahead
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"upgrade ai-tools-base"* ]]; then
-    pass "a fragment needing a newer minor is refused, naming the side to upgrade"
-else
-    fail "a fragment needing a newer interface ran (exit ${STATUS}): ${out}"
-fi
+refused "a fragment needing a newer minor is refused" MSG-M3D7 1
 
 reset_fixtures
 write_fragment othermajor
 declare_line othermajor api-min-version "2.0"
 run_admin othermajor
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"different major is a different contract"* ]]; then
-    pass "a fragment needing another major is refused as an incompatible contract"
-else
-    fail "a fragment declaring another major ran (exit ${STATUS}): ${out}"
-fi
+refused "a fragment needing another major is refused as an incompatible contract" MSG-W3T9 1
 
 reset_fixtures
 write_fragment shapeless
 declare_line shapeless api-min-version "one"
 run_admin shapeless
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"not <major>.<minor>"* ]]; then
-    pass "an interface floor that is not <major>.<minor> is refused"
-else
-    fail "a malformed interface floor ran (exit ${STATUS}): ${out}"
-fi
+refused "an interface floor that is not <major>.<minor> is refused" MSG-B5K9 1
 
 reset_fixtures
 write_fragment nofloor
 drop_line nofloor api-min-version
 run_admin nofloor
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"declares no"*"api-min-version"* ]]; then
-    pass "a fragment declaring no interface floor is refused"
-else
-    fail "a fragment with no interface floor ran (exit ${STATUS}): ${out}"
-fi
+refused "a fragment declaring no interface floor is refused" MSG-U6U6 1
 
 # ── the declared verb list ──────────────────────────────────────────────────────────────────
 reset_fixtures
 write_fragment noverbs
 drop_line noverbs verbs
 run_admin noverbs
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"declares no"*"verbs"* ]]; then
-    pass "a fragment declaring no verbs is refused"
-else
-    fail "a fragment with no declared verbs ran (exit ${STATUS}): ${out}"
-fi
+refused "a fragment declaring no verbs is refused" MSG-V5Q3 1
 
 reset_fixtures
 write_fragment shoutyverb
 declare_line shoutyverb verbs "Bootstrap"
 run_admin shoutyverb
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"a verb is a bare lower-case word"* ]]; then
-    pass "a declared verb outside the command charset is refused"
-else
-    fail "a malformed verb list ran (exit ${STATUS}): ${out}"
-fi
+refused "a declared verb outside the command charset is refused" MSG-E3G7 1
 
 # ── a fragment claiming a base name is refused, and the base command still runs ─────────────
 # The name base owns must keep meaning what ai-tools-admin(8) documents, whoever installs what.
@@ -379,17 +347,9 @@ if [[ ! -f "${MARKER}" ]]; then
 else
     fail "a fragment claiming 'system' shadowed the base command"
 fi
-if [[ "${out}" == *"system takes a resource or a verb"* ]]; then
-    pass "'system' still reaches base's own dispatch"
-else
-    fail "'system' did not reach base's dispatch: ${out}"
-fi
+assert_msg MSG-C7S7 "${out}" "'system' still reaches base's own dispatch"
 run_admin --help
-if [[ "${out}" == *"is a command ai-tools-admin owns"* ]]; then
-    pass "the reserved-name refusal is reported"
-else
-    fail "no report for the fragment claiming a base name: ${out}"
-fi
+assert_msg MSG-U6P9 "${out}" "the reserved-name refusal is reported"
 
 # `status` was reserved before it was implemented, and now that base answers it the reservation is
 # what makes the shadowing attempt land on BASE's command rather than the fragment's. The exit
@@ -407,14 +367,10 @@ fi
 # The base command does not take an argument, and refuses one rather than ignoring it: a report
 # that dropped what it was asked about would read as an answer to the question.
 run_admin status --everything
-if [[ "${STATUS}" -eq 2 && "${out}" == *"takes no arguments"* ]]; then
-    pass "status refuses an argument with exit 2 rather than reporting on the whole host"
-else
-    fail "status accepted an argument (exit ${STATUS}): ${out}"
-fi
+refused "status refuses an argument with exit 2 rather than reporting on the whole host" MSG-T6S6 2
 
 # Every name the top-level dispatch answers must be reserved, or a provider could contribute a
-# domain that --help lists and the dispatch silently shadows.
+# domain that `--help` lists and the dispatch silently shadows.
 arms="$(awk '/^case "\$1" in/{f=1} f' "${HELPER}" | grep -oE '^    [a-z][a-z0-9-]*\)' | tr -d ' )')"
 reserved="$(grep -oE '^readonly -a BASE_COMMANDS=\(.*\)' "${HELPER}" | sed -e 's/.*(//' -e 's/).*//')"
 unreserved=()
@@ -443,14 +399,10 @@ fi
 
 # The dispatch matches a discovered domain, so a caller-supplied path never reaches the exec.
 run_admin ../../../bin/sh
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 2 ]]; then
-    pass "a path-shaped command name is an unknown command, never a path"
-else
-    fail "a path-shaped command name was dispatched (exit ${STATUS})"
-fi
+refused "a path-shaped command name is an unknown command, never a path" MSG-N2A5 2
 
 # ── a trusted fragment that is not executable is listed, and says so when run ────────────────
-# The two are separate questions: the listing is what --help can see as any caller, and the exec
+# The two are separate questions: the listing is what `--help` can see as any caller, and the exec
 # bit is what the dispatch needs. A fragment that cannot run is a broken install, not an unknown
 # command, so it exits 1 naming the package rather than 2 naming the surface.
 reset_fixtures
@@ -462,13 +414,9 @@ else
     fail "a non-executable fragment went unlisted: ${out}"
 fi
 run_admin inert
-if [[ "${STATUS}" -eq 1 && "${out}" == *"not executable"* ]]; then
-    pass "dispatching a non-executable fragment fails naming the package"
-else
-    fail "expected a not-executable failure (exit 1), got ${STATUS}: ${out}"
-fi
+refused "dispatching a non-executable fragment fails rather than running it" MSG-F4Z5 1
 
-# ── an absent directory is simply a host with no contributed commands ────────────────────────
+# ── an absent directory is a host with no contributed commands ───────────────────────────────
 reset_fixtures
 rm -rf "${CMD_DIR}"
 run_admin --help
@@ -481,28 +429,16 @@ fi
 # ── system bootstrap: only the scopes it defines ────────────────────────────────────────────
 # Every case here is REJECTED before the provisioning helper is reached, which is what makes them
 # drivable: a scope this parser mis-read would otherwise provision the host mid-test. The default
-# and --scope full are not driven for that reason -- they install software over the network.
+# and `--scope full` are not driven for that reason -- they install software over the network.
 reset_fixtures
 run_admin system bootstrap --scope full-ish
-if [[ "${STATUS}" -eq 2 && "${out}" == *"unknown scope"* ]]; then
-    pass "an unknown --scope value is rejected before anything is provisioned"
-else
-    fail "expected exit 2 for an unknown scope, got ${STATUS}: ${out}"
-fi
+refused "an unknown --scope value is rejected before anything is provisioned" MSG-A8G5 2
 run_admin system bootstrap --scope
-if [[ "${STATUS}" -eq 2 && "${out}" == *"--scope takes a value"* ]]; then
-    pass "--scope with no value is rejected"
-else
-    fail "expected exit 2 for a valueless --scope, got ${STATUS}: ${out}"
-fi
+refused "--scope with no value is rejected" MSG-V5J3 2
 run_admin system bootstrap full
-if [[ "${STATUS}" -eq 2 && "${out}" == *"unknown argument"* ]]; then
-    pass "a bare positional scope is rejected, so the switch spelling is the only one"
-else
-    fail "expected exit 2 for a positional scope, got ${STATUS}: ${out}"
-fi
+refused "a bare positional scope is rejected, so the switch spelling is the only one" MSG-H5Z4 2
 
-# ── system bootstrap --scope full: the loop that runs contributed commands unattended ───────
+# ── `system bootstrap --scope full`: the loop that runs contributed commands unattended ───────
 # Driven by SOURCING the helper and calling the loop with the enabled-integration resolver stubbed
 # -- the shape tests/unit/admin-operator-add.sh uses, and possible because the helper's root check
 # and dispatch are both guarded for it. Reaching this loop through the command would first run the
@@ -531,11 +467,7 @@ if [[ "${out}" == *"fragment withboot ran"* ]]; then
 else
     fail "the integration after a failing one was not attempted: ${out}"
 fi
-if [[ "${out}" == *"failing: its bootstrap failed"* ]]; then
-    pass "a failing integration is named rather than aborting the run"
-else
-    fail "a failing integration was not named: ${out}"
-fi
+assert_msg MSG-J2Y8 "${out}" "a failing integration is named rather than aborting the run"
 if [[ "${out}" == *"noboot: declares no bootstrap verb"* ]]; then
     pass "an integration that declares no bootstrap is skipped from its declaration alone"
 else

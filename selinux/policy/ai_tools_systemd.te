@@ -8,13 +8,13 @@ policy_module(ai_tools_systemd, 0.1.0)
 # query timer state. systemctl is labelled systemd_systemctl_exec_t, on which the core
 # module does not grant execute.
 #
-# The rule set below covers the exec and the unit-file reads. systemctl then talks to
+# This module's rule set covers the exec and the unit-file reads. systemctl then talks to
 # PID 1 over D-Bus, which needs socket permissions that surface only once the exec is
 # permitted, so a bring-up pass against a real workload is what completes this module.
 
 require {
     type ai_tools_t;
-    type systemd_systemctl_exec_t;   # referenced directly in the map allow below
+    type systemd_systemctl_exec_t;   # referenced directly in this module's map allow
 }
 
 # Execute systemctl staying in ai_tools_t (no transition to systemctl_t).

@@ -9,7 +9,7 @@ policy_module(ai_tools_netadmin, 0.1.0)
 # does not grant permission to send, so without this group the command runs and does not
 # get any response.
 #
-# The rule set below covers the send_msg pair. A real firewalld or NetworkManager
+# This module's rule set covers the send_msg pair. A real firewalld or NetworkManager
 # exchange can also need receive_msg or unix-socket permissions, which a bring-up pass
 # against a live daemon is what surfaces.
 

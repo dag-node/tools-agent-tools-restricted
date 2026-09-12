@@ -7,7 +7,7 @@
 #
 # An owner-only path -- a mode that grants neither group nor other bits (0600, 0700) -- is the
 # operator's standing decision to keep it out of the sandbox account's reach. A claim honours it:
-# ai_tools_is_owner_only below reports the path sealed, and each walk then skips it without
+# ai_tools_is_owner_only reports the path sealed, and each walk then skips it without
 # descending, so every path beneath a sealed directory is left alone as well.
 #
 # The mode alone does not hold, because setgid and default-ACL inheritance act at CREATE time: a
@@ -23,7 +23,7 @@
 #
 # `setfacl -n` is load-bearing. Without it setfacl recalculates the mask from the entries that
 # remain, so on a sealed 0600 file still carrying user:<operator>:rwX the mask rises to rwx and
-# the file lands 0670 -- a strip that grants. With -n the mode is bit-for-bit unchanged.
+# the file lands 0670 -- a strip that grants. With `-n` the mode is bit-for-bit unchanged.
 #
 # A setgid bit whose group is neither the sandbox account's nor the operator's is left alone and
 # reported instead: an operator may have set it deliberately, and this walk runs with no terminal

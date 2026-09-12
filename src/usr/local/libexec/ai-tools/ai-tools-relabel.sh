@@ -4,7 +4,7 @@
 # Apply (or revert) the ai_tools_project_t SELinux label on ONE approved project
 # directory, so the confined agent (ai_tools_t) can read and write it. This is the
 # privileged half of project claiming: `semanage fcontext` needs root, which the
-# unprivileged `ai-tools` CLI does not have, so --project-claim / --project-create
+# unprivileged `ai-tools` CLI does not have, so `--project-claim` / `--project-create`
 # invoke this via sudo. There is NO sudoers NOPASSWD grant for it (by design): sudo
 # prompts for the projects user's password, the same pattern as ai-tools-lockdown.
 #
@@ -13,17 +13,21 @@
 # validates the target and dispatches.
 #
 # Labelling a path requires it to be in the operator's allowed-projects allowlist:
-# only approved projects may carry the agent-accessible type. Reverting (--remove)
+# only approved projects may carry the agent-accessible type. Reverting (`--remove`)
 # is lenient -- it cleans up a path that may already have been unregistered, and
 # restorecon only ever restores the system default context.
 #
 # Runs as root via sudo, invoked by YOU (the projects user) -- not ai-tools:
+#       ```bash
 #       sudo ai-tools-relabel <dir>            # label <dir> ai_tools_project_t
 #       sudo ai-tools-relabel --remove <dir>   # revert <dir> to its default type
+#       ```
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 750 \
-#     src/usr/local/libexec/ai-tools/ai-tools-relabel.sh /usr/local/libexec/ai-tools/ai-tools-relabel
+#       src/usr/local/libexec/ai-tools/ai-tools-relabel.sh /usr/local/libexec/ai-tools/ai-tools-relabel
+#   ```
 
 set -euo pipefail
 
@@ -54,9 +58,19 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_info() { :; }; ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
 fi
 
-die() { ai_tools_log_error "$*"; printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit 1; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads, and carried into the log line.
+# Matched inline: this helper does not load the library.
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    ai_tools_log_coded error "${code}" "$*" "AI_TOOLS_RESULT=failed"
+    [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
+    printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit 1
+}
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to relabel a system directory even
 # when the allowlist includes it. See safe-paths.rule.md.
@@ -66,14 +80,14 @@ source "${SAFE_PATHS_LIB}"
 
 # Shared allowlist grammar + membership predicate (conf.lib.sh): allowlisted() reads the file
 # through the same parser as the launch wrapper and the CLI, so an entry written with an
-# end-of-line comment or quotes is honored here too. Required, bare-sourced under set -e: a
+# end-of-line comment or quotes is honored here too. Required, bare-sourced under `set -e`: a
 # missing lib aborts the helper (no label granted -- fail closed), never a raw-line fallback that
 # would silently refuse to (un)label a validly-listed project.
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source "${CONF_LIB}"
 
-[[ "${EUID}" -eq 0 ]] || die "must run as root (via sudo)"
+[[ "${EUID}" -eq 0 ]] || die MSG-D6R4 "must run as root (via sudo)"
 
 # allowlisted <dir>: 0 when <dir> is an exact, non-excluded entry in the allowlist of the operator
 # who OWNS it. Reads through the shared grammar (conf.lib.sh), realpath-normalized, so a listed
@@ -103,19 +117,23 @@ target=""
 for a in "$@"; do
     case "${a}" in
         --remove|-r) remove=true ;;
-        -*)          die "unknown option: ${a} (allowed: --remove)" ;;
-        *)           if [[ -z "${target}" ]]; then target="${a}"; else die "takes a single path"; fi ;;
+        -*)          die MSG-Y2P3 "unknown option: ${a} (allowed: --remove)" ;;
+        *)           if [[ -z "${target}" ]]; then target="${a}"; else die MSG-F7T7 "takes a single path"; fi ;;
     esac
 done
-[[ -n "${target}" ]] || die "usage: ai-tools-relabel [--remove] <dir>"
+[[ -n "${target}" ]] || die MSG-A6G2 "usage: ai-tools-relabel [--remove] <dir>"
 
-dir="$(realpath -e "${target}" 2>/dev/null)" || die "path not found: ${target}"
-[[ -d "${dir}" ]] || die "not a directory: ${dir}"
+dir="$(realpath -e "${target}" 2>/dev/null)" || die MSG-N3A5 "path not found: ${target}"
+[[ -d "${dir}" ]] || die MSG-S3E7 "not a directory: ${dir}"
 # Refuse to (un)label a protected system directory.
 ai_tools_assert_safe_target "${dir}" "relabel" || exit 3
 
+# Every record past this point is about one project, so it rides as per-run log context
+# (logging.rule.md) instead of being named at each site.
+AI_TOOLS_LOG_PROJECT="${dir}"
+
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
-source "${RELABEL_LIB}" 2>/dev/null || die "missing label library: ${RELABEL_LIB}"
+source "${RELABEL_LIB}" 2>/dev/null || die MSG-U2G7 "missing label library: ${RELABEL_LIB}"
 
 # Serialize against the agent relabel (ai-tools-relabel-agent), which writes the same policy
 # store: a claim can land while the ai-tools-relabel.path watcher is running one. Proceeding
@@ -123,7 +141,8 @@ source "${RELABEL_LIB}" 2>/dev/null || die "missing label library: ${RELABEL_LIB
 ai_tools_relabel_lock
 [[ -z "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]] \
     || { echo "ai-tools-relabel: NOTE: relabels are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
-         ai_tools_log_warn "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
+         ai_tools_log_structured warning \
+             "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
 
 if ai_tools_relabel_available; then :; else
     # SELinux off or restorecon absent -- no work to do, and not an error: the
@@ -135,18 +154,19 @@ fi
 if ${remove}; then
     if ai_tools_unlabel_project "${dir}"; then
         echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
-        ai_tools_log_info "unlabelled project ${dir}"
+        ai_tools_log_structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok"
     else
-        die "failed to revert SELinux label on ${dir}"
+        die MSG-Q4X9 "failed to revert SELinux label on ${dir}"
     fi
 else
     allowlisted "${dir}" \
-        || die "refusing to label ${dir}: not in the allowed-projects allowlist"
+        || die MSG-P8J7 "refusing to label ${dir}: not in the allowed-projects allowlist"
     rc=0; ai_tools_label_project "${dir}" || rc=$?
     case "${rc}" in
         0) echo "ai-tools-relabel: labelled ${dir} ai_tools_project_t"
-           ai_tools_log_info "labelled project ${dir} ai_tools_project_t" ;;
+           ai_tools_log_structured info "labelled project ${dir} ai_tools_project_t" \
+               "AI_TOOLS_RESULT=ok" ;;
         2) echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}" ;;
-        *) die "failed to label ${dir} (is the ai_tools policy module loaded? run: sudo selinux/install-selinux.sh install)" ;;
+        *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? run: sudo selinux/install-selinux.sh install)" ;;
     esac
 fi

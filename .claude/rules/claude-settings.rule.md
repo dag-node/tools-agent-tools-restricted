@@ -16,11 +16,10 @@ catalog of other Claude Code
 options an operator MAY add — and which are set elsewhere — is in
 [`docs/claude-options.md`](../../docs/claude-options.md).
 
-Settings coupled to the sandbox's layout rather than to Claude Code policy live in
-`ai-tools-run`'s environment allowlist instead of here: `DISABLE_AUTOUPDATER=1` (the agent's
-Node tree is not agent-writable, so in-session self-update fails; updates run out-of-band —
-see [updater](updater.rule.md)) and the `HOME`/`PATH`/`CLAUDE_CONFIG_DIR` pins (see
-[launch](launch.rule.md)).
+Settings coupled to the sandbox's layout rather than to Claude Code policy live outside this
+file: the agent's session-env fragment pins `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, and
+`DISABLE_AUTOUPDATER=1` (see [agent-claude-code](agent-claude-code.rule.md)), and `ai-tools-run`
+pins `HOME`, `SHELL`, and `PATH` (see [launch](launch.rule.md)).
 
 ## Permission rules — three outcomes
 
@@ -55,13 +54,13 @@ without any Bash prompt, or it processes data already in hand.
 | `jq *` | Filter/inspect JSON already in hand (tool output, configs). |
 | `ls`, `ls *`, `tree`, `tree *` | Listings with owner/mode — the ownership model's primary observable. |
 | `stat *`, `getfacl *` | Per-path owner/mode/context and the collaborative-ownership ACL grants — diagnose handback and claim state ([ownership-and-hooks](ownership-and-hooks.rule.md)). |
-| `head *`, `tail *`, `wc *`, `sort`, `sort *`, `uniq`, `uniq *`, `grep *` | Pipeline staples that bound and filter the output of the commands above. |
+| `head *`, `tail *`, `wc *`, `sort`, `sort *`, `uniq`, `uniq *`, `grep *` | Pipeline staples that bound and filter the output of the other listed commands. |
 | `file *` | Identify a file's type before reading it. |
 
 ### A rewritten command is what these rules match
 
 The `PreToolUse` filter hook may narrow a Bash command before it runs
-([filters](filters.rule.md)). It does not return a permission decision, so the three outcomes above are
+([filters](filters.rule.md)). It does not return a permission decision, so the three outcomes are
 decided on the **rewritten** command. Two consequences bound what a rule may do:
 
 - A rule that only inserts arguments after the leading words leaves every entry here matching as
@@ -83,7 +82,7 @@ and the prompt** (verified empirically: `df` ran silently in a session whose loc
 settings layers were empty, while `ls > file` in the same session prompted — the same
 analysis reclassifies a redirect as a write). An unlisted safe-read therefore does
 **not** reliably prompt; a read that must stay operator-visible needs a `deny` entry,
-which is why the host-survey group below is denied rather than merely unlisted.
+which is why the host-survey group is denied rather than merely unlisted.
 
 ### Refused (`deny`)
 
@@ -97,7 +96,7 @@ work deleted from the tree.
 |---|---|
 | `git push --force*` | The remote's history for every other clone. The pattern also covers `--force-with-lease`, which narrows the race but still overwrites. |
 | `git push -f *` | The short spelling of the same. |
-| `git reset --hard*` | The working tree and index, including changes never committed. |
+| `git reset --hard*` | The working tree and index, including uncommitted changes. |
 | `git clean -f*` | Untracked files, which no commit and no reflog can bring back. |
 
 The criterion is **destruction with no undo**, so the refusal holds regardless of target: a
@@ -119,7 +118,7 @@ target, so a deny stops the agent spending a tool call, and emitting an AVC, on 
 action the kernel refuses anyway:
 
 - `sudo`, `su` — SUID is inoperative under the session's `PR_SET_NO_NEW_PRIVS` (see
-  below), so both fail by construction.
+  [confinement](confinement.rule.md)), so both fail by construction.
 - `journalctl`, `systemctl` — the SELinux core module denies talking to the
   user/system manager and reading the journal.
 - `ausearch`/`auditctl`/`aureport` — the core module denies the audit surface.
@@ -127,7 +126,7 @@ action the kernel refuses anyway:
   default; with it off the core module refuses the package-manager stack.
 - `mount *`, `umount` — mounting needs `CAP_SYS_ADMIN`, and `RestrictNamespaces=yes`
   closes the user-namespace route to it. (Bare `mount` succeeds — it lists the mount
-  table — so it is denied with the host-survey group below instead.)
+  table — so it is denied with the host-survey group instead.)
 - `setenforce`/`semodule`/`semanage` — root-only SELinux management; label repair flows
   through the root-side relabel path, never the agent.
 
@@ -161,11 +160,11 @@ SELinux floor — it does not by itself grant the capability.
 
 `tests/integration/hooks.sh` pins all three deny groups at install time (the verify phase
 runs it): a missing categorical or irreversible-VCS entry fails; host-survey relaxations are
-reported by name and pass, but a file with none of them (a kept pre-upgrade settings.json)
+reported by name and pass, but a file with none of them (a kept pre-upgrade `settings.json`)
 fails; an entry in both lists fails as drift. The irreversible-VCS entries are pinned
 strictly rather than reported, because the paths that preserve a host's tuning — the
 keep-existing install and `%config(noreplace)` on upgrade — are also the paths by which a
-settings.json predating them, or edited in the permission arrays it invites tuning of,
+`settings.json` predating them, or edited in the permission arrays it invites tuning of,
 silently loses the gate.
 
 ## The tool-call record is declared as its own matcher group
@@ -208,7 +207,7 @@ may do exactly the same things.
 
 Both live here rather than in `ai-tools-run`'s allowlist because they are Claude Code product
 policy, not confinement structure — Claude Code's own config surface, beside the permission
-and hook declarations. Layering and override are under "Control-plane integrity" below.
+and hook declarations. Layering and override are under [Control-plane integrity](#control-plane-integrity).
 
 ## `showThinkingSummaries` and `verbose` — the observability defaults
 
@@ -224,7 +223,7 @@ identical either way — and what they buy is that the operator confirming an ac
 reasoning that produced it and the output it produced, which is the difference between approving a
 command string and approving what the command did.
 
-They are the operator-side complement to `disableAutoMode` below: that key decides *whether* a
+They are the operator-side complement to `disableAutoMode`: that key decides *whether* a
 human is asked, these decide *how much* that human is shown. The catalog of the other UI and
 behavior keys an operator MAY add is in
 [`docs/claude-options.md`](../../docs/claude-options.md).
@@ -237,28 +236,28 @@ behavior keys an operator MAY add is in
 
 `"disable"` removes `auto` from the `Shift+Tab` permission-mode cycle and rejects
 `--permission-mode auto` at startup, so a session takes actions under a confirming
-permission mode rather than acting autonomously. The value is the literal string
+permission mode. The value is the literal string
 `"disable"`; the key absent (or any other value) leaves auto mode selectable.
 
 The default keeps a human in the loop for the outward-facing, irreversible actions a
 session reaches — commits, pushes, other state-changing Bash commands — which the sandbox
 confines but does not gate on confirmation. It is a control-plane default, overridable per
-project (see "Control-plane integrity" below).
+project (see [Control-plane integrity](#control-plane-integrity)).
 
 ## Coupling to optional SELinux groups
 
-The deny list is matched to the **core** policy alone. Enabling an optional SELinux group
-(`install-selinux.sh enable-group <name>` — `systemd`, `pkgmgmt`, `netadmin`, `podman`,
-all disabled by default; see [confinement](confinement.rule.md)) widens what `ai_tools_t`
-may do, but a `deny` entry here still blocks the matching command **before** SELinux is
-consulted. A capability a group newly grants stays unreachable until its deny entry is
-relaxed in the same change.
+The deny list is matched to the **core** policy alone. Enabling an optional SELinux group — one
+of the registry in `selinux-groups.lib.sh`, through the front doors
+[confinement](confinement.rule.md) describes — widens what `ai_tools_t` may do, but a `deny`
+entry here still blocks the matching command **before** SELinux is consulted. A capability a
+group newly grants stays unreachable until its deny entry is relaxed in the same change.
 
 For example, enabling the `systemd` group so the agent can drive its own services has no
-effect while `Bash(systemctl*)` and `Bash(journalctl*)` remain in `deny`: the tool
-refuses the command first. An operator who enables a group relaxes the corresponding deny
-entry alongside it. The audit CLIs map to no optional group today; granting them needs a
-new policy module, and the same relax-the-deny-entry step applies.
+effect while `Bash(systemctl)`, `Bash(systemctl *)`, `Bash(journalctl)`, and
+`Bash(journalctl *)` remain in `deny`: the tool refuses the command first. An operator who
+enables a group relaxes the corresponding deny entries alongside it. The audit CLIs are outside
+every optional group; granting them needs a new policy module, and the same
+relax-the-deny-entry step applies.
 
 ## Control-plane integrity
 
@@ -292,7 +291,7 @@ file does not carry is added,
 every other key — the permission arrays it was kept for, an operator's own hook — is left as
 written, and each addition is named in the install log.
 
-The split follows the layering above: hook declarations are control plane that merges
+The split follows that layering: hook declarations are control plane that merges
 additively and that no lower-precedence layer may remove, while the permission rules are the
 host's to tune. The merge is what carries a newly shipped hook onto an existing host: its body
 and data arrive with the package, and this is the step that makes the file declare it, so the
@@ -377,6 +376,6 @@ filtering. The agent package `Requires: jq` for that reason.
 ## Deferred
 
 The deny list and optional-group enablement are kept in sync **by hand** — no code links
-`enable-group` to relaxing the matching deny entry, so a group enabled on its own has no
+enabling a group to relaxing the matching deny entry, so a group enabled on its own has no
 effect at the tooling layer. A durable fix derives the deny set from the loaded policy
-groups, or has `enable-group` adjust `settings.json`, so the two layers cannot drift.
+groups, or has the group-enable path adjust `settings.json`, so the two layers cannot drift.

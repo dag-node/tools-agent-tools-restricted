@@ -1,0 +1,2 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+## <summary>Optional ai_tools policy group: local IPC between the session's own processes -- unix sockets and FIFOs under /tmp and the home state, connectto on its own stream sockets, loopback TCP to an ephemeral port, getsid. Exports no interfaces.</summary>

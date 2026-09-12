@@ -92,16 +92,38 @@ regardless of which role the manager holds. The manager's domain also needs `sea
 
 ### The operator config subtree is mode-gated, not policy-gated
 
-`~/.config/ai-tools` carries its own type, `ai_tools_conf_t`, applied by `install-selinux.sh`
-with `semanage fcontext` because the operator's home path is dynamic. The narrow type is what
-lets a grant name that one subtree instead of the whole of `config_home_t`; every other file in
-`~/.config` stays refused, and a `dontaudit` keeps the git and Node probes that follow quiet.
+`~/.config/ai-tools` carries its own type, `ai_tools_conf_t`, applied with `semanage fcontext`
+because the operator's home path is dynamic. The narrow type is what lets a grant name that one
+subtree instead of the whole of `config_home_t`; every other file in `~/.config` stays refused, and
+a `dontaudit` keeps the git and Node probes that follow quiet.
 
 Two domains hold the grant. `ai_tools_handback_t` is the load-bearing one — the root helpers
 read `allowed-projects` and `secret-patterns` there on the operator's behalf, and without it
 ownership handback silently no-ops. The confined session domain `ai_tools_t` holds it as well,
 which sounds like a widening and is not: DAC and type enforcement must both allow, and at the
 shipped `700` directory with `600` files DAC refuses the session before the type is reached.
+
+**The rule is per operator, so it is registered where an operator is made.** A home path belongs to
+one account, so each operator has a rule of its own and a pattern in `ai_tools.fc` cannot stand in
+for it. `ai-tools-admin operators add` registers it for the account it enrols — the same command
+that writes the two facts making an operator — and `selinux/install-selinux.sh` sweeps the enrolled
+set, both through `ai_tools_label_operator_conf` in `relabel.lib.sh`. That function refuses a path
+outside one account's `~/.config/ai-tools`, so a home carrying a regex metacharacter yields a
+refusal rather than a rule matching homes nobody enrolled, and it reads the live type back rather
+than `restorecon`'s exit status.
+
+A subtree the rule does not cover keeps `config_home_t`, and the cost falls on the operator who
+owns it: the handback helpers are denied `getattr` on that account's `allowed-projects`, resolve no
+owner, and leave every path under its projects sandbox-owned. The confined session is refused the
+same read, which is the posture the mode gate already describes — so a missing rule takes access
+away and grants none. `dontaudit ai_tools_t config_home_t:file` suppresses the session's denial,
+which leaves an `ai_tools_handback_t` AVC as what an enforcing host reports.
+
+Both file grants are refpolicy's `read_file_perms` (`getattr open read lock ioctl`). Bash probes a
+descriptor it reads with a terminal `ioctl`, and these files are read once per operator per path
+resolved, so a narrower set leaves each of those probes denied — the read succeeds, and every
+denial is an audit record. Neither `ioctl` nor `lock` carries information out of a file the domain
+may already read.
 
 What the session grant buys is that the **file mode stays the operator's knob**. An operator who
 decides to open either file gets the read they intended rather than an AVC denial they could
@@ -119,7 +141,7 @@ A session that fails to transition into `ai_tools_t` runs *unconfined*, and beca
 floor; `user_u` was rejected because it breaks the `ai-tools`→root sudo). A wrapper
 cannot observe its successor's post-`exec` domain, so `ai-tools-run` probes the
 transition's inputs *before* launch and logs them on every launch (journald, `ai-tools-run`
-tag): the entrypoint's label (`matchpathcon` vs `stat -c %C`), the `systemd --user` manager's
+tag): the entrypoint's label (`matchpathcon` vs `stat -c %C`), the `systemd --user manager`'s
 domain (`/proc/<pid>/attr/current`), and whether the core module's **file-contexts are live**.
 
 That last one is probed with `matchpathcon` on a core-owned path (`/opt/ai-tools/.config`
@@ -154,14 +176,16 @@ file-contexts never loaded** into the running policy reads as "absent" (the core
 to its default type), so that narrow half-installed state launches DAC-only rather than refusing.
 Detecting it requires reading the store, which the sandbox account cannot do — no unprivileged probe
 can — and a normal `semodule -i` loads store and policy together, so it is reached only by a
-half-completed install. `AI_TOOLS_REQUIRE_SELINUX` closes it outright, below.
+half-completed install. `AI_TOOLS_REQUIRE_SELINUX` closes it outright.
 
-#### The toolchain is read-only to the confined domain
+#### The toolchain is read-only to the confined domain <a id="ref-section-w4z6"></a>
 
 The preflight checks that the entrypoint carries `ai_tools_exec_t`; the type layout is what stops
 the confined agent changing it afterwards. `ai_tools.fc` deliberately leaves the whole nvm tree at
-its default `usr_t`/`bin_t`/`lib_t`, and `ai_tools.te` grants `manage_*_pattern` for exactly three
-types — `ai_tools_project_t`, `ai_tools_home_t`, `ai_tools_tmp_t`. None of them appears in the exec
+its default `usr_t`/`bin_t`/`lib_t`, and `ai_tools.te` grants `manage_*_pattern` only for the
+types it declares for the agent's own trees — `ai_tools_project_t`, `ai_tools_project_build_t`
+(the build output inside a project, see [dotnet](dotnet.rule.md)), `ai_tools_home_t`,
+`ai_tools_tmp_t`. None of them appears in the exec
 chain: the versioned launcher symlink is `bin_t`, the agent's package directory `lib_t`, and the
 entrypoint `ai_tools_exec_t`, on which `ai_tools_t` holds `execute_no_trans` plus what
 `application_domain` gives (entrypoint/read/getattr), and no other permission.
@@ -171,7 +195,7 @@ unlink or rename over it (no `add_name`/`remove_name` on a `lib_t` directory), n
 `bin_t` symlink — even though DAC alone would allow all three, since the account owns that tree.
 This is the layer that makes the exec root read-only to the agent, and it is why the
 launch-time entrypoint re-check in [launch](launch.rule.md) is a **DAC-only** concern. The residual
-is the unconfined `--user` manager: anything the agent persuades that manager to run executes
+is the unconfined `--user manager`: anything the agent persuades that manager to run executes
 outside `ai_tools_t`, which is why `~/.config/systemd/user` must stay root-owned.
 
 #### `AI_TOOLS_REQUIRE_SELINUX` — operator-declared fail-closed
@@ -189,7 +213,7 @@ layer — a defence-in-depth layer, not a DAC bypass.
 *launch* exits into refusals: `require-not-enforcing` (SELinux not `Enforcing`) and
 `require-inactive` (enforcing but the module's file-contexts are not live). Having the operator
 assert intent rather than the wrapper guess it closes the whole "thinks-enforcing" family, the
-staged-but-not-active residual above included, and adds **no** store-read surface.
+staged-but-not-active residual included, and adds **no** store-read surface.
 
 It is opt-in: the default (key absent, or any value outside the true set `yes|true|1|on`) is `no`,
 so intentional DAC-only hosts are untouched. `require` tightens those two exits alone — the
@@ -210,7 +234,7 @@ are root-owned. The posture rides in the per-launch audit line (`require=yes|no`
 ## `/tmp` model
 
 `PrivateTmp` is not used; the session shares the host `/tmp`. systemd `PrivateTmp` is a
-no-op for an unprivileged `--user` manager: it cannot pivot a private `/tmp` for the
+no-op for an unprivileged `--user manager`: it cannot pivot a private `/tmp` for the
 payload (the unit starts, but the payload still sees the shared `/tmp` — claude's
 runtime dir stays visible and no private bind mount appears in the payload's
 `mountinfo`). claude keeps its runtime at a fixed `/tmp/claude-<uid>`, does not honour
@@ -220,7 +244,7 @@ live same-uid session, failing startup with `EEXIST mkdir /tmp/claude-<uid>`.
 
 The enforced `/tmp` isolation is ordinary Unix permissions plus the `ai_tools_tmp_t`
 type: a dir claude creates is born `ai_tools_tmp_t` via the `tmp_t:dir` →
-`ai_tools_tmp_t` type_transition, which `ai_tools_t` fully manages but which keeps it
+`ai_tools_tmp_t` `type_transition`, which `ai_tools_t` fully manages but which keeps it
 off other domains' `tmp_t`/`user_tmp_t` files. Per-session `/tmp` isolation would
 require a privileged (`--system`) manager that mounts and pivots `PrivateTmp` for the
 payload during unit setup.
@@ -252,24 +276,44 @@ per-level isolation. Operational notes for that case:
 
 ## Optional SELinux groups and the namespace filter
 
-The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`/`apphost`/`netcore`) are all off by
+The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`/`apphost`/`localipc`/`buildexec`) are all off by
 default and each carries a **stability** field in the registry (`experimental`/`stable`)
 that decides how it is shipped and enabled. Both front doors draw the group set, descriptions,
-and stability from one place — `selinux-groups.lib.sh`, so they cannot disagree:
+and stability from one place — `selinux-groups.lib.sh`, so they cannot disagree. The same registry
+records a renamed group's **former module name**, and every path that loads policy — either front
+door, and the selinux subpackage's `%post` where the current module is on the shipped set — replaces a
+loaded former module with the group's current one in a single `semodule` transaction, so a host
+that enabled a group under its old name keeps the workload running across the rename and does not
+hold both rule sets:
 
-- **Stable** groups (a single, tested rule, e.g. `tmpmap`) ship **prebuilt**
-  (`ai_tools_<group>.pp`) alongside the core in `/usr/share/selinux/packages/ai-tools/`, and
-  `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads the prebuilt `.pp` on an
-  installed host, needing no source tree or `selinux-policy-devel`. A bare `selinux groups` lists
+- **Stable** groups (`tmpmap`, `localipc`, `buildexec`: a rule set exercised against its workload
+  on an enforcing host) are on the **shipped set**: compiled as `ai_tools_<group>.pp` beside the
+  core in `/usr/share/selinux/packages/ai-tools/` (how, and by what, is in
+  [How the policy ships](#how-the-policy-ships)), where `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads one on an
+  installed host without a source tree or `selinux-policy-devel`, then restores the labels the
+  group's own file contexts decide (the sandbox-clone area). A bare `selinux groups` lists
   them and `selinux groups disable <name>` rounds it out, working for any loaded group. The
   spelling these commands take is set by [cli-grammar](cli-grammar.rule.md).
-- **Experimental** groups are unaudited drafts and are **not shipped prebuilt**;
+- **Experimental** groups are unaudited drafts and are **off the shipped set**;
   `ai-tools-admin selinux groups enable` refuses one and points at the source workflow rather than
   loading an unaudited module. They are compiled and verified from a source checkout —
   `sudo selinux/install-selinux.sh enable-group <name>` (which compiles from `.te`/`.fc`, then
-  loads) plus the `avc/` bring-up loop. Promoting one to stable means marking it `stable` in the
-  registry, committing its prebuilt `.pp`, and adding it to the shipped set (spec, `install.sh`,
-  `.gitignore`, `packaging/Makefile`).
+  loads, then re-runs the project and clone label sweeps, since a group may ship file contexts of
+  its own; `disable-group` sweeps the same way after the unload) plus the `avc/` bring-up loop.
+  Promoting one to stable means marking it `stable` in the registry: the shipped set is derived
+  from that field, so no packaging file names the group.
+
+A group is named for the capability it grants, never for a toolchain, so an administrator reads
+each as the class of access it is. What a toolchain needs is its integration manifest's to say
+(`selinux_groups`, read by the status reports to name the groups not loaded) — and where a
+toolchain's output layout must be typed at creation, its manifest names a **layout module**
+(`selinux_layout_module`, `ai_tools_dotnet` for .NET), a policy module that carries file
+transitions and file contexts and does not add any permission. A layout module is not a group and not a consent
+point: it loads with its integration (the integration's `bootstrap`, the policy package's `%post`
+for every installed integration declaring one, and `install-selinux.sh install`/`rebuild` from
+source), is unloaded by the integration's erase, and is on the shipped set like a stable group,
+derived from the manifest that declares it. The keys are in `ai-tools-providers(5)`; the one
+layout module and the groups it serves are in [dotnet](dotnet.rule.md).
 
 Enabling an optional policy group widens what SELinux permits but does not lift the seccomp
 filter. Of the optional groups only
@@ -339,17 +383,38 @@ procedure for running either is in `selinux/README.md` §2 and §4.
 
 ## How the policy ships
 
-The policy is its own subpackage, `ai-tools-selinux`, and `ai-tools-base` **recommends** it. Two
+The policy is its own subpackage, `ai-tools-selinux`, and `ai-tools-base` **recommends** it. Three
 independent properties meet at that boundary:
 
+- **Build.** The shipped set — the core, each `stable` group, each layout module — is compiled in
+  the spec's `%build` from the `.te`/`.if`/`.fc` in the source tarball, against the policy headers
+  of the distribution the RPM is built on (`BuildRequires: selinux-policy-devel`), and the
+  `%{?dist}` tag on the Release keeps each build on its own distribution. `selinux/policy/shipped-modules.sh`
+  derives the set from the registry's `stability` field and the `selinux_layout_module` key of each
+  integration manifest under `src/`; `%build`, `%install`, and `%files` (through a file list
+  `%install` writes) read that one derivation, so promoting a group or adding a layout module edits
+  the registry or a manifest and no packaging file. No compiled module is tracked: `.gitignore`
+  covers `*.pp`, `make dist` refuses a tarball carrying one, and `tests/unit/selinux-groups.sh`
+  fails on a tracked one, since a tracked binary was built on some other host's headers and no
+  review can read it. A source install compiles the same set from the checkout —
+  `install-selinux.sh build`, which `install.sh` runs — and stages it in that same package
+  directory; where SELinux is active and `selinux-policy-devel` is absent, `install.sh` refuses the
+  SELinux step and names the package, so the absent modules are reported at install rather than
+  met later as a launch the preflight refuses. The container self-tests compile in each image and
+  assert the packaged set against the derivation (`rpm -qlp`), so an interface that does not
+  resolve on a distribution fails that distribution's build; they do not load a module
+  (`getenforce` is `Disabled` in a container), so a rule that fails to load is caught on an
+  enforcing host only.
 - **Licence.** A compiled `.pp` embeds macro expansions from the SELinux reference policy, so it is
-  `GPL-2.0-or-later` while the rest of the stack is `AGPL-3.0-only`. The `.te`/`.if`/`.fc` sources
-  carry the same identifier (they call refpolicy interfaces that expand on compile); the surrounding
-  tooling — `install-selinux.sh`, `selinux/avc/*.sh`, `selinux-groups.lib.sh` — is `AGPL-3.0-only`,
-  holding no refpolicy content. The subpackage conveys the GPL text via `%license`, and the source
-  tarball carries the policy sources and their `Makefile` so the SRPM accompanies each `.pp` with
-  its corresponding source; `make dist` asserts that pairing and refuses to produce a tarball
-  without it.
+  `GPL-2.0-or-later` while the rest of the stack is `AGPL-3.0-only`. Everything under
+  `selinux/policy/` carries that identifier: the `.te`/`.if`/`.fc` sources (they call refpolicy
+  interfaces that expand on compile) and the scripts controlling their compilation — the `Makefile`
+  and `shipped-modules.sh` — which GPLv2 s.3 counts as part of the corresponding source. The
+  surrounding tooling — `install-selinux.sh`, `selinux/avc/*.sh`, `selinux-groups.lib.sh` — is
+  `AGPL-3.0-only`, holding no refpolicy content and loading or reading a module rather than
+  compiling it. The subpackage conveys the GPL text via `%license`, and the source tarball
+  carries `selinux/policy/` whole, which is the corresponding source of every `.pp` the RPM built
+  from it conveys; `make dist` refuses a tarball without the policy sources.
 - **Degradation.** The weak dependency is what `ai_tools_confinement_verdict` already expects: a
   host without the subpackage has no module in the store, which is the intentional DAC-only
   deployment that launches, not the half-installed state that refuses. Dropping the policy costs

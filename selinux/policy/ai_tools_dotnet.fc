@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# ai_tools_dotnet file contexts: the .NET output layout inside a SANDBOX CLONE. Clones are
+# labelled by the static rule in ai_tools.fc plus a plain restorecon (no per-clone semanage
+# rule, no root), so the build-output directories inside one need a static rule of their own,
+# and it lives in the integration's layout module because the names are the integration's: the
+# same set as the type transitions in ai_tools_dotnet.te, which states the coupling. Keyed under
+# /opt for the same reason the clone rule in ai_tools.fc is: file_contexts.subs_dist aliases
+# /var/opt to /opt before matching. A claimed project under a home gets the equivalent rule per
+# project from relabel.lib.sh, from the same names in the manifest.
+#
+# Precedence: this rule and the clone rule in ai_tools.fc share a stem (the literal prefix
+# before the first metacharacter), and among equal stems the later, longer regex is the
+# match, so a path under bin/, obj/ or artifacts/ resolves here and every other clone path to
+# the clone rule. Verify on a host with the module loaded, since this is the property the
+# narrowing rests on:
+#   matchpathcon /var/opt/ai-tools/sandbox-projects/x/src/p/bin/y   (expect ai_tools_project_build_t)
+#   matchpathcon /var/opt/ai-tools/sandbox-projects/x/.githooks/h   (expect ai_tools_project_t)
+/opt/ai-tools/sandbox-projects/[^/]+(/.*)?/(bin|obj|artifacts)(/.*)?  gen_context(system_u:object_r:ai_tools_project_build_t,s0)

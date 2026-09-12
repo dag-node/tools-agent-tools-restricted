@@ -539,17 +539,18 @@ check_entry "an unmatched quote is taken as-is"    '/home/me/project'       '"/h
 # --- Allowlist editing: the one implementation of a registry change ---------------------------
 # Three components write allowed-projects (the CLI on the operator's own file, ai-tools-allowlist
 # on another operator's, install.sh on its own checkout), and this is what all three call. The
-# file is the LAUNCH GATE, so each assertion below is about a way an edit could leave the gate
+# file is the LAUNCH GATE, so each assertion is about a way an edit could leave the gate
 # saying something other than what the caller was told:
-#   * the three-state read, where a DISABLED project used to read as absent;
-#   * add refusing to append under a winning '!' (the duplicate-pair bug);
+#   * the three-state read, so a DISABLED project reads as disabled, not as absent;
+#   * add refusing to append under a winning '!', which would leave an allow line the exclusion
+#     beats;
 #   * add opening a line of its own, so a file that runs to EOF mid-line keeps that entry;
 #   * remove taking BOTH line kinds, so no '!' is left to park the next claim at that path;
 #   * enable/disable preserving position, indentation and comment -- their reason to exist
 #     rather than being an add+remove pair, for an operator whose allowlist is an ordered,
 #     commented document;
 #   * enable collapsing a duplicate pair to ONE live entry;
-#   * an unwritable directory REPORTED (rc 1) rather than aborting the caller under set -e.
+#   * an unwritable directory REPORTED (rc 1) rather than aborting the caller under `set -e`.
 section "conf: allowlist editing (unit)"
 
 if ! declare -F ai_tools_conf_allowlist_state >/dev/null 2>&1 \
@@ -603,7 +604,7 @@ else
 fi
 # A hand-edited registry can run to EOF part-way through its last line, and the readers keep that
 # entry, so the append opens a line of its own for the new one. Written straight it would join the
-# two paths into a third naming no project, taking the entry above it off the launch gate.
+# two paths into one that is not a project, taking the preceding entry off the launch gate.
 printf '%s\n%s' "# header" "${P2}" > "${AL}"
 rc_is 0 "add opens a line for an entry that runs to EOF" ai_tools_conf_allowlist_add "${AL}" "${P1}"
 state_is listed "${P1}" "the added path reads as listed"
@@ -662,8 +663,9 @@ else
 fi
 
 # --- enable collapses the duplicate pair to ONE live entry ---
-# The pair the old append-over-an-exclusion bug created. Un-parking the '!' line while an allow
-# line already exists would leave two live entries for one path; the earliest position survives.
+# A '!' line and an allow line for one path, the pair an append over an exclusion would create.
+# Un-parking the '!' line while an allow line already exists would leave two live entries for one
+# path; the earliest position survives.
 seed_al "# header" "!${P1}   # parked" "${P2}" "${P1}"
 rc_is 0 "enable collapses a duplicate pair"     ai_tools_conf_allowlist_enable "${AL}" "${P1}"
 state_is listed "${P1}" "the collapsed path reads as listed"
@@ -675,12 +677,12 @@ fi
 
 # --- a write that cannot happen is REPORTED, not fatal ---
 # The rewrite lands its temporary file in the allowlist's own directory, so an unwritable config
-# directory fails even when the file itself is writable. Under set -e that used to abort the caller
-# with a bare I/O error; it must return 1 and leave the file as it was.
+# directory fails even when the file itself is writable. Under `set -e` a bare I/O error would abort
+# the caller; the function must return 1 and leave the file as it was.
 #
 # Driven AS THE PROJECTS USER, which is who runs the CLI: this suite runs as root, and root ignores
 # a directory's write bit, so the very write the case is about would succeed and the assertion
-# would pass for the wrong reason -- or, as written first, fail. The library is sourced fresh in
+# would pass for the wrong reason. The library is sourced fresh in
 # that shell, since the check is about the caller's own credentials.
 if ! command -v runuser >/dev/null 2>&1; then
     skip "unwritable config directory" "runuser unavailable"
@@ -705,6 +707,24 @@ else
     else
         fail "the failed edit modified the allowlist: $(cat "${ro}/allowed-projects")"
     fi
+fi
+
+# --- the text predicate: a file whose bytes go to a program as prose -------------------------
+# ai_tools_conf_is_text_file is the shared check behind an agent's system prompt: the trust
+# predicate says who wrote the file, this says the bytes are text. Empty counts as text (the
+# shipped inert default), a directory and a NUL-carrying blob do not.
+if declare -F ai_tools_conf_is_text_file >/dev/null 2>&1; then
+    tf="${TESTDIR}/textfile"
+    printf 'You are a sandboxed agent.\n' > "${tf}"
+    ai_tools_conf_is_text_file "${tf}" && pass "a text file is text" || fail "a text file was refused"
+    : > "${tf}"
+    ai_tools_conf_is_text_file "${tf}" && pass "an empty file counts as text" || fail "an empty file was refused"
+    printf '\x00\x01\x02ELF\x00' > "${tf}"
+    ai_tools_conf_is_text_file "${tf}" && fail "a NUL-carrying blob passed as text" || pass "a binary blob is not text"
+    mkdir -p "${TESTDIR}/textdir"
+    ai_tools_conf_is_text_file "${TESTDIR}/textdir" && fail "a directory passed as a text file" || pass "a directory is not a text file"
+else
+    fail "conf.lib.sh does not define ai_tools_conf_is_text_file"
 fi
 
 finish

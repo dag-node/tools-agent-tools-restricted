@@ -8,7 +8,7 @@
 # fragment, contributed by ai-tools-integration-dotnet and exec'd by ai-tools-admin, so the base
 # package dispatches this domain without knowing the integration exists (providers.rule.md).
 #
-# The three `ai-tools-admin-*` lines above are the seam's interface declaration, read by
+# The three `ai-tools-admin-*` lines are the seam's interface declaration, read by
 # ai-tools-admin before it runs anything here: the domain this file is installed as, the least
 # interface version it needs from that tool, and the top-level verbs it answers. They stay within
 # the first 20 lines, and `verbs` stays in step with the dispatch at the foot of this file --
@@ -16,27 +16,25 @@
 # provisioning to do, rather than running the command to find out.
 #
 # The .NET SDK/runtime itself is the HOST's RPM-managed dotnet (this integration does not ship a
-# runtime of its own, and does not take a dotnet RPM dependency). This command sets up the
-# sandbox-side directories and SELinux labels the session-env fragment (session-env.d/dotnet.env.sh)
-# relies on, and installs shared global tools an operator wants available to every project.
-# "Modifications require sudo": the tools dir is root-owned and read-only to the agent, so only this
-# command changes it.
+# runtime of its own, and does not take a dotnet RPM dependency). This command creates the
+# sandbox-side state root the session-env fragment (session-env.d/dotnet.env.sh) relies on,
+# /opt/ai-tools/integrations/dotnet with its nuget, cli and tools directories, and installs shared
+# global tools an operator wants available to every project. The tools directory is root-owned and
+# read-only to the agent, so only this command changes it.
 #
-#   sudo ai-tools-admin dotnet bootstrap             # create + label the .nuget/.dotnet dirs (offline, idempotent)
+#   sudo ai-tools-admin dotnet bootstrap             # create the state root (offline, idempotent)
 #   sudo ai-tools-admin dotnet tools install <pkg...> # install global tools into the shared dir (network)
 #   sudo ai-tools-admin dotnet status                # show host SDKs/runtimes + sandbox state
 #
-# Every step FAILS LOUDLY: a directory it cannot create or a label it cannot apply on a host that
-# should support it is an error with a non-zero exit, not a silent skip, so a half-provisioned
-# integration cannot masquerade as a working one. The genuine no-ops -- SELinux disabled, no
-# policycoreutils, the ai_tools module not installed -- are recognized and logged as such. Every
-# outcome goes through the shared logger to journald and /var/log/ai-tools/dotnet.log, both under
-# the ai-tools-dotnet tag: the log identity is what an operator queries and it stays as it is,
-# where the typed command is what moved.
+# Every step fails loudly with the cause logged to journald and /var/log/ai-tools/dotnet.log under
+# the ai-tools-dotnet tag, and the genuine no-ops (SELinux disabled, no policycoreutils, the
+# ai_tools module not loaded) are recognized and logged as such; the contract, the directory modes,
+# and why the command applies no SELinux policy of its own are in dotnet.rule.md.
 #
-# Deploy:
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh /usr/local/lib/ai-tools/admin-commands.d/dotnet
+# Installed 0750 root:root at /usr/local/lib/ai-tools/admin-commands.d/dotnet, in a 0755 root:root
+# directory: the agent must not read or run a root command, and ai-tools-admin refuses the whole
+# directory when either is writable by anyone else. Deploying from a checkout:
+# docs/install-from-source.md.
 
 set -euo pipefail
 
@@ -46,8 +44,8 @@ readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 # The control-plane contract: CP_INTEGRATIONS is the one root every integration keeps its
 # sandbox-side state under, and the base's static file-context rule already maps that whole tree
 # to ai_tools_home_t -- so this command creates directories and never touches SELinux policy.
-# REQUIRED: without it the paths below are unknown, and guessing them would put the cache
-# somewhere the policy does not cover. Bare source under set -e.
+# REQUIRED: without it this command's paths are unknown, and guessing them would put the cache
+# somewhere the policy does not cover. Bare source under `set -e`.
 # shellcheck source=SCRIPTDIR/../control-plane.lib.sh
 source /usr/local/lib/ai-tools/control-plane.lib.sh
 readonly STATE_DIR="${CP_INTEGRATIONS}/dotnet"
@@ -67,13 +65,32 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
 
-die()  { ai_tools_log_error "$*"; printf 'ai-tools-admin dotnet: error: %s\n' "$*" >&2; exit 1; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads, and carried into the log line.
+# Matched inline: this command does not load the library. The code is split before the log call
+# rather than while printing, which is the one way these emitters differ from ai-tools-admin's own:
+# this command keeps a trail, so the token has to reach the log line as well as the terminal.
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    ai_tools_log_error "${code:+${code} }$*"
+    [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
+    printf 'ai-tools-admin dotnet: error: %s\n' "$*" >&2; exit 1
+}
 log()  { ai_tools_log_info  "$*"; printf 'ai-tools-admin dotnet: %s\n' "$*"; }
-warn() { ai_tools_log_warn  "$*"; printf 'ai-tools-admin dotnet: warning: %s\n' "$*" >&2; }
+warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    ai_tools_log_warn "${code:+${code} }$*"
+    [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
+    printf 'ai-tools-admin dotnet: warning: %s\n' "$*" >&2
+}
 
 # reject <message>: the command line was rejected. Exit 2, the same split ai-tools-admin makes --
 # a command nobody can type correctly, rather than an operation that ran and failed.
 reject() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-admin dotnet: %s\n' "$*" >&2
     printf "try 'ai-tools-admin dotnet --help'\n" >&2
     exit 2
@@ -94,13 +111,13 @@ ai-tools-admin dotnet -- the .NET toolchain: its sandbox state and shared tools
 EOF
 }
 
-# --help leaves the host as it is and does not read its state, so it answers any caller and is handled
+# `--help` leaves the host as it is and does not read its state, so it answers any caller and is handled
 # ahead of the root check -- ai-tools-admin's own rule, applied one level down.
 case "${1:-}" in
     --help|-h) usage; exit 0 ;;
 esac
 
-[[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
+[[ "${EUID}" -eq 0 ]] || die MSG-C4T6 "run as root (sudo)"
 
 # selinux_active : succeed when this host both runs SELinux and carries the ai-tools policy, i.e.
 # when a labelling failure is a real failure. A host with SELinux disabled, without the
@@ -127,7 +144,7 @@ selinux_active() {
 label_state() {
     local path="$1"
     restorecon -R "${path}" >/dev/null 2>&1 \
-        || die "could not relabel ${path} (restorecon failed)"
+        || die MSG-J4C7 "could not relabel ${path} (restorecon failed)"
     ai_tools_log_debug "labelled ${path} from the base file-context rule"
 }
 
@@ -142,38 +159,75 @@ drop_legacy_fcontexts() {
     done
 }
 
+# manifest_field <key> : print one field of this integration's own manifest, through the provider
+# resolver's trust rules; empty and non-zero when the key or the resolver is absent. The manifest
+# is where this integration declares its SELinux
+# layout module and the policy groups it needs (ai-tools-providers(5)); reading it here rather than
+# repeating the values keeps one home for them.
+manifest_field() {
+    local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+    # shellcheck source=SCRIPTDIR/../providers.lib.sh
+    source "${providers_lib}" 2>/dev/null || return 1
+    declare -F ai_tools_provider_manifest_field >/dev/null 2>&1 || return 1
+    ai_tools_provider_manifest_field dotnet "$1" 2>/dev/null
+}
+
+# load_layout_module : load this integration's SELinux layout module (selinux_layout_module in the
+# manifest), which types its build-output directories at creation and does not add any permission,
+# so it loads with the integration and is not an operator's choice. The policy package loads it too, for
+# either package order in one transaction. Best-effort with the consequence named: without it,
+# build output is typed at the next relabel instead of when it is created.
+load_layout_module() {
+    local module pp
+    module="$(manifest_field selinux_layout_module || true)"
+    [[ -n "${module}" ]] || return 0
+    [[ "${module}" =~ ^ai_tools_[a-z][a-z0-9_]*$ ]] \
+        || { warn MSG-Y4U5 "manifest names a layout module that is not ai_tools_<name>: ${module}"; return 0; }
+    pp="/usr/share/selinux/packages/ai-tools/${module}.pp"
+    if [[ ! -f "${pp}" ]]; then
+        warn MSG-Z4Z5 "layout module ${module} is not installed (${pp}); install ai-tools-selinux -- until then build output is typed at relabel time only"
+        return 0
+    fi
+    if semodule -i "${pp}" >/dev/null 2>&1; then
+        log "SELinux layout module ${module} loaded"
+    else
+        warn MSG-M4A7 "could not load the SELinux layout module ${module}; build output is typed at relabel time only. Re-run: sudo semodule -i ${pp}"
+    fi
+}
+
 # bootstrap : the integration's first-run setup, and the verb every provider takes for it
 # (cli-grammar.rule.md). Idempotent and offline, so `system bootstrap --scope full` and this
 # package's own %post both reach it without asking what the host is already carrying.
 bootstrap() {
-    [[ $# -eq 0 ]] || reject "dotnet bootstrap: takes no arguments"
+    [[ $# -eq 0 ]] || reject MSG-Y9D9 "dotnet bootstrap: takes no arguments"
     # This integration's state root, inside the base-owned integrations tree. Root-owned and
-    # group-traversable: what the agent may write is decided per directory below, not here.
+    # group-traversable: what the agent may write is decided per directory, not here.
     install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[integrations]}" \
         "${CP_INTEGRATIONS}" "${STATE_DIR}" \
-        || die "could not create the dotnet state root ${STATE_DIR}"
+        || die MSG-N6G6 "could not create the dotnet state root ${STATE_DIR}"
     # Set both modes exactly: created under the setgid control-plane home, a new directory
     # inherits setgid, and a plain chmod would not clear it (see ai_tools_apply_mode).
     ai_tools_apply_mode "${CP_DIR_MODES[integrations]}" "${CP_INTEGRATIONS}" "${STATE_DIR}" \
-        || die "could not set the mode on ${STATE_DIR}"
+        || die MSG-G6E2 "could not set the mode on ${STATE_DIR}"
     # NuGet restore cache and the SDK's own state: agent-WRITABLE (setgid, group ai-tools rwx).
     # The cache is shared across projects, so a package restored once serves every project; the
-    # CLI home is what keeps the shared tools tree below read-only, since the SDK would otherwise
+    # CLI home is what keeps the shared tools tree under it read-only, since the SDK would otherwise
     # write its state into $HOME/.dotnet.
     install -d -o root -g "${SANDBOX_GROUP}" -m 2770 \
         "${NUGET_DIR}" "${NUGET_DIR}/packages" "${CLI_HOME_DIR}" \
-        || die "could not create the writable dotnet state under ${STATE_DIR}"
+        || die MSG-A5R2 "could not create the writable dotnet state under ${STATE_DIR}"
     # Shared global tools: admin-managed, READ-ONLY to the agent (no group write), so only this
     # command (root) changes them.
     install -d -o root -g "${SANDBOX_GROUP}" -m 0755 "${TOOLS_DIR}" \
-        || die "could not create the shared tools dir ${TOOLS_DIR}"
-    ai_tools_apply_mode 0755 "${TOOLS_DIR}" || die "could not set the mode on ${TOOLS_DIR}"
+        || die MSG-Q7P2 "could not create the shared tools dir ${TOOLS_DIR}"
+    ai_tools_apply_mode 0755 "${TOOLS_DIR}" || die MSG-V3F4 "could not set the mode on ${TOOLS_DIR}"
     # One label for the whole tree, from the base policy's static rule: the type grants ai_tools_t
-    # the SELinux access (write on the cache, exec on the tools), while the DAC modes above are
+    # the SELinux access (write on the cache, exec on the tools), while the DAC modes are
     # the enforced read/write boundary.
     if selinux_active; then
         drop_legacy_fcontexts
         label_state "${STATE_DIR}"
+        load_layout_module
     else
         log "SELinux labelling skipped: no enforcing ai-tools policy on this host (DAC governs)"
     fi
@@ -182,8 +236,8 @@ bootstrap() {
 }
 
 tools_install() {
-    [[ $# -gt 0 ]] || reject "dotnet tools install: name at least one package"
-    command -v dotnet >/dev/null 2>&1 || die "dotnet not found on PATH -- install a host dotnet-sdk package first"
+    [[ $# -gt 0 ]] || reject MSG-B7Z4 "dotnet tools install: name at least one package"
+    command -v dotnet >/dev/null 2>&1 || die MSG-N2C6 "dotnet not found on PATH -- install a host dotnet-sdk package first"
     bootstrap   # ensure the tools dir exists and is labelled before writing into it
     local package
     for package in "$@"; do
@@ -192,18 +246,18 @@ tools_install() {
             dotnet tool install --tool-path "${TOOLS_DIR}" "${package}" \
             || DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 \
                dotnet tool update --tool-path "${TOOLS_DIR}" "${package}" \
-            || die "failed to install or update ${package}"
+            || die MSG-Y6Z3 "failed to install or update ${package}"
     done
     # Relabel the freshly written tool binaries ai_tools_home_t (so the agent may exec them) while
     # they stay root-owned and non-group-writable (RO to the agent).
     if selinux_active; then
         restorecon -R "${TOOLS_DIR}" >/dev/null 2>&1 \
-            || die "installed ${*}, but could not relabel ${TOOLS_DIR} -- the agent cannot exec the tools until it is relabelled"
+            || die MSG-J9Z8 "installed ${*}, but could not relabel ${TOOLS_DIR} -- the agent cannot exec the tools until it is relabelled"
     fi
     log "done; the tools are on the session PATH when the dotnet integration is enabled"
 }
 
-# dotnet_enabled : succeed when a session would actually get the dotnet integration -- the same
+# dotnet_enabled : succeed when a session would get the dotnet integration -- the same
 # verdict ai-tools-run reaches, via the shared resolver, rather than a grep over operator.conf that
 # would also match a commented-out line or a different name containing "dotnet".
 dotnet_enabled() {
@@ -211,14 +265,14 @@ dotnet_enabled() {
     # shellcheck source=SCRIPTDIR/../providers.lib.sh
     if ! source "${providers_lib}" 2>/dev/null \
             || ! declare -F ai_tools_enabled_integrations >/dev/null 2>&1; then
-        warn "provider resolver unavailable -- cannot report session enablement"
+        warn MSG-X4Q4 "provider resolver unavailable -- cannot report session enablement"
         return 1
     fi
     ai_tools_enabled_integrations 2>/dev/null | grep -qx dotnet
 }
 
 status() {
-    [[ $# -eq 0 ]] || reject "dotnet status: takes no arguments"
+    [[ $# -eq 0 ]] || reject MSG-P8N7 "dotnet status: takes no arguments"
     if command -v dotnet >/dev/null 2>&1; then
         log "host dotnet: $(dotnet --version 2>/dev/null || echo '?')"
         log "SDKs:";     dotnet --list-sdks     2>/dev/null | sed 's/^/  /' || true
@@ -235,17 +289,56 @@ status() {
     else
         log "session enablement: dotnet NOT enabled -- add it to AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}"
     fi
+    selinux_status
+}
+
+# selinux_status : the SELinux half of `dotnet status`: whether this integration's layout module
+# is loaded, and which of the policy groups it declares (selinux_groups in the manifest) are not,
+# with the command that enables them. Read from the manifest, so the report and the launch nudge
+# name the same set. Skipped where there is no ai-tools policy to ask.
+selinux_status() {
+    selinux_active || return 0
+    local groups_lib=/usr/local/lib/ai-tools/selinux-groups.lib.sh
+    # shellcheck source=SCRIPTDIR/../selinux-groups.lib.sh
+    source "${groups_lib}" 2>/dev/null || return 0
+    declare -F ai_tools_selinux_group_loaded >/dev/null 2>&1 || return 0
+    local module declared name missing="" experimental=""
+    local -a names=()
+    module="$(manifest_field selinux_layout_module || true)"
+    if [[ -n "${module}" ]]; then
+        if ai_tools_selinux_module_loaded "${module}"; then
+            log "SELinux layout module: ${module} loaded (build output typed at creation)"
+        else
+            log "SELinux layout module: ${module} NOT loaded -- re-run: sudo ai-tools-admin dotnet bootstrap"
+        fi
+    fi
+    declared="$(manifest_field selinux_groups || true)"
+    [[ -n "${declared}" ]] || return 0
+    ai_tools_conf_split names "${declared}"
+    for name in "${names[@]}"; do
+        ai_tools_selinux_group_valid "${name}" || continue
+        if ai_tools_selinux_group_loaded "${name}"; then
+            log "SELinux group ${name}: loaded"
+        elif ai_tools_selinux_group_is_experimental "${name}"; then
+            log "SELinux group ${name}: NOT loaded (experimental)"; experimental+="${experimental:+ }${name}"
+        else
+            log "SELinux group ${name}: NOT loaded"; missing+="${missing:+ }${name}"
+        fi
+    done
+    [[ -z "${missing}" ]] || log "enable with: sudo ai-tools-admin selinux groups enable ${missing}"
+    [[ -z "${experimental}" ]] \
+        || log "experimental, from a source checkout: sudo selinux/install-selinux.sh enable-group ${experimental}"
 }
 
 # ── dispatch ─────────────────────────────────────────────────────────────────────────────────
 # `tools` is a collection with no `list` yet, so a bare `dotnet tools` names its verb rather than
 # running one: the installed tools are already reported by `dotnet status`.
 tools_dispatch() {
-    [[ $# -ge 1 ]] || reject "dotnet tools takes a verb: 'dotnet tools install <pkg>...'"
+    [[ $# -ge 1 ]] || reject MSG-V3Y2 "dotnet tools takes a verb: 'dotnet tools install <pkg>...'"
     local verb="$1"; shift
     case "${verb}" in
         install) tools_install "$@" ;;
-        *)       reject "unknown command 'dotnet tools ${verb}' (install)" ;;
+        *)       reject MSG-Y6A6 "unknown command 'dotnet tools ${verb}' (install)" ;;
     esac
 }
 
@@ -253,6 +346,6 @@ case "${1:-}" in
     bootstrap) shift; bootstrap "$@" ;;
     tools)     shift; tools_dispatch "$@" ;;
     status)    shift; status "$@" ;;
-    '')        reject "dotnet takes a command: 'dotnet bootstrap', 'dotnet tools install <pkg>...', 'dotnet status'" ;;
-    *)         reject "unknown command 'dotnet $1' (bootstrap|tools|status)" ;;
+    '')        reject MSG-A7X9 "dotnet takes a command: 'dotnet bootstrap', 'dotnet tools install <pkg>...', 'dotnet status'" ;;
+    *)         reject MSG-Y5Q8 "unknown command 'dotnet $1' (bootstrap|tools|status)" ;;
 esac

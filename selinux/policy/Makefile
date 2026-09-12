@@ -11,8 +11,13 @@
 #   make ai_tools_podman.pp          # optional: podman/buildah, container storage
 #   make ai_tools_tmpmap.pp          # optional: mmap of the agent's own /tmp files
 #   make ai_tools_apphost.pp         # optional: execute .NET apphost/JIT code from memfd
-#   make ai_tools_netcore.pp         # optional: .NET runtime IPC + run a project's built binary
+#   make ai_tools_localipc.pp        # optional: local IPC between the session's own processes
+#   make ai_tools_buildexec.pp       # optional: execute a project's build output
+#   make ai_tools_dotnet.pp          # layout module: .NET's build output typed at creation
 #   make clean
+#
+# The set a release ships is printed by shipped-modules.sh beside this file; the RPM build and
+# `../install-selinux.sh build` compile that set here. No .pp is tracked.
 #
 # Use install-selinux.sh (one level up, at selinux/) rather than semodule directly:
 #   sudo ../install-selinux.sh install

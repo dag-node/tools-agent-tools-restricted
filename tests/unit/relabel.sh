@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/relabel.sh
-# Unit test for the entrypoint file-context predicate (relabel.lib.sh): the pure
+# Unit test for the file-context predicates (relabel.lib.sh): the pure
 # ai_tools_entrypoint_fcontext_valid that gates every pattern an agent manifest declares before
 # it becomes a `semanage fcontext` rule mapping files to ai_tools_exec_t -- the exec entrypoint of
-# the confined domain.
+# the confined domain -- and ai_tools_operator_conf_valid, which gates the path that becomes an
+# ai_tools_conf_t rule for one operator's config subtree.
 #
 # The property under test is containment: a declared pattern may only ever match inside the
-# sandbox's own Node toolchain. A manifest is root-owned, so this is defense in depth rather than
-# the only guard, but the failure it prevents is severe and silent -- a pattern with an
-# alternation, a traversal, or a foreign prefix would hand ai_tools_exec_t to a file outside the
-# toolchain, making it an entrypoint into the agent's domain. The type itself is never
-# manifest-supplied, which this file also pins.
+# sandbox's own Node toolchain, and a config rule may only ever name one account's
+# ~/.config/ai-tools. Both inputs are root-owned or read from a passwd entry, so this is defense in
+# depth rather than the only guard, but the failure it prevents is severe and silent -- a pattern
+# with an alternation, a traversal, or a foreign prefix would hand ai_tools_exec_t to a file
+# outside the toolchain, making it an entrypoint into the agent's domain. The entrypoint type is
+# never manifest-supplied and the config type never caller-supplied, which this file also pins.
 #
 # Sources the deployed library; no SELinux host, no privilege of its own. Run as root via sudo
 # (suite contract).
@@ -160,6 +162,103 @@ else
     skip "project-label verification" "ai_tools_project_labelled not defined by ${LIB}"
 fi
 
+# ── The build-output rule beside the project rule ─────────────────────────────────────────────
+# A claim labels a project's build-output directories ai_tools_project_build_t, the type the
+# buildexec policy group may grant execute on, from the names each installed integration manifest
+# declares (build_output_dirs). Three properties carry the weight. The NAMES come from the
+# manifests and are validated to one plain component each, since they are spliced into a
+# file-context regex and a `/`, `|` or `(` would let a manifest widen the rule past the
+# directories it names. The label writes the project rule FIRST and the build rule second, in
+# that order, because among rules sharing a stem the later one is the match. And the unlabel
+# drops the build rule by LISTING the local rules under the project rule, so a rule written under
+# an earlier name set is removed with the claim rather than left on a subtree the confined domain
+# manages. semanage, restorecon and the availability probe are stubbed; no policy store is touched.
+section "relabel: the build-output rule (unit)"
+if declare -F ai_tools_project_build_pattern >/dev/null 2>&1 \
+        && declare -F ai_tools_label_project >/dev/null 2>&1; then
+    # The manifest reader is stubbed at the seam relabel.lib.sh consumes it through.
+    ai_tools_installed_integrations_declaring() {
+        [[ "$1" == build_output_dirs ]] || return 0
+        printf 'dotnet\tbin obj artifacts\n'
+        printf 'evil\tbin/../etc x|y (z) .hidden\n'   # every name but .hidden must be refused
+    }
+    # C-locale order: `.` sorts before a letter, and the order is part of the pattern a claim writes.
+    got="$(ai_tools_project_build_pattern /home/op/proj)"
+    if [[ "${got}" == '/home/op/proj(/.*)?/(\.hidden|artifacts|bin|obj)(/.*)?' ]]; then
+        pass "the build pattern unions the declared names in C order, refuses a path or a metacharacter, and escapes a dot"
+    else
+        fail "build pattern: '${got}'"
+    fi
+    ai_tools_installed_integrations_declaring() { :; }
+    if ai_tools_project_build_pattern /home/op/proj >/dev/null; then
+        fail "a host with no declared build-output names still produced a build pattern"
+    else
+        pass "with no declared names the build pattern is empty and the caller writes no rule"
+    fi
+
+    # Order and content of the semanage calls a label makes.
+    ai_tools_installed_integrations_declaring() { printf 'dotnet\tbin obj\n'; }
+    ai_tools_relabel_available() { return 0; }
+    ai_tools_project_labelled()  { return 0; }
+    restorecon() { :; }
+    CALLS=""
+    semanage() { CALLS+="$*"$'\n'; return 0; }
+    ai_tools_label_project /home/op/proj
+    if [[ "${CALLS}" == "fcontext -a -t ai_tools_project_t /home/op/proj(/.*)?"$'\n'"fcontext -a -t ai_tools_project_build_t -- /home/op/proj(/.*)?/(bin|obj)(/.*)?"$'\n' ]]; then
+        pass "a label registers the project rule, then the build rule"
+    else
+        fail "label calls: ${CALLS//$'\n'/ | }"
+    fi
+    # A build rule the store refuses (a policy older than the library) fails the label, so the
+    # claim reports it rather than leaving output on a type the group cannot run.
+    semanage() { [[ "$*" == *ai_tools_project_build_t* ]] && return 1; return 0; }
+    if ai_tools_label_project /home/op/proj; then
+        fail "a refused build rule did not fail the label"
+    else
+        pass "a refused build rule fails the label (reported, not silently skipped)"
+    fi
+    # Sandbox clones take neither rule: the static rules cover them.
+    CALLS=""; semanage() { CALLS+="$*"$'\n'; return 0; }
+    ai_tools_label_project /var/opt/ai-tools/sandbox-projects/clone
+    if [[ -z "${CALLS}" ]]; then
+        pass "a sandbox clone registers no per-project rule"
+    else
+        fail "a sandbox clone registered rules: ${CALLS//$'\n'/ | }"
+    fi
+
+    # The unlabel finds the build rule by listing, whatever name set wrote it, and parses the
+    # row format semanage prints (pattern, file-type words, context).
+    semanage() {
+        case "$*" in
+            "fcontext -l -C -n")
+                printf '%-50s %-18s %s\n' '/home/op/proj(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_t:s0'
+                printf '%-50s %-18s %s\n' '/home/op/proj(/.*)?/(bin|target)(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_build_t:s0'
+                printf '%-50s %-18s %s\n' '/home/op/proj-two(/.*)?/(bin)(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_build_t:s0'
+                printf '%-50s %-18s %s\n' '/home/op/other space(/.*)?/(bin)(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_build_t:s0'
+                return 0 ;;
+            *) CALLS+="$*"$'\n'; return 0 ;;
+        esac
+    }
+    CALLS=""
+    ai_tools_unlabel_project /home/op/proj
+    if [[ "${CALLS}" == "fcontext -d -- /home/op/proj(/.*)?/(bin|target)(/.*)?"$'\n'"fcontext -d /home/op/proj(/.*)?"$'\n' ]]; then
+        pass "an unlabel drops the build rule found by listing (an older name set included), then the project rule, and leaves a sibling project's rule alone"
+    else
+        fail "unlabel calls: ${CALLS//$'\n'/ | }"
+    fi
+    got="$(_ai_tools_local_rules_under '/home/op/other space')"
+    if [[ "${got}" == '/home/op/other space(/.*)?/(bin)(/.*)?' ]]; then
+        pass "a pattern carrying a space survives the row parse"
+    else
+        fail "row parse of a pattern with a space: '${got}'"
+    fi
+    unset -f ai_tools_installed_integrations_declaring ai_tools_relabel_available \
+             ai_tools_project_labelled restorecon semanage
+    unset CALLS
+else
+    skip "build-output rule" "ai_tools_project_build_pattern not defined by ${LIB}"
+fi
+
 # ── Reporting WHY a file-context rule was refused ─────────────────────────────────────────────
 # semanage's stderr is the only account of why a rule did not land, and "could not register its
 # entrypoint file-context rule" does not name a cause on its own -- an operator reading it has no next step to
@@ -194,7 +293,7 @@ if declare -F _ai_tools_fcontext >/dev/null 2>&1 \
 
     # The reason has to reach the caller through the REPORT, not through the variable:
     # ai-tools-relabel-agent runs the labelling inside a `$(...)`, and a variable set in that
-    # subshell is gone by the time the renderer reads it. So the capture below is the production
+    # subshell is gone by the time the renderer reads it. So the capture is the production
     # call shape, and the assertion is that the status line itself carries the cause.
     ai_tools_agent_manifest_field() {
         if [[ "$2" == entrypoint_fcontext ]]; then
@@ -280,6 +379,57 @@ else
     if [[ "${unwritable}" == "cannot write ${TESTDIR}/no-such-dir/relabel.lock" ]]; then
         pass "an uncreatable lock file is reported and the relabel proceeds"
     else fail "expected a single cannot-write note, got '${unwritable}'"; fi
+
+    # install-selinux.sh writes the store in sections with prompts between them, so it releases
+    # the lock between sections through ai_tools_relabel_unlock rather than at exit. The holder
+    # signals its release with a marker file so the contender does not race the unlock itself.
+    if declare -F ai_tools_relabel_unlock >/dev/null 2>&1; then
+        RELEASED="${TESTDIR}/released"
+        # shellcheck disable=SC2016  # the child shell expands these, not this one
+        env AI_TOOLS_RELABEL_LOCK="${LOCK}" AI_TOOLS_RELABEL_LOCK_WAIT=5 \
+            bash -c 'source "$1"; ai_tools_relabel_lock; ai_tools_relabel_unlock; : >"$2"; sleep 3' \
+            _ "${LIB}" "${RELEASED}" &
+        holder=$!
+        for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -e "${RELEASED}" ]] && break; sleep 0.2; done
+        after_unlock="$(take_lock 1 0)"
+        if [[ -e "${RELEASED}" && -z "${after_unlock}" ]]; then
+            pass "ai_tools_relabel_unlock releases the lock while its holder still runs"
+        else fail "the lock was still held after ai_tools_relabel_unlock: '${after_unlock:-<no note>}' (released marker: $([[ -e "${RELEASED}" ]] && echo yes || echo no))"; fi
+        wait "${holder}" 2>/dev/null || true
+
+        # A section wrapper that locks around a helper that already holds the lock must not wait
+        # on itself: flock serializes open file descriptions, and a second descriptor on the same
+        # file would block for the whole wait. The wait here is shorter than the hold, so a
+        # self-wait would show as the held-store note.
+        # shellcheck disable=SC2016  # the child shell expands these, not this one
+        relock="$(env AI_TOOLS_RELABEL_LOCK="${LOCK}" AI_TOOLS_RELABEL_LOCK_WAIT=1 \
+            bash -c 'source "$1"; ai_tools_relabel_lock; ai_tools_relabel_lock; printf "%s" "${AI_TOOLS_RELABEL_LOCK_NOTE}"' \
+            _ "${LIB}")"
+        if [[ -z "${relock}" ]]; then
+            pass "a second ai_tools_relabel_lock in the holding process returns without waiting"
+        else fail "re-taking the held lock waited on itself: ${relock}"; fi
+    else
+        skip "lock release between sections" "ai_tools_relabel_unlock not defined by ${LIB}"
+    fi
+
+    # The ai-tools-selinux %post cannot source the library, so it open-codes flock on the same
+    # path. Two writers serialize only on one file, so the literal in the spec is pinned to the
+    # library's default here rather than trusted to stay in step by hand.
+    SPEC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/packaging/ai-tools.spec"
+    # shellcheck disable=SC2016  # the child shell expands these, not this one
+    default_lock="$(env -u AI_TOOLS_RELABEL_LOCK bash -c 'source "$1"; printf "%s" "${AI_TOOLS_RELABEL_LOCK}"' _ "${LIB}")"
+    if [[ ! -r "${SPEC}" ]]; then
+        skip "the scriptlet's lock path" "packaging/ai-tools.spec is not beside this suite"
+    elif [[ "${default_lock}" != /run/lock/* ]]; then
+        fail "the library's default lock is not under /run/lock: '${default_lock}'"
+    else
+        # The section is captured before the grep: under pipefail a `sed | grep -q` reports the
+        # SIGPIPE grep hands sed on its first match as a failed pipeline.
+        selinux_post="$(sed -n '/^%post -n ai-tools-selinux$/,/^%postun -n ai-tools-selinux$/p' "${SPEC}")"
+        if grep -qF -- "=${default_lock}" <<<"${selinux_post}"; then
+            pass "the ai-tools-selinux %post locks the library's own path: ${default_lock}"
+        else fail "the ai-tools-selinux %post does not lock ${default_lock}, the library's default"; fi
+    fi
 fi
 
 # ── The per-agent outcome the report closes with ──────────────────────────────────────────────
@@ -448,10 +598,68 @@ else
     unlisted="${TESTDIR}/unlisted-project"; mkdir -p "${unlisted}"
     : > "${TESTDIR}/empty-allowlist"
     out="$(AI_TOOLS_ALLOWLIST="${TESTDIR}/empty-allowlist" "${RELABEL_BIN}" "${unlisted}" 2>&1)" && rc=0 || rc=$?
-    if [[ "${rc}" -ne 0 ]] && grep -qi 'not in the allowed-projects allowlist' <<<"${out}"; then
+    if [[ "${rc}" -ne 0 ]]; then
         pass "a path no allowlist covers is refused, before any policy write"
     else
         fail "the helper did not refuse an unlisted path (rc=${rc}): ${out}"
+    fi
+    assert_msg MSG-P8J7 "${out}" "the unlisted-path refusal is the one reported"
+fi
+
+# ── The operator config subtree predicate ────────────────────────────────────────────────────
+# ai_tools_operator_conf_valid gates what becomes a `semanage fcontext` rule for ai_tools_conf_t,
+# the type the root helpers read an operator's allowlist through. Its input is a home path from a
+# passwd entry, so the property under test is the containment
+# ai_tools_entrypoint_fcontext_valid holds for a toolchain path: the rule may name one account's
+# ~/.config/ai-tools and no other path. A regex metacharacter reaching the pattern would widen it
+# to homes nobody enrolled, and refusing costs that one operator's label, which the caller
+# reports -- so every ambiguous shape must be refused.
+# Pure: no filesystem, no privilege, no SELinux host.
+section "relabel: the operator config subtree predicate (unit)"
+
+if ! declare -F ai_tools_operator_conf_valid >/dev/null 2>&1; then
+    skip "operator conf predicate" "${LIB} does not define ai_tools_operator_conf_valid"
+else
+    conf_accepts() {
+        if ai_tools_operator_conf_valid "$1"; then pass "accepts ${1:-<empty>}"
+        else fail "rejected a valid operator config dir: $1"; fi
+    }
+    conf_rejects() {
+        if ai_tools_operator_conf_valid "$1"; then fail "ACCEPTED ${2}: ${1:-<empty>}"
+        else pass "rejects ${2}"; fi
+    }
+
+    conf_accepts '/home/op/.config/ai-tools'
+    conf_accepts '/home/some.user/.config/ai-tools'      # a dotted account name is ordinary
+    conf_accepts '/var/lib/svc-account/.config/ai-tools' # a service account's home need not be /home
+
+    conf_rejects ''                                  "an empty path"
+    conf_rejects 'home/op/.config/ai-tools'          "a relative path"
+    conf_rejects '/home/op/.config'                  "the parent, which would cover every ~/.config file"
+    conf_rejects '/home/op'                          "a whole home"
+    conf_rejects '/home/op/.config/ai-tools/sub'     "a path below the config dir"
+    conf_rejects '/home/../etc/.config/ai-tools'     "a parent-directory traversal"
+    conf_rejects '/.config/ai-tools'                 "a home of / -- the filesystem root"
+    conf_rejects '/home/a|b/.config/ai-tools'        "an alternation in the home"
+    conf_rejects '/home/*/.config/ai-tools'          "a wildcard matching every home"
+    conf_rejects '/home/[ab]/.config/ai-tools'       "a bracket expression in the home"
+    conf_rejects '/home/a b/.config/ai-tools'        "whitespace in the home"
+    # shellcheck disable=SC2016  # the literal $(...) is the input under test, not an expansion
+    conf_rejects '/home/$(id)/.config/ai-tools'      "a shell-substitution character"
+
+    # The TYPE is the library's, never a caller's -- the same rule the entrypoint type follows.
+    if [[ "${AI_TOOLS_OPERATOR_CONF_TYPE:-}" == ai_tools_conf_t ]]; then
+        pass "the operator config type is pinned in the library (ai_tools_conf_t)"
+    else
+        fail "AI_TOOLS_OPERATOR_CONF_TYPE is '${AI_TOOLS_OPERATOR_CONF_TYPE:-unset}', expected ai_tools_conf_t"
+    fi
+
+    # A dot in the pattern must be escaped, or the rule matches homes the operator does not own.
+    pattern="$(_ai_tools_operator_conf_pattern '/home/some.user/.config/ai-tools')"
+    if [[ "${pattern}" == '/home/some\.user/\.config/ai-tools(/.*)?' ]]; then
+        pass "the pattern escapes every dot and covers the subtree"
+    else
+        fail "pattern is '${pattern}', expected every dot escaped and a (/.*)? tail"
     fi
 fi
 

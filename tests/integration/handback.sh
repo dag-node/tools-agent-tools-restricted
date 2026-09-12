@@ -12,14 +12,14 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-# The negative section below drives real rejections through the live socket; each connection
+# The negative section drives real rejections through the live socket; each connection
 # is a transient ai-tools-handback@<n>.service that systemd marks FAILED when the daemon
 # exits non-zero on the bad request. Clear those instances on exit so the manager's
 # failed-unit list shows only genuine faults -- not this suite's synthetic rejections, which
 # an operator auditing `systemctl --failed` would otherwise keep rediscovering.
 on_teardown systemctl reset-failed 'ai-tools-handback@*'
 
-# The systemd units (the nvm-update timer in the sandbox account's --user instance, the
+# The systemd units (the nvm-update timer in the sandbox account's `--user instance`, the
 # relabel watcher, this socket) are validated and their enablement checked in systemd.sh.
 
 section "Handback bridge + entrypoint (regression guards)"
@@ -74,7 +74,7 @@ fi
 
 # (2) Handback socket is 0660 root:SANDBOX_GROUP and /run/ai-tools is traversable by the
 # sandbox user. The systemd-252 RuntimeDirectoryGroup= trap left the dir root:root and
-# un-traversable; the fix is RuntimeDirectoryMode=0711 (world --x, contents unlistable).
+# un-traversable; the fix is RuntimeDirectoryMode=0711 (world `--x`, contents unlistable).
 _sock="/run/ai-tools/handback.sock"
 if [[ ! -S "${_sock}" ]]; then
     skip "handback socket DAC" "${_sock} not present (service not started?)"
@@ -123,7 +123,7 @@ else
     fail "handback SYMLINK verb FAILED -- check /run/ai-tools (0711) reachable and ai_tools_handback_t getattr on ai_tools_exec_t"
 fi
 
-# (4a) The served request above must leave a line in the daemon's own trail
+# (4a) The served request must leave a line in the daemon's own trail
 # (/var/log/ai-tools/handback.log, root-only, written by the root daemon at its hardcoded
 # path -- unaffected by the harness AI_TOOLS_LOG_DIR override). Its presence proves the
 # daemon file sink AND, under enforcing, the ai_tools_handback_t -> ai_tools_log_t append
@@ -148,13 +148,13 @@ if ! command -v runuser >/dev/null 2>&1 || [[ ! -x "${_client}" || ! -S "${_sock
     skip "handback negative" "runuser, client, or socket unavailable"
 else
     # Drive the client as the agent; capture combined output and the exit code without
-    # tripping set -e (the assignment failure sits in a && / || list, which is exempt).
+    # tripping `set -e` (the assignment failure sits in a && / || list, which is exempt).
     drive() { runuser -u "${SANDBOX_USER}" -- "${_client}" "$@" 2>&1; }
 
     # (probe) The daemon must ANSWER -- any reply, even ERR, proves the listener and the
     # per-connection handler run. A client-transport error (connect refused/denied, or a
     # reset before the request is read) means no daemon answered, so every per-case
-    # assert below would fail with the same client error; report the bridge itself once
+    # per-verb assert would fail with the same client error; report the bridge itself once
     # and skip them. The one-command fix relabels the daemon and rebinds the listener.
     #
     # The unknown verb is SELFTEST (not a generic BOGUS): the daemon logs it verbatim as
@@ -176,7 +176,7 @@ else
     else
 
     # (6) Unknown verb is rejected before any helper runs (SELFTEST, self-identifying in the
-    # daemon's audit log -- see the probe above).
+    # daemon's audit log -- see the transport probe).
     out="$(drive SELFTEST /etc/hostname)" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'unknown verb' <<<"${out}"; then
         pass "daemon rejects an unknown verb (no helper dispatched)"
@@ -224,8 +224,7 @@ else
     # victim lives under /var/opt/ai-tools (root-owned, NOT /tmp -- which is polyinstantiated
     # and would not cross to the daemon, and NOT allowlisted), so a buggy bridge that chowned
     # it would be a real privilege leak this test would catch.
-    victim="$(mktemp /var/opt/ai-tools/.handback-negtest.XXXXXX)"
-    _cleanup+=("${victim}")
+    victim=""; mk_fixture_file victim /var/opt/ai-tools victim
     chown root:root "${victim}"; chmod 0600 "${victim}"
     before="$(stat -c '%U:%G' "${victim}")"
     drive CHOWN "${victim}" >/dev/null 2>&1 || true

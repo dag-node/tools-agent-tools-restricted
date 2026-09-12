@@ -16,7 +16,7 @@ The login accounts that own projects and drive the sandbox through the one share
 sandbox account. A host has one or more; typically a human plus rootless service
 accounts (e.g. a CI runner). They are the **operators**: listed in
 `/etc/ai-tools/operator.conf` (`OPERATORS="alice bob svc-ci"`) and members of the
-`ai-ops` group. Each owns the project trees in its own approved-projects allowlist.
+`ai-ops` group. Each owns the project trees its own allowlist names.
 Deliberately **not** "human user": an operator may be an automation. They share the
 sandbox account's agent state and reach — a trusting team, no kernel isolation between
 their sessions.
@@ -90,7 +90,7 @@ message naming the account a file ends up with, and every scan matching on that 
 `INVOKING_USER` denotes a host account rather than an operator: the informational verbs stay open
 to a user absent from `OPERATORS`, and root reaches the read-only reports.
 
-Both are distinct from `PROJECTS_USER` above, which a root helper resolves per path from the
+Both are distinct from `PROJECTS_USER`, the owner a root helper resolves per path from the
 allowlist covering it. The CLI sets neither of the `PROJECTS_*` globals, and a `--for` run leaves
 that resolution alone — a helper's walk still resolves each path's own owner.
 
@@ -117,7 +117,7 @@ not the account itself and are coupled to other contracts:
 Renaming those would break paths, policy, and the sudoers grant; they stay
 literal regardless of `SANDBOX_USER`.
 
-### Role aliases built from the above
+### Role aliases built from the owner and the sandbox group
 
 Both are built at runtime from the resolved owner (`PROJECTS_USER` = the owner of the
 path being acted on), not from a build-time token:
@@ -137,6 +137,21 @@ an operator blanket read of the sandbox group's files (e.g. `.claude` session st
 
 The sandbox user is also **not** in `ai-ops`, so it cannot hold the operators' sudoers
 grant; `ai-tools-run` refuses to launch if that is ever violated.
+
+## The allowlist, and the registries a claim writes
+
+One file decides where an operator's sessions may start, and prose names it one way:
+
+| Facet | Where | Prose term |
+|-------|-------|------------|
+| an operator's project list | `~/.config/ai-tools/allowed-projects`, per operator (`allowed-projects(5)`) | "the allowlist" / "`<operator>`'s allowlist" |
+| a line in it | a path, or a `!`-prefixed carve-out | "an allowlist entry" / "a carve-out" |
+| the pair a claim writes and an unclaim drops | the allowlist entry and the `safe.directory` entry in the sandbox account's `.gitconfig` | "the registries" / "both registries" |
+
+**Allowlist** is the term: it is the code's word (`ALLOWLIST`, `ai_tools_allowlist_covers`,
+`ai-tools-allowlist`) and the man page's. "Registry" on its own, "approved projects", and "project
+list" are not used for it. "The registries" is reserved for the allowlist entry together with the
+`safe.directory` entry, the pair `--project-unclaim` and `--project-remove` drop.
 
 ## Agent vs subagent
 

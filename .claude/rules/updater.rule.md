@@ -45,7 +45,7 @@ next scheduled window rather than an **immediate catch-up run**. The timer's dai
 passed when the toolchain is provisioned, and with no prior stamp `Persistent=true` would run
 `nvm-update.service` at once — which reinstalls the agent package, reminting `claude.exe` at
 `lib_t` (a freshly written entrypoint is born the default type; only `restorecon` applies
-`ai_tools_exec_t`, see [post-upgrade relabel](#post-upgrade-entrypoint-relabel) below), and its
+`ai_tools_exec_t`, see [post-upgrade relabel](#post-upgrade-entrypoint-relabel)), and its
 asynchronous repoint→relabel chain races the operator's first launch into the mislabel refusal.
 Provisioning has just installed the current toolchain, so recording "last run = now" is
 truthful; the next run is the next scheduled window. `ai-tools-bootstrap` and `install.sh` both
@@ -66,13 +66,13 @@ prompt requires it and fails closed like any other, no fallback (see
 ## Where the update runs
 
 `nvm-update.service` and `nvm-update.timer` ship in `%{_userunitdir}` and are enabled in
-`SANDBOX_USER`'s own `systemd --user` instance, so the updater runs as `SANDBOX_USER` and
+`SANDBOX_USER`'s own `systemd --user instance`, so the updater runs as `SANDBOX_USER` and
 writes the shared `.nvm` tree (`%h=/opt/ai-tools`) directly. The timer fires daily; one
 instance maintains the toolchain the whole team shares. `ai-tools-bootstrap` enables the
 timer once it has provisioned the toolchain and `SANDBOX_USER`'s linger; `install.sh`
 enables it for the dev flow.
 
-### A `--user` unit here does not carry a mount-namespace option
+### A `--user unit` here does not carry a mount-namespace option
 
 Running in a per-user manager decides what these units may set. `systemd.exec(5)` states that a
 mount-namespace option "is only available for system services, or for services running in per-user
@@ -86,10 +86,10 @@ The payload is what breaks. `ai_tools_conf_is_trusted` requires owner 0 (see
 nobody-owned, refuses `operator.conf` and every manifest, and does not resolve any agent. The
 refusals stay fail-closed, and the toolchain stops advancing; the run ends as a fault whose reason
 names the translated owner it read ([the empty-set classification](#the-run-classifies-itself-ok-skipped-or-failed)),
-so the state is reported, and the unit check below is what keeps it from arising.
+so the state is reported, and the unit-file check is what keeps it from arising.
 
 Two properties of that make the guard a **unit-file check** (`tests/integration/systemd.sh`, over
-every shipped `--user` unit) rather than a runtime one:
+every shipped `--user unit`) rather than a runtime one:
 
 - `systemd-analyze verify` accepts the option, and the unit starts and exits 0 with it.
 - `RestrictNamespaces=yes` does not refuse it. That directive filters the **payload's** `unshare`,
@@ -102,7 +102,7 @@ same property holds for a session (see [confinement](confinement.rule.md), which
 
 ## Last-run stamp
 
-Running there puts the updater's health out of the operator's reach: querying a `--user` manager
+Running there puts the updater's health out of the operator's reach: querying a `--user manager`
 needs that account's own bus, the machine transport (`systemctl --user -M`) needs root, and no
 sudo rule grants either — so a failing update is invisible from an operator session while the
 toolchain silently stops advancing. `nvm-update.sh` closes that by recording every run's outcome
@@ -141,7 +141,7 @@ attention that a real fault then has to compete with.
 The split is coarse by intent. It does not diagnose *why* the registry was unreachable — a
 disconnected machine and a registry outage are one state from inside a confined `--user` job — only
 whether a retry is the right response (the unit retries `3` and not `1`; see
-[the retry policy](#retrying-a-transient-failure) below) and whether an operator should be alarmed
+[the retry policy](#retrying-a-transient-failure)) and whether an operator should be alarmed
 now. What keeps `skipped` from becoming a way to hide a real problem is that it does not stop the
 clock: the stamp still ages, and a condition that persists past the record's 48h grace reports
 `STALE`, the same escalation a schedule that stopped firing gets. Offline once is routine; offline for a week is a toolchain that has stopped advancing.
@@ -265,16 +265,22 @@ no path outside the sandbox toolchain root (no traversal, no alternation, an anc
 head), so a manifest chooses **which** file is its entrypoint, never what label a file gets. The
 whole body lives in `relabel.lib.sh`, shared with `install-selinux.sh`'s verify pass.
 
-**Relabels serialize, and a refusal names its cause.** Three callers run this helper and an
-upgrade drives two of them at once — the agent package's `%post` and the `ai-tools-relabel.path`
-watcher, which the same transaction's `restorecon` of `/opt/ai-tools` triggers. `semanage`
-serializes on the policy store and reports an error to whichever process finds it held rather than
-waiting, so overlapping runs leave rules unregistered and both report a failure neither caused.
-`ai_tools_relabel_lock` (`relabel.lib.sh`, taken by `ai-tools-relabel-agent` and by
-`ai-tools-relabel`, which writes the same store for a project claim) makes the second wait. It is
-best-effort in one direction only: no `flock`, an uncreatable lock file, or a wait that runs out
-proceeds unserialized and says so, since labelling is idempotent and every refusal is reported, so
-an untaken lock costs a repeat run rather than a wrong label.
+**Every writer of the policy store serializes on one lock, and a refusal names its cause.** An
+install or upgrade drives writers at once: the base package's rewrite of `/opt/ai-tools/bin` fires
+the `ai-tools-relabel.path` watcher while the selinux package's `%post` (or `install-selinux.sh`)
+is still loading modules, and the agent package's `%post` runs this helper in the same
+transaction. `semanage` and `semodule` take the store's own lock non-blocking and report an error
+to whichever process finds it held, so overlapping runs leave rules unregistered and both report a
+failure neither caused. `ai_tools_relabel_lock` (`relabel.lib.sh`) makes the later one wait. The
+root helpers (`ai-tools-relabel-agent`, `ai-tools-relabel`, `ai-tools-admin`'s operator labelling)
+hold it for the run; `install-selinux.sh` takes it per store-writing command through
+`ai_tools_relabel_unlock`, since its install action prompts between loads and a lock held across
+a prompt would make the watcher's run wait out `AI_TOOLS_RELABEL_LOCK_WAIT` and proceed
+unserialized; the selinux `%post` open-codes `flock` on the same path, which
+`tests/unit/relabel.sh` pins to the library's default. The lock is best-effort in one direction
+only: no `flock`, an uncreatable lock file, or a wait that runs out proceeds unserialized and says
+so, since labelling is idempotent and every refusal is reported, so an untaken lock costs a repeat
+run rather than a wrong label.
 
 `semanage`'s own stderr is what a refusal reports, carried on the status line the helper renders
 and logs (`relabel.log`, journald, and so `ai-tools --audit`) — the store being held and a type the
@@ -315,7 +321,8 @@ root-owned manifests declare (see [agent-claude-code](agent-claude-code.rule.md)
 `ai-tools-relabel-agent --remove <agent>` is the erase-time counterpart: the agent package's
 `%preun` drops its rule while its manifest is still on disk.
 
-`ai-tools-bootstrap` runs the helper directly at provision time (above). Two further paths
+`ai-tools-bootstrap` runs the helper directly at provision time (see
+[Toolchain provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths
 run it after an upgrade, both as root, never `SANDBOX_USER`:
 
 - **Automatically**, through the `ai-tools-relabel.path` watcher. The `.path` watches the
@@ -362,7 +369,7 @@ operator clears with `ai-tools-admin system entrypoints relabel`, never an uncon
 
 ## `loginctl enable-linger`
 
-Linger on `SANDBOX_USER` keeps its `systemd --user` instance running without an
+Linger on `SANDBOX_USER` keeps its `systemd --user instance` running without an
 interactive login, so both the daily `nvm-update` timer and each `ai-tools-run` session unit
 have a live user manager. Required for headless/unattended operation.
 
@@ -407,7 +414,7 @@ best-effort against such hosts. The signing keys are fetched from the registry k
 
 ## Entrypoint verification and the pin
 
-The checks above attest to what was **delivered**. Neither can see what the entrypoint *is now*: the
+The provenance checks attest to what was **delivered**. Neither can see what the entrypoint *is now*: the
 exec root is sandbox-owned, and `npm install -g` does not reinstall an unchanged version, so on a
 DAC-only host a modified entrypoint persists across sessions and operators indefinitely (under
 SELinux the vector is closed outright — see [confinement](confinement.rule.md)).
@@ -521,7 +528,7 @@ man-in-the-middle key swap, so pinning is defense in depth against a primary-reg
 root-of-trust compromise, held against that cost.
 
 For the **agent binary** specifically that gap is now closed from the other side: the entrypoint
-verification above pins its key in a root-owned file rather than fetching one, so a compromised
+verification pins its key in a root-owned file rather than fetching one, so a compromised
 registry serving a forged package, signature, and keys together still fails the release-manifest
 comparison. What stays deferred is the rest of the toolchain — Node and npm itself — where no
 equivalent signed-checksum manifest is consumed.

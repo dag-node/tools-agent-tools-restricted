@@ -22,7 +22,7 @@ spec="${here}/ai-tools.spec"
 file_version="$(cat "${version_file}")"
 
 # Parse the tag argument up front: a prerelease tag (vX.Y.Z-rc.N, the only dashed shape
-# accepted) compares by its base X.Y.Z and relaxes the %changelog match below.
+# accepted) compares by its base X.Y.Z and relaxes the %changelog match.
 tag="${1:-}"
 tag_version=""
 prerelease=0
@@ -39,7 +39,7 @@ if [[ -n "${tag}" ]]; then
 fi
 
 # Newest changelog entry: the first "* <date> <author> - X.Y.Z-R" header after %changelog.
-# Split the header on " - " and take the trailing "X.Y.Z-R" field, then drop the -R release.
+# Split the header on " - " and take the trailing "X.Y.Z-R" field, then drop the `-R` release.
 head_version="$(awk '
     /^%changelog/ { in_log = 1; next }
     in_log && /^\*/ {

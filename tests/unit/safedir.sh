@@ -47,17 +47,19 @@ run "${proj}" || true
 if [[ "$(count "${proj}")" == 1 ]]; then pass "add is idempotent (no duplicate entry)"
 else fail "re-add produced $(count "${proj}") entries"; fi
 
-# (D) a path no operator's allowlist covers is left unregistered (fail-closed).
-run "${outside}" || true
+# (D) a path no operator's allowlist covers is left unregistered (fail-closed), and the refusal
+# is reported rather than recorded in the log alone -- a direct run reaches no other account of it.
+outside_err="$(AI_TOOLS_GITCONFIG="${gc}" setsid "${HELPER}" "${outside}" < /dev/null 2>&1 > /dev/null || true)"
 if ! listed "${outside}"; then pass "a non-allowlisted path is left unregistered"
 else fail "non-allowlisted ${outside} was registered"; fi
+assert_msg MSG-P5B5 "${outside_err}" "an uncovered path is refused on stderr, under its code"
 
-# (E) --remove drops the entry.
+# (E) `--remove` drops the entry.
 run --remove "${proj}" || true
 if ! listed "${proj}"; then pass "--remove drops the entry"
 else fail "--remove left ${proj} registered"; fi
 
-# (F) --remove is lenient -- removing an absent entry is a quiet success (rc 0).
+# (F) `--remove` is lenient -- removing an absent entry is a quiet success (rc 0).
 if run --remove "${proj}"; then pass "--remove of an absent entry succeeds quietly"
 else fail "--remove of an absent entry returned non-zero"; fi
 

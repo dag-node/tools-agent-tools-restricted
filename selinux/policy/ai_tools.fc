@@ -19,8 +19,8 @@
 # to an interactive ai_tools_t session (files_read_usr_files / libs_read_lib_files /
 # corecmd_exec_bin), so the agent cannot modify its own toolchain mid-session: the agent's
 # in-session `npm install -g`/`update -g` is denied by design. Node/npm self-management is
-# done out-of-band by the scheduled nvm-update.service in the sandbox account's own --user
-# instance, which writes this tree.
+# done out-of-band by the scheduled nvm-update.service in the sandbox account's own
+# `--user instance`, which writes this tree.
 # (An entrypoint can be HARD-LINKED into this tree -- claude.exe shares its inode with the
 # platform package's ELF under node_modules/@anthropic-ai/claude-code-<arch>/ -- so the two
 # names carry one label. install-selinux.sh relabels the entrypoints LAST, after the bulk
@@ -33,7 +33,7 @@
 # Stated explicitly so restorecon labels the dir and all contents consistently.
 /usr/local/libexec/ai-tools(/.*)?  gen_context(system_u:object_r:bin_t,s0)
 # The handback daemon gets its own entrypoint label so init_t transitions into
-# ai_tools_handback_t on exec (more specific than the wildcard above).
+# ai_tools_handback_t on exec (more specific than the /opt/ai-tools/bin wildcard).
 /usr/local/libexec/ai-tools/ai-tools-handback  --  gen_context(system_u:object_r:ai_tools_handback_exec_t,s0)
 
 # The handback socket client (called by the agent hooks and nvm-update.sh).
@@ -44,13 +44,13 @@
 # root:ai-tools).  ai_tools_t needs search on the dir and read/write on the
 # sock_file; restorecon here keeps labels consistent after a socket restart.
 /run/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_run_t,s0)
-# Twin of the above for the legacy path: file_contexts.subs_dist rewrites every
+# Twin of the /run entry for the legacy path: file_contexts.subs_dist rewrites every
 # /run/* lookup to /var/run/* before matching (the /run<-/var/run compat shim),
 # so matchpathcon/restorecon/RuntimeDirectory= labelling never reaches the entry
-# above -- only this one. cockpit and mount declare both forms for the same reason.
+# it -- only this one. cockpit and mount declare both forms for the same reason.
 /var/run/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_run_t,s0)
 
-# The root-helper operation logs. ai-tools-chown / -setgid / -launcher-symlink run IN
+# The root-helper operation logs. `ai-tools-{chown,setgid,launcher-symlink}` run IN
 # ai_tools_handback_t and append here; the domain is granted append/create on
 # ai_tools_log_t in ai_tools.te. DAC keeps it root-only (dir 700, files 600).
 /var/log/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_log_t,s0)
@@ -58,7 +58,7 @@
 # NO AGENT CONFIG DIRECTORY IS LISTED HERE either. Each agent has a private writable
 # config/state dir under the home -- what keeps the policy from having to grant write on the
 # whole nvm tree (usr_t) -- but which directory that is belongs to the agent: its manifest
-# declares config_dir, and ai-tools-relabel-agent maps it to the ai_tools_home_t below as a
+# declares config_dir, and ai-tools-relabel-agent maps it to ai_tools_home_t as a
 # LOCAL semanage rule, exactly as it does for the entrypoint. The root-owned control files
 # inside it (settings.json, the hooks) remain protected by DAC regardless of label.
 

@@ -4,30 +4,35 @@
 # Separate from the main install.sh on purpose: this is an extra MAC layer, brought
 # up independently and refined via the audit2allow loop in README.md.
 #
-# The core module ships PREBUILT (ai_tools.pp) and ENFORCING, so a normal install
-# does not require a toolchain -- it loads the shipped package and labels the tree. To go
-# permissive instead (to observe before blocking), uncomment `permissive
-# ai_tools_t;` in ai_tools.te and recompile; the installer detects the mode from
-# the source and reports it.
+# Every module this script loads is COMPILED from the .te/.fc/.if under policy/ on this host:
+# the checkout carries no compiled module (the RPM compiles its own at build time, per
+# distribution). The core loads ENFORCING; to go permissive instead (to observe before
+# blocking), uncomment `permissive ai_tools_t;` in ai_tools.te and rebuild; the installer
+# detects the mode from the source and reports it.
 #
 # Usage:
-#   sudo ./install-selinux.sh install              load prebuilt core (opt. recompile) + prompt for groups
+#   sudo ./install-selinux.sh install              compile + load core, stage the shipped set, prompt for groups
+#   sudo ./install-selinux.sh build                compile + stage the shipped set (what install.sh runs)
 #   sudo ./install-selinux.sh rebuild              recompile core from source (.te/.fc) + reload + relabel
 #   sudo ./install-selinux.sh relabel              re-apply labels (after Node upgrade)
 #   sudo ./install-selinux.sh remove               unload all ai_tools* modules + labels
-#   sudo ./install-selinux.sh enable-group <name>  load one optional policy group
+#   sudo ./install-selinux.sh enable-group <name>  compile + load one optional policy group
 #   sudo ./install-selinux.sh disable-group <name> unload one policy group
 #   sudo ./install-selinux.sh list-groups          show group availability and state
 #
-# selinux-policy-devel is required ONLY to COMPILE a module from source: to recompile the
-# core or a group after editing its .te/.fc, or to build an EXPERIMENTAL group, which
-# never ships prebuilt. The core and the STABLE groups do ship prebuilt, so a normal
-# install and a stable enable-group need no toolchain. Install it only to build:
+# selinux-policy-devel is required by every action that compiles -- install, build, rebuild,
+# enable-group -- and by nothing else here:
 #   sudo dnf install selinux-policy-devel
+#
+# The "shipped set" is the core, each STABLE group, and each integration's layout module,
+# derived by shipped-modules.sh from the group registry and the integration manifests -- the
+# same list the RPM build compiles. `build` and `install` stage it compiled under
+# /usr/share/selinux/packages/ai-tools, where the installed ai-tools-admin loads a group from
+# with no checkout and no toolchain, as it does on an RPM host.
 #
 # The optional policy groups are all DISABLED by default (the core alone covers repo-only
 # work) and are declared once, in selinux-groups.lib.sh -- name, description, why it is
-# off, and the stability that decides whether it ships prebuilt. This script reads that
+# off, and the stability that decides whether it is on the shipped set. This script reads that
 # registry, as ai-tools-admin does, so the two cannot disagree on which groups exist.
 
 set -euo pipefail
@@ -35,37 +40,52 @@ IFS=$'\n\t'
 
 readonly ACTION="${1:-install}"
 readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Policy source + prebuilt packages live under policy/; the build (make -C) and every
-# .te/.fc/.pp reference resolve there. install-selinux.sh, README.md, and ../src stay at DIR.
+# Policy source, the script naming the shipped set, and the modules compiled from the source
+# live under policy/; the build (`make -C`) and every .te/.fc/.pp reference resolve there.
+# install-selinux.sh, README.md, and ../src stay at DIR.
 readonly POLICY_DIR="${DIR}/policy"
 readonly MODULE="ai_tools"
 
+# refuse_early <code> <line>... -- the refusals that answer before the styled emitters are defined:
+# a library that will not load, and the root guard. Renders what plain mode renders -- the code on
+# its own leading line, then each caller line whole -- and exits 1. The matcher is the library's
+# own anchored form (tests/unit/msg.sh holds every inline copy to it).
+refuse_early() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf '%s\n' "$@" >&2
+    exit 1
+}
+# refuse_unsourced <lib> -- one situation for every library this script requires, whichever of the
+# two locations it was looked for in.
+refuse_unsourced() { refuse_early MSG-H5V4 "selinux: cannot source required library ${1}"; }
+
 # Shared message formatter (source tree first, installed copy second): frames the
-# interactive confirmations below in the '#' box and carries the yes/no prompts
+# interactive confirmations in the '#' box and carries the yes/no prompts
 # (ai_tools_msg_confirm). REQUIRED -- the prompts gate decisions, so a missing lib fails
 # the run instead of degrading; one of the two locations exists on any host this script
 # runs on (the repo checkout or an installed system).
 MSG_LIB="${DIR}/../src/usr/local/lib/ai-tools/msg.lib.sh"
 [[ -r "${MSG_LIB}" ]] || MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=/dev/null
-source "${MSG_LIB}" \
-    || { printf 'selinux: cannot source required library %s\n' "${MSG_LIB}" >&2; exit 1; }
+source "${MSG_LIB}" || refuse_unsourced "${MSG_LIB}"
 # One fixed 80-column frame for the whole install flow's boxes, so consecutive prompts align.
 export AI_TOOLS_MSG_FULLWIDTH=1
 
 # Optional policy-group registry (names/descriptions/reasons + predicates), single-sourced
 # so this authoring tool and the installed ai-tools-admin never disagree on the group set.
 # REQUIRED -- the enable/disable/list actions and the install prompt all read it; a missing
-# lib fails the run. Same source-tree-first, installed-second resolution as MSG_LIB above.
+# lib fails the run. Same source-tree-first, installed-second resolution as MSG_LIB.
 GROUPS_LIB="${DIR}/../src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 [[ -r "${GROUPS_LIB}" ]] || GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 # shellcheck source=/dev/null
-source "${GROUPS_LIB}" \
-    || { printf 'selinux: cannot source required library %s\n' "${GROUPS_LIB}" >&2; exit 1; }
+source "${GROUPS_LIB}" || refuse_unsourced "${GROUPS_LIB}"
 readonly NVM_DIR="/opt/ai-tools/.nvm"
 HOME_STATE=(.npm .cache .local .config .gitconfig)
 
-[[ "${EUID}" -eq 0 ]] || { echo "selinux: run with sudo" >&2; exit 1; }
+# A deliberate twin of install.sh's non-root refusal (messaging.rule.md): the code is defined
+# there and printed here, so an operator meets one token whichever installer refused.
+[[ "${EUID}" -eq 0 ]] || { printf 'MSG-K4W7\n%s\n' "selinux: run with sudo" >&2; exit 1; }
 PROJECTS_USER="${SUDO_USER:?selinux: invoke via sudo, not as root directly}"
 PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
 readonly ALLOWLIST="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
@@ -80,7 +100,12 @@ readonly SANDBOX_PROJECTS="/var/opt/ai-tools/sandbox-projects"
 # what keeps that grant off the rest of ~/.config. The confined session is granted the same type,
 # which the 700/600 modes then gate -- see the ai_tools_conf_t block in ai_tools.te. Applied via
 # semanage (dynamic home path), not ai_tools.fc (fixed paths).
-readonly CONF_DIR="${PROJECTS_HOME}/.config/ai-tools"
+#
+# The label belongs to an ACCOUNT, so the sweep covers every operator this host has
+# (_operator_conf_dirs). It repairs an account enrolled while the policy was absent:
+# `ai-tools-admin operators add` registers the rule for each account it enrols, and there is no
+# type to assign until the module is loaded.
+readonly CONF_TAIL=".config/ai-tools"
 # Root-helper operation logs. Labelled ai_tools_log_t (static rule in ai_tools.fc) so
 # the helpers that run IN ai_tools_handback_t (chown, setgid, launcher-symlink) may append
 # under enforcing. A plain restorecon applies the label; created by install.sh.
@@ -107,8 +132,25 @@ say()     { printf '%s\n' "$*"; }
 section() { printf '\n%s── %s ──%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
 ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
 log()     { printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*"; }
-warn()    { printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2; }
-die()     { printf '%sselinux: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since these helpers
+# report before the library is loaded.
+warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf '  %s!%s %s\n' "${C_YEL}" "${C_RST}" "$*" >&2
+}
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf '%sselinux: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1
+}
+# indented: shift a subordinate command's own output one level in, so it reads as a block
+# beneath the `log` line that announced it rather than breaking the transcript's left margin.
+# Used on a pipeline, which `pipefail` (set at the top of this file) leaves carrying
+# the command's exit status; the caller merges both streams into it, so a failure message is
+# indented with the rest and still reaches the install transcript.
+indented() { sed 's/^/    /'; }
 # logx/sayx: stderr variants -- safe inside subshells, and used for the group
 # prompt, which must not contaminate stdout.
 logx()    { printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*" >&2; }
@@ -144,40 +186,165 @@ sayx()    { printf '%s\n' "$*" >&2; }
 
 # The optional policy-group registry (AI_TOOLS_SELINUX_GROUPS) and its accessors
 # (ai_tools_selinux_group_{name,desc,reason,valid,loaded}) come from the shared
-# selinux-groups.lib.sh sourced above -- the single source shared with ai-tools-admin.
+# selinux-groups.lib.sh this script sources -- the single source shared with ai-tools-admin.
 
 ########################################
 # Build helpers
 ########################################
 
-# require_devel <pp>: exit with install guidance unless the refpolicy devel
-# toolchain (make + /usr/share/selinux/devel/Makefile from selinux-policy-devel) is
-# present. Only reached when a module must be COMPILED from source -- the core and the
-# STABLE groups ship prebuilt, so a normal install and enabling a stable group never land
-# here; building an EXPERIMENTAL group (which never ships prebuilt), or a rebuild after
-# editing a .te/.fc, is what requires the toolchain.
+# devel_present: 0 when the refpolicy devel toolchain (make + /usr/share/selinux/devel/Makefile
+# from selinux-policy-devel) is installed. The same pair install.sh checks before its build step.
+devel_present() {
+    command -v make >/dev/null && [[ -f /usr/share/selinux/devel/Makefile ]]
+}
+
+# require_devel <pp>: exit with install guidance unless the devel toolchain is present. Reached by
+# every action that compiles: a checkout carries no compiled module, so the first install builds
+# each one, and a rebuild after editing a .te/.fc builds it again.
 require_devel() {
-    command -v make >/dev/null && [[ -f /usr/share/selinux/devel/Makefile ]] && return 0
-    warn "building ${1:-this policy module} needs the selinux-policy-devel toolchain,"
-    warn "  which is not installed. The shipped modules (core + stable groups) are prebuilt"
-    warn "  and need no toolchain; an experimental group or an edited-source rebuild does."
+    devel_present && return 0
+    warn MSG-Y7Q5 "building ${1:-this policy module} needs the selinux-policy-devel toolchain,"
+    warn "  which is not installed. A checkout compiles every module it loads (the RPM"
+    warn "  ships them compiled), so install it and re-run:"
     warn "      sudo dnf install selinux-policy-devel"
-    warn "  then re-run. See ${DIR}/README.md for the policy build/bring-up workflow."
+    warn "  See ${DIR}/README.md for the policy build/bring-up workflow."
     exit 1
 }
 
-# ensure_pp <module.pp>: guarantee the compiled package ${POLICY_DIR}/<module.pp> exists.
-# Prefers the prebuilt package shipped in the repo so a normal install and enabling a stable
-# group need no toolchain; compiles from source (requiring selinux-policy-devel) when the
-# package is absent -- an experimental group (never shipped prebuilt), or after editing the
-# .te/.fc source.
+# ensure_pp <module.pp>: guarantee ${POLICY_DIR}/<module.pp> exists and, where it can be checked,
+# matches its source. With the devel toolchain present it runs build_pp, whose make rebuilds the
+# module when a .te/.if/.fc is newer than it and otherwise reports it up to date -- so an edited
+# source takes effect on the next load without a prompt, and a fresh clone (no .pp, new mtimes)
+# builds. Without the toolchain an earlier build is reused as found, and a missing one fails
+# through require_devel with the package named.
 ensure_pp() {
     local pp="$1"
-    if [[ -f "${POLICY_DIR}/${pp}" ]]; then
-        log "using prebuilt ${pp}"
+    if devel_present; then
+        build_pp "${pp}"
+    elif [[ -f "${POLICY_DIR}/${pp}" ]]; then
+        log "using the compiled ${pp} from an earlier build (no toolchain to check it against its source)"
     else
         build_pp "${pp}"
     fi
+}
+
+# _shipped_modules: print the shipped set, one module name per line -- the derivation in
+# shipped-modules.sh, read from this checkout's registry and manifests. A derivation that fails
+# aborts the run: staging a guessed set would leave ai-tools-admin a package directory that does
+# not match what the registry calls stable.
+_shipped_modules() {
+    bash "${POLICY_DIR}/shipped-modules.sh" || die MSG-E2A4 "could not derive the shipped module set (policy/shipped-modules.sh)"
+}
+
+# stage_shipped_modules [rebuild]: compile the shipped set -- every module with ensure_pp, or
+# with build_pp when `rebuild` is given -- and install each compiled module 644 root:root under
+# AI_TOOLS_SELINUX_PACKAGE_DIR, the directory the installed ai-tools-admin loads a group from.
+# This is the from-source counterpart of the RPM's %install, so a checkout host and an RPM host
+# hold the same package directory; a group staged here still stays OFF until enabled.
+stage_shipped_modules() {
+    local how="${1:-reuse}" module
+    local -a modules=()
+    mapfile -t modules < <(_shipped_modules)
+    (( ${#modules[@]} )) || die MSG-Q3Q6 "the shipped module set is empty -- is the group registry readable?"
+    for module in "${modules[@]}"; do
+        if [[ "${how}" == rebuild ]]; then build_pp "${module}.pp"; else ensure_pp "${module}.pp"; fi
+    done
+    install -d -o root -g root -m 755 "${AI_TOOLS_SELINUX_PACKAGE_DIR}"
+    for module in "${modules[@]}"; do
+        install -o root -g root -m 644 "${POLICY_DIR}/${module}.pp" "${AI_TOOLS_SELINUX_PACKAGE_DIR}/${module}.pp"
+    done
+    ok "staged $(_list "${modules[@]}") under ${AI_TOOLS_SELINUX_PACKAGE_DIR}"
+}
+
+# _replace_former_group_modules: for every former module the registry records
+# (AI_TOOLS_SELINUX_GROUP_FORMER_MODULES) that is loaded, replace it with every current group
+# whose rules it carried. The new .pp files are built FIRST and the swap is one semodule
+# transaction (`-r old -i new...`), so a build or load failure leaves the old module in place and
+# the workload it served running, and the message says what to do. Runs after the core module is
+# loaded -- a current group may require a type the old core did not declare -- and before a
+# group is enabled or disabled, so every path that loads policy from this checkout migrates the
+# host.
+_replace_former_group_modules() {
+    local entry former name
+    local -a formers=() loads
+    for entry in "${AI_TOOLS_SELINUX_GROUP_FORMER_MODULES[@]}"; do
+        former="${entry#*|}"
+        printf '%s\n' "${formers[@]}" | grep -qx "${former}" 2>/dev/null && continue
+        formers+=( "${former}" )
+    done
+    for former in "${formers[@]}"; do
+        ai_tools_selinux_module_loaded "${former}" || continue
+        section "Replacing the loaded '${former}' module with the group(s) its rules became"
+        loads=()
+        while IFS= read -r name; do
+            [[ -n "${name}" ]] || continue
+            ensure_pp "ai_tools_${name}.pp"
+            loads+=( -i "${POLICY_DIR}/ai_tools_${name}.pp" )
+        done < <(ai_tools_selinux_groups_from_former_module "${former}")
+        if _locked semodule -r "${former}" "${loads[@]}"; then
+            ok "'${former}' unloaded; $(ai_tools_selinux_groups_from_former_module "${former}" | tr '\n' ' ')loaded in its place"
+        else
+            warn MSG-R9B9 "could not replace '${former}' -- it stays loaded with its former rule set;"
+            warn "    fix the cause above and re-run: sudo $0 rebuild"
+        fi
+    done
+}
+
+# _load_layout_modules: load the layout module of every installed integration that declares one
+# (selinux_layout_module in its manifest, read through providers.lib.sh with its trust rules).
+# A layout module types an integration's build-output directories and does not add any
+# permission, so it is not a group an operator enables: it loads whenever the policy is
+# (re)installed here, and
+# `ai-tools-admin <integration> bootstrap` loads it too. Compiled from source like a group.
+_load_layout_modules() {
+    declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1 || return 0
+    local integration module found=0
+    while IFS=$'\t' read -r integration module; do
+        [[ -n "${module}" ]] || continue
+        found=1
+        [[ "${module}" =~ ^ai_tools_[a-z][a-z0-9_]*$ ]] \
+            || { warn MSG-N8Q3 "integration ${integration} declares a layout module name that is not ai_tools_<name>: ${module}"; continue; }
+        [[ -f "${POLICY_DIR}/${module}.te" ]] \
+            || { warn MSG-F9G3 "integration ${integration} declares layout module ${module}, which has no source under ${POLICY_DIR}"; continue; }
+        ensure_pp "${module}.pp"
+        log "loading layout module: ${module} (integration ${integration})"
+        if _locked semodule -i "${POLICY_DIR}/${module}.pp"; then
+            ok "layout module ${module} loaded"
+        else
+            warn MSG-D3G7 "could not load layout module ${module}; build output is typed at relabel time only"
+        fi
+    done < <(ai_tools_installed_integrations_declaring selinux_layout_module 2>/dev/null)
+    # Said out loud, because the usual cause is ordering: the INSTALLED manifests are read, so a
+    # checkout whose install.sh has not run yet declares none and the output would otherwise be
+    # silent on why a bin/ directory still types ai_tools_project_t.
+    (( found )) || log "no installed integration manifest declares a layout module (run install.sh first if one should)"
+}
+
+# _layout_modules_loaded: print the loaded layout modules the installed manifests declare, one
+# per line, for the closing summary.
+_layout_modules_loaded() {
+    declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1 || return 0
+    local integration module
+    while IFS=$'\t' read -r integration module; do
+        [[ "${module}" =~ ^ai_tools_[a-z][a-z0-9_]*$ ]] || continue
+        ai_tools_selinux_module_loaded "${module}" && printf '%s\n' "${module}"
+    done < <(ai_tools_installed_integrations_declaring selinux_layout_module 2>/dev/null)
+    return 0
+}
+
+# _groups_needed_by <group>: print the installed integrations whose manifests list <group> in
+# selinux_groups, space-separated, so the prompt can say what a group is for on this host.
+_groups_needed_by() {
+    declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1 || return 0
+    local integration declared name out=""
+    local -a names
+    while IFS=$'\t' read -r integration declared; do
+        names=(); ai_tools_conf_split names "${declared}"
+        for name in "${names[@]}"; do
+            [[ "${name}" == "$1" ]] && { out+="${out:+ }${integration}"; break; }
+        done
+    done < <(ai_tools_installed_integrations_declaring selinux_groups 2>/dev/null)
+    printf '%s' "${out}"
 }
 
 # build_pp <module.pp>: compile the named policy module from its .te/.fc source via
@@ -186,8 +353,8 @@ ensure_pp() {
 build_pp() {
     local pp="$1"
     require_devel "${pp}"
-    log "building ${pp}"
-    make -C "${POLICY_DIR}" -f /usr/share/selinux/devel/Makefile "${pp}"
+    log "make ${pp} (rebuilt when a .te/.if/.fc is newer than the build)"
+    make -C "${POLICY_DIR}" -f /usr/share/selinux/devel/Makefile "${pp}" 2>&1 | indented
     # The refpolicy Makefile creates *.fc stubs as root. Fix ownership so the
     # source file remains readable/commitable by the repo owner.
     local base="${POLICY_DIR}/${pp%.pp}"
@@ -221,9 +388,9 @@ _mode_label() {
 # remove the stale module interactively; prints the fix command otherwise.
 _check_permissive_alignment() {
     # Domains the compiled .te expects permissive (non-commented permissive lines).
-    # A no-match grep exits 1, which pipefail propagates to the assignment and set -e
+    # A no-match grep exits 1, which pipefail propagates to the assignment and `set -e`
     # would abort on -- the normal ENFORCING case has zero permissive lines here, so
-    # tolerate an empty result (the -z checks below are the intended empty-path).
+    # tolerate an empty result (the `-z` checks are the intended empty-path).
     local expected_permissive
     expected_permissive=$(grep -E '^[[:space:]]*permissive[[:space:]]+ai_tools_[^[:space:]]+[[:space:]]*;' \
                           "${POLICY_DIR}/${MODULE}.te" 2>/dev/null \
@@ -244,14 +411,14 @@ _check_permissive_alignment() {
 
     [[ ${#misaligned[@]} -eq 0 ]] && return 0
 
-    warn "ENFORCING MISMATCH -- domain(s) are permissive but .te expects enforcing:"
+    warn MSG-N5V4 "ENFORCING MISMATCH -- domain(s) are permissive but .te expects enforcing:"
     for dom in "${misaligned[@]}"; do
         stale_mod="permissive_${dom}"
         if semodule -l 2>/dev/null | grep -q "^${stale_mod}[[:space:]]"; then
             warn "  ${dom}: stale semodule '${stale_mod}' overrides compiled policy"
             if [[ -t 0 ]]; then
                 if ai_tools_msg_confirm "Remove stale semodule '${stale_mod}'?" y; then
-                    semodule -r "${stale_mod}"
+                    _locked semodule -r "${stale_mod}"
                     ok "removed '${stale_mod}' -- ${dom} is now ENFORCING"
                 else
                     warn "  leaving '${stale_mod}' -- ${dom} will remain PERMISSIVE"
@@ -279,14 +446,14 @@ prompt_groups() {
     local entry name desc stability
     local -a loaded_groups=()
 
-    # State what is already loaded BEFORE the gate below, because the default answer skips this
+    # State what is already loaded BEFORE the skip gate, because the default answer skips this
     # section without listing anything: this step only ever ADDS modules, so a group enabled by
     # an earlier install survives the skip, and silence here reads as if it might not.
     for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
         name="$(ai_tools_selinux_group_name "${entry}")"
         ai_tools_selinux_group_loaded "${name}" && loaded_groups+=("${name}")
     done
-    # Header and explanation FIRST, so the skip gate below is a prompt that FOLLOWS what it
+    # Header and explanation FIRST, so the skip gate is a prompt that FOLLOWS what it
     # decides about rather than preceding it. The groups are a mix of stability -- some stable,
     # some experimental -- so the caveat names the experimental subset instead of the whole set.
     section "Optional policy groups (all default: disabled)" >&2
@@ -315,10 +482,23 @@ prompt_groups() {
 
     sayx ""
 
-    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+    # Stable groups are offered first, experimental ones after: the stable set is what an
+    # operator enables without an audit, so it is what the prompt leads with, and
+    # the registry's own order (which groups an integration's declaration) is kept within each
+    # half. A group an installed integration declares (selinux_groups in its manifest) says so
+    # on its row, so the reason to enable it is on the line where it is answered.
+    local -a ordered=() needed
+    for stability in stable experimental; do
+        for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+            [[ "$(ai_tools_selinux_group_stability "${entry}")" == "${stability}" ]] && ordered+=("${entry}")
+        done
+    done
+    for entry in "${ordered[@]}"; do
         name="$(ai_tools_selinux_group_name "${entry}")"
         desc="$(ai_tools_selinux_group_desc "${entry}")"
         stability="$(ai_tools_selinux_group_stability "${entry}")"
+        needed="$(_groups_needed_by "${name}")"
+        [[ -z "${needed}" ]] || desc+=" ${C_DIM}[needed by: ${needed}]${C_RST}"
         # A group loaded by an earlier install stays loaded whatever is answered here: this step
         # only ADDS modules. Show that state in the same vocabulary list-groups uses, and name
         # the verb that actually removes one -- an unmarked "Enable? [n]" beside a loaded group
@@ -329,8 +509,8 @@ prompt_groups() {
             sayx "        already enabled; to remove it: $(_group_cmd disable "${name}")"
             # A loaded group is still offered, because from a source checkout the operator may be
             # iterating on its .te/.fc and want to rebuild + reload it in place. A yes recompiles
-            # FROM SOURCE (build_pp below), not a prebuilt reuse -- that is the point of offering
-            # a loaded group -- and needs the selinux-policy-devel toolchain.
+            # FROM SOURCE (build_pp), never reusing an earlier build -- that is the point of
+            # offering a loaded group -- and needs the selinux-policy-devel toolchain.
             ai_tools_msg_confirm "    Recompile from source and reload?" n && RECOMPILE_GROUPS+=("${name}")
             continue
         fi
@@ -346,12 +526,65 @@ prompt_groups() {
 
 # The per-project label primitive (semanage fcontext + restorecon) lives in the
 # shared relabel.lib.sh -- the SAME body the ai-tools-relabel root helper runs, so
-# --project-create/--project-claim and this sweep cannot drift. Prefer the repo
+# `--project-create`/`--project-claim` and this sweep cannot drift. Prefer the repo
 # copy alongside this script; fall back to the deployed lib.
 RELABEL_LIB="${DIR}/../src/usr/local/lib/ai-tools/relabel.lib.sh"
 [[ -r "${RELABEL_LIB}" ]] || RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 # shellcheck source=/dev/null
-source "${RELABEL_LIB}" || die "missing label library: ${RELABEL_LIB}"
+source "${RELABEL_LIB}" || refuse_unsourced "${RELABEL_LIB}"
+
+# _locked <command...>: run one store-writing command under ai_tools_relabel_lock, released when
+# it returns. semanage and semodule report an error to whichever process finds the policy store
+# held, and ai-tools-relabel.path fires ai-tools-relabel.service into this script's run (the
+# install that runs it rewrites /opt/ai-tools/bin), so every semodule load and every fcontext
+# section here takes the lock the root helpers take. Per command rather than for the whole run:
+# the install action prompts between its loads, and a lock held across a prompt makes the
+# watcher's run wait out AI_TOOLS_RELABEL_LOCK_WAIT and then proceed unserialized. An untaken
+# lock is reported once and the command runs anyway, the library's own fail-soft.
+_locked_note_shown=0
+_locked() {
+    local rc=0
+    ai_tools_relabel_lock
+    if [[ -n "${AI_TOOLS_RELABEL_LOCK_NOTE}" && "${_locked_note_shown}" -eq 0 ]]; then
+        warn MSG-V8U7 "policy-store writes are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
+        _locked_note_shown=1
+    fi
+    "$@" || rc=$?
+    ai_tools_relabel_unlock
+    return "${rc}"
+}
+
+# _labels_apply / _labels_drop: the fcontext sections, one _locked call each. Apply registers and
+# verifies every enabled agent's rules, the enrolled operators' config rules, and each registered
+# project's rule; drop removes them in the reverse order, while the module still declares their
+# types.
+_labels_apply() { verify_agent_labels; _label_conf; for_each_project _label_one; }
+_labels_drop() {
+    local manifest agent
+    for_each_project _unlabel_one
+    _unlabel_conf
+    # The agents' path rules are local fcontexts naming types the module unload removes. Dropped
+    # for EVERY installed agent manifest, not just the enabled ones: a disabled agent may still
+    # hold a rule from when it was on.
+    log "dropping the agents' fcontext rules"
+    for manifest in /usr/local/lib/ai-tools/agents.d/*.conf; do
+        [[ -e "${manifest}" ]] || continue
+        agent="${manifest##*/}"; agent="${agent%.conf}"
+        ai_tools_unlabel_agent_paths "${agent}" \
+            || log "  ${agent}: no file-context rules to drop"
+    done
+}
+
+# The OPERATORS list, parsed through the shared grammar so this sweep reads operator.conf exactly
+# as every other consumer does. Best-effort and only the plural loader is called: an unenrolled
+# host (or a missing lib) leaves the set empty, which _operator_conf_dirs answers with the invoking
+# user alone -- the set this script covered before. `ai_tools_load_operator`, the SINGULAR one, is
+# deliberately not used: it writes PROJECTS_USER/PROJECTS_HOME, which are this script's own.
+OPERATOR_LIB="${DIR}/../src/usr/local/lib/ai-tools/operator.lib.sh"
+[[ -r "${OPERATOR_LIB}" ]] || OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
+# shellcheck source=/dev/null
+source "${OPERATOR_LIB}" 2>/dev/null \
+    || warn MSG-J9B3 "could not read the operator list (${OPERATOR_LIB}); labelling ${PROJECTS_USER}'s config only"
 
 # verify_agent_labels: apply each enabled agent's declared file-context rules -- its entrypoint
 # (-> ai_tools_exec_t, without which the domain transition never fires and the agent would run
@@ -365,13 +598,13 @@ verify_agent_labels() {
     local report="" status=0 verdict subject detail wanted bad=0 labelled=0
     report="$(ai_tools_label_agent_paths)" || status=$?
     if [[ "${status}" -eq 2 ]]; then
-        warn "SELinux or the ai_tools module is not active -- no agent paths to label"
+        warn MSG-Y9V3 "SELinux or the ai_tools module is not active -- no agent paths to label"
         return 0
     fi
     if [[ -n "${report}" ]]; then
         # Pin IFS for this read: the script runs under the strict-mode IFS=$'\n\t', and the
         # report's fields are SPACE-separated, so an inherited IFS puts the whole line in
-        # ${verdict} and every case below misses -- including `bad`, which is what sets the
+        # ${verdict} and every case arm misses -- including `bad`, which is what sets the
         # flag that aborts the install when an entrypoint did not take ai_tools_exec_t. The
         # guard against launching unconfined depends on this splitting correctly.
         while IFS=$' \t\n' read -r verdict subject detail wanted; do
@@ -379,7 +612,7 @@ verify_agent_labels() {
                 ok)   labelled=$(( labelled + 1 ))
                       ok "labelled: ${subject}" ;;
                 bad)  bad=1
-                      warn "${subject}"
+                      warn MSG-Y5N5 "mislabelled: ${subject}"
                       warn "    is '${detail}', NOT ${wanted} -- the session would run unconfined"
                       warn "    or fail to write its own state. matchpathcon expects:"
                       warn "      $(matchpathcon "${subject}" 2>/dev/null | awk '{print $2}')"
@@ -389,24 +622,24 @@ verify_agent_labels() {
                 # resolves to, so no rule this sweep applies can label it and the session would
                 # be refused. Counted as `bad`: the install must not report a confined host.
                 stale) bad=1
-                      warn "${subject}: its installed entrypoint is"
+                      warn MSG-R2N4 "stale manifest for ${subject}: its installed entrypoint is"
                       warn "    ${detail}"
                       warn "    -- not covered by the file-context rule its manifest declares,"
                       warn "    so no relabel can label it and every launch will fail closed."
                       warn "    Update the agent package; its manifest is stale." ;;
-                none) warn "${subject}: ${detail} is not installed -- nothing to label" ;;
-                skip) warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
+                none) warn MSG-S4K9 "no path to label for ${subject}: ${detail} is not installed" ;;
+                skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the
-                # per-path arms above, so only `failed` prints, naming the agent those lines omit.
+                # per-path arms, so only `failed` prints, naming the agent those lines omit.
                 agent)
                     if [[ "${detail}" == failed ]]; then
-                        warn "${subject}: labelling did not complete -- see its lines above"
+                        warn MSG-E6C4 "labelling did not complete for ${subject} -- see its lines above"
                     fi ;;
                 # A verdict this renderer does not know is REPORTED, not dropped. Silently
                 # ignoring one turns a labelling result into no output at all, which reads as
                 # "no change" for the one path whose label decides whether a session is
                 # confined -- and leaves the operator no detail to diagnose from.
-                *)    warn "unrecognized labelling result: ${verdict} ${subject} ${detail} ${wanted}"
+                *)    warn MSG-K2W4 "unrecognized labelling result: ${verdict} ${subject} ${detail} ${wanted}"
                       warn "    the entrypoint label is unconfirmed; check: sudo ai-tools-admin system entrypoints relabel" ;;
             esac
         done <<< "${report}"
@@ -416,21 +649,21 @@ verify_agent_labels() {
     # here rather than proceed to the optional groups with a broken core. A missing path
     # (toolchain not provisioned yet) stays a warning -- there is no entrypoint to label.
     [[ "${bad}" -eq 0 ]] \
-        || die "an agent path is not correctly labelled (see above) -- the session would be refused, or run UNCONFINED"
+        || die MSG-U3S8 "an agent path is not correctly labelled (see above) -- the session would be refused, or run UNCONFINED"
     # Nothing labelled has two very different causes, and the bare message named neither. An
     # EMPTY report means no enabled agent was iterated at all -- the manifests resolved to
     # no file -- which is a configuration problem: the entrypoint keeps whatever type it has, and
     # a launch fail-closes at ai-tools-run's transition preflight. A non-empty report that
-    # labelled no file has already printed its own per-path none/skip reason above.
+    # labelled no file has already printed its own per-path none/skip reason.
     if [[ "${labelled}" -eq 0 ]]; then
         if [[ -z "${report}" ]]; then
-            warn "no agent resolved from the manifests, so no entrypoint was labelled."
+            warn MSG-Q8W8 "no agent resolved from the manifests, so no entrypoint was labelled."
             warn "  Nothing here grants ai_tools_exec_t, so a session refuses to launch until it is."
             warn "  Check which agents are enabled:  ai-tools --providers"
             warn "  and that a manifest is installed: ls -l /usr/local/lib/ai-tools/agents.d/"
             warn "  Re-apply once one resolves:      sudo ai-tools-admin system entrypoints relabel"
         else
-            warn "no agent path took a label this run -- see the per-path reason above"
+            warn MSG-K3A8 "no agent path took a label this run -- see the per-path reason above"
         fi
     fi
     # Printed while the install is still running, so it states WHEN it applies: an operator who
@@ -467,11 +700,11 @@ _home_state()  { local p; for p in "${HOME_STATE[@]}"; do
 # drifted in with a foreign context -- a customizable type a plain restorecon would preserve -- is
 # forced back to ai_tools_project_t by the lib's `-F`, which is the whole point of the sweep.
 _label_one()   { if ai_tools_label_project "$1"; then ok "labelled project ai_tools_project_t: $1"
-                 else warn "could not label $1 -- is the ai_tools module loaded?"; fi; }
-_unlabel_one() { ai_tools_unlabel_project "$1" || warn "could not unlabel $1"; }
+                 else warn MSG-S5E4 "could not label $1 -- is the ai_tools module loaded?"; fi; }
+_unlabel_one() { ai_tools_unlabel_project "$1" || warn MSG-W8J4 "could not unlabel $1"; }
 _restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing
-# sandbox clone, then REPORT and VERIFY each one. The per-project loop below skips sandbox paths
+# sandbox clone, then REPORT and VERIFY each one. The per-project loop skips sandbox paths
 # (they carry no dynamic semanage rule -- the static rule covers them), so without this an operator
 # is shown no evidence the clones were relabelled even though they are the trees the agent runs in.
 # The label is verified, not assumed: restorecon exits 0 even when it writes the WRONG type -- e.g.
@@ -490,35 +723,60 @@ _label_sandbox_clones() {
         if ai_tools_project_labelled "${clone}"; then
             ok "labelled sandbox clone ai_tools_project_t: ${clone}"
         else
-            warn "sandbox clone NOT labelled ai_tools_project_t: ${clone}"
+            warn MSG-A5N2 "sandbox clone NOT labelled ai_tools_project_t: ${clone}"
             warn "    is the ai_tools module loaded, and the clone fcontext rule under /opt"
             warn "    (base file_contexts.subs_dist aliases /var/opt -> /opt before matching)?"
         fi
     done
 }
-# Label / unlabel ~/.config/ai-tools as ai_tools_conf_t (see CONF_DIR comment).
-_label_conf()   { [[ -d "${CONF_DIR}" ]] || { log "config dir absent, skip label: ${CONF_DIR}"; return 0; }
-                  # ai_tools_conf_t must already exist in the LOADED policy for
-                  # semanage to accept it. 'relabel' never loads the module, so on a
-                  # first run (or after a version bump) the type may be undefined --
-                  # report honestly instead of logging a false success.
-                  # Both streams are dropped: semanage announces an existing entry on stdout
-                  # ("already defined, modifying instead"), which reads as an error beside our
-                  # own status lines. Which branch fired is the useful part, so say that in this
-                  # script's own words instead.
-                  local _verb="labelled"
-                  if semanage fcontext -a -t ai_tools_conf_t "${CONF_DIR}(/.*)?" >/dev/null 2>&1 \
-                     || { _verb="re-applied"
-                          semanage fcontext -m -t ai_tools_conf_t "${CONF_DIR}(/.*)?" >/dev/null 2>&1; }; then
-                      restorecon -FR "${CONF_DIR}" 2>/dev/null || true
-                      ok "${_verb} config ai_tools_conf_t: ${CONF_DIR}"
-                  else
-                      warn "could not set ai_tools_conf_t fcontext on ${CONF_DIR}"
-                      warn "    type undefined? the module must be LOADED first --"
-                      warn "    run 'install' (loads the module), not just 'relabel'."
-                  fi; }
-_unlabel_conf() { semanage fcontext -d "${CONF_DIR}(/.*)?" 2>/dev/null || true
-                  restorecon -FR "${CONF_DIR}" 2>/dev/null || true; }
+# _operator_conf_dirs: print the ai-tools config directory of every account this host treats as an
+# operator, one per line, deduplicated in first-seen order. That set is the OPERATORS list in
+# operator.conf plus the invoking user, who is an operator by having run this and who on a first
+# install is absent from the list, operator.conf being written by `ai-tools-admin operators add`.
+# So an unenrolled host still labels the config of the account installing the policy.
+_operator_conf_dirs() {
+    local name home
+    {
+        printf '%s\n' "${PROJECTS_USER}"
+        if declare -F ai_tools_load_operators >/dev/null 2>&1 && ai_tools_load_operators; then
+            printf '%s\n' "${AI_TOOLS_OPERATORS[@]}"
+        fi
+    } | while IFS= read -r name; do
+        [[ -n "${name}" ]] || continue
+        home="$(getent passwd "${name}" 2>/dev/null | cut -d: -f6)" || continue
+        [[ -n "${home}" ]] || continue
+        printf '%s/%s\n' "${home}" "${CONF_TAIL}"
+    done | awk '!seen[$0]++'
+}
+
+# Label / unlabel every operator's ~/.config/ai-tools as ai_tools_conf_t (see CONF_TAIL comment).
+# The rule registration and the restorecon live in relabel.lib.sh, so this sweep and the
+# per-account registration in ai-tools-admin apply one implementation.
+_label_conf() {
+    local dir status
+    while IFS= read -r dir; do
+        [[ -d "${dir}" ]] || { log "config dir absent, skip label: ${dir}"; continue; }
+        status=0
+        ai_tools_label_operator_conf "${dir}" || status=$?
+        case "${status}" in
+            0) ok "labelled config ai_tools_conf_t: ${dir}" ;;
+            2) log "SELinux inactive, nothing to label: ${dir}" ;;
+            # ai_tools_conf_t must already exist in the LOADED policy for semanage to accept it.
+            # 'relabel' never loads the module, so on a first run (or after a version bump) the
+            # type may be undefined -- report honestly instead of logging a false success. The
+            # reason semanage gave is what tells that apart from a store another transaction held.
+            *) warn MSG-W3Q4 "could not set ai_tools_conf_t on ${dir}${AI_TOOLS_FCONTEXT_ERROR:+ -- ${AI_TOOLS_FCONTEXT_ERROR}}"
+               warn "    type undefined? the module must be LOADED first --"
+               warn "    run 'install' (loads the module), not just 'relabel'." ;;
+        esac
+    done < <(_operator_conf_dirs)
+}
+_unlabel_conf() {
+    local dir
+    while IFS= read -r dir; do
+        ai_tools_unlabel_operator_conf "${dir}" || true
+    done < <(_operator_conf_dirs)
+}
 # _relabel_runtime: fix the live ai_tools_run_t label on /run/ai-tools (see RUN_DIR).
 # A plain restorecon of the other trees is enough because they live on persistent
 # filesystems, but the handback runtime dir is tmpfs and recreated by systemd from
@@ -539,7 +797,7 @@ _relabel_runtime() {
             systemctl restart ai-tools-handback.socket 2>/dev/null || true
         fi
     fi
-    [[ -d "${RUN_DIR}" ]] && restorecon -FRv "${RUN_DIR}" 2>/dev/null || true
+    [[ -d "${RUN_DIR}" ]] && restorecon -FRv "${RUN_DIR}" 2>/dev/null | indented || true
 }
 
 # _relabel_helpers: apply ai_tools_handback_exec_t to the handback daemon entrypoint
@@ -560,26 +818,22 @@ case "${ACTION}" in
 
   install)
     section "Core module"
-    # The core module ships prebuilt, so a normal install does not require a toolchain. Offer
-    # a from-source rebuild (needs selinux-policy-devel) for anyone who edited the
-    # .te/.fc -- default no. With no prebuilt package present we must build anyway.
-    _recompile=0
-    if [[ -f "${POLICY_DIR}/${MODULE}.pp" && -t 0 ]]; then
-        ai_tools_msg_confirm \
-            "Recompile the core policy module from source? (needs selinux-policy-devel)" n \
-            && _recompile=1
-    fi
-    if (( _recompile )); then
-        build_pp "${MODULE}.pp"
-    else
-        ensure_pp "${MODULE}.pp"
-    fi
+    # ensure_pp compiles the core on a fresh checkout and, with the toolchain present, lets make
+    # decide whether an earlier build still matches the source -- so an edited .te/.fc is loaded
+    # by a plain re-run, attended or not.
+    ensure_pp "${MODULE}.pp"
 
     _mode="$(_mode_label)"
     log "loading core module (${_mode})"
-    semodule -i "${POLICY_DIR}/${MODULE}.pp"
+    _locked semodule -i "${POLICY_DIR}/${MODULE}.pp"
     ok "core module loaded (${_mode})"
     _check_permissive_alignment
+    _replace_former_group_modules
+    _load_layout_modules
+    # The shipped set, compiled and staged where the installed ai-tools-admin loads a stable
+    # group from; each module goes through ensure_pp, so an edited source is rebuilt with the core.
+    section "Shipped modules"
+    stage_shipped_modules
 
     section "Labelling"
     restorecon -FR "${NVM_DIR}"  2>/dev/null || true
@@ -593,12 +847,10 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _home_state
-    verify_agent_labels
-    _label_conf
-    for_each_project _label_one
+    _locked _labels_apply
 
     # Core is loaded and labelled -- a clear checkpoint before the optional groups. Reaching
-    # here means the steps above succeeded (a hard failure aborts under set -e; a mislabelled
+    # here means the preceding steps succeeded (a hard failure aborts under `set -e`; a mislabelled
     # path dies in verify_agent_labels), so the optional section is purely additive.
     ok "SELinux core module installed"
 
@@ -608,15 +860,16 @@ case "${ACTION}" in
         for name in "${SELECTED_GROUPS[@]}"; do
             ensure_pp "ai_tools_${name}.pp"
             log "loading group: ai_tools_${name}"
-            semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
+            _locked semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
             ok "group '${name}' enabled"
         done
-        # Recompile-and-reload a loaded group from its current source: build_pp (unlike
-        # ensure_pp) never reuses a stale prebuilt, so an edited .te/.fc takes effect.
+        # Reload a loaded group from its current source: build_pp requires the toolchain, so a
+        # reload asked for on a host that cannot compile is refused with the package named rather
+        # than reusing the build it already runs.
         for name in "${RECOMPILE_GROUPS[@]}"; do
             build_pp "ai_tools_${name}.pp"
             log "reloading from source: ai_tools_${name}"
-            semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
+            _locked semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
             ok "group '${name}' recompiled and reloaded"
         done
     fi
@@ -649,6 +902,12 @@ case "${ACTION}" in
     else
         log "no optional groups loaded (core only)"
     fi
+    # Layout modules are reported apart from the groups: they load with an integration, not by
+    # an answer to this prompt, and a missing one is why fresh build output types ai_tools_project_t.
+    mapfile -t _layouts < <(_layout_modules_loaded)
+    if (( ${#_layouts[@]} )); then
+        log "layout modules loaded (with their integrations): $(_list "${_layouts[@]}")"
+    fi
     if [[ "${_mode}" == PERMISSIVE ]] && (( ${#SELECTED_GROUPS[@]} || ${#RECOMPILE_GROUPS[@]} )); then
         log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to cover"
         log "the expanded surface before removing 'permissive ai_tools_t;'"
@@ -670,24 +929,35 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _home_state
-    verify_agent_labels
-    _label_conf
-    for_each_project _label_one
+    _locked _labels_apply
     ok "relabel done"
+    ;;
+
+  build)
+    # Compile the shipped set from source and stage it under the package directory, loading
+    # nothing: the step install.sh runs so an installed ai-tools-admin can enable a stable group,
+    # and the from-source twin of the RPM's %build + %install. Needs selinux-policy-devel.
+    section "Compiling and staging the shipped modules"
+    stage_shipped_modules rebuild
     ;;
 
   rebuild)
     # Recompile the core module from source (.te/.fc) and reload it, then re-apply
     # labels. This is the "rebuild core module" path: use it after editing ai_tools.te
-    # or ai_tools.fc so the loaded policy and the shipped ai_tools.pp match the source.
+    # or ai_tools.fc so the loaded policy matches the source. The shipped set is recompiled
+    # and re-staged with it, so the package directory matches the source too.
     # Needs the selinux-policy-devel toolchain (build_pp checks and guides if absent).
     section "Rebuilding core module"
     build_pp "${MODULE}.pp"
     _mode="$(_mode_label)"
     log "reloading core module (${_mode})"
-    semodule -i "${POLICY_DIR}/${MODULE}.pp"
+    _locked semodule -i "${POLICY_DIR}/${MODULE}.pp"
     ok "core module rebuilt and reloaded (${_mode})"
     _check_permissive_alignment
+    _replace_former_group_modules
+    _load_layout_modules
+    section "Shipped modules"
+    stage_shipped_modules rebuild
 
     section "Re-applying labels"
     restorecon -FR "${NVM_DIR}"  2>/dev/null || true
@@ -700,32 +970,19 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _home_state
-    verify_agent_labels
-    _label_conf
-    for_each_project _label_one
+    _locked _labels_apply
     ok "rebuild done"
     ;;
 
   remove)
     section "Removing SELinux confinement"
     log "dropping project fcontext rules"
-    for_each_project _unlabel_one
-    _unlabel_conf
-    # The agents' path rules are local fcontexts naming types the module unload below removes.
-    # Drop them here, while those types still exist, for EVERY installed agent manifest (not just
-    # the enabled ones -- a disabled agent may still hold a rule from when it was on).
-    log "dropping the agents' fcontext rules"
-    for manifest in /usr/local/lib/ai-tools/agents.d/*.conf; do
-        [[ -e "${manifest}" ]] || continue
-        agent="${manifest##*/}"; agent="${agent%.conf}"
-        ai_tools_unlabel_agent_paths "${agent}" \
-            || log "  ${agent}: no file-context rules to drop"
-    done
+    _locked _labels_drop
     log "unloading all ai_tools* modules"
     # Collect all loaded ai_tools modules then remove in one semodule call.
     mapfile -t loaded < <(semodule -l 2>/dev/null | awk '/^ai_tools/{print $1}')
     if [[ ${#loaded[@]} -gt 0 ]]; then
-        semodule -r "${loaded[@]}" 2>/dev/null || true
+        _locked semodule -r "${loaded[@]}" 2>/dev/null || true
     fi
     log "reverting contexts to defaults"
     _restore_one "${NVM_DIR}"
@@ -737,26 +994,40 @@ case "${ACTION}" in
   enable-group)
     name="${2:?usage: sudo $0 enable-group <name>}"
     if ! ai_tools_selinux_group_valid "${name}"; then
-        warn "unknown group '${name}'. Available groups:"
+        warn MSG-X4S3 "unknown group '${name}'. Available groups:"
         for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
             printf '    %-10s %s\n' "$(ai_tools_selinux_group_name "${entry}")" "$(ai_tools_selinux_group_desc "${entry}")" >&2
         done
         exit 1
     fi
+    _replace_former_group_modules
     section "Enabling group: ${name}"
     ensure_pp "ai_tools_${name}.pp"
     log "loading group: ai_tools_${name}"
-    semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
+    _locked semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
     ok "group '${name}' enabled"
+    # A group may ship file contexts of its own (dotnet maps a clone's build output), so the
+    # labels are re-applied after the load: the project sweep re-asserts each project's rules,
+    # and the clone restorecon picks up any static rule the group added.
+    log "re-applying labels for the expanded rule set"
+    _locked for_each_project _label_one
+    _label_sandbox_clones
     log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to catch any"
     log "new denials from the expanded surface before going enforcing"
     ;;
 
   disable-group)
     name="${2:?usage: sudo $0 disable-group <name>}"
+    _replace_former_group_modules
     if ai_tools_selinux_group_loaded "${name}"; then
-        semodule -r "ai_tools_${name}"
+        _locked semodule -r "ai_tools_${name}"
         ok "group '${name}' disabled"
+        # The inverse of the enable sweep: a path a static rule of the group mapped falls back
+        # to the base's rule for it. Every type the groups name is declared in the base, so a
+        # per-project rule outlives the group unchanged.
+        log "re-applying labels for the reduced rule set"
+        _locked for_each_project _label_one
+        _label_sandbox_clones
     else
         log "group 'ai_tools_${name}' is not currently loaded -- nothing to do"
     fi
@@ -793,13 +1064,16 @@ case "${ACTION}" in
     cat >&2 <<EOF
 selinux: usage: sudo $0 <action> [args]
 
-  install              load prebuilt core (opt. recompile) + prompt for optional groups
+  install              compile + load the core, stage the shipped set, prompt for optional groups
+  build                compile + stage the shipped set under /usr/share/selinux/packages/ai-tools
   rebuild              recompile the core module from source (.te/.fc), reload, relabel
   relabel              re-apply labels (run after a Node upgrade)
   remove               unload all ai_tools* modules and revert labels
-  enable-group <name>  load one optional policy group (compiles it; needs selinux-policy-devel)
+  enable-group <name>  load one optional policy group (compiles it)
   disable-group <name> unload one optional policy group
   list-groups          show which groups are available and their current state
+
+  install, build, rebuild, and enable-group compile from source: sudo dnf install selinux-policy-devel
 
 Optional groups (all disabled by default):
 EOF

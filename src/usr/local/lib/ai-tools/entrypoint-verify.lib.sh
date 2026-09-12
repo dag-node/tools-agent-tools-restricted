@@ -25,7 +25,7 @@
 # (tests/unit/entrypoint-verify.sh).
 
 # Include guard: an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and
-# trips the sourcing shell's set -e.
+# trips the sourcing shell's `set -e`.
 if [[ -n "${_AI_TOOLS_ENTRYPOINT_VERIFY_LIB_LOADED:-}" ]]; then
     return 0
 fi
@@ -62,7 +62,7 @@ _ai_tools_ev_warn() {
 
 # ai_tools_entrypoint_platform_key <machine> [libc] : print the key a vendor release manifest
 #   lists this host's binary under, or an empty string for an architecture with no mapping. <machine> is
-#   uname -m; <libc> is `musl` or empty. Pure, so the mapping is unit-tested without needing the
+#   `uname -m`; <libc> is `musl` or empty. Pure, so the mapping is unit-tested without needing the
 #   architectures it maps.
 ai_tools_entrypoint_platform_key() {
     local machine="${1:-}" libc="${2:-}" arch="" suffix=""
@@ -120,7 +120,7 @@ ai_tools_release_manifest_checksum() {
 }
 
 # ai_tools_entrypoint_pin_verdict <expected> <observed> : the decision, given two checksums.
-#   Echoes a verdict token and returns the status contract above:
+#   Echoes a verdict token and returns this library's status contract:
 #     ok         both present and equal
 #     mismatch   both present and different -- the tamper signal, status 1
 #     unpinned   no expected value: no run has verified this entrypoint yet, status 2
@@ -230,7 +230,7 @@ ai_tools_entrypoint_label_write() {
         printf '# ai-tools entrypoint label record -- written as root, read by ai-tools --status.\n'
         printf 'AGENT=%s\nRESULT=%s\nLABELLED=%s\n' \
             "${agent}" "${result}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        # See the pin above: the last command's status is the group's, and most records carry no
+        # See the pin write: the last command's status is the group's, and most records carry no
         # reason -- so an `ok` outcome would report itself as unrecordable.
         if [[ -n "${reason}" ]]; then printf 'REASON=%s\n' "${reason}"; fi
     } | _ai_tools_ev_write_record "${record}" "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}"
@@ -319,7 +319,7 @@ _ai_tools_ev_dearmor() {
 # ai_tools_entrypoint_release_verify <entrypoint> <version> <url-template> <key> <fingerprint>
 #   Fetch the vendor's release manifest for <version>, verify its detached signature against the
 #   pinned <key>, and compare the checksum it publishes for this platform against <entrypoint>'s.
-#   Returns the status contract above and prints the verified checksum on success.
+#   Returns this library's status contract and prints the verified checksum on success.
 #
 #   Every input but the entrypoint comes from a root-owned agent manifest that already passed
 #   ai_tools_conf_is_trusted, and the key is a file the agent package ships -- fetched from the
@@ -366,7 +366,7 @@ ai_tools_entrypoint_release_verify() {
     trap "rm -rf -- '${workdir}'" RETURN
 
     # Both objects before the comparison, so an unpublished manifest is "unable to verify" and
-    # never reaches it. --connect-timeout is what keeps an air-gapped host from waiting out a
+    # never reaches it. `--connect-timeout` is what keeps an air-gapped host from waiting out a
     # blackholed route: this runs inside an rpm %post that must succeed offline.
     curl -fsSL --connect-timeout 5 --max-time 30 -o "${workdir}/manifest.json" -- "${url}" 2>/dev/null \
         || { _ai_tools_ev_warn "no release manifest published at ${url} (or the host is offline)"; return 2; }

@@ -61,11 +61,8 @@ fi
 # do, or a claim over a tree owned by a third party closes with a clean check mark.
 if ${foreign}; then
     guard_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
-    if grep -q 'owned by neither' <<<"${guard_err}"; then
-        pass "a third-party-owned dir is reported on stderr"
-    else
-        fail "the owner-guard skip was silent (stderr: ${guard_err})"
-    fi
+    # The code separates this report from the project-root one below, which reads alike.
+    assert_msg MSG-B9V2 "${guard_err}" "a third-party-owned dir is reported on stderr"
 else
     skip "owner-guard reporting" "user 'nobody' not present"
 fi
@@ -81,7 +78,7 @@ else
 fi
 
 # ── Owner-only (sealed) paths ────────────────────────────────────────────────
-# A second project, so the cases above keep their fixture. These are what make `chmod 700` a
+# A second project, so the earlier cases keep their fixture. These are what make `chmod 700` a
 # boundary rather than a mask: the pass must not pull a sealed dir into the agent's group, and
 # must strip the residue such a dir carries from having been created inside a claimed tree.
 p2="${TESTDIR}/proj2"
@@ -161,7 +158,7 @@ else
 fi
 
 # ── The project root itself owned by a third party ───────────────────────────
-# (E) The case that decides whether a claim granted anything at all: every directory below an
+# (E) The case that decides whether a claim granted anything at all: every directory under an
 # unreachable root inherits neither, so the agent cannot enter the tree. It gets its own wording
 # rather than folding into the count, because "1 directory skipped" reads as a detail while this
 # is the whole outcome.
@@ -173,11 +170,7 @@ mk_allowlist "${p3}"
 if id nobody >/dev/null 2>&1; then
     chown nobody:nobody "${p3}"
     root_err="$(setsid "${HELPER}" "${p3}" < /dev/null 2>&1 >/dev/null || true)"
-    if grep -q 'the project directory itself is owned by neither' <<<"${root_err}"; then
-        pass "a third-party-owned project root is reported as granting no access"
-    else
-        fail "a third-party-owned project root was not called out (stderr: ${root_err})"
-    fi
+    assert_msg MSG-V6Q7 "${root_err}" "a third-party-owned project root is reported as granting no access"
 else
     skip "third-party project root" "user 'nobody' not present"
 fi

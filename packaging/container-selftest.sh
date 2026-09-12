@@ -3,7 +3,7 @@
 # /usr/local/bin/ai-tools-selftest  (test image only)
 # Automated admin/operator/agent smoke test for the ai-tools RPMs, run once on boot by
 # ai-tools-selftest.service after the system instance is up (the handback socket and the
-# sandbox account's --user manager need a live systemd, so this cannot run at image-build
+# sandbox account's `--user manager` need a live systemd, so this cannot run at image-build
 # time). It walks the documented Quick-start workflow end to end, reports per-phase results,
 # then stops the container with the aggregate status via `systemctl exit`.
 #
@@ -104,7 +104,7 @@ phase "safedir + reclaim helpers present (the late spec additions)" \
     bash -c 'test -x /usr/local/libexec/ai-tools/ai-tools-safedir && test -x /usr/local/libexec/ai-tools/ai-tools-reclaim'
 
 # The provisioning helper does not have a name on PATH: `ai-tools-admin system bootstrap` execs
-# it at this fixed path, so what the phase above cannot cover is asserted here.
+# it at this fixed path, so what the PATH phase cannot cover is asserted here.
 phase "provisioning helper present at the path ai-tools-admin execs" \
     test -x /usr/local/libexec/ai-tools/ai-tools-bootstrap
 
@@ -115,9 +115,23 @@ phase "provisioning helper present at the path ai-tools-admin execs" \
 phase "contributed command domain dispatches (dotnet status)" \
     ai-tools-admin dotnet status
 
+# The policy modules ai-tools-selinux ships are the ones selinux/policy/shipped-modules.sh derives from
+# the group registry and the integration manifests -- the list the spec's %build compiled inside
+# this image -- one .pp per name and no other. Read from the built RPM rather than the installed
+# tree, so a %files list that drifted from the derivation fails here whether or not the package
+# was installed. getenforce is Disabled in a container, so whether a module LOADS is not covered.
+phase "ai-tools-selinux ships exactly the derived policy module set" \
+    bash -c 'set -e
+             rpm=$(ls /tmp/ai-repo/ai-tools-selinux-*.rpm | head -1)
+             have=$(rpm -qlp "${rpm}" | sed -n "s#^/usr/share/selinux/packages/ai-tools/\(.*\)\.pp\$#\1#p" | sort)
+             want=$(bash "$1/selinux/policy/shipped-modules.sh" | sort)
+             [ -n "${want}" ] || { echo "shipped-modules.sh derived an empty set" >&2; exit 1; }
+             [ "${have}" = "${want}" ] || { printf "packaged:\n%s\nderived:\n%s\n" "${have}" "${want}" >&2; exit 1; }
+             echo "${have}" | tr "\n" " "; echo' _ "${SRC_DIR}"
+
 # ── toolchain provisioning (network) ─────────────────────────────────────────
 # Run at runtime, not build: under a live systemd, bootstrap enables the sandbox account's
-# linger and the nvm-update.timer in its own --user instance. Idempotent (reuses an existing
+# linger and the nvm-update.timer in its own `--user instance`. Idempotent (reuses an existing
 # nvm/Node), so a re-run is cheap.
 phase "system bootstrap (nvm + Node + claude; linger + timer)" \
     ai-tools-admin system bootstrap
@@ -151,7 +165,7 @@ as_operator "cd '${PROJECT}' && git init -q" || true
 # Drive the claim non-interactively. AI_TOOLS_ASSUME_YES=1 is the CLI's own assume-yes hook, but it
 # only fast-tracks default-YES prompts (here: .git normalization) -- by design (messaging.rule.md),
 # it never pre-answers a default-NO one. The claim's own proceed prompt ("Apply the pending steps IN
-# PLACE?") is default-NO, so it needs the CLI's per-invocation --yes, the same flag claude.sh passes
+# PLACE?") is default-NO, so it needs the CLI's per-invocation `--yes`, the same flag claude.sh passes
 # for its own delegated claim.
 phase "operator claims the project (allowlist + ACL + safedir + label)" \
     as_operator "AI_TOOLS_ASSUME_YES=1 ai-tools --project-claim --yes '${PROJECT}'"
@@ -187,7 +201,7 @@ fi
 # ── reachability diagnostic (why can / can't the agent reach the project) ─────
 # ai-tools-run checks `[[ -d AI_TOOLS_PROJECT_DIR ]]` AS the agent, so the agent must traverse every
 # ancestor. Dump each ancestor's perms + ACL and whether the agent can stat the project, so a
-# traverse-grant gap is visible rather than only surfacing as the session error below.
+# traverse-grant gap is visible rather than only surfacing as the session error.
 banner "Reachability diagnostic"
 set -x
 ls -ld /home "/home/${OPERATOR}" "${PROJECT}" 2>&1 || true
@@ -200,7 +214,7 @@ set +x
 # `claude --version` flows wrapper -> ai-ops gate -> allowlist -> sudo -> ai-tools-run ->
 # `systemd-run --user --pty -- claude.exe --version`, so it exercises the whole confined
 # launch without an API key. `script` provides a controlling tty for the wrapper's
-# /dev/tty probe and ai-tools-run's --pty; `timeout` guards a hung update check.
+# /dev/tty probe and ai-tools-run's `--pty`; `timeout` guards a hung update check.
 phase "confined session launches (claude --version through the wrapper)" \
     as_operator "cd '${PROJECT}' && script -qec 'timeout 90 claude --version' /dev/null"
 

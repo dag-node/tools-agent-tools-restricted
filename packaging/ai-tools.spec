@@ -3,14 +3,14 @@
 Name:           ai-tools
 # Single source of truth for the version: packaging/VERSION (the Makefile reads the same
 # file), so a release bump touches one place. Parsing this spec requires _sourcedir to
-# point at packaging/ -- the Makefile's rpm/srpm targets pass --define "_sourcedir ..."
+# point at packaging/ -- the Makefile's rpm/srpm targets pass `--define "_sourcedir ..."`
 # for that reason; a bare parse (rpmlint, IDE tooling) without it yields an empty Version.
 Version:        %(cat %{_sourcedir}/VERSION)
 # Plain "1" for a final vX.Y.Z release; the Makefile's RPM_RELEASE overrides it to a
 # dev/snapshot string (e.g. "0.42.gitabcdef1") or an rc prerelease ("0.rc1"). The leading
 # "0." on a dev Release is the Fedora pre-release convention: rpm's version comparison
-# then always ranks a real release (Release starts at plain "1") above any dev snapshot
-# that preceded it, and ranks newer dev snapshots above older ones as the counter climbs.
+# then always ranks a real release (Release starts at plain "1") over any dev snapshot
+# that preceded it, and ranks newer dev snapshots over older ones as the counter climbs.
 Release:        %{!?rpm_release:1}%{?rpm_release}%{?dist}
 Summary:        Run Claude Code as a sandboxed system user (metapackage)
 
@@ -22,12 +22,14 @@ Source2:        VERSION
 
 BuildArch:      noarch
 BuildRequires:  systemd-rpm-macros
-# Fedora only: the shipped SELinux .pp is compiled from source at build time rather than served
-# from the committed EL-built prebuilt, because Fedora's refpolicy is a newer, moving target and
-# an EL-built .pp may not load against it. EL keeps the committed prebuilt (no devel at build).
-%if 0%{?fedora}
+# The SELinux policy modules are compiled in %%build, from the .te/.if/.fc in the tarball, against
+# the BUILDING distribution's policy headers: a module compiled on one release's headers is not
+# known to load on another, and a .pp is a binary no review can read, so none is committed or
+# carried in the source. The %%{?dist} tag on the Release keeps each distribution's build on its
+# own hosts. make drives the refpolicy Makefile; policycoreutils supplies semodule_package.
 BuildRequires:  selinux-policy-devel
-%endif
+BuildRequires:  policycoreutils
+BuildRequires:  make
 
 # Shell/Python scripts only: no ELF, so suppress the debuginfo subpackage and the
 # binary build-root policy steps (ldconfig/strip) that do not apply to a noarch package.
@@ -48,7 +50,7 @@ BuildRequires:  selinux-policy-devel
 # Metapackage: pulls the whole stack. ai-tools-base is the mandatory foundation; the
 # ai-tools-agents and ai-tools-integration umbrellas are weak (Recommends), so a default
 # dnf install pulls them while `--setopt=install_weak_deps=0` yields base alone. The real
-# content is in the subpackages below.
+# content is in the subpackages.
 Requires:       ai-tools-base = %{version}-%{release}
 Recommends:     ai-tools-agents = %{version}-%{release}
 Recommends:     ai-tools-integration = %{version}-%{release}
@@ -108,9 +110,10 @@ Requires(postun): policycoreutils
 
 %description -n ai-tools-selinux
 The SELinux targeted-policy module that confines a sandbox session in the
-ai_tools_t domain, plus the prebuilt packages for the stable optional policy
-groups. Built against the SELinux reference policy and therefore licensed
-GPL-2.0-or-later, unlike the rest of the stack.
+ai_tools_t domain, plus the stable optional policy groups and each
+integration's layout module, every one compiled at package build against this
+distribution's policy headers. Built against the SELinux reference policy and
+therefore licensed GPL-2.0-or-later, unlike the rest of the stack.
 
 Without this package the sandbox runs in a documented DAC-only mode: ownership,
 group ACLs, and the no-new-privileges launch confinement all still apply, but
@@ -226,6 +229,13 @@ grep -rlZ -e '@SANDBOX_USER@' -e '@SANDBOX_GROUP@' src \
 # Stamp the package version into the CLI (`ai-tools --version`).
 grep -rlZ '@AI_TOOLS_VERSION@' src \
     | xargs -0 -r sed -i 's/@AI_TOOLS_VERSION@/%{version}-%{release}/g'
+# Compile every shipped SELinux policy module against this distribution's policy headers (see
+# the BuildRequires note). The list is derived, never spelled: selinux/policy/shipped-modules.sh prints
+# the core, each STABLE group in selinux-groups.lib.sh, and the layout module each integration
+# manifest under src/ declares. %%install stages and %%files ships the same list, so promoting a
+# group or adding a layout module touches the registry or a manifest and no line of this spec.
+make -C selinux/policy \
+    $(bash selinux/policy/shipped-modules.sh src/usr/local/lib/ai-tools/integrations.d | sed 's/$/.pp/')
 
 %install
 # The /opt control plane and the /var trees ship root:ai-tools and stay that way: root (not the
@@ -263,8 +273,22 @@ install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_man
 install -d -m 0755 %{buildroot}%{ai_mandir}/man8
 install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_mandir}/man8/ai-tools-admin.8
 # operator.conf(5): the host options and the shared KEY=value grammar they are written in.
+# ai-tools-providers(5): the provider manifests (agents.d, integrations.d) and their keys.
+# allowed-projects(5), secret-patterns(5): the two files an operator's enrolment seeds, whose
+# headers are written once and point here for the reference.
+# custom-claude-endpoint.conf(5): the endpoint file's options, so its %%config(noreplace)
+# template stays a pointer.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
-install -m 0644 src%{ai_mandir}/man5/operator.conf.5        %{buildroot}%{ai_mandir}/man5/operator.conf.5
+install -m 0644 src%{ai_mandir}/man5/operator.conf.5               %{buildroot}%{ai_mandir}/man5/operator.conf.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-providers.5          %{buildroot}%{ai_mandir}/man5/ai-tools-providers.5
+install -m 0644 src%{ai_mandir}/man5/allowed-projects.5            %{buildroot}%{ai_mandir}/man5/allowed-projects.5
+install -m 0644 src%{ai_mandir}/man5/secret-patterns.5             %{buildroot}%{ai_mandir}/man5/secret-patterns.5
+install -m 0644 src%{ai_mandir}/man5/custom-claude-endpoint.conf.5 %{buildroot}%{ai_mandir}/man5/custom-claude-endpoint.conf.5
+# ai-tools-messages(7): every message code the tree emits, generated from the cross-reference
+# index. Section 7 documents a convention rather than a command, and no EL package owns man7
+# under %%{_prefix}/local, so the directory ships here.
+install -d -m 0755 %{buildroot}%{ai_mandir}/man7
+install -m 0644 src%{ai_mandir}/man7/ai-tools-messages.7        %{buildroot}%{ai_mandir}/man7/ai-tools-messages.7
 # The CLI gets a %%{_sbindir} symlink for the OPPOSITE reason ai-tools-admin does: its
 # mutating verbs must never run under sudo, and without the symlink `sudo ai-tools` dies with
 # sudo's "command not found" (%%{ai_bindir} is not in secure_path) before the CLI's own
@@ -307,7 +331,7 @@ install -m 0644 src%{ai_libdir}/filters.d/core.rules %{buildroot}%{ai_libdir}/fi
 # served the manifest served the key).
 install -d -m 0755 %{buildroot}%{ai_libdir}/keys
 # The shared confinement shim. Base-owned and agent-agnostic: it resolves which agent may launch
-# from the manifests above, so an ai-tools-agents-* package ships only its wrapper, manifest, and
+# from the manifests, so an ai-tools-agents-* package ships only its wrapper, manifest, and
 # session-env fragment, and one sudoers grant serves every agent.
 install -d -m 0755 %{buildroot}/opt/ai-tools/bin
 install -m 0550 src/opt/ai-tools/bin/ai-tools-run.sh %{buildroot}/opt/ai-tools/bin/ai-tools-run
@@ -342,28 +366,21 @@ sed 's/^OPERATORS=.*/OPERATORS=""/' src%{_sysconfdir}/ai-tools/operator.conf \
     > %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 
-# ── ai-tools-selinux: SELinux policy packages (prebuilt) ─────────────────────
+# ── ai-tools-selinux: the SELinux policy modules %%build compiled ────────────
 # Staged here, shipped in the ai-tools-selinux subpackage (which also carries the load/unload
-# scriptlets and the GPL licence text -- see its %%package block).
-# The core (loaded on install) plus each STABLE optional group. Only stable groups ship
-# prebuilt: they are toggled per host with `ai-tools-admin selinux groups enable <name>`,
-# which semodule-loads the prebuilt .pp from this directory (no source tree or
-# selinux-policy-devel needed). EXPERIMENTAL groups are NOT shipped -- they are compiled and
-# verified from a source checkout on demand (install-selinux.sh enable-group + the avc loop);
-# ai-tools-admin points the operator there rather than loading an unaudited module. Keep this
-# list in step with the stable set in selinux-groups.lib.sh.
+# scriptlets and the GPL licence text -- see its %%package block). The set is the one %%build
+# derived -- the core, each STABLE optional group, each integration's layout module -- read again
+# here and written to the file list %%files takes, so the three cannot disagree. The core loads on
+# install; a group stays OFF until an operator runs `ai-tools-admin selinux groups enable <name>`,
+# which semodule-loads it from this directory with no source tree and no selinux-policy-devel.
+# EXPERIMENTAL groups are not on the list: they are compiled and verified from a source checkout
+# (install-selinux.sh enable-group + the avc loop), and ai-tools-admin refuses to load one.
 install -d -m 0755 %{buildroot}%{_datadir}/selinux/packages/ai-tools
-# On Fedora, compile the .pp from the shipped .te/.fc/.if via the refpolicy Makefile (in the
-# tarball for GPL compliance) so the module targets the host's own refpolicy version; on EL, serve
-# the committed prebuilt. The .fc source -- carrying the /usr/local/libexec/ai-tools helper path --
-# is the single source both consume, so the layout is identical on either build. The %{?dist} tag
-# (.fc44 vs .el10) keeps a Fedora-built .pp from ever reaching an EL host or vice versa.
-%if 0%{?fedora}
-make -C selinux/policy ai_tools.pp ai_tools_tmpmap.pp
-%endif
-for pp in ai_tools ai_tools_tmpmap; do
+: > selinux-files.list
+for pp in $(bash selinux/policy/shipped-modules.sh src/usr/local/lib/ai-tools/integrations.d); do
     install -m 0644 selinux/policy/${pp}.pp \
         %{buildroot}%{_datadir}/selinux/packages/ai-tools/${pp}.pp
+    echo "%{_datadir}/selinux/packages/ai-tools/${pp}.pp" >> selinux-files.list
 done
 
 # ── base: sandbox project workflow tree + operation-log dir ──────────────────
@@ -375,7 +392,7 @@ install -d -m 0750 %{buildroot}/var/opt/ai-tools/state
 # the whole value of a pin is that the account it constrains cannot write it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-pin.d
 # What the last reconciliation could do about each agent's SELinux labels -- the labelling half's
-# counterpart to the pin above, written by the same helper and read by `ai-tools --status`. Same
+# counterpart to the pin, written by the same helper and read by `ai-tools --status`. Same
 # ownership for the same reason: it reports on the sandbox account, which must not be able to
 # rewrite it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-label.d
@@ -383,8 +400,8 @@ install -m 0640 src/var/opt/ai-tools/README.md %{buildroot}/var/opt/ai-tools/REA
 install -d -m 0700 %{buildroot}/var/log/ai-tools
 
 # ── base: control-plane home root + bin (files added by nodejs/claude; the agent's own config
-#    directory is staged in its section below). Staging modes are writable so files can be placed
-#    here; the installed modes come from the file lists below. ──
+#    directory is staged in its own section). Staging modes are writable so files can be placed
+#    here; the installed modes come from the file lists. ──
 install -d -m 0755 %{buildroot}/opt/ai-tools
 install -d -m 0755 %{buildroot}/opt/ai-tools/bin
 # The shared asset roots: agent-agnostic content the base owns, symlinked into each agent's own
@@ -425,7 +442,7 @@ done
 install -m 0550 src/opt/ai-tools/bin/nvm-update.sh %{buildroot}/opt/ai-tools/bin/nvm-update.sh
 
 # ── integration-nodejs: toolchain update units + post-upgrade relabel watcher ─
-# The update service+timer run in the sandbox account's own systemd --user instance
+# The update service+timer run in the sandbox account's own `systemd --user instance`
 # (%{_userunitdir}); the relabel .path watches the bin/claude symlink and triggers the
 # root-side .service (restorecon to ai_tools_exec_t) after a Node bump.
 install -d -m 0755 %{buildroot}%{_userunitdir}
@@ -470,7 +487,7 @@ install -m 0640 src/opt/ai-tools/agents/claude-code/settings.json     %{buildroo
 install -m 0644 src%{ai_libdir}/agents.d/claude-code.conf  %{buildroot}%{ai_libdir}/agents.d/claude-code.conf
 # The pinned Anthropic release-signing key (published at downloads.claude.ai/keys/claude-code.asc).
 # Plain rpm-owned data, NOT %%config: the pin must change only when a signed package installs a new
-# one, never by an edit on the host. Its fingerprint is declared in the manifest above and asserted
+# one, never by an edit on the host. Its fingerprint is declared in the manifest and asserted
 # against gpgv's output, so this file alone does not decide what may sign a release.
 install -m 0644 src%{ai_libdir}/keys/claude-code.asc %{buildroot}%{ai_libdir}/keys/claude-code.asc
 # Its session env (config dir, compile cache, in-session updater), sourced by ai-tools-run last
@@ -478,7 +495,7 @@ install -m 0644 src%{ai_libdir}/keys/claude-code.asc %{buildroot}%{ai_libdir}/ke
 install -m 0644 src%{ai_libdir}/session-env.d/claude-code.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.env.sh
 # Claude Code-specific resolvers (the base owns the lib directory; the agent ships these into it):
 # the custom system prompt (claude.sh, wrapper-side) and the custom API endpoint (the fragment
-# above, sandbox-side). Both split their pure logic out for unit testing.
+# its own fragment, sandbox-side). Both split their pure logic out for unit testing.
 install -m 0644 src%{ai_libdir}/claude-prompt.lib.sh   %{buildroot}%{ai_libdir}/claude-prompt.lib.sh
 install -m 0644 src%{ai_libdir}/claude-endpoint.lib.sh %{buildroot}%{ai_libdir}/claude-endpoint.lib.sh
 # The empty default custom system prompt and the endpoints directory with its inert endpoint
@@ -511,7 +528,7 @@ done
 # operator disable survives). Only enables; posttrans starts it.
 %systemd_post ai-tools-handback.socket
 # Grant the ai-ops operators group access to the shared sandbox area through a group ACL, so
-# operators create and work in clones (ai-tools --sandbox-create) without joining the ai-tools
+# operators create and work in clones (`ai-tools --sandbox-create`) without joining the ai-tools
 # group: traverse on the outer dir, rwX on sandbox-projects (a default ACL so clones inherit the
 # operator access), and read on the doc. One grant covers every operator and outlives a leave of
 # the ai-tools group. This is the shared-area counterpart to ai-tools-setfacl's per-project
@@ -542,7 +559,7 @@ chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # existing -- possibly operator-customised -- file is never clobbered. This runs on every
 # transition, not fresh-install only, so a file lost to an earlier package's config handling is
 # restored. No operator is bound yet at %post time (that is `ai-tools-admin operators add`, run
-# after this), so the .gitconfig email uses the hostname -f fallback.
+# after this), so the .gitconfig email uses the `hostname -f` fallback.
 if [ ! -f /opt/ai-tools/.gitignore ]; then
     install -m 0640 -o root -g ai-tools \
         %{_datadir}/ai-tools/gitignore /opt/ai-tools/.gitignore
@@ -554,7 +571,7 @@ if [ ! -f /opt/ai-tools/.gitconfig ]; then
     chown root:ai-tools /opt/ai-tools/.gitconfig
     chmod 0644 /opt/ai-tools/.gitconfig
 fi
-# Relabel the reseeded files: the -R restorecon above ran before this block created them, so
+# Relabel the reseeded files: the `restorecon -R` ran before this block created them, so
 # label them explicitly (no-op when SELinux is off or they already carry the right context).
 if command -v restorecon >/dev/null 2>&1; then
     restorecon /opt/ai-tools/.gitignore /opt/ai-tools/.gitconfig >/dev/null 2>&1 || :
@@ -573,12 +590,13 @@ fi
 # `default`, which is what actually happened. It cannot widen anything: the variable fast-tracks a
 # question whose default is already yes and never flips a default-NO one (see msg.lib.sh).
 # conf.lib.sh comes first -- it owns the dated-sidecar stamp both of those steps preserve through.
-# stdout is kept so `dnf upgrade` reports what changed; a host that never sees these lines cannot
-# tell that a shipped asset moved.
-for kind in skills subagents orientation; do
-    [ -d %{_datadir}/ai-tools/${kind} ] && command -v bash >/dev/null 2>&1 || continue
-    AI_TOOLS_ASSUME_YES=1 bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets %{_datadir}/ai-tools /opt/ai-tools ai-tools ${kind}; ai_tools_remove_retired_assets /opt/ai-tools ${kind}; ai_tools_link_asset_readme %{_datadir}/ai-tools/${kind}/README.md /opt/ai-tools/${kind} ai-tools" 2>/dev/null || :
-done
+# Output is kept, stderr included, so `dnf upgrade` reports what changed and names a refusal; a
+# host that never sees these lines cannot tell that a shipped asset moved. The kinds come from the
+# library's own AI_TOOLS_ASSET_KINDS rather than being spelled here, so this scriptlet cannot fall
+# behind the set the library seeds.
+if command -v bash >/dev/null 2>&1; then
+    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; for kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do [ -d "$1/${kind}" ] || continue; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools "${kind}"; ai_tools_remove_retired_assets /opt/ai-tools "${kind}"; ai_tools_link_asset_readme "$1/${kind}/README.md" "/opt/ai-tools/${kind}" ai-tools; done' _ %{_datadir}/ai-tools || :
+fi
 # Direct the operator to the per-operator / network steps a scriptlet must not take itself.
 # Each is gated on the state it would create rather than on install-vs-upgrade, so an upgrade
 # names only what this host still owes, a step undone since an earlier run included. An operator
@@ -623,7 +641,7 @@ fi
 # Intentionally preserved on erase (not rpm-owned): the ai-tools account, /opt/ai-tools/.nvm, the
 # control-plane .gitignore/.gitconfig, /var/opt/ai-tools clones, and each operator's
 # ~/.config/ai-tools. The SELinux module unload lives with the policy payload, in
-# %postun -n ai-tools-selinux.
+# `%postun -n ai-tools-selinux`.
 
 %posttrans -n ai-tools-base
 # Start the socket so the handback is live without a reboot (posttrans runs after the systemd
@@ -676,11 +694,11 @@ fi
 
 %post -n ai-tools-selinux
 # Load the core module into the RUNNING policy and apply contexts. Core only -- the stable
-# optional groups ship prebuilt alongside it but stay OFF, toggled per host with
+# optional groups ship compiled alongside it but stay OFF, toggled per host with
 # `ai-tools-admin selinux groups enable <name>` (experimental groups are not shipped).
 #
 # `semodule -i` loads into the RUNNING policy, not just the module store: the entrypoint is
-# labelled by the restorecon below only once the module's types exist in the kernel, and
+# labelled by the restorecon only once the module's types exist in the kernel, and
 # ai-tools-run's preflight refuses to launch (`mislabel`) while it is unlabelled. The default
 # module priority puts this in the same slot selinux/install-selinux.sh and `ai-tools-admin
 # selinux groups enable` address, so one host holds one copy of each module and a package upgrade
@@ -698,6 +716,16 @@ fi
 # that cannot register its rules and a launch that fail-closes, with no message naming this as the
 # cause. The transaction still completes -- the remedy is a re-run, not a rollback.
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
+    # The lock every other writer of the policy store takes (ai_tools_relabel_lock in
+    # relabel.lib.sh -- the same path, which tests/unit/relabel.sh pins against this literal):
+    # the base package's rewrite of /opt/ai-tools/bin in this transaction fires
+    # ai-tools-relabel.path, and semodule and semanage report an error to whichever process finds
+    # the store held. Open-coded because a scriptlet runs under /bin/sh and does not source the
+    # library. Best-effort as the library is: no /run/lock, or a wait that runs out, proceeds
+    # unserialized. The file is created by a simple command first, because a failed redirection
+    # on a bare `exec` ends the scriptlet.
+    _store_lock=/run/lock/ai-tools-relabel.lock
+    if : 2>/dev/null >"${_store_lock}"; then exec 9>"${_store_lock}"; flock -w 120 9 || :; fi
     _semodule_error=$(semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp 2>&1) || {
         echo "ai-tools-selinux: WARNING could not load the ai_tools policy module: ${_semodule_error}" >&2
         echo "ai-tools-selinux: sessions run unconfined until it loads; re-run: sudo semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp" >&2
@@ -705,6 +733,38 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     if command -v restorecon >/dev/null 2>&1; then
         restorecon -R %{ai_libexecdir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
     fi
+    # A renamed or split optional group: the registry (selinux-groups.lib.sh) records the former
+    # module name per current group, and a host that enabled the old module keeps it loaded
+    # across this upgrade. Replace it with every current group whose rules it carried, in a
+    # single transaction, so a failed load leaves the old module and the workload it serves. The
+    # same swap install-selinux.sh makes on any run; the pair here is the registry's row for
+    # ai_tools_netcore, written out because a scriptlet runs under /bin/sh.
+    _old_group_mod=ai_tools_netcore; _new_groups="localipc buildexec"
+    if semodule -l 2>/dev/null | grep -qx "${_old_group_mod}"; then
+        _swap_args=""
+        for _g in ${_new_groups}; do
+            _swap_args="${_swap_args} -i %{_datadir}/selinux/packages/ai-tools/ai_tools_${_g}.pp"
+        done
+        semodule -r "${_old_group_mod}" ${_swap_args} >/dev/null 2>&1 \
+            || echo "ai-tools-selinux: WARNING could not replace the ${_old_group_mod} module with the ${_new_groups} groups; it stays loaded. Re-run: sudo ai-tools-admin selinux groups enable ${_new_groups}" >&2
+    fi
+    # Each installed integration's LAYOUT module (selinux_layout_module in its manifest): it types
+    # the integration's build-output directories and does not add any permission, so it loads with
+    # the policy and is not an operator's choice. Loaded here as well as by the integration's own
+    # bootstrap because the two packages may land in either order in one transaction, and the
+    # module requires a type only the core declares. The manifest is root-owned
+    # package data; the token is still checked to one module name before it becomes a path.
+    for _manifest in /usr/local/lib/ai-tools/integrations.d/*.conf; do
+        [ -f "${_manifest}" ] || continue
+        _layout=$(sed -n 's/^[[:space:]]*selinux_layout_module[[:space:]]*=[[:space:]]*\([A-Za-z0-9_]*\).*/\1/p' "${_manifest}" | tail -1)
+        case "${_layout}" in
+            ai_tools_*)
+                _layout_pp=%{_datadir}/selinux/packages/ai-tools/${_layout}.pp
+                [ -f "${_layout_pp}" ] && semodule -i "${_layout_pp}" >/dev/null 2>&1 \
+                    || echo "ai-tools-selinux: WARNING could not load the layout module ${_layout} declared by ${_manifest}; build output is typed at relabel time only. Re-run: sudo semodule -i ${_layout_pp}" >&2 ;;
+        esac
+    done
+    exec 9>&-
     if command -v systemctl >/dev/null 2>&1 \
        && systemctl is-active --quiet ai-tools-handback.socket 2>/dev/null; then
         systemctl daemon-reexec >/dev/null 2>&1 || :
@@ -726,7 +786,7 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
 fi
 
 %post -n ai-tools-integration-nodejs
-# Enable the root-side relabel watcher (system unit). The nvm-update.timer is a --user unit
+# Enable the root-side relabel watcher (system unit). The nvm-update.timer is a `--user unit`
 # enabled in the sandbox account's own instance by ai-tools-bootstrap, which is where that
 # instance is brought up with linger -- a scriptlet cannot reliably reach it.
 %systemd_post ai-tools-relabel.path
@@ -779,6 +839,15 @@ if [ -x %{ai_libdir}/admin-commands.d/dotnet ]; then
         echo "ai-tools-integration-dotnet: fix the cause and re-run: sudo ai-tools-admin dotnet bootstrap" >&2
         exit 1
     }
+fi
+
+%postun -n ai-tools-integration-dotnet
+# On final erase, unload this integration's SELinux layout module: it only types the .NET
+# build-output directories, for a toolchain the host no longer integrates. The type it maps to
+# belongs to the core, so labels already applied stay valid
+# and no relabel is needed. Guarded so a host without the policy tooling no-ops.
+if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
+    semodule -l 2>/dev/null | grep -qx ai_tools_dotnet && semodule -r ai_tools_dotnet >/dev/null 2>&1 || :
 fi
 
 %post -n ai-tools-agents-claude-code-restricted
@@ -849,13 +918,12 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 %files
 %doc docs/rpm-packaging.md docs/project-lifecycle.md docs/entrypoint-verification.md
-%doc docs/session-stop.md README.md
+%doc docs/session-stop.md docs/multi-operator.md README.md
 
-%files -n ai-tools-selinux
+# The module files come from the list %%install wrote (`-f`): one line per module the build derived.
+%files -n ai-tools-selinux -f selinux-files.list
 %license LICENSES/GPL-2.0-or-later.txt
 %dir %{_datadir}/selinux/packages/ai-tools
-%{_datadir}/selinux/packages/ai-tools/ai_tools.pp
-%{_datadir}/selinux/packages/ai-tools/ai_tools_tmpmap.pp
 
 %files -n ai-tools-base
 %license LICENSE
@@ -878,6 +946,11 @@ fi
 %{_sbindir}/ai-tools
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
 %attr(0644, root, root) %{ai_mandir}/man5/operator.conf.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-providers.5*
+%attr(0644, root, root) %{ai_mandir}/man5/allowed-projects.5*
+%attr(0644, root, root) %{ai_mandir}/man5/secret-patterns.5*
+%attr(0644, root, root) %{ai_mandir}/man5/custom-claude-endpoint.conf.5*
+%attr(0644, root, root) %{ai_mandir}/man7/ai-tools-messages.7*
 %attr(0644, root, root) %{ai_mandir}/man8/ai-tools-admin.8*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
 %dir %attr(0751, root, ai-tools) %{ai_libdir}
@@ -927,7 +1000,7 @@ fi
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects
 %attr(0640, root, ai-tools) /var/opt/ai-tools/README.md
 # Operator-readable state written BY the sandbox account: the last-run stamps of the units that
-# live in that account's own systemd --user manager, which `ai-tools --status` cannot query from
+# live in that account's own `systemd --user manager`, which `ai-tools --status` cannot query from
 # the operator's session (services.lib.sh reads them). root owns the directory and it is NOT
 # group-writable -- the account gets traverse only, so it cannot add, unlink, rename, or
 # symlink-swap anything here. Each stamp is created by the owning package's %post and rewritten in
@@ -981,7 +1054,7 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-bootstrap
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
 # The updater's last-run stamp: rewritten by nvm-update.sh on every exit, read by
-# `ai-tools --status` (the base's state directory above owns the placement). Owned by the sandbox
+# `ai-tools --status` (the base's state directory owns the placement). Owned by the sandbox
 # account so it may rewrite the contents, group ai-ops so operators read it without joining the
 # sandbox group, and no world bits. %ghost with %post creating it: the content is runtime evidence,
 # but the inode must exist for the account to write it -- the directory is not group-writable.
@@ -1005,7 +1078,7 @@ fi
 # This agent owns its own control-plane directory -- the base owns the home root and bin, and
 # pins the mode every agent's config dir carries (control-plane.lib.sh CP_AGENT_CONFIG_MODE), so
 # a second agent ships its own directory instead of sharing this one. Setgid+sticky: the agent is
-# a group-writer for its session state but cannot unlink the root-owned files below.
+# a group-writer for its session state but cannot unlink the root-owned files in it.
 %dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
 %attr(0644, root, root) %{ai_libdir}/agents.d/claude-code.conf
 %attr(0644, root, root) %{ai_libdir}/keys/claude-code.asc

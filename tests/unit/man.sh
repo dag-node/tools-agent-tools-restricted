@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/man.sh
-# Hermetic sync test between this project's two man pages and the help text of the command each
-# documents: ai-tools(1) against the CLI's usage(), and ai-tools-admin(8) against the admin
-# helper's. In both pairs the page and the help are no longer copies of each other -- usage() is
-# orientation while the page is the reference -- so equality of their whole option sets is the
-# wrong contract and is what used to make slimming the help impossible.
+# Hermetic sync test between this project's man pages and what each documents: ai-tools(1)
+# against the CLI's usage(), ai-tools-admin(8) against the admin helper's, ai-tools-providers(5)
+# against the shipped manifests, allowed-projects(5) and secret-patterns(5) against the header
+# each file is seeded with and the parser its examples must load in, operator.conf(5)
+# and custom-claude-endpoint.conf(5) against the keys their shipped templates mention,
+# and ai-tools-messages(7) against the generator that derives it from the cross-reference
+# index. It then holds every authored page to the way a page is WRITTEN -- the font and
+# placeholder rules whose home is references/man-pages.md in the shipped ai-tools-technical-docs
+# skill, edited in lockstep with the check here -- and closes
+# by holding every config header this project writes to the fixed-width rule (72 columns, no line
+# ending on a tie word). In the two command pairs the page and the help are not copies of each
+# other -- usage() is orientation while the page is the reference -- so equality of their whole
+# option sets is the wrong contract and is what made slimming the help impossible.
 #
 # ai-tools(1), four checks:
 #   (1) the VERB sets match in both directions;
@@ -36,7 +44,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # read_man <page>: the page text with troff's escaped hyphens (\-\-project\-claim) flattened, so
-# every extraction below matches plain option and command spellings.
+# every extraction matches plain option and command spellings.
 read_man() {
     case "$1" in
         *.gz) zcat "$1" ;;
@@ -98,12 +106,12 @@ check_cli_page() {
 
     # ── (1) The verb sets, both directions ──────────────────────────────────────────
     # usage() lists one verb per line, indented four spaces and starting with its long option
-    # (the flag block below it is indented two, so it is excluded by that indent alone).
+    # (the flag block under it is indented two, so it is excluded by that indent alone).
     local help_verbs man_verbs undocumented unlisted help_opts man_opts missing parsed_opts stale
     help_verbs="$(usage_text "${CLI}" | grep -E '^    --[a-z]' | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
     # In the page a verb is the FIRST long option on the .B/.BR line opening each TOP-LEVEL .TP
     # entry under COMMANDS. Three things must not be read as verbs: the rest of that opening
-    # line (the verb's own flags), the prose below it (which names other verbs), and the nested
+    # line (the verb's own flags), the prose under it (which names other verbs), and the nested
     # .TP entries inside an .RS/.RE block, which are that verb's per-flag reference and are
     # where a per-verb option belongs -- under the verb it applies to, not in a flat list that
     # separates it from the only command it means anything for. Hence the depth counter.
@@ -132,7 +140,7 @@ check_cli_page() {
     fi
 
     # ── (2) Every option the help names is documented somewhere in the page ─────────
-    # This is what keeps the cross-verb flag lines (-y/--yes, -n/--dry-run, --for) honest: the
+    # This is what keeps the cross-verb flag lines (`-y`/`--yes`, `--dry-run`, `--for`) honest: the
     # help may name fewer options than the page, never more.
     help_opts="$(usage_text "${CLI}" | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
     man_opts="$(read_man "${MAN}" | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
@@ -192,7 +200,7 @@ check_admin_page() {
     # usage() lists one command per line, indented four spaces, as `<path><padding><description>`.
     # The path is everything before the first run of two or more spaces, minus any argument
     # placeholder -- `operators add [user]` is the command `operators add`. The option lines
-    # (--help, --version) share that indent and are excluded by the leading letter, since a
+    # (`--help`, `--version`) share that indent and are excluded by the leading letter, since a
     # command in this grammar is a bare word.
     local help_cmds man_cmds undocumented unlisted arms cmd token unknown=()
     help_cmds="$(usage_text "${ADMIN}" \
@@ -253,5 +261,537 @@ check_admin_page() {
     th_version "${ADMIN_MAN}" AI-TOOLS-ADMIN
 }
 check_admin_page
+
+# ── ai-tools-providers(5) ───────────────────────────────────────────────────────
+# The provider manifests carry a pointer to this page and no key documentation of their own, so
+# the page is the only statement of what a key means. Two directions keep it honest: every key a
+# shipped manifest sets is documented under KEYS, and every key documented there is one some
+# shipped manifest sets -- a documented key no manifest uses is a stale entry or a typo, and a
+# used key the page lacks is an operator reading a file the manual does not explain. Keys are
+# read with the same parser the tooling uses (ai_tools_conf_keys), so a commented default counts
+# the way it counts everywhere else.
+PROVIDERS_MAN="${ROOT}/src/usr/local/share/man/man5/ai-tools-providers.5"
+MANIFEST_DIRS=( "${ROOT}/src/usr/local/lib/ai-tools/agents.d" "${ROOT}/src/usr/local/lib/ai-tools/integrations.d" )
+CONF_LIB="${ROOT}/src/usr/local/lib/ai-tools/conf.lib.sh"
+if [[ ! -r "${PROVIDERS_MAN}" ]]; then
+    PROVIDERS_MAN="/usr/local/share/man/man5/ai-tools-providers.5"
+    [[ -r "${PROVIDERS_MAN}" ]] || PROVIDERS_MAN="/usr/local/share/man/man5/ai-tools-providers.5.gz"
+    MANIFEST_DIRS=( /usr/local/lib/ai-tools/agents.d /usr/local/lib/ai-tools/integrations.d )
+    CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+fi
+section "man page: ai-tools-providers(5) in sync with the shipped manifests (unit)"
+
+check_providers_page() {
+    if [[ ! -r "${PROVIDERS_MAN}" ]]; then
+        skip "providers page" "ai-tools-providers.5 not found in the repo or installed"; return
+    fi
+    # shellcheck source=/dev/null
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_keys >/dev/null 2>&1; then
+        skip "providers page key sync" "conf.lib.sh not loadable from ${CONF_LIB}"; return
+    fi
+    # Documented keys: the tag line after each .TP under KEYS, where the whole tag is one key
+    # token. Bold words in the running prose (a command, a value) are not tags and are not keys.
+    mapfile -t documented < <(man_section "${PROVIDERS_MAN}" KEYS \
+        | awk 'prev==".TP"{print} {prev=$0}' \
+        | grep -oE '^\.B[IR]? [a-z][a-z0-9_]*$' | awk '{print $2}' | sort -u)
+    # Used keys: the union over every shipped manifest.
+    local -a used=() keys=() dir manifest key
+    for dir in "${MANIFEST_DIRS[@]}"; do
+        for manifest in "${dir}"/*.conf; do
+            [[ -e "${manifest}" ]] || continue
+            ai_tools_conf_keys keys "${manifest}"
+            used+=( "${keys[@]}" )
+        done
+    done
+    mapfile -t used < <(printf '%s\n' "${used[@]}" | sort -u)
+    (( ${#used[@]} > 0 )) || { skip "providers page key sync" "no shipped manifest found"; return; }
+
+    local missing=0
+    for key in "${used[@]}"; do
+        if printf '%s\n' "${documented[@]}" | grep -qx "${key}"; then :
+        else fail "manifest key '${key}' is set by a shipped manifest but not documented under KEYS"; missing=1; fi
+    done
+    (( missing )) || pass "every key a shipped manifest sets is documented under KEYS (${#used[@]} keys)"
+    local stale=0
+    for key in "${documented[@]}"; do
+        if printf '%s\n' "${used[@]}" | grep -qx "${key}"; then :
+        else fail "KEYS documents '${key}', which no shipped manifest sets"; stale=1; fi
+    done
+    (( stale )) || pass "every key documented under KEYS is set by a shipped manifest"
+
+    th_version "${PROVIDERS_MAN}" AI-TOOLS-PROVIDERS
+}
+check_providers_page
+
+# ── The seeded operator files: allowed-projects(5), secret-patterns(5) ──────────
+# The header each *_seed function in conf.lib.sh prints is written into an operator's file once,
+# at enrolment, and no upgrade rewrites it -- so the reference lives in the page,
+# which the package replaces on every upgrade, and the header stays a pointer. check_seed_header holds
+# that shape for both files: the header is short (the cap is what stops it regrowing into a second
+# reference), it names its page, and it is comment-only, so a seeded file registers no entry.
+# Each page then has its EXAMPLES read through the parser its file is read with, so an example
+# the manual shows is one the file accepts, and its .TH version field checked.
+readonly SEED_HEADER_MAX_LINES=15
+
+# man5_path <name>: the repo page, or the installed page (possibly gzipped) outside a checkout.
+man5_path() {
+    local page="${ROOT}/src/usr/local/share/man/man5/$1.5"
+    [[ -r "${page}" ]] || page="/usr/local/share/man/man5/$1.5"
+    [[ -r "${page}" ]] || page="/usr/local/share/man/man5/$1.5.gz"
+    printf '%s' "${page}"
+}
+# man_examples <page>: the lines inside every .EX/.EE block of <page>, with troff's no-op
+# escape (\&) removed so a line the page had to protect from macro expansion reads as written.
+man_examples() {
+    read_man "$1" | awk '/^\.EX/{on=1;next} /^\.EE/{on=0} on' | sed 's/^\\&//'
+}
+
+# check_seed_header <seed-fn> <page-name>: the three shape checks on a seeded header.
+check_seed_header() {
+    local seed="$1" name="$2" header lines
+    if ! declare -F "${seed}" >/dev/null 2>&1; then
+        skip "${name} seed header" "${seed} not defined by ${CONF_LIB}"; return
+    fi
+    header="$("${seed}")"
+    lines="$(grep -c . <<< "${header}")"
+    if (( lines <= SEED_HEADER_MAX_LINES )); then
+        pass "the seeded ${name} header is a pointer (${lines} lines, cap ${SEED_HEADER_MAX_LINES})"
+    else
+        fail "the seeded ${name} header has grown to ${lines} lines (cap ${SEED_HEADER_MAX_LINES}): a reference belongs in ${name}(5)"
+    fi
+    if grep -q "man 5 ${name}" <<< "${header}"; then
+        pass "the seeded ${name} header names its page (man 5 ${name})"
+    else
+        fail "the seeded ${name} header does not name 'man 5 ${name}'"
+    fi
+    if grep -qvE '^(#|$)' <<< "${header}"; then
+        fail "the seeded ${name} header carries a line that is not a comment -- it would register an entry"
+    else
+        pass "the seeded ${name} header registers no entry"
+    fi
+}
+
+ALLOWLIST_MAN="$(man5_path allowed-projects)"
+section "man page: allowed-projects(5) and the seeded allowlist header (unit)"
+check_allowlist_page() {
+    if [[ ! -r "${ALLOWLIST_MAN}" ]]; then
+        skip "allowed-projects page" "allowed-projects.5 not found in the repo or installed"; return
+    fi
+    # shellcheck source=/dev/null
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_path_entry >/dev/null 2>&1; then
+        skip "allowed-projects seed header" "conf.lib.sh not loadable from ${CONF_LIB}"; return
+    fi
+    check_seed_header ai_tools_conf_allowlist_seed allowed-projects
+
+    # Every entry-shaped example -- a path, an exclusion, or a quoted path -- parses as an entry;
+    # the CLI invocations in the same blocks are not entries and are not read.
+    local -a examples=(); local line bad=0
+    mapfile -t examples < <(man_examples "${ALLOWLIST_MAN}" | grep -E '^[/!"]' || true)
+    if (( ${#examples[@]} == 0 )); then
+        fail "allowed-projects(5) EXAMPLES carry no entry-shaped line to check"
+    else
+        for line in "${examples[@]}"; do
+            # shellcheck disable=SC2154  # _ai_tools_conf_value is set by ai_tools_conf_path_entry in the sourced library
+            if ai_tools_conf_path_entry "${line}" && [[ "${_ai_tools_conf_value}" == /* || "${_ai_tools_conf_value}" == '!/'* ]]; then :
+            else fail "allowed-projects(5) example does not parse as an entry: ${line}"; bad=1; fi
+        done
+        (( bad )) || pass "every entry-shaped EXAMPLES line in allowed-projects(5) parses through the shared grammar (${#examples[@]} lines)"
+    fi
+    th_version "${ALLOWLIST_MAN}" ALLOWED-PROJECTS
+}
+check_allowlist_page
+
+SECRET_MAN="$(man5_path secret-patterns)"
+SECRET_LIB="${ROOT}/src/usr/local/lib/ai-tools/secret-patterns.lib.sh"
+[[ -r "${SECRET_LIB}" ]] || SECRET_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
+section "man page: secret-patterns(5) and the seeded patterns header (unit)"
+check_secret_patterns_page() {
+    if [[ ! -r "${SECRET_MAN}" ]]; then
+        skip "secret-patterns page" "secret-patterns.5 not found in the repo or installed"; return
+    fi
+    # shellcheck source=/dev/null
+    if ! source "${CONF_LIB}" 2>/dev/null || ! source "${SECRET_LIB}" 2>/dev/null \
+            || ! declare -F ai_tools_load_secret_patterns >/dev/null 2>&1; then
+        skip "secret-patterns seed header" "conf.lib.sh or secret-patterns.lib.sh not loadable"; return
+    fi
+    check_seed_header ai_tools_conf_secret_patterns_seed secret-patterns
+
+    # The page's example patterns load as patterns: the pattern-shaped lines of EXAMPLES (not
+    # the CLI invocations) are written to a file, read through the library's own loader, and must
+    # come back one for one, each a basename glob with no '/'.
+    local -a examples=() loaded=(); local pattern bad=0 file
+    mapfile -t examples < <(man_examples "${SECRET_MAN}" | grep -vE '^(ai-tools|#|$)' || true)
+    if (( ${#examples[@]} == 0 )); then
+        fail "secret-patterns(5) EXAMPLES carry no pattern line to check"; return
+    fi
+    file="$(mktemp)"
+    printf '%s\n' "${examples[@]}" > "${file}"
+    AI_TOOLS_SECRET_PATTERNS_FILE="${file}" ai_tools_load_secret_patterns
+    loaded=( "${AI_TOOLS_SECRET_PATTERNS[@]}" )
+    rm -f "${file}"
+    _AI_TOOLS_PATTERNS_LOADED=""
+    for pattern in "${examples[@]}"; do
+        [[ "${pattern}" == */* ]] && { fail "secret-patterns(5) example carries a '/', which a basename glob never matches: ${pattern}"; bad=1; }
+    done
+    if (( ${#loaded[@]} != ${#examples[@]} )); then
+        fail "secret-patterns(5) EXAMPLES: ${#examples[@]} pattern lines loaded as ${#loaded[@]} patterns"; bad=1
+    fi
+    (( bad )) || pass "every pattern line in secret-patterns(5) EXAMPLES loads through the shared matcher (${#examples[@]} patterns)"
+    th_version "${SECRET_MAN}" SECRET-PATTERNS
+}
+check_secret_patterns_page
+
+# ── The shipped config templates: operator.conf(5), custom-claude-endpoint.conf(5) ──────────────
+# Each template is %config(noreplace), so a prose change to it reaches an upgraded host only
+# as an .rpmnew the operator reconciles by hand; the reference lives in the page and the template keeps
+# a brief line per option beside its commented default. check_config_page holds the two
+# in lockstep: every key the template mentions is documented under OPTIONS, and every documented
+# option is one the template mentions -- read with ai_tools_conf_keys, the same "mentioned"
+# predicate `system post-upgrade` announces a new option by, so the test and the upgrade report
+# cannot disagree.
+CONFIG_TEMPLATES="${ROOT}/src/etc/ai-tools"
+[[ -d "${CONFIG_TEMPLATES}" ]] || CONFIG_TEMPLATES="/etc/ai-tools"
+
+# check_config_page <page-name> <config-file> <TH-NAME>
+check_config_page() {
+    local name="$1" file="$2" th="$3" page key
+    page="$(man5_path "${name}")"
+    if [[ ! -r "${page}" || ! -r "${file}" ]]; then
+        skip "${name} page" "page or template not found (${page}, ${file})"; return
+    fi
+    # shellcheck source=/dev/null
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_keys >/dev/null 2>&1; then
+        skip "${name} page key sync" "conf.lib.sh not loadable from ${CONF_LIB}"; return
+    fi
+    local -a documented=() used=()
+    # The tag line after each .TP or .TQ under OPTIONS, where the tag opens with the key token.
+    mapfile -t documented < <(man_section "${page}" OPTIONS \
+        | awk 'prev==".TP"||prev==".TQ"{print} {prev=$0}' \
+        | grep -oE '^\.B[IR]? [A-Z][A-Z0-9_]*' | awk '{print $2}' | sort -u)
+    ai_tools_conf_keys used "${file}"
+    mapfile -t used < <(printf '%s\n' "${used[@]}" | sort -u)
+    (( ${#used[@]} > 0 )) || { fail "${name}: the template mentions no key"; return; }
+    local missing=0 stale=0
+    for key in "${used[@]}"; do
+        printf '%s\n' "${documented[@]}" | grep -qx "${key}" \
+            || { fail "${name}(5): the template mentions '${key}', which OPTIONS does not document"; missing=1; }
+    done
+    (( missing )) || pass "${name}(5) documents every key the template mentions (${#used[@]} keys)"
+    for key in "${documented[@]}"; do
+        printf '%s\n' "${used[@]}" | grep -qx "${key}" \
+            || { fail "${name}(5) documents '${key}', which the template does not mention"; stale=1; }
+    done
+    (( stale )) || pass "every option ${name}(5) documents is one the template mentions"
+    th_version "${page}" "${th}"
+}
+section "man page: the shipped config templates in sync with their pages (unit)"
+check_config_page operator.conf "${CONFIG_TEMPLATES}/operator.conf" OPERATOR.CONF
+check_config_page custom-claude-endpoint.conf "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" CUSTOM-CLAUDE-ENDPOINT.CONF
+
+# ── ai-tools-messages(7): the generated page ───────────────────────────────────────────────────
+# Each other page is written by hand and held to what it documents; this one is derived
+# from .claude/references.md, so its pair is the generator that writes it. A committed
+# page the generator would rewrite means a message carries new text, or a code has been
+# added or retired while the page still shows the previous catalog. That failure stays
+# silent: a wrong catalog renders as cleanly as a right one, and an operator who searches
+# a code read off a terminal meets whichever entry the page kept. The index is a repository
+# file, so an installed-only run skips.
+MESSAGES_MAN="${ROOT}/src/usr/local/share/man/man7/ai-tools-messages.7"
+MESSAGES_GEN="${ROOT}/tools/man-messages.sh"
+section "man page: ai-tools-messages(7) in lockstep with the cross-reference index (unit)"
+check_messages_page() {
+    if [[ ! -r "${MESSAGES_GEN}" || ! -r "${ROOT}/.claude/references.md" ]]; then
+        skip "ai-tools-messages(7) lockstep" "not a checkout (no generator or index at ${ROOT})"
+        return
+    fi
+    local out rc=0
+    out="$(bash "${MESSAGES_GEN}" stale 2>&1)" || rc=$?
+    if (( rc == 0 )); then
+        pass "ai-tools-messages(7) is what the index generates ($(grep -c '^\.TP' "${MESSAGES_MAN}") codes)"
+    else
+        fail "ai-tools-messages(7) is stale:"$'\n'"${out}"
+    fi
+    # Every code in the index reaches the page: the generator refuses an emitter its severity map
+    # does not name, so a silent DROP is the remaining way a code could go missing from the page.
+    local indexed rendered
+    indexed="$(grep -cE '^\| [a-z0-9]{4} \| \[MSG-' "${ROOT}/.claude/references.md")"
+    rendered="$(grep -c '^\.TP' "${MESSAGES_MAN}")"
+    if [[ "${indexed}" == "${rendered}" ]]; then
+        pass "every message code the index defines has an entry in the page (${rendered})"
+    else
+        fail "the index defines ${indexed} message codes and the page lists ${rendered}"
+    fi
+    th_version "${MESSAGES_MAN}" AI-TOOLS-MESSAGES
+}
+check_messages_page
+
+# ── ai-tools-messages(7): the "documented in" pointer renders documents alone ──────────────────
+# The catalog documents what the tree emits and leaves development material out, so a code's
+# pointer names a manual or a document and never a test or a source file -- an operator reads
+# about a code in a manual, while the index's cited-by column lists both kinds. The case supplies
+# what the tree does not hold: a Markdown file under `tests/`, which is the citation a `*.md`
+# catch-all would render. Driven through `print`, which reads the index named on the command line,
+# so the filter is exercised over a fixture catalog and the committed page is untouched.
+section "man page: ai-tools-messages(7) renders a document pointer and drops a test (unit)"
+check_messages_pointers() {
+    if [[ ! -r "${MESSAGES_GEN}" ]]; then
+        skip "ai-tools-messages(7) pointers" "not a checkout (no generator at ${ROOT})"
+        return
+    fi
+    mktestdir
+    local index="${TESTDIR}/fixture-index.md" cited pointer row
+    cited="docs/one.md, tests/unit/two.md, tests/three.sh, src/four.sh"
+    cited+=", .claude/rules/five.rule.md, src/usr/local/share/man/man1/ai-tools.1"
+    # The row carries an index row's shape and does not define a message, so the scan skips it.
+    row='| a1b2 | [MSG-A1B2](x) | not a claimed project | src/usr/local/bin/ai-tools.sh'  # ref-index: ignore
+    printf '%s | %s | die |\n' "${row}" "${cited}" > "${index}"
+    pointer="$(bash "${MESSAGES_GEN}" print "${index}" | awk '/^Documented in$/{f=1;next} /^\.SH /{f=0} f')"
+    if grep -q '^\.I docs/one\.md' <<<"${pointer}" && grep -q '^\.I \.claude/rules/five\.rule\.md' <<<"${pointer}"; then
+        pass "a document citing a code is rendered as its path"
+    else
+        fail "a document citation did not render; pointer: ${pointer}"
+    fi
+    if grep -q '^\.BR ai-tools (1)' <<<"${pointer}"; then
+        pass "a shipped man page citing a code is rendered as a cross-reference"
+    else
+        fail "a man page citation did not render as .BR; pointer: ${pointer}"
+    fi
+    if ! grep -q -e 'tests/' -e 'src/four\.sh' <<<"${pointer}"; then
+        pass "a citation from a test or a source file is dropped, a Markdown file under tests/ included"
+    else
+        fail "a test or source citation reached the page; pointer: ${pointer}"
+    fi
+}
+check_messages_pointers
+
+# ── Config headers are fixed-width text ───────────────────────────────────────────────────────
+# An operator reads a config file in a terminal, where nothing reflows it, so every header this
+# project writes -- the two seeds and the two shipped templates -- holds to 72 columns and carries
+# no comment line ending on a word that ties to the next one. The rule is the checker's
+# `--config-header` mode (the ai-tools-technical-docs skill); this runs it over the four.
+section "config headers: 72 columns, no line ending on a tie word (unit)"
+PROSE_CHECK=""
+for candidate in \
+    "${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
+    "/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
+    "/opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py"; do
+    [[ -r "${candidate}" ]] && { PROSE_CHECK="${candidate}"; break; }
+done
+check_config_headers() {
+    if [[ -z "${PROSE_CHECK}" ]] || ! command -v python3 >/dev/null 2>&1; then
+        skip "config header format" "prose-check.py or python3 not available"; return
+    fi
+    # shellcheck source=/dev/null
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_allowlist_seed >/dev/null 2>&1; then
+        skip "config header format" "conf.lib.sh not loadable from ${CONF_LIB}"; return
+    fi
+    local dir out rc=0
+    dir="$(mktemp -d)"
+    ai_tools_conf_allowlist_seed > "${dir}/allowed-projects"
+    ai_tools_conf_secret_patterns_seed > "${dir}/secret-patterns"
+    out="$(python3 "${PROSE_CHECK}" --config-header "${dir}/allowed-projects" "${dir}/secret-patterns" \
+        "${CONFIG_TEMPLATES}/operator.conf" "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" 2>&1)" || rc=$?
+    rm -rf "${dir}"
+    if (( rc == 0 )); then
+        pass "the two seeded headers and the two shipped templates hold to 72 columns with no tie-word line end"
+    else
+        fail "a config header breaks the width or tie rule:"$'\n'"${out}"
+    fi
+}
+check_config_headers
+
+# ── The convention lint: fonts and placeholders on the authored pages ─────────────────────────
+# Every other section in this file pairs a page with what it documents. This one holds each page
+# to the way a page is WRITTEN -- the font and placeholder rules in the ai-tools-technical-docs
+# skill's references/man-pages.md, which is the convention's home and is edited with this check so
+# the two cannot disagree.
+#
+# It reads the AUTHORED pages (man1, man5, man8) and not ai-tools-messages(7): that page is
+# rendered from the runtime message strings, so its markup is decided by each emitter rather than
+# by an author, and the tools/man-messages.sh lockstep is what holds it. Pure text, no root, no
+# install.
+#
+# Three rules, each a way a page drifts silently -- a wrong font renders as cleanly as a right one:
+#
+#   (1) no pointy-bracket placeholder anywhere on the page. `<dir>` is not roff: it renders
+#       literally, and it is the spelling a shell comment uses, so it marks prose that was never
+#       brought to the page's own grammar.
+#   (2) on a SYNOPSIS line and on a .TP/.TQ tag line, every italic token is an UPPERCASE
+#       placeholder. Italic is what the reader substitutes, so a lowercase italic token there is
+#       either a literal wearing the wrong font or a placeholder in the wrong case. The rule is
+#       scoped to those lines because man-pages(7) puts filenames and emphasis in italic in
+#       running text, which stays legal; a path-shaped token is a filename wherever it appears and
+#       is skipped for the same reason.
+#   (3) the trailing positional argument's shape -- optional, repeating, or neither -- agrees
+#       between the page and the command's own usage(). It compares the brackets and the ellipsis
+#       and NOT the placeholder's name: the page names arguments in the man-page vocabulary while
+#       the help keeps its own spelling, and that difference is deliberate. What it catches is a
+#       page promising repetition its parser does not take, or dropping it where the parser does.
+section "man pages: the font and placeholder convention (unit)"
+
+MAN_ROOT="${ROOT}/src/usr/local/share/man"
+# italic_tokens: read roff on stdin, print every italic token as `<line>\t<token>`. The font
+# alternation macros interleave their arguments (.IR italic first, .RI roman first) and the \fI
+# escape does the same inline, so both forms are read -- a rule stated over one of them misses the
+# placeholders written in the other.
+italic_tokens() {
+    awk '
+      function split_args(s, out,   n, i, c, cur, inq) {
+          n = 0; cur = ""; inq = 0
+          for (i = 1; i <= length(s); i++) {
+              c = substr(s, i, 1)
+              if (c == "\"") { inq = !inq; continue }
+              if (c == " " && !inq) { if (cur != "") out[++n] = cur; cur = ""; continue }
+              cur = cur c
+          }
+          if (cur != "") out[++n] = cur
+          return n
+      }
+      { rest = $0
+        while (match(rest, /\\fI/)) {                      # inline: \fI up to the next font escape
+            rest = substr(rest, RSTART + 3)
+            if (match(rest, /\\f./)) { print NR "\t" substr(rest, 1, RSTART - 1); rest = substr(rest, RSTART) }
+            else                     { print NR "\t" rest; rest = "" }
+        }
+        if (match($0, /^\.(I|IR|RI|BI|IB)[ \t]/)) {        # macro: alternating arguments
+            macro = $0; sub(/[ \t].*$/, "", macro); sub(/^\./, "", macro)
+            args  = $0; sub(/^\.[A-Z]+[ \t]+/, "", args)
+            n = split_args(args, a)
+            for (i = 1; i <= n; i++) {
+                if      (macro == "I")                    italic = 1
+                else if (macro == "IR" || macro == "IB")   italic = (i % 2 == 1)
+                else                                      italic = (i % 2 == 0)
+                if (italic) print NR "\t" a[i]
+            }
+        }
+      }'
+}
+
+# font_scoped <page>: the lines rule (2) governs -- the SYNOPSIS body, and the tag line opening
+# each .TP/.TQ -- as `<line>\t<text>`.
+font_scoped() {
+    awk '$0==".SH SYNOPSIS"{syn=1;next} /^\.SH /{syn=0}
+         { if (syn && $0 !~ /^\.(SH|PP|br|sp|EX|EE)/) print NR"\t"$0
+           else if (prev==".TP" || prev==".TQ")       print NR"\t"$0
+           prev=$0 }' "$1"
+}
+
+check_page_convention() {
+    local page name findings line token clean scoped
+    local -a pages=()
+    mapfile -t pages < <(ls "${MAN_ROOT}"/man1/* "${MAN_ROOT}"/man5/* "${MAN_ROOT}"/man8/* 2>/dev/null)
+    if (( ${#pages[@]} == 0 )); then
+        skip "man page convention" "no authored page under ${MAN_ROOT}"; return
+    fi
+
+    findings=""
+    for page in "${pages[@]}"; do
+        name="${page##*/}"
+        while IFS= read -r line; do
+            [[ -n "${line}" ]] && findings+="${name}:${line}"$'\n'
+        done < <(grep -nE '<[a-z][a-z0-9._-]*>' "${page}" | sed 's/:/: pointy-bracket placeholder: /')
+    done
+    if [[ -z "${findings}" ]]; then
+        pass "no authored page carries a pointy-bracket placeholder (${#pages[@]} pages)"
+    else
+        fail "a placeholder is uppercase italic, not <angle-bracketed>:"$'\n'"${findings%$'\n'}"
+    fi
+
+    findings=""
+    for page in "${pages[@]}"; do
+        name="${page##*/}"
+        while IFS=$'\t' read -r line scoped; do
+            while IFS=$'\t' read -r _ token; do
+                # A macro argument may carry its own font escapes ("USER\fR[,\fP USER\fR...]\fP"),
+                # so it is split on them and each run read on its own -- the escape letters are not
+                # part of any token, and a rule reading the argument whole would see the `f` in \fR.
+                while IFS= read -r clean; do
+                    # A path is a filename in either font, so it is not read as a placeholder.
+                    [[ "${clean}" == */* || "${clean}" == '~'* ]] && continue
+                    clean="${clean#[\[(]}"; clean="${clean%%[],.)|]}"
+                    [[ -n "${clean}" && "${clean}" =~ [a-z] ]] \
+                        && findings+="${name}:${line}: lowercase italic '${clean}': ${scoped}"$'\n'
+                done < <(printf '%s\n' "${token//\\-/-}" | sed -E 's/\\f./\n/g')
+            done < <(printf '%s\n' "${scoped}" | italic_tokens)
+        done < <(font_scoped "${page}")
+    done
+    if [[ -z "${findings}" ]]; then
+        pass "every italic token on a SYNOPSIS or tag line is an uppercase placeholder"
+    else
+        fail "italic marks what the reader substitutes, so these are miscased or mis-fonted:"$'\n'"${findings%$'\n'}"
+    fi
+
+    if ! command -v man >/dev/null 2>&1; then
+        skip "man page formatting warnings" "man(1) not installed"
+    else
+        findings=""
+        for page in "${pages[@]}"; do
+            line="$(man --warnings -E UTF-8 -l "${page}" 2>&1 >/dev/null)"
+            [[ -n "${line}" ]] && findings+="${page##*/}: ${line}"$'\n'
+        done
+        if [[ -z "${findings}" ]]; then
+            pass "every authored page formats without a man(1) warning"
+        else
+            fail "man(1) reports a formatting warning:"$'\n'"${findings%$'\n'}"
+        fi
+    fi
+}
+check_page_convention
+
+# ── The trailing argument's shape, page against usage() ────────────────────────────────────────
+# arg_shape <argument text>: '', 'X', '[X]', 'X...' or '[X]...' -- the positional argument with
+# its name normalized away, since the page and the help spell a placeholder differently by design.
+# Option groups are dropped first: the option checks earlier in this file hold those, and a page
+# documents more of them than the help does.
+arg_shape() {
+    printf '%s' "$1" | sed -E \
+        -e 's/\\f.//g' -e 's/\\-/-/g' -e 's/"//g' \
+        -e 's/\[[^]]*-[^]]*\]/ /g' \
+        -e 's/(^| )-{1,2}[a-zA-Z][a-zA-Z0-9_-]*( +(<?[A-Za-z][A-Za-z0-9_-]*>?))?/ /g' \
+        -e 's/[[:space:]]+/ /g' -e 's/^ //' -e 's/ $//' \
+        -e 's/^\[ *<?[A-Za-z][A-Za-z0-9_-]*>? *\](\.\.\.)?$/[X]\1/' \
+        -e 's/^<?[A-Za-z][A-Za-z0-9_-]*>?(\.\.\.)?$/X\1/'
+}
+
+# check_arg_shapes <help-source> <page> <SECTION> <help-line-regex>: every command the page and the
+# help both document must agree on whether its positional argument is optional and whether it
+# repeats.
+check_arg_shapes() {
+    local src="$1" page="$2" what="$3" pattern="$4" cmd args help_shape man_shape mismatch="" pairs=0
+    if [[ ! -r "${src}" || ! -r "${page}" ]]; then
+        skip "${what} argument shapes" "source or page not found"; return
+    fi
+    while IFS= read -r line; do
+        cmd="$(sed -E 's/^ {4}//; s/ {2,}.*$//' <<<"${line}")"
+        [[ -n "${cmd}" ]] || continue
+        # the command path is its leading bare words (or its long option); the rest is arguments
+        args="$(sed -E 's/^(--[a-z][a-z-]*|[a-z][a-z-]*( [a-z][a-z-]*)*)//' <<<"${cmd}")"
+        cmd="${cmd%"${args}"}"; args="${args# }"
+        help_shape="$(arg_shape "${args}")"
+        # the page's tag line for the same command, with its own argument text
+        man_shape="$(man_section "${page}" "${what}" \
+            | awk -v c="${cmd}" '/^\.RS/{d++; next} /^\.RE/{if (d>0) d--; next}
+                   /^\.TP/{if (d==0) want=1; next}
+                   want && /^\.(B|BR|BI) /{ want=0
+                     s=$0; sub(/^\.(B|BR|BI) /, "", s); gsub(/"/, "", s); gsub(/\\f./, "", s)
+                     if (index(s, c) == 1) print substr(s, length(c) + 1) }' \
+            | head -1)"
+        [[ -n "${man_shape}" ]] || continue
+        man_shape="$(arg_shape "${man_shape}")"
+        pairs=$(( pairs + 1 ))
+        [[ "${help_shape}" == "${man_shape}" ]] \
+            || mismatch+="${cmd}: help '${help_shape:-none}' vs page '${man_shape:-none}'"$'\n'
+    done < <(usage_text "${src}" | grep -E "${pattern}")
+    if (( pairs == 0 )); then
+        fail "${what}: no command paired between the help and the page"
+    elif [[ -z "${mismatch}" ]]; then
+        pass "${what}: every paired command agrees on its argument's optionality and repetition (${pairs})"
+    else
+        fail "${what}: the page and the help disagree on an argument's shape:"$'\n'"${mismatch%$'\n'}"
+    fi
+}
+section "man pages: the positional argument's shape matches the command's help (unit)"
+check_arg_shapes "${CLI}"   "${MAN}"       COMMANDS '^    --[a-z]'
+check_arg_shapes "${ADMIN}" "${ADMIN_MAN}" COMMANDS '^    [a-z]'
 
 finish

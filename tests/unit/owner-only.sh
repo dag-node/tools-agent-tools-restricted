@@ -8,9 +8,9 @@
 # The property under test is one-directional: a strip may only ever REMOVE the sandbox's reach.
 # Every case therefore asserts the mode is not widened, on top of asserting the residue is gone
 # -- a strip that silently raised the ACL mask would leave the residue "removed" and the path
-# more open than before, which is the exact failure the -n flag exists to prevent.
+# more open than before, which is the exact failure the `-n` flag exists to prevent.
 #
-# The strip also answers ai-tools-lockdown's --dry-run, so one section pins the two properties
+# The strip also answers ai-tools-lockdown's `--dry-run`, so one section pins the two properties
 # that makes it worth doing here rather than in a caller: the preview names exactly what the
 # apply removes, and it does not touch a path.
 #
@@ -208,7 +208,7 @@ strip "${TESTDIR}/d" directory "${PROJECTS_GROUP}" "${PROJECTS_GROUP}"
     || fail "a second strip claimed another change"
 
 # ── dry run: report the same arms, act on none of them ────────────────────────────────────
-# ai-tools-lockdown's --dry-run drives the seal pass through this function with
+# ai-tools-lockdown's `--dry-run` drives the seal pass through this function with
 # AI_TOOLS_RESIDUE_DRY_RUN set, which is why a preview describes the run that follows it
 # (secret-handling.rule.md). Two properties are pinned here: the preview names what the apply
 # then removes, and it leaves the path byte-for-byte as found.

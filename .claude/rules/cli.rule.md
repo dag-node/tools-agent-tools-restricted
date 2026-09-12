@@ -65,7 +65,7 @@ reports the unprovisioned state itself, since a health check must run precisely 
 may have failed; `--audit` reads a record of what already happened, which an install that never
 finished does not invalidate — a failed provisioning is when that record is most worth reading; and
 `--stop` ends sessions **already running**, which it does without reading the toolchain. That last
-one matters because of the gate's own coupling below: keying on one agent's launcher symlink would
+one matters because of the gate's own coupling: keying on one agent's launcher symlink would
 otherwise put the incident ladder's last rung out of reach on a host that enables a different
 agent, or that lost the symlink while sessions were live.
 
@@ -103,8 +103,12 @@ wrapper needs and which does require a fresh login). The **informational** comma
 and inspect the host.
 
 A third gate, `require_sudo_access`, refuses a verb whose root helper the caller does not hold a
-sudo grant for, and names the command that reaches it instead (below). A fourth, `require_for_target`,
-runs last and validates a `--for` run (see *Acting for another operator* below). It is a no-op
+sudo grant for, and names the command that reaches it instead (see
+[The caller with no sudo grant](#the-caller-with-no-sudo-grant)). A fourth,
+`require_runas_target`, refuses a `--for` run when `sudo -n -l -u <target>` reports a filesystem
+step the caller may not run **as** the target (the *runas seam*). A fifth, `require_for_target`,
+runs last and validates a `--for` run (see
+[Acting for another operator](#acting-for-another-operator---for)). The last two are no-ops
 without the flag.
 
 ### The caller with no sudo grant
@@ -177,7 +181,7 @@ file sink being the authoritative one.
   setgid via `ai-tools-setgid` and apply the group-permission ACL via `ai-tools-setfacl`, apply the
   SELinux project label, run the secret pre-check, ensure the sandbox account can traverse the path
   to the project (a default-NO prompt grants a traverse-only `u:SANDBOX_USER:--x` ACL on each
-  blocking ancestor the operator owns and that is not a system directory; see *Reachability* below),
+  blocking ancestor the operator owns and that is not a system directory; see *Reachability*),
   and — when a `.git` tree is present but not yet normalized — offer (default-yes prompt) to
   normalize it for agent git-history access via `ai-tools-setfacl --with-git`. The flow renders
   as a sequence of **self-contained blocks** (see [messaging](messaging.rule.md) for the headline
@@ -185,7 +189,8 @@ file sink being the authoritative one.
   the default-NO proceed confirm covering exactly the steps listed), *Secret lockdown* (before any
   access-granting step; fails the claim closed), the *`.git` history* and *Reachability* opt-ins,
   then *Apply* (one result line per step, closed by the final `claimed` ✓ — **only** when the steps
-  that grant access applied; see below). `-y/--yes` pre-answers
+  that grant access applied; see *A claim that could not apply its root steps does not report
+  success*). `-y/--yes` pre-answers
   only the claim's own default-NO proceed prompt ("Apply the pending steps above IN PLACE?") — the
   launch wrapper passes it for a delegated claim after taking its own confirmation, so the same
   decision is not asked twice; the scoped opt-ins (secret lockdown, `.git` history, ancestor
@@ -194,7 +199,7 @@ file sink being the authoritative one.
 - `--project-create <path>` — create a **new** project directory and claim it: one `mkdir`, an
   empty `git init`, a `README.md` naming the directory, then `cmd_project_claim` unchanged on the
   result (one implementation of what claiming means, not a second). Every filesystem step goes
-  through the `run_as_owner` seam below, so a create under `--for` produces a **target-owned** tree
+  through the `run_as_owner` seam, so a create under `--for` produces a **target-owned** tree
   — which is not tidiness: a tree born owned by the invoker is one the claim then refuses (the
   owner rule under *Two project models*).
 
@@ -225,8 +230,8 @@ file sink being the authoritative one.
   question is inferred to yes: it asks about exposing history, a repository with no commits has
   none to expose, and normalizing is what keeps the operator's own later commits readable by the agent, so
   asking would offer a choice between one real option and one that costs something for no gain.
-  The traverse grant still asks — it widens access *above* the project, on directories that do
-  exist and do have contents.
+  The traverse grant still asks — it widens access on the project's **ancestor** directories, which
+  do exist and do have contents.
 
   **No path it seeds is left owner-only, whatever the host umask.** A new directory, `git init`'s
   `.git`, and the `README.md` are all born under the caller's umask, so on an `077` host they come
@@ -243,20 +248,20 @@ file sink being the authoritative one.
   directory created a moment ago by a command whose purpose is to give the agent somewhere to work.
   Where the umask *would* have sealed it, the create says so in a line rather than asking.
 - `--project-remove [path]` — unclaim a project **and delete its directory**; `--project-unclaim`
-  stays the non-destructive reversal its refusals point at. Detail below under *Remove*.
+  stays the non-destructive reversal its refusals point at. Detail under *Remove*.
 - `--project-unclaim [path]` — unclaim a real project
   (directory left on disk): revert the label, drop both registries, and (default-yes
   confirm) hand the tree's files back to a target group with the agent's write access
   revoked, via `ai-tools-unclaim`. The target is classified against `allowed-projects`
-  first, and a protected system directory is refused up front — see *Unclaim* below for
+  first, and a protected system directory is refused up front — see *Unclaim* for
   the classification and the `--force` gate. Options are in `ai-tools(1)`.
 - `--project-disable [path]` / `--project-enable [path]` — park a claimed project and restore it,
   by putting a `!` on its `allowed-projects` line and taking it off again, **in place**. Detail
-  below under *Enabled, disabled, absent*.
+  under [Enabled, disabled, absent](#enabled-disabled-absent--the-three-states-of-an-entry).
 - `--sandbox-create [path]` — shallow-clone a repo into the sandbox area **privately**
   (`umask 077`), lock down tip-commit secrets, and only past that gate grant the agent
   access and register the clone; fail-closed otherwise, resumable by re-running on the
-  clone path (see *Sandbox clone* below).
+  clone path (see *Sandbox clone*).
 - `--sandbox-push [path]` / `--sandbox-remove [path]` — push the clone's commits to its
   branch / remove the clone and unregister it. Both gate the target through
   `require_sandbox_clone`: it must be a **real clone** — a direct child of `SANDBOX_ROOT`
@@ -292,13 +297,14 @@ file sink being the authoritative one.
   whole section is **omitted** when that list is not readable unprivileged (common — the policy store
   is root-only on many hosts): every line it prints needs the module list, so a section that could
   only say "cannot read" is not shown at all (inspect groups with
-  `sudo ai-tools-admin selinux groups`). When the `dotnet` integration is enabled under **Enforcing** it
-  warns of the two disjoint policy groups a full .NET workflow wants but that are not loaded:
-  `tmpmap` (restore/build mmap of `/tmp`, `EACCES` without it) and `apphost` (executable/host
-  projects — `dotnet run`, ASP.NET Core, `xunit.v3` — whose memfd exec is denied without it), each
-  with its own enable command: `ai-tools-admin selinux groups enable tmpmap` for the stable one, the
-  source `install-selinux.sh enable-group apphost` for the experimental one. These are the
-  dependencies [providers](providers.rule.md) documents, surfaced where the operator checks status.
+  `sudo ai-tools-admin selinux groups`). Under **Enforcing** it then reads each enabled
+  integration's manifest for the policy groups its toolchain declares (`selinux_groups`,
+  `ai-tools-providers(5)`) and names the ones not loaded, each with the registry's description,
+  followed by one `ai-tools-admin selinux groups enable` command carrying every missing stable
+  group and, on its own line, the source-checkout command for an experimental one. The block does
+  not name any toolchain: the manifest declares the set, the registry supplies the words, and the
+  same read is what `ai-tools-admin <integration> status` reports. The .NET set is in
+  [dotnet](dotnet.rule.md).
 - `--audit [--since <when>]` — report what has refused, been rejected, been stranded, or been
   flagged since a given time, through the `ai-tools-audit` root helper (`sudo`, no NOPASSWD).
   The detections it reports already existed and were already recorded; what they lacked was a
@@ -307,7 +313,7 @@ file sink being the authoritative one.
 
   **Every finding comes from the sink's severity field, not from a per-case pattern.** The
   root-only file sink already encodes severity in its line format (`<ts> <LEVEL> [<pid>] <msg>`),
-  so a finding is a line at `NOTICE` or above. `NOTICE` is in scope deliberately: `ai-tools-chown`
+  so a finding is a line at `NOTICE` or higher. `NOTICE` is in scope deliberately: `ai-tools-chown`
   records a breached secret at that level, and a leaked credential is the most actionable thing the
   command can surface. A helper that adds a warning is therefore reported from the moment it ships,
   with no pattern here to update.
@@ -400,16 +406,18 @@ file sink being the authoritative one.
   wrapper's pre-launch health warning reads (`claude.sh`, see [launch](launch.rule.md)) — so the
   status view and the launch warning never disagree on which units matter or how to fix one.
   `--status` is the one command that
-  **bypasses the bootstrap gate** (below): a diagnostic must run when things may be broken, so it
+  **bypasses the bootstrap gate** (see [Bootstrap preflight](#bootstrap-preflight)): a diagnostic
+  must run when things may be broken, so it
   reports the unprovisioned state rather than being blocked by it.
 
-  A unit in the sandbox account's own `systemd --user` manager is not queryable from the operator's
+  A unit in the sandbox account's own `systemd --user manager` is not queryable from the operator's
   session at all, so its state comes from a **last-run stamp** it publishes where the operator can
   read it (`nvm-update.service`, see [updater](updater.rule.md)) and stays `?` where it publishes
   none. **A root caller reads it live**, over the machine transport, and gets that reading through
   this same command: `services.lib.sh` gates the probe on the caller's own capability, so whichever
   command asks, `sudo ai-tools --status` resolves a unit exactly as `ai-tools-admin status` does
-  (*The root vantage*, below). How a live reading and a stamp compose into one verdict —
+  (see [The root vantage: `ai-tools-admin status`](#the-root-vantage-ai-tools-admin-status)). How a
+  live reading and a stamp compose into one verdict —
   which of the two decides a state, and which decides freshness — is
   `ai_tools_service_stamp_verdict`'s contract, stated there. One live fact about that manager *is*
   readable unprivileged — whether the unit **file** is installed —
@@ -528,7 +536,7 @@ advancing surfaces. The account's own
   Informational, so it stays open to a non-operator.
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree), `--help`.
 - `--for <operator>` — a **modifier**, not a command: run the verb on behalf of another enrolled
-  operator (see *Acting for another operator* below).
+  operator (see [Acting for another operator](#acting-for-another-operator---for)).
 
 **`--relabel` prints the new command and exits 2.** The entrypoint reconcile is
 `sudo ai-tools-admin system entrypoints relabel` ([updater](updater.rule.md) owns what it does,
@@ -542,9 +550,9 @@ documented code for a rejected command line.
 The CLI ships a man page, `ai-tools(1)`
 (`src/usr/local/share/man/man1/ai-tools.1` → `/usr/local/share/man/man1/`, deployed by
 `install.sh` and the RPM with the same `@AI_TOOLS_VERSION@` substitution as the CLI).
-It is hand-written troff — the CLI cannot be executed at package-build time for
-`help2man` (the bootstrap gate fail-closes on an unprovisioned host) — and
-The two are **not** copies of each other: `usage()` is orientation — the verbs, one line each,
+It is hand-written troff, since the CLI cannot be executed at package-build time for
+`help2man` (the bootstrap gate fail-closes on an unprovisioned host).
+The page and `usage()` are **not** copies of each other: `usage()` is orientation — the verbs, one line each,
 and the three cross-verb flags — while the page is the reference for every per-verb option, which
 is why a per-verb option lives under its verb there rather than in a flat list that would separate
 `--branch` or `--dir` from the only command they mean anything for. `tests/unit/man.sh` keeps them
@@ -743,7 +751,7 @@ claimed projects are a supported shape, so "an exclusion inside a listed project
 is not sound on its own. The ambiguity is removed by refusing to create it, in both directions:
 
 - `--project-disable` (and `--keep-entry`) **refuses a project nested inside another listed
-  project**, naming the two alternatives — unclaim the nested project, or park the one above it.
+  project**, naming the two alternatives — unclaim the nested project, or park the one enclosing it.
 - `--project-enable` therefore **refuses every exclusion inside a listed project** as the
   carve-out it must be, since no verb wrote it. Lifting one is the only registry edit here that
   *widens* what the agent reaches, so it is left to the editor it was written in.
@@ -764,7 +772,7 @@ from this state* (2). Two rules live there rather than in any caller, so no writ
 `_remove` takes **both** line kinds, so de-registering a parked project leaves no `!` behind to
 park whatever is claimed at that path next. `_add` also opens a line of its own for the entry it
 writes: the readers keep a hand-edited last line that runs to EOF, so an entry appended straight on
-would join two paths into a third naming no project, taking the one above it off the gate. `_enable` additionally collapses an existing duplicate
+would join two paths into a third naming no project, taking the preceding entry off the gate. `_enable` additionally collapses an existing duplicate
 pair to one live entry, in the earliest position it held.
 
 Before this, the same edit existed three times — an append here, a hand-escaped `sed -i` there, a
@@ -803,7 +811,7 @@ runs the same claim on it.
 
 **The project root must be held by the resolved operator or the sandbox account, and a claim
 refuses otherwise.** `ai-tools-setgid` and `ai-tools-setfacl` — the two helpers that grant the
-agent its access — act only on those two owners (the *Owner guard* below), while the registries,
+agent its access — act only on those two owners (the *Owner guard*), while the registries,
 the `safe.directory` entry and the SELinux label apply regardless. A tree held by anyone else
 therefore took every step that registers a project, and none of the steps that grant access to one, and the
 claim closed with its `✓` over an agent that cannot enter the tree. The commonest route to it is a
@@ -859,7 +867,7 @@ caller who has just mistyped a flag is not who a both-prompts bypass is for, and
 in `ai-tools(1)` where reaching it is deliberate.
 The flow does not carry any inline `--sandbox-create` cross-reference — the launch wrapper's
 choice screen and `--help`/docs present the sandbox-clone alternative; the one exception
-is the *Reachability* blocked case below, where an in-place claim genuinely cannot work.
+is the *Reachability* blocked case, where an in-place claim genuinely cannot work.
 
 **Interior drift.** Root-level state cannot see paths inside a claimed tree that lack the
 group/ACL — brought in by rename (which keeps the old group and does not pick up the project's ACL entries;
@@ -946,7 +954,7 @@ that is a system directory or owned by someone else is left untouched — there 
 ancestor the account can already traverse (e.g. one carrying the ACL from a prior claim) is skipped.
 Detection (`reach_scan`) runs up front so the Review overview announces the opt-in, and the
 block runs on the fully-claimed no-op path too — a claimed project can still lose
-reachability to a later `chmod 700` above it.
+reachability to a later `chmod 700` on an ancestor.
 
 **Unclaim** (`--project-unclaim`) reverts that. The CLI classifies the target against
 `allowed-projects` and acts only where something authorizes it:
@@ -973,8 +981,8 @@ differently, live in that helper's header.
 For each selected project it removes the SELinux label and both registries — or, under
 `--keep-entry`, parks the allowlist line in place instead of deleting it — and (default-yes
 confirm) runs `ai-tools-unclaim` to hand the filesystem back — the hand-back running **before**
-the allowlist entry is dropped, so the helper still sees the target listed (see the owner/allowlist
-guard below).
+the allowlist entry is dropped, so the helper still sees the target listed (see the *Owner
+guard*).
 For every eligible path that helper clears the agent ACL **and** the default ACL
 (`setfacl -b`), changes the group owner to a target group (the invoking user's own group by
 default; any other user can be named, handing the tree to that user's group), and removes
@@ -1011,7 +1019,9 @@ into the agent's group, and unclaim never regroups one out.
 
 **Sandbox clone** (`--sandbox-create`) shallow-clones the repo under `SANDBOX_ROOT`
 (`/var/opt/ai-tools/sandbox-projects`) so the agent never reads the origin's full history.
-Work is pushed to a per-repo branch `ai-tools/sandbox-<user>/<leaf>` (default leaf `main`);
+Work is pushed to a per-repo branch, `sandbox/<leaf>` by default, where `<leaf>` is the last
+component of the ref the clone was forked from (`sandbox_default_branch`; `--branch` accepts any
+valid git ref in its place);
 only the projects user can push (the sandbox account does not hold any git credentials), and anyone
 with repo access merges that branch back, preserving the agent's commits granularly (see
 `/var/opt/ai-tools/README.md`). Clones are labelled statically by `ai_tools.fc` + a plain
@@ -1037,9 +1047,8 @@ otherwise), so the grant adds it no access.
 
 ## Privilege model
 
-The CLI itself is unprivileged. Eight of its root operations — `ai-tools-lockdown`,
-`ai-tools-relabel`, `ai-tools-setfacl`, `ai-tools-setgid`, `ai-tools-unclaim`, `ai-tools-safedir`,
-`ai-tools-reclaim`, and `ai-tools-allowlist` — run via `sudo` with **no** NOPASSWD grant by design,
+The CLI itself is unprivileged. Every root helper it reaches — the `*_BIN` constants at the top
+of `ai-tools.sh` name the set — runs via `sudo` with **no** NOPASSWD grant by design,
 so sudo prompts for the projects user's password; the sandbox account has no grant for any. One is
 the exception — `--stop` → `ai-tools-stop` — carrying a dedicated fixed-path NOPASSWD rule
 (see [launch](launch.rule.md)), so it runs **as root without a prompt**, kept safe by being a
@@ -1071,13 +1080,14 @@ the target operator and the invoking user may not even traverse the tree.
 helpers — only sudo, as root, reaches them.
 
 `--project-create` and `--project-remove` add no helper and no sudoers rule. What they add is
-`sudo -u <target>` on a `--for` run (the *runas seam* above), which is not a new grant either: it
+`sudo -u <target>` on a `--for` run (the *runas seam*), which is not a new grant either: it
 rides the same general axis, and without `--for` they run as the invoker with no `sudo` at all.
 
-**Those eight calls assume a grant `ai-ops` membership does not carry** — a **general** sudo grant
+**Those calls assume a grant `ai-ops` membership does not carry** — a **general** sudo grant
 is a separate host-level axis that this project neither writes nor records
 ([naming-conventions](../../docs/naming-conventions.md) fixes the vocabulary), and the CLI answers
-for it ahead of the run's first prompt (*The caller with no sudo grant*, above). A host needs at
+for it ahead of the run's first prompt (see
+[The caller with no sudo grant](#the-caller-with-no-sudo-grant)). A host needs at
 least one operator holding it, since root is refused every mutating verb — the requirement, and why
 root cannot stand in, are in [CLAUDE.md](../../CLAUDE.md).
 

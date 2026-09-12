@@ -84,7 +84,7 @@ if declare -F ai_tools_conf_secret_patterns_seed >/dev/null 2>&1; then
     else
         fail "the seeded config changed the loaded pattern set (${#AI_TOOLS_SECRET_PATTERNS[@]} patterns)"
     fi
-    # The one claim the seeded header must always carry, asserted by the grep below: an
+    # The one claim the seeded header must always carry, asserted by the grep that follows it: an
     # operator's pattern REPLACES the baseline rather than adding to it, so a file holding one
     # name classifies on that name alone.
     if grep -qi 'REPLACES the built-in baseline' "${seed_file}"; then
@@ -93,7 +93,7 @@ if declare -F ai_tools_conf_secret_patterns_seed >/dev/null 2>&1; then
         fail "the seeded header does not state the replace rule: $(cat "${seed_file}")"
     fi
     rm -f "${seed_file}"
-    # Restore the shipped defaults for the case below, which the load above overwrote.
+    # Restore the shipped defaults for the next case, which the operator-file load overwrote.
     AI_TOOLS_SECRET_PATTERNS=("${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}")
     _AI_TOOLS_PATTERNS_LOADED=1
 else
@@ -107,7 +107,7 @@ fi
 # agreement (the baseline is in force, and a host that has decided nothing should not be nagged),
 # while a real file must name what it DROPS, that being the half that stops quarantining anything.
 if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
-    # The cases above need no fixture on disk; this section is the first here that does, so it
+    # The preceding cases need no fixture on disk; this section is the first here that does, so it
     # creates the testdir the harness tears down.
     mktestdir
     _drift_file="${TESTDIR}/drift-patterns"

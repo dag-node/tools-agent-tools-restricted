@@ -51,7 +51,7 @@ ${safe_ok} && pass "project trees nested under a protected parent are allowed"
 
 # (2b) A user home ROOT (direct child of /home) is protected exactly -- claiming a whole
 #      home would hand the agent every dotfile and key in it -- while deeper paths pass
-#      (asserted in (2) above). A trailing slash normalises to the same verdict.
+#      (asserted in case (2)). A trailing slash normalises to the same verdict.
 home_ok=true
 for p in /home/alice /home/bob /home/svc-ci/; do
     if ! ai_tools_protected_path_match "${p}" >/dev/null; then
@@ -89,8 +89,8 @@ fi
 
 # ── The traverse-grant predicate ─────────────────────────────────────────────
 # ai_tools_traverse_grant_allowed vets a strictly weaker operation than the target backstop
-# above: one `u:ai-tools:--x` entry on ONE directory, which grants search permission and not read. It therefore admits the acting operator's OWN home root, which the backstop refuses as a
-# target -- so these assertions are about the difference between the two, and (2b) above still
+# backstop: one `u:ai-tools:--x` entry on ONE directory, which grants search permission and not read. It therefore admits the acting operator's OWN home root, which the backstop refuses as a
+# target -- so these assertions are about the difference between the two, and case (2b) still
 # stands unchanged. What keeps the carve-out from becoming a hole is the owner argument: it is
 # checked before the home-root exemption, so the exemption reaches exactly one account's home.
 section "traverse-grant predicate (unit)"

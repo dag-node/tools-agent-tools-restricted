@@ -21,7 +21,7 @@
 # documented) and three principals source it: the root helpers, the hooks (as the agent),
 # and the unprivileged CLI (the claim drift scan classifies hits under these names).
 # The matcher skips DIRECTORIES only
-# (find -type d), so a file that merely shares a name (a git object named "obj") is walked
+# (`find -type d`), so a file that merely shares a name (a git object named "obj") is walked
 # normally. Names are grouped into categories an operator can override in
 # /etc/ai-tools/operator.conf, which conf.lib.sh parses and never sources, so a tampered
 # config cannot execute code in the privileged helpers. A PRESENT key REPLACES that
@@ -40,7 +40,10 @@ AI_TOOLS_SKIP_PACKAGE_DIRS=(node_modules .venv packages)   # restorable dependen
 # bin/ is a regular source directory in many codebases (not a .NET build dir). On a large
 # project where walking real build output is a performance issue, skip it per host --
 # candidates: SKIP_ARTIFACT_DIRS="bin obj" (.NET), "target" (Rust/Maven), "dist build"
-# (JS bundlers) -- and exempt any same-named source dir via the relative exclusions below.
+# (JS bundlers) -- and exempt any same-named source dir via the relative exclusions.
+# This list is a walk-cost setting only. The SELinux build-output type an integration maps
+# onto its build-output directories (build_output_dirs in its manifest, applied by
+# relabel.lib.sh) is a separate mechanism with its own name set, and neither reads the other.
 AI_TOOLS_SKIP_ARTIFACT_DIRS=()
 # Project-root-relative paths walked even when their basename is in SKIP_ARTIFACT_DIRS
 # (explicit exclusions from the artifact-name skip), e.g. "src/usr/local/bin". Applied by
@@ -77,7 +80,7 @@ if source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
 fi
 
 # ai_tools_skip_find_expr <consumer> [skip_git] [root]
-# Build the skip set for a consumer from the LIB-OWNED per-consumer defaults below, and
+# Build the skip set for a consumer from the LIB-OWNED per-consumer defaults, and
 # expose it two ways: AI_TOOLS_SKIP_NAMES (the flat directory-name list) and
 # AI_TOOLS_SKIP_FIND_EXPR (a find fragment "( -type d ( -name a -o -name b ) ) -prune -o",
 # empty when no directory is skipped). Splice the fragment into a find between the start dir and
@@ -95,7 +98,7 @@ fi
 #   sweep         heavy + .git.  Per-turn + boundary handback; .git is reclaimed by the
 #                 dedicated boundary pass and the user:<operator> ACL, not the per-turn walk.
 #   setgid        heavy + .git.  Claim-time normalization; .git normalized separately by
-#   setfacl       setfacl --with-git.
+#   setfacl       `setfacl --with-git`.
 #   unclaim       heavy + .git.  Unclaim reversal; .git reverted in its own pass.
 #   lockdown      heavy + .git.  Secret sweep; .git object names are hashes -- no name to match.
 #   reclaim       heavy only.    On-demand reclaim WALKS .git (the one tree the per-session
@@ -134,8 +137,8 @@ ai_tools_skip_find_expr() {
         done
     fi
 
-    # _skip_group <out-name-suppressed> -- append one "( -type d ( -name .. ) [! ( -path .. )] ) -prune -o"
-    # group to AI_TOOLS_SKIP_FIND_EXPR from the given name list and optional -path exemptions.
+    # _skip_group <out-name-suppressed> -- append one `( -type d ( -name .. ) [! ( -path .. )] ) -prune -o`
+    # group to AI_TOOLS_SKIP_FIND_EXPR from the given name list and optional `-path` exemptions.
     _ai_tools_skip_group() {  # $1 = "names" | "artifact"
         local -n _grp_names="$1"
         local -a _grp_excl=(); [[ "$1" == artifact ]] && _grp_excl=( "${excl[@]}" )

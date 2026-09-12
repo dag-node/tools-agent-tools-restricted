@@ -7,21 +7,21 @@
 # The one that matters is root. `ai-tools-admin operators add` refuses it outright, and install.sh
 # reaches the same end state by a different route (the @PROJECTS_USER@ substitution plus
 # `usermod -aG ai-ops`), so the two have to refuse alike or the dev path produces a host nobody
-# can provision: the CLI refuses root every mutating verb, --for refuses root as a target, and the
+# can provision: the CLI refuses root every mutating verb, `--for` refuses root as a target, and the
 # ownership handback would restore agent-written files to root:ai-tools.
 #
 # Root is reachable without meaning to -- sudo invoked from a root shell sets SUDO_USER=root, so
 # `sudo -i` followed by `sudo ./install.sh` passes the SUDO_USER check with a resolvable home.
 #
-# A name reaches the decision by three routes -- SUDO_USER, --operator, and the interactive
+# A name reaches the decision by three routes -- SUDO_USER, `--operator`, and the interactive
 # prompt -- and the second is what makes the other refusals testable at all: the prompt reads from
-# /dev/tty, so its branch cannot be driven here, while --operator carries a name past the same
-# operator_refusal without a terminal. Every refusal below is therefore asserted through the flag,
+# /dev/tty, so its branch cannot be driven here, while `--operator` carries a name past the same
+# operator_refusal without a terminal. Every refusal is therefore asserted through the flag,
 # and the file asserts the flag's own arithmetic too (a missing value, the = form, and that it
 # decides the ENROLLED account without touching who invoked sudo).
 #
 # Nothing is installed: each case runs install.sh with an unrecognized ACTION, and the guards sit
-# above the dispatch, so a run that reaches the dispatch at all prints usage and exits without
+# before the dispatch, so a run that reaches the dispatch at all prints usage and exits without
 # touching the system. Needs root, since the EUID guard precedes the ones under test.
 
 set -euo pipefail
@@ -48,13 +48,9 @@ run_installer() {
     fi
 }
 
-# (1) root as the operator is refused, and the refusal names the account it wants instead.
+# (1) root as the operator is refused.
 out="$(run_installer root)"
-if grep -qi 'must be a normal login user, not root' <<<"${out}"; then
-    pass "install.sh refuses to enrol root as the operator"
-else
-    fail "install.sh did not refuse SUDO_USER=root: ${out}"
-fi
+assert_msg MSG-D7C6 "${out}" "install.sh refuses to enrol root as the operator"
 
 # (2) The refusal must precede the dispatch: reaching usage means the guard did not fire.
 if ! grep -q 'usage: sudo' <<<"${out}"; then
@@ -63,7 +59,7 @@ else
     fail "install.sh reached its dispatch with SUDO_USER=root: ${out}"
 fi
 
-# (3) An absent SUDO_USER stays refused -- the guard above this one, asserted so a rewrite of
+# (3) An absent SUDO_USER stays refused -- the guard preceding this one, asserted so a rewrite of
 # either cannot silently drop it.
 out="$(run_installer "")"
 if grep -qi 'SUDO_USER not set' <<<"${out}"; then
@@ -72,7 +68,7 @@ else
     fail "install.sh did not refuse an unset SUDO_USER: ${out}"
 fi
 
-# (4) A normal login user passes both guards and reaches the dispatch, so the checks above are
+# (4) A normal login user passes both guards and reaches the dispatch, so the two checks are
 # refusing the principal rather than everything.
 out="$(run_installer "${PROJECTS_USER}")"
 if grep -q 'usage: sudo' <<<"${out}"; then
@@ -81,41 +77,30 @@ else
     fail "install.sh refused the operator ${PROJECTS_USER}: ${out}"
 fi
 
-# (5) The same root refusal on the --operator route. Both routes reach one decision, so a name
+# (5) The same root refusal on the `--operator` route. Both routes reach one decision, so a name
 # that is refused when it arrives from sudo must be refused when it is typed as a flag.
 out="$(run_installer "${PROJECTS_USER}" --operator root)"
-if grep -qi 'must be a normal login user, not root' <<<"${out}" && ! grep -q 'usage: sudo' <<<"${out}"; then
-    pass "--operator root is refused, before the dispatch"
+assert_msg MSG-D7C6 "${out}" "--operator root is refused by the same code as SUDO_USER=root"
+if ! grep -q 'usage: sudo' <<<"${out}"; then
+    pass "the --operator root refusal precedes the dispatch"
 else
-    fail "--operator root was not refused ahead of the dispatch: ${out}"
+    fail "--operator root reached the dispatch: ${out}"
 fi
 
 # (6) The sandbox account: enrolling it would put the account the agent runs as into ai-ops, which
 # ai-tools-run refuses to launch for -- so the host would install and then never launch.
 out="$(run_installer "${PROJECTS_USER}" --operator "${SANDBOX_USER}")"
-if grep -q "must not be the sandbox account ${SANDBOX_USER}" <<<"${out}"; then
-    pass "--operator ${SANDBOX_USER} is refused"
-else
-    fail "--operator ${SANDBOX_USER} was not refused: ${out}"
-fi
+assert_msg MSG-S9C4 "${out}" "--operator ${SANDBOX_USER} is refused"
 
 # (7) A name no account answers to. Left unrefused it would enrol a name the ownership helpers
 # can never resolve to an owner.
 out="$(run_installer "${PROJECTS_USER}" --operator "no-such-account-${RANDOM}${RANDOM}")"
-if grep -q 'no such user:' <<<"${out}"; then
-    pass "--operator with an unknown account is refused"
-else
-    fail "--operator with an unknown account was not refused: ${out}"
-fi
+assert_msg MSG-X4X2 "${out}" "--operator with an unknown account is refused"
 
-# (8) The flag's own arithmetic: a trailing --operator has no name to enrol, and must say so
+# (8) The flag's own arithmetic: a trailing `--operator` has no name to enrol, and must say so
 # rather than reading the next thing as one or enrolling an empty name.
 out="$(SUDO_USER="${PROJECTS_USER}" bash "${INSTALLER}" __no_such_action__ --operator 2>&1 || true)"
-if grep -q -- '--operator needs an account name' <<<"${out}"; then
-    pass "a valueless --operator is refused"
-else
-    fail "a valueless --operator was not refused: ${out}"
-fi
+assert_msg MSG-U5E6 "${out}" "a valueless --operator is refused"
 
 # (9) The = form names the same account as the spaced form, so a script may use either.
 out="$(run_installer "${PROJECTS_USER}" "--operator=${PROJECTS_USER}")"
@@ -133,6 +118,82 @@ if grep -q 'usage: sudo' <<<"${out}"; then
     pass "--operator ${PROJECTS_USER} is admitted even from a SUDO_USER=root invocation"
 else
     fail "--operator did not override SUDO_USER=root: ${out}"
+fi
+
+# ── The source-tree gate ──────────────────────────────────────────────────────────────────────
+# What root deploys is a committed tree the operator reviewed, so an install from a checkout with
+# uncommitted changes is refused unless `--allow-uncommitted` states the decision. Driven through
+# `install.sh check-tree`, which runs the gate alone, against a FIXTURE checkout: a copy
+# of install.sh with the libraries it sources from its own tree, in a repository this test makes.
+# Running the real checkout would report whatever state the developer's tree is in, and running
+# `install` against a fixture would install from it if the gate ever failed open.
+section "install.sh source-tree gate (unit)"
+mktestdir
+FIX="${TESTDIR}/checkout"
+mkdir -p "${FIX}/src/usr/local/lib"
+cp "${INSTALLER}" "${FIX}/install.sh"
+cp -r "${ROOT}/src/usr/local/lib/ai-tools" "${FIX}/src/usr/local/lib/ai-tools"
+git_fix() { git -C "${FIX}" -c user.name=guard -c user.email=guard@example.invalid -c commit.gpgsign=false -c safe.directory='*' "$@" >/dev/null 2>&1; }
+git_fix init -q
+git_fix add -A
+git_fix commit -q -m "fixture"
+# run_gate [arg...] -- the check-tree action on the fixture, its combined output and exit status
+# published in GATE_OUT / GATE_RC. Detached from any terminal, as the gate does not prompt.
+run_gate() {
+    set +e
+    GATE_OUT="$(SUDO_USER="${PROJECTS_USER}" setsid -w bash "${FIX}/install.sh" check-tree "$@" 2>&1)"
+    GATE_RC=$?
+    set -e
+}
+
+# (11) A clean checkout passes and names the commit it would deploy.
+run_gate
+if (( GATE_RC == 0 )) && grep -q 'source tree   : commit' <<<"${GATE_OUT}" && grep -q 'fixture' <<<"${GATE_OUT}"; then
+    pass "a clean checkout passes the gate and names its commit"
+else
+    fail "clean checkout: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+
+# (12) An uncommitted change is refused, the path is listed, and the refusal names the flag.
+# The edit is a comment: the file is the script under test, and a run that passes the gate
+# (14, 15) executes to its end, where an appended word would run as a command.
+printf '# edited\n' >> "${FIX}/install.sh"
+: > "${FIX}/untracked.txt"
+run_gate
+assert_msg MSG-U8C9 "${GATE_OUT}" "an uncommitted tree is refused"
+if (( GATE_RC != 0 )) \
+        && grep -qE '^ +M +install\.sh' <<<"${GATE_OUT}" && grep -qE '^ +\?\? +untracked\.txt' <<<"${GATE_OUT}" \
+        && grep -q -- '--allow-uncommitted' <<<"${GATE_OUT}"; then
+    pass "an uncommitted tree is refused, its paths listed, and the flag named as the way through"
+else
+    fail "uncommitted tree: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+
+# (13) A path the sandbox account owns is marked: that is a session's write no one has committed.
+chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${FIX}/untracked.txt"
+run_gate
+if grep -qE 'untracked\.txt +\[agent\]' <<<"${GATE_OUT}" && grep -q '1 of the listed owned by the sandbox account' <<<"${GATE_OUT}"; then
+    pass "a path the sandbox account owns is marked [agent] and counted"
+else
+    fail "agent-owned path not marked: ${GATE_OUT}"
+fi
+
+# (14) `--allow-uncommitted` admits the same tree, warning rather than refusing.
+run_gate --allow-uncommitted
+assert_msg MSG-E2B9 "${GATE_OUT}" "--allow-uncommitted warns rather than refusing"
+if (( GATE_RC == 0 )); then
+    pass "--allow-uncommitted admits the tree"
+else
+    fail "--allow-uncommitted did not admit the tree: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+
+# (15) A tree that is not a repository has no commit to name and passes: the tarball install.
+rm -rf "${FIX}/.git"
+run_gate
+if (( GATE_RC == 0 )) && grep -q 'not a git checkout' <<<"${GATE_OUT}"; then
+    pass "a checkout that is not a repository passes with no commit to name"
+else
+    fail "non-repository tree: rc=${GATE_RC}: ${GATE_OUT}"
 fi
 
 finish

@@ -65,7 +65,7 @@ if command -v setfacl >/dev/null 2>&1; then
 fi
 mk_allowlist "${proj}" "!${proj}/vendor"
 
-# Run the deployed helper in <cwd> (it acts on pwd), non-interactive (--yes), never aborting
+# Run the deployed helper in <cwd> (it acts on pwd), non-interactive (`--yes`), never aborting
 # the suite. Captures combined output to <outfile>; sets the global LD_RC to its exit code.
 run_ld() {  # <cwd> <outfile> [args...]
     local cwd="$1" out="$2"; shift 2
@@ -162,12 +162,12 @@ fi
 # (3) A non-allowlisted CWD is refused (non-zero), and its secret is untouched.
 mk_secret "${TESTDIR}/.env"                       # TESTDIR itself is NOT in the allowlist
 run_ld "${TESTDIR}" "${TESTDIR}/refuse" --yes
-if [[ "${LD_RC}" -ne 0 ]] && grep -qi 'not in allowed projects' "${TESTDIR}/refuse" \
-        && [[ "$(perm "${TESTDIR}/.env")" == 644 ]]; then
+if [[ "${LD_RC}" -ne 0 ]] && [[ "$(perm "${TESTDIR}/.env")" == 644 ]]; then
     pass "refuses a non-allowlisted CWD (non-zero, nothing changed)"
 else
     fail "non-allowlisted CWD not refused (rc=${LD_RC}) or .env changed: $(cat "${TESTDIR}/refuse")"
 fi
+assert_msg MSG-K8Z6 "$(cat "${TESTDIR}/refuse")" "the refusal names the unresolved project by its code"
 
 # (4) Refuses to run as the sandbox account (guard fires before any change). A fresh secret
 #     created for this case stays untouched.
@@ -176,13 +176,14 @@ mk_secret "${proj}/fresh.key"
     && agent_rc=0 || agent_rc=$?
 # The mode is what distinguishes "refused" from "locked" here: a locked secret is now owned
 # <you>:<you> too, so ownership alone no longer tells the two apart.
-if [[ "${agent_rc}" -ne 0 ]] && grep -qi 'must be run by you, not' "${TESTDIR}/asagent" \
+if [[ "${agent_rc}" -ne 0 ]] \
         && [[ "$(perm "${proj}/fresh.key")" == 644 ]] \
         && [[ "$(stat -c '%U:%G' "${proj}/fresh.key")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" ]]; then
     pass "refuses to run as the sandbox account (no changes made)"
 else
     fail "did not refuse the sandbox account (rc=${agent_rc}) or fresh.key changed: $(cat "${TESTDIR}/asagent")"
 fi
+assert_msg MSG-M8A8 "$(cat "${TESTDIR}/asagent")" "the sandbox-account refusal carries its code"
 
 # (5) The seal pass: a NON-secret path the operator sealed by mode has its residue stripped even
 #     though no pattern matches its name, so a path sealed after the claim is cleaned up here

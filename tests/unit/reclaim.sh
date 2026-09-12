@@ -3,7 +3,7 @@
 # tests/unit/reclaim.sh
 # Hermetic unit tests for the deployed ai-tools-reclaim helper: it hands agent-owned files under a
 # project back to the operator via ai-tools-chown, including the .git tree the sweeps skip, while
-# leaving the heavy/transient trees (node_modules, ...) agent-owned -- and --full reclaims those
+# leaving the heavy/transient trees (node_modules, ...) agent-owned -- and `--full` reclaims those
 # too. Runs the installed helper against a /tmp testdir + dummy allowlist; does not write a path outside.
 
 set -euo pipefail
@@ -32,11 +32,9 @@ own() { stat -c '%U' "$1" 2>/dev/null; }
 # (0) Two-phase, empty set: no path agent-owned yet (the fixtures are root-owned), so
 # the collect phase reports exactly that and stops before any confirmation or change.
 noop_out="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 > /dev/null || true)"
-if grep -qF "nothing to reclaim" <<<"${noop_out}"; then
-    pass "a tree with nothing agent-owned reports 'nothing to reclaim'"
-else
-    fail "no-op run did not report 'nothing to reclaim': ${noop_out}"
-fi
+# The code separates this outcome from the refusal of a path no allowlist covers, which reports
+# an empty hand-back set as well.
+assert_msg MSG-J6B2 "${noop_out}" "a tree with nothing agent-owned reports the empty hand-back set"
 
 chown -R "${SANDBOX_USER}:${SANDBOX_GROUP}" "${proj}"
 
@@ -61,7 +59,7 @@ else
     fail "default unexpectedly reclaimed node_modules: $(own "${nm}")"
 fi
 
-# (B) --full also reclaims the heavy trees.
+# (B) `--full` also reclaims the heavy trees.
 setsid "${HELPER}" --full "${proj}" < /dev/null > /dev/null 2>&1 || true
 if [[ "$(own "${nm}")" == "${PROJECTS_USER}" ]]; then
     pass "--full reclaims node_modules too"

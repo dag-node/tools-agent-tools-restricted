@@ -1,58 +1,47 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/providers.lib.sh
-# Resolve which sandboxed providers are enabled and how to provision each. This is the seam that
-# keeps the toolchain and launch layers provider-agnostic: a provider's details live in a
-# per-package manifest the provider's own package ships, and operator.conf gates which are
-# enabled. Two provider kinds share the mechanism:
-#   * AGENTS -- the AI coding agents (ai-tools-agents-*). ai-tools-bootstrap / nvm-update install
-#     each enabled agent's npm package and symlink its launcher.
-#   * INTEGRATIONS -- host-toolchain layers (ai-tools-integration-*). ai-tools-run sources each
-#     enabled integration's session-env fragment (session-env.d/<name>.env.sh).
-# Both inputs are DATA -- parsed via conf.lib.sh, never sourced -- so a malformed or tampered file
-# cannot execute code in the scripts that read it (the same posture as operator.lib.sh /
-# skip-dirs.lib.sh). conf.lib.sh also carries the KEY=value grammar, so a manifest and
-# operator.conf read identically; a load failure there leaves this file defining NO RESOLVER and
-# returning non-zero, so a consumer falls back rather than guessing.
+# Resolve which sandboxed providers are enabled and how to provision each: the seam that keeps
+# the toolchain and launch layers provider-agnostic. A provider's details live in the manifest its
+# own package ships (/usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, <name> being the
+# token an operator writes in operator.conf's AI_TOOLS_AGENTS / AI_TOOLS_INTEGRATIONS), and that
+# key gates which are enabled. The manifest fields and what reads each, the fail-closed enablement
+# rules, and the trust predicate every input and its directory pass are in providers.rule.md; the
+# values one agent declares are that manifest's own comments.
 #
-# Manifest -- /usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, one per installed
-# member package. <name> (the basename) is the token an operator writes in AI_TOOLS_AGENTS /
-# AI_TOOLS_INTEGRATIONS:
-#   agents:        npm_package=<registry package>  launcher=<bin name>  display_name=<label>
-#                  handback=hooks|none          default_enable=yes|no
-#   integrations:  default_enable=yes|no       (its env fragment is session-env.d/<name>.env.sh)
-#   either kind:   admin_summary=<one line>    (the domain's line in `ai-tools-admin --help`, for
-#                  a package that also ships an admin-commands.d/<name> command fragment)
-#
-# ── Enablement is FAIL-CLOSED ────────────────────────────────────────────────────────────────
-# operator.conf: AI_TOOLS_AGENTS / AI_TOOLS_INTEGRATIONS = "<name> ..." (commas and whitespace
-# both separate; see conf.lib.sh for the grammar):
-#   key present  -> enabled = exactly the listed names (an allowlist; an empty value = none)
-#   key absent   -> enabled = installed providers with default_enable=yes (the safe baseline)
-#   conf unreadable/malformed/UNTRUSTED -> treated as absent (safe baseline, never "enable all")
-#   a listed name with no installed manifest -> reported and skipped, never guessed
-# A default_enable=yes on a manifest is the shipping package's claim that its provider leaves
-# host surface unchanged beyond the sandbox; a surface-widening one ships default_enable=no and is enabled
-# only when an operator names it. The operator's explicit list always overrides the default.
-#
-# ── The sandbox cannot widen its own surface ─────────────────────────────────────────────────
-# Every input that decides what a session gets is honored only while it is root-owned and not
-# group- or other-writable (ai_tools_conf_is_trusted), and so is the DIRECTORY holding it -- a
-# group-writable directory lets a non-root writer unlink and replace the file inside it. So:
-#   * an untrusted manifest directory disables that whole provider kind
-#   * an untrusted manifest disables that one provider
-#   * an untrusted operator.conf is ignored, falling back to the baseline (which can only ever
-#     enable a provider its own package marked default_enable=yes)
-# Each refusal is reported with the owner and mode the predicate read
-# (ai_tools_conf_untrusted_reason in conf.lib.sh), so a tamper is loud and a refusal caused by uid
-# translation in a non-initial user namespace names that cause. The agent account can therefore
-# neither enable a disabled provider nor introduce a new one, whatever it can write.
+# Manifests and operator.conf are DATA, parsed through conf.lib.sh and never sourced, so a
+# malformed or tampered file yields a bad value rather than code running in the scripts that read
+# it. conf.lib.sh is therefore a hard dependency: a load failure leaves this file defining NO
+# RESOLVER and returning non-zero, so a consumer falls back (Node-only bootstrap, npm-only update,
+# no integration env) rather than guessing which providers it has. The pure verdicts
+# (ai_tools_provider_is_enabled, ai_tools_agent_sweeps_at_exit, ai_tools_provider_gate) take no
+# input but their arguments, so tests/unit/providers.sh drives them over the truth table; the
+# resolvers around them read the files and print data-only stdout, with every refusal on stderr
+# and in journald, naming the owner and mode the predicate read.
 
 # Include guard: consumers may source this alongside libs that also pull it in. An if-statement,
-# not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's set -e.
+# not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
 if [[ -n "${_AI_TOOLS_PROVIDERS_LIB_LOADED:-}" ]]; then
     return 0
 fi
+
+# _ai_tools_provider_warn [code] <message...> : report to stderr (the operator at the terminal)
+#   and, when log.lib.sh loaded, to journald (the durable trail a tamper refusal belongs in). A
+#   leading message code (msg.lib.sh states the form) goes on its own line ahead of the message,
+#   the shape tests/lib/harness.sh's assert_msg reads; matched inline, since this library takes no
+#   dependency it could read the form from. stderr for every line: this library's STDOUT is a wire
+#   format its callers read with `$(...)`, so nothing a reader parses may land there.
+#
+#   Defined ahead of the loads below, so the refusal that reports an unusable conf.lib.sh carries a
+#   code like every other. It is pure printf until log.lib.sh is loaded, which the `declare -F` guard
+#   already tolerates.
+_ai_tools_provider_warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools: %s\n' "$*" >&2
+    declare -F ai_tools_log_warn >/dev/null 2>&1 && ai_tools_log_warn "providers: $*"
+    return 0
+}
 
 # Shared KEY=value grammar + the trust predicate. REQUIRED: without it this file cannot parse a
 # manifest or tell a trusted input from a planted one, and guessing either would be exactly the
@@ -63,10 +52,11 @@ if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_untrusted_reason >/dev/null 2>&1; then
-    printf 'ai-tools: providers.lib.sh: conf.lib.sh missing or incomplete -- no providers resolved\n' >&2
+    _ai_tools_provider_warn MSG-P4M9 \
+        "providers.lib.sh: conf.lib.sh missing or incomplete -- no providers resolved"
     return 1
 fi
-# Logging is best-effort here (the refusals below also go to stderr for the operator at the
+# Logging is best-effort here (the refusals also go to stderr for the operator at the
 # terminal); journald is where a tamper signal is durable. Mirrors msg.lib.sh's optional load.
 # shellcheck source=SCRIPTDIR/log.lib.sh
 source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
@@ -78,14 +68,6 @@ _AI_TOOLS_PROVIDERS_LIB_LOADED=1
 : "${AI_TOOLS_AGENTS_DIR:=/usr/local/lib/ai-tools/agents.d}"
 : "${AI_TOOLS_INTEGRATIONS_DIR:=/usr/local/lib/ai-tools/integrations.d}"
 : "${AI_TOOLS_OPERATOR_CONF:=/etc/ai-tools/operator.conf}"
-
-# _ai_tools_provider_warn <message...> : report to stderr (the operator at the terminal) and, when
-#   log.lib.sh loaded, to journald (the durable trail a tamper refusal belongs in).
-_ai_tools_provider_warn() {
-    printf 'ai-tools: %s\n' "$*" >&2
-    declare -F ai_tools_log_warn >/dev/null 2>&1 && ai_tools_log_warn "providers: $*"
-    return 0
-}
 
 # ai_tools_provider_is_enabled <name> <default_enable> <allowlist_active> <allowlist>
 #   Pure enablement verdict for either provider kind, no I/O -- unit-tested over the truth table.
@@ -121,7 +103,7 @@ ai_tools_agent_sweeps_at_exit() {
 #   "allowlist" (operator.conf names the key, so its value is the exact enabled set), "baseline"
 #   (it does not, so default_enable governs), or "untrusted" (operator.conf exists but fails the
 #   trust predicate, so it is ignored and the baseline applies). Read-only and side-effect free:
-#   the resolvers below and any caller REPORTING the gating both read it, so what an operator is
+#   the resolvers and any caller REPORTING the gating both read it, so what an operator is
 #   told matches what a session gets.
 ai_tools_provider_gate() {
     local conf_key="$1"
@@ -146,7 +128,7 @@ _ai_tools_provider_requested() {
     requested_active=no; requested_list=""
     case "$(ai_tools_provider_gate "${conf_key}")" in
         untrusted)
-            _ai_tools_provider_warn "ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") -- using the default-enabled providers only" ;;
+            _ai_tools_provider_warn MSG-C4F9 "ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") -- using the default-enabled providers only" ;;
         allowlist)
             requested_active=yes
             ai_tools_conf_read "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}" || true
@@ -156,17 +138,24 @@ _ai_tools_provider_requested() {
 }
 
 # _ai_tools_provider_dir_trusted <manifest-dir> <conf-key> : succeed when the manifest directory
-#   may be read. A missing directory is simply "no providers installed" (silent); an existing but
+#   may be read. A missing directory is "no providers installed" (silent); an existing but
 #   untrusted one is a tamper signal and is reported, because a non-root writer there can plant a
 #   manifest that enables a provider nobody installed.
 _ai_tools_provider_dir_trusted() {
     local dir="$1" conf_key="$2"
     [[ -d "${dir}" ]] || return 1
     if ! ai_tools_conf_is_trusted "${dir}"; then
-        _ai_tools_provider_warn "refusing every ${conf_key} provider: ${dir} $(ai_tools_conf_untrusted_reason "${dir}")"
+        _ai_tools_provider_warn MSG-W3Q3 "refusing every ${conf_key} provider: ${dir} $(ai_tools_conf_untrusted_reason "${dir}")"
         return 1
     fi
     return 0
+}
+
+# _ai_tools_skip_integration <name> <manifest-file> : report an integration manifest the trust
+#   predicate refused. One situation met by both readers of that directory -- the enabled set and
+#   the installed-declaring set -- so it is written once and each reader calls it.
+_ai_tools_skip_integration() {
+    _ai_tools_provider_warn MSG-N9X8 "skipping integration $1: $2 $(ai_tools_conf_untrusted_reason "$2")"
 }
 
 # _ai_tools_warn_uninstalled <manifest-dir> <conf-key> <active> <list> : report each
@@ -180,7 +169,7 @@ _ai_tools_warn_uninstalled() {
     local requested_name
     for requested_name in "${requested_names[@]}"; do
         [[ -f "${dir}/${requested_name}.conf" ]] || \
-            _ai_tools_provider_warn "$(printf '%q' "${requested_name}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} -- install its ai-tools package or remove it; skipping"
+            _ai_tools_provider_warn MSG-X8P4 "enabled with nothing installed: $(printf '%q' "${requested_name}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} -- install its ai-tools package or remove it; skipping"
     done
     return 0
 }
@@ -197,7 +186,7 @@ ai_tools_enabled_agents() {
             [[ -e "${manifest_file}" ]] || continue
             agent_name="${manifest_file##*/}"; agent_name="${agent_name%.conf}"
             if ! ai_tools_conf_is_trusted "${manifest_file}"; then
-                _ai_tools_provider_warn "skipping agent ${agent_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")"
+                _ai_tools_provider_warn MSG-M3A5 "skipping agent ${agent_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")"
                 continue
             fi
             npm_package="$(ai_tools_conf_get "${manifest_file}" npm_package || true)"
@@ -272,7 +261,7 @@ ai_tools_agents_empty_verdict() {
 
 # _ai_tools_manifest_field <manifest-dir> <name> <key> : print one field of a trusted manifest in
 #   <manifest-dir>, empty (and non-zero) when the manifest is absent or untrusted or the key is not
-#   there. Shared by the two public readers below so both allowlist the name the same way and both
+#   there. Shared by the two public readers so both allowlist the name the same way and both
 #   apply the trust predicate before reading.
 _ai_tools_manifest_field() {
     local manifest_dir="$1" provider_name="$2" wanted_key="$3"
@@ -316,7 +305,7 @@ ai_tools_enabled_integrations() {
             [[ -e "${manifest_file}" ]] || continue
             integration_name="${manifest_file##*/}"; integration_name="${integration_name%.conf}"
             if ! ai_tools_conf_is_trusted "${manifest_file}"; then
-                _ai_tools_provider_warn "skipping integration ${integration_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")"
+                _ai_tools_skip_integration "${integration_name}" "${manifest_file}"
                 continue
             fi
             default_enable="$(ai_tools_conf_get "${manifest_file}" default_enable || true)"
@@ -328,5 +317,28 @@ ai_tools_enabled_integrations() {
     fi
     _ai_tools_warn_uninstalled "${AI_TOOLS_INTEGRATIONS_DIR}" AI_TOOLS_INTEGRATIONS \
         "${requested_active}" "${requested_list}"
+    return 0
+}
+
+# ai_tools_installed_integrations_declaring <key> : print "name<TAB>value" for every INSTALLED
+#   integration whose trusted manifest carries <key>, in manifest-filename order, enabled or not.
+#   For a manifest field that describes a toolchain present on the host rather than what a session
+#   receives: relabel.lib.sh reads build_output_dirs this way, because a project's SELinux label is
+#   a property of the tree, applied at claim time, and it stays correct whichever integrations a
+#   later session enables. The same trust rules as ai_tools_enabled_integrations: an untrusted
+#   directory yields an empty set and an untrusted manifest is skipped, each reported on stderr.
+ai_tools_installed_integrations_declaring() {
+    local wanted_key="$1" manifest_file integration_name value
+    _ai_tools_provider_dir_trusted "${AI_TOOLS_INTEGRATIONS_DIR}" AI_TOOLS_INTEGRATIONS || return 0
+    for manifest_file in "${AI_TOOLS_INTEGRATIONS_DIR}"/*.conf; do
+        [[ -e "${manifest_file}" ]] || continue
+        integration_name="${manifest_file##*/}"; integration_name="${integration_name%.conf}"
+        if ! ai_tools_conf_is_trusted "${manifest_file}"; then
+            _ai_tools_skip_integration "${integration_name}" "${manifest_file}"
+            continue
+        fi
+        value="$(ai_tools_conf_get "${manifest_file}" "${wanted_key}")" || continue
+        printf '%s\t%s\n' "${integration_name}" "${value}"
+    done
     return 0
 }

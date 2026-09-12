@@ -94,9 +94,35 @@ expect "path outside base -> refuse" 1 "" "not under"
 _reset; _cfg "CLAUDE_SYSTEM_PROMPT_FILE=${base}/nope.md"; _resolve
 expect "missing file -> refuse" 1 ""
 
-# 9) Binary file -> fail closed (a system prompt must be text).
-_reset; printf '\x00\x01\x02ELF\x00' > "${prompt}"; _cfg "CLAUDE_SYSTEM_PROMPT_FILE=${prompt}"; _resolve
-expect "binary file -> refuse" 1 "" "not a text file"
+# 9) A directory at the path -> fail closed (a prompt is one regular file). The check is a stat, not
+#    a read -- see 9b for why the resolver must not open the file.
+_reset; rm -f "${prompt}"; install -d -o root -g root -m 755 "${prompt}"; _cfg "CLAUDE_SYSTEM_PROMPT_FILE=${prompt}"; _resolve
+expect "directory at the prompt path -> refuse" 1 "" "not a regular file"
+rm -rf "${prompt}"
+
+# 9b) Driven AS THE PROJECTS USER, who runs the wrapper: this suite runs as root, and root reads a
+#     0640 file, so a resolver that opened the prompt would pass here and refuse every operator on a
+#     stock host, where the shipped prompt is 0640 root:SANDBOX_GROUP and the operator is outside
+#     that group by design. A non-empty prompt the caller cannot read must still resolve.
+if ! command -v runuser >/dev/null 2>&1; then
+    skip "unreadable-to-operator prompt" "runuser unavailable"
+else
+    _reset; chmod 640 "${prompt}"; _cfg "CLAUDE_SYSTEM_PROMPT_FILE=${prompt}"
+    rc=0
+    # shellcheck disable=SC2016  # $1..$3 are the inner shell's positionals, passed after `_`
+    out="$(runuser -u "${PROJECTS_USER}" -- bash -c '
+        source "$1" || exit 9
+        export AI_TOOLS_PROMPT_BASE_DIR="$2"
+        OUT=()
+        ai_tools_claude_resolve_prompt_args OUT "$3" || exit $?
+        printf "%s\n" "${OUT[*]}"' _ "${LIB}" "${base}" "${conf}" 2>&1)" || rc=$?
+    if [[ "${rc}" -eq 0 && "${out}" == *"--append-system-prompt-file ${prompt}"* ]]; then
+        pass "a prompt the operator cannot read still resolves (the check is a stat, not a read)"
+    else
+        fail "a 0640 prompt was refused for the operator (rc ${rc}): ${out}"
+    fi
+    chmod 644 "${prompt}"
+fi
 
 # 10) Flag smuggling via the path value: the value is a single argument to realpath, so it does not name a
 #     file and is refused -- it can never split into a second CLI flag.
@@ -120,5 +146,31 @@ chmod 755 "${base}"
 # 14) A group/other-writable operator.conf -> refuse (its pointer is no longer trustworthy).
 _reset; _cfg "CLAUDE_SYSTEM_PROMPT_FILE=${prompt}"; chmod 646 "${conf}"; _resolve
 expect "world-writable operator.conf -> refuse" 1 ""
+
+# 15) The sandbox-side half: the fragment reads the configured file as the sandbox account and
+#     refuses a launch whose prompt is not plain text. Driven as root here, which reads the file the
+#     same way the sandbox account does; what the case pins is the verdict per content.
+if ! declare -F ai_tools_claude_prompt_content_is_text >/dev/null 2>&1; then
+    fail "the library does not define ai_tools_claude_prompt_content_is_text"
+else
+    _reset; _cfg "CLAUDE_SYSTEM_PROMPT_FILE=${prompt}"
+    if ai_tools_claude_prompt_content_is_text "${conf}" 2>/dev/null; then
+        pass "a configured text prompt passes the sandbox-side content check"
+    else
+        fail "a configured text prompt was refused by the content check"
+    fi
+    printf '\x00\x01\x02ELF\x00' > "${prompt}"
+    if ! err="$(ai_tools_claude_prompt_content_is_text "${conf}" 2>&1)" && [[ "${err}" == *"not a text file"* ]]; then
+        pass "a configured binary prompt refuses at the sandbox-side check, naming the reason"
+    else
+        fail "a binary prompt was not refused by the content check: ${err}"
+    fi
+    _reset
+    if ai_tools_claude_prompt_content_is_text "${conf}" 2>/dev/null; then
+        pass "no configured prompt passes the content check (the baseline)"
+    else
+        fail "an unconfigured host was refused by the content check"
+    fi
+fi
 
 finish

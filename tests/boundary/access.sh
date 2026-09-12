@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/access.sh
 # Boundary: what the sandbox account can and cannot actually reach at runtime, probed AS the
-# agent (runuser -u ai-tools). Each check names the threat its boundary prevents. "can"
+# agent (`runuser -u ai-tools`). Each check names the threat its boundary prevents. "can"
 # checks confirm access the sandbox needs to function; "cannot" checks confirm control-plane
-# integrity and secret isolation. Probe-only (test -r/-w/-x); the one unlink attempt
+# integrity and secret isolation. Probe-only (`test -r`/`-w`/`-x`); the one unlink attempt
 # targets a DECOY file (projects-user-owned, in the sticky .claude dir) so real control-plane
 # files are never at risk. Run as root via sudo; drops to the agent per check.
 
@@ -57,7 +57,7 @@ done
 # deliberately open: the built-in list is the public baseline and ships in the source repo, so
 # the installed copy holds only what is already published. WRITE is the boundary -- an agent that
 # could edit the matcher would decide its own classification. The operator's own patterns are
-# not in this file; they live in the 700 .config/ai-tools dir asserted above.
+# not in this file; they live in the 700 .config/ai-tools dir this suite asserts on.
 splib=/usr/local/lib/ai-tools/secret-patterns.lib.sh
 if ! runuser -u "${SANDBOX_USER}" -- test -w "${splib}" 2>/dev/null; then
     pass "cannot write ${splib} (644 root:root): the agent cannot redefine what counts as a secret"
@@ -83,10 +83,10 @@ else
     fail "can list ${sbindir} -- agent can enumerate root helper names"
 fi
 
-# The boundary half of ai-tools-unclaim --unlisted (see unit/unclaim.sh for the runtime half).
+# The boundary half of `ai-tools-unclaim --unlisted` (see unit/unclaim.sh for the runtime half).
 # That mode acts outside the allowlist, bounded instead by the operator identity it resolves from
 # SUDO_UID plus OPERATORS. Both inputs must be out of the agent's reach, or it could aim a root
-# permission rewrite at a tree of its choosing: the helper itself is unreadable (above), and the
+# permission rewrite at a tree of its choosing: the helper itself is unreadable, and the
 # operator roster is not agent-writable. The third input, sudo, the agent does not hold at all
 # (boundary/sudo.sh).
 opconf=/etc/ai-tools/operator.conf
@@ -123,10 +123,9 @@ done
 # Even without file write, a group-writer of the DIRECTORY could unlink+recreate the file.
 # The sticky bit on .claude (3770) forbids that: you can only unlink a file you own OR in a
 # dir you own; the agent owns neither. Tested with a DECOY (same ownership, same dir).
-_decoy="$(mktemp /opt/ai-tools/.claude/.test_sticky_XXXXXX)"
+_decoy=""; mk_fixture_file _decoy /opt/ai-tools/.claude sticky
 chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${_decoy}"
 chmod 640 "${_decoy}"
-_cleanup+=("${_decoy}")
 runuser -u "${SANDBOX_USER}" -- rm -f "${_decoy}" 2>/dev/null || true
 if [[ -e "${_decoy}" ]]; then
     pass "sticky .claude: agent cannot unlink ${PROJECTS_USER}-owned files (replacement attack blocked)"
@@ -209,7 +208,10 @@ fi
 # its own subtrees (.nvm/.cache); and o+x, which lets an operator readlink the launcher without
 # listing the directory. This probe covers the middle one with a real create attempt; the probe
 # is removed whether or not it (wrongly) succeeded.
-_homeprobe="/opt/ai-tools/.test_homelock_$$"
+# The probes here are paths the AGENT is asked to create, so they take their name from the
+# harness rule before they exist and are registered so a wrongly-created one is swept.
+_homeprobe="/opt/ai-tools/$(ai_test_name homelock)"
+_cleanup+=("${_homeprobe}")
 runuser -u "${SANDBOX_USER}" -- touch "${_homeprobe}" 2>/dev/null || true
 if [[ -e "${_homeprobe}" ]]; then
     rm -f "${_homeprobe}"
@@ -218,15 +220,16 @@ else
     pass "cannot create files in /opt/ai-tools (root-owned, no group write): agent confined to its own subtrees"
 fi
 
-# The sandbox account's systemd --user manager runs unconfined (ai-tools maps to unconfined_u),
-# so a --user unit the agent could drop and get enabled would run OUTSIDE the ai_tools_t session
+# The sandbox account's `systemd --user manager` runs unconfined (ai-tools maps to unconfined_u),
+# so a `--user unit` the agent could drop and get enabled would run OUTSIDE the ai_tools_t session
 # confinement at the next manager start -- a full confinement escape (no RestrictNamespaces, no
 # ai_tools_t). The whole unit search tree (~/.config/systemd/user and its .wants dirs) is
 # root-owned (root:${SANDBOX_GROUP} 2750), so the agent has group r-x but no write and can place
 # neither a unit file nor an enablement symlink. Probed with real create attempts in both the
 # unit dir and a .wants dir.
 for _d in /opt/ai-tools/.config/systemd/user /opt/ai-tools/.config/systemd/user/timers.target.wants; do
-    _unitprobe="${_d}/.test_escape_$$.unit"
+    _unitprobe="${_d}/$(ai_test_name escape).unit"
+    _cleanup+=("${_unitprobe}")
     runuser -u "${SANDBOX_USER}" -- touch "${_unitprobe}" 2>/dev/null || true
     if [[ -e "${_unitprobe}" ]]; then
         rm -f "${_unitprobe}"
@@ -240,10 +243,12 @@ done
 # atomically -- a temp file beside the target, then rename -- so persistence needs create+rename
 # in the CONTAINING DIR, not write on the file. .claude (root:ai-tools 3770) grants the agent
 # exactly that through the group bits, while the sticky bit keeps the root-owned control files
-# undeletable (the settings.json lock is checked above). A regression here fails every state
+# undeletable (the settings.json lock has its own case). A regression here fails every state
 # save silently: login and onboarding state are lost and each session demands a fresh token.
-_state_tmp="/opt/ai-tools/.claude/.test_state_$$.tmp"
-_state_dst="/opt/ai-tools/.claude/.test_state_$$.json"
+_state_name="$(ai_test_name state)"
+_state_tmp="/opt/ai-tools/.claude/${_state_name}.tmp"
+_state_dst="/opt/ai-tools/.claude/${_state_name}.json"
+_cleanup+=("${_state_tmp}" "${_state_dst}")
 if runuser -u "${SANDBOX_USER}" -- \
        bash -c "printf '{}\n' > '${_state_tmp}' && mv -- '${_state_tmp}' '${_state_dst}'" 2>/dev/null \
    && [[ -e "${_state_dst}" ]]; then
@@ -307,7 +312,7 @@ fi
 # Second, the agent cannot reach the code that decides what sealing means. owner-only.lib.sh
 # carries the predicate every claim walk gates on and the strip that removes the sandbox's own
 # residue; were it agent-writable, the agent could make its own group read as "not residue" and
-# have the next claim leave the grant standing. Same standing as secret-patterns.lib.sh above.
+# have the next claim leave the grant standing. Same standing as secret-patterns.lib.sh.
 oolib=/usr/local/lib/ai-tools/owner-only.lib.sh
 if [[ ! -e "${oolib}" ]]; then
     skip "owner-only library not agent-writable" "not installed at ${oolib}"
@@ -491,7 +496,7 @@ else
     _breach=""
     # The storage directory must not accept a new file, and no journal file may be writable.
     if _probe="$(runuser -u "${SANDBOX_USER}" -- \
-            mktemp "${_journal_dir}/.ai-tools-probe-XXXXXX" 2>/dev/null)"; then
+            mktemp "${_journal_dir}/${AI_TOOLS_TEST_PREFIX}-${TEST_GROUP}-journal-XXXXXX" 2>/dev/null)"; then
         _breach="the agent created ${_probe} -- journal storage is agent-writable"
         rm -f -- "${_probe}"
     else
@@ -507,7 +512,7 @@ else
         pass "the agent cannot create or rewrite journal storage: its own trail is append-only to it"
     fi
 
-    # journalctl's destructive verbs must fail for the agent. --vacuum-time would discard the
+    # journalctl's destructive verbs must fail for the agent. `--vacuum-time` would discard the
     # trail wholesale; it is the single most valuable call an agent covering its tracks could
     # make. (Bash(journalctl *) is denied in settings.json too, but that is a tooling hint --
     # this asserts the floor underneath it.)
@@ -519,28 +524,28 @@ else
 fi
 
 # ── The two project verbs that write the filesystem as an owner ─────────────────
-# The boundary half of the pair for --project-create and --project-remove. Their runtime
+# The boundary half of the pair for `--project-create` and `--project-remove`. Their runtime
 # refusals are asserted in integration/cli.sh; what makes those meaningful is that the agent
-# cannot reach the verbs at all. --project-remove matters most: it deletes a whole project
+# cannot reach the verbs at all. `--project-remove` matters most: it deletes a whole project
 # tree, and an agent that could invoke it could destroy the operator's work.
 #
 # Both are driven with NO path argument, so a regression that let one through would still
 # have no path to act on -- the create refuses a missing path outright, and the remove would
 # resolve the agent's own cwd, which is not a claimed project of the agent's. The assertion
-# is on the principal guard's own wording, not merely on a non-zero exit, since every one of
+# is on the principal guard's own message CODE, not merely on a non-zero exit, since every one of
 # these commands has other reasons to fail.
 for _verb in --project-create --project-remove; do
     _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_CLI:-/usr/local/bin/ai-tools}" "${_verb}" 2>&1)" \
         && _rc=0 || _rc=$?
-    if (( _rc != 0 )) && grep -qi 'refusing to run as the sandbox account' <<<"${_out}"; then
-        pass "the agent cannot reach ${_verb} (principal guard)"
+    if (( _rc == 0 )); then
+        fail "the agent was not refused ${_verb} at all"
     else
-        fail "the agent was not refused ${_verb} by the principal guard (rc=${_rc}): ${_out}"
+        assert_msg MSG-Q6Q8 "${_out}" "the agent cannot reach ${_verb} (principal guard)"
     fi
 done
 
-# And it cannot reach the runas seam those verbs use under --for. `sudo -u <operator>` is how
-# a --for run acts as the target; the agent does not hold a sudo rule at all, and the session runs
+# And it cannot reach the runas seam those verbs use under `--for`. `sudo -u <operator>` is how
+# a `--for` run acts as the target; the agent does not hold a sudo rule at all, and the session runs
 # under PR_SET_NO_NEW_PRIVS, which drops sudo's SUID bit. Either alone is sufficient here.
 if runuser -u "${SANDBOX_USER}" -- sudo -n -u "${PROJECTS_USER}" true >/dev/null 2>&1; then
     fail "the agent can run commands as ${PROJECTS_USER} via sudo -u -- the runas seam is reachable"

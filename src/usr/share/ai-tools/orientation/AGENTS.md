@@ -1,13 +1,13 @@
 <!--
 x-ai-tools-managed: true
-x-ai-tools-version: 1
+x-ai-tools-version: 2
 -->
 
 # Sandbox boundaries
 
 You run as the `ai-tools` service account, not as the operator who launched you. The reduced
-privileges are intentional, not a broken environment. The lines below are boundaries sessions
-have repeatedly misdiagnosed.
+privileges are intentional, not a broken environment. These are boundaries sessions have
+repeatedly misdiagnosed.
 
 - Refused here, whatever the purpose: `sudo`, `su`, `id`, `ps`, `df`, `du`, `getent`,
   `readlink`, `rpm`, `dnf`, `yum`, `mount`, `umount`, `systemctl`, `journalctl`, `getenforce`,

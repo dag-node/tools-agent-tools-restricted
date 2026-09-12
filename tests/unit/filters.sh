@@ -56,7 +56,7 @@ simple "a background job is not"                1 'git log & wait'
 # shellcheck disable=SC2016  # the substitution metacharacters are the fixture; expanding them
 # here would test a different string than the one the allowlist must reject
 simple "a substitution is not"                  1 'git log $(cat x)'
-# shellcheck disable=SC2016  # as above, the backquotes are the fixture
+# shellcheck disable=SC2016  # like the other fixtures, the backquotes are content
 simple "a backquote is not"                     1 'git log `cat x`'
 simple "a quote is not"                         1 "git log --grep='fix'"
 simple "a glob is not"                          1 'ls src/*.sh'
@@ -108,7 +108,7 @@ applies "an action this engine does not implement is refused" \
 
 # --- Loader + rewrite over a /tmp fixture tree -------------------------------------------------
 # Created by this root-run suite, so the fixtures are root-owned and non-group-writable: the
-# trusted state. The tamper section below breaks that per case and restores it.
+# trusted state. The tamper section breaks that per case and restores it.
 mktestdir
 filters_dir="${TESTDIR}/filters.d"; mkdir -p "${filters_dir}"
 export AI_TOOLS_FILTERS_DIR="${filters_dir}"

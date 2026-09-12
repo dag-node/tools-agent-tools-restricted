@@ -25,8 +25,10 @@
 #
 # Runs as root via sudo, invoked by YOU -- not ai-tools (no sudoers grant lets
 # ai-tools run it):
+#       ```bash
 #       cd /path/to/project
-#       sudo ai-tools-lockdown [--dry-run|-n] [--yes|-y]
+#       sudo ai-tools-lockdown [--dry-run] [--yes|-y]
+#       ```
 #
 # Installed 750 root:root, so only root runs it -- which is why the CLI cannot pre-check the
 # path and sudo reaches it instead. Deploying from a checkout: docs/install-from-source.md.
@@ -35,9 +37,29 @@ set -euo pipefail
 
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 
+log()  { printf 'ai-tools-lockdown: %s\n' "$*"; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since these helpers
+# report before the library is loaded.
+# The code warn printed is left in _warn_code, for a site that also records the situation
+# through log.lib.sh: the log call passes the variable, so the code literal stays
+# at the emit call the reference index reads as its definition (messaging.rule.md).
+_warn_code=""
+warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    _warn_code="${code}"
+    printf 'ai-tools-lockdown: warn: %s\n' "$*" >&2
+}
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 1
+}
+
 # Operator-identity resolver (operator.lib.sh): secrets are locked to the operator that owns the
 # current directory. A missing lib leaves ai_tools_resolve_owner a fail-closed stub, so the resolve
-# below dies rather than lock secrets to the wrong identity.
+# resolution dies rather than lock secrets to the wrong identity.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
@@ -58,13 +80,8 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # Required, fail-closed: this helper prints agent-named paths to stderr and the log, so it
 # needs ai_tools_log_sanitize -- a missing logger must refuse, not emit an agent path raw.
 if ! source "${LOG_LIB}"; then
-    printf 'ai-tools-lockdown: FATAL: cannot source %s\n' "${LOG_LIB}" >&2
-    exit 1
+    die MSG-F6D9 "cannot source ${LOG_LIB}"
 fi
-
-log()  { printf 'ai-tools-lockdown: %s\n' "$*"; }
-warn() { printf 'ai-tools-lockdown: warn: %s\n' "$*" >&2; }
-die()  { printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 1; }
 
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
 # reference for the seal and the strip alike). Required and fail-closed like safe-paths.lib.sh:
@@ -73,7 +90,10 @@ die()  { printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 1; }
 source /usr/local/lib/ai-tools/owner-only.lib.sh
 if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
         || ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
-    printf 'ai-tools-lockdown: FATAL: owner-only.lib.sh defines no owner-only guard\n' >&2
+    # One library, one defect, one remedy, so this refusal shares its code with ai-tools-setfacl
+    # and ai-tools-setgid: it is DEFINED in ai-tools-setfacl and cited here from the format string
+    # below, which keeps one situation to one definition (messaging.rule.md's twin rule).
+    printf 'MSG-G4P4\nai-tools-lockdown: FATAL: owner-only.lib.sh defines no owner-only guard\n' >&2
     exit 3
 fi
 
@@ -84,9 +104,9 @@ readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 source "${SAFE_PATHS_LIB}"
 
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
-# safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
+# safe-paths.lib.sh: the bare source under `set -e` aborts if it is missing -- a valid
 # install ships it, so there is no fallback. Include-guarded, so this is a no-op when
-# safe-paths.lib.sh above already loaded it.
+# safe-paths.lib.sh already loaded it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
 source /usr/local/lib/ai-tools/msg.lib.sh
 # Fixed 80-column frame for any box this helper renders, aligned with the CLI's.
@@ -96,7 +116,7 @@ usage() {
     cat >&2 <<'EOF'
 usage: cd <project> && sudo ai-tools-lockdown [options]
 
-  -n, --dry-run   list paths that would be locked down; make no changes
+  --dry-run       list paths that would be locked down; make no changes
   -y, --yes       apply without the interactive confirmation prompt
   -h, --help      show this help
 
@@ -111,37 +131,42 @@ DRY_RUN=false
 ASSUME_YES=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -n|--dry-run) DRY_RUN=true ;;
+        --dry-run)    DRY_RUN=true ;;
         -y|--yes)     ASSUME_YES=true ;;
         -h|--help)    usage; exit 0 ;;
-        *)            usage; die "unknown argument: $1" ;;
+        *)            usage; die MSG-G2T3 "unknown argument: $1" ;;
     esac
     shift
 done
 
 # ── Guards ───────────────────────────────────────────────────────────────────
-[[ "${EUID}" -eq 0 ]] || die "run with sudo"
+[[ "${EUID}" -eq 0 ]] || die MSG-E9A3 "run with sudo"
 # The invoker (who ran sudo) must not be the agent; the OWNER files are handed back to comes
 # from the enrolled operator identity, not the invoker, so a foreign sudo invocation still
 # restores ownership to the configured operator rather than to itself.
 readonly INVOKER="${SUDO_USER:?run via sudo (SUDO_USER unset)}"
-[[ "${INVOKER}" != "@SANDBOX_USER@" ]] || die "must be run by you, not ai-tools"
+[[ "${INVOKER}" != "@SANDBOX_USER@" ]] || die MSG-M8A8 "must be run by you, not ai-tools"
 
 # Resolve the invoking shell's working directory (sudo preserves it).
-target="$(pwd -P)" || die "cannot determine current directory"
-target="$(realpath -e "${target}" 2>/dev/null)" || die "cannot resolve ${target}"
+target="$(pwd -P)" || die MSG-V7Y3 "cannot determine current directory"
+target="$(realpath -e "${target}" 2>/dev/null)" || die MSG-D5F4 "cannot resolve ${target}"
 # Refuse the whole pass if the working directory is a protected system directory.
 ai_tools_assert_safe_target "${target}" "lockdown" || exit 3
 
 # Resolve the operator that owns this directory; secrets are locked to it. lockdown runs only
 # inside an allowed project, so the directory must resolve to an operator.
 ai_tools_resolve_owner "${target}" \
-    || die "this directory is not in allowed projects for current operator: ${target}"
+    || die MSG-K8Z6 "this directory is not in allowed projects for current operator: ${target}"
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
 # The owner's own private group, spelled per docs/naming-conventions.md -- the same target
 # ai-tools-chown gives an agent-written secret, so a secret ends up identically owned whether it
 # was locked down proactively or quarantined on write.
 readonly OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
+
+# This run locks one project down for one operator, so the operator and the project
+# ride as per-run log context (logging.rule.md).
+AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
+AI_TOOLS_LOG_PROJECT="${target}"
 # Two identities may legitimately hold a path in a claimed tree: the resolved operator and the
 # sandbox account. The seal pass acts on those only, as every other walk does -- a path held by a
 # third party (root, another developer) is left untouched.
@@ -150,7 +175,7 @@ readonly SANDBOX_UID
 
 # Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the
 # allowlist is read with -- end-of-line comments, and quotes for a path carrying a space or a
-# literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under set -e aborts if it is
+# literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under `set -e` aborts if it is
 # missing, rather than leaving a bare filter that would mis-read an entry ai-tools-chown reads
 # correctly, so a path this walk skips is one the handback still acts on. Include-guarded.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
@@ -195,18 +220,18 @@ _is_allowed() {
     return 1
 }
 
-_is_allowed  "${target}" || die "${target} is not an allowed project (see ${ALLOWLIST})"
-_is_excluded "${target}" && die "${target} is excluded in the allowlist; nothing to do"
+_is_allowed  "${target}" || die MSG-V7Y7 "not an allowed project: ${target} (see ${ALLOWLIST})"
+_is_excluded "${target}" && die MSG-J3F9 "excluded in the allowlist: ${target}; nothing to do"
 
 # ── Shared secret matcher ────────────────────────────────────────────────────
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
 if ! source "${SECRET_PATTERNS_LIB}"; then
-    die "cannot source ${SECRET_PATTERNS_LIB}"
+    die MSG-Q7C6 "cannot source ${SECRET_PATTERNS_LIB}"
 fi
 ai_tools_load_secret_patterns
 
 # ── Enumerate secret-matching paths under the target ─────────────────────────
-# find -P (the default) does not follow a symlink, and -type f/-type d exclude one anyway.
+# `find -P` (the default) does not follow a symlink, and `-type f`/`-type d` exclude one anyway.
 ai_tools_skip_find_expr lockdown '' "${target}"
 declare -a expr=( "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -type f -o -type d ')' -print0 )
@@ -219,16 +244,16 @@ while IFS= read -r -d '' path; do
 done < <(find "${expr[@]}" 2>/dev/null)
 
 # ── Enumerate owner-only paths to seal ───────────────────────────────────────
-# The pass above finds paths by NAME. This one finds the paths sealed by MODE -- anything
+# The lock pass finds paths by NAME. This one finds the paths sealed by MODE -- anything
 # already owner-only that still carries the group, setgid bit or ACL entries it inherited when
 # it was created inside the claimed tree. Stripping those is what makes such a seal survive a
 # later chmod; owner-only.lib.sh is the reference for what comes off.
 #
 # `! -perm /077` selects "no group and no other bit set", the owner-only predicate, in the
 # kernel -- so the filter avoids a stat per path. A sealed DIRECTORY is printed and then pruned,
-# taking its subtree with it exactly as ai-tools-setgid/-setfacl do: the sandbox account cannot
+# taking its subtree with it exactly as `ai-tools-{setgid,setfacl}` do: the sandbox account cannot
 # enter it, so no path inside is reachable through it. Secret-named paths are left to the lock
-# pass above, which seals them itself.
+# pass, which seals them itself.
 declare -a sealed=()
 while IFS= read -r -d '' path; do
     _is_excluded "${path}" && continue
@@ -269,7 +294,7 @@ if (( ${#sealed[@]} )); then
     ai_tools_log_info "scan${scan_mode}: ${#sealed[@]} owner-only path(s) under ${target}"
 fi
 
-# A preview must not ask to apply: the confirm sits after the dry-run branch below, which exits first.
+# A preview must not ask to apply: the confirm sits after the dry-run branch, which exits first.
 #
 # _safe_apply <path>: chmod (file 600 / dir 700) and chown to OWNER through a
 # pinned fd, so a symlink/path swap by ai-tools (a group-writer on the project
@@ -284,7 +309,7 @@ _safe_apply() {
     case "${ftype}" in
         "regular file"|"regular empty file")
             is_dir=false; mode=600
-            [[ "${nlink}" -eq 1 ]] || { warn "skip (hardlinked, nlink=${nlink}): ${path}"; return 1; }
+            [[ "${nlink}" -eq 1 ]] || { warn MSG-T5Y3 "skip (hardlinked, nlink=${nlink}): ${path}"; return 1; }
             ;;
         "directory") is_dir=true; mode=700 ;;
         *)           return 1 ;;
@@ -309,7 +334,7 @@ _safe_apply() {
     /usr/bin/chown -- "${OWNER}" "/proc/self/fd/${fd}"
     /usr/bin/chmod -- "${mode}"  "/proc/self/fd/${fd}"
     # The path is owner-only now, so strip the residue the mode merely masks -- the inherited
-    # ACL entries and, on a directory, the setgid bit the numeric chmod above leaves standing.
+    # ACL entries and, on a directory, the setgid bit the numeric chmod leaves standing.
     # Re-read both from the pinned inode: they are what the chown/chmod just made them.
     local now_grp now_mode
     if read -r now_grp now_mode \
@@ -318,7 +343,8 @@ _safe_apply() {
             "${PROJECTS_GROUP}" || true
     fi
     exec {fd}<&-
-    ai_tools_log_info "locked ${path} -> ${OWNER} ${mode}"
+    ai_tools_log_structured info "locked ${path} -> ${OWNER} ${mode}" \
+        "AI_TOOLS_PATH=${path}" "AI_TOOLS_RESULT=ok"
     printf '  locked %s  ->  %s %s\n' "$(ai_tools_log_sanitize "${path}")" "${OWNER}" "${mode}" >&2
     return 0
 }
@@ -329,11 +355,11 @@ _safe_apply() {
 # Returns 0 when something was stripped, 1 when the path does not carry any residue, or is out
 # of scope.
 # Sets AI_TOOLS_RESIDUE_SURFACE for the caller (a third-party setgid it declined to clear), and
-# AI_TOOLS_RESIDUE_ACTIONS to what came off. Under --dry-run the strip reports instead of acting
+# AI_TOOLS_RESIDUE_ACTIONS to what came off. Under `--dry-run` the strip reports instead of acting
 # (AI_TOOLS_RESIDUE_DRY_RUN) and every gate here still runs; secret-handling.rule.md has why.
 _safe_seal() {
     local path="$1" expect_ident fd got_ident got_uid got_grp got_mode got_ftype rc
-    # Clear it here, not only in the strip: every return below the strip is an early one, and a
+    # Clear it here, not only in the strip: every return that precedes the strip is an early one, and a
     # stale value from the previous path would be counted against this one.
     AI_TOOLS_RESIDUE_SURFACE=0
     expect_ident="$(stat -c '%d:%i' "${path}" 2>/dev/null)" || return 1
@@ -358,14 +384,16 @@ _safe_seal() {
         "${PROJECTS_GROUP}" && rc=0
     exec {fd}<&-
     if (( rc == 0 )) && ! ${DRY_RUN}; then
-        ai_tools_log_info "sealed ${path} (owner-only; stripped ${AI_TOOLS_RESIDUE_ACTIONS[*]})"
+        ai_tools_log_structured info \
+            "sealed ${path} (owner-only; stripped ${AI_TOOLS_RESIDUE_ACTIONS[*]})" \
+            "AI_TOOLS_PATH=${path}" "AI_TOOLS_RESULT=ok"
     fi
     return "${rc}"
 }
 
 # _seal_pass: run _safe_seal over every enumerated owner-only path and report. One pass serves the
 # preview and the apply alike, which is what keeps a preview describing the run that follows it
-# (secret-handling.rule.md). Under --dry-run each hit names its path AND what it carries, since a
+# (secret-handling.rule.md). Under `--dry-run` each hit names its path AND what it carries, since a
 # count alone is not something an operator can check before answering.
 _seal_pass() {
     declare -i seal_count=0 foreign=0
@@ -384,7 +412,8 @@ _seal_pass() {
             ai_tools_log_info "dry-run: ${seal_count} owner-only path(s) under ${target} carry sandbox residue"
             log "${seal_count} of ${#sealed[@]} owner-only path(s) carry sandbox residue (listed above)"
         else
-            ai_tools_log_info "sealed ${seal_count} owner-only path(s) under ${target}"
+            ai_tools_log_structured info \
+                "sealed ${seal_count} owner-only path(s) under ${target}" "AI_TOOLS_RESULT=ok"
             log "sealed ${seal_count} owner-only path(s) (sandbox group, setgid and ACL entries removed)"
         fi
     elif (( ${#sealed[@]} )) && ${DRY_RUN}; then
@@ -393,9 +422,9 @@ _seal_pass() {
     # Surfaced, never silent: the one piece of residue the pass declines to remove, since it cannot
     # ask whether the operator meant it.
     if (( foreign > 0 )); then
-        ai_tools_log_warn "left a third-party setgid bit on ${foreign} owner-only path(s) under ${target}"
-        printf 'ai-tools-lockdown: kept the setgid bit on %d owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>\n' \
-            "${foreign}" >&2
+        warn MSG-J8H9 "kept the setgid bit on ${foreign} owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>"
+        ai_tools_log_coded warning "${_warn_code}" \
+            "left a third-party setgid bit on ${foreign} owner-only path(s) under ${target}"
     fi
 }
 
@@ -421,7 +450,7 @@ if (( ${#hits[@]} )) && ! ${ASSUME_YES}; then
             "Set files 600 / dirs 700, chown ${OWNER}, revoking ai-tools access?" n \
             || { log "aborted; no changes made"; exit 0; }
     else
-        die "no TTY for confirmation; re-run with --yes to apply non-interactively"
+        die MSG-G3R5 "no TTY for confirmation; re-run with --yes to apply non-interactively"
     fi
 fi
 
@@ -436,10 +465,13 @@ done
 
 if (( ${#hits[@]} )); then
     if (( skip_count > 0 )); then
-        ai_tools_log_warn "lockdown of ${target}: locked ${done_count} path(s), skipped ${skip_count}"
+        ai_tools_log_structured warning \
+            "lockdown of ${target}: locked ${done_count} path(s), skipped ${skip_count}" \
+            "AI_TOOLS_RESULT=failed"
         log "locked ${done_count} path(s); skipped ${skip_count} (see warnings above)"
     else
-        ai_tools_log_info "lockdown of ${target}: locked ${done_count} path(s)"
+        ai_tools_log_structured info "lockdown of ${target}: locked ${done_count} path(s)" \
+            "AI_TOOLS_RESULT=ok"
         log "locked ${done_count} path(s)"
     fi
 fi

@@ -30,15 +30,29 @@ execute code in the privileged scripts that read it:
 - agents: `npm_package` (the registry package), `launcher` (the bin symlinked at
   `/opt/ai-tools/bin/<launcher>`, and the name `ai-tools-run` matches an executable against to
   decide whether it may launch), `display_name` (what the launch banner and the unit description
-  call it), `handback` (which side converges ownership — below), `entrypoint_fcontext` and
-  `config_dir` (the two paths it declares to SELinux — below), `skills_dir` / `subagents_dir`
+  call it), `handback` (which side converges ownership), `entrypoint_fcontext` and
+  `config_dir` (the two paths it declares to SELinux), `skills_dir` / `subagents_dir`
   (where inside its config directory it reads each shared asset kind, so the shared copies can be
   symlinked in — see [shipped-assets](shipped-assets.rule.md)), `memory_file` (the filename that
   agent's product reads as user-scope instructions, where the shared orientation text is linked),
-  `default_enable`, and — optionally — the three release-verification fields below.
-- integrations: `default_enable`.
+  `default_enable`, and — optionally — the three release-verification fields.
+- integrations: `default_enable`, and optionally the three keys the SELinux layer reads —
+  `build_output_dirs` (the directory names that hold the toolchain's build output, which
+  `relabel.lib.sh` reads from every installed manifest through
+  `ai_tools_installed_integrations_declaring` and maps to the build-output type),
+  `selinux_layout_module` (the policy module that types them at creation, loaded with the
+  integration), and `selinux_groups` (the optional groups the toolchain needs, which the status
+  reports name when not loaded). What each is for is in [dotnet](dotnet.rule.md).
+
+`ai-tools-providers(5)` is the operator's statement of every key, and a manifest's own header is a
+pointer to it: a manifest is package data replaced on upgrade, so a description that lives in the
+file is one an upgrade rewrites for no settings change, and one that lives in the page reaches every
+host with the package. The same placement rule holds for the config files an operator holds
+(see [A config file's header is a pointer](#a-config-files-header-is-a-pointer)).
 - either kind: `admin_summary`, the one-line description `ai-tools-admin --help` prints for the
-  command domain this package contributes (below). Optional; a package that does not contribute a
+  command domain this package contributes (see
+  [The interface a contributed command declares](#the-interface-a-contributed-command-declares)).
+  Optional; a package that does not contribute a
   domain has no use for it, and a domain whose manifest omits it is still listed.
 
 Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat
@@ -125,7 +139,7 @@ and what gates on it):
 |---|---|
 | `release_manifest_url` | the vendor's per-release checksum manifest, with a single `{version}` slot |
 | `release_key` | the OpenPGP key that signs it, a file the agent's own package ships |
-| `release_fingerprint` | the fingerprint(s) that key must have — a **list**, in the grammar below |
+| `release_fingerprint` | the fingerprint(s) that key must have — a **list**, in the [shared config grammar](#the-shared-config-grammar-conflibsh) |
 
 Three properties keep this a declaration rather than a lever:
 
@@ -181,11 +195,15 @@ sourced**, so a malformed or tampered one yields a bad value, never executed cod
 The **path-list** files share that grammar rather than defining their own.
 `ai_tools_conf_path_entry` reads one `allowed-projects` line — whole-line and end-of-line
 comments, and one quote layer for a path carrying a space or a literal `#`, with a leading `!`
-preserved so an exclusion stays distinguishable after the quotes come off. Four components read
-that file (the launch wrapper, the CLI, `ai-tools-chown`, and `ai-tools-relabel`), which is exactly
-why the rule lives in one place: a parser copied into each is a parser that drifts, and a line the
-wrapper resolves but the chown helper does not is a project the agent can launch in whose files
-never come back. All four require the library rather than falling back to a private parser. The CLI,
+preserved so an exclusion stays distinguishable after the quotes come off. Every reader of that
+file — the launch wrapper, the CLI, the owner resolver in `operator.lib.sh`, and each root helper
+that walks or labels a project (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`,
+`-relabel`) — takes it from here, which is exactly why the rule lives in one place: a parser
+copied into each is a parser that drifts, and a line the wrapper resolves but a helper does not
+is a project the agent can launch in whose files stay sandbox-owned, or a carve-out the wrapper
+refuses that a walk grants. Each reader requires the library rather than falling back to a
+private parser; the resolver's load is fail-closed by consequence, since without the parser no
+line denotes an entry and no path is covered. The CLI,
 the relabel helper, and the launch wrapper's post-claim confirm additionally decide **membership**
 through `ai_tools_conf_allowlist_has_entry`/`_has_exclusion` (and `_matching_lines` /
 `_exclusion_lines` for the raw lines), which parse each line with the same grammar and compare
@@ -198,8 +216,8 @@ is a project that stays reachable after a "removal". The state model those funct
 and the rules they enforce on every caller, are in [cli](cli.rule.md).
 
 `ai_tools_conf_read` returns present/absent separately from the value, which is what makes
-`KEY=` (an explicit "none") distinguishable from an omitted key — the distinction the gating below
-turns on. `ai_tools_conf_list` overwrites its target array **only** when the key is present, so an
+`KEY=` (an explicit "none") distinguishable from an omitted key — the distinction
+[Enablement is fail-closed](#enablement-is-fail-closed) turns on. `ai_tools_conf_list` overwrites its target array **only** when the key is present, so an
 override key overrides and an absent one leaves the caller's default standing (how the `SKIP_*`
 categories in [ownership-and-hooks](ownership-and-hooks.rule.md) keep their built-in defaults).
 
@@ -233,6 +251,35 @@ could append an option block the file lacks, but it could never correct the pros
 there, so `operator.conf(5)` is the single current statement of what an option means and the file
 points at the man page rather than restating it.
 
+### A config file's header is a pointer
+
+Every config file an operator holds keeps its reference in a section 5 page, for one of two
+reasons. The shipped templates, `operator.conf` and `custom-claude-endpoint.conf`, are
+`%config(noreplace)`, so a prose change to one reaches an upgraded host only as an `.rpmnew` the
+operator reconciles by hand. The per-operator files, `allowed-projects` and `secret-patterns`, are
+seeded once, by `ai-tools-admin operators add` (the two `*_seed` functions in `conf.lib.sh`), and
+no upgrade rewrites them: the header an operator's file carries is the one that shipped on the day
+that account was enrolled, for as long as the account exists. A header written into any of the
+four therefore states what the file is, the one rule a reader needs before writing a line, example
+lines or one brief line per option beside its commented default, and the page that holds the
+reference — `operator.conf(5)`, `custom-claude-endpoint.conf(5)`, `allowed-projects(5)`,
+`secret-patterns(5)` — and the grammar, the semantics and the worked examples live in the page,
+which the package replaces on every upgrade. A commented default (`#KEY=`) stays in a template: it
+is a setting, and it is what `ai_tools_conf_keys` counts as *mentioned*, which keeps `system
+post-upgrade` from announcing every option as new.
+
+A config header is read in a terminal, which does not reflow it, so it holds to 72 columns, ragged
+right, with no comment line ending on an article, a conjunction, a preposition, or a wh-word — the
+words `msg.lib.sh` carries to the next line when it wraps a runtime message, and the rule the
+checker's opt-in `--wrap` mode holds a source comment to. The checker's `--config-header` mode
+reports both for a header, and `tests/unit/man.sh` runs it over the four headers. `tests/unit/man.sh` caps each seeded header, asserts it names its page and does not
+register an entry, and reads each page's own examples through the parser that file is read with
+(`ai_tools_conf_path_entry`, `ai_tools_load_secret_patterns`), so an example the manual shows is
+one the file accepts. The one claim that stays in a header whatever its page says is the fail
+direction a reader must know before writing a line — for `secret-patterns`, that a pattern listed
+there **replaces** the built-in baseline ([secret-handling](secret-handling.rule.md)), which
+`tests/unit/secret-patterns.sh` asserts on the seeded text.
+
 ### Deferred: `operator.conf.d/`
 
 A drop-in directory read after `operator.conf` would end the reconciliation question outright: the
@@ -246,7 +293,8 @@ is worth paying against a file large enough to make hand-merging error-prone, an
 
 ## Enablement is fail-closed
 
-`operator.conf` `AI_TOOLS_AGENTS` / `AI_TOOLS_INTEGRATIONS` (provider names, in the grammar above)
+`operator.conf` `AI_TOOLS_AGENTS` / `AI_TOOLS_INTEGRATIONS` (provider names, in the
+[shared config grammar](#the-shared-config-grammar-conflibsh))
 gates each kind:
 
 - **key present** → enabled = exactly the listed names (an allowlist; an empty value = none).
@@ -264,7 +312,8 @@ only when an operator names it (dotnet). This is the fail-closed default-when-un
 
 ## The sandbox cannot widen its own surface
 
-The inputs above decide which agents get installed and what environment a session is handed, and
+The inputs this rule states decide which agents get installed and what environment a session is
+handed, and
 the code that reads them runs **as `SANDBOX_USER`** (`ai-tools-run`, `nvm-update`). So each input is
 honored only while `ai_tools_conf_is_trusted` holds for it — it exists, is not a symlink, is owned
 by root, and is writable by neither group nor other — and so is the **directory** holding it, since
@@ -279,7 +328,7 @@ the trail), never silently:
 | one manifest | that one provider is skipped |
 | `session-env.d` or a fragment | that fragment is not sourced |
 | `admin-commands.d` | no contributed command dispatches at all |
-| one command fragment | that one domain is not a command |
+| one command fragment | that one domain does not dispatch |
 | `/usr/local/lib/ai-tools` itself | no integration env at all (`ai-tools-run`'s bootstrap check) |
 
 A refusal reports the owner uid and the mode the predicate read, against what it requires
@@ -288,7 +337,7 @@ namespace: in any other, a host uid the namespace does not map reads as the over
 while `stat` exits 0, so a root-owned input is refused on a reading that is not its owner.
 `ai_tools_conf_uid_map_is_identity` reads `/proc/self/uid_map`, and the reason names the
 translation where it applies, so the investigation starts at the namespace and not at the file's
-mode or label. The `--user` unit rule in [updater](updater.rule.md) keeps this project's own units
+mode or label. The `--user unit` rule in [updater](updater.rule.md) keeps this project's own units
 from creating such a namespace; the reason is what a refusal says when one exists anyway.
 
 Trust bootstraps on the lib directory, which `ai-tools-run` checks inline before sourcing anything
@@ -298,10 +347,9 @@ that directory is therefore load-bearing, not housekeeping, and
 
 The last two rows carry the predicate one step further out than the rest of this table: what they
 gate is not what a confined session receives but what **root executes**, since `ai-tools-admin`
-execs a fragment as root. The reader there is root rather than `SANDBOX_USER`, so the reason for the
-check is not that the reading process is confined — it is that the file it would run sits in a
-directory the sandbox account can reach, and a planted or replaced fragment would be a root command
-of the agent's choosing.
+execs a fragment as root. The reader there is root, so the check does not protect a confined
+reader: the file it would run sits in a directory the sandbox account can reach, and a planted or
+replaced fragment would be a root command of the agent's choosing.
 
 This is enforced from both ends, and both halves are required: `tests/unit/providers.sh` and
 `tests/unit/admin-commands.sh` drive each untrusted state through the resolver and the dispatch and
@@ -316,9 +364,14 @@ agent-writable (catching the agent trying to break it).
 - `ai_tools_provider_is_enabled <name> <default_enable> <allowlist_active> <allowlist>` — the pure
   enablement decision, no I/O, unit-tested over the truth table (`tests/unit/providers.sh`).
 - `ai_tools_agent_sweeps_at_exit <handback-declaration>` — the pure handback-driver decision
-  (above), likewise no I/O and unit-tested.
+  (the [handback capability](#the-handback-capability--which-side-converges-ownership)), likewise
+  no I/O and unit-tested.
 - `ai_tools_enabled_agents` — prints `name<TAB>npm_package<TAB>launcher` per enabled installed agent.
 - `ai_tools_enabled_integrations` — prints one enabled installed integration name per line.
+- `ai_tools_installed_integrations_declaring <key>` — prints `name<TAB>value` for every
+  **installed** integration whose trusted manifest carries `<key>`, enabled or not, under the same
+  trust rules. For a field that describes a toolchain present on the host rather than what a
+  session receives.
 - `ai_tools_agents_empty_verdict` — for a caller whose `ai_tools_enabled_agents` printed an empty
   set, one `fault`/`none` line saying why, every refused path named with what the predicate read.
   The resolver reports a refusal on stderr only, so a caller reading its stdout sees an empty set
@@ -329,7 +382,10 @@ agent-writable (catching the agent trying to break it).
 - `ai_tools_agent_manifest_field <name> <key>` — one further field of a trusted manifest, for a
   caller that has already resolved which agent it has. The name is allowlisted to a plain
   identifier before it becomes a path, so it cannot address a file outside the manifest directory.
-
+- `ai_tools_provider_manifest_field <name> <key>` — the same read across both manifest kinds, for a
+  caller holding a provider name without knowing which kind carries it (`ai-tools-admin` reads
+  `admin_summary` this way). The namespace is flat, so at most one kind holds the name; integrations
+  are tried first.
 - `ai_tools_provider_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` /
   `baseline` / `untrusted`), read-only and side-effect free. The resolvers read it, and so does
   `ai-tools --providers` (see [cli](cli.rule.md)), so an operator asking what is enabled and a
@@ -359,16 +415,17 @@ arbitrary `KEY=value` shell, and a fragment is a mechanism the seam already has.
 
 The seam is **best-effort**, not the fail-closed tier `msg.lib`/`confinement.lib` hold: a missing
 or untrusted lib, directory, or fragment leaves the integration env empty and the confined launch
-unaffected, because the integration env is additive, not load-bearing. "Fail closed" here means
-*no integration*, which is always a safe answer. Everything it sources is gated by the trust rules
-above; a fragment self-gates on its host tool, so it is inert on a host without the toolchain even
+unaffected, because the integration env is additive, not load-bearing — "fail closed" here means
+*no integration*. Everything it sources is gated by the trust rules in
+[The sandbox cannot widen its own surface](#the-sandbox-cannot-widen-its-own-surface); a fragment
+self-gates on its host tool, so it is inert on a host without the toolchain even
 when enabled.
 
 A fragment runs in `ai-tools-run`'s own scope, so it appends to the two arrays and stops there: it
 must not exec, prompt, read stdin (the loop feeding it is on a process substitution), or depend on
 the caller's environment, and it unsets its own temporaries. The **agent** fragment
 (`source_session_env_fragment "${agent_name}"`) is sourced by a direct call in `ai-tools-run`'s main
-shell rather than in that loop, which is what lets the two sanctioned exceptions below reach the
+shell rather than in that loop, which is what lets the two sanctioned exceptions reach the
 launch: an `export` it makes persists into the `systemd-run` invocation, and an `exit` it takes
 refuses the launch (it runs before the unit is created and before the session-end sweep trap, so the
 refusal is clean).
@@ -481,61 +538,12 @@ the same split `ai-tools-admin(8)` documents, and keeps a `bootstrap` idempotent
 without a terminal, since full-scope provisioning runs it unattended. Those are behaviour rather
 than text, so they are contracted here and asserted by the provider's own tests.
 
-## dotnet integration (`ai-tools-integration-dotnet`)
+## The integration this project ships
 
-Integrates a **host-managed** .NET toolchain (RPM `dotnet`, at `/usr/bin/dotnet` +
-`/usr/lib64/dotnet`); the package carries **no dotnet RPM dependency** and is inert without one. The
-`ai-tools-integration` umbrella pulls it as a dnf **weak dependency** (`Recommends`), so it installs
-by default on every host yet stays fully optional — removable with no effect on the rest of the
-stack. `default_enable=no` (it widens surface: a new runtime exec, NuGet egress, a writable cache),
-so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
-
-- `session-env.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets `DOTNET_ROOT`,
-  `NUGET_PACKAGES` and `DOTNET_CLI_HOME` under its state root, `DOTNET_CLI_TELEMETRY_OPTOUT`,
-  `DOTNET_NOLOGO`, and `ASPNETCORE_ENVIRONMENT`/`DOTNET_ENVIRONMENT=Development`, and adds
-  `integrations/dotnet/tools` to PATH. The variables are those current for **.NET 8 LTS and
-  later**; the .NET Core 2.x/3.x-era opt-outs (`DOTNET_SKIP_FIRST_TIME_EXPERIENCE`,
-  `DOTNET_PRINT_TELEMETRY_MESSAGE`) are absent because the SDK no longer reads them.
-  `DOTNET_CLI_HOME=…/integrations/dotnet/cli` is what keeps the shared-tools tree read-only: the
-  SDK's own state (first-use sentinels, CLI logs) defaults to `$HOME/.dotnet`, so it is pinned at
-  a writable sibling inside the same state root. Only the root-owned tools dir joins PATH; a tool the agent
-  installs for itself under `DOTNET_CLI_HOME` stays reachable by full path but never lands on the
-  session PATH, so the sandbox cannot put an executable of its choosing on it.
-- `filters.d/dotnet.rules` sets `-v q` on `dotnet build|publish|restore|run|test`. The SDK's
-  verbosity has no environment-variable form, so it belongs in a command rule rather than in the
-  fragment above; quiet verbosity keeps errors and warnings. The banner is left to `DOTNET_NOLOGO`
-  (the fragment above), so no rule carries `--nologo`. See [filters](filters.rule.md).
-- `admin-commands.d/dotnet` is this package's contributed domain, so its administration is spelled
-  `sudo ai-tools-admin dotnet <verb>`. `dotnet bootstrap` creates that state root and its three
-  directories: the NuGet cache and the SDK's CLI home are agent-**writable** (`2770`, setgid),
-  the shared tools are **read-only** to the agent (`0755`, root-only writes). It applies **no**
-  SELinux policy of its own — the base's static rule on `integrations(/.*)?` already maps the
-  whole tree to `ai_tools_home_t`, so the type grants `ai_tools_t` the access (write on the
-  cache, exec on the tools) while the DAC modes are the enforced read/write boundary. It
-  also drops the local fcontext rules earlier versions added for the old home-root dotdirs.
-  `dotnet tools install <pkg...>` installs shared global tools;
-  `dotnet status` reports host SDKs/runtimes, and reads enablement through
-  `ai_tools_enabled_integrations` so it reports the same verdict `ai-tools-run` reaches. Its
-  journald tag and log file stay `ai-tools-dotnet`/`dotnet.log` — the log identity is what an
-  operator queries, and what moved is the typed command.
-- Every step **fails loudly**. A directory it cannot create, or a label it cannot apply on a host
-  that supports labelling, exits non-zero with the cause logged through `log.lib.sh` to journald and
-  `/var/log/ai-tools/dotnet.log` (see [logging](logging.rule.md)) — a half-provisioned integration
-  that looks installed surfaces later as an opaque denial inside a confined session. The genuine
-  no-ops are recognized as such: `selinux_active` gates the labelling on SELinux being enabled,
-  `policycoreutils` present, and the `ai_tools` module loaded, and skips with a logged line
-  otherwise. The RPM `%post` runs `dotnet bootstrap`, reports the remedy and exits non-zero on
-  failure (rpm records a scriptlet failure against this package while the transaction completes —
-  the right blast radius for a weakly-pulled optional integration); `%postun` drops the fcontexts and
-  `restorecon`s what stays behind on final erase.
-
-The state root's label comes from the base's static rule on `integrations(/.*)?`; the CLR runs on
-the already-granted `execmem` (shared with V8).
-
-**Under SELinux enforcing, .NET needs optional policy groups the base does not carry** — `tmpmap`
-(restore/build mmap), `apphost` (JIT/apphost memfd exec), and `netcore` (runtime IPC + running a
-built binary). Which group each workload needs, why they are separate and disjoint, and the full
-denial breakdown live in [dotnet](dotnet.rule.md); a DAC-only host needs none of them.
+`dotnet` (`ai-tools-integration-dotnet`) is the one member package of the integration kind. It
+uses every seam this rule states — a manifest with `default_enable=no`, a session-env fragment, a filter rule
+set, and a contributed `dotnet` domain — and what each of those does for .NET, together with the
+SELinux groups the runtime needs under enforcing, is in [dotnet](dotnet.rule.md).
 
 ## Boundaries
 
@@ -563,7 +571,7 @@ sits in this seam as an integration, so a thin .NET agent is the near case. What
 what it would leave alone:
 
 - **A `runtime` field on the agent manifest** (`nodejs` when absent, so today's manifests are
-  unchanged) selecting both halves of the assumption above. `npm_package` becomes the `nodejs`
+  unchanged) selecting both halves of that assumption. `npm_package` becomes the `nodejs`
   runtime's provisioning key rather than a universal one.
 - **An exec root and a launcher shape per runtime.** The current rule is `<nvm>/versions/node/
   <semver>/bin/<launcher>`; the version directory pins the launcher to the toolchain version the

@@ -1,0 +1,2 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+## <summary>Optional ai_tools policy group: execute on ai_tools_project_build_t, the base's build-output type. Exports no interfaces.</summary>

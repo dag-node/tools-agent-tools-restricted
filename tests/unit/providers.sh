@@ -14,7 +14,7 @@
 # Two properties get their own sections because a break in either is silent in production:
 #   * IFS INDEPENDENCE -- the resolver runs inside scripts that set IFS=$'\n\t' (nvm-update.sh).
 #     A splitter inheriting that reads a multi-name allowlist as one bogus name, disabling every
-#     configured agent with only a warning. The section below drives the resolver under that IFS.
+#     configured agent with only a warning. The IFS section drives the resolver under that IFS.
 #   * TAMPER REFUSAL -- every input that decides what a session gets (operator.conf, the manifest
 #     directories, each manifest) is honored only while root-owned and not group/other-writable.
 #     This is the mechanism behind "the sandbox cannot widen its own surface", so each untrusted
@@ -77,7 +77,7 @@ sweeps "unrecognized value -> sweeps (allowlist, not blocklist)"    0 Hooks
 
 # --- Resolver over a /tmp fixture tree (name<TAB>npm_package<TAB>launcher per enabled agent) ---
 # The fixtures are created by this root-run suite, so they are root-owned and non-group-writable:
-# the trusted state. The tamper section below deliberately breaks that per case and restores it.
+# the trusted state. The tamper section deliberately breaks that per case and restores it.
 mktestdir
 agents_dir="${TESTDIR}/agents.d"; mkdir -p "${agents_dir}"
 printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndefault_enable=yes\n' > "${agents_dir}/claude-code.conf"
@@ -114,11 +114,12 @@ assert_names "padded value with an inline comment"       "claude-code experiment
 printf 'AI_TOOLS_AGENTS="missing"\n' > "${conf}"
 warn_out="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
 out_names="$(resolve "${conf}" | cut -f1 | tr '\n' ' ')"
-if [[ -z "${out_names}" && "${warn_out}" == *missing*"no manifest is installed"* ]]; then
-    pass "requested-but-uninstalled agent skipped + warned"
+if [[ -z "${out_names}" ]]; then
+    pass "requested-but-uninstalled agent skipped from stdout"
 else
-    fail "uninstalled agent: names='${out_names}' warn='${warn_out}'"
+    fail "uninstalled agent reached stdout: names='${out_names}'"
 fi
+assert_msg MSG-X8P4 "${warn_out}" "the uninstalled agent is reported on stderr, never guessed"
 
 # --- Manifest field accessor: what ai-tools-run reads once it has resolved an agent -----------
 # The name becomes a path, so it is allowlisted to plain identifiers: anything else must resolve
@@ -188,11 +189,7 @@ assert_names "restored operator.conf honored again"                  "claude-cod
 chmod 0666 "${agents_dir}/experimental.conf"
 tamper_warn="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
 assert_names "world-writable manifest skipped, sibling survives" "claude-code " "${conf}"
-if [[ "${tamper_warn}" == *"skipping agent experimental"* ]]; then
-    pass "untrusted manifest refusal is reported, not silent"
-else
-    fail "untrusted manifest refusal not reported: '${tamper_warn}'"
-fi
+assert_msg MSG-M3A5 "${tamper_warn}" "untrusted manifest refusal is reported, not silent"
 chmod 0644 "${agents_dir}/experimental.conf"
 
 # A manifest DIRECTORY a non-root writer can modify lets them unlink and replace any manifest in
@@ -200,11 +197,7 @@ chmod 0644 "${agents_dir}/experimental.conf"
 chmod 0777 "${agents_dir}"
 dir_warn="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
 assert_names "world-writable manifest dir -> no agents at all" "" "${conf}"
-if [[ "${dir_warn}" == *"refusing every AI_TOOLS_AGENTS provider"* ]]; then
-    pass "untrusted manifest dir refusal is reported, not silent"
-else
-    fail "untrusted manifest dir refusal not reported: '${dir_warn}'"
-fi
+assert_msg MSG-W3Q3 "${dir_warn}" "untrusted manifest dir refusal is reported, not silent"
 chmod 0755 "${agents_dir}"
 assert_names "restored manifest dir honored again" "claude-code experimental " "${conf}"
 
@@ -285,5 +278,41 @@ assert_ints "integrations comma list with a comment"          "baseline dotnet "
 printf 'AI_TOOLS_INTEGRATIONS="dotnet"\n' > "${conf}"; chmod 0666 "${conf}"
 assert_ints "untrusted conf cannot enable a default=no integration" "baseline " "${conf}"
 chmod 0644 "${conf}"
+
+# --- The installed-manifest reader (enabled or not) ---------------------------------------------
+# relabel.lib.sh reads build_output_dirs from every INSTALLED integration, because a project's
+# label is applied at claim time and must not depend on which integrations a later session
+# enables. The read keeps the resolver's trust rules: an untrusted manifest is skipped and an
+# untrusted directory yields an empty set, never a name from a file the sandbox could write.
+section "providers: the installed-manifest field reader"
+if declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1; then
+    printf 'default_enable=no\nbuild_output_dirs=bin obj artifacts\n' > "${integrations_dir}/dotnet.conf"
+    printf 'default_enable=yes\n' > "${integrations_dir}/baseline.conf"
+    printf 'AI_TOOLS_INTEGRATIONS=""\n' > "${conf}"   # dotnet is NOT enabled
+    got="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_installed_integrations_declaring build_output_dirs 2>/dev/null | tr '\t' '=' | tr '\n' ' ')"
+    if [[ "${got}" == "dotnet=bin obj artifacts " ]]; then
+        pass "declaring reads the key from an installed integration whether or not it is enabled"
+    else
+        fail "declaring read '${got}' (expected 'dotnet=bin obj artifacts ')"
+    fi
+    chmod 0666 "${integrations_dir}/dotnet.conf"
+    got="$(ai_tools_installed_integrations_declaring build_output_dirs 2>/dev/null | tr '\n' ' ')"
+    if [[ -z "${got}" ]]; then
+        pass "an untrusted (group/other-writable) manifest is skipped by the reader"
+    else
+        fail "the reader returned a value from an untrusted manifest: '${got}'"
+    fi
+    chmod 0644 "${integrations_dir}/dotnet.conf"
+    chmod 0777 "${integrations_dir}"
+    got="$(ai_tools_installed_integrations_declaring build_output_dirs 2>/dev/null | tr '\n' ' ')"
+    if [[ -z "${got}" ]]; then
+        pass "an untrusted manifest directory yields an empty set"
+    else
+        fail "the reader returned '${got}' from an untrusted directory"
+    fi
+    chmod 0755 "${integrations_dir}"
+else
+    skip "installed-manifest reader" "ai_tools_installed_integrations_declaring not defined"
+fi
 
 finish

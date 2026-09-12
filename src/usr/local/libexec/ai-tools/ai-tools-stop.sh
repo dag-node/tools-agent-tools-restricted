@@ -9,7 +9,7 @@
 # HAPPENED. The design that follows from it -- why sessions are found by CGROUP rather than by
 # process tree, why it does not take a target, where containment ends, and the residual failure
 # modes -- is documented once, in docs/session-stop.md. This header states only what a reader of
-# THIS FILE needs; each function below carries its own local mechanism.
+# THIS FILE needs; each function carries its own local mechanism.
 #
 # ── Two inverted conventions, stated here so they are not "fixed" back ───────────────────────
 # For every other component in this project the safe direction is DON'T ACT. For this one it is
@@ -29,7 +29,7 @@
 #      that did not happen. NO project library is load-bearing here: this helper does not take any
 #      input deciding WHICH sessions to stop, so there is no input left for one to gate.
 #   2. THE CONFIRMATION DEFAULTS TO YES (messaging.rule.md requires NO). A pipe, a cron run, an
-#      absent msg.lib.sh and a bare Enter all proceed; only a deliberate `n` declines. -n/--dry-run
+#      absent msg.lib.sh and a bare Enter all proceed; only a deliberate `n` declines. `--dry-run`
 #      is how this command is looked at without acting.
 #
 # ── The mechanism, in one paragraph ──────────────────────────────────────────────────────────
@@ -47,7 +47,7 @@
 # ── Why root, and what this command accepts ──────────────────────────────────────────────────
 # Signalling the sandbox account's cgroups and writing cgroup.kill is root's to do. There is no
 # NOPASSWD grant -- this is reached through `sudo ai-tools --stop` and sudo prompts, like
-# ai-tools-lockdown, -reclaim and -audit.
+# `ai-tools-{lockdown,reclaim,audit}`.
 #
 # IT TAKES NO TARGET AND NO AUTHORIZATION INPUT. What is stopped is decided by one fact a session
 # cannot influence -- membership of the account's cgroup slice -- and everything this file reads
@@ -59,7 +59,7 @@
 # handback. This command TERMINATES instead: it kills the process tree, so no handback runs and the
 # last turn's writes may still be sandbox-owned (which is why a run names the reclaim per project).
 #
-# Usage:  ai-tools-stop [-n|--dry-run] [-y|--yes] [--force] [--all]
+# Usage:  ai-tools-stop [--dry-run] [-y|--yes] [--force] [--all]
 #
 # `--all` is accepted and inert. A PATH is refused (exit 2) rather than ignored -- see
 # refuse_positional_argument.
@@ -78,10 +78,12 @@
 #           so a caller can tell a broken tool from a surviving process
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 750 \
 #       src/usr/local/libexec/ai-tools/ai-tools-stop.sh /usr/local/libexec/ai-tools/ai-tools-stop
+#   ```
 
-# NOT `set -e`: see inverted convention 1 above. An unexpected non-zero must never abandon a
+# NOT `set -e`: see inverted convention 1. An unexpected non-zero must never abandon a
 # half-finished kill.
 set -uo pipefail
 
@@ -94,8 +96,8 @@ export PATH
 
 # The cgroup walk must see EVERY child directory, and `*/` alone does not: a name beginning with a
 # dot is skipped by default globbing. Every name inside the delegated subtree is the DELEGATEE's to
-# choose (see the delegation note above), so without `dotglob` a session could place itself in a
-# cgroup called `.hidden` and drop out of the enumeration -- including under --all, the form that
+# choose (see the delegation note), so without `dotglob` a session could place itself in a
+# cgroup called `.hidden` and drop out of the enumeration -- including under `--all`, the form that
 # must hold against a hostile session. `nullglob` makes a childless cgroup expand to an empty list rather than
 # the unexpanded pattern. Set once, at file scope: every walk here depends on it.
 shopt -s dotglob nullglob
@@ -153,17 +155,56 @@ log_event() {
     ) 2>/dev/null || true
 }
 
-# say_error / say_warn / say_notice <line...> -- framed through msg.lib.sh when it loaded, plain
-# otherwise. Output formatting is the most expendable thing here.
+# say_error / say_warn / say_notice [<message code>] <line...> -- framed through msg.lib.sh when it
+# loaded, plain otherwise. Output formatting is the most expendable thing here.
 #
-# THE EMITTERS TAKE LINES ONLY, NOT A LEADING FD -- unlike ai_tools_msg_headline below, whose
+# THE EMITTERS TAKE LINES ONLY, NOT A LEADING FD -- unlike ai_tools_msg_headline, whose
 # signature IS <title> <fd> <line...>. The two shapes sit next to each other, so passing the
 # headline's fd to an emitter reads as consistent and is not: ai_tools_msg_error bakes in fd 2
 # already, so a leading `2` becomes the message's FIRST LINE and every refusal prints a stray
-# digit above itself. It is invisible in the boxed path and obvious only when captured.
-say_error()  { if declare -F ai_tools_msg_error  >/dev/null 2>&1; then ai_tools_msg_error  "$@"; else printf 'ai-tools-stop: %s\n' "$@" >&2; fi; }
-say_warn()   { if declare -F ai_tools_msg_warn   >/dev/null 2>&1; then ai_tools_msg_warn   "$@"; else printf 'ai-tools-stop: %s\n' "$@" >&2; fi; }
-say_notice() { if declare -F ai_tools_msg_notice >/dev/null 2>&1; then ai_tools_msg_notice "$@"; else printf '%s\n'               "$@";     fi; }
+# digit ahead of itself. It is invisible in the boxed path and obvious only when captured.
+#
+# THE MESSAGE CODE IS SPLIT OFF HERE RATHER THAN PASSED STRAIGHT THROUGH, because these emitters
+# are the only two-branch ones in the project: the library renders a code itself, while the
+# fallback has to render it the way plain mode does -- on its own leading line, ahead of the
+# prefixed message -- or the one path a reader most needs a searchable token on is the one path
+# that drops it. The form is matched inline, against the same anchored expression msg.lib.sh
+# pins (tests/unit/msg.sh holds every inline copy to it), since the branch that needs the match
+# is the branch where that library is absent.
+#
+# THE `ai-tools-stop: ` PREFIX IS THE EMITTER'S, so no message text carries one of its own: the
+# code is the identity of the situation and the prefix names the component that raised it, and
+# neither is stated twice.
+say_error() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    if declare -F ai_tools_msg_error >/dev/null 2>&1; then
+        ai_tools_msg_error ${code:+"${code}"} "$@"
+    else
+        [[ -n "${code}" ]] && printf '%s\n' "${code}" >&2
+        printf 'ai-tools-stop: %s\n' "$@" >&2
+    fi
+}
+say_warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    if declare -F ai_tools_msg_warn >/dev/null 2>&1; then
+        ai_tools_msg_warn ${code:+"${code}"} "$@"
+    else
+        [[ -n "${code}" ]] && printf '%s\n' "${code}" >&2
+        printf 'ai-tools-stop: %s\n' "$@" >&2
+    fi
+}
+say_notice() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    if declare -F ai_tools_msg_notice >/dev/null 2>&1; then
+        ai_tools_msg_notice ${code:+"${code}"} "$@"
+    else
+        [[ -n "${code}" ]] && printf '%s\n' "${code}"
+        printf '%s\n' "$@"
+    fi
+}
 say_headline() {
     local title="$1"; shift
     if declare -F ai_tools_msg_headline >/dev/null 2>&1; then ai_tools_msg_headline "${title}" 1 "$@"
@@ -177,7 +218,7 @@ FORCE_KILL=false
 
 # refuse_positional_argument <argument> -- refuse anything that is not an option, and exit 2.
 #
-# WHY THIS IS AN ERROR RATHER THAN AN IGNORED ARGUMENT. Someone typing a path after --stop believes
+# WHY THIS IS AN ERROR RATHER THAN AN IGNORED ARGUMENT. Someone typing a path after `--stop` believes
 # they are NARROWING the command. Proceeding would do the opposite of that belief -- end every
 # session on the host -- and the confirmation defaults YES, so a reflexive Enter completes it. A
 # refusal costs one corrected command; the alternative costs every running session.
@@ -186,7 +227,7 @@ FORCE_KILL=false
 # operator's intent is KNOWN and something environmental is in the way -- no terminal, a missing
 # library, a wedged manager. An unexpected argument is ambiguity about what was ASKED FOR, and
 # guessing the most destructive reading of it is not degrading toward stopping. Nothing is left
-# running either: the operator is one keystroke away, and the message below says which.
+# running either: the operator is one keystroke away, and the refusal says which.
 #
 # AND IT KEEPS A LATER EXTENSION NON-BREAKING. If per-target stopping is ever built -- which needs
 # a session-to-project mapping the session cannot influence, i.e. something root records at launch,
@@ -195,12 +236,16 @@ FORCE_KILL=false
 # Had it meant "stop everything, ignoring your path", the identical line would silently begin doing
 # something different, which is the one outcome that cannot be rolled out safely.
 #
-# THE TEXT BELOW IS A DELIBERATE TWIN of the CLI's refusal in cmd_stop, which is the copy an
+# THE TEXT HERE IS A DELIBERATE TWIN of the CLI's refusal in cmd_stop, which is the copy an
 # operator normally meets -- this one is the last line, reached by a direct root call. They cannot
 # be single-sourced: different processes, and this file is 750 root:root. They must say the same
 # thing and offer the same four commands -- change one, change both.
+#
+# SO THE TWO SHARE ONE CODE. It is the same situation reported by whichever process met it first,
+# and a reader searching the code has one thing to find. The code is emitted here and named
+# nowhere else, so this site CITES the message the CLI defines rather than declaring a second one.
 refuse_positional_argument() {
-    printf 'ai-tools-stop: this command takes no path: %s\n' "$1" >&2
+    printf 'MSG-A3M9\nai-tools-stop: this command takes no path: %s\n' "$1" >&2
     printf '%s' '
   ai-tools --stop TERMINATES every agent session on this host, and has no per-project
   form. It is not the way to end a session you are finished with -- it kills the process
@@ -223,10 +268,15 @@ parse_command_line() {
             # Accepted and inert (the header's usage note says why it exists at all). The
             # documented form is `ai-tools --stop`.
             --all)        shift ;;
-            -n|--dry-run) DRY_RUN=true; shift ;;
+            --dry-run) DRY_RUN=true; shift ;;
             -y|--yes)     ASSUME_YES=true; shift ;;
             --force)      FORCE_KILL=true; shift ;;
-            -*) printf 'ai-tools-stop: unknown option: %s\n' "$1" >&2; exit 2 ;;
+            # The CLI refuses this too, before its sudo, and for the same reason the path
+            # refusal is twinned: an operator meets whichever side answered. One situation,
+            # one code, defined at the CLI's arm and cited here.
+            -*) printf 'MSG-B7K4\nai-tools-stop: unknown option: %s\n' "$1" >&2
+                printf '  allowed: --all, --dry-run, --yes/-y, --force\n' >&2
+                exit 2 ;;
             *)  refuse_positional_argument "$1" ;;
         esac
     done
@@ -234,10 +284,10 @@ parse_command_line() {
 }
 
 # resolve_run_context -- establish who is asking and what account is being stopped, and arm the
-# trail's traps. Everything here either succeeds or exits; no code below it runs on a guess.
+# trail's traps. Everything here either succeeds or exits; no later step runs on a guess.
 resolve_run_context() {
     if [[ "$(id -u)" != "0" ]]; then
-        say_error "ai-tools-stop must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
+        say_error MSG-Z5W3 "This command must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
                   "run it as: sudo ai-tools --stop"
         exit 5
     fi
@@ -270,7 +320,7 @@ resolve_run_context() {
 
     SANDBOX_UID="$(id -u "${SANDBOX_USER}" 2>/dev/null)"
     if [[ -z "${SANDBOX_UID}" ]]; then
-        say_error "ai-tools-stop: cannot resolve the uid of ${SANDBOX_USER}, so no cgroup can be located" \
+        say_error MSG-Q9Y2 "This host cannot resolve the uid of ${SANDBOX_USER}, so no cgroup can be located" \
                   "the sandbox account is missing -- reprovision with:" \
                   "  sudo ai-tools-admin system bootstrap"
         log_event error "REFUSED: ${SANDBOX_USER} has no uid; cannot locate any session cgroup"
@@ -312,7 +362,7 @@ cgroup2_mount() {
 resolve_cgroup_layout() {
     CGROUP2_MOUNT="$(cgroup2_mount)"
     if [[ -z "${CGROUP2_MOUNT}" ]]; then
-        say_error "ai-tools-stop: this host has no cgroup v2 hierarchy, so sessions cannot be enumerated or stopped reliably." \
+        say_error MSG-K2T7 "This host has no cgroup v2 hierarchy, so sessions cannot be enumerated or stopped reliably." \
                   "Stop them by hand and report the host: sudo systemctl --user -M ${SANDBOX_USER}@.host list-units"
         log_event error "REFUSED: no cgroup2 mount; cannot enumerate sessions for ${CALLER}"
         exit 5
@@ -368,13 +418,13 @@ find_session_cgroups() {
             #
             # `init.scope` is therefore enumerated and stopped like anything else, the account's
             # own `systemd --user` and its (sd-pam) helper included. What that would otherwise
-            # break -- the next launch finding no --user instance -- is repaired afterwards by
+            # break -- the next launch finding no `--user instance` -- is repaired afterwards by
             # restore_user_manager rather than bought with an exemption.
             #
             # ONE cgroup is still special-cased, and it is not an exemption:
             #   user@<uid>.service -- the manager unit. DESCENDED INTO but never emitted, because
             #                         its name ends in `.service`, so the stop-at-first-unit rule
-            #                         below would otherwise swallow the whole manager subtree as a
+            #                         would otherwise swallow the whole manager subtree as a
             #                         single "session" and never reach the real units inside it.
             #                         Its contents, init.scope among them, are emitted instead --
             #                         so everything under it is still stopped, and the operator's
@@ -400,7 +450,7 @@ find_session_cgroups() {
 }
 
 # has_own_tasks <cgroup-dir> -- succeed when tasks sit in THIS cgroup's own cgroup.procs, ignoring
-# descendants. This is what separates "a slice, whose tasks all live in the units below it" from
+# descendants. This is what separates "a slice, whose tasks all live in the units under it" from
 # "a cgroup holding processes directly", and it is why enumerating units does not lose anything:
 # the only place a task can hide from a unit walk is a slice, and a slice with its own tasks is
 # emitted in its own right.
@@ -415,7 +465,7 @@ find_session_cgroups() {
 #
 #   permission-unreadable -- `-r` answers it directly, and answers LIVE.
 #   THREADED cgroup       -- the kernel's documented case, and the one that matters here: in a
-#                            threaded subtree every cgroup.procs below the threaded root fails the
+#                            threaded subtree every cgroup.procs under the threaded root fails the
 #                            read (EOPNOTSUPP) while the cgroup holds live threads, and the file is
 #                            permission-readable, so `-r` does NOT catch it. cgroup.threads is
 #                            readable in EVERY cgroup including those, so it is the corroborating
@@ -686,7 +736,7 @@ end_session() {
 # which is the one outcome this file exists to prevent. Both calls therefore run under a short
 # `timeout`, and every way that can fail -- the manager not answering, `timeout` itself absent --
 # returns an empty WorkingDirectory, which refuses the SCOPED form and sends the operator to
-# --all. --all does not read one at all, so the undeclinable form cannot be delayed by this.
+# `--all`. `--all` does not read one at all, so the undeclinable form cannot be delayed by this.
 unit_working_directory() {
     local raw
     raw="$(timeout 5 systemctl --user -M "${SANDBOX_USER}@.host" show --property=WorkingDirectory "$1" 2>/dev/null)"
@@ -698,7 +748,7 @@ unit_working_directory() {
     # Strip systemd's "missing is ok" marker. THE D-BUS PROPERTY RENDERS IT `!`, which is what
     # `show` returns and therefore the only spelling this function actually meets; `-` is the
     # unit-file spelling of the same flag and is stripped too, so neither rendering reaches the
-    # comparison below. (Observed: dbus-broker.service reports `WorkingDirectory=!/home/<user>`.)
+    # comparison. (Observed: dbus-broker.service reports `WorkingDirectory=!/home/<user>`.)
     if [[ "${raw}" == '!'* || "${raw}" == '-'* ]]; then raw="${raw:1}"; fi
     # ONLY AN ABSOLUTE PATH IS A RESULT; anything else yields an empty value and the session reads as
     # `unknown`. Attribution does not decide any part of the sweep here, so this is not a gate -- it is what keeps a value
@@ -722,7 +772,7 @@ unit_working_directory() {
 # DAC-only host it can also ask that manager for a unit outside any subtree we chose to sweep.
 # Covering every cgroup closes both. The price is that the manager is gone afterwards -- and SIGKILL
 # leaves `user@<uid>.service` FAILED rather than restarting it, so the next launch would find no
-# --user instance. This pays that price back instead of buying it with an exemption.
+# `--user instance`. This pays that price back instead of buying it with an exemption.
 #
 # IT RUNS AFTER THE KILL AND AFTER THE VERIFICATION, and cannot affect either. The invariant is
 # that a stop reported as done HAS happened; a manager that did not come back is a different and
@@ -739,7 +789,7 @@ restore_user_manager() {
             "AI_TOOLS_UNIT=${unit}" "AI_TOOLS_RESULT=manager-restored"
         return 0
     fi
-    say_warn "The sessions were stopped, but ${SANDBOX_USER}'s user manager did not come back, so the next launch has no systemd --user instance to start a session in. Restore it with:" \
+    say_warn MSG-W8C6 "The sessions were stopped, but ${SANDBOX_USER}'s user manager did not come back, so the next launch has no systemd --user instance to start a session in. Restore it with:" \
              "sudo systemctl reset-failed ${unit} && sudo systemctl start ${unit}"
     log_event error "could not restart ${unit} after the stop -- the next launch will have no --user instance" \
         "AI_TOOLS_UNIT=${unit}" "AI_TOOLS_RESULT=manager-not-restored"
@@ -913,7 +963,7 @@ main() {
     fi
 
     # The two counts are reported separately everywhere, never summed into one "session" figure.
-    # See the classification block above for why, and for why the split is advisory.
+    # See the classification block for why, and for why the split is advisory.
     #
     # Two wordings, because "go with them" has no antecedent when no agent session was found -- the
     # shape a RERUN always takes, the manager having been restarted by the run before it.
@@ -949,7 +999,7 @@ main() {
     print_session_table "stop"
 
     if ! confirm_stop "${agent_count}" "${plumbing_count}"; then
-        say_notice "Nothing was stopped."
+        say_notice MSG-J3U9 "Nothing was stopped."
         log_event notice \
             "${CALLER} declined the stop of ${agent_count} agent session(s) and ${plumbing_count} account unit(s) in ${scope} -- nothing stopped" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=declined"
@@ -998,7 +1048,7 @@ main() {
     done
 
     # ONE FINAL SWEEP OF THE WHOLE SLICE, after every session has been dealt with individually.
-    # Each cgroup above was verified empty on its own, which leaves one theoretical gap: a process
+    # Each cgroup was verified empty on its own, which leaves one theoretical gap: a process
     # that moved between two selected cgroups during the run would be verified gone from the one it
     # left and never looked for in the one it joined. Migration needs write access to the
     # destination's cgroup.procs, which the confined session does not have -- so this closes a gap
@@ -1045,7 +1095,7 @@ main() {
         log_event error \
             "final sweep found ${#unexpected[@]} live cgroup(s) that the per-session checks had verified empty -- either a new session started during this run, or a process moved between cgroups inside the delegated subtree to evade the stop" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=reappeared"
-        say_error "The final sweep found live cgroups that the per-session checks had verified empty, so a session started while this ran or something re-entered a cgroup after it was emptied. Re-running is safe and is the remedy -- this command is idempotent. To see what is there first:" \
+        say_error MSG-F9U5 "The final sweep found live cgroups that the per-session checks had verified empty, so a session started while this ran or something re-entered a cgroup after it was emptied. Re-running is safe and is the remedy -- this command is idempotent. To see what is there first:" \
                   "sudo ps -o pid,stat,cgroup,cmd -u ${SANDBOX_USER}"
         for swept in "${unexpected[@]}"; do
             printf '  UNEXPECTED %s\n' "$(sanitize "${swept}")" >&2
@@ -1066,7 +1116,10 @@ main() {
         log_event error \
             "stop finished with ${survivors} of ${#selected_cgroups[@]} cgroup(s) still present for ${CALLER}" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=survived"
-        say_error "${survivors} of ${#selected_cgroups[@]} cgroup(s) survived SIGKILL. A task only outlives SIGKILL while blocked in an uninterruptible kernel call: it holds no CPU, runs no code and can start nothing new, but only the I/O completing or a reboot clears it. Inspect it with:" \
+        # The counts follow the literal rather than opening the line: a coded message is read from
+        # its first quoted word, so one beginning with an expansion carries a code the index
+        # cannot resolve to any message.
+        say_error MSG-W7D3 "Some cgroups survived SIGKILL: ${survivors} of ${#selected_cgroups[@]}. A task only outlives SIGKILL while blocked in an uninterruptible kernel call: it holds no CPU, runs no code and can start nothing new, but only the I/O completing or a reboot clears it. Inspect it with:" \
                   "sudo ps -o pid,stat,wchan:20,cmd -u ${SANDBOX_USER}"
         return 1
     fi

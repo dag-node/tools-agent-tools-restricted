@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/managed-assets.sh
-# Unit test for the shipped-asset seeder and the withdrawal pass (managed-assets.lib.sh) -- the
-# two passes that decide what skills and subagents every session on the host reads. Both run
-# unattended in a package scriptlet with their output scrolling past in a dnf transaction, so
-# every way either can go wrong is quiet, and each property below is one an operator would only
+# Unit test for the shipped-asset seeder and the withdrawal pass (managed-assets.lib.sh), which
+# decide what skills and subagents every session on the host reads. Each runs
+# unattended in a package scriptlet with its output scrolling past in a dnf transaction, so
+# every way either can go wrong is quiet, and each property is one an operator would only
 # discover much later:
 #
 #   1. THE MARKER IS THE CLAIM. An asset without `x-ai-tools-managed: true` is the operator's own
 #      and is never overwritten by the seeder nor moved by the withdrawal. This is the whole of
-#      what separates "this project's content" from "yours" -- both passes gate on it, so both
-#      are driven against an unmanaged fixture.
+#      what separates "this project's content" from "yours" -- both passes gate on it, so each
+#      is driven against an unmanaged fixture.
 #   2. THE UPDATE DEFAULT IS *UPDATE*, including with no terminal. A scriptlet has no tty, so the
 #      default is what every packaged upgrade takes; when it was "keep", a host stayed on whatever
 #      version it first seeded and was never told. Driven under `setsid` (no controlling terminal)
@@ -181,7 +181,7 @@ else
 fi
 
 # ── A withdrawn name is never seeded ─────────────────────────────────────────────
-# Property 3, in the state that actually occurs: the source root STILL CARRIES the withdrawn asset,
+# Property 3, in the state that occurs: the source root STILL CARRIES the withdrawn asset,
 # because rpm has not yet removed the previous package's files. Both directions are driven -- the
 # live root missing it (which is where seeding it would be a real regression) and holding it (where
 # reporting on it is the misleading half).
@@ -217,7 +217,7 @@ else
 fi
 
 # ── Withdrawal ───────────────────────────────────────────────────────────────────
-# Property 5, and the marker gate on this side. The live copy from the run above is still in place.
+# Property 5, and the marker gate on this side. The live copy from the seeding run is still in place.
 out="$(ai_tools_remove_retired_assets "${LIVE}" skills 2>&1)" || true
 if [[ ! -e "${LIVE}/skills/${WITHDRAWN_SKILL}" ]]; then
     pass "a withdrawn asset is removed from the live root"
@@ -277,7 +277,7 @@ else
     SHARED_FILE="${LIVE}/orientation/AGENTS.md"
 
     # The link's name comes from the agent's manifest, not from the source file, which is the whole
-    # reason this is not ai_tools_link_shared_assets: Claude Code reads CLAUDE.md and nothing else
+    # reason this is not ai_tools_link_shared_assets: Claude Code reads CLAUDE.md and no other file
     # at user scope, so a link named for the source would never be loaded.
     out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
     if [[ -L "${AGENT_DIR}/CLAUDE.md" ]] \
@@ -319,7 +319,7 @@ else
         fail "an operator's own memory file was displaced by the shared link: ${out}"
     fi
 
-    # An agent that declares no memory_file reaches the linker with an empty name (the resolver
+    # An agent that does not declare a memory_file reaches the linker with an empty name (the resolver
     # skips it, but the guard is what keeps a bad manifest from writing to the directory itself).
     rm -f "${AGENT_DIR}/CLAUDE.md"
     ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" "" root >/dev/null 2>&1 || true
@@ -328,6 +328,65 @@ else
     else
         fail "the linker placed something for an agent that declares no memory file"
     fi
+fi
+
+# Property 7. THE KIND LIST IS THE TYPE. AI_TOOLS_ASSET_KINDS is the one declaration of what the
+# project ships; a caller naming a kind outside it, or no kind at all, is refused with a reason
+# rather than seeding less than it asked for. The seeder once defaulted to `agents`, a directory
+# the tree never carried, so a caller relying on the default would have skipped the subagents and
+# the orientation with no line saying so -- the quiet shape this refusal replaces.
+write_skill "${SHIPPED}" ai-tools-kind-probe 1
+out="$(ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root agents 2>&1)" && rc=0 || rc=$?
+if (( rc != 0 )) && grep -q 'agents is not an asset kind' <<<"${out}" \
+   && [[ ! -e "${LIVE}/agents" ]]; then
+    pass "a kind the project does not ship is refused by name, and nothing is seeded for it"
+else
+    fail "an unknown kind was not refused (rc=${rc}): ${out}"
+fi
+out="$(ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root 2>&1)" && rc=0 || rc=$?
+if (( rc != 0 )) && grep -q 'no asset kind named' <<<"${out}" \
+   && [[ ! -e "${LIVE}/skills/ai-tools-kind-probe" ]]; then
+    pass "an empty kind list is refused rather than defaulting to a set of the seeder's own"
+else
+    fail "an empty kind list was not refused (rc=${rc}): ${out}"
+fi
+out="$(ai_tools_remove_retired_assets "${LIVE}" agents 2>&1)" && rc=0 || rc=$?
+if (( rc != 0 )) && grep -q 'agents is not an asset kind' <<<"${out}"; then
+    pass "the withdrawal pass holds the same kind list"
+else
+    fail "the withdrawal pass accepted an unknown kind (rc=${rc}): ${out}"
+fi
+
+# Property 8. THE FRONTMATTER IS YAML. A skill's and a subagent's frontmatter is read by the
+# product that loads it and by a renderer that shows it, both as YAML, and the seeder's own greps
+# are line-anchored and see the markers either way -- so a scalar broken by a continuation line
+# at column one passes every other property here while the loader reads a truncated description. Parsed
+# with PyYAML where the host has it; the name and the description must both survive the parse.
+# Reads the repo source, falling back to the installed pristine copies, like the checker tests.
+ASSET_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/share/ai-tools"
+[[ -d "${ASSET_ROOT}/skills" ]] || ASSET_ROOT="/usr/share/ai-tools"
+if python3 -c 'import yaml' 2>/dev/null; then
+    for asset in "${ASSET_ROOT}"/skills/*/SKILL.md "${ASSET_ROOT}"/subagents/ai-tools-*.md; do
+        [[ -f "${asset}" ]] || continue
+        if out="$(python3 - "${asset}" <<'EOF'
+import re, sys, yaml
+text = open(sys.argv[1]).read()
+match = re.match(r"---\n(.*?)\n---\n", text, re.S)
+if not match:
+    sys.exit("no frontmatter")
+data = yaml.safe_load(match.group(1))
+for key in ("name", "description"):
+    if not isinstance(data, dict) or not data.get(key):
+        sys.exit(f"{key} missing after the parse")
+EOF
+        )"; then
+            pass "frontmatter parses as YAML with name and description: ${asset##*/ai-tools/}"
+        else
+            fail "frontmatter of ${asset##*/ai-tools/}: ${out}"
+        fi
+    done
+else
+    skip "frontmatter YAML" "PyYAML not available to python3"
 fi
 
 finish

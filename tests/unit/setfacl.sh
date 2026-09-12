@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/setfacl.sh
 # Hermetic unit tests for the deployed ai-tools-setfacl helper: the group-permission ACL it
-# applies at project claim, the opt-in --with-git .git normalization (group + setgid + ACL),
+# applies at project claim, the opt-in `--with-git` .git normalization (group + setgid + ACL),
 # its owner guard, and its secret/exclusion/skip-list skips. Runs the installed helper against a
 # /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST); reads and does not write a path outside
 # the testdir.
@@ -22,13 +22,16 @@ fi
 
 mktestdir
 proj="${TESTDIR}/proj"
-mkdir -p "${proj}/sub" "${proj}/.git/objects" "${proj}/.env/inside" "${proj}/private/nested"
+mkdir -p "${proj}/sub" "${proj}/noted" "${proj}/.git/objects" "${proj}/.env/inside" "${proj}/private/nested"
 # Pin the fixture's directory modes. mktestdir chmods only TESTDIR, so these would otherwise
 # inherit the RUNNER's umask -- and under umask 077 they land 0700, which the owner-only guard
 # then skips, taking the whole tree (project root included) out of the walk. Mode is behaviour
 # here, not cosmetics, so the test states it rather than inheriting it.
 find "${proj}" -type d -exec chmod 0755 {} +
-mk_allowlist "${proj}" "!${proj}/sub"          # sub is '!'-excluded
+# sub is '!'-excluded by a plain line; noted by a line carrying an end-of-line comment,
+# which the shared allowlist grammar admits. A walk that read the second line raw would match no path
+# against it and grant the carve-out.
+mk_allowlist "${proj}" "!${proj}/sub" "!${proj}/noted   # carve-out"
 
 if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
     skip "ai-tools-setfacl" "filesystem does not support ACLs"; finish; exit
@@ -45,10 +48,11 @@ mv "${proj}/sub_restricted" "${proj}/restricted"
 : > "${proj}/.git/objects/o"                                  # .git tree (default: skipped)
 : > "${proj}/.git/.env.local"                                 # secret-named inside .git
 : > "${proj}/excluded"; mv "${proj}/excluded" "${proj}/sub/excluded"  # under '!' sub
+: > "${proj}/noted/excluded"                                          # under the commented '!'
 : > "${proj}/private/nested/k"                                       # inside the 0700 subtree
-# Same reason as the directories above: pin every file's mode, then restore the one fixture
+# Same reason as the directory fixtures: pin every file's mode, then restore the one fixture
 # whose owner-only mode is the point (A2). Without this the runner's umask decides which files
-# the owner-only guard skips, and the ACL assertions below become umask-dependent.
+# the owner-only guard skips, and the ACL assertions become umask-dependent.
 find "${proj}" -type f -exec chmod 0644 {} +
 chmod 0600 "${proj}/restricted"
 # Owner-only DIRECTORY, set before the helper ever runs. Creating it afterwards would let it
@@ -82,7 +86,7 @@ fi
 
 # (A2) an owner-only file (0600) is left out of the agent's reach entirely -- no group entry,
 # no operator entry, no mask raised. `setfacl -m` recalculates the mask, so granting here would
-# give the agent EFFECTIVE rw while `ls -l` still shows -rw-------; the operator cannot review a
+# give the agent EFFECTIVE rw while `ls -l` still shows `-rw-------`; the operator cannot review a
 # grant they cannot see, so the claim honours the mode instead. secret-handling.rule.md tells
 # operators to use `700 <you>:<you>` for exactly this, which only holds if the walk skips it.
 fr="$(getfacl -p "${proj}/restricted" 2>/dev/null)"
@@ -107,13 +111,10 @@ else
     fail "700 dir opened: $(perm "${priv}") dir_acl=$(getfacl -p "${priv}" 2>/dev/null | tr '\n' ' ')"
 fi
 
-# (A2c) the skip is REPORTED, not silent: under --with-git it means history the operator asked
+# (A2c) the skip is REPORTED, not silent: under `--with-git` it means history the operator asked
 # to share was not shared, so a quiet skip would leave them believing the opposite.
-if setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null | grep -q 'owner-only'; then
-    pass "owner-only skips are reported on stderr"
-else
-    fail "owner-only skips were silent"
-fi
+sealed_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
+assert_msg MSG-C9Z6 "${sealed_err}" "owner-only skips are reported on stderr"
 
 # (A3) self-heal: a file created later under a restrictive umask inherits group rw.
 ( umask 077; : > "${proj}/sub_born" ); mv "${proj}/sub_born" "${proj}/born"
@@ -154,6 +155,9 @@ if ! g "${proj}/.git/objects/o"; then pass "skipped trees (.git) are skipped"
 else fail "a skipped-tree file was ACL'd"; fi
 if ! g "${proj}/sub" && ! g "${proj}/sub/excluded"; then pass "'!'-excluded subtree is skipped"
 else fail "an excluded path was ACL'd"; fi
+if ! g "${proj}/noted" && ! g "${proj}/noted/excluded" && ! u "${proj}/noted/excluded"; then
+    pass "'!'-excluded subtree is skipped when its line carries a comment (shared grammar)"
+else fail "a subtree excluded by a commented line was ACL'd"; fi
 
 # (B4) owner guard: a third-party-owned file gets neither grant.
 if ${foreign}; then
@@ -167,11 +171,8 @@ fi
 # a claim over a tree owned by a third party closes with a clean ✓ while granting no path at all.
 if ${foreign}; then
     guard_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
-    if grep -q 'owned by neither' <<<"${guard_err}"; then
-        pass "a third-party-owned path is reported on stderr"
-    else
-        fail "the owner-guard skip was silent (stderr: ${guard_err})"
-    fi
+    # The code separates this report from the project-root one below, which reads alike.
+    assert_msg MSG-K8M2 "${guard_err}" "a third-party-owned path is reported on stderr"
 else
     skip "owner-guard reporting" "user 'nobody' not present"
 fi
@@ -182,7 +183,7 @@ setsid "${HELPER}" "${out}" < /dev/null > /dev/null 2>&1 || true
 if ! dg "${out}"; then pass "a non-allowlisted path is left untouched"
 else fail "non-allowlisted ${out} gained the project ACL"; fi
 
-# (D) --with-git: the opt-in pass normalizes .git (group ACL + setgid + group ownership),
+# (D) `--with-git`: the opt-in pass normalizes .git (group ACL + setgid + group ownership),
 # while a secret-named path inside .git is still skipped (the secret/exclusion skips apply
 # to the .git pass too).
 setsid "${HELPER}" --with-git "${proj}" < /dev/null > /dev/null 2>&1 || true
@@ -197,7 +198,7 @@ fi
 if ! g "${proj}/.git/.env.local"; then pass "a secret-named path inside .git stays skipped under --with-git"
 else fail "a secret inside .git was ACL'd under --with-git"; fi
 
-# (E) the project ROOT owned by a third party: every path below it is then unreachable through
+# (E) the project ROOT owned by a third party: every path under it is then unreachable through
 # it, so this is the whole outcome of the claim rather than one skipped path, and it says so.
 p2="${TESTDIR}/proj2"
 mkdir -p "${p2}/sub"
@@ -207,11 +208,7 @@ mk_allowlist "${p2}"
 if id nobody >/dev/null 2>&1; then
     chown nobody:nobody "${p2}"
     root_err="$(setsid "${HELPER}" "${p2}" < /dev/null 2>&1 >/dev/null || true)"
-    if grep -q 'the project directory itself is owned by neither' <<<"${root_err}"; then
-        pass "a third-party-owned project root is reported as granting no access"
-    else
-        fail "a third-party-owned project root was not called out (stderr: ${root_err})"
-    fi
+    assert_msg MSG-M6H3 "${root_err}" "a third-party-owned project root is reported as granting no access"
 else
     skip "third-party project root" "user 'nobody' not present"
 fi

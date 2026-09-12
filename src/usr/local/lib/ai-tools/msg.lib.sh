@@ -46,10 +46,32 @@
 # would be a single unit, the previous (tie-glued) unit is pulled down onto it, so a lone
 # one-word widow becomes a natural tail clause. Both apply only on the wrapped (box) path.
 #
+# ── Message codes ─────────────────────────────────────────────────────────────
+#
+# A message that names a SITUATION -- a refusal, a warning a test asserts, a guidance screen --
+# carries a code: a reftag of the message family, the form ai_tools_msg_is_code states, minted
+# by ref-index.py. A test or a document identifies the situation by the code, so the prose stays
+# free to change. The code is an OPTIONAL LEADING ARGUMENT to an alert emitter or to
+# ai_tools_msg_block, detected by its form, so an uncoded call is unchanged, and the anchored
+# form keeps a message that merely starts with the family prose. It renders in the BOX TITLE on
+# a terminal -- a slot outside the frame's text width -- and on ITS OWN LEADING LINE in plain
+# mode, before the caller's lines, so every caller-supplied line is still emitted whole:
+#
+#   #-- ERROR MSG-F6Z3 -------------------------------#      MSG-F6Z3          ref-index: ignore
+#   # The handback socket is down, so files this      #      The handback socket is down, so files
+#   # session writes stay ai-tools-owned.             #      this session writes stay ai-tools-owned.
+#   #-------------------------------------------------#
+#
+# Questions (confirm, pick, challenge) and headlines carry no code: the answer to a question is
+# the situation, which _ai_tools_msg_audit records, and a headline is flow structure. A code is
+# a reftag, so it resolves through .claude/references.md; a message carries the code and no URL,
+# link, or anchor.
+#
 # ── Calling convention ────────────────────────────────────────────────────────
 #
 # The emitters take one argument PER LINE (matching the multi-line `printf '%s\n'`
-# and `die` idioms they replace): ai_tools_msg_error "first line" "second line". The
+# and `die` idioms they replace): ai_tools_msg_error "first line" "second line", with an
+# optional code first: ai_tools_msg_error <code> "first line". The
 # lines are the paragraphs; wrapping reflows within each, never across them. Errors,
 # warnings, and notices go to stderr; info/success to stdout. ai_tools_msg_wrap is
 # exposed for callers that need wrapped-but-unframed text to embed elsewhere (e.g. a
@@ -57,7 +79,7 @@
 # contains commands: flush-left lines wrap as prose, indented/blank lines stay verbatim
 # (commands on one line, long ones overflowing the right border). ai_tools_msg_headline
 # opens a self-contained flow block: a wide titled box carrying the block's summary,
-# with details printed plain below it by the caller. ai_tools_msg_pick draws
+# with details printed plain under it by the caller. ai_tools_msg_pick draws
 # a numbered menu under such a block and echoes the chosen index -- the question companion to
 # a block: with a default index it answers safely when no terminal is present, and with `none`
 # it re-asks and then gives up (non-zero) rather than answering for the user.
@@ -70,7 +92,7 @@
 # no default at all, so a mismatch, an empty answer, and an absent terminal are all "no" --
 # what a confirm cannot express and a destructive verb needs. See each function.
 #
-# This library is REQUIRED by its consumers (bare-sourced under set -e, like
+# This library is REQUIRED by its consumers (bare-sourced under `set -e`, like
 # safe-paths.lib.sh): ai_tools_msg_confirm carries yes/no decisions, so there is no
 # per-consumer fallback -- a valid install ships the lib, and a broken one fails closed.
 # The one exception is session-hook.sh, which only emits and whose sweep must run
@@ -78,12 +100,12 @@
 # exit status of the operation whose outcome they report.
 
 # Include guard. Consumers source this lib directly AND through safe-paths.lib.sh; the
-# readonly constants below would abort a re-source under set -e, so a second source is a
+# readonly constants would abort a re-source under `set -e`, so a second source is a
 # no-op instead.
 if [[ -n "${_AI_TOOLS_MSG_LIB_LOADED:-}" ]]; then return 0; fi
 readonly _AI_TOOLS_MSG_LIB_LOADED=1
 
-# Decision audit trail. ai_tools_msg_confirm, ai_tools_msg_pick and ai_tools_msg_challenge below
+# Decision audit trail. ai_tools_msg_confirm, ai_tools_msg_pick and ai_tools_msg_challenge
 # record every yes/no answer, menu choice and typed challenge through the shared logger
 # (log.lib.sh), so every user
 # action taken through this library leaves ONE consistent trail: journald always, and the
@@ -114,6 +136,19 @@ _ai_tools_msg_audit() {
 readonly AI_TOOLS_MSG_WIDTH="${AI_TOOLS_MSG_WIDTH:-76}"
 readonly AI_TOOLS_MSG_ALERT_WIDTH="${AI_TOOLS_MSG_ALERT_WIDTH:-46}"
 
+# The message-code form: the family token MSG, a dash, and a four-character id in capitals,
+# letter-digit-letter-digit -- the reftag family ref-index.py mints for runtime output (its
+# UPPER_ID). Anchored on both ends, so a word that merely starts with the family, or a code
+# followed by punctuation, is prose.
+readonly _AI_TOOLS_MSG_CODE_RE='^MSG-[A-Z][0-9][A-Z][0-9]$'
+
+# ai_tools_msg_is_code <word> -- 0 (true) when <word> is a well-formed message code. The ONE
+# predicate a leading code is detected with: the emitters here, and every component's local
+# die()/warn() that routes to them, so a code is recognised the same way everywhere.
+ai_tools_msg_is_code() {
+    [[ "${1-}" =~ ${_AI_TOOLS_MSG_CODE_RE} ]]
+}
+
 # Words a wrapped line must not END with. Lowercased, space-delimited, matched after
 # stripping one trailing punctuation char. Articles + coordinating conjunctions +
 # common prepositions -- the words that read badly when stranded at the right margin.
@@ -138,8 +173,8 @@ _ai_tools_msg_is_tie() {
 # it would defeat copy-paste. Emits the wrapped lines on stdout.
 ai_tools_msg_wrap() {
     # Pin IFS to the default: this lib is sourced into callers that set their own (the
-    # claude wrapper uses IFS=$'\n\t', dropping space), and the word-splitting below
-    # (read -ra, $*) must split on spaces regardless, or a whole line collapses into one
+    # claude wrapper uses IFS=$'\n\t', dropping space), and the word-splitting
+    # (`read -ra`, $*) must split on spaces regardless, or a whole line collapses into one
     # unbreakable unit and never wraps. The per-command `IFS= read` overrides stay local.
     local IFS=$' \t\n'
     local width="$1"; shift
@@ -157,7 +192,7 @@ ai_tools_msg_wrap() {
             _ai_tools_msg_is_tie "${w}" || { units+=( "${unit}" ); unit=""; }
         done
         [[ -n "${unit}" ]] && units+=( "${unit}" )
-        # Greedy fill. Each line is its units joined by US, so orphan control below can
+        # Greedy fill. Each line is its units joined by US, so orphan control can
         # count and move whole units (which may themselves contain spaces).
         local -a lines=()
         local cur=""
@@ -222,14 +257,18 @@ _ai_tools_msg_render_box() {
     printf '#%s#\n' "${dashes}"                  # bottom rule
 }
 
-# ai_tools_msg <severity> <fd> <line...> -- render the lines to file descriptor <fd>
+# ai_tools_msg <severity> <fd> [code] <line...> -- render the lines to file descriptor <fd>
 # as a severity ALERT (the narrow, <=50-column frame class). A tty target (and no PLAIN
 # override) gets the box titled with the uppercased severity; otherwise the lines are
-# emitted plain and unwrapped so captured/piped output stays grep-friendly. A formatting
+# emitted plain and unwrapped so captured/piped output stays grep-friendly. A leading
+# message code (see the header) joins the severity in the box title, and in plain mode is
+# emitted as its own first line ahead of the caller's. A formatting
 # or write failure never alters the caller's exit status; a genuine write error to <fd>
 # surfaces on stderr rather than being hidden.
 ai_tools_msg() {
     local sev="$1" fd="$2"; shift 2
+    local code=""
+    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
     local boxed=0
     if   [[ "${AI_TOOLS_MSG_BOX:-}"   == 1 ]]; then boxed=1
     elif [[ "${AI_TOOLS_MSG_PLAIN:-}" == 1 ]]; then boxed=0
@@ -238,10 +277,10 @@ ai_tools_msg() {
     if (( boxed )); then
         local text="$1"; shift
         for l in "$@"; do text+=$'\n'"${l}"; done
-        _ai_tools_msg_render_box "${AI_TOOLS_MSG_ALERT_WIDTH}" "${sev^^}" "${text}" \
+        _ai_tools_msg_render_box "${AI_TOOLS_MSG_ALERT_WIDTH}" "${sev^^}${code:+ ${code}}" "${text}" \
             >&"${fd}" || true
     else
-        printf '%s\n' "$@" >&"${fd}" || true
+        printf '%s\n' ${code:+"${code}"} "$@" >&"${fd}" || true
     fi
 }
 
@@ -258,7 +297,7 @@ ai_tools_msg_success() { ai_tools_msg OK      1 "$@"; }
 # the caller composes the title, e.g. "Claim project (in place)" or "WARNING: interior
 # permission drift"). It opens a self-contained flow block: the box carries the block's
 # title and summary prose, while details (path lists, per-step results, prompts) print
-# plain BELOW it, so long paths stay copy-pasteable. On a non-tty target (and under
+# plain UNDER it, so long paths stay copy-pasteable. On a non-tty target (and under
 # PLAIN) the title and lines are emitted plain -- the title is block content, so unlike
 # an alert's severity tag it survives capture for logs and test greps. Write-failure
 # semantics match ai_tools_msg.
@@ -280,23 +319,27 @@ ai_tools_msg_headline() {
     fi
 }
 
-# ai_tools_msg_block <title> <line...> -- frame a multi-line guidance block in the titled
-# '#' box on stderr. Unlike the emitters above (which wrap every line), this preserves
+# ai_tools_msg_block [code] <title> <line...> -- frame a multi-line guidance block in the
+# titled '#' box on stderr. Unlike the wrapping emitters, this preserves
 # author layout: a flush-left line is wrapped as prose, while an INDENTED or BLANK line is
 # kept VERBATIM -- never reflowed -- so a copy-pasteable command stays on one line and
 # indentation/numbering survives. A verbatim line wider than the box OVERFLOWS past the
 # right border intact rather than breaking (a long, non-separable command is kept whole).
 # Every line still begins with '#', so the whole block remains a paste-safe comment. On a
-# non-tty target (and under PLAIN) the lines are emitted plain, no frame.
+# non-tty target (and under PLAIN) the lines are emitted plain, no frame. A leading message
+# code -- one per screen, the screen being the situation -- follows the title in the top
+# rule, and in plain mode is emitted as its own first line; the body stays uncoded.
 ai_tools_msg_block() {
-    local title="$1"; shift
+    local code=""
+    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
+    local title="${1}${code:+ ${code}}"; shift
     local boxed=0
     if   [[ "${AI_TOOLS_MSG_BOX:-}"   == 1 ]]; then boxed=1
     elif [[ "${AI_TOOLS_MSG_PLAIN:-}" == 1 ]]; then boxed=0
     elif [[ -t 2 ]];                           then boxed=1
     fi
     if (( ! boxed )); then
-        printf '%s\n' "$@" >&2 2>/dev/null || true
+        printf '%s\n' ${code:+"${code}"} "$@" >&2 2>/dev/null || true
         return 0
     fi
     # Compose the rendered lines: wrap prose, keep indented/blank verbatim.
@@ -450,7 +493,7 @@ ai_tools_msg_pick() {
 # ai_tools_cmd_display <abs-path> -- echo how a command should be PRINTED to the user: the
 # bare name when `command -v` resolves it to that same absolute path on this PATH, and the
 # absolute path otherwise. A printed command is meant to be typed, so `ai-tools --status`
-# reads better than /usr/local/bin/ai-tools --status -- but only where the short form runs
+# reads better than `/usr/local/bin/ai-tools --status` -- but only where the short form runs
 # the same program, so a host with an unexpected PATH still gets a command that works.
 ai_tools_cmd_display() {
     local path="${1:-}" name resolved
@@ -475,7 +518,7 @@ ai_tools_cmd_display() {
 # when the default is already 'y': it fast-tracks safe-direction questions but never
 # flips a default-NO question -- those always ask (or take No with no terminal). A caller
 # that must pre-answer a default-NO question does it with its own explicit flag (e.g.
-# ai-tools --yes, ai-tools-chown --yes), an auditable per-invocation decision.
+# `ai-tools --yes`, `ai-tools-chown --yes`), an auditable per-invocation decision.
 ai_tools_msg_confirm() {
     local question="$1" def="${2:?ai_tools_msg_confirm: default (y|n) is required}" hint resp how result
     case "${def}" in
@@ -589,7 +632,7 @@ ai_tools_msg_version() {
 # sibling repo sources this lib and calls it with its own subtitle, so the brand reads the
 # same across surfaces and repos.
 #
-# Printed ONLY on a terminal ([ -t 1 ]); on a pipe/redirect/capture it stays silent, so a
+# Printed ONLY on a terminal (`[ -t 1 ]`); on a pipe/redirect/capture it stays silent, so a
 # tee'd install log, a piped run, or a `--version` scrape is never polluted with escape codes
 # or box-drawing glyphs. Colour is emitted once past that gate (there is a terminal to read
 # it). Always returns success.

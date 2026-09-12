@@ -6,12 +6,12 @@
 # name.
 #
 # `ai-tools-admin operators add` adds the source line to the operator's
-# ~/.bashrc and ~/.bash_profile, below their nvm init — it must follow
+# ~/.bashrc and ~/.bash_profile, after their nvm init — it must follow
 # anything that prepends to PATH. Where that line goes for a non-bash login
 # shell, and why the fragment is per-account rather than in /etc/profile.d,
 # are in launch.rule.md.
 #
-# PATH is first-match-wins, so the order below runs least-writable first and
+# PATH is first-match-wins, so the tier order runs least-writable first and
 # a user- or package-writable entry cannot shadow a system binary:
 #
 #   Tier 1  /usr/local/sbin /usr/sbin /usr/local/bin /usr/bin   root-owned

@@ -7,7 +7,7 @@
 # wherever it points, so a system directory mistakenly added to allowed-projects (or passed
 # to a helper) could be rewritten. This list is the independent backstop -- the launch
 # wrapper, the claim CLI, and every elevated helper refuse a protected target regardless of
-# the allowlist, before acting. Each function below states the rule it applies; which
+# the allowlist, before acting. Each function states the rule it applies; which
 # consumers call which, and what a failed load does, are in safe-paths.rule.md.
 #
 # Sourced (not executed) so every consumer shares ONE list and ONE matcher. Deployed
@@ -57,7 +57,7 @@ ai_tools_protected_path_match() {
 # <owner_user>'s own home root. Return 1 for every system directory, for /home itself, and for
 # any other user's home root.
 #
-# This is a SECOND, NARROWER predicate beside the target backstop above, not a relaxation of it.
+# This is a SECOND, NARROWER predicate beside the target backstop, not a relaxation of it.
 # ai_tools_protected_path_match still refuses a home root as the TARGET of a claim, an unclaim, a
 # lockdown or any elevated walk, and this predicate leaves that unchanged. What differs is the operation
 # being vetted: a claim rewrites group, mode and ACLs across a whole tree, while this grants one
@@ -90,22 +90,22 @@ ai_tools_traverse_grant_allowed() {
 # When <path> resolves to a protected system directory, emit a framed refusal (a msg.lib
 # box on a terminal, plain lines otherwise), log it at WARNING, and return 1 so the caller
 # aborts BEFORE acting. Return 0 silently when the path is safe. The path is resolved with
-# realpath -m (no existence requirement) and falls back to the raw argument, so an
+# `realpath -m` (no existence requirement) and falls back to the raw argument, so an
 # unresolvable path is still matched against the list rather than slipping through.
 ai_tools_assert_safe_target() {
     local raw_path="${1:-}" operation="${2:-operation}" resolved_path matched_entry
     resolved_path="$(realpath -m -- "${raw_path}" 2>/dev/null)" || resolved_path="${raw_path}"
     matched_entry="$(ai_tools_protected_path_match "${resolved_path}")" || return 0
-    local line_intro="Refusing the ${operation}: the target is a protected system directory."
-    local line_path="${resolved_path}"
     local line_detail="It is on the ai-tools protected-paths backstop (matched ${matched_entry}); the sandbox does not operate on system directories. A real project must live elsewhere -- do not add a system directory to allowed-projects."
-    ai_tools_msg_error "${line_intro}" "${line_path}" "${line_detail}"
+    # One code for every consumer: the refusal is the backstop's, whichever helper reached it.
+    ai_tools_msg_error MSG-Q6H3 "Refusing the ${operation}: the target is a protected system directory." \
+        "${resolved_path}" "${line_detail}"
     declare -F ai_tools_log_warn >/dev/null 2>&1 \
         && ai_tools_log_warn "refused ${operation} on protected path ${resolved_path} (matched ${matched_entry})"
     return 1
 }
 
-# msg.lib is REQUIRED (the refusal above renders through it, and the sourcing helpers
+# msg.lib is REQUIRED (the refusal renders through it, and the sourcing helpers
 # rely on its ai_tools_msg_confirm): a bare source, so a missing lib fails this library's
 # own load and the consumer's fail-closed handling takes over. msg.lib carries an include
 # guard, so a consumer that already sourced it re-sources a no-op.

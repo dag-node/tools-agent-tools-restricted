@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/log.lib.sh
 # Shared leveled logger for the ai-tools sandbox components. Sourced (not executed)
-# by the sudo root helpers (ai-tools-chown / -setgid / -launcher-symlink / -lockdown),
+# by the sudo root helpers (`ai-tools-{chown,setgid,launcher-symlink,lockdown}`),
 # the lifecycle hooks (post-tool-hook.sh, session-hook.sh), and the ai-tools project
 # CLI, so every component records DEBUG / INFO / WARNING / ERROR lines in one format
 # to two sinks:
@@ -37,7 +37,9 @@
 # and a host whose logger(1) predates `--journald` falls back to it. A key=value MESSAGE is only
 # conventionally structured -- every consumer re-parses it and a value containing the delimiter
 # is ambiguous -- whereas the native protocol delimits each field itself, so a field value cannot
-# forge a sibling field, and escaping is unnecessary. Detail: .claude/rules/logging.rule.md.
+# forge a sibling field, and escaping is unnecessary. ai_tools_log_coded records a CODED
+# situation: the message code leads the recorded text, so every sink carries it, and it rides
+# as the AI_TOOLS_MSG field too. Detail: .claude/rules/logging.rule.md.
 #
 # Scope is a CALLER convention, not enforced here: log the privileged operations the
 # hooks and sudo helpers perform, the CLI's workflow milestones (project / sandbox
@@ -45,8 +47,8 @@
 # churn, which is emitted at DEBUG only (and only when a path is actually changed).
 
 # Include guard. Consumers source this lib directly, and msg.lib.sh sources it too (for its
-# decision audit trail), so one process can reach it twice; the readonly below would abort a
-# re-source under set -e, so a second source is a no-op. Tags, files, and levels are read per
+# decision audit trail), so one process can reach it twice; this library's readonly constants would abort a
+# re-source under `set -e`, so a second source is a no-op. Tags, files, and levels are read per
 # call, so a single definition serves every caller.
 if [[ -n "${_AI_TOOLS_LOG_LIB_LOADED:-}" ]]; then return 0; fi
 readonly _AI_TOOLS_LOG_LIB_LOADED=1
@@ -59,6 +61,26 @@ readonly _AI_TOOLS_LOG_LIB_LOADED=1
 # (the test suite) can, so a test run's helper logs land in a throwaway dir instead of the
 # real trail. The journald sink is unaffected. See tests.rule.md.
 readonly AI_TOOLS_LOG_DIR="${AI_TOOLS_LOG_DIR:-/var/log/ai-tools}"
+
+# The package version, substituted at deploy time (install.sh from packaging/VERSION, the RPM
+# from its own %{version}-%{release}); a source checkout reads the token unsubstituted
+# and records `dev`. Every structured record carries it as AI_TOOLS_VERSION, so a fleet query
+# reads which release wrote a record without a separate inventory pass, and a call site does
+# not spell the token. The name is PRIVATE because the CLI defines a readonly
+# AI_TOOLS_VERSION of its own and sources this library: a second assignment to a readonly
+# name aborts the caller.
+_AI_TOOLS_LOG_VERSION="@AI_TOOLS_VERSION@"
+[[ "${_AI_TOOLS_LOG_VERSION}" == @*@ ]] && _AI_TOOLS_LOG_VERSION="dev"
+readonly _AI_TOOLS_LOG_VERSION
+
+# Per-run record context, read at call time like AI_TOOLS_LOG_TAG: the operator a privileged
+# operation is performed for, and the project it is performed in. A root helper runs at _UID=0,
+# so the journal's own fields name the writer of a record, and these name whose tree
+# the operation touched. Every structured record carries whichever of them is set, so a call
+# site spells only what varies between its own records; a component acting for no operator,
+# or outside any project, leaves them unset and the field is absent (logging.rule.md).
+AI_TOOLS_LOG_OPERATOR="${AI_TOOLS_LOG_OPERATOR:-}"
+AI_TOOLS_LOG_PROJECT="${AI_TOOLS_LOG_PROJECT:-}"
 
 # _ai_tools_log_prio <level> -- map a level word to its syslog priority. Unknown -> info.
 _ai_tools_log_prio() {
@@ -143,7 +165,7 @@ ai_tools_log() {
     prio="$(_ai_tools_log_prio "${level}")"
     msg="$(_ai_tools_log_render "$*")"
 
-    # journald via logger(1): -t sets the SyslogIdentifier, -p the facility.level
+    # journald via logger(1): `-t` sets the SyslogIdentifier, `-p` the facility.level
     # PRIORITY. Always attempted; failure (no logger, no journald) is ignored.
     logger -t "${tag}" -p "daemon.${prio}" -- "${msg}" 2>/dev/null || true
 
@@ -193,7 +215,7 @@ _ai_tools_log_write_file() {
 # one; callers pass both, and the two are expected to agree.
 #
 # OPT-IN, and identical to ai_tools_log when unused: a caller that passes fields, or a host
-# whose logger(1) predates `--journald`, takes exactly the plain path above. The fallback is
+# whose logger(1) predates `--journald`, takes exactly the plain path. The fallback is
 # decided by ATTEMPTING the native write and falling back on its exit status rather than by
 # probing logger's capabilities, so there is no cached verdict to go stale and no fork spent on
 # a version check per call.
@@ -217,9 +239,16 @@ ai_tools_log_structured() {
     message="$(_ai_tools_log_render "${raw_message}")"
 
     # SYSLOG_FACILITY 3 is `daemon`, matching the `-p daemon.<level>` the plain path sends, so a
-    # record reads the same whichever path wrote it.
+    # record reads the same whichever path wrote it. AI_TOOLS_VERSION and the per-run context
+    # ride in the envelope instead of a caller's field list: each is the same value for every
+    # record its writer makes, so a call site carries only what varies between its own records.
     journal_entry+=( "MESSAGE=${message}" "PRIORITY=${priority_number}"
-                     "SYSLOG_IDENTIFIER=${tag}" "SYSLOG_FACILITY=3" )
+                     "SYSLOG_IDENTIFIER=${tag}" "SYSLOG_FACILITY=3"
+                     "AI_TOOLS_VERSION=${_AI_TOOLS_LOG_VERSION}" )
+    [[ -n "${AI_TOOLS_LOG_OPERATOR:-}" ]] \
+        && journal_entry+=( "AI_TOOLS_OPERATOR=$(ai_tools_log_sanitize "${AI_TOOLS_LOG_OPERATOR}")" )
+    [[ -n "${AI_TOOLS_LOG_PROJECT:-}" ]] \
+        && journal_entry+=( "AI_TOOLS_PROJECT=$(ai_tools_log_sanitize "${AI_TOOLS_LOG_PROJECT}")" )
     for field in "$@"; do
         field_name="${field%%=*}"
         field_value="${field#*=}"
@@ -233,6 +262,25 @@ ai_tools_log_structured() {
     fi
 
     _ai_tools_log_write_file "${level}" "${message}"
+}
+
+# ai_tools_log_coded <level> <code> <message> [FIELD=value ...] -- record a coded situation,
+# where the code is the reftag ref-index.py minted for it. The code LEADS the recorded text,
+# so the root-only file log and a host taking the plain fallback carry the token a reader
+# searches on, and a well-formed code rides as the AI_TOOLS_MSG field too (logging.rule.md).
+#
+# The emitters print a code on its own line and leave the prose in the caller's `_warn_text`,
+# so a call site passes the code and the text apart and this joins them; the code appears
+# exactly once in the record. A malformed code is recorded as part of the text: the record
+# keeps every byte the caller passed, and the field a query selects on carries a reftag alone.
+# The form written inline here is msg.lib.sh's own (`_AI_TOOLS_MSG_CODE_RE`), since
+# that library sources THIS one and the dependency runs one way only; tests/unit/msg.sh
+# holds every inline copy to the library's form.
+ai_tools_log_coded() {
+    local level="$1" code="$2" message="$3"; shift 3
+    local fields=()
+    [[ "${code}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]] && fields=( "AI_TOOLS_MSG=${code}" )
+    ai_tools_log_structured "${level}" "${code:+${code} }${message}" "${fields[@]}" "$@"
 }
 
 # Convenience wrappers -- prefixed to avoid colliding with callers' own log()/warn().

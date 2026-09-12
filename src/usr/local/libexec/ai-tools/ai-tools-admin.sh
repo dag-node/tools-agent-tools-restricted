@@ -9,8 +9,9 @@
 #   sudo ai-tools-admin operators                          # list (the zero-argument default)
 #   sudo ai-tools-admin operators add [user]               # default: $SUDO_USER
 #   sudo ai-tools-admin operators remove <user>
+#   ```bash
 #   sudo ai-tools-admin selinux groups                     # show core + optional group state
-#   sudo ai-tools-admin selinux groups enable <name>       # load a prebuilt (stable) group
+#   sudo ai-tools-admin selinux groups enable <name>...    # load prebuilt (stable) groups
 #   sudo ai-tools-admin selinux groups disable <name>      # unload one
 #   sudo ai-tools-admin system bootstrap                   # provision the sandbox account's toolchain
 #   sudo ai-tools-admin system bootstrap --scope full      # ... and every enabled integration
@@ -18,8 +19,9 @@
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
 #   sudo ai-tools-admin status                             # the host's health, read as root
 #   sudo ai-tools-admin dotnet bootstrap                   # a domain a provider package contributes
+#   ```
 #
-# The spelling is the project's command grammar (.claude/rules/cli-grammar.rule.md): a bare-word
+# The spelling is the project's command grammar (cli-grammar.rule.md): a bare-word
 # command, a plural collection, the verb after the noun, `list` as the zero-argument default, and
 # a singular domain (`selinux`, `system`) where one is needed. `--` introduces an option and
 # never a command, which here is `--help`/`-h` and `--version`.
@@ -32,12 +34,13 @@
 # membership (drops the name from OPERATORS and ai-ops), leaving the user's own allowlist and config.
 # `list` prints the current operators.
 #
-# `selinux groups` toggles the optional policy groups (systemd/pkgmgmt/netadmin/podman/tmpmap/apphost/netcore), all off
-# by default. It loads the PREBUILT ai_tools_<group>.pp shipped in the base package via semodule --
-# no source tree or selinux-policy-devel needed on the host. The group set, descriptions, and
-# per-group stability are single-sourced from selinux-groups.lib.sh, shared with
+# `selinux groups` toggles the optional policy groups, all off by default. It loads the COMPILED
+# ai_tools_<group>.pp that ai-tools-selinux (or a checkout's
+# install-selinux.sh build) staged under AI_TOOLS_SELINUX_PACKAGE_DIR via semodule -- no source
+# tree or selinux-policy-devel needed on the host. The group set, descriptions, and per-group
+# stability are single-sourced from selinux-groups.lib.sh, shared with
 # selinux/install-selinux.sh (the source-tree authoring tool that instead COMPILES a group; this
-# operator helper only loads a shipped one). Only STABLE groups ship prebuilt (currently tmpmap);
+# operator helper only loads a shipped one). Only STABLE groups are on the shipped set;
 # `groups enable` of an EXPERIMENTAL (unaudited) group is refused with a pointer to the source
 # compile-and-verify workflow (install-selinux.sh + the avc bring-up loop), since this tool will
 # not load an unaudited module. `groups disable` works for any loaded group, stable or not.
@@ -48,7 +51,7 @@
 # rather than an RPM scriptlet: a scriptlet must succeed offline and inside a build chroot.
 # Idempotent -- an existing account, nvm install or Node version is reused -- so it is also the
 # re-run after enabling an agent in operator.conf. The bare form does the minimal provision;
-# `--scope full` then runs each ENABLED integration's own `bootstrap` through the seam below, so a
+# `--scope full` then runs each ENABLED integration's own `bootstrap` through the admin-commands seam, so a
 # host is provisioned end to end in one command without base naming an integration.
 #
 # Beyond those, the command set is EXTENSIBLE rather than enumerated: this tool ships in
@@ -56,7 +59,7 @@
 # a provider contributes a domain of its own as an executable fragment at
 # /usr/local/lib/ai-tools/admin-commands.d/<name> and this tool discovers it. The basename is the
 # domain token -- the same name the provider takes in agents.d/integrations.d and in operator.conf.
-# Dispatch is an exec, not a source, so a fragment keeps its own set -euo pipefail, root guard and
+# Dispatch is an exec, not a source, so a fragment keeps its own `set -euo pipefail`, root guard and
 # logging. A fragment is honored only while it passes the same trust predicate as every other
 # provider input (root-owned, not group/other-writable, and so is its directory), and one claiming
 # a name base owns is refused rather than merged; both refusals are reported. INSTALLATION, not
@@ -73,7 +76,7 @@
 #
 # `status` reports this host's health as root: the same resource `ai-tools --status` reports to an
 # operator, completed with the three readings that vantage point prints as `?` -- the sandbox
-# account's own `systemd --user` units, whose bus root reaches over the machine transport; the
+# account's own `systemd --user units`, whose bus root reaches over the machine transport; the
 # entrypoint pin, in a state directory a non-operator has no traverse bit on; and the SELinux type
 # each agent path carries right now, inside a 0750 toolchain. Every verdict comes from the same
 # services.lib.sh registry both reports and the launch wrapper's pre-launch warning read, so the
@@ -83,14 +86,12 @@
 # %config(noreplace) files this stack owns. rpm keeps what the host edited and parks the new
 # version alongside it; choosing between the two is a judgement about the operator's own
 # configuration, so it happens here, when the operator asks, and never in a scriptlet. Each file
-# gets the treatment its content deserves -- merge, report, or show only, per the registry below --
+# gets the treatment its content deserves -- merge, report, or show only, per the post-upgrade registry --
 # and every treatment shows what it would change, confirms, backs the file up before writing, and
 # names each path it touched. The from-source installer reaches the same end through its own
 # keep-or-reset prompts and dated .bak/.shipped sidecars; this is the RPM-side equivalent.
 #
-# Deploy:
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-admin.sh /usr/local/libexec/ai-tools/ai-tools-admin
+# Deploying from a checkout: docs/install-from-source.md.
 
 set -euo pipefail
 
@@ -102,9 +103,11 @@ readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # Where a provider package drops the command fragment carrying its own domain. The environment
-# override is a ROOT-ONLY test hook of the same standing as AI_TOOLS_POSTUPGRADE_ROOT (sudo strips
-# the name and this tool is reachable only as root), so tests/unit/admin-commands.sh drives the
-# dispatch against a fixture tree. Unset in production.
+# override is a test hook of the same standing as AI_TOOLS_POSTUPGRADE_ROOT: sudo strips the name,
+# so tests/unit/admin-commands.sh drives the dispatch against a fixture tree. `--help` lists
+# the domains through it ahead of the root check, so a non-root caller can point the LISTING at another
+# root-owned directory; the dispatch still needs root and each fragment still needs root ownership,
+# so the reach does not add a command. Unset in production.
 readonly ADMIN_COMMANDS_DIR="${AI_TOOLS_ADMIN_COMMANDS_DIR:-/usr/local/lib/ai-tools/admin-commands.d}"
 # The names base owns. A contributed fragment claiming one is refused, so no installed package can
 # shadow a command an administrator relies on. `status` is reserved before it is implemented: a
@@ -132,20 +135,58 @@ AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"
 [[ "${AI_TOOLS_VERSION}" == @*@ ]] && AI_TOOLS_VERSION="dev"
 readonly AI_TOOLS_VERSION
 
-die()  { printf 'ai-tools-admin: error: %s\n' "$*" >&2; exit 1; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since these helpers
+# report before the library is loaded.
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-admin: error: %s\n' "$*" >&2; exit 1
+}
 log()  { printf 'ai-tools-admin: %s\n' "$*"; }
 # warn: a refusal that narrows what this tool will do -- a contributed command skipped, an
 # integration that would not provision. stderr, so the domain list on stdout stays data-only.
-warn() { printf 'ai-tools-admin: warning: %s\n' "$*" >&2; }
+warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-admin: warning: %s\n' "$*" >&2
+}
 
 # reject <message>: the command line was rejected. Exit 2 separates a command nobody can type
 # correctly from an operation that ran and failed (`die`, exit 1), which is the split
 # ai-tools-admin(8) documents and the one ai-tools(1) already uses.
 reject() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-admin: %s\n' "$*" >&2
     printf "try 'ai-tools-admin --help'\n" >&2
     exit 2
 }
+
+# reject_with_usage <message>: the refusal the LAST dispatch arm takes, at reject's own exit 2. It
+# prints the command surface rather than a pointer at `--help`, because a name that matched no base
+# command and no contributed domain is answered by the domain list this host actually has, which
+# only usage() knows. Defined here so that surface and the code naming the situation stay together.
+reject_with_usage() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-admin: %s\n\n' "$*" >&2
+    usage >&2
+    exit 2
+}
+
+# die_unsourced <lib>: one situation for every library this tool requires, the library named as its
+# argument -- called after the `source` line so each keeps its own shellcheck source directive.
+die_unsourced() { die MSG-V6F4 "cannot source ${1}"; }
+
+# coded_refusal <code> <text>: a refusal carried as a VALUE -- the code on the first line, the text
+# on the second. admin_command_check's branches define their codes through it, so each of its
+# situations keeps a code of its own while the two sites that emit the value need not know which
+# branch produced it.
+coded_refusal() { printf '%s\n' "$1" "$2"; }
+# emit_coded <emitter> <value> [prefix]: hand a coded_refusal value to warn or die as the two
+# arguments they read, with <prefix> naming who the refusal is about ahead of the text.
+emit_coded() { "$1" "${2%%$'\n'*}" "${3-}${2#*$'\n'}"; }
 
 # usage: the command surface, grouped by domain. Orientation rather than reference -- every
 # option, exit code and example is in ai-tools-admin(8), and tests/unit/man.sh holds the two in
@@ -165,7 +206,7 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the t
     operators remove <user>          withdraw an operator's enrolment
   SELinux
     selinux groups                   the core module and the optional groups
-    selinux groups enable <name>     load a prebuilt optional group
+    selinux groups enable <name>...  load prebuilt optional groups
     selinux groups disable <name>    unload a loaded group
   System
     system bootstrap [--scope full]  provision the sandbox account and its toolchain
@@ -234,14 +275,14 @@ is_base_command() {
 # its own in that name, which here would be a command root then executes. A name base owns is
 # refused rather than merged, and a basename that is not a bare lower-case word is skipped before
 # it is ever joined to a path, so a separator or a traversal cannot address a file outside the
-# directory. The dispatch and --help both read this one function, so what an administrator is told
+# directory. The dispatch and `--help` both read this one function, so what an administrator is told
 # and what runs cannot disagree.
 #
 # The two rejections are different findings and are counted apart. A name this seam does not
 # recognize (a README, a backup, a base name) is a file that is not a command, and the set around it
 # is unaffected. A file that group or other may write is a broken assumption about the directory
 # itself -- that only root decides what is run from it -- and it is what ADMIN_COMMANDS_TAMPERED
-# carries to the gate below.
+# carries to the conformance gate.
 ADMIN_DOMAINS=()
 ADMIN_COMMANDS_TAMPERED=0
 admin_domains() {
@@ -249,7 +290,7 @@ admin_domains() {
     ADMIN_COMMANDS_TAMPERED=0
     [[ -d "${ADMIN_COMMANDS_DIR}" ]] || return 0
     if ! ai_tools_conf_is_trusted "${ADMIN_COMMANDS_DIR}"; then
-        warn "ignoring every contributed command: ${ADMIN_COMMANDS_DIR} is a symlink, is not root-owned, or is writable by group/other"
+        warn MSG-V5S5 "ignoring every contributed command: ${ADMIN_COMMANDS_DIR} is a symlink, is not root-owned, or is writable by group/other"
         ADMIN_COMMANDS_TAMPERED=1
         return 0
     fi
@@ -258,15 +299,15 @@ admin_domains() {
         [[ -f "${fragment}" ]] || continue
         domain="${fragment##*/}"
         if [[ ! "${domain}" =~ ^[a-z][a-z0-9-]*$ ]]; then
-            warn "skipping $(printf '%q' "${fragment}"): a contributed command is named for its provider, in bare lower-case"
+            warn MSG-H6J9 "skipping $(printf '%q' "${fragment}"): a contributed command is named for its provider, in bare lower-case"
             continue
         fi
         if is_base_command "${domain}"; then
-            warn "refusing ${fragment}: '${domain}' is a command ai-tools-admin owns and no package may replace it"
+            warn MSG-U6P9 "refusing ${fragment}: '${domain}' is a command ai-tools-admin owns and no package may replace it"
             continue
         fi
         if ! ai_tools_conf_is_trusted "${fragment}"; then
-            warn "refusing ${fragment}: it is a symlink, is not root-owned, or is writable by group/other, so what it runs is not root's decision alone"
+            warn MSG-D3P6 "refusing ${fragment}: it is a symlink, is not root-owned, or is writable by group/other, so what it runs is not root's decision alone"
             ADMIN_COMMANDS_TAMPERED=1
             continue
         fi
@@ -289,18 +330,19 @@ admin_commands_trusted() {
 
 # admin_command_check <domain>: succeed when the fragment carrying <domain> conforms to the
 # interface this tool dispatches, publishing its declared verbs in ADMIN_COMMAND_VERBS; otherwise
-# set _admin_command_reason to what is wrong. A reason rather than a message, so the two callers can
-# act differently on it -- an administrator's own command stops, while `system bootstrap --scope
-# full` names it and carries on to the next integration.
+# set _admin_command_reason to what is wrong, as a coded_refusal value. A reason rather than a
+# message, so the two callers can act differently on it -- an administrator's own command stops,
+# while `system bootstrap --scope full` names it and carries on to the next integration. Each
+# branch defines its own message code, since neither emit site knows which of them it holds.
 #
-# Where the trust checks above decide WHO wrote the file, this decides whether the file is a command
+# Where the trust checks decide WHO wrote the file, this decides whether the file is a command
 # of this seam at all. It is a conformance contract, not a security boundary: what stops a file the
 # agent wrote is the trust predicate, and what this stops is a file that was never meant to be run
 # this way. It is declarative and static -- a fragment is read, never executed, to find out what it
 # is, so a report is built by reading alone, without forking or running the fragment.
 #
 # A conforming fragment is a script (`#!`) carrying three declarations in its first 20 lines. The
-# whole block is the interface: a third-party integration writes it once, and every check below
+# whole block is the interface: a third-party integration writes it once, and every check here
 # reads it rather than running anything.
 #
 #   # ai-tools-admin-command: <domain>              the domain it is installed as
@@ -363,39 +405,39 @@ admin_command_check() {
     _admin_command_reason=""
     ADMIN_COMMAND_VERBS=()
     if [[ ! -x "${fragment}" ]]; then
-        _admin_command_reason="${fragment} is not executable -- reinstall the package that ships it"
+        _admin_command_reason="$(coded_refusal MSG-F4Z5 "not executable: ${fragment} -- reinstall the package that ships it")"
         return 1
     fi
     head_bytes="$(head -c 2 "${fragment}" 2>/dev/null || true)"
     if [[ "${head_bytes}" != '#!' ]]; then
-        _admin_command_reason="${fragment} is not a script -- a contributed command is an interpreted file"
+        _admin_command_reason="$(coded_refusal MSG-D9F7 "not a script: ${fragment} -- a contributed command is an interpreted file")"
         return 1
     fi
     # Captured before matching, never piped into `grep`/`head`: an early-exiting reader leaves the
     # writer to die of SIGPIPE, which pipefail reports as a failed probe (see
-    # ai_tools_selinux_group_loaded). Every read below works on this one string.
+    # ai_tools_selinux_group_loaded). Every read works on this one string.
     header="$(head -n 20 "${fragment}" 2>/dev/null || true)"
     if ! grep -qxF -- "# ai-tools-admin-command: ${domain}" <<<"${header}"; then
-        _admin_command_reason="${fragment} does not declare '# ai-tools-admin-command: ${domain}' in its first 20 lines -- reinstall the package that ships it"
+        _admin_command_reason="$(coded_refusal MSG-H5F8 "no domain declaration: ${fragment} does not declare '# ai-tools-admin-command: ${domain}' in its first 20 lines -- reinstall the package that ships it")"
         return 1
     fi
 
     declared_floor="$(_admin_command_field "${header}" api-min-version)"
     if [[ -z "${declared_floor}" ]]; then
-        _admin_command_reason="${fragment} declares no '# ai-tools-admin-api-min-version: <major>.<minor>' -- reinstall the package that ships it"
+        _admin_command_reason="$(coded_refusal MSG-U6U6 "no interface floor: ${fragment} declares no '# ai-tools-admin-api-min-version: <major>.<minor>' -- reinstall the package that ships it")"
         return 1
     fi
     if [[ ! "${declared_floor}" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
-        _admin_command_reason="${fragment} declares the interface floor $(printf '%q' "${declared_floor}"), which is not <major>.<minor>"
+        _admin_command_reason="$(coded_refusal MSG-B5K9 "a malformed interface floor: ${fragment} declares $(printf '%q' "${declared_floor}"), which is not <major>.<minor>")"
         return 1
     fi
     declared_major="${BASH_REMATCH[1]}"; declared_minor="${BASH_REMATCH[2]}"
     if (( declared_major != base_major )); then
-        _admin_command_reason="${fragment} needs contributed-command interface ${declared_floor}, and this ai-tools-admin implements ${ADMIN_COMMAND_API} -- a different major is a different contract, so upgrade whichever of the two is behind"
+        _admin_command_reason="$(coded_refusal MSG-W3T9 "an incompatible contract: ${fragment} needs contributed-command interface ${declared_floor}, and this ai-tools-admin implements ${ADMIN_COMMAND_API} -- a different major is a different contract, so upgrade whichever of the two is behind")"
         return 1
     fi
     if (( declared_minor > base_minor )); then
-        _admin_command_reason="${fragment} needs contributed-command interface ${declared_floor}, and this ai-tools-admin implements ${ADMIN_COMMAND_API} -- upgrade ai-tools-base"
+        _admin_command_reason="$(coded_refusal MSG-M3D7 "an interface newer than this one: ${fragment} needs contributed-command interface ${declared_floor}, and this ai-tools-admin implements ${ADMIN_COMMAND_API} -- upgrade ai-tools-base")"
         return 1
     fi
 
@@ -403,12 +445,12 @@ admin_command_check() {
     # One list grammar across this project: commas and whitespace both separate (conf.lib.sh).
     ai_tools_conf_split ADMIN_COMMAND_VERBS "${declared_verbs}"
     if [[ "${#ADMIN_COMMAND_VERBS[@]}" -eq 0 ]]; then
-        _admin_command_reason="${fragment} declares no '# ai-tools-admin-verbs: <verb> ...' -- a command that answers nothing is not one"
+        _admin_command_reason="$(coded_refusal MSG-V5Q3 "no verb list: ${fragment} declares no '# ai-tools-admin-verbs: <verb> ...' -- a command that answers nothing is not one")"
         return 1
     fi
     for verb in "${ADMIN_COMMAND_VERBS[@]}"; do
         [[ "${verb}" =~ ^[a-z][a-z0-9-]*$ ]] && continue
-        _admin_command_reason="${fragment} declares $(printf '%q' "${verb}") among its verbs, and a verb is a bare lower-case word"
+        _admin_command_reason="$(coded_refusal MSG-E3G7 "a verb outside the command charset: ${fragment} declares $(printf '%q' "${verb}") among its verbs, and a verb is a bare lower-case word")"
         return 1
     done
     return 0
@@ -434,7 +476,7 @@ admin_command_has_verb() {
 }
 
 # contributed_dispatch <name> [args...]: exec the fragment carrying <name>, with the remaining
-# arguments. An exec rather than a source: the fragment keeps its own set -euo pipefail, its own
+# arguments. An exec rather than a source: the fragment keeps its own `set -euo pipefail`, its own
 # root guard and its own logging, and cannot collide with this tool's function names.
 #
 # Membership of ADMIN_DOMAINS is the gate, so <name> is never interpolated into a path before it
@@ -449,13 +491,11 @@ contributed_dispatch() {
         [[ "${known}" == "${domain}" ]] && { found=yes; break; }
     done
     if [[ "${found}" != yes ]]; then
-        printf 'ai-tools-admin: unknown command: %s\n\n' "${domain}" >&2
-        usage >&2
-        exit 2
+        reject_with_usage MSG-N2A5 "unknown command: ${domain}"
     fi
     admin_commands_trusted \
-        || die "refusing every contributed command while ${ADMIN_COMMANDS_DIR} holds a file that is not root's alone (named above) -- ${ADMIN_COMMANDS_TAMPER_REMEDY}"
-    admin_command_check "${domain}" || die "${_admin_command_reason}"
+        || die MSG-A3P2 "refusing every contributed command while ${ADMIN_COMMANDS_DIR} holds a file that is not root's alone (named above) -- ${ADMIN_COMMANDS_TAMPER_REMEDY}"
+    admin_command_check "${domain}" || emit_coded die "${_admin_command_reason}"
     exec "${ADMIN_COMMANDS_DIR}/${domain}" "$@"
 }
 
@@ -463,10 +503,10 @@ contributed_dispatch() {
 # drives, and the trust predicate every contributed command is vetted with. Required, not optional:
 # a reconcile that silently skipped its merge would leave a shipped hook uninvoked while reporting
 # success, and a dispatch that could not tell a trusted fragment from a planted one would exec
-# whatever it found. Loaded BEFORE the block below, unlike the other libraries, because --help
+# whatever it found. Loaded BEFORE the other libraries, unlike them, because `--help`
 # lists this host's contributed domains and that list is drawn through this predicate.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
-. "${CONF_LIB}" || die "cannot source ${CONF_LIB}"
+. "${CONF_LIB}" || die_unsourced "${CONF_LIB}"
 
 # Provider resolver: the manifest key behind each domain's summary line, and the enabled-integration
 # list `system bootstrap --scope full` iterates. Optional at load and gated at each use -- without
@@ -478,10 +518,10 @@ source "${PROVIDERS_LIB}" 2>/dev/null || true
 
 # Executed, this administers a host and needs root. Sourced -- by tests/unit/admin-operator-add.sh,
 # which drives one function with sudo stubbed -- it does not assert anything about the host and only
-# defines, stopping at the matching guard above the dispatch. Everything between the two is
+# defines, stopping at the matching guard that precedes the dispatch. Everything between the two is
 # definitions, so the executed path still refuses a non-root caller before any action.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # --help and --version read no host state and leave the host as it is, so they answer any caller and
+    # `--help` and `--version` read no host state and leave the host as it is, so they answer any caller and
     # are handled here, ahead of the root check: an operator meeting the tool gets the command
     # surface rather than a refusal naming sudo without saying what to run under it. Both ignore
     # any further argument.
@@ -489,21 +529,21 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         --help|-h) usage; exit 0 ;;
         --version) printf 'ai-tools-admin %s\n' "${AI_TOOLS_VERSION}"; exit 0 ;;
     esac
-    [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
+    [[ "${EUID}" -eq 0 ]] || die MSG-D7D4 "run as root (sudo)"
 fi
 
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
-. "${OPERATOR_LIB}" || die "cannot source ${OPERATOR_LIB}"
+. "${OPERATOR_LIB}" || die_unsourced "${OPERATOR_LIB}"
 
 # Optional SELinux policy-group registry + predicates, shared with install-selinux.sh.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/selinux-groups.lib.sh
-. "${SELINUX_GROUPS_LIB}" || die "cannot source ${SELINUX_GROUPS_LIB}"
+. "${SELINUX_GROUPS_LIB}" || die_unsourced "${SELINUX_GROUPS_LIB}"
 
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like the
-# operator lib above: a valid install ships it, so there is no fallback.
+# operator lib: a valid install ships it, so there is no fallback.
 # Include-guarded, so a re-source is a no-op.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
-source /usr/local/lib/ai-tools/msg.lib.sh || die "cannot source /usr/local/lib/ai-tools/msg.lib.sh"
+source /usr/local/lib/ai-tools/msg.lib.sh || die_unsourced /usr/local/lib/ai-tools/msg.lib.sh
 # Fixed 80-column frame for any box this tool renders, aligned with the CLI's.
 export AI_TOOLS_MSG_FULLWIDTH=1
 
@@ -560,12 +600,51 @@ seed_operator_config() {
     local user="$1" home group cfg
     home="$(getent passwd "${user}" | cut -d: -f6)"
     group="$(id -gn "${user}")"
-    [[ -n "${home}" && -d "${home}" ]] || { log "warn: no home for ${user}; skipping config seed"; return 0; }
+    [[ -n "${home}" && -d "${home}" ]] || { warn MSG-R7U6 "no home directory on this host for ${user}; skipping the config seed"; return 0; }
     cfg="${home}/.config/ai-tools"
     [[ -d "${home}/.config" ]] || install -d -o "${user}" -g "${group}" -m 700 "${home}/.config"
     [[ -d "${cfg}" ]]          || install -d -o "${user}" -g "${group}" -m 700 "${cfg}"
     seed_config_file "${user}" "${group}" "${cfg}/allowed-projects" ai_tools_conf_allowlist_seed
     seed_config_file "${user}" "${group}" "${cfg}/secret-patterns"  ai_tools_conf_secret_patterns_seed
+}
+
+# label_operator_config <user>: give that operator's ~/.config/ai-tools the ai_tools_conf_t SELinux
+# type, through relabel.lib.sh. There is one rule per operator and enrolment is where this host
+# learns an account is one, so the rule is registered here; what the type buys is in
+# .claude/rules/confinement.rule.md. A re-run re-asserts it, which repairs an account whose rule a
+# concurrent semanage transaction refused.
+#
+# BEST-EFFORT, and the two ways it declines are different facts. On a host with no SELinux layer
+# there is no such type to apply -- the intended DAC-only deployment -- so the run stays silent. A
+# host that has one and could not apply it is WARNED with the command that repairs it, and the enrolment
+# still stands: the two facts that make an operator are already written, so a refusal here would
+# leave an account in OPERATORS and in the group with no way to finish.
+label_operator_config() {
+    local user="$1" home cfg status=0
+    home="$(getent passwd "${user}" 2>/dev/null | cut -d: -f6)"
+    cfg="${home}/.config/ai-tools"
+    [[ -n "${home}" && -d "${cfg}" ]] || return 0
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
+    if ! source "${RELABEL_LIB}" 2>/dev/null \
+            || ! declare -F ai_tools_label_operator_conf >/dev/null 2>&1; then
+        warn MSG-H5N2 "cannot label ${cfg}: ${RELABEL_LIB} did not load -- reinstall ai-tools-base"
+        return 0
+    fi
+    # Taken in this shell, not a subshell: the lock is an open descriptor (see relabel.lib.sh).
+    # It serializes this write against the other helpers that write the same policy store.
+    ai_tools_relabel_lock
+    if [[ -n "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]]; then
+        warn MSG-G2C6 "proceeding without the relabel lock: ${AI_TOOLS_RELABEL_LOCK_NOTE}"
+    fi
+    ai_tools_label_operator_conf "${cfg}" || status=$?
+    case "${status}" in
+        0) log "labelled ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}" ;;
+        2) : ;;   # no SELinux layer on this host -- nothing to label, and not a fault
+        *) warn MSG-N3T7 "could not label ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}${AI_TOOLS_FCONTEXT_ERROR:+ -- ${AI_TOOLS_FCONTEXT_ERROR}}"
+           warn "    until it carries that type the ownership handback no-ops for ${user}'s projects"
+           warn "    repair: sudo ai-tools-admin operators add ${user}" ;;
+    esac
+    return 0
 }
 
 # The line an operator's bash init carries: sources the PATH dedup when it is installed, and
@@ -611,7 +690,7 @@ wire_dedup() {
     group="$(id -gn "${user}")"
     [[ -n "${home}" && -d "${home}" ]] || return 0
     bashrc="${home}/.bashrc"; bashprof="${home}/.bash_profile"
-    # The two files below govern bash. Another login shell reads its own, so the operator hears
+    # The two files it names govern bash. Another login shell reads its own, so the operator hears
     # which ordering their sessions actually get, at the moment the wiring is offered.
     case "${login_shell}" in
         */bash|'') ;;
@@ -644,11 +723,11 @@ wire_dedup() {
 # the question the administrator actually has: can this account claim a project?
 #
 # An account without the grant is a supported shape, not a misconfiguration, so this reports and
-# never refuses: it names the --for command that claims on the account's behalf.
+# never refuses: it names the `--for` command that claims on the account's behalf.
 #
 # A non-zero answer is a refusal only while sudo is answering at all -- for a command no rule
 # matches, `sudo -l` exits non-zero with EMPTY output, so there is no message separating that from
-# a sudo which failed for its own reasons (an unreachable sudoers backend, a host that refuses -l).
+# a sudo which failed for its own reasons (an unreachable sudoers backend, a host that refuses `-l`).
 # It is separated by a second probe, the same way the CLI's sudo_grant_missing does it: listing the
 # account's whole rule set, which succeeds for anyone this command has just enrolled, since the
 # %ai-ops rules apply to the membership written moments earlier (sudo reads the group database, not
@@ -675,10 +754,10 @@ report_operator_role() {
 
 op_add() {
     local user="${1:-${SUDO_USER:-}}"
-    [[ -n "${user}" ]] || reject "operators add: name a user, or run it through sudo so SUDO_USER is set"
-    [[ "${user}" != "${SANDBOX_USER}" ]] || die "an operator must not be the sandbox account ${SANDBOX_USER}"
-    [[ "${user}" != "root" ]]            || die "an operator must be a normal login user, not root"
-    id "${user}" &>/dev/null || die "no such user: ${user}"
+    [[ -n "${user}" ]] || reject MSG-H2P9 "operators add: name a user, or run it through sudo so SUDO_USER is set"
+    [[ "${user}" != "${SANDBOX_USER}" ]] || die MSG-C9C4 "an operator must not be the sandbox account ${SANDBOX_USER}"
+    [[ "${user}" != "root" ]]            || die MSG-H3M6 "an operator must be a normal login user, not root"
+    id "${user}" &>/dev/null || die MSG-U8T8 "no such user: ${user}"
 
     ai_tools_load_operators || true   # tolerate an unenrolled host (empty list)
     if in_list "${user}"; then
@@ -698,18 +777,20 @@ op_add() {
     if id -nG "${user}" 2>/dev/null | tr ' ' '\n' | grep -qx "${OPERATORS_GROUP}"; then
         log "${user} is already in group ${OPERATORS_GROUP}"
     else
-        usermod -aG "${OPERATORS_GROUP}" "${user}" || die "failed to add ${user} to ${OPERATORS_GROUP}"
+        usermod -aG "${OPERATORS_GROUP}" "${user}" || die MSG-C4A8 "failed to add ${user} to ${OPERATORS_GROUP}"
         log "added ${user} to group ${OPERATORS_GROUP}"
     fi
 
     seed_operator_config "${user}"
+    label_operator_config "${user}"
 
-    # The sandbox account needs a systemd --user instance without an interactive login: its
+    # The sandbox account needs a `systemd --user instance` without an interactive login: its
     # nvm-update timer and each ai-tools-run session unit run there, and it has no login shell, so
     # only linger keeps that instance alive. An operator runs claude from its own active login,
     # so it does not need linger here; enabling operator linger for other reasons is host policy.
     log "enabling linger for ${SANDBOX_USER}"
-    loginctl enable-linger "${SANDBOX_USER}"  2>/dev/null || log "warn: could not enable linger for ${SANDBOX_USER}"
+    loginctl enable-linger "${SANDBOX_USER}"  2>/dev/null \
+        || warn MSG-Q4K4 "could not enable linger for ${SANDBOX_USER}"
 
     wire_dedup "${user}"
     log "operator ${user} added"
@@ -722,7 +803,7 @@ op_add() {
 
 op_remove() {
     local user="${1:-}"
-    [[ -n "${user}" ]] || reject "operators remove: name the user to withdraw"
+    [[ -n "${user}" ]] || reject MSG-S3E9 "operators remove: name the user to withdraw"
     ai_tools_load_operators || true
     if ! in_list "${user}"; then
         log "${user} is not an operator; nothing to remove"
@@ -734,7 +815,7 @@ op_remove() {
     log "removed ${user} from OPERATORS"
     # Drop ai-ops membership; leave the account's own allowlist and secret patterns (their data).
     gpasswd -d "${user}" "${OPERATORS_GROUP}" >/dev/null 2>&1 \
-        || log "warn: could not remove ${user} from ${OPERATORS_GROUP}"
+        || warn MSG-J9F9 "could not remove ${user} from ${OPERATORS_GROUP}"
     log "removed ${user} from group ${OPERATORS_GROUP}"
 }
 
@@ -747,7 +828,7 @@ op_list() {
 }
 
 # ── selinux groups: optional policy-group management ─────────────────────────────────
-# These load/unload the PREBUILT ai_tools_<group>.pp shipped in the base package; the group
+# These load/unload the COMPILED ai_tools_<group>.pp staged in the package directory; the group
 # set and text come from selinux-groups.lib.sh. Distinct from selinux/install-selinux.sh,
 # which compiles a group from source in a repo checkout -- this runs on any installed host.
 
@@ -758,8 +839,17 @@ require_selinux() {
         log "SELinux is disabled on this host -- no policy groups to manage"
         return 1
     fi
-    command -v semodule >/dev/null 2>&1 || die "semodule not found -- install policycoreutils"
+    command -v semodule >/dev/null 2>&1 || die MSG-A8Z7 "semodule not found -- install policycoreutils"
     return 0
+}
+
+# _sel_require_known_group <name>: refuse a name the registry does not carry, showing what this
+# host does know. One situation for both verbs -- a name that is not a group is the same refusal
+# whether it was to be loaded or unloaded, so the two arms share it rather than each writing it.
+_sel_require_known_group() {
+    ai_tools_selinux_group_valid "$1" && return 0
+    log "unknown group '$1'. Available groups:"; _selinux_usage_groups
+    die MSG-D7Y7 "no such policy group: $1"
 }
 
 # _selinux_usage_groups: list the known groups (name + description) to stderr.
@@ -772,26 +862,34 @@ _selinux_usage_groups() {
     done
 }
 
+# sel_enable <name>...: load each named group in turn. Several names are accepted because a
+# toolchain declares the set it needs (selinux_groups in its manifest, ai-tools-providers(5)) and
+# the status nudge prints that set as one command; each name is validated before any is loaded,
+# so a typo refuses the whole command rather than loading half of it.
 sel_enable() {
-    local name="${1:-}"
-    [[ $# -le 1 ]] || reject "selinux groups enable: one group name at a time"
-    [[ -n "${name}" && "${name}" != -* ]] || reject "selinux groups enable: name the group to load"
+    [[ $# -ge 1 ]] || reject MSG-H7J4 "selinux groups enable: name the group(s) to load"
     require_selinux || return 0
-    if ! ai_tools_selinux_group_valid "${name}"; then
-        log "unknown group '${name}'. Available groups:"; _selinux_usage_groups
-        die "no such policy group: ${name}"
-    fi
+    local name
+    for name in "$@"; do
+        [[ -n "${name}" && "${name}" != -* ]] || reject MSG-Q3Z5 "selinux groups enable: '${name}' is not a group name"
+        _sel_require_known_group "${name}"
+    done
+    for name in "$@"; do _sel_enable_one "${name}"; done
+}
+
+_sel_enable_one() {
+    local name="$1"
     if ai_tools_selinux_group_loaded "${name}"; then
         log "group '${name}' is already loaded -- nothing to do"
         return 0
     fi
-    # Experimental groups are unaudited drafts and are NOT shipped prebuilt. This tool loads only
+    # Experimental groups are unaudited drafts and are NOT on the shipped set. This tool loads only
     # shipped, stable modules; an experimental group must be compiled and verified against a real
     # workload from a source checkout first (install-selinux.sh does both), because it widens the
     # sandbox domain's access beyond the repo-only core. Point the operator there rather than
     # loading an unaudited module.
     if ai_tools_selinux_group_is_experimental "${name}"; then
-        ai_tools_msg_warn \
+        ai_tools_msg_warn MSG-C4F5 \
             "The '${name}' SELinux policy group is an EXPERIMENTAL, unaudited draft. It is not shipped prebuilt and cannot be enabled from here -- it widens the sandbox domain's access beyond the repo-only core and must be compiled and verified against a real workload from a source checkout first."
         log "compile, audit under permissive, and load it from a repo checkout:"
         log "    sudo selinux/install-selinux.sh enable-group ${name}"
@@ -800,9 +898,27 @@ sel_enable() {
         die "'${name}' is experimental -- verify and enable it from source (see above)"
     fi
     local pp="${AI_TOOLS_SELINUX_PACKAGE_DIR}/ai_tools_${name}.pp"
-    [[ -f "${pp}" ]] || die "prebuilt module ${pp} not found -- reinstall ai-tools-base"
-    log "loading group: ai_tools_${name}"
-    semodule -i "${pp}" || die "semodule failed to load ${pp}"
+    [[ -f "${pp}" ]] || die MSG-S5P4 "compiled module ${pp} not found -- reinstall ai-tools-selinux, or from a checkout: sudo selinux/install-selinux.sh build"
+    # A former module still loaded from before this group was renamed or split out of it goes
+    # in the same transaction, together with every OTHER current group that former module's
+    # rules became, so the host never holds both rule sets, never loses a capability the old
+    # module carried, and a failed load leaves the old module in place.
+    local former sibling
+    local -a swap_args=( -i "${pp}" )
+    if former="$(ai_tools_selinux_group_former_module "${name}" 2>/dev/null)" \
+            && ai_tools_selinux_module_loaded "${former}"; then
+        while IFS= read -r sibling; do
+            [[ -n "${sibling}" && "${sibling}" != "${name}" ]] || continue
+            [[ -f "${AI_TOOLS_SELINUX_PACKAGE_DIR}/ai_tools_${sibling}.pp" ]] || continue
+            swap_args+=( -i "${AI_TOOLS_SELINUX_PACKAGE_DIR}/ai_tools_${sibling}.pp" )
+        done < <(ai_tools_selinux_groups_from_former_module "${former}")
+        log "replacing the loaded '${former}' module with the group(s) its rules became"
+        semodule -r "${former}" "${swap_args[@]}" || die MSG-M8X2 "semodule failed to replace ${former}"
+    else
+        log "loading group: ai_tools_${name}"
+        semodule "${swap_args[@]}" || die MSG-W7T4 "semodule failed to load ${pp}"
+    fi
+    _restore_group_static_labels
     log "group '${name}' enabled"
     log "re-run the SELinux bring-up loop (selinux/avc/) to catch any new denials from the"
     log "expanded surface before relying on it under enforcing."
@@ -810,23 +926,33 @@ sel_enable() {
 
 sel_disable() {
     local name="${1:-}"
-    [[ $# -le 1 ]] || reject "selinux groups disable: one group name at a time"
-    [[ -n "${name}" && "${name}" != -* ]] || reject "selinux groups disable: name the group to unload"
+    [[ $# -le 1 ]] || reject MSG-W8A7 "selinux groups disable: one group name at a time"
+    [[ -n "${name}" && "${name}" != -* ]] || reject MSG-P2T5 "selinux groups disable: name the group to unload"
     require_selinux || return 0
-    if ! ai_tools_selinux_group_valid "${name}"; then
-        log "unknown group '${name}'. Available groups:"; _selinux_usage_groups
-        die "no such policy group: ${name}"
-    fi
+    _sel_require_known_group "${name}"
     if ai_tools_selinux_group_loaded "${name}"; then
-        semodule -r "ai_tools_${name}" || die "semodule failed to remove ai_tools_${name}"
+        semodule -r "ai_tools_${name}" || die MSG-Q6F4 "semodule failed to remove ai_tools_${name}"
+        _restore_group_static_labels
         log "group '${name}' disabled"
     else
         log "group '${name}' is not loaded -- nothing to do"
     fi
 }
 
+# _restore_group_static_labels: after a group is loaded or unloaded, restore the labels its static
+# file contexts decide. The one tree a group's .fc names is the sandbox-clone area (the dotnet group
+# maps a clone's build output to ai_tools_project_build_t), so that is what is restored; a claimed
+# project's build rule is a per-project local rule written at claim time and is not the group's.
+_restore_group_static_labels() {
+    local clones=/var/opt/ai-tools/sandbox-projects
+    [[ -d "${clones}" ]] && command -v restorecon >/dev/null 2>&1 || return 0
+    restorecon -FR "${clones}" >/dev/null 2>&1 \
+        || warn MSG-C9W9 "could not restore labels under ${clones}; run: sudo restorecon -FR ${clones}"
+    return 0
+}
+
 # sel_list is a read-only REPORT, not operational output, so it renders as a plain section (like
-# the CLI's --providers/--list) instead of `log`'s per-line `ai-tools-admin:` prefix. The core
+# the CLI's `--providers`/`--list`) instead of `log`'s per-line `ai-tools-admin:` prefix. The core
 # module uses the same bracketed [LOADED]/[disabled] state column as the group rows for one legend.
 sel_list() {
     require_selinux || return 0
@@ -863,7 +989,7 @@ sel_list() {
 #
 # Scope defaults to the MINIMUM that works, and a bare run takes that default: the toolchain and
 # the enabled agents, which is what a first host needs. `--scope full` also reaches every enabled integration, through each one's
-# own contributed `bootstrap` -- which is why full scope needed the seam above before it could
+# own contributed `bootstrap` -- which is why full scope needed the admin-commands seam before it could
 # exist. It is spelled as a switch rather than a positional word because every other verb here
 # takes a resource identifier in that slot.
 system_bootstrap() {
@@ -871,20 +997,21 @@ system_bootstrap() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --scope)
-                [[ $# -ge 2 ]] || reject "system bootstrap: --scope takes a value (minimal|full)"
+                [[ $# -ge 2 ]] || reject MSG-V5J3 "system bootstrap: --scope takes a value (minimal|full)"
                 scope="$2"; shift 2 ;;
-            *)  reject "system bootstrap: unknown argument '$1' (--scope minimal|full)" ;;
+            *)  reject MSG-H5Z4 "system bootstrap: unknown argument '$1' (--scope minimal|full)" ;;
         esac
     done
     case "${scope}" in
         minimal|full) ;;
-        *) reject "system bootstrap: unknown scope '${scope}' (minimal|full)" ;;
+        *) reject MSG-A8G5 "system bootstrap: unknown scope '${scope}' (minimal|full)" ;;
     esac
-    [[ -x "${BOOTSTRAP_BIN}" ]] || die "${BOOTSTRAP_BIN} not found -- install ai-tools-integration-nodejs"
+    [[ -x "${BOOTSTRAP_BIN}" ]] \
+        || die MSG-D9W6 "the provisioning helper is not installed: ${BOOTSTRAP_BIN} -- install ai-tools-integration-nodejs"
     # Minimal scope has no step after the helper, so it hands the process over rather than
     # wrapping it: the helper's exit status is this command's, unmediated.
     [[ "${scope}" == full ]] || exec "${BOOTSTRAP_BIN}"
-    "${BOOTSTRAP_BIN}" || die "the toolchain bootstrap failed -- no integration was reached"
+    "${BOOTSTRAP_BIN}" || die MSG-Y6F3 "the toolchain bootstrap failed -- no integration was reached"
     bootstrap_integrations
 }
 
@@ -898,7 +1025,7 @@ system_bootstrap() {
 # cannot assume any particular package is installed.
 bootstrap_integrations() {
     declare -F ai_tools_enabled_integrations >/dev/null 2>&1 \
-        || die "the provider resolver is unavailable, so the enabled integrations cannot be resolved -- the toolchain itself is provisioned; re-run without --scope to confirm"
+        || die MSG-Z4D6 "the provider resolver is unavailable, so the enabled integrations cannot be resolved -- the toolchain itself is provisioned; re-run without --scope to confirm"
     local -a enabled=()
     mapfile -t enabled < <(ai_tools_enabled_integrations)
     if [[ "${#enabled[@]}" -eq 0 ]]; then
@@ -907,7 +1034,7 @@ bootstrap_integrations() {
     fi
     admin_domains
     admin_commands_trusted \
-        || die "refusing every contributed command while ${ADMIN_COMMANDS_DIR} holds a file that is not root's alone (named above); the toolchain itself is provisioned -- ${ADMIN_COMMANDS_TAMPER_REMEDY}"
+        || die MSG-D9U7 "refusing every contributed command while ${ADMIN_COMMANDS_DIR} holds a file that is not root's alone (named above); the toolchain itself is provisioned -- ${ADMIN_COMMANDS_TAMPER_REMEDY}"
     local integration known known_domain failed=0
     for integration in "${enabled[@]}"; do
         known=no
@@ -921,7 +1048,7 @@ bootstrap_integrations() {
         # The same gates an administrator's own `ai-tools-admin <domain> bootstrap` passes, so a
         # fragment reached from here is vetted exactly as one that is typed.
         if ! admin_command_check "${integration}"; then
-            warn "${integration}: ${_admin_command_reason}"
+            emit_coded warn "${_admin_command_reason}" "${integration}: "
             failed=1
             continue
         fi
@@ -934,11 +1061,11 @@ bootstrap_integrations() {
         fi
         log "provisioning the ${integration} integration"
         if ! "${ADMIN_COMMANDS_DIR}/${integration}" bootstrap; then
-            warn "${integration}: its bootstrap failed -- the cause is above, and in its own log"
+            warn MSG-J2Y8 "provisioning failed -- ${integration}: its bootstrap failed, with the cause above and in its own log"
             failed=1
         fi
     done
-    (( failed == 0 )) || die "one or more integrations did not provision"
+    (( failed == 0 )) || die MSG-V8V7 "one or more integrations did not provision"
 }
 
 # ── system entrypoints relabel: reconcile each enabled agent's entrypoint ─────────────────────
@@ -947,8 +1074,9 @@ bootstrap_integrations() {
 # RELABEL it to ai_tools_exec_t, which an nvm-update leaves as bin_t so the domain transition stops
 # firing. Takes no path -- the helper resolves the entrypoints from the agent manifests.
 entrypoints_relabel() {
-    [[ $# -eq 0 ]] || reject "system entrypoints relabel: takes no arguments"
-    [[ -x "${RELABEL_ENTRYPOINT_BIN}" ]] || die "${RELABEL_ENTRYPOINT_BIN} not found -- install ai-tools-integration-nodejs"
+    [[ $# -eq 0 ]] || reject MSG-A4J6 "system entrypoints relabel: takes no arguments"
+    [[ -x "${RELABEL_ENTRYPOINT_BIN}" ]] \
+        || die MSG-F5R8 "the entrypoint relabel helper is not installed: ${RELABEL_ENTRYPOINT_BIN} -- install ai-tools-integration-nodejs"
     log "reconciling the agent entrypoints (verify, then relabel)"
     # Cleared, not merely left unset: the guarantee that this command re-fetches the vendor's signed
     # manifest holds however it was invoked, rather than resting on sudo scrubbing the environment
@@ -991,7 +1119,8 @@ readonly -a POSTUPGRADE_FILES=(
 # is optional too -- without it the report continues and only the difference itself is missing.
 _pu_diff() {
     local differ=diff
-    command -v diff >/dev/null 2>&1 || { log "    (install diffutils to see the difference here)"; return 0; }
+    command -v diff >/dev/null 2>&1 \
+        || { warn MSG-Q4S8 "diff is not installed, so the difference is not shown here -- install diffutils"; return 0; }
     [[ -t 1 ]] && command -v colordiff >/dev/null 2>&1 && differ=colordiff
     "${differ}" -u "$1" "$2" 2>/dev/null | sed 's/^/    /' || true
 }
@@ -1012,7 +1141,8 @@ _pu_cleanup() {
 # would fail says so before the real file is touched.
 _pu_json() {
     local deployed="$1" rpmnew="$2" scratch status=0
-    ai_tools_conf_require_jq || { log "  jq is missing -- cannot read JSON; merge by hand"; return 0; }
+    ai_tools_conf_require_jq \
+        || { warn MSG-A5Z7 "jq is missing, so this file's JSON cannot be read -- merge it by hand"; return 0; }
 
     scratch="$(mktemp -d)" || return 0
     cp -p "${deployed}" "${scratch}/probe" 2>/dev/null || { rm -rf "${scratch}"; return 0; }
@@ -1025,8 +1155,8 @@ _pu_json() {
         _pu_diff "${deployed}" "${rpmnew}"
         _pu_cleanup "${rpmnew}" n
         return 0 ;;
-    2)  log "  cannot merge: ${_ai_tools_conf_merge_reason}"
-        log "  ${deployed} is unchanged -- copy the \"hooks\" block from ${rpmnew} by hand"
+    2)  warn MSG-Q4F6 "cannot merge the hook declarations: ${_ai_tools_conf_merge_reason}"
+        warn "    ${deployed} is unchanged -- copy the \"hooks\" block from ${rpmnew} by hand"
         return 0 ;;
     esac
 
@@ -1039,7 +1169,7 @@ _pu_json() {
     status=0
     ai_tools_conf_merge_hook_declarations "${deployed}" "${rpmnew}" || status=$?
     if (( status >= 2 )); then
-        log "  merge failed: ${_ai_tools_conf_merge_reason} -- ${deployed} is unchanged"
+        warn MSG-X9F8 "the merge failed: ${_ai_tools_conf_merge_reason} -- ${deployed} is unchanged"
         return 0
     fi
     log "  merged. the previous file is saved as ${_ai_tools_conf_merge_backup}"
@@ -1079,7 +1209,7 @@ _pu_keyval() {
 # _pu_review <deployed> <rpmnew>: show and stop. This file is the sudo grant itself.
 _pu_review() {
     local deployed="$1" rpmnew="$2"
-    ai_tools_msg_warn \
+    ai_tools_msg_warn MSG-H8A2 \
         "This file defines the sudo grant that lets an operator launch the sandbox. It is shown, never merged: check any change yourself with visudo -c before adopting it."
     _pu_diff "${deployed}" "${rpmnew}"
     log "  adopt the packaged version with:  sudo visudo -c -f ${rpmnew} && sudo cp ${rpmnew} ${deployed}"
@@ -1087,7 +1217,7 @@ _pu_review() {
 }
 
 postupgrade() {
-    [[ $# -eq 0 ]] || reject "system post-upgrade: takes no arguments"
+    [[ $# -eq 0 ]] || reject MSG-S9M6 "system post-upgrade: takes no arguments"
     local entry file kind label found=0
     local root="${AI_TOOLS_POSTUPGRADE_ROOT:-}"
 
@@ -1131,8 +1261,7 @@ detail()  { printf '                  %s\n' "$*"; }
 heading() { printf '\n  %s\n\n' "$*"; }
 
 # status_services: every unit in the shared registry, with its consequence and remedy where one
-# needs attention. Prints the count of units needing attention on stdout... no: it sets
-# STATUS_PROBLEMS, because the rendering IS this function's stdout.
+# needs attention. Renders to stdout and counts the units needing attention in STATUS_PROBLEMS.
 STATUS_PROBLEMS=0
 status_services() {
     heading "Services"
@@ -1283,14 +1412,15 @@ status_labels() {
 # the reason `?` and `n/a` are never counted: a reading this vantage point could not make must not
 # make a healthy host alarm every night.
 status() {
-    [[ $# -eq 0 ]] || reject "status: takes no arguments"
+    [[ $# -eq 0 ]] || reject MSG-T6S6 "status: takes no arguments"
     STATUS_PROBLEMS=0
     # Ahead of the library load, so a report that cannot be given still says what was asked for:
-    # the refusal below then reads as this command failing rather than as an unattributed error.
+    # the refusal then reads as this command failing rather than as an unattributed error.
     printf '\nai-tools host status\n'
 
-    # Loaded here rather than beside the other libraries: no other command reads any of them, and
-    # relabel.lib.sh pulls in the provider and control-plane libraries behind it. Each is
+    # Loaded here rather than beside the other libraries: each is read by one command, and
+    # relabel.lib.sh pulls in the provider and control-plane libraries behind it. `operators add`
+    # loads that one the same way, inside the command that needs it. Each is
     # best-effort and its section reports what it could not read, EXCEPT the service registry --
     # without it there is no report to give, and a clean bill this tool cannot support is worse
     # than a refusal.
@@ -1303,7 +1433,7 @@ status() {
     if ! declare -F ai_tools_service_records   >/dev/null 2>&1 \
             || ! declare -F ai_tools_service_state_of >/dev/null 2>&1 \
             || ! declare -F ai_tools_service_fmt_age  >/dev/null 2>&1; then
-        die "the service registry (${SERVICES_LIB}) is unavailable -- reinstall ai-tools-base"
+        die MSG-V6N9 "the service registry (${SERVICES_LIB}) is unavailable -- reinstall ai-tools-base"
     fi
     # Root reaching the sandbox account's own manager is what this report adds over the operator's.
     ai_tools_service_sandbox_account "${SANDBOX_USER}"
@@ -1359,7 +1489,7 @@ operators_dispatch() {
         list)   op_list   "$@" ;;
         add)    op_add    "$@" ;;
         remove) op_remove "$@" ;;
-        *)      reject "unknown command 'operators ${verb}' (list|add|remove)" ;;
+        *)      reject MSG-H6J5 "unknown command 'operators ${verb}' (list|add|remove)" ;;
     esac
 }
 
@@ -1369,38 +1499,38 @@ selinux_groups_dispatch() {
         list)    sel_list ;;
         enable)  sel_enable  "$@" ;;
         disable) sel_disable "$@" ;;
-        *)       reject "unknown command 'selinux groups ${verb}' (list|enable|disable)" ;;
+        *)       reject MSG-H3F8 "unknown command 'selinux groups ${verb}' (list|enable|disable)" ;;
     esac
 }
 
 selinux_dispatch() {
-    [[ $# -ge 1 ]] || reject "selinux owns one collection: 'selinux groups [list|enable|disable]'"
+    [[ $# -ge 1 ]] || reject MSG-D6K9 "selinux owns one collection: 'selinux groups [list|enable|disable]'"
     local resource="$1"; shift
     case "${resource}" in
         groups) selinux_groups_dispatch "$@" ;;
-        *)      reject "unknown command 'selinux ${resource}' (groups)" ;;
+        *)      reject MSG-V9Z4 "unknown command 'selinux ${resource}' (groups)" ;;
     esac
 }
 
 system_entrypoints_dispatch() {
     # No `list` yet, so a bare `system entrypoints` names its verb rather than running one: relabel
     # re-fetches a signed manifest and rewrites a pin, which is not a reading a default may take.
-    [[ $# -ge 1 ]] || reject "system entrypoints takes a verb: 'system entrypoints relabel'"
+    [[ $# -ge 1 ]] || reject MSG-U8G3 "system entrypoints takes a verb: 'system entrypoints relabel'"
     local verb="$1"; shift
     case "${verb}" in
         relabel) entrypoints_relabel "$@" ;;
-        *)       reject "unknown command 'system entrypoints ${verb}' (relabel)" ;;
+        *)       reject MSG-T7N9 "unknown command 'system entrypoints ${verb}' (relabel)" ;;
     esac
 }
 
 system_dispatch() {
-    [[ $# -ge 1 ]] || reject "system takes a resource or a verb: 'system bootstrap', 'system entrypoints relabel', 'system post-upgrade'"
+    [[ $# -ge 1 ]] || reject MSG-C7S7 "system takes a resource or a verb: 'system bootstrap', 'system entrypoints relabel', 'system post-upgrade'"
     local name="$1"; shift
     case "${name}" in
         bootstrap)    system_bootstrap "$@" ;;
         entrypoints)  system_entrypoints_dispatch "$@" ;;
         post-upgrade) postupgrade "$@" ;;
-        *)            reject "unknown command 'system ${name}' (bootstrap|entrypoints|post-upgrade)" ;;
+        *)            reject MSG-Q2X5 "unknown command 'system ${name}' (bootstrap|entrypoints|post-upgrade)" ;;
     esac
 }
 
@@ -1408,7 +1538,7 @@ system_dispatch() {
 # defined and no command dispatched, so the caller's arguments are not read as a command.
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
-# --help/-h and --version are answered above, before the root check.
+# `--help`/`-h` and `--version` are answered ahead of the root check.
 [[ $# -ge 1 ]] || { usage >&2; exit 2; }
 case "$1" in
     operators) shift; operators_dispatch "$@" ;;
@@ -1416,7 +1546,7 @@ case "$1" in
     system)    shift; system_dispatch    "$@" ;;
     status)    shift; status             "$@" ;;
     # Anything else is either a domain a provider package contributed or an unknown command, and
-    # only the discovered set tells the two apart. Base names are matched above, so a fragment
+    # only the discovered set tells the two apart. Base names are matched first, so a fragment
     # cannot shadow one however it is named.
     *) contributed_dispatch "$@" ;;
 esac

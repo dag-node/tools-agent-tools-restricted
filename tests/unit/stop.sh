@@ -18,15 +18,16 @@
 # reach the sandbox account's user manager over sudo, and that one alone. Liveness and enumeration
 # are exercised as written.
 #
-# NO REAL PROCESS CAN BE SIGNALLED. Every fixture pid is above the host's pid_max, so it has no /proc
+# NO REAL PROCESS CAN BE SIGNALLED. Every fixture pid is past the host's pid_max, so it has no /proc
 # entry; the helper validates a pid's start time immediately before signalling and skips one it
 # cannot read, which is asserted here rather than assumed. main() is driven only in the dry run,
 # which returns before the kill. The kill primitive itself is exercised against real `sleep`
 # children this test spawns and reaps, and end to end in tests/integration/stop.sh.
 #
 # Run as root via sudo with the rest of the suite; does not require privilege of its own, so it also runs
-# directly as an unprivileged user during development. Two assertions about an UNREADABLE file skip
-# under root, which reads everything regardless of mode.
+# directly as an unprivileged user during development. Two assertions hold only unprivileged (an
+# UNREADABLE file, which root reads regardless of mode, and the helper's own root check); a root
+# run drives those as the projects user through runuser rather than skipping them.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -58,7 +59,18 @@ source_errors="${TESTDIR}/source-stderr"
 # shellcheck source=/dev/null
 source "${STOP_HELPER}" 2>"${source_errors}" || true
 
-# The real attribution function, saved under a second name BEFORE the fixture stub below replaces
+# Two assertions hold only for an UNPRIVILEGED caller (an unreadable cgroup.procs, and
+# the helper's own root check). The suite runs as root, so those are re-driven as the projects
+# user through runuser, against a readable copy of the helper: the installed one is root-only
+# (750), and the projects user cannot source it. as_projects_user <cmd...> runs a command as
+# that account with the copy's path first; the fixture directories it must read are opened
+# explicitly, since a root umask of 077 would otherwise close them.
+HELPER_COPY="${TESTDIR}/stop-helper.sh"
+cp "${STOP_HELPER}" "${HELPER_COPY}"; chmod 0644 "${HELPER_COPY}"
+as_projects_user() { runuser -u "${PROJECTS_USER}" -- "$@"; }
+can_drop_privilege() { [[ "${EUID}" -eq 0 ]] && command -v runuser >/dev/null 2>&1; }
+
+# The real attribution function, saved under a second name BEFORE the fixture stub replaces
 # it. `unset -f` cannot get it back: overriding a function discards the original outright, so a
 # test that stubbed first and unset later would drive the real function.
 eval "helper_unit_working_directory() $(declare -f unit_working_directory 2>/dev/null | tail -n +2)" \
@@ -79,8 +91,8 @@ else
     fail "sandbox account mismatch: helper/harness resolved '${SANDBOX_USER}'"
 fi
 
-# Fixture pids sit ABOVE pid_max, so no /proc entry can ever exist for one and no fixture pid can
-# name a real process. This is the test's own safety property and it is asserted below.
+# Fixture pids sit PAST pid_max, so no /proc entry can ever exist for one and no fixture pid can
+# name a real process. This is the test's own safety property, and it has its own assertion.
 _pid_max="$(< /proc/sys/kernel/pid_max)"
 fixture_pid() { printf '%s' "$(( _pid_max + $1 ))"; }
 
@@ -115,7 +127,7 @@ sync_events() {
 # point_at <slice-root> <uid> -- aim the helper's two walk globals at a fixture tree. They are
 # readonly only once the helper's own resolve_cgroup_layout runs, which sourcing does not do -- and
 # this file never calls it, which is what keeps every main() here on a fixture slice under TESTDIR
-# and off the real sandbox account's. Every main() call below is preceded by a point_at.
+# and off the real sandbox account's. Every main() call in this file is preceded by a point_at.
 # shellcheck disable=SC2034  # read by the sourced helper's walk, not by this file
 point_at() {
     SANDBOX_SLICE="$1"
@@ -227,7 +239,7 @@ else
 fi
 
 # THREADED CGROUP: cgroup.procs exists and is permission-readable, but the read itself fails
-# (EOPNOTSUPP below a threaded root) while live threads sit in the cgroup. Bash cannot tell that
+# (EOPNOTSUPP under a threaded root) while live threads sit in the cgroup. Bash cannot tell that
 # failed read from a clean EOF -- verified, both give `read` status 1 and an empty value -- so the
 # corroborating source is cgroup.threads, which the kernel keeps readable in every cgroup. The
 # fixture reproduces the SHAPE (a read that fails on a permission-readable path) with a directory
@@ -245,12 +257,23 @@ fi
 unreadable="${TESTDIR}/cgroup2/unreadable"
 mkcg "${unreadable}" 702
 chmod 000 "${unreadable}/cgroup.procs"
-if [[ "${EUID}" -eq 0 ]]; then
-    skip "an unreadable cgroup.procs reports LIVE" "root reads any mode; assertion is meaningful only unprivileged"
-elif has_own_tasks "${unreadable}"; then
-    pass "an unreadable cgroup.procs reports LIVE, never empty"
+# Root reads any mode, so the predicate is asked as the projects user, for whom the mode holds.
+if [[ "${EUID}" -ne 0 ]]; then
+    if has_own_tasks "${unreadable}"; then
+        pass "an unreadable cgroup.procs reports LIVE, never empty"
+    else
+        fail "an unreadable cgroup.procs read as empty is a fail-open"
+    fi
+elif ! can_drop_privilege; then
+    skip "an unreadable cgroup.procs reports LIVE" "runuser unavailable to ask the predicate unprivileged"
 else
-    fail "an unreadable cgroup.procs read as empty is a fail-open"
+    chmod 0755 "${TESTDIR}/cgroup2" "${unreadable}"
+    # shellcheck disable=SC2016  # $1/$2 are the inner shell's positionals
+    if as_projects_user bash -c 'source "$1" 2>/dev/null; has_own_tasks "$2"' _ "${HELPER_COPY}" "${unreadable}"; then
+        pass "an unreadable cgroup.procs reports LIVE, never empty (asked as ${PROJECTS_USER})"
+    else
+        fail "an unreadable cgroup.procs read as empty for ${PROJECTS_USER} is a fail-open"
+    fi
 fi
 chmod 644 "${unreadable}/cgroup.procs"
 
@@ -305,7 +328,7 @@ if ( PATH=/nonexistent; cgroup_is_live "${unit11}" ); then
 else
     fail "liveness must not depend on an external command"
 fi
-# shellcheck disable=SC2123  # as above
+# shellcheck disable=SC2123  # same reason as the earlier disable
 if ( PATH=/nonexistent; cgroup_is_live "${CG}/user@4242.service/empty.slice" ); then
     fail "an empty cgroup must still read empty with PATH=/nonexistent"
 else
@@ -342,7 +365,7 @@ fi
 # ── The kill primitive, against real processes this test owns ─────────────────────────────────
 section "signalling"
 
-# A fixture pid is above pid_max, so it has no /proc entry -- the property every assertion above
+# A fixture pid is past pid_max, so it has no /proc entry -- the property every assertion here
 # leans on, and the reason a fixture can never name a real process.
 if pid_start_time "$(fixture_pid 201)" >/dev/null 2>&1; then
     fail "a fixture pid must have no /proc entry"
@@ -414,7 +437,7 @@ FIXTURE_WORKING_DIR=(
 # consulted -- this command does not take an authorization input.
 # shellcheck disable=SC2034  # CALLER/SANDBOX_UID are read by the sourced helper
 CALLER="${PROJECTS_USER}"
-# shellcheck disable=SC2034  # as above
+# shellcheck disable=SC2034  # same reason as the earlier disable
 SANDBOX_UID=4242
 
 # run_main <dry-run?> -- set the request the way the argument parser would and run main(),
@@ -510,7 +533,7 @@ section "confirmation"
 #
 # unattended_confirm <arg...> -- drive confirm_stop under `setsid`, which removes the controlling
 # terminal: that is the shape of every unattended run, and the one a default-NO prompt would
-# silently turn into "nothing was stopped". The sub-shell's STDERR IS CAPTURED, not discarded --  prose-check: allow
+# silently turn into `nothing was stopped`. The sub-shell's STDERR IS CAPTURED, not discarded --
 # discarding it once turned a shell that aborted outright under `set -u` into a result line reading
 # "the confirmation declined", which named neither the abort nor the line it happened on.
 unattended_confirm() {
@@ -565,11 +588,12 @@ unset -f ai_tools_msg_confirm check_question
 point_at "${CG2}" 4242
 ai_tools_msg_confirm() { return 1; }
 run_main false
-if (( MAIN_STATUS == 4 )) && grep -qi 'nothing was stopped' <<< "${MAIN_OUTPUT}"; then
-    pass "a deliberate decline stops the stop (exit 4) and says nothing was stopped"
+if (( MAIN_STATUS == 4 )); then
+    pass "a deliberate decline stops the stop (exit 4)"
 else
     fail "decline: expected exit 4, got ${MAIN_STATUS}: ${MAIN_OUTPUT}"
 fi
+assert_msg MSG-J3U9 "${MAIN_OUTPUT}" "the decline says nothing was stopped, through the notice emitter"
 unset -f ai_tools_msg_confirm
 
 # Every one of those outcomes is in the trail. An operator ending another operator's work, and a
@@ -583,6 +607,49 @@ if [[ -s "${stop_log}" ]] \
     pass "the request, the refusals and the decline are all recorded in the trail"
 else
     fail "the trail is missing one of request/refusal/decline: $(tail -5 "${stop_log}" 2>&1)"
+fi
+
+# ── The two-branch emitters ───────────────────────────────────────────────────────────────────
+section "emitters"
+
+# THE FALLBACK BRANCH IS THE ONE NO OTHER CASE HERE REACHES. msg.lib.sh is deployed, so every
+# refusal above rendered through the library; this helper's emitters carry a second branch for the
+# host where it did not load at all, and that branch is where a searchable token matters most --
+# there is no renderer left to put one in a box title. So it is driven with the library's emitters
+# removed from the shell, which is what an absent msg.lib.sh leaves behind.
+#
+# The prefix is asserted with the code, because the two answer different questions: the code names
+# the situation, `ai-tools-stop: ` names the component that raised it, and a branch that dropped
+# either would still print a line that reads like a message.
+# Each driving line is marked `ref-index: ignore`: it carries the emit-call shape the reference
+# index reads as a code's DEFINITION, and a fixture that drove a real emitter would register a
+# second definition of a code the helper already defines. The assertions under it cite the codes.
+fallback_out="$( { unset -f ai_tools_msg_error ai_tools_msg_warn ai_tools_msg_notice
+    say_error  MSG-Z5W3 "the error line"     # ref-index: ignore
+    say_warn   MSG-W8C6 "the warning line"   # ref-index: ignore
+    say_notice MSG-J3U9 "the notice line"; } 2>&1 )"   # ref-index: ignore
+assert_msg MSG-Z5W3 "${fallback_out}" "the fallback error renders its code on a line of its own"
+assert_msg MSG-W8C6 "${fallback_out}" "the fallback warning renders its code on a line of its own"
+assert_msg MSG-J3U9 "${fallback_out}" "the fallback notice renders its code on a line of its own"
+if grep -qxF 'ai-tools-stop: the error line'   <<< "${fallback_out}" \
+        && grep -qxF 'ai-tools-stop: the warning line' <<< "${fallback_out}"; then
+    pass "the fallback message keeps the emitter's component prefix, whole and on one line"
+else
+    fail "fallback prefix wrong: $(tr '\n' '|' <<< "${fallback_out}")"
+fi
+# The notice goes to stdout unprefixed: it reports an outcome rather than a fault, and the two
+# emitters that do report one are the ones that name the component.
+if grep -qxF 'the notice line' <<< "${fallback_out}"; then
+    pass "the fallback notice stays unprefixed, as it is on the library branch"
+else
+    fail "fallback notice wrong: $(tr '\n' '|' <<< "${fallback_out}")"
+fi
+# An uncoded call is unchanged, so a component takes codes one emit site at a time.
+uncoded_out="$( { unset -f ai_tools_msg_error; say_error "no code here"; } 2>&1 )"
+if [[ "${uncoded_out}" == 'ai-tools-stop: no code here' ]]; then
+    pass "an uncoded emit is byte-identical to what it printed before codes existed"
+else
+    fail "uncoded emit changed: $(tr '\n' '|' <<< "${uncoded_out}")"
 fi
 
 # ── Usage contract ────────────────────────────────────────────────────────────────────────────
@@ -610,7 +677,7 @@ if [[ "$(parse_status)" == "0" ]]; then
 else
     fail "no argument was rejected by the parser (status $(parse_status))"
 fi
-# --all is accepted and inert, so a script that spells the intent out is never refused for being
+# `--all` is accepted and inert, so a script that spells the intent out is never refused for being
 # explicit -- and it must not turn into a second mode by accident: it sets none of the three flags.
 if [[ "$(parse_status --all)" == "0" ]]; then
     pass "--all parses cleanly and is inert"
@@ -638,29 +705,31 @@ if (( HELPER_STATUS == 2 )); then
 else
     fail "unknown option: expected exit 2, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
 fi
+# The code is the CLI's: an unrecognised option to this command is ONE situation, met at whichever
+# side the operator reached, so both refusals carry the same token to search for.
+assert_msg MSG-B7K4 "${HELPER_OUTPUT}" "the helper's unknown-option refusal carries the CLI's code"
 # A PATH IS REFUSED, NOT IGNORED. Accepting it and terminating everything anyway would invert what
 # the operator asked for, in the destructive direction; and refusing keeps `--stop <path>` free to
 # mean something narrower later without an existing command line silently changing meaning. The
 # refusal has to NAME the alternatives, or it is a dead end mid-incident.
 run_helper /some/project
-if (( HELPER_STATUS == 2 )) \
-        && grep -q 'takes no path' <<< "${HELPER_OUTPUT}" \
-        && grep -q '/exit' <<< "${HELPER_OUTPUT}"; then
+if (( HELPER_STATUS == 2 )) && grep -q '/exit' <<< "${HELPER_OUTPUT}"; then
     pass "a path exits 2 and the refusal names /exit as the way to end one session"
 else
     fail "a path: expected exit 2 naming /exit, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
 fi
+assert_msg MSG-A3M9 "${HELPER_OUTPUT}" "the twinned refusal carries the same code the CLI's half prints"
 run_helper --all /some/project
 if (( HELPER_STATUS == 2 )); then
     pass "a path is refused even beside --all"
 else
     fail "--all with a path: expected exit 2, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
 fi
-# The one accepted form driven as a command, and ONLY when this run is unprivileged -- the guard
-# is what makes it safe. Non-root, the helper exits 5 at its root check, which is still before
-# resolve_cgroup_layout and main(), so the real slice is never enumerated. Do not remove the guard
-# to "also cover root": as root this exact line reaches main() and prompts to terminate every
-# session on the host.
+# The one accepted form driven as a command, and ONLY unprivileged -- that is what makes it safe.
+# Non-root, the helper exits 5 at its root check, which is still before resolve_cgroup_layout and
+# main(), so the real slice is never enumerated. A root run drops to the projects user for this
+# line rather than skipping it. Do not run it as root: as root this exact line reaches main() and
+# prompts to terminate every session on the host.
 if [[ "${EUID}" -ne 0 ]]; then
     run_helper --all --dry-run
     if (( HELPER_STATUS == 5 )); then
@@ -668,8 +737,20 @@ if [[ "${EUID}" -ne 0 ]]; then
     else
         fail "non-root: expected exit 5, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
     fi
+    assert_msg MSG-Z5W3 "${HELPER_OUTPUT}" "the root refusal names its situation by code"
+elif ! can_drop_privilege; then
+    skip "a non-root invocation is refused" "runuser unavailable to drive the helper unprivileged"
 else
-    skip "a non-root invocation is refused" "this run is root"
+    set +e
+    HELPER_OUTPUT="$(as_projects_user bash "${HELPER_COPY}" --all --dry-run 2>&1)"
+    HELPER_STATUS=$?
+    set -e
+    if (( HELPER_STATUS == 5 )); then
+        pass "a non-root invocation is refused with the broken-tool code (5), not a stop code (driven as ${PROJECTS_USER})"
+    else
+        fail "non-root (as ${PROJECTS_USER}): expected exit 5, got ${HELPER_STATUS}: ${HELPER_OUTPUT}"
+    fi
+    assert_msg MSG-Z5W3 "${HELPER_OUTPUT}" "the root refusal names its situation by code (driven as ${PROJECTS_USER})"
 fi
 
 finish

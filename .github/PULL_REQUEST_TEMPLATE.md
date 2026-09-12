@@ -2,7 +2,7 @@
 
 <!-- What changes, and the reasoning. For anything touching confinement, sudoers,
      the handback bridge, ownership, or secrets, state how the security invariants
-     (CLAUDE.md, "Security model") are preserved. -->
+     (`CLAUDE.md`, "Security model") are preserved. -->
 
 ## Checklist
 

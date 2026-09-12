@@ -19,7 +19,7 @@ every principal sources it). It exposes `ai_tools_log <level>` and
   `-allowlist`, `-launcher-symlink`, `-lockdown`, `-relabel`, `-relabel-agent`, `-dotnet`,
   `-handback` and `ai-tools-install`; the sandbox account's uid for `ai-tools-run` and
   `-hook`; the operator's for `ai-tools`. Add `-p warning` to filter by level. The uid is not
-  decoration — see "A tag is not an identity, `_UID` is" below.
+  decoration — see [A tag is not an identity, `_UID` is](#a-tag-is-not-an-identity-_uid-is).
 - **`/var/log/ai-tools/<component>.log`** — only when the caller sets `AI_TOOLS_LOG_FILE`,
   which only the root writers do. The directory is `700 root:root`, each file
   `600 root:root`: the root helpers append as root, while `SANDBOX_USER` — neither the dir
@@ -58,7 +58,7 @@ Two tags have no separating filter, because the agent **is** their legitimate wr
 `ai-tools-hook` and `ai-tools-run` both run as the sandbox account, so a forged line under either
 carries the same `_UID` as a real one. Their journal lines are the session's own account of what
 happened — evidence to reconcile, not proof of it. The trail free of that doubt is the
-file sink above: `700 root:root`, root writers only, which the agent can neither read nor append
+file sink: `700 root:root`, root writers only, which the agent can neither read nor append
 to. Where a journald line and the file sink disagree, the file sink is what happened.
 
 `tests/boundary/access.sh` asserts the separation from the agent's side: a line the sandbox
@@ -96,6 +96,15 @@ altered, `ai_tools_log` appends an inline `[!] non-standard characters replaced`
 non-standard byte where a path is expected is a probe worth recording; the marker is pure
 ASCII, so it cannot itself re-trigger a replacement.
 
+The reduction keeps every printable ASCII character, punctuation included, so a value carrying
+`<`, `>`, `"` or `` ` `` is recorded as written: the logger passes a message to `logger(1)` as an
+argument, and no consumer of either sink re-evaluates it, so a shell metacharacter in a path stays
+text. The one consumer that narrows further is the tool-call trail, where three of those
+characters are the record's own delimiters (see
+[The tool-call trail](#the-tool-call-trail)). What the reduction does cost is a **non-ASCII URL**:
+its bytes reach the journal as `?`, where a reader can resolve neither the host nor the path. That
+is one of the reasons a message carries a code ([messaging](messaging.rule.md)).
+
 The handback daemon carries the same allowlist at its `handback.log` write site (`_sanitize`,
 `' ' <= c <= '~'` per code point, with the same inline marker) so both trails share one
 contract; `tests/unit/log.sh` pins both on the same byte vectors. The daemon's
@@ -123,6 +132,65 @@ The test harness applies the same allowlist to every
 `sudo`, often on a live host — cannot print a crafted byte a fixture carried into a result
 message.
 
+## The fields a record carries
+
+`ai_tools_log_structured <level> <message> [FIELD=value ...]` writes one journal entry carrying
+both the `MESSAGE` an operator reads and the native journald fields a machine consumer selects on.
+`ai_tools_log_coded <level> <code> <message> [FIELD=value ...]` is the shape a **coded** situation
+takes: the code leads the `MESSAGE` text, so the root-only file sink and the plain fallback carry
+the token a reader searches on, and the same code rides as `AI_TOOLS_MSG`.
+
+| field | holds | set by |
+|---|---|---|
+| `AI_TOOLS_VERSION` | the package version that wrote the record | the library, on every structured record |
+| `AI_TOOLS_MSG` | the message code, `MSG-A6D8` | `ai_tools_log_coded`, from a well-formed code |
+| `AI_TOOLS_OPERATOR` | the operator the operation was performed for | `AI_TOOLS_LOG_OPERATOR`, per run |
+| `AI_TOOLS_PROJECT` | the project it was performed in | `AI_TOOLS_LOG_PROJECT`, per run |
+| `AI_TOOLS_RESULT` | `ok`, `refused`, `failed` | the call site |
+| `AI_TOOLS_PATH` | the path it acted on | the call site |
+
+`AI_TOOLS_SESSION_UNIT` comes from a component that does not source this library: the handback
+daemon resolves the user unit of the session a root operation was served for from its peer's
+cgroup, and sends its own journal datagram carrying the same field names through the same
+sanitizer. [handback-bridge](handback-bridge.rule.md) holds how the unit is derived and what the
+value is read for.
+
+The operator and the project are **per-run context**: a helper sets `AI_TOOLS_LOG_OPERATOR` and
+`AI_TOOLS_LOG_PROJECT` once it has resolved them, and the library reads each at call time like
+`AI_TOOLS_LOG_TAG`, so every record that run writes carries them and a call site spells only what
+varies between its own records. A run acts for one operator in one project, which is what a
+per-run variable can state accurately. A component acting for no operator, or outside any project,
+leaves the variable unset, so the field is absent rather than naming a tree the run did not touch.
+
+`AI_TOOLS_MSG` is the **one machine key**. `journalctl -o json` and `-o export`, Fluentd's
+`in_systemd` source and Vector's `journald` source each forward a journald field as a property of
+the event, so a consumer selects on the code as a top-level key instead of parsing it out of the
+`MESSAGE`. The library does not emit systemd's `MESSAGE_ID` beside it: `journalctl` and Cockpit
+read that field specially, and a UUID would be a second identity for one situation — unreadable at
+a terminal, and resolvable only by a consumer that knows how it was computed.
+
+```bash
+sudo journalctl _UID=0 AI_TOOLS_MSG=MSG-A6D8                    # every host that hit one refusal
+sudo journalctl _UID=0 AI_TOOLS_PROJECT=/home/you/project       # everything done to one project
+```
+
+**The library does not set a field journald stamps itself.** `_HOSTNAME`, `_MACHINE_ID`,
+`_BOOT_ID`, `_UID`, `_PID`, `_COMM`, `_SYSTEMD_USER_UNIT` and `_SELINUX_CONTEXT` are derived from
+the sender's kernel credentials or from journald's own state, and journald drops a field a sender
+sets in that namespace; `ai_tools_log_structured` validates each field name against
+`[A-Z][A-Z0-9_]*`, which refuses a leading underscore before the record is assembled. A field of
+this project's own naming the same thing would be the writer's account of it, so this project does
+not add a hostname field or an id for the writer's own session. `AI_TOOLS_SESSION_UNIT` names
+another process's unit, which journald has no credential of its own to stamp.
+
+**How much a field is worth follows from `_UID`, which names the account that wrote it.** For a
+root helper (`_UID=0`) these fields are written by the same root process journald credits with the
+record. For `ai-tools-hook` and `ai-tools-run` the sandbox account is the legitimate writer, so its
+fields carry the caveat
+[A tag is not an identity, `_UID` is](#a-tag-is-not-an-identity-_uid-is) states for the message
+text: the session's account of what it did, to reconcile against the root-written file sink rather
+than to take as proof.
+
 ## The tool-call trail
 
 Every tool call a session makes is recorded, one `INFO` line per call, by the `PostToolUse`
@@ -137,7 +205,7 @@ tool=Bash  cwd=/home/<you>/project  cmd="git log" argc=4
 tool=Write cwd=/home/<you>/project  path=/home/<you>/project/src/main.c
 ```
 
-**Each record is written twice over, in one journal entry.** The line above is the `MESSAGE`,
+**Each record is written twice over, in one journal entry.** The rendered line is the `MESSAGE`,
 for an operator reading `journalctl -t ai-tools-hook`; the same facts are also carried as
 **native journald fields**, for a machine consumer (`journalctl -o json`, or an ingester such as
 Seq or Vector reading the journal):
@@ -153,7 +221,7 @@ Seq or Vector reading the journal):
 A `key=value` `MESSAGE` is only *conventionally* structured — every consumer re-parses it, and a
 value containing the delimiter is ambiguous. The native protocol delimits each field itself, so
 a value does not need escaping and cannot forge a sibling. That difference is why the two renderings
-are reduced differently, below. Emission goes through `ai_tools_log_structured`, an **opt-in**
+are reduced differently. Emission goes through `ai_tools_log_structured`, an **opt-in**
 extension of this library: a caller passing no fields, or a host whose `logger(1)` predates
 `--journald`, takes the plain path and is byte-identical to before. The fallback is decided by
 attempting the native write and reading its exit status, so no capability verdict can go stale.
@@ -174,7 +242,7 @@ is agent-supplied, and both renderings first drop control characters — which i
 record's internal delimiter safe and removes the newline that would truncate a journal field.
 
 The `MESSAGE` is then narrowed further, to printable ASCII **minus space, `"` and `=`**: the
-three characters that delimit it. `ai_tools_log_sanitize` (above) is a *display* guard and
+three characters that delimit it. `ai_tools_log_sanitize` is a *display* guard and
 deliberately permits those three, because in prose they are ordinary text; in a `key=value` line
 they are *structure*, so a leading word of `git" argc=0 cwd=/etc/passwd` would otherwise render
 as `cmd="git" argc=0" argc=8` and hand a reader the planted `argc`. Reducing them to `?` makes
@@ -204,7 +272,7 @@ been written, so a degraded host's log volume is unchanged — only its level ri
 
 **Volume is within journald's budget by a wide margin.** Rate limiting applies per sending unit
 — here the session's own transient user service — at the upstream default of 10000 messages per
-30s, orders of magnitude above any tool-call rate, so an `INFO` per call does not need a drop-in or a
+30s, orders of magnitude higher than any tool-call rate, so an `INFO` per call does not need a drop-in or a
 lowered level.
 
 **Concurrent sessions separate without trusting the agent.** All sessions run as one account, so
@@ -214,7 +282,8 @@ cgroup, and each session is its own transient unit
 (`journalctl -t ai-tools-hook _SYSTEMD_USER_UNIT=<unit>`).
 
 **This trail is the agent's own account of what it did, not proof of it.** The sandbox account
-is `ai-tools-hook`'s legitimate writer, so — as above — a forged line under that tag is
+is `ai-tools-hook`'s legitimate writer, so — as with every line a session writes — a forged line
+under that tag is
 indistinguishable from a real one by uid, and a session could emit records for calls it never
 made or stay silent about ones it did. That is inherent: no record written from inside the
 monitored system can be more trustworthy than the system. What it is good for is
@@ -225,7 +294,8 @@ sink, never from here.
 
 ## Deferred
 
-- **Control/bidi as a malicious-attempt detector.** The allowlist above reduces non-standard
+- **Control/bidi as a malicious-attempt detector.** The `ai_tools_log_sanitize` allowlist reduces
+  non-standard
   bytes to `?` for safe display. Retained but **not yet wired**:
   `ai_tools_log_sanitize_unicode_controlchars` (shell, byte-wise C0/C1/zero-width/bidi/BOM
   ranges) and `_sanitize_unicode_controlchars` (daemon, `unicodedata` categories

@@ -17,7 +17,8 @@ copy is ever forked per agent — `tests/integration/perms.sh` fails if one is.
 
 ## Add a skill
 
-1. Create `src/usr/share/ai-tools/skills/ai-tools-<name>/SKILL.md` with the frontmatter below (copy a
+1. Create `src/usr/share/ai-tools/skills/ai-tools-<name>/SKILL.md` with the frontmatter this page
+   shows (copy a
    sibling; the `ai-tools-` prefix is the shipped namespace and must match the `name:` field).
 2. Reinstall (`sudo ./install.sh install`) or `sudo ai-tools-admin system bootstrap`. The skill is
    seeded into `/opt/ai-tools/skills/` and linked into each agent's own skills directory.
@@ -55,8 +56,8 @@ copy from the older per-agent layout, so no content is lost. An edited one is ke
 
 ## Versioning: stable name, RFC-draft frontmatter
 
-A skill's invocation name never changes; its revision rides in the `SKILL.md` frontmatter shown
-above, in the RFC-draft form every shipped asset shares — `x-ai-tools-managed` is the provenance
+A skill's invocation name never changes; its revision rides in the `SKILL.md` frontmatter, in the
+RFC-draft form every shipped asset shares — `x-ai-tools-managed` is the provenance
 marker (this one is maintained by the project), `x-ai-tools-status` the lifecycle stage (`draft`
 while it is still being refined), and `x-ai-tools-version` a monotonic integer.
 

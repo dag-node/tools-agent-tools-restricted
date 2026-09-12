@@ -1,59 +1,57 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/conf.lib.sh
-# The one KEY=value grammar every ai-tools config file is read with, plus the trust predicate
-# that decides whether a file may be read at all. Sourced (never executed) by operator.lib.sh,
-# skip-dirs.lib.sh, and providers.lib.sh, so /etc/ai-tools/operator.conf and the provider
-# manifests parse identically no matter which component reads them and the grammar cannot drift
-# between consumers.
+# The one KEY=value grammar every ai-tools config file is read with, the trust predicate that
+# decides whether a file may be read at all, and three things that share the grammar and so live
+# beside it: the dated config sidecars (`<name>.<YYYYMMDD>[-N].{bak,shipped}`, whose stamp
+# ai_tools_conf_sidecar_path is the single home of), the settings.json hook-declaration merge, and
+# every read AND write of allowed-projects. Sourced (never executed) by operator.lib.sh,
+# skip-dirs.lib.sh, providers.lib.sh, the launch wrapper, the CLI and the root helpers, so a key
+# and an allowlist line read the same whichever component reads them. The grammar, the
+# present/absent distinction the provider gating turns on, and what the trust predicate requires
+# are in providers.rule.md; the allowlist state model is in cli.rule.md.
 #
 # Config files are PARSED, never sourced: a malformed or tampered file yields a bad value, never
-# executed code in a privileged script.
+# executed code in a privileged script. List splitting pins IFS locally, because the sourcing
+# scripts run under the strict-mode IFS=$'\n\t', where an inherited IFS would read "a b" as one
+# item -- for a provider allowlist, a wrong "no such provider" verdict.
 #
-# ── Grammar ──────────────────────────────────────────────────────────────────────────────────
-# One `KEY=value` per line, the conventional shape of a shell-style config:
-#
-#   KEY=value                  bare value; no quotes needed
-#   KEY = value                whitespace around the key and the `=` is trimmed
-#   KEY="a b"  /  KEY='a b'    one optional layer of matched quotes, stripped
-#   KEY=a, b  c , d            list separators are commas AND whitespace, freely mixed;
-#                              runs collapse and empty items are dropped
-#   KEY=value   # why          an inline comment: `#` at the start of the value, or following
-#                              whitespace, ends it. Inside quotes `#` is literal, so a value
-#                              that must contain one is written KEY="a#b"
-#   # comment                  a whole-line comment
-#   KEY=                       PRESENT with an empty value -- distinct from an absent key, which
-#                              is the distinction the fail-closed provider gating turns on
-#
-# A repeated key takes its LAST assignment. A line with no `=` is ignored.
-#
-# ── IFS independence ─────────────────────────────────────────────────────────────────────────
-# List splitting sets IFS locally, so a value splits into the same items regardless of the IFS
-# the sourcing script runs under. Scripts here legitimately set `IFS=$'\n\t'` (the strict-mode
-# idiom); a splitter inheriting that would silently read "a b" as ONE item, and for the provider
-# allowlists that reads as "no such provider" -- a fail-closed but wrong verdict.
-#
-# ── Trust ────────────────────────────────────────────────────────────────────────────────────
-# ai_tools_conf_is_trusted gates a file (or directory) the sandbox account must not be able to
-# influence. It is the predicate behind the security invariant that the agent cannot widen its
-# own surface: the provider manifests and their directories, operator.conf, and the session-env
-# fragments all decide what a session gets, so each is honored only while it is root-owned and
-# not group- or other-writable. See providers.rule.md.
-#
-# A refusal reports what the predicate read (ai_tools_conf_untrusted_reason): the owner uid and
-# the mode, against what it requires. That uid is the owner on disk only inside the initial user
-# namespace. In any other, a host uid with no mapping reads back as the overflow uid 65534 while
-# stat exits 0, so a root-owned file reads the same as a nobody-owned one and the predicate
-# refuses it. ai_tools_conf_uid_map_is_identity detects that namespace and the reason names it,
-# so an owner refusal caused by uid translation is not investigated as a file mode or a label.
+# A trust refusal reports the owner uid and mode the predicate read (ai_tools_conf_untrusted_reason).
+# That uid is the owner on disk only inside the initial user namespace: in any other, a host uid
+# with no mapping reads back as the overflow uid 65534 while stat exits 0, so a root-owned file
+# reads as a nobody-owned one and is refused. ai_tools_conf_uid_map_is_identity detects that
+# namespace and the reason names it, so the refusal is not investigated as a mode or a label.
 
-# Sourced more than once in a single shell: the readonly below would abort under set -e on the
+# Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on the
 # second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset
-# guard and trips the sourcing shell's set -e).
+# guard and trips the sourcing shell's `set -e`).
 if [[ -n "${_AI_TOOLS_CONF_LIB:-}" ]]; then
     return 0
 fi
 readonly _AI_TOOLS_CONF_LIB=1
+
+# _ai_tools_conf_warn [code] <message...> : this library's one report, on stderr. A leading message
+#   code (msg.lib.sh states the form) goes on its own line ahead of the message, the shape
+#   tests/lib/harness.sh's assert_msg reads; matched inline, since this library is sourced by every
+#   root helper and by the sandbox account on each launch and so takes no dependency of its own.
+#   The `conf: ` prefix is stated here, so a message text does not carry one.
+_ai_tools_conf_warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'conf: %s\n' "$*" >&2
+}
+
+# ai_tools_conf_is_text_file <path> : succeed when <path> is a regular file that is empty or holds
+#   text -- no NUL bytes, which is what `grep -I` reports a binary file by. For a file whose whole
+#   content is handed to a program as prose (an agent's system prompt): the trust predicate
+#   says who may have written it, this says the bytes are the kind the reader expects. It READS the
+#   file, so the caller is an account that may.
+ai_tools_conf_is_text_file() {
+    local path="$1"
+    [[ -f "${path}" ]] || return 1
+    [[ -s "${path}" ]] || return 0
+    LC_ALL=C grep -Iq . "${path}" 2>/dev/null
+}
 
 # ai_tools_conf_is_trusted <path> : succeed when <path> exists, is not a symlink, is owned by
 #   root, and is writable by neither group nor other -- the property that makes it safe for a
@@ -220,7 +218,7 @@ ai_tools_conf_list() {
 #
 #   <name>.<YYYYMMDD>.bak       what the operator HAD. The only thing that restores their
 #                               settings if a rewrite is valid but wrong, which no syntax check
-#                               catches. Written only when a file is actually about to change.
+#                               catches. Written only when a file is about to change.
 #   <name>.<YYYYMMDD>.shipped   what they were SUPPOSED to get. Written when the merge could not
 #                               run, or when the file is one this project refuses to rewrite
 #                               unattended, so the hand merge has a source -- a host installed
@@ -300,13 +298,13 @@ ai_tools_conf_reference() {
 
 # ai_tools_conf_require_jq : succeed when jq is callable. jq is a package dependency, so its
 #   absence is a broken install rather than a host variation -- this reports and fails instead of
-#   degrading, and callers of the JSON paths below gate on it. Deliberately NOT checked when this
-#   library is sourced: the KEY=value grammar above does not need jq, and this file is sourced on every
+#   degrading, and callers of the JSON paths gate on it. Deliberately NOT checked when this
+#   library is sourced: the KEY=value grammar does not need jq, and this file is sourced on every
 #   launch (by ai-tools-run, as the sandbox account) and by every root helper, so a source-time
 #   failure would stop a session for a reason unrelated to what it asked for.
 ai_tools_conf_require_jq() {
     command -v jq >/dev/null 2>&1 && return 0
-    printf 'conf: jq not found -- it is a package dependency; reinstall ai-tools-base\n' >&2
+    _ai_tools_conf_warn MSG-F9W4 "jq not found -- it is a package dependency; reinstall ai-tools-base"
     return 1
 }
 
@@ -325,7 +323,7 @@ ai_tools_conf_require_jq() {
 # command binds to $command before the membership test: inside index(), `.` is that function's
 # own input -- the $have array -- so an unbound form asks whether the array contains itself and
 # does not report a gap wherever the event already declares a hook.
-# shellcheck disable=SC2016  # jq variables, bound by --slurpfile and jq's own `as`
+# shellcheck disable=SC2016  # jq variables, bound by `--slurpfile` and jq's own `as`
 readonly _AI_TOOLS_CONF_HOOKS_MISSING_FILTER='
     . as $cur
     | ($shipped[0].hooks // {}) | to_entries[] as $event
@@ -336,7 +334,7 @@ readonly _AI_TOOLS_CONF_HOOKS_MISSING_FILTER='
 
 # Append whole matcher groups whose commands are absent, so a group arrives with its matcher
 # intact; a group already fully declared is left alone.
-# shellcheck disable=SC2016  # jq variables, as above
+# shellcheck disable=SC2016  # jq variables, as in the merge program
 readonly _AI_TOOLS_CONF_HOOKS_MERGE_FILTER='
     ($shipped[0].hooks // {}) as $ship
     | reduce ($ship | to_entries[]) as $event (
@@ -393,7 +391,7 @@ ai_tools_conf_merge_hook_declarations() {
     fi
 
     # Keep what the operator had before replacing it: this is the only copy that restores host
-    # tuning if a merge is valid JSON yet wrong, which the check above cannot catch.
+    # tuning if a merge is valid JSON yet wrong, which the JSON check cannot catch.
     _ai_tools_conf_merge_backup="$(ai_tools_conf_backup "${deployed}")" || true
     _ai_tools_conf_match_perms "${tmp}" "${deployed}"
     mv -f "${tmp}" "${deployed}" || { rm -f "${tmp}"; _refuse "the merged file could not be moved into place"; return 2; }
@@ -422,7 +420,7 @@ ai_tools_conf_merge_hook_declarations() {
 #   whether the key is live or written as a commented-out default (`#KEY=` / `# KEY =`). Both
 #   forms count as "mentioned", which is the point: a key an operator has deliberately commented
 #   out is one they have already seen, so re-announcing it every upgrade would be noise. A comment
-#   indented further than one space is prose, not a default, and does not name an option (below).
+#   indented further than one space is prose, not a default, and does not name an option.
 ai_tools_conf_keys() {
     local -n _ai_tools_conf_keys_out="$1"
     local file="$2" line key
@@ -478,13 +476,14 @@ ai_tools_conf_new_keys() {
 # The launch allowlist is one path per line rather than KEY=value, but it is read with the SAME
 # rules as everything else: a whole-line or end-of-line `#` comment, and one matched quote layer
 # for a path that must contain a space or a literal `#`. Sharing the grammar is the point --
-# four components parse this file (the launch wrapper, the CLI, the chown helper, and the relabel
-# helper), and a rule that lives in each of them separately is a rule that drifts.
+# every reader of this file (the launch wrapper, the CLI, the owner resolver, and each root helper
+# that walks or labels a project; providers.rule.md names them) parses it here, and a rule
+# that lives in each of them separately is a rule that drifts.
 #
-#   /home/me/project              a path
-#   /home/me/project   # why      an end-of-line comment: `#` after whitespace ends the entry
-#   "/home/me/my project"         quotes carry a space, and make `#` inside them literal
-#   !/home/me/project/vendor      an exclusion; the `!` precedes the quotes: !"/a b"
+#   /home/op/project              a path
+#   /home/op/project   # why      an end-of-line comment: `#` after whitespace ends the entry
+#   "/home/op/ai works"           quotes carry a space, and make `#` inside them literal
+#   !/home/op/project/vendor      an exclusion; the `!` precedes the quotes: !"/a b"
 #
 # An entry is NOT resolved or validated here: callers canonicalize with realpath and match
 # exclusions as globs, and this only decides what text the line denotes.
@@ -511,7 +510,7 @@ ai_tools_conf_path_entry() {
 # ── Allowlist membership (exact-entry matching) ──────────────────────────────────────────────
 # One predicate for "is this path an entry of allowed-projects", shared by every component that
 # asks: the launch wrapper's post-claim confirm, the claim/unclaim CLI (reg/unreg, project_state),
-# and the relabel helper. They read the file through the grammar above, so an entry written in
+# and the relabel helper. They read the file through that grammar, so an entry written in
 # that grammar -- an end-of-line comment (`/p   # why`), a quoted path (`"/p with space"`), or a
 # spelling reached by a symlink or trailing slash -- is a MATCH here, where a raw `grep -qxF`
 # against the stored line would miss it and report the project unlisted. Comparison is on
@@ -555,7 +554,7 @@ ai_tools_conf_allowlist_has_exclusion() {
 
 # ai_tools_conf_allowlist_matching_lines <array-name> <allowlist-file> <path> : set the named array
 #   to every RAW line of <allowlist-file> whose ALLOW entry matches <path>, and return 0 when at
-#   least one did. For a caller that must DELETE the line (unclaim, the --list remediation): the raw
+#   least one did. For a caller that must DELETE the line (unclaim, the `--list` remediation): the raw
 #   text is what a line-anchored `sed` removes, and it can differ from <path> -- a comment, quotes,
 #   or a symlinked spelling -- so reconstructing the line from <path> would fail to match.
 ai_tools_conf_allowlist_matching_lines() {
@@ -573,11 +572,11 @@ ai_tools_conf_allowlist_matching_lines() {
 }
 
 # ai_tools_conf_allowlist_exclusion_lines <array-name> <allowlist-file> <path> : the exclusion
-#   counterpart of the matcher above -- set the named array to every RAW line whose `!` entry names
+#   counterpart of the allow matcher -- set the named array to every RAW line whose `!` entry names
 #   <path> exactly (compared without the `!`), and return 0 when at least one did. Exact-path like
 #   ai_tools_conf_allowlist_has_exclusion, never glob-expanding: it serves the callers that must
 #   EDIT the line an operator wrote to park a project (the CLI's re-enable, its de-registration,
-#   and the --for root helper), and a glob line does not name a single project to act on.
+#   and the `--for` root helper), and a glob line does not name a single project to act on.
 ai_tools_conf_allowlist_exclusion_lines() {
     local -n _ai_tools_conf_excluded="$1"
     local file="$2" want line entry
@@ -596,13 +595,12 @@ ai_tools_conf_allowlist_exclusion_lines() {
 # An allowed-projects line has four states to move between -- absent, listed, disabled (a `!`
 # exclusion parks it), and gone -- and three components change one: the CLI on the operator's own
 # file, ai-tools-allowlist on another operator's (a `--for` run), and install.sh de-registering its
-# own checkout. Each used to carry its own edit: an append here, a `sed -i` line-deletion there, a
-# read-transform-rename in the third, with their own escaping and their own idea of what a match
-# is. That is the drift this section removes -- the file is the agent's LAUNCH GATE, so a writer
-# that matches lines differently from the reader is a project that stays reachable after a
-# "removal", or one parked twice over.
+# own checkout. All three write through these functions, so one matcher decides what a line
+# names for every writer and every reader. The file is the agent's LAUNCH GATE: a writer that
+# matched lines differently from the reader would leave a project reachable after a "removal", or
+# park it twice over.
 #
-# Every function below is idempotent, verifies by RE-READING the file rather than trusting a write,
+# Every one of them is idempotent, verifies by RE-READING the file rather than trusting a write,
 # and reports three outcomes apart:
 #   0  the file now holds the intended state (including "it already did")
 #   1  the edit could not be applied -- the file is missing or could not be written
@@ -635,8 +633,8 @@ _ai_tools_conf_allowlist_write() {
 # ai_tools_conf_allowlist_state <allowlist-file> <path> : print how the file answers for <path> --
 #   `disabled`, `listed`, or `absent`. An exclusion WINS over an allow entry, exactly as it does at
 #   the launch gate, so a path carrying both lines reads `disabled`: no session can start there,
-#   which makes it the only honest answer. This is the third state the has_entry/absent reading
-#   could not express, and every verb that used to call a parked project "not claimed" reads it.
+#   which makes it the only honest answer. This is the state a has_entry/absent reading cannot
+#   express, and every verb that reports on a parked project reads it.
 ai_tools_conf_allowlist_state() {
     local file="$1" path="$2"
     [[ -f "${file}" ]] || { printf 'absent'; return 0; }
@@ -660,15 +658,15 @@ ai_tools_conf_allowlist_add() {
     # A hand-edited registry can run to EOF part-way through its last line, and every reader here
     # keeps that entry (the read loops take a final unbroken line). So the append opens a new line
     # first: written straight, it would join the two paths into a third that no project matches,
-    # dropping the claimed one from the launch gate while the entry above it changed meaning.
+    # dropping the claimed one from the launch gate while the preceding entry changed meaning.
     [[ -n "$(tail -c 1 -- "${file}" 2>/dev/null)" ]] && line_break=$'\n'
     printf '%s%s\n' "${line_break}" "${path}" >> "${file}" 2>/dev/null || return 1
     ai_tools_conf_allowlist_has_entry "${file}" "${path}" || return 1
 }
 
 # ai_tools_conf_allowlist_remove <allowlist-file> <path> : delete every line naming <path>, allow
-#   and exclusion alike. Both, because a de-registration that left the `!` behind would park a
-#   directory that no longer exists -- and silently disable the next project claimed at that path.
+#   and exclusion alike, because a de-registration that left the `!` behind would park a directory
+#   that no longer exists -- and silently disable the next project claimed at that path.
 #   Removing what is not there succeeds: an unclaim run twice is not an error.
 ai_tools_conf_allowlist_remove() {
     local file="$1" path="$2" tmp line keep m
@@ -694,7 +692,7 @@ ai_tools_conf_allowlist_remove() {
 }
 
 # _ai_tools_conf_allowlist_retag <allowlist-file> <path> <disable|enable> : the shared line rewrite
-#   behind the two verbs below. It edits the line the operator wrote IN PLACE -- the `!` goes on or
+#   behind the two verbs. It edits the line the operator wrote IN PLACE -- the `!` goes on or
 #   comes off, and the line keeps its position, its indentation and its comment -- so parking a
 #   project and restoring it leaves the file as it was, rather than moving the entry to the end.
 _ai_tools_conf_allowlist_retag() {
@@ -773,65 +771,61 @@ ai_tools_conf_allowlist_enable() {
 
 # ── Seed text for an operator's own config files ──────────────────────────────────────────────
 # A file an operator keeps in ~/.config/ai-tools is created carrying its header and no entry, so
-# the operator edits a file that states its own grammar rather than a blank one. The text lives
-# here because it is written from more than one place -- `ai-tools-admin operators add` on any
+# the operator edits a file that states what it is rather than a blank one. The text lives here
+# because it is written from more than one place -- `ai-tools-admin operators add` on any
 # installed host, and install.sh for the account a from-source install enrols -- and a header
 # written twice is a header that disagrees with itself about what the file accepts. Each function
 # PRINTS; the caller places the file with the ownership and mode it needs (600, inside a 700
 # directory).
+#
+# A seeded header is written once and no upgrade rewrites it, so it carries what the file is,
+# the one rule a reader needs before writing a line, example lines, and the man page that holds
+# the reference -- the page ships with the package and reaches every host on every upgrade,
+# where a header stays as it was on the day the account was enrolled. tests/unit/man.sh caps
+# the allowlist header and reads the page's examples through ai_tools_conf_path_entry.
 
 # ai_tools_conf_allowlist_seed : print the header a fresh allowed-projects carries. It does not
 #   name any project, so a session cannot start anywhere until the CLI or the operator adds an
-#   entry.
+#   entry. The reference is allowed-projects(5).
 ai_tools_conf_allowlist_seed() {
     printf '%s\n' \
-        "# Approved project directories for the ai-tools sandbox -- one directory per line." \
-        "# A plain path allows that directory and everything under it; a '!'-prefixed path" \
-        "# excludes one. Exclusions win over allows, and only they may use * ? [ ] globs --" \
-        "# an allow line must be a literal directory (a glob there matches nothing and is inert)." \
+        "# Project directories the ai-tools sandbox may work in, one per line." \
+        "# A session launched by this account starts only inside a listed" \
+        "# directory; a '!'-prefixed line excludes a subtree, and an exclusion" \
+        "# wins. This file is a launch gate, not a read boundary." \
         "#" \
-        "# '#' starts a comment, whole-line or after a path; quote a path that contains a space" \
-        "# or a literal '#', e.g.  \"/home/me/my project\"" \
+        "#   /home/op/project              allow it and everything under it" \
+        "#   !/home/op/project/vendor      carve this subtree out of it" \
+        "#   \"/home/op/ai works\"  # note   quote a path containing a space;" \
+        "#                                 '#' starts a comment" \
         "#" \
-        "# Managed by the ai-tools CLI -- prefer it over editing by hand:" \
-        "#   ai-tools --project-create <dir>   create a new project directory and claim it" \
-        "#   ai-tools --project-claim  <dir>   register/claim a real project in place" \
-        "#   ai-tools --sandbox-create <dir>   shallow-clone a repo into the sandbox area" \
-        "#   ai-tools --list                   review entries; flags stale/unusable/orphaned ones" \
-        "#" \
-        "# For a repo whose git history may hold credentials, prefer a sandboxed clone under" \
-        "# /var/opt/ai-tools/sandbox-projects/ so the agent never reads the original history." \
-        "# See /var/opt/ai-tools/README.md." \
+        "# Managed by the ai-tools CLI: --project-claim, --project-create" \
+        "# and --sandbox-create register a project; --project-disable" \
+        "# and --project-enable park and restore one; --list reviews the file." \
+        "# Full reference: man 5 allowed-projects" \
         ""
 }
 
 # ai_tools_conf_secret_patterns_seed : print the header a fresh secret-patterns file carries. It
 #   carries the header alone, which leaves the built-in baseline in secret-patterns.lib.sh in
 #   force -- so seeding this file changes what is classified as a secret only once the operator
-#   writes a pattern into it, and the operator finds a file that says how.
+#   writes a pattern into it. The replace rule stays in the header whatever the page says, since
+#   it is the one fact a reader needs before writing a line. The reference is secret-patterns(5).
 ai_tools_conf_secret_patterns_seed() {
     printf '%s\n' \
-        "# Secret-name patterns for the ai-tools sandbox -- your file, owner-only (600). A path" \
-        "# whose BASENAME matches a pattern here is a credential file: ai-tools-chown quarantines" \
-        "# one the agent writes, and ai-tools-lockdown seals one already in a project. The root" \
-        "# helpers read this file on your behalf; the sandbox account can read neither it nor the" \
-        "# 700 directory holding it." \
+        "# Secret-name patterns for the ai-tools sandbox, one basename glob" \
+        "# per line, matched case-insensitively. A file whose name matches is" \
+        "# a credential: the root helpers quarantine one the agent writes" \
+        "# and seal one already in a project, on your behalf." \
         "#" \
-        "# A pattern listed here REPLACES the built-in baseline in" \
-        "# /usr/local/lib/ai-tools/secret-patterns.lib.sh rather than adding to it. This file" \
-        "# lists none, so that baseline -- the public list of credential names, kept current by" \
-        "# package upgrades -- is what classifies today. Write a deployment-specific name here" \
-        "# together with the baseline entries you want to keep, copied from that library." \
+        "# A pattern listed here REPLACES the built-in baseline in the shared" \
+        "# library (/usr/local/lib/ai-tools/secret-patterns.lib.sh) rather" \
+        "# than adding to it. This file lists none, so the baseline classifies" \
+        "# until you write a pattern; then copy the baseline entries you keep," \
+        "# alongside your own." \
         "#" \
-        "# Format: one BASENAME glob per line (no '/'), matched case-insensitively, where '*'" \
-        "# matches any characters and '.' is literal; '#' starts a comment and blank lines are" \
-        "# ignored." \
+        "#   .env              *.pem             appsettings.*.json" \
         "#" \
-        "# Anchor a pattern to a name or an environment segment. A broad catch-all such as" \
-        "# '*.*.json' also matches build artifacts the toolchain must read, and quarantining" \
-        "# those breaks builds." \
-        "#" \
-        "# A credential name software writes in general, and that the baseline misses, is worth a" \
-        "# pull request upstream so every host gets it." \
+        "# Full reference: man 5 secret-patterns" \
         ""
 }

@@ -24,10 +24,10 @@
 # ── Split: pure verdict + impure probe (mirrors confinement.lib.sh) ──────────
 # ai_tools_npm_verdict <audit-json>   -- PURE decision: no npm, no filesystem, no privilege,
 #   no side effects. Given `npm audit signatures --json` output it echoes a verdict token and
-#   returns the status below. Unit-tested over a truth table with no registry and no root risk,
+#   returns this library's status contract. Unit-tested over a truth table with no registry and no root risk,
 #   so the impure probe never has to run as root to exercise the logic.
 # ai_tools_verify_npm_signatures      -- the impure probe: refuses root, discovers the global
-#   tree, runs `npm audit signatures` against it (see below), and dispatches the pure verdict.
+#   tree, runs `npm audit signatures` against it, and dispatches the pure verdict.
 #
 # ── Why the throwaway project ────────────────────────────────────────────────
 # npm's own `npm audit signatures` is the verifier, but it REFUSES a global install
@@ -52,7 +52,7 @@ readonly _AI_TOOLS_NPM_VERIFY_LIB_LOADED=1
 
 # ai_tools_npm_verdict <audit-json>: pure decision over `npm audit signatures --json` output.
 # Echoes a verdict token (OK|INVALID|MISSING|EMPTY|UNKNOWN) and returns the status contract
-# above. node parses the JSON (node is the toolchain's own runtime; jq is not assumed) and is
+# contract. node parses the JSON (node is the toolchain's own runtime; jq is not assumed) and is
 # used read-only on the passed string -- no filesystem, no npm, no privilege. A parse failure
 # or empty input yields a non-OK verdict, so a format change never reads as a false OK.
 ai_tools_npm_verdict() {
@@ -84,7 +84,7 @@ ai_tools_npm_verdict() {
 
 # ai_tools_verify_npm_signatures: verify every globally installed npm package's registry
 # signature. Self-contained -- discovers the global tree (`npm root -g`) and the top-level
-# package set (`npm ls -g`) itself; it does not take arguments. Returns the status contract above.
+# package set (`npm ls -g`) itself; it does not take arguments. Returns this library's status contract.
 ai_tools_verify_npm_signatures() {
     local _p='npm-verify:'
 

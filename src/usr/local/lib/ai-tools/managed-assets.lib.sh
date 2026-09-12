@@ -1,23 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/managed-assets.lib.sh
-# Seeds the ai-tools-managed shared assets, and links them into each agent that reads them.
-#
-# Skills are agent-agnostic content, so they are seeded ONCE into /opt/ai-tools/skills and each
-# agent's own skills directory carries a SYMLINK per skill; agents are Claude Code-format files
-# and are copied into that agent's config directory. Authoring or updating a skill is therefore
-# one edit in one place, whatever number of agents read it. The orientation text
-# (/opt/ai-tools/orientation/AGENTS.md) is shared the same way and linked by
-# ai_tools_link_agent_memory under the filename each agent reads as its user-scope instructions.
-# A managed asset is one whose name is `ai-tools-*` AND whose frontmatter carries
-# `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the operator authored
-# themselves is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP (files 640,
-# dirs 750) in their shared root -- locked from the agent, updated only through the root-run
-# installer or `ai-tools-bootstrap`. Versioning is RFC-draft: the marker
-# `x-ai-tools-version` is a monotonic integer bumped once per release, and a newer shipped version
-# is what drives the update offer. This file is *sourced* (never executed); its consumers
-# (install.sh, ai-tools-bootstrap) run as root and have already sourced msg.lib.sh. See
-# shipped-assets.rule.md.
+# Seeds the ai-tools-managed shared assets into their shared roots and links them into each agent
+# that reads them. The kinds are AI_TOOLS_ASSET_KINDS. Each is seeded ONCE into
+# /opt/ai-tools/<kind>, and every agent whose manifest names a directory for that kind gets a
+# SYMLINK per asset (ai_tools_link_shared_assets); the orientation text is linked under the
+# filename the agent's manifest names (ai_tools_link_agent_memory). One file to author and update,
+# however many agents read it. A managed asset is one whose name matches the kind's glob AND whose
+# frontmatter carries `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the
+# operator authored is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP (files
+# 640, dirs 750): the agent reads and invokes them and cannot rewrite one. `x-ai-tools-version` is a
+# monotonic integer bumped once per release, and a newer shipped version is what drives the update
+# offer. Sourced (never executed) by install.sh, ai-tools-bootstrap and base's %post, all root,
+# after msg.lib.sh and conf.lib.sh. The placement chain, the versioning scheme, and withdrawal are
+# in shipped-assets.rule.md.
 
 # Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are
 # not rpm-owned, so a name this project stops shipping stays live on an upgraded host until it is
@@ -25,7 +21,7 @@
 # now-dangling symlink on its next run.
 #
 # Sourced more than once in a single shell: return early so the second pass is a no-op (an
-# if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips set -e).
+# if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips `set -e`).
 if [[ -n "${_AI_TOOLS_MANAGED_ASSETS_LIB:-}" ]]; then
     return 0
 fi
@@ -37,6 +33,42 @@ readonly _AI_TOOLS_MANAGED_ASSETS_LIB=1
 # further and naming the asset alone, so the listing reads as entries of that directory rather
 # than as a flat list that repeats the directory on every line.
 _ai_tools_ma_say() { printf '      %s\n' "$*"; }
+
+# The asset kinds this project ships: one directory of that name under the pristine root
+# (/usr/share/ai-tools/<kind>) and under the live root (/opt/ai-tools/<kind>). This list is the
+# single declaration of the set. The seeder and the withdrawal pass refuse a kind that is not in
+# it, and refuse an empty list, so a caller spelling a stale name fails with a reason instead of
+# seeding less than it asked for; a kind added here without a source glob in the seeder fails the
+# same way. control-plane.lib.sh's CP_DIR_MODES carries a mode per kind under these names, and
+# tests/integration/perms.sh asserts each shared root.
+readonly AI_TOOLS_ASSET_KINDS=( skills subagents orientation )
+
+# ai_tools_asset_kind_valid <kind>: succeed when <kind> is one this project ships.
+ai_tools_asset_kind_valid() {
+    local wanted="$1" kind
+    for kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
+        [[ "${kind}" == "${wanted}" ]] && return 0
+    done
+    return 1
+}
+
+# _ai_tools_require_kinds <caller> <kind>...: succeed when every <kind> is shipped and at least one
+# is named; otherwise print the reason on stderr and fail, naming the caller and the list.
+_ai_tools_require_kinds() {
+    local caller="$1"; shift
+    if (( $# == 0 )); then
+        printf '%s: no asset kind named (one of: %s)\n' "${caller}" "${AI_TOOLS_ASSET_KINDS[*]}" >&2
+        return 1
+    fi
+    local kind
+    for kind in "$@"; do
+        ai_tools_asset_kind_valid "${kind}" && continue
+        printf '%s: %s is not an asset kind this project ships (one of: %s)\n' \
+            "${caller}" "${kind}" "${AI_TOOLS_ASSET_KINDS[*]}" >&2
+        return 1
+    done
+    return 0
+}
 
 # Assets this project has withdrawn, as `<kind>/<name>` entries. An entry stays listed for as long
 # as a host may still carry it from an older package.
@@ -108,10 +140,12 @@ _ai_tools_place_asset() {
 # Present + same-or-older version -> no-op.
 # A WITHDRAWN name -> skipped outright, whatever the source root holds; ai_tools_remove_retired_assets
 # is the only pass that acts on one.
-# $1 src_root  $2 live_root (resolved by the caller)  $3 group  $4.. kinds (default: both)
+# $1 src_root  $2 live_root (resolved by the caller)  $3 group  $4.. kinds, each one of
+# AI_TOOLS_ASSET_KINDS; an empty list or an unknown kind is refused with a reason.
 ai_tools_seed_managed_assets() {
     local src_root="$1" live_root="$2" group="$3"; shift 3
-    local -a kinds=( "$@" ); (( ${#kinds[@]} )) || kinds=( agents skills )
+    _ai_tools_require_kinds ai_tools_seed_managed_assets "$@" || return 1
+    local -a kinds=( "$@" )
     local kind src_glob src marker name dst dst_marker cur new
     for kind in "${kinds[@]}"; do
         [[ -d "${src_root}/${kind}" ]] || continue
@@ -126,9 +160,13 @@ ai_tools_seed_managed_assets() {
         # the shared root. The x-ai-tools-managed marker still decides what may be claimed, so
         # an operator's own file at that name is kept exactly as for any other kind.
         case "${kind}" in
+            skills)      src_glob="${src_root}/${kind}/ai-tools-*/"   ;;
             subagents)   src_glob="${src_root}/${kind}/ai-tools-*.md" ;;
             orientation) src_glob="${src_root}/${kind}/AGENTS.md"     ;;
-            *)           src_glob="${src_root}/${kind}/ai-tools-*/"   ;;
+            *)  # a kind added to AI_TOOLS_ASSET_KINDS without its layout being declared here
+                printf 'ai_tools_seed_managed_assets: no source layout declared for kind %s\n' \
+                    "${kind}" >&2
+                return 1 ;;
         esac
         for src in ${src_glob}; do
             [[ -e "${src}" ]] || continue                    # no matches -> literal pattern, skip
@@ -199,13 +237,19 @@ ai_tools_seed_managed_assets() {
 #
 # Fails toward keeping: an asset whose copy cannot be made is left in place and reported, so a
 # withdrawal never destroys what it could not first preserve.
-# $1 live_root  $2.. kinds (default: every kind named in the list)
+# $1 live_root  $2.. kinds (default: every kind named in the list); a named kind must be one of
+# AI_TOOLS_ASSET_KINDS, and so must the kind of every retired entry, or the pass refuses.
 ai_tools_remove_retired_assets() {
     local live_root="$1"; shift
     local -a kinds=( "$@" )
+    if (( ${#kinds[@]} )); then
+        _ai_tools_require_kinds ai_tools_remove_retired_assets "${kinds[@]}" || return 1
+    fi
     local entry kind name path marker retired_dir target
     for entry in "${AI_TOOLS_RETIRED_ASSETS[@]}"; do
         kind="${entry%%/*}"; name="${entry#*/}"
+        _ai_tools_require_kinds "ai_tools_remove_retired_assets (AI_TOOLS_RETIRED_ASSETS: ${entry})" \
+            "${kind}" || return 1
         if (( ${#kinds[@]} )); then
             local wanted match=0
             for wanted in "${kinds[@]}"; do
@@ -269,7 +313,7 @@ ai_tools_link_shared_assets() {
     install -d -o root -g "${group}" -m 750 "${agent_dir}"
 
     # Every entry, whatever shape the kind uses: a skill is a directory, a subagent is a file.
-    # The kind's README is linked separately (below), so it is not treated as an asset.
+    # The kind's README is linked separately (ai_tools_link_asset_readme), so it is not treated as an asset.
     local src name dst linked=0
     for src in "${shared_root}"/*; do
         [[ -e "${src}" ]] || continue                    # no matches -> literal pattern, skip

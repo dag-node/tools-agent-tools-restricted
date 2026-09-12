@@ -38,11 +38,10 @@ the single `%ai-ops` grant on the shared shim.
 | `memory_file` | `CLAUDE.md` | where the shared orientation text is symlinked in — the one filename this product reads as user-scope instructions ([shipped-assets](shipped-assets.rule.md)) |
 | `entrypoint_fcontext` | a regex ending `…/@anthropic-ai/claude-code/bin/claude\.exe` | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
 | `default_enable` | `yes` | the baseline set when `operator.conf` names none |
+| `release_manifest_url` / `release_key` / `release_fingerprint` | the vendor's per-release `manifest.json` template under `downloads.claude.ai`, the key file `keys/claude-code.asc` this package ships, and that key's fingerprint | `entrypoint-verify.lib.sh` — proves the installed `claude.exe` is the binary Anthropic published; the fields and the pin they feed are in [providers](providers.rule.md) and [updater](updater.rule.md) |
 
-`handback=hooks` is the only literal that switches the shim's sweep off; anything else, including an
-absent key, gets the sweep. `config_dir` must equal the directory the session-env fragment pins as
-`CLAUDE_CONFIG_DIR`, since the manifest decides the label and the fragment decides where the agent
-writes.
+What `handback=hooks` switches off, and why `config_dir` must match the directory the fragment pins
+as `CLAUDE_CONFIG_DIR`, are the seam's rules ([providers](providers.rule.md)).
 
 ## The resolution chain is three links, and each consumer takes a different one
 
@@ -81,7 +80,7 @@ consequences:
   package can un-label the entrypoint. The relabel helper itself never does: it `restorecon`s only
   the paths the declared pattern matches.
 - Any rule written against the nested path would have to span the arch variants, which a single
-  anchored literal head cannot. This is why the reconciliation below **resolves** the entrypoint
+  anchored literal head cannot. This is why the relabel's reconciliation **resolves** the entrypoint
   rather than declaring a second pattern for it.
 
 ## Entrypoint labelling: applied from the declaration, checked on the resolved inode
@@ -140,7 +139,7 @@ whitespace or control byte that could split the line or reach the operator's ter
 ## The wrapper (`claude.sh`)
 
 `/usr/local/bin/claude`, `root:root 0755`, rpm-owned, running as the invoking operator.
-`path-dedup.sh` ranks `/usr/local/bin` (Tier 1) above the nvm shims in operator dotfiles, so this
+`path-dedup.sh` ranks `/usr/local/bin` (Tier 1) ahead of the nvm shims in operator dotfiles, so this
 shadows any nvm-managed `claude` on an operator's PATH ([launch](launch.rule.md)).
 
 It gates in this order, each step refusing before the next can matter:
@@ -149,7 +148,8 @@ It gates in this order, each step refusing before the next can matter:
    `safe-paths.lib.sh` (the protected-path guard), and `conf.lib.sh` (without it every allowlist
    line parses as no entry, which refuses every launch — indistinguishable from "you have no
    projects" unless the missing component is named). `claude-prompt.lib.sh` loads best-effort; its
-   fail-closed decision is made where the configuration is known (below).
+   fail-closed decision is made where the configuration is known (see
+   [Custom system prompt](#custom-system-prompt-claude-promptlibsh)).
 2. **Operator gate** — `ai-ops` membership, read from `id -nG` (this shell's live credential set,
    the set `sudo` enforces against). The refusal distinguishes three cases because the fix differs:
    the sandbox account (which must never be an operator), an operator whose shell predates the grant
@@ -182,8 +182,13 @@ and safety guidance) or `--system-prompt-file <path>` (mode `replace`).
   confined `ai_tools_t` domain is granted read on (`etc_t`, via `files_read_etc_files`). A
   root-owned file elsewhere passes the DAC trust check yet is unreadable to the session, so a
   mis-set path would become a failed launch rather than a refused one. The file, its directory, the
-  prompts base, and `operator.conf` each pass `ai_tools_conf_is_trusted`, and the file must be
-  readable text.
+  prompts base, and `operator.conf` each pass `ai_tools_conf_is_trusted`, and the file must be a
+  regular file holding plain text. The wrapper's checks are all `stat`s: it runs as the operator,
+  who by design is not in `SANDBOX_GROUP` and cannot read the `0640` file (an operator holds `sudo`
+  for editing it). The text check (`ai_tools_conf_is_text_file`, a shared predicate) therefore runs
+  in the claude-code session-env fragment as the sandbox account, before the unit exists, and a
+  file that is not plain text refuses the launch there — whether or not the launch overrides the
+  prompt with a flag, which the fragment cannot see.
 - Claude Code reads the file **verbatim** — not processed, not comment-stripped — so it holds prompt
   text only. The shipped default is therefore **empty**, `0640 root:SANDBOX_GROUP` (a custom prompt
   may be proprietary, so not world-readable; the wrapper only `stat`s it as the operator, and the
@@ -203,8 +208,10 @@ and safety guidance) or `--system-prompt-file <path>` (mode `replace`).
 ## Custom API endpoint (`claude-endpoint.lib.sh`)
 
 The session-env counterpart, resolved **sandbox-side in the fragment** rather than in the wrapper.
-`operator.conf` `CLAUDE_BASE_URL_FILE` points at a dedicated file under `/etc/ai-tools/endpoints/`,
-from which the resolver reads exactly four recognised keys — `ANTHROPIC_BASE_URL` (required, a
+`operator.conf` `CLAUDE_BASE_URL_FILE` points at a dedicated file under `/etc/ai-tools/endpoints/`
+(`etc_t`, which the confined domain reads, as for the prompts base; the file, its directory,
+and the pointer each pass `ai_tools_conf_is_trusted`), from which the resolver reads exactly four
+recognised keys — `ANTHROPIC_BASE_URL` (required, a
 validated http(s) URL), `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`,
 `ANTHROPIC_DEFAULT_HAIKU_MODEL` — and turns each valid one into a `--setenv=` entry. An arbitrary key
 is never read, so the file cannot inject unrecognised environment.
@@ -238,42 +245,38 @@ Outbound traffic is governed by network policy, not this variable.
 
 `session-env.d/claude-code.env.sh` is sourced **last**, after every enabled integration, so its pins
 are authoritative. Each exists because the sandbox home is deliberately not agent-writable at its
-root:
+root, and the fragment states the mechanism beside each pin:
 
-- **`CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude`** — Claude Code saves `.claude.json` (login,
-  onboarding, per-project trust) by writing a temp file beside it and renaming, which needs write on
-  the *containing* directory. `.claude` is `3770`, setgid+sticky: the rename works, and the sticky
-  bit keeps control files the agent does not own undeletable. Unpinned it would resolve under the
-  `2751` home root, where the rename is refused and every session demands a fresh login.
-- **`NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache`** — Node's default is under
-  `os.tmpdir()` on the shared host `/tmp`, where entries left by an earlier unconfined run carry
-  `user_tmp_t`, a type the session's domain has no rule for; Node's own `open()` of its cache is
-  then denied and the session dies at startup.
-- **`DISABLE_AUTOUPDATER=1`** — the Node program tree is read-only to the session, so an in-session
-  self-update cannot write the npm prefix. The `nvm-update` timer maintains the toolchain out of
-  band ([updater](updater.rule.md)), which also keeps the toolset stable for the whole session.
+- **`CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude`** — the one directory where Claude Code's
+  write-then-rename of `.claude.json` succeeds (`3770`, setgid+sticky; the `2751` home root refuses
+  the rename).
+- **`NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache`** — off the shared host `/tmp`,
+  where entries an unconfined run left carry `user_tmp_t`, a type the domain cannot open, and onto
+  the `ai_tools_home_t` cache subtree.
+- **`DISABLE_AUTOUPDATER=1`** — the Node tree is read-only to the session under the SELinux policy
+  (and sandbox-owned under DAC, per [Distribution channel](#distribution-channel)), so a self-update
+  cannot write
+  the npm prefix; the `nvm-update` timer maintains it out of band ([updater](updater.rule.md)).
 
 ## Distribution channel
 
-The agent is provisioned as an **npm package on the sandbox's Node toolchain**: `npm install -g` at
-bootstrap and on each updater run, its launcher symlinked into the locked control-plane `bin`, and
-its executable accepted only under `/opt/ai-tools/.nvm/versions/node/<semver>/bin/`. That assumption
-lives in exactly two places — provisioning and exec validation — and nowhere else in the seam
-([providers](providers.rule.md)).
+The agent is provisioned as an **npm package on the sandbox's Node toolchain** — the runtime
+assumption [providers](providers.rule.md) states once, with the two places it lives.
 
 Two properties of the current channel shape the design:
 
 - **The executable is a compiled native binary, not a JavaScript entrypoint.** `claude.exe` is
   reached through two symlinks and executed directly; the session does not run it through `node`.
-  The same binary is what every distribution channel delivers — npm is a distribution channel for it
-  rather than a different build — so the channel decides provenance, placement, and update cadence,
-  not what runs.
+  The same binary is what every distribution channel delivers, so the channel decides provenance,
+  placement, and update cadence, not what runs.
 - **The sandbox account owns its own entrypoint.** The nvm tree is `SANDBOX_USER`-owned, so unlike
   every other control-plane file the agent binary is agent-writable. That is bounded rather than
-  open: `ai-tools-run` accepts only a manifest-claimed launcher at a semver path, the updater
-  verifies npm registry signatures before activating a tree, and the SELinux preflight fails closed
-  on a label the agent cannot grant itself. A root-owned, agent-read-only exec root would remove the
-  bound rather than tighten it, which is the direction the native-packaging plan takes.
+  open: `ai-tools-run` accepts only a manifest-claimed launcher at a semver path and refuses an
+  entrypoint whose checksum differs from the root-written pin, the updater verifies npm registry
+  signatures and the vendor's signed release manifest before activating a tree
+  ([updater](updater.rule.md)), and the SELinux preflight fails closed on a label the agent cannot
+  grant itself. A root-owned, agent-read-only exec root would remove the bound rather than tighten
+  it, which is the direction the native-packaging plan takes.
 
 ## Quirks
 
@@ -292,7 +295,7 @@ Two properties of the current channel shape the design:
 
 **A native/`dnf` runtime alongside the npm one, as an opt-in.** The npm package is deprecated
 upstream while a signed vendor `dnf` channel exists, installing `/usr/bin/claude` root-owned and
-read-only to the agent. That closes the agent-writable-exec-root bound above and removes the
+read-only to the agent. That closes the agent-writable-exec-root bound and removes the
 reinstall-re-mints-the-entrypoint race the updater works around. It needs the `runtime` field the
 provider seam already names, an exact-path containment rule for a host-packaged binary
 ([providers](providers.rule.md)), and a packaging split. Not built.
@@ -307,9 +310,9 @@ trade one risk for another, and the trades sit on opposite sides of this project
   and across operators. Confinement, the allowlist, and the handback still bound what it reaches.
   This is exactly the adversary the model defends against. **With the policy loaded the vector is
   closed outright** (see
-  [the type layout](confinement.rule.md#the-toolchain-is-read-only-to-the-confined-domain)), so the
+  [ref-section-w4z6](confinement.rule.md#ref-section-w4z6)), so the
   gap is real on the DAC-only deployment the weak dependency permits, not on an enforcing one — and
-  it is now detected on both (see [updater](updater.rule.md)).
+  the entrypoint pin detects it on both (see [updater](updater.rule.md)).
 - **native's cost is out-of-model and unbounded.** It puts a second, *real* `claude` on every
   operator's PATH. Running `/usr/bin/claude` starts an **unconfined session as the operator**, with
   their own credentials and home and none of this machinery — the outcome the project exists to
@@ -324,7 +327,8 @@ here. A host that adopts native gets the PATH assertion as a precondition, not a
 
 **The signed release manifest closes npm's side of that trade without changing channel.** Upstream
 publishes a per-release `manifest.json` of SHA256 checksums for every platform binary, GPG-signed
-with a published fingerprint, independent of the delivery channel. Verifying the installed
-`claude.exe` against it would catch the in-place tamper described above — the one property native
-was buying — while the entrypoint stays where it is. Named here as the cheaper alternative to a
-channel move; not built.
+with a published fingerprint, independent of the delivery channel. `entrypoint-verify.lib.sh`
+verifies the installed `claude.exe` against it — the manifest's three release fields say where and
+with which key — and the root-written pin carries the result to each launch, so the in-place tamper
+is caught while the entrypoint stays where it is ([updater](updater.rule.md)). That
+is the property native was buying, taken without a channel move.

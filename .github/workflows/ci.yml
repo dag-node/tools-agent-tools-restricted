@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 # Least-privilege default for every job. shellcheck and rpm-selftest only read the repo;
-# the release job re-grants contents: write for its own GITHUB_TOKEN needs (below).
+# the release job re-grants contents: write for its own GITHUB_TOKEN needs.
 permissions:
   contents: read
 
@@ -36,10 +36,10 @@ jobs:
           tarball="shellcheck-${ver}.linux.x86_64.tar.xz"
           url="https://github.com/koalaman/shellcheck/releases/download/${ver}/${tarball}"
           # Download to a FILE, never straight into tar. Piping curl into tar defeats
-          # curl's --retry: a mid-transfer drop (curl error 56) has already streamed
+          # curl's `--retry`: a mid-transfer drop (curl error 56) has already streamed
           # truncated bytes into xz/tar ("File format not recognized"), and the retry
           # replays from the top into a stream the extractor has already consumed. To a
-          # file, --retry re-fetches (and -C - resumes) cleanly. -4 sidesteps the runner's
+          # file, `--retry` re-fetches (and `-C -` resumes) cleanly. `-4` sidesteps the runner's
           # intermittently-broken IPv6 egress to the release CDN, the usual cause of the
           # repeated connection-died failures here.
           curl -4 -fL --no-progress-meter --connect-timeout 20 \
@@ -73,14 +73,14 @@ jobs:
   # build off any commit is downloadable and inspectable without cutting a real release.
   #
   # OCI="sudo podman": the selftest container runs systemd as PID 1 plus the sandbox
-  # account's own `systemd --user` manager, which needs full cgroup delegation; rootless
+  # account's own `systemd --user manager`, which needs full cgroup delegation; rootless
   # podman on hosted runners does not reliably provide that. The Makefile default stays
   # rootless `podman` for local runs.
   rpm-selftest:
     # Pinned, not ubuntu-latest: this job builds and runs podman containers, and the
     # apt podman/crun pair on the floating latest image can skew -- a newer podman emits an
     # OCI spec crun rejects with "unknown version specified" at container create, before any
-    # build step runs. 22.04 is the known-good combo for this pipeline. The release job below
+    # build step runs. 22.04 is the known-good combo for this pipeline. The release job
     # pins for the same reason; the container-free shellcheck job stays on latest.
     runs-on: ubuntu-22.04
     strategy:
@@ -113,7 +113,7 @@ jobs:
 
       # `if: always()` so a failed selftest still surfaces the RPMs that caused it --
       # those are exactly the artifacts needed to debug the failure. The rpmbase image
-      # is still cached (only the final test container was --rm'd); when even the image
+      # is still cached (only the final test container was `--rm`'d); when even the image
       # build failed that image is absent, hence the image-exists guard.
       - name: Extract dev RPMs
         if: always()
@@ -167,7 +167,7 @@ jobs:
         run: make -C packaging rpmtest-fedora RPM_RELEASE=${{ steps.relver.outputs.release }} OCI="sudo podman"
 
       # if: always() so a failed selftest still surfaces the RPMs that caused it. Fedora bakes the
-      # built RPMs into the ai-tools-rpmtest:fedora image (only the run container is --rm'd), so
+      # built RPMs into the ai-tools-rpmtest:fedora image (only the run container is `--rm`'d), so
       # extract from the image like the EL job does from ai-tools-rpmbase:elN.
       - name: Extract dev RPMs
         if: always()
@@ -189,14 +189,14 @@ jobs:
           retention-days: 14
 
   # Release tags publish; workflow_dispatch rehearses the identical build+sign+verify path with
-  # the publish steps skipped (tag-gated below). The channel follows the tag, never the branch:
+  # the publish steps skipped (tag-gated per step). The channel follows the tag, never the branch:
   # vX.Y.Z -> GitHub Release + rpm.dagnode.com, vX.Y.Z-rc.N -> GitHub prerelease only. Process
   # contract: docs/branching-and-release.md. Never runs on pull_request -- fork PRs must not
   # see the signing secret.
   release:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: [shellcheck, rpm-selftest]
-    # Pinned like rpm-selftest above: this job builds and signs RPMs inside podman containers,
+    # Pinned like rpm-selftest: this job builds and signs RPMs inside podman containers,
     # so it needs the same known-good podman/crun combo (see that job's note).
     runs-on: ubuntu-22.04
     permissions:
@@ -205,7 +205,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Tag-only: a rehearsal has no version identity. check-version.sh relaxes the %changelog
-      # match for -rc.N tags; recovery for a mismatch is fix VERSION/%changelog and re-tag.
+      # match for `-rc.N` tags; recovery for a mismatch is fix VERSION/%changelog and re-tag.
       - name: Verify tag, VERSION, and %changelog agree
         if: startsWith(github.ref, 'refs/tags/v')
         run: bash packaging/check-version.sh "${GITHUB_REF_NAME}"
@@ -237,8 +237,8 @@ jobs:
       # release. Signing is MANDATORY: every published RPM must carry a verifiable dag-node
       # signature, so a missing or unusable secret fails the release here instead of shipping
       # unsigned. This step proves the key imports with a usable secret and the dispatch token
-      # reaches dag-node/rpm; the passphrase and the full rpmsign+verify chain are proven by the
-      # in-container selftest below, which also runs before anything is built or published.
+      # reaches dag-node/rpm; the passphrase and the full rpmsign+verify chain are proven by the real
+      # in-container selftest, which also runs before anything is built or published.
       - name: Preflight release prerequisites
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
@@ -285,9 +285,9 @@ jobs:
           sudo podman version || true
           sudo podman info --format 'runtime={{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}' 2>/dev/null || true
 
-      # Build the matching-EL images once, up front. Both the signing selftest below and the
+      # Build the matching-EL images once, up front. Both the signing selftest and the
       # release-RPM extraction reuse these cached images, so each image is built once. rpmbase-elN,
-      # not rpmtest-rockyN: the `needs: rpm-selftest` dependency above already ran and passed the
+      # not rpmtest-rockyN: the `needs: rpm-selftest` dependency already ran and passed the
       # full selftest on this exact commit.
       - name: Build EL RPM images
         run: |
@@ -300,7 +300,7 @@ jobs:
       # published. A wrong passphrase or a container where rpmsign silently no-ops (the 0.6.1
       # failure mode) fails the job here. The signing key is a step-scoped env var, never baked
       # into an image layer or build cache.
-      # --entrypoint bypasses the image's /sbin/init (a bare command is ignored init arguments --
+      # `--entrypoint` bypasses the image's /sbin/init (a bare command is ignored init arguments --
       # the container would boot the selftest instead); the assertion proves sign-rpms.sh ran.
       - name: Prove the signing chain end-to-end (in-container)
         env:
@@ -309,7 +309,7 @@ jobs:
         run: |
           set -euo pipefail
           # Secrets travel over stdin (printf is a builtin -- no argv exposure), never the
-          # container environment: podman records -e values in the on-disk container config.
+          # container environment: podman records `-e` values in the on-disk container config.
           for el in 9 10; do
             out="$(printf '%s\n%s\n' "${GPG_SIGNING_PASSPHRASE}" "${GPG_SIGNING_KEY}" \
               | sudo podman run --rm -i \
@@ -323,11 +323,11 @@ jobs:
 
       # Sign the RPMs the image built INSIDE the matching-EL container, so the rpm/gnupg toolchain
       # that signs matches the one that built them (see packaging/sign-rpms.sh), then copy the
-      # SIGNED RPMs out with `podman cp`. --entrypoint overrides the image's /sbin/init -- a bare
+      # SIGNED RPMs out with `podman cp`. `--entrypoint` overrides the image's /sbin/init -- a bare
       # command is ignored init arguments, and the container would boot the selftest and power off
       # "successfully" without signing. The success-line assertion pins the workload; the runner
       # re-verify in the next step is the fail-closed backstop. sign-rpms.sh writes its own verify
-      # public key to a container-local path; the PUBLISHED key is exported on the runner below.
+      # public key to a container-local path; the PUBLISHED key is exported on the runner.
       - name: Sign and extract release RPMs (in-container)
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
@@ -358,7 +358,7 @@ jobs:
       # the bind mount to surface on the runner (the v0.6.2 failure: the container-written key was
       # absent at release time). The key is public; the private key is imported into a tmpfs
       # (/dev/shm, RAM) keyring wiped on exit, never persistent disk. If the in-container signing
-      # did not actually reach the runner filesystem, the verification below fails closed instead
+      # did not actually reach the runner filesystem, the re-verify fails closed instead
       # of publishing unsigned packages.
       - name: Export the public key and verify signatures on the runner
         env:
@@ -375,7 +375,7 @@ jobs:
           [[ -s dist-rpms/RPM-GPG-KEY-dag-node ]] || { echo "::error::exported public key is empty"; exit 1; }
 
           # Verify against a throwaway rpmdb seeded only with the exported key. Require a validating
-          # signature LINE (rpmkeys -Kv), not just a zero exit -- an unsigned package exits 0.
+          # signature LINE (`rpmkeys -Kv`), not just a zero exit -- an unsigned package exits 0.
           verifydb="$(mktemp -d)"
           rpmkeys --dbpath "${verifydb}" --import dist-rpms/RPM-GPG-KEY-dag-node
           for rpm in dist-rpms/el9/*.rpm dist-rpms/el10/*.rpm; do
@@ -386,7 +386,7 @@ jobs:
           echo "verified $(find dist-rpms -name '*.rpm' | wc -l) signed RPM(s) on the runner"
 
       # Both el9 and el10 RPMs land as flat, same-named-prefix assets on one release page
-      # (see the upload below); a per-EL zip removes the "which files go together"
+      # (see the upload step); a per-EL zip removes the "which files go together"
       # ambiguity that creates -- `dnf install ./*.rpm` after unzipping is then unambiguous
       # by construction, since each archive holds exactly one EL's packages. The runner-exported
       # public key (dist-rpms/RPM-GPG-KEY-dag-node) rides inside each zip too, so an operator imports
@@ -414,7 +414,7 @@ jobs:
           PRERELEASE: ${{ steps.relmode.outputs.prerelease }}
         run: |
           # Attach the runner-exported public key too, so a manual download can verify without
-          # reaching rpm.dagnode.com. It was produced + checked in the verify step above.
+          # reaching rpm.dagnode.com. It was produced + checked in the verify step.
           assets=(
             dist-rpms/ai-tools-el9-${GITHUB_REF_NAME}.zip
             dist-rpms/ai-tools-el10-${GITHUB_REF_NAME}.zip
@@ -443,7 +443,7 @@ jobs:
       # caller's context). The token (a fine-grained PAT/App token with contents:write on
       # dag-node/rpm, see GPG-HINTS.md) is required and already vetted in preflight, so this step
       # only handles a transient dispatch failure.
-      # Final tags only: dag-node/rpm serves ^vX.Y.Z$ tags, so notifying on an -rc tag would
+      # Final tags only: dag-node/rpm serves ^vX.Y.Z$ tags, so notifying on an `-rc` tag would
       # rebuild the repo just to drop the RC. RCs ship as GitHub prerelease assets.
       - name: Notify central RPM repository (rpm.dagnode.com)
         if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')

@@ -14,8 +14,12 @@
 # sandbox updater can move a launcher symlink; it validates its argument strictly, because the
 # caller is the agent-reachable handback socket (SYMLINK verb) or install.sh, never sudo.
 #
-# Deploy: sudo install -o root -g root -m 750 \
-#             src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
+# Deploy:
+#   ```bash
+#   sudo install -o root -g root -m 750 \
+#       src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh \
+#       /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
+#   ```
 
 set -euo pipefail
 
@@ -33,14 +37,23 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
 
-err() { ai_tools_log_error "$*"; printf 'ai-tools-launcher-symlink: %s\n' "$*" >&2; exit 1; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads, and carried into the log line.
+# Matched inline: this helper does not load the library.
+err() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
+    ai_tools_log_error "${code:+${code} }$*"
+    [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
+    printf 'ai-tools-launcher-symlink: %s\n' "$*" >&2; exit 1
+}
 
 # Authoritative validation of the caller-supplied path: EXACTLY the shape a wrapper resolves --
 # a single vMAJOR.MINOR.PATCH component under the sandbox toolchain, then bin/, then ONE path
 # component, the launcher name. The anchored regex admits no '..' and no extra slashes.
 readonly RE='^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/([A-Za-z0-9._-]+)$'
 [[ "${TARGET}" =~ $RE ]] \
-    || err "target is not a versioned launcher path: ${TARGET}"
+    || err MSG-W5K8 "target is not a versioned launcher path: ${TARGET}"
 readonly LAUNCHER="${BASH_REMATCH[1]}"
 # The link is NAMED from the target's own basename, so the two can never diverge: this helper
 # cannot be made to point one agent's stable link at another binary.
@@ -55,24 +68,24 @@ readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
 if ! source "${PROVIDERS_LIB}" 2>/dev/null \
         || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
-    err "cannot resolve the enabled agents (${PROVIDERS_LIB}) -- refusing to repoint ${LINK}"
+    err MSG-R6K3 "cannot resolve the enabled agents (${PROVIDERS_LIB}) -- refusing to repoint ${LINK}"
 fi
 launcher_is_enabled=no
 while IFS=$'\t' read -r _ _ manifest_launcher; do
     [[ "${manifest_launcher}" == "${LAUNCHER}" ]] && launcher_is_enabled=yes
 done < <(ai_tools_enabled_agents 2>/dev/null)
 [[ "${launcher_is_enabled}" == yes ]] \
-    || err "no enabled agent provides the launcher \"${LAUNCHER}\" -- refusing to repoint ${LINK}"
+    || err MSG-G4F4 "no enabled agent provides the launcher \"${LAUNCHER}\" -- refusing to repoint ${LINK}"
 
-# The target is itself an npm symlink into the package; -e follows it, so this
+# The target is itself an npm symlink into the package; `-e` follows it, so this
 # also confirms the final binary is present (not a dangling/half-installed tree).
-[[ -e "${TARGET}" ]] || err "target does not exist: ${TARGET}"
+[[ -e "${TARGET}" ]] || err MSG-T8B9 "target does not exist: ${TARGET}"
 
 # Operate only inside the expected locked dir, never an attacker-substituted one.
-[[ -d "${BIN_DIR}" ]] || err "${BIN_DIR} missing"
+[[ -d "${BIN_DIR}" ]] || err MSG-Q9M3 "the launcher directory is missing: ${BIN_DIR}"
 
 # Idempotency guard. The repoint is also the sole trigger for the ai-tools-relabel.path watcher
-# (the rename below changes an entry in the watched bin directory), so skipping it when no change
+# (the rename changes an entry in the watched bin directory), so skipping it when no change
 # changed must not skip a pending relabel: entrypoint_relabel_pending reports whether the binary
 # the link resolves to still needs its ai_tools_exec_t label -- true for a freshly (re)minted
 # entrypoint, including a same-version reinstall. Any uncertainty answers "pending", so the
@@ -94,7 +107,7 @@ entrypoint_relabel_pending() {
 
 # Skip the repoint only when the stable link already points at TARGET AND no relabel is
 # pending: no work to do, so the daily no-op timer run stops churning the symlink and the
-# log. Otherwise fall through to the atomic repoint below.
+# log. Otherwise fall through to the atomic repoint.
 if [[ "$(readlink -- "${LINK}" 2>/dev/null || true)" == "${TARGET}" ]] \
    && ! entrypoint_relabel_pending; then
     ai_tools_log_debug "already current: ${LINK} -> ${TARGET} (entrypoint labelled; no repoint)"
@@ -114,7 +127,7 @@ printf 'ai-tools-launcher-symlink: %s -> %s\n' "${LINK}" "${TARGET}"
 
 # This helper does NOT relabel the new entrypoint: it runs in ai_tools_handback_t, which is granted
 # no relabel rights by design (ai_tools.te), so the privilege stays off the agent-reachable
-# domain. The rename above instead trips the root-side ai-tools-relabel.path watcher, which
+# domain. The rename instead trips the root-side ai-tools-relabel.path watcher, which
 # watches the bin DIRECTORY and so fires for whichever agent's link moved; `ai-tools-admin system entrypoints relabel`
 # is the on-demand path. A label still wrong at launch makes ai-tools-run fail closed.
 # See .claude/rules/updater.rule.md.

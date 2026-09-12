@@ -2,9 +2,9 @@
 # shellcheck shell=bash
 # /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
 # Session environment for the claude-code agent. ai-tools-run sources this last, after every
-# enabled integration, so these pins are authoritative for the session.
-#
-# Each pin exists because the sandbox home is deliberately not agent-writable at its root:
+# enabled integration, so these pins are authoritative for the session. Each exists because the
+# sandbox home is deliberately not agent-writable at its root; the reason beside each pin is the
+# mechanism, and agent-claude-code.rule.md carries the summary.
 #
 #   CLAUDE_CONFIG_DIR    Claude Code saves .claude.json (login, onboarding, per-project trust)
 #                        by writing a temp file beside it and renaming, which needs write on the
@@ -17,18 +17,19 @@
 #                        host /tmp. Entries left there by an earlier unconfined run carry
 #                        user_tmp_t, a type the session's domain has no rule for, so Node's own
 #                        open() of its cache is denied and the session dies at startup. The
-#                        .cache subtree is ai_tools_home_t and agent-managed.
+#                        .cache subtree is ai_tools_home_t (ai_tools.fc) and agent-managed.
 #
-#   DISABLE_AUTOUPDATER  The Node program tree is read-only to the session by SELinux policy, so
-#                        an in-session `npm install -g` self-update cannot write the npm prefix.
-#                        The nvm-update timer maintains the toolchain out of band instead, which
-#                        also keeps the toolset stable for the whole session.
+#   DISABLE_AUTOUPDATER  The Node program tree is read-only to the session by SELinux policy (under
+#                        DAC alone the sandbox account owns it), so an in-session `npm install -g`
+#                        self-update cannot write the npm prefix. The nvm-update timer maintains
+#                        the toolchain out of band instead, which also keeps the toolset stable for
+#                        the whole session.
 #
 # Fragment contract (see providers.rule.md): append to session_environment_options and
 # session_path_entries, unset your own temporaries, and do not exec, prompt, or read stdin. This
 # fragment additionally EXPORTS ANTHROPIC_AUTH_TOKEN when a custom endpoint supplies one (the
 # credential-off-cmdline pattern) -- the one sanctioned caller-environment mutation, so the paired
-# name-only --setenv imports it without the value reaching any command line.
+# name-only `--setenv` imports it without the value reaching any command line.
 # shellcheck disable=SC2154  # both arrays belong to the sourcing launcher
 
 session_environment_options+=(
@@ -62,5 +63,29 @@ elif ai_tools_conf_read /etc/ai-tools/operator.conf CLAUDE_BASE_URL_FILE 2>/dev/
     ai_tools_msg_error \
         "ai-tools-run: a custom Claude Code endpoint is configured but its resolver library is" \
         "unavailable -- refusing to launch rather than ignore it. Reinstall ai-tools."
+    exit 1
+fi
+
+# Custom system prompt (operator.conf CLAUDE_SYSTEM_PROMPT_FILE): the wrapper resolved and stat'd
+# the configured file as the operator, who cannot read it (0640 root:SANDBOX_GROUP). This is the
+# half only the sandbox account can do -- read it and refuse the launch when it is not plain text,
+# since its bytes go to the model verbatim. A per-invocation prompt flag is not visible here, so a
+# configured prompt must be text whether or not this launch overrides it. Same clean fail-closed
+# as the endpoint resolution: sourced before the unit exists. See claude-prompt.lib.sh.
+# shellcheck source=/dev/null
+if source /usr/local/lib/ai-tools/claude-prompt.lib.sh 2>/dev/null \
+        && declare -F ai_tools_claude_prompt_content_is_text >/dev/null 2>&1; then
+    if ! ai_tools_claude_prompt_content_is_text /etc/ai-tools/operator.conf; then
+        ai_tools_msg_error \
+            "ai-tools-run: a custom Claude Code system prompt is configured but is not plain text --" \
+            "refusing to launch (see the warning above). Fix the file named by" \
+            "CLAUDE_SYSTEM_PROMPT_FILE in /etc/ai-tools/operator.conf, or comment the key out."
+        exit 1
+    fi
+elif ai_tools_conf_read /etc/ai-tools/operator.conf CLAUDE_SYSTEM_PROMPT_FILE 2>/dev/null \
+        && [[ -n "${_ai_tools_conf_value}" ]]; then
+    ai_tools_msg_error \
+        "ai-tools-run: a custom Claude Code system prompt is configured but its resolver library" \
+        "is unavailable -- refusing to launch rather than skip the check. Reinstall ai-tools."
     exit 1
 fi

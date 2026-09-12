@@ -10,7 +10,7 @@
 # refusal MESSAGE matched a message sudo never sends. The property under test here is the other
 # half of that lesson -- a sudo which fails for its OWN reasons must read as undetermined, never as
 # a verdict about the account, because an administrator acts on this line at the moment of the
-# decision and a false "no grant" sends them to a --for workflow they do not need.
+# decision and a false "no grant" sends them to a `--for` workflow they do not need.
 #
 # Each case runs in its own bash, because the helper and the harness both declare SANDBOX_USER
 # readonly. sudo is stubbed as a shell FUNCTION, which overrides the PATH lookup, so no executable
@@ -106,7 +106,7 @@ else
 fi
 
 # --- wire_init_file: the PATH dedup reaches the operator's bash init ---
-# The guard line is what ranks /usr/local/bin (the wrapper) above the nvm shims, so a shell that
+# The guard line is what ranks /usr/local/bin (the wrapper) ahead of the nvm shims, so a shell that
 # never sources it resolves `claude` to the nvm-managed binary instead. Driven against fixture
 # files in TESTDIR: the function takes the file as an argument, so no real home is touched.
 section "ai-tools-admin operator add: bash init wiring (unit)"

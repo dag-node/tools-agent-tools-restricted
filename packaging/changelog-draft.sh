@@ -39,7 +39,7 @@
 #
 # GROUPING is the pass this tool exists to feed, and a subject line rarely carries enough to do
 # it: the reader-facing why lives in the commit BODY, which is where two commits reveal
-# themselves as one entry. Run --material for those, and when a body still leaves it unclear,
+# themselves as one entry. Run `--material` for those, and when a body still leaves it unclear,
 # read the change itself (git show <sha>) rather than guessing from the subject.
 #
 # Reading more does NOT mean writing more. The material is long so the entry can be short: the
@@ -54,21 +54,21 @@
 #   packaging/changelog-draft.sh --check --all   ... and every released block, as a summary
 #   (or: make -C packaging changelog)
 #
-# Order of work: --material to group, write the block, --check to lint it.
+# Order of work: `--material` to group, write the block, `--check` to lint it.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 spec="${here}/ai-tools.spec"
 
-# The prefixes an entry may carry. Read by both modes: the draft assigns one, --check refuses
+# The prefixes an entry may carry. Read by both modes: the draft assigns one, `--check` refuses
 # anything outside the set, so a sixth category is added here rather than invented per release.
 readonly CATEGORIES='NEW|CHANGE|FIX|SECURITY|DOCS|LICENSE'
-# An entry longer than this many lines has stopped being one or two sentences. Advisory: --check
+# An entry longer than this many lines has stopped being one or two sentences. Advisory: `--check`
 # reports and never fails, since a genuinely complex upgrade step can earn the space.
 readonly MAX_ENTRY_LINES=5
 
-# ── --check [--all]: lint the newest block, or every released block ──────────────────────────
-# Default is the newest block, the one being written. --all sweeps the history too: a shipped
+# ── `--check [--all]`: lint the newest block, or every released block ──────────────────────────
+# Default is the newest block, the one being written. `--all` sweeps the history too: a shipped
 # entry is the public record of that release, so what it reports is a reading list rather than
 # a work list.
 if [[ "${1:-}" == "--check" ]]; then
@@ -148,7 +148,7 @@ date="$(LC_ALL=C date +'%a %b %d %Y')"
 # Ordered so a reader scanning the block meets what may cost them first. Breaking changes are
 # CHANGE: entries and lead it, which is what keeps them in one place.
 # classify <subject> -> sets CAT (the bullet prefix) and DESC (the subject minus its type).
-# Shared by both modes, so --material files a commit exactly where the draft would.
+# Shared by both modes, so `--material` files a commit exactly where the draft would.
 CAT=""; DESC=""
 classify() {
     local subject="$1" type scope bang
@@ -174,7 +174,7 @@ classify() {
     esac
 }
 
-# ── --material: the same commits with the bodies and files the grouping pass needs ───────────
+# ── `--material`: the same commits with the bodies and files the grouping pass needs ───────────
 if [[ "${1:-}" == "--material" ]]; then
     for want in BREAKING SECURITY NEW CHANGE FIX DOCS CHURN; do
         printed=0

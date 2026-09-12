@@ -4,7 +4,7 @@
 # Integration: the shipped systemd units parse cleanly and are enabled in the right instance.
 # `systemd-analyze verify` catches a directive typo that would otherwise ship silently; the
 # enablement checks confirm the install wired each unit where it runs -- the toolchain timer in
-# the sandbox account's own --user instance, the relabel watcher and handback socket in the
+# the sandbox account's own `--user instance`, the relabel watcher and handback socket in the
 # system instance. Run as root.
 
 set -euo pipefail
@@ -13,7 +13,7 @@ require_root
 
 readonly UNITDIR=/usr/lib/systemd/system
 readonly USERUNITDIR=/usr/lib/systemd/user
-# The --user units this project ships. Other packages install into the same directory, and this
+# The `--user units` this project ships. Other packages install into the same directory, and this
 # suite judges only its own units, so every check over the user units reads this one list.
 readonly -a SHIPPED_USER_UNITS=(nvm-update.service nvm-update.timer)
 SANDBOX_UID="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
@@ -57,7 +57,7 @@ else
             verify_judge "verify ${u}" "${out}"
         fi
     done
-    # User units verify against the --user manager context, so run as the sandbox account with
+    # User units verify against the `--user manager` context, so run as the sandbox account with
     # its runtime dir. `systemd-analyze --user` as root has no XDG_RUNTIME_DIR and fails the
     # RuntimeDirectory lookup -- that is the caller's missing context, not a unit defect.
     if [[ -z "${SANDBOX_UID}" || ! -d "/run/user/${SANDBOX_UID}" ]]; then
@@ -89,7 +89,7 @@ section "No --user unit carries a mount-namespace option"
 # (it filters the payload's own unshare/clone/setns, which systemd installs after building the
 # namespace), so the unit file is where it is catchable.
 #
-# The check covers EVERY --user unit this project ships, not the one where this was found, because
+# The check covers EVERY `--user unit` this project ships, not the one where this was found, because
 # the property belongs to the manager rather than to the updater. A unit another package installs
 # beside them is that package's to judge, so only SHIPPED_USER_UNITS is read.
 _NS_OPTS='PrivateTmp|PrivateUsers|PrivateDevices|PrivateMounts|PrivateNetwork|ProtectSystem|ProtectHome|ProtectKernelTunables|ProtectKernelModules|ProtectControlGroups|ProtectProc|ReadOnlyPaths|ReadWritePaths|InaccessiblePaths|BindPaths|BindReadOnlyPaths|TemporaryFileSystem|RootDirectory|RootImage|MountAPIVFS'
@@ -136,20 +136,23 @@ fi
 # sandbox_user_mgr_up: succeed once the sandbox account's --user manager answers on its bus.
 sandbox_user_mgr_up() { sandbox_systemctl show -p Version --value >/dev/null 2>&1; }
 
-# (3) Toolchain timer: active in the SANDBOX account's own --user instance (not the operator's),
+# (3) Toolchain timer: active in the SANDBOX account's own `--user instance` (not the operator's),
 # where the updater writes the shared .nvm tree directly. The timer is active only while that
-# --user manager runs, and a minimal/container environment can let logind drop the lingering
-# manager across the suite's repeated session open/close -- so bring it up explicitly, then
-# check that the timers.target.wants enablement yields an active timer. This asserts the real
-# guarantee (enablement -> active once the manager runs); on a normal host the manager is
-# already up, so the start is a no-op. If the environment cannot keep the manager reachable at
-# all, the runtime state is untestable here -- skip with a note (the on-disk enablement and
-# `systemd-analyze verify` above already cover correctness; the host/box test is the gate).
+# `--user manager` runs, and what keeps the manager running with no login is the account's
+# linger, which `ai-tools-admin operators add` enables. This reads that state and does not
+# repair it -- the suite does not start or stop a service on the host, and a manager it had started
+# would either stay up as a change the run made or be stopped along with any session launched
+# meanwhile. So: linger absent is a FAILURE (the enrolment did not take, and ai-tools-run
+# aborts at the bus socket on such a host); linger present with the manager down is the
+# container case, where logind does not sustain the lingering instance across the suite's
+# session open/close, and the runtime state is untestable here -- skip with the start command
+# named (the on-disk enablement check and `systemd-analyze verify` already cover correctness).
 if [[ -z "${SANDBOX_UID}" ]]; then
     skip "nvm-update.timer" "no ${SANDBOX_USER} account"
+elif [[ ! -e "/var/lib/systemd/linger/${SANDBOX_USER}" ]]; then
+    fail "linger is not enabled for ${SANDBOX_USER}, so its --user manager (and nvm-update.timer) does not run without a login -- run: loginctl enable-linger ${SANDBOX_USER}"
 else
-    systemctl start "user@${SANDBOX_UID}.service" 2>/dev/null || true
-    for _i in $(seq 1 20); do sandbox_user_mgr_up && break; sleep 0.5; done
+    pass "linger is enabled for ${SANDBOX_USER} (its --user manager runs without a login)"
     # The manager reaches timers.target (and starts the wants-linked timer) shortly after its
     # bus comes up, so retry briefly rather than reading the state in the same instant.
     _timer_active=""
@@ -161,7 +164,7 @@ else
         pass "nvm-update.timer is active in ${SANDBOX_USER}'s --user instance"
     elif ! sandbox_user_mgr_up; then
         skip "nvm-update.timer is-active" \
-            "${SANDBOX_USER}'s --user manager answers on neither the machine transport nor its own bus (a container where logind does not sustain the lingering instance); enablement verified on disk"
+            "${SANDBOX_USER}'s --user manager is not running despite linger (a container where logind does not sustain the lingering instance); enablement verified on disk. To bring it up by hand: systemctl start user@${SANDBOX_UID}.service"
     else
         # Manager is up but the timer is not active -- a real enablement gap. Dump its view.
         printf '\n--- nvm-update.timer diagnostics ---\n'
@@ -174,12 +177,12 @@ else
     fi
 fi
 
-# ai-tools --status reports these same units end to end (it sources services.lib.sh, iterates the
-# registry, and queries systemctl). Run as the projects user (the CLI refuses root); --status
+# `ai-tools --status` reports these same units end to end (it sources services.lib.sh, iterates the
+# registry, and queries systemctl). Run as the projects user (the CLI refuses root); `--status`
 # bypasses the provisioning gate, so it works regardless of bootstrap state.
 #
 # What is asserted is that the REPORT ran and named the handback socket -- the same registry the
-# launch-time warning shares -- not that this host is healthy. --status exits 1 when it reports
+# launch-time warning shares -- not that this host is healthy. `--status` exits 1 when it reports
 # something broken (see cli.rule.md), which is a successful report on an unhealthy host and must
 # not fail the suite: a test host legitimately has a unit down. So 0 and 1 both pass provided the
 # output is there, while any other status (or missing output) means the command itself broke.

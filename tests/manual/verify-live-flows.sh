@@ -31,7 +31,10 @@
 # stamp, which is READ and never written, because a check worth having is not worth breaking the
 # reporting of a real update run for. That bounds what it can prove: a state the host does not
 # already happen to be in is reported and skipped rather than manufactured, and the unit suites
-# cover those from the other side, against fixtures they own.
+# cover those from the other side, against fixtures they own. The one runtime state it does move
+# is what a session moves on every turn: section 2c runs the ownership-handback hooks for real, as
+# the sandbox account, against a fixture inside the claimed project, and the Stop sweep advances
+# the shared sweep marker exactly as a session's would.
 #
 # REQUIREMENTS. Run as an enrolled operator (in OPERATORS and in ai-ops), NOT as root and NOT
 # under sudo -- the claim, lockdown and unclaim steps invoke sudo themselves, exactly as they do
@@ -74,7 +77,7 @@ for a in "$@"; do
         --keep)           KEEP=true ;;
         --stop-all-drill) STOP_ALL_DRILL=true ;;
         --for-drill)      FOR_DRILL=true ;;
-        -h|--help) sed -n '3,65p' "$0"; exit 0 ;;
+        -h|--help) sed -n '3,/^$/p' "$0"; exit 0 ;;
         *) printf 'unknown option: %s (see --help)\n' "${a}" >&2; exit 2 ;;
     esac
 done
@@ -101,7 +104,7 @@ skip() { SKIPPED+=1; printf '  %sSKIP%s  %s\n' "${C_Y}" "${C_0}" "$*"; }
 note() { printf '        %s%s%s\n' "${C_D}" "$*" "${C_0}"; }
 # sudo_why <what needs it> : say what the imminent "[sudo] password for ..." prompt is for. The
 # CLI invokes sudo itself, once per root helper, so the prompt arrives with no context of its own
-# and the operator would otherwise be typing a password blind. Printed immediately above the
+# and the operator would otherwise be typing a password blind. Printed immediately before the
 # command that triggers it. sudo caches for a few minutes, so not every line is followed by a
 # prompt -- which is why it names the step rather than promising one.
 sudo_why() { printf '  %ssudo%s  %s\n' "${C_Y}" "${C_0}" "$*"; }
@@ -122,10 +125,13 @@ command -v getfacl >/dev/null 2>&1 || { echo "getfacl/setfacl are required" >&2;
 # Every path this script touches is one IT created, in a directory mktemp made fresh. Nothing
 # pre-existing is reused, written into, or removed -- an existing path is a hard stop, not
 # something to clean up, because a script that deletes what it did not create is one typo away
-# from deleting the wrong thing. WORKSPACE is the single root; the removal rails below refuse any
+# from deleting the wrong thing. WORKSPACE is the single root; the removal rails refuse any
 # path that is not inside it.
 [[ -n "${HOME:-}" && -d "${HOME}" ]] || { echo "HOME is unset or not a directory" >&2; exit 2; }
-WORKSPACE="$(mktemp -d "${HOME}/ai-tools-verify-XXXXXXXX")" \
+# Named by the suite's fixture rule (tests/lib/harness.sh), group `manual`: the project the claim
+# registers in the operator's allowlist sits under it, so an entry a kept or aborted run leaves
+# reads as this suite's, and `tests/run.sh residue` finds the directory in the operator's home.
+WORKSPACE="$(mktemp -d "${HOME}/.ai-tools-test-manual-workspace-XXXXXX")" \
     || { echo "could not create a workspace under ${HOME}" >&2; exit 2; }
 # mktemp makes it 700, which BLOCKS the sandbox account -- and a claim under a blocking ancestor
 # offers to grant a traverse-only ACL on it. Inside the workspace that is ours to give, so make it
@@ -194,7 +200,7 @@ cleanup() {
     "${CLI}" --project-unclaim -y --group "${MY_GROUP}" "${PROJ}" >/dev/null 2>&1 || true
     "${CLI}" --project-unclaim -y --group "${MY_GROUP}" "${COPY}" >/dev/null 2>&1 || true
     safe_rm "${PROJ}"; safe_rm "${COPY}"; safe_rm "${OUTSIDE}"
-    # rmdir, not rm -r: it removes the workspace only if the removals above emptied it, so
+    # rmdir, not rm -r: it removes the workspace only if the per-project removals emptied it, so
     # anything unexpected still in there is preserved for the operator to look at.
     if rmdir "${WORKSPACE}" 2>/dev/null; then
         note "removed ${WORKSPACE} and the registry entries for it"
@@ -335,14 +341,14 @@ BEFORE="$(mode_of "${SEALED_SBX}") $(group_of "${SEALED_SBX}")"
 BEFORE_ACL="$(getfacl -c -- "${SEALED_SBX}" 2>/dev/null | tr '\n' ',')"
 BEFORE_OWN="$(mode_of "${SEALED_OWN}") $(group_of "${SEALED_OWN}")"
 note "sealed fixtures: ${BEFORE} (inherited group + default ACL), ${BEFORE_OWN} (setgid)"
-# The residue has to actually be there, or "nothing was stripped" does not prove a property of stripping.  prose-check: allow
+# The residue has to be there, or `nothing was stripped` does not prove a property of stripping.
 [[ "${BEFORE}" == "700 ${SANDBOX_GROUP}" ]] \
     || fail "sandbox-grouped seal fixture is '${BEFORE}', want '700 ${SANDBOX_GROUP}' -- the checks below cannot mean anything"
 [[ "${BEFORE_OWN}" == "2700 ${MY_GROUP}" ]] \
     || fail "own-group seal fixture is '${BEFORE_OWN}', want '2700 ${MY_GROUP}' -- the setgid arm is not exercised"
 
 sudo_why "the lockdown helper, in preview mode (it still runs as root to read the whole tree)"
-DRY_OUT="$(cd "${PROJ}" && "${CLI}" --lockdown -n "${PROJ}" 2>&1)"; DRY_RC=$?
+DRY_OUT="$(cd "${PROJ}" && "${CLI}" --lockdown --dry-run "${PROJ}" 2>&1)"; DRY_RC=$?
 printf '%s\n' "${DRY_OUT}" | sed 's/^/        /'
 check "the dry run completes (rc=${DRY_RC})" test "${DRY_RC}" -eq 0
 if grep -q 'inherited-then-sealed' <<<"${DRY_OUT}" && grep -q 'own-group-sealed' <<<"${DRY_OUT}"; then
@@ -428,6 +434,178 @@ else
     fi
 fi
 
+# ── 2c. the ownership-handback hooks, end to end ─────────────────────────────────────────────
+# The live chain -- hook, handback socket, daemon, ai-tools-chown -- is the one guarantee the
+# automated suite cannot drive: the daemon execs the helper with its own environment, so the
+# helper reads the operator's REAL allowlist and the fixture must sit inside a project that
+# allowlist names. The automated suite may not write that allowlist, and the checkout it runs
+# from need not be a project, so the place a hook fixture can honestly live is here, inside the
+# project section 1 claimed and section 3 unclaims. The fixture cannot be under /tmp either: pam_namespace
+# polyinstantiation, where present, gives the hook's own session an empty /tmp instance.
+#
+# Each hook is run FOR REAL, as the sandbox account through `sudo -u`, with the JSON the harness
+# would send it. That has two consequences this script's header otherwise rules out, both of them
+# what a session does on every turn: the Stop sweep advances the shared sweep marker under
+# /opt/ai-tools/.claude, and the tool-call record writes one line to the journal under the sandbox
+# uid. Root is used for fixture ownership (to make a file born the agent's), to reach the sandbox
+# account, and to read the journal back; the undo of every ownership change is the hand-back the
+# hooks themselves perform, and the unclaim in section 3 hands back whatever a failed hook left.
+#
+# ONE sudo for the whole section. The agent's config directory is root:ai-tools with no world
+# access and an operator stays OUT of the sandbox group by design, so even the presence probe
+# needs root; and a host may prompt for a password on EVERY sudo, so the section is one root step
+# like every other section here, not one per chown and hook. The step is a script root runs with
+# `bash -s`, reaching the sandbox account through runuser (which never prompts) and printing one
+# tab-separated verdict line per check, which the verdict loop turns into this script's results.
+# No command under it may call sudo, and none may put sudo under `timeout`: timeout runs its
+# command in a background process group, where a password read on the tty stops the job.
+section "2c. the ownership-handback hooks, end to end"
+if ! grep -qx "${PROJ}" "${HOME}/.config/ai-tools/allowed-projects" 2>/dev/null; then
+    skip "handback hooks (the claim in section 1 did not register ${PROJ}, so the daemon would refuse it)"
+else
+    # The fixture directory, named by the suite's fixture rule so a leftover reads as the suite's.
+    # 2770: the hook stats the path AS the agent before delegating, and the sweeps walk it, so the
+    # sandbox group needs entry; setgid keeps that group on everything born inside. The claim's
+    # default ACL keeps this operator's own access on every path the hooks hand back.
+    HOOKFIX="$(mktemp -d "${PROJ}/.ai-tools-test-manual-hooks-XXXXXX")"
+    chmod 2770 "${HOOKFIX}"
+    sudo_why "the hook chain, as one root step: probe the hooks, chown fixtures to the sandbox account, run each hook as it (runuser), read the journal back"
+    HOOK_VERDICTS="$(sudo bash -s -- "${HOOKFIX}" "${ME}" "${MY_GROUP}" "${SANDBOX_GROUP}" <<'ROOT_STEP'
+set -uo pipefail
+FIX="$1"; OP="$2"; OPGRP="$3"; SBX="$4"
+HOOK=/opt/ai-tools/.claude/post-tool-hook.sh
+SWEEP=/opt/ai-tools/.claude/session-hook.sh
+HB_SOCK=/run/ai-tools/handback.sock
+say()   { printf '%s\t%s\n' "$1" "$2"; }
+check() { local d="$1"; shift; if "$@"; then say PASS "${d}"; else say FAIL "${d}"; fi; }
+owner_of() { stat -c '%U:%G' "$1" 2>/dev/null; }
+perm_of()  { printf '%o' "$(( 8#$(stat -c '%a' "$1" 2>/dev/null || echo 0) & 8#777 ))"; }
+# born_agent <path> <mode>: make a path look like the agent wrote it.
+born_agent() { chown "${SBX}:${SBX}" "$1" && chmod "$2" "$1"; }
+# as_agent <hook...>: run a hook as the sandbox account with the JSON on stdin. runuser, not
+# sudo: root holds the account already, and no step here may prompt.
+as_agent()     { timeout 30 runuser -u "${SBX}" -g "${SBX}" -- "$@" >/dev/null 2>&1 || true; }
+run_hook()     { printf '{"tool_input":{"file_path":"%s"}}' "$1" | as_agent "${HOOK}"; }
+run_sweep()    { printf '{"cwd":"%s"}' "$1" | as_agent "${SWEEP}"; }
+run_sweep_ss() { printf '{"cwd":"%s","source":"%s"}' "$1" "$2" | as_agent "${SWEEP}" session-start; }
+run_sweep_se() { printf '{"cwd":"%s"}' "$1" | as_agent "${SWEEP}" session-end; }
+
+if [[ ! -x "${HOOK}" || ! -x "${SWEEP}" ]]; then
+    say SKIP "handback hooks (not installed under /opt/ai-tools/.claude)"; exit 0
+fi
+if [[ ! -S "${HB_SOCK}" ]]; then
+    say SKIP "handback hooks (${HB_SOCK} is not present -- is ai-tools-handback.socket running?)"; exit 0
+fi
+
+# PostToolUse. (A) An agent-owned ordinary file comes back as <operator>:<sandbox group>.
+HK="${FIX}/note.txt"; : > "${HK}"; born_agent "${HK}" 0600
+run_hook "${HK}"
+check "PostToolUse hands an agent-owned file back to ${OP}:${SBX} (got $(owner_of "${HK}"))" \
+    test "$(owner_of "${HK}")" = "${OP}:${SBX}"
+# (B) A secret-named agent file goes to the operator's PRIVATE group: the agent is revoked.
+HS="${FIX}/.env"; : > "${HS}"; born_agent "${HS}" 0600
+run_hook "${HS}"
+check "PostToolUse routes a secret-named file to ${OP}:${OPGRP} (got $(owner_of "${HS}"))" \
+    test "$(owner_of "${HS}")" = "${OP}:${OPGRP}"
+# (C) A directory the write created is normalized to <operator>:<sandbox group> 770; the parent
+#     is the operator's, so the upward walk stops there.
+HD="${FIX}/made"; mkdir "${HD}"; born_agent "${HD}" 0755
+HDF="${HD}/file"; : > "${HDF}"; born_agent "${HDF}" 0600
+run_hook "${HDF}"
+check "PostToolUse normalizes a newly created parent to ${OP}:${SBX} 770 (got $(owner_of "${HD}") $(perm_of "${HD}"))" \
+    test "$(owner_of "${HD}")" = "${OP}:${SBX}" -a "$(perm_of "${HD}")" = 770
+# (D) The hook does not carry an allowlist pre-check of its own: one the agent cannot satisfy would
+#     silently disable the handback, so enforcement stays with ai-tools-chown.
+if grep -vE '^[[:space:]]*#' "${HOOK}" | grep -q 'ALLOWLIST'; then
+    say FAIL "the hook carries a non-comment ALLOWLIST reference -- the silently disabling pre-check may be back"
+else
+    say PASS "the hook code has no ALLOWLIST pre-check (enforcement is ai-tools-chown's)"
+fi
+
+# The tool-call record and its content bound. A here-doc body is what the bound exists for:
+# unbounded and routinely carrying file content. The fixture sends a recognisable secret
+# through one and asserts it never reaches the journal, in any field.
+if ! command -v journalctl >/dev/null 2>&1; then
+    say SKIP "tool-call record (no journalctl to read the trail back)"
+else
+    REC_UID="$(id -u "${SBX}")"
+    REC_MARKER="record-probe-$$"
+    REC_SECRET="SUPERSECRET-${REC_MARKER}"
+    printf '{"tool_name":"Bash","cwd":"/tmp/%s","tool_input":{"command":"cat > f <<%sEOF%s\\n%s\\nEOF"}}' \
+        "${REC_MARKER}" "'" "'" "${REC_SECRET}" | as_agent "${HOOK}" record
+    journalctl --sync >/dev/null 2>&1 || true
+    REC_LINE=""
+    for _i in 1 2 3 4 5 6 7 8 9 10; do
+        REC_LINE="$(journalctl -t ai-tools-hook _UID="${REC_UID}" --since '2 min ago' --no-pager 2>/dev/null \
+                        | grep -F "cwd=/tmp/${REC_MARKER}" || true)"
+        [[ -n "${REC_LINE}" ]] && break
+        sleep 0.5
+    done
+    if [[ -z "${REC_LINE}" ]]; then
+        say SKIP "tool-call record (the record never reached the journal)"
+    else
+        check "PostToolUse records a Bash call as its leading words + argument count" \
+            grep -qF 'cmd="cat >" argc=4' <<<"${REC_LINE}"
+        REC_ALL="$(journalctl -t ai-tools-hook _UID="${REC_UID}" --since '2 min ago' -o export --no-pager 2>/dev/null || true)"
+        if grep -qF "${REC_SECRET}" <<<"${REC_ALL}"; then
+            say FAIL "the here-doc body reached the trail -- the record's content bound is broken"
+        else
+            say PASS "a here-doc body never reaches the trail (the record stops at the first line)"
+        fi
+        if grep -qF 'AI_TOOLS_TOOL=Bash' <<<"${REC_ALL}" && grep -qF 'AI_TOOLS_ARGC=4' <<<"${REC_ALL}"; then
+            say PASS "the record carries native journald fields (AI_TOOLS_TOOL/ARGC) beside the MESSAGE"
+        elif ! logger --help 2>&1 | grep -q -- --journald; then
+            say SKIP "structured record fields (logger(1) here has no --journald; the plain fallback is expected)"
+        else
+            say FAIL "the record carries no AI_TOOLS_* journal fields"
+        fi
+    fi
+fi
+
+# Stop sweep: a Bash-created (agent-owned) file is caught at turn end. The file is newer than
+# any sweep marker, so the bounded scan reaches it without the marker being touched.
+SW="${FIX}/bash-made"; : > "${SW}"; born_agent "${SW}" 0644
+run_sweep "${FIX}"
+check "the Stop sweep hands back a Bash-created file (got $(owner_of "${SW}"))" \
+    test "$(owner_of "${SW}")" = "${OP}:${SBX}"
+
+# SessionStart: (A) unbounded -- the marker the Stop sweep just advanced is newer than a
+# leftover dated an hour ago, and the reclaim must not stop at it; (B) compact/clear stay in a
+# live process, so that pass is a no-op.
+SSF="${FIX}/leftover"; : > "${SSF}"; born_agent "${SSF}" 0644; touch -d '1 hour ago' "${SSF}"
+run_sweep_ss "${FIX}" startup
+check "SessionStart (startup) reclaims a leftover older than the marker (got $(owner_of "${SSF}"))" \
+    test "$(owner_of "${SSF}")" = "${OP}:${SBX}"
+SSF2="${FIX}/live-write"; : > "${SSF2}"; born_agent "${SSF2}" 0644
+run_sweep_ss "${FIX}" compact
+check "SessionStart (compact) is a no-op and leaves a live write to the Stop sweep (got $(owner_of "${SSF2}"))" \
+    test "$(owner_of "${SSF2}")" = "${SBX}:${SBX}"
+
+# SessionEnd: the per-turn sweeps skip .git, so an agent-written object stays agent-owned until
+# the graceful exit reclaims <cwd>/.git. A plain directory named .git is enough.
+mkdir -p "${FIX}/.git/objects/ab"
+SEO="${FIX}/.git/objects/ab/object"; : > "${SEO}"; born_agent "${SEO}" 0444
+run_sweep_se "${FIX}"
+check "SessionEnd reclaims an agent-owned .git object (got $(owner_of "${SEO}"))" \
+    test "$(owner_of "${SEO}")" = "${OP}:${SBX}"
+ROOT_STEP
+    )"; HOOK_RC=$?
+    if (( HOOK_RC != 0 )) && [[ -z "${HOOK_VERDICTS}" ]]; then
+        fail "the hook step did not run (sudo rc=${HOOK_RC})"
+    fi
+    while IFS=$'\t' read -r verdict text; do
+        case "${verdict}" in
+            PASS) pass "${text}" ;;
+            FAIL) fail "${text}" ;;
+            SKIP) skip "${text}" ;;
+            "")   ;;
+            *)    note "${verdict} ${text}" ;;
+        esac
+    done <<<"${HOOK_VERDICTS}"
+    # Whatever a failed hook left agent-owned, the unclaim in section 3 hands back; the operator's
+    # default ACL keeps the workspace removable either way.
+fi
+
 # ── 3b. --for on --project-create / --project-remove (opt-in) ─────────────────────────────────
 # The two verbs that act on the FILESYSTEM as the operator they run for, which is a sudoers
 # question of its own (Runas), separate from the ai-tools helper grants. Nothing hermetic can
@@ -468,7 +646,9 @@ else
     elif [[ ! -w "${SANDBOX_ROOT}" ]]; then
         skip "--for create/remove (${SANDBOX_ROOT} is not writable by ${ME}; the ai-ops ACL is what makes it shared)"
     else
-        FOR_PROJ="${SANDBOX_ROOT}/for-drill-$$-${OTHER_OP}"
+        # Named by the suite's fixture rule, so a tree the removal did not complete is found by
+        # `tests/run.sh residue`, which runs as root and can remove what this script cannot.
+        FOR_PROJ="${SANDBOX_ROOT}/.ai-tools-test-manual-for-drill-${OTHER_OP}-$(head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 6)"
         note "the project goes in the shared area, not the workspace: it is created AS ${OTHER_OP},"
         note "who cannot write inside ${HOME}"
         sudo_why "creating a project AS ${OTHER_OP} (sudo -u), and its claim's root steps"
@@ -559,7 +739,9 @@ if ! ${TREE_CLAIMED}; then
 elif [[ -e "${PROJ}/src/hardlinked" ]] && [[ "$(stat -c '%h' "${PROJ}/src/hardlinked")" -gt 1 ]]; then
     check "the work tree is handed back to ${MY_GROUP}" test "$(group_of "${PROJ}/src")" = "${MY_GROUP}"
     check "group write is removed"                      test "$(mode_of "${PROJ}/src/main.c")" = 640
-    if grep -q 'hardlinked file' <<<"${UNCLAIM_OUT}" && grep -q 'links +1' <<<"${UNCLAIM_OUT}"; then
+    # The code is the refusal's identity (this script prints its own results, so it matches the
+    # code line the way harness.sh's assert_msg does); the `find` line is content and stays.
+    if grep -qxF -- MSG-Z5S7 <<<"${UNCLAIM_OUT}" && grep -q 'links +1' <<<"${UNCLAIM_OUT}"; then
         pass "the hardlink refusal is reported with the find that lists the files"
     else
         fail "hardlinked files were left without the disclosure naming them"
@@ -577,7 +759,7 @@ fi
 # ── 4. unclaim --force on the unregistered copy ──────────────────────────────────────────────
 section "4. ai-tools --project-unclaim --force (unregistered copy)"
 # --force acts on the ai-tools fingerprint, so the copy must carry one. Establish that FIRST:
-# without it the command correctly refuses ("nothing to unclaim here"), and asserting anything  prose-check: allow
+# without it the command correctly refuses (`nothing to unclaim here`), and asserting anything
 # past that point measures the fixture, not the flag. The two checks after the apply would even
 # PASS on such a copy -- no abort, group already the operator's -- which is the worst outcome a
 # check can have.
@@ -587,7 +769,7 @@ elif [[ "$(group_of "${COPY}/src")" != "${SANDBOX_GROUP}" ]]; then
     skip "--force checks (the copy carries no ai-tools fingerprint -- was the original granted?)"
 else
     pass "the copy carries the agent group, so --force has something to act on"
-    FORCE_DRY="$("${CLI}" --project-unclaim --force -n "${COPY}" 2>&1)"; FORCE_DRY_RC=$?
+    FORCE_DRY="$("${CLI}" --project-unclaim --force --dry-run "${COPY}" 2>&1)"; FORCE_DRY_RC=$?
     printf '%s\n' "${FORCE_DRY}" | head -20 | sed 's/^/        /'
     check "the --force dry run completes (rc=${FORCE_DRY_RC})" test "${FORCE_DRY_RC}" -eq 0
     check "the dry run changed nothing" test "$(group_of "${COPY}/src")" = "${SANDBOX_GROUP}"
@@ -607,7 +789,7 @@ fi
 section "5. ai-tools --sandbox-create flag validation"
 for flag in --from --branch --dir; do
     OUT="$("${CLI}" --sandbox-create "${flag}" -oops 2>&1)"; RC=$?
-    if [[ "${RC}" -ne 0 ]] && grep -q 'not another option' <<<"${OUT}"; then
+    if [[ "${RC}" -ne 0 ]] && grep -qxF -- MSG-S4M8 <<<"${OUT}"; then
         pass "${flag} refuses an option-shaped value"
     else
         fail "${flag} accepted '-oops' (rc=${RC}): ${OUT}"
@@ -720,7 +902,7 @@ session_task_count() {
 # NEVER with `-s`: every cgroupfs file stats as zero bytes however many tasks it holds, so
 # `[[ -s cgroup.procs ]]` is false even for a slice holding hundreds -- an assertion that cannot
 # pass, and that reports a healthy restore as a failure. (Verified: the root cgroup.procs stats 0
-# with 379 pids in it.) session_task_count above already reads content, for the same reason.
+# with 379 pids in it.) session_task_count already reads content, for the same reason.
 #
 # `2>/dev/null` PRECEDES the input redirect, per the rule ai-tools-stop.sh's cgroup_pids states:
 # redirections apply left to right, so the other order lets a missing init.scope -- exactly the
@@ -738,7 +920,7 @@ else
     # argument contract: there is no per-project form, and accepting a path would invert what the
     # operator asked for -- they typed a path to NARROW the command, and it terminates everything.
     OUT="$("${CLI}" --stop /some/project 2>&1)"; RC=$?
-    if [[ "${RC}" -eq 2 ]] && grep -q 'takes no path' <<<"${OUT}" && grep -q '/exit' <<<"${OUT}"; then
+    if [[ "${RC}" -eq 2 ]] && grep -qxF -- MSG-A3M9 <<<"${OUT}" && grep -q '/exit' <<<"${OUT}"; then
         pass "--stop refuses a path (rc=2) and names /exit as the way to end one session"
     else
         fail "--stop did not refuse a path properly (rc=${RC}): ${OUT}"
@@ -808,7 +990,7 @@ else
             fail "the user manager did not come back; the next launch will have no --user instance -- restore it: sudo systemctl start user@$(id -u "${SANDBOX_GROUP}").service"
         fi
         # IDEMPOTENT IN END STATE, WHICH IS NOT THE SAME AS SILENT -- and the difference follows
-        # from the rebuild rather than being a defect in it. The manager the run above restored is
+        # from the rebuild rather than being a defect in it. The manager the stop run restored is
         # itself inside the swept slice, so a second run finds it, stops it, and restarts it again.
         # What must hold is that no AGENT session is found (the first stop took) and the run still
         # exits 0. A second run reporting agent sessions would mean the first one did not.

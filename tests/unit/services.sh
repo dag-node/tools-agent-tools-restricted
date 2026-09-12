@@ -17,7 +17,7 @@
 #     operator did by hand (which is no evidence about a schedule) is declined in both directions;
 #   * the 'skipped' verdict for a run that correctly did NOTHING -- the updater finding the
 #     registry unreachable, where the previous toolchain stays and there is no fault to fix. It must
-#     not alarm (needs_attention says no, so --status stays green and exits zero) and must not
+#     not alarm (needs_attention says no, so `--status` stays green and exits zero) and must not
 #     claim health either, so it stays distinct from active, still ages into 'stale' when the
 #     condition persists, and leaves the TRIGGER's own verdict untouched in 'fired' mode;
 #   * ai_tools_service_stamp_field's defensive read of that stamp. It is the one input here a
@@ -58,7 +58,7 @@ mktestdir
 
 # A sandbox-user unit's PRESENCE is read from its unit file -- the one live fact the operator's
 # session can see about that account's manager -- so the whole file points the lookup at a fixture
-# directory. Without it every case below would depend on which optional packages this host
+# directory. Without it every case would depend on which optional packages this host
 # installed, which is exactly the environment coupling a unit test must not have.
 mkdir -p "${TESTDIR}/user-units"
 export AI_TOOLS_USER_UNIT_DIRS="${TESTDIR}/user-units"
@@ -102,7 +102,7 @@ else
 fi
 
 # The update service's stamp path is the one the updater writes; a drift between the two would
-# leave --status permanently reporting 'unknown' with no reason to say why.
+# leave `--status` permanently reporting 'unknown' with no reason to say why.
 svc_rec="$(grep '^nvm-update\.service|' <<<"${recs}")"
 if [[ "$(ai_tools_service_field "${svc_rec}" 7)" == /var/opt/ai-tools/state/nvm-update.status ]]; then
     pass "nvm-update.service names the updater's stamp path"
@@ -184,7 +184,7 @@ else
     fail "a failed oneshot read as '${st_failed}' (needs_attention decides the exit status)"
 fi
 
-# The unit that triggers it is a .path, which has no Type -- so the reading above must not change
+# The unit that triggers it is a .path, which has no Type -- so that reading must not change
 # how any non-service unit is judged.
 _SVC_STATE=( [ai-tools-relabel.path]=active )
 _SVC_PROP=()
@@ -320,7 +320,7 @@ fi
 # A run that made no change because it COULD not (the updater with an unreachable registry) is its own
 # verdict, between success and fault. Reporting it as FAILED would send an operator after a host
 # that is fine; reporting it as OK would claim an update that never happened. So it must read
-# 'skipped', must not count as needing attention -- or a disconnected laptop makes --status exit
+# 'skipped', must not count as needing attention -- or a disconnected laptop makes `--status` exit
 # non-zero every night, training its reader to ignore it -- and must still carry its REASON.
 mk_stamp "RESULT=skipped" "EXIT_CODE=3" "FINISHED=$(at_age 3600)" "REASON=offline"
 st_skipped="$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
@@ -437,7 +437,7 @@ else
     fail "an absent key produced an age: ${age_absent}"
 fi
 
-# The registry's own records must carry the freshness policy, or none of the above ever applies in
+# The registry's own records must carry the freshness policy, or none of it ever applies in
 # production: both nvm-update records point at the stamp, and the timer reads it in 'fired' mode.
 svc_rec="$(grep '^nvm-update\.service|' <<<"${recs}")"
 tmr_rec="$(grep '^nvm-update\.timer|'   <<<"${recs}")"
@@ -531,7 +531,7 @@ if ai_tools_services_scan all \
 else
     fail "the 'all' scan missed the failed unit: [${AI_TOOLS_SERVICES_DOWN[*]}]"
 fi
-# Its remedy field is deliberately EMPTY: re-running it goes through the sandbox account's --user
+# Its remedy field is deliberately EMPTY: re-running it goes through the sandbox account's `--user`
 # manager, so the command names that account and the consumer composes it (services.lib.sh ships
 # with no @SANDBOX_USER@ substitution). An accidental value here would print an unsubstituted
 # command to the operator.
@@ -548,7 +548,7 @@ fi
 
 # ── the live reading a ROOT caller adds, and what it may and may not override ───────────────────
 # `ai-tools-admin status` reaches the sandbox account's own manager over the machine transport,
-# which the operator cannot; the verdict that reading feeds into is the pure function below, so it
+# which the operator cannot; the verdict that reading feeds into is the pure function, so it
 # is driven here over its whole truth table with no manager to query and no privilege to hold.
 #
 # Every case is one of two claims. A live reading may only ADD an answer where the stamp declined
@@ -610,7 +610,7 @@ else
     verdict failed "a stamped failure is reported with no transport at all" \
         unknown result failed unit 60 172800
 
-    # And the probe's own gate. Both refusals resolve to the stamp-only reading above, which is the
+    # And the probe's own gate. Both refusals resolve to the stamp-only reading, which is the
     # direction every failure in this path takes.
     _AI_TOOLS_SERVICE_SANDBOX_ACCOUNT=""
     if _ai_tools_service_systemctl sandbox-user; then
@@ -619,12 +619,27 @@ else
         pass "no sandbox account named: the live probe is not offered"
     fi
     ai_tools_service_sandbox_account ai-tools
-    if [[ "${EUID}" -eq 0 ]]; then
-        skip "non-root live probe" "this run is root, which is the vantage the probe is for"
-    elif _ai_tools_service_systemctl sandbox-user; then
-        fail "the live probe was offered to a non-root caller"
+    # The non-root half is asked from a non-root process: a root run drops to the projects user
+    # through runuser (the library is world-readable) rather than skipping the vantage the
+    # refusal exists for.
+    # shellcheck disable=SC2016  # $1 is the inner shell's positional
+    probe_offered_to_projects_user() {
+        runuser -u "${PROJECTS_USER}" -- bash -c \
+            'source "$1" || exit 2; ai_tools_service_sandbox_account ai-tools; _ai_tools_service_systemctl sandbox-user' \
+            _ "${LIB}"
+    }
+    if [[ "${EUID}" -ne 0 ]]; then
+        if _ai_tools_service_systemctl sandbox-user; then
+            fail "the live probe was offered to a non-root caller"
+        else
+            pass "a non-root caller is not offered the live probe, whatever account is named"
+        fi
+    elif ! command -v runuser >/dev/null 2>&1; then
+        skip "non-root live probe" "runuser unavailable to ask the probe unprivileged"
+    elif probe_offered_to_projects_user; then
+        fail "the live probe was offered to a non-root caller (${PROJECTS_USER})"
     else
-        pass "a non-root caller is not offered the live probe, whatever account is named"
+        pass "a non-root caller (${PROJECTS_USER}) is not offered the live probe, whatever account is named"
     fi
     # A system unit's state is world-readable, so that scope is offered to every caller -- the
     # asymmetry is the point, and reading it as privileged would silently stop the launch

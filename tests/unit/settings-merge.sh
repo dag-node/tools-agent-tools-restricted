@@ -42,7 +42,7 @@ fi
 
 mktestdir
 
-# Render the library's structured result the way a caller does, so the assertions below read what
+# Render the library's structured result the way a caller does, so the assertions read what
 # an operator would have been told rather than reaching into the library's variables one by one.
 # shellcheck disable=SC2154  # the _ai_tools_conf_merge_* results are set by the sourced
 # conf.lib.sh, which shellcheck cannot follow through the LIB path variable
@@ -96,7 +96,7 @@ fi
 
 # Host tuning is the whole reason the file is kept, so it must survive a merge verbatim: a
 # relaxed deny entry (the documented case, alongside an enabled SELinux group) and an added env
-# key. Both are states an upgrade must not quietly revert.
+# key, states an upgrade must not quietly revert.
 tuned="${TESTDIR}/tuned.json"
 mk_stale "${tuned}"
 jq '.permissions.deny -= ["Bash(rpm)"] | .env.SITE_PROXY = "http://proxy.example:3128"' \

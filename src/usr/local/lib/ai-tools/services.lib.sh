@@ -7,11 +7,12 @@
 # here ONCE and each consumer only formats -- no duplicated service knowledge.
 #
 # Pure data + detection: this library does not render output (no msg.lib dependency). A consumer sources it,
-# scans, and formats the result however it likes (a framed warn at launch, a plain table in --status).
+# scans, and formats the result however it likes (a framed warn at launch, a plain table in `--status`).
 #
 # Detection is two-sourced, by scope. A system unit is queried live (`systemctl is-active`, which
 # any user may read) -- except a Type=oneshot service, which is inactive whenever it is healthy and
-# is judged by the result of its last run instead. A unit in the sandbox account's own `systemd --user` manager is not reachable
+# is judged by the result of its last run instead. A unit in the sandbox account's own
+# `systemd --user manager` is not reachable
 # from the operator's session at all -- the machine transport needs root and no NOPASSWD rule grants
 # it -- so its state comes from a LAST-RUN STAMP the unit writes to a path the operator can read
 # (/var/opt/ai-tools/state), and from the one live fact that IS readable: whether its unit file is
@@ -25,7 +26,7 @@
 # _ai_tools_service_systemctl, which tests the CALLER's capability and not which command is asking:
 # `ai-tools-admin status`, `sudo ai-tools --status` and any later consumer therefore resolve one
 # unit to one verdict, and an unprivileged vantage reports it as unknown. How a live reading and a
-# stamp compose into that verdict is ai_tools_service_stamp_verdict, below.
+# stamp compose into that verdict is ai_tools_service_stamp_verdict.
 #
 # A STAMP IS NOT TRUSTED INPUT, and no reader here treats it as such. Its writer is the sandbox
 # account, so that account can state any outcome it likes; the mode on the file and its directory
@@ -49,7 +50,7 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 #   scope    = system       -- checkable unprivileged (a system unit's state is world-readable):
 #                              from `systemctl is-active`, or, for a Type=oneshot service, from the
 #                              result of its last run, since such a unit is inactive while healthy.
-#              sandbox-user  -- a --user unit in the sandbox account's own systemd instance, which
+#              sandbox-user  -- a `--user unit` in the sandbox account's own systemd instance, which
 #                              the operator cannot query unprivileged, so its live state comes from
 #                              a last-run stamp if the unit publishes one and is reported as
 #                              unknown with a check hint otherwise -- never a guessed value.
@@ -78,10 +79,10 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 # A purpose is worded state-neutrally ("without it ...", not "while it is down ..."), since the
 # same sentence is printed under down, failed, and stale.
 # remedy is EMPTY on a sandbox-user unit whose remedy is simply re-running it: the restart (and
-# the journal query) go through that account's --user manager, so they name the sandbox account,
+# the journal query) go through that account's `--user manager`, so they name the sandbox account,
 # and this library is deployed with no @SANDBOX_USER@ substitution. The consumer knows the account
 # name and composes both -- see ai-tools' cmd_status, the single place that renders that transport.
-# shellcheck disable=SC2034  # read by the accessors below and by both consumers (ai-tools, claude.sh)
+# shellcheck disable=SC2034  # read by this library's accessors and by both consumers (ai-tools, claude.sh)
 # The 172800 (48h) grace on both nvm-update records is twice the timer's daily OnCalendar: one
 # missed window is a reboot or a suspended laptop, two is a schedule that has stopped.
 _AI_TOOLS_SERVICES=(
@@ -117,7 +118,7 @@ ai_tools_service_stamp_field() {
     return 0
 }
 
-# The sandbox account whose `systemd --user` manager a live probe may reach, or empty for none.
+# The sandbox account whose `systemd --user manager` a live probe may reach, or empty for none.
 # This library is deployed with NO @SANDBOX_USER@ substitution -- the account name belongs to the
 # consumer, which is also why a sandbox-user unit's remedy commands are composed by the consumer --
 # so a consumer that knows the name declares it here once, and one that does not keeps the
@@ -130,7 +131,7 @@ _AI_TOOLS_SERVICE_SANDBOX_ACCOUNT=""
 : "${AI_TOOLS_SERVICE_LIVE_TIMEOUT:=5}"
 
 # ai_tools_service_sandbox_account <name>  -- name the sandbox account, which is what offers the
-# live probe below to a root caller. Setting it does not by itself widen anything: the probe still
+# live probe to a root caller. Setting it does not by itself widen anything: the probe still
 # requires root and a working transport, and every failure falls back to the stamp.
 ai_tools_service_sandbox_account() { _AI_TOOLS_SERVICE_SANDBOX_ACCOUNT="${1:-}"; }
 
@@ -141,7 +142,7 @@ ai_tools_service_sandbox_account() { _AI_TOOLS_SERVICE_SANDBOX_ACCOUNT="${1:-}";
 # plain `sudo -u <account> systemctl --user` gets that account's bus refused even when the manager
 # is healthy -- so the probe is offered to a root caller and refused for every other, which is what
 # leaves an unprivileged report reading exactly as it did before this existed.
-# shellcheck disable=SC2034  # the array IS this function's output, read by its two callers below.
+# shellcheck disable=SC2034  # the array IS this function's output, read by its two callers.
 _AI_TOOLS_SERVICE_SYSTEMCTL=()
 _ai_tools_service_systemctl() {
     _AI_TOOLS_SERVICE_SYSTEMCTL=()
@@ -253,7 +254,7 @@ ai_tools_service_fmt_age() {
     fi
 }
 
-# _ai_tools_user_unit_installed <unit>  -- 0 when a system-wide `systemd --user` unit FILE of that
+# _ai_tools_user_unit_installed <unit>  -- 0 when a system-wide `systemd --user unit` FILE of that
 # name exists. This is the one question about a sandbox-user unit the operator's session CAN
 # answer: the unit files are world-readable even though the manager that runs them is unreachable.
 # It separates "installed but unqueryable" from "not installed at all" -- every unit in the
@@ -334,7 +335,7 @@ ai_tools_service_stamp_verdict() {
 # ai_tools_service_state <unit> <scope> [stamp] [stamp_mode] [max_age]  -- PRINT one of
 # active|skipped|down|failed|stale|absent|unknown; the state is the stdout value and the function
 # ALWAYS returns 0 (so a `state="$(...)"` capture is safe under `set -e` -- no consumer reads the
-# exit status). ai_tools_service_state_of below takes a whole record and is what consumers call.
+# exit status). ai_tools_service_state_of takes a whole record and is what consumers call.
 #   active  -- the unit is running (is-active), or its stamp records a recent healthy run.
 #   skipped -- the last run ended in a transient condition it did not cause and could not fix (the
 #              updater offline: the registry was unreachable, so the toolchain was left alone and
@@ -360,7 +361,7 @@ ai_tools_service_state() {
     # the machine transport and takes the live verdict where it is decisive; every other caller --
     # and every probe that cannot complete -- falls back to the last-run stamp, so a unit that
     # publishes one is reported from it and one that does not stays 'unknown' rather than guessed.
-    # Every input is gathered here and the verdict is decided by the pure function below, so the
+    # Every input is gathered here and the verdict is decided by the pure verdict function, so the
     # policy is unit-testable without a manager to query or a privilege to hold.
     if [[ "${scope}" != system ]]; then
         # Installed at all? A unit shipped by an OPTIONAL package is legitimately absent (the
@@ -411,7 +412,7 @@ ai_tools_service_needs_attention() {
 }
 
 # ai_tools_services_scan [all|system|wrapper]  -- fill AI_TOOLS_SERVICES_DOWN with the records that
-# need attention (see the predicate above), limited by the filter (default 'all'): 'system' =
+# need attention (see the attention predicate), limited by the filter (default 'all'): 'system' =
 # system-scope units; 'wrapper' = the ones the launch wrapper warns about (system + preflight=
 # wrapper, i.e. not the socket the shim already handles). Returns 0 when at least one needs
 # attention, 1 when none -- so a consumer can gate a warning on `if ai_tools_services_scan wrapper`.

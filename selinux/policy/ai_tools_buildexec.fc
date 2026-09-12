@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# ai_tools_buildexec has no file-context rules: it grants one permission set on an existing type
+# (ai_tools_project_build_t) and does not label any path on disk. Which paths carry that type is
+# each integration's layout module (ai_tools_dotnet.fc) and manifest.

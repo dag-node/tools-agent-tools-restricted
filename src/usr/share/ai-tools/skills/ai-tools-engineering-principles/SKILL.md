@@ -1,10 +1,10 @@
 ---
 name: ai-tools-engineering-principles
-# ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the name above is stable.
+# ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the frontmatter name is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 2
-x-ai-tools-updated: 2026-09-05
+x-ai-tools-version: 3
+x-ai-tools-updated: 2026-09-10
 description: "Use when introducing a new feature (to set its shape before coding), when validating or reviewing a feature implementation against these defaults, or when choosing an approach, architecture, or how much machinery a problem warrants — in any language. Consult it at both ends: before building a feature and when checking the result. Sets the default engineering judgment: resolve trade-offs in the order security, then performance; write in a pragmatic, low-ceremony style (simple, explicit, terse-but-readable, POCO/DTO-first, no speculative abstraction); fail closed on critical components; sanitize with an allowlist not a blocklist; reach for the lightest mechanism that works; spend context and tokens deliberately (amortize discovery through persistent docs, isolate noisy fan-out work, and never downgrade planning to a weaker model); keep humans in the loop for irreversible or outward-facing actions. For prose style defer to ai-tools-technical-docs. Trigger on 'add/implement a feature', 'design this', 'how should I build/structure this', 'which approach', 'review/validate this implementation', 'is this over-engineered', or any design/architecture decision."
 ---
 
@@ -18,7 +18,7 @@ Consult it at **both ends of a feature**: when introducing one, to set its shape
 code (what's the simplest secure design, how much machinery does it actually need); and when
 validating an implementation, as the checklist to hold it against — priority order respected,
 no ceremony added, boundaries fail closed, inputs allow-listed, the change scoped to what it
-required. The "One-line test" and the anti-patterns below double as the review pass.
+required. The "One-line test" and the anti-patterns double as the review pass.
 
 ## Priority order
 
@@ -29,7 +29,7 @@ When concerns pull against each other, resolve them in this order:
    query, or the filesystem is untrusted until proven otherwise.
 3. **Performance** — then make it fast: avoid needless work, allocations, and chatty round-trips;
    measure before micro-optimising.
-4. **Everything else** (elegance, extensibility, taste) sits below these three.
+4. **Everything else** (elegance, extensibility, taste) ranks under these three.
 
 Stated briefly: **security, then performance** — with correctness assumed and cleverness last.
 
@@ -56,11 +56,11 @@ understands in one pass — the code is the best documentation.
   reader with no access to the conversation that produced it (no session shorthand, ticket tags, or
   "as discussed").
 - **Single-source each fact; link, don't repeat.** A given fact lives at exactly one layer — line
-  comment, method doc, file header, a reference/rule file, CLAUDE.md, README — chosen by altitude;
+  comment, method doc, file header, a reference/rule file, `CLAUDE.md`, README — chosen by altitude;
   every other layer references it by a short link rather than restating it. Keep the layers in sync
-  up through CLAUDE.md: **the code is true for behaviour, and invariants have to hold.** Where a
+  up through `CLAUDE.md`: **the code is true for behaviour, and invariants have to hold.** Where a
   description disagrees with the code, resolve it toward the code and never average two
-  descriptions. Where the *code* contradicts an invariant CLAUDE.md or a rule states, that is a
+  descriptions. Where the *code* contradicts an invariant `CLAUDE.md` or a rule states, that is a
   defect in the code — raise it and leave the invariant standing, because rewriting the invariant
   to match retires a guarantee by editing prose. A docs-to-code ratio climbing toward parity is a
   signal the *code* must become self-descriptive (a rename, an extraction, a stronger type) — not

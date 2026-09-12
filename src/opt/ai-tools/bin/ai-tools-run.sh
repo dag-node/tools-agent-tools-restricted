@@ -2,12 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /opt/ai-tools/bin/ai-tools-run
 # Confinement shim: runs one sandboxed agent session as @SANDBOX_USER@, inside a transient
-# systemd --user service whose properties are the session's security boundary.
+# `systemd --user service` whose properties are the session's security boundary.
 #
 # Invoked only by an agent's launch wrapper, which resolves and validates the versioned
 # executable and drops privilege:
 #
+#   ```bash
 #   sudo -u @SANDBOX_USER@ -g @SANDBOX_GROUP@ -- /opt/ai-tools/bin/ai-tools-run [args...]
+#   ```
 #
 # with AI_TOOLS_AGENT_EXEC (the versioned executable) and AI_TOOLS_PROJECT_DIR (the session's
 # working directory) carried through sudo's env_keep. Both are re-validated here, so neither
@@ -26,10 +28,12 @@
 #
 # Operating notes:
 #   * The session appears as @SANDBOX_USER@-<agent>-<pid>.service in `systemctl --user`. Its
-#     stdout/stderr go to the terminal (--pty), so the per-unit journal is empty on a clean run.
+#     stdout/stderr go to the terminal (`--pty`), so the per-unit journal is empty on a clean run.
 #   * Every launch logs its confinement inputs, the toolchain versions, and any refusal under the
 #     `ai-tools-run` syslog tag -- where the useful records are:
-#         sudo journalctl -t ai-tools-run _UID=<sandbox uid> -n 50 --no-pager
+#       ```bash
+#       sudo journalctl -t ai-tools-run _UID=<sandbox uid> -n 50 --no-pager
+#       ```
 #   * A refusal names the fix. The common ones are a stale SELinux label after a Node upgrade
 #     (`ai-tools-admin system entrypoints relabel`) and a stopped user manager (`loginctl enable-linger`).
 #   * The ownership handback socket is checked before launch: if it is down the session still
@@ -50,7 +54,7 @@ readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
 readonly SESSION_ENV_DIR="${AI_TOOLS_LIB_DIR}/session-env.d"
 readonly SANDBOX_HOME="/opt/ai-tools"
 
-# Everything below is sourced from AI_TOOLS_LIB_DIR while running as @SANDBOX_USER@, so that
+# Every library this script loads comes from AI_TOOLS_LIB_DIR while running as @SANDBOX_USER@, so that
 # directory is the root of trust for this script. Verify it before sourcing anything out of it:
 # root-owned, not a symlink, not group/other-writable. ai_tools_conf_is_trusted applies the same
 # test to every later input, but it lives in the directory this gate protects.
@@ -63,7 +67,7 @@ if [[ -L "${AI_TOOLS_LIB_DIR}" || "${lib_dir_metadata%% *}" != 0 \
     exit 1
 fi
 
-# Four required libraries. Each is a gate, not an output path, so a bare source under set -e is
+# Four required libraries. Each is a gate, not an output path, so a bare source under `set -e` is
 # the fail-closed load: a missing one is a broken install and refuses the launch rather than
 # skipping a check (see shellcheck.rule.md).
 #   msg          the framed refusals and the launch banner
@@ -79,11 +83,14 @@ source "${AI_TOOLS_LIB_DIR}/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/confinement.lib.sh
 source "${AI_TOOLS_LIB_DIR}/confinement.lib.sh"
 
-# refuse <headline> [detail...] : frame the refusal and stop. Every call names the fix, so a
-# refused launch is self-explaining at the terminal.
+# refuse [code] <headline> [detail...] : frame the refusal and stop. Every call names the fix, so a
+# refused launch is self-explaining at the terminal. The library's optional leading code is split
+# off so the "ai-tools-run: " prefix lands on the headline rather than on the code.
 refuse() {
+    local code=""
+    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
     local headline="ai-tools-run: $1"; shift
-    ai_tools_msg_error "${headline}" "$@"
+    ai_tools_msg_error ${code:+"${code}"} "${headline}" "$@"
     exit 1
 }
 # audit <syslog-level> <message> : one journal line under the ai-tools-run tag, the durable
@@ -128,21 +135,21 @@ done < <(ai_tools_enabled_agents 2>/dev/null)
 
 agent_executable_path="${AI_TOOLS_AGENT_EXEC:-}"
 [[ "${agent_executable_path}" != *"/../"* ]] \
-    || refuse 'AI_TOOLS_AGENT_EXEC contains parent-directory references'
+    || refuse MSG-N4P3 'AI_TOOLS_AGENT_EXEC contains parent-directory references'
 # Anchored to the sandbox's own Node toolchain, an exact semver version directory, and a single
 # path component for the launcher -- so the version component cannot be an arbitrary directory
 # name and the launcher cannot carry a separator.
 executable_suffix="${agent_executable_path#"${AI_TOOLS_NVM_DIR}/versions/node/"}"
 [[ "${executable_suffix}" != "${agent_executable_path}" \
    && "${executable_suffix}" =~ ^(v?[0-9]+\.[0-9]+\.[0-9]+)/bin/([A-Za-z0-9._-]+)$ ]] \
-    || refuse 'invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch'
+    || refuse MSG-Z2J9 'invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch'
 node_version="${BASH_REMATCH[1]}"
 launcher_name="${BASH_REMATCH[2]}"
 
 agent_name="${agent_name_by_launcher[${launcher_name}]:-}"
 [[ -n "${agent_name}" ]] \
-    || refuse "no enabled agent provides the launcher \"${launcher_name}\" -- refusing to launch"
-# The name becomes a systemd unit name below; keep it to characters a unit name accepts.
+    || refuse MSG-A3H6 "no enabled agent provides the launcher \"${launcher_name}\" -- refusing to launch"
+# The name becomes a systemd unit name; keep it to characters a unit name accepts.
 [[ "${agent_name}" =~ ^[A-Za-z0-9._-]+$ ]] \
     || refuse "agent manifest name \"${agent_name}\" is not a valid unit-name component"
 
@@ -150,11 +157,11 @@ agent_display_name="$(ai_tools_agent_manifest_field "${agent_name}" display_name
 [[ -n "${agent_display_name}" ]] || agent_display_name="${agent_name}"
 # Which side converges ownership after the agent writes a file. An agent that declares
 # handback=hooks drives it from its own tool/turn hooks; every other declaration gets the
-# session-end sweep below (see the sweep section).
+# session-end sweep (see the sweep section).
 agent_handback="$(ai_tools_agent_manifest_field "${agent_name}" handback || true)"
 
 # ── Entrypoint resolution: verify and exec the same inode ────────────────────────────────────
-# The path validated above is the versioned launcher SYMLINK; the file execve actually transitions
+# The path validated at the exec gate is the versioned launcher SYMLINK; the file execve actually transitions
 # on is what it resolves to. Resolve it ONCE here and use that single path for the label
 # preflight and for the unit's ExecStart, so the manager is never handed a link to re-resolve
 # after the checks have run. The resolved target must stay inside the SAME semver version
@@ -186,7 +193,7 @@ entrypoint_identity() {
 }
 
 session_exec_path="$(resolve_entrypoint)" \
-    || refuse "the launcher does not resolve to an executable inside ${entrypoint_version_root}" \
+    || refuse MSG-D7A7 "the launcher does not resolve to an executable inside ${entrypoint_version_root}" \
               "resolved from:  ${agent_executable_path}" \
               'reprovision the toolchain:' \
               '  sudo ai-tools-admin system bootstrap'
@@ -194,16 +201,16 @@ session_exec_identity="$(entrypoint_identity "${session_exec_path}")"
 
 # ── Session working directory ────────────────────────────────────────────────────────────────
 # A transient unit does not inherit the caller's cwd, so the wrapper's validated project
-# directory is passed through and re-validated here before it becomes --working-directory.
+# directory is passed through and re-validated here before it becomes `--working-directory`.
 # Absent (a direct diagnostic run outside a wrapper) leaves the systemd default.
 session_working_directory=""
 if [[ -n "${AI_TOOLS_PROJECT_DIR:-}" ]]; then
     [[ "${AI_TOOLS_PROJECT_DIR}" == /* ]] \
-        || refuse 'AI_TOOLS_PROJECT_DIR must be an absolute path'
+        || refuse MSG-D2A4 'AI_TOOLS_PROJECT_DIR must be an absolute path'
     [[ "${AI_TOOLS_PROJECT_DIR}" != *"/../"* && "${AI_TOOLS_PROJECT_DIR}" != *"/.." ]] \
-        || refuse 'AI_TOOLS_PROJECT_DIR contains parent-directory references'
+        || refuse MSG-A4Q4 'AI_TOOLS_PROJECT_DIR contains parent-directory references'
     [[ -d "${AI_TOOLS_PROJECT_DIR}" ]] \
-        || refuse "AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR}"
+        || refuse MSG-F8V8 "AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR}"
     session_working_directory="${AI_TOOLS_PROJECT_DIR}"
 fi
 
@@ -235,7 +242,7 @@ if command -v getenforce >/dev/null 2>&1; then
         module_present="$(ai_tools_confinement_module_present \
             "$(matchpathcon -n /opt/ai-tools/.config 2>/dev/null | awk -F: '{print $3}' || true)")"
     fi
-    # The manager is the systemd --user process that execs the entrypoint; same uid, so its
+    # The manager is the `systemd --user process` that execs the entrypoint; same uid, so its
     # domain is readable.
     manager_pid="$(pgrep -u "${UID}" -f 'systemd --user' 2>/dev/null | head -n1 || true)"
     [[ -n "${manager_pid}" ]] && manager_domain="$(tr -d '\000' < "/proc/${manager_pid}/attr/current" 2>/dev/null | awk -F: '{print $3}' || true)"
@@ -307,7 +314,7 @@ fi
 # every CHOWN fails and files this session writes stay @SANDBOX_USER@-owned, surfacing later as
 # git "dubious ownership" -- an availability cost rather than a confinement one, so a down socket
 # WARNS and proceeds (launch.rule.md carries that trade). Skipped for a diagnostic run with no
-# project directory. The reconcile commands are printed plain, below the frame, so they stay
+# project directory. The reconcile commands are printed plain, under the frame, so they stay
 # paste-safe.
 readonly HANDBACK_SOCKET="/run/ai-tools/handback.sock"
 if [[ -n "${session_working_directory}" && ! -S "${HANDBACK_SOCKET}" ]]; then
@@ -323,7 +330,7 @@ fi
 # into the session unless named here. Only terminal-, locale-, and connectivity-shaping
 # variables are forwarded by name; the operator's API keys, tokens, SSH_AUTH_SOCK, and cloud
 # credentials stay out by construction, independent of sudo's env_reset/env_keep.
-# --setenv=NAME imports NAME by name, so a value never reaches the command line.
+# `--setenv=NAME` imports NAME by name, so a value never reaches the command line.
 readonly FORWARDED_ENVIRONMENT_VARIABLES=(
     TERM COLORTERM                                  # TUI rendering
     LANG LANGUAGE LC_ALL LC_CTYPE LC_MESSAGES       # locale / UTF-8 handling
@@ -361,7 +368,7 @@ declare -a session_path_entries=()
 # and the directory holding it, since a group-writable directory lets a non-root writer replace a
 # root-owned file inside it -- must pass ai_tools_conf_is_trusted. A failing fragment is skipped
 # and logged, never sourced. Fragments are additive, so skipping one costs the session that
-# provider's environment and leaves every property below intact.
+# provider's environment and leaves every other property intact.
 source_session_env_fragment() {
     local provider_name="$1" fragment_path="${SESSION_ENV_DIR}/$1.env.sh"
     [[ -e "${fragment_path}" ]] || return 0
@@ -481,9 +488,9 @@ declare -a working_directory_option=()
     && working_directory_option=( "--working-directory=${session_working_directory}" )
 
 # Point the operator at the `ai-tools-run` tag rather than at _SYSTEMD_USER_UNIT, which shows "No
-# entries" for the reason the operating notes above give. The read needs sudo because the sandbox
+# entries" for the reason the operating notes give. The read needs sudo because the sandbox
 # account is deliberately not in systemd-journal. `-n 50 --no-pager` shows the recent records
-# plainly -- `-e` (jump to end) leaves the pager padding the screen above short output with `~`,
+# plainly -- `-e` (jump to end) leaves the pager padding the screen around short output with `~`,
 # which reads as confusing blank lines.
 if [[ -t 1 ]]; then
     printf 'Running as unit: %s\n' "${session_unit_name}"
@@ -503,7 +510,7 @@ fi
 # this same account could swap the file out from under the check. Re-resolve and re-stat here, at
 # the last instruction before the launch, so the window such a process would have to win is the
 # systemd-run round trip rather than the whole preflight. Both the path and the identity are
-# compared, for the reasons entrypoint_identity states above. This NARROWS the race rather than
+# compared, for the reasons entrypoint_identity states. This NARROWS the race rather than
 # closing it, and the deployment it is for is the DAC-only one -- launch.rule.md carries why.
 #
 # The pin is checked in the same breath, this being the one place where hashing the file and
@@ -512,7 +519,7 @@ fi
 # differ, and what each costs, are in updater.rule.md.
 entrypoint_pin_verdict=unchecked
 # Guarded, not bare: the pin is a check the launch tightens with, and a missing library is a broken
-# install rather than agent action -- it degrades to "unchecked", which the require switch below
+# install rather than agent action -- it degrades to "unchecked", which the require switch
 # turns into a refusal on a host that declared verification mandatory.
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
 if source "${AI_TOOLS_LIB_DIR}/entrypoint-verify.lib.sh" 2>/dev/null \
@@ -529,7 +536,7 @@ audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} requir
 case "${entrypoint_pin_verdict}" in
     mismatch)
         audit warning "REFUSED: entrypoint does not match its pin (${session_exec_path})"
-        refuse 'the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session' \
+        refuse MSG-H7S2 'the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session' \
                "entrypoint:  ${session_exec_path}" \
                'The binary changed after it was verified. Treat this toolchain as tampered and reprovision it:' \
                '  sudo ai-tools-admin system bootstrap' ;;
@@ -555,10 +562,17 @@ fi
 
 # ExecStart is the RESOLVED entrypoint, not the launcher symlink: the manager's execve performs the
 # domain transition on the same inode this shim verified, with no link left for it to re-resolve.
-# Run rather than exec: --pty implies --wait and returns the payload's status, which a fast failure
-# below turns into an actionable breadcrumb.
+# Run rather than exec: `--pty` implies `--wait` and returns the payload's status, which a fast failure
+# turns into an actionable breadcrumb.
+#
+# SYSTEMD_TINT_BACKGROUND=0: systemd 256+ tints the terminal background for the life of a `--pty`
+# run, picking the tint by querying the terminal for its background colour. The tint is decoration
+# a full-screen TUI paints over anyway, so it is turned off here, on the command, since sudo started
+# this process with a reset environment. A terminal reply printed over the agent's banner is the
+# agent's own capability probe, not this query's; launch.rule.md has the mechanism.
 session_start_seconds=${SECONDS}
 session_exit_status=0
+SYSTEMD_TINT_BACKGROUND=0 \
 systemd-run --user --pty --quiet \
     --unit="${session_unit_name}" \
     --description="${agent_display_name} @SANDBOX_USER@ session" \

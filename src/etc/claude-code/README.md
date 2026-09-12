@@ -36,7 +36,7 @@ endpoint file's own comments.
 
 To set the same variables **host-wide** for every Claude Code user on the box (not just the
 sandbox), put them in this file's `env` block instead. This layer is highest-precedence, so it
-**overrides** the sandbox endpoint file above:
+**overrides** the sandbox endpoint file:
 
 ```json
 {

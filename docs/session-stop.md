@@ -8,7 +8,7 @@ provider, revoking an operator, relabelling an entrypoint. This is the one that 
 in flight, so it is the rung an incident actually lands on.
 
 The property it holds is one sentence: **a stop that is asked for and reported as done has
-happened.** Everything below follows from that.
+happened.** Everything on this page follows from that.
 
 ---
 
@@ -62,7 +62,7 @@ full grammar and every exit code are in `ai-tools(1)`.
 first is the one that matters:
 
 - *Attribution comes from the account being stopped.* A session is tied to a project by reading its
-  `WorkingDirectory` from the sandbox account's own `systemd --user` manager. That is fine for
+  `WorkingDirectory` from the sandbox account's own `systemd --user manager`. That is fine for
   telling you what is running; it is not fine for deciding what a stop reaches, because anything a
   session reports about itself would then shape what gets terminated. A unit name is no better — on
   a host without SELinux a session can reach that manager and choose its own. So attribution is
@@ -145,8 +145,8 @@ which pass ended it, because that is the most useful line in the trail afterward
 
 | Exit | Meaning | What to do |
 |---|---|---|
-| 0 | stopped and verified gone, or no session was running | reclaim the projects it names (below) |
-| 1 | something survived `SIGKILL` | see *A process survived* below |
+| 0 | stopped and verified gone, or no session was running | reclaim the projects it names ([After a stop: reclaim](#after-a-stop-reclaim)) |
+| 1 | something survived `SIGKILL` | see [A process survived](#a-process-survived-exit-1) |
 | 2 | usage — an unknown option, or a path (this command does not take a target) | run `ai-tools --stop` |
 | 4 | you declined at the confirmation | no session was stopped |
 | 5 | the helper could not run (no cgroup v2, no sandbox account) | a broken host, not a failed stop |

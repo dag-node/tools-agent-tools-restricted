@@ -41,7 +41,7 @@ untouched — and a skipped directory takes its subtree with it. Widening the mo
 re-claiming is how a path opts in; the skip count is reported, since on a project root it
 means the sandbox account cannot enter the tree at all.
 
-This is what keeps the `700 <you>:<you>` directory above protective. `setfacl -m` recalculates
+This is what keeps a `700 <you>:<you>` directory protective. `setfacl -m` recalculates
 the mask to cover the entries it adds, so granting such a directory would return it as `0770` —
 write on the directory, and with it the ability to unlink the secrets inside, which is the very
 thing the `700` is there to stop.
@@ -86,8 +86,10 @@ the boundary, since an agent that could edit the matcher would decide its own cl
 **replaces** it rather than adding to it, and the baseline applies when that file is missing or
 parses empty, so classification never degrades to an empty pattern set. That is what makes the
 seeded file safe to place before an operator has decided anything: enrolment writes the header
-alone (below), so the baseline stays in force and each upgrade's additions reach that operator
-until they write a pattern of their own. A deployment-specific
+alone — what the file is, the replace rule, an example line and `secret-patterns(5)`, the page
+that holds the reference ([providers](providers.rule.md) states why a seeded header is a pointer)
+— so the baseline stays in force and each upgrade's additions reach that operator until they
+write a pattern of their own. A deployment-specific
 name belongs in the operator's `600` config, alongside the baseline entries they still want, since
 the file replaces rather than extends; a general one missing from the baseline goes
 upstream, since the library is rpm-owned and not `%config`, so an edit there is lost on upgrade.
@@ -136,7 +138,7 @@ revoking `SANDBOX_USER`'s read regardless of who created the path. The owner's o
 is the target, the same one `ai-tools-chown` gives an agent-written secret, so a secret ends up
 identically owned whether it was locked down proactively or quarantined on write; leaving the
 group as `SANDBOX_GROUP` would re-expose it the moment the mode was widened. Each locked path
-also has its sandbox residue stripped (see above).
+also has its sandbox residue stripped.
 It runs only when the CWD is an allowed project and skips `!`-excluded paths, and applies each
 change through a pinned fd (re-verifying inode and type) so a `SANDBOX_USER` path swap cannot
 redirect root's chmod/chown. `--yes` skips the TTY confirmation.
@@ -154,7 +156,7 @@ ask to apply.
 It is a user tool: there is **no** sudoers grant letting `SANDBOX_USER` run it, and it
 refuses to run as `SANDBOX_USER`. The `ai-tools` CLI wraps it as `ai-tools --lockdown
 [path]` (it `cd`s into the project and `sudo`s the helper, so sudo prompts for the
-projects user's password; `-n`/`--dry-run` and `-y`/`--yes` pass through). The CLI never
+projects user's password; `--dry-run` and `-y`/`--yes` pass through). The CLI never
 pre-checks the helper's path: `/usr/local/libexec/ai-tools` is `750 root:root`, so the
 projects user cannot stat the helper — only `sudo`, as root, can reach it.
 

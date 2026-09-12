@@ -7,15 +7,17 @@
 ai-tools \- manage the projects a sandboxed coding agent may work in
 .SH SYNOPSIS
 .B ai-tools
-.I command
-.RI [ options ]
-.RI [ path ]
+.I COMMAND
+.\" The \& is load-bearing: roff reads the line-final . of ... as a sentence end and would set
+.\" two spaces before DIRECTORY on the filled line. It is the price of one group per source line.
+.RI [ OPTION ]...\&
+.RI [ DIRECTORY ]
 .SH DESCRIPTION
 .B ai-tools
-registers, secures, and hands back the projects the sandboxed coding agent
-(Claude Code, running as the unprivileged
+registers, secures, and hands back the projects the sandboxed coding agent,
+running as the unprivileged
 .B ai-tools
-system account) may work in. Run it as your own login user \(em never as the
+system account, may work in. Run it as your own login user \(em never as the
 sandbox account, which the CLI refuses for every command. Steps that need root
 (secret lockdown, ownership, SELinux labels) invoke
 .B sudo
@@ -49,7 +51,7 @@ command with
 .BR \-\-for .
 .PP
 Every
-.I path
+.I DIRECTORY
 argument defaults to the current working directory. Every yes/no question
 states its default in the prompt
 .RB ( "[Y/n] (default: Yes)" );
@@ -70,20 +72,25 @@ grant is neither of them \(em the host's own sudoers decides it, and no file in
 this package writes or records it.
 .PP
 An operator holding only the two launches agent sessions and reads the reports.
-The commands that write a registry \(em
-.BR \-\-project\-claim ,
-.BR \-\-project\-unclaim ,
+The commands that reach a root helper need the grant as well: every project
+command except
+.B \-\-project\-enable
+and
+.B \-\-project\-disable
+in their plain form,
+.BR \-\-sandbox\-create ,
 .BR \-\-lockdown ,
-.BR \-\-reclaim ,
-.B \-\-sandbox\-create
-\(em reach root helpers with no NOPASSWD rule and need the grant as well; an
-operator who holds one performs them on another's behalf with
+.B \-\-reclaim
+and
+.BR \-\-audit .
+An operator who holds the grant performs the project commands, the lockdown
+and the reclaim on another's behalf with
 .BR \-\-for .
 A host needs at least one operator holding the grant, since root is refused
 every command that writes.
 .SH COMMANDS
 .TP
-.B \-\-project\-claim \fR[\fB\-y\fR] [\fIpath\fR]
+.B \-\-project\-claim \fR[\fB\-y\fR] [\fIDIRECTORY\fR]
 Claim a real project in place so the agent works your actual tree: register it
 (allowlist and git safe.directory), scan for and lock down secret-named files
 .I before
@@ -94,7 +101,7 @@ repository's git history
 .RB ( .git )
 is a separate opt-in prompt.
 .TP
-.B \-\-project\-create \fIpath\fR
+.B \-\-project\-create \fIDIRECTORY\fR
 Create a
 .I new
 project directory and claim it: one
@@ -103,7 +110,7 @@ an empty git repository, a
 .B README.md
 carrying the directory's own name, then the ordinary claim flow on the result.
 The
-.I path
+.I DIRECTORY
 is required and must
 .I not
 exist \(em claiming a directory that already exists is
@@ -115,16 +122,19 @@ exist: only the final component is created, so a mistyped path is refused rather
 than manufactured. Every filesystem step runs as the operator the run acts for, so
 a create under
 .B \-\-for
-produces a tree that operator owns. A refusal removes the directory it made.
+produces a tree that operator owns. Every refusal fires before the directory
+is made; a step that fails after it leaves the directory in place, and
+.B \-\-project\-claim
+on it finishes the claim.
 .IP
 It does not take options, and asks for no confirmation of its own: the tree it makes is empty,
 so the claim that follows infers the answers its prompts would otherwise ask for \(em
 there are no pre-existing permissions to warn about, no secret-named files to scan a
 brand-new directory for, and no git history to expose in a repository with no commits.
 The one question that can still appear is the traverse grant on a parent directory,
-which widens access above the project and is answered only by a person at a terminal.
+which widens access on the project's ancestors and is answered only by a person at a terminal.
 .TP
-.B \-\-project\-unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-n\fR] [\fB\-y\fR] [\fB\-\-group\fI g\fR] [\fIpath\fR]
+.B \-\-project\-unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI GROUP\fR] [\fIDIRECTORY\fR]
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
 its own confirm \(em revoke the agent's access, handing the tree back to your own
 group (or a named user's group) with the agent's write removed. The directory
@@ -174,7 +184,7 @@ project nested inside another claimed project, for the reason
 gives.
 .RE
 .TP
-.B \-\-project\-remove \fR[\fB\-y\fR] [\fIpath\fR]
+.B \-\-project\-remove \fR[\fB\-y\fR] [\fIDIRECTORY\fR]
 Release a project
 .I and
 delete its directory (default: the current directory). Use
@@ -199,9 +209,9 @@ neither is answered by a run with no terminal, so a delete needs an operator at 
 without
 .BR \-y ,
 which additionally requires an explicit
-.IR path .
+.IR DIRECTORY .
 .TP
-.B \-\-project\-disable \fR[\fIpath\fR]
+.B \-\-project\-disable \fR[\fIDIRECTORY\fR]
 Park a claimed project (default: the current directory): its
 .B allowed\-projects
 line is prefixed with
@@ -235,12 +245,12 @@ A project
 inside another claimed project is also refused. The
 .B !
 line it would write is indistinguishable from an exclusion withholding a subtree from the project
-above it, and no field in the file could tell the two apart afterwards \(em so re-enabling it later
+enclosing it, and no field in the file could tell the two apart afterwards \(em so re-enabling it later
 could only be a guess, on an edit that widens what the agent reaches. The refusal names the two
-ways to get the intended effect: unclaim the nested project, or park the one above it. Editing the
+ways to get the intended effect: unclaim the nested project, or park the one enclosing it. Editing the
 line by hand is unaffected; the tool simply will not write that one for you.
 .TP
-.B \-\-project\-enable \fR[\fIpath\fR]
+.B \-\-project\-enable \fR[\fIDIRECTORY\fR]
 Restore a project disabled earlier (default: the current directory): the
 .B !
 is deleted from its line, in place. Sessions may start there again.
@@ -271,9 +281,9 @@ on a disabled project neither claims over it nor duplicates its entry: it report
 the exclusion, shows the line, and offers this same re-enable behind a default-NO
 confirm.
 .TP
-.B \-\-sandbox\-create \fR[\fIpath\fR] [\fB\-\-from\fR \fIref\fR] [\fB\-\-branch\fR \fIname\fR] [\fB\-\-dir\fR \fIname\fR] [\fB\-y\fR|\fB\-\-yes\fR]
+.B \-\-sandbox\-create \fR[\fIDIRECTORY\fR] [\fB\-\-from\fR \fIREF\fR] [\fB\-\-branch\fR \fINAME\fR] [\fB\-\-dir\fR \fINAME\fR] [\fB\-y\fR|\fB\-\-yes\fR]
 Shallow-clone the repository at
-.I path
+.I DIRECTORY
 into the sandbox area so the agent never reads the origin's full git history.
 Each input has a default and a flag, so the command is scriptable; omit a flag and
 it is prompted interactively (or takes its default with no terminal). The exact
@@ -281,29 +291,31 @@ it is prompted interactively (or takes its default with no terminal). The exact
 commands are shown for confirmation before any of them run.
 .RS
 .TP
-.B \-\-from \fIref\fR
+.B \-\-from \fIREF\fR
 Branch or ref to fork the sandbox branch from (default: the current branch). May be a
 local branch, a
-.IR <remote>/<ref> ,
+.IR REMOTE/REF ,
 or any commit-ish, so a hotfix can be based on
 .I main
 while you sit on another branch without checking it out.
 .TP
-.B \-\-branch \fIname\fR
+.B \-\-branch \fINAME\fR
 The full sandbox branch to create and track. Any valid git ref is accepted (a flat
 name, a
 .IR hotfix/x ,
 the old
-.I ai\-tools/sandbox\-<label>/<leaf>
+.I ai\-tools/sandbox\-LABEL/LEAF
 form, etc.); it is validated with
 .BR git\-check\-ref\-format (1),
 never rewritten. Default:
-.IR sandbox/ <leaf>,
-where <leaf> is the last component of
+.IR sandbox/LEAF ,
+where
+.I LEAF
+is the last component of
 .BR \-\-from .
 The default does not carry any host, machine, or operator identity.
 .TP
-.B \-\-dir \fIname\fR
+.B \-\-dir \fINAME\fR
 Directory name for the clone under the sandbox area (default: the repository's base name).
 .TP
 .BR \-y ", " \-\-yes
@@ -317,20 +329,22 @@ that gate is the clone opened to the agent and registered. A declined or failed 
 stops fail-closed \(em the clone stays private and unregistered; re-run this command on
 the clone path to resume securing it.
 .TP
-.B \-\-sandbox\-push \fR[\fIpath\fR]
-Push the sandbox clone's commits to its dedicated remote branch
-.RB ( ai\-tools/sandbox\- <user> / <leaf> ).
+.B \-\-sandbox\-push \fR[\fIDIRECTORY\fR]
+Push the sandbox clone's commits to the remote branch it tracks
+.RI ( sandbox/LEAF
+by default; see
+.BR \-\-branch ).
 .TP
-.B \-\-sandbox\-remove \fR[\fIpath\fR]
+.B \-\-sandbox\-remove \fR[\fIDIRECTORY\fR]
 Delete a sandbox clone and unregister it, warning about unpushed commits
 first. The remote branch stays for others to merge.
 .TP
-.B \-\-lockdown \fR[\fIpath\fR] [\fB\-n\fR|\fB\-y\fR]
+.B \-\-lockdown \fR[\fIDIRECTORY\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR]
 Lock secret-named files under the project (\fB.env\fR, \fB*.key\fR, ...) to
 owner-only, revoking the agent's read access. Runs via
 .BR sudo .
 .TP
-.B \-\-reclaim \fR[\fB\-\-full\fR] [\fIpath\fR]
+.B \-\-reclaim \fR[\fB\-\-full\fR] [\fIDIRECTORY\fR]
 Take back ownership of the files the agent wrote under the project \(em including
 the
 .B .git
@@ -448,15 +462,16 @@ or each provider's own
 .B default_enable
 when that file names none. Read-only, and it reports any input the resolver
 refused as untrusted. On an SELinux host it also reports the loaded optional
-policy groups, and warns with the
-.B ai-tools-admin selinux groups enable tmpmap
-fix when the
-.B dotnet
-integration is enabled under Enforcing but the
-.B tmpmap
-group that its build needs is not loaded.
+policy groups and, under Enforcing, the groups each enabled integration
+declares that are not loaded
+.RB ( selinux_groups
+in its manifest, see
+.BR ai-tools-providers (5)),
+with the
+.B ai-tools-admin selinux groups enable
+command that loads the stable ones.
 .TP
-.B \-\-audit \fR[\fB\-\-since\fI when\fR]
+.B \-\-audit \fR[\fB\-\-since\fI WHEN\fR]
 Report what has refused, been rejected, been stranded, or been flagged since a given
 time \(em the detections the sandbox already records but that no command reads
 back. Needs
@@ -469,7 +484,7 @@ which the sandbox account can neither read nor append to, so those lines are evi
 Launch refusals are reported in a section of their own, because
 .B ai\-tools\-run
 runs as the sandbox account and can reach only journald \(em they are the session's own
-account of itself, to reconcile against the trail above rather than to rely on alone.
+account of itself, to reconcile against the file trail rather than to rely on alone.
 Exits non-zero when anything is reported, so it can be run unattended from a cron job
 or a login banner without parsing its output.
 .TP
@@ -514,7 +529,7 @@ then requires an explicit
 .IR path ,
 so an unattended removal cannot inherit the current directory.
 .TP
-.BR \-n ", " \-\-dry\-run
+.B \-\-dry\-run
 For
 .BR \-\-lockdown :
 report what would be locked, and what would be stripped from the paths you have
@@ -525,7 +540,7 @@ A registered project's unclaim previews itself, so this pairs with
 .B \-\-force
 only.
 .TP
-.B \-\-since \fIwhen\fR
+.B \-\-since \fIWHEN\fR
 For
 .BR \-\-audit :
 the start of the reporting window \(em anything
@@ -565,36 +580,36 @@ on a directory that was never claimed leaves it untouched. It does
 relax the protected-paths backstop, the owner guard, the hardlink guard, or the
 secret and exclusion skips, and it is refused on a registered project.
 .TP
-.BI \-\-group " group"
+.BI \-\-group " GROUP"
 For
 .BR \-\-project\-unclaim :
 hand the tree to
-.I group
+.I GROUP
 without prompting, in both the normal and
 .B \-\-force
 modes. Without it the command asks whether to hand back and whose group to use,
 and a run with no terminal takes the invoking user's group by default \(em so a
 script should name the group outright.
 .TP
-.BI \-\-for " operator"
+.BI \-\-for " OPERATOR"
 Act on
-.IR operator 's
+.IR OPERATOR 's
 projects instead of your own. The allowlist entry lands in
-.IR operator 's
+.IR OPERATOR 's
 .I ~/.config/ai-tools/allowed-projects
 rather than yours, so the project is granted to
-.IR operator ,
+.IR OPERATOR ,
 files the agent writes are handed back to
-.IR operator ,
+.IR OPERATOR ,
 and
-.IR operator 's
+.IR OPERATOR 's
 own agent launches there without further setup.
 .IP
 This exists for a service account that runs a coding agent but has no password,
 and so cannot authenticate the root helpers a claim of its own would invoke: a
 human operator performs the claim on its behalf, once, and the account never
 meets a password prompt.
-.I operator
+.I OPERATOR
 must already be enrolled
 .RB ( "sudo ai\-tools\-admin operators add " \fIoperator\fR ),
 since the ownership helpers resolve a project's owner from the
@@ -606,7 +621,7 @@ and
 .B \-\-project\-remove
 write the filesystem
 .I as
-.IR operator ,
+.IR OPERATOR ,
 so they additionally need a
 .BR sudo (8)
 grant to run as that account \(em a separate question from the ai-tools helper
@@ -642,7 +657,7 @@ deleted by hand.
 The command line was rejected.
 .B \-\-stop
 returns this for a
-.I path
+.I DIRECTORY
 argument, which it refuses rather than accepts and ignores.
 .TP
 .B 3
@@ -680,9 +695,18 @@ which is root-owned so that a session cannot widen what it is given.
 Per-operator allowlist of project paths; a
 .RB \(oq ! \(cq-prefixed
 line excludes a subtree. Gates where sessions launch \(em not a read boundary.
+The grammar and the entry states are in
+.BR allowed\-projects (5).
+.TP
+.I ~/.config/ai-tools/secret-patterns
+Per-operator secret-name patterns: a file whose name matches one is kept out of
+the agent's reach. The grammar and the replace rule are in
+.BR secret\-patterns (5).
 .TP
 .I /etc/ai-tools/operator.conf
-Operator registry and skip-list overrides.
+The host options: the operator list, the enabled providers and filters, the
+strictness switches, and the skip lists. See
+.BR operator.conf (5).
 .TP
 .I /var/opt/ai-tools/sandbox-projects/
 The sandbox-clone area;
@@ -749,7 +773,9 @@ ai\-tools \-\-project\-unclaim ~/src/myproject
 .RE
 .SH SEE ALSO
 .BR ai\-tools\-admin (8),
+.BR allowed\-projects (5),
 .BR operator.conf (5),
+.BR secret\-patterns (5),
 .BR setfacl (1),
 .BR sudo (8).
 .PP

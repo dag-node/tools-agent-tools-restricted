@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+policy_module(ai_tools_buildexec, 0.1.0)
+
+# ai_tools OPTIONAL GROUP: buildexec  [DEFAULT: DISABLED]
+#
+# Execute what a build produced inside a claimed project: a native host the session BUILT
+# from the tree (a .NET apphost, a test host, a ReadyToRun image under `dotnet exec`), which
+# needs execute on a project file, and the base grants that nowhere. The grant is on
+# ai_tools_project_build_t, the type the base declares for build output without naming a
+# directory for it. Which directories carry it is not this group's to say either: each toolchain integration
+# ships a LAYOUT module (ai_tools_dotnet.te for .NET) that maps its output directories onto the
+# type at creation, and declares the same names in its manifest for relabel time. This module
+# is one rule, so an administrator reads it as the grant it is, whatever toolchain is in use.
+#
+# SENSITIVE. This IS a boundary: on-disk code the sandbox can write, executed as a new process
+# image. It does not grant a new PRIVILEGE (execmem already concedes in-process native code,
+# and execute_no_trans keeps the child in ai_tools_t with no entrypoint to a more privileged
+# domain), but it is the reason the module is off by default. The scoping to build output is a
+# CONVENIENCE, not a security control: the type follows the directory name, so a script the
+# session writes under a build directory, and a source directory that happens to share such a
+# name, carry it too. What it changes is that enabling the group does not make git run a
+# project's hooks. An IL-only assembly run through a host binary (`dotnet exec App.dll`)
+# does not execute any project file and does not need this group.
+
+require {
+    type ai_tools_t;
+    type ai_tools_project_build_t;
+}
+
+# Execute a native host or R2R-mapped assembly from the build output. execute_no_trans
+# keeps it in ai_tools_t (no entrypoint elsewhere); execmod covers an R2R image relocated
+# in place; map is the executable file mapping (already base-granted on this writable
+# type, listed for completeness). ai_tools_project_t is deliberately absent: a git hook,
+# `./configure`, or a Makefile recipe's script stays non-executable with this group loaded.
+allow ai_tools_t ai_tools_project_build_t:file { map execute execute_no_trans execmod };

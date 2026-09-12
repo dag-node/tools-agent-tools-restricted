@@ -41,7 +41,7 @@ check_file /usr/local/libexec/ai-tools/ai-tools-bootstrap        root           
 check_file /usr/local/libexec/ai-tools/ai-tools-admin           root              root              750
 # The sudo-PATH symlink in /usr/sbin, for the one command an administrator types (sudoers
 # secure_path on stock EL excludes /usr/local/sbin, so `sudo ai-tools-admin` resolves here).
-# check_file lstat()s the link itself (777 is a symlink's fixed mode); -e inside it also catches
+# check_file lstat()s the link itself (777 is a symlink's fixed mode); `-e` inside it also catches
 # a dangling link. Nothing else has one: the provisioning helper and every contributed command
 # are reached as verbs of this one.
 check_file /usr/sbin/ai-tools-admin                           root              root              777
@@ -88,11 +88,38 @@ check_file /usr/local/lib/ai-tools/providers.lib.sh          root              r
 # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by
 # ai-tools-admin and selinux/install-selinux.sh (both root); read-only data, does not carry secrets.
 check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              root              644
+# The compiled policy modules ai-tools-admin loads a stable group from: 644 root:root in a 755
+# root:root directory, and the SET is asserted with the modes -- exactly the modules
+# selinux/policy/shipped-modules.sh derives from the registry and the integration manifests, which is
+# the list the RPM build and install.sh compile. A module missing from it is a stable group with
+# no module for `selinux groups enable` to load; one beyond it was not built by this release. The directory
+# exists only where the SELinux layer was staged (the RPM ships it everywhere; a source install
+# stages it on a host with SELinux active), so its absence is a skip, not a failure.
+_pkg_dir=/usr/share/selinux/packages/ai-tools
+_shipped="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/selinux/policy/shipped-modules.sh"
+if [[ -d "${_pkg_dir}" ]]; then
+    check_file "${_pkg_dir}" root root 755
+    if [[ -f "${_shipped}" ]] && _want="$(bash "${_shipped}" | sort)" && [[ -n "${_want}" ]]; then
+        _have="$(find "${_pkg_dir}" -maxdepth 1 -name '*.pp' -printf '%f\n' | sed 's/\.pp$//' | sort)"
+        if [[ "${_have}" == "${_want}" ]]; then
+            pass "staged policy modules match the derived shipped set: $(tr '\n' ' ' <<<"${_want}")"
+        else
+            fail "staged policy modules differ from the shipped set (have: $(tr '\n' ' ' <<<"${_have}"); want: $(tr '\n' ' ' <<<"${_want}"))"
+        fi
+        while IFS= read -r _mod; do
+            check_file "${_pkg_dir}/${_mod}.pp" root root 644
+        done <<<"${_want}"
+    else
+        skip "staged policy module set" "shipped-modules.sh not in a checkout beside this suite"
+    fi
+else
+    skip "staged policy modules" "${_pkg_dir} absent (SELinux layer not staged on this host)"
+fi
 # Command-filter engine: 644 root:root -- world-readable, sourced by an agent's filter hook, which
 # runs AS the agent on every Bash call; read-only data plus pure logic, does not carry secrets.
 check_file /usr/local/lib/ai-tools/filters.lib.sh            root              root              644
 # Service-health registry: 644 root:root -- world-readable, sourced by the operator launch wrapper
-# and the CLI (--status); read-only data, no secrets.
+# and the CLI (`--status`); read-only data, no secrets.
 check_file /usr/local/lib/ai-tools/services.lib.sh           root              root              644
 # The three provider directories, owned by ai-tools-base (each member package drops only its own
 # files into them). 0755 root:root is SECURITY-LOAD-BEARING, not housekeeping: these decide which
@@ -174,7 +201,7 @@ check_file /opt/ai-tools/.claude/filter-hook.sh              root              "
 check_file /opt/ai-tools/.claude/settings.json               root              "${SANDBOX_GROUP}" 640
 # EVERY agent's config directory is root-owned with setgid+sticky (CP_AGENT_CONFIG_MODE, 3770):
 # ai-tools is a group-writer for its own state but cannot unlink/replace the root-owned control
-# files above. Owned by ai-tools, or without the sticky bit, the agent could delete and recreate
+# files it holds. Owned by ai-tools, or without the sticky bit, the agent could delete and recreate
 # them. The set of directories comes from the manifests (control-plane.lib.sh), so a second agent
 # is covered here without editing this list; a host with none skips and says so.
 # The SHARED asset roots: base-owned, agent-readable, NOT agent-writable. Every agent symlinks
@@ -251,9 +278,9 @@ if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/de
 else
     skip "agent config directory modes" "${_cp_lib} does not resolve the agents' config dirs"
 fi
-# The agent's XDG config for its --user manager: root-owned root:ai-tools 2750 (setgid inherited
+# The agent's XDG config for its `--user manager`: root-owned root:ai-tools 2750 (setgid inherited
 # from the control-plane home), so the manager reads its units through the group but the agent
-# cannot add a --user unit. An agent-writable wants dir would let a confined session register a
+# cannot add a `--user unit`. An agent-writable wants dir would let a confined session register a
 # unit the account's unconfined manager runs.
 check_file /opt/ai-tools/.config/systemd/user                 root              "${SANDBOX_GROUP}" 2750
 check_file /opt/ai-tools/.config/systemd/user/timers.target.wants \
@@ -271,7 +298,7 @@ check_file /usr/lib/systemd/system/ai-tools-handback.socket   root root 644
 check_file /usr/lib/systemd/system/ai-tools-handback@.service root root 644
 # The preset that enables the socket on install (see systemd.sh for its enablement check).
 check_file /usr/lib/systemd/system-preset/85-ai-tools.preset  root root 644
-# Toolchain update units (sandbox account's --user instance) + post-upgrade relabel watcher.
+# Toolchain update units (sandbox account's `--user instance`) + post-upgrade relabel watcher.
 # 644 root:root -- systemd reads them as root; no world write.
 check_file /usr/lib/systemd/user/nvm-update.service           root root 644
 check_file /usr/lib/systemd/user/nvm-update.timer             root root 644
@@ -293,13 +320,38 @@ if [[ -e /usr/local/share/man/man5/operator.conf.5.gz ]]; then
 else
     check_file /usr/local/share/man/man5/operator.conf.5      root root 644
 fi
+if [[ -e /usr/local/share/man/man5/ai-tools-providers.5.gz ]]; then
+    check_file /usr/local/share/man/man5/ai-tools-providers.5.gz root root 644
+else
+    check_file /usr/local/share/man/man5/ai-tools-providers.5    root root 644
+fi
+if [[ -e /usr/local/share/man/man5/allowed-projects.5.gz ]]; then
+    check_file /usr/local/share/man/man5/allowed-projects.5.gz   root root 644
+else
+    check_file /usr/local/share/man/man5/allowed-projects.5      root root 644
+fi
+if [[ -e /usr/local/share/man/man5/secret-patterns.5.gz ]]; then
+    check_file /usr/local/share/man/man5/secret-patterns.5.gz    root root 644
+else
+    check_file /usr/local/share/man/man5/secret-patterns.5       root root 644
+fi
+if [[ -e /usr/local/share/man/man5/custom-claude-endpoint.conf.5.gz ]]; then
+    check_file /usr/local/share/man/man5/custom-claude-endpoint.conf.5.gz root root 644
+else
+    check_file /usr/local/share/man/man5/custom-claude-endpoint.conf.5    root root 644
+fi
+if [[ -e /usr/local/share/man/man7/ai-tools-messages.7.gz ]]; then
+    check_file /usr/local/share/man/man7/ai-tools-messages.7.gz  root root 644
+else
+    check_file /usr/local/share/man/man7/ai-tools-messages.7     root root 644
+fi
 if [[ -e /usr/local/share/man/man8/ai-tools-admin.8.gz ]]; then
     check_file /usr/local/share/man/man8/ai-tools-admin.8.gz  root root 644
 else
     check_file /usr/local/share/man/man8/ai-tools-admin.8     root root 644
 fi
 # Launch wrapper: 755 root:root -- system-wide on every operator's PATH (path-dedup.sh ranks
-# /usr/local/bin above the nvm shims, so it shadows nvm's claude). Runs as the invoking
+# /usr/local/bin ahead of the nvm shims, so it shadows nvm's claude). Runs as the invoking
 # operator, gates on ai-ops membership, then drops to the sandbox account via sudo; root-owned
 # so the agent cannot rewrite it.
 check_file /usr/local/bin/claude                              root root 755
@@ -312,7 +364,7 @@ check_file /usr/local/lib/ai-tools/msg.lib.sh                 root root 644
 check_file /var/opt/ai-tools                                  root              "${SANDBOX_GROUP}" 2750
 check_file /var/opt/ai-tools/sandbox-projects                 root              "${SANDBOX_GROUP}" 2770
 check_file /var/opt/ai-tools/README.md                        root              "${SANDBOX_GROUP}" 640
-# Last-run state the sandbox account publishes for `ai-tools --status` to read (its --user units
+# Last-run state the sandbox account publishes for `ai-tools --status` to read (its `--user units`
 # are not queryable from the operator's session). The mode is what bounds the surface a
 # sandbox-written stamp adds, so both halves are asserted: the directory 0750 root:SANDBOX_GROUP --
 # root-owned and NOT group-writable, so the account has traverse only and can neither add, unlink,

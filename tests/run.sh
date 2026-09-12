@@ -18,6 +18,11 @@
 # files are listed in an end-of-run "no coverage" notice. The default stays lenient -- a
 # partial/dev install legitimately skips -- and AI_TOOLS_TEST_STRICT=1 turns the notice into
 # a failure, the mode the full-install CI gate runs.
+#
+# Before any category runs, the residue sweep (lib/residue.sh) removes what an earlier run left
+# behind -- every path named by the harness's fixture rule in the places fixtures are born, and
+# the one fixed-name probe -- and reports each removal; a leftover it cannot remove refuses the
+# run. `run.sh residue` runs the sweep alone.
 
 set -uo pipefail
 
@@ -28,6 +33,15 @@ readonly FILE_TIMEOUT="${AI_TOOLS_TEST_FILE_TIMEOUT:-600}"
 
 [[ "${EUID}" -eq 0 ]] || { echo "error: run with sudo (tests need root)" >&2; exit 1; }
 [[ -n "${SUDO_USER:-}" ]] || { echo "error: invoke via sudo, not as root directly" >&2; exit 1; }
+
+# shellcheck source=SCRIPTDIR/lib/residue.sh
+source "${HERE}/lib/residue.sh"
+_projects_home="$(getent passwd "${SUDO_USER}" | cut -d: -f6)"
+if ! ai_test_residue_sweep "${_projects_home}"; then
+    echo "error: an earlier run's residue could not be removed; not starting" >&2
+    exit 1
+fi
+[[ "${mode}" == residue ]] && exit 0
 
 # Each test file's stdout is a pipe here (tee), so the harness's own tty test cannot see the
 # terminal reading this run. Pass the verdict down instead, and colour this file's own headline
@@ -99,7 +113,7 @@ case "${mode}" in
     integration) run_dir integration ;;
     boundary)    run_dir boundary ;;
     all)         run_dir unit; run_dir integration; run_dir boundary ;;
-    *) echo "usage: run.sh [unit|integration|boundary|all]" >&2; exit 2 ;;
+    *) echo "usage: run.sh [unit|integration|boundary|all|residue]" >&2; exit 2 ;;
 esac
 
 # Failure summary: which files failed and their FAIL lines, so a long run does not have to

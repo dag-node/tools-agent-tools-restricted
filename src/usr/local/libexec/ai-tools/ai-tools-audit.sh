@@ -3,14 +3,14 @@
 # /usr/local/libexec/ai-tools/ai-tools-audit
 # Answers one question: what was refused, rejected, stranded or flagged BETWEEN two points in
 # time? It reports EVENTS, never current state -- a condition recorded here may have been
-# resolved since, and confirming that is ai-tools --status's job, not this one's. Conflating the
+# resolved since, and confirming that is `ai-tools --status`'s job, not this one's. Conflating the
 # two invites acting on a finding that is already fixed.
 # The detections already exist and are already recorded -- what they lacked was a
 # reader, and a detection nobody reads is decoration.
 #
 # It does not invent a detection, nor parse per-case wording. The root-only file sink already
 # encodes severity in its line format (`<ts> <LEVEL> [<pid>] <msg>`, written by log.lib.sh and,
-# in the same format, by the handback daemon), so a finding is simply a line at NOTICE or above.
+# in the same format, by the handback daemon), so a finding is simply a line at NOTICE or higher.
 # That is what keeps this from drifting: a helper that adds a new warning is reported here the
 # day it ships, with no pattern to update.
 #
@@ -29,8 +29,10 @@
 # Usage:  ai-tools-audit [--since <when>]        <when> is anything date(1) parses
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 750 \
 #       src/usr/local/libexec/ai-tools/ai-tools-audit.sh /usr/local/libexec/ai-tools/ai-tools-audit
+#   ```
 
 set -euo pipefail
 
@@ -45,6 +47,15 @@ readonly DEFAULT_SINCE='7 days ago'
 
 readonly SANDBOX_USER='@SANDBOX_USER@'
 
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline: these refusals
+# answer before the renderer is loaded, and each keeps its own exit status at the call site.
+warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-audit: %s\n' "$*" >&2
+}
+
 # Shared leveled logger. This helper does not write an audit line of its own -- reading a trail is not
 # an event worth adding to it -- but it uses the sanitizer, which reduces a log line to
 # safe-for-display characters before it reaches the operator's terminal. That is load-bearing
@@ -54,8 +65,7 @@ readonly SANDBOX_USER='@SANDBOX_USER@'
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 source "${LOG_LIB}" 2>/dev/null || {
-    printf 'ai-tools-audit: cannot load %s -- refusing to print log text unsanitized\n' \
-        "${LOG_LIB}" >&2
+    warn MSG-T3T7 "cannot load ${LOG_LIB} -- refusing to print log text unsanitized"
     exit 1
 }
 
@@ -69,16 +79,16 @@ SINCE="${DEFAULT_SINCE}"
 while (( $# )); do
     case "$1" in
         --since)
-            [[ -n "${2:-}" ]] || { printf 'ai-tools-audit: --since needs a value\n' >&2; exit 2; }
+            [[ -n "${2:-}" ]] || { warn MSG-Y4C6 "--since needs a value"; exit 2; }
             SINCE="$2"; shift 2 ;;
-        -*) printf 'ai-tools-audit: unknown option: %s\n' "$1" >&2; exit 2 ;;
-        *)  printf 'ai-tools-audit: unexpected argument: %s\n' "$1" >&2; exit 2 ;;
+        -*) warn MSG-Q7A2 "unknown option: $1"; exit 2 ;;
+        *)  warn MSG-N4V9 "unexpected argument: $1"; exit 2 ;;
     esac
 done
 readonly SINCE
 
 [[ "$(id -u)" == "0" ]] || {
-    ai_tools_msg_error 2 "ai-tools-audit must run as root: the trail it reads is 700 root:root" \
+    ai_tools_msg_error MSG-K9C5 "ai-tools-audit must run as root: the trail it reads is 700 root:root" \
         "run it as: sudo ai-tools --audit"
     exit 1
 }
@@ -86,7 +96,7 @@ readonly SINCE
 # Normalize the window once. A value date(1) cannot parse is refused rather than silently
 # treated as "everything", which would turn a typo into a reassuring wall of old findings.
 CUTOFF_EPOCH="$(date -d "${SINCE}" +%s 2>/dev/null)" || {
-    ai_tools_msg_error 2 "ai-tools-audit: --since value not understood: ${SINCE}" \
+    ai_tools_msg_error MSG-Y3M7 "ai-tools-audit: --since value not understood: ${SINCE}" \
         "give it anything date(1) parses, e.g. '2 days ago', 'yesterday', '2026-08-01'"
     exit 2
 }
@@ -154,7 +164,7 @@ collect_launch_refusals() {
 # Findings are grouped by their message with digit runs replaced by `#`, so occurrences that
 # differ only in a pid, a count, or a timestamp collapse into one line carrying the number of
 # times it happened and the most recent example in full. No occurrence is hidden -- the count states
-# what was folded, and the underlying files are named above.
+# what was folded, and the underlying files are named with it.
 #
 # Ordering is by severity first and recency second, because those are the two questions actually
 # being asked: what is worst, and is it still happening.

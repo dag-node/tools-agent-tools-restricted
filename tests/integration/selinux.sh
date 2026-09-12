@@ -8,8 +8,9 @@
 # the signal that would otherwise be missing. With the module loaded it asserts: the system is
 # Enforcing and neither domain is individually permissive; the module-presence probe ai-tools-run
 # reads resolves the way the shim expects; a sandbox clone takes ai_tools_project_t; each agent's
-# declared entrypoint rule still covers what its package installed; and no link in the exec chain
-# carries a type the confined domain may write.
+# declared entrypoint rule still covers what its package installed; no link in the exec chain
+# carries a type the confined domain may write; and every enrolled operator's config subtree
+# carries ai_tools_conf_t, the type the root helpers read that account's allowlist through.
 #
 # The layer is OPTIONAL -- the policy is its own subpackage, and a host may run DAC-only -- so with
 # the module absent the whole file SKIPS instead of demanding SELinux on a host that does not ship
@@ -158,7 +159,7 @@ fi
 # fcontext rule -- is deliberately NOT exercised. Driving it would mutate the host's local SELinux
 # policy to test a helper, which no test here does, and a teardown that can leave a policy entry
 # behind is worse than the coverage it buys. That leaves ai_tools_unlabel_project's revert path
-# (the one --project-unclaim drives) uncovered: a known gap, recorded rather than papered over.
+# (the one `--project-unclaim` drives) uncovered: a known gap, recorded rather than papered over.
 RELABEL_LIB=/usr/local/lib/ai-tools/relabel.lib.sh
 if [[ ! -d "${SANDBOX_ROOT}" ]]; then
     skip "sandbox clone label" "sandbox area ${SANDBOX_ROOT} not present"
@@ -166,8 +167,9 @@ elif [[ ! -r "${RELABEL_LIB}" ]] || ! source "${RELABEL_LIB}" 2>/dev/null \
         || ! declare -F ai_tools_label_project >/dev/null 2>&1; then
     skip "sandbox clone label" "relabel.lib.sh not available at ${RELABEL_LIB}"
 else
-    sprobe="${SANDBOX_ROOT}/_selftest-relabel-$$"
-    mkdir -p "${sprobe}"
+    # A real clone-area path, since the static rule is keyed on that prefix; named and
+    # registered through the harness so the sweep finds what an aborted run leaves.
+    sprobe=""; mk_fixture_dir sprobe "${SANDBOX_ROOT}" relabel
     if ai_tools_label_project "${sprobe}" && ai_tools_project_labelled "${sprobe}"; then
         pass "ai_tools_label_project applies AND verifies ai_tools_project_t on a sandbox clone"
     else
@@ -222,6 +224,46 @@ else
     (( agents_seen > 0 )) || skip "entrypoint declaration reconciliation" "no enabled agent resolved"
 fi
 
+# (8) The build-output type, where the dotnet layout module is loaded. Its static rule must win over
+# the clone rule for a path under one of the named directories and lose everywhere else -- the
+# precedence the narrowing rests on, decided by libselinux from the two rules' stems, which no
+# unit test can read. matchpathcon reads the loaded file contexts, so the paths need not exist;
+# the live half creates a bin/ directory as unconfined_t in the sandbox area and asserts the
+# module's named transition put it on the build type without a restorecon. The ai_tools_t
+# transition and the execute grant need a session and are exercised by selinux/avc/avc-testsuite.sh.
+# Skips when the layout module is not loaded: the base carries the type, the module the mapping.
+section "SELinux: the dotnet layout module types build output and only build output"
+
+# type_of <path> : PRINT the SELinux type, or an empty string. Shared with the exec-chain section.
+type_of() { stat -c '%C' -- "$1" 2>/dev/null | awk -F: '{print $3}'; }
+
+if ! command -v matchpathcon >/dev/null 2>&1; then
+    skip "build-output labelling" "matchpathcon not available"
+elif ! grep -qx 'ai_tools_dotnet' <<<"$(semodule -l 2>/dev/null || true)"; then
+    skip "build-output labelling" "the ai_tools_dotnet layout module is not loaded"
+else
+    for probe in "_p$$/bin/x:ai_tools_project_build_t" "_p$$/src/Proj/obj/x.dll:ai_tools_project_build_t" \
+                 "_p$$/tests/T.Tests/bin/Release/T:ai_tools_project_build_t" "_p$$/artifacts/publish/App:ai_tools_project_build_t" \
+                 "_p$$/.githooks/pre-commit:ai_tools_project_t" "_p$$/binary/x:ai_tools_project_t" "_p$$:ai_tools_project_t"; do
+        path="${SANDBOX_ROOT}/${probe%%:*}"; want="${probe##*:}"
+        got="$(matchpathcon -n "${path}" 2>/dev/null | awk -F: '{print $3}' || true)"
+        if [[ "${got}" == "${want}" ]]; then pass "${probe%%:*} -> ${want}"
+        else fail "${probe%%:*} -> ${got:-none}, expected ${want} (rule precedence between the clone rule and the layout module's rule)"; fi
+    done
+    if [[ -d "${SANDBOX_ROOT}" ]]; then
+        tprobe=""; mk_fixture_dir tprobe "${SANDBOX_ROOT}" build
+        restorecon -F "${tprobe}" 2>/dev/null || true
+        mkdir "${tprobe}/bin" "${tprobe}/src" 2>/dev/null || true
+        bt="$(type_of "${tprobe}/bin")"; st="$(type_of "${tprobe}/src")"
+        if [[ "${bt}" == ai_tools_project_build_t && "${st}" == ai_tools_project_t ]]; then
+            pass "a bin/ directory created by unconfined_t is born ai_tools_project_build_t; a sibling stays ai_tools_project_t (named transition, no restorecon)"
+        else
+            fail "created bin/ is ${bt:-none} and src/ is ${st:-none} -- the layout module's unconfined_t transition did not fire"
+        fi
+        rm -rf "${tprobe}" 2>/dev/null || true
+    fi
+fi
+
 # The exec chain is READ-ONLY to the confined domain, which is what makes a tampered entrypoint
 # unreachable rather than merely detected (see confinement.rule.md). DAC alone permits the write --
 # the sandbox account owns this whole tree -- so the type layout is the only thing refusing it, and
@@ -236,10 +278,7 @@ fi
 # exactly the regression worth failing on.
 section "SELinux: the agent's exec chain carries no type the confined domain may write"
 
-readonly AI_TOOLS_MANAGED_TYPES="ai_tools_project_t ai_tools_home_t ai_tools_tmp_t"
-
-# type_of <path> : PRINT the SELinux type, or an empty string.
-type_of() { stat -c '%C' -- "$1" 2>/dev/null | awk -F: '{print $3}'; }
+readonly AI_TOOLS_MANAGED_TYPES="ai_tools_project_t ai_tools_project_build_t ai_tools_home_t ai_tools_tmp_t"
 
 if ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
     skip "exec chain type containment" "providers.lib.sh not loaded"
@@ -266,6 +305,41 @@ else
         done
     done < <(ai_tools_enabled_agents 2>/dev/null)
     (( chain_seen > 0 )) || skip "exec chain type containment" "no enabled agent's entrypoint resolved"
+fi
+
+# EVERY enrolled operator's config subtree must carry ai_tools_conf_t, not only the account that
+# ran the installer. The root helpers run in ai_tools_handback_t, which holds that narrow type
+# alone under ~/.config, so an unlabelled subtree denies their getattr on that operator's
+# allowlist, no owner resolves, and the ownership handback no-ops for every project the account
+# owns. Every DAC test stays green through that, and dontaudit suppresses the session's own denial
+# on the same path, which leaves an unattributed handback-domain AVC as the only signal an
+# enforcing host gives.
+#
+# Read-only: it stats the live label and does not register a rule, the same line this file draws for
+# ai_tools_unlabel_project. What repairs a failure is `ai-tools-admin operators add <user>`, which
+# registers the rule per account, or a full `install-selinux.sh relabel`, which sweeps the list.
+section "SELinux: every enrolled operator's config subtree is ai_tools_conf_t"
+
+if ! declare -F ai_tools_load_operators >/dev/null 2>&1 \
+        && ! source /usr/local/lib/ai-tools/operator.lib.sh 2>/dev/null; then
+    skip "operator config labelling" "operator.lib.sh not readable -- cannot resolve the operator list"
+elif ! ai_tools_load_operators; then
+    skip "operator config labelling" "no operator is enrolled in operator.conf"
+else
+    for op_name in "${AI_TOOLS_OPERATORS[@]}"; do
+        op_home="$(getent passwd "${op_name}" 2>/dev/null | cut -d: -f6 || true)"
+        op_conf="${op_home}/.config/ai-tools"
+        if [[ -z "${op_home}" || ! -d "${op_conf}" ]]; then
+            skip "${op_name} config labelling" "no ${op_conf} on this host"
+            continue
+        fi
+        op_type="$(type_of "${op_conf}")"
+        if [[ "${op_type}" == ai_tools_conf_t ]]; then
+            pass "${op_name}: ${op_conf} is ai_tools_conf_t"
+        else
+            fail "${op_name}: ${op_conf} is ${op_type:-none}, not ai_tools_conf_t -- the root helpers cannot read that operator's allowlist, so ownership handback no-ops for every project they own. Fix: sudo ai-tools-admin operators add ${op_name}"
+        fi
+    done
 fi
 
 finish

@@ -16,7 +16,7 @@ group verbs, [dotnet](dotnet.rule.md) for the .NET integration. This rule covers
 command is spelled and how it projects onto an HTTP surface.
 
 The surface is **resource-oriented and isomorphic to a REST API**, so an HTTP layer can be mapped
-onto it without renaming anything. That constraint is what fixes the rules below; each one is a
+onto it without renaming anything. That constraint is what fixes [the rules](#the-rules); each one is a
 CLI spelling with an unambiguous URI on the other side.
 
 ## The rules
@@ -97,7 +97,8 @@ verb takes a resource identifier, and it is spelled in full per the descriptive-
 ## Which binary a command lives on
 
 **The binary is the privilege boundary**, and it is where the whole surface expresses it — the URI
-carries no `/admin` prefix (below). There are two typed commands:
+carries no `/admin` prefix (see [No `/admin` namespace](#no-admin-namespace)). There are two typed
+commands:
 
 | Binary | Caller | Holds |
 |---|---|---|
@@ -130,7 +131,7 @@ lives here rather than in a binary of its own. A domain is an executable at
 names. The mechanism — the trust predicate, the manifest key behind each
 domain's help line, and what a provider package ships — is in [providers](providers.rule.md).
 
-Four rules bind that surface:
+The rules that bind that surface:
 
 - **A base name wins.** A provider contributing `system` or `status` MUST be refused rather than
   merged, so no installed package can shadow a command an administrator relies on.
@@ -155,10 +156,13 @@ Four rules bind that surface:
   directory is world-readable while each fragment inside it is not.
 
 **The root helpers under `/usr/local/libexec/ai-tools/` are outside this grammar.**
-`ai-tools-chown`, `ai-tools-setfacl`, `ai-tools-unclaim` and the rest are invoked by the CLI over
-`sudo` at a fixed path, never typed by a person, and their argument forms are pinned by the
-sudoers drop-in ([launch](launch.rule.md)). They are an internal calling convention, and renaming
-one changes a security contract rather than a user surface.
+`ai-tools-chown`, `ai-tools-setfacl`, `ai-tools-unclaim` and the rest are reached at a fixed path —
+by the CLI over `sudo`, or by the handback daemon — and never typed by a person. One of them,
+`ai-tools-stop`, carries a `%ai-ops` NOPASSWD rule in the sudoers drop-in, pinned to its
+zero-argument form; every other helper is reached over the caller's general sudo grant and
+validates its own arguments ([launch](launch.rule.md) holds the drop-in, [cli](cli.rule.md) the
+privilege model). They are an internal calling convention, and renaming one changes a security
+contract rather than a user surface.
 
 ## When a resource takes the `system` domain
 
@@ -190,7 +194,7 @@ infrastructure, which would put it under `system` — but it only reads, and it 
 resource identifier, which makes it a **singleton resource**. The same AIP-121 preference that
 keeps a report out of `:status` keeps it out of a `system` prefix: `GET /status` is the whole
 projection and `status` the whole command. A prefix would deepen the path and group a read with
-the four `system` commands, each of which provisions or rewrites the host.
+the `system` commands, each of which provisions or rewrites the host.
 
 In one line: acts on instances of a named resource → `[domain] <resource> <verb>`; global,
 one-shot or infrastructure-level **action** → `system <verb>`; a host-wide **read** → a bare
@@ -203,7 +207,8 @@ Most of this surface is **actions** rather than CRUD — `claim`, `unclaim`, `re
 takes AIP-136's **custom method**, a verb after a colon, because a CLI verb maps onto it
 one-for-one with no renaming.
 
-The examples below are spelled in this grammar; *Where the surface stands* reconciles each binary's
+The examples are spelled in this grammar;
+[Where the surface stands](#where-the-surface-stands) reconciles each binary's
 own spelling against it.
 
 ```
@@ -300,8 +305,8 @@ nouns, and each changes them: whether a project is one claimed directory or a gr
 whether a sandbox is a kind of project (`GET /projects?kind=sandbox`) or its own collection; and
 where `--list`'s cross-cutting *Suggested cleanup* findings live if the listing splits. Until they
 are answered `ai-tools` keeps its `--verb` commands, which are pinned by `ai-tools(1)`,
-`tests/unit/man.sh`, `tests/unit/cli-verbs.sh` and `tests/integration/cli.sh`, and printed as
-remedies at roughly 60 runtime sites.
+`tests/unit/man.sh`, `tests/unit/cli-verbs.sh` and `tests/integration/cli.sh`, and printed as the
+remedy in refusals across the CLI, the launch wrapper and the root helpers.
 
 **The grammar and the hierarchy are separable.** Two costs the option-spelling imposes are
 namespace collisions that exist whatever a project turns out to be: `BOOTSTRAP_EXEMPT_VERBS`

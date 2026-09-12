@@ -37,7 +37,7 @@ podman build -t ai-tools-rpmtest:el9 -f packaging/Rocky9.Containerfile .
 podman run --rm -t --systemd=always ai-tools-rpmtest:el9
 ```
 
-`ELBase.Containerfile` is the shared EL recipe, parameterized by `BASE_IMAGE`; `Rocky9.Containerfile` is a thin pin (`FROM ai-tools-rpmbase:el9`) where any EL9-only tweak would go. `--systemd=always` tells Podman to run the image's `/sbin/init` as PID 1, which the handback socket and the sandbox account's `systemd --user` manager need. Add `--privileged` if your runtime cannot mount cgroups for that user manager. To poke around instead of running the selftest, start it detached (`podman run -d --systemd=always …`) and `podman exec -it <id> bash`.
+`ELBase.Containerfile` is the shared EL recipe, parameterized by `BASE_IMAGE`; `Rocky9.Containerfile` is a thin pin (`FROM ai-tools-rpmbase:el9`) where any EL9-only tweak would go. `--systemd=always` tells Podman to run the image's `/sbin/init` as PID 1, which the handback socket and the sandbox account's `systemd --user manager` need. Add `--privileged` if your runtime cannot mount cgroups for that user manager. To poke around instead of running the selftest, start it detached (`podman run -d --systemd=always …`) and `podman exec -it <id> bash`.
 
 ## Customize
 
@@ -53,10 +53,12 @@ The release process — branch model, tag grammar, RC prereleases, the dispatch 
 the channel rule — is [`docs/branching-and-release.md`](../docs/branching-and-release.md).
 The packaging-side tooling for it:
 
-    make changelog                        # draft the %changelog entry from commits since the last tag
-    make check-version                    # VERSION == newest %changelog entry
-    make check-version TAG=v0.7.0         # the full gate, as the release job runs it
-    make check-version TAG=v0.7.0-rc.1    # RC: base-version gate, %changelog match relaxed
+```bash
+make changelog                        # draft the %changelog entry from commits since the last tag
+make check-version                    # VERSION == newest %changelog entry
+make check-version TAG=v0.7.0         # the full gate, as the release job runs it
+make check-version TAG=v0.7.0-rc.1    # RC: base-version gate, %changelog match relaxed
+```
 
 `make changelog` drafts from git history; curate it into upgrade-oriented prose before
 committing. `make check-version` runs the same `check-version.sh` the release job runs, so a
@@ -64,7 +66,7 @@ tag/`VERSION`/`%changelog` mismatch surfaces locally before you tag.
 
 ## Scope
 
-A container validates packaging and dependency resolution, the install scriptlets, the `bootstrap` toolchain, operator enrolment, project claim, the test suite's DAC and `systemd` parts, and a DAC-confined launch. It does **not** validate SELinux-enforcing confinement: `getenforce` reports `Disabled` in a container, so `%post` skips `semodule` and the `ai_tools_t` domain transition never fires. This harness is the fast, repeatable pre-check; the enforcing-host `dnf install` + `sudo tests/run.sh all` remains the real gate. ⚠️ The test image also adds a NOPASSWD sudoers drop-in for the operator user — convenience for the unattended run, not part of the shipped model; the sandbox account `ai-tools` still does not hold a sudo grant, which the selftest re-checks.
+A container validates packaging and dependency resolution, the install scriptlets, the `bootstrap` toolchain, operator enrolment, project claim, the test suite's DAC and `systemd` parts, and a DAC-confined launch. Each image also compiles the SELinux policy modules against its own policy headers (the spec's `%build`) and the selftest asserts the packaged set is the one `selinux/policy/shipped-modules.sh` derives. It does **not** validate SELinux-enforcing confinement: `getenforce` reports `Disabled` in a container, so `%post` skips `semodule`, no module is loaded, and the `ai_tools_t` domain transition never fires. This harness is the fast, repeatable pre-check; the enforcing-host `dnf install` + `sudo tests/run.sh all` remains the real gate. ⚠️ The test image also adds a NOPASSWD sudoers drop-in for the operator user — convenience for the unattended run, not part of the shipped model; the sandbox account `ai-tools` still does not hold a sudo grant, which the selftest re-checks.
 
 ## Files
 

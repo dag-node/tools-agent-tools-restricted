@@ -117,10 +117,10 @@ logged as a gap rather than skipped.
 - **The agent is a subject of the standard it ships.** The skill is a shared asset any sandboxed
   session may invoke for work on someone else's system; it also describes the sandbox the invoking
   session is running inside. Both readings are intended, and the second is why the conduct rows
-  above exist at all — a system that authors a governance model and exempts itself from it has
+  exist at all — a system that authors a governance model and exempts itself from it has
   written a preference, not a standard.
 - **The pairing runs in the unusual direction here.** The standard's normal failure is a model made
   of dispositional clauses with no enforcement behind them. This tree's is the mirror image: strong
   enforcement with the disposition unstated, so an agent meeting a gap between two enforced controls
-  has no guidance on which way to resolve it. The rows above are that missing half, and they stay
+  has no guidance on which way to resolve it. The conduct rows are that missing half, and they stay
   the smaller half by design.

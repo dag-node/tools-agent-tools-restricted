@@ -7,7 +7,7 @@
 # for an agent that declares none, send a CHOWN request over the handback socket.
 # Accepts a single regular-file or directory target; for directories it strips world
 # bits while preserving group rwx so the agent can keep working in a dir it created.
-# An interactive invocation confirms per path; --yes skips that for a batch caller
+# An interactive invocation confirms per path; `--yes` skips that for a batch caller
 # (ai-tools-reclaim) that already confirmed its whole set.
 #
 # Reads the operator's allowed-projects allowlist for allow and exclude rules (its path is
@@ -23,6 +23,27 @@
 
 set -euo pipefail
 
+# Every refusal and the one NOTICE this helper emits print through this pair, so the component
+# prefix is stated once here instead of at each site. A leading message code (msg.lib.sh states
+# the form) is printed on its own line ahead of the message, the shape tests/lib/harness.sh's
+# assert_msg reads. Matched inline, since this helper reports before msg.lib.sh is loaded.
+# The printed text is left in _warn_text, and its code in _warn_code, for a site that also
+# records the situation through log.lib.sh: the log call passes the variable, so the code
+# literal stays at the emit call the reference index reads as its definition
+# (messaging.rule.md).
+_warn_text="" _warn_code=""
+warn() {
+    local IFS=' ' code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    _warn_text="$*" _warn_code="${code}"
+    printf 'ai-tools-chown: %s\n' "${_warn_text}" >&2
+}
+# die exits 1; a refusal that carries another status calls warn and exits with that status.
+die() { warn "$@"; exit 1; }
+# die_unsourced <lib> -- one situation for every library this helper requires, as in install.sh:
+# the remedy (reinstall the libraries) is the same whichever one is missing.
+die_unsourced() { die MSG-E6Y4 "FATAL: cannot source ${1}"; }
+
 # Args: an optional --yes flag (anywhere) skips the interactive per-path confirmation --
 # a batch caller (ai-tools-reclaim) that already took ONE confirmation for the whole set
 # passes it so a long walk does not re-ask per path. The remaining argument is the path.
@@ -31,11 +52,11 @@ TARGET=""
 for arg in "$@"; do
     case "${arg}" in
         -y|--yes) ASSUME_YES=true ;;
-        -*) printf 'ai-tools-chown: unknown option: %s\n' "${arg}" >&2; exit 2 ;;
+        -*) warn MSG-N5C5 "unknown option: ${arg}"; exit 2 ;;
         *)  if [[ -z "${TARGET}" ]]; then
                 TARGET="${arg}"
             else
-                printf 'ai-tools-chown: too many arguments\n' >&2; exit 2
+                warn MSG-B6M8 "too many arguments"; exit 2
             fi ;;
     esac
 done
@@ -59,8 +80,7 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # Required, fail-closed: this helper prints agent-named paths to stderr and the log, so it
 # needs ai_tools_log_sanitize -- a missing logger must refuse, not emit an agent path raw.
 if ! source "${LOG_LIB}"; then
-    printf 'ai-tools-chown: FATAL: cannot source %s\n' "${LOG_LIB}" >&2
-    exit 1
+    die_unsourced "${LOG_LIB}"
 fi
 
 # Shared secret-name matcher, sourced (not executed) so this helper and ai-tools-lockdown
@@ -71,8 +91,7 @@ fi
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
 if ! source "${SECRET_PATTERNS_LIB}"; then
-    printf 'ai-tools-chown: FATAL: cannot source %s\n' "${SECRET_PATTERNS_LIB}" >&2
-    exit 1
+    die_unsourced "${SECRET_PATTERNS_LIB}"
 fi
 
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
@@ -82,7 +101,7 @@ fi
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
 source /usr/local/lib/ai-tools/owner-only.lib.sh
 if ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
-    printf 'ai-tools-chown: FATAL: owner-only.lib.sh defines no residue strip\n' >&2
+    warn MSG-V6P4 "FATAL: owner-only.lib.sh defines no residue strip"
     exit 3
 fi
 
@@ -94,15 +113,15 @@ source "${SAFE_PATHS_LIB}"
 
 # Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), which reads the
 # allowlist this helper gates every path on. REQUIRED like safe-paths.lib.sh: the bare source
-# under set -e aborts if it is missing, rather than leaving a parser that does not match any name and
+# under `set -e` aborts if it is missing, rather than leaving a parser that does not match any name and
 # silently declines every hand-back. Include-guarded, so a second source is a no-op.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source /usr/local/lib/ai-tools/conf.lib.sh
 
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
-# safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
+# safe-paths.lib.sh: the bare source under `set -e` aborts if it is missing -- a valid
 # install ships it, so there is no fallback. Include-guarded, so this is a no-op when
-# safe-paths.lib.sh above already loaded it.
+# safe-paths.lib.sh already loaded it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
 source /usr/local/lib/ai-tools/msg.lib.sh
 # Fixed 80-column frame for any box this helper renders, aligned with the CLI's.
@@ -114,12 +133,13 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 # wraps each sink in `|| true`, so a sink that cannot be written never blocks the NOTICE.
 # args:  path  old_owner  new_owner  old_mode  new_mode
 _notify_secret() {
-    local path="$1" old_owner="$2" new_owner="$3" old_mode="$4" new_mode="$5" msg
+    local path="$1" old_owner="$2" new_owner="$3" old_mode="$4" new_mode="$5"
     path="$(ai_tools_log_sanitize "${path}")"   # agent-named path -> stderr + log: safe display
-    printf -v msg 'NOTICE: secret-named file written by agent considered breached, rotate the secret: %s (ai-tools read access revoked; owner %s -> %s, mode %s -> %s)' \
-        "${path}" "${old_owner}" "${new_owner}" "${old_mode}" "${new_mode}"
-    printf 'ai-tools-chown: %s\n' "${msg}" >&2
-    ai_tools_log_warn "${msg}"
+    # The NOTICE is written once, here, where its code labels it; the log records the same text
+    # (warn leaves it in _warn_text) without the component prefix the emitter adds.
+    warn MSG-A6D8 "NOTICE: secret-named file written by agent considered breached, rotate the secret: ${path} (ai-tools read access revoked; owner ${old_owner} -> ${new_owner}, mode ${old_mode} -> ${new_mode})"
+    ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" \
+        "AI_TOOLS_PATH=${path}" "AI_TOOLS_RESULT=ok"
 }
 
 # Resolve to canonical path to block symlink traversal
@@ -130,13 +150,17 @@ canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 ai_tools_assert_safe_target "${canonical}" "ownership handback" || exit 3
 
 # Resolve the operator that owns this path (operator.lib.sh); no owner -> leave it untouched.
-# The two owners the branches below choose between: OWNER is the shared group an ordinary file
+# The two owners the branches choose between: OWNER is the shared group an ordinary file
 # returns to, SECRET_OWNER the operator's own private group a quarantined secret goes to. What
 # each one grants and what it deliberately leaves the agent is in secret-handling.rule.md.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
 readonly OWNER="${PROJECTS_USER}:@SANDBOX_GROUP@"
 readonly SECRET_OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
+
+# This run acts for one operator, so that operator rides as per-run log context
+# (logging.rule.md). The project joins it once a path matches an allowlist entry.
+AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
 
 # Classify the basename against the shared secret-name patterns, which the library reads
 # from the operator's own config (secret-handling.rule.md covers the set and how an
@@ -181,6 +205,7 @@ fi
 if [[ "${#allowed[@]}" -gt 0 ]]; then
     for dir in "${allowed[@]}"; do
         if [[ "${canonical}" == "${dir}" || "${canonical}" == "${dir}/"* ]]; then
+            AI_TOOLS_LOG_PROJECT="${dir}"
 
             # lstat (the GNU stat default), so a symlink is seen as itself and
             # refused along with the devices. A regular file must have nlink 1: a
@@ -206,7 +231,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # The agent-written guard: act only on a path currently ai-tools-owned.
             # What that ownership signals and what an unowned path is spared are in
             # ownership-and-hooks.rule.md. The owner is read from the path string
-            # here, which the pinned-inode re-check below makes race-safe: moving an
+            # here, which the pinned-inode re-check makes race-safe: moving an
             # ai-tools-owned inode's user field takes root, which the agent lacks.
             [[ "${current_owner%%:*}" == "@SANDBOX_USER@" ]] || exit 0
 
@@ -214,7 +239,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # ordinary file split on OWNER-execute -- the only exec bit git records.
             # What each target hands back and why is in ownership-and-hooks.rule.md
             # (directories and ordinary files) and secret-handling.rule.md (secrets);
-            # new_mode mirrors each chmod arithmetically for the report below.
+            # new_mode mirrors each chmod arithmetically for the report.
             if ${is_dir}; then
                 target_owner="${OWNER}"
                 chmod_arg="g+rwx,o="
@@ -243,7 +268,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
 
             # Interactive invocation (terminal available): show changes and confirm.
             # Non-interactive (hook context, stdin is a pipe): apply silently --
-            # the allowlist is the user's standing authorisation. --yes skips the
+            # the allowlist is the user's standing authorisation. `--yes` skips the
             # prompt for a batch caller that already confirmed the whole set.
             if ! ${ASSUME_YES} \
                     && { [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; }; then
@@ -255,20 +280,20 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                 ai_tools_msg_confirm "Apply?" y || exit 0
             fi
 
-            # TOCTOU-safe apply. Every check above ran against the path *string*,
+            # TOCTOU-safe apply. Every check so far ran against the path *string*,
             # but ai-tools owns the project directory and can unlink and recreate
             # this path -- as a symlink, a hardlink, or a different file -- at any
-            # instant. chmod has no --no-dereference, so a symlink swapped in
+            # instant. chmod has no `--no-dereference`, so a symlink swapped in
             # before it would let root chmod an arbitrary file (e.g. /etc/shadow).
             #
             # Pin the inode with an open fd and act through /proc/self/fd: a held
             # fd cannot be redirected by a later path swap. open() does follow a
             # symlink swapped in just before it, so after opening we re-verify the
-            # fd resolves to the SAME inode validated above, still a regular file,
+            # fd resolves to the SAME inode already validated, still a regular file,
             # still link count 1. Any mismatch means a race -- bail.
             # NB: brace-group the redirection. A bare `exec {fd}< file 2>/dev/null`
             # applies 2>/dev/null to the SHELL permanently (exec with no command),
-            # which would swallow the secret-file NOTICE emitted on stderr below.
+            # which would swallow the secret-file NOTICE emitted on stderr.
             # The group scopes 2>/dev/null to just the open; fd2 is restored after.
             { exec {fd}< "${canonical}"; } 2>/dev/null || exit 0
             read -r got_ident got_nlink got_ftype \
@@ -287,7 +312,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                 exit 0
             fi
             # chown/chmod follow the /proc magic symlink to the pinned inode, so both
-            # act on the descriptor the checks above validated rather than on the name.
+            # act on the descriptor those checks validated rather than on the name.
             /usr/bin/chown -- "${target_owner}" "/proc/self/fd/${fd}"
             /usr/bin/chmod -- "${chmod_arg}"    "/proc/self/fd/${fd}"
             # A quarantined secret is owner-only now, so strip the residue the mode only masks:
@@ -297,7 +322,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # Every value handed to the strip is read from the PINNED inode, ${got_ftype}
             # included: the strip acts through that descriptor, so what describes it comes
             # from it. The pre-open ${ftype} is a second read of a path that may since have
-            # been swapped, which the type check above keeps equal to this one.
+            # been swapped, which the pinned-fd type check keeps equal to this one.
             if ${is_secret} \
                     && read -r sec_grp sec_mode \
                         < <(stat -L -c '%G %a' "/proc/self/fd/${fd}" 2>/dev/null); then
@@ -312,7 +337,9 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                     "${current_mode}" "${new_mode}"
             else
                 ${is_dir} && _kind="directory" || _kind="file"
-                ai_tools_log_info "handed back ${_kind} ${canonical} (owner ${current_owner} -> ${target_owner}, mode ${current_mode} -> ${new_mode})"
+                ai_tools_log_structured info \
+                    "handed back ${_kind} ${canonical} (owner ${current_owner} -> ${target_owner}, mode ${current_mode} -> ${new_mode})" \
+                    "AI_TOOLS_PATH=${canonical}" "AI_TOOLS_RESULT=ok"
             fi
             exec {fd}<&-
             exit 0
