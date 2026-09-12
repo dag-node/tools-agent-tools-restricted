@@ -502,10 +502,11 @@ inline_matchers=(
     src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh
     src/usr/local/libexec/ai-tools/ai-tools-relabel.sh
     src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh
+    src/usr/local/libexec/ai-tools/ai-tools-safedir.sh
     src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh
     src/usr/local/libexec/ai-tools/ai-tools-setgid.sh
-    src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh
     src/usr/local/libexec/ai-tools/ai-tools-stop.sh
+    src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh
     src/opt/ai-tools/bin/nvm-update.sh
     src/usr/local/bin/ai-tools.sh
     src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh

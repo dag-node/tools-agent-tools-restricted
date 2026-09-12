@@ -148,6 +148,13 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | j6b2 | [MSG-J6B2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | nothing to reclaim under ${canonical} | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh | tests/unit/reclaim.sh | warn |
 | t9m5 | [MSG-T9M5](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | declined; ownership left as it stands | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
 | j4w5 | [MSG-J4W5](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical} | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
+| v7j8 | [MSG-V7J8](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | unknown option: ${arg} | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
+| f6q4 | [MSG-F6Q4](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
+| y5r2 | [MSG-Y5R2](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | could not chown ${GITCONFIG} to root:${GROUP} | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
+| v8e9 | [MSG-V8E9](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | could not chmod ${GITCONFIG} to 644 | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
+| n4d4 | [MSG-N4D4](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | no such directory ${TARGET} -- not registering safe.directory | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
+| f4y6 | [MSG-F4Y6](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | not a directory: ${canonical} -- not registering safe.directory | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
+| p5b5 | [MSG-P5B5](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | no operator covers ${canonical} -- not registering safe.directory | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh | tests/unit/safedir.sh | warn |
 | c3v2 | [MSG-C3V2](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | unknown option: ${arg} | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |
 | j9j3 | [MSG-J9J3](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |
 | v3w8 | [MSG-V3W8](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | setfacl not found -- skipping ACL normalization for ${TARGET} | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |

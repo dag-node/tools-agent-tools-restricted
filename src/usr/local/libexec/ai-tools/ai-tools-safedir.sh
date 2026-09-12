@@ -22,6 +22,19 @@
 
 set -euo pipefail
 
+# Every refusal this helper makes goes through warn, so the component prefix is stated once here
+# instead of at each site. A leading message code (msg.lib.sh states the form) is printed on its
+# own line ahead of the message, the shape tests/lib/harness.sh's assert_msg reads. Matched
+# inline, since this helper reports before msg.lib.sh is loaded. The printed text is left in
+# _warn_text, which the sites that also record the condition log.
+_warn_text=""
+warn() {
+    local IFS=' ' code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    _warn_text="$*"
+    printf 'ai-tools-safedir: %s\n' "${_warn_text}" >&2
+}
+
 # The agent's global git config, holding the safe.directory list this helper edits.
 # AI_TOOLS_GITCONFIG points it at a fixture file for the unit test.
 readonly GITCONFIG="${AI_TOOLS_GITCONFIG:-/opt/ai-tools/.gitconfig}"
@@ -34,11 +47,11 @@ TARGET=""
 for arg in "$@"; do
     case "${arg}" in
         --remove) REMOVE=true ;;
-        -*) printf 'ai-tools-safedir: unknown option: %s\n' "${arg}" >&2; exit 2 ;;
+        -*) warn MSG-V7J8 "unknown option: ${arg}"; exit 2 ;;
         *)  if [[ -z "${TARGET}" ]]; then
                 TARGET="${arg}"
             else
-                printf 'ai-tools-safedir: too many arguments\n' >&2; exit 2
+                warn MSG-F6Q4 "too many arguments"; exit 2
             fi ;;
     esac
 done
@@ -84,9 +97,11 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 # and the wrapper, writable only by root). Best-effort: a logged warning in place of a hard stop.
 _reassert_mode() {
     chown "root:${GROUP}" "${GITCONFIG}" 2>/dev/null \
-        || ai_tools_log_warn "could not chown ${GITCONFIG} to root:${GROUP}"
+        || { warn MSG-Y5R2 "could not chown ${GITCONFIG} to root:${GROUP}"
+             ai_tools_log_warn "${_warn_text}"; }
     chmod 644 "${GITCONFIG}" 2>/dev/null \
-        || ai_tools_log_warn "could not chmod ${GITCONFIG} to 644"
+        || { warn MSG-V8E9 "could not chmod ${GITCONFIG} to 644"
+             ai_tools_log_warn "${_warn_text}"; }
 }
 
 # _listed <path>: 0 when <path> is already a safe.directory entry. The read works for any
@@ -130,19 +145,24 @@ if ${REMOVE}; then
     exit 0
 fi
 
-# ADD. The path must be a real directory an operator's allowlist covers.
+# ADD. The path must be a real directory an operator's allowlist covers. Each refusal is
+# reported as well as recorded: a direct `sudo ai-tools-safedir` that registered nothing would
+# otherwise exit 0 with no account of itself, and the CLI's own report says only that the step ran.
 canonical="$(realpath -e -- "${TARGET}" 2>/dev/null)" || {
-    ai_tools_log_warn "no such directory ${TARGET} -- not registering safe.directory"
+    warn MSG-N4D4 "no such directory ${TARGET} -- not registering safe.directory"
+    ai_tools_log_warn "${_warn_text}"
     exit 0
 }
 [[ -d "${canonical}" ]] || {
-    ai_tools_log_warn "${canonical} is not a directory -- not registering safe.directory"
+    warn MSG-F4Y6 "not a directory: ${canonical} -- not registering safe.directory"
+    ai_tools_log_warn "${_warn_text}"
     exit 0
 }
 # resolve_owner succeeds only when some operator's allowlist covers the (non-excluded) path;
 # otherwise leave the file untouched (fail-closed, mirrors the sibling helpers).
 ai_tools_resolve_owner "${canonical}" || {
-    ai_tools_log_info "no operator covers ${canonical} -- not registering safe.directory"
+    warn MSG-P5B5 "no operator covers ${canonical} -- not registering safe.directory"
+    ai_tools_log_info "${_warn_text}"
     exit 0
 }
 _confirm_cwd "Add ${canonical} to git safe.directory?" \
