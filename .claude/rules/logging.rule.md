@@ -96,6 +96,15 @@ altered, `ai_tools_log` appends an inline `[!] non-standard characters replaced`
 non-standard byte where a path is expected is a probe worth recording; the marker is pure
 ASCII, so it cannot itself re-trigger a replacement.
 
+The reduction keeps every printable ASCII character, punctuation included, so a value carrying
+`<`, `>`, `"` or `` ` `` is recorded as written: the logger passes a message to `logger(1)` as an
+argument, and no consumer of either sink re-evaluates it, so a shell metacharacter in a path stays
+text. The one consumer that narrows further is the tool-call trail, where three of those
+characters are the record's own delimiters (see
+[The tool-call trail](#the-tool-call-trail)). What the reduction does cost is a **non-ASCII URL**:
+its bytes reach the journal as `?`, where a reader can resolve neither the host nor the path. That
+is one of the reasons a message carries a code ([messaging](messaging.rule.md)).
+
 The handback daemon carries the same allowlist at its `handback.log` write site (`_sanitize`,
 `' ' <= c <= '~'` per code point, with the same inline marker) so both trails share one
 contract; `tests/unit/log.sh` pins both on the same byte vectors. The daemon's
