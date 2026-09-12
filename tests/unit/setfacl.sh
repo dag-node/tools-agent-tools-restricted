@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/setfacl.sh
 # Hermetic unit tests for the deployed ai-tools-setfacl helper: the group-permission ACL it
-# applies at project claim, the opt-in --with-git .git normalization (group + setgid + ACL),
+# applies at project claim, the opt-in `--with-git` .git normalization (group + setgid + ACL),
 # its owner guard, and its secret/exclusion/skip-list skips. Runs the installed helper against a
 # /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST); reads and does not write a path outside
 # the testdir.
@@ -86,7 +86,7 @@ fi
 
 # (A2) an owner-only file (0600) is left out of the agent's reach entirely -- no group entry,
 # no operator entry, no mask raised. `setfacl -m` recalculates the mask, so granting here would
-# give the agent EFFECTIVE rw while `ls -l` still shows -rw-------; the operator cannot review a
+# give the agent EFFECTIVE rw while `ls -l` still shows `-rw-------`; the operator cannot review a
 # grant they cannot see, so the claim honours the mode instead. secret-handling.rule.md tells
 # operators to use `700 <you>:<you>` for exactly this, which only holds if the walk skips it.
 fr="$(getfacl -p "${proj}/restricted" 2>/dev/null)"
@@ -111,7 +111,7 @@ else
     fail "700 dir opened: $(perm "${priv}") dir_acl=$(getfacl -p "${priv}" 2>/dev/null | tr '\n' ' ')"
 fi
 
-# (A2c) the skip is REPORTED, not silent: under --with-git it means history the operator asked
+# (A2c) the skip is REPORTED, not silent: under `--with-git` it means history the operator asked
 # to share was not shared, so a quiet skip would leave them believing the opposite.
 sealed_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
 assert_msg MSG-C9Z6 "${sealed_err}" "owner-only skips are reported on stderr"
@@ -183,7 +183,7 @@ setsid "${HELPER}" "${out}" < /dev/null > /dev/null 2>&1 || true
 if ! dg "${out}"; then pass "a non-allowlisted path is left untouched"
 else fail "non-allowlisted ${out} gained the project ACL"; fi
 
-# (D) --with-git: the opt-in pass normalizes .git (group ACL + setgid + group ownership),
+# (D) `--with-git`: the opt-in pass normalizes .git (group ACL + setgid + group ownership),
 # while a secret-named path inside .git is still skipped (the secret/exclusion skips apply
 # to the .git pass too).
 setsid "${HELPER}" --with-git "${proj}" < /dev/null > /dev/null 2>&1 || true

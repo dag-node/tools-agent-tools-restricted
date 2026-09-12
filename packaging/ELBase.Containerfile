@@ -11,11 +11,13 @@
 # /usr/local/sbin-vs-/usr/local/bin file conflict no longer exists -- one layout serves both.
 #
 # Build a distro image (two steps; the Makefile wraps them as `rpmtest-rocky9` / `-rocky10`):
+#   ```bash
 #   podman build -t ai-tools-rpmbase:el9 -f packaging/ELBase.Containerfile \
 #       --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9.7-minimal .
 #   podman build -t ai-tools-rpmtest:el9 -f packaging/Rocky9.Containerfile .
 #   podman run --rm -t --systemd=always ai-tools-rpmtest:el9
 #       # add --privileged if your runtime cannot mount cgroups for the --user manager
+#   ```
 #
 # Boots systemd as PID 1; the oneshot ai-tools-selftest.service runs the full
 # admin/operator/agent Quick-start workflow and `systemctl exit`s with the aggregate status,
@@ -29,7 +31,7 @@
 # enforcing host. This harness is the fast, repeatable pre-check; the box test is the gate.
 
 # The EL base image to build on. The per-distro files supply this via the Makefile; building
-# this file directly requires --build-arg BASE_IMAGE=... (no default, so the distro is explicit).
+# this file directly requires `--build-arg BASE_IMAGE=...` (no default, so the distro is explicit).
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
@@ -46,8 +48,8 @@ ARG RPM_RELEASE=""
 # utilities the workflow uses (script/runuser from util-linux, getenforce from libselinux-utils,
 # git/curl for bootstrap + claim).
 #
-# dbus-broker provides the per-user D-Bus the sandbox account's `systemd --user` manager needs;
-# the -minimal images omit it, and without it logind cannot sustain a lingering --user instance
+# dbus-broker provides the per-user D-Bus the sandbox account's `systemd --user manager` needs;
+# the `-minimal` images omit it, and without it logind cannot sustain a lingering `--user instance`
 # across session open/close, so the nvm-update timer drops out from under the toolchain. On a
 # full host it is present already; the test image installs it to match.
 # rpm-sign + gnupg2 are baked in here, NOT dnf-installed at sign time: the release workflow
@@ -126,7 +128,7 @@ RUN install -m 0755 packaging/container-selftest.sh /usr/local/bin/ai-tools-self
     && install -m 0644 packaging/ai-tools-selftest.service /etc/systemd/system/ai-tools-selftest.service \
     && systemctl enable ai-tools-selftest.service
 
-# Run systemd as PID 1 so the handback socket and the sandbox --user manager come up and the
+# Run systemd as PID 1 so the handback socket and the sandbox `--user manager` come up and the
 # selftest unit fires. (OPERATOR/PROJECT/RUN_TESTS default inside the script; to customise a
 # run, edit the unit's Environment= or invoke /usr/local/bin/ai-tools-selftest via podman exec.)
 STOPSIGNAL SIGRTMIN+3

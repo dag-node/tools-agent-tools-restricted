@@ -27,8 +27,8 @@ readonly SUBJ="ai_tools_t"
 command -v ausearch    >/dev/null || { echo "avc-analyze: ausearch not found (audit pkg)" >&2; exit 1; }
 command -v audit2allow >/dev/null || { echo "avc-analyze: audit2allow not found (policycoreutils-devel)" >&2; exit 1; }
 
-# Flags: --suggest appends the (verbose) audit2allow -R policy proposal; off by
-# default so the report stays short. Must precede -ts (which consumes the rest).
+# Flags: `--suggest` appends the (verbose) `audit2allow -R` policy proposal; off by
+# default so the report stays short. Must precede `-ts` (which consumes the rest).
 SUGGEST=0
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
@@ -38,7 +38,7 @@ while [[ "${1:-}" == --* ]]; do
   esac
 done
 
-# Resolve the start time: -ts <arg...> wins, else the marker file, else 'today'.
+# Resolve the start time: `-ts <arg...>` wins, else the marker file, else 'today'.
 TS=""
 if [[ "${1:-}" == "-ts" ]]; then
   shift; TS="${*:-}"

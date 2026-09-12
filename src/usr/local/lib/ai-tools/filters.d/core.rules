@@ -17,7 +17,7 @@
 git log	args	--format,--pretty,--oneline,--graph,-p,--patch,--stat,--numstat,--shortstat,--name-only,--name-status,-L,-S,-G	--date=short --format='%h %ad %an %s'
 
 # The long form pads each file with instructional hints ("use git restore ...") the agent already
-# knows; --branch keeps the ahead/behind line, which is the part it reads.
+# knows; `--branch` keeps the ahead/behind line, which is the part it reads.
 git status	args	-s,--short,--porcelain,--long,-v,--verbose,-z,--column	--short --branch
 
 # An unbounded tree of a repository with a package directory in it is the single largest

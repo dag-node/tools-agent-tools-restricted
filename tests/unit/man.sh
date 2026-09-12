@@ -140,7 +140,7 @@ check_cli_page() {
     fi
 
     # ── (2) Every option the help names is documented somewhere in the page ─────────
-    # This is what keeps the cross-verb flag lines (-y/--yes, --dry-run, --for) honest: the
+    # This is what keeps the cross-verb flag lines (`-y`/`--yes`, `--dry-run`, `--for`) honest: the
     # help may name fewer options than the page, never more.
     help_opts="$(usage_text "${CLI}" | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
     man_opts="$(read_man "${MAN}" | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
@@ -200,7 +200,7 @@ check_admin_page() {
     # usage() lists one command per line, indented four spaces, as `<path><padding><description>`.
     # The path is everything before the first run of two or more spaces, minus any argument
     # placeholder -- `operators add [user]` is the command `operators add`. The option lines
-    # (--help, --version) share that indent and are excluded by the leading letter, since a
+    # (`--help`, `--version`) share that indent and are excluded by the leading letter, since a
     # command in this grammar is a bare word.
     local help_cmds man_cmds undocumented unlisted arms cmd token unknown=()
     help_cmds="$(usage_text "${ADMIN}" \
@@ -568,7 +568,7 @@ check_messages_pointers
 # An operator reads a config file in a terminal, where nothing reflows it, so every header this
 # project writes -- the two seeds and the two shipped templates -- holds to 72 columns and carries
 # no comment line ending on a word that ties to the next one. The rule is the checker's
-# --config-header mode (the ai-tools-technical-docs skill); this runs it over the four.
+# `--config-header` mode (the ai-tools-technical-docs skill); this runs it over the four.
 section "config headers: 72 columns, no line ending on a tie word (unit)"
 PROSE_CHECK=""
 for candidate in \

@@ -86,7 +86,7 @@ case "${proj_ctx}" in
 esac
 
 ########################################
-# Start marker -- the exact instant analysis should look from. ausearch -ts wants
+# Start marker -- the exact instant analysis should look from. `ausearch -ts` wants
 # 'MM/DD/YYYY HH:MM:SS'. avc-analyze.sh reads this file.
 ########################################
 
@@ -115,8 +115,8 @@ mkdir -p "${SCRATCH}/subdir/nested"        # dir create + parent walk
 ln -sf created-by-redirect.txt "${SCRATCH}/a-symlink"   # lnk_file create
 
 ########################################
-# 2. MODIFY -- in-place edits (the awkward case: sed -i rewrites via a temp+rename).
-#    Also asserts the setfscreate grant: sed -i (and cp/mv/install) presets the new
+# 2. MODIFY -- in-place edits (the awkward case: `sed -i` rewrites via a temp+rename).
+#    Also asserts the setfscreate grant: `sed -i` (and cp/mv/install) presets the new
 #    temp file's label with setfscreatecon() before creating it. Without
 #    self:process setfscreate that call returns EACCES and libselinux prints a
 #    "failed to set default file creation context" warning to stderr on EVERY such
@@ -228,7 +228,7 @@ note "git exercise done (history stayed inside ${gitrepo})"
 # 5. SECRET QUARANTINE -- drop secret-named files and LEAVE them. The Stop sweep
 #    (session-hook.sh) runs `sudo ai-tools-chown`, which quarantines them to
 #    <you>:<you> 600 and logs a NOTICE -- exercising the sudo->root-helper + secret path.
-#    Left on purpose; the next run's rm -rf cleans them.
+#    Left on purpose; the next run's `rm -rf` cleans them.
 ########################################
 step "secret quarantine (.env, *.key left for the Stop sweep)"
 printf 'API_TOKEN=avc-fake-not-a-real-secret\n' > "${SECRETS}/.env"

@@ -13,7 +13,7 @@
 # entrypoint only at a bare semver version directory, so integration/ai-tools-run.sh probes it
 # in `v0.0.1` inside the live toolchain tree (a version Node never shipped).
 #
-# Removal is rm -rf for a file or directory, and for a fixture cgroup (integration/stop.sh makes
+# Removal is `rm -rf` for a file or directory, and for a fixture cgroup (integration/stop.sh makes
 # one at the cgroup v2 root) a cgroup.kill over the subtree and then rmdir, deepest first. A path
 # that survives removal is reported and fails the sweep, so run.sh refuses to run rather than
 # start a suite on a host it could not clean. The suite is run one at a time: a second run
@@ -24,7 +24,7 @@ readonly AI_TEST_RESIDUE_FIXED=(/opt/ai-tools/.nvm/versions/node/v0.0.1)
 
 # ai_test_residue_sites <projects-home>: PRINT the directories fixtures are born in, one per
 # line, existing ones only. The operator's home holds the noexec-/tmp fallback dirs and the
-# manual suite's workspace fixtures; the clone area holds the manual --for drill's tree beside
+# manual suite's workspace fixtures; the clone area holds the manual `--for` drill's tree beside
 # the label probes. The cgroup v2 root is read from /proc/mounts, the way the stop helper reads it.
 ai_test_residue_sites() {
     local home="$1" d mount_point fstype

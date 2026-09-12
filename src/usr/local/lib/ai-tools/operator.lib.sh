@@ -37,9 +37,9 @@
 # resolve_owner on the path it acts on, then acts as that owner; a path no operator's allowlist
 # covers is left untouched.
 
-# Sourced more than once in a single shell: this library's readonly constants would abort under set -e on
+# Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on
 # the second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for
-# an unset guard and trips the sourcing shell's set -e).
+# an unset guard and trips the sourcing shell's `set -e`).
 if [[ -n "${_AI_TOOLS_OPERATOR_LIB:-}" ]]; then
     return 0
 fi
@@ -110,7 +110,7 @@ _ai_tools_operator_allowlist() {
 # other reader of the file; without the parser no line denotes an entry and no path is covered.
 # Exclusions are checked first and win; a plain (non-glob) allow/exclude path also covers its
 # contents. Allow entries are realpath-resolved so a symlinked project root matches its canonical
-# target. The helpers' own walks (ai-tools-chown, -setgid, -setfacl, -unclaim, -lockdown) parse
+# target. The helpers' own walks (`ai-tools-{chown,setgid,setfacl,unclaim,lockdown}`) parse
 # the same grammar and apply the same exclusion-first rule per subpath.
 ai_tools_allowlist_covers() {
     local file="$1" path="$2" line entry dir pat

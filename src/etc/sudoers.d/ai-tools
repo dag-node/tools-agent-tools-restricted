@@ -19,10 +19,11 @@
 # line to generate.
 #
 # Three privileged operations deliberately do NOT appear here: the toolchain update (runs as
-# @SANDBOX_USER@ in its own systemd --user instance), the post-upgrade entrypoint relabel (root,
-# through the ai-tools-relabel.path watcher), and the ownership handback (ai-tools-chown, -setgid,
-# -launcher-symlink, reached through the ai-tools-handback socket daemon rather than sudo, whose
-# SUID bit NNP drops inside a session anyway). Why each is placed where it is: launch.rule.md.
+# @SANDBOX_USER@ in its own `systemd --user instance`), the post-upgrade entrypoint relabel (root,
+# through the ai-tools-relabel.path watcher), and the ownership handback
+# (`ai-tools-{chown,setgid,launcher-symlink}`, reached through the ai-tools-handback socket daemon
+# rather than sudo, whose SUID bit NNP drops inside a session anyway). Why each is placed where it
+# is: launch.rule.md.
 #
 # The umask, env_keep, and umask_override Defaults are scoped per-command (Defaults!<command>),
 # not to all of an operator's sudo, so they apply ONLY to these commands:
@@ -49,13 +50,13 @@
 #     may signal across accounts and write cgroup.kill. NOPASSWD is the point of the rule, not a
 #     convenience -- an unattended detector cannot answer a password prompt. The same trailing `""`
 #     pins it to the ZERO-ARGUMENT form, which grants the bare command (all automation needs, since
-#     the confirmation defaults YES with no terminal) and withholds --force and --dry-run. The
+#     the confirmation defaults YES with no terminal) and withholds `--force` and `--dry-run`. The
 #     helper does not take a target or an authorization input, so the rule does not expose any
 #     argument surface. Why it is granted this way, and what it widens: docs/session-stop.md.
 #   - @SANDBOX_USER@ has no login shell and no other sudo rights, and is not a member of ai-ops.
 #     ai-tools-run refuses to launch if it ever becomes one.
 #
-# Syntax check before deploy:  visudo -c -f /etc/sudoers.d/ai-tools
+# Syntax check before deploy:  `visudo -c -f /etc/sudoers.d/ai-tools`
 
 Defaults!/opt/ai-tools/bin/ai-tools-run umask=0007,umask_override
 Defaults!/opt/ai-tools/bin/ai-tools-run env_keep += "AI_TOOLS_AGENT_EXEC AI_TOOLS_PROJECT_DIR"

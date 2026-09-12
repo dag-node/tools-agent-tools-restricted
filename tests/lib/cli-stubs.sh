@@ -17,8 +17,8 @@
 #   ai-tools-lockdown   prints the secret-scan count line and one `[file]` line per path listed
 #                       in <root>/stubs/lockdown.secrets (empty or absent: a clean tree), the form
 #                       secret_gate reads; it leaves the tree as it is.
-#   ai-tools-allowlist  the --for registry: --print cats <root>/for-allowlist, and --add/--remove/
-#                       --enable/--disable edit it through the deployed conf.lib.sh, so the target's
+#   ai-tools-allowlist  the `--for` registry: `--print` cats <root>/for-allowlist, and `--add`/`--remove`/
+#                       `--enable`/`--disable` edit it through the deployed conf.lib.sh, so the target's
 #                       registry behaves as the real helper's would.
 #   ai-tools-safedir    adds or removes the safe.directory entry in $AI_TOOLS_GITCONFIG,
 #                       which the CLI re-reads for idempotency.

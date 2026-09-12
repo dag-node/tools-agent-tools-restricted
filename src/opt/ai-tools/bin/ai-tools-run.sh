@@ -2,12 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /opt/ai-tools/bin/ai-tools-run
 # Confinement shim: runs one sandboxed agent session as @SANDBOX_USER@, inside a transient
-# systemd --user service whose properties are the session's security boundary.
+# `systemd --user service` whose properties are the session's security boundary.
 #
 # Invoked only by an agent's launch wrapper, which resolves and validates the versioned
 # executable and drops privilege:
 #
+#   ```bash
 #   sudo -u @SANDBOX_USER@ -g @SANDBOX_GROUP@ -- /opt/ai-tools/bin/ai-tools-run [args...]
+#   ```
 #
 # with AI_TOOLS_AGENT_EXEC (the versioned executable) and AI_TOOLS_PROJECT_DIR (the session's
 # working directory) carried through sudo's env_keep. Both are re-validated here, so neither
@@ -26,10 +28,12 @@
 #
 # Operating notes:
 #   * The session appears as @SANDBOX_USER@-<agent>-<pid>.service in `systemctl --user`. Its
-#     stdout/stderr go to the terminal (--pty), so the per-unit journal is empty on a clean run.
+#     stdout/stderr go to the terminal (`--pty`), so the per-unit journal is empty on a clean run.
 #   * Every launch logs its confinement inputs, the toolchain versions, and any refusal under the
 #     `ai-tools-run` syslog tag -- where the useful records are:
-#         sudo journalctl -t ai-tools-run _UID=<sandbox uid> -n 50 --no-pager
+#       ```bash
+#       sudo journalctl -t ai-tools-run _UID=<sandbox uid> -n 50 --no-pager
+#       ```
 #   * A refusal names the fix. The common ones are a stale SELinux label after a Node upgrade
 #     (`ai-tools-admin system entrypoints relabel`) and a stopped user manager (`loginctl enable-linger`).
 #   * The ownership handback socket is checked before launch: if it is down the session still
@@ -63,7 +67,7 @@ if [[ -L "${AI_TOOLS_LIB_DIR}" || "${lib_dir_metadata%% *}" != 0 \
     exit 1
 fi
 
-# Four required libraries. Each is a gate, not an output path, so a bare source under set -e is
+# Four required libraries. Each is a gate, not an output path, so a bare source under `set -e` is
 # the fail-closed load: a missing one is a broken install and refuses the launch rather than
 # skipping a check (see shellcheck.rule.md).
 #   msg          the framed refusals and the launch banner
@@ -197,7 +201,7 @@ session_exec_identity="$(entrypoint_identity "${session_exec_path}")"
 
 # ── Session working directory ────────────────────────────────────────────────────────────────
 # A transient unit does not inherit the caller's cwd, so the wrapper's validated project
-# directory is passed through and re-validated here before it becomes --working-directory.
+# directory is passed through and re-validated here before it becomes `--working-directory`.
 # Absent (a direct diagnostic run outside a wrapper) leaves the systemd default.
 session_working_directory=""
 if [[ -n "${AI_TOOLS_PROJECT_DIR:-}" ]]; then
@@ -238,7 +242,7 @@ if command -v getenforce >/dev/null 2>&1; then
         module_present="$(ai_tools_confinement_module_present \
             "$(matchpathcon -n /opt/ai-tools/.config 2>/dev/null | awk -F: '{print $3}' || true)")"
     fi
-    # The manager is the systemd --user process that execs the entrypoint; same uid, so its
+    # The manager is the `systemd --user process` that execs the entrypoint; same uid, so its
     # domain is readable.
     manager_pid="$(pgrep -u "${UID}" -f 'systemd --user' 2>/dev/null | head -n1 || true)"
     [[ -n "${manager_pid}" ]] && manager_domain="$(tr -d '\000' < "/proc/${manager_pid}/attr/current" 2>/dev/null | awk -F: '{print $3}' || true)"
@@ -326,7 +330,7 @@ fi
 # into the session unless named here. Only terminal-, locale-, and connectivity-shaping
 # variables are forwarded by name; the operator's API keys, tokens, SSH_AUTH_SOCK, and cloud
 # credentials stay out by construction, independent of sudo's env_reset/env_keep.
-# --setenv=NAME imports NAME by name, so a value never reaches the command line.
+# `--setenv=NAME` imports NAME by name, so a value never reaches the command line.
 readonly FORWARDED_ENVIRONMENT_VARIABLES=(
     TERM COLORTERM                                  # TUI rendering
     LANG LANGUAGE LC_ALL LC_CTYPE LC_MESSAGES       # locale / UTF-8 handling
@@ -558,10 +562,10 @@ fi
 
 # ExecStart is the RESOLVED entrypoint, not the launcher symlink: the manager's execve performs the
 # domain transition on the same inode this shim verified, with no link left for it to re-resolve.
-# Run rather than exec: --pty implies --wait and returns the payload's status, which a fast failure
+# Run rather than exec: `--pty` implies `--wait` and returns the payload's status, which a fast failure
 # turns into an actionable breadcrumb.
 #
-# SYSTEMD_TINT_BACKGROUND=0: systemd 256+ tints the terminal background for the life of a --pty
+# SYSTEMD_TINT_BACKGROUND=0: systemd 256+ tints the terminal background for the life of a `--pty`
 # run, picking the tint by querying the terminal for its background colour. The tint is decoration
 # a full-screen TUI paints over anyway, so it is turned off here, on the command, since sudo started
 # this process with a reset environment. A terminal reply printed over the agent's banner is the

@@ -22,8 +22,8 @@
 # Net effect: the agent (group @SANDBOX_GROUP@) loses access via both the group owner and
 # the named ACL entry, and the tree carries plain Unix permissions under the new group.
 #
-# Invoked as root via sudo by the management CLI (ai-tools --project-unclaim), the same
-# no-NOPASSWD model as ai-tools-relabel/-lockdown/-setfacl. Running as root is required to
+# Invoked as root via sudo by the management CLI (`ai-tools --project-unclaim`), the same
+# no-NOPASSWD model as `ai-tools-{relabel,lockdown,setfacl}`. Running as root is required to
 # chgrp to an arbitrary group and to act on files the projects user does not own. The
 # project path and target group the CLI passes are re-validated here, and the path must
 # resolve at or under a registered project (allowed-projects) or the helper is a no-op.
@@ -32,7 +32,7 @@
 # they accept, so one reversal is described once and tested once:
 #   default      the whole tree is authorized by its allowlist entry, and every eligible path
 #                in it is reverted.
-#   --unlisted   the tree is in NO allowlist (a claimed project copied or moved elsewhere and
+#   `--unlisted` the tree is in NO allowlist (a claimed project copied or moved elsewhere and
 #                never unclaimed), so it does not carry authorization of its own. The membership
 #                check is replaced by a per-path residue gate (_is_residue): a path is touched
 #                only while it still bears the ai-tools fingerprint -- owned by the sandbox
@@ -41,12 +41,12 @@
 #                wrong directory leaves it exactly as it was. This mode additionally hands sandbox-OWNED
 #                inodes back to the invoking operator (ai-tools-reclaim, which normally does
 #                that, refuses an unlisted path) and resets a leftover ai_tools_project_t
-#                label. --full extends the walk into the skip-listed heavy trees, where
+#                label. `--full` extends the walk into the skip-listed heavy trees, where
 #                residue survives a copy exactly like everywhere else.
 #
 # Owner guard: only the projects user's and the sandbox account's own files are touched;
 # anything owned by a third party (root, another developer) is left untouched, mirroring
-# the claim helpers. Under --unlisted the "projects user" is the operator who invoked sudo,
+# the claim helpers. Under `--unlisted` the "projects user" is the operator who invoked sudo,
 # validated against OPERATORS, since no allowlist entry can name the owner of an unlisted
 # tree -- so one operator can never rewrite another's files.
 # Hardlink guard: a regular file with more than one name is refused in BOTH modes, the same
@@ -82,8 +82,10 @@
 # same group, and removes an already-absent write bit -- all no-ops.
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 750 \
 #       src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh /usr/local/libexec/ai-tools/ai-tools-unclaim
+#   ```
 
 set -euo pipefail
 
@@ -117,13 +119,13 @@ TARGET="${1:?${USAGE}}"
 TARGET_GROUP="${2:?${USAGE}}"
 shift 2
 
-# --unlisted: act on a tree that is NOT in any allowed-projects (a claimed project copied or
+# `--unlisted`: act on a tree that is NOT in any allowed-projects (a claimed project copied or
 # moved elsewhere and never unclaimed). It swaps one gate for another rather than removing one:
 # the allowlist-membership check is skipped, and every path must instead carry the
 # ai-tools residue fingerprint (_is_residue) to be touched at all. The protected-paths backstop,
 # the owner guard, the hardlink guard, and the secret/'!' skips all still apply, so the mode is
 # strictly NARROWER per path than a listed unclaim and identical in what it does to a path it
-# accepts. --full additionally walks the skip-listed heavy trees (node_modules, .venv, caches),
+# accepts. `--full` additionally walks the skip-listed heavy trees (node_modules, .venv, caches),
 # where residue would otherwise survive a copy.
 UNLISTED=false
 FULL=false
@@ -147,7 +149,7 @@ source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 # third party is left untouched. Matched by numeric UID; PROJECTS_UID is the resolved operator.
 SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
 # The sandbox GID is the residue fingerprint's cheapest arm: a claim chgrp's the tree to it,
-# and every copy method that carries residue at all (cp -a, rsync -a, mv, tar -p) preserves it.
+# and every copy method that carries residue at all (`cp -a`, `rsync -a`, `mv`, `tar -p`) preserves it.
 SANDBOX_GID="$(getent group "@SANDBOX_GROUP@" 2>/dev/null | cut -d: -f3)"
 [[ -n "${SANDBOX_GID}" ]] || SANDBOX_GID=-1
 readonly SANDBOX_UID SANDBOX_GID
@@ -243,7 +245,7 @@ AI_TOOLS_LOG_PROJECT="${canonical}"
 
 # Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser
 # the allowlist is read with -- end-of-line comments, and quotes for a path carrying a space
-# or a literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under set -e aborts when it is
+# or a literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under `set -e` aborts when it is
 # missing. A bare filter in its place mis-reads an entry every other reader of the file reads
 # correctly. Include-guarded.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
@@ -290,13 +292,13 @@ _is_allowed() {
 
 # Refuse a '!'-excluded target outright, and in the default mode a target outside every
 # registered project: unclaim must never modify permissions outside allowed-projects. Same gate
-# as ai-tools-setgid/-setfacl (a silent no-op on a foreign target). The management CLI runs the
+# as `ai-tools-{setgid,setfacl}` (a silent no-op on a foreign target). The management CLI runs the
 # hand-back BEFORE it drops the allowlist entry, so a legitimate unclaim still resolves its owner
-# and stays listed here. --unlisted swaps this whole-tree gate for the per-path residue
+# and stays listed here. `--unlisted` swaps this whole-tree gate for the per-path residue
 # gate in _safe_unclaim; it never runs with neither.
 _is_excluded "${canonical}" && exit 0
 if ${UNLISTED}; then
-    # --unlisted is for a tree NO allowlist names. If the caller's own allowlist does name it,
+    # `--unlisted` is for a tree NO allowlist names. If the caller's own allowlist does name it,
     # the caller chose the wrong mode: refuse rather than run the narrower per-path gate over a
     # registered project, where the full walk is what the operator asked for.
     if _is_allowed "${canonical}"; then
@@ -351,7 +353,7 @@ _safe_unclaim() {
             ;;
         *) exec {fd}<&-; return 1 ;;            # never touch symlinks/fifos/devices
     esac
-    # Residue gate (--unlisted only): outside the allowlist the tree does not carry authorization
+    # Residue gate (`--unlisted` only): outside the allowlist the tree does not carry authorization
     # of its own, so a path is touched ONLY while it still bears the ai-tools fingerprint. A
     # path that never belonged to a claim is left byte-for-byte as it is.
     if ${UNLISTED} && ! _is_residue "${fd}" "${got_uid}" "${got_gid}"; then
@@ -366,7 +368,7 @@ _safe_unclaim() {
     # altered); only group write is removed there (660 -> 640).
     setfacl -b   "/proc/self/fd/${fd}" 2>/dev/null || rc=1
     chgrp -- "${TARGET_GROUP}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
-    # --unlisted only: hand a sandbox-OWNED inode back to the invoking operator. Regrouping
+    # `--unlisted` only: hand a sandbox-OWNED inode back to the invoking operator. Regrouping
     # alone would leave the agent its access through the USER bits, and the ownership sweep
     # that covers this for a registered project (ai-tools-reclaim) refuses an unlisted path,
     # so this pass is the only one that can reach it. A path the operator already owns is
@@ -378,7 +380,7 @@ _safe_unclaim() {
     if [[ "${got_ftype}" == "directory" ]]; then
         chmod g-w,g-s "/proc/self/fd/${fd}" 2>/dev/null || rc=1
     else
-        # Drop group WRITE; also drop a stray group EXECUTE on a data file. setfacl -b
+        # Drop group WRITE; also drop a stray group EXECUTE on a data file. `setfacl -b`
         # promoted the ACL's group:: base (r-x on a tree the agent wrote) into the
         # mode, so a data file can land group-executable (0650); strip that, keyed on
         # OWNER-execute (the bit git records) so a genuine script (owner rwx) keeps group
@@ -395,13 +397,13 @@ _safe_unclaim() {
     return "${rc}"
 }
 
-# Walk the project's directories and files (one filesystem; heavy trees skipped unless --full).
+# Walk the project's directories and files (one filesystem; heavy trees skipped unless `--full`).
 # A '!'-excluded or secret-named directory has its whole subtree skipped; an excluded or
-# secret regular file is skipped on its own. find runs WITHOUT -L, so a symlink is listed but
+# secret regular file is skipped on its own. find runs WITHOUT `-L`, so a symlink is listed but
 # never descended: a symlink loop inside the tree is unreachable by construction and needs neither
-# cycle detection, and -xdev keeps the walk off other filesystems and bind mounts.
+# cycle detection, and `-xdev` keeps the walk off other filesystems and bind mounts.
 if ${FULL}; then
-    # --full: the skip list is a walk-cost optimization, and residue hidden in a skipped tree
+    # `--full`: the skip list is a walk-cost optimization, and residue hidden in a skipped tree
     # (node_modules, .venv, caches) survives a copy exactly like the rest.
     AI_TOOLS_SKIP_FIND_EXPR=()
 else
@@ -448,11 +450,11 @@ find "${expr[@]}" 2>/dev/null \
 
 # .git reversal: the main walk skips .git (the shared heavy-tree list), but a claim grouped
 # it to @SANDBOX_GROUP@ (the recursive chgrp) and may have normalized it (ai-tools-setfacl
-# --with-git: setgid + ACL), so a full unclaim must revert .git too -- otherwise the agent
+# `--with-git`: setgid + ACL), so a full unclaim must revert .git too -- otherwise the agent
 # keeps git-history access through the group owner and the named ACL entry. Revert it here
 # in one pass with the same per-entry reversal (clear ACL, regroup to <target-group>, drop
 # group write, clear dir setgid) and the same secret/exclusion skips. Unconditional: it
-# reverses the base claim's chgrp whether or not --with-git ran, and no-ops on an already-
+# reverses the base claim's chgrp whether or not `--with-git` ran, and no-ops on an already-
 # reverted tree. The loop runs in this shell (process substitution), so the counter survives.
 gitdir="${canonical}/.git"
 if [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
@@ -488,9 +490,9 @@ if [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
     fi
 fi
 
-# SELinux label reset (--unlisted only): a tree that was MOVED rather than copied keeps the
+# SELinux label reset (`--unlisted` only): a tree that was MOVED rather than copied keeps the
 # ai_tools_project_t label it was claimed with. No fcontext rule names the new path, so
-# ai-tools-relabel --remove has no rule to remove; a forced restorecon resets the tree to the
+# `ai-tools-relabel --remove` has no rule to remove; a forced restorecon resets the tree to the
 # default its location resolves to. Gated on the root actually carrying the label, so a tree
 # that never had it is not relabelled as a side effect of unclaiming. Best-effort: a label
 # left behind is a defence-in-depth gap, not an access grant -- the DAC reversal has

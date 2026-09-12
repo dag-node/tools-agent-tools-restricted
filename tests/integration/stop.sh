@@ -179,7 +179,7 @@ fi
 
 # The double-forked grandchild is the case a ppid walk cannot see. What makes it unreachable is not
 # that its parent became PID 1 specifically -- an ancestor marked PR_SET_CHILD_SUBREAPER adopts it
-# instead, and a `systemd --user` session is one -- but that its parent is OUTSIDE the cgroup. So
+# instead, and a `systemd --user session` is one -- but that its parent is OUTSIDE the cgroup. So
 # that is what is asserted: a task in the cgroup, other than the leader, whose parent is not in the
 # cgroup. A walk rooted at the session leader cannot reach it whichever process adopted it.
 declare -A a_task_set=()
@@ -225,8 +225,8 @@ else
     fail "the SIGTERM-ignoring session survived"
 fi
 
-# ── --force ───────────────────────────────────────────────────────────────────────────────────
-# --force must never report `terminated`: it skips the graceful pass entirely, so the trail cannot
+# ── `--force` ───────────────────────────────────────────────────────────────────────────────────
+# `--force` must never report `terminated`: it skips the graceful pass entirely, so the trail cannot
 # claim a process was given the chance to flush anything.
 FORCE_KILL=true
 outcome="$(end_session "${FIXTURE_SLICE}/sess-c.service")"
@@ -270,7 +270,7 @@ RESTORE_MARKER="${TESTDIR}/restore-user-manager-called"
 restore_user_manager() { : > "${RESTORE_MARKER}"; return 0; }
 
 # run_main <dry-run?> -- set the request the way the argument parser would and run main(),
-# capturing its output and status. Always --yes: the confirmation is covered in unit/stop.sh, and a
+# capturing its output and status. Always `--yes`: the confirmation is covered in unit/stop.sh, and a
 # prompt here would block the suite on a terminal read.
 # shellcheck disable=SC2034  # the request globals are read by the sourced helper's main()
 run_main() {

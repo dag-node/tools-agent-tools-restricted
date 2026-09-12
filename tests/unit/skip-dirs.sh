@@ -3,7 +3,7 @@
 # tests/unit/skip-dirs.sh
 # Unit test for the shared directory-skip selector (skip-dirs.lib.sh): the category defaults,
 # the per-consumer skip sets the lib owns, the optional skip_git override, the operator.conf
-# category overrides (parsed, not sourced), and the -type d matcher that skips DIRECTORIES
+# category overrides (parsed, not sourced), and the `-type d` matcher that skips DIRECTORIES
 # only -- so a file sharing a skipped name is still walked. Sources the deployed library and
 # exercises a /tmp testdir; does not require privilege of its own. Run as root via sudo (suite contract).
 
@@ -67,7 +67,7 @@ else
     pass "unknown consumer is rejected"
 fi
 
-# (5) -type d matcher: a DIRECTORY named node_modules is skipped, a FILE sharing the name
+# (5) `-type d` matcher: a DIRECTORY named node_modules is skipped, a FILE sharing the name
 #     is walked.
 mktestdir
 mkdir -p "${TESTDIR}/proj/node_modules/nested" "${TESTDIR}/proj/.git/objects/ab" "${TESTDIR}/proj/src"

@@ -331,8 +331,8 @@ per-invocation flag rule as a default-NO confirm, and the flag is the auditable 
 `ai_tools_msg_confirm`, `ai_tools_msg_pick` and `ai_tools_msg_challenge` are the project's three
 decision points, so
 each records its outcome through the shared logger ([logging](logging.rule.md)): one INFO
-line naming the question and the answer (`confirm: <question> -> yes|no (answered | default
-| assume-yes | no-tty-default)`) or the menu choice (`menu: chose <n>/<N> (<label>)`). A menu
+line naming the question and the answer (`confirm: <question> -> yes|no (answered | default |
+assume-yes | no-tty-default)`) or the menu choice (`menu: chose <n>/<N> (<label>)`). A menu
 that ends **without** a choice is audited too, naming which way it ended (`menu: no terminal
 and no default -- no answer`, `menu: input closed -- no answer`, `menu: no answer after 3
 attempts`), so the trail distinguishes a declined menu from one never drawn. This
@@ -420,7 +420,7 @@ the exit status of the operation whose outcome they report.
 - **`install.sh` and `selinux/install-selinux.sh`** frame their interactive prompts
   uniformly. `install.sh` routes every prompt through one helper, `confirm_boxed <title>
   <y|n> <question> [context-line...]`: a fixed 80-column box (`AI_TOOLS_MSG_FULLWIDTH`)
-  titled <title> — named for its action (`Review install`, `Existing file`, `SELinux
+  titled `<title>` — named for its action (`Review install`, `Existing file`, `SELinux
   confinement`, …) — framing the context, then the shared inline yes/no prompt — all on
   `/dev/tty`, because `do_install` tees stdout+stderr to the install log and a prompt must
   reach the real terminal. Consecutive prompts separate via the lib's leading blank before

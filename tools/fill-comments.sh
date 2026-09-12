@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# tools/fill-comments.sh [--width N] <file>...
+# `tools/fill-comments.sh [--width N] <file>...`
 # Reflow the plain comment paragraphs of each file in place, at the column the repository's
 # .dir-locals.el gives the file's mode (72 for a config file, 120 for a source file) or at
-# --width, so no comment line ends on a tie word and none runs past the column. It is the
+# `--width`, so no comment line ends on a tie word and none runs past the column. It is the
 # formatter for what `prose-check.py --wrap` reports; the rule and what is left untouched are in
 # tools/emacs/ai-tools-fill.el. Needs Emacs. Run it as `bash tools/fill-comments.sh`.
 set -euo pipefail

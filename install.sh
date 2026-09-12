@@ -19,8 +19,10 @@
 #
 # Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run
 # as the projects user, not in install.sh:
-#   ai-tools --project-create <dir>        register a real project
-#   ai-tools --sandbox-create <dir>        shallow-clone a repo into the sandbox area
+#   ```bash
+#   ai-tools --project-create <dir>        # register a real project
+#   ai-tools --sandbox-create <dir>        # shallow-clone a repo into the sandbox area
+#   ```
 #
 # Prerequisites (one-time manual steps before running install;
 # `sudo ai-tools-admin system bootstrap` does both in one idempotent command):
@@ -52,10 +54,10 @@ usage() {
     exit 1
 }
 
-# Arguments: an optional action (default install), an optional --operator, which names the
+# Arguments: an optional action (default install), an optional `--operator`, which names the
 # account to enrol instead of asking for it -- what an unattended install and the guard tests use,
 # and the only route by which a name other than SUDO_USER arrives without a terminal -- and
-# --allow-uncommitted, which lets an install deploy a checkout carrying uncommitted changes,
+# `--allow-uncommitted`, which lets an install deploy a checkout carrying uncommitted changes,
 # the developer's own work in progress (the source-tree gate in do_install refuses one without it).
 ACTION=""
 OPERATOR_OPT=""
@@ -85,7 +87,7 @@ readonly ACTION="${ACTION:-install}" OPERATOR_OPT ALLOW_UNCOMMITTED
 
 # Sandbox service account the agent runs as. This is only a PARTIAL knob: owner
 # strings and the sudoers principal/runas spec (the @SANDBOX_USER@/@SANDBOX_GROUP@
-# tokens and the -g/-o/-u arguments the install commands pass) follow these vars, but the account name
+# tokens and the `-g`/`-o`/`-u` arguments the install commands pass) follow these vars, but the account name
 # is also baked into paths (/opt/ai-tools), SELinux types (ai_tools_t), and helper
 # binary names (ai-tools-chown), which stay literal. Renaming the account in full
 # requires changing those too. See docs/naming-conventions.md.
@@ -103,13 +105,13 @@ emit_coded() { "$1" "${2%%$'\n'*}" "${2#*$'\n'}"; }
 
 # operator_refusal <name> -- print why <name> cannot be the operator this install enrols, as a
 # coded_refusal value, or an empty string when it can. The single home for that decision, because a name
-# reaches it by three routes -- the invoking SUDO_USER, --operator, and the prompt -- which must
+# reaches it by three routes -- the invoking SUDO_USER, `--operator`, and the prompt -- which must
 # refuse alike or the route decides the outcome; do_install re-asks it before binding the account.
 #
 # Root is the one that matters: `ai-tools-admin operators add` refuses it outright and this script
 # reaches the same end state by a different route (the @PROJECTS_USER@ substitution plus
 # `usermod -aG ai-ops`), producing a host nobody can provision -- the CLI refuses root every
-# mutating verb, --for refuses root as a target, and operator.lib.sh resolves path owners from
+# mutating verb, `--for` refuses root as a target, and operator.lib.sh resolves path owners from
 # OPERATORS, so the ownership handback would restore agent-written files to root:ai-tools. It is
 # reachable without meaning to: sudo invoked from a root shell sets SUDO_USER=root, so `sudo -i`
 # followed by `sudo ./install.sh` arrives here with a resolvable home and a real group.
@@ -149,7 +151,7 @@ operator_create_hint() {
 }
 
 # The install runs its verification suite as SUDO_USER, so that variable is required whichever
-# account is enrolled: --operator decides WHO is enrolled, never how this script was invoked.
+# account is enrolled: `--operator` decides WHO is enrolled, never how this script was invoked.
 : "${SUDO_USER:?error: SUDO_USER not set -- invoke via sudo, not as root directly}"
 PROJECTS_USER="${OPERATOR_OPT:-${SUDO_USER}}"
 OPERATOR_REFUSAL="$(operator_refusal "${PROJECTS_USER}")"
@@ -261,7 +263,7 @@ confirm_boxed() {
 # prompt repeats). A tree with uncommitted changes is listed, path by path with its git status
 # code and `[agent]` on a path the sandbox account owns -- the mark that says a session wrote it
 # and no one has committed it -- and REFUSED, unless the command line carries
-# --allow-uncommitted: deploying work in progress to see it run is a valid step of developing
+# `--allow-uncommitted`: deploying work in progress to see it run is a valid step of developing
 # this project, and the flag is how that decision is stated once, per invocation, rather than
 # answered at a prompt whose default would have to be guessed. Interactive and unattended runs
 # take the same path. A checkout that is not a git repository (a tarball) has no commit to name
@@ -433,7 +435,7 @@ install_subst() {
     rm -f "${tmp}"
 }
 
-# Run systemctl --user as a given user with that user's runtime bus environment.
+# Run `systemctl --user` as a given user with that user's runtime bus environment.
 # Emits a warning rather than aborting if the user session is not active. The remedy names a
 # root command: the sandbox account has no login shell, so "run it as that user" is not
 # something an operator can actually do.
@@ -457,7 +459,7 @@ user_systemctl() {
                 "bus; retry with: sudo systemctl --user -M ${user}@.host $*"
 }
 
-# Bring up a user's systemd --user manager and wait until the SYSTEM manager reports it active.
+# Bring up a user's `systemd --user manager` and wait until the SYSTEM manager reports it active.
 #
 # `loginctl enable-linger` returns before the manager is up, so the enablement would
 # otherwise race it. Readiness is asked of the system manager (`is-active user@<uid>.service`)
@@ -520,7 +522,7 @@ bootstrap_launcher_symlinks() {
     fi
 
     local node_version
-    # cd / first: this sudo -u step inherits the installer's CWD, and run from an operator dir
+    # cd / first: this `sudo -u` step inherits the installer's CWD, and run from an operator dir
     # the sandbox account cannot traverse (e.g. a 0700 home), nvm/npm's internal getcwd warns.
     node_version="$(sudo -u "${SANDBOX_USER}" bash -c \
         "cd / && source '${ai_nvm_dir}/nvm.sh' --no-use && nvm version default 2>/dev/null" \
@@ -799,7 +801,7 @@ do_summary() {
     sep="$(printf '─%.0s' {1..90})"
 
     # (( var++ )) evaluates to the old value, which is 0 on the first call and
-    # causes set -e to abort. Use plain assignment to avoid that trap.
+    # causes `set -e` to abort. Use plain assignment to avoid that trap.
     _chk() {
         if _summary_row "$1"; then
             ok=$(( ok + 1 ))
@@ -980,7 +982,7 @@ do_install() {
     install -d -o root -g root -m 700 /var/log/ai-tools 2>/dev/null || true
     exec > >(tee >(sed -u 's/\x1b\[[0-9;]*m//g' >> /var/log/ai-tools/install.log)) 2>&1
     # The >> open *creates* install.log honouring the install umask (027 -> 640), and
-    # the pre-create loop further down skips it (its [[ ! -e ]] guard sees it already exists),
+    # the pre-create loop further down skips it (its `[[ ! -e ]]` guard sees it already exists),
     # so enforce 600 here -- install.log is the one log that must be born before that loop.
     # The other four are created 600 by that loop and are never written before it, so this
     # block leaves them alone (no umask-dependent touch, single creation path).
@@ -1422,7 +1424,7 @@ do_install() {
         /usr/lib/systemd/system-preset/85-ai-tools.preset
 
     # Toolchain update units. The service+timer live in %{_userunitdir} and are enabled in
-    # the sandbox account's own systemd --user instance (it owns and writes the shared .nvm
+    # the sandbox account's own `systemd --user instance` (it owns and writes the shared .nvm
     # tree). 644 root:root -- systemd reads them as root; no world write.
     log "/usr/lib/systemd/user/nvm-update.service"
     install -o root -g root -m 644 \
@@ -1546,7 +1548,7 @@ do_install() {
     chmod 2770 /var/opt/ai-tools/sandbox-projects
 
     # Operator-readable state written BY the sandbox account: the last-run stamps of the units in
-    # that account's own systemd --user manager (nvm-update), which `ai-tools --status` cannot
+    # that account's own `systemd --user manager` (nvm-update), which `ai-tools --status` cannot
     # query from the operator's session. The directory is root-owned and deliberately NOT
     # group-writable -- the account gets traverse only -- so the surface the stamps add is the
     # contents of the individual files created here, never the directory: the account cannot add,
@@ -1572,7 +1574,7 @@ do_install() {
         /var/opt/ai-tools/README.md
 
     # Operator access to the shared sandbox area via an ai-ops group ACL, so operators create and
-    # work in clones (ai-tools --sandbox-create) WITHOUT joining SANDBOX_GROUP: ai-ops gets traverse
+    # work in clones (`ai-tools --sandbox-create`) WITHOUT joining SANDBOX_GROUP: ai-ops gets traverse
     # on the outer dir, rwX on sandbox-projects (default ACL so clones inherit operator access), and
     # read on the doc. One grant covers every operator, and an operator stays in ai-ops after leaving
     # SANDBOX_GROUP. This is the shared-area counterpart to ai-tools-setfacl's per-project
@@ -1685,7 +1687,7 @@ do_install() {
     # creates the group via sysusers; the dev install creates it here). The sandbox account must
     # not drive itself as an operator, so binding refuses it by re-asking operator_refusal -- the
     # same guard ai-tools-admin applies, and the same code the entry point would have printed.
-    # usermod -aG adds the group while preserving the user's existing groups.
+    # `usermod -aG` adds the group while preserving the user's existing groups.
     local binding_refusal
     binding_refusal="$(operator_refusal "${PROJECTS_USER}")"
     [[ -z "${binding_refusal}" ]] || emit_coded die "${binding_refusal}"
@@ -1903,10 +1905,10 @@ do_install() {
     # it by default; overwriting removes all approved projects (destructive), so
     # keep_existing requires an explicit second confirmation before doing so.
     # The install dir is not added: registering a project is the CLI's business
-    # (ai-tools --project-claim), and an entry the operator already holds for this checkout is
+    # (`ai-tools --project-claim`), and an entry the operator already holds for this checkout is
     # theirs and is left as it is. What keeps a session's edits to this checkout from being
     # deployed unread is the source-tree gate at the start of do_install, which names the commit
-    # the install deploys and refuses an uncommitted tree without --allow-uncommitted.
+    # the install deploys and refuses an uncommitted tree without `--allow-uncommitted`.
 
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/ai-tools"
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
@@ -1959,12 +1961,12 @@ do_install() {
     sandbox_uid="$(id -u "${SANDBOX_USER}")"
     wait_user_manager "${SANDBOX_USER}" && manager_ready=1
 
-    # Enable nvm-update.timer in ${SANDBOX_USER}'s --user instance. The home (/opt/ai-tools) is
+    # Enable nvm-update.timer in ${SANDBOX_USER}'s `--user instance`. The home (/opt/ai-tools) is
     # root-owned (2751), so the account cannot create ~/.config and `systemctl --user enable` run
     # as the account cannot write the timers.target.wants symlink. Root provisions the XDG config
     # tree and the enablement symlink instead -- root:${SANDBOX_GROUP} 2750 (setgid inherited from
     # the control-plane home), so the account's manager reads its units through the group but
-    # cannot add a --user unit (a confined session must not register a unit the account's
+    # cannot add a `--user unit` (a confined session must not register a unit the account's
     # unconfined manager would run). daemon-reload + start then activate it in the running instance.
     install -d -o root -g "${SANDBOX_GROUP}" -m 2750 \
         /opt/ai-tools/.config \
@@ -1981,7 +1983,7 @@ do_install() {
     # entrypoint. The toolchain is current at install time, so "last run = now" is truthful
     # (mtime is all systemd reads). Same fix as ai-tools-bootstrap; see
     # .claude/rules/updater.rule.md. The home is root-owned, so root creates
-    # the account-owned XDG_DATA_HOME path the --user manager reads and later updates itself.
+    # the account-owned XDG_DATA_HOME path the `--user manager` reads and later updates itself.
     install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 \
         /opt/ai-tools/.local \
         /opt/ai-tools/.local/share \

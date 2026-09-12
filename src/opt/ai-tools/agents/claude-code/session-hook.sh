@@ -61,7 +61,7 @@
 # reclaim is avoided (it would change ownership mid-turn under a live git command).
 #
 # Heavy/transient trees are skipped in both sweeping modes (their contents are world-readable
-# anyway, so <you> can already read them) and the scan stays on one filesystem (-xdev).
+# anyway, so <you> can already read them) and the scan stays on one filesystem (`-xdev`).
 #
 # Handback socket down: every CHOWN runs over /run/ai-tools/handback.sock, so a socket that is
 # not listening fails every hand-back. Each pass checks the socket first and, when it is down,
@@ -240,7 +240,7 @@ fi
 # from session start.
 newref="$(mktemp "${HOOK_DIR}/.sweep.XXXXXX" 2>/dev/null)" || exit 0
 
-# find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [newer] file|dir \) -print0
+# `find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [newer] file|dir \) -print0`
 ai_tools_skip_find_expr sweep '' "${dir}"
 declare -a expr=( "${dir}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" '(' -user @SANDBOX_USER@ )
 # Bound to paths changed since the marker, EXCEPT an unbounded (session-start)
@@ -254,7 +254,7 @@ expr+=( '(' -type f -o -type d ')' -print0 ')' )
 # Delegate each path to the root validator. </dev/null keeps ai-tools-chown on its
 # non-interactive branch. The find reads via process substitution (not a pipe) so the
 # count survives the loop; a find non-zero (e.g. an unreadable subdir) only ends the
-# stream and cannot trip set -e / pipefail or skip the marker update.
+# stream and cannot trip `set -e` / pipefail or skip the marker update.
 ai_tools_log_debug "${MODE} sweep: handing back agent-owned paths under ${dir}$([[ "${unbounded}" -eq 1 ]] && echo ' (unbounded)' || echo ' (since marker)')"
 swept=0
 if [[ ! -S "${HANDBACK_SOCKET}" ]]; then

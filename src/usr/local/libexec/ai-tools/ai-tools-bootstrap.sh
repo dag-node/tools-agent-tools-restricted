@@ -24,8 +24,10 @@
 # AI_TOOLS_NVM_VERSION=vX.Y.Z to pin it, or AI_TOOLS_NODE_MAJOR to choose the Node line.
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 750 \
 #       src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh /usr/local/libexec/ai-tools/ai-tools-bootstrap
+#   ```
 
 set -euo pipefail
 
@@ -209,7 +211,7 @@ seed_managed_assets_step() {
 [[ "${EUID}" -eq 0 ]] || die MSG-X7Z2 "run as root (sudo)"
 command -v curl >/dev/null 2>&1 || die MSG-T7H8 "curl is required to fetch nvm"
 
-# Run from a neutral, world-traversable directory. The sudo -u ${SANDBOX_USER} steps
+# Run from a neutral, world-traversable directory. The `sudo -u ${SANDBOX_USER}` steps
 # inherit this process's CWD; invoked from an operator's private dir (e.g. ~/Downloads, mode
 # 0700) the sandbox account cannot traverse back into it, so nvm/npm's internal `find` warns
 # "Failed to restore initial working directory". No step here depends on CWD (every path is
@@ -223,7 +225,7 @@ NVM_VERSION="$(resolve_nvm_version)"
     || die MSG-W8X8 "invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)"
 readonly NVM_VERSION
 
-# 1. Sandbox account + home. --system: no aging, low uid; /sbin/nologin + locked password:
+# 1. Sandbox account + home. `--system`: no aging, low uid; /sbin/nologin + locked password:
 #    the agent account has no interactive login. /opt (not /home) because /home is nosuid,
 #    which would defeat the sudo UID-switch the launch path relies on.
 if ! id "${SANDBOX_USER}" &>/dev/null; then
@@ -255,7 +257,7 @@ _providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
 _agent_packages=(); _agent_launchers=()
 # Guarded load: providers.lib.sh returns non-zero without defining a resolver when its own dependency
 # (conf.lib.sh, the shared KEY=value grammar) is missing, so probe the resolver rather than assume
-# the source succeeded -- a bare `source` under set -e would abort the provision instead of falling
+# the source succeeded -- a bare `source` under `set -e` would abort the provision instead of falling
 # back to Node-only.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
 if source "${_providers_lib}" 2>/dev/null \
@@ -297,7 +299,7 @@ nvm alias default "${NODE_MAJOR}"
 # install.cjs); blocked, the JS launcher installs but exits "native binary not installed" at
 # every launch. npm re-scans the WHOLE global tree on each install, so the allowlist must cover
 # the full set on every call (mirrors nvm-update.sh's install_packages) -- scoped to our named
-# agents, never --dangerously-allow-all-scripts. With no agents enabled, Node is provisioned bare.
+# agents, never `--dangerously-allow-all-scripts`. With no agents enabled, Node is provisioned bare.
 read -ra agent_packages <<< "${AGENT_PACKAGES}"
 if [ "${#agent_packages[@]}" -gt 0 ]; then
     allow_scripts="$(IFS=,; printf '%s' "${agent_packages[*]}")"
@@ -394,7 +396,7 @@ if [[ ! -e "${SANDBOX_HOME}/.git" && -e "${SANDBOX_HOME}/.gitignore" ]] && comma
     fi
 fi
 
-# 5. Enable the maintenance timer in the sandbox account's own systemd --user instance, which
+# 5. Enable the maintenance timer in the sandbox account's own `systemd --user instance`, which
 #    keeps Node and the agent package current. The home is root-owned (2751), so the account
 #    cannot write ~/.config; root provisions the XDG config tree (root:group 2750 -- the account
 #    reads its units via the group) and the timers.target.wants symlink that enables the timer.
@@ -420,18 +422,18 @@ ln -sfn /usr/lib/systemd/user/nvm-update.timer \
 # refuses on a mislabelled entrypoint. Bootstrap has just installed the latest toolchain, so
 # "last run = now" is truthful: record it (mtime is all systemd reads), and the next run is the
 # next scheduled window. Written AS the sandbox account into its XDG_DATA_HOME, the path the
-# --user manager reads and later updates itself. See .claude/rules/updater.rule.md.
+# `--user manager` reads and later updates itself. See .claude/rules/updater.rule.md.
 _stampdir="${SANDBOX_HOME}/.local/share/systemd/timers"
 sudo -u "${SANDBOX_USER}" mkdir -p "${_stampdir}"
 sudo -u "${SANDBOX_USER}" touch "${_stampdir}/stamp-nvm-update.timer"
 
-# Linger keeps the --user manager running without an interactive login, so the timer it holds
+# Linger keeps the `--user manager` running without an interactive login, so the timer it holds
 # stays active. Surface a failure so an instance that does not engage linger is visible.
 if command -v loginctl >/dev/null 2>&1; then
     _linger_out="$(loginctl enable-linger "${SANDBOX_USER}" 2>&1)" \
         || warn MSG-V4D9 "could not enable linger for ${SANDBOX_USER} (${_linger_out:-no output})"
 fi
-# Wait for the manager to come up before driving it; XDG_RUNTIME_DIR alone lets systemctl --user
+# Wait for the manager to come up before driving it; XDG_RUNTIME_DIR alone lets `systemctl --user`
 # reach the user manager over its bus, so DBUS_SESSION_BUS_ADDRESS need not be pinned.
 for _i in $(seq 1 30); do
     systemctl is-active "user@${_uid}.service" >/dev/null 2>&1 && break

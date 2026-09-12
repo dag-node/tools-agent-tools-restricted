@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/access.sh
 # Boundary: what the sandbox account can and cannot actually reach at runtime, probed AS the
-# agent (runuser -u ai-tools). Each check names the threat its boundary prevents. "can"
+# agent (`runuser -u ai-tools`). Each check names the threat its boundary prevents. "can"
 # checks confirm access the sandbox needs to function; "cannot" checks confirm control-plane
-# integrity and secret isolation. Probe-only (test -r/-w/-x); the one unlink attempt
+# integrity and secret isolation. Probe-only (`test -r`/`-w`/`-x`); the one unlink attempt
 # targets a DECOY file (projects-user-owned, in the sticky .claude dir) so real control-plane
 # files are never at risk. Run as root via sudo; drops to the agent per check.
 
@@ -83,7 +83,7 @@ else
     fail "can list ${sbindir} -- agent can enumerate root helper names"
 fi
 
-# The boundary half of ai-tools-unclaim --unlisted (see unit/unclaim.sh for the runtime half).
+# The boundary half of `ai-tools-unclaim --unlisted` (see unit/unclaim.sh for the runtime half).
 # That mode acts outside the allowlist, bounded instead by the operator identity it resolves from
 # SUDO_UID plus OPERATORS. Both inputs must be out of the agent's reach, or it could aim a root
 # permission rewrite at a tree of its choosing: the helper itself is unreadable, and the
@@ -220,8 +220,8 @@ else
     pass "cannot create files in /opt/ai-tools (root-owned, no group write): agent confined to its own subtrees"
 fi
 
-# The sandbox account's systemd --user manager runs unconfined (ai-tools maps to unconfined_u),
-# so a --user unit the agent could drop and get enabled would run OUTSIDE the ai_tools_t session
+# The sandbox account's `systemd --user manager` runs unconfined (ai-tools maps to unconfined_u),
+# so a `--user unit` the agent could drop and get enabled would run OUTSIDE the ai_tools_t session
 # confinement at the next manager start -- a full confinement escape (no RestrictNamespaces, no
 # ai_tools_t). The whole unit search tree (~/.config/systemd/user and its .wants dirs) is
 # root-owned (root:${SANDBOX_GROUP} 2750), so the agent has group r-x but no write and can place
@@ -512,7 +512,7 @@ else
         pass "the agent cannot create or rewrite journal storage: its own trail is append-only to it"
     fi
 
-    # journalctl's destructive verbs must fail for the agent. --vacuum-time would discard the
+    # journalctl's destructive verbs must fail for the agent. `--vacuum-time` would discard the
     # trail wholesale; it is the single most valuable call an agent covering its tracks could
     # make. (Bash(journalctl *) is denied in settings.json too, but that is a tooling hint --
     # this asserts the floor underneath it.)
@@ -524,9 +524,9 @@ else
 fi
 
 # ── The two project verbs that write the filesystem as an owner ─────────────────
-# The boundary half of the pair for --project-create and --project-remove. Their runtime
+# The boundary half of the pair for `--project-create` and `--project-remove`. Their runtime
 # refusals are asserted in integration/cli.sh; what makes those meaningful is that the agent
-# cannot reach the verbs at all. --project-remove matters most: it deletes a whole project
+# cannot reach the verbs at all. `--project-remove` matters most: it deletes a whole project
 # tree, and an agent that could invoke it could destroy the operator's work.
 #
 # Both are driven with NO path argument, so a regression that let one through would still
@@ -544,8 +544,8 @@ for _verb in --project-create --project-remove; do
     fi
 done
 
-# And it cannot reach the runas seam those verbs use under --for. `sudo -u <operator>` is how
-# a --for run acts as the target; the agent does not hold a sudo rule at all, and the session runs
+# And it cannot reach the runas seam those verbs use under `--for`. `sudo -u <operator>` is how
+# a `--for` run acts as the target; the agent does not hold a sudo rule at all, and the session runs
 # under PR_SET_NO_NEW_PRIVS, which drops sudo's SUID bit. Either alone is sufficient here.
 if runuser -u "${SANDBOX_USER}" -- sudo -n -u "${PROJECTS_USER}" true >/dev/null 2>&1; then
     fail "the agent can run commands as ${PROJECTS_USER} via sudo -u -- the runas seam is reachable"

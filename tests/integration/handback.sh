@@ -19,7 +19,7 @@ require_root
 # an operator auditing `systemctl --failed` would otherwise keep rediscovering.
 on_teardown systemctl reset-failed 'ai-tools-handback@*'
 
-# The systemd units (the nvm-update timer in the sandbox account's --user instance, the
+# The systemd units (the nvm-update timer in the sandbox account's `--user instance`, the
 # relabel watcher, this socket) are validated and their enablement checked in systemd.sh.
 
 section "Handback bridge + entrypoint (regression guards)"
@@ -74,7 +74,7 @@ fi
 
 # (2) Handback socket is 0660 root:SANDBOX_GROUP and /run/ai-tools is traversable by the
 # sandbox user. The systemd-252 RuntimeDirectoryGroup= trap left the dir root:root and
-# un-traversable; the fix is RuntimeDirectoryMode=0711 (world --x, contents unlistable).
+# un-traversable; the fix is RuntimeDirectoryMode=0711 (world `--x`, contents unlistable).
 _sock="/run/ai-tools/handback.sock"
 if [[ ! -S "${_sock}" ]]; then
     skip "handback socket DAC" "${_sock} not present (service not started?)"
@@ -148,7 +148,7 @@ if ! command -v runuser >/dev/null 2>&1 || [[ ! -x "${_client}" || ! -S "${_sock
     skip "handback negative" "runuser, client, or socket unavailable"
 else
     # Drive the client as the agent; capture combined output and the exit code without
-    # tripping set -e (the assignment failure sits in a && / || list, which is exempt).
+    # tripping `set -e` (the assignment failure sits in a && / || list, which is exempt).
     drive() { runuser -u "${SANDBOX_USER}" -- "${_client}" "$@" 2>&1; }
 
     # (probe) The daemon must ANSWER -- any reply, even ERR, proves the listener and the

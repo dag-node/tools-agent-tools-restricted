@@ -31,7 +31,7 @@
 #
 # Needs: root (runuser), a provisioned host (the CLI's bootstrap gate), an exec-capable fixture directory (/tmp is
 # noexec on a hardened host, so the fixtures fall back beside the projects user's home), and the `nobody` account
-# as the enrolled --for target.
+# as the enrolled `--for` target.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -92,7 +92,7 @@ chmod 0755 "${R}"
 FOR_GROUP="$(id -gn "${FOR_USER}")"
 AL="${R}/allowlist"; FOR_AL="${R}/for-allowlist"; GC="${R}/gitconfig"; CONF="${R}/operator.conf"
 SBROOT="${R}/sandbox-projects"
-# Every directory the CLI itself names -- a clone takes its source's basename or --dir -- is
+# Every directory the CLI itself names -- a clone takes its source's basename or `--dir` -- is
 # named by the harness's fixture rule, so a clone that ever lands outside the fixture clone area
 # (an installed CLI ignoring the override) reads as this suite's residue and the sweep finds it.
 # Generated once, so the trace normaliser can replace each with a fixed token.
@@ -127,10 +127,10 @@ git_q -C "${SRC}" push origin main base2
 cli_stubs_install "${R}"
 # Explicit modes: the suite runs under sudo, and a root umask of 077 would leave every fixture
 # owner-only -- readable by the projects user where it owns them, and closed to it where the
-# --for target does, which is where the claim's secret scan then fails to enter the tree.
+# `--for` target does, which is where the claim's secret scan then fails to enter the tree.
 chmod -R u+rwX,go+rX "${R}"
 chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}"
-# The --for target must own the tree a claim for it acts on (the claim's owner rule).
+# The `--for` target must own the tree a claim for it acts on (the claim's owner rule).
 chown -R "${FOR_USER}:${FOR_GROUP}" "${R}/for1" "${R}/for2"
 # An unregistered tree carrying the ai-tools fingerprint: the sandbox group.
 chgrp -R "${SANDBOX_GROUP}" "${R}/unreg"

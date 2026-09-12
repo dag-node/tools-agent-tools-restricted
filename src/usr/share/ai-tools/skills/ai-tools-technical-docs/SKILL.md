@@ -717,7 +717,9 @@ pages to read for calibration.
 variable or config key, a filepath — wherever prose appears: a document, a rule, a file header,
 a comment. A command is written as the whole line and begins with its binary, which
 is what separates it from a phrase that reads like one: `projects claim` is a phrase,
-`ai-tools projects claim` is a command.
+`ai-tools projects claim` is a command. The span closes after the **whole** literal, instance
+marker and extension included (`ai-tools-handback@.service`), since a reader pastes what the
+backticks hold and a rename searches for it.
 
 A **doc comment's contract line** is already code — `name <arg>... -- what it does`, and the
 `args:`/`stdout:` fragment beside it — so its tokens stay bare. A **man page** takes the fonts
@@ -727,6 +729,21 @@ prose.
 **Shell commands a reader will copy** go on a single line. Backslash continuations do not
 survive a copy out of a terminal, so anything longer than one line ships as a script file the
 reader runs in one command.
+
+**An example longer than 60 columns goes in a fenced block carrying its language** —
+` ```bash ` for a command line, ` ```text ` for output the reader reads rather than runs, the
+language's own name for source. Under 60 columns a command is a backticked span **inside the
+sentence that introduces it**, and two commands joined by `&&` take the same measure: the width
+decides, not the count.
+
+The inline form holds **one** command. A second command shown beside it joins the first in a
+block whatever either measures, and so does an example of more than one line: a reader copying
+a sequence copies one block, and a stack of backticked lines one after another is not a display
+form at all — it is a paragraph the renderer will reflow.
+
+The fence is what states the language, and it bounds the block explicitly, where an indented
+block is a code block only by its indentation — a nested list continuation at the same depth
+is prose, and which one a renderer sees depends on what precedes it.
 
 **Diagrams and tables** are ASCII, at most 80 columns wide.
 

@@ -12,8 +12,10 @@
 # source no-ops.
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 644 \
 #       src/usr/local/lib/ai-tools/selinux-groups.lib.sh /usr/local/lib/ai-tools/
+#   ```
 
 [[ -n "${_AI_TOOLS_SELINUX_GROUPS_LIB_LOADED:-}" ]] && return 0
 readonly _AI_TOOLS_SELINUX_GROUPS_LIB_LOADED=1

@@ -13,7 +13,7 @@ StartLimitBurst=6
 
 [Service]
 Type=oneshot
-# Runs in the sandbox account's own systemd --user instance (%h=/opt/ai-tools): the
+# Runs in the sandbox account's own `systemd --user instance` (%h=/opt/ai-tools): the
 # updater writes the shared .nvm tree directly as ai-tools, resolves the latest LTS in
 # the NVM_NODE_MAJOR series itself, and repoints the bin/claude symlink through the
 # handback SYMLINK verb. See .claude/rules/updater.rule.md.
@@ -26,7 +26,9 @@ Environment=HOME=%h
 Environment=NVM_DIR=%h/.nvm
 Environment=NVM_NODE_ALIAS=default
 # The Node LTS series the updater tracks. To follow a different one on this host:
+#   ```bash
 #   sudo systemctl --user -M ai-tools@.host edit nvm-update.service
+#   ```
 Environment=NVM_NODE_MAJOR=22
 # AI_TOOLS_GLOBAL_TOOLS is intentionally unset: the managed tool set defaults to npm plus each
 # enabled agent's npm package, resolved from the agent manifests (providers.lib.sh), so the unit
@@ -54,8 +56,8 @@ NoNewPrivileges=yes
 # through ai_tools_conf_is_trusted, which requires owner 0, so it refuses operator.conf and every
 # manifest and ends the run as a fault. RestrictNamespaces= does NOT prevent this: it filters
 # the payload's own unshare/clone/setns, and systemd builds the namespace before installing that
-# filter. tests/integration/systemd.sh asserts the whole option family stays out of every --user
-# unit. See .claude/rules/updater.rule.md.
+# filter. tests/integration/systemd.sh asserts the whole option family stays out of every
+# `--user unit`. See .claude/rules/updater.rule.md.
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=nvm-update

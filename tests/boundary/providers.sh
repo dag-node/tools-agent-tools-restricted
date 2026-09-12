@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/providers.sh
 # Boundary: the sandbox account cannot widen its own surface. Probed AS the agent
-# (runuser -u ai-tools), against the DEPLOYED provider control surface.
+# (`runuser -u ai-tools`), against the DEPLOYED provider control surface.
 #
 # The provider seam decides two things the agent must never get a vote on: which agents the
 # toolchain installs, and what environment (and PATH) a session is handed. Those decisions come
@@ -13,7 +13,7 @@
 # cannot put any of them into that state in the first place. Both halves must hold: the runtime
 # check catches a host someone has already broken, this catches the agent trying to break it.
 #
-# Probe-only (test -w / test -x); no file is written, created, or unlinked. Run as root via sudo;
+# Probe-only (`test -w` / `test -x`); no file is written, created, or unlinked. Run as root via sudo;
 # drops to the agent per check.
 
 set -euo pipefail

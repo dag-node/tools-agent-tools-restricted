@@ -410,7 +410,7 @@ file sink being the authoritative one.
   must run when things may be broken, so it
   reports the unprovisioned state rather than being blocked by it.
 
-  A unit in the sandbox account's own `systemd --user` manager is not queryable from the operator's
+  A unit in the sandbox account's own `systemd --user manager` is not queryable from the operator's
   session at all, so its state comes from a **last-run stamp** it publishes where the operator can
   read it (`nvm-update.service`, see [updater](updater.rule.md)) and stays `?` where it publishes
   none. **A root caller reads it live**, over the machine transport, and gets that reading through

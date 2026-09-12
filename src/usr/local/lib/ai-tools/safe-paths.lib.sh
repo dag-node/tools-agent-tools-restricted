@@ -90,7 +90,7 @@ ai_tools_traverse_grant_allowed() {
 # When <path> resolves to a protected system directory, emit a framed refusal (a msg.lib
 # box on a terminal, plain lines otherwise), log it at WARNING, and return 1 so the caller
 # aborts BEFORE acting. Return 0 silently when the path is safe. The path is resolved with
-# realpath -m (no existence requirement) and falls back to the raw argument, so an
+# `realpath -m` (no existence requirement) and falls back to the raw argument, so an
 # unresolvable path is still matched against the list rather than slipping through.
 ai_tools_assert_safe_target() {
     local raw_path="${1:-}" operation="${2:-operation}" resolved_path matched_entry

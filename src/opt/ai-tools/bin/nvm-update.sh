@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /opt/ai-tools/bin/nvm-update.sh
 # Updates Node.js and sandbox npm tools under /opt/ai-tools.
-# Runs as the ai-tools user in its own systemd --user instance (nvm-update.service).
+# Runs as the ai-tools user in its own `systemd --user instance` (nvm-update.service).
 # Resolves the latest LTS in the NVM_NODE_MAJOR series itself; an explicit version as
 # $1 overrides that lookup (manual or out-of-band use).
 #
@@ -14,7 +14,7 @@
 #                            agent manifests via providers.lib.sh -- see main)
 #
 # Every run records its outcome in a last-run stamp (see write_stamp), the only evidence an
-# operator has of this unit's health: it lives in the sandbox account's own systemd --user
+# operator has of this unit's health: it lives in the sandbox account's own `systemd --user`
 # manager, which `ai-tools --status` cannot query from the operator's session.
 #
 # The exit status classifies the run for the two readers that act on it -- that stamp, and the
@@ -89,7 +89,7 @@ skip() { _run_skip_reason="$1"; shift
 # transient case, which is reported as a run that correctly declined to act rather than as a fault --
 # an offline host has no fault for an operator to fix, and calling it FAILED spends attention that
 # a real fault then has to compete with. Installed
-# as the EXIT trap, so it records EVERY exit path -- a die, an uncaught set -e failure, and a clean
+# as the EXIT trap, so it records EVERY exit path -- a die, an uncaught `set -e` failure, and a clean
 # run alike; without it a failed run is visible only in the sandbox account's journal, which the
 # operator cannot reach either. Best-effort by construction: it must never turn a successful update
 # into a failed unit, so every step tolerates failure and the function always returns 0.
@@ -323,10 +323,10 @@ install_packages() {
     # install scripts not yet covered by allowScripts" for any top-level package still
     # unreviewed (advisory today, blocking in a future npm). approve-scripts cannot
     # persist this for us (it errors EGLOBAL on global installs), so we approve per
-    # invocation with --allow-scripts, passing the FULL managed set on EVERY call:
+    # invocation with `--allow-scripts`, passing the FULL managed set on EVERY call:
     # covering only the package being installed leaves its siblings (e.g. claude-code's
     # required postinstall) flagged. Scoped to our named tools by the caller's list,
-    # never a blanket --dangerously-allow-all-scripts.
+    # never a blanket `--dangerously-allow-all-scripts`.
     for pkg in "$@"; do
         if npm list -g --depth=0 "${pkg}" &>/dev/null; then
             log "  updating ${pkg}"
@@ -397,7 +397,7 @@ main() {
     # ai-tools-bootstrap uses, so this updater is agent-agnostic. Guarded load: providers.lib.sh
     # returns non-zero and does not define its resolvers when its own dependency (conf.lib.sh, the shared
     # KEY=value grammar) is missing, so probe the resolver rather than assume the source
-    # succeeded -- a bare `source` under set -e would abort the run instead of degrading. A
+    # succeeded -- a bare `source` under `set -e` would abort the run instead of degrading. A
     # missing lib is a broken install (root-owned, so not agent action): existing agents keep
     # working, they are simply not refreshed or repointed this run.
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh

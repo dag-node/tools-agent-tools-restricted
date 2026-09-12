@@ -4,7 +4,7 @@ Run coding agents sandboxed — under their own locked-down system user. Claude 
 first supported agent.
 
 <!-- This file is the router + invariants. Component deep-dives live in
-     .claude/rules/*.rule.md (path-scoped, loaded when you open matching src files).
+     `.claude/rules/*.rule.md` (path-scoped, loaded when you open matching src files).
      Decisions and open follow-ups live in auto memory. Keep load-bearing
      security invariants HERE: path-scoped rules do not load unless a matching
      file is open, and nested files do not survive /compact. -->
@@ -77,7 +77,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, and the `session-env.d` and `admin-commands.d` seams | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env,admin-commands}.d/**`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
 | The dotnet integration (its manifest, session-env fragment, filter rules, and contributed `dotnet` command) and running .NET (CoreCLR) under confinement: the `tmpmap`/`apphost`/`localipc`/`buildexec` SELinux groups, the build-output type and the `ai_tools_dotnet` layout module, project-type→group map, denial breakdown, the manifest keys and `ai-tools-providers(5)` | `lib/ai-tools/integrations.d/dotnet.conf`, `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `lib/ai-tools/admin-commands.d/dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,apphost,localipc,buildexec,dotnet}.te`, `share/man/man5/ai-tools-providers.5` | [dotnet](.claude/rules/dotnet.rule.md) |
 | Management CLI, project lifecycle, relabel, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
-| Host health as one resource read from two vantages: what an operator can see and what root adds (live `--user` units, the entrypoint pin, the live SELinux label) | `services.lib.sh`, `relabel.lib.sh`, `bin/ai-tools.sh` (`--status`), `ai-tools-admin.sh` (`status`) | [cli](.claude/rules/cli.rule.md) |
+| Host health as one resource read from two vantages: what an operator can see and what root adds (live `--user units`, the entrypoint pin, the live SELinux label) | `services.lib.sh`, `relabel.lib.sh`, `bin/ai-tools.sh` (`--status`), `ai-tools-admin.sh` (`status`) | [cli](.claude/rules/cli.rule.md) |
 | Terminating sessions that are already running (`--stop`) — the incident ladder's stop rung; it sweeps every session in the account's cgroup and restores the user manager | `ai-tools-stop.sh` | [cli](.claude/rules/cli.rule.md) + [docs/session-stop.md](docs/session-stop.md) |
 | How every command is spelled: bare-word commands, plural collections, verb after noun, and the REST projection each maps onto | `bin/ai-tools.sh`, `ai-tools-admin.sh`, `lib/ai-tools/admin-commands.d/**`, `ai-tools.1`, `ai-tools-admin.8` | [cli-grammar](.claude/rules/cli-grammar.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
@@ -129,7 +129,7 @@ terminates every running agent session and is granted without a password so that
 monitoring can reach the incident ladder's stop rung. What each rule is scoped to, and what the
 stop rule deliberately withholds, are in [launch](.claude/rules/launch.rule.md). Three privileged
 operations sit outside the drop-in and need no rule in it: the toolchain update runs as
-`SANDBOX_USER` in its own `systemd --user` instance, the automatic post-upgrade relabel runs
+`SANDBOX_USER` in its own `systemd --user instance`, the automatic post-upgrade relabel runs
 through the root-side `ai-tools-relabel.path` watcher, and the on-demand entrypoint reconcile is
 `sudo ai-tools-admin system entrypoints relabel`, a root command reached through the host's own
 general sudo grant. The agent runs *as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule of

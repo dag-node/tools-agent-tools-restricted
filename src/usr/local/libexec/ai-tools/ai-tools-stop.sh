@@ -29,7 +29,7 @@
 #      that did not happen. NO project library is load-bearing here: this helper does not take any
 #      input deciding WHICH sessions to stop, so there is no input left for one to gate.
 #   2. THE CONFIRMATION DEFAULTS TO YES (messaging.rule.md requires NO). A pipe, a cron run, an
-#      absent msg.lib.sh and a bare Enter all proceed; only a deliberate `n` declines. --dry-run
+#      absent msg.lib.sh and a bare Enter all proceed; only a deliberate `n` declines. `--dry-run`
 #      is how this command is looked at without acting.
 #
 # ── The mechanism, in one paragraph ──────────────────────────────────────────────────────────
@@ -47,7 +47,7 @@
 # ── Why root, and what this command accepts ──────────────────────────────────────────────────
 # Signalling the sandbox account's cgroups and writing cgroup.kill is root's to do. There is no
 # NOPASSWD grant -- this is reached through `sudo ai-tools --stop` and sudo prompts, like
-# ai-tools-lockdown, -reclaim and -audit.
+# `ai-tools-{lockdown,reclaim,audit}`.
 #
 # IT TAKES NO TARGET AND NO AUTHORIZATION INPUT. What is stopped is decided by one fact a session
 # cannot influence -- membership of the account's cgroup slice -- and everything this file reads
@@ -78,8 +78,10 @@
 #           so a caller can tell a broken tool from a surviving process
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 750 \
 #       src/usr/local/libexec/ai-tools/ai-tools-stop.sh /usr/local/libexec/ai-tools/ai-tools-stop
+#   ```
 
 # NOT `set -e`: see inverted convention 1. An unexpected non-zero must never abandon a
 # half-finished kill.
@@ -95,7 +97,7 @@ export PATH
 # The cgroup walk must see EVERY child directory, and `*/` alone does not: a name beginning with a
 # dot is skipped by default globbing. Every name inside the delegated subtree is the DELEGATEE's to
 # choose (see the delegation note), so without `dotglob` a session could place itself in a
-# cgroup called `.hidden` and drop out of the enumeration -- including under --all, the form that
+# cgroup called `.hidden` and drop out of the enumeration -- including under `--all`, the form that
 # must hold against a hostile session. `nullglob` makes a childless cgroup expand to an empty list rather than
 # the unexpanded pattern. Set once, at file scope: every walk here depends on it.
 shopt -s dotglob nullglob
@@ -216,7 +218,7 @@ FORCE_KILL=false
 
 # refuse_positional_argument <argument> -- refuse anything that is not an option, and exit 2.
 #
-# WHY THIS IS AN ERROR RATHER THAN AN IGNORED ARGUMENT. Someone typing a path after --stop believes
+# WHY THIS IS AN ERROR RATHER THAN AN IGNORED ARGUMENT. Someone typing a path after `--stop` believes
 # they are NARROWING the command. Proceeding would do the opposite of that belief -- end every
 # session on the host -- and the confirmation defaults YES, so a reflexive Enter completes it. A
 # refusal costs one corrected command; the alternative costs every running session.
@@ -416,7 +418,7 @@ find_session_cgroups() {
             #
             # `init.scope` is therefore enumerated and stopped like anything else, the account's
             # own `systemd --user` and its (sd-pam) helper included. What that would otherwise
-            # break -- the next launch finding no --user instance -- is repaired afterwards by
+            # break -- the next launch finding no `--user instance` -- is repaired afterwards by
             # restore_user_manager rather than bought with an exemption.
             #
             # ONE cgroup is still special-cased, and it is not an exemption:
@@ -734,7 +736,7 @@ end_session() {
 # which is the one outcome this file exists to prevent. Both calls therefore run under a short
 # `timeout`, and every way that can fail -- the manager not answering, `timeout` itself absent --
 # returns an empty WorkingDirectory, which refuses the SCOPED form and sends the operator to
-# --all. --all does not read one at all, so the undeclinable form cannot be delayed by this.
+# `--all`. `--all` does not read one at all, so the undeclinable form cannot be delayed by this.
 unit_working_directory() {
     local raw
     raw="$(timeout 5 systemctl --user -M "${SANDBOX_USER}@.host" show --property=WorkingDirectory "$1" 2>/dev/null)"
@@ -770,7 +772,7 @@ unit_working_directory() {
 # DAC-only host it can also ask that manager for a unit outside any subtree we chose to sweep.
 # Covering every cgroup closes both. The price is that the manager is gone afterwards -- and SIGKILL
 # leaves `user@<uid>.service` FAILED rather than restarting it, so the next launch would find no
-# --user instance. This pays that price back instead of buying it with an exemption.
+# `--user instance`. This pays that price back instead of buying it with an exemption.
 #
 # IT RUNS AFTER THE KILL AND AFTER THE VERIFICATION, and cannot affect either. The invariant is
 # that a stop reported as done HAS happened; a manager that did not come back is a different and

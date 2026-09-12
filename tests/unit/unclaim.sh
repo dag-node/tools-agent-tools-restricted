@@ -48,7 +48,7 @@ chmod 2770 "${proj}/d"                         # setgid dir, as claim leaves it
 : > "${proj}/sh"; chmod 0770 "${proj}/sh"      # a genuine script (owner has execute)
 : > "${proj}/.env/secret"
 : > "${proj}/vendor/v"; chmod 0660 "${proj}/vendor/v"   # inside the commented carve-out
-# .git as a --with-git claim leaves it: setgid dirs + group-rw object (the main walk skips
+# .git as a `--with-git` claim leaves it: setgid dirs + group-rw object (the main walk skips
 # .git, so only the dedicated reversal pass can revert these).
 : > "${proj}/.git/objects/o"; chmod 0660 "${proj}/.git/objects/o"
 chmod 2770 "${proj}/.git" "${proj}/.git/objects"
@@ -87,7 +87,7 @@ if [[ "$(perm "${proj}/ro")" == 400 ]]; then pass "a 400 file stays 400 (group a
 else fail "ro is $(stat -c '%a' "${proj}/ro") (want 400)"; fi
 
 # (C2) a data file that landed group-executable (the agent Write's stray exec bit, surfaced
-# when setfacl -b promotes group::r-x into the mode) -> 640: execute stripped along with write.
+# when `setfacl -b` promotes group::r-x into the mode) -> 640: execute stripped along with write.
 if [[ "$(perm "${proj}/gx")" == 640 && "$(stat -c '%G' "${proj}/gx")" == "${PROJECTS_GROUP}" ]] \
         && ! agentacl "${proj}/gx"; then
     pass "group-executable data file -> 640 (stray execute stripped)"
@@ -157,7 +157,7 @@ else
     fail "unlisted target was modified: f is $(stat -c '%a %G' "${unlisted}/f") (want ${SANDBOX_GROUP} + agent ACL)"
 fi
 
-# ── --unlisted: the residue gate replaces the allowlist gate ─────────────────────────────
+# ── `--unlisted`: the residue gate replaces the allowlist gate ─────────────────────────────
 # The mode exists for a claimed project copied or moved out of the allowlist. What makes it
 # safe on a mistyped path is not caution about which bits it writes -- those are identical to
 # a listed unclaim -- but that it writes them ONLY to a path still carrying the ai-tools
@@ -209,15 +209,15 @@ if [[ -r "${operator_conf}" ]] && grep -qE "^[[:space:]]*OPERATORS=.*\b${PROJECT
         skip "--unlisted chown" "sandbox account not present"
     fi
 
-    # (L) the skip list still applies without --full, so residue in a heavy tree survives --
-    # the reason the CLI reports it and offers --full rather than silently under-reverting.
+    # (L) the skip list still applies without `--full`, so residue in a heavy tree survives --
+    # the reason the CLI reports it and offers `--full` rather than silently under-reverting.
     if [[ "$(stat -c '%G' "${copy}/node_modules/dep")" == "${SANDBOX_GROUP}" ]]; then
         pass "--unlisted honors the skip list (node_modules residue left for --full)"
     else
         fail "node_modules was walked without --full"
     fi
 
-    # (M) --full reaches it.
+    # (M) `--full` reaches it.
     setsid "${HELPER}" "${copy}" "${PROJECTS_GROUP}" --unlisted --full < /dev/null > /dev/null 2>&1 || true
     if [[ "$(stat -c '%G' "${copy}/node_modules/dep")" == "${PROJECTS_GROUP}" ]]; then
         pass "--unlisted --full reverts residue under a skip-listed directory"
@@ -225,7 +225,7 @@ if [[ -r "${operator_conf}" ]] && grep -qE "^[[:space:]]*OPERATORS=.*\b${PROJECT
         fail "--full did not reach node_modules/dep"
     fi
 
-    # (N) --unlisted is refused on a REGISTERED project: the caller picked the wrong mode, and
+    # (N) `--unlisted` is refused on a REGISTERED project: the caller picked the wrong mode, and
     # running the narrower per-path gate over a real project would silently under-revert it.
     if ! setsid "${HELPER}" "${proj}" "${PROJECTS_GROUP}" --unlisted < /dev/null > /dev/null 2>&1; then
         pass "--unlisted is refused on a registered project"
@@ -234,7 +234,7 @@ if [[ -r "${operator_conf}" ]] && grep -qE "^[[:space:]]*OPERATORS=.*\b${PROJECT
     fi
 
     # (O) fails closed with no invoking operator: the identity that bounds the walk cannot be
-    # resolved, so no path is touched. env -u SUDO_UID reproduces a direct root call.
+    # resolved, so no path is touched. `env -u SUDO_UID` reproduces a direct root call.
     noop="${TESTDIR}/noop"
     mkdir -p "${noop}"; : > "${noop}/f"; chmod 0660 "${noop}/f"
     chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${noop}"
@@ -306,13 +306,13 @@ else
     if ! out="$(resolve_hb "${PROJECTS_GROUP}")"; then
         skip "resolve_handback_group" "CLI not sourceable or helper absent (partial install?)"
     else
-        # --group names the group outright: it is published as-is, with no hint (the state is correct).
+        # `--group` names the group outright: it is published as-is, with no hint (the state is correct).
         if [[ "${out}" == "${PROJECTS_GROUP}|" ]]; then
             pass "an explicit --group reaches the caller as the hand-back group, with no hint"
         else
             fail "resolve_handback_group '${PROJECTS_GROUP}' -> '${out}', expected '${PROJECTS_GROUP}|'"
         fi
-        # No --group and no terminal: both prompts take their defaults (hand back: yes; to the
+        # No `--group` and no terminal: both prompts take their defaults (hand back: yes; to the
         # invoking user's group), so the caller still gets a usable group and no hint.
         out="$(resolve_hb "")" || out="<abort>"
         if [[ "${out}" == "${PROJECTS_GROUP}|" ]]; then

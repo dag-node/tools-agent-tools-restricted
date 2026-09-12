@@ -11,7 +11,7 @@
 # set; and a file that does not declare itself a command of this seam is not run as one. This file
 # drives each of those states and asserts the command surface comes out SMALLER and the refusal is
 # reported. The positive cases are the other half of the same contract: a trusted, declared
-# fragment is exec'd with the remaining arguments, and it is listed in --help with the summary its
+# fragment is exec'd with the remaining arguments, and it is listed in `--help` with the summary its
 # manifest declares, since a help that named something the dispatch would not run (or the reverse)
 # is the failure the one discovery function exists to prevent.
 #
@@ -160,7 +160,7 @@ else
     fail "arguments did not reach the fragment: $(cat "${MARKER}" 2>/dev/null)"
 fi
 
-# ── --help lists the domain and the summary its manifest declares ───────────────────────────
+# ── `--help` lists the domain and the summary its manifest declares ───────────────────────────
 run_admin --help
 if [[ "${out}" == *"demo <command>"* && "${out}" == *"the demo provider"* ]]; then
     pass "--help lists the installed domain with its manifest summary"
@@ -370,7 +370,7 @@ run_admin status --everything
 refused "status refuses an argument with exit 2 rather than reporting on the whole host" MSG-T6S6 2
 
 # Every name the top-level dispatch answers must be reserved, or a provider could contribute a
-# domain that --help lists and the dispatch silently shadows.
+# domain that `--help` lists and the dispatch silently shadows.
 arms="$(awk '/^case "\$1" in/{f=1} f' "${HELPER}" | grep -oE '^    [a-z][a-z0-9-]*\)' | tr -d ' )')"
 reserved="$(grep -oE '^readonly -a BASE_COMMANDS=\(.*\)' "${HELPER}" | sed -e 's/.*(//' -e 's/).*//')"
 unreserved=()
@@ -402,7 +402,7 @@ run_admin ../../../bin/sh
 refused "a path-shaped command name is an unknown command, never a path" MSG-N2A5 2
 
 # ── a trusted fragment that is not executable is listed, and says so when run ────────────────
-# The two are separate questions: the listing is what --help can see as any caller, and the exec
+# The two are separate questions: the listing is what `--help` can see as any caller, and the exec
 # bit is what the dispatch needs. A fragment that cannot run is a broken install, not an unknown
 # command, so it exits 1 naming the package rather than 2 naming the surface.
 reset_fixtures
@@ -429,7 +429,7 @@ fi
 # ── system bootstrap: only the scopes it defines ────────────────────────────────────────────
 # Every case here is REJECTED before the provisioning helper is reached, which is what makes them
 # drivable: a scope this parser mis-read would otherwise provision the host mid-test. The default
-# and --scope full are not driven for that reason -- they install software over the network.
+# and `--scope full` are not driven for that reason -- they install software over the network.
 reset_fixtures
 run_admin system bootstrap --scope full-ish
 refused "an unknown --scope value is rejected before anything is provisioned" MSG-A8G5 2
@@ -438,7 +438,7 @@ refused "--scope with no value is rejected" MSG-V5J3 2
 run_admin system bootstrap full
 refused "a bare positional scope is rejected, so the switch spelling is the only one" MSG-H5Z4 2
 
-# ── system bootstrap --scope full: the loop that runs contributed commands unattended ───────
+# ── `system bootstrap --scope full`: the loop that runs contributed commands unattended ───────
 # Driven by SOURCING the helper and calling the loop with the enabled-integration resolver stubbed
 # -- the shape tests/unit/admin-operator-add.sh uses, and possible because the helper's root check
 # and dispatch are both guarded for it. Reaching this loop through the command would first run the

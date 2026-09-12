@@ -66,7 +66,7 @@ RuntimeDirectory=ai-tools
 # ownership after any ExecStartPost chgrp -- so a chgrp does not stick (confirmed: the
 # dir stayed root:root with zero AVCs even under `semodule -DB`, i.e. not an SELinux
 # denial).  Mode is the only ownership knob systemd applies reliably here, so the dir
-# is made world-TRAVERSABLE (--x) but not listable: any uid can resolve the socket
+# is made world-TRAVERSABLE (`--x`) but not listable: any uid can resolve the socket
 # name to connect(), nobody but root can enumerate the directory, and the actual
 # access gate is unchanged -- the socket file itself is 0660 root:@SANDBOX_GROUP@
 # (SocketMode/SocketGroup) plus the daemon's SO_PEERCRED uid check.  A

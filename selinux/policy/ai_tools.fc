@@ -19,8 +19,8 @@
 # to an interactive ai_tools_t session (files_read_usr_files / libs_read_lib_files /
 # corecmd_exec_bin), so the agent cannot modify its own toolchain mid-session: the agent's
 # in-session `npm install -g`/`update -g` is denied by design. Node/npm self-management is
-# done out-of-band by the scheduled nvm-update.service in the sandbox account's own --user
-# instance, which writes this tree.
+# done out-of-band by the scheduled nvm-update.service in the sandbox account's own
+# `--user instance`, which writes this tree.
 # (An entrypoint can be HARD-LINKED into this tree -- claude.exe shares its inode with the
 # platform package's ELF under node_modules/@anthropic-ai/claude-code-<arch>/ -- so the two
 # names carry one label. install-selinux.sh relabels the entrypoints LAST, after the bulk
@@ -50,7 +50,7 @@
 # it -- only this one. cockpit and mount declare both forms for the same reason.
 /var/run/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_run_t,s0)
 
-# The root-helper operation logs. ai-tools-chown / -setgid / -launcher-symlink run IN
+# The root-helper operation logs. `ai-tools-{chown,setgid,launcher-symlink}` run IN
 # ai_tools_handback_t and append here; the domain is granted append/create on
 # ai_tools_log_t in ai_tools.te. DAC keeps it root-only (dir 700, files 600).
 /var/log/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_log_t,s0)

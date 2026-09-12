@@ -48,7 +48,7 @@ mktestdir
 note "tool" "${RI}"
 
 # run_ri <argument...>: run the tool from inside TESTDIR, leaving its output in OUT and its
-# status in RC. A finding makes `check` exit 1, which `|| RC=$?` keeps non-fatal under set -e.
+# status in RC. A finding makes `check` exit 1, which `|| RC=$?` keeps non-fatal under `set -e`.
 RC=0 OUT=""
 run_ri() {
     RC=0

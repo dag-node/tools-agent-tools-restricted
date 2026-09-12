@@ -9,6 +9,7 @@
 #   sudo ai-tools-admin operators                          # list (the zero-argument default)
 #   sudo ai-tools-admin operators add [user]               # default: $SUDO_USER
 #   sudo ai-tools-admin operators remove <user>
+#   ```bash
 #   sudo ai-tools-admin selinux groups                     # show core + optional group state
 #   sudo ai-tools-admin selinux groups enable <name>...    # load prebuilt (stable) groups
 #   sudo ai-tools-admin selinux groups disable <name>      # unload one
@@ -18,6 +19,7 @@
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
 #   sudo ai-tools-admin status                             # the host's health, read as root
 #   sudo ai-tools-admin dotnet bootstrap                   # a domain a provider package contributes
+#   ```
 #
 # The spelling is the project's command grammar (cli-grammar.rule.md): a bare-word
 # command, a plural collection, the verb after the noun, `list` as the zero-argument default, and
@@ -57,7 +59,7 @@
 # a provider contributes a domain of its own as an executable fragment at
 # /usr/local/lib/ai-tools/admin-commands.d/<name> and this tool discovers it. The basename is the
 # domain token -- the same name the provider takes in agents.d/integrations.d and in operator.conf.
-# Dispatch is an exec, not a source, so a fragment keeps its own set -euo pipefail, root guard and
+# Dispatch is an exec, not a source, so a fragment keeps its own `set -euo pipefail`, root guard and
 # logging. A fragment is honored only while it passes the same trust predicate as every other
 # provider input (root-owned, not group/other-writable, and so is its directory), and one claiming
 # a name base owns is refused rather than merged; both refusals are reported. INSTALLATION, not
@@ -74,7 +76,7 @@
 #
 # `status` reports this host's health as root: the same resource `ai-tools --status` reports to an
 # operator, completed with the three readings that vantage point prints as `?` -- the sandbox
-# account's own `systemd --user` units, whose bus root reaches over the machine transport; the
+# account's own `systemd --user units`, whose bus root reaches over the machine transport; the
 # entrypoint pin, in a state directory a non-operator has no traverse bit on; and the SELinux type
 # each agent path carries right now, inside a 0750 toolchain. Every verdict comes from the same
 # services.lib.sh registry both reports and the launch wrapper's pre-launch warning read, so the
@@ -102,7 +104,7 @@ readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # Where a provider package drops the command fragment carrying its own domain. The environment
 # override is a test hook of the same standing as AI_TOOLS_POSTUPGRADE_ROOT: sudo strips the name,
-# so tests/unit/admin-commands.sh drives the dispatch against a fixture tree. --help lists
+# so tests/unit/admin-commands.sh drives the dispatch against a fixture tree. `--help` lists
 # the domains through it ahead of the root check, so a non-root caller can point the LISTING at another
 # root-owned directory; the dispatch still needs root and each fragment still needs root ownership,
 # so the reach does not add a command. Unset in production.
@@ -162,7 +164,7 @@ reject() {
 }
 
 # reject_with_usage <message>: the refusal the LAST dispatch arm takes, at reject's own exit 2. It
-# prints the command surface rather than a pointer at --help, because a name that matched no base
+# prints the command surface rather than a pointer at `--help`, because a name that matched no base
 # command and no contributed domain is answered by the domain list this host actually has, which
 # only usage() knows. Defined here so that surface and the code naming the situation stay together.
 reject_with_usage() {
@@ -273,7 +275,7 @@ is_base_command() {
 # its own in that name, which here would be a command root then executes. A name base owns is
 # refused rather than merged, and a basename that is not a bare lower-case word is skipped before
 # it is ever joined to a path, so a separator or a traversal cannot address a file outside the
-# directory. The dispatch and --help both read this one function, so what an administrator is told
+# directory. The dispatch and `--help` both read this one function, so what an administrator is told
 # and what runs cannot disagree.
 #
 # The two rejections are different findings and are counted apart. A name this seam does not
@@ -474,7 +476,7 @@ admin_command_has_verb() {
 }
 
 # contributed_dispatch <name> [args...]: exec the fragment carrying <name>, with the remaining
-# arguments. An exec rather than a source: the fragment keeps its own set -euo pipefail, its own
+# arguments. An exec rather than a source: the fragment keeps its own `set -euo pipefail`, its own
 # root guard and its own logging, and cannot collide with this tool's function names.
 #
 # Membership of ADMIN_DOMAINS is the gate, so <name> is never interpolated into a path before it
@@ -501,7 +503,7 @@ contributed_dispatch() {
 # drives, and the trust predicate every contributed command is vetted with. Required, not optional:
 # a reconcile that silently skipped its merge would leave a shipped hook uninvoked while reporting
 # success, and a dispatch that could not tell a trusted fragment from a planted one would exec
-# whatever it found. Loaded BEFORE the other libraries, unlike them, because --help
+# whatever it found. Loaded BEFORE the other libraries, unlike them, because `--help`
 # lists this host's contributed domains and that list is drawn through this predicate.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 . "${CONF_LIB}" || die_unsourced "${CONF_LIB}"
@@ -519,7 +521,7 @@ source "${PROVIDERS_LIB}" 2>/dev/null || true
 # defines, stopping at the matching guard that precedes the dispatch. Everything between the two is
 # definitions, so the executed path still refuses a non-root caller before any action.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # --help and --version read no host state and leave the host as it is, so they answer any caller and
+    # `--help` and `--version` read no host state and leave the host as it is, so they answer any caller and
     # are handled here, ahead of the root check: an operator meeting the tool gets the command
     # surface rather than a refusal naming sudo without saying what to run under it. Both ignore
     # any further argument.
@@ -721,11 +723,11 @@ wire_dedup() {
 # the question the administrator actually has: can this account claim a project?
 #
 # An account without the grant is a supported shape, not a misconfiguration, so this reports and
-# never refuses: it names the --for command that claims on the account's behalf.
+# never refuses: it names the `--for` command that claims on the account's behalf.
 #
 # A non-zero answer is a refusal only while sudo is answering at all -- for a command no rule
 # matches, `sudo -l` exits non-zero with EMPTY output, so there is no message separating that from
-# a sudo which failed for its own reasons (an unreachable sudoers backend, a host that refuses -l).
+# a sudo which failed for its own reasons (an unreachable sudoers backend, a host that refuses `-l`).
 # It is separated by a second probe, the same way the CLI's sudo_grant_missing does it: listing the
 # account's whole rule set, which succeeds for anyone this command has just enrolled, since the
 # %ai-ops rules apply to the membership written moments earlier (sudo reads the group database, not
@@ -782,7 +784,7 @@ op_add() {
     seed_operator_config "${user}"
     label_operator_config "${user}"
 
-    # The sandbox account needs a systemd --user instance without an interactive login: its
+    # The sandbox account needs a `systemd --user instance` without an interactive login: its
     # nvm-update timer and each ai-tools-run session unit run there, and it has no login shell, so
     # only linger keeps that instance alive. An operator runs claude from its own active login,
     # so it does not need linger here; enabling operator linger for other reasons is host policy.
@@ -950,7 +952,7 @@ _restore_group_static_labels() {
 }
 
 # sel_list is a read-only REPORT, not operational output, so it renders as a plain section (like
-# the CLI's --providers/--list) instead of `log`'s per-line `ai-tools-admin:` prefix. The core
+# the CLI's `--providers`/`--list`) instead of `log`'s per-line `ai-tools-admin:` prefix. The core
 # module uses the same bracketed [LOADED]/[disabled] state column as the group rows for one legend.
 sel_list() {
     require_selinux || return 0
@@ -1536,7 +1538,7 @@ system_dispatch() {
 # defined and no command dispatched, so the caller's arguments are not read as a command.
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
-# --help/-h and --version are answered ahead of the root check.
+# `--help`/`-h` and `--version` are answered ahead of the root check.
 [[ $# -ge 1 ]] || { usage >&2; exit 2; }
 case "$1" in
     operators) shift; operators_dispatch "$@" ;;

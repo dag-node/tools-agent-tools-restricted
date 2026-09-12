@@ -62,7 +62,7 @@ full grammar and every exit code are in `ai-tools(1)`.
 first is the one that matters:
 
 - *Attribution comes from the account being stopped.* A session is tied to a project by reading its
-  `WorkingDirectory` from the sandbox account's own `systemd --user` manager. That is fine for
+  `WorkingDirectory` from the sandbox account's own `systemd --user manager`. That is fine for
   telling you what is running; it is not fine for deciding what a stop reaches, because anything a
   session reports about itself would then shape what gets terminated. A unit name is no better — on
   a host without SELinux a session can reach that manager and choose its own. So attribution is

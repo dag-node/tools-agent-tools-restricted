@@ -8,14 +8,16 @@
 # header signature an operator verifies with `rpm --import RPM-GPG-KEY-dag-node`.
 #
 # Usage (rpm-sign + gnupg2 + rpm-build must be present in the container):
-#   packaging/sign-rpms.sh [--secrets-stdin] <pubkey-out-path> <rpm>...   sign and verify the given RPMs
-#   packaging/sign-rpms.sh [--secrets-stdin] --selftest                   prove the whole chain on a throwaway RPM
+#   ```bash
+#   packaging/sign-rpms.sh [--secrets-stdin] <pubkey-out-path> <rpm>...   # sign and verify the given RPMs
+#   packaging/sign-rpms.sh [--secrets-stdin] --selftest                   # prove the whole chain on a throwaway RPM
+#   ```
 #
-# --secrets-stdin reads the secrets from stdin -- first line the passphrase, the remainder the
+# `--secrets-stdin` reads the secrets from stdin -- first line the passphrase, the remainder the
 # ASCII-armored private key -- instead of the environment, so a container invocation never
-# carries them in its environment (podman records -e values in the on-disk container config).
+# carries them in its environment (podman records `-e` values in the on-disk container config).
 #
-# --selftest builds a disposable package, signs it, and verifies it through the identical code
+# `--selftest` builds a disposable package, signs it, and verifies it through the identical code
 # path, so the release workflow can prove the key, passphrase, rpmsign, and verification all
 # work in this exact container BEFORE any real RPM is built or published. It does not leave an artifact
 # behind.
@@ -97,7 +99,7 @@ sign_and_verify() {
     verify_signatures "${pubkey_out}" "$@"
 }
 
-# Build a disposable noarch RPM under <dir> and echo its path. Used by --selftest to exercise the
+# Build a disposable noarch RPM under <dir> and echo its path. Used by `--selftest` to exercise the
 # real sign+verify path without touching a release artifact.
 build_selftest_rpm() {
     local dir="$1"
@@ -156,7 +158,7 @@ main() {
     # must stay re-readable here rather than a one-shot stream -- keeping it on the same RAM tree
     # as the unavoidable keyring leaves disk exposure unchanged. The runner VM is ephemeral.
     # Script-global, not local: the EXIT trap fires after main returns, where a local is out of
-    # scope -- an unbound reference under set -u -- and the wipe must still run.
+    # scope -- an unbound reference under `set -u` -- and the wipe must still run.
     workdir="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"
     trap 'rm -rf "${workdir}"' EXIT
 

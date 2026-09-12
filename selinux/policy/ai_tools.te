@@ -142,7 +142,7 @@ init_daemon_domain(ai_tools_handback_t, ai_tools_handback_exec_t)
 # Domain entry
 ########################################
 
-# claude is launched as a transient systemd --user *service* (ai-tools-run uses
+# claude is launched as a transient `systemd --user` *service* (ai-tools-run uses
 # `systemd-run --user --pty`), so the final exec of the labelled claude.exe is done
 # by @SANDBOX_USER@'s user-manager, NOT by the sudo/systemd-run caller. Two domtrans
 # sources are authorised:
@@ -152,7 +152,7 @@ init_daemon_domain(ai_tools_handback_t, ai_tools_handback_exec_t)
 #                   systemd 252 rejects it on a scope unit -- which is why the exec
 #                   moved off the unconfined_t caller and onto the manager.
 #   - unconfined_t  retained for a direct exec (claude run outside the service wrapper,
-#                   or a --scope fallback) so confinement still applies there.
+#                   or a `--scope` fallback) so confinement still applies there.
 #
 # VERIFY ON THE LIVE BOX before enforcing -- two points this module cannot check
 # from inside the sandbox:
@@ -169,12 +169,12 @@ domtrans_pattern(unconfined_t, ai_tools_exec_t, ai_tools_t)
 
 # Both transitions happen under NO_NEW_PRIVS: ai-tools-run launches the session with
 # RestrictNamespaces=yes, and systemd can only install that seccomp filter behind
-# PR_SET_NO_NEW_PRIVS (true on --user AND --system units; NoNewPrivileges=no does not
+# PR_SET_NO_NEW_PRIVS (true on `--user` AND `--system` units; NoNewPrivileges=no does not
 # override it -- verified on the live box).  Under NNP the kernel runs check_nnp_nosuid(),
 # which tries process2:nnp_transition between the old and new contexts where the base
 # policy enables the nnp_nosuid_transition capability, then falls back to
 # security_bounded_transition() -- a typebounds rule, which this module does not declare.
-# When both fail it returns -EPERM, and selinux_bprm_creds_for_exec() propagates that, so
+# When both fail it returns `-EPERM`, and selinux_bprm_creds_for_exec() propagates that, so
 # the execve FAILS and the unit does not start.  Without these two grants the session
 # therefore does not launch; it does not run in the caller's domain.  The kernel fails
 # closed here, which is why ai-tools-run's preflight does not probe for it.
@@ -398,7 +398,7 @@ allow ai_tools_t ai_tools_handback_t:unix_stream_socket connectto;
 
 allow ai_tools_t self:process { fork sigchld signal signull getsched setsched setpgid };
 allow ai_tools_t self:process execmem;   # V8 JIT (writable+executable code pages)
-# Coreutils and sed preset a new file's label with setfscreatecon() before creating it (sed -i,
+# Coreutils and sed preset a new file's label with setfscreatecon() before creating it (`sed -i`,
 # cp, mv, install). Without setfscreate that call returns EACCES and libselinux prints a stderr
 # "failed to set default file creation context" warning on every such command. The grant only
 # lets the domain preset the label the files_tmp_filetrans type_transition already assigns, so it
@@ -505,12 +505,12 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # versions and optional sub-packages:
 #
 #   etc_sudoers_t   -- RHEL 9 full selinux-policy-targeted; some builds label /etc/sudoers
-#                      plain etc_t instead (verify: ls -Z /etc/sudoers).
+#                      plain etc_t instead (verify: `ls -Z /etc/sudoers`).
 #                      If etc_t: reading sudoers is already allowed via files_read_etc_files;
 #                      no dontaudit needed.
 #
 #   user_runtime_t  -- RHEL 9 systemd XDG runtime dir (/run/user/<uid>/); some builds use
-#                      user_tmp_t instead (verify: ls -dZ /run/user/).
+#                      user_tmp_t instead (verify: `ls -dZ /run/user/`).
 #                      RHEL 10 name TBD.
 #
 #   container_var_run_t -- only present when container-selinux is installed.
@@ -521,15 +521,15 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # OPEN-FAILURE STATUS from the first probe run -- documented here, not suppressed.
 # ESC-001 is now CLOSED out-of-band; LAT-005 remains open.
 #
-#   ESC-001  unshare --user (process2:create_user_ns) -- CLOSED by a seccomp filter,
+#   ESC-001  `unshare --user` (process2:create_user_ns) -- CLOSED by a seccomp filter,
 #            not by this policy.
 #            Why not by policy: the compiled base-policy process2 class has only
 #            {nnp_transition nosuid_transition} -- create_user_ns is absent, so the
 #            kernel's security_create_user_ns() check falls through handleunknown=allow.
 #            A loadable module cannot add the missing permission, so SELinux cannot
 #            block the creation here.
-#            ACTIVE MITIGATION: ai-tools-run launches every session as a systemd --user
-#            service with RestrictNamespaces=yes, whose seccomp filter blocks
+#            ACTIVE MITIGATION: ai-tools-run launches every session as a
+#            `systemd --user service` with RestrictNamespaces=yes, whose seccomp filter blocks
 #            clone(CLONE_NEWUSER) (and all namespace creation) for the session process
 #            tree. seccomp runs before the LSM hook, so this is the enforcing layer;
 #            it is per-session and does not need a sysctl. (System-wide alternative, rejected:
@@ -554,7 +554,7 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 
 # Type varies by selinux-policy version: etc_sudoers_t (RHEL 9 full policy) or
 # etc_t (some builds -- already allowed; no dontaudit needed in that case).
-# Verify: ls -Z /etc/sudoers
+# Verify: `ls -Z /etc/sudoers`
 # dontaudit ai_tools_t etc_sudoers_t:dir  { getattr open read };
 # dontaudit ai_tools_t etc_sudoers_t:file { getattr open read };
 
@@ -562,14 +562,14 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # dontaudit ai_tools_t admin_home_t:file { getattr open read };
 
 # Type varies: user_runtime_t (RHEL 9 standard) or user_tmp_t (some builds, UEK).
-# Verify: ls -dZ /run/user/
+# Verify: `ls -dZ /run/user/`
 # dontaudit ai_tools_t user_runtime_t:dir      { getattr open read };
 # dontaudit ai_tools_t user_runtime_t:sock_file connectto;
 
 # --- Lateral / IPC (T-W): D-Bus, journal, container daemon, raw socket ---
 # dontaudit ai_tools_t system_dbusd_var_run_t:sock_file { getattr open connectto };
 # dontaudit ai_tools_t syslogd_var_run_t:sock_file      { getattr open connectto };
-# container_var_run_t only exists when container-selinux is installed (verify: seinfo -t container_var_run_t).
+# container_var_run_t only exists when container-selinux is installed (verify: `seinfo -t container_var_run_t`).
 # dontaudit ai_tools_t container_var_run_t:sock_file    { getattr open connectto };
 # dontaudit ai_tools_t self:rawip_socket { create getattr };
 
@@ -622,7 +622,7 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # of the explicit directive.  Under NNP the kernel runs check_nnp_nosuid() on the computed
 # transition, as described in the domain-entry block: process2:nnp_transition where the
 # base policy enables the nnp_nosuid_transition capability, then a typebounds fallback this
-# module does not supply, then -EPERM.  Without this grant the exec of the handback
+# module does not supply, then `-EPERM`.  Without this grant the exec of the handback
 # entrypoint FAILS, so the socket-activated handler does not start and every hook handback
 # gets a connection error -- a broken bridge rather than one running WIDE in init_t.
 # This mirrors the ai_tools_t grant in the domain-entry block; it does NOT relax NNP (the
@@ -691,12 +691,12 @@ files_read_usr_files(ai_tools_handback_t)
 # follows bin/claude to claude.exe and getattr()s it; files_read_usr_files /
 # libs_read_lib_files cover the usr_t/bin_t/lib_t hops along the way but NOT the
 # custom ai_tools_exec_t entrypoint type at the end. Without this the getattr is
-# denied, bash's -e silently reports false (the swallowed-EACCES shape, same as the
+# denied, bash's `-e` silently reports false (the swallowed-EACCES shape, same as the
 # ai_tools_run_t:sock_file getattr finding), and the helper fails closed with
 # "target does not exist" even though the path plainly exists -- the SYMLINK verb
 # dies and nvm-update.sh reports "failed to repoint ... via handback SYMLINK" ->
 # "ai-tools update failed". This domain needs ONLY getattr: ai-tools-launcher-symlink
-# stat()s the entrypoint for its -e existence check but never relabels it. Restoring
+# stat()s the entrypoint for its `-e` existence check but never relabels it. Restoring
 # ai_tools_exec_t on a freshly bumped (bin_t) entrypoint needs relabelfrom/relabelto,
 # intentionally NOT granted here -- it is owned by ai-tools-relabel-agent. That helper
 # runs as root from the ai-tools-relabel.path watcher (system instance) after the updater
@@ -708,7 +708,7 @@ files_read_usr_files(ai_tools_handback_t)
 # an unconfined session. The relabel privilege stays out of this agent-reachable domain.
 allow ai_tools_handback_t ai_tools_exec_t:file getattr;
 # Create and rename the temp symlink inside /opt/ai-tools/bin/ (bin_t, mode 550).
-# ai-tools-launcher-symlink does: ln -sf TARGET bin/.claude.new; mv .claude.new claude.
+# ai-tools-launcher-symlink does: `ln -sf TARGET bin/.claude.new`; `mv .claude.new claude`.
 # CAP_DAC_OVERRIDE covers the DAC check on the 550 dir; these grants handle the MAC check.
 allow ai_tools_handback_t bin_t:dir { write add_name remove_name };
 allow ai_tools_handback_t bin_t:lnk_file { create rename unlink getattr read };

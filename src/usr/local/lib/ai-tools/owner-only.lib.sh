@@ -23,7 +23,7 @@
 #
 # `setfacl -n` is load-bearing. Without it setfacl recalculates the mask from the entries that
 # remain, so on a sealed 0600 file still carrying user:<operator>:rwX the mask rises to rwx and
-# the file lands 0670 -- a strip that grants. With -n the mode is bit-for-bit unchanged.
+# the file lands 0670 -- a strip that grants. With `-n` the mode is bit-for-bit unchanged.
 #
 # A setgid bit whose group is neither the sandbox account's nor the operator's is left alone and
 # reported instead: an operator may have set it deliberately, and this walk runs with no terminal

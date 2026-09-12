@@ -3,7 +3,7 @@
 # tests/unit/reclaim.sh
 # Hermetic unit tests for the deployed ai-tools-reclaim helper: it hands agent-owned files under a
 # project back to the operator via ai-tools-chown, including the .git tree the sweeps skip, while
-# leaving the heavy/transient trees (node_modules, ...) agent-owned -- and --full reclaims those
+# leaving the heavy/transient trees (node_modules, ...) agent-owned -- and `--full` reclaims those
 # too. Runs the installed helper against a /tmp testdir + dummy allowlist; does not write a path outside.
 
 set -euo pipefail
@@ -59,7 +59,7 @@ else
     fail "default unexpectedly reclaimed node_modules: $(own "${nm}")"
 fi
 
-# (B) --full also reclaims the heavy trees.
+# (B) `--full` also reclaims the heavy trees.
 setsid "${HELPER}" --full "${proj}" < /dev/null > /dev/null 2>&1 || true
 if [[ "$(own "${nm}")" == "${PROJECTS_USER}" ]]; then
     pass "--full reclaims node_modules too"

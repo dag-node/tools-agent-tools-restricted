@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/log.lib.sh
 # Shared leveled logger for the ai-tools sandbox components. Sourced (not executed)
-# by the sudo root helpers (ai-tools-chown / -setgid / -launcher-symlink / -lockdown),
+# by the sudo root helpers (`ai-tools-{chown,setgid,launcher-symlink,lockdown}`),
 # the lifecycle hooks (post-tool-hook.sh, session-hook.sh), and the ai-tools project
 # CLI, so every component records DEBUG / INFO / WARNING / ERROR lines in one format
 # to two sinks:
@@ -48,7 +48,7 @@
 
 # Include guard. Consumers source this lib directly, and msg.lib.sh sources it too (for its
 # decision audit trail), so one process can reach it twice; this library's readonly constants would abort a
-# re-source under set -e, so a second source is a no-op. Tags, files, and levels are read per
+# re-source under `set -e`, so a second source is a no-op. Tags, files, and levels are read per
 # call, so a single definition serves every caller.
 if [[ -n "${_AI_TOOLS_LOG_LIB_LOADED:-}" ]]; then return 0; fi
 readonly _AI_TOOLS_LOG_LIB_LOADED=1
@@ -165,7 +165,7 @@ ai_tools_log() {
     prio="$(_ai_tools_log_prio "${level}")"
     msg="$(_ai_tools_log_render "$*")"
 
-    # journald via logger(1): -t sets the SyslogIdentifier, -p the facility.level
+    # journald via logger(1): `-t` sets the SyslogIdentifier, `-p` the facility.level
     # PRIORITY. Always attempted; failure (no logger, no journald) is ignored.
     logger -t "${tag}" -p "daemon.${prio}" -- "${msg}" 2>/dev/null || true
 

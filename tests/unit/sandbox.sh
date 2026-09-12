@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/sandbox.sh
-# Unit test for the pure decisions behind the ai-tools.sh flows -- the --sandbox-create pair,
-# the precondition --project-create's skipped prompts rest on (tree_is_pristine),
+# Unit test for the pure decisions behind the ai-tools.sh flows -- the `--sandbox-create` pair,
+# the precondition `--project-create`'s skipped prompts rest on (tree_is_pristine),
 # and the exclusion reader the claim-time scans prune their walks with (allowlist_exclusions, at the end).
 #
-# The --sandbox-create pair:
+# The `--sandbox-create` pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
-#     host or operator identity in it; the operator overrides the whole name with --branch, so this
+#     host or operator identity in it; the operator overrides the whole name with `--branch`, so this
 #     only pins the default shape and the leaf extraction.
 #   * sandbox_resolve_base -- resolves the base branch to fork from (a local branch, a
 #     <remote>/<base>, or any commit-ish), so the sandbox branch can be based on something OTHER than
@@ -108,7 +108,7 @@ else
 fi
 
 # ── tree_is_pristine ──────────────────────────────────────────────────────────────────────────
-# The predicate --project-create's flow rests on, and the reason it is pinned here rather than
+# The predicate `--project-create`'s flow rests on, and the reason it is pinned here rather than
 # left to the CLI test: what it gates is the SECRET SCAN. A claim skips that scan, the git-history
 # prompt, and the proceed confirm when this returns 0, so every way it could wrongly say yes is a
 # way to grant an agent access to a tree no scan has covered. It must answer for the tree as it is on
@@ -121,7 +121,7 @@ pristine() { call tree_is_pristine "$1"; }
 # Fixtures are built AS ROOT and handed over at the end, the same way the repo fixture is.
 # The predicate only reads the tree, so what matters is that the projects user can read it when
 # `call` runs; driving each mkdir/git through runuser instead would make every fixture line a
-# command that can fail under set -e for reasons unrelated to what is being tested.
+# command that can fail under `set -e` for reasons unrelated to what is being tested.
 work="${TESTDIR}/pristine"
 fresh="${work}/fresh"
 bare="${work}/bare"
@@ -170,7 +170,7 @@ else
 fi
 
 # An empty directory with no repository at all is still pristine: the predicate is about contents,
-# and --project-create's git init failing is a warning, not a reason to rescan an empty tree.
+# and `--project-create`'s git init failing is a warning, not a reason to rescan an empty tree.
 if pristine "${bare}"; then
     pass "an empty directory with no repository is pristine"
 else

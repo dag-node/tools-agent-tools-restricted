@@ -11,8 +11,11 @@
 # Sourced, not executed. Deployed 644 root:root -- no secrets; sourced by ai-tools-run (as the
 # sandbox account) and the unit test (as root).
 #
-# Deploy: install -o root -g root -m 644 \
-#     src/usr/local/lib/ai-tools/confinement.lib.sh /usr/local/lib/ai-tools/confinement.lib.sh
+# Deploy:
+#   ```bash
+#   install -o root -g root -m 644 \
+#       src/usr/local/lib/ai-tools/confinement.lib.sh /usr/local/lib/ai-tools/confinement.lib.sh
+#   ```
 
 [[ -n "${_AI_TOOLS_CONFINEMENT_LIB_LOADED:-}" ]] && return 0
 # shellcheck disable=SC2034  # include guard, read on the next source of this lib

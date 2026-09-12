@@ -192,9 +192,9 @@ else
     fail "--remove failed on an already-removed project (rc=${rc}): ${out}"
 fi
 
-# ── --disable / --enable: the privileged half of ai-tools --project-disable/--project-enable ──
+# ── `--disable` / `--enable`: the privileged half of `ai-tools --project-disable`/`--project-enable` ──
 # What separates them from an add/remove pair is that they edit the operator's OWN line in place.
-# A --for target's allowlist is as much a curated document as the invoker's, so the position and
+# A `--for` target's allowlist is as much a curated document as the invoker's, so the position and
 # the comment must survive a park/restore performed by root on someone else's file.
 printf '%s\n' "# fixture allowlist" "${proj}   # payments, dev stage" > "${ALLOWFILE}"
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ALLOWFILE}"; chmod 600 "${ALLOWFILE}"
@@ -234,7 +234,7 @@ else
 fi
 
 # Neither verb may INVENT an entry: registering a project is a claim, which scans for secrets
-# before granting access. --enable reports and succeeds (no exclusion to lift); --disable refuses,
+# before granting access. `--enable` reports and succeeds (no exclusion to lift); `--disable` refuses,
 # since a caller asking to park an unregistered path has the wrong path or the wrong verb.
 # Compared whole-file, not by substring: every fixture entry lives UNDER ${TESTDIR}, so a
 # substring test matches the line that is legitimately there and inverts the assertion.

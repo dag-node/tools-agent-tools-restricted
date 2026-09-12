@@ -28,7 +28,7 @@ ARG RPM_RELEASE=""
 
 # The same build + test tooling ELBase installs (mostly identical package names on fedora-minimal,
 # which ships microdnf/dnf5), selinux-policy-devel + policycoreutils for the policy compile among
-# them. dbus-broker backs the sandbox account's `systemd --user` manager, rpm-build/createrepo_c
+# them. dbus-broker backs the sandbox account's `systemd --user manager`, rpm-build/createrepo_c
 # build and serve the local repo, and the util-linux/procps-ng/libselinux tools back the selftest.
 # One Fedora packaging difference from EL: fedora-minimal splits script(1) out of util-linux into
 # util-linux-script, and the selftest runs `claude --version` under `script` to give it a PTY, so it
@@ -91,7 +91,7 @@ RUN install -m 0755 packaging/container-selftest.sh /usr/local/bin/ai-tools-self
     && install -m 0644 packaging/ai-tools-selftest.service /etc/systemd/system/ai-tools-selftest.service \
     && systemctl enable ai-tools-selftest.service
 
-# Run systemd as PID 1 so the handback socket and the sandbox --user manager come up and the
+# Run systemd as PID 1 so the handback socket and the sandbox `--user manager` come up and the
 # selftest unit fires.
 STOPSIGNAL SIGRTMIN+3
 ENTRYPOINT ["/sbin/init"]

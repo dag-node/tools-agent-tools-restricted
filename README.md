@@ -106,10 +106,7 @@ back. All of it is in [docs/project-lifecycle.md](docs/project-lifecycle.md).
 ### Upgrading
 
 Upgrade in place with ordinary DNF, without a `dnf remove` first:
-
-```bash
-sudo dnf upgrade --refresh 'ai-tools*'
-```
+`sudo dnf upgrade --refresh 'ai-tools*'`.
 
 `--refresh` forces a metadata refresh: root's DNF cache is separate from your user's and can
 predate a just-published release, so a plain `dnf upgrade` may report "Nothing to do" on a
@@ -131,7 +128,7 @@ auto-update, a separate mechanism from these DNF package upgrades.
 
 `claude` resolves to the system wrapper `/usr/local/bin/claude`, which runs as you,
 checks your `ai-ops` membership and the project allowlist, then drops to `${SANDBOX_USER}`
-via `sudo` and wraps the session in a confined `systemd --user` service. Launched in an
+via `sudo` and wraps the session in a confined `systemd --user service`. Launched in an
 unclaimed project it prompts you to claim it first; the claim and every elevated helper
 refuse system directories and home roots (the
 [safe-paths backstop](.claude/rules/safe-paths.rule.md)). [From source](#from-source)
@@ -349,11 +346,13 @@ The privilege model and every guard it applies are specified in
 
 ## From source
 
-    git clone https://github.com/dag-node/tools-agent-tools-restricted.git
-    cd tools-agent-tools-restricted
-    # steps 1-3: PATH fragment, the ai-tools account, nvm + Node + claude
-    sudo ./install.sh install                   # step 4: helpers, units, sudoers, CLI
-    sudo ai-tools-admin operators add <user>    # enrol yourself as an operator
+```bash
+git clone https://github.com/dag-node/tools-agent-tools-restricted.git
+cd tools-agent-tools-restricted
+# steps 1-3: PATH fragment, the ai-tools account, nvm + Node + claude
+sudo ./install.sh install                   # step 4: helpers, units, sudoers, CLI
+sudo ai-tools-admin operators add <user>    # enrol yourself as an operator
+```
 
 `install.sh` stops unless the sandbox account and `/opt/ai-tools/bin` already exist —
 steps 1–3 create them (once the package is deployed, `sudo ai-tools-admin system bootstrap`
@@ -365,7 +364,7 @@ same as the package path — see
 
 ## Upgrade behaviour
 
-`nvm-update.timer` fires daily in `${SANDBOX_USER}`'s `--user` instance and runs
+`nvm-update.timer` fires daily in `${SANDBOX_USER}`'s `--user instance` and runs
 `/opt/ai-tools/bin/nvm-update.sh`, which resolves the latest LTS in the `NVM_NODE_MAJOR`
 series, installs it under `/opt/ai-tools/.nvm`, refreshes the global tools, prunes, and:
 
@@ -407,7 +406,7 @@ sudo ai-tools-admin status   # as root, the same host with the readings you cann
 Both report the installed version, whether the toolchain is provisioned, every managed systemd
 unit, and — per enabled agent — whether its binary is pinned to a checksum its vendor signed and
 what SELinux label its paths carry. Each prints `?` where its caller cannot reach the answer, so
-running the second as root fills in the sandbox account's own `systemd --user` units, the
+running the second as root fills in the sandbox account's own `systemd --user units`, the
 entrypoint pin, and the live SELinux label. Both exit non-zero when something needs attention, so
 either runs from `cron` or a monitor without parsing its output.
 
@@ -417,8 +416,10 @@ Details and exit codes: `man ai-tools` and `man ai-tools-admin`.
 
 Start here — one command answers "has anything gone wrong lately?":
 
-    sudo ai-tools --audit                      # findings in the last 7 days
-    sudo ai-tools --audit --since '2 days ago' # any window date(1) understands
+```bash
+sudo ai-tools --audit                      # findings in the last 7 days
+sudo ai-tools --audit --since '2 days ago' # any window date(1) understands
+```
 
 It reads the two trails and reports what refused, was rejected, was stranded, or was
 flagged — a breached secret, a rejected socket peer, a helper timeout, a refused launch. It
@@ -429,8 +430,10 @@ write.
 
 Every tool call a session makes is recorded too, one line each:
 
-    sudo journalctl -t ai-tools-hook _UID="$(id -u ai-tools)"   # what the agent ran and wrote
-    sudo journalctl -t ai-tools-hook -o json _UID="$(id -u ai-tools)" | jq  # structured fields
+```bash
+sudo journalctl -t ai-tools-hook _UID="$(id -u ai-tools)"   # what the agent ran and wrote
+sudo journalctl -t ai-tools-hook -o json _UID="$(id -u ai-tools)" | jq  # structured fields
+```
 
 A `Bash` record carries the command's leading two words and its argument count — never the
 command line, which through a here-doc would carry file contents. The same facts are also
@@ -440,11 +443,13 @@ emitted as native journald fields (`AI_TOOLS_TOOL`, `AI_TOOLS_CMD`, `AI_TOOLS_AR
 Two sinks — **journald** (all components) and **`/var/log/ai-tools/`** (root helpers
 only, `700 root:root`). Query journald by component **and by the writer's uid**:
 
-    sudo journalctl -t ai-tools-chown _UID=0                  # the ownership-restore helper
-    sudo journalctl -t ai-tools-lockdown _UID=0 -p warning    # the secret lockdown
-    sudo journalctl -t ai-tools-handback _UID=0               # the privilege bridge (one line per request)
-    sudo journalctl -t ai-tools-run _UID="$(id -u ai-tools)"  # session launches
-    sudo journalctl -t ai-tools _UID="$(id -u)"               # the CLI (project/sandbox created, …)
+```bash
+sudo journalctl -t ai-tools-chown _UID=0                  # the ownership-restore helper
+sudo journalctl -t ai-tools-lockdown _UID=0 -p warning    # the secret lockdown
+sudo journalctl -t ai-tools-handback _UID=0               # the privilege bridge (one line per request)
+sudo journalctl -t ai-tools-run _UID="$(id -u ai-tools)"  # session launches
+sudo journalctl -t ai-tools _UID="$(id -u)"               # the CLI (project/sandbox created, …)
+```
 
 The uid matters because a syslog tag is chosen by whoever writes the line, and the sandbox
 account can write to `/dev/log` — so a session could emit a line under a root helper's tag.
@@ -484,10 +489,7 @@ each agent's config directory are labelled from rules the **agent's own manifest
 `sudo ai-tools-admin system entrypoints relabel` (or `sudo selinux/install-selinux.sh relabel`) applies them in the right
 order, and a bare recursive `restorecon` over `/opt/ai-tools` can leave a hardlinked entrypoint
 mislabelled — which the launch will then refuse. To inspect a denial:
-
-```bash
-sudo ausearch -m avc -ts recent | audit2why
-```
+`sudo ausearch -m avc -ts recent | audit2why`.
 
 Policy layout, the optional policy groups, and the bring-up loop:
 [`selinux/README.md`](selinux/README.md). What the domain guarantees and where it stops:

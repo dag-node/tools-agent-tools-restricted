@@ -41,9 +41,9 @@ chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${home}" "${approved}" "${unappro
 # env_reset/set_home handling -- the wrapper keys its allowlist off ${HOME}. Echoes combined
 # stdout+stderr.
 #
-# The probe args are two-fold on purpose: a SOLE --version/--help is the wrapper's
+# The probe args are two-fold on purpose: a SOLE `--version`/`--help` is the wrapper's
 # print-and-exit pass-through and legitimately skips the CWD gates under test, so a second
-# dummy argument keeps the gates in the path; --version stays first so that if a gate ever
+# dummy argument keeps the gates in the path; `--version` stays first so that if a gate ever
 # regresses and the session launches, claude prints/errors and exits fast instead of
 # hanging the suite on an interactive session.
 run_wrapper() {  # $1 = cwd
@@ -97,7 +97,7 @@ else
     fail "the cancel path did not name both setup commands (output: ${out})"
 fi
 
-# (1b) The print-and-exit pass-through: a SOLE --version from that same unapproved cwd is
+# (1b) The print-and-exit pass-through: a SOLE `--version` from that same unapproved cwd is
 #      deliberately NOT gated -- it does not carry a project surface, so the wrapper launches the
 #      confined session with the sandbox home as WorkingDirectory and claude prints its
 #      version. Asserts the refusal is absent and a version string came back.
@@ -127,7 +127,7 @@ fi
 out_excl="$(run_wrapper "${excluded}")"
 assert_msg MSG-K8K2 "${out_excl}" "wrapper refuses a '!'-excluded subdir of an approved project"
 
-# (2c) The two halves of --project-disable meet HERE, and nowhere else: the verb's whole promise
+# (2c) The two halves of `--project-disable` meet HERE, and nowhere else: the verb's whole promise
 #      is that a parked project cannot be launched in, and that is this gate's decision, not the
 #      CLI's. Both sides are covered apart -- the CLI writes the line (tests/integration/cli.sh),
 #      the wrapper honours a '!' CWD (case 2b) -- so what this asserts is that they agree about
@@ -203,16 +203,16 @@ fi
 
 fi  # toolchain provisioned (bin/claude symlink present)
 
-# ── Symlink-existence guard: -L, not -e ──────────────────────────────────────────
+# ── Symlink-existence guard: `-L`, not `-e` ──────────────────────────────────────────
 #
-# The wrapper must test link existence with `[[ -L ]]`, not `[[ -e ]]`: -e dereferences the
+# The wrapper must test link existence with `[[ -L ]]`, not `[[ -e ]]`: `-e` dereferences the
 # full chain (bin/claude -> versioned bin/claude -> .../claude-code/bin/claude.exe), and the
 # package dir is mode 700 owned by the agent, so the invoking user cannot stat the final
-# target (EACCES) and -e would report a valid link as missing. -L tests the link itself.
+# target (EACCES) and `-e` would report a valid link as missing. `-L` tests the link itself.
 section "Wrapper symlink-existence guard (-L not -e)"
 
 # (A) Reproduce the hazard hermetically: a symlink chain whose final target sits behind a
-#     dir the invoking user cannot enter. -L must still see the link even though -e cannot
+#     dir the invoking user cannot enter. `-L` must still see the link even though `-e` cannot
 #     stat through to the target.
 fx="${TESTDIR}/fx"
 mkdir -p "${fx}/pkg"
@@ -233,7 +233,7 @@ else
     skip "hazard demo" "final target is readable to ${PROJECTS_USER}; EACCES path not exercised"
 fi
 
-# (B) Pin the deployed wrapper to -L: a revert to -e reintroduces the bug.
+# (B) Pin the deployed wrapper to `-L`: a revert to `-e` reintroduces the bug.
 if grep -Eq '!\s*-L\s+"\$\{CLAUDE_LINK\}"' "${wrapper}"; then
     pass "wrapper guards CLAUDE_LINK with -L"
 elif grep -Eq '!\s*-e\s+"\$\{CLAUDE_LINK\}"' "${wrapper}"; then

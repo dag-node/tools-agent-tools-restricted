@@ -6,7 +6,7 @@
 # ai-tools-setgid's group-ownership inheritance. An access + inherited-default ACL grants rwX to
 # the @SANDBOX_GROUP@ group (the agent's access to operator-written files) and to the resolved
 # operator (the operator's access to agent-written files), others denied. The operator grant is
-# what lets the operator co-write the tree -- work tree, and .git under --with-git -- without
+# what lets the operator co-write the tree -- work tree, and .git under `--with-git` -- without
 # joining @SANDBOX_GROUP@ and without waiting on the ownership handback.
 #
 # Owner-only paths are never granted. When a path's mode grants neither group nor other bits
@@ -16,23 +16,23 @@
 # keep the path out of the sandbox account's reach, and a claim does not overrule it. What the
 # walk does instead is STRIP the sandbox residue such a path still carries (owner-only.lib.sh),
 # so the seal does not rest on the mode alone staying put.
-# It holds on the main walk and in the --with-git pass alike; a skipped directory takes its
+# It holds on the main walk and in the `--with-git` pass alike; a skipped directory takes its
 # subtree with it, since the sandbox account cannot enter the directory to use a grant inside it.
 # To opt a path in, widen its mode and re-claim -- a manual step rather than a prompt, because a
 # standing denial should not fall to a single keypress.
 #
 # Every skip is counted and reported. On a project ROOT it means the sandbox account cannot enter
-# the tree at all; under --with-git it means the git history the operator asked to share was not
+# the tree at all; under `--with-git` it means the git history the operator asked to share was not
 # shared. Both are outcomes the operator has to be told, not left to infer from later behaviour.
 #
-# What this prevents: setfacl -m recalculates the mask to cover the entries it adds, so granting
+# What this prevents: `setfacl -m` recalculates the mask to cover the entries it adds, so granting
 # an owner-only path returns a 0600 file as 0660 with @SANDBOX_GROUP@ holding effective rw, and a
 # 0700 directory as 0770 -- write on the directory, hence the power to unlink what it holds.
 # secret-handling.rule.md's "keep it in a 700 <you>:<you> dir" advice rests on that directory
-# case. setfacl -n (add the entry, leave the mask alone) is not used either: it would leave a
+# case. `setfacl -n` (add the entry, leave the mask alone) is not used either: it would leave a
 # dormant grant that any later chmod widening the group bits activates.
 #
-# Runs as root via sudo under ai-tools --project-claim (no-NOPASSWD, like ai-tools-lockdown);
+# Runs as root via sudo under `ai-tools --project-claim` (no-NOPASSWD, like ai-tools-lockdown);
 # CAP_FOWNER lets it ACL files the operator does not own. The walk skips secret-named,
 # '!'-excluded, skip-list, and foreign-owned paths. Alongside the ACL, the walk normalizes
 # the primary group of a DRIFTED path -- group-accessible yet not group @SANDBOX_GROUP@
@@ -40,8 +40,10 @@
 # re-claim's drift scan (acl_drift_scan in the CLI) finds the tree settled.
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 750 \
 #       src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh /usr/local/libexec/ai-tools/ai-tools-setfacl
+#   ```
 
 set -euo pipefail
 
@@ -185,7 +187,7 @@ readonly ACL_SPEC="user:${PROJECTS_USER}:rwX,${ACL_BASE}"
 
 # Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser
 # the allowlist is read with -- end-of-line comments, and quotes for a path carrying a space
-# or a literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under set -e aborts when it is
+# or a literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under `set -e` aborts when it is
 # missing. A bare filter in its place reads a commented exclusion as a pattern no path matches,
 # and would grant the agent an ACL on a subtree the operator carved out and the launch wrapper
 # refuses. Include-guarded.
@@ -269,7 +271,7 @@ _safe_setfacl() {
     # raises its mask from --- to rw- and hands the agent EFFECTIVE read/write while `ls -l` still
     # shows `-rw-------` and only the trailing `+` hints anything changed. Strip the residue the
     # path carries instead (owner-only.lib.sh), and report it: an owner-only .git under
-    # --with-git is a deliberate no-op the operator has to be told about, not a share that
+    # `--with-git` is a deliberate no-op the operator has to be told about, not a share that
     # quietly skipped.
     if ai_tools_is_owner_only "${got_mode}"; then
         ai_tools_strip_sandbox_residue "${fd}" "${got_ftype}" "${got_grp}" "${got_mode}" \
@@ -370,12 +372,12 @@ find "${expr[@]}" 2>/dev/null \
         fi
       } || true
 
-# .git normalization (opt-in via --with-git): the main walk skips .git, but when the
+# .git normalization (opt-in via `--with-git`): the main walk skips .git, but when the
 # operator intends the agent to share git history, normalize it here in one pass -- group
 # GROUP + setgid on its dirs and the same default+access group ACL, so commits the operator
 # makes stay agent-accessible. Secret-named and '!'-excluded entries are still skipped (a
 # stray credential committed into .git stays private). A `.git` FILE (submodule/worktree
-# pointer) is not a tree to normalize, so the -d guard skips it. Idempotent. The loop runs
+# pointer) is not a tree to normalize, so the `-d` guard skips it. Idempotent. The loop runs
 # in this shell (process substitution, not a pipe), so the counter survives.
 gitdir="${canonical}/.git"
 if ${WITH_GIT} && [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
@@ -401,7 +403,7 @@ if ${WITH_GIT} && [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
     ai_tools_log_structured info \
         "normalized ${git_applied} path(s) under ${gitdir} (group ${GROUP}, setgid dirs, ACL)" \
         "AI_TOOLS_PATH=${gitdir}" "AI_TOOLS_RESULT=ok"
-    # --with-git is an explicit opt-in, so a .git the owner-only guard seals off is a share
+    # `--with-git` is an explicit opt-in, so a .git the owner-only guard seals off is a share
     # that did NOT happen. Silence here would leave the operator believing history is shared.
     if (( git_owneronly )); then
         warn MSG-J8R8 "under .git, ${git_owneronly} owner-only path(s) were NOT shared (0600/0700) -- git history stays out of the sandbox account's reach"
@@ -410,7 +412,7 @@ if ${WITH_GIT} && [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
             "AI_TOOLS_PATH=${gitdir}"
     fi
     # Same disclosure as the main walk, for the same reason the owner-only count is disclosed
-    # here: --with-git is an explicit opt-in, so a share that did not happen must be said.
+    # here: `--with-git` is an explicit opt-in, so a share that did not happen must be said.
     if (( git_thirdparty )); then
         warn MSG-D8D7 "under .git, ${git_thirdparty} path(s) were NOT shared -- owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
         ai_tools_log_coded warning "${_warn_code}" \

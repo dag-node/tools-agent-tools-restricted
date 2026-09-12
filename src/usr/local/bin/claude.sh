@@ -11,7 +11,7 @@
 # path-dedup.sh (wired into operator dotfiles by ai-tools-admin) ranks /usr/local/bin
 # (Tier 1) ahead of the nvm shims, so this shadows any nvm-managed claude on an operator's PATH.
 # When operator.conf configures a custom system prompt, this also prepends the resolved
-# --append-system-prompt-file / --system-prompt-file arguments (claude-prompt.lib.sh) ahead of the
+# `--append-system-prompt-file` / `--system-prompt-file` arguments (claude-prompt.lib.sh) ahead of the
 # operator's own; a configured-but-unhonourable prompt refuses the launch (fail closed). The gate
 # order, and what each refusal distinguishes, are in agent-claude-code.rule.md.
 
@@ -114,7 +114,7 @@ if ! source "${CONF_LIB}" 2>/dev/null \
 fi
 
 # Custom system prompt resolver (claude-prompt.lib.sh). Resolves the operator-configured
-# --append-system-prompt-file / --system-prompt-file launch arguments from operator.conf. Loaded
+# `--append-system-prompt-file` / `--system-prompt-file` launch arguments from operator.conf. Loaded
 # here; APPLIED just before the final exec. This input is not confinement, so a host that
 # configures NO custom prompt launches normally even if this lib is missing -- but a host that HAS
 # one configured must not silently fall back to Claude Code's default prompt, so a missing lib fails
@@ -160,7 +160,7 @@ if [[ " $(id -nG 2>/dev/null) " != *" ${OPERATORS_GROUP} "* ]]; then
             "       the sandbox account must never be one -- launch claude from your operator login;" \
             "       the wrapper drops to ${SANDBOX_USER} for you"
     elif id -nG "${_user}" 2>/dev/null | tr ' ' '\n' | grep -qx "${OPERATORS_GROUP}"; then
-        # In ai-ops per the group database (id -nG <user> reads it) but absent from this shell's
+        # In ai-ops per the group database (`id -nG <user>` reads it) but absent from this shell's
         # live credentials -- a session started before the grant took effect. A fresh login
         # rebuilds the credential set; newgrp adopts the group in the current shell.
         die MSG-R7Z3 "claude: ${_user} is an ai-tools operator, but this shell started before the grant" \
@@ -174,11 +174,11 @@ if [[ " $(id -nG 2>/dev/null) " != *" ${OPERATORS_GROUP} "* ]]; then
     fi
 fi
 
-# Test the symlink itself with -L, NOT -e: -e dereferences the full chain
+# Test the symlink itself with `-L`, NOT `-e`: `-e` dereferences the full chain
 # (bin/claude -> versioned bin/claude -> .../claude-code/bin/claude.exe), and the
 # package dir claude-code/ is mode 700 owned ai-tools. The invoking user cannot
-# stat the final target (EACCES), so -e would report "not found" on a perfectly
-# valid link. -L checks link existence without traversing past the first hop;
+# stat the final target (EACCES), so `-e` would report "not found" on a perfectly
+# valid link. `-L` checks link existence without traversing past the first hop;
 # the readlink + string validation handle correctness, and the binary is
 # only ever reached via sudo as ai-tools.
 if [[ ! -L "${CLAUDE_LINK}" ]]; then
@@ -190,12 +190,12 @@ fi
 # Resolve the stable symlink ONE hop -- it points directly at the versioned
 # .../node/<ver>/bin/claude, which is exactly the path the sudoers rule matches.
 #
-# Do NOT use realpath (or readlink -f): the versioned bin/claude is itself an
+# Do NOT use realpath (or `readlink -f`): the versioned bin/claude is itself an
 # npm symlink into the package (-> .../claude-code/bin/claude.exe). Following
 # it fully would (a) yield a path the sudoers NOPASSWD rule cannot match, so
 # sudo would deny/prompt, and (b) require traversing the package directory
 # (mode 700, owned by the sandbox account), which the invoking user cannot enter -- realpath
-# would fail with EACCES and, under set -e, abort the wrapper with no message.
+# would fail with EACCES and, under `set -e`, abort the wrapper with no message.
 CLAUDE_REAL="$(readlink -- "${CLAUDE_LINK}")" \
     || die "ERROR: ${CLAUDE_LINK} is not a symlink -- reinstall or run nvm-update.sh"
 
@@ -211,7 +211,7 @@ if [[ "${CLAUDE_REAL}" == *"/../"* ]]; then
     die "ERROR: resolved claude path '${CLAUDE_REAL}' contains parent-directory references"
 fi
 
-# Print-and-exit invocations (--version/--help as the sole argument) carry no project
+# Print-and-exit invocations (`--version`/`--help` as the sole argument) carry no project
 # surface: the binary prints and exits without touching a working tree, so no allowlist,
 # backstop, or claim gate applies to the CWD. The session still runs confined as the
 # sandbox account -- the same validated binary under the same unit properties -- with the
@@ -335,9 +335,9 @@ if [[ "${approved}" != true ]]; then
             die "claude: sandbox creation did not complete -- see the output above"
             ;;
         2)
-            # Claim in place. --yes pre-answers only the CLI's proceed prompt (you chose
+            # Claim in place. `--yes` pre-answers only the CLI's proceed prompt (you chose
             # claiming here); the secret-lockdown prompt, the .git history grant, and the
-            # traverse grant stay explicit. --project-claim is idempotent and registers a
+            # traverse grant stay explicit. `--project-claim` is idempotent and registers a
             # brand-new path from scratch.
             "${AI_TOOLS_CLI}" --project-claim --yes "${cwd}" || true
             # Confirm the claim registered the path before falling through to the claim guard,
@@ -439,9 +439,9 @@ if ${own_gap} || ${label_gap}; then
     claim_ok=false
     ai_tools_msg_confirm "Claim it in place now?" "${claim_default}" && claim_ok=true
     if ${claim_ok}; then
-        # Delegate the claim. --yes pre-answers only the CLI's proceed prompt (you
+        # Delegate the claim. `--yes` pre-answers only the CLI's proceed prompt (you
         # answered it here); its secret-lockdown prompt, the .git history grant, and the
-        # traverse grant stay explicit. --project-claim is idempotent and closes
+        # traverse grant stay explicit. `--project-claim` is idempotent and closes
         # whichever gaps apply.
         "${AI_TOOLS_CLI}" --project-claim --yes "${cwd}" || true
         # Re-verify the FATAL gaps closed before launching.
@@ -568,6 +568,6 @@ export AI_TOOLS_PROJECT_DIR="${cwd}"
 # prompt_args (if any) precede "$@": the operator.conf-sourced flag sits before the operator's own
 # arguments. A per-invocation system-prompt flag is detected earlier and suppresses prompt_args, so
 # the two never collide here. The ${arr[@]+"..."} form expands to no word at all (not an empty word) when
-# prompt_args is empty, safe under set -u.
+# prompt_args is empty, safe under `set -u`.
 exec sudo -u "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -- /opt/ai-tools/bin/ai-tools-run \
     ${prompt_args[@]+"${prompt_args[@]}"} "$@"

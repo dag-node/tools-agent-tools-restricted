@@ -7,7 +7,7 @@
 # for an agent that declares none, send a CHOWN request over the handback socket.
 # Accepts a single regular-file or directory target; for directories it strips world
 # bits while preserving group rwx so the agent can keep working in a dir it created.
-# An interactive invocation confirms per path; --yes skips that for a batch caller
+# An interactive invocation confirms per path; `--yes` skips that for a batch caller
 # (ai-tools-reclaim) that already confirmed its whole set.
 #
 # Reads the operator's allowed-projects allowlist for allow and exclude rules (its path is
@@ -113,13 +113,13 @@ source "${SAFE_PATHS_LIB}"
 
 # Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), which reads the
 # allowlist this helper gates every path on. REQUIRED like safe-paths.lib.sh: the bare source
-# under set -e aborts if it is missing, rather than leaving a parser that does not match any name and
+# under `set -e` aborts if it is missing, rather than leaving a parser that does not match any name and
 # silently declines every hand-back. Include-guarded, so a second source is a no-op.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source /usr/local/lib/ai-tools/conf.lib.sh
 
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
-# safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
+# safe-paths.lib.sh: the bare source under `set -e` aborts if it is missing -- a valid
 # install ships it, so there is no fallback. Include-guarded, so this is a no-op when
 # safe-paths.lib.sh already loaded it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
@@ -268,7 +268,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
 
             # Interactive invocation (terminal available): show changes and confirm.
             # Non-interactive (hook context, stdin is a pipe): apply silently --
-            # the allowlist is the user's standing authorisation. --yes skips the
+            # the allowlist is the user's standing authorisation. `--yes` skips the
             # prompt for a batch caller that already confirmed the whole set.
             if ! ${ASSUME_YES} \
                     && { [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; }; then
@@ -283,7 +283,7 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # TOCTOU-safe apply. Every check so far ran against the path *string*,
             # but ai-tools owns the project directory and can unlink and recreate
             # this path -- as a symlink, a hardlink, or a different file -- at any
-            # instant. chmod has no --no-dereference, so a symlink swapped in
+            # instant. chmod has no `--no-dereference`, so a symlink swapped in
             # before it would let root chmod an arbitrary file (e.g. /etc/shadow).
             #
             # Pin the inode with an open fd and act through /proc/self/fd: a held

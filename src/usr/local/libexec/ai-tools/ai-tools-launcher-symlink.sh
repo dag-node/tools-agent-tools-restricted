@@ -14,8 +14,12 @@
 # sandbox updater can move a launcher symlink; it validates its argument strictly, because the
 # caller is the agent-reachable handback socket (SYMLINK verb) or install.sh, never sudo.
 #
-# Deploy: sudo install -o root -g root -m 750 \
-#             src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
+# Deploy:
+#   ```bash
+#   sudo install -o root -g root -m 750 \
+#       src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh \
+#       /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
+#   ```
 
 set -euo pipefail
 
@@ -73,7 +77,7 @@ done < <(ai_tools_enabled_agents 2>/dev/null)
 [[ "${launcher_is_enabled}" == yes ]] \
     || err MSG-G4F4 "no enabled agent provides the launcher \"${LAUNCHER}\" -- refusing to repoint ${LINK}"
 
-# The target is itself an npm symlink into the package; -e follows it, so this
+# The target is itself an npm symlink into the package; `-e` follows it, so this
 # also confirms the final binary is present (not a dangling/half-installed tree).
 [[ -e "${TARGET}" ]] || err MSG-T8B9 "target does not exist: ${TARGET}"
 

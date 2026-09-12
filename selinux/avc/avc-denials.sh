@@ -35,7 +35,7 @@
 #   run     (default; RUN AS ROOT)
 #           Brackets the probe with `semodule -DB` ... `semodule -B` so the
 #           dontaudit'd boundary denials become VISIBLE in the audit log for the
-#           test window (without -DB they are blocked but silent, and the audit
+#           test window (without `-DB` they are blocked but silent, and the audit
 #           log would look empty -- mistakable for "no access was denied"). A trap
 #           restores dontaudit on ANY exit (success, error, Ctrl-C). It then hands
 #           off to avc-analyze.sh, which buckets every denial as EXPECTED BOUNDARY,
@@ -51,7 +51,7 @@
 #
 # NB: `semodule -DB` is SYSTEM-WIDE -- it unsilences every domain's dontaudit'd
 # denials for the window, not just ai_tools_t. That is fine for a short controlled
-# run (avc-analyze.sh filters to -su ai_tools_t anyway); the trap puts it back.
+# run (avc-analyze.sh filters to `-su ai_tools_t` anyway); the trap puts it back.
 
 set -uo pipefail
 IFS=$'\n\t'
@@ -95,7 +95,7 @@ do_probe() {
   # probes may SUCCEED, reaching data the policy is meant to protect (/home/<user>,
   # ~/.config, container storage, port :22, the MTA).  Results would also be
   # misleading because "denied/failed" only reflects the absent enforcement, not the
-  # policy.  Require Enforcing + loaded module, or an explicit --force override.
+  # policy.  Require Enforcing + loaded module, or an explicit `--force` override.
   if [[ "${FORCE:-0}" -ne 1 ]]; then
     # Prerequisite: this script already confirmed the ai_tools_t context.  That check
     # rules out "SELinux not installed" and "SELinux disabled" -- a domain
@@ -271,7 +271,7 @@ do_probe() {
 
   # ============================================================
   # SECTIONS A-F: IN-CORE BOUNDARY (existing dontaudit rules)
-  # AVCs are dontaudit'd and only visible under the -DB bracket.
+  # AVCs are dontaudit'd and only visible under the `-DB` bracket.
   # ============================================================
 
   section "SECTION A: OPTIONAL GROUP SURFACES" \
@@ -451,7 +451,7 @@ under -DB. Existence check omitted (stat is dontaudit'd)."
 
   # ============================================================
   # SECTIONS G-X: EXTENDED SURFACE (not yet dontaudit'd)
-  # AVCs log WITHOUT -DB and will appear as NEW in avc-analyze.
+  # AVCs log WITHOUT `-DB` and will appear as NEW in avc-analyze.
   # For each confirmed denial: add dontaudit to ai_tools.te,
   # add type to BOUNDARY_NAMED_RE, rebuild, re-run.
   # ============================================================
@@ -705,7 +705,7 @@ from exec'ing the binary (GRP-006). Via the socket the agent can create
 privileged containers mounting the host filesystem and escape without triggering
 the container_runtime_exec_t deny."
 
-  # Existence check omitted: [[ -S path ]] calls stat(), which is itself denied for
+  # Existence check omitted: `[[ -S path ]]` calls stat(), which is itself denied for
   # container_var_run_t under enforcing -- the check returns false even when the socket
   # is present. Attempt unconditionally; an AVC logs only when the socket exists and is
   # labelled container_var_run_t. ENOENT (absent socket) fails silently with no AVC.
@@ -817,7 +817,7 @@ do_check_results() {
 }
 
 ########################################
-# run -- orchestrate AS ROOT: -DB bracket, wait for the agent probe, analyze.
+# run -- orchestrate AS ROOT: `-DB` bracket, wait for the agent probe, analyze.
 ########################################
 do_run() {
   [[ "${EUID}" -eq 0 ]] || { err "run mode reads the audit log + toggles dontaudit -- use sudo."; usage; exit 1; }
@@ -848,15 +848,15 @@ do_run() {
   fi
   note "auditd is active."
 
-  # Need a terminal for the hand-off wait; without one the -DB window has no
+  # Need a terminal for the hand-off wait; without one the `-DB` window has no
   # well-defined end and we'd risk restoring dontaudit before the probe runs.
   [[ -e /dev/tty ]] || { err "run mode needs a terminal (it waits for the probe). Re-run interactively."; exit 1; }
 
   # Disable dontaudit for the window; ALWAYS restore on exit (trap covers Ctrl-C).
   restore_dontaudit() { note "restoring dontaudit (semodule -B) ..."; semodule -B >/dev/null 2>&1 && note "dontaudit restored." || err "semodule -B FAILED -- run 'sudo semodule -B' by hand to re-silence."; }
   trap restore_dontaudit EXIT INT TERM
-  # Capture START before semodule -DB: the policy reload can trigger a log rotation
-  # at the exact same second, causing ausearch -ts <START> to miss the new log file.
+  # Capture START before `semodule -DB`: the policy reload can trigger a log rotation
+  # at the exact same second, causing `ausearch -ts <START>` to miss the new log file.
   START="$(date '+%m/%d/%Y %H:%M:%S')"
   step "disabling dontaudit system-wide (semodule -DB) so boundary denials are logged"
   semodule -DB >/dev/null 2>&1 || { err "semodule -DB failed"; exit 1; }

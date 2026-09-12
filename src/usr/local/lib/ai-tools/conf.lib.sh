@@ -3,7 +3,7 @@
 # /usr/local/lib/ai-tools/conf.lib.sh
 # The one KEY=value grammar every ai-tools config file is read with, the trust predicate that
 # decides whether a file may be read at all, and three things that share the grammar and so live
-# beside it: the dated config sidecars (<name>.<YYYYMMDD>[-N].{bak,shipped}, whose stamp
+# beside it: the dated config sidecars (`<name>.<YYYYMMDD>[-N].{bak,shipped}`, whose stamp
 # ai_tools_conf_sidecar_path is the single home of), the settings.json hook-declaration merge, and
 # every read AND write of allowed-projects. Sourced (never executed) by operator.lib.sh,
 # skip-dirs.lib.sh, providers.lib.sh, the launch wrapper, the CLI and the root helpers, so a key
@@ -22,9 +22,9 @@
 # reads as a nobody-owned one and is refused. ai_tools_conf_uid_map_is_identity detects that
 # namespace and the reason names it, so the refusal is not investigated as a mode or a label.
 
-# Sourced more than once in a single shell: this library's readonly constants would abort under set -e on the
+# Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on the
 # second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset
-# guard and trips the sourcing shell's set -e).
+# guard and trips the sourcing shell's `set -e`).
 if [[ -n "${_AI_TOOLS_CONF_LIB:-}" ]]; then
     return 0
 fi
@@ -323,7 +323,7 @@ ai_tools_conf_require_jq() {
 # command binds to $command before the membership test: inside index(), `.` is that function's
 # own input -- the $have array -- so an unbound form asks whether the array contains itself and
 # does not report a gap wherever the event already declares a hook.
-# shellcheck disable=SC2016  # jq variables, bound by --slurpfile and jq's own `as`
+# shellcheck disable=SC2016  # jq variables, bound by `--slurpfile` and jq's own `as`
 readonly _AI_TOOLS_CONF_HOOKS_MISSING_FILTER='
     . as $cur
     | ($shipped[0].hooks // {}) | to_entries[] as $event
@@ -554,7 +554,7 @@ ai_tools_conf_allowlist_has_exclusion() {
 
 # ai_tools_conf_allowlist_matching_lines <array-name> <allowlist-file> <path> : set the named array
 #   to every RAW line of <allowlist-file> whose ALLOW entry matches <path>, and return 0 when at
-#   least one did. For a caller that must DELETE the line (unclaim, the --list remediation): the raw
+#   least one did. For a caller that must DELETE the line (unclaim, the `--list` remediation): the raw
 #   text is what a line-anchored `sed` removes, and it can differ from <path> -- a comment, quotes,
 #   or a symlinked spelling -- so reconstructing the line from <path> would fail to match.
 ai_tools_conf_allowlist_matching_lines() {
@@ -576,7 +576,7 @@ ai_tools_conf_allowlist_matching_lines() {
 #   <path> exactly (compared without the `!`), and return 0 when at least one did. Exact-path like
 #   ai_tools_conf_allowlist_has_exclusion, never glob-expanding: it serves the callers that must
 #   EDIT the line an operator wrote to park a project (the CLI's re-enable, its de-registration,
-#   and the --for root helper), and a glob line does not name a single project to act on.
+#   and the `--for` root helper), and a glob line does not name a single project to act on.
 ai_tools_conf_allowlist_exclusion_lines() {
     local -n _ai_tools_conf_excluded="$1"
     local file="$2" want line entry

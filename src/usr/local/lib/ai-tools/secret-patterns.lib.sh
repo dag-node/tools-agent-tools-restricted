@@ -29,9 +29,9 @@
 # case-insensitively (.ENV, Server.KEY, ID_RSA, …).
 
 # Sourced more than once in a single shell (e.g. a helper that re-sources): the
-# readonly declarations would abort under set -e on the second pass. Return
+# readonly declarations would abort under `set -e` on the second pass. Return
 # early. Use an if-statement, not `[[ ]] && return` -- the latter returns 1 when
-# the guard var is unset and trips the sourcing shell's set -e.
+# the guard var is unset and trips the sourcing shell's `set -e`.
 if [[ -n "${_AI_TOOLS_SECRET_PATTERNS_LIB:-}" ]]; then
     return 0
 fi
@@ -153,7 +153,7 @@ ai_tools_is_secret_basename() {
     local base="$1" pat rc=1 _prev
     [[ -n "${_AI_TOOLS_PATTERNS_LOADED:-}" ]] || ai_tools_load_secret_patterns
     # `shopt -p nocasematch` exits non-zero when the option is OFF (the default);
-    # `|| true` keeps the snapshot without tripping the caller's set -e.
+    # `|| true` keeps the snapshot without tripping the caller's `set -e`.
     _prev="$(shopt -p nocasematch || true)"
     shopt -s nocasematch
     for pat in "${AI_TOOLS_SECRET_PATTERNS[@]}"; do

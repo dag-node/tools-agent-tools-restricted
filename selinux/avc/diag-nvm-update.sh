@@ -112,7 +112,7 @@ probe_rw "${HOME}/.npm" "(control: ai_tools_home_t carve-out, must stay writable
 # (ai_tools_exec_t). This step runs the identical chain from ai_tools_t (which holds
 # libs_read_lib_files + the entrypoint grant) as a sanity check that the chain itself
 # is sound. ai_tools_handback_t is granted getattr on ai_tools_exec_t in ai_tools.te,
-# so its own [[ -e ]] resolves too -- section 4 exercises that path live through the
+# so its own `[[ -e ]]` resolves too -- section 4 exercises that path live through the
 # bridge. (A denied getattr there silently reports false -- the swallowed-EACCES shape
 # -- and the helper fails closed with "target does not exist".)
 ########################################

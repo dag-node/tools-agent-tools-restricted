@@ -20,7 +20,7 @@
 # and in journald, naming the owner and mode the predicate read.
 
 # Include guard: consumers may source this alongside libs that also pull it in. An if-statement,
-# not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's set -e.
+# not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
 if [[ -n "${_AI_TOOLS_PROVIDERS_LIB_LOADED:-}" ]]; then
     return 0
 fi
@@ -33,7 +33,7 @@ fi
 #   format its callers read with `$(...)`, so nothing a reader parses may land there.
 #
 #   Defined ahead of the loads below, so the refusal that reports an unusable conf.lib.sh carries a
-#   code like every other. It is pure printf until log.lib.sh is loaded, which the declare -F guard
+#   code like every other. It is pure printf until log.lib.sh is loaded, which the `declare -F` guard
 #   already tolerates.
 _ai_tools_provider_warn() {
     local code=""

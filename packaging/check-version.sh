@@ -39,7 +39,7 @@ if [[ -n "${tag}" ]]; then
 fi
 
 # Newest changelog entry: the first "* <date> <author> - X.Y.Z-R" header after %changelog.
-# Split the header on " - " and take the trailing "X.Y.Z-R" field, then drop the -R release.
+# Split the header on " - " and take the trailing "X.Y.Z-R" field, then drop the `-R` release.
 head_version="$(awk '
     /^%changelog/ { in_log = 1; next }
     in_log && /^\*/ {

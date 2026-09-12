@@ -56,11 +56,11 @@ understands in one pass — the code is the best documentation.
   reader with no access to the conversation that produced it (no session shorthand, ticket tags, or
   "as discussed").
 - **Single-source each fact; link, don't repeat.** A given fact lives at exactly one layer — line
-  comment, method doc, file header, a reference/rule file, CLAUDE.md, README — chosen by altitude;
+  comment, method doc, file header, a reference/rule file, `CLAUDE.md`, README — chosen by altitude;
   every other layer references it by a short link rather than restating it. Keep the layers in sync
-  up through CLAUDE.md: **the code is true for behaviour, and invariants have to hold.** Where a
+  up through `CLAUDE.md`: **the code is true for behaviour, and invariants have to hold.** Where a
   description disagrees with the code, resolve it toward the code and never average two
-  descriptions. Where the *code* contradicts an invariant CLAUDE.md or a rule states, that is a
+  descriptions. Where the *code* contradicts an invariant `CLAUDE.md` or a rule states, that is a
   defect in the code — raise it and leave the invariant standing, because rewriting the invariant
   to match retires a guarantee by editing prose. A docs-to-code ratio climbing toward parity is a
   signal the *code* must become self-descriptive (a rename, an extraction, a stronger type) — not

@@ -72,7 +72,7 @@ else
 fi
 
 # (2c) On an ACL'd file the strip targets the MASK only: an agent data file whose mask is rwx
-# (the mask-execute that surfaces as -rw-rwx---+) drops to mask rw, so the operator group keeps
+# (the mask-execute that surfaces as `-rw-rwx---+`) drops to mask rw, so the operator group keeps
 # read+WRITE and the agent can still edit it next turn -- only execute is removed.
 if command -v setfacl >/dev/null 2>&1 && command -v getfacl >/dev/null 2>&1; then
     am="${proj}/acl.txt"; : > "${am}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${am}"; chmod 0660 "${am}"
@@ -173,7 +173,7 @@ else
     fail "symlink redirection modified the outside victim: now $(stat -c '%U:%G %a' "${victim}")"
 fi
 
-# (11) Argument handling: --yes (the batch caller's per-path-prompt skip) is accepted and
+# (11) Argument handling: `--yes` (the batch caller's per-path-prompt skip) is accepted and
 # applies the same hand-back; an unknown option or a second path is rejected (usage, rc 2).
 by="${proj}/batch.txt"; : > "${by}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${by}"; chmod 0644 "${by}"
 setsid "${HELPER}" --yes "${by}" < /dev/null > /dev/null 2>&1 || true
@@ -191,7 +191,7 @@ else
 fi
 
 # (12) Symlinked PARENT: a link INSIDE the project pointing at an outside directory cannot
-# smuggle an out-of-allowlist file into handback. realpath -e canonicalises the whole path
+# smuggle an out-of-allowlist file into handback. `realpath -e` canonicalises the whole path
 # (parents included), so a hand-back of proj/evildir/loot -- where evildir -> an outside dir --
 # resolves to the real outside path, which is not under any allowlisted project and is left
 # untouched. Distinct from (10), which redirects the FINAL component.

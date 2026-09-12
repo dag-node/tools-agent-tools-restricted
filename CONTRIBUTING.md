@@ -21,14 +21,18 @@ carries an `SPDX-License-Identifier` stating which applies.
 
 From a source checkout:
 
-    sudo ./install.sh install        # deploys the wrapper, helpers, systemd units
-    sudo ai-tools-admin system bootstrap          # provisions the sandbox account's Node toolchain
+```bash
+sudo ./install.sh install        # deploys the wrapper, helpers, systemd units
+sudo ai-tools-admin system bootstrap          # provisions the sandbox account's Node toolchain
+```
 
 See the root `README.md`'s manual install steps if you're working without the RPM.
 
 Optional, recommended for regular contributors:
 
-    make -C packaging hooks          # enable the local git hooks (non-blocking reminders)
+```bash
+make -C packaging hooks          # enable the local git hooks (non-blocking reminders)
+```
 
 A per-clone developer opt-in: it sets `core.hooksPath` to `.githooks` and quiets git's
 ignored-hook advice for sandbox-account commits. Two hooks come with it, and neither blocks a
@@ -38,7 +42,9 @@ package builds only from `src/`, `docs/`, the spec, and the compiled policy.
 
 ## Running the tests
 
-    sudo tests/run.sh [unit|integration|boundary|all]
+```bash
+sudo tests/run.sh [unit|integration|boundary|all]
+```
 
 Run via `sudo`, not as `root` directly — the harness checks `SUDO_USER`. The three
 categories (see `.claude/rules/tests.rule.md`): `unit` (hermetic, no live daemon),
@@ -46,9 +52,7 @@ categories (see `.claude/rules/tests.rule.md`): `unit` (hermetic, no live daemon
 checks run as the sandbox account). `all` runs every category.
 
 For a full package-build + install + confined-launch smoke test in a throwaway
-container:
-
-    make -C packaging rpmtest-rocky9     # or rpmtest-rocky10
+container: `make -C packaging rpmtest-rocky9` (or `rpmtest-rocky10`).
 
 ## Linting
 
@@ -56,8 +60,10 @@ Shell sources lint under ShellCheck 0.10 (the version the baseline in
 `.claude/rules/shellcheck.rule.md` is defined against) with the repo's `.shellcheckrc`.
 The baseline covers `src/**/*.sh` plus `install.sh`:
 
-    find src -name '*.sh' -print0 | xargs -0 shellcheck
-    shellcheck install.sh
+```bash
+find src -name '*.sh' -print0 | xargs -0 shellcheck
+shellcheck install.sh
+```
 
 Extending lint coverage to `tests/`, `selinux/`, or `packaging/` means verifying the
 directory lints clean and updating the rule file and `.github/workflows/ci.yml`
@@ -91,8 +97,10 @@ A reference into another file names a reftag rather than a position; the grammar
 `ai-tools-technical-docs` skill, and `.claude/references.md` is the generated index. After adding,
 moving, or deleting a labelled target or a reference, regenerate the index and check the tree:
 
-    bash tools/ref-index.sh generate
-    bash tools/ref-index.sh check
+```bash
+bash tools/ref-index.sh generate
+bash tools/ref-index.sh check
+```
 
 The pre-commit hook reports a stale index and any reference finding, and the unit suite fails on
 either.

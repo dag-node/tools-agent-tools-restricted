@@ -16,9 +16,9 @@
 # (.nvm/.cache/.local/.npm) stay agent-owned and .git is root-private 0700, so they are not
 # described here.
 
-# Sourced more than once in a single shell: this library's readonly constants would abort under set -e on the
+# Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on the
 # second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset
-# guard and trips the sourcing shell's set -e).
+# guard and trips the sourcing shell's `set -e`).
 if [[ -n "${_AI_TOOLS_CONTROL_PLANE_LIB:-}" ]]; then
     return 0
 fi
