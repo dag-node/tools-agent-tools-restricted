@@ -145,6 +145,12 @@ die() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf '%sselinux: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1
 }
+# indented: shift a subordinate command's own output one level in, so it reads as a block
+# beneath the `log` line that announced it rather than breaking the transcript's left margin.
+# Used on a pipeline, which `pipefail` (set at the top of this file) leaves carrying
+# the command's exit status; the caller merges both streams into it, so a failure message is
+# indented with the rest and still reaches the install transcript.
+indented() { sed 's/^/    /'; }
 # logx/sayx: stderr variants -- safe inside subshells, and used for the group
 # prompt, which must not contaminate stdout.
 logx()    { printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*" >&2; }
@@ -348,7 +354,7 @@ build_pp() {
     local pp="$1"
     require_devel "${pp}"
     log "make ${pp} (rebuilt when a .te/.if/.fc is newer than the build)"
-    make -C "${POLICY_DIR}" -f /usr/share/selinux/devel/Makefile "${pp}"
+    make -C "${POLICY_DIR}" -f /usr/share/selinux/devel/Makefile "${pp}" 2>&1 | indented
     # The refpolicy Makefile creates *.fc stubs as root. Fix ownership so the
     # source file remains readable/commitable by the repo owner.
     local base="${POLICY_DIR}/${pp%.pp}"
@@ -791,7 +797,7 @@ _relabel_runtime() {
             systemctl restart ai-tools-handback.socket 2>/dev/null || true
         fi
     fi
-    [[ -d "${RUN_DIR}" ]] && restorecon -FRv "${RUN_DIR}" 2>/dev/null || true
+    [[ -d "${RUN_DIR}" ]] && restorecon -FRv "${RUN_DIR}" 2>/dev/null | indented || true
 }
 
 # _relabel_helpers: apply ai_tools_handback_exec_t to the handback daemon entrypoint
