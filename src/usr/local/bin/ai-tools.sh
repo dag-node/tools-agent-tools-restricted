@@ -297,6 +297,11 @@ if [[ -z "${FOR_OPERATOR}" ]]; then
 fi
 readonly FOR_OPERATOR OWNER_USER
 
+# The operator this run acts FOR rides as per-run log context (logging.rule.md). journald
+# stamps the invoking uid itself, so the field adds the `--for` case, where the operator
+# whose registries and tree a command edits is not the one who ran it.
+AI_TOOLS_LOG_OPERATOR="${OWNER_USER}"
+
 # The registry this run reads and writes. Without --for it is the invoker's own file, read and
 # written directly. With --for, require_for_target re-points it at a root-side SNAPSHOT of the
 # target's file: an allowlist is 0600 inside a 0700 .config/ai-tools, so one operator cannot read
@@ -321,12 +326,14 @@ say()     { printf '%s\n' "$1"; }
 section() { printf '\n%s%s%s\n' "${C_BOLD}" "$1" "${C_RST}"; }
 ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$1"; }
 warn()    { ai_tools_msg_warn "$@"; }
-# die takes the library's optional leading code and carries it into the log line; the code is
-# split off so the "ai-tools: " prefix lands on the message rather than on the code.
+# die takes the library's optional leading code and carries it into the log line -- as the leading
+# token of the text and as the AI_TOOLS_MSG field, which ai_tools_log_coded writes
+# (logging.rule.md).
+# The code is split off so the "ai-tools: " prefix lands on the message rather than on the code.
 die() {
     local code=""
     if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
-    ai_tools_log_error "${code:+${code} }$*"
+    ai_tools_log_coded error "${code}" "$*"
     ai_tools_msg_error ${code:+"${code}"} "ai-tools: $*"
     exit 1
 }
@@ -348,6 +355,7 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
 fi
 
 # Shared message formatter -- die()/warn() frame their text in the paste-safe
@@ -1244,14 +1252,18 @@ secret_gate() {
     if ! out="$(run_lockdown "${dir}" --dry-run 2>&1)"; then
         warn "secret scan failed -- not granting access:"
         printf '%s\n' "${out}" >&2
-        ai_tools_log_error "secret pre-check: scan failed for ${dir}, access not granted"
+        ai_tools_log_structured error \
+            "secret pre-check: scan failed for ${dir}, access not granted" \
+            "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
     # "N secret-matching path(s)" when any are found vs "no secret-matching paths"
     # when clean -- match the count form to tell them apart.
     if ! grep -qE 'ai-tools-lockdown: [0-9]+ secret-matching' <<<"${out}"; then
         ok "no secret-matching paths found"
-        ai_tools_log_info "secret pre-check: clean, no secret-matching paths under ${dir}"
+        ai_tools_log_structured info \
+            "secret pre-check: clean, no secret-matching paths under ${dir}" \
+            "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
         return 0                                   # clean tree: safe to expose
     fi
 
@@ -1263,22 +1275,28 @@ secret_gate() {
     say "  found ${#SECRET_GATE_LOCKED[@]} secret-matching path(s):"
     printf '%s\n' "${out}" | grep -E '\[(file|dir)\]' >&2 || true
     warn "lockdown is best effort, matching only known secret patterns -- handle any secret it misses yourself first"
-    ai_tools_log_warn "secret pre-check: secrets present under ${dir} (see lockdown.log for paths)"
+    ai_tools_log_structured warning \
+        "secret pre-check: secrets present under ${dir} (see lockdown.log for paths)" \
+        "AI_TOOLS_PROJECT=${dir}"
     # Default YES: locking down is the safe direction and the printed list may be long,
     # so Enter -- and an unattended run -- proceeds to lock down.
     if ! confirm "Lock down these secrets now?" y; then
         warn "declined -- access will not be granted while secrets are exposed"
-        ai_tools_log_warn "secret pre-check: lockdown declined for ${dir}, access not granted"
+        ai_tools_log_structured warning \
+            "secret pre-check: lockdown declined for ${dir}, access not granted" \
+            "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=refused"
         return 1
     fi
     if run_lockdown "${dir}" --yes; then
         say ""
         ok "secrets locked down"
-        ai_tools_log_info "secret pre-check: secrets locked down under ${dir}"
+        ai_tools_log_structured info "secret pre-check: secrets locked down under ${dir}" \
+            "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
         return 0
     fi
     warn "lockdown did not complete -- not granting access"
-    ai_tools_log_error "secret pre-check: lockdown failed under ${dir}, access not granted"
+    ai_tools_log_structured error "secret pre-check: lockdown failed under ${dir}, access not granted" \
+        "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=failed"
     return 1
 }
 
@@ -1848,11 +1866,14 @@ cmd_project_claim() {
         headline_warn "WARNING: the claim did not complete" \
             "${d} is registered, but ${ROOT_STEP_FAILURES} step(s) that grant the agent access did not apply, so it cannot work there yet. Each is named above with the command that applies it. Re-running the claim is the simpler route -- it is idempotent and does only what is still missing:"
         say "      ${C_BOLD}ai-tools --project-claim ${d}${C_RST}"
-        ai_tools_log_warn "claim of ${d} incomplete -- ${ROOT_STEP_FAILURES} root step(s) did not apply"
+        ai_tools_log_structured warning \
+            "claim of ${d} incomplete -- ${ROOT_STEP_FAILURES} root step(s) did not apply" \
+            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         exit 1
     fi
     ok "claimed ${d}"
-    ai_tools_log_info "claimed project ${d}"
+    ai_tools_log_structured info "claimed project ${d}" \
+        "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }
 
 # cmd_project_create <path> [-y]  -- create a NEW project directory and claim it: ONE mkdir, an
@@ -1998,7 +2019,8 @@ cmd_project_create() {
         say "    ${C_DIM}modes set to 0750/0640 -- your umask ($(umask)) would have made them${C_RST}"
         say "    ${C_DIM}owner-only, which the agent cannot read${C_RST}"
     fi
-    ai_tools_log_info "created project directory ${d}"
+    ai_tools_log_structured info "created project directory ${d}" \
+        "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 
     # Plain `git init`, so the operator's own init.defaultBranch decides the branch name rather
     # than this tool holding an opinion about it. run_as_owner passes -H, so it is the TARGET's
@@ -2306,11 +2328,14 @@ unclaim_one() {
     if ${handback_missing}; then
         headline_warn "WARNING: deregistered, but the files were not handed back" \
             "${d} is out of allowed-projects, so no session can launch there. Its files still carry group ${SANDBOX_GROUP}, so an agent session that can reach the path keeps its access to them. The command above completes the reversal."
-        ai_tools_log_warn "unclaimed ${d} (registries dropped; filesystem hand-back did NOT run)"
+        ai_tools_log_structured warning \
+            "unclaimed ${d} (registries dropped; filesystem hand-back did NOT run)" \
+            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
     ok "unclaimed ${d}"
-    ai_tools_log_info "unclaimed project ${d}"
+    ai_tools_log_structured info "unclaimed project ${d}" \
+        "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }
 
 # undeletable_scan <dir>  -- print every directory under <dir> the ACTING OWNER can neither write
@@ -2501,7 +2526,8 @@ cmd_unclaim_unlisted() {
 
     if run_unclaim "${d}" "${hb_group}" "${helper_flags[@]}"; then
         ok "normalized ${d} to group ${hb_group}, ai-tools access removed"
-        ai_tools_log_info "unclaimed unregistered tree ${d} (group -> ${hb_group})"
+        ai_tools_log_structured info "unclaimed unregistered tree ${d} (group -> ${hb_group})" \
+            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     else
         warn "could not normalize the tree -- run it by hand:"
         say  "      ${C_BOLD}sudo ${UNCLAIM_BIN} ${d} ${hb_group} ${helper_flags[*]}${C_RST}"
@@ -2708,7 +2734,9 @@ cmd_project_unclaim() {
     # status rather than only the terminal. The registries are dropped either way, which is why
     # this reports rather than aborts.
     if (( incomplete )); then
-        ai_tools_log_warn "unclaim finished with ${incomplete} of ${#targets[@]} project(s) not fully reversed"
+        ai_tools_log_structured warning \
+            "unclaim finished with ${incomplete} of ${#targets[@]} project(s) not fully reversed" \
+            "AI_TOOLS_RESULT=failed"
     fi
 
     # Mixed tree: the registered projects are done, but ai-tools residue can still sit elsewhere
@@ -2931,7 +2959,8 @@ cmd_project_remove() {
     fi
 
     say ""
-    ai_tools_log_info "removed project ${d}"
+    ai_tools_log_structured info "removed project ${d}" \
+        "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     # The tree is gone either way, but a green ✓ is this project's report card and there is no
     # reading of it that covers "and two cleanup steps failed". So the check mark is reserved for
     # a clean run, and a run with failures closes by stating both facts and exits non-zero, which
@@ -2943,7 +2972,9 @@ cmd_project_remove() {
         say  "  needs attention, across all your projects:"
         say  ""
         say  "      ${C_BOLD}ai-tools --list${C_RST}"
-        ai_tools_log_warn "removed ${d} with ${ROOT_STEP_FAILURES} cleanup step(s) incomplete"
+        ai_tools_log_structured warning \
+            "removed ${d} with ${ROOT_STEP_FAILURES} cleanup step(s) incomplete" \
+            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
     else
         ok "removed ${d}"
     fi
@@ -2989,11 +3020,14 @@ sandbox_finalize() {
     if ! ${safedir_ok}; then
         headline_warn "WARNING: the clone is not git-ready" \
             "${dst} is created, secured and registered, but git safe.directory could not be added, so the agent's git will refuse to operate in it. The command above adds the entry; nothing else about the clone needs redoing."
-        ai_tools_log_warn "sandbox ${dst} registered without a git safe.directory entry"
+        ai_tools_log_structured warning \
+            "sandbox ${dst} registered without a git safe.directory entry" \
+            "AI_TOOLS_PROJECT=${dst}"
         return 1
     fi
     ok "sandbox ready: ${dst}"
-    ai_tools_log_info "sandbox secured and registered: ${dst}"
+    ai_tools_log_structured info "sandbox secured and registered: ${dst}" \
+        "AI_TOOLS_PROJECT=${dst}" "AI_TOOLS_RESULT=ok"
 
     section "Next"
     say "  run the agent  : ${C_BOLD}cd ${dst} && claude${C_RST}"
@@ -3185,7 +3219,9 @@ cmd_sandbox_create() {
     # opens the non-secret paths.
     ( umask 077 && git clone --depth=1 -b "${br}" "${clone_url}" "${dst}" )
     ok "shallow-cloned into ${dst} (private until secured)"
-    ai_tools_log_info "created sandbox clone ${dst} (branch ${br}, base ${base_ref}, remote ${remote})"
+    ai_tools_log_structured info \
+        "created sandbox clone ${dst} (branch ${br}, base ${base_ref}, remote ${remote})" \
+        "AI_TOOLS_PROJECT=${dst}" "AI_TOOLS_RESULT=ok"
 
     sandbox_finalize "${dst}"
 }
@@ -3212,7 +3248,8 @@ cmd_sandbox_push() {
     confirm "Push ${n} commit(s) to ${up}?" y || die "aborted"
     git -C "${d}" push
     ok "pushed ${n} commit(s) to ${up}"
-    ai_tools_log_info "pushed ${n} commit(s) from sandbox ${d} to ${up}"
+    ai_tools_log_structured info "pushed ${n} commit(s) from sandbox ${d} to ${up}" \
+        "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }
 
 # cmd_sandbox_remove [path]  -- delete a sandbox clone and unregister it, warning
@@ -3240,7 +3277,8 @@ cmd_sandbox_remove() {
     # set -e would do exactly that.
     unreg_safedir "${d}" || true
     ok "removed ${d} and unregistered it"
-    ai_tools_log_info "removed sandbox ${d} and unregistered it"
+    ai_tools_log_structured info "removed sandbox ${d} and unregistered it" \
+        "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"
 }
 
@@ -3269,7 +3307,8 @@ cmd_lockdown() {
     if run_lockdown "${d}" "${passthru[@]}"; then
         ${dry} || clear_lockdown_guard "${d}"
         ok "lockdown done: ${d}"
-        ${dry} || ai_tools_log_info "locked down secrets in ${d}"
+        ${dry} || ai_tools_log_structured info "locked down secrets in ${d}" \
+            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     else
         die "lockdown failed for ${d}"
     fi
@@ -3329,7 +3368,8 @@ cmd_project_disable() {
     section "Disable project"
     say "  ${d}"
     retag_allow "${d}" disable || die "allowed-projects not updated -- ${d} is still enabled"
-    ai_tools_log_info "project disabled: ${d} (owner ${OWNER_USER})"
+    ai_tools_log_structured info "project disabled: ${d} (owner ${OWNER_USER})" \
+        "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     say ""
     say "  ${C_DIM}no session can start here until it is re-enabled, and the ownership handback no"
     say "  longer restores files written under it. The files, their group, ACLs and label are"
@@ -3367,7 +3407,8 @@ cmd_project_enable() {
     section "Enable project"
     say "  ${d}"
     retag_allow "${d}" enable || die "allowed-projects not updated -- ${d} is still disabled"
-    ai_tools_log_info "project enabled: ${d} (owner ${OWNER_USER})"
+    ai_tools_log_structured info "project enabled: ${d} (owner ${OWNER_USER})" \
+        "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     report_still_blocked "${d}"
     # A project parked long enough may have drifted out of a fully claimed state; the claim is
     # idempotent and reports what is missing, so point at it rather than re-deriving that here.
@@ -3401,7 +3442,8 @@ cmd_reclaim() {
     # confirm, then the `handed back N` / `nothing to reclaim` / `declined` line -- so no blanket
     # success line here: the CLI states only what happened.
     run_reclaim "${d}" "${passthru[@]}" || die "reclaim failed for ${d}"
-    ai_tools_log_info "reclaim run for ${d}$(${full} && printf ' (full)')"
+    ai_tools_log_structured info "reclaim run for ${d}$(${full} && printf ' (full)')" \
+        "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }
 
 # cmd_audit -- report what has refused, been rejected, been stranded or been flagged since a
@@ -3436,7 +3478,7 @@ cmd_audit() {
 die_stop_usage() {
     local code=""
     if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
-    ai_tools_log_error "${code:+${code} }$*"
+    ai_tools_log_coded error "${code}" "$*"
     ai_tools_msg_error ${code:+"${code}"} "ai-tools: $*"
     exit 2
 }

@@ -91,9 +91,14 @@ set -euo pipefail
 # prefix is stated once here instead of at each site. A leading message code (msg.lib.sh states
 # the form) is printed on its own line ahead of the message, the shape tests/lib/harness.sh's
 # assert_msg reads. Matched inline, since this helper reports before msg.lib.sh is loaded.
+# The code it printed is left in _warn_code, for a site that also records the situation
+# through log.lib.sh: the log call passes the variable, so the code literal stays
+# at the emit call the reference index reads as its definition (messaging.rule.md).
+_warn_code=""
 warn() {
     local IFS=' ' code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    _warn_code="${code}"
     printf 'ai-tools-unclaim: %s\n' "$*" >&2
 }
 # die records the refusal as well as reporting it, so a run the CLI only sees fail leaves the
@@ -155,6 +160,7 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
 fi
 
 # Directory-skip selector (shared single source of truth). A missing lib leaves a stub that
@@ -229,6 +235,11 @@ else
     ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
 fi
 readonly ALLOWLIST PROJECTS_UID
+
+# This run reverts one project for one operator, so the operator and the project
+# ride as per-run log context (logging.rule.md).
+AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER:-}"
+AI_TOOLS_LOG_PROJECT="${canonical}"
 
 # Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser
 # the allowlist is read with -- end-of-line comments, and quotes for a path carrying a space
@@ -417,7 +428,9 @@ find "${expr[@]}" 2>/dev/null \
                 2) hardlinked=$(( hardlinked + 1 )) ;;
             esac
         done
-        ai_tools_log_info "unclaimed ${changed} path(s) under ${canonical} (group -> ${TARGET_GROUP}, group write removed)"
+        ai_tools_log_structured info \
+            "unclaimed ${changed} path(s) under ${canonical} (group -> ${TARGET_GROUP}, group write removed)" \
+            "AI_TOOLS_RESULT=ok"
         # Surfaced, never silent, and with its CONSEQUENCE: a refused hardlink is a path the
         # operator asked to change that keeps the group it has -- so after the project is
         # deregistered those inodes still carry the agent's group, which is the one thing an
@@ -425,10 +438,11 @@ find "${expr[@]}" 2>/dev/null \
         # and this pass does not authorize a change out there), so what the operator needs is to be told
         # plainly and handed the command that lists them, not a silent difference between counts.
         if (( hardlinked )); then
-            ai_tools_log_warn "left ${hardlinked} hardlinked file(s) under ${canonical} untouched -- they keep group @SANDBOX_GROUP@"
             warn MSG-Z5S7 "left ${hardlinked} hardlinked file(s) untouched -- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with"
             # The command goes out unprefixed, on its own line, so it stays copy-pasteable.
             printf '  find %s -xdev -type f -links +1 -group @SANDBOX_GROUP@\n' "${canonical}" >&2
+            ai_tools_log_coded warning "${_warn_code}" \
+                "left ${hardlinked} hardlinked file(s) under ${canonical} untouched -- they keep group @SANDBOX_GROUP@"
         fi
       } || true
 
@@ -458,15 +472,19 @@ if [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
             2) git_hardlinked=$(( git_hardlinked + 1 )) ;;
         esac
     done < <(find "${gitdir}" -xdev '(' -type d -o -type f ')' -print0 2>/dev/null)
-    ai_tools_log_info "unclaimed ${git_changed} path(s) under ${gitdir} (group -> ${TARGET_GROUP}, group write removed)"
+    ai_tools_log_structured info \
+        "unclaimed ${git_changed} path(s) under ${gitdir} (group -> ${TARGET_GROUP}, group write removed)" \
+        "AI_TOOLS_PATH=${gitdir}" "AI_TOOLS_RESULT=ok"
     # `git clone --local` hardlinks .git/objects to the source repo, so a locally-cloned tree
     # legitimately hits the hardlink guard here in bulk. Refusing is the correct outcome --
     # those inodes are shared with the origin, and changing one changes the origin's copy --
     # but it has to be said out loud, or the operator reads a partial revert as a complete one.
     if (( git_hardlinked )); then
-        ai_tools_log_warn "left ${git_hardlinked} hardlinked file(s) under ${gitdir} untouched -- they keep group @SANDBOX_GROUP@"
         warn MSG-H9D7 "left ${git_hardlinked} hardlinked file(s) in .git untouched -- a local git clone shares object files with the source repo, so changing them would change the origin. They KEEP the group they have: list them with"
         printf '  find %s -xdev -type f -links +1 -group @SANDBOX_GROUP@\n' "${gitdir}" >&2
+        ai_tools_log_coded warning "${_warn_code}" \
+            "left ${git_hardlinked} hardlinked file(s) under ${gitdir} untouched -- they keep group @SANDBOX_GROUP@" \
+            "AI_TOOLS_PATH=${gitdir}"
     fi
 fi
 
@@ -481,10 +499,12 @@ if ${UNLISTED} && [[ "$(getenforce 2>/dev/null || echo Disabled)" != "Disabled" 
         && command -v restorecon >/dev/null 2>&1; then
     if [[ "$(stat -c '%C' "${canonical}" 2>/dev/null)" == *:ai_tools_project_t:* ]]; then
         if restorecon -RF -- "${canonical}" 2>/dev/null; then
-            ai_tools_log_info "reset SELinux label under ${canonical} (was ai_tools_project_t)"
+            ai_tools_log_structured info \
+                "reset SELinux label under ${canonical} (was ai_tools_project_t)" "AI_TOOLS_RESULT=ok"
         else
-            ai_tools_log_warn "could not reset the SELinux label under ${canonical}"
             warn MSG-T4S2 "could not reset the SELinux label -- run: sudo restorecon -RF ${canonical}"
+            ai_tools_log_coded warning "${_warn_code}" \
+                "could not reset the SELinux label under ${canonical}" "AI_TOOLS_RESULT=failed"
         fi
     fi
 fi

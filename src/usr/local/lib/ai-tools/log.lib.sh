@@ -73,6 +73,15 @@ _AI_TOOLS_LOG_VERSION="@AI_TOOLS_VERSION@"
 [[ "${_AI_TOOLS_LOG_VERSION}" == @*@ ]] && _AI_TOOLS_LOG_VERSION="dev"
 readonly _AI_TOOLS_LOG_VERSION
 
+# Per-run record context, read at call time like AI_TOOLS_LOG_TAG: the operator a privileged
+# operation is performed for, and the project it is performed in. A root helper runs at _UID=0,
+# so the journal's own fields name the writer of a record, and these name whose tree
+# the operation touched. Every structured record carries whichever of them is set, so a call
+# site spells only what varies between its own records; a component acting for no operator,
+# or outside any project, leaves them unset and the field is absent (logging.rule.md).
+AI_TOOLS_LOG_OPERATOR="${AI_TOOLS_LOG_OPERATOR:-}"
+AI_TOOLS_LOG_PROJECT="${AI_TOOLS_LOG_PROJECT:-}"
+
 # _ai_tools_log_prio <level> -- map a level word to its syslog priority. Unknown -> info.
 _ai_tools_log_prio() {
     case "$1" in
@@ -230,11 +239,16 @@ ai_tools_log_structured() {
     message="$(_ai_tools_log_render "${raw_message}")"
 
     # SYSLOG_FACILITY 3 is `daemon`, matching the `-p daemon.<level>` the plain path sends, so a
-    # record reads the same whichever path wrote it. AI_TOOLS_VERSION rides in the envelope rather
-    # than in a caller's field list: it is the same value for every record this host writes.
+    # record reads the same whichever path wrote it. AI_TOOLS_VERSION and the per-run context
+    # ride in the envelope instead of a caller's field list: each is the same value for every
+    # record its writer makes, so a call site carries only what varies between its own records.
     journal_entry+=( "MESSAGE=${message}" "PRIORITY=${priority_number}"
                      "SYSLOG_IDENTIFIER=${tag}" "SYSLOG_FACILITY=3"
                      "AI_TOOLS_VERSION=${_AI_TOOLS_LOG_VERSION}" )
+    [[ -n "${AI_TOOLS_LOG_OPERATOR:-}" ]] \
+        && journal_entry+=( "AI_TOOLS_OPERATOR=$(ai_tools_log_sanitize "${AI_TOOLS_LOG_OPERATOR}")" )
+    [[ -n "${AI_TOOLS_LOG_PROJECT:-}" ]] \
+        && journal_entry+=( "AI_TOOLS_PROJECT=$(ai_tools_log_sanitize "${AI_TOOLS_LOG_PROJECT}")" )
     for field in "$@"; do
         field_name="${field%%=*}"
         field_value="${field#*=}"
@@ -266,7 +280,7 @@ ai_tools_log_coded() {
     local level="$1" code="$2" message="$3"; shift 3
     local fields=()
     [[ "${code}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]] && fields=( "AI_TOOLS_MSG=${code}" )
-    ai_tools_log_structured "${level}" "${code} ${message}" "${fields[@]}" "$@"
+    ai_tools_log_structured "${level}" "${code:+${code} }${message}" "${fields[@]}" "$@"
 }
 
 # Convenience wrappers -- prefixed to avoid colliding with callers' own log()/warn().

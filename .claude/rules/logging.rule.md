@@ -135,10 +135,17 @@ the token a reader searches on, and the same code rides as `AI_TOOLS_MSG`.
 |---|---|---|
 | `AI_TOOLS_VERSION` | the package version that wrote the record | the library, on every structured record |
 | `AI_TOOLS_MSG` | the message code, `MSG-A6D8` | `ai_tools_log_coded`, from a well-formed code |
-| `AI_TOOLS_RESULT` | `ok`, `refused`, `failed` | the caller |
-| `AI_TOOLS_OPERATOR` | the operator the operation was performed for | the caller |
-| `AI_TOOLS_PROJECT` | the project it was performed in | the caller |
-| `AI_TOOLS_PATH` | the path it acted on | the caller |
+| `AI_TOOLS_OPERATOR` | the operator the operation was performed for | `AI_TOOLS_LOG_OPERATOR`, per run |
+| `AI_TOOLS_PROJECT` | the project it was performed in | `AI_TOOLS_LOG_PROJECT`, per run |
+| `AI_TOOLS_RESULT` | `ok`, `refused`, `failed` | the call site |
+| `AI_TOOLS_PATH` | the path it acted on | the call site |
+
+The operator and the project are **per-run context**: a helper sets `AI_TOOLS_LOG_OPERATOR` and
+`AI_TOOLS_LOG_PROJECT` once it has resolved them, and the library reads each at call time like
+`AI_TOOLS_LOG_TAG`, so every record that run writes carries them and a call site spells only what
+varies between its own records. A run acts for one operator in one project, which is what a
+per-run variable can state accurately. A component acting for no operator, or outside any project,
+leaves the variable unset, so the field is absent rather than naming a tree the run did not touch.
 
 `AI_TOOLS_MSG` is the **one machine key**. `journalctl -o json` and `-o export`, Fluentd's
 `in_systemd` source and Vector's `journald` source each forward a journald field as a property of

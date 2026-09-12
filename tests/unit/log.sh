@@ -215,7 +215,31 @@ else
         fi
     fi
 
-    # (8) A host whose logger(1) predates --journald must still get the line, through the plain
+    # (8) The per-run context. A root helper runs at _UID=0, so whose tree it touched is exactly
+    #     what the journal's own fields cannot say; the two variables supply it for every record
+    #     the run writes. Unset is a field that is ABSENT -- which reads as "not applicable" --
+    #     where a stale or empty one would name the wrong tree.
+    if [[ -z "${AI_TOOLS_LOG_OPERATOR+set}" ]]; then
+        skip "per-run record context" "installed log.lib.sh predates AI_TOOLS_LOG_OPERATOR"
+    else
+        if grep -qE '^AI_TOOLS_(OPERATOR|PROJECT)=' <<<"${_entry}"; then
+            fail "a context field was emitted with the variable unset: $(hx "${_entry}")"
+        else
+            pass "an unset context variable emits no field at all"
+        fi
+        AI_TOOLS_LOG_OPERATOR="alice" AI_TOOLS_LOG_PROJECT="/home/alice/project"
+        ai_tools_log_structured info "a privileged operation" AI_TOOLS_RESULT=ok
+        _context="$(cat "${_cap}")"
+        AI_TOOLS_LOG_OPERATOR="" AI_TOOLS_LOG_PROJECT=""
+        if grep -qx 'AI_TOOLS_OPERATOR=alice' <<<"${_context}" \
+                && grep -qx 'AI_TOOLS_PROJECT=/home/alice/project' <<<"${_context}"; then
+            pass "a record names the operator and the project the run acts for"
+        else
+            fail "the record lost its per-run context: $(hx "${_context}")"
+        fi
+    fi
+
+    # (9) A host whose logger(1) predates --journald must still get the line, through the plain
     #     path. Structured logging is an enhancement; losing it must never lose the record.
     logger() {
         if [[ "${1:-}" == "--journald" ]]; then return 1; fi

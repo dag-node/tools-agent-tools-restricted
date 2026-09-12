@@ -54,6 +54,7 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_info() { :; }; ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
 fi
 
 # A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
@@ -62,7 +63,7 @@ fi
 die() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
-    ai_tools_log_error "${code:+${code} }$*"
+    ai_tools_log_coded error "${code}" "$*" "AI_TOOLS_RESULT=failed"
     [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
     printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit 1
 }
@@ -123,6 +124,10 @@ dir="$(realpath -e "${target}" 2>/dev/null)" || die MSG-N3A5 "path not found: ${
 # Refuse to (un)label a protected system directory.
 ai_tools_assert_safe_target "${dir}" "relabel" || exit 3
 
+# Every record past this point is about one project, so it rides as per-run log context
+# (logging.rule.md) instead of being named at each site.
+AI_TOOLS_LOG_PROJECT="${dir}"
+
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
 source "${RELABEL_LIB}" 2>/dev/null || die MSG-U2G7 "missing label library: ${RELABEL_LIB}"
 
@@ -132,7 +137,8 @@ source "${RELABEL_LIB}" 2>/dev/null || die MSG-U2G7 "missing label library: ${RE
 ai_tools_relabel_lock
 [[ -z "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]] \
     || { echo "ai-tools-relabel: NOTE: relabels are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
-         ai_tools_log_warn "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
+         ai_tools_log_structured warning \
+             "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
 
 if ai_tools_relabel_available; then :; else
     # SELinux off or restorecon absent -- no work to do, and not an error: the
@@ -144,7 +150,7 @@ fi
 if ${remove}; then
     if ai_tools_unlabel_project "${dir}"; then
         echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
-        ai_tools_log_info "unlabelled project ${dir}"
+        ai_tools_log_structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok"
     else
         die MSG-Q4X9 "failed to revert SELinux label on ${dir}"
     fi
@@ -154,7 +160,8 @@ else
     rc=0; ai_tools_label_project "${dir}" || rc=$?
     case "${rc}" in
         0) echo "ai-tools-relabel: labelled ${dir} ai_tools_project_t"
-           ai_tools_log_info "labelled project ${dir} ai_tools_project_t" ;;
+           ai_tools_log_structured info "labelled project ${dir} ai_tools_project_t" \
+               "AI_TOOLS_RESULT=ok" ;;
         2) echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}" ;;
         *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? run: sudo selinux/install-selinux.sh install)" ;;
     esac
