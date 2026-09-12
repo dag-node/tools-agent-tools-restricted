@@ -82,7 +82,7 @@ readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source "${CONF_LIB}"
 
-[[ "${EUID}" -eq 0 ]] || die "must run as root (via sudo)"
+[[ "${EUID}" -eq 0 ]] || die MSG-D6R4 "must run as root (via sudo)"
 
 # allowlisted <dir>: 0 when <dir> is an exact, non-excluded entry in the allowlist of the operator
 # who OWNS it. Reads through the shared grammar (conf.lib.sh), realpath-normalized, so a listed
@@ -112,19 +112,19 @@ target=""
 for a in "$@"; do
     case "${a}" in
         --remove|-r) remove=true ;;
-        -*)          die "unknown option: ${a} (allowed: --remove)" ;;
-        *)           if [[ -z "${target}" ]]; then target="${a}"; else die "takes a single path"; fi ;;
+        -*)          die MSG-Y2P3 "unknown option: ${a} (allowed: --remove)" ;;
+        *)           if [[ -z "${target}" ]]; then target="${a}"; else die MSG-F7T7 "takes a single path"; fi ;;
     esac
 done
-[[ -n "${target}" ]] || die "usage: ai-tools-relabel [--remove] <dir>"
+[[ -n "${target}" ]] || die MSG-A6G2 "usage: ai-tools-relabel [--remove] <dir>"
 
-dir="$(realpath -e "${target}" 2>/dev/null)" || die "path not found: ${target}"
-[[ -d "${dir}" ]] || die "not a directory: ${dir}"
+dir="$(realpath -e "${target}" 2>/dev/null)" || die MSG-N3A5 "path not found: ${target}"
+[[ -d "${dir}" ]] || die MSG-S3E7 "not a directory: ${dir}"
 # Refuse to (un)label a protected system directory.
 ai_tools_assert_safe_target "${dir}" "relabel" || exit 3
 
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
-source "${RELABEL_LIB}" 2>/dev/null || die "missing label library: ${RELABEL_LIB}"
+source "${RELABEL_LIB}" 2>/dev/null || die MSG-U2G7 "missing label library: ${RELABEL_LIB}"
 
 # Serialize against the agent relabel (ai-tools-relabel-agent), which writes the same policy
 # store: a claim can land while the ai-tools-relabel.path watcher is running one. Proceeding
@@ -146,16 +146,16 @@ if ${remove}; then
         echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
         ai_tools_log_info "unlabelled project ${dir}"
     else
-        die "failed to revert SELinux label on ${dir}"
+        die MSG-Q4X9 "failed to revert SELinux label on ${dir}"
     fi
 else
     allowlisted "${dir}" \
-        || die "refusing to label ${dir}: not in the allowed-projects allowlist"
+        || die MSG-P8J7 "refusing to label ${dir}: not in the allowed-projects allowlist"
     rc=0; ai_tools_label_project "${dir}" || rc=$?
     case "${rc}" in
         0) echo "ai-tools-relabel: labelled ${dir} ai_tools_project_t"
            ai_tools_log_info "labelled project ${dir} ai_tools_project_t" ;;
         2) echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}" ;;
-        *) die "failed to label ${dir} (is the ai_tools policy module loaded? run: sudo selinux/install-selinux.sh install)" ;;
+        *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? run: sudo selinux/install-selinux.sh install)" ;;
     esac
 fi

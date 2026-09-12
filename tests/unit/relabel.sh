@@ -603,6 +603,7 @@ else
     else
         fail "the helper did not refuse an unlisted path (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-P8J7 "${out}" "the unlisted-path refusal carries its code"
 fi
 
 # ── The operator config subtree predicate ────────────────────────────────────────────────────
