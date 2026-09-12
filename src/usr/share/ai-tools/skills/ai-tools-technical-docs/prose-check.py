@@ -360,10 +360,22 @@ _BARE_PATH = None  # compiled from the roots in force; see path_pattern()
 
 
 def path_pattern(roots):
-    """The bare-path pattern over `roots`: a rooted path, or a token a known extension ends."""
-    return re.compile(r"(?<![\w/.-])(?:" + "|".join(re.escape(root) for root in roots)
-                      + r")[\w./-]*"
-                      + rf"|(?<![\w/.-]){PATH_STEM}\.(?:{PATH_EXTENSIONS})\b")
+    """The bare-path pattern over `roots`: a rooted path, or a token a known extension ends.
+
+    An ABSOLUTE root is a directory on its own (`/opt`, `/etc`), so what follows it is optional
+    and a word boundary closes it -- `/optional` is a word, not a path. A relative root stays
+    a word until the separator arrives, so `src` is prose and only `src/` opens a path.
+    """
+    absolute = [root.rstrip("/") for root in roots if root.startswith("/")]
+    relative = [root for root in roots if not root.startswith("/")]
+    branches = [rf"(?<![\w/.-]){PATH_STEM}\.(?:{PATH_EXTENSIONS})\b"]
+    if relative:
+        branches.insert(0, r"(?<![\w/.-])(?:"
+                        + "|".join(re.escape(root) for root in relative) + r")[\w./-]*")
+    if absolute:
+        branches.insert(0, r"(?<![\w/.-])(?:"
+                        + "|".join(re.escape(root) for root in absolute) + r")(?![\w-])[\w./-]*")
+    return re.compile("|".join(branches))
 
 
 def bare_path(sentence):
@@ -1098,12 +1110,37 @@ def invariant_altitude(path, sentence):
     return MECHANISM_MARK.search(sentence) if path.endswith(INVARIANT_LAYER) else None
 
 
+# A literal whose backticks stop short of its end: the span closes and the token runs on outside
+# it (\x60ai-tools-handback\x60@.service, a template unit cut at its instance marker). Both halves
+# then read as something they are not -- the marked half is a shorter literal, and the bare half
+# is prose -- and a rename over the marked spans edits one of them.
+#
+# The two characters that continue a literal here are the instance marker and the extension dot,
+# and each has to reach a word character. A SLASH is not one of them: after a span it spells
+# the coordination \x60dotnet build\x60/restore far more often than it does a path cut in half,
+# and reading it as a cut reports the tree for writing an alternation.
+SPLIT_TAIL = re.compile(r"(?:@[\w.@-]*\w|\.\w[\w.@-]*)")
+SPLIT_HEAD = re.compile(r"[\w@-]*[\w@]\.$")
+
+
+def split_literal(path, sentence):
+    """A literal cut by its own backticks, leaving the rest of the token outside them."""
+    if path.endswith(MAN_PAGE):
+        return None
+    for span in BACKTICK_SPAN.finditer(sentence):
+        cut = SPLIT_TAIL.match(sentence, span.end()) or SPLIT_HEAD.search(sentence[:span.start()])
+        if cut:
+            return cut
+    return None
+
+
 # Checks that read the path as well as the sentence, and the sentence unblanked. They run by
 # default: each mark names one thing, so the report is near-exact, and the hook that runs the
 # default set is where a writer is standing when the mechanism goes in.
 PATH_CHECKS = [
     ("invariant-altitude", invariant_altitude,
      "state the invariant here; the mechanism belongs in the domain's rule, with a pointer"),
+    ("split-literal", split_literal, "close the backticks around the whole literal"),
 ]
 
 

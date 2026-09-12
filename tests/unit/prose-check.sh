@@ -334,6 +334,23 @@ silent TEST-PC-118-span-wrapped-alternation.md \
     'The logger records one line (`confirm: <question> -> yes|no (answered' \
     '| default | assume-yes)`) for every decision.'
 
+# An absolute root is a directory on its own, so the path that follows it is optional. Pinned
+# from both sides: the boundary that admits `/opt` must still refuse a word that merely
+# begins with it, or every `/optional` in the tree reads as a path.
+reports bare-path TEST-PC-120-path-absolute-root.md "The account is created at /opt, never at /home."
+silent TEST-PC-121-path-absolute-word.md "An /optional group is enabled by the operator alone."
+
+# A literal cut by its own backticks leaves the rest of the token outside them, where a rename
+# over the marked spans edits one half. Pinned against the two forms it sits beside, since
+# each puts an ordinary sentence next to a span: a coordination, and a closing period.
+# shellcheck disable=SC2016
+reports split-literal TEST-PC-122-split-literal.md \
+    'The unit is `/usr/lib/systemd/system/ai-tools-handback`@.service on the host.'
+# shellcheck disable=SC2016
+silent TEST-PC-123-split-literal-coordination.md \
+    'The type keeps it off other domains'"'"' `tmp_t`/`user_tmp_t` files.' \
+    'The seeder reads `managed-assets.lib.sh`. It runs as root.'
+
 # A filename is spelled in one case throughout, while a product whose name ends in an extension
 # is capitalised. Pinned from both sides: the narrowing that keeps the product name out must
 # leave the uppercase filename a repository's own router carries.

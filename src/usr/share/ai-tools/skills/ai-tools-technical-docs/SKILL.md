@@ -717,7 +717,9 @@ pages to read for calibration.
 variable or config key, a filepath — wherever prose appears: a document, a rule, a file header,
 a comment. A command is written as the whole line and begins with its binary, which
 is what separates it from a phrase that reads like one: `projects claim` is a phrase,
-`ai-tools projects claim` is a command.
+`ai-tools projects claim` is a command. The span closes after the **whole** literal, instance
+marker and extension included (`ai-tools-handback@.service`), since a reader pastes what the
+backticks hold and a rename searches for it.
 
 A **doc comment's contract line** is already code — `name <arg>... -- what it does`, and the
 `args:`/`stdout:` fragment beside it — so its tokens stay bare. A **man page** takes the fonts

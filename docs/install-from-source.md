@@ -219,7 +219,7 @@ owner/group/mode list is `tests/integration/perms.sh`, which
 | `src/usr/local/libexec/ai-tools/ai-tools-handback.py` | `/usr/local/libexec/ai-tools/ai-tools-handback` (root) |
 | `src/usr/local/bin/ai-tools-handback-client.py` | `/usr/local/bin/ai-tools-handback-client` (root:ai-tools) |
 | `src/usr/lib/systemd/system/ai-tools-handback.socket` | `/usr/lib/systemd/system/ai-tools-handback.socket` (root) |
-| `src/usr/lib/systemd/system/ai-tools-handback`@.service | `/usr/lib/systemd/system/ai-tools-handback`@.service (root) |
+| `src/usr/lib/systemd/system/ai-tools-handback@.service` | `/usr/lib/systemd/system/ai-tools-handback@.service` (root) |
 | `src/usr/local/lib/ai-tools/secret-patterns.lib.sh` | `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/skip-dirs.lib.sh` | `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/filters.lib.sh` | `/usr/local/lib/ai-tools/filters.lib.sh` (root) |
