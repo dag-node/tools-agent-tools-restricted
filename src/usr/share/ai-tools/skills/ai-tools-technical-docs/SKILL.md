@@ -7,7 +7,7 @@ x-ai-tools-version: 4
 x-ai-tools-updated: 2026-09-12
 description: >
   Technical writing standard for every software engineering artifact. Use when writing or
-  editing README and usage guides, CLAUDE.md / AGENTS.md, *.rule.md, file and module headers,
+  editing README and usage guides, `CLAUDE.md` / `AGENTS.md`, `*.rule.md`, file and module headers,
   design notes, architecture docs and ADRs, method/function/XML doc-comments and docstrings,
   changelogs, release notes, migration guides, man pages, git commit messages, pull requests,
   issue descriptions, error messages, and log messages. Enforces concrete, present-tense,
@@ -23,7 +23,7 @@ description: >
 One standard covers every artifact. The universal rules hold everywhere; each artifact type
 adds its own structure, altitude, and reader.
 
-Applies to: README and usage guides; CLAUDE.md, AGENTS.md, `*.rule.md`, file and module
+Applies to: README and usage guides; `CLAUDE.md`, `AGENTS.md`, `*.rule.md`, file and module
 headers; design notes, architecture docs, ADRs; doc comments and docstrings; changelogs,
 release notes, migration guides; man pages; commit messages, pull requests, issue
 descriptions; error messages and log messages.
@@ -657,7 +657,7 @@ Two points about running the checks:
 | Artifact | It is right when |
 |---|---|
 | **Usage / README** | a reader meets a working example before any prose, and every following sentence names the exact type, call, or option |
-| **Reference / rule.md / header** | every sentence states what the system is or does now, and rationale appears as the invariant a behaviour guarantees |
+| **Reference / `*.rule.md` / header** | every sentence states what the system is or does now, and rationale appears as the invariant a behaviour guarantees |
 | **Doc comment** | the summary names what the member does and the concrete type it does it with, and reads as a tooltip |
 | **Changelog** | each entry names what an operator gains or must change on upgrade, grouped so breaking changes are found in one pass |
 | **Commit** | the subject states what the change achieves, and the body is shorter than the diff |
@@ -713,6 +713,17 @@ distribution channel stay out. Read `references/man-pages.md` beside this file b
 one — it covers section numbering, heading order, `an`-macro form, and which well-maintained
 pages to read for calibration.
 
+**A literal a reader types or pastes is backticked** — a command, an option, a placeholder, a
+variable or config key, a filepath — wherever prose appears: a document, a rule, a file header,
+a comment. A command is written as the whole line and begins with its binary, which
+is what separates it from a phrase that reads like one: `projects claim` is a phrase,
+`ai-tools projects claim` is a command.
+
+A **doc comment's contract line** is already code — `name <arg>... -- what it does`, and the
+`args:`/`stdout:` fragment beside it — so its tokens stay bare. A **man page** takes the fonts
+`references/man-pages.md` states instead, and a **runtime message** is a string rather than
+prose.
+
 **Shell commands a reader will copy** go on a single line. Backslash continuations do not
 survive a copy out of a terminal, so anything longer than one line ships as a script file the
 reader runs in one command.
@@ -722,7 +733,7 @@ reader runs in one command.
 UTF-8 icons are allowed sparingly in human-facing prose where they carry meaning — a section
 marker, a check or cross in a do/don't table, a warning glyph. Source files stay ASCII.
 
-## Reference docs: CLAUDE.md, AGENTS.md, `*.rule.md`, headers, design notes, ADRs
+## Reference docs: `CLAUDE.md`, `AGENTS.md`, `*.rule.md`, headers, design notes, ADRs
 
 Write a specification of the **current** system: present tense, terse, factual, and normative
 (MUST / SHOULD / MAY) where it prescribes. Use *should* rather than *is* where the document is
@@ -952,6 +963,8 @@ Scan the finished text for each of these, since every one is checkable:
     reference in a root `CLAUDE.md` or `AGENTS.md`.
 13. A count of what the code declares, including the words that imply one — "both", "the two",
     "the pair" — where the set can grow. Name the set instead.
+14. A command, an option, a placeholder, a variable, or a filepath standing bare in prose where a
+    reader would type or paste it. Backtick it, and give a command its binary.
 
 **Before committing, name the file each behavioural sentence was read from.** Not as a citation
 in the prose — as a check made while editing. Open the code during this edit, and do not let a
@@ -974,7 +987,7 @@ there.
 a first draft's own findings as much as to a rewrite pass.
 
 **Run the checkable ones.** `prose-check.py` ships beside this file and reports items 2, 3, 4, 5,
-7, 9, 11 and 12 plus the `does not` rule, so the pass is a command rather than an act of
+7, 9, 11, 12 and 14 plus the `does not` rule, so the pass is a command rather than an act of
 attention:
 
 ```bash

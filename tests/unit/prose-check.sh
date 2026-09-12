@@ -16,6 +16,14 @@
 # extension-driven read mode that `--prose`/`--source` override. `--kept` is driven over a real
 # git index, since it is the check that guards a security claim through a rewrite.
 #
+# The markup checks are pinned from both sides of their SURFACE as well as their pattern.
+# `bare-option` reads a document and a source comment; `bare-placeholder`, `bare-variable`
+# and `bare-path` read a document alone, so each of those is driven with one sentence in both
+# places. Widened to comments the document-only checks report several thousand sites in this
+# tree, a pre-commit hook no commit can answer for; narrowed further they report a clean tree.
+# The exemptions carry the rest of the pattern work and each is driven through the one check
+# that reads it: a roff page, a doc comment's contract line, an SPDX tag, and a Markdown link.
+#
 # `invariant-altitude` is pinned from both sides of its scope, since it is the one check that
 # reads the file NAME. The two ways that scope can regress are not symmetric: narrowed to no file
 # it stays silent, which reads as a clean sweep, so the router fixture it MUST report on is what
@@ -162,13 +170,15 @@ reports nothing TEST-PC-83-nothing-run.md "A comment between the two runs nothin
 silent TEST-PC-70-positional-threshold.md "A comment line stays below 120 columns, and a box within 80."
 silent TEST-PC-73-reference-ok.md \
     "The owner rule [ref-section-j9l2](../cli.rule.md#ref-section-j9l2) holds, and the message carries MSG-F6Z3."
-silent TEST-PC-74-reference-tool-name.md "Run ref-index.py before a commit."
+# shellcheck disable=SC2016
+silent TEST-PC-74-reference-tool-name.md 'Run `ref-index.py` before a commit.'
 # A cost claim backed by a frequency, and one backed by a bounded operation named as the subject.
 # Both carry a cost word, so each fails if the backing half of the check stops being applied.
 silent TEST-PC-08-cost-frequency.md "It runs once per restart, not per connection, so the relabel is cheap."
 silent TEST-PC-09-cost-bounded.md "A single write of the whole text keeps the window negligible."
+# shellcheck disable=SC2016
 silent TEST-PC-10-predicted-action-ok.md \
-    "The installer creates operator.conf root-owned, and the probe reads it there."
+    'The installer creates `operator.conf` root-owned, and the probe reads it there.'
 # The three neighbouring registers the vocabulary is kept small for: an advisory document
 # addressing its reader, a man page addressing an operator, and `reader` naming a FUNCTION. Each
 # fails if the check widens beyond the two subjects that name a person outright.
@@ -179,6 +189,95 @@ silent TEST-PC-11-person-registers.md \
 # ── The cost vocabulary excludes the domain-term compounds, or the check buries itself ────────
 silent TEST-PC-12-cost-compounds.md \
     "The prompt is fast-tracked when its default is yes, and the build is fail-fast."
+
+# ── The markup checks: a literal a reader types is backticked ─────────────────────────────────
+# One check per kind over one rule, and what each is pinned for differs. The surface split
+# carries the most: `bare-option` reads a document AND a source comment, while
+# `bare-placeholder`, `bare-variable` and `bare-path` read a document alone, so each of those is
+# driven with one sentence in both places -- reported as a document, silent as a comment. Widened
+# to comments the document-only checks report several thousand sites in this tree, which no
+# pre-commit hook can answer for; narrowed further they report a clean tree.
+reports bare-option      TEST-PC-84-bare-option.md "Pass --project-claim to register the tree."
+reports bare-option      TEST-PC-85-bare-option-short.md "The -n spelling was dropped at 0.15.0."
+reports bare-option      TEST-PC-86-bare-option-comment.sh \
+    'x=1' '# The claim takes --for and refuses root.'
+reports bare-placeholder TEST-PC-87-bare-placeholder.md \
+    "The helper writes <operator> into the registry."
+reports bare-variable    TEST-PC-88-bare-variable.md "The unit hands AI_TOOLS_AGENT_EXEC to the shim."
+reports bare-path        TEST-PC-89-bare-path-root.md "The gate is staged under src/usr/local/bin."
+reports bare-path        TEST-PC-90-bare-path-extension.md \
+    "The seeder reads managed-assets.lib.sh from the datadir."
+
+# The corrected form, every kind at once: what the sweep leaves behind must be silent,
+# or the checks report the tree they were run over.
+# shellcheck disable=SC2016
+silent TEST-PC-91-markup-backticked.md \
+    'Pass `--project-claim` to register the tree, writing `<operator>` into the registry.' \
+    'The unit hands `AI_TOOLS_AGENT_EXEC` to `src/usr/local/bin/ai-tools-run`.'
+
+# The three shapes a bare `-` takes in prose and none of which is an option: a hyphenated word,
+# the spaced dashes an author writes for an em dash, and a Markdown list marker.
+silent TEST-PC-92-option-not-an-option.md \
+    "A well-maintained page keeps its wording, and the gate -- a read-only one -- refuses." \
+    "- an item in a list takes a marker"
+
+# A tag the same sentence closes is HTML, which prose about markup contains.
+silent TEST-PC-93-placeholder-html.md \
+    "A tag such as <code>x</code> is markup, so the check reads it as one."
+
+# The scope split, from the side that floods: the same sentence in a source comment is not
+# read by the document-only checks, a comment sitting inside the code it describes,
+# where an identifier and a path are the grammar of the file.
+silent TEST-PC-94-variable-comment.sh 'x=1' '# The unit hands AI_TOOLS_AGENT_EXEC to the shim.'
+silent TEST-PC-95-path-comment.sh 'x=1' '# The seeder reads managed-assets.lib.sh from the datadir.'
+
+# A Markdown link's text and its destination are both paths by construction, so the line carrying
+# one is measured without it.
+silent TEST-PC-96-path-link.md \
+    "The conventions are in [docs/naming-conventions.md](docs/naming-conventions.md)."
+# The prose readings a path pattern takes if it is loosened: a coordination, a ratio,
+# and a sentence-final abbreviation.
+silent TEST-PC-97-path-prose.md "The ratio of docs:code stays low, and/or the header is filled, etc."
+# A version number ends in a dot and a digit exactly as a man page's filename does.
+silent TEST-PC-98-path-version.md "Rocky 9.5 and release 0.16.0 carry one policy."
+
+# A doc comment's contract line is the form this standard prescribes for a shell function,
+# so every token in it is the signature rather than prose that forgot its backticks. Each
+# branch is driven through the one check that reads it: the fragment key through an option
+# in a comment, the signature through a placeholder in a document.
+silent TEST-PC-99-contract-fragment.sh \
+    'x=1' '# usage: ai-tools-admin operators add --for <name>'
+silent TEST-PC-99-contract-signature.md \
+    'seed_asset <kind> <name> -- place the shipped asset, and report what it replaced.'
+
+# A roff page's markup is its fonts, held by the man-page lint, and read as raw roff a page
+# reports every variable and every path in it.
+silent TEST-PC-100-man-page.1 '.TH AI-TOOLS 1' '.B \-\-full' \
+    '.I /etc/ai-tools/operator.conf' 'The AI_TOOLS_REQUIRE_SELINUX key is read at launch.'
+
+# An SPDX identifier is a machine-read tag, and joined to the block beneath it would open
+# the header's first sentence with a licence expression -- which the contract-line rule then
+# exempts, taking the whole header with it.
+reports bare-option TEST-PC-101-spdx.sh \
+    '# SPDX-License-Identifier: AGPL-3.0-only' '# The claim takes --for and refuses root.'
+
+# A backticked span is what every check reads past, so each way one can be lost is pinned
+# here rather than left to whichever check reports first. A span may hold a period of its own,
+# and a cut there leaves the span open on both parts, where no later pass matches it.
+# shellcheck disable=SC2016
+silent TEST-PC-104-span-holds-a-period.md \
+    'A refusal reads `ai-tools --project-claim <path>. Claim it with the CLI` and stops.'
+# A span glued to the next word by a hyphen was one word, so the separator that replaces it goes
+# outside: inserted inside, it hands the option check a leading `-macro`.
+# shellcheck disable=SC2016
+silent TEST-PC-105-span-glued.md 'The `an`-macro form is read as one word.'
+
+# The path roots are a checker option: a shipped tool ships without any repository's layout.
+run_check "$(fixture TEST-PC-102-path-roots.md 'The module sits in selinux/policy and loads at boot.')"
+omits bare-path "TEST-PC-102-path-roots: a root outside the default set is not a path"
+run_check --path-roots selinux/ \
+    "$(fixture TEST-PC-103-path-roots-arg.md 'The module sits in selinux/policy and loads at boot.')"
+assert_grep bare-path "${OUT}" "TEST-PC-103-path-roots-arg: --path-roots names the root it reports"
 
 # ── Suppression: the explicit marker, and the quoted span a style guide needs ──────────────────
 silent TEST-PC-13-allow-marker.md "The label probe is cheap. <!-- prose-check: ignore -->"
