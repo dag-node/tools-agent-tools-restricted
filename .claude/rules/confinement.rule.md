@@ -141,7 +141,7 @@ A session that fails to transition into `ai_tools_t` runs *unconfined*, and beca
 floor; `user_u` was rejected because it breaks the `ai-tools`→root sudo). A wrapper
 cannot observe its successor's post-`exec` domain, so `ai-tools-run` probes the
 transition's inputs *before* launch and logs them on every launch (journald, `ai-tools-run`
-tag): the entrypoint's label (`matchpathcon` vs `stat -c %C`), the `systemd --user` manager's
+tag): the entrypoint's label (`matchpathcon` vs `stat -c %C`), the `systemd --user manager`'s
 domain (`/proc/<pid>/attr/current`), and whether the core module's **file-contexts are live**.
 
 That last one is probed with `matchpathcon` on a core-owned path (`/opt/ai-tools/.config`
@@ -195,7 +195,7 @@ unlink or rename over it (no `add_name`/`remove_name` on a `lib_t` directory), n
 `bin_t` symlink — even though DAC alone would allow all three, since the account owns that tree.
 This is the layer that makes the exec root read-only to the agent, and it is why the
 launch-time entrypoint re-check in [launch](launch.rule.md) is a **DAC-only** concern. The residual
-is the unconfined `--user` manager: anything the agent persuades that manager to run executes
+is the unconfined `--user manager`: anything the agent persuades that manager to run executes
 outside `ai_tools_t`, which is why `~/.config/systemd/user` must stay root-owned.
 
 #### `AI_TOOLS_REQUIRE_SELINUX` — operator-declared fail-closed
@@ -234,7 +234,7 @@ are root-owned. The posture rides in the per-launch audit line (`require=yes|no`
 ## `/tmp` model
 
 `PrivateTmp` is not used; the session shares the host `/tmp`. systemd `PrivateTmp` is a
-no-op for an unprivileged `--user` manager: it cannot pivot a private `/tmp` for the
+no-op for an unprivileged `--user manager`: it cannot pivot a private `/tmp` for the
 payload (the unit starts, but the payload still sees the shared `/tmp` — claude's
 runtime dir stays visible and no private bind mount appears in the payload's
 `mountinfo`). claude keeps its runtime at a fixed `/tmp/claude-<uid>`, does not honour

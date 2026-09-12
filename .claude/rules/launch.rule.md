@@ -270,7 +270,7 @@ which needs the `unconfined_t` that root holds (see [updater](updater.rule.md)):
 reconcile runs through the root-side `ai-tools-relabel.path` watcher, the agent package's `%post`
 runs it as root, and an administrator runs `sudo ai-tools-admin system entrypoints relabel` through
 the host's own general sudo grant. The toolchain update likewise runs as `SANDBOX_USER` in its own
-`systemd --user` instance. The consequence for the account shape `--for` exists to serve is stated
+`systemd --user instance`. The consequence for the account shape `--for` exists to serve is stated
 plainly: an `ai-ops` operator holding no general sudo grant reaches the launch and the stop, and
 does not reach the on-demand relabel — a reconcile the two root-side routes already perform
 without them.

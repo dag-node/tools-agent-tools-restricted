@@ -130,7 +130,7 @@ cleanups, run in order after the path sweep.
 
 `run.sh` runs the **residue sweep** (`lib/residue.sh`) before any category: it lists each
 directory fixtures are born in (`/tmp`, the operator's home, `/var/opt/ai-tools` and its clone
-area, `/opt/ai-tools`, `.claude`, the `--user` unit directories, `/var/log/journal`, the cgroup v2
+area, `/opt/ai-tools`, `.claude`, the `--user unit` directories, `/var/log/journal`, the cgroup v2
 root) one level deep for that pattern, removes each match, and prints one line per removal; a
 match it cannot remove refuses the run. `sudo tests/run.sh residue` runs the sweep alone. A
 fixture cgroup is killed (`cgroup.kill` over its subtree) and then `rmdir`ed. The suite runs one
@@ -151,7 +151,7 @@ script, where the Stop sweep advances the shared sweep marker under `.claude` as
 would; the automated suite never moves that marker, which the hook rotates by `mv` inside the
 sticky `.claude` directory and a root-written one could never be replaced in. No file starts or
 stops a service: `integration/systemd.sh`
-reads the sandbox account's linger record (what keeps its `--user` manager up with no login) and
+reads the sandbox account's linger record (what keeps its `--user manager` up with no login) and
 fails when it is absent; a manager down despite linger is skipped, with the start command named,
 and the test does not start it.
 
@@ -745,7 +745,7 @@ read that resolves a path's owner, so that operator's projects stop being handed
 DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant need a session, and
 `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
 `systemd-analyze verify` on each shipped unit, plus enablement in the correct instance —
-the `nvm-update` timer in the sandbox account's own `--user` instance, the relabel watcher
+the `nvm-update` timer in the sandbox account's own `--user instance`, the relabel watcher
 and handback socket in the system instance. The
 handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers
 with its own environment, so the helper reads the **real** allowlist — and the automated suite

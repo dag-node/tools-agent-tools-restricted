@@ -183,7 +183,7 @@ prompt.
 The script deploys the static `%ai-ops` sudoers drop-in, the helpers and the system
 units, creates the approved-projects allowlist with format documentation, installs the
 `ai-tools` project CLI and the `/var/opt/ai-tools` sandbox area, enables the
-`nvm-update.timer` in `${SANDBOX_USER}`'s `--user` instance, and enables the
+`nvm-update.timer` in `${SANDBOX_USER}`'s `--user instance`, and enables the
 `ai-tools-relabel.path` watcher. It is idempotent — safe to re-run after updates. It deploys
 the commit the checkout is at and names it before asking to proceed. A checkout with uncommitted
 changes is listed, with the paths the sandbox account wrote marked, and refused, so what root

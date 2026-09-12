@@ -66,13 +66,13 @@ prompt requires it and fails closed like any other, no fallback (see
 ## Where the update runs
 
 `nvm-update.service` and `nvm-update.timer` ship in `%{_userunitdir}` and are enabled in
-`SANDBOX_USER`'s own `systemd --user` instance, so the updater runs as `SANDBOX_USER` and
+`SANDBOX_USER`'s own `systemd --user instance`, so the updater runs as `SANDBOX_USER` and
 writes the shared `.nvm` tree (`%h=/opt/ai-tools`) directly. The timer fires daily; one
 instance maintains the toolchain the whole team shares. `ai-tools-bootstrap` enables the
 timer once it has provisioned the toolchain and `SANDBOX_USER`'s linger; `install.sh`
 enables it for the dev flow.
 
-### A `--user` unit here does not carry a mount-namespace option
+### A `--user unit` here does not carry a mount-namespace option
 
 Running in a per-user manager decides what these units may set. `systemd.exec(5)` states that a
 mount-namespace option "is only available for system services, or for services running in per-user
@@ -89,7 +89,7 @@ names the translated owner it read ([the empty-set classification](#the-run-clas
 so the state is reported, and the unit-file check is what keeps it from arising.
 
 Two properties of that make the guard a **unit-file check** (`tests/integration/systemd.sh`, over
-every shipped `--user` unit) rather than a runtime one:
+every shipped `--user unit`) rather than a runtime one:
 
 - `systemd-analyze verify` accepts the option, and the unit starts and exits 0 with it.
 - `RestrictNamespaces=yes` does not refuse it. That directive filters the **payload's** `unshare`,
@@ -102,7 +102,7 @@ same property holds for a session (see [confinement](confinement.rule.md), which
 
 ## Last-run stamp
 
-Running there puts the updater's health out of the operator's reach: querying a `--user` manager
+Running there puts the updater's health out of the operator's reach: querying a `--user manager`
 needs that account's own bus, the machine transport (`systemctl --user -M`) needs root, and no
 sudo rule grants either — so a failing update is invisible from an operator session while the
 toolchain silently stops advancing. `nvm-update.sh` closes that by recording every run's outcome
@@ -369,7 +369,7 @@ operator clears with `ai-tools-admin system entrypoints relabel`, never an uncon
 
 ## `loginctl enable-linger`
 
-Linger on `SANDBOX_USER` keeps its `systemd --user` instance running without an
+Linger on `SANDBOX_USER` keeps its `systemd --user instance` running without an
 interactive login, so both the daily `nvm-update` timer and each `ai-tools-run` session unit
 have a live user manager. Required for headless/unattended operation.
 

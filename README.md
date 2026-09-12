@@ -128,7 +128,7 @@ auto-update, a separate mechanism from these DNF package upgrades.
 
 `claude` resolves to the system wrapper `/usr/local/bin/claude`, which runs as you,
 checks your `ai-ops` membership and the project allowlist, then drops to `${SANDBOX_USER}`
-via `sudo` and wraps the session in a confined `systemd --user` service. Launched in an
+via `sudo` and wraps the session in a confined `systemd --user service`. Launched in an
 unclaimed project it prompts you to claim it first; the claim and every elevated helper
 refuse system directories and home roots (the
 [safe-paths backstop](.claude/rules/safe-paths.rule.md)). [From source](#from-source)
@@ -364,7 +364,7 @@ same as the package path — see
 
 ## Upgrade behaviour
 
-`nvm-update.timer` fires daily in `${SANDBOX_USER}`'s `--user` instance and runs
+`nvm-update.timer` fires daily in `${SANDBOX_USER}`'s `--user instance` and runs
 `/opt/ai-tools/bin/nvm-update.sh`, which resolves the latest LTS in the `NVM_NODE_MAJOR`
 series, installs it under `/opt/ai-tools/.nvm`, refreshes the global tools, prunes, and:
 
@@ -406,7 +406,7 @@ sudo ai-tools-admin status   # as root, the same host with the readings you cann
 Both report the installed version, whether the toolchain is provisioned, every managed systemd
 unit, and — per enabled agent — whether its binary is pinned to a checksum its vendor signed and
 what SELinux label its paths carry. Each prints `?` where its caller cannot reach the answer, so
-running the second as root fills in the sandbox account's own `systemd --user` units, the
+running the second as root fills in the sandbox account's own `systemd --user units`, the
 entrypoint pin, and the live SELinux label. Both exit non-zero when something needs attention, so
 either runs from `cron` or a monitor without parsing its output.
 

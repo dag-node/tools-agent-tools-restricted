@@ -37,7 +37,7 @@ podman build -t ai-tools-rpmtest:el9 -f packaging/Rocky9.Containerfile .
 podman run --rm -t --systemd=always ai-tools-rpmtest:el9
 ```
 
-`ELBase.Containerfile` is the shared EL recipe, parameterized by `BASE_IMAGE`; `Rocky9.Containerfile` is a thin pin (`FROM ai-tools-rpmbase:el9`) where any EL9-only tweak would go. `--systemd=always` tells Podman to run the image's `/sbin/init` as PID 1, which the handback socket and the sandbox account's `systemd --user` manager need. Add `--privileged` if your runtime cannot mount cgroups for that user manager. To poke around instead of running the selftest, start it detached (`podman run -d --systemd=always …`) and `podman exec -it <id> bash`.
+`ELBase.Containerfile` is the shared EL recipe, parameterized by `BASE_IMAGE`; `Rocky9.Containerfile` is a thin pin (`FROM ai-tools-rpmbase:el9`) where any EL9-only tweak would go. `--systemd=always` tells Podman to run the image's `/sbin/init` as PID 1, which the handback socket and the sandbox account's `systemd --user manager` need. Add `--privileged` if your runtime cannot mount cgroups for that user manager. To poke around instead of running the selftest, start it detached (`podman run -d --systemd=always …`) and `podman exec -it <id> bash`.
 
 ## Customize
 

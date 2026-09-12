@@ -337,7 +337,7 @@ namespace: in any other, a host uid the namespace does not map reads as the over
 while `stat` exits 0, so a root-owned input is refused on a reading that is not its owner.
 `ai_tools_conf_uid_map_is_identity` reads `/proc/self/uid_map`, and the reason names the
 translation where it applies, so the investigation starts at the namespace and not at the file's
-mode or label. The `--user` unit rule in [updater](updater.rule.md) keeps this project's own units
+mode or label. The `--user unit` rule in [updater](updater.rule.md) keeps this project's own units
 from creating such a namespace; the reason is what a refusal says when one exists anyway.
 
 Trust bootstraps on the lib directory, which `ai-tools-run` checks inline before sourcing anything

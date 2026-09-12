@@ -49,7 +49,7 @@ The account needs a home directory, since its allowlist lives under `~/.config/a
 - **One session per project at a time.** Two sessions in one working tree share its files and its
   git index. A second agent on the same repository works in its own clone
   (`ai-tools projects clone`).
-- **The toolchain.** A daily timer in the sandbox account's own `systemd --user` instance
+- **The toolchain.** A daily timer in the sandbox account's own `systemd --user instance`
   updates Node and the agent packages once for the host; it runs as `ai-tools`, and the relabel
   that follows an update runs as root. `ai-tools status` reports the result to any operator.
 - **The commit identity.** The agent commits with the name and email set at bootstrap, whichever

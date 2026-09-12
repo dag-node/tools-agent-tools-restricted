@@ -167,7 +167,7 @@ to run as root.
   drop-in and the launch wrapper gate on;
 - seeds the user's `~/.config/ai-tools/allowed-projects` (empty, with a header) when
   absent, leaving an existing allowlist untouched;
-- ensures the `ai-tools` account's linger (its `--user` instance runs the toolchain timer
+- ensures the `ai-tools` account's linger (its `--user instance` runs the toolchain timer
   and each `ai-tools-run` session); an operator runs `claude` from its own login and needs none;
 - offers, interactively, to wire the host-wide PATH dedup into the user's `~/.bashrc`
   and `~/.bash_profile` after their nvm init; a non-interactive run prints the line to add.
@@ -246,7 +246,7 @@ diverge, or an install leaves the entrypoint unlabelled and an erase leaves the 
 `ai-tools-integration-nodejs`: `%post`/`%preun`/`%postun` manage the system `ai-tools-relabel.path`
 watcher with the systemd macros. The `nvm-update` service and timer ship in
 `%{_userunitdir}` (`/usr/lib/systemd/user/`); `system bootstrap` enables the timer in
-`ai-tools`'s own `--user` instance once it has provisioned the toolchain.
+`ai-tools`'s own `--user instance` once it has provisioned the toolchain.
 
 `ai-tools-agents-claude-code-restricted`: `%post` applies the entrypoint file-context and, when
 SELinux is enabled, relabels `/opt/ai-tools/bin`; no service of its own.
