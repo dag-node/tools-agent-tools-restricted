@@ -39,9 +39,11 @@
 # ai_tools_exec_t to assign, which is a supported (DAC-only) deployment, not a failure.
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 750 \
-#     src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh \
-#     /usr/local/libexec/ai-tools/ai-tools-relabel-agent
+#       src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh \
+#       /usr/local/libexec/ai-tools/ai-tools-relabel-agent
+#   ```
 
 set -euo pipefail
 
@@ -81,7 +83,7 @@ die() {
 
 # The labelling body + the manifest resolver it reads. REQUIRED: without them this helper can
 # resolve no agent and would silently label no file, leaving the next launch to fail closed on a
-# mislabelled entrypoint with no explanation. Bare source under set -e.
+# mislabelled entrypoint with no explanation. Bare source under `set -e`.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
 source /usr/local/lib/ai-tools/relabel.lib.sh
 declare -F ai_tools_label_agent_paths >/dev/null 2>&1 \
@@ -89,14 +91,14 @@ declare -F ai_tools_label_agent_paths >/dev/null 2>&1 \
 
 # Serialize against the other callers of this helper before touching the policy store: the agent
 # package's %post, the ai-tools-relabel.path watcher, and `ai-tools-admin system entrypoints relabel` all run it, and an
-# upgrade drives two of them at once. Taken here so it covers --remove as well, which writes the
+# upgrade drives two of them at once. Taken here so it covers `--remove` as well, which writes the
 # same store. Proceeding unserialized is reported, not fatal (see relabel.lib.sh).
 ai_tools_relabel_lock
 [[ -z "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]] \
     || { warn MSG-E4U5 "relabels are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
          ai_tools_log_warn "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
 
-# --remove <agent>: erase-time counterpart, invoked by the agent package's own %preun while its
+# `--remove <agent>`: erase-time counterpart, invoked by the agent package's own %preun while its
 # manifest is still on disk. Dropping the rules matters because the types they name belong to the
 # base policy, which the host may erase next.
 if [[ "${1:-}" == --remove ]]; then

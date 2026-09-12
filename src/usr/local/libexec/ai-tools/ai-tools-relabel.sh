@@ -4,7 +4,7 @@
 # Apply (or revert) the ai_tools_project_t SELinux label on ONE approved project
 # directory, so the confined agent (ai_tools_t) can read and write it. This is the
 # privileged half of project claiming: `semanage fcontext` needs root, which the
-# unprivileged `ai-tools` CLI does not have, so --project-claim / --project-create
+# unprivileged `ai-tools` CLI does not have, so `--project-claim` / `--project-create`
 # invoke this via sudo. There is NO sudoers NOPASSWD grant for it (by design): sudo
 # prompts for the projects user's password, the same pattern as ai-tools-lockdown.
 #
@@ -13,17 +13,21 @@
 # validates the target and dispatches.
 #
 # Labelling a path requires it to be in the operator's allowed-projects allowlist:
-# only approved projects may carry the agent-accessible type. Reverting (--remove)
+# only approved projects may carry the agent-accessible type. Reverting (`--remove`)
 # is lenient -- it cleans up a path that may already have been unregistered, and
 # restorecon only ever restores the system default context.
 #
 # Runs as root via sudo, invoked by YOU (the projects user) -- not ai-tools:
+#       ```bash
 #       sudo ai-tools-relabel <dir>            # label <dir> ai_tools_project_t
 #       sudo ai-tools-relabel --remove <dir>   # revert <dir> to its default type
+#       ```
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 750 \
-#     src/usr/local/libexec/ai-tools/ai-tools-relabel.sh /usr/local/libexec/ai-tools/ai-tools-relabel
+#       src/usr/local/libexec/ai-tools/ai-tools-relabel.sh /usr/local/libexec/ai-tools/ai-tools-relabel
+#   ```
 
 set -euo pipefail
 
@@ -76,7 +80,7 @@ source "${SAFE_PATHS_LIB}"
 
 # Shared allowlist grammar + membership predicate (conf.lib.sh): allowlisted() reads the file
 # through the same parser as the launch wrapper and the CLI, so an entry written with an
-# end-of-line comment or quotes is honored here too. Required, bare-sourced under set -e: a
+# end-of-line comment or quotes is honored here too. Required, bare-sourced under `set -e`: a
 # missing lib aborts the helper (no label granted -- fail closed), never a raw-line fallback that
 # would silently refuse to (un)label a validly-listed project.
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"

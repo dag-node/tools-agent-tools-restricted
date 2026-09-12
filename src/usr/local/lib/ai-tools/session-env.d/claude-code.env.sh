@@ -29,7 +29,7 @@
 # session_path_entries, unset your own temporaries, and do not exec, prompt, or read stdin. This
 # fragment additionally EXPORTS ANTHROPIC_AUTH_TOKEN when a custom endpoint supplies one (the
 # credential-off-cmdline pattern) -- the one sanctioned caller-environment mutation, so the paired
-# name-only --setenv imports it without the value reaching any command line.
+# name-only `--setenv` imports it without the value reaching any command line.
 # shellcheck disable=SC2154  # both arrays belong to the sourcing launcher
 
 session_environment_options+=(

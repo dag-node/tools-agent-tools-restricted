@@ -19,7 +19,7 @@
 #
 # Owner-only directories are the exception: the operator sealed them, so they are left out of
 # the agent's group, the sandbox residue they carry is stripped, and their subtree is skipped
-# with them -- see owner-only.lib.sh, which ai-tools-setfacl/-lockdown/-chown share.
+# with them -- see owner-only.lib.sh, which `ai-tools-{setfacl,lockdown,chown}` share.
 #
 # Idempotent: applies only the dirs that need it, safe to run every session start.
 #
@@ -138,7 +138,7 @@ AI_TOOLS_LOG_PROJECT="${canonical}"
 
 # Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the
 # allowlist is read with -- end-of-line comments, and quotes for a path carrying a space or a
-# literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under set -e aborts if it is
+# literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under `set -e` aborts if it is
 # missing, rather than leaving a bare filter that would mis-read an entry ai-tools-chown reads
 # correctly, so a path this walk skips is one the handback still acts on. Include-guarded.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh

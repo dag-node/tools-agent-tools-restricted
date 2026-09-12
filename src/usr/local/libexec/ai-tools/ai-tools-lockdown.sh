@@ -25,8 +25,10 @@
 #
 # Runs as root via sudo, invoked by YOU -- not ai-tools (no sudoers grant lets
 # ai-tools run it):
+#       ```bash
 #       cd /path/to/project
 #       sudo ai-tools-lockdown [--dry-run] [--yes|-y]
+#       ```
 #
 # Installed 750 root:root, so only root runs it -- which is why the CLI cannot pre-check the
 # path and sudo reaches it instead. Deploying from a checkout: docs/install-from-source.md.
@@ -102,7 +104,7 @@ readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 source "${SAFE_PATHS_LIB}"
 
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
-# safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
+# safe-paths.lib.sh: the bare source under `set -e` aborts if it is missing -- a valid
 # install ships it, so there is no fallback. Include-guarded, so this is a no-op when
 # safe-paths.lib.sh already loaded it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
@@ -173,7 +175,7 @@ readonly SANDBOX_UID
 
 # Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the
 # allowlist is read with -- end-of-line comments, and quotes for a path carrying a space or a
-# literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under set -e aborts if it is
+# literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under `set -e` aborts if it is
 # missing, rather than leaving a bare filter that would mis-read an entry ai-tools-chown reads
 # correctly, so a path this walk skips is one the handback still acts on. Include-guarded.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
@@ -229,7 +231,7 @@ fi
 ai_tools_load_secret_patterns
 
 # ── Enumerate secret-matching paths under the target ─────────────────────────
-# find -P (the default) does not follow a symlink, and -type f/-type d exclude one anyway.
+# `find -P` (the default) does not follow a symlink, and `-type f`/`-type d` exclude one anyway.
 ai_tools_skip_find_expr lockdown '' "${target}"
 declare -a expr=( "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -type f -o -type d ')' -print0 )
@@ -249,7 +251,7 @@ done < <(find "${expr[@]}" 2>/dev/null)
 #
 # `! -perm /077` selects "no group and no other bit set", the owner-only predicate, in the
 # kernel -- so the filter avoids a stat per path. A sealed DIRECTORY is printed and then pruned,
-# taking its subtree with it exactly as ai-tools-setgid/-setfacl do: the sandbox account cannot
+# taking its subtree with it exactly as `ai-tools-{setgid,setfacl}` do: the sandbox account cannot
 # enter it, so no path inside is reachable through it. Secret-named paths are left to the lock
 # pass, which seals them itself.
 declare -a sealed=()
@@ -353,7 +355,7 @@ _safe_apply() {
 # Returns 0 when something was stripped, 1 when the path does not carry any residue, or is out
 # of scope.
 # Sets AI_TOOLS_RESIDUE_SURFACE for the caller (a third-party setgid it declined to clear), and
-# AI_TOOLS_RESIDUE_ACTIONS to what came off. Under --dry-run the strip reports instead of acting
+# AI_TOOLS_RESIDUE_ACTIONS to what came off. Under `--dry-run` the strip reports instead of acting
 # (AI_TOOLS_RESIDUE_DRY_RUN) and every gate here still runs; secret-handling.rule.md has why.
 _safe_seal() {
     local path="$1" expect_ident fd got_ident got_uid got_grp got_mode got_ftype rc
@@ -391,7 +393,7 @@ _safe_seal() {
 
 # _seal_pass: run _safe_seal over every enumerated owner-only path and report. One pass serves the
 # preview and the apply alike, which is what keeps a preview describing the run that follows it
-# (secret-handling.rule.md). Under --dry-run each hit names its path AND what it carries, since a
+# (secret-handling.rule.md). Under `--dry-run` each hit names its path AND what it carries, since a
 # count alone is not something an operator can check before answering.
 _seal_pass() {
     declare -i seal_count=0 foreign=0

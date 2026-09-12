@@ -3,7 +3,7 @@
 # /usr/local/libexec/ai-tools/ai-tools-audit
 # Answers one question: what was refused, rejected, stranded or flagged BETWEEN two points in
 # time? It reports EVENTS, never current state -- a condition recorded here may have been
-# resolved since, and confirming that is ai-tools --status's job, not this one's. Conflating the
+# resolved since, and confirming that is `ai-tools --status`'s job, not this one's. Conflating the
 # two invites acting on a finding that is already fixed.
 # The detections already exist and are already recorded -- what they lacked was a
 # reader, and a detection nobody reads is decoration.
@@ -29,8 +29,10 @@
 # Usage:  ai-tools-audit [--since <when>]        <when> is anything date(1) parses
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 750 \
 #       src/usr/local/libexec/ai-tools/ai-tools-audit.sh /usr/local/libexec/ai-tools/ai-tools-audit
+#   ```
 
 set -euo pipefail
 

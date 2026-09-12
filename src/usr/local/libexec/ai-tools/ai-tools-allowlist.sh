@@ -9,7 +9,7 @@
 #
 # Root is needed for READS as well as writes: an allowlist is 0600 inside a 0700
 # .config/ai-tools (ai-tools-admin seeds an operator's config), so one operator cannot see
-# another's list at all. --print exists for exactly that, and the CLI snapshots it for the
+# another's list at all. `--print` exists for exactly that, and the CLI snapshots it for the
 # decisions a claim makes (is the path listed, disabled, or absent) before routing the mutation
 # back through the four editing actions.
 #
@@ -17,7 +17,7 @@
 # the directory, and what makes the ownership handback restore files to them. Editing another
 # operator's gate stays inside the trust model's "%ai-ops operators are trusted" boundary, but
 # it is not something the sandbox account may ever reach, so the helper is 750 root:root, and holds
-# NO NOPASSWD grant (the invoking human authenticates, like ai-tools-lockdown/-setfacl/-relabel),
+# NO NOPASSWD grant (the invoking human authenticates, like `ai-tools-{lockdown,setfacl,relabel}`),
 # and every mutation is logged with both the caller and the target.
 #
 # Every gate this helper applies resolves to LESS access on failure, never more:
@@ -38,15 +38,17 @@
 #   ai-tools-allowlist --operator <name> --enable  <absolute-project-path>
 #   ai-tools-allowlist --operator <name> --disable <absolute-project-path>
 #
-# --enable and --disable neither add nor drop a line: they take the leading '!' off an entry, or
-# put it on, IN PLACE. They are the privileged half of `ai-tools --project-enable/--project-disable`
+# `--enable` and `--disable` neither add nor drop a line: they take the leading '!' off an entry, or
+# put it on, IN PLACE. They are the privileged half of `ai-tools --project-enable`/`--project-disable`
 # (and of the claim's re-enable prompt), and they are deliberately not an add/remove pair: the line
 # keeps its position and its comment, so a park-and-restore round trip leaves an ordered, commented
 # allowed-projects exactly as its operator wrote it.
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 750 \
 #       src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh /usr/local/libexec/ai-tools/ai-tools-allowlist
+#   ```
 
 set -euo pipefail
 
@@ -70,7 +72,7 @@ note() {
 }
 
 # ── Arguments ────────────────────────────────────────────────────────────────────
-# One target operator (--operator) and exactly one action. The action's path argument is
+# One target operator (`--operator`) and exactly one action. The action's path argument is
 # attached to the flag rather than free-standing, so a missing value cannot silently shift
 # into the operator slot.
 OPERATOR=""
@@ -212,7 +214,7 @@ readonly canonical
 # This run edits one operator's allowlist for one project, so the operator and the project
 # ride as per-run log context (logging.rule.md). AI_TOOLS_OPERATOR names the operator
 # whose launch gate the entry decides; the caller who ran the command is recorded
-# as AI_TOOLS_CALLER, so an edit made through --for keeps the two apart in the trail.
+# as AI_TOOLS_CALLER, so an edit made through `--for` keeps the two apart in the trail.
 AI_TOOLS_LOG_OPERATOR="${OPERATOR}"
 AI_TOOLS_LOG_PROJECT="${canonical}"
 

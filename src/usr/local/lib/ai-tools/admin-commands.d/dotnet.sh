@@ -45,7 +45,7 @@ readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 # sandbox-side state under, and the base's static file-context rule already maps that whole tree
 # to ai_tools_home_t -- so this command creates directories and never touches SELinux policy.
 # REQUIRED: without it this command's paths are unknown, and guessing them would put the cache
-# somewhere the policy does not cover. Bare source under set -e.
+# somewhere the policy does not cover. Bare source under `set -e`.
 # shellcheck source=SCRIPTDIR/../control-plane.lib.sh
 source /usr/local/lib/ai-tools/control-plane.lib.sh
 readonly STATE_DIR="${CP_INTEGRATIONS}/dotnet"
@@ -111,7 +111,7 @@ ai-tools-admin dotnet -- the .NET toolchain: its sandbox state and shared tools
 EOF
 }
 
-# --help leaves the host as it is and does not read its state, so it answers any caller and is handled
+# `--help` leaves the host as it is and does not read its state, so it answers any caller and is handled
 # ahead of the root check -- ai-tools-admin's own rule, applied one level down.
 case "${1:-}" in
     --help|-h) usage; exit 0 ;;

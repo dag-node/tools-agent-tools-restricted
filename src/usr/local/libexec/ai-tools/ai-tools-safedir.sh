@@ -7,18 +7,20 @@
 # .gitconfig is root-owned 644: world-readable (the operator and launch wrapper read the list
 # without joining @SANDBOX_GROUP@) and root-write-only (the safe.directory list stays out of the
 # confined agent's reach). The operator reaches this write through sudo, under ai-tools
-# --project-claim/--project-unclaim and the launch wrapper -- no-NOPASSWD, like ai-tools-setfacl/
-# -relabel/-unclaim. The agent has no path here, so unlike the handback helpers this one is
-# operator-only and off the handback socket.
+# `--project-claim`/`--project-unclaim` and the launch wrapper -- no-NOPASSWD, like
+# `ai-tools-{setfacl,relabel,unclaim}`. The agent has no path here, so unlike the handback
+# helpers this one is operator-only and off the handback socket.
 #
-# ADD requires the path to be an allowlisted project (resolve_owner); --remove is lenient, since
+# ADD requires the path to be an allowlisted project (resolve_owner); `--remove` is lenient, since
 # the CLI de-lists the project before removing. Both are idempotent; the path defaults to cwd.
 #
 # Usage:  ai-tools-safedir [--remove] [<absolute-project-path>]
 #
 # Deploy:
+#   ```bash
 #   sudo install -o root -g root -m 750 \
 #       src/usr/local/libexec/ai-tools/ai-tools-safedir.sh /usr/local/libexec/ai-tools/ai-tools-safedir
+#   ```
 
 set -euo pipefail
 
@@ -86,7 +88,7 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
 fi
 
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
-# safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
+# safe-paths.lib.sh: the bare source under `set -e` aborts if it is missing -- a valid
 # install ships it, so there is no fallback. Include-guarded, so a re-source is a no-op.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
 source /usr/local/lib/ai-tools/msg.lib.sh
@@ -126,7 +128,7 @@ _confirm_cwd() {
 }
 
 if ${REMOVE}; then
-    # Tolerate a since-deleted directory: realpath -m canonicalises lexically without requiring
+    # Tolerate a since-deleted directory: `realpath -m` canonicalises lexically without requiring
     # the path to exist, so a stale entry for a removed tree is still cleanable. No allowlist
     # gate (the CLI de-lists before removing here).
     canonical="$(realpath -m -- "${TARGET}" 2>/dev/null || printf '%s' "${TARGET}")"
@@ -137,7 +139,7 @@ if ${REMOVE}; then
         || { ai_tools_log_structured info "declined removing safe.directory ${canonical}" \
                  "AI_TOOLS_RESULT=refused"; exit 0; }
     if _listed "${canonical}"; then
-        # --unset-all takes a value REGEX; escape the path so regex metacharacters in it are
+        # `--unset-all` takes a value REGEX; escape the path so regex metacharacters in it are
         # literal and anchors match the whole line. The sed program is a single-quoted regex:
         # its $ and () are literal metacharacters, not shell expansions, so SC2016 is expected.
         # shellcheck disable=SC2016

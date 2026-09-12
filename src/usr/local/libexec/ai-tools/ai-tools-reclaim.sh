@@ -10,18 +10,21 @@
 # e.g. before an ACL-unaware backup, where ownership (not the user:<operator> ACL) is what survives
 # an rsync/tar. By default the heavy/transient trees (node_modules, .venv, ...) are left untouched
 # -- their agent ownership is harmless (world-readable, regenerable) -- while .git is included;
-# --full reclaims those too, for a fully operator-owned tree (a complete, ACL-independent backup).
+# `--full` reclaims those too, for a fully operator-owned tree (a complete, ACL-independent backup).
 #
 # The walk is two-phase: collect, then apply. An empty hand-back set is reported as exactly
 # that before any change; otherwise ONE confirmation covers the whole set (count + a
-# sample with owner/group/mode), and each path is applied via ai-tools-chown --yes so the
+# sample with owner/group/mode), and each path is applied via `ai-tools-chown --yes` so the
 # per-path prompt never fires inside the batch.
 #
-# Runs as root via sudo under ai-tools --reclaim (no-NOPASSWD, like ai-tools-setfacl); root is
+# Runs as root via sudo under `ai-tools --reclaim` (no-NOPASSWD, like ai-tools-setfacl); root is
 # required to chown files the projects user does not own.
 #
-# Deploy: sudo install -o root -g root -m 750 \
-#     src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh /usr/local/libexec/ai-tools/ai-tools-reclaim
+# Deploy:
+#   ```bash
+#   sudo install -o root -g root -m 750 \
+#       src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh /usr/local/libexec/ai-tools/ai-tools-reclaim
+#   ```
 
 set -euo pipefail
 
@@ -95,7 +98,7 @@ readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 source "${SAFE_PATHS_LIB}"
 
 # Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like
-# safe-paths.lib.sh: the bare source under set -e aborts if it is missing -- a valid
+# safe-paths.lib.sh: the bare source under `set -e` aborts if it is missing -- a valid
 # install ships it, so there is no fallback. Include-guarded, so this is a no-op when
 # safe-paths.lib.sh already loaded it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
@@ -120,7 +123,7 @@ ai_tools_resolve_owner "${canonical}" || {
 AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
 AI_TOOLS_LOG_PROJECT="${canonical}"
 
-# Default reclaim walks .git but skips the heavy trees; --full descends everywhere. The lib owns
+# Default reclaim walks .git but skips the heavy trees; `--full` descends everywhere. The lib owns
 # both defaults -- the helper only names the consumer.
 if ${FULL}; then ai_tools_skip_find_expr reclaim-full '' "${canonical}"; else ai_tools_skip_find_expr reclaim '' "${canonical}"; fi
 # find <project> -xdev <skip dirs> -prune -o ( file|dir ) -user SANDBOX_USER -print0
