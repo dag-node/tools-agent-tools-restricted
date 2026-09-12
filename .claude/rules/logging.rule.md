@@ -140,6 +140,12 @@ the token a reader searches on, and the same code rides as `AI_TOOLS_MSG`.
 | `AI_TOOLS_RESULT` | `ok`, `refused`, `failed` | the call site |
 | `AI_TOOLS_PATH` | the path it acted on | the call site |
 
+`AI_TOOLS_SESSION_UNIT` comes from a component that does not source this library: the handback
+daemon resolves the user unit of the session a root operation was served for from its peer's
+cgroup, and sends its own journal datagram carrying the same field names through the same
+sanitizer. [handback-bridge](handback-bridge.rule.md) holds how the unit is derived and what the
+value is read for.
+
 The operator and the project are **per-run context**: a helper sets `AI_TOOLS_LOG_OPERATOR` and
 `AI_TOOLS_LOG_PROJECT` once it has resolved them, and the library reads each at call time like
 `AI_TOOLS_LOG_TAG`, so every record that run writes carries them and a call site spells only what
@@ -165,7 +171,8 @@ the sender's kernel credentials or from journald's own state, and journald drops
 sets in that namespace; `ai_tools_log_structured` validates each field name against
 `[A-Z][A-Z0-9_]*`, which refuses a leading underscore before the record is assembled. A field of
 this project's own naming the same thing would be the writer's account of it, so this project does
-not add a hostname field or an id for the writer's own session.
+not add a hostname field or an id for the writer's own session. `AI_TOOLS_SESSION_UNIT` names
+another process's unit, which journald has no credential of its own to stamp.
 
 **How much a field is worth follows from `_UID`, which names the account that wrote it.** For a
 root helper (`_UID=0`) these fields are written by the same root process journald credits with the
