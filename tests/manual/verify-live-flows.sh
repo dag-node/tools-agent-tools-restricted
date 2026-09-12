@@ -789,7 +789,7 @@ fi
 section "5. ai-tools --sandbox-create flag validation"
 for flag in --from --branch --dir; do
     OUT="$("${CLI}" --sandbox-create "${flag}" -oops 2>&1)"; RC=$?
-    if [[ "${RC}" -ne 0 ]] && grep -q 'not another option' <<<"${OUT}"; then
+    if [[ "${RC}" -ne 0 ]] && grep -qxF -- MSG-S4M8 <<<"${OUT}"; then
         pass "${flag} refuses an option-shaped value"
     else
         fail "${flag} accepted '-oops' (rc=${RC}): ${OUT}"
@@ -920,7 +920,7 @@ else
     # argument contract: there is no per-project form, and accepting a path would invert what the
     # operator asked for -- they typed a path to NARROW the command, and it terminates everything.
     OUT="$("${CLI}" --stop /some/project 2>&1)"; RC=$?
-    if [[ "${RC}" -eq 2 ]] && grep -q 'takes no path' <<<"${OUT}" && grep -q '/exit' <<<"${OUT}"; then
+    if [[ "${RC}" -eq 2 ]] && grep -qxF -- MSG-A3M9 <<<"${OUT}" && grep -q '/exit' <<<"${OUT}"; then
         pass "--stop refuses a path (rc=2) and names /exit as the way to end one session"
     else
         fail "--stop did not refuse a path properly (rc=${RC}): ${OUT}"

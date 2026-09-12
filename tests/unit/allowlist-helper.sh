@@ -61,13 +61,13 @@ run_helper() {
     fi
 }
 
-# refuses <label> <code> <expect-substring> <sudo-uid> <args...>: the helper must exit non-zero,
-# name the situation with <code>, say why, and leave the allowlist unchanged. The unchanged-file
-# assertion is the point: a gate that refuses after a partial write would still have widened a
-# launch gate. The code is what tells two refusals apart -- the caller and the target are both
-# refused as "not a configured ai-tools operator", and a substring cannot say which fired.
+# refuses <label> <code> <sudo-uid> <args...>: the helper must exit non-zero, name the situation
+# with <code>, and leave the allowlist unchanged. The unchanged-file assertion is the point: a gate
+# that refuses after a partial write would still have widened a launch gate. The code is what tells
+# two refusals apart -- the caller and the target are both refused as "not a configured ai-tools
+# operator", and a substring cannot say which fired.
 refuses() {
-    local label="$1" code="$2" want="$3" uid="$4"; shift 4
+    local label="$1" code="$2" uid="$3"; shift 3
     local before after out rc
     before="$(md5sum < "${ALLOWFILE}")"
     out="$(run_helper "${uid}" "$@")" && rc=0 || rc=$?
@@ -76,8 +76,6 @@ refuses() {
         fail "${label}: helper succeeded where it must refuse: ${out}"
     elif ! grep -qxF -- "${code}" <<<"${out}"; then
         fail "${label}: refused (rc=${rc}) without ${code} on a line of its own, got: ${out}"
-    elif ! grep -qi -- "${want}" <<<"${out}"; then
-        fail "${label}: refused (rc=${rc}) but did not say why -- wanted '${want}', got: ${out}"
     elif [[ "${before}" != "${after}" ]]; then
         fail "${label}: refused but the allowlist changed"
     else
@@ -88,44 +86,41 @@ refuses() {
 # (1) No sudo context. A direct root call does not carry an operator identity, so there is nobody to
 # authorize the edit; defaulting to some operator is exactly the fail-open this refuses.
 refuses "refuses a bare root call (no SUDO_UID)" MSG-T6R6 \
-    "no SUDO_UID" "" --operator "${PROJECTS_USER}" --add "${proj}"
+    "" --operator "${PROJECTS_USER}" --add "${proj}"
 
 # (2) The caller must be enrolled. uid 0 resolves to root, which is never in OPERATORS.
 refuses "refuses a caller that is not a configured operator" MSG-J6J3 \
-    "not a configured ai-tools operator" 0 --operator "${PROJECTS_USER}" --add "${proj}"
+    0 --operator "${PROJECTS_USER}" --add "${proj}"
 
 # (3) The target must be enrolled: ai-tools-setfacl and the handback helpers resolve a path's owner
 # over OPERATORS, so an entry for an unenrolled name is a launch gate no helper can act on.
 refuses "refuses an unenrolled target operator" MSG-M3R6 \
-    "not a configured ai-tools operator" \
     "${OPERATOR_UID}" --operator "definitely-not-an-operator" --add "${proj}"
 
 # (4) The sandbox account is not an operator and must never own projects -- it would be the agent
 # holding its own launch gate.
 refuses "refuses the sandbox account as the target" MSG-Y3B2 \
-    "not an operator" "${OPERATOR_UID}" --operator "${SANDBOX_USER}" --add "${proj}"
+    "${OPERATOR_UID}" --operator "${SANDBOX_USER}" --add "${proj}"
 
 # (5) Protected-paths backstop: a system directory is refused as a target even for a fully
 # authorized caller and target.
 refuses "refuses a protected system directory as the path" MSG-Q6H3 \
-    "refus" "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add /etc
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add /etc
 
 # (6) A path that does not exist cannot be canonicalized, so it never reaches the registry.
 refuses "refuses a non-existent path" MSG-Q5X7 \
-    "not an existing path" \
     "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${TESTDIR}/no-such-dir"
 
 # (7) A file is not a project directory.
 : > "${TESTDIR}/afile"
 refuses "refuses a non-directory path" MSG-R6C5 \
-    "not a directory" "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${TESTDIR}/afile"
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${TESTDIR}/afile"
 
 # (8) Usage: an action is required, and only one may be given.
-refuses "refuses with no action" MSG-J8J2 \
-    "is required" "${OPERATOR_UID}" --operator "${PROJECTS_USER}"
+refuses "refuses with no action" MSG-J8J2 "${OPERATOR_UID}" --operator "${PROJECTS_USER}"
 refuses "refuses two actions at once" MSG-C5G8 \
-    "only one action" "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --print --add "${proj}"
-refuses "refuses a missing --operator" MSG-X4Z3 "required" "${OPERATOR_UID}" --print
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --print --add "${proj}"
+refuses "refuses a missing --operator" MSG-X4Z3 "${OPERATOR_UID}" --print
 
 # (9) A target with no config yet. Enrolment is what creates an operator's allowlist, so a
 # missing one means the account reached OPERATORS another way; the helper does not create the
@@ -222,7 +217,7 @@ fi
 # A parked project is NOT an unlisted one: adding over it would leave the '!' winning at the
 # launch gate while the caller was told the project was registered.
 refuses "--add refuses a disabled project" MSG-T7B6 \
-    "DISABLED" "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${proj}"
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${proj}"
 
 out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --enable "${proj}")" && rc=0 || rc=$?
 if (( rc == 0 )) && [[ "$(cat "${ALLOWFILE}")" == "${before}" ]]; then
@@ -251,6 +246,6 @@ else
     fail "--enable on an unlisted path wrote an entry (rc=${rc}): $(cat "${ALLOWFILE}")"
 fi
 refuses "--disable refuses an unlisted path" MSG-H6K3 \
-    "no entry to disable" "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --disable "${TESTDIR}"
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --disable "${TESTDIR}"
 
 finish

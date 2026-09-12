@@ -126,6 +126,23 @@ run_admin() {
     out="$(cat "${FIXTURE_ROOT}/out")"
 }
 
+# refused <label> <code> <expected-status>: the run_admin this call follows must have exec'd
+# no fragment (the marker is absent), exited <expected-status>, and named the situation
+# with <code>. The status is asserted beside the code because a refusal at exit 0 is one
+# the caller reads as a command done. The label comes FIRST so the code sits in a later
+# argument, which the reference index reads as a citation rather than as a second definition
+# of it (messaging.rule.md).
+refused() {
+    local label="$1" code="$2" want="$3"
+    if [[ -f "${MARKER}" ]]; then
+        fail "${label}: a fragment was exec'd anyway"
+    elif [[ "${STATUS}" -ne "${want}" ]]; then
+        fail "${label}: expected exit ${want}, got ${STATUS}: ${out}"
+    else
+        assert_msg "${code}" "${out}" "${label}"
+    fi
+}
+
 # ── a trusted fragment dispatches, and carries its arguments ────────────────────────────────
 reset_fixtures
 write_fragment demo
@@ -173,12 +190,7 @@ if [[ ! -f "${MARKER}" ]]; then
 else
     fail "a group-writable fragment ran"
 fi
-if [[ "${out}" == *"is a symlink, is not root-owned, or is writable by group/other"* ]]; then
-    pass "the untrusted fragment is reported, not silently dropped"
-    assert_msg MSG-D3P6 "${out}" "the untrusted fragment's refusal carries its code"
-else
-    fail "no report for the untrusted fragment: ${out}"
-fi
+assert_msg MSG-D3P6 "${out}" "the untrusted fragment is reported, not silently dropped"
 if [[ "${STATUS}" -eq 2 ]]; then
     pass "an untrusted domain is an unknown command (exit 2)"
 else
@@ -209,12 +221,7 @@ if [[ ! -f "${MARKER}" ]]; then
 else
     fail "a sound fragment ran beside a group/other-writable one"
 fi
-if [[ "${STATUS}" -eq 1 && "${out}" == *"refusing every contributed command"* ]]; then
-    pass "the set-wide refusal fails the command (exit 1) and says so"
-    assert_msg MSG-A3P2 "${out}" "the set-wide refusal carries its code"
-else
-    fail "expected the set-wide refusal (exit 1), got ${STATUS}: ${out}"
-fi
+refused "the set-wide refusal fails the command (exit 1) and says so" MSG-A3P2 1
 if [[ "${out}" == *"reinstall the package owning it"* ]]; then
     pass "the refusal names the remedy: reinstall the owning package"
 else
@@ -253,12 +260,7 @@ if [[ ! -f "${MARKER}" && "${STATUS}" -eq 2 ]]; then
 else
     fail "a fragment in a group-writable directory was dispatched (exit ${STATUS})"
 fi
-if [[ "${out}" == *"ignoring every contributed command"* ]]; then
-    pass "the untrusted directory is reported"
-    assert_msg MSG-V5S5 "${out}" "the untrusted directory's refusal carries its code"
-else
-    fail "no report for the untrusted directory: ${out}"
-fi
+assert_msg MSG-V5S5 "${out}" "the untrusted directory is reported"
 chmod 755 "${CMD_DIR}"
 
 # ── a fragment must declare itself a command of this seam ───────────────────────────────────
@@ -268,36 +270,21 @@ reset_fixtures
 printf '#!/usr/bin/env bash\ntouch "%s"\n' "${MARKER}" > "${CMD_DIR}/undeclared"
 chown root:root "${CMD_DIR}/undeclared"; chmod 750 "${CMD_DIR}/undeclared"
 run_admin undeclared
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"does not declare"* ]]; then
-    pass "an undeclared executable in the directory is not run as a command"
-    assert_msg MSG-H5F8 "${out}" "the undeclared-fragment refusal carries its code"
-else
-    fail "an undeclared executable was dispatched (exit ${STATUS}): ${out}"
-fi
+refused "an undeclared executable in the directory is not run as a command" MSG-H5F8 1
 
 # One provider's command copied under another provider's name declares the name it was written
 # for, not the one it is installed as, so it is refused.
 reset_fixtures
 write_fragment impostor 750 demo
 run_admin impostor
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"does not declare"* ]]; then
-    pass "a fragment declaring another domain's name is refused"
-    assert_msg MSG-H5F8 "${out}" "a fragment under another domain's name cites the same code"
-else
-    fail "a fragment installed under a name it does not declare ran (exit ${STATUS}): ${out}"
-fi
+refused "a fragment declaring another domain's name cites the same refusal" MSG-H5F8 1
 
 # A non-script -- the declaration cannot be read from one, and the seam runs interpreted files.
 reset_fixtures
 printf 'not a script\n' > "${CMD_DIR}/binary"
 chown root:root "${CMD_DIR}/binary"; chmod 750 "${CMD_DIR}/binary"
 run_admin binary
-if [[ "${STATUS}" -eq 1 && "${out}" == *"not a script"* ]]; then
-    pass "a file with no shebang is not run as a command"
-    assert_msg MSG-D9F7 "${out}" "the non-script refusal carries its code"
-else
-    fail "a file with no shebang was dispatched (exit ${STATUS}): ${out}"
-fi
+refused "a file with no shebang is not run as a command" MSG-D9F7 1
 
 # ── the interface floor a fragment declares ─────────────────────────────────────────────────
 # The declared version is what the fragment NEEDS, so the direction of every case here is what
@@ -317,68 +304,38 @@ reset_fixtures
 write_fragment ahead
 declare_line ahead api-min-version "1.7"
 run_admin ahead
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"upgrade ai-tools-base"* ]]; then
-    pass "a fragment needing a newer minor is refused, naming the side to upgrade"
-    assert_msg MSG-M3D7 "${out}" "the newer-minor refusal carries its code"
-else
-    fail "a fragment needing a newer interface ran (exit ${STATUS}): ${out}"
-fi
+refused "a fragment needing a newer minor is refused" MSG-M3D7 1
 
 reset_fixtures
 write_fragment othermajor
 declare_line othermajor api-min-version "2.0"
 run_admin othermajor
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"different major is a different contract"* ]]; then
-    pass "a fragment needing another major is refused as an incompatible contract"
-    assert_msg MSG-W3T9 "${out}" "the other-major refusal carries its code"
-else
-    fail "a fragment declaring another major ran (exit ${STATUS}): ${out}"
-fi
+refused "a fragment needing another major is refused as an incompatible contract" MSG-W3T9 1
 
 reset_fixtures
 write_fragment shapeless
 declare_line shapeless api-min-version "one"
 run_admin shapeless
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"not <major>.<minor>"* ]]; then
-    pass "an interface floor that is not <major>.<minor> is refused"
-    assert_msg MSG-B5K9 "${out}" "the malformed-floor refusal carries its code"
-else
-    fail "a malformed interface floor ran (exit ${STATUS}): ${out}"
-fi
+refused "an interface floor that is not <major>.<minor> is refused" MSG-B5K9 1
 
 reset_fixtures
 write_fragment nofloor
 drop_line nofloor api-min-version
 run_admin nofloor
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"declares no"*"api-min-version"* ]]; then
-    pass "a fragment declaring no interface floor is refused"
-    assert_msg MSG-U6U6 "${out}" "the absent-floor refusal carries its code"
-else
-    fail "a fragment with no interface floor ran (exit ${STATUS}): ${out}"
-fi
+refused "a fragment declaring no interface floor is refused" MSG-U6U6 1
 
 # ── the declared verb list ──────────────────────────────────────────────────────────────────
 reset_fixtures
 write_fragment noverbs
 drop_line noverbs verbs
 run_admin noverbs
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"declares no"*"verbs"* ]]; then
-    pass "a fragment declaring no verbs is refused"
-    assert_msg MSG-V5Q3 "${out}" "the absent-verbs refusal carries its code"
-else
-    fail "a fragment with no declared verbs ran (exit ${STATUS}): ${out}"
-fi
+refused "a fragment declaring no verbs is refused" MSG-V5Q3 1
 
 reset_fixtures
 write_fragment shoutyverb
 declare_line shoutyverb verbs "Bootstrap"
 run_admin shoutyverb
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 1 && "${out}" == *"a verb is a bare lower-case word"* ]]; then
-    pass "a declared verb outside the command charset is refused"
-    assert_msg MSG-E3G7 "${out}" "the malformed-verb refusal carries its code"
-else
-    fail "a malformed verb list ran (exit ${STATUS}): ${out}"
-fi
+refused "a declared verb outside the command charset is refused" MSG-E3G7 1
 
 # ── a fragment claiming a base name is refused, and the base command still runs ─────────────
 # The name base owns must keep meaning what ai-tools-admin(8) documents, whoever installs what.
@@ -390,18 +347,9 @@ if [[ ! -f "${MARKER}" ]]; then
 else
     fail "a fragment claiming 'system' shadowed the base command"
 fi
-if [[ "${out}" == *"system takes a resource or a verb"* ]]; then
-    pass "'system' still reaches base's own dispatch"
-else
-    fail "'system' did not reach base's dispatch: ${out}"
-fi
+assert_msg MSG-C7S7 "${out}" "'system' still reaches base's own dispatch"
 run_admin --help
-if [[ "${out}" == *"is a command ai-tools-admin owns"* ]]; then
-    pass "the reserved-name refusal is reported"
-    assert_msg MSG-U6P9 "${out}" "the reserved-name refusal carries its code"
-else
-    fail "no report for the fragment claiming a base name: ${out}"
-fi
+assert_msg MSG-U6P9 "${out}" "the reserved-name refusal is reported"
 
 # `status` was reserved before it was implemented, and now that base answers it the reservation is
 # what makes the shadowing attempt land on BASE's command rather than the fragment's. The exit
@@ -419,12 +367,7 @@ fi
 # The base command does not take an argument, and refuses one rather than ignoring it: a report
 # that dropped what it was asked about would read as an answer to the question.
 run_admin status --everything
-if [[ "${STATUS}" -eq 2 && "${out}" == *"takes no arguments"* ]]; then
-    pass "status refuses an argument with exit 2 rather than reporting on the whole host"
-    assert_msg MSG-T6S6 "${out}" "status's argument refusal carries its code"
-else
-    fail "status accepted an argument (exit ${STATUS}): ${out}"
-fi
+refused "status refuses an argument with exit 2 rather than reporting on the whole host" MSG-T6S6 2
 
 # Every name the top-level dispatch answers must be reserved, or a provider could contribute a
 # domain that --help lists and the dispatch silently shadows.
@@ -456,12 +399,7 @@ fi
 
 # The dispatch matches a discovered domain, so a caller-supplied path never reaches the exec.
 run_admin ../../../bin/sh
-if [[ ! -f "${MARKER}" && "${STATUS}" -eq 2 ]]; then
-    pass "a path-shaped command name is an unknown command, never a path"
-    assert_msg MSG-N2A5 "${out}" "the unknown-command refusal carries its code"
-else
-    fail "a path-shaped command name was dispatched (exit ${STATUS})"
-fi
+refused "a path-shaped command name is an unknown command, never a path" MSG-N2A5 2
 
 # ── a trusted fragment that is not executable is listed, and says so when run ────────────────
 # The two are separate questions: the listing is what --help can see as any caller, and the exec
@@ -476,12 +414,7 @@ else
     fail "a non-executable fragment went unlisted: ${out}"
 fi
 run_admin inert
-if [[ "${STATUS}" -eq 1 && "${out}" == *"not executable"* ]]; then
-    pass "dispatching a non-executable fragment fails naming the package"
-    assert_msg MSG-F4Z5 "${out}" "the not-executable refusal carries its code"
-else
-    fail "expected a not-executable failure (exit 1), got ${STATUS}: ${out}"
-fi
+refused "dispatching a non-executable fragment fails rather than running it" MSG-F4Z5 1
 
 # ── an absent directory is a host with no contributed commands ───────────────────────────────
 reset_fixtures
@@ -499,25 +432,11 @@ fi
 # and --scope full are not driven for that reason -- they install software over the network.
 reset_fixtures
 run_admin system bootstrap --scope full-ish
-if [[ "${STATUS}" -eq 2 && "${out}" == *"unknown scope"* ]]; then
-    pass "an unknown --scope value is rejected before anything is provisioned"
-    assert_msg MSG-A8G5 "${out}" "the unknown-scope refusal carries its code"
-else
-    fail "expected exit 2 for an unknown scope, got ${STATUS}: ${out}"
-fi
+refused "an unknown --scope value is rejected before anything is provisioned" MSG-A8G5 2
 run_admin system bootstrap --scope
-if [[ "${STATUS}" -eq 2 && "${out}" == *"--scope takes a value"* ]]; then
-    pass "--scope with no value is rejected"
-    assert_msg MSG-V5J3 "${out}" "the valueless --scope refusal carries its code"
-else
-    fail "expected exit 2 for a valueless --scope, got ${STATUS}: ${out}"
-fi
+refused "--scope with no value is rejected" MSG-V5J3 2
 run_admin system bootstrap full
-if [[ "${STATUS}" -eq 2 && "${out}" == *"unknown argument"* ]]; then
-    pass "a bare positional scope is rejected, so the switch spelling is the only one"
-else
-    fail "expected exit 2 for a positional scope, got ${STATUS}: ${out}"
-fi
+refused "a bare positional scope is rejected, so the switch spelling is the only one" MSG-H5Z4 2
 
 # ── system bootstrap --scope full: the loop that runs contributed commands unattended ───────
 # Driven by SOURCING the helper and calling the loop with the enabled-integration resolver stubbed
@@ -548,12 +467,7 @@ if [[ "${out}" == *"fragment withboot ran"* ]]; then
 else
     fail "the integration after a failing one was not attempted: ${out}"
 fi
-if [[ "${out}" == *"failing: its bootstrap failed"* ]]; then
-    pass "a failing integration is named rather than aborting the run"
-    assert_msg MSG-J2Y8 "${out}" "the failed-provisioning warning carries its code"
-else
-    fail "a failing integration was not named: ${out}"
-fi
+assert_msg MSG-J2Y8 "${out}" "a failing integration is named rather than aborting the run"
 if [[ "${out}" == *"noboot: declares no bootstrap verb"* ]]; then
     pass "an integration that declares no bootstrap is skipped from its declaration alone"
 else

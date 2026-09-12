@@ -532,15 +532,15 @@ fi
 # Both are driven with NO path argument, so a regression that let one through would still
 # have no path to act on -- the create refuses a missing path outright, and the remove would
 # resolve the agent's own cwd, which is not a claimed project of the agent's. The assertion
-# is on the principal guard's own wording, not merely on a non-zero exit, since every one of
+# is on the principal guard's own message CODE, not merely on a non-zero exit, since every one of
 # these commands has other reasons to fail.
 for _verb in --project-create --project-remove; do
     _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_CLI:-/usr/local/bin/ai-tools}" "${_verb}" 2>&1)" \
         && _rc=0 || _rc=$?
-    if (( _rc != 0 )) && grep -qi 'refusing to run as the sandbox account' <<<"${_out}"; then
-        pass "the agent cannot reach ${_verb} (principal guard)"
+    if (( _rc == 0 )); then
+        fail "the agent was not refused ${_verb} at all"
     else
-        fail "the agent was not refused ${_verb} by the principal guard (rc=${_rc}): ${_out}"
+        assert_msg MSG-Q6Q8 "${_out}" "the agent cannot reach ${_verb} (principal guard)"
     fi
 done
 
