@@ -168,6 +168,12 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | h9v5 | [MSG-H9V5](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | the entry is STILL disabled for ${OPERATOR}: ${canonical} -- the line was not rewritten | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh |  | die |
 | h6k3 | [MSG-H6K3](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | not listed for ${OPERATOR}: ${canonical} -- there is no entry to disable | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh | tests/unit/allowlist-helper.sh | die |
 | c7q4 | [MSG-C7Q4](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | could not disable ${canonical} for ${OPERATOR} -- nothing changed | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh |  | die |
+| t3t7 | [MSG-T3T7](../src/usr/local/libexec/ai-tools/ai-tools-audit.sh) | cannot load ${LOG_LIB} -- refusing to print log text unsanitized | src/usr/local/libexec/ai-tools/ai-tools-audit.sh |  | warn |
+| y4c6 | [MSG-Y4C6](../src/usr/local/libexec/ai-tools/ai-tools-audit.sh) | --since needs a value | src/usr/local/libexec/ai-tools/ai-tools-audit.sh |  | warn |
+| q7a2 | [MSG-Q7A2](../src/usr/local/libexec/ai-tools/ai-tools-audit.sh) | unknown option: $1 | src/usr/local/libexec/ai-tools/ai-tools-audit.sh |  | warn |
+| n4v9 | [MSG-N4V9](../src/usr/local/libexec/ai-tools/ai-tools-audit.sh) | unexpected argument: $1 | src/usr/local/libexec/ai-tools/ai-tools-audit.sh |  | warn |
+| k9c5 | [MSG-K9C5](../src/usr/local/libexec/ai-tools/ai-tools-audit.sh) | ai-tools-audit must run as root: the trail it reads is 700 root:root | src/usr/local/libexec/ai-tools/ai-tools-audit.sh |  | ai_tools_msg_error |
+| y3m7 | [MSG-Y3M7](../src/usr/local/libexec/ai-tools/ai-tools-audit.sh) | ai-tools-audit: --since value not understood: ${SINCE} | src/usr/local/libexec/ai-tools/ai-tools-audit.sh | tests/integration/cli.sh | ai_tools_msg_error |
 | e6y4 | [MSG-E6Y4](../src/usr/local/libexec/ai-tools/ai-tools-chown.sh) | FATAL: cannot source ${1} | src/usr/local/libexec/ai-tools/ai-tools-chown.sh |  | die |
 | n5c5 | [MSG-N5C5](../src/usr/local/libexec/ai-tools/ai-tools-chown.sh) | unknown option: ${arg} | src/usr/local/libexec/ai-tools/ai-tools-chown.sh |  | warn |
 | b6m8 | [MSG-B6M8](../src/usr/local/libexec/ai-tools/ai-tools-chown.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-chown.sh |  | warn |

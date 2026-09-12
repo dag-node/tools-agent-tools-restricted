@@ -496,6 +496,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 inline_matchers=(
     src/usr/local/libexec/ai-tools/ai-tools-admin.sh
     src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh
+    src/usr/local/libexec/ai-tools/ai-tools-audit.sh
     src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh
     src/usr/local/libexec/ai-tools/ai-tools-chown.sh
     src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh
