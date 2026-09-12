@@ -269,9 +269,30 @@ class Target:
 
 
 def message_name(quote, rest):
-    """The message's first line: the text up to the quote that closes it, or the whole rest."""
-    end = rest.find(quote)
-    return (rest if end < 0 else rest[:end]).strip()
+    """The message's first line: the text up to the quote that closes it, or the whole rest.
+
+    A double-quoted string re-opens quoting inside a `$(...)` command substitution, so a quote
+    written there does not close the message and the scan steps over the substitution to its
+    matching parenthesis; a backslash escapes the character after it. A single-quoted string
+    interpolates nothing, so the first quote in it is the one that closes.
+    """
+    if quote == "'":
+        end = rest.find(quote)
+        return (rest if end < 0 else rest[:end]).strip()
+    index = 0
+    while index < len(rest):
+        if rest[index] == "\\":
+            index += 2
+        elif rest[index] == quote:
+            return rest[:index].strip()
+        elif rest.startswith("$(", index):
+            depth, index = 1, index + 2
+            while index < len(rest) and depth:
+                depth += (rest[index] == "(") - (rest[index] == ")")
+                index += 1
+        else:
+            index += 1
+    return rest.strip()
 
 
 def is_markdown(path):

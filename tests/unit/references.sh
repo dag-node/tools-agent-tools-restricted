@@ -202,6 +202,17 @@ silent TEST-RI-11-msg-continued src/wrapped.sh
 run_ri generate src/wrapped.sh
 assert_grep '^| m3n9 | \[MSG-M3N9\](src/wrapped.sh) | The group is an unaudited draft. | src/wrapped.sh |  | ai_tools_msg_warn |$' \
     "${OUT}" "TEST-RI-11-msg-continued-row: a continued emit call names its message and its emitter"
+# A quote inside the message does not always close it: a double-quoted string re-opens
+# quoting inside a command substitution, and a backslash escapes the quote after it. Each
+# shape ends the name short of what the emitter prints, and the truncation shows only once
+# something renders the name.
+fixture src/nested.sh "coded_refusal MSG-M3P7 \"declares \$(printf '%q' \"\${floor}\"), which is not <major>.<minor>\"" \
+    "refuse MSG-M3P8 \"no agent provides \\\"\${launcher}\\\" -- refusing to launch\""
+run_ri generate src/nested.sh
+assert_grep '^| m3p7 | \[MSG-M3P7\](src/nested.sh) | declares $(printf .%q. "${floor}"), which is not <major>\.<minor> | src/nested\.sh |  | coded_refusal |$' \
+    "${OUT}" "TEST-RI-11-msg-substitution-row: a quote inside a command substitution does not end the message"
+assert_grep '^| m3p8 | \[MSG-M3P8\](src/nested.sh) | no agent provides \\"${launcher}\\" -- refusing to launch | src/nested\.sh |  | refuse |$' \
+    "${OUT}" "TEST-RI-11-msg-escaped-quote-row: an escaped quote does not end the message"
 fixture src/twice.sh 'warn MSG-M3N4 "a second situation under the same code"'
 reports duplicate TEST-RI-11-msg-duplicate src/s.sh src/twice.sh
 fixture src/colon.sh '# MSG-M3N5: a comment naming a code is a reference, not a message'
