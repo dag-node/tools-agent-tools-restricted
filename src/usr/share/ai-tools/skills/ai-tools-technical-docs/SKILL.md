@@ -4,7 +4,7 @@ name: ai-tools-technical-docs
 x-ai-tools-managed: true
 x-ai-tools-status: draft
 x-ai-tools-version: 4
-x-ai-tools-updated: 2026-09-11
+x-ai-tools-updated: 2026-09-12
 description: >
   Technical writing standard for every software engineering artifact. Use when writing or
   editing README and usage guides, CLAUDE.md / AGENTS.md, *.rule.md, file and module headers,

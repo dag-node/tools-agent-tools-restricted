@@ -376,6 +376,14 @@ with the `.TP` tags under KEYS in both directions — a key a manifest sets and 
 operator reading a file the manual does not explain, and a documented key no manifest sets is a
 stale entry.
 
+`ai-tools-messages(7)` pairs with neither a command nor a file, but with the **generator** that
+writes it: `tools/man-messages.sh` derives the page from `.claude/references.md`, so the check
+regenerates it and fails on a difference ([messaging](messaging.rule.md)). It then compares the
+count of message codes the index defines with the count of entries the page carries, which catches
+a code the generator drops rather than refuses. A stale catalog renders as cleanly as a current
+one, so the diff is what makes the drift visible. The generator reads a repository file, so a run
+outside a checkout skips.
+
 `sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same
 class: a pure decision with a security consequence. `--project-create` skips the secret scan, the
 git-history prompt and the proceed confirm when it returns 0, so every way it could wrongly say yes

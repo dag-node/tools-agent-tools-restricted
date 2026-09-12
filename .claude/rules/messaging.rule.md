@@ -122,6 +122,23 @@ The `ai-tools-stop: ` prefix belongs to those emitters, so a message text does n
 own: the code identifies the situation, the prefix names the component that raised it, and each is
 stated once.
 
+### The catalog: `ai-tools-messages(7)`
+
+`tools/man-messages.sh` generates `ai-tools-messages(7)` from `.claude/references.md`. An entry
+carries the code, its severity, the message as the emitting call writes it, and the component that
+emits it, each read off a column of the index, so the message text keeps its single home in the
+source that emits it.
+
+Severity comes from the emitting function through a map in the generator, which exits non-zero
+when the index names an emitter that map does not, so a new emitter is classified where the map is
+written.
+
+An entry names a document only where one cites the code: the generator renders a citation from a
+document and skips one from a test or a source file. Prose explaining a code belongs in the manual
+for the component that emits it. `tests/unit/man.sh` regenerates the page and fails on a
+difference, so a reworded message, a new code, and a retired one each reach the catalog in the
+change that makes them ([tests](tests.rule.md)).
+
 ### One situation, two processes: a deliberate twin
 
 A situation two processes both report carries **one code**, emitted at each site. `ai-tools --stop`
