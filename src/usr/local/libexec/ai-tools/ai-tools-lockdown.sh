@@ -35,6 +35,21 @@ set -euo pipefail
 
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 
+log()  { printf 'ai-tools-lockdown: %s\n' "$*"; }
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since these helpers
+# report before the library is loaded.
+warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-lockdown: warn: %s\n' "$*" >&2
+}
+die() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 1
+}
+
 # Operator-identity resolver (operator.lib.sh): secrets are locked to the operator that owns the
 # current directory. A missing lib leaves ai_tools_resolve_owner a fail-closed stub, so the resolve
 # resolution dies rather than lock secrets to the wrong identity.
@@ -58,24 +73,8 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # Required, fail-closed: this helper prints agent-named paths to stderr and the log, so it
 # needs ai_tools_log_sanitize -- a missing logger must refuse, not emit an agent path raw.
 if ! source "${LOG_LIB}"; then
-    printf 'ai-tools-lockdown: FATAL: cannot source %s\n' "${LOG_LIB}" >&2
-    exit 1
+    die MSG-F6D9 "cannot source ${LOG_LIB}"
 fi
-
-log()  { printf 'ai-tools-lockdown: %s\n' "$*"; }
-# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
-# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since these helpers
-# report before the library is loaded.
-warn() {
-    local code=""
-    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
-    printf 'ai-tools-lockdown: warn: %s\n' "$*" >&2
-}
-die() {
-    local code=""
-    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
-    printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 1
-}
 
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
 # reference for the seal and the strip alike). Required and fail-closed like safe-paths.lib.sh:
@@ -84,7 +83,10 @@ die() {
 source /usr/local/lib/ai-tools/owner-only.lib.sh
 if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
         || ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
-    printf 'ai-tools-lockdown: FATAL: owner-only.lib.sh defines no owner-only guard\n' >&2
+    # One library, one defect, one remedy, so this refusal shares its code with ai-tools-setfacl
+    # and ai-tools-setgid: it is DEFINED in ai-tools-setfacl and cited here from the format string
+    # below, which keeps one situation to one definition (messaging.rule.md's twin rule).
+    printf 'MSG-G4P4\nai-tools-lockdown: FATAL: owner-only.lib.sh defines no owner-only guard\n' >&2
     exit 3
 fi
 
@@ -125,29 +127,29 @@ while [[ $# -gt 0 ]]; do
         --dry-run)    DRY_RUN=true ;;
         -y|--yes)     ASSUME_YES=true ;;
         -h|--help)    usage; exit 0 ;;
-        *)            usage; die "unknown argument: $1" ;;
+        *)            usage; die MSG-G2T3 "unknown argument: $1" ;;
     esac
     shift
 done
 
 # ── Guards ───────────────────────────────────────────────────────────────────
-[[ "${EUID}" -eq 0 ]] || die "run with sudo"
+[[ "${EUID}" -eq 0 ]] || die MSG-E9A3 "run with sudo"
 # The invoker (who ran sudo) must not be the agent; the OWNER files are handed back to comes
 # from the enrolled operator identity, not the invoker, so a foreign sudo invocation still
 # restores ownership to the configured operator rather than to itself.
 readonly INVOKER="${SUDO_USER:?run via sudo (SUDO_USER unset)}"
-[[ "${INVOKER}" != "@SANDBOX_USER@" ]] || die "must be run by you, not ai-tools"
+[[ "${INVOKER}" != "@SANDBOX_USER@" ]] || die MSG-M8A8 "must be run by you, not ai-tools"
 
 # Resolve the invoking shell's working directory (sudo preserves it).
-target="$(pwd -P)" || die "cannot determine current directory"
-target="$(realpath -e "${target}" 2>/dev/null)" || die "cannot resolve ${target}"
+target="$(pwd -P)" || die MSG-V7Y3 "cannot determine current directory"
+target="$(realpath -e "${target}" 2>/dev/null)" || die MSG-D5F4 "cannot resolve ${target}"
 # Refuse the whole pass if the working directory is a protected system directory.
 ai_tools_assert_safe_target "${target}" "lockdown" || exit 3
 
 # Resolve the operator that owns this directory; secrets are locked to it. lockdown runs only
 # inside an allowed project, so the directory must resolve to an operator.
 ai_tools_resolve_owner "${target}" \
-    || die "this directory is not in allowed projects for current operator: ${target}"
+    || die MSG-K8Z6 "this directory is not in allowed projects for current operator: ${target}"
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
 # The owner's own private group, spelled per docs/naming-conventions.md -- the same target
 # ai-tools-chown gives an agent-written secret, so a secret ends up identically owned whether it
@@ -206,13 +208,13 @@ _is_allowed() {
     return 1
 }
 
-_is_allowed  "${target}" || die "${target} is not an allowed project (see ${ALLOWLIST})"
-_is_excluded "${target}" && die "${target} is excluded in the allowlist; nothing to do"
+_is_allowed  "${target}" || die MSG-V7Y7 "not an allowed project: ${target} (see ${ALLOWLIST})"
+_is_excluded "${target}" && die MSG-J3F9 "excluded in the allowlist: ${target}; nothing to do"
 
 # ── Shared secret matcher ────────────────────────────────────────────────────
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
 if ! source "${SECRET_PATTERNS_LIB}"; then
-    die "cannot source ${SECRET_PATTERNS_LIB}"
+    die MSG-Q7C6 "cannot source ${SECRET_PATTERNS_LIB}"
 fi
 ai_tools_load_secret_patterns
 
@@ -295,7 +297,7 @@ _safe_apply() {
     case "${ftype}" in
         "regular file"|"regular empty file")
             is_dir=false; mode=600
-            [[ "${nlink}" -eq 1 ]] || { warn "skip (hardlinked, nlink=${nlink}): ${path}"; return 1; }
+            [[ "${nlink}" -eq 1 ]] || { warn MSG-T5Y3 "skip (hardlinked, nlink=${nlink}): ${path}"; return 1; }
             ;;
         "directory") is_dir=true; mode=700 ;;
         *)           return 1 ;;
@@ -405,8 +407,7 @@ _seal_pass() {
     # ask whether the operator meant it.
     if (( foreign > 0 )); then
         ai_tools_log_warn "left a third-party setgid bit on ${foreign} owner-only path(s) under ${target}"
-        printf 'ai-tools-lockdown: kept the setgid bit on %d owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>\n' \
-            "${foreign}" >&2
+        warn MSG-J8H9 "kept the setgid bit on ${foreign} owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>"
     fi
 }
 
@@ -432,7 +433,7 @@ if (( ${#hits[@]} )) && ! ${ASSUME_YES}; then
             "Set files 600 / dirs 700, chown ${OWNER}, revoking ai-tools access?" n \
             || { log "aborted; no changes made"; exit 0; }
     else
-        die "no TTY for confirmation; re-run with --yes to apply non-interactively"
+        die MSG-G3R5 "no TTY for confirmation; re-run with --yes to apply non-interactively"
     fi
 fi
 

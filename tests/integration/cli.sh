@@ -1150,6 +1150,7 @@ else
     else
         fail "--audit accepted an unparseable --since (rc=${rc}): ${out}"
     fi
+    assert_msg MSG-Y3M7 "${out}" "the unparseable --since refusal carries its code"
     #     The convenience emitters bake their descriptor in, so a descriptor passed as the
     #     first argument would print as a bare digit on the line ABOVE the refusal.
     if grep -qxE '[0-9]' <<<"${out}"; then

@@ -130,7 +130,9 @@ deliberate twins — `refuse_positional_argument`'s header states why neither si
 other — so an operator meets the same token whichever side answered.
 
 The code is **defined once and cited at the other site**. A definition is the emit-call shape the
-reference index reads (the token, then the quoted message it labels), so the CLI's
+reference index reads (the token as the command's first argument, then the quoted message it
+labels; a code in a later argument is a citation, which is what a test's parameterised assertion
+helper carries), so the CLI's
 `die_stop_usage MSG-A3M9 "…"` names the message while the helper's `printf 'MSG-A3M9\n…'` prints
 the token without declaring a second message under that name. The index then lists the helper among
 the files citing the code, which is the record a twin needs: one message, two places it reaches a

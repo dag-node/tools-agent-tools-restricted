@@ -450,7 +450,7 @@ split every markup system makes:
 |---|---|---|
 | a place in a document, by kind | `ref-section-h3b7`, `ref-table-z4m9` | a heading closed by an anchor, `## Two project models <a id="ref-section-h3b7"></a>`, or an anchor and a bold caption on the line before the block, `<a id="ref-table-z4m9"></a>**Altitudes and who owns which fact**` |
 | function doc, comment note | `FN-Q2H8`, `NOTE-A5H9` | a comment line, `FN-Q2H8: <function name>` |
-| runtime message | `MSG-F6Z3` | the emit call: the token, then the quoted message it labels, `die MSG-F6Z3 "not a claimed project"` |
+| runtime message | `MSG-F6Z3` | the emit call: the token as the command's first argument, then the quoted message it labels, `die MSG-F6Z3 "not a claimed project"`. A code in a later argument, or before a string opening with an expansion, cites the message instead — which is how a test names the code it expects |
 | resource identifier | `URI-Q4Q6` | one link definition line, `[URI-Q4Q6]: https://… "name"` |
 
 The kinds a document reftag may name, and what each one is, are declared in `ref-index.py`

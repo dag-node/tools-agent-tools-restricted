@@ -45,6 +45,15 @@ readonly DEFAULT_SINCE='7 days ago'
 
 readonly SANDBOX_USER='@SANDBOX_USER@'
 
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
+# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline: these refusals
+# answer before the renderer is loaded, and each keeps its own exit status at the call site.
+warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-audit: %s\n' "$*" >&2
+}
+
 # Shared leveled logger. This helper does not write an audit line of its own -- reading a trail is not
 # an event worth adding to it -- but it uses the sanitizer, which reduces a log line to
 # safe-for-display characters before it reaches the operator's terminal. That is load-bearing
@@ -54,8 +63,7 @@ readonly SANDBOX_USER='@SANDBOX_USER@'
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 source "${LOG_LIB}" 2>/dev/null || {
-    printf 'ai-tools-audit: cannot load %s -- refusing to print log text unsanitized\n' \
-        "${LOG_LIB}" >&2
+    warn MSG-T3T7 "cannot load ${LOG_LIB} -- refusing to print log text unsanitized"
     exit 1
 }
 
@@ -69,16 +77,16 @@ SINCE="${DEFAULT_SINCE}"
 while (( $# )); do
     case "$1" in
         --since)
-            [[ -n "${2:-}" ]] || { printf 'ai-tools-audit: --since needs a value\n' >&2; exit 2; }
+            [[ -n "${2:-}" ]] || { warn MSG-Y4C6 "--since needs a value"; exit 2; }
             SINCE="$2"; shift 2 ;;
-        -*) printf 'ai-tools-audit: unknown option: %s\n' "$1" >&2; exit 2 ;;
-        *)  printf 'ai-tools-audit: unexpected argument: %s\n' "$1" >&2; exit 2 ;;
+        -*) warn MSG-Q7A2 "unknown option: $1"; exit 2 ;;
+        *)  warn MSG-N4V9 "unexpected argument: $1"; exit 2 ;;
     esac
 done
 readonly SINCE
 
 [[ "$(id -u)" == "0" ]] || {
-    ai_tools_msg_error "ai-tools-audit must run as root: the trail it reads is 700 root:root" \
+    ai_tools_msg_error MSG-K9C5 "ai-tools-audit must run as root: the trail it reads is 700 root:root" \
         "run it as: sudo ai-tools --audit"
     exit 1
 }
@@ -86,7 +94,7 @@ readonly SINCE
 # Normalize the window once. A value date(1) cannot parse is refused rather than silently
 # treated as "everything", which would turn a typo into a reassuring wall of old findings.
 CUTOFF_EPOCH="$(date -d "${SINCE}" +%s 2>/dev/null)" || {
-    ai_tools_msg_error "ai-tools-audit: --since value not understood: ${SINCE}" \
+    ai_tools_msg_error MSG-Y3M7 "ai-tools-audit: --since value not understood: ${SINCE}" \
         "give it anything date(1) parses, e.g. '2 days ago', 'yesterday', '2026-08-01'"
     exit 2
 }

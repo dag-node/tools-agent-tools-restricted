@@ -47,6 +47,14 @@ die() {
     printf 'ai-tools-bootstrap: error: %s\n' "$*" >&2; exit 1
 }
 log() { printf 'ai-tools-bootstrap: %s\n' "$*"; }
+# warn carries the severity itself, so no message text spells one out, and it writes to stderr
+# like every other helper's -- a provisioning step that did not complete is not part of the
+# progress narrative log() prints, and nothing reads this helper's stdout.
+warn() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-bootstrap: warn: %s\n' "$*" >&2
+}
 
 # resolve_nvm_version: echo the nvm release tag to install. An explicit AI_TOOLS_NVM_VERSION
 # pin wins; otherwise query the GitHub API for the latest release tag, falling back to the
@@ -87,7 +95,7 @@ configure_git_identity() {
     # The control plane is present (the gitconfig check), so its msg.lib is deployed too; require it
     # like every other prompting consumer -- a missing lib is a broken install, not a skip.
     local msglib=/usr/local/lib/ai-tools/msg.lib.sh
-    [[ -r "${msglib}" ]] || die "control plane present but ${msglib} missing -- reinstall ai-tools"
+    [[ -r "${msglib}" ]] || die MSG-H3H3 "control plane present but ${msglib} missing -- reinstall ai-tools"
     # shellcheck source=/dev/null
     source "${msglib}"
 
@@ -152,7 +160,7 @@ seed_managed_assets_step() {
     [[ -d "${pristine}/agents" && -r "${cplib}" ]] \
         || { log "managed assets: control plane not present yet -- install it, then re-run to seed agents/skills"; return 0; }
     [[ -r "${lib}" && -r "${msglib}" && -r "${conflib}" ]] \
-        || die "control plane present but the managed-asset libs are missing -- reinstall ai-tools"
+        || die MSG-D9D3 "control plane present but the managed-asset libs are missing -- reinstall ai-tools"
     # shellcheck source=/dev/null
     source "${msglib}"
     # shellcheck source=/dev/null
@@ -162,7 +170,7 @@ seed_managed_assets_step() {
     # shellcheck source=/dev/null
     source "${cplib}"
     declare -F ai_tools_agent_config_dirs >/dev/null 2>&1 \
-        || die "control plane present but ${cplib} does not resolve the agents' config dirs"
+        || die MSG-H9S6 "control plane present but ${cplib} does not resolve the agents' config dirs"
     # The SHARED kinds first, into their own roots: skills and subagent definitions are
     # agent-agnostic, so they live in one place and each agent gets symlinks to them. The pairs
     # are <shared kind>:<the manifest field naming where that agent keeps it>.
@@ -198,8 +206,8 @@ seed_managed_assets_step() {
     (( seeded )) || log "managed assets: no agent config directory to seed yet"
 }
 
-[[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
-command -v curl >/dev/null 2>&1 || die "curl is required to fetch nvm"
+[[ "${EUID}" -eq 0 ]] || die MSG-X7Z2 "run as root (sudo)"
+command -v curl >/dev/null 2>&1 || die MSG-T7H8 "curl is required to fetch nvm"
 
 # Run from a neutral, world-traversable directory. The sudo -u ${SANDBOX_USER} steps
 # inherit this process's CWD; invoked from an operator's private dir (e.g. ~/Downloads, mode
@@ -212,7 +220,7 @@ cd /
 # the download URL piped to bash, so a resolved value can never inject shell or URL.
 NVM_VERSION="$(resolve_nvm_version)"
 [[ "${NVM_VERSION}" =~ ^v[0-9][0-9.]*$ ]] \
-    || die "invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)"
+    || die MSG-W8X8 "invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)"
 readonly NVM_VERSION
 
 # 1. Sandbox account + home. --system: no aging, low uid; /sbin/nologin + locked password:
@@ -321,11 +329,11 @@ if [[ -r "${_verify_lib}" ]]; then
         ' || _vrc=$?
     case "${_vrc}" in
         0) log "npm registry signatures verified for the installed toolchain" ;;
-        1) die "npm signature verification FAILED (possible registry tampering) -- aborting before wiring the launcher; the installed package is left unactivated" ;;
-        *) log "warn: could not verify npm signatures (offline or unsupported) -- proceeding; the toolchain is installed but unverified" ;;
+        1) die MSG-F3Y2 "npm signature verification FAILED (possible registry tampering) -- aborting before wiring the launcher; the installed package is left unactivated" ;;
+        *) warn MSG-H6A8 "could not verify npm signatures (offline or unsupported) -- proceeding; the toolchain is installed but unverified" ;;
     esac
 else
-    log "warn: signature-verification library not deployed yet -- skipping the check; the nvm-update timer verifies on its first run"
+    warn MSG-P9Q6 "signature-verification library not deployed yet -- skipping the check; the nvm-update timer verifies on its first run"
 fi
 
 # 3. Point /opt/ai-tools/bin/<launcher> at the versioned binary, once per enabled agent whose
@@ -360,7 +368,7 @@ fi
 _relabel_helper=/usr/local/libexec/ai-tools/ai-tools-relabel-agent
 if [[ -x "${_relabel_helper}" ]]; then
     "${_relabel_helper}" \
-        || log "warn: entrypoint relabel did not complete -- run 'sudo ai-tools-admin system entrypoints relabel' before launching claude"
+        || warn MSG-C7C8 "entrypoint relabel did not complete -- run 'sudo ai-tools-admin system entrypoints relabel' before launching claude"
 fi
 
 # 4. Capture the control plane's initial state in a root-private git repo so drift is reviewable.
@@ -378,7 +386,7 @@ if [[ ! -e "${SANDBOX_HOME}/.git" && -e "${SANDBOX_HOME}/.gitignore" ]] && comma
        && "${_gitrun[@]}" commit -q -m "Initial control-plane state (ai-tools-bootstrap)"; then
         log "captured initial control-plane commit"
     else
-        log "warn: control-plane git capture incomplete"
+        warn MSG-U6F2 "control-plane git capture incomplete"
     fi
     if [[ -d "${SANDBOX_HOME}/.git" ]]; then
         chown -R root:root "${SANDBOX_HOME}/.git"
@@ -421,7 +429,7 @@ sudo -u "${SANDBOX_USER}" touch "${_stampdir}/stamp-nvm-update.timer"
 # stays active. Surface a failure so an instance that does not engage linger is visible.
 if command -v loginctl >/dev/null 2>&1; then
     _linger_out="$(loginctl enable-linger "${SANDBOX_USER}" 2>&1)" \
-        || log "warn: could not enable linger for ${SANDBOX_USER} (${_linger_out:-no output})"
+        || warn MSG-V4D9 "could not enable linger for ${SANDBOX_USER} (${_linger_out:-no output})"
 fi
 # Wait for the manager to come up before driving it; XDG_RUNTIME_DIR alone lets systemctl --user
 # reach the user manager over its bus, so DBUS_SESSION_BUS_ADDRESS need not be pinned.
@@ -437,7 +445,7 @@ if _start_out="$(sudo -u "${SANDBOX_USER}" \
         bash -c 'systemctl --user daemon-reload && systemctl --user start nvm-update.timer' 2>&1)"; then
     log "started nvm-update.timer in ${SANDBOX_USER}'s --user instance"
 else
-    log "warn: could not start nvm-update.timer (${_start_out:-no output}) -- start it after the control plane is installed"
+    warn MSG-C8M9 "could not start nvm-update.timer (${_start_out:-no output}) -- start it after the control plane is installed"
 fi
 
 log "toolchain ready under ${SANDBOX_HOME}"

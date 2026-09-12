@@ -168,6 +168,7 @@ if [[ "${LD_RC}" -ne 0 ]] && grep -qi 'not in allowed projects' "${TESTDIR}/refu
 else
     fail "non-allowlisted CWD not refused (rc=${LD_RC}) or .env changed: $(cat "${TESTDIR}/refuse")"
 fi
+assert_msg MSG-K8Z6 "$(cat "${TESTDIR}/refuse")" "the refusal names the unresolved project by its code"
 
 # (4) Refuses to run as the sandbox account (guard fires before any change). A fresh secret
 #     created for this case stays untouched.
@@ -183,6 +184,7 @@ if [[ "${agent_rc}" -ne 0 ]] && grep -qi 'must be run by you, not' "${TESTDIR}/a
 else
     fail "did not refuse the sandbox account (rc=${agent_rc}) or fresh.key changed: $(cat "${TESTDIR}/asagent")"
 fi
+assert_msg MSG-M8A8 "$(cat "${TESTDIR}/asagent")" "the sandbox-account refusal carries its code"
 
 # (5) The seal pass: a NON-secret path the operator sealed by mode has its residue stripped even
 #     though no pattern matches its name, so a path sealed after the claim is cleaned up here

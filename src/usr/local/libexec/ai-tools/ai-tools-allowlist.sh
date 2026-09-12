@@ -60,6 +60,14 @@ die() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-allowlist: %s\n' "$*" >&2; exit 1
 }
+# note: the same line on stdout, for an action that completed or had nothing to do. It does not
+# exit, so the exit status stays where the action decides it, and it carries the prefix so no call
+# site repeats it.
+note() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}"; fi
+    printf 'ai-tools-allowlist: %s\n' "$*"
+}
 
 # ── Arguments ────────────────────────────────────────────────────────────────────
 # One target operator (--operator) and exactly one action. The action's path argument is
@@ -74,29 +82,31 @@ TARGET_PATH=""
 # passed through so an absent value is a zero-length expansion rather than an empty string.
 _need_value() {
     local flag="$1"; shift
-    (( $# )) || die "${flag} needs a value"
-    [[ "$1" != -* ]] || die "${flag} needs a value, not another option: $1"
+    (( $# )) || die MSG-Z7E9 "a value is required after ${flag}"
+    [[ "$1" != -* ]] || die MSG-S4M8 "a value is required after ${flag}, not another option: $1"
 }
+# _one_action: five arms refuse a second action, and it is one situation, so the refusal is
+# stated once here rather than at each of them.
+_one_action() { [[ -z "${ACTION}" ]] || die MSG-C5G8 "only one action may be given"; }
 while (( $# )); do
     case "$1" in
         --operator) _need_value "$1" "${@:2}"; OPERATOR="$2"; shift 2 ;;
-        --print)    [[ -z "${ACTION}" ]] || die "only one action may be given"
-                    ACTION=print; shift ;;
-        --add)      [[ -z "${ACTION}" ]] || die "only one action may be given"
+        --print)    _one_action; ACTION=print; shift ;;
+        --add)      _one_action
                     _need_value "$1" "${@:2}"; ACTION=add; TARGET_PATH="$2"; shift 2 ;;
-        --remove)   [[ -z "${ACTION}" ]] || die "only one action may be given"
+        --remove)   _one_action
                     _need_value "$1" "${@:2}"; ACTION=remove; TARGET_PATH="$2"; shift 2 ;;
-        --enable)   [[ -z "${ACTION}" ]] || die "only one action may be given"
+        --enable)   _one_action
                     _need_value "$1" "${@:2}"; ACTION=enable; TARGET_PATH="$2"; shift 2 ;;
-        --disable)  [[ -z "${ACTION}" ]] || die "only one action may be given"
+        --disable)  _one_action
                     _need_value "$1" "${@:2}"; ACTION=disable; TARGET_PATH="$2"; shift 2 ;;
-        *)          die "unknown argument: $1
+        *)          die MSG-R4E8 "unknown argument: $1
 usage: ai-tools-allowlist --operator <name>
        (--print | --add <path> | --remove <path> | --enable <path> | --disable <path>)" ;;
     esac
 done
-[[ -n "${OPERATOR}" ]] || die "--operator <name> is required"
-[[ -n "${ACTION}"   ]] || die "one of --print, --add, --remove, --enable, --disable is required"
+[[ -n "${OPERATOR}" ]] || die MSG-X4Z3 "--operator <name> is required"
+[[ -n "${ACTION}"   ]] || die MSG-J8J2 "one of --print, --add, --remove, --enable, --disable is required"
 readonly OPERATOR ACTION TARGET_PATH
 
 # ── Required libraries (fail closed) ─────────────────────────────────────────────
@@ -110,11 +120,11 @@ source /usr/local/lib/ai-tools/operator.lib.sh
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source /usr/local/lib/ai-tools/safe-paths.lib.sh
 declare -F ai_tools_conf_allowlist_has_entry >/dev/null 2>&1 \
-    || die "config library defines no allowlist matcher -- refusing (fail closed)"
+    || die MSG-C9K7 "config library defines no allowlist matcher -- refusing (fail closed)"
 declare -F ai_tools_load_operators >/dev/null 2>&1 \
-    || die "operator library defines no operator list -- refusing (fail closed)"
+    || die MSG-F5N3 "operator library defines no operator list -- refusing (fail closed)"
 declare -F ai_tools_assert_safe_target >/dev/null 2>&1 \
-    || die "safe-paths library defines no protected-path guard -- refusing (fail closed)"
+    || die MSG-E8H6 "safe-paths library defines no protected-path guard -- refusing (fail closed)"
 
 # Shared leveled logger: journald (always) + the root-only /var/log/ai-tools/allowlist.log.
 # Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
@@ -133,14 +143,14 @@ fi
 # refused rather than defaulting to some operator.
 caller_uid="${SUDO_UID:-}"
 [[ -n "${caller_uid}" ]] \
-    || die "run me through sudo as an operator (no SUDO_UID) -- nothing changed"
+    || die MSG-T6R6 "run me through sudo as an operator (no SUDO_UID) -- nothing changed"
 caller="$(id -un "${caller_uid}" 2>/dev/null)" \
-    || die "unknown invoking uid ${caller_uid} -- nothing changed"
+    || die MSG-W6P9 "unknown invoking uid ${caller_uid} -- nothing changed"
 [[ "${caller}" != "${SANDBOX_USER}" ]] \
-    || die "the sandbox account may not manage an allowlist -- nothing changed"
+    || die MSG-N3S4 "the sandbox account may not manage an allowlist -- nothing changed"
 
 ai_tools_load_operators 2>/dev/null \
-    || die "no operators configured -- run: sudo ai-tools-admin operators add <user>"
+    || die MSG-Z7N7 "no operators configured -- run: sudo ai-tools-admin operators add <user>"
 
 _is_operator() {
     local want="$1" op
@@ -151,7 +161,7 @@ _is_operator() {
 }
 
 _is_operator "${caller}" \
-    || die "${caller} is not a configured ai-tools operator -- nothing changed"
+    || die MSG-J6J3 "caller ${caller} is not a configured ai-tools operator -- nothing changed"
 
 # ── Target gate ──────────────────────────────────────────────────────────────────
 # The target must be an enrolled operator: the whole point of the entry is that ai-tools-setfacl
@@ -159,17 +169,17 @@ _is_operator "${caller}" \
 # OPERATORS. Writing an entry for an unenrolled name would create a launch gate no ownership
 # machinery can act on.
 [[ "${OPERATOR}" != "${SANDBOX_USER}" ]] \
-    || die "the sandbox account is not an operator and must not own projects -- nothing changed"
+    || die MSG-Y3B2 "the sandbox account is not an operator and must not own projects -- nothing changed"
 [[ "${OPERATOR}" != "root" ]] \
-    || die "root is not an operator -- nothing changed"
+    || die MSG-B2Y8 "root is not an operator -- nothing changed"
 _is_operator "${OPERATOR}" \
-    || die "${OPERATOR} is not a configured ai-tools operator -- enrol it first with:
+    || die MSG-M3R6 "target ${OPERATOR} is not a configured ai-tools operator -- enrol it first with:
        sudo ai-tools-admin operators add ${OPERATOR}"
 
 target_home="$(getent passwd "${OPERATOR}" 2>/dev/null | cut -d: -f6)" \
-    || die "cannot resolve ${OPERATOR} -- nothing changed"
+    || die MSG-A2M5 "cannot resolve ${OPERATOR} -- nothing changed"
 [[ -n "${target_home}" && -d "${target_home}" ]] \
-    || die "no home directory for ${OPERATOR} -- nothing changed"
+    || die MSG-R4C4 "no home directory for ${OPERATOR} -- nothing changed"
 # Resolve the target's allowlist through operator.lib's own path helper, so the
 # AI_TOOLS_ALLOWLIST test hook applies here exactly as it does on every resolve_owner path and
 # the helper cannot drift from what the root helpers read.
@@ -192,9 +202,9 @@ fi
 # Canonicalise before every check and before the write, so a symlink or '..' cannot smuggle a
 # path past the protected-paths backstop and land a different directory in the launch gate.
 canonical="$(realpath -e "${TARGET_PATH}" 2>/dev/null)" \
-    || die "not an existing path: ${TARGET_PATH} -- nothing changed"
+    || die MSG-Q5X7 "not an existing path: ${TARGET_PATH} -- nothing changed"
 [[ -d "${canonical}" ]] \
-    || die "not a directory: ${canonical} -- nothing changed"
+    || die MSG-R6C5 "not a directory: ${canonical} -- nothing changed"
 ai_tools_assert_safe_target "${canonical}" "allowlist ${ACTION}" || exit 3
 readonly canonical
 
@@ -207,7 +217,7 @@ readonly canonical
 # file beside it, so the refusal names the command that writes the whole config.
 require_target_config() {
     [[ -f "${allowlist}" ]] && return 0
-    die "${OPERATOR} has no ai-tools config yet (no ${allowlist}) -- nothing changed.
+    die MSG-S7Y3 "no ai-tools config yet for ${OPERATOR} (no ${allowlist}) -- nothing changed.
        If the ${OPERATOR} account is meant to run sandboxed sessions, enrol it first with:
        sudo ai-tools-admin operators add ${OPERATOR}"
 }
@@ -225,13 +235,14 @@ case "${ACTION}" in
         rc=0; ai_tools_conf_allowlist_add "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;
-            2) die "${canonical} is DISABLED for ${OPERATOR} -- a '!' line parks it, and adding a
-       second line would leave that '!' winning at the launch gate. Re-enable it instead:
+            2) die MSG-T7B6 "that project is DISABLED for ${OPERATOR}: ${canonical} -- a '!' line
+       parks it, and adding a second line would leave that '!' winning at the launch gate.
+       Re-enable it instead:
        ai-tools-allowlist --operator ${OPERATOR} --enable ${canonical}" ;;
-            *) die "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed" ;;
+            *) die MSG-D3T3 "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed" ;;
         esac
         ai_tools_log_info "operator ${caller} added ${canonical} to ${OPERATOR}'s allowlist"
-        printf 'ai-tools-allowlist: added %s for %s\n' "${canonical}" "${OPERATOR}"
+        note "added ${canonical} for ${OPERATOR}"
         ;;
     remove)
         # A missing allowlist has no entry to remove -- report it and succeed, so an unclaim that
@@ -239,17 +250,17 @@ case "${ACTION}" in
         # a project the operator had parked leaves no '!' behind to park whatever is claimed at
         # that path next.
         if [[ ! -f "${allowlist}" ]]; then
-            printf 'ai-tools-allowlist: %s has no allowlist -- nothing to remove\n' "${OPERATOR}"
+            note MSG-V9K7 "no allowlist for ${OPERATOR} -- nothing to remove"
             exit 0
         fi
         if [[ "$(ai_tools_conf_allowlist_state "${allowlist}" "${canonical}")" == absent ]]; then
-            printf 'ai-tools-allowlist: %s is not listed for %s\n' "${canonical}" "${OPERATOR}"
+            note MSG-H7J9 "nothing to remove: ${canonical} is not listed for ${OPERATOR}"
             exit 0
         fi
         ai_tools_conf_allowlist_remove "${allowlist}" "${canonical}" \
-            || die "could not remove ${canonical} from ${OPERATOR}'s allowlist -- a line naming it survived, so that project is still registered"
+            || die MSG-K2G9 "could not remove ${canonical} from ${OPERATOR}'s allowlist -- a line naming it survived, so that project is still registered"
         ai_tools_log_info "operator ${caller} removed ${canonical} from ${OPERATOR}'s allowlist"
-        printf 'ai-tools-allowlist: removed %s for %s\n' "${canonical}" "${OPERATOR}"
+        note "removed ${canonical} for ${OPERATOR}"
         ;;
     enable)
         # The one action that WIDENS the target's launch gate. It does not append a line: the '!' comes off
@@ -258,12 +269,12 @@ case "${ACTION}" in
         rc=0; ai_tools_conf_allowlist_enable "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;
-            2) printf 'ai-tools-allowlist: %s is not disabled for %s -- nothing to enable\n' \
-                   "${canonical}" "${OPERATOR}"; exit 0 ;;
-            *) die "${canonical} is STILL disabled for ${OPERATOR} -- the line was not rewritten" ;;
+            2) note MSG-E2G7 "not disabled for ${OPERATOR}: ${canonical} -- nothing to enable"
+               exit 0 ;;
+            *) die MSG-H9V5 "the entry is STILL disabled for ${OPERATOR}: ${canonical} -- the line was not rewritten" ;;
         esac
         ai_tools_log_info "operator ${caller} enabled ${canonical} in ${OPERATOR}'s allowlist"
-        printf 'ai-tools-allowlist: enabled %s for %s\n' "${canonical}" "${OPERATOR}"
+        note "enabled ${canonical} for ${OPERATOR}"
         ;;
     disable)
         # Park the target's project: the '!' goes on, in place. It moves to LESS access -- no
@@ -273,11 +284,11 @@ case "${ACTION}" in
         rc=0; ai_tools_conf_allowlist_disable "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;
-            2) die "${canonical} is not listed for ${OPERATOR} -- there is no entry to disable" ;;
-            *) die "could not disable ${canonical} for ${OPERATOR} -- nothing changed" ;;
+            2) die MSG-H6K3 "not listed for ${OPERATOR}: ${canonical} -- there is no entry to disable" ;;
+            *) die MSG-C7Q4 "could not disable ${canonical} for ${OPERATOR} -- nothing changed" ;;
         esac
         ai_tools_log_info "operator ${caller} disabled ${canonical} in ${OPERATOR}'s allowlist"
-        printf 'ai-tools-allowlist: disabled %s for %s\n' "${canonical}" "${OPERATOR}"
+        note "disabled ${canonical} for ${OPERATOR}"
         ;;
 esac
 

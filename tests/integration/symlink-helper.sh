@@ -32,18 +32,19 @@ for bogus in \
     "/opt/ai-tools/.nvm/versions/node/notaversion/bin/claude" \
     "/opt/ai-tools/.nvm/versions/node/v22.0.0/lib/claude"
 do
-    if "${helper}" "${bogus}" >/dev/null 2>&1; then
+    if out="$("${helper}" "${bogus}" 2>&1)"; then
         fail "helper accepted a target outside the versioned-launcher shape: ${bogus}"
     else
-        pass "helper refuses a target outside the versioned-launcher shape: ${bogus}"
+        assert_msg MSG-W5K8 "${out}" \
+            "helper refuses a target outside the versioned-launcher shape: ${bogus}"
     fi
 done
 
 # (B) Refuse a correctly-shaped but non-existent version, for a launcher that IS claimed.
-if "${helper}" "/opt/ai-tools/.nvm/versions/node/v0.0.0/bin/claude" >/dev/null 2>&1; then
+if out="$("${helper}" "/opt/ai-tools/.nvm/versions/node/v0.0.0/bin/claude" 2>&1)"; then
     fail "helper accepted a versioned path that does not exist (v0.0.0)"
 else
-    pass "helper refuses a versioned path that does not exist"
+    assert_msg MSG-T8B9 "${out}" "helper refuses a versioned path that does not exist"
 fi
 
 # (C) Refuse a correctly-shaped path whose launcher NO enabled agent manifest claims -- the
@@ -57,12 +58,14 @@ else
     sibling="${cur%/*}/node"
     if [[ ! -x "${sibling}" ]]; then
         skip "unclaimed-launcher refusal" "no sibling binary to probe at ${sibling}"
-    elif "${helper}" "${sibling}" >/dev/null 2>&1; then
+    elif out="$("${helper}" "${sibling}" 2>&1)"; then
         fail "helper linked ${bin_dir}/node -- a launcher no enabled agent manifest claims"
     elif [[ -e "${bin_dir}/node" ]]; then
         fail "helper refused but ${bin_dir}/node exists -- the refusal wrote to the locked dir"
     else
-        pass "helper refuses a launcher no enabled agent manifest claims"
+        # By code, not by exit status: the sibling passes the shape check, so only the code
+        # says the allowlist half is what refused it.
+        assert_msg MSG-G4F4 "${out}" "helper refuses a launcher no enabled agent manifest claims"
     fi
 fi
 
