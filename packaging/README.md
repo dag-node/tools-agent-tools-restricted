@@ -53,10 +53,12 @@ The release process — branch model, tag grammar, RC prereleases, the dispatch 
 the channel rule — is [`docs/branching-and-release.md`](../docs/branching-and-release.md).
 The packaging-side tooling for it:
 
-    make changelog                        # draft the %changelog entry from commits since the last tag
-    make check-version                    # VERSION == newest %changelog entry
-    make check-version TAG=v0.7.0         # the full gate, as the release job runs it
-    make check-version TAG=v0.7.0-rc.1    # RC: base-version gate, %changelog match relaxed
+```bash
+make changelog                        # draft the %changelog entry from commits since the last tag
+make check-version                    # VERSION == newest %changelog entry
+make check-version TAG=v0.7.0         # the full gate, as the release job runs it
+make check-version TAG=v0.7.0-rc.1    # RC: base-version gate, %changelog match relaxed
+```
 
 `make changelog` drafts from git history; curate it into upgrade-oriented prose before
 committing. `make check-version` runs the same `check-version.sh` the release job runs, so a

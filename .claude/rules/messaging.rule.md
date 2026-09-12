@@ -331,8 +331,8 @@ per-invocation flag rule as a default-NO confirm, and the flag is the auditable 
 `ai_tools_msg_confirm`, `ai_tools_msg_pick` and `ai_tools_msg_challenge` are the project's three
 decision points, so
 each records its outcome through the shared logger ([logging](logging.rule.md)): one INFO
-line naming the question and the answer (`confirm: <question> -> yes|no (answered | default
-| assume-yes | no-tty-default)`) or the menu choice (`menu: chose <n>/<N> (<label>)`). A menu
+line naming the question and the answer (`confirm: <question> -> yes|no (answered | default |
+assume-yes | no-tty-default)`) or the menu choice (`menu: chose <n>/<N> (<label>)`). A menu
 that ends **without** a choice is audited too, naming which way it ended (`menu: no terminal
 and no default -- no answer`, `menu: input closed -- no answer`, `menu: no answer after 3
 attempts`), so the trail distinguishes a declined menu from one never drawn. This
