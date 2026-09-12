@@ -1099,6 +1099,87 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Sun Sep 13 2026 dagnode <tools@dagnode.com> - 0.17.0-1
+- CHANGE: The optional SELinux group 'netcore' is replaced by two stable groups named for the access
+  each grants: 'localipc', sockets and pipes between the session's own processes, and 'buildexec',
+  execute on a claimed project's build output. A host with 'ai_tools_netcore' loaded is migrated in
+  one semodule transaction by the ai-tools-selinux upgrade, by 'install-selinux.sh' and by an enable
+  run; the old name is refused, so a script takes 'ai-tools-admin selinux groups enable localipc
+  buildexec'.
+- CHANGE: '-n' is gone as the short form of '--dry-run'. 'ai-tools --lockdown -n',
+  '--project-unclaim --force -n' and '--stop -n' are refused as an unknown option, on the CLI and
+  on the lockdown and stop helpers; type '--dry-run'.
+- CHANGE: This release is the last one whose only CLI spelling is 'ai-tools --<verb>'. 0.18.0 adds
+  the resource-grammar surface the admin CLI already uses ('ai-tools projects claim DIRECTORY') and
+  keeps every current option working as an alias that warns, so a script written against 0.17.0
+  keeps running.
+- SECURITY: What an enabling host grants a session execute on narrows. 'netcore' granted execute on
+  every file labelled ai_tools_project_t, so a git hook and any script in a claimed tree ran;
+  'buildexec' grants it on the build-output directories an integration's manifest declares ('bin'
+  and 'obj' for .NET), which a claim labels ai_tools_project_build_t. The type follows the directory
+  name, so the scoping is a convenience rather than a boundary.
+- SECURITY: An exclusion carrying an end-of-line comment ('!/path/to/keep  # note') was read under
+  two grammars: the launch wrapper refused the carve-out while the claim's ACL walk granted the
+  agent group its rwX ACL on it, and an allow entry carrying a comment or quotes resolved to no
+  owner, which no-op'd every helper that hands ownership back. Every reader of allowed-projects
+  takes one grammar now; check 'getfacl -R DIRECTORY' on a carve-out claimed before this release.
+- NEW: Every refusal, warning and notice carries a message code ('MSG-' plus a letter, a digit, a
+  letter and a digit), and 'ai-tools-messages(7)' lists every code with its severity and the
+  component that emits it, so one lookup answers a code met on a terminal or selected in the
+  journal. Each structured record carries the code as AI_TOOLS_MSG and the package version as
+  AI_TOOLS_VERSION, so 'journalctl AI_TOOLS_MSG=MSG-A1B2' selects one situation across releases.
+- NEW: The trail of a privileged operation names whose tree it was about, not only the root uid
+  that wrote the line: every structured record a root helper writes carries AI_TOOLS_OPERATOR and
+  AI_TOOLS_PROJECT, and the handback daemon records the session unit each root operation was served
+  for. 'journalctl -t ai-tools-chown AI_TOOLS_PROJECT=DIRECTORY' answers what happened to one
+  project, and on a host running two sessions the ownership record says which one asked.
+- NEW: Each operator config file has a section 5 page the package replaces on every upgrade --
+  'allowed-projects(5)', 'secret-patterns(5)', 'operator.conf(5)' and
+  'custom-claude-endpoint.conf(5)' -- and 'ai-tools-providers(5)' documents every manifest key. Each
+  template keeps a line per option beside its commented default and points at its page, so a
+  corrected reference arrives with the package. operator.conf ships shrunk to that, as one .rpmnew.
+- NEW: 'ai-tools --providers' names the SELinux policy groups each enabled integration declares and
+  the host has not loaded, each with its description and the command that enables it.
+- NEW: The shipped ai-tools-technical-docs skill gains a cross-reference system and four checks:
+  ref-index.py mints and resolves reftags, so a reference into another file is rewritten when its
+  target moves and reported when it is gone, and prose-check.py reports a positional reference ("the
+  table below"), a command or option prose left unmarked, a comment line over 120 columns or ending
+  on a tie word, and a config header over 72. '--new REV' reports what a rewrite introduced.
+- CHANGE: 'install.sh' names the commit it deploys and refuses a checkout carrying uncommitted
+  changes, listing each path with its git status code and marking the ones the sandbox account
+  owns. '--allow-uncommitted' admits such a tree with a warning, and 'install.sh check-tree' runs
+  the gate alone. The install leaves the checkout's own allowlist entry as it found it, where
+  earlier releases removed it.
+- FIX: A custom system prompt was refused as "not a text file" on every stock host. The wrapper
+  read the file as the operator, and the shipped prompt is 0640 root:ai-tools with the operator
+  outside that group by design; the content check now runs as the sandbox account, which can read
+  it, and refuses the launch on a prompt that is not text.
+- FIX: On an enforcing host, only the account that ran install-selinux.sh had its
+  '~/.config/ai-tools' typed ai_tools_conf_t, so the root helpers were denied getattr on every other
+  operator's allowlist, resolved no owner, and left that operator's projects sandbox-owned.
+  'ai-tools-admin operators add' registers the rule for the account it enrols and install-selinux.sh
+  sweeps the OPERATORS list; a re-run of either repairs an account whose rule is missing.
+- FIX: A reinstall on an enforcing host could lose a file-context registration: install-selinux.sh
+  and the ai-tools-selinux %post wrote the policy store without the lock the root helpers take, and
+  the entrypoint relabel watcher fires into that window. Both take it now. A direct
+  install-selinux.sh install also rebuilds ai_tools.pp through make wherever selinux-policy-devel
+  is present, so a checkout whose policy sources moved on stops loading an earlier build.
+- FIX: A refusal that was recorded and never printed now reaches the terminal: ai-tools-safedir's
+  three declines to register a git safe.directory, ai-tools-unclaim's unknown target group and its
+  five --unlisted identity checks, a claim whose ACL step found no setfacl, and the reclaim walk's
+  two no-op outcomes. The CLI had reported such a step as failed without being able to say why.
+- FIX: 'ai-tools --project-unclaim --force' on a registered project refuses and prints the unclaim
+  to run, where it had accepted the flag with a notice and run the registered unclaim instead, and
+  'ai-tools --status' reports a failed labelling record as what the last reconcile could not do,
+  naming 'sudo ai-tools-admin status' for the entrypoint's live label.
+- DOCS: Every man page takes one placeholder and font convention -- the uppercase vocabulary
+  man-pages(7) uses (DIRECTORY, FILE, USER, GROUP, NAME, REF, WHEN), italic for what the reader
+  substitutes and bold for what they type as shown -- so a literal reads apart from a slot on every
+  page.
+- DOCS: docs/multi-operator.md is an operator guide for a service account: what an enrolled account
+  can do on its own, what every operator shares, and what stays private to each. It replaces a
+  description of a proposed model that named a command the CLI does not carry.
+
 * Wed Sep 09 2026 dagnode <tools@dagnode.com> - 0.16.0-1
 - SECURITY: The built-in secret-name baseline changes what a host relying on it quarantines.
   '*.asc' and '*.crt' name public artifacts and are no longer secrets (the first had been
