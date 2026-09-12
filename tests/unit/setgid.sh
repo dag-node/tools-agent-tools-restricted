@@ -66,6 +66,9 @@ if ${foreign}; then
     else
         fail "the owner-guard skip was silent (stderr: ${guard_err})"
     fi
+    # The code separates this report from the project-root one below, which the prose grep
+    # above matches as well.
+    assert_msg MSG-B9V2 "${guard_err}" "the owner-guard skip is reported under its own code"
 else
     skip "owner-guard reporting" "user 'nobody' not present"
 fi
@@ -178,6 +181,7 @@ if id nobody >/dev/null 2>&1; then
     else
         fail "a third-party-owned project root was not called out (stderr: ${root_err})"
     fi
+    assert_msg MSG-V6Q7 "${root_err}" "the project-root case carries its own code"
 else
     skip "third-party project root" "user 'nobody' not present"
 fi
