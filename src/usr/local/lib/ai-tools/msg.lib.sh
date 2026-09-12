@@ -92,7 +92,7 @@
 # no default at all, so a mismatch, an empty answer, and an absent terminal are all "no" --
 # what a confirm cannot express and a destructive verb needs. See each function.
 #
-# This library is REQUIRED by its consumers (bare-sourced under set -e, like
+# This library is REQUIRED by its consumers (bare-sourced under `set -e`, like
 # safe-paths.lib.sh): ai_tools_msg_confirm carries yes/no decisions, so there is no
 # per-consumer fallback -- a valid install ships the lib, and a broken one fails closed.
 # The one exception is session-hook.sh, which only emits and whose sweep must run
@@ -100,7 +100,7 @@
 # exit status of the operation whose outcome they report.
 
 # Include guard. Consumers source this lib directly AND through safe-paths.lib.sh; the
-# readonly constants would abort a re-source under set -e, so a second source is a
+# readonly constants would abort a re-source under `set -e`, so a second source is a
 # no-op instead.
 if [[ -n "${_AI_TOOLS_MSG_LIB_LOADED:-}" ]]; then return 0; fi
 readonly _AI_TOOLS_MSG_LIB_LOADED=1
@@ -174,7 +174,7 @@ _ai_tools_msg_is_tie() {
 ai_tools_msg_wrap() {
     # Pin IFS to the default: this lib is sourced into callers that set their own (the
     # claude wrapper uses IFS=$'\n\t', dropping space), and the word-splitting
-    # (read -ra, $*) must split on spaces regardless, or a whole line collapses into one
+    # (`read -ra`, $*) must split on spaces regardless, or a whole line collapses into one
     # unbreakable unit and never wraps. The per-command `IFS= read` overrides stay local.
     local IFS=$' \t\n'
     local width="$1"; shift
@@ -493,7 +493,7 @@ ai_tools_msg_pick() {
 # ai_tools_cmd_display <abs-path> -- echo how a command should be PRINTED to the user: the
 # bare name when `command -v` resolves it to that same absolute path on this PATH, and the
 # absolute path otherwise. A printed command is meant to be typed, so `ai-tools --status`
-# reads better than /usr/local/bin/ai-tools --status -- but only where the short form runs
+# reads better than `/usr/local/bin/ai-tools --status` -- but only where the short form runs
 # the same program, so a host with an unexpected PATH still gets a command that works.
 ai_tools_cmd_display() {
     local path="${1:-}" name resolved
@@ -518,7 +518,7 @@ ai_tools_cmd_display() {
 # when the default is already 'y': it fast-tracks safe-direction questions but never
 # flips a default-NO question -- those always ask (or take No with no terminal). A caller
 # that must pre-answer a default-NO question does it with its own explicit flag (e.g.
-# ai-tools --yes, ai-tools-chown --yes), an auditable per-invocation decision.
+# `ai-tools --yes`, `ai-tools-chown --yes`), an auditable per-invocation decision.
 ai_tools_msg_confirm() {
     local question="$1" def="${2:?ai_tools_msg_confirm: default (y|n) is required}" hint resp how result
     case "${def}" in
@@ -632,7 +632,7 @@ ai_tools_msg_version() {
 # sibling repo sources this lib and calls it with its own subtitle, so the brand reads the
 # same across surfaces and repos.
 #
-# Printed ONLY on a terminal ([ -t 1 ]); on a pipe/redirect/capture it stays silent, so a
+# Printed ONLY on a terminal (`[ -t 1 ]`); on a pipe/redirect/capture it stays silent, so a
 # tee'd install log, a piped run, or a `--version` scrape is never polluted with escape codes
 # or box-drawing glyphs. Colour is emitted once past that gate (there is a terminal to read
 # it). Always returns success.

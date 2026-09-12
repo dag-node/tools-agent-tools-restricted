@@ -21,7 +21,7 @@
 # now-dangling symlink on its next run.
 #
 # Sourced more than once in a single shell: return early so the second pass is a no-op (an
-# if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips set -e).
+# if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips `set -e`).
 if [[ -n "${_AI_TOOLS_MANAGED_ASSETS_LIB:-}" ]]; then
     return 0
 fi

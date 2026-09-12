@@ -7,11 +7,12 @@
 # here ONCE and each consumer only formats -- no duplicated service knowledge.
 #
 # Pure data + detection: this library does not render output (no msg.lib dependency). A consumer sources it,
-# scans, and formats the result however it likes (a framed warn at launch, a plain table in --status).
+# scans, and formats the result however it likes (a framed warn at launch, a plain table in `--status`).
 #
 # Detection is two-sourced, by scope. A system unit is queried live (`systemctl is-active`, which
 # any user may read) -- except a Type=oneshot service, which is inactive whenever it is healthy and
-# is judged by the result of its last run instead. A unit in the sandbox account's own `systemd --user` manager is not reachable
+# is judged by the result of its last run instead. A unit in the sandbox account's own
+# `systemd --user manager` is not reachable
 # from the operator's session at all -- the machine transport needs root and no NOPASSWD rule grants
 # it -- so its state comes from a LAST-RUN STAMP the unit writes to a path the operator can read
 # (/var/opt/ai-tools/state), and from the one live fact that IS readable: whether its unit file is
@@ -49,7 +50,7 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 #   scope    = system       -- checkable unprivileged (a system unit's state is world-readable):
 #                              from `systemctl is-active`, or, for a Type=oneshot service, from the
 #                              result of its last run, since such a unit is inactive while healthy.
-#              sandbox-user  -- a --user unit in the sandbox account's own systemd instance, which
+#              sandbox-user  -- a `--user unit` in the sandbox account's own systemd instance, which
 #                              the operator cannot query unprivileged, so its live state comes from
 #                              a last-run stamp if the unit publishes one and is reported as
 #                              unknown with a check hint otherwise -- never a guessed value.
@@ -78,7 +79,7 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 # A purpose is worded state-neutrally ("without it ...", not "while it is down ..."), since the
 # same sentence is printed under down, failed, and stale.
 # remedy is EMPTY on a sandbox-user unit whose remedy is simply re-running it: the restart (and
-# the journal query) go through that account's --user manager, so they name the sandbox account,
+# the journal query) go through that account's `--user manager`, so they name the sandbox account,
 # and this library is deployed with no @SANDBOX_USER@ substitution. The consumer knows the account
 # name and composes both -- see ai-tools' cmd_status, the single place that renders that transport.
 # shellcheck disable=SC2034  # read by this library's accessors and by both consumers (ai-tools, claude.sh)
@@ -117,7 +118,7 @@ ai_tools_service_stamp_field() {
     return 0
 }
 
-# The sandbox account whose `systemd --user` manager a live probe may reach, or empty for none.
+# The sandbox account whose `systemd --user manager` a live probe may reach, or empty for none.
 # This library is deployed with NO @SANDBOX_USER@ substitution -- the account name belongs to the
 # consumer, which is also why a sandbox-user unit's remedy commands are composed by the consumer --
 # so a consumer that knows the name declares it here once, and one that does not keeps the
@@ -253,7 +254,7 @@ ai_tools_service_fmt_age() {
     fi
 }
 
-# _ai_tools_user_unit_installed <unit>  -- 0 when a system-wide `systemd --user` unit FILE of that
+# _ai_tools_user_unit_installed <unit>  -- 0 when a system-wide `systemd --user unit` FILE of that
 # name exists. This is the one question about a sandbox-user unit the operator's session CAN
 # answer: the unit files are world-readable even though the manager that runs them is unreachable.
 # It separates "installed but unqueryable" from "not installed at all" -- every unit in the

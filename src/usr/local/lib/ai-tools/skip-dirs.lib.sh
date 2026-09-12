@@ -21,7 +21,7 @@
 # documented) and three principals source it: the root helpers, the hooks (as the agent),
 # and the unprivileged CLI (the claim drift scan classifies hits under these names).
 # The matcher skips DIRECTORIES only
-# (find -type d), so a file that merely shares a name (a git object named "obj") is walked
+# (`find -type d`), so a file that merely shares a name (a git object named "obj") is walked
 # normally. Names are grouped into categories an operator can override in
 # /etc/ai-tools/operator.conf, which conf.lib.sh parses and never sources, so a tampered
 # config cannot execute code in the privileged helpers. A PRESENT key REPLACES that
@@ -98,7 +98,7 @@ fi
 #   sweep         heavy + .git.  Per-turn + boundary handback; .git is reclaimed by the
 #                 dedicated boundary pass and the user:<operator> ACL, not the per-turn walk.
 #   setgid        heavy + .git.  Claim-time normalization; .git normalized separately by
-#   setfacl       setfacl --with-git.
+#   setfacl       `setfacl --with-git`.
 #   unclaim       heavy + .git.  Unclaim reversal; .git reverted in its own pass.
 #   lockdown      heavy + .git.  Secret sweep; .git object names are hashes -- no name to match.
 #   reclaim       heavy only.    On-demand reclaim WALKS .git (the one tree the per-session
@@ -137,8 +137,8 @@ ai_tools_skip_find_expr() {
         done
     fi
 
-    # _skip_group <out-name-suppressed> -- append one "( -type d ( -name .. ) [! ( -path .. )] ) -prune -o"
-    # group to AI_TOOLS_SKIP_FIND_EXPR from the given name list and optional -path exemptions.
+    # _skip_group <out-name-suppressed> -- append one `( -type d ( -name .. ) [! ( -path .. )] ) -prune -o`
+    # group to AI_TOOLS_SKIP_FIND_EXPR from the given name list and optional `-path` exemptions.
     _ai_tools_skip_group() {  # $1 = "names" | "artifact"
         local -n _grp_names="$1"
         local -a _grp_excl=(); [[ "$1" == artifact ]] && _grp_excl=( "${excl[@]}" )

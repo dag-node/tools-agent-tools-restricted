@@ -55,7 +55,7 @@
 # matches, so the gate would have no effect and this runs on every Bash call.
 
 # Include guard: an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and
-# trips the sourcing shell's set -e.
+# trips the sourcing shell's `set -e`.
 if [[ -n "${_AI_TOOLS_FILTERS_LIB_LOADED:-}" ]]; then
     return 0
 fi
@@ -131,7 +131,7 @@ ai_tools_filter_apply_rule() {
     done
 
     # A blocking word cancels the rule, so the agent's own flag always wins over the rule's. Both
-    # the bare word and its `word=value` form count, so --verbosity blocks --verbosity=quiet.
+    # the bare word and its `word=value` form count, so `--verbosity` blocks `--verbosity=quiet`.
     ai_tools_conf_split blocking_tokens "${blocking}"
     local word token
     for word in "${command_words[@]:match_length}"; do

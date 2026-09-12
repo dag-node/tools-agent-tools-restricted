@@ -25,7 +25,7 @@
 # (tests/unit/entrypoint-verify.sh).
 
 # Include guard: an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and
-# trips the sourcing shell's set -e.
+# trips the sourcing shell's `set -e`.
 if [[ -n "${_AI_TOOLS_ENTRYPOINT_VERIFY_LIB_LOADED:-}" ]]; then
     return 0
 fi
@@ -62,7 +62,7 @@ _ai_tools_ev_warn() {
 
 # ai_tools_entrypoint_platform_key <machine> [libc] : print the key a vendor release manifest
 #   lists this host's binary under, or an empty string for an architecture with no mapping. <machine> is
-#   uname -m; <libc> is `musl` or empty. Pure, so the mapping is unit-tested without needing the
+#   `uname -m`; <libc> is `musl` or empty. Pure, so the mapping is unit-tested without needing the
 #   architectures it maps.
 ai_tools_entrypoint_platform_key() {
     local machine="${1:-}" libc="${2:-}" arch="" suffix=""
@@ -366,7 +366,7 @@ ai_tools_entrypoint_release_verify() {
     trap "rm -rf -- '${workdir}'" RETURN
 
     # Both objects before the comparison, so an unpublished manifest is "unable to verify" and
-    # never reaches it. --connect-timeout is what keeps an air-gapped host from waiting out a
+    # never reaches it. `--connect-timeout` is what keeps an air-gapped host from waiting out a
     # blackholed route: this runs inside an rpm %post that must succeed offline.
     curl -fsSL --connect-timeout 5 --max-time 30 -o "${workdir}/manifest.json" -- "${url}" 2>/dev/null \
         || { _ai_tools_ev_warn "no release manifest published at ${url} (or the host is offline)"; return 2; }

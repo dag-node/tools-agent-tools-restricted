@@ -64,7 +64,7 @@ _ai_tools_endpoint_is_local() {
 #     1  a configured option is invalid, or the pointer names a missing/untrusted file. The caller
 #        must REFUSE the launch rather than route the session with a partial or wrong endpoint.
 #   As a deliberate side effect it EXPORTS ANTHROPIC_AUTH_TOKEN into the caller's environment when a
-#   valid token is present, so the paired name-only --setenv=ANTHROPIC_AUTH_TOKEN imports the value
+#   valid token is present, so the paired name-only `--setenv=ANTHROPIC_AUTH_TOKEN` imports the value
 #   without placing it on any command line. AI_TOOLS_ENDPOINT_BASE_DIR overrides the required parent
 #   directory; ROOT-ONLY test hook of the AI_TOOLS_ALLOWLIST family (sudo strips it, not in
 #   env_keep), unset in production.
@@ -157,7 +157,7 @@ ai_tools_claude_resolve_endpoint_setenv() {
     [[ -n "${model}" ]] && _ai_tools_endpoint_out+=( "--setenv=ANTHROPIC_MODEL=${model}" )
     [[ -n "${haiku}" ]] && _ai_tools_endpoint_out+=( "--setenv=ANTHROPIC_DEFAULT_HAIKU_MODEL=${haiku}" )
     if [[ -n "${auth_token}" ]]; then
-        # Imported by name: export it so the paired name-only --setenv picks it up from the
+        # Imported by name: export it so the paired name-only `--setenv` picks it up from the
         # environment (ai-tools-run sources this fragment in its own shell) without the value ever
         # reaching a command line.
         export ANTHROPIC_AUTH_TOKEN="${auth_token}"
