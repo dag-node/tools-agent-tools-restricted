@@ -160,11 +160,11 @@ SELinux floor — it does not by itself grant the capability.
 
 `tests/integration/hooks.sh` pins all three deny groups at install time (the verify phase
 runs it): a missing categorical or irreversible-VCS entry fails; host-survey relaxations are
-reported by name and pass, but a file with none of them (a kept pre-upgrade settings.json)
+reported by name and pass, but a file with none of them (a kept pre-upgrade `settings.json`)
 fails; an entry in both lists fails as drift. The irreversible-VCS entries are pinned
 strictly rather than reported, because the paths that preserve a host's tuning — the
 keep-existing install and `%config(noreplace)` on upgrade — are also the paths by which a
-settings.json predating them, or edited in the permission arrays it invites tuning of,
+`settings.json` predating them, or edited in the permission arrays it invites tuning of,
 silently loses the gate.
 
 ## The tool-call record is declared as its own matcher group

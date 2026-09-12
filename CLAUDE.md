@@ -4,7 +4,7 @@ Run coding agents sandboxed — under their own locked-down system user. Claude 
 first supported agent.
 
 <!-- This file is the router + invariants. Component deep-dives live in
-     .claude/rules/*.rule.md (path-scoped, loaded when you open matching src files).
+     `.claude/rules/*.rule.md` (path-scoped, loaded when you open matching src files).
      Decisions and open follow-ups live in auto memory. Keep load-bearing
      security invariants HERE: path-scoped rules do not load unless a matching
      file is open, and nested files do not survive /compact. -->

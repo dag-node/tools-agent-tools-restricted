@@ -420,7 +420,7 @@ the exit status of the operation whose outcome they report.
 - **`install.sh` and `selinux/install-selinux.sh`** frame their interactive prompts
   uniformly. `install.sh` routes every prompt through one helper, `confirm_boxed <title>
   <y|n> <question> [context-line...]`: a fixed 80-column box (`AI_TOOLS_MSG_FULLWIDTH`)
-  titled <title> — named for its action (`Review install`, `Existing file`, `SELinux
+  titled `<title>` — named for its action (`Review install`, `Existing file`, `SELinux
   confinement`, …) — framing the context, then the shared inline yes/no prompt — all on
   `/dev/tty`, because `do_install` tees stdout+stderr to the install log and a prompt must
   reach the real terminal. Consecutive prompts separate via the lib's leading blank before

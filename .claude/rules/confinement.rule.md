@@ -244,7 +244,7 @@ live same-uid session, failing startup with `EEXIST mkdir /tmp/claude-<uid>`.
 
 The enforced `/tmp` isolation is ordinary Unix permissions plus the `ai_tools_tmp_t`
 type: a dir claude creates is born `ai_tools_tmp_t` via the `tmp_t:dir` →
-`ai_tools_tmp_t` type_transition, which `ai_tools_t` fully manages but which keeps it
+`ai_tools_tmp_t` `type_transition`, which `ai_tools_t` fully manages but which keeps it
 off other domains' `tmp_t`/`user_tmp_t` files. Per-session `/tmp` isolation would
 require a privileged (`--system`) manager that mounts and pivots `PrivateTmp` for the
 payload during unit setup.

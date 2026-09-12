@@ -53,7 +53,7 @@ to `$PATH`, and path-dedup then restructures it into Tier 4, behind the T1
 system bins (which include the wrapper) and T2 `~/.local/bin`. `path-dedup.sh`
 is idempotent — sourcing it again in the same shell produces the same PATH.
 
-## 2. Create the `SANDBOX_USER` OS account at /opt (root, once)
+## 2. Create the `SANDBOX_USER` OS account at `/opt` (root, once)
 
     # The sandbox account name is fixed at ai-tools (see "Identities and naming" in the
     # README). Set it here so this block works even pasted on its own -- an unset

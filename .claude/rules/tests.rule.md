@@ -472,7 +472,7 @@ blocking words that let the agent's own flag win, rule precedence, the `AI_TOOLS
 including its empty-value kill form, and each untrusted rules file or directory. Its noise-strip
 section pins the other half of the contract — control bytes go, every line survives.
 
-`settings-merge.sh` pins install.sh's hook-declaration reconciler, the step that lets a newly
+`settings-merge.sh` pins `install.sh`'s hook-declaration reconciler, the step that lets a newly
 shipped hook reach a host whose `settings.json` is kept across an upgrade (see
 [claude-settings](claude-settings.rule.md)). It edits an operator-owned control-plane file and
 every way it can go wrong is quiet, so the assertions come in three groups — what must **arrive**

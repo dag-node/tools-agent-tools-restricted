@@ -115,7 +115,7 @@ atomic per message, so the daemon does not take a lock.
 ## Files
 
 - daemon `/usr/local/libexec/ai-tools/ai-tools-handback` (750 root:root, Python 3)
-- client `/usr/local/bin/ai-tools-handback-client` (750 root:SANDBOX_GROUP, Python 3)
+- client `/usr/local/bin/ai-tools-handback-client` (750 `root:SANDBOX_GROUP`, Python 3)
 - socket unit `/usr/lib/systemd/system/ai-tools-handback.socket`
 - service template `/usr/lib/systemd/system/ai-tools-handback@.service`
 - preset `/usr/lib/systemd/system-preset/85-ai-tools.preset` (enables the socket on install)
