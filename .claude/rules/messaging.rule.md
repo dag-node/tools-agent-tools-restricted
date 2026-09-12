@@ -145,10 +145,21 @@ the non-root refusal and `selinux/install-selinux.sh` prints its code.
 A function that returns a refusal as a value, for a caller to print, is where the code is defined:
 each branch names its own code beside its text, and the value carries the code on its first line
 and the text on the second, so the site printing it need not know which branch produced it.
-`install.sh`'s `operator_refusal` is the instance — five situations, each with a code, reaching a
-terminal from the entry-point validation, the enrolment prompt, and the binding in `do_install` —
-and its `emit_coded` hands such a value to `warn` or `die` as the two arguments they read. One code
-for the whole family would send a reader searching it to five unrelated answers.
+`install.sh`'s `operator_refusal` is the instance — each branch a situation carrying a code of its
+own, reaching a terminal from the entry-point validation, the enrolment prompt, and the binding in
+`do_install` — and its `emit_coded` hands such a value to `warn` or `die` as the code and text they
+read. One code for the whole family would send a reader searching it to unrelated answers.
+`ai-tools-admin`'s `admin_command_check` is the second: its conformance refusals reach a `die` from
+the dispatch and a `warn` from full-scope provisioning, so its `emit_coded` takes a prefix as well
+and the warning still names the integration the refusal is about.
+
+**A value that is a clause rather than a message takes no code, and its consuming site takes one.**
+`conf.lib.sh`'s `_ai_tools_conf_merge_reason` is that shape: each branch sets a fragment
+(`the deployed file is not valid JSON`) that every caller interpolates into a sentence of its own —
+`install.sh` and `ai-tools-admin` each say what the merge did not do, and there is no line the code
+could lead. The situation a reader searches is the outcome the caller reports, so the code is
+defined there. The test is where the value reaches a terminal: whole, and the factory defines it;
+mid-sentence, and the caller does.
 
 ## Three renderers: alert, headline, block
 

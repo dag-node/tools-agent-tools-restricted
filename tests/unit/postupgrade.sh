@@ -231,6 +231,7 @@ if out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post
     fail "accepted an argument the command does not take"
 elif [[ "${out}" == *"takes no arguments"* ]]; then
     pass "an argument is refused with the usage, not silently ignored"
+    assert_msg MSG-S9M6 "${out}" "the argument refusal carries its code"
 else
     fail "refused an argument without saying why: ${out}"
 fi
