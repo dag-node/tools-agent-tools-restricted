@@ -34,11 +34,13 @@
 #                  `<a id="ref-table-z4m9"></a>**Altitudes and who owns which fact**`; a table
 #                  is followed by a table row, a listing by a fence, any other kind by a block
 #   FN, NOTE       a source line carrying the token, a colon, and the name: `# FN-Q2H8: chown_path`
-#   MSG            the emit call: the token, then the quoted message it labels,
-#                  `die MSG-F6Z3 "not a claimed project"`; the name is the message's first line,
-#                  and the word before the token is recorded as the emitter. A quoted string that
-#                  opens with an expansion (`"$out"`) does not name a message, so that site is a
-#                  reference, which is how a test cites a code beside the output it captured
+#   MSG            the emit call: the token as the command's FIRST argument, then the quoted
+#                  message it labels, `die MSG-F6Z3 "not a claimed project"`; the name is the
+#                  message's first line, and the word before the token is recorded as the emitter.
+#                  Two shapes are therefore references rather than targets, and both are how a
+#                  test cites the code it expects: a quoted string that opens with an expansion
+#                  (`assert_msg MSG-F6Z3 "$out"`), and a code in a LATER argument position
+#                  (`refuses "label" MSG-F6Z3 "the substring it greps"`)
 #   URI            one Markdown link definition line: `[URI-Q4Q6]: https://example.invalid "name"`
 #
 # A REFERENCE in a document is the inline link `[ref-section-p7r3](../x.md#ref-section-p7r3)`.
@@ -179,7 +181,11 @@ CODE_TARGET = re.compile(rf"((?:FN|NOTE)-{UPPER_ID}):[ \t]+(.*)")
 # the message's first line, so a string opening with an expansion does not name a message and
 # its site reads as a reference; the word before the token is the emitter, recorded for the index.
 MSG_TARGET = re.compile(rf"(MSG-{UPPER_ID})[ \t]+(['\"])(?!\$)(.*)")
-EMITTER = re.compile(r"([\w.-]+)\s*$")
+# The emit call itself: the code is the command's FIRST argument, so what precedes it is the
+# emitter word and nothing else on that command -- the start of the line, or a separator that
+# opens one. A code passed as a LATER argument is a citation: a test that names the code it
+# expects beside the substring it greps is naming the helper's message, not defining a second one.
+EMIT_CALL = re.compile(r"(?:^|[;|&(){}]|\b(?:then|else|elif|do)\b|!)\s*([\w.-]+)[ \t]*$")
 LINK_SITE = re.compile(rf"\[({PROSE_TOKEN}|{URI_TOKEN}|{CODE_TOKEN})\]\(([^)]*)\)")
 BARE_SITE = re.compile(rf"\[({PROSE_TOKEN}|{URI_TOKEN}|{CODE_TOKEN})\]")
 
@@ -383,11 +389,18 @@ def scan(paths):
                 for site in TOKEN.finditer(text):
                     references.append((path, number, site.group(1), None, True))
             else:
+                emit_spans = []
                 for match in MSG_TARGET.finditer(text):
-                    emitter = EMITTER.search(text[:match.start()])
+                    emitter = EMIT_CALL.search(text[:match.start()])
+                    if emitter is None:      # a code carried as a later argument cites a message
+                        continue
                     found.append(Target(match.group(1), message_name(match.group(2), match.group(3)),
-                                        path, number, emitter=emitter.group(1) if emitter else ""))
-                text = MSG_TARGET.sub(" ", text)
+                                        path, number, emitter=emitter.group(1)))
+                    emit_spans.append(match.span())
+                # Only an emit call's span is consumed; a citation's token is left for the
+                # reference scan below, which is what puts the citing file in "cited by".
+                for start, end in reversed(emit_spans):
+                    text = text[:start] + " " + text[end:]
                 for match in CODE_TARGET.finditer(text):
                     name = match.group(2).strip().rstrip("\\\"' ")
                     found.append(Target(match.group(1), name, path, number))

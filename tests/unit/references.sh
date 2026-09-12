@@ -187,6 +187,14 @@ reports undefined TEST-RI-11-code-undefined src/u.sh
 # quoted string there opens with an expansion, does not name a message, and reads as a reference.
 fixture tests/s.sh 'out="$(chown_path /x 2>&1)"' 'assert_msg MSG-M3N4 "${out}" "refuses a path outside the allowlist"'
 silent TEST-RI-11-msg-cited-by-test src/s.sh tests/s.sh
+# The other citing shape: the code in a LATER argument, where a parameterised assertion helper
+# names the code it expects beside the substring it greps. Only the command's first argument
+# defines a message, so this reads as a reference and the helper is listed among the citing files.
+fixture tests/param.sh 'refuses "a path outside the allowlist" MSG-M3N4 "not in allowed projects"'
+silent TEST-RI-11-msg-cited-in-argument src/s.sh tests/param.sh
+run_ri generate src/s.sh tests/param.sh
+assert_grep '^| m3n4 | \[MSG-M3N4\](src/s.sh) | not in allowed projects: \$1 | src/s.sh | tests/param.sh | die |$' \
+    "${OUT}" "TEST-RI-11-msg-argument-row: the message keeps its emitter and lists the citing test"
 fixture src/twice.sh 'warn MSG-M3N4 "a second situation under the same code"'
 reports duplicate TEST-RI-11-msg-duplicate src/s.sh src/twice.sh
 fixture src/colon.sh '# MSG-M3N5: a comment naming a code is a reference, not a message'
