@@ -399,6 +399,24 @@ supplies is the citation the tree does not hold: a Markdown file under `tests/`,
 document, a shipped man page, and a source file. A document renders as its path and a man page as
 a `.BR` cross-reference, while a test and a source file are dropped whatever their extension.
 
+Every section so far pairs a page with what it documents. Two more hold each page to the way a page
+is **written**, against the font and placeholder rules whose home is `references/man-pages.md` in
+the shipped `ai-tools-technical-docs` skill; the reference and the check are edited together, so
+the convention and what enforces it cannot disagree. They read the **authored** pages (`man1`,
+`man5`, `man8`) and leave `ai-tools-messages(7)` to the `tools/man-messages.sh` lockstep: each
+emitter's own string decides that page's markup. The rules are that no page carries a
+pointy-bracket placeholder, which roff renders literally and which marks prose never brought to the
+page's grammar; that every italic token on a SYNOPSIS line or a `.TP`/`.TQ` tag line is an
+uppercase placeholder, italic being what a reader substitutes, while running-text italic keeps the
+filenames and emphasis `man-pages(7)` puts there; that `man --warnings` does not report a macro
+or formatting warning; and that the trailing positional argument's **shape** — optional,
+repeating, or neither — agrees with the command's own `usage()`. That last one compares the
+brackets and the ellipsis and not the placeholder's name: the page names an argument in the
+man-page vocabulary while the help keeps its own spelling, and the difference is deliberate. What
+it catches is a page promising repetition its parser does not take, or dropping it where the
+parser does. A wrong font renders as cleanly as a
+right one, so none of the four is visible without a check.
+
 `sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same
 class: a pure decision with a security consequence. `--project-create` skips the secret scan, the
 git-history prompt and the proceed confirm when it returns 0, so every way it could wrongly say yes
