@@ -6,9 +6,11 @@
 # to severity, source file to installed command -- are repository knowledge and stay here rather than in the shipped
 # ref-index.py.
 #
-#     bash tools/man-messages.sh generate    rewrite the page from the index
-#     bash tools/man-messages.sh print       write the page to stdout
-#     bash tools/man-messages.sh stale       exit 1 when the committed page differs from the index
+#     bash tools/man-messages.sh generate          rewrite the page from the index
+#     bash tools/man-messages.sh print [<index>]   write the page to stdout, from the index given
+#                                                  (default: the committed one); `tests/unit/man.sh`
+#                                                  renders a fixture catalog through it
+#     bash tools/man-messages.sh stale             exit 1 when the committed page differs from the index
 #
 # An emitting function the severity map does not name is a hard error: a new emitter is a decision about how its
 # messages are classified, not something to guess at generation time.
@@ -178,7 +180,9 @@ roff_escape() {
 }
 
 # pointers <cited-by>: the comma-separated citation list reduced to the documents in it, each rendered as a roff
-# cross-reference. A test or a source file is not a document and is dropped.
+# cross-reference. A test or a source file is not a document and is dropped: the page documents what the tree emits,
+# and a reader reaches a code's explanation through a manual. The document locations are named one by one
+# for that reason -- a `*.md` catch-all would admit a Markdown file written under `tests/`.
 pointers() {
     local out="" entry name section
     local -a entries=()
@@ -191,7 +195,7 @@ pointers() {
             src/usr/local/share/man/*)
                 name="${entry##*/}"; section="${name##*.}"; name="${name%.*}"
                 out+="${out:+,\n}.BR ${name} (${section})" ;;
-            .claude/rules/*|docs/*|README.md|*.md)
+            .claude/rules/*.md|docs/*.md|README.md)
                 out+="${out:+,\n}.I ${entry}" ;;
             *) continue ;;
         esac
@@ -203,7 +207,9 @@ pointers() {
 
 command="${1:-print}"
 case "${command}" in
-    print)    render ;;
+    # `print` reads an index named on the command line, so the render is drivable against a fixture
+    # catalog; `generate` and `stale` keep the committed one, the page being derived from it alone.
+    print)    INDEX="${2:-${INDEX}}"; render ;;
     generate) mkdir -p "$(dirname "${PAGE}")"; render > "${PAGE}" ;;
     stale)
         if ! render | diff -q - "${PAGE}" >/dev/null; then

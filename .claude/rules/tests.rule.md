@@ -392,6 +392,13 @@ a code the generator drops rather than refuses. A stale catalog renders as clean
 one, so the diff is what makes the drift visible. The generator reads a repository file, so a run
 outside a checkout skips.
 
+Its last section covers the page's own editorial rule — the catalog documents what the tree emits
+and leaves development material out — by driving the citation filter over a **fixture** catalog,
+which `man-messages.sh print` renders from an index named on its command line. What the fixture
+supplies is the citation the tree does not hold: a Markdown file under `tests/`, alongside a
+document, a shipped man page, and a source file. A document renders as its path and a man page as
+a `.BR` cross-reference, while a test and a source file are dropped whatever their extension.
+
 `sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same
 class: a pure decision with a security consequence. `--project-create` skips the secret scan, the
 git-history prompt and the proceed confirm when it returns 0, so every way it could wrongly say yes

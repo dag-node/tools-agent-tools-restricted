@@ -523,6 +523,45 @@ check_messages_page() {
 }
 check_messages_page
 
+# ── ai-tools-messages(7): the "documented in" pointer renders documents alone ──────────────────
+# The catalog documents what the tree emits and leaves development material out, so a code's
+# pointer names a manual or a document and never a test or a source file -- an operator reads
+# about a code in a manual, while the index's cited-by column lists both kinds. The case supplies
+# what the tree does not hold: a Markdown file under `tests/`, which is the citation a `*.md`
+# catch-all would render. Driven through `print`, which reads the index named on the command line,
+# so the filter is exercised over a fixture catalog and the committed page is untouched.
+section "man page: ai-tools-messages(7) renders a document pointer and drops a test (unit)"
+check_messages_pointers() {
+    if [[ ! -r "${MESSAGES_GEN}" ]]; then
+        skip "ai-tools-messages(7) pointers" "not a checkout (no generator at ${ROOT})"
+        return
+    fi
+    mktestdir
+    local index="${TESTDIR}/fixture-index.md" cited pointer row
+    cited="docs/one.md, tests/unit/two.md, tests/three.sh, src/four.sh"
+    cited+=", .claude/rules/five.rule.md, src/usr/local/share/man/man1/ai-tools.1"
+    # The row carries an index row's shape and does not define a message, so the scan skips it.
+    row='| a1b2 | [MSG-A1B2](x) | not a claimed project | src/usr/local/bin/ai-tools.sh'  # ref-index: ignore
+    printf '%s | %s | die |\n' "${row}" "${cited}" > "${index}"
+    pointer="$(bash "${MESSAGES_GEN}" print "${index}" | awk '/^Documented in$/{f=1;next} /^\.SH /{f=0} f')"
+    if grep -q '^\.I docs/one\.md' <<<"${pointer}" && grep -q '^\.I \.claude/rules/five\.rule\.md' <<<"${pointer}"; then
+        pass "a document citing a code is rendered as its path"
+    else
+        fail "a document citation did not render; pointer: ${pointer}"
+    fi
+    if grep -q '^\.BR ai-tools (1)' <<<"${pointer}"; then
+        pass "a shipped man page citing a code is rendered as a cross-reference"
+    else
+        fail "a man page citation did not render as .BR; pointer: ${pointer}"
+    fi
+    if ! grep -q -e 'tests/' -e 'src/four\.sh' <<<"${pointer}"; then
+        pass "a citation from a test or a source file is dropped, a Markdown file under tests/ included"
+    else
+        fail "a test or source citation reached the page; pointer: ${pointer}"
+    fi
+}
+check_messages_pointers
+
 # ── Config headers are fixed-width text ───────────────────────────────────────────────────────
 # An operator reads a config file in a terminal, where nothing reflows it, so every header this
 # project writes -- the two seeds and the two shipped templates -- holds to 72 columns and carries
