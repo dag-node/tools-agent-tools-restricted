@@ -41,7 +41,7 @@ IFS=$'\n\t'
 readonly ACTION="${1:-install}"
 readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Policy source, the script naming the shipped set, and the modules compiled from the source
-# live under policy/; the build (make -C) and every .te/.fc/.pp reference resolve there.
+# live under policy/; the build (`make -C`) and every .te/.fc/.pp reference resolve there.
 # install-selinux.sh, README.md, and ../src stay at DIR.
 readonly POLICY_DIR="${DIR}/policy"
 readonly MODULE="ai_tools"
@@ -388,9 +388,9 @@ _mode_label() {
 # remove the stale module interactively; prints the fix command otherwise.
 _check_permissive_alignment() {
     # Domains the compiled .te expects permissive (non-commented permissive lines).
-    # A no-match grep exits 1, which pipefail propagates to the assignment and set -e
+    # A no-match grep exits 1, which pipefail propagates to the assignment and `set -e`
     # would abort on -- the normal ENFORCING case has zero permissive lines here, so
-    # tolerate an empty result (the -z checks are the intended empty-path).
+    # tolerate an empty result (the `-z` checks are the intended empty-path).
     local expected_permissive
     expected_permissive=$(grep -E '^[[:space:]]*permissive[[:space:]]+ai_tools_[^[:space:]]+[[:space:]]*;' \
                           "${POLICY_DIR}/${MODULE}.te" 2>/dev/null \
@@ -526,7 +526,7 @@ prompt_groups() {
 
 # The per-project label primitive (semanage fcontext + restorecon) lives in the
 # shared relabel.lib.sh -- the SAME body the ai-tools-relabel root helper runs, so
-# --project-create/--project-claim and this sweep cannot drift. Prefer the repo
+# `--project-create`/`--project-claim` and this sweep cannot drift. Prefer the repo
 # copy alongside this script; fall back to the deployed lib.
 RELABEL_LIB="${DIR}/../src/usr/local/lib/ai-tools/relabel.lib.sh"
 [[ -r "${RELABEL_LIB}" ]] || RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
@@ -850,7 +850,7 @@ case "${ACTION}" in
     _locked _labels_apply
 
     # Core is loaded and labelled -- a clear checkpoint before the optional groups. Reaching
-    # here means the preceding steps succeeded (a hard failure aborts under set -e; a mislabelled
+    # here means the preceding steps succeeded (a hard failure aborts under `set -e`; a mislabelled
     # path dies in verify_agent_labels), so the optional section is purely additive.
     ok "SELinux core module installed"
 

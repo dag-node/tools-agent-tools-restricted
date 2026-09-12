@@ -3,7 +3,7 @@
 Name:           ai-tools
 # Single source of truth for the version: packaging/VERSION (the Makefile reads the same
 # file), so a release bump touches one place. Parsing this spec requires _sourcedir to
-# point at packaging/ -- the Makefile's rpm/srpm targets pass --define "_sourcedir ..."
+# point at packaging/ -- the Makefile's rpm/srpm targets pass `--define "_sourcedir ..."`
 # for that reason; a bare parse (rpmlint, IDE tooling) without it yields an empty Version.
 Version:        %(cat %{_sourcedir}/VERSION)
 # Plain "1" for a final vX.Y.Z release; the Makefile's RPM_RELEASE overrides it to a
@@ -442,7 +442,7 @@ done
 install -m 0550 src/opt/ai-tools/bin/nvm-update.sh %{buildroot}/opt/ai-tools/bin/nvm-update.sh
 
 # ── integration-nodejs: toolchain update units + post-upgrade relabel watcher ─
-# The update service+timer run in the sandbox account's own systemd --user instance
+# The update service+timer run in the sandbox account's own `systemd --user instance`
 # (%{_userunitdir}); the relabel .path watches the bin/claude symlink and triggers the
 # root-side .service (restorecon to ai_tools_exec_t) after a Node bump.
 install -d -m 0755 %{buildroot}%{_userunitdir}
@@ -528,7 +528,7 @@ done
 # operator disable survives). Only enables; posttrans starts it.
 %systemd_post ai-tools-handback.socket
 # Grant the ai-ops operators group access to the shared sandbox area through a group ACL, so
-# operators create and work in clones (ai-tools --sandbox-create) without joining the ai-tools
+# operators create and work in clones (`ai-tools --sandbox-create`) without joining the ai-tools
 # group: traverse on the outer dir, rwX on sandbox-projects (a default ACL so clones inherit the
 # operator access), and read on the doc. One grant covers every operator and outlives a leave of
 # the ai-tools group. This is the shared-area counterpart to ai-tools-setfacl's per-project
@@ -559,7 +559,7 @@ chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # existing -- possibly operator-customised -- file is never clobbered. This runs on every
 # transition, not fresh-install only, so a file lost to an earlier package's config handling is
 # restored. No operator is bound yet at %post time (that is `ai-tools-admin operators add`, run
-# after this), so the .gitconfig email uses the hostname -f fallback.
+# after this), so the .gitconfig email uses the `hostname -f` fallback.
 if [ ! -f /opt/ai-tools/.gitignore ]; then
     install -m 0640 -o root -g ai-tools \
         %{_datadir}/ai-tools/gitignore /opt/ai-tools/.gitignore
@@ -571,7 +571,7 @@ if [ ! -f /opt/ai-tools/.gitconfig ]; then
     chown root:ai-tools /opt/ai-tools/.gitconfig
     chmod 0644 /opt/ai-tools/.gitconfig
 fi
-# Relabel the reseeded files: the -R restorecon ran before this block created them, so
+# Relabel the reseeded files: the `restorecon -R` ran before this block created them, so
 # label them explicitly (no-op when SELinux is off or they already carry the right context).
 if command -v restorecon >/dev/null 2>&1; then
     restorecon /opt/ai-tools/.gitignore /opt/ai-tools/.gitconfig >/dev/null 2>&1 || :
@@ -641,7 +641,7 @@ fi
 # Intentionally preserved on erase (not rpm-owned): the ai-tools account, /opt/ai-tools/.nvm, the
 # control-plane .gitignore/.gitconfig, /var/opt/ai-tools clones, and each operator's
 # ~/.config/ai-tools. The SELinux module unload lives with the policy payload, in
-# %postun -n ai-tools-selinux.
+# `%postun -n ai-tools-selinux`.
 
 %posttrans -n ai-tools-base
 # Start the socket so the handback is live without a reboot (posttrans runs after the systemd
@@ -786,7 +786,7 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
 fi
 
 %post -n ai-tools-integration-nodejs
-# Enable the root-side relabel watcher (system unit). The nvm-update.timer is a --user unit
+# Enable the root-side relabel watcher (system unit). The nvm-update.timer is a `--user unit`
 # enabled in the sandbox account's own instance by ai-tools-bootstrap, which is where that
 # instance is brought up with linger -- a scriptlet cannot reliably reach it.
 %systemd_post ai-tools-relabel.path
@@ -920,7 +920,7 @@ fi
 %doc docs/rpm-packaging.md docs/project-lifecycle.md docs/entrypoint-verification.md
 %doc docs/session-stop.md docs/multi-operator.md README.md
 
-# The module files come from the list %%install wrote (-f): one line per module the build derived.
+# The module files come from the list %%install wrote (`-f`): one line per module the build derived.
 %files -n ai-tools-selinux -f selinux-files.list
 %license LICENSES/GPL-2.0-or-later.txt
 %dir %{_datadir}/selinux/packages/ai-tools
@@ -1000,7 +1000,7 @@ fi
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects
 %attr(0640, root, ai-tools) /var/opt/ai-tools/README.md
 # Operator-readable state written BY the sandbox account: the last-run stamps of the units that
-# live in that account's own systemd --user manager, which `ai-tools --status` cannot query from
+# live in that account's own `systemd --user manager`, which `ai-tools --status` cannot query from
 # the operator's session (services.lib.sh reads them). root owns the directory and it is NOT
 # group-writable -- the account gets traverse only, so it cannot add, unlink, rename, or
 # symlink-swap anything here. Each stamp is created by the owning package's %post and rewritten in
