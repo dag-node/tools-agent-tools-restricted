@@ -28,10 +28,10 @@ An upgrade never overwrites it; see
 .BR UPGRADES .
 .SH GRAMMAR
 One
-.I KEY=value
+.I KEY=VALUE
 per line.
 .TP
-.B KEY=value
+.I KEY=VALUE
 Bare value; quotes are not required.
 .TP
 .BR KEY=\(dqa\ b\(dq ", " KEY=\(aqa\ b\(aq
@@ -64,7 +64,7 @@ is a comment. A repeated key takes its last assignment; a line with no
 is ignored.
 .SH OPTIONS
 .TP
-.BI OPERATORS= "user\fR[,\fP user\fR...]\fP"
+.BI OPERATORS= "USER\fR[,\fP USER\fR...]\fP"
 The accounts enrolled as operators: the root helpers resolve each project's
 owner from this list, and the
 .BR ai-tools (1)
@@ -75,7 +75,7 @@ group, which
 .B "ai-tools-admin operators add"
 grants together with the entry here; edit by hand only to review or remove.
 .TP
-.BI AI_TOOLS_AGENTS= "name\fR[,\fP name\fR...]\fP"
+.BI AI_TOOLS_AGENTS= "NAME\fR[,\fP NAME\fR...]\fP"
 The coding agents a session may run, by provider name (a manifest basename under
 .IR /usr/local/lib/ai-tools/agents.d ).
 .B Present:
@@ -87,7 +87,7 @@ Names are reported at launch, so
 .B ai-tools --providers
 shows the resolved set.
 .TP
-.BI AI_TOOLS_INTEGRATIONS= "name\fR[,\fP name\fR...]\fP"
+.BI AI_TOOLS_INTEGRATIONS= "NAME\fR[,\fP NAME\fR...]\fP"
 Host-toolchain integrations a session receives, by provider name (a manifest
 basename under
 .IR /usr/local/lib/ai-tools/integrations.d ),
@@ -97,7 +97,7 @@ An integration that widens host surface ships
 .B default_enable=no
 and is enabled only by naming it here \(em the dotnet integration, for example.
 .TP
-.BI AI_TOOLS_FILTERS= "name\fR[,\fP name\fR...]\fP"
+.BI AI_TOOLS_FILTERS= "NAME\fR[,\fP NAME\fR...]\fP"
 The token-saving command-filter rule sets a session applies, by rule-set name (a
 file basename under
 .IR /usr/local/lib/ai-tools/filters.d ).
@@ -112,7 +112,7 @@ value turns filtering off entirely.
 Filtering never decides what the agent may run: the permission rules in the
 agent's settings are evaluated on the rewritten command.
 .TP
-.BI AI_TOOLS_REQUIRE_SELINUX= yes
+.B AI_TOOLS_REQUIRE_SELINUX=yes
 SELinux strictness.
 Where SELinux is enforcing and the
 .B ai_tools
@@ -133,7 +133,7 @@ unnoticed.
 The key is read only while this file is root-owned and not group- or
 other-writable, so a session cannot set or clear it.
 .TP
-.BI AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY= yes
+.B AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes
 Entrypoint-verification strictness. Each agent's entrypoint is verified against
 the per-release checksum its vendor signed, and the verified value is recorded in
 a root-owned pin under
@@ -153,11 +153,11 @@ only a verified entrypoint may start a session. Pin one with
 .BR "sudo ai\-tools\-admin system entrypoints relabel" ,
 which fetches the vendor's signed manifest and so needs the host online.
 .TP
-.BI CLAUDE_SYSTEM_PROMPT_FILE= path
+.BI CLAUDE_SYSTEM_PROMPT_FILE= FILE
 A custom system prompt for Claude Code sessions (requires the
 .B ai-tools-agents-claude-code-restricted
 agent). The launch wrapper reads
-.I path
+.I FILE
 at launch and passes it to Claude Code as
 .B --append-system-prompt-file
 (or
@@ -165,7 +165,7 @@ at launch and passes it to Claude Code as
 per the mode).
 .B Absent
 or empty (the default): Claude Code's own default prompt is used.
-.I path
+.I FILE
 must resolve under
 .IR /etc/ai-tools/prompts/ ,
 be root-owned and not group/other-writable, be readable by the
@@ -190,7 +190,7 @@ so a custom prompt is not world-readable; the sandbox account reads it and you
 edit it with
 .BR sudo .
 .TP
-.BI CLAUDE_SYSTEM_PROMPT_MODE= "append\fR|\fPreplace"
+.BR CLAUDE_SYSTEM_PROMPT_MODE=append | replace
 How
 .B CLAUDE_SYSTEM_PROMPT_FILE
 is applied.
@@ -222,14 +222,14 @@ beneath whatever this file says. A system-prompt instruction outweighs memory
 context, so a prompt that contradicts the orientation wins; write the prompt so
 the two agree.
 .TP
-.BI CLAUDE_BASE_URL_FILE= path
+.BI CLAUDE_BASE_URL_FILE= FILE
 A dedicated file routing Claude Code sessions at a custom API endpoint (requires
 the
 .B ai-tools-agents-claude-code-restricted
 agent).
 .B Absent
 or empty (the default): the default Anthropic endpoint is used.
-.I path
+.I FILE
 must resolve under
 .IR /etc/ai-tools/endpoints/ ,
 be root-owned and not group/other-writable. The file is parsed with this same
@@ -247,13 +247,13 @@ against a Claude Code settings
 block are in
 .BR custom\-claude\-endpoint.conf (5).
 .TP
-.BI SKIP_VCS_DIRS= "name\fR...\fP"
+.BI SKIP_VCS_DIRS= "NAME\fR...\fP"
 .TQ
-.BI SKIP_PACKAGE_DIRS= "name\fR...\fP"
+.BI SKIP_PACKAGE_DIRS= "NAME\fR...\fP"
 .TQ
-.BI SKIP_ARTIFACT_DIRS= "name\fR...\fP"
+.BI SKIP_ARTIFACT_DIRS= "NAME\fR...\fP"
 .TQ
-.BI SKIP_CACHE_DIRS= "name\fR...\fP"
+.BI SKIP_CACHE_DIRS= "NAME\fR...\fP"
 Directory
 .B names
 (not paths) omitted from the helper walks \(em ownership hand-back sweeps, claim
@@ -263,7 +263,7 @@ that category's default rather than adding to it. Skipping bounds how much of a 
 walks traverse. It is a cost setting: the agent reaches a skipped directory
 through the ordinary filesystem permissions, exactly as it reaches any other.
 .TP
-.BI SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE= "path\fR...\fP"
+.BI SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE= "DIRECTORY\fR...\fP"
 Project-relative paths that keep being walked even though their basename matches
 .BR SKIP_ARTIFACT_DIRS .
 For a source directory that shares a build-output name, such as a

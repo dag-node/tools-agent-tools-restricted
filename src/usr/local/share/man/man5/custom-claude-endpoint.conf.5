@@ -53,7 +53,7 @@ The file is parsed with the grammar
 describes.
 .SH OPTIONS
 .TP
-.BI ANTHROPIC_BASE_URL= url
+.BI ANTHROPIC_BASE_URL= URL
 The endpoint.
 An
 .B http://
@@ -63,7 +63,7 @@ URL with no whitespace.
 Required: another option set without it refuses the launch, since alone it
 would only mis-route the default connection.
 .TP
-.BI ANTHROPIC_AUTH_TOKEN= token
+.BI ANTHROPIC_AUTH_TOKEN= TOKEN
 The bearer token the endpoint expects, a single token with no whitespace.
 It is passed to Claude Code by name, so its value does not appear on any
 process command line.
@@ -75,12 +75,12 @@ or
 does not need one; for any other endpoint an absent token is reported
 at launch and the session still starts.
 .TP
-.BI ANTHROPIC_MODEL= label
+.BI ANTHROPIC_MODEL= LABEL
 The model label the endpoint resolves, a single token.
 With a proxy the label is whatever that proxy maps to an underlying model,
 so it need not be an Anthropic model id.
 .TP
-.BI ANTHROPIC_DEFAULT_HAIKU_MODEL= label
+.BI ANTHROPIC_DEFAULT_HAIKU_MODEL= LABEL
 The label for the fast, background model, a single token.
 .SH ENVIRONMENT
 The options become process environment variables of the session.
