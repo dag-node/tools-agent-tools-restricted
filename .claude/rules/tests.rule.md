@@ -324,7 +324,15 @@ a fixture it must report and the corrected form it must stay silent on, with `re
 produce that form, `generate` for its row shape, its order, the example row a quoted reftag
 reserves, and the empty tree, `new` for each family's form, and `where` for the span each kind's
 syntax gives. An empty tree is a valid index, so the lockstep half is green before the first
-reftag. Every case id in this file and in `prose-check.sh` carries the `TEST-` prefix, so a
+reftag. Its last section drives the one finding the **wrapper** holds rather than the shipped
+tool — a runtime message carrying a URL, a Markdown link, or an HTML anchor
+([messaging](messaging.rule.md)) — which is repository knowledge on both counts: the emit
+chokepoints are this tree's, and a message string is not prose, so the checker that skips a quoted
+span never reads it. Each link shape is driven with the resolvable form beside it, a non-ASCII URL
+among them, since matching is on the ASCII delimiter a link needs and not on what a URI may
+contain; the pair that must stay silent is an ordinary message a looser pattern would report — a
+page name in parentheses, and an option set carrying a pipe. Every case id in this file and in
+`prose-check.sh` carries the `TEST-` prefix, so a
 result line is told from a reftag or a message code at a glance.
 `cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four
 **gating tables** — `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`,

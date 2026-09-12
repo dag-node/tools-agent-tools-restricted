@@ -28,9 +28,11 @@ fi
 
 # The cross-reference check and the index, over the whole tree rather than the staged lines: a
 # reference resolves against where its target is now, and a stale index is a property of the tree.
-# Both report and neither blocks, like the prose report.
+# Both report and neither blocks, like the prose report. Every staged file reaches them, documents
+# and sources alike: a message code is defined inside the string a source file emits, so a commit
+# that does not stage a document still moves what the index holds.
 wrapper="${repo_root}/tools/ref-index.sh"
-if [[ -r "${wrapper}" ]] && git diff --cached --name-only --diff-filter=ACMR | grep -q '\.md$'; then
+if [[ -r "${wrapper}" ]] && git diff --cached --name-only --diff-filter=ACMR | grep -q .; then
     bash "${wrapper}" check || echo "  (not blocking this commit)" >&2
     bash "${wrapper}" stale || echo "  (not blocking this commit)" >&2
 fi

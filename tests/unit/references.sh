@@ -326,4 +326,46 @@ assert_grep '^src/s.sh:2 (5 lines) chown_path$' "${OUT}" "TEST-RI-16-where-fn: a
 run_ri where ref-section-z9z9 --index index.md
 if [[ "${RC}" -eq 1 ]]; then pass "TEST-RI-16-where-unknown: a reftag the index lacks exits 1"; else fail "TEST-RI-16-where-unknown: rc ${RC}"; fi
 
+# ── messages: the link shapes a runtime message may not carry ─────────────────────────────────
+# This one finding belongs to the repository wrapper. A message string is not prose, so the checker
+# that skips a quoted span never reads it, and knowing that a code in the first argument
+# makes an emit call is repository knowledge. Each link shape is driven with the resolvable form
+# beside it, and the pair that must stay silent is what keeps the pattern off an ordinary message:
+# a page name in parentheses reads as a Markdown link to a looser pattern, and an option set
+# carries the pipe a row escapes. The non-ASCII case is the one a character-set rule would miss,
+# every scheme being spelled in ASCII whatever follows it.
+if [[ -r "${WRAPPER}" ]] && git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    fixture src/links.sh '#!/usr/bin/env bash' \
+        'die MSG-B4T6 "read https://example.com/rule first"' \
+        'warn MSG-C5V7 "read [the manual](docs/x.md) first"' \
+        'note MSG-D6W8 '"'"'<a href="x">open</a>'"'"'' \
+        'die MSG-F7X9 "read https://exämple.test/ünicode"' \
+        'die MSG-G8Y2 "read ai-tools-messages(7) for every code"' \
+        'warn MSG-H9Z3 "the option set is --scope minimal|full"'
+    LINKS_RC=0
+    LINKS_OUT="$(bash "${WRAPPER}" messages "${TESTDIR}/src/links.sh" 2>&1)" || LINKS_RC=$?
+    reports_link() {  # reports_link <code> <case>: PASS when the code is reported as a link
+        assert_grep "message-link \[$1\]" "${LINKS_OUT}" "$2: reports message-link [$1]"
+    }
+    reports_link MSG-B4T6 TEST-RI-18-message-url
+    reports_link MSG-C5V7 TEST-RI-18-message-markdown
+    reports_link MSG-D6W8 TEST-RI-18-message-anchor
+    reports_link MSG-F7X9 TEST-RI-18-message-non-ascii-url
+    if [[ "${LINKS_RC}" -eq 1 ]]; then
+        pass "TEST-RI-18-message-status: a message-link finding exits 1"
+    else
+        fail "TEST-RI-18-message-status: rc ${LINKS_RC}; ${LINKS_OUT}"
+    fi
+    if ! grep -q -e 'MSG-G8Y2' -e 'MSG-H9Z3' <<<"${LINKS_OUT}"; then
+        pass "TEST-RI-18-message-clean: a page name in parentheses and an option set are not links"
+    else
+        fail "TEST-RI-18-message-clean: reported a message carrying no link; ${LINKS_OUT}"
+    fi
+    # The line is resolved from the emit call, so a report is clickable from the transcript.
+    assert_grep "src/links.sh:2: message-link" "${LINKS_OUT}" \
+        "TEST-RI-18-message-line: the finding names the line the code is emitted on"
+else
+    skip "TEST-RI-18-messages" "not a git checkout with tools/ref-index.sh"
+fi
+
 finish
