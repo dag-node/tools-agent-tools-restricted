@@ -677,7 +677,7 @@ if [[ "$(parse_status)" == "0" ]]; then
 else
     fail "no argument was rejected by the parser (status $(parse_status))"
 fi
-# --all is accepted and inert, so a script that spells the intent out is never refused for being
+# `--all` is accepted and inert, so a script that spells the intent out is never refused for being
 # explicit -- and it must not turn into a second mode by accident: it sets none of the three flags.
 if [[ "$(parse_status --all)" == "0" ]]; then
     pass "--all parses cleanly and is inert"

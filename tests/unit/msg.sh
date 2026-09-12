@@ -416,7 +416,7 @@ else
 fi
 
 # (23) Include guard: a consumer that sources the lib directly AND through
-# safe-paths.lib.sh must survive the re-source under set -e (readonly constants).
+# safe-paths.lib.sh must survive the re-source under `set -e` (readonly constants).
 if bash -c 'set -euo pipefail; source "'"${LIB}"'"; source "'"${LIB}"'"'; then
     pass "a second source of msg.lib.sh is a no-op (include guard)"
 else

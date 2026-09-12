@@ -550,7 +550,7 @@ check_entry "an unmatched quote is taken as-is"    '/home/me/project'       '"/h
 #     rather than being an add+remove pair, for an operator whose allowlist is an ordered,
 #     commented document;
 #   * enable collapsing a duplicate pair to ONE live entry;
-#   * an unwritable directory REPORTED (rc 1) rather than aborting the caller under set -e.
+#   * an unwritable directory REPORTED (rc 1) rather than aborting the caller under `set -e`.
 section "conf: allowlist editing (unit)"
 
 if ! declare -F ai_tools_conf_allowlist_state >/dev/null 2>&1 \
@@ -677,7 +677,7 @@ fi
 
 # --- a write that cannot happen is REPORTED, not fatal ---
 # The rewrite lands its temporary file in the allowlist's own directory, so an unwritable config
-# directory fails even when the file itself is writable. Under set -e a bare I/O error would abort
+# directory fails even when the file itself is writable. Under `set -e` a bare I/O error would abort
 # the caller; the function must return 1 and leave the file as it was.
 #
 # Driven AS THE PROJECTS USER, which is who runs the CLI: this suite runs as root, and root ignores

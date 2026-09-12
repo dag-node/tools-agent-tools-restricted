@@ -214,7 +214,7 @@ else
         pass "the sandbox account cannot write a label record (root-only by construction)"
     fi
 
-    # Written in the stamp grammar, so --status reads it through the same accessors as the pin
+    # Written in the stamp grammar, so `--status` reads it through the same accessors as the pin
     # rather than a second reader that could drift.
     if ai_tools_entrypoint_label_write claude-code failed rule-not-registered \
        && [[ "$(ai_tools_service_stamp_field "$(ai_tools_entrypoint_label_path claude-code)" RESULT)" == failed \

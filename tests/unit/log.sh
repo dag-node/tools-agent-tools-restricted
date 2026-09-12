@@ -239,7 +239,7 @@ else
         fi
     fi
 
-    # (9) A host whose logger(1) predates --journald must still get the line, through the plain
+    # (9) A host whose logger(1) predates `--journald` must still get the line, through the plain
     #     path. Structured logging is an enhancement; losing it must never lose the record.
     logger() {
         if [[ "${1:-}" == "--journald" ]]; then return 1; fi

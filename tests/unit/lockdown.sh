@@ -65,7 +65,7 @@ if command -v setfacl >/dev/null 2>&1; then
 fi
 mk_allowlist "${proj}" "!${proj}/vendor"
 
-# Run the deployed helper in <cwd> (it acts on pwd), non-interactive (--yes), never aborting
+# Run the deployed helper in <cwd> (it acts on pwd), non-interactive (`--yes`), never aborting
 # the suite. Captures combined output to <outfile>; sets the global LD_RC to its exit code.
 run_ld() {  # <cwd> <outfile> [args...]
     local cwd="$1" out="$2"; shift 2

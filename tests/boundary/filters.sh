@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/filters.sh
 # Boundary: the agent cannot decide what its own commands become. Probed AS the agent
-# (runuser -u ai-tools), against the DEPLOYED filter surface.
+# (`runuser -u ai-tools`), against the DEPLOYED filter surface.
 #
 # Command filtering is token economy, not a boundary -- but the inputs that drive it are still
 # control plane. A rules file the agent could write would silently reshape every command a
@@ -13,7 +13,7 @@
 # state in the first place. Both halves must hold: the runtime check catches a host someone has
 # already broken, this catches the agent trying to break it.
 #
-# Probe-only (test -w); no file is written, created, or unlinked. Run as root via sudo; drops to
+# Probe-only (`test -w`); no file is written, created, or unlinked. Run as root via sudo; drops to
 # the agent per check.
 
 set -euo pipefail

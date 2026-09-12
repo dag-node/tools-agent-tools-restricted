@@ -5,7 +5,7 @@
 # in CLAUDE.md. Both NOPASSWD rules in sudoers.d/ai-tools are `%ai-ops` GROUP rules, held by the
 # operators -- one dropping privilege to the sandbox account, one running a fixed-path helper as
 # root -- and the agent runs AS the sandbox account, which is not in that group, so it can invoke
-# neither. Asserts that at runtime (sudo -l for the sandbox account reports it is not allowed to
+# neither. Asserts that at runtime (`sudo -l` for the sandbox account reports it is not allowed to
 # run sudo at all) and statically (no grant line names the sandbox account as principal). Also
 # pins the account hygiene the invariant depends on -- nologin shell, locked password, and
 # non-membership in ai-ops. Run as root via sudo.
@@ -21,7 +21,7 @@ section "Agent sudo rights (the sandbox account has none)"
 # run NO COMMAND via sudo -- so assert the canonical "not allowed to run sudo" message positively,
 # not merely the absence of the two known targets. A negative check (no ai-tools-run / no relabel)
 # would pass a rogue drop-in granting the agent some OTHER command (e.g. ALL=(ALL) NOPASSWD:ALL);
-# the positive form fails on any grant at all. (-n: never prompt.)
+# the positive form fails on any grant at all. (`-n`: never prompt.)
 avail="$(sudo -n -l -U "${SANDBOX_USER}" 2>&1 || true)"
 if grep -qiE 'not allowed to run sudo|is not allowed to execute' <<<"${avail}"; then
     pass "sudo grants ${SANDBOX_USER} nothing (\"not allowed to run sudo\")"
@@ -72,7 +72,7 @@ else
     # (5) No usable password: the shadow password field is locked (! or *) or empty-locked, so
     # the account cannot be authenticated into. Prefer `passwd -S`; fall back to the shadow field.
     if command -v passwd >/dev/null 2>&1 && pw_status="$(passwd -S "${SANDBOX_USER}" 2>/dev/null)"; then
-        # passwd -S field 2: L (locked), NP (no password), or P (usable password).
+        # `passwd -S` field 2: L (locked), NP (no password), or P (usable password).
         pw_state="$(awk '{print $2}' <<<"${pw_status}")"
         if [[ "${pw_state}" == "L" || "${pw_state}" == "LK" ]]; then
             pass "${SANDBOX_USER} password is locked (passwd -S: ${pw_state})"

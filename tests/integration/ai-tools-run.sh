@@ -121,7 +121,7 @@ if ! command -v runuser >/dev/null 2>&1; then
 fi
 
 # Run ai-tools-run AS the agent with a clean, explicitly-set AI_TOOLS_AGENT_EXEC/AI_TOOLS_PROJECT_DIR
-# (env -u clears any inherited value first, so the case is deterministic). timeout backstops
+# (`env -u` clears any inherited value first, so the case is deterministic). timeout backstops
 # the design guarantee that every case exits at validation, never reaching the launch.
 run_crun() {  # VAR=VAL ...
     timeout 10 runuser -u "${SANDBOX_USER}" -- \

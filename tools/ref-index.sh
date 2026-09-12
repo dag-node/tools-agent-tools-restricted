@@ -4,6 +4,7 @@
 # reads and the index it writes are named here once, for the pre-commit hook, the unit test,
 # and a developer's own run; the tool itself is generic and takes both as arguments.
 #
+#     ```text
 #     bash tools/ref-index.sh generate          retire what the tree dropped, then rewrite
 #                                               .claude/references.md from the tree
 #     bash tools/ref-index.sh check             report every reference finding in the tree,
@@ -17,6 +18,7 @@
 #                              [--count N]      the retired file, and the wip tickets; N of them,
 #                                               distinct from each other too
 #     bash tools/ref-index.sh where <reftag>    print the target's live file:line and span
+#     ```
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

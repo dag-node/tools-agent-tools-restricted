@@ -26,7 +26,7 @@ fi
 
 # expect <token> <rc> <enforce> <module> <want> <have> <mgrdom> [require]: drive the verdict and
 # assert BOTH the echoed token and the 0=launch/1=refuse return. The '|| rc=$?' keeps a refusal
-# (rc 1) non-fatal under set -e and captures the status. `require` defaults to unset (5-arg call),
+# (rc 1) non-fatal under `set -e` and captures the status. `require` defaults to unset (5-arg call),
 # exercising that a 5-arg caller keeps today's DAC-capable behaviour.
 expect() {
     local exp_tok="$1" exp_rc="$2" enf="$3" mod="$4" want="$5" have="$6" mgr="$7" req="${8:-}" tok rc
@@ -75,7 +75,7 @@ expect ok 0 Enforcing no "" lib_t init_t
 
 # ── The module-presence probe classifier (ai_tools_confinement_module_present) ──
 # ai-tools-run derives the `module` verdict input from `matchpathcon` on a CORE-owned path, because
-# it runs as the sandbox account and cannot read the root-only module store (semodule -l). A
+# it runs as the sandbox account and cannot read the root-only module store (`semodule -l`). A
 # core-owned path resolves to an ai_tools_* type ONLY when the core module's file-contexts are live,
 # so this classifier turns that probed type into the yes/no the verdict consumes. The false "no" this
 # replaces was the fail-open: on the unresolved-label branch it would launch DAC-only where the

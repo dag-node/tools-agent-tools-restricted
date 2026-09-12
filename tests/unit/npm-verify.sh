@@ -66,7 +66,7 @@ fi
 
 # expect <desc> <exp_tok> <exp_rc> <audit-json>: drive the pure verdict and assert BOTH the
 # echoed token and the 0=verified / 1=tamper / 2=unable return. '|| rc=$?' keeps a non-zero
-# return non-fatal under set -e.
+# return non-fatal under `set -e`.
 expect() {
     local desc="$1" exp_tok="$2" exp_rc="$3" json="$4" tok rc
     tok="$(ai_tools_npm_verdict "${json}" 2>/dev/null)" && rc=0 || rc=$?

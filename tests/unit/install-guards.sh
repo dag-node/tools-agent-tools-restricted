@@ -7,15 +7,15 @@
 # The one that matters is root. `ai-tools-admin operators add` refuses it outright, and install.sh
 # reaches the same end state by a different route (the @PROJECTS_USER@ substitution plus
 # `usermod -aG ai-ops`), so the two have to refuse alike or the dev path produces a host nobody
-# can provision: the CLI refuses root every mutating verb, --for refuses root as a target, and the
+# can provision: the CLI refuses root every mutating verb, `--for` refuses root as a target, and the
 # ownership handback would restore agent-written files to root:ai-tools.
 #
 # Root is reachable without meaning to -- sudo invoked from a root shell sets SUDO_USER=root, so
 # `sudo -i` followed by `sudo ./install.sh` passes the SUDO_USER check with a resolvable home.
 #
-# A name reaches the decision by three routes -- SUDO_USER, --operator, and the interactive
+# A name reaches the decision by three routes -- SUDO_USER, `--operator`, and the interactive
 # prompt -- and the second is what makes the other refusals testable at all: the prompt reads from
-# /dev/tty, so its branch cannot be driven here, while --operator carries a name past the same
+# /dev/tty, so its branch cannot be driven here, while `--operator` carries a name past the same
 # operator_refusal without a terminal. Every refusal is therefore asserted through the flag,
 # and the file asserts the flag's own arithmetic too (a missing value, the = form, and that it
 # decides the ENROLLED account without touching who invoked sudo).
@@ -77,7 +77,7 @@ else
     fail "install.sh refused the operator ${PROJECTS_USER}: ${out}"
 fi
 
-# (5) The same root refusal on the --operator route. Both routes reach one decision, so a name
+# (5) The same root refusal on the `--operator` route. Both routes reach one decision, so a name
 # that is refused when it arrives from sudo must be refused when it is typed as a flag.
 out="$(run_installer "${PROJECTS_USER}" --operator root)"
 assert_msg MSG-D7C6 "${out}" "--operator root is refused by the same code as SUDO_USER=root"
@@ -97,7 +97,7 @@ assert_msg MSG-S9C4 "${out}" "--operator ${SANDBOX_USER} is refused"
 out="$(run_installer "${PROJECTS_USER}" --operator "no-such-account-${RANDOM}${RANDOM}")"
 assert_msg MSG-X4X2 "${out}" "--operator with an unknown account is refused"
 
-# (8) The flag's own arithmetic: a trailing --operator has no name to enrol, and must say so
+# (8) The flag's own arithmetic: a trailing `--operator` has no name to enrol, and must say so
 # rather than reading the next thing as one or enrolling an empty name.
 out="$(SUDO_USER="${PROJECTS_USER}" bash "${INSTALLER}" __no_such_action__ --operator 2>&1 || true)"
 assert_msg MSG-U5E6 "${out}" "a valueless --operator is refused"
@@ -122,7 +122,7 @@ fi
 
 # ── The source-tree gate ──────────────────────────────────────────────────────────────────────
 # What root deploys is a committed tree the operator reviewed, so an install from a checkout with
-# uncommitted changes is refused unless --allow-uncommitted states the decision. Driven through
+# uncommitted changes is refused unless `--allow-uncommitted` states the decision. Driven through
 # `install.sh check-tree`, which runs the gate alone, against a FIXTURE checkout: a copy
 # of install.sh with the libraries it sources from its own tree, in a repository this test makes.
 # Running the real checkout would report whatever state the developer's tree is in, and running
@@ -178,7 +178,7 @@ else
     fail "agent-owned path not marked: ${GATE_OUT}"
 fi
 
-# (14) --allow-uncommitted admits the same tree, warning rather than refusing.
+# (14) `--allow-uncommitted` admits the same tree, warning rather than refusing.
 run_gate --allow-uncommitted
 assert_msg MSG-E2B9 "${GATE_OUT}" "--allow-uncommitted warns rather than refusing"
 if (( GATE_RC == 0 )); then

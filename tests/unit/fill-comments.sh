@@ -8,7 +8,7 @@
 # aligned comment table, a linter directive, a commented default, a shebang and a code line,
 # each of which must come back byte-identical; and a second run must leave the file as the first
 # left it. Where the
-# checker is present its --wrap mode is the oracle for the filled paragraph. A repo dev tool,
+# checker is present its `--wrap` mode is the oracle for the filled paragraph. A repo dev tool,
 # not a deployed artifact, so the test runs from the checkout; skipped without Emacs.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -50,7 +50,7 @@ else
     fail "the tool failed: $(bash "${TOOL}" --width 72 "${f}" 2>&1 | tail -3)"; finish; exit
 fi
 
-# (1) The prose paragraph is filled: inside the column, several lines, and clean under --wrap.
+# (1) The prose paragraph is filled: inside the column, several lines, and clean under `--wrap`.
 para="$(sed -n '4,/^#$/p' "${f}" | sed '$d')"
 if (( $(wc -l <<< "${para}") > 1 )) && awk 'length > 72 {exit 1}' <<< "${para}"; then
     pass "the long paragraph is filled at 72 columns"

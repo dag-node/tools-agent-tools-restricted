@@ -159,7 +159,7 @@ fi
 # fcontext rule -- is deliberately NOT exercised. Driving it would mutate the host's local SELinux
 # policy to test a helper, which no test here does, and a teardown that can leave a policy entry
 # behind is worse than the coverage it buys. That leaves ai_tools_unlabel_project's revert path
-# (the one --project-unclaim drives) uncovered: a known gap, recorded rather than papered over.
+# (the one `--project-unclaim` drives) uncovered: a known gap, recorded rather than papered over.
 RELABEL_LIB=/usr/local/lib/ai-tools/relabel.lib.sh
 if [[ ! -d "${SANDBOX_ROOT}" ]]; then
     skip "sandbox clone label" "sandbox area ${SANDBOX_ROOT} not present"

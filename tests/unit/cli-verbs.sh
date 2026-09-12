@@ -7,7 +7,7 @@
 #   OPERATOR_VERBS         who may run it   -- an unenrolled caller is refused
 #   ROOT_ALLOWED_VERBS     may root run it  -- the carve-out for verbs that write no operator state
 #   BOOTSTRAP_EXEMPT_VERBS may it run on an unprovisioned host
-#   FOR_ALLOWED_VERBS      does --for apply -- elsewhere the flag is refused, not ignored
+#   FOR_ALLOWED_VERBS      does `--for` apply -- elsewhere the flag is refused, not ignored
 #
 # The failure this exists for is silent and one-directional: a verb ADDED to the dispatcher and
 # forgotten in OPERATOR_VERBS is one an unenrolled user runs, and no runtime message says so --
@@ -33,7 +33,7 @@ if [[ ! -r "${CLI}" ]]; then
     finish; exit
 fi
 
-# INFORMATIONAL -- the verbs deliberately open to any caller: they read, or (in --stop's case) act
+# INFORMATIONAL -- the verbs deliberately open to any caller: they read, or (in `--stop`'s case) act
 # through a helper that requires root anyway and does not take operator-owned state. This list is the
 # test's half of the contract, so a verb added to neither this nor OPERATOR_VERBS fails with
 # the choice spelled out.
@@ -138,7 +138,7 @@ else
 fi
 
 # ── (5) The CLI describes itself on a host that is not provisioned yet ──────────
-# --help and --version read no installed state, and the provisioning gate's own refusal names the
+# `--help` and `--version` read no installed state, and the provisioning gate's own refusal names the
 # command to run next -- which a caller who cannot print the usage has no way to look up. Gating
 # them fails on the one host nobody develops against, so the membership is pinned here rather than
 # left to the gate, which is a single line far from the table it reads.

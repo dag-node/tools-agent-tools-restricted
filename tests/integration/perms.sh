@@ -41,7 +41,7 @@ check_file /usr/local/libexec/ai-tools/ai-tools-bootstrap        root           
 check_file /usr/local/libexec/ai-tools/ai-tools-admin           root              root              750
 # The sudo-PATH symlink in /usr/sbin, for the one command an administrator types (sudoers
 # secure_path on stock EL excludes /usr/local/sbin, so `sudo ai-tools-admin` resolves here).
-# check_file lstat()s the link itself (777 is a symlink's fixed mode); -e inside it also catches
+# check_file lstat()s the link itself (777 is a symlink's fixed mode); `-e` inside it also catches
 # a dangling link. Nothing else has one: the provisioning helper and every contributed command
 # are reached as verbs of this one.
 check_file /usr/sbin/ai-tools-admin                           root              root              777
@@ -119,7 +119,7 @@ fi
 # runs AS the agent on every Bash call; read-only data plus pure logic, does not carry secrets.
 check_file /usr/local/lib/ai-tools/filters.lib.sh            root              root              644
 # Service-health registry: 644 root:root -- world-readable, sourced by the operator launch wrapper
-# and the CLI (--status); read-only data, no secrets.
+# and the CLI (`--status`); read-only data, no secrets.
 check_file /usr/local/lib/ai-tools/services.lib.sh           root              root              644
 # The three provider directories, owned by ai-tools-base (each member package drops only its own
 # files into them). 0755 root:root is SECURITY-LOAD-BEARING, not housekeeping: these decide which
@@ -278,9 +278,9 @@ if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/de
 else
     skip "agent config directory modes" "${_cp_lib} does not resolve the agents' config dirs"
 fi
-# The agent's XDG config for its --user manager: root-owned root:ai-tools 2750 (setgid inherited
+# The agent's XDG config for its `--user manager`: root-owned root:ai-tools 2750 (setgid inherited
 # from the control-plane home), so the manager reads its units through the group but the agent
-# cannot add a --user unit. An agent-writable wants dir would let a confined session register a
+# cannot add a `--user unit`. An agent-writable wants dir would let a confined session register a
 # unit the account's unconfined manager runs.
 check_file /opt/ai-tools/.config/systemd/user                 root              "${SANDBOX_GROUP}" 2750
 check_file /opt/ai-tools/.config/systemd/user/timers.target.wants \
@@ -298,7 +298,7 @@ check_file /usr/lib/systemd/system/ai-tools-handback.socket   root root 644
 check_file /usr/lib/systemd/system/ai-tools-handback@.service root root 644
 # The preset that enables the socket on install (see systemd.sh for its enablement check).
 check_file /usr/lib/systemd/system-preset/85-ai-tools.preset  root root 644
-# Toolchain update units (sandbox account's --user instance) + post-upgrade relabel watcher.
+# Toolchain update units (sandbox account's `--user instance`) + post-upgrade relabel watcher.
 # 644 root:root -- systemd reads them as root; no world write.
 check_file /usr/lib/systemd/user/nvm-update.service           root root 644
 check_file /usr/lib/systemd/user/nvm-update.timer             root root 644
@@ -364,7 +364,7 @@ check_file /usr/local/lib/ai-tools/msg.lib.sh                 root root 644
 check_file /var/opt/ai-tools                                  root              "${SANDBOX_GROUP}" 2750
 check_file /var/opt/ai-tools/sandbox-projects                 root              "${SANDBOX_GROUP}" 2770
 check_file /var/opt/ai-tools/README.md                        root              "${SANDBOX_GROUP}" 640
-# Last-run state the sandbox account publishes for `ai-tools --status` to read (its --user units
+# Last-run state the sandbox account publishes for `ai-tools --status` to read (its `--user units`
 # are not queryable from the operator's session). The mode is what bounds the surface a
 # sandbox-written stamp adds, so both halves are asserted: the directory 0750 root:SANDBOX_GROUP --
 # root-owned and NOT group-writable, so the account has traverse only and can neither add, unlink,

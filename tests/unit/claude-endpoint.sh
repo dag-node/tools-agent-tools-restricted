@@ -9,7 +9,7 @@
 #     file) REFUSES the launch (return 1), never a partial or wrong endpoint;
 #   * only the four recognised keys are read -- an arbitrary key in the file never becomes session
 #     environment;
-#   * the auth token is imported BY NAME (--setenv=ANTHROPIC_AUTH_TOKEN, value not on the command
+#   * the auth token is imported BY NAME (`--setenv=ANTHROPIC_AUTH_TOKEN`, value not on the command
 #     line) and exported for that name-only import, and a non-local endpoint with no token warns but
 #     still applies while a localhost one does not.
 # The agent-side half (the endpoint file is not agent-writable) lives in tests/boundary/access.sh.
