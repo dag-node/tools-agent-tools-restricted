@@ -50,10 +50,10 @@ the same tier ordering in its own syntax.
 
 nvm must be sourced **before** path-dedup: nvm prepends its versioned bin dir
 to `$PATH`, and path-dedup then restructures it into Tier 4, behind the T1
-system bins (which include the wrapper) and T2 `~/.local/bin`. path-dedup.sh
+system bins (which include the wrapper) and T2 `~/.local/bin`. `path-dedup.sh`
 is idempotent — sourcing it again in the same shell produces the same PATH.
 
-## 2. Create the SANDBOX_USER OS account at /opt (root, once)
+## 2. Create the `SANDBOX_USER` OS account at /opt (root, once)
 
     # The sandbox account name is fixed at ai-tools (see "Identities and naming" in the
     # README). Set it here so this block works even pasted on its own -- an unset
@@ -81,7 +81,7 @@ this step applies only to the from-source path.
 effect. `/opt/ai-tools` has no `nosuid` restriction, so the switch to `${SANDBOX_USER}`
 actually takes effect.
 
-## 3. Install nvm + Node + claude as SANDBOX_USER (root, once)
+## 3. Install nvm + Node + claude as `SANDBOX_USER` (root, once)
 
 `sudo ai-tools-admin system bootstrap` does steps 2 and 3 in one idempotent command once the
 package is installed — it creates the account, installs the toolchain, seeds the symlink, and
@@ -207,34 +207,34 @@ owner/group/mode list is `tests/integration/perms.sh`, which
 
 | File | Deploy path |
 |---|---|
-| src/usr/local/lib/ai-tools/path-dedup.sh | /usr/local/lib/ai-tools/path-dedup.sh (root) |
-| src/opt/ai-tools/bin/nvm-update.sh | /opt/ai-tools/bin/nvm-update.sh |
-| src/usr/local/libexec/ai-tools/ai-tools-chown.sh | /usr/local/libexec/ai-tools/ai-tools-chown (root) |
-| src/usr/local/libexec/ai-tools/ai-tools-setgid.sh | /usr/local/libexec/ai-tools/ai-tools-setgid (root) |
-| src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh | /usr/local/libexec/ai-tools/ai-tools-launcher-symlink (root) |
-| src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh | /usr/local/libexec/ai-tools/ai-tools-relabel-agent (root) |
-| src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh | /usr/local/libexec/ai-tools/ai-tools-bootstrap (root) |
-| src/usr/local/libexec/ai-tools/ai-tools-admin.sh | /usr/local/libexec/ai-tools/ai-tools-admin (root) |
-| src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | /usr/local/libexec/ai-tools/ai-tools-lockdown (root) |
-| src/usr/local/libexec/ai-tools/ai-tools-handback.py | /usr/local/libexec/ai-tools/ai-tools-handback (root) |
-| src/usr/local/bin/ai-tools-handback-client.py | /usr/local/bin/ai-tools-handback-client (root:ai-tools) |
-| src/usr/lib/systemd/system/ai-tools-handback.socket | /usr/lib/systemd/system/ai-tools-handback.socket (root) |
-| src/usr/lib/systemd/system/ai-tools-handback@.service | /usr/lib/systemd/system/ai-tools-handback@.service (root) |
-| src/usr/local/lib/ai-tools/secret-patterns.lib.sh | /usr/local/lib/ai-tools/secret-patterns.lib.sh (root) |
-| src/usr/local/lib/ai-tools/skip-dirs.lib.sh | /usr/local/lib/ai-tools/skip-dirs.lib.sh (root) |
-| src/usr/local/lib/ai-tools/filters.lib.sh | /usr/local/lib/ai-tools/filters.lib.sh (root) |
-| src/usr/local/lib/ai-tools/filters.d/core.rules | /usr/local/lib/ai-tools/filters.d/core.rules (root) |
-| src/usr/local/lib/ai-tools/filters.d/dotnet.rules | /usr/local/lib/ai-tools/filters.d/dotnet.rules (root) |
-| src/usr/local/bin/claude.sh | /usr/local/bin/claude (root) |
-| src/opt/ai-tools/bin/ai-tools-run.sh | /opt/ai-tools/bin/ai-tools-run |
-| src/opt/ai-tools/agents/claude-code/post-tool-hook.sh | /opt/ai-tools/.claude/post-tool-hook.sh |
-| src/opt/ai-tools/agents/claude-code/session-hook.sh | /opt/ai-tools/.claude/session-hook.sh |
-| src/opt/ai-tools/agents/claude-code/filter-hook.sh | /opt/ai-tools/.claude/filter-hook.sh |
-| src/opt/ai-tools/agents/claude-code/settings.json | /opt/ai-tools/.claude/settings.json |
-| src/usr/lib/systemd/user/nvm-update.service | /usr/lib/systemd/user/nvm-update.service (root) |
-| src/usr/lib/systemd/user/nvm-update.timer | /usr/lib/systemd/user/nvm-update.timer (root) |
-| src/usr/lib/systemd/system/ai-tools-relabel.path | /usr/lib/systemd/system/ai-tools-relabel.path (root) |
-| src/usr/lib/systemd/system/ai-tools-relabel.service | /usr/lib/systemd/system/ai-tools-relabel.service (root) |
-| src/etc/sudoers.d/ai-tools | /etc/sudoers.d/ai-tools (root) |
-| src/etc/ai-tools/operator.conf | /etc/ai-tools/operator.conf (root; seeded once, then operator-maintained) |
-| install.sh | run in place via sudo |
+| `src/usr/local/lib/ai-tools/path-dedup.sh` | `/usr/local/lib/ai-tools/path-dedup.sh` (root) |
+| `src/opt/ai-tools/bin/nvm-update.sh` | `/opt/ai-tools/bin/nvm-update.sh` |
+| `src/usr/local/libexec/ai-tools/ai-tools-chown.sh` | `/usr/local/libexec/ai-tools/ai-tools-chown` (root) |
+| `src/usr/local/libexec/ai-tools/ai-tools-setgid.sh` | `/usr/local/libexec/ai-tools/ai-tools-setgid` (root) |
+| `src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh` | `/usr/local/libexec/ai-tools/ai-tools-launcher-symlink` (root) |
+| `src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh` | `/usr/local/libexec/ai-tools/ai-tools-relabel-agent` (root) |
+| `src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh` | `/usr/local/libexec/ai-tools/ai-tools-bootstrap` (root) |
+| `src/usr/local/libexec/ai-tools/ai-tools-admin.sh` | `/usr/local/libexec/ai-tools/ai-tools-admin` (root) |
+| `src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh` | `/usr/local/libexec/ai-tools/ai-tools-lockdown` (root) |
+| `src/usr/local/libexec/ai-tools/ai-tools-handback.py` | `/usr/local/libexec/ai-tools/ai-tools-handback` (root) |
+| `src/usr/local/bin/ai-tools-handback-client.py` | `/usr/local/bin/ai-tools-handback-client` (root:ai-tools) |
+| `src/usr/lib/systemd/system/ai-tools-handback.socket` | `/usr/lib/systemd/system/ai-tools-handback.socket` (root) |
+| `src/usr/lib/systemd/system/ai-tools-handback`@.service | `/usr/lib/systemd/system/ai-tools-handback`@.service (root) |
+| `src/usr/local/lib/ai-tools/secret-patterns.lib.sh` | `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (root) |
+| `src/usr/local/lib/ai-tools/skip-dirs.lib.sh` | `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (root) |
+| `src/usr/local/lib/ai-tools/filters.lib.sh` | `/usr/local/lib/ai-tools/filters.lib.sh` (root) |
+| `src/usr/local/lib/ai-tools/filters.d/core.rules` | `/usr/local/lib/ai-tools/filters.d/core.rules` (root) |
+| `src/usr/local/lib/ai-tools/filters.d/dotnet.rules` | `/usr/local/lib/ai-tools/filters.d/dotnet.rules` (root) |
+| `src/usr/local/bin/claude.sh` | `/usr/local/bin/claude` (root) |
+| `src/opt/ai-tools/bin/ai-tools-run.sh` | `/opt/ai-tools/bin/ai-tools-run` |
+| `src/opt/ai-tools/agents/claude-code/post-tool-hook.sh` | `/opt/ai-tools/.claude/post-tool-hook.sh` |
+| `src/opt/ai-tools/agents/claude-code/session-hook.sh` | `/opt/ai-tools/.claude/session-hook.sh` |
+| `src/opt/ai-tools/agents/claude-code/filter-hook.sh` | `/opt/ai-tools/.claude/filter-hook.sh` |
+| `src/opt/ai-tools/agents/claude-code/settings.json` | `/opt/ai-tools/.claude/settings.json` |
+| `src/usr/lib/systemd/user/nvm-update.service` | `/usr/lib/systemd/user/nvm-update.service` (root) |
+| `src/usr/lib/systemd/user/nvm-update.timer` | `/usr/lib/systemd/user/nvm-update.timer` (root) |
+| `src/usr/lib/systemd/system/ai-tools-relabel.path` | `/usr/lib/systemd/system/ai-tools-relabel.path` (root) |
+| `src/usr/lib/systemd/system/ai-tools-relabel.service` | `/usr/lib/systemd/system/ai-tools-relabel.service` (root) |
+| `src/etc/sudoers.d/ai-tools` | `/etc/sudoers.d/ai-tools` (root) |
+| `src/etc/ai-tools/operator.conf` | `/etc/ai-tools/operator.conf` (root; seeded once, then operator-maintained) |
+| `install.sh` | run in place via sudo |
