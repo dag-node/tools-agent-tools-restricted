@@ -155,8 +155,9 @@ of what it can ever send:
 - **The agent binary sits inside the sandbox** — the
   [npm way](https://code.claude.com/docs/en/setup#install-with-npm) installs the
   [Bun](https://bun.com/package-manager)-compiled binary into the Node toolchain
-  `${SANDBOX_USER}` owns under `/opt/ai-tools`, so the wrapper in
-  `/usr/local/bin` is the `claude` an operator's PATH resolves. The
+  `${SANDBOX_USER}` owns under `/opt/ai-tools`, off every operator's PATH — the
+  wrapper in `/usr/local/bin` is what the name resolves to, once
+  `path-order.sh` has run after the `nvm` init that prepends to it. The
   [dnf way](https://code.claude.com/docs/en/setup#dnf) lands the same binary in
   `/usr/bin`, which every PATH carries, and the wrapper takes the name there by
   the classic EL ordering

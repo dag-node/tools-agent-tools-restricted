@@ -300,9 +300,16 @@ reinstall-re-mints-the-entrypoint race the updater works around. It needs the `r
 provider seam already names, an exact-path containment rule for a host-packaged binary
 ([providers](providers.rule.md)), and a packaging split. Not built.
 
-**npm is the default because of where it puts the binary.** Under npm the agent lands in the
-toolchain the sandbox account owns (`0750`, `/opt/ai-tools/.nvm/...`), which an operator cannot
-traverse: there is no agent on their PATH for the wrapper to have to beat. Under a distro package
+**The PATH ordering is needed whatever the channel.** `nvm` prepends its versioned `bin` to the
+front of PATH from the operator's own `~/.bashrc`, so any agent that operator installed with
+`npm i -g` resolves ahead of `/usr/local/bin` until `path-order.sh` runs after that init and puts
+the root-owned directories back in front ([launch](launch.rule.md)). A distro package does not
+settle it either: `/usr/bin` loses to whatever prepended last, exactly as `/usr/local/bin` does.
+
+**What the channel decides is whether a second agent is reachable at all.** Under npm the agent
+lands in the toolchain the sandbox account owns, `0750` at `/opt/ai-tools/.nvm/...`, whose mode
+denies an operator the traverse: this stack does not put an agent on their PATH for the wrapper to
+have to beat. Under a distro package
 the agent is an executable, operator-readable file in `/usr/bin`, and what stands between the
 operator and an unconfined session is **precedence** — a property of each shell's environment
 rather than of the host, and one this project has now found three ways to lose: `sudo`'s
