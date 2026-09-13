@@ -579,8 +579,11 @@ naming neither path untouched, the mode preserved, no sidecar written, and a sec
 no-op. The decision is pure and the probing separate (the split `confinement.sh` drives),
 so the file drives the table with no account to probe and **without root**; the two impure readers
 are driven with their dependencies stubbed as shell functions, which is also how the publishing
-contract is asserted from a real caller under `set -u`. The scriptlet's stream is pinned
-with them, since a tag it could not read would print a repoint as a step the host still owes.
+contract is asserted from a real caller under `set -u`. The per-operator report is pinned with
+them, in both directions: a shadowed account is named with its launcher and the binary that wins
+the PATH search, and an account in any other state — one whose reading could not be taken
+included — is named by no line, so the report names an account only where typing the launcher
+starts an agent outside the wrapper.
 
 `services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools --status` and
 the launch wrapper's pre-launch warning share. Two properties carry weight beyond the accessors.

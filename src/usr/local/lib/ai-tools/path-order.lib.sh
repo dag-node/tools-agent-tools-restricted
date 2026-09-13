@@ -288,27 +288,3 @@ ai_tools_path_order_stale_operators() {
         done
     done
 }
-
-# ai_tools_path_order_reconcile_operators <user>...
-# The whole per-host pass, in one call: repoint every guard line naming the former fragment, then report each account
-# whose shell reaches an agent outside /usr/local/bin. Prints one TAB-separated record per event, tagged so a caller
-# reads the two kinds from one stream:
-#
-#   repointed<TAB><file>
-#   shadowed<TAB><user><TAB><launcher><TAB><winner>
-#
-# Root only. It exists so the base package's %post is one invocation rather than a loop spelled in scriptlet shell,
-# and the order carries the meaning: the repoint runs first, so the report describes the host as the upgrade leaves it
-# rather than as it found it.
-ai_tools_path_order_reconcile_operators() {
-    local user line
-    for user in "$@"; do
-        [[ -n "${user}" ]] || continue
-        while IFS= read -r line; do
-            [[ -n "${line}" ]] && printf 'repointed\t%s\n' "${line}"
-        done < <(ai_tools_path_order_repoint_user "${user}")
-    done
-    while IFS= read -r line; do
-        [[ -n "${line}" ]] && printf 'shadowed\t%s\n' "${line}"
-    done < <(ai_tools_path_order_shadowed_operators "$@")
-}

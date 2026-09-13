@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only tests/unit/path-order.sh Hermetic unit test for path-order.lib.sh:
 # where an operator's shell finds an agent launcher, the reading `ai-tools-admin operators add` asks
-# with, `ai-tools --status` re-checks with, and the base package's %post reports from.
+# with, `ai-tools --status` re-checks with, and `ai-tools-admin system bootstrap` reports from.
 #
 # What makes it worth pinning is the direction each answer sends an operator. A launcher resolving outside
 # /usr/local/bin means typing its name starts an UNCONFINED agent, so a verdict that read that state as fine would
@@ -237,7 +237,7 @@ else
     fail "the per-operator report named the wrong launcher or the wrong binary (${out})"
 fi
 
-# Every other state is silence: a scriptlet that named an account it could not read would nag a host whose ordering
+# Every other state is silence: a report that named an account it could not read would nag a host whose ordering
 # is fine.
 for state in wired clear unknown; do
     eval "ai_tools_path_order_read_user() {
@@ -256,26 +256,6 @@ if [[ -z "$(ai_tools_path_order_shadowed_operators op)" ]]; then
 fi
 if [[ -z "$(ai_tools_path_order_shadowed_operators)" ]]; then
     pass "a host with no operators reports nothing"
-fi
-
-# The per-host pass the base package's %post reads is one stream carrying two record kinds, so the tag on each line
-# is a contract: a scriptlet that could not tell them apart would print a repoint as a step the operator still
-# owes. The repoint is asserted to come first, since the report that follows is meant to describe the host
-# as the upgrade leaves it.
-ai_tools_path_order_repoint_user() { printf '%s\n' "/home/$1/.bashrc"; }
-ai_tools_path_order_read_user() {
-    AI_TOOLS_PATH_ORDER_STATE=shadowed
-    AI_TOOLS_PATH_ORDER_SHADOW="/home/$1/.nvm/versions/node/v22.0.0/bin/claude"
-    AI_TOOLS_PATH_ORDER_WINNERS=( "claude=${AI_TOOLS_PATH_ORDER_SHADOW}" )
-    return 1
-}
-mapfile -t records < <(ai_tools_path_order_reconcile_operators op)
-if [[ "${records[0]}" == "repointed"$'\t'"/home/op/.bashrc" \
-   && "${records[1]}" == "shadowed"$'\t'"op"$'\t'"claude"$'\t'"/home/op/.nvm/versions/node/v22.0.0/bin/claude" \
-   && "${#records[@]}" -eq 2 ]]; then
-    pass "the per-host pass tags each record and repoints before it reports"
-else
-    fail "the reconcile stream is not what a scriptlet reads (${records[*]})"
 fi
 
 finish

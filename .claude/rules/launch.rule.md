@@ -365,10 +365,14 @@ resolves what typing the name would run. The launcher name is admitted only in a
 charset before it reaches that command, and the answer only as an absolute path with no whitespace
 or control byte.
 
-Three consumers read it, at the three moments the state can change: `operators add` (asks with the
+The consumers read it at the moments the state can change: `operators add` (asks with the
 stake named, and warns rather than passing in silence when a shadowed account declines),
-`ai-tools --status` (re-checks, and counts a shadowed launcher toward its non-zero exit), and the
-base package's `%post` (names each shadowed operator in the upgrade output). See
+`ai-tools --status` (re-checks, and counts a shadowed launcher toward its non-zero exit), and
+`ai-tools-admin system bootstrap` (names each shadowed operator once the toolchain it just
+provisioned is in place — a reading of another account needs the root that command already holds,
+and a host is told it is ready there). The base package's `%post` reads the **init files** rather
+than this state, naming an operator whose guard line still points at the fragment's former path.
+See
 [cli](cli.rule.md) for the report and [providers](providers.rule.md) for what a launcher name is.
 
 ### A renamed fragment repoints the lines that name it
@@ -377,9 +381,11 @@ The guard line sources the fragment only while the file is present, so a release
 the fragment leaves every wired account with a line that succeeds and an ordering that stops
 applying, with no message on screen to say so. The library therefore records the fragment's
 **former name** and repoints it, the same shape the SELinux group registry uses for a renamed
-module ([confinement](confinement.rule.md)): the rpm `%post` and `install.sh` repoint each
-enrolled operator's two init files in the step that moved the file, and `operators add` repoints
-before it reads.
+module ([confinement](confinement.rule.md)): `install.sh` repoints each enrolled operator's two
+init files in the step that moved the file, and `operators add` repoints before it reads. The rpm
+`%post` **reads** those files and names each operator whose line still points at the former path,
+leaving the rewrite to that command: a transaction installs into the host's own directories and
+leaves a home to its owner.
 
 That is the one edit this project makes to an operator's shell init without asking,
 and what bounds it is that it is not a merge: it replaces one path token, inside a line this

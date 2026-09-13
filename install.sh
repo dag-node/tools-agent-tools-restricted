@@ -1349,8 +1349,9 @@ do_install() {
 
     # A host installed from a release that shipped that fragment under its former name carries a guard line
     # naming the path this step has just moved, which would leave the ordering unapplied on every enrolled
-    # operator's next shell. Repoint it here, in the step that moved the file; the rpm does the same from its
-    # %post. What the edit is bounded to is ai_tools_path_order_repoint's header.
+    # operator's next shell. Repoint it here, in the step that moved the file. The rpm reports those operators
+    # instead, a transaction leaving a home to its owner. What the edit is bounded to is
+    # ai_tools_path_order_repoint's header.
     local repointed
     while IFS= read -r repointed; do
         [[ -n "${repointed}" ]] && log "repointed the PATH ordering line in ${repointed}"
