@@ -1153,6 +1153,36 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Sun Sep 13 2026 dagnode <tools@dagnode.com> - 0.17.1-1
+- SECURITY: On a host that merges /usr/sbin into /usr/bin, a distribution-packaged agent in
+  /usr/bin resolved ahead of the sandbox wrapper, so typing the launcher started a session outside
+  the allowlist, the SELinux domain and the ownership handback. The PATH ordering fragment now
+  ranks /usr/local/bin and /usr/local/sbin first, the order EL itself ships, and ai-tools-run's
+  session PATH follows it.
+- SECURITY: A second agent answering to an enabled launcher's name -- an operator's own 'npm i -g',
+  or the vendor's distribution package at /usr/bin/claude -- is reported by the dnf transaction, by
+  'install.sh', by 'sudo ai-tools-admin system bootstrap' and by 'ai-tools --status', each naming
+  the binary found, the package owning it, and every enrolled operator whose login shell reaches it
+  instead of the wrapper. Which of the two agents the host keeps stays the operator's decision.
+- SECURITY: 'ai-tools --status' prints the wrapper's own path in its agent-version hint wherever
+  this shell would resolve a bare 'claude' to another binary, so an operator following the report
+  reaches the sandbox rather than starting a session outside it.
+- NEW: 'ai-tools --status' says which binary each launcher runs in your shell, and
+  'sudo ai-tools-admin operators add' says the same before it offers to wire the PATH ordering
+  line.
+- CHANGE: 'sudo ai-tools-admin system post-upgrade' keeps a '.rpmnew' after showing you the
+  difference and names it as yours to delete, where it had offered to remove it before you had
+  merged anything from it.
+- CHANGE: The PATH ordering fragment is now 'path-order.sh'. The upgrade repoints the line in each
+  enrolled operator's shell init and names any operator whose home it cannot read, whose line
+  'sudo ai-tools-admin operators add USER' rewrites.
+- CHANGE: The shipped ai-tools-technical-docs skill wraps Markdown at the column its reader takes
+  -- 80 for a page a person reads, 120 for the pages an agent retrieves -- and stops reporting
+  which word a line ends on.
+- FIX: An account whose home has no '~/.config', as a service account that never logs in has, is
+  enrolled with its 'allowed-projects' seeded, by 'operators add' and by 'install.sh' alike.
+  Enrolment had been able to report success over a launch gate with no allowlist behind it.
+
 * Sun Sep 13 2026 dagnode <tools@dagnode.com> - 0.17.0-1
 - CHANGE: The optional SELinux group 'netcore' is replaced by two stable groups named for the access
   each grants: 'localipc', sockets and pipes between the session's own processes, and 'buildexec',
