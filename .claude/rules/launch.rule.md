@@ -397,10 +397,12 @@ the fragment leaves every wired account with a line that succeeds and an orderin
 applying, with no message on screen to say so. The library therefore records the fragment's
 **former name** and repoints it, the same shape the SELinux group registry uses for a renamed
 module ([confinement](confinement.rule.md)): `install.sh` repoints each enrolled operator's two
-init files in the step that moved the file, and `operators add` repoints before it reads. The rpm
-`%post` **reads** those files and names each operator whose line still points at the former path,
-leaving the rewrite to that command: a transaction installs into the host's own directories and
-leaves a home to its owner.
+init files in the step that moved the file, the base package's `%post` does the same on an upgrade,
+and `operators add` repoints before it reads. The `%post` prints one line per file it
+rewrote, so a host with no such line stays silent, and then names each operator whose home it could
+not read or write, with the `operators add` command that rewrites the line behind its confirm. No answer is asked for on
+that path: the edit is the same bounded token replacement wherever it runs, so an upgrade completes
+it without the operator present.
 
 That is the one edit this project makes to an operator's shell init without asking,
 and what bounds it is that it is not a merge: it replaces one path token, inside a line this

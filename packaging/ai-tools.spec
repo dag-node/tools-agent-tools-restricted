@@ -608,6 +608,7 @@ _at_toolchain=1
 _at_operator=1
 _at_merge=0
 _at_path=""
+_at_repointed=""
 if [ -d /opt/ai-tools/.nvm ]; then
     _at_toolchain=0
 fi
@@ -621,16 +622,20 @@ fi
 if [ -f /etc/ai-tools/operator.conf.rpmnew ]; then
     _at_merge=1
 fi
-# A package installs into the host's own directories and leaves every home alone -- editing a
-# personal dotfile from a scriptlet is fragile across shells and users, and the packaging
-# guidelines rule it out -- so this READS and reports. An operator whose bash init still names the
-# PATH ordering fragment's former path has a line that sources a file this version moved, which
-# stops the ordering applying on their next shell; `ai-tools-admin operators add` rewrites it,
-# with the confirm that wired the line in the first place. The accurate reading (which binary that
-# account's shell runs) executes the account's own init, so it belongs to that command and to
-# `ai-tools --status` rather than to a transaction.
+# Repoint each enrolled operator's guard line where it still names the fragment's former path, then
+# name the operators whose init this scriptlet could not write. The bound on that edit, and what a
+# reading of their shell needs instead, are ai_tools_path_order_repoint's header.
 if command -v bash >/dev/null 2>&1; then
+    _at_repointed="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/path-order.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; ai_tools_load_operators; for op in "${AI_TOOLS_OPERATORS[@]}"; do ai_tools_path_order_repoint_user "${op}"; done' 2>/dev/null || :)"
+    # Read AFTER the repoint, so the report covers what this host still owes once the scriptlet has
+    # done what it can.
     _at_path="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/path-order.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; ai_tools_load_operators; ai_tools_path_order_stale_operators "${AI_TOOLS_OPERATORS[@]}"' 2>/dev/null || :)"
+fi
+if [ -n "${_at_repointed}" ]; then
+    echo "ai-tools-base: the PATH ordering line now sources /usr/local/lib/ai-tools/path-order.sh in:"
+    echo "${_at_repointed}" | while read -r _at_f; do
+        echo "  ${_at_f}"
+    done
 fi
 # What else this host carries. An agent of an enabled launcher's name installed outside
 # /usr/local/bin -- the agent's other distribution channel puts one in /bin -- runs UNCONFINED when
@@ -672,7 +677,7 @@ if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_pat
     fi
     if [ -n "${_at_path}" ]; then
         echo "${_at_path}" | while read -r _at_u; do
-            echo "  sudo ai-tools-admin operators add ${_at_u} # its PATH ordering line names the previous fragment"
+            echo "  sudo ai-tools-admin operators add ${_at_u} # its PATH ordering line still names the previous fragment"
         done
     fi
 fi

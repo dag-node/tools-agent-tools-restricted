@@ -11,7 +11,8 @@
 # for the launch decision, so the truth table is driven in tests/unit/path-order.sh against no account at all. The
 # callers: `ai-tools-admin operators add` (asks, then wires), `ai-tools --status` (re-checks, from the operator's own
 # shell), `ai-tools-admin system bootstrap` (names each operator whose shell reaches an agent elsewhere), and the base
-# package's %post (names an operator whose init still sources the fragment's former path).
+# package's %post (repoints an init file that still sources the fragment's former path, and names the operators it
+# could not write for).
 #
 # It reports where a name resolves and does not decide any access question, so a reading it cannot take yields
 # `unknown` and the caller asks or reports rather than refusing.
@@ -267,12 +268,12 @@ ai_tools_path_order_shadowed_operators() {
 }
 
 # ai_tools_path_order_stale_operators <user>...
-# Print each named account whose bash init still names the FORMER fragment. A READ, and the only
-# question about the PATH ordering an rpm scriptlet asks: a package installs into the host's own
-# directories and leaves a home alone, so the scriptlet reports and `ai-tools-admin operators add`
-# is what rewrites the line, with its confirm. It does not start a login shell either -- the
-# accurate reading executes the account's own init, which is a person's command to give rather
-# than a transaction's.
+# Print each named account whose bash init still names the FORMER fragment. A READ: the base
+# package's %post repoints first and calls this after, so what it prints is the accounts the
+# repoint could not write -- an unreadable home, a read-only mount -- for which
+# `ai-tools-admin operators add` rewrites the line with its confirm. It does not start a login
+# shell: the accurate reading executes the account's own init, which is a person's command to give
+# rather than a transaction's.
 ai_tools_path_order_stale_operators() {
     local user home f
     for user in "$@"; do
