@@ -3930,7 +3930,11 @@ cmd_status() {
         done < <(ai_tools_service_records)
     fi
     [[ -n "${node_ver}" ]] && say "  node ${node_ver} ${C_DIM}(as of the last toolchain update)${C_RST}"
-    say "  ${C_DIM}agent version: run 'claude --version'${C_RST}"
+    # Through ai_tools_cmd_display, so the command printed here is the one that reaches the sandbox:
+    # it renders the bare name only while this shell resolves it to the wrapper, and the absolute
+    # path otherwise. On a shadowed account the bare name resolves to the binary the PATH ordering
+    # section reports, so this line prints the wrapper's own path instead of sending them there.
+    say "  ${C_DIM}agent version: run '$(ai_tools_cmd_display /usr/local/bin/claude) --version'${C_RST}"
 
     section "Provisioning"
     # CLAUDE_LINK is bootstrap's last artifact (the gate require_bootstrap keys on), so its presence
