@@ -637,13 +637,9 @@ if [ -n "${_at_repointed}" ]; then
         echo "  ${_at_f}"
     done
 fi
-# What else this host carries. An agent of an enabled launcher's name installed outside
-# /usr/local/bin -- the agent's other distribution channel puts one in /bin -- runs UNCONFINED when
-# a shell resolves that name to it or when it is started by its path. Naming it is a directory read
-# and an rpm query, which is inside what a transaction may do; the per-operator reading is not (it
-# runs an account's own init), so that half stays with `ai-tools-admin system bootstrap` and
-# `ai-tools --status`. Nothing is removed here: which of the two agents a host keeps is the
-# operator's decision, and the ordering is what decides which one a name reaches.
+# Name an agent of an enabled launcher's name installed outside /usr/local/bin, which runs
+# unconfined when a shell resolves that name to it. Nothing is removed here: which agent a host
+# keeps is the operator's decision.
 _at_agents=""
 if command -v bash >/dev/null 2>&1; then
     _at_agents="$(bash -c '

@@ -959,24 +959,11 @@ print_banner() {
         "installer · $(ai_tools_msg_version "${AI_TOOLS_VERSION}")"
 }
 
-# probe_shadowing_agents -- read THIS host for an agent of an enabled launcher's name that a shell
-# can reach outside the wrapper, and say what each finding costs. Two findings, because they are
-# different states:
-#
-#   an agent installed elsewhere       the vendor package's /usr/bin/claude is the common one --
-#                                      reachable by absolute path and by any shell whose PATH
-#                                      reaches that directory first
-#   an enrolled operator it wins for   that account's login shell resolves the launcher to it, so
-#                                      typing the name starts an UNCONFINED session as them
-#
-# The install is the moment to say so: it is where the wrapper arrives, and a host that had the
-# vendor package first keeps a second agent the install does not remove. Both findings are
-# reported and neither fails the install -- keeping both agents is a supported host, and what
-# decides which one runs is the ordering the enrolment offers to wire.
-#
-# The reading is path-order.lib.sh's, taken per account from a login shell of that account
-# (`runuser`, root). A library that will not load leaves the probe silent, since a report is not
-# worth a broken install.
+# probe_shadowing_agents -- name the agents this host carries outside the sandbox, and the enrolled
+# operators whose shell reaches one. Two situations at two severities: an install found on the host
+# warns, and an operator it wins for is an error carrying the code `system bootstrap` defines.
+# Neither fails the install -- a host keeping both agents is supported, and what decides which one a
+# name reaches is the ordering.
 #
 # It reads first and reports second, so the findings arrive under one section at the end of the
 # install rather than spread through the step that happened to notice them -- and a host where it
@@ -1026,10 +1013,8 @@ probe_shadowing_agents() {
     (( ${#found[@]} + ${#shadowed[@]} )) || return 0
     section "Agents outside the sandbox"
 
-    # One severity per situation: a second agent of a launcher's name on this host is a WARNING
-    # whether or not an account reaches it today, since what stands between it and an unconfined
-    # session is an ordering any later change to a PATH can undo. Whether an operator reaches it
-    # now is the per-operator reading, a second situation, reported as an error.
+    # A second agent warns whether or not an account reaches it today: what stands between it and an
+    # unconfined session is an ordering any later change to a PATH can undo.
     local package remove_hint
     for record in "${found[@]}"; do
         IFS=$'\t' read -r launcher install_path install_alias <<<"${record}"
@@ -1048,9 +1033,8 @@ probe_shadowing_agents() {
         warn "  ${launcher} to it -- which is what the \$PATH ordering decides"
     done
 
-    # The reading that decides whether anything is owed: where each enrolled operator's own login
-    # shell resolves the launcher. Stated in both directions, so a host that is already right says
-    # so rather than leaving the operator to run `which` themselves.
+    # Where each enrolled operator's own login shell resolves the launcher, stated in both
+    # directions, so a host that is already right says so.
     local user winner shadow_line
     if (( ${#shadowed[@]} )); then
         for record in "${shadowed[@]}"; do
@@ -1458,9 +1442,7 @@ do_install() {
         /usr/local/lib/ai-tools/managed-assets.lib.sh
 
     # Host agent probe: 644 root:root -- world-readable, like every shared library. Read by this
-    # installer and by the ai-tools-base %post, which report the agents a host carries outside the
-    # sandbox. It reads directory entries every account can already list, and does not hold any
-    # host data.
+    # installer and by the ai-tools-base %post.
     log "/usr/local/lib/ai-tools/agent-installs.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/agent-installs.lib.sh" \

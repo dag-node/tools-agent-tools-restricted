@@ -217,18 +217,13 @@ seed_managed_assets_step() {
 }
 
 # report_shadowed_operators -- name each enrolled operator whose shell reaches an agent outside
-# /usr/local/bin, so a host is not called ready while typing the launcher name starts an
-# UNCONFINED session as that operator, holding their credentials and home (path-order.lib.sh).
+# /usr/local/bin, so a host is not called ready while typing the launcher name starts an UNCONFINED
+# session as that operator (path-order.lib.sh).
 #
-# It belongs to this command because of who runs it: an account's ordering can only be read from a
-# login shell of that account, which needs root, and this is the root step an administrator runs
-# when the toolchain appears. The operator's own `ai-tools --status` re-reads it afterwards, from
-# the shell that answers for itself.
-#
-# The libraries are control-plane, so a bootstrap that precedes install.sh has neither the
-# operator registry nor a wrapper to be shadowed, and reports nothing. It reads and does not
-# rewrite any init file: `ai-tools-admin operators add` is this project's one writer of that line,
-# behind its confirm.
+# It belongs to this command because the reading is taken from a login shell of that account, which
+# needs the root this command already holds; `ai-tools --status` re-reads it afterwards from the
+# operator's own shell. It reads those init files and does not rewrite any of them:
+# `ai-tools-admin operators add` is this project's one writer of that line.
 report_shadowed_operators() {
     local polib=/usr/local/lib/ai-tools/path-order.lib.sh
     local oplib=/usr/local/lib/ai-tools/operator.lib.sh
@@ -511,7 +506,7 @@ seed_managed_assets_step
 # step; skipped cleanly when the control plane is not yet in place.
 configure_git_identity
 
-# 6. Say which enrolled operators a `claude` typed in their shell would NOT reach the sandbox
+# 6. Say which enrolled operators a `claude` typed in their shell does not reach the sandbox
 #    through. Last, so the reading covers the wrapper and the agents this run has just installed.
 report_shadowed_operators
 
