@@ -951,6 +951,113 @@ print_banner() {
         "installer · $(ai_tools_msg_version "${AI_TOOLS_VERSION}")"
 }
 
+# probe_shadowing_agents -- read THIS host for an agent of an enabled launcher's name that a shell
+# can reach outside the wrapper, and say what each finding costs. Two findings, because they are
+# different states:
+#
+#   an agent installed elsewhere       the vendor package's /usr/bin/claude is the common one --
+#                                      reachable by absolute path and by any shell whose PATH
+#                                      reaches that directory first
+#   an enrolled operator it wins for   that account's login shell resolves the launcher to it, so
+#                                      typing the name starts an UNCONFINED session as them
+#
+# The install is the moment to say so: it is where the wrapper arrives, and a host that had the
+# vendor package first keeps a second agent the install does not remove. Both findings are
+# reported and neither fails the install -- keeping both agents is a supported host, and what
+# decides which one runs is the ordering the enrolment offers to wire.
+#
+# The reading is path-order.lib.sh's, taken per account from a login shell of that account
+# (`runuser`, root). A library that will not load leaves the probe silent, since a report is not
+# worth a broken install.
+#
+# It reads first and reports second, so the findings arrive under one section at the end of the
+# install rather than spread through the step that happened to notice them -- and a host where it
+# finds neither an agent nor a shadowed operator does not draw the heading.
+#
+# The directory search is this installer's own. `path-order.lib.sh` reads where an account's shell
+# resolves a launcher and `path-order.sh` orders a PATH; neither reads a system directory for an
+# installed binary. Which agents this host carries besides the sandbox's is asked once, here, in the
+# step that installs the wrapper.
+#
+# agent_installs_outside_sandbox <launcher> -- print one line per distinct executable of that name
+# in the system directories, as "<path>" and TAB-separated every other spelling of the SAME file.
+# /bin leads because that is where the agent's own distribution package installs it; on a usr-merged
+# host /bin and /usr/bin are one directory, and reporting that as two installs would name a file the
+# operator cannot remove twice. `-ef` compares the files, which is what tells the two hosts apart.
+agent_installs_outside_sandbox() {
+    local launcher="$1" dir candidate idx seen
+    local -a paths=() aliases=()
+    [[ "${launcher}" =~ ^[A-Za-z0-9._-]+$ ]] || return 0
+    for dir in /bin /usr/bin /usr/sbin /sbin /usr/local/sbin /opt/bin; do
+        candidate="${dir}/${launcher}"
+        [[ -x "${candidate}" && ! -d "${candidate}" ]] || continue
+        seen=""
+        for idx in "${!paths[@]}"; do
+            [[ "${candidate}" -ef "${paths[idx]}" ]] || continue
+            aliases[idx]="${aliases[idx]:+${aliases[idx]}, }${candidate}"
+            seen=1; break
+        done
+        [[ -n "${seen}" ]] && continue
+        paths+=( "${candidate}" ); aliases+=( "" )
+    done
+    for idx in "${!paths[@]}"; do
+        printf '%s\t%s\n' "${paths[idx]}" "${aliases[idx]}"
+    done
+}
+
+probe_shadowing_agents() {
+    local lib=/usr/local/lib/ai-tools/path-order.lib.sh
+    local oplib=/usr/local/lib/ai-tools/operator.lib.sh
+    local prlib=/usr/local/lib/ai-tools/providers.lib.sh
+    [[ -r "${lib}" && -r "${oplib}" ]] || return 0
+    # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/providers.lib.sh
+    source "${prlib}" 2>/dev/null || true
+    # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/path-order.lib.sh
+    source "${lib}" 2>/dev/null || return 0
+    # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/operator.lib.sh
+    source "${oplib}" 2>/dev/null || return 0
+    declare -F ai_tools_path_order_launchers >/dev/null 2>&1 || return 0
+
+    # Which launchers matter is the enabled agents' business (path-order.lib.sh reads the manifests);
+    # where their binaries may sit on this host is agent_installs_outside_sandbox's.
+    local launcher install_path install_alias
+    local -a found=()
+    while IFS= read -r launcher; do
+        [[ -n "${launcher}" ]] || continue
+        while IFS=$'\t' read -r install_path install_alias; do
+            [[ -n "${install_path}" ]] || continue
+            found+=( "${install_path}${install_alias:+ (the same file as ${install_alias})}" )
+        done < <(agent_installs_outside_sandbox "${launcher}")
+    done < <(ai_tools_path_order_launchers)
+
+    local -a shadowed=()
+    local record
+    if declare -F ai_tools_load_operators >/dev/null 2>&1 && ai_tools_load_operators; then
+        while IFS= read -r record; do
+            [[ -n "${record}" ]] && shadowed+=( "${record}" )
+        done < <(ai_tools_path_order_shadowed_operators \
+            "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}")
+    fi
+
+    (( ${#found[@]} + ${#shadowed[@]} )) || return 0
+    section "Agents outside the sandbox"
+    local path user winner shadow_line
+    for path in "${found[@]}"; do
+        warn MSG-F6D2 "an agent outside the sandbox is installed at ${path}"
+        warn "  it runs unconfined when a shell reaches it first, or when it is started by that path"
+        warn "  remove it, or keep the PATH ordering that ranks ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR} ahead of it"
+    done
+    for record in "${shadowed[@]}"; do
+        IFS=$'\t' read -r user launcher winner <<<"${record}"
+        # Composed first, so this site CITES the code ai-tools-bootstrap defines for the same
+        # situation rather than declaring a second message under it (see messaging.rule.md).
+        shadow_line="operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox"
+        warn MSG-K2D4 "${shadow_line}"
+        warn "  rank the wrapper ahead of it:  sudo ai-tools-admin operators add ${user}"
+        warn "  or remove that install:        ${winner}"
+    done
+}
+
 # ── install ────────────────────────────────────────────────────────────────────
 
 # Deploy every sandbox file with its intended owner and mode (root helpers, libs,
@@ -2117,6 +2224,11 @@ do_install() {
             log "test suite skipped -- run it any time with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
     fi
+
+    # Last, so a finding is the final thing on screen whether or not the suite ran: this host may
+    # carry an agent the install did not put there and does not remove, and the operator decides
+    # what to do about it. It draws its own section only when it has something to report.
+    probe_shadowing_agents
 
     logger -t ai-tools-install -p daemon.notice -- "install complete" 2>/dev/null || true
 }

@@ -49,6 +49,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q5r3 | [MSG-Q5R3](../install.sh) | SELinux is inactive -- the agent runs DAC-only (no ai_tools_t domain). DAC-only | install.sh |  | warn |
 | y4g6 | [MSG-Y4G6](../install.sh) | SELinux install did not complete -- bring it up later with: | install.sh |  | warn |
 | e7d7 | [MSG-E7D7](../install.sh) | relabel did not complete -- run: sudo ai-tools-admin system entrypoints relabel | install.sh |  | warn |
+| f6d2 | [MSG-F6D2](../install.sh) | an agent outside the sandbox is installed at ${path} | install.sh |  | warn |
 | r6y6 | [MSG-R6Y6](../install.sh) | sandbox account ${SANDBOX_USER} not found -- create it first (README step 2) | install.sh |  | die |
 | q7e7 | [MSG-Q7E7](../install.sh) | setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create | install.sh |  | warn |
 | n2w3 | [MSG-N2W3](../install.sh) | sudoers syntax check failed | install.sh |  | die |
@@ -287,7 +288,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | h3h3 | [MSG-H3H3](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | control plane present but ${msglib} missing -- reinstall ai-tools | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
 | d9d3 | [MSG-D9D3](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | control plane present but the managed-asset libs are missing -- reinstall ai-tools | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
 | h9s6 | [MSG-H9S6](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | control plane present but ${cplib} does not resolve the agents' config dirs | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
-| k2d4 | [MSG-K2D4](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | err |
+| k2d4 | [MSG-K2D4](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh | install.sh | err |
 | x7z2 | [MSG-X7Z2](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | run as root (sudo) | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
 | t7h8 | [MSG-T7H8](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | curl is required to fetch nvm | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
 | w8x8 | [MSG-W8X8](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH) | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |

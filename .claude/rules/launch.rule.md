@@ -372,6 +372,13 @@ stake named, and warns rather than passing in silence when a shadowed account de
 provisioned is in place — a reading of another account needs the root that command already holds,
 and a host is told it is ready there). The base package's `%post` reads the **init files** rather
 than this state, naming an operator whose guard line still points at the fragment's former path.
+
+`install.sh` closes with the same per-operator report and one reading none of the others makes:
+an agent of a launcher's name installed in a system directory (`/bin` first, where an agent's own
+distribution package puts it). That binary is on the host whatever an account's PATH does with it —
+it runs unconfined when a shell reaches it first or when it is started by its path — and the
+install is where the wrapper arrives beside it. Both findings are reported and neither fails the
+install: a host carrying both agents is supported, and what decides which one runs is the ordering.
 See
 [cli](cli.rule.md) for the report and [providers](providers.rule.md) for what a launcher name is.
 
