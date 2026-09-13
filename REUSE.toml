@@ -32,6 +32,20 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
 SPDX-License-Identifier = "GPL-2.0-or-later"
 
+# assets/ holds generated images rather than authored work -- OpenAI's GPT-5.6 produced the README
+# banner and Fable 5.1 optimized it -- so no human authorship stands behind the file, and the
+# copyright the catch-all above would assert over it is doubtful in US and EU law alike. CC0 is
+# correct either way: a public-domain dedication where no rights subsist, and a permissive grant
+# through its Public License Fallback where some do. The maintainer is named as the affirmer because
+# OpenAI's terms assign him "all right, title and interest, if any" in the output, which is what a
+# dedication waives. Nothing under assets/ ships: the tarball's CONTENT list and the spec both leave
+# it out, so this covers the repository alone.
+[[annotations]]
+path = "assets/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
+SPDX-License-Identifier = "CC0-1.0"
+
 # The root LICENSE is the AGPL text itself, kept at the top level for GitHub's licence detection;
 # LICENSES/ holds the REUSE-standard copies. The text is the FSF's, not the maintainer's.
 [[annotations]]
