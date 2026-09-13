@@ -541,7 +541,8 @@ function and the helper is **sourced** rather than run (its root check and its d
 guarded for exactly that), so one function is driven with no host to administer and no state
 written anywhere; each case runs in its own `bash`, because the helper and the harness both
 declare `SANDBOX_USER` readonly. Its second section covers the enrolment's other edit — the guard
-line that sources the PATH dedup, which is what ranks the wrapper ahead of the nvm shims — by
+line that sources the PATH ordering fragment, which is what ranks the wrapper ahead of the nvm
+shims — by
 driving
 `wire_init_file` against fixture files in the testdir. Two of the three assertions are about a file
 the command **creates**: `~/.bash_profile` is what bash reads at login, so the fixture home is run
@@ -561,6 +562,25 @@ the suite until the per-file timeout killed it; the one case that must answer fr
 runs under `setsid`, which is the unattended enrolment and the reason the default is yes. The two
 refusals complete the set: a declined prompt and a `~/.config` that is a file each report their
 code and return non-zero, which is what makes `op_add` refuse.
+
+`path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
+[launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools --status` re-checks
+with, and the base package's `%post` reports from. What gives it teeth is the direction each
+answer sends an operator: a launcher resolving outside `/usr/local/bin` means typing its name
+starts an **unconfined** agent, so a verdict reading that state as fine would turn the one
+question standing between an operator and an unsandboxed session into a formality, while one
+crying shadow on an unreadable probe would teach them to ignore it. The truth table is therefore
+driven whole, in both directions, and so are the two inputs that reach a shell or a terminal —
+the launcher name interpolated into a command run as another account, and the path that command
+prints back. The repoint a rename owes a deployed host is the other half: it is the one edit this
+project makes to an operator's shell init without asking, so what is asserted is the bound on it —
+one path token, inside a line this project wrote, with the rest of the file byte-identical, a file
+naming neither path untouched, the mode preserved, no sidecar written, and a second pass a
+no-op. The decision is pure and the probing separate (the split `confinement.sh` drives),
+so the file drives the table with no account to probe and **without root**; the two impure readers
+are driven with their dependencies stubbed as shell functions, which is also how the publishing
+contract is asserted from a real caller under `set -u`. The scriptlet's stream is pinned
+with them, since a tag it could not read would print a repoint as a step the host still owes.
 
 `services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools --status` and
 the launch wrapper's pre-launch warning share. Two properties carry weight beyond the accessors.

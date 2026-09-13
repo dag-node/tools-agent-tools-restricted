@@ -180,9 +180,9 @@ project authors, and the product's own term only when describing where that prod
 
 ## Generic / fixed terms that are NOT these identities
 
-### Generic host user (`src/usr/local/lib/ai-tools/path-dedup.sh`)
+### Generic host user (`src/usr/local/lib/ai-tools/path-order.sh`)
 "user", "user-tier", "user-writable", and the `~`-relative tiers refer to
-**any** account wired to source the PATH dedup fragment — not the IDE user
+**any** account wired to source the PATH ordering fragment — not the IDE user
 and not the sandbox user. Left as generic "user"; the tiers resolve against
 the sourcing shell's own `$HOME`.
 

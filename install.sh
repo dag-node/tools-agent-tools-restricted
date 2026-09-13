@@ -897,7 +897,8 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/managed-assets.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
-    _chk /usr/local/lib/ai-tools/path-dedup.sh
+    _chk /usr/local/lib/ai-tools/path-order.lib.sh
+    _chk /usr/local/lib/ai-tools/path-order.sh
     _chk /etc/sudoers.d/ai-tools
     _chk /etc/ai-tools/operator.conf
     _chk /etc/ai-tools/prompts/claude-system-prompt.md
@@ -1330,13 +1331,41 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/managed-assets.lib.sh" \
         /usr/local/lib/ai-tools/managed-assets.lib.sh
 
-    # PATH dedup shell fragment: 644 root:root -- world-readable. Sourced by operator
-    # login shells via the dotfile lines ai-tools-admin wires (never installed into
-    # /etc/profile.d, so unwired accounts keep their stock PATH). No secrets, no tokens.
-    log "/usr/local/lib/ai-tools/path-dedup.sh"
+    # PATH ordering reader: 644 root:root -- world-readable, like every shared library. Read by ai-tools-admin
+    # (which asks about the guard line and writes it), by `ai-tools --status` as the operator, and by the base
+    # package's %post. No secrets, no tokens.
+    log "/usr/local/lib/ai-tools/path-order.lib.sh"
     install -o root -g root -m 644 \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/path-dedup.sh" \
-        /usr/local/lib/ai-tools/path-dedup.sh
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/path-order.lib.sh" \
+        /usr/local/lib/ai-tools/path-order.lib.sh
+
+    # PATH ordering shell fragment: 644 root:root -- world-readable. Sourced by operator login shells
+    # via the dotfile lines ai-tools-admin wires (never installed into /etc/profile.d, so unwired accounts keep
+    # their stock PATH). No secrets, no tokens.
+    log "/usr/local/lib/ai-tools/path-order.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/path-order.sh" \
+        /usr/local/lib/ai-tools/path-order.sh
+
+    # A host installed from a release that shipped that fragment under its former name carries a guard line
+    # naming the path this step has just moved, which would leave the ordering unapplied on every enrolled
+    # operator's next shell. Repoint it here, in the step that moved the file; the rpm does the same from its
+    # %post. What the edit is bounded to is ai_tools_path_order_repoint's header.
+    local repointed
+    while IFS= read -r repointed; do
+        [[ -n "${repointed}" ]] && log "repointed the PATH ordering line in ${repointed}"
+    done < <(
+        # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/conf.lib.sh
+        . /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null || exit 0
+        # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/path-order.lib.sh
+        . /usr/local/lib/ai-tools/path-order.lib.sh 2>/dev/null || exit 0
+        # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/operator.lib.sh
+        . /usr/local/lib/ai-tools/operator.lib.sh 2>/dev/null || exit 0
+        ai_tools_load_operators 2>/dev/null || exit 0
+        for op in "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}"; do
+            ai_tools_path_order_repoint_user "${op}"
+        done
+    )
 
     # Project-label library: 644 root:root -- read by root principals (the ai-tools-relabel
     # helper and selinux/install-selinux.sh's sweep). It carries SELinux labelling primitives
@@ -1540,10 +1569,9 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man7/ai-tools-messages.7" \
         /usr/local/share/man/man7/ai-tools-messages.7
 
-    # Launch wrapper. Ships system-wide root:root 0755 -- rpm-owned, on every operator's PATH
-    # (path-dedup.sh, wired into operator dotfiles by ai-tools-admin, ranks /usr/local/bin
-    # ahead of the nvm shims, so it shadows nvm's claude). It
-    # runs as the invoking operator, gates on ai-ops membership, and drops to ai-tools via sudo.
+    # Launch wrapper. Ships system-wide root:root 0755 -- rpm-owned, on every operator's PATH (path-order.sh, wired
+    # into operator dotfiles by ai-tools-admin, ranks /usr/local/bin ahead of the nvm shims, so it shadows nvm's
+    # claude). It runs as the invoking operator, gates on ai-ops membership, and drops to ai-tools via sudo.
     log "/usr/local/bin/claude"
     install_subst 755 root root \
         "${SCRIPT_DIR}/src/usr/local/bin/claude.sh" \

@@ -14,6 +14,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | Id | Reftag | Name | File | Cited by | Emitter |
 |---|---|---|---|---|---|
 | w4z6 | [ref-section-w4z6](rules/confinement.rule.md#ref-section-w4z6) | The toolchain is read-only to the confined domain | .claude/rules/confinement.rule.md | .claude/rules/agent-claude-code.rule.md, .claude/rules/launch.rule.md |  |
+| p3k8 | [ref-section-p3k8](rules/launch.rule.md#ref-section-p3k8) | The ordering is read, not assumed | .claude/rules/launch.rule.md | .claude/rules/cli.rule.md |  |
 | f6z3 | MSG-F6Z3 | example | .claude/rules/messaging.rule.md |  |  |
 | e7n8 | [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8) | Security model — what `SANDBOX_USER` can and cannot do | CLAUDE.md | docs/project-lifecycle.md |  |
 | g6c4 | [ref-section-g6c4](../CLAUDE.md#ref-section-g6c4) | What is expected of the agent where a control leaves a choice | CLAUDE.md | README.md |  |
@@ -193,6 +194,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | h5n2 | [MSG-H5N2](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | cannot label ${cfg}: ${RELABEL_LIB} did not load -- reinstall ai-tools-base | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
 | g2c6 | [MSG-G2C6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | proceeding without the relabel lock: ${AI_TOOLS_RELABEL_LOCK_NOTE} | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
 | n3t7 | [MSG-N3T7](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | could not label ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}${AI_TOOLS_FCONTEXT_ERROR:+ -- ${AI_TOOLS_FCONTEXT_ERROR}} | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
+| w7j6 | [MSG-W7J6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | typing ${launcher} in ${user}'s shell runs ${winner}, not ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher} -- that agent runs unconfined, as ${user} | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
+| m2n9 | [MSG-M2N9](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | the PATH ordering line is already in ${user}'s shell init, and typing ${launcher} still runs ${winner} | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
 | h2p9 | [MSG-H2P9](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | operators add: name a user, or run it through sudo so SUDO_USER is set | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | reject |
 | c9c4 | [MSG-C9C4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | an operator must not be the sandbox account ${SANDBOX_USER} | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | die |
 | h3m6 | [MSG-H3M6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | an operator must be a normal login user, not root | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | die |

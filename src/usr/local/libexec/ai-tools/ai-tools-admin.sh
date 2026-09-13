@@ -26,16 +26,14 @@
 # a singular domain (`selinux`, `system`) where one is needed. `--` introduces an option and
 # never a command, which here is `--help`/`-h` and `--version`.
 #
-# An operator is a login user (a human or a rootless service account) that drives the sandbox
-# through the shared ai-tools account. `add` is accumulating and idempotent: it seeds the user's
-# config in `~/.config/ai-tools` (asking before it creates a missing `.config`), appends the name
-# to OPERATORS in /etc/ai-tools/operator.conf, adds the user to the ai-ops group (the sudoers grant
-# and the launch wrapper gate on membership), ensures the sandbox account's linger, and offers to
-# wire the PATH dedup. The seed comes first so that an account enrolled here holds the
-# `allowed-projects` every later command resolves it through; a first enrolment that cannot write
-# one is refused with the host unchanged. `remove` reverses the host-side
-# membership (drops the name from OPERATORS and ai-ops), leaving the user's own allowlist and config.
-# `list` prints the current operators.
+# An operator is a login user (a human or a rootless service account) that drives the sandbox through the shared
+# ai-tools account. `add` is accumulating and idempotent: it seeds the user's config in `~/.config/ai-tools`
+# (asking before it creates a missing `.config`), appends the name to OPERATORS in /etc/ai-tools/operator.conf,
+# adds the user to the ai-ops group (the sudoers grant and the launch wrapper gate on membership), ensures
+# the sandbox account's linger, and offers to wire the PATH ordering line. The seed comes first so that an account
+# enrolled here holds the `allowed-projects` every later command resolves it through; a first enrolment that cannot
+# write one is refused with the host unchanged. `remove` reverses the host-side membership (drops the name
+# from OPERATORS and ai-ops), leaving the user's own allowlist and config. `list` prints the current operators.
 #
 # `selinux groups` toggles the optional policy groups, all off by default. It loads the COMPILED
 # ai_tools_<group>.pp that ai-tools-selinux (or a checkout's
@@ -105,6 +103,7 @@ readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
+readonly PATH_ORDER_LIB="/usr/local/lib/ai-tools/path-order.lib.sh"
 # Where a provider package drops the command fragment carrying its own domain. The environment
 # override is a test hook of the same standing as AI_TOOLS_POSTUPGRADE_ROOT: sudo strips the name,
 # so tests/unit/admin-commands.sh drives the dispatch against a fixture tree. `--help` lists
@@ -519,6 +518,13 @@ contributed_dispatch() {
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
 source "${PROVIDERS_LIB}" 2>/dev/null || true
 
+# Where an operator's shell finds an agent launcher, and the guard line that settles it. Required, like
+# the operator lib: enrolment asks about that line and then writes it, so a missing library is a broken install
+# rather than a question this tool can ask a different way. It reads the enabled agents through providers.lib.sh,
+# so a host that could not load that resolver gets the `unknown` verdict and is asked with the stake unnamed.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/path-order.lib.sh
+. "${PATH_ORDER_LIB}" || die_unsourced "${PATH_ORDER_LIB}"
+
 # Executed, this administers a host and needs root. Sourced -- by tests/unit/admin-operator-add.sh,
 # which drives one function with sudo stubbed -- it does not assert anything about the host and only
 # defines, stopping at the matching guard that precedes the dispatch. Everything between the two is
@@ -706,10 +712,6 @@ label_operator_config() {
     return 0
 }
 
-# The line an operator's bash init carries: sources the PATH dedup when it is installed, and
-# leaves the shell's own PATH standing when it is not.
-readonly DEDUP_GUARD='[[ -f /usr/local/lib/ai-tools/path-dedup.sh ]] && source /usr/local/lib/ai-tools/path-dedup.sh || true'
-
 # wire_init_file <file> <user> <group> [login-chain] : add the guard line to one bash init file,
 # creating it owned by the account when it is absent. Idempotent -- a file already naming the
 # fragment is left as it is. `login-chain` seeds a created file with the `. ~/.bashrc` block EL's
@@ -725,49 +727,140 @@ wire_init_file() {
             "# Created by ai-tools-admin: read this account's .bashrc at login." \
             'if [ -f ~/.bashrc ]; then' '    . ~/.bashrc' 'fi' >> "${f}"
     fi
-    if grep -qF '/usr/local/lib/ai-tools/path-dedup.sh' "${f}"; then
-        log "PATH dedup already present in ${f}"; return 0
+    if [[ "$(ai_tools_path_order_guard_present "${f}")" == yes ]]; then
+        log "PATH ordering already wired in ${f}"; return 0
     fi
     grep -qF 'NVM_DIR' "${f}" \
-        || log "note: NVM_DIR not found in ${f} -- path-dedup still works, but it is meant to follow your nvm init"
-    printf '\n# Added by ai-tools-admin: source the ai-tools PATH dedup (must follow nvm init).\n%s\n' \
-        "${DEDUP_GUARD}" >> "${f}"
-    log "wired PATH dedup into ${f}"
+        || log "note: NVM_DIR not found in ${f} -- the line still works, but it is meant to follow your nvm init"
+    printf '\n# Added by ai-tools-admin: rank /usr/local/bin (the ai-tools wrappers) first on PATH.\n# Keep this AFTER anything that prepends to PATH, the nvm init included.\n%s\n' \
+        "${AI_TOOLS_PATH_ORDER_GUARD}" >> "${f}"
+    log "wired PATH ordering into ${f}"
 }
 
-# wire_dedup <user>: offer (interactively) to source the ai-tools PATH dedup from the operator's
-# ~/.bashrc and ~/.bash_profile after their nvm init, so /usr/local/bin (the claude wrapper) wins
-# over the nvm shim in the operator's bash shells. This wiring is the dedup's only delivery: the
-# file lives in the ai-tools lib dir, not /etc/profile.d, so unwired accounts keep their stock
-# PATH. Those two files are what bash reads, so an account that logs in through another shell is
-# told where its own ordering stands. Edits the operator's home, so it asks first and never
-# rewrites non-interactively; a piped run prints the line to add.
+# path_order_explain <user> <state> <launcher> <winner>
+# The framed block that precedes the question, written for the state the account is in. Its whole job is to put
+# the stake in front of the decision: what the answer settles is whether typing an agent's name reaches the sandbox
+# at all, so the block names the binary that wins today and what running it would mean. A question that reads
+# as shell-config housekeeping collects a no from the operator it protects. The renderer is
+# ai_tools_msg_block, so the paths inside it stay copy-pasteable.
+path_order_explain() {
+    local user="$1" state="$2" launcher="$3" winner="$4"
+    case "${state}" in
+    shadowed)
+        ai_tools_msg_block "PATH ordering: /usr/local/bin has to win" \
+            "Typing ${launcher} in ${user}'s shell starts:" \
+            "" \
+            "    ${winner}" \
+            "" \
+            "That is an UNCONFINED agent: it runs as ${user}, with ${user}'s credentials and home, outside the project allowlist, the SELinux confinement and the ownership handback. The sandbox is reached only through the wrapper in ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}, so that directory has to come first on the PATH." \
+            "" \
+            "ai-tools ships one line that deduplicates the PATH and ranks the root-owned directories ahead of the nvm shims. It is appended after the nvm init, changes nothing else about the shell, and is undone by deleting it." ;;
+    clear)
+        ai_tools_msg_block "PATH ordering" \
+            "Typing ${launcher} in ${user}'s shell reaches ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher} -- the sandbox wrapper -- so the ordering is right as it stands." \
+            "" \
+            "The line below is what keeps it right. Without it, an agent installed under ${user}'s own nvm, an nvm init, or anything else that prepends to PATH puts an unconfined agent ahead of the wrapper, and nothing says so: the agent simply starts outside the sandbox." ;;
+    *)
+        ai_tools_msg_block "PATH ordering" \
+            "This host cannot read where ${user}'s shell finds an agent launcher, so it cannot say whether typing one reaches the sandbox wrapper in ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR} or an agent installed somewhere else on that PATH -- which would run unconfined, as ${user}." \
+            "" \
+            "The line below settles it either way: it deduplicates the PATH and ranks the root-owned directories first." ;;
+    esac
+}
+
+# path_order_decline <user> <state> <launcher> <winner> <bashrc> <bashprof>
+# What is said when the line is not written -- declined, or a run with no terminal. On a SHADOWED account this is
+# the last place the consequence can be stated, so it is a warning naming the binary that wins rather than a line
+# reporting the step as skipped; on an account that already reaches the wrapper it is a note, since that account's
+# sessions are sandboxed today. Either way it prints the line, to be added by hand.
+path_order_decline() {
+    local user="$1" state="$2" launcher="$3" winner="$4" bashrc="$5" bashprof="$6"
+    if [[ "${state}" == shadowed ]]; then
+        warn MSG-W7J6 "typing ${launcher} in ${user}'s shell runs ${winner}, not ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher} -- that agent runs unconfined, as ${user}"
+        warn "    add this line after the nvm init in ${bashrc} and ${bashprof}, or re-run: sudo ai-tools-admin operators add ${user}"
+        warn "    ${AI_TOOLS_PATH_ORDER_GUARD}"
+        return 0
+    fi
+    log "PATH ordering not wired; add this line after the nvm init in ${bashrc} and ${bashprof}:"
+    log "  ${AI_TOOLS_PATH_ORDER_GUARD}"
+}
+
+# wire_dedup <user>
+# Settle where ${user}'s shell finds an agent launcher. It reads the account's ordering first (path-order.lib.sh),
+# states what that reading means, and only then offers to source the PATH fragment from ~/.bashrc
+# and ~/.bash_profile after their nvm init. That order carries the meaning: the question decides whether typing
+# an agent's name reaches the sandbox wrapper or an agent of the same name elsewhere on the PATH, which runs
+# unconfined as the operator -- so it is asked with the account's own state named, and declining it on a shadowed
+# account warns instead of passing in silence.
+#
+# This wiring is the fragment's only delivery: it lives in the ai-tools lib dir rather than /etc/profile.d,
+# so an unwired account keeps its stock PATH. The two files it names are what bash reads; an account that logs
+# in through another shell is told where its own ordering stands. It edits the operator's home, so it asks first
+# and never rewrites one in a run with no terminal, the `[[ -t 0 && -e /dev/tty ]]` branch deciding which.
+# ai_tools_path_order_repoint is the one exception, and it
+# follows a file this package moved rather than making a choice of its own.
 wire_dedup() {
     local user="$1" home group login_shell bashrc bashprof
+    local state launcher winner pair
     home="$(getent passwd "${user}" | cut -d: -f6)"
     login_shell="$(getent passwd "${user}" | cut -d: -f7)"
     group="$(id -gn "${user}")"
     [[ -n "${home}" && -d "${home}" ]] || return 0
     bashrc="${home}/.bashrc"; bashprof="${home}/.bash_profile"
+
+    # A host upgraded from a release that shipped the fragment under its former name carries a guard line naming
+    # a file this package moved, and that line succeeds without applying the ordering. Repoint before reading,
+    # so the state this command reports and asks about is the repaired one.
+    local repointed
+    while IFS= read -r repointed; do
+        [[ -n "${repointed}" ]] && log "repointed the PATH ordering line in ${repointed} to ${AI_TOOLS_PATH_ORDER_FRAGMENT}"
+    done < <(ai_tools_path_order_repoint_user "${user}")
+
+    ai_tools_path_order_read_user "${user}" || true
+    state="${AI_TOOLS_PATH_ORDER_STATE:-unknown}"
+    winner="${AI_TOOLS_PATH_ORDER_SHADOW:-}"
+    # The launcher a message names is the shadowed one where there is one, and otherwise the first this host
+    # enables -- so the message is about a command the operator types.
+    launcher=""
+    for pair in "${AI_TOOLS_PATH_ORDER_WINNERS[@]+"${AI_TOOLS_PATH_ORDER_WINNERS[@]}"}"; do
+        [[ -z "${launcher}" ]] && launcher="${pair%%=*}"
+        [[ -n "${winner}" && "${pair#*=}" == "${winner}" ]] && { launcher="${pair%%=*}"; break; }
+    done
+    launcher="${launcher:-the agent}"
+
     # The two files it names govern bash. Another login shell reads its own, so the operator hears
     # which ordering their sessions actually get, at the moment the wiring is offered.
     case "${login_shell}" in
         */bash|'') ;;
         *) log "note: ${user}'s login shell is ${login_shell}, which reads its own init files rather than ${bashrc} or ${bashprof}."
-           log "      rank /usr/local/bin ahead of the nvm shims there too, so that typing claude reaches the ai-tools wrapper in that shell" ;;
+           log "      rank ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR} ahead of the nvm shims there too, so that typing ${launcher} reaches the ai-tools wrapper in that shell" ;;
     esac
+
+    # Already wired and still shadowed: appending the line again edits the file and leaves the ordering as it was,
+    # because what stands between this account and the wrapper is a later line that prepends to PATH. Report
+    # that diagnosis instead of asking a question whose yes does not change the ordering.
+    if [[ "${state}" == shadowed && "${AI_TOOLS_PATH_ORDER_WIRED:-no}" == yes ]]; then
+        warn MSG-M2N9 "the PATH ordering line is already in ${user}'s shell init, and typing ${launcher} still runs ${winner}"
+        warn "    something after that line prepends to PATH -- move it to the END of ${bashrc}, after the nvm init and anything else that touches PATH"
+        return 0
+    fi
+    if [[ "${state}" == wired ]]; then
+        log "PATH ordering: ${bashrc} already sources ${AI_TOOLS_PATH_ORDER_FRAGMENT}, and ${launcher} reaches the wrapper"
+        return 0
+    fi
+
+    path_order_explain "${user}" "${state}" "${launcher}" "${winner}"
     if [[ -t 0 && -e /dev/tty ]]; then
         if ai_tools_msg_confirm \
-            "Wire the ai-tools PATH dedup into ${bashrc} and ${bashprof}?" y; then
+            "Add the PATH ordering line to ${bashrc} and ${bashprof}?" y; then
             wire_init_file "${bashrc}"   "${user}" "${group}"
             wire_init_file "${bashprof}" "${user}" "${group}" login-chain
         else
-            log "skipped PATH dedup; add this line after your nvm init in ${bashrc} and ${bashprof}:"
-            log "  ${DEDUP_GUARD}"
+            path_order_decline "${user}" "${state}" "${launcher}" "${winner}" "${bashrc}" "${bashprof}"
         fi
     else
-        log "non-interactive: not editing shell init. Add this line after your nvm init in ${bashrc} and ${bashprof}:"
-        log "  ${DEDUP_GUARD}"
+        log "non-interactive: not editing shell init"
+        path_order_decline "${user}" "${state}" "${launcher}" "${winner}" "${bashrc}" "${bashprof}"
     fi
 }
 

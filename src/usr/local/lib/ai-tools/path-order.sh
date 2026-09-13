@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # shellcheck shell=bash
-# /usr/local/lib/ai-tools/path-dedup.sh — deduplicates an operator shell's
+# /usr/local/lib/ai-tools/path-order.sh — deduplicates an operator shell's
 # PATH and reorders it so root-owned directories win, placing each agent's
 # wrapper in /usr/local/bin ahead of the nvm-managed launcher of the same
 # name.
@@ -11,8 +11,9 @@
 # shell, and why the fragment is per-account rather than in /etc/profile.d,
 # are in launch.rule.md.
 #
-# PATH is first-match-wins, so the tier order runs least-writable first and
-# a user- or package-writable entry cannot shadow a system binary:
+# PATH is first-match-wins, so the tier order runs least-writable first,
+# which keeps a user- or package-writable entry from shadowing a system
+# binary:
 #
 #   Tier 1  /usr/local/sbin /usr/sbin /usr/local/bin /usr/bin   root-owned
 #           /usr/lib64/dotnet                                   DNF-managed
@@ -23,8 +24,8 @@
 #
 # A tier joins the list only when its directory exists, and the next shell
 # ranks in one created since. Inherited entries pass through whether they
-# exist or not: they belong to whatever added them (EL skel adds ~/bin and
-# ~/.local/bin unconditionally). Re-sourcing yields the same PATH.
+# exist or not: they belong to whatever added them (EL skel adds ~/bin
+# and ~/.local/bin unconditionally). Re-sourcing yields the same PATH.
 #
 # Debugging: PATH_DEDUP_WARN=1 reports missing final-PATH entries to stderr,
 # once per shell (surfaces stale entries, e.g. a removed node version).

@@ -139,7 +139,7 @@ whitespace or control byte that could split the line or reach the operator's ter
 ## The wrapper (`claude.sh`)
 
 `/usr/local/bin/claude`, `root:root 0755`, rpm-owned, running as the invoking operator.
-`path-dedup.sh` ranks `/usr/local/bin` (Tier 1) ahead of the nvm shims in operator dotfiles, so this
+`path-order.sh` ranks `/usr/local/bin` (Tier 1) ahead of the nvm shims in operator dotfiles, so this
 shadows any nvm-managed `claude` on an operator's PATH ([launch](launch.rule.md)).
 
 It gates in this order, each step refusing before the next can matter:
@@ -317,7 +317,7 @@ trade one risk for another, and the trades sit on opposite sides of this project
   operator's PATH. Running `/usr/bin/claude` starts an **unconfined session as the operator**, with
   their own credentials and home and none of this machinery — the outcome the project exists to
   prevent, reachable today only by operator error. `/usr/local/bin` precedes `/usr/bin` in the
-  default PATH and `path-dedup.sh` ranks it Tier 1, so the wrapper wins; but `sudo`'s `secure_path`
+  default PATH and `path-order.sh` ranks it Tier 1, so the wrapper wins; but `sudo`'s `secure_path`
   commonly omits `/usr/local/bin`, and an IDE plugin resolving an absolute path does too.
 
 So the native hazard cannot be *prevented* (rpm owns that path), only *detected*, while the npm

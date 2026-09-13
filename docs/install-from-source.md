@@ -19,25 +19,28 @@ export SANDBOX_GROUP=ai-tools
 Each critical step also re-states the sandbox name inline, so a step pasted on its own
 still works.
 
-## 1. Install PATH dedup fragment (root, once)
+## 1. Install the PATH ordering fragment (root, once)
 
 ```bash
 sudo install -d -o root -g root -m 751 /usr/local/lib/ai-tools
 sudo install -o root -g root -m 644 \
-    src/usr/local/lib/ai-tools/path-dedup.sh /usr/local/lib/ai-tools/path-dedup.sh
+    src/usr/local/lib/ai-tools/path-order.sh /usr/local/lib/ai-tools/path-order.sh
 ```
 
 (The lib directory's group becomes `ai-tools` once the account exists —
 `install.sh` and the RPM re-assert `root:ai-tools 0751`.)
 
-path-dedup deduplicates the shell's existing `$PATH` and orders it
+`path-order.sh` deduplicates the shell's existing `$PATH` and orders it
 root-owned-first, so `/usr/local/bin/claude` — the wrapper that launches
 claude restricted — always resolves ahead of the nvm-managed `claude`. It is
 sourced per-account: only the operator shells wired for it get the ordering,
 and every other account on the host keeps its stock PATH.
 
-`sudo ai-tools-admin operators add <user>` offers to wire the source line into your
-`~/.bashrc` and `~/.bash_profile`. To wire it by hand, add it to **both** files
+`sudo ai-tools-admin operators add <user>` reads which `claude` a shell of that
+account runs today — the wrapper, or an agent elsewhere on its PATH, which
+starts unconfined — and offers to wire the source line into your `~/.bashrc` and
+`~/.bash_profile`. `ai-tools --status` reports the same reading for the shell
+you run it from. To wire it by hand, add it to **both** files
 (non-login interactive shells read only `~/.bashrc`, login shells `~/.bash_profile`),
 after your nvm init:
 
@@ -47,8 +50,8 @@ export NVM_DIR="${HOME}/.nvm"
 ```
 
 ```bash
-# ai-tools PATH dedup (must follow nvm init)
-[[ -f /usr/local/lib/ai-tools/path-dedup.sh ]] && source /usr/local/lib/ai-tools/path-dedup.sh
+# ai-tools PATH ordering (must follow nvm init)
+[[ -f /usr/local/lib/ai-tools/path-order.sh ]] && source /usr/local/lib/ai-tools/path-order.sh
 ```
 
 Those two files are bash's, and `operators add` names your login shell when it
@@ -56,9 +59,9 @@ reads something else. The fragment sources cleanly under zsh, so the same line
 goes in `~/.zshrc` and `~/.zprofile`; a shell that does not read bash (fish) takes
 the same tier ordering in its own syntax.
 
-nvm must be sourced **before** path-dedup: nvm prepends its versioned bin dir
-to `$PATH`, and path-dedup then restructures it into Tier 4, behind the T1
-system bins (which include the wrapper) and T2 `~/.local/bin`. `path-dedup.sh`
+nvm must be sourced **before** the fragment: nvm prepends its versioned bin dir
+to `$PATH`, and the fragment then restructures it into Tier 4, behind the T1
+system bins (which include the wrapper) and T2 `~/.local/bin`. `path-order.sh`
 is idempotent — sourcing it again in the same shell produces the same PATH.
 
 ## 2. Create the `SANDBOX_USER` OS account at `/opt` (root, once)
@@ -225,7 +228,8 @@ owner/group/mode list is `tests/integration/perms.sh`, which
 
 | File | Deploy path |
 |---|---|
-| `src/usr/local/lib/ai-tools/path-dedup.sh` | `/usr/local/lib/ai-tools/path-dedup.sh` (root) |
+| `src/usr/local/lib/ai-tools/path-order.sh` | `/usr/local/lib/ai-tools/path-order.sh` (root) |
+| `src/usr/local/lib/ai-tools/path-order.lib.sh` | `/usr/local/lib/ai-tools/path-order.lib.sh` (root) |
 | `src/opt/ai-tools/bin/nvm-update.sh` | `/opt/ai-tools/bin/nvm-update.sh` |
 | `src/usr/local/libexec/ai-tools/ai-tools-chown.sh` | `/usr/local/libexec/ai-tools/ai-tools-chown` (root) |
 | `src/usr/local/libexec/ai-tools/ai-tools-setgid.sh` | `/usr/local/libexec/ai-tools/ai-tools-setgid` (root) |

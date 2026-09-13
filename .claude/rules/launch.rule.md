@@ -2,7 +2,8 @@
 paths:
   - "src/opt/ai-tools/bin/ai-tools-run.sh"
   - "src/etc/sudoers.d/ai-tools"
-  - "src/usr/local/lib/ai-tools/path-dedup.sh"
+  - "src/usr/local/lib/ai-tools/path-order.sh"
+  - "src/usr/local/lib/ai-tools/path-order.lib.sh"
   - "src/usr/local/lib/ai-tools/session-env.d/**"
 ---
 
@@ -19,7 +20,7 @@ agent-specific inputs live in that agent's own rule —
 ## The wrapper contract (agent-side)
 
 Each `ai-tools-agents-*` package ships one wrapper into `/usr/local/bin`, `root:root 0755`,
-rpm-owned, running as the invoking operator. `path-dedup.sh`, wired into the operator's
+rpm-owned, running as the invoking operator. `path-order.sh`, wired into the operator's
 dotfiles by `ai-tools-admin operators add`, ranks `/usr/local/bin` (Tier 1) ahead of the nvm
 shims, so a wrapper shadows the nvm-managed launcher of the same name on the operator's
 PATH. Whatever else a wrapper does, these five gates are what the security model rests on,
@@ -306,15 +307,15 @@ an operator told only "excluded" is left to work out which of the two they are s
 
 ## PATH ordering
 
-Every agent wrapper lives in `/usr/local/bin`, which `path-dedup.sh`
-(`/usr/local/lib/ai-tools/path-dedup.sh`, `644 root:root`) ranks Tier 1 — ahead of the nvm shims it
-leaves in Tier 4 — so typing a launcher name always enters the sandboxed path rather than the
-nvm-managed binary of the same name. The tiers and the first-match-wins ordering behind them are
-in that file's header.
+Every agent wrapper lives in `/usr/local/bin`, which `path-order.sh`
+(`/usr/local/lib/ai-tools/path-order.sh`, `644 root:root`) ranks Tier 1, ahead of the nvm shims it
+leaves in Tier 4. First match wins, so typing a launcher name always enters the sandboxed path
+and the nvm-managed binary of the same name stays shadowed. The tiers and the first-match-wins
+ordering behind them are in that file's header.
 
 The fragment is sourced per-account: `ai-tools-admin operators add` offers to add the guard line
 to the operator's `~/.bashrc` and `~/.bash_profile` **after** their nvm init, the one position
-where the ordering holds (the dedup must follow anything that prepends to PATH, and non-login
+where the ordering holds (the fragment must follow anything that prepends to PATH, and non-login
 interactive shells read `~/.bashrc` only). Those two files govern **bash**, so an account whose
 login shell reads its own init instead is named in the enrolment output, with the ordering left to
 the operator to place there. A `~/.bash_profile` the wiring creates opens with the `. ~/.bashrc`
@@ -326,3 +327,64 @@ unrelated to ai-tools keep their stock PATH, and ai-tools does not install any f
 `/etc/profile.d`, leaving the host's every-login-shell code surface untouched. The sandbox account takes its PATH
 elsewhere — `ai-tools-run` pins the session PATH as a unit property, on the same Tier-1-first
 ordering.
+
+### The ordering is read, not assumed <a id="ref-section-p3k8"></a>
+
+What an unwired account costs is specific: the operator's own agent install — an `npm i -g
+@anthropic-ai/claude-code` under their nvm — answers to the same name, and typing it starts
+an **unconfined session as them**, with their credentials and home and none of the allowlist,
+SELinux or handback machinery. Nothing in a shell says which one ran. So the wiring is not offered
+as shell housekeeping: `path-order.lib.sh` resolves where an account's shell finds each enabled
+agent's launcher, and every message about the line is written from that reading.
+
+The verdict is pure (`ai_tools_path_order_verdict`) and the probing is separate, the split
+[confinement](confinement.rule.md) makes for the launch decision. Four states, from the account's
+wiring and one winner per launcher:
+
+| state | the account's shell finds | what it means |
+|---|---|---|
+| `wired` | the wrapper, with the guard line in its init | settled |
+| `clear` | the wrapper, with no guard line | right today, and lost to the next thing that prepends to PATH |
+| `shadowed` | an agent outside `/usr/local/bin` | typing that name starts an unconfined agent |
+| `unknown` | no readable answer | the reading could not be taken — a non-bash login shell, no enabled agent, a probe that did not answer |
+
+`shadowed` outranks `unknown`, since one launcher read as shadowed states what that account gets
+whatever another probe did; a launcher this host does not install a wrapper for leaves the verdict
+alone, its PATH having no ordering to get wrong there. This is **advice, not a gate** — it reports
+where a name resolves and does not decide any access question — so an unreadable probe asks
+or reports rather than refusing, the opposite direction from the predicates
+in [CLAUDE.md](../../CLAUDE.md)'s security model.
+
+A reading of **another** account is taken from a login shell of that account (`runuser`, bounded by
+a timeout, as root): only its own init files can say what its sessions get, and grepping them
+answers for the guard line rather than for the ordering — which is exactly the distinction the
+`wired`-and-still-`shadowed` case turns on, where the line is present and something after it
+prepends to PATH. A reading of **this** shell does not need any privilege, which is why
+`ai-tools --status` makes it: the CLI runs in the operator's own login shell, so `command -v` there
+resolves what typing the name would run. The launcher name is admitted only in a launcher's own
+charset before it reaches that command, and the answer only as an absolute path with no whitespace
+or control byte.
+
+Three consumers read it, at the three moments the state can change: `operators add` (asks with the
+stake named, and warns rather than passing in silence when a shadowed account declines),
+`ai-tools --status` (re-checks, and counts a shadowed launcher toward its non-zero exit), and the
+base package's `%post` (names each shadowed operator in the upgrade output). See
+[cli](cli.rule.md) for the report and [providers](providers.rule.md) for what a launcher name is.
+
+### A renamed fragment repoints the lines that name it
+
+The guard line sources the fragment only while the file is present, so a release that moves
+the fragment leaves every wired account with a line that succeeds and an ordering that stops
+applying, with no message on screen to say so. The library therefore records the fragment's
+**former name** and repoints it, the same shape the SELinux group registry uses for a renamed
+module ([confinement](confinement.rule.md)): the rpm `%post` and `install.sh` repoint each
+enrolled operator's two init files in the step that moved the file, and `operators add` repoints
+before it reads.
+
+That is the one edit this project makes to an operator's shell init without asking,
+and what bounds it is that it is not a merge: it replaces one path token, inside a line this
+project wrote, naming a file this project moved. It does not add a line or remove one, it leaves
+a file naming neither path byte-identical, and it rewrites through the existing inode so the file
+keeps the owner and mode its account gave it. It does not write a sidecar: the fragment ships root-owned and
+the package replaces it, and the deduplication and ordering it performs are unchanged, so the
+repointed line behaves as the old one did.

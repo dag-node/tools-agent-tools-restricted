@@ -3750,12 +3750,64 @@ status_sandbox_unit_commands() {
 # read through the SAME accessors -- charset-clamped fields and one age implementation - rather than
 # a second reader that could drift. Its path comes from entrypoint-verify.lib.sh, never hardcoded.
 #
-# Returns non-zero only when an unpinned entrypoint is actionable, which is exactly when
-# the operator has required verification: everywhere else unpinned is a legitimate state (an
-# air-gapped host, a release the vendor published no manifest for) and must not make a healthy host
-# alarm, the same rule the unqueryable units follow. A pin this account cannot read is reported as
-# unknown and is never a fault -- --status stays open to a non-operator, who cannot traverse the
-# state directory at all.
+# Returns non-zero only when an unpinned entrypoint is actionable, which is exactly when the operator has required
+# verification: everywhere else unpinned is a legitimate state (an air-gapped host, a release the vendor published
+# no manifest for) and must not make a healthy host alarm, the same rule the unqueryable units follow. A pin this
+# account cannot read is reported as unknown and is never a fault -- --status stays open to a non-operator,
+# who cannot traverse the state directory at all. status_path_order -- where THIS shell finds each enabled agent's
+# launcher. The one reading this report can make for free and no other vantage can make at all: the CLI runs
+# in the operator's own login shell, so `command -v claude` resolves exactly what typing `claude` would run.
+# A launcher resolving outside /usr/local/bin starts UNCONFINED, as the operator, so it counts toward the report's
+# exit status and names the command that repairs it. What each state means is launch.rule.md's PATH ordering
+# section; what this report says about each is cli.rule.md.
+#
+# Best-effort like the rest of this report: without the library or the provider resolver this vantage has no
+# launcher to resolve, so the section is omitted rather than guessed at.
+status_path_order() {
+    local path_order_lib=/usr/local/lib/ai-tools/path-order.lib.sh
+    local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/providers.lib.sh
+    source "${providers_lib}" 2>/dev/null || true
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/path-order.lib.sh
+    source "${path_order_lib}" 2>/dev/null || true
+    declare -F ai_tools_path_order_read_here >/dev/null 2>&1 || return 0
+
+    local state pair launcher winner seen=0
+    ai_tools_path_order_read_here || true
+    state="${AI_TOOLS_PATH_ORDER_STATE:-unknown}"
+    for pair in "${AI_TOOLS_PATH_ORDER_WINNERS[@]+"${AI_TOOLS_PATH_ORDER_WINNERS[@]}"}"; do
+        launcher="${pair%%=*}"; winner="${pair#*=}"
+        (( seen++ == 0 )) && section "PATH ordering"
+        case "${winner}" in
+            # This host does not install a wrapper of that name, so its PATH has no ordering to get wrong here --
+            # reported, and not a fault.
+            '')  printf '  %-28s %sn/a (no wrapper installed)%s\n' "${launcher}" "${C_DIM}" "${C_RST}" ;;
+            '?') printf '  %-28s %s? (this shell cannot resolve the name)%s\n' "${launcher}" "${C_DIM}" "${C_RST}" ;;
+            "${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher}")
+                 printf '  %-28s %sOK%s %s(%s -- the sandbox wrapper)%s\n' \
+                     "${launcher}" "${C_GRN}" "${C_RST}" "${C_DIM}" "${winner}" "${C_RST}" ;;
+            *)   printf '  %-28s %sUNCONFINED%s %s(%s)%s\n' \
+                     "${launcher}" "${C_RED}" "${C_RST}" "${C_DIM}" "${winner}" "${C_RST}" ;;
+        esac
+    done
+    (( seen )) || return 0
+
+    case "${state}" in
+        shadowed)
+            say "      typing that name starts an agent OUTSIDE the sandbox: as you, with your"
+            say "      credentials and home, and no allowlist, confinement or ownership handback"
+            say "      ${C_BOLD}sudo ai-tools-admin operators add ${INVOKING_USER}${C_RST}"
+            return 1 ;;
+        # Reaching the wrapper without the ordering line is right today and right by accident: the next thing
+        # that prepends to PATH takes it away silently. Dim rather than yellow, since this account's sessions are
+        # sandboxed today: it does not alarm and does not count toward the exit status.
+        clear)
+            say "  ${C_DIM}the PATH ordering line is not in your shell init -- add it with:"
+            say "  sudo ai-tools-admin operators add ${INVOKING_USER}${C_RST}" ;;
+    esac
+    return 0
+}
+
 status_entrypoint_pins() {
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
     local verify_lib=/usr/local/lib/ai-tools/entrypoint-verify.lib.sh
@@ -3975,6 +4027,7 @@ cmd_status() {
         fi
     done < <(ai_tools_service_records)
 
+    status_path_order      || problems=$(( problems + 1 ))
     status_entrypoint_pins || problems=$(( problems + 1 ))
 
     # Pointers, not duplication: name the sibling read-only reports (which own their own detail) and

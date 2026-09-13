@@ -396,19 +396,30 @@ file sink being the authoritative one.
   Everything is recorded to `stop.log` and journald, including which path gave consent and which
   pass ended each session. Exit codes are in `ai-tools(1)`.
 - `--status` — read-only health report: the installed `ai-tools` version, whether the toolchain is
-  provisioned, then each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path`
-  and the `ai-tools-relabel.service` it triggers, and the sandbox account's `nvm-update.timer` and
-  `nvm-update.service`) as OK / SKIPPED / STALE /
-  DOWN / FAILED /
-  not-installed, with the consequence and the exact remedy for anything broken, and a closing
-  **More** block that points at the sibling
-  reports (`--providers`, `--list`, `--help`) without repeating their detail — so it reads as a hub. It resolves through `services.lib.sh` — the **same registry** the launch
-  wrapper's pre-launch health warning reads (`claude.sh`, see [launch](launch.rule.md)) — so the
-  status view and the launch warning never disagree on which units matter or how to fix one.
-  `--status` is the one command that
-  **bypasses the bootstrap gate** (see [Bootstrap preflight](#bootstrap-preflight)): a diagnostic
-  must run when things may be broken, so it
-  reports the unprovisioned state rather than being blocked by it.
+  provisioned, **where this shell finds each enabled agent's launcher**, then each managed systemd
+  unit (`ai-tools-handback.socket`, `ai-tools-relabel.path` and the `ai-tools-relabel.service` it
+  triggers, and the sandbox account's `nvm-update.timer` and `nvm-update.service`) as OK / SKIPPED
+  / STALE / DOWN / FAILED / not-installed, with the consequence and the exact remedy for anything
+  broken, and a closing **More** block that points at the sibling reports (`--providers`,
+  `--list`, `--help`) without repeating their detail — so it reads as a hub. It resolves
+  through `services.lib.sh` — the **same registry** the launch wrapper's pre-launch health warning
+  reads (`claude.sh`, see [launch](launch.rule.md)) — so the status view and the launch warning
+  never disagree on which units matter or how to fix one. `--status` is the one command
+  that **bypasses the bootstrap gate** (see [Bootstrap preflight](#bootstrap-preflight)):
+  a diagnostic must run when things may be broken, so it reports the unprovisioned state rather
+  than being blocked by it.
+
+  The PATH-ordering line is the one reading this report makes that needs **no** privilege
+  and that no other vantage can make at all: the CLI runs in the operator's own login shell,
+  so `command -v` there resolves exactly what typing the launcher's name would run. A launcher
+  resolving outside `/usr/local/bin` is an agent that starts **unconfined, as the operator**,
+  so it reads `UNCONFINED`, names `ai-tools-admin operators add <operator>` as the repair,
+  and counts toward the non-zero exit. A launcher reaching the wrapper with no ordering line wired
+  is right today and says so dimly, since that shell is sandboxed until the next thing
+  that prepends to PATH takes it away. A launcher this host does not install a wrapper
+  for, and a name `command -v` does not resolve in this shell, are reported and are not faults —
+  the same rule the unqueryable units follow. The states and the reading behind them are
+  [ref-section-p3k8](launch.rule.md#ref-section-p3k8).
 
   A unit in the sandbox account's own `systemd --user manager` is not queryable from the operator's
   session at all, so its state comes from a **last-run stamp** it publishes where the operator can

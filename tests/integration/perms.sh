@@ -183,10 +183,10 @@ check_file /etc/ai-tools/prompts/claude-system-prompt.md      root              
 # world, and NOT by the operator (not in ai-tools). Its directory is a plain 755 root:root.
 check_file /etc/ai-tools/endpoints                            root              root              755
 check_file /etc/ai-tools/endpoints/custom-claude-endpoint.conf root             "${SANDBOX_GROUP}" 640
-# PATH dedup fragment: 644 root:root -- world-readable, sourced by the operator shells
-# ai-tools-admin wires (never installed into /etc/profile.d; unwired accounts keep their
-# stock PATH).
-check_file /usr/local/lib/ai-tools/path-dedup.sh              root              root              644
+# PATH ordering fragment: 644 root:root -- world-readable, sourced by the operator shells ai-tools-admin wires.
+# install.sh deploys it here and never into /etc/profile.d, so an unwired account keeps its stock PATH.
+check_file /usr/local/lib/ai-tools/path-order.lib.sh          root              root              644
+check_file /usr/local/lib/ai-tools/path-order.sh              root              root              644
 # /opt/ai-tools/bin is locked: root:ai-tools 0551, so ai-tools has group r-x but no write. The
 # agent can execute nvm-update.sh and resolve the claude symlink, but cannot edit the updater or
 # swap the symlink -- only root (via ai-tools-launcher-symlink) writes here. The o+x search bit
@@ -350,10 +350,9 @@ if [[ -e /usr/local/share/man/man8/ai-tools-admin.8.gz ]]; then
 else
     check_file /usr/local/share/man/man8/ai-tools-admin.8     root root 644
 fi
-# Launch wrapper: 755 root:root -- system-wide on every operator's PATH (path-dedup.sh ranks
-# /usr/local/bin ahead of the nvm shims, so it shadows nvm's claude). Runs as the invoking
-# operator, gates on ai-ops membership, then drops to the sandbox account via sudo; root-owned
-# so the agent cannot rewrite it.
+# Launch wrapper: 755 root:root -- system-wide on every operator's PATH (path-order.sh ranks /usr/local/bin ahead
+# of the nvm shims, so it shadows nvm's claude). Runs as the invoking operator, gates on ai-ops membership, then
+# drops to the sandbox account via sudo; root-owned so the agent cannot rewrite it.
 check_file /usr/local/bin/claude                              root root 755
 # Message formatter: 644 root:root -- world-readable like log.lib.sh; sourced by the operator
 # wrapper/CLI, the agent's hooks, and ai-tools-run, so every principal must read it. No secrets.

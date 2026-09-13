@@ -303,7 +303,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths confinement npm-verify entrypoint-verify managed-assets providers selinux-groups filters services; do
+for l in log msg conf skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths confinement npm-verify entrypoint-verify managed-assets providers selinux-groups filters services path-order; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -335,9 +335,9 @@ install -d -m 0755 %{buildroot}%{ai_libdir}/keys
 # session-env fragment, and one sudoers grant serves every agent.
 install -d -m 0755 %{buildroot}/opt/ai-tools/bin
 install -m 0550 src/opt/ai-tools/bin/ai-tools-run.sh %{buildroot}/opt/ai-tools/bin/ai-tools-run
-# PATH dedup fragment for operator shells; ai-tools-admin wires the source line into
+# PATH ordering fragment for operator shells; ai-tools-admin wires the source line into
 # operator dotfiles, so no /etc/profile.d entry ships.
-install -m 0644 src%{ai_libdir}/path-dedup.sh %{buildroot}%{ai_libdir}/path-dedup.sh
+install -m 0644 src%{ai_libdir}/path-order.sh %{buildroot}%{ai_libdir}/path-order.sh
 
 # ── base: handback systemd units ─────────────────────────────────────────────
 install -d -m 0755 %{buildroot}%{_unitdir}
@@ -470,7 +470,7 @@ touch %{buildroot}/var/log/ai-tools/dotnet.log
 # This agent's payload lives at src/opt/ai-tools/agents/claude-code/ -- named for its MANIFEST,
 # not for the .claude directory it installs into, because that destination is manifest data
 # (config_dir). A second agent adds a sibling directory named for its own manifest.
-# The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path-dedup.sh, wired into
+# The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path-order.sh, wired into
 # operator dotfiles by ai-tools-admin, so it shadows the nvm-managed claude on every
 # operator's PATH); it runs as the invoking operator, gates on ai-ops membership, then drops
 # to the sandbox account via sudo.
@@ -607,6 +607,8 @@ fi
 _at_toolchain=1
 _at_operator=1
 _at_merge=0
+_at_path=""
+_at_reconcile=""
 if [ -d /opt/ai-tools/.nvm ]; then
     _at_toolchain=0
 fi
@@ -620,7 +622,31 @@ fi
 if [ -f /etc/ai-tools/operator.conf.rpmnew ]; then
     _at_merge=1
 fi
-if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ]; then
+# Two things about where an operator's shell finds an agent launcher, in one pass
+# (ai_tools_path_order_reconcile_operators, the same library `operators add` asks with and `ai-tools --status`
+# re-checks with).
+#
+# It REPOINTS first: a host upgraded from a release that shipped the PATH ordering fragment under its former
+# name carries a guard line naming a file this package moved, which leaves the ordering unapplied. Repointing
+# one path token inside a line this package itself wrote is not a config merge, and that is why a scriptlet may
+# do it; the bound on the edit is ai_tools_path_order_repoint's header.
+#
+# It then REPORTS: an operator whose shell finds a launcher outside /usr/local/bin types its name and gets
+# an UNCONFINED agent, running as them with none of this machinery, so an upgrade says so per account rather than
+# leaving that to be discovered by a session that was never sandboxed. Each reading is taken from a login shell
+# of the account, bounded by the library's own timeout; an account the reading cannot be taken for is not named,
+# so this never nags a host it could not read. Non-fatal however it ends.
+if command -v bash >/dev/null 2>&1; then
+    _at_reconcile="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/providers.lib.sh; . /usr/local/lib/ai-tools/path-order.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; ai_tools_load_operators; ai_tools_path_order_reconcile_operators "${AI_TOOLS_OPERATORS[@]}"' 2>/dev/null || :)"
+    # A repoint is something this upgrade DID, so it is reported where it happened rather than under the steps
+    # the host still owes; only the shadowed accounts are a step.
+    printf '%s\n' "${_at_reconcile}" | while IFS="	" read -r _at_kind _at_file _at_rest; do
+        [ "${_at_kind}" = repointed ] || continue
+        echo "ai-tools-base: repointed the PATH ordering line in ${_at_file} -- the fragment is now /usr/local/lib/ai-tools/path-order.sh"
+    done
+    _at_path="$(printf '%s\n' "${_at_reconcile}" | grep '^shadowed	' || :)"
+fi
+if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_path}" ]; then
     echo "ai-tools-base: steps this host still needs:"
     if [ "${_at_toolchain}" = 1 ]; then
         echo "  sudo ai-tools-admin system bootstrap          # install nvm + Node + Claude Code (network)"
@@ -630,6 +656,11 @@ if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ]; then
     fi
     if [ "${_at_merge}" = 1 ]; then
         echo "  sudo ai-tools-admin system post-upgrade       # operator.conf.rpmnew is waiting"
+    fi
+    if [ -n "${_at_path}" ]; then
+        echo "${_at_path}" | while IFS="	" read -r _at_kind _at_u _at_l _at_w; do
+            echo "  sudo ai-tools-admin operators add ${_at_u} # typing ${_at_l} runs ${_at_w}, outside the sandbox"
+        done
     fi
 fi
 
@@ -972,6 +1003,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
 %attr(0644, root, root) %{ai_libdir}/filters.lib.sh
 %attr(0644, root, root) %{ai_libdir}/services.lib.sh
+%attr(0644, root, root) %{ai_libdir}/path-order.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/keys
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
@@ -980,7 +1012,7 @@ fi
 %dir %attr(0755, root, root) %{ai_libdir}/filters.d
 %attr(0644, root, root) %{ai_libdir}/filters.d/core.rules
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/ai-tools-run
-%attr(0644, root, root) %{ai_libdir}/path-dedup.sh
+%attr(0644, root, root) %{ai_libdir}/path-order.sh
 %{_unitdir}/ai-tools-handback.socket
 %{_unitdir}/ai-tools-handback@.service
 %{_presetdir}/85-ai-tools.preset
