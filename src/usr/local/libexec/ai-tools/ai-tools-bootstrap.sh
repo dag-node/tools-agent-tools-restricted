@@ -57,6 +57,14 @@ warn() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-bootstrap: warn: %s\n' "$*" >&2
 }
+# err reports a fault in the HOST that this command found and does not own: the provisioning it was
+# asked for completed, so it says so at the severity the state deserves and leaves the exit status
+# to the steps that provision. die is the other direction -- a fault that ends this run.
+err() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-bootstrap: error: %s\n' "$*" >&2
+}
 
 # resolve_nvm_version: echo the nvm release tag to install. An explicit AI_TOOLS_NVM_VERSION
 # pin wins; otherwise query the GitHub API for the latest release tag, falling back to the
@@ -206,6 +214,41 @@ seed_managed_assets_step() {
         seeded=1
     done < <(ai_tools_agent_memory_targets)
     (( seeded )) || log "managed assets: no agent config directory to seed yet"
+}
+
+# report_shadowed_operators -- name each enrolled operator whose shell reaches an agent outside
+# /usr/local/bin, so a host is not called ready while typing the launcher name starts an
+# UNCONFINED session as that operator, holding their credentials and home (path-order.lib.sh).
+#
+# It belongs to this command because of who runs it: an account's ordering can only be read from a
+# login shell of that account, which needs root, and this is the root step an administrator runs
+# when the toolchain appears. The operator's own `ai-tools --status` re-reads it afterwards, from
+# the shell that answers for itself.
+#
+# The libraries are control-plane, so a bootstrap that precedes install.sh has neither the
+# operator registry nor a wrapper to be shadowed, and reports nothing. It reads and does not
+# rewrite any init file: `ai-tools-admin operators add` is this project's one writer of that line,
+# behind its confirm.
+report_shadowed_operators() {
+    local polib=/usr/local/lib/ai-tools/path-order.lib.sh
+    local oplib=/usr/local/lib/ai-tools/operator.lib.sh
+    [[ -r "${polib}" && -r "${oplib}" ]] || return 0
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/path-order.lib.sh
+    source "${polib}" 2>/dev/null || return 0
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
+    source "${oplib}" 2>/dev/null || return 0
+    declare -F ai_tools_path_order_shadowed_operators >/dev/null 2>&1 || return 0
+    declare -F ai_tools_load_operators >/dev/null 2>&1 || return 0
+    ai_tools_load_operators || return 0
+
+    local user launcher winner
+    while IFS=$'\t' read -r user launcher winner; do
+        [[ -n "${user}" ]] || continue
+        err MSG-K2D4 "operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox"
+        err "    rank the wrapper ahead of it:  sudo ai-tools-admin operators add ${user}"
+        err "    or remove that install:        ${winner}"
+    done < <(ai_tools_path_order_shadowed_operators \
+        "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}")
 }
 
 [[ "${EUID}" -eq 0 ]] || die MSG-X7Z2 "run as root (sudo)"
@@ -459,6 +502,10 @@ seed_managed_assets_step
 # Sandbox git commit identity (control-plane gitconfig). Offered here as the shared interactive
 # step; skipped cleanly when the control plane is not yet in place.
 configure_git_identity
+
+# 6. Say which enrolled operators a `claude` typed in their shell would NOT reach the sandbox
+#    through. Last, so the reading covers the wrapper and the agents this run has just installed.
+report_shadowed_operators
 
 # Bootstrap runs in either order relative to the control plane: after a package/install.sh
 # deploy (the common flow -- the wrapper is already present), or before it on a from-source

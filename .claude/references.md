@@ -287,6 +287,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | h3h3 | [MSG-H3H3](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | control plane present but ${msglib} missing -- reinstall ai-tools | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
 | d9d3 | [MSG-D9D3](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | control plane present but the managed-asset libs are missing -- reinstall ai-tools | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
 | h9s6 | [MSG-H9S6](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | control plane present but ${cplib} does not resolve the agents' config dirs | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
+| k2d4 | [MSG-K2D4](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | err |
 | x7z2 | [MSG-X7Z2](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | run as root (sudo) | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
 | t7h8 | [MSG-T7H8](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | curl is required to fetch nvm | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
 | w8x8 | [MSG-W8X8](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH) | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |

@@ -565,11 +565,11 @@ code and return non-zero, which is what makes `op_add` refuse.
 
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
 [launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools --status` re-checks
-with, and the base package's `%post` reports from. What gives it teeth is the direction each
+with, and `ai-tools-admin system bootstrap` reports from. What gives it teeth is the direction each
 answer sends an operator: a launcher resolving outside `/usr/local/bin` means typing its name
 starts an **unconfined** agent, so a verdict reading that state as fine would turn the one
 question standing between an operator and an unsandboxed session into a formality, while one
-crying shadow on an unreadable probe would teach them to ignore it. The truth table is therefore
+reporting a shadow whenever a probe could not be read would teach them to ignore it. The truth table is therefore
 driven whole, in both directions, and so are the two inputs that reach a shell or a terminal —
 the launcher name interpolated into a command run as another account, and the path that command
 prints back. The repoint a rename owes a deployed host is the other half: it is the one edit this

@@ -8,10 +8,10 @@
 # afterwards. What each state means is launch.rule.md's PATH ordering section.
 #
 # The decision is pure (ai_tools_path_order_verdict) and the probing is separate, the split confinement.lib.sh makes
-# for the launch decision, so the truth table is driven in tests/unit/path-order.sh against no account at all. Three
-# callers read it: `ai-tools-admin operators add` (asks, then wires), `ai-tools --status` (re-checks,
-# from the operator's own shell), and the base package's %post (names an operator whose shell stopped reaching
-# the wrapper).
+# for the launch decision, so the truth table is driven in tests/unit/path-order.sh against no account at all. The
+# callers: `ai-tools-admin operators add` (asks, then wires), `ai-tools --status` (re-checks, from the operator's own
+# shell), `ai-tools-admin system bootstrap` (names each operator whose shell reaches an agent elsewhere), and the base
+# package's %post (names an operator whose init still sources the fragment's former path).
 #
 # It reports where a name resolves and does not decide any access question, so a reading it cannot take yields
 # `unknown` and the caller asks or reports rather than refusing.
@@ -249,9 +249,9 @@ ai_tools_path_order_repoint_user() {
 # /usr/local/bin, and no line for an account in any other state. Root only, since each reading is taken from a login
 # shell of the account.
 #
-# It exists for the base package's %post, which reports what an upgraded host still owes and does not hold a loop
-# of its own. An account this reading could not be taken for is left unnamed, because a scriptlet that guessed would
-# report a host it could not read, and the operator's own `ai-tools --status` answers precisely.
+# It exists for `ai-tools-admin system bootstrap`, which reports what a freshly provisioned host still owes and does
+# not hold a loop of its own. An account this reading could not be taken for is left unnamed, because a report that
+# guessed would name a host it could not read, and the operator's own `ai-tools --status` answers precisely.
 ai_tools_path_order_shadowed_operators() {
     local user pair launcher
     for user in "$@"; do
