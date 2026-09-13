@@ -10,8 +10,8 @@
 # index. It then holds every authored page to the way a page is WRITTEN -- the font and
 # placeholder rules whose home is references/man-pages.md in the shipped ai-tools-technical-docs
 # skill, edited in lockstep with the check here -- and closes
-# by holding every config header this project writes to the fixed-width rule (72 columns, no line
-# ending on a tie word). In the two command pairs the page and the help are not copies of each
+# by holding every config header this project writes to the fixed-width rule (72 columns). In the
+# two command pairs the page and the help are not copies of each
 # other -- usage() is orientation while the page is the reference -- so equality of their whole
 # option sets is the wrong contract and is what made slimming the help impossible.
 #
@@ -565,11 +565,11 @@ check_messages_pointers() {
 check_messages_pointers
 
 # ── Config headers are fixed-width text ───────────────────────────────────────────────────────
-# An operator reads a config file in a terminal, where nothing reflows it, so every header this
-# project writes -- the two seeds and the two shipped templates -- holds to 72 columns and carries
-# no comment line ending on a word that ties to the next one. The rule is the checker's
-# `--config-header` mode (the ai-tools-technical-docs skill); this runs it over the four.
-section "config headers: 72 columns, no line ending on a tie word (unit)"
+# An operator reads a config file in a terminal, which does not reflow it, so every header this
+# project writes -- the two seeds and the two shipped templates -- holds to 72 columns.
+# The rule is the checker's `--config-header` mode (the ai-tools-technical-docs skill); this runs
+# it over the four. Where a line breaks is the Emacs formatter's, so the width is the whole check.
+section "config headers: 72 columns (unit)"
 PROSE_CHECK=""
 for candidate in \
     "${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
@@ -593,9 +593,9 @@ check_config_headers() {
         "${CONFIG_TEMPLATES}/operator.conf" "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" 2>&1)" || rc=$?
     rm -rf "${dir}"
     if (( rc == 0 )); then
-        pass "the two seeded headers and the two shipped templates hold to 72 columns with no tie-word line end"
+        pass "the two seeded headers and the two shipped templates hold to 72 columns"
     else
-        fail "a config header breaks the width or tie rule:"$'\n'"${out}"
+        fail "a config header breaks the width rule:"$'\n'"${out}"
     fi
 }
 check_config_headers

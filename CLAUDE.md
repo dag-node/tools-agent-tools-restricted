@@ -378,3 +378,9 @@ the artifact sections inside it carry the differences in structure, altitude, an
   the layer that owns the detail rather than restating it.
 - `src/usr/local/share/man/**` → man pages; see the skill's `references/man-pages.md`.
 - Error messages, notices, and log lines → runtime output: what happened, and what to do.
+
+<!-- Agent-facing prose wraps at 120, the column `prose-check.py` measures this file against and
+     `.dir-locals.el` sets for `.claude/` and the skills. Emacs takes it from the block here.
+Local Variables:
+fill-column: 120
+End: -->

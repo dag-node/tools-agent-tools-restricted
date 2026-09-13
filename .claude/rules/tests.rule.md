@@ -358,7 +358,7 @@ read with, through which the page's own examples are loaded; `operator.conf(5)` 
 `custom-claude-endpoint.conf(5)` to the keys their shipped templates mention, in both directions,
 read with `ai_tools_conf_keys` so the test and `system post-upgrade` agree on what *mentioned*
 means. It closes by running the checker's `--config-header` mode over every config header this
-project writes, so each holds to 72 columns with no line ending on a tie word
+project writes, so each holds to 72 columns
 ([providers](providers.rule.md) states the placement rule). In each pair the help is
 orientation and the page is the reference (see [cli](cli.rule.md)), so it asserts relations
 rather than set equality. For `ai-tools(1)`: the **verb** sets match in both directions, every
