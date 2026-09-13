@@ -379,12 +379,13 @@ other distribution channel — its own package rather than npm — puts it). Tha
 whatever an account's PATH does with it,
 and the install is where the wrapper arrives beside it.
 
-**The two findings carry different severities, because only one of them is owed anything.** An
-install found on the host is a **notice** — it states what is there, names the package that owns it
-(`rpm -qf`, so the remedy is the `dnf remove` command rather than a path to go looking for), and
-says which way the reading came out: that every enrolled operator's shell resolves the launcher to
-the wrapper, or that no operator is enrolled yet. An operator the binary **wins for** is an
-**error**, carrying the code `system bootstrap` defines for that situation. Neither fails the
+**The two findings are two situations, at two severities.** A second agent installed on the host is
+a **warning** whenever it is found, since what stands between it and an unconfined session is an
+ordering that any later change to a PATH can undo; the finding names the package that owns it
+(`rpm -qf`, so the remedy is the `dnf remove` command rather than a path to go looking for) and
+says which way the per-account reading came out — every enrolled operator resolving the launcher to
+the wrapper, or no operator enrolled yet. An operator the binary **wins for** is the second
+situation and an **error**, carrying the code `system bootstrap` defines for it. Neither fails the
 install: a host carrying both agents is supported, and what decides which one runs is the ordering.
 See
 [cli](cli.rule.md) for the report and [providers](providers.rule.md) for what a launcher name is.

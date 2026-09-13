@@ -198,14 +198,6 @@ die() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1
 }
-# note: a state of the host the operator reads and decides about. It is not a warning, because the
-# install completed and the state costs them no action; the marker separates it from log()'s
-# per-file progress.
-note() {
-    local IFS=' ' code=""
-    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
-    printf '  %s*%s %s\n' "${C_BOLD}" "${C_RST}" "$*" >&2
-}
 # err: a fault this script found and does not own, so it reports at the severity the state has and
 # leaves the exit status to the install. die is the other direction -- a fault that ends the run.
 err() {
@@ -1034,15 +1026,15 @@ probe_shadowing_agents() {
     (( ${#found[@]} + ${#shadowed[@]} )) || return 0
     section "Agents outside the sandbox"
 
-    # An install found here is a NOTICE: it states what the host carries, and whether an operator
-    # reaches it is the separate per-operator reading, which is where a fault would be. Printing
-    # both at warning severity left a host whose ordering already wins looking like one that
-    # needs work.
+    # One severity per situation: a second agent of a launcher's name on this host is a WARNING
+    # whether or not an account reaches it today, since what stands between it and an unconfined
+    # session is an ordering any later change to a PATH can undo. Whether an operator reaches it
+    # now is the per-operator reading, a second situation, reported as an error.
     local package remove_hint
     for record in "${found[@]}"; do
         IFS=$'\t' read -r launcher install_path install_alias <<<"${record}"
-        note MSG-F6D2 "an agent outside the sandbox is installed at ${install_path}"
-        [[ -n "${install_alias}" ]] && note "  the same file as ${install_alias}"
+        warn MSG-F6D2 "an agent outside the sandbox is installed at ${install_path}"
+        [[ -n "${install_alias}" ]] && warn "  the same file as ${install_alias}"
         # The owning package is what turns the remedy into a command; a file no package owns keeps
         # the path, which is all there is to name.
         package="$(ai_tools_agent_install_owner "${install_path}")"
@@ -1051,9 +1043,9 @@ probe_shadowing_agents() {
         else
             remove_hint="remove it with the tool that installed it, at ${install_path}"
         fi
-        note "  ${remove_hint}"
-        note '  it runs unconfined when it is started by that path, or when a shell resolves'
-        note "  ${launcher} to it -- which is what the \$PATH ordering decides"
+        warn "  ${remove_hint}"
+        warn '  it runs unconfined when it is started by that path, or when a shell resolves'
+        warn "  ${launcher} to it -- which is what the \$PATH ordering decides"
     done
 
     # The reading that decides whether anything is owed: where each enrolled operator's own login
@@ -1076,12 +1068,12 @@ probe_shadowing_agents() {
             launcher="${record%%$'\t'*}"
             [[ " ${named[*]-} " == *" ${launcher} "* ]] && continue
             named+=( "${launcher}" )
-            note "  every enrolled operator's shell resolves ${launcher} to ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher} (the sandbox"
-            note "  wrapper), and the \$PATH ordering is what keeps it that way"
+            warn "  every enrolled operator's shell resolves ${launcher} to ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher} (the sandbox"
+            warn "  wrapper), and the \$PATH ordering is what keeps it that way"
         done
     elif (( ${#found[@]} )); then
-        note "  no operator is enrolled yet, and enrolment is what wires the \$PATH ordering:"
-        note "  sudo ai-tools-admin operators add <user>"
+        warn "  no operator is enrolled yet, and enrolment is what wires the \$PATH ordering:"
+        warn "  sudo ai-tools-admin operators add <user>"
     fi
 }
 
