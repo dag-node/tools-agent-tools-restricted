@@ -13,7 +13,7 @@
 # Build a distro image (two steps; the Makefile wraps them as `rpmtest-rocky9` / `-rocky10`):
 #   ```bash
 #   podman build -t ai-tools-rpmbase:el9 -f packaging/ELBase.Containerfile \
-#       --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9.7-minimal .
+#       --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9.8-minimal .
 #   podman build -t ai-tools-rpmtest:el9 -f packaging/Rocky9.Containerfile .
 #   podman run --rm -t --systemd=always ai-tools-rpmtest:el9
 #       # add --privileged if your runtime cannot mount cgroups for the --user manager

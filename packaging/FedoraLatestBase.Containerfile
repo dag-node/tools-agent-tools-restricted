@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Native Fedora ai-tools RPM smoke-test image (the Fedora counterpart of ELBase.Containerfile).
-# Build + run with `make -C packaging rpmtest-fedora`. The intent: validate packaging against
+# Build + run with `make -C packaging rpmtest-fedora`, which names the base image. The
+# intent: validate packaging against
 # Fedora (upstream RHEL/CentOS) and produce Fedora-specific RPMs, separately from the shipped
 # EL9/EL10 stack that ELBase builds.
 #
@@ -20,7 +21,12 @@
 # own, so a policy that no longer compiles on Fedora's moving refpolicy fails the image. Enforcing
 # load/transition still needs a real Fedora host.
 
-FROM quay.io/fedora/fedora-minimal:latest
+# The Makefile names the image (FEDORA_BASE) and passes it here, as it does for the EL pair, so the
+# pre-pull covers the same tag the build uses. That tag floats onto the current stable Fedora, which
+# is what makes this image the canary its name says: a release moves it, and the build either still
+# packages or says what broke.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
 
 # Empty for a real release; the Makefile's rpmtest-fedora target forwards RPM_RELEASE so a CI dev
 # build's snapshot Release lands on these RPMs too (mirrors ELBase / the spec Release: line).
