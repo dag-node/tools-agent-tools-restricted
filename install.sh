@@ -415,6 +415,23 @@ ensure_dir() {
     [[ -d "${dir}" ]] || install -d -o "${owner}" -g "${group}" -m "${mode}" "${dir}"
 }
 
+# Make sure `<home>/.config` exists and belongs to the account whose home it is, before the ai-tools
+# config directory is placed inside it. It is created here rather than as a parent of that
+# directory because `install -d` gives a parent it creates the DEFAULT attributes -- root-owned,
+# `0755` -- applying `-o`/`-g`/`-m` to the last component alone, which leaves the operator unable to
+# write its own config home. `mkdir` also lets the host's umask decide the mode, which is the host's
+# call for a directory this installer only has to traverse; the access boundary is the `700`
+# `~/.config/ai-tools` inside it. An existing one is left as it stands, mode and owner alike.
+# `restorecon` gives a created one `config_home_t`, which root creating it inside the home does not.
+ensure_config_home() {
+    local owner="$1" group="$2" dir="$3/.config"
+    [[ -d "${dir}" ]] && return 0
+    mkdir "${dir}"
+    chown "${owner}:${group}" "${dir}"
+    if command -v restorecon >/dev/null 2>&1; then restorecon "${dir}" 2>/dev/null || true; fi
+    log "created ${dir} $(stat -c '%a %U:%G' "${dir}" 2>/dev/null)"
+}
+
 # Install a file after substituting the projects-user tokens (@PROJECTS_HOME@,
 # @PROJECTS_USER@, @PROJECTS_GROUP@) and the sandbox-account tokens
 # (@SANDBOX_USER@, @SANDBOX_GROUP@) with their resolved values. Handles files that
@@ -1910,6 +1927,7 @@ do_install() {
     # deployed unread is the source-tree gate at the start of do_install, which names the commit
     # the install deploys and refuses an uncommitted tree without `--allow-uncommitted`.
 
+    ensure_config_home "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}"
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/ai-tools"
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
     local allowlist_existed=0; [[ -f "${allowlist}" ]] && allowlist_existed=1

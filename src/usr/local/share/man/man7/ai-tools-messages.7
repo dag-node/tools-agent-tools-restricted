@@ -224,6 +224,10 @@ semodule not found \-\- install policycoreutils
 ERROR.
 a malformed interface floor: ${fragment} declares $(printf '%q' "${declared_floor}"), which is not <major>.<minor>
 .TP
+.B MSG-B6P3
+WARNING.
+declined: ${cfg_home} was not created, so ${user}'s ai\-tools config cannot be seeded
+.TP
 .B MSG-C4A8
 ERROR.
 failed to add ${user} to ${OPERATORS_GROUP}
@@ -348,6 +352,10 @@ semodule failed to replace ${former}
 ERROR.
 unknown command: ${domain}
 .TP
+.B MSG-N2J8
+WARNING.
+could not create ${cfg} at 700 ${user}:${group}
+.TP
 .B MSG-N3T7
 WARNING.
 could not label ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}${AI_TOOLS_FCONTEXT_ERROR:+ \-\- ${AI_TOOLS_FCONTEXT_ERROR}}
@@ -355,6 +363,14 @@ could not label ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}${AI_TOOLS_FCONTEXT_ERROR:+
 .B MSG-P2T5
 ERROR.
 selinux groups disable: name the group to unload
+.TP
+.B MSG-P5C5
+WARNING.
+could not seed ${file}
+.TP
+.B MSG-P9K2
+WARNING.
+config not seeded for ${user}, which stays enrolled \-\- without allowed\-projects in ~/.config/ai\-tools it cannot start a session or claim a project
 .TP
 .B MSG-Q2X5
 ERROR.
@@ -392,9 +408,17 @@ operators remove: name the user to withdraw
 ERROR.
 compiled module ${pp} not found \-\- reinstall ai\-tools\-selinux, or from a checkout: sudo selinux/install\-selinux.sh build
 .TP
+.B MSG-S9G3
+WARNING.
+could not create ${cfg_home} as ${user}:${group}
+.TP
 .B MSG-S9M6
 ERROR.
 system post\-upgrade: takes no arguments
+.TP
+.B MSG-T4X9
+ERROR.
+not enrolled: ${user}'s config in ~/.config/ai\-tools could not be seeded, and without allowed\-projects it cannot start a session or claim a project \-\- clear the reason above and re\-run
 .TP
 .B MSG-T6S6
 ERROR.
@@ -411,6 +435,10 @@ refusing ${fragment}: '${domain}' is a command ai\-tools\-admin owns and no pack
 .B MSG-U6U6
 ERROR.
 no interface floor: ${fragment} declares no '# ai\-tools\-admin\-api\-min\-version: <major>.<minor>' \-\- reinstall the package that ships it
+.TP
+.B MSG-U8E9
+WARNING.
+could not give ${cfg_home} to ${user}:${group}; removed the directory again
 .TP
 .B MSG-U8G3
 ERROR.
@@ -471,6 +499,10 @@ the toolchain bootstrap failed \-\- no integration was reached
 .B MSG-Z4D6
 ERROR.
 the provider resolver is unavailable, so the enabled integrations cannot be resolved \-\- the toolchain itself is provisioned; re\-run without \-\-scope to confirm
+.TP
+.B MSG-Z6V4
+WARNING.
+not a directory: ${cfg_home} \-\- ${user}'s ai\-tools config cannot be seeded inside it
 .SS ai-tools-admin dotnet
 .TP
 .B MSG-A5R2
