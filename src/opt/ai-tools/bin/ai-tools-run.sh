@@ -351,7 +351,7 @@ session_environment_options+=( "--setenv=HOME=${SANDBOX_HOME}" )
 session_environment_options+=( "--setenv=SHELL=/usr/bin/bash" )
 
 # PATH is assembled now and emitted after the session-env fragments run, so a fragment can extend
-# its tail. The base tiers mirror path-dedup.sh's ordering -- root-owned, least-writable
+# its tail. The base tiers mirror path-order.sh's ordering -- root-owned, least-writable
 # directories first so they win first-match -- with the versioned Node bin LAST. That directory is
 # dirname(AI_TOOLS_AGENT_EXEC), the same validated path the launcher symlink resolved to, which
 # keeps node/npm on the same trusted resolution chain as the entrypoint and follows Node upgrades

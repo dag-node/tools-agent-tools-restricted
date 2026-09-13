@@ -198,6 +198,13 @@ die() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1
 }
+# err: a fault this script found and does not own, so it reports at the severity the state has and
+# leaves the exit status to the install. die is the other direction -- a fault that ends the run.
+err() {
+    local IFS=' ' code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf '  %s!%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2
+}
 
 # Shared message formatter, sourced from the SOURCE TREE (the installed copy may not exist
 # yet -- this script installs it). Frames interactive prompts in the '#' box and carries
@@ -897,7 +904,9 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/managed-assets.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
-    _chk /usr/local/lib/ai-tools/path-dedup.sh
+    _chk /usr/local/lib/ai-tools/agent-installs.lib.sh
+    _chk /usr/local/lib/ai-tools/path-order.lib.sh
+    _chk /usr/local/lib/ai-tools/path-order.sh
     _chk /etc/sudoers.d/ai-tools
     _chk /etc/ai-tools/operator.conf
     _chk /etc/ai-tools/prompts/claude-system-prompt.md
@@ -948,6 +957,108 @@ print_banner() {
     ai_tools_msg_banner \
         'Agent Tools Restricted — run coding agents with limited system access' \
         "installer · $(ai_tools_msg_version "${AI_TOOLS_VERSION}")"
+}
+
+# probe_shadowing_agents -- name the agents this host carries outside the sandbox, and the enrolled
+# operators whose shell reaches one. Two situations at two severities: an install found on the host
+# warns, and an operator it wins for is an error carrying the code `system bootstrap` defines.
+# Neither fails the install -- a host keeping both agents is supported, and what decides which one a
+# name reaches is the ordering.
+#
+# It reads first and reports second, so the findings arrive under one section at the end of the
+# install rather than spread through the step that happened to notice them -- and a host where it
+# finds neither an agent nor a shadowed operator does not draw the heading.
+#
+# The directory search is agent-installs.lib.sh's, shared with the ai-tools-base %post so a package
+# transaction and a from-source install report the same finding; where an account's shell resolves
+# a launcher is path-order.lib.sh's reading.
+probe_shadowing_agents() {
+    local lib=/usr/local/lib/ai-tools/path-order.lib.sh
+    local oplib=/usr/local/lib/ai-tools/operator.lib.sh
+    local prlib=/usr/local/lib/ai-tools/providers.lib.sh
+    local agentlib=/usr/local/lib/ai-tools/agent-installs.lib.sh
+    [[ -r "${lib}" && -r "${oplib}" && -r "${agentlib}" ]] || return 0
+    # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/agent-installs.lib.sh
+    source "${agentlib}" 2>/dev/null || return 0
+    # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/providers.lib.sh
+    source "${prlib}" 2>/dev/null || true
+    # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/path-order.lib.sh
+    source "${lib}" 2>/dev/null || return 0
+    # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/operator.lib.sh
+    source "${oplib}" 2>/dev/null || return 0
+    declare -F ai_tools_path_order_launchers >/dev/null 2>&1 || return 0
+
+    # Which launchers matter is the enabled agents' business (path-order.lib.sh reads the manifests);
+    # where their binaries may sit on this host is ai_tools_agent_installs's.
+    local launcher install_path install_alias
+    local -a found=()
+    while IFS= read -r launcher; do
+        [[ -n "${launcher}" ]] || continue
+        while IFS=$'\t' read -r install_path install_alias; do
+            [[ -n "${install_path}" ]] || continue
+            found+=( "${launcher}"$'\t'"${install_path}"$'\t'"${install_alias}" )
+        done < <(ai_tools_agent_installs "${launcher}")
+    done < <(ai_tools_path_order_launchers)
+
+    local -a shadowed=()
+    local record operators=0
+    if declare -F ai_tools_load_operators >/dev/null 2>&1 && ai_tools_load_operators; then
+        operators="${#AI_TOOLS_OPERATORS[@]}"
+        while IFS= read -r record; do
+            [[ -n "${record}" ]] && shadowed+=( "${record}" )
+        done < <(ai_tools_path_order_shadowed_operators \
+            "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}")
+    fi
+
+    (( ${#found[@]} + ${#shadowed[@]} )) || return 0
+    section "Agents outside the sandbox"
+
+    # A second agent warns whether or not an account reaches it today: what stands between it and an
+    # unconfined session is an ordering any later change to a PATH can undo.
+    local package remove_hint
+    for record in "${found[@]}"; do
+        IFS=$'\t' read -r launcher install_path install_alias <<<"${record}"
+        warn MSG-F6D2 "an agent outside the sandbox is installed at ${install_path}"
+        [[ -n "${install_alias}" ]] && warn "  the same file as ${install_alias}"
+        # The owning package is what turns the remedy into a command; a file no package owns keeps
+        # the path, which is all there is to name.
+        package="$(ai_tools_agent_install_owner "${install_path}")"
+        if [[ -n "${package}" ]]; then
+            remove_hint="installed by the ${package} package -- remove it with: sudo dnf remove ${package}"
+        else
+            remove_hint="remove it with the tool that installed it, at ${install_path}"
+        fi
+        warn "  ${remove_hint}"
+        warn '  it runs unconfined when it is started by that path, or when a shell resolves'
+        warn "  ${launcher} to it -- which is what the \$PATH ordering decides"
+    done
+
+    # Where each enrolled operator's own login shell resolves the launcher, stated in both
+    # directions, so a host that is already right says so.
+    local user winner shadow_line
+    if (( ${#shadowed[@]} )); then
+        for record in "${shadowed[@]}"; do
+            IFS=$'\t' read -r user launcher winner <<<"${record}"
+            # Composed first, so this site CITES the code ai-tools-bootstrap defines for the same
+            # situation rather than declaring a second message under it (see messaging.rule.md).
+            shadow_line="operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox"
+            err MSG-K2D4 "${shadow_line}"
+            err "  rank the wrapper ahead of it:  sudo ai-tools-admin operators add ${user}"
+            err "  or remove that install:        ${winner}"
+        done
+    elif (( ${#found[@]} && operators )); then
+        local -a named=()
+        for record in "${found[@]}"; do
+            launcher="${record%%$'\t'*}"
+            [[ " ${named[*]-} " == *" ${launcher} "* ]] && continue
+            named+=( "${launcher}" )
+            warn "  every enrolled operator's shell resolves ${launcher} to ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher} (the sandbox"
+            warn "  wrapper), and the \$PATH ordering is what keeps it that way"
+        done
+    elif (( ${#found[@]} )); then
+        warn "  no operator is enrolled yet, and enrolment is what wires the \$PATH ordering:"
+        warn "  sudo ai-tools-admin operators add <user>"
+    fi
 }
 
 # ── install ────────────────────────────────────────────────────────────────────
@@ -1330,13 +1441,48 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/managed-assets.lib.sh" \
         /usr/local/lib/ai-tools/managed-assets.lib.sh
 
-    # PATH dedup shell fragment: 644 root:root -- world-readable. Sourced by operator
-    # login shells via the dotfile lines ai-tools-admin wires (never installed into
-    # /etc/profile.d, so unwired accounts keep their stock PATH). No secrets, no tokens.
-    log "/usr/local/lib/ai-tools/path-dedup.sh"
+    # Host agent probe: 644 root:root -- world-readable, like every shared library. Read by this
+    # installer and by the ai-tools-base %post.
+    log "/usr/local/lib/ai-tools/agent-installs.lib.sh"
     install -o root -g root -m 644 \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/path-dedup.sh" \
-        /usr/local/lib/ai-tools/path-dedup.sh
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/agent-installs.lib.sh" \
+        /usr/local/lib/ai-tools/agent-installs.lib.sh
+
+    # PATH ordering reader: 644 root:root -- world-readable, like every shared library. Read by ai-tools-admin
+    # (which asks about the guard line and writes it), by `ai-tools --status` as the operator, and by the base
+    # package's %post. No secrets, no tokens.
+    log "/usr/local/lib/ai-tools/path-order.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/path-order.lib.sh" \
+        /usr/local/lib/ai-tools/path-order.lib.sh
+
+    # PATH ordering shell fragment: 644 root:root -- world-readable. Sourced by operator login shells
+    # via the dotfile lines ai-tools-admin wires (never installed into /etc/profile.d, so unwired accounts keep
+    # their stock PATH). No secrets, no tokens.
+    log "/usr/local/lib/ai-tools/path-order.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/path-order.sh" \
+        /usr/local/lib/ai-tools/path-order.sh
+
+    # A host installed from a release that shipped that fragment under its former name carries a guard line
+    # naming the path this step has just moved, which would leave the ordering unapplied on every enrolled
+    # operator's next shell. Repoint it here, in the step that moved the file; the base package's %post does
+    # the same for a host that upgrades. What the edit is bounded to is ai_tools_path_order_repoint's header.
+    local repointed
+    while IFS= read -r repointed; do
+        [[ -n "${repointed}" ]] && log "repointed the PATH ordering line in ${repointed}"
+    done < <(
+        # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/conf.lib.sh
+        . /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null || exit 0
+        # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/path-order.lib.sh
+        . /usr/local/lib/ai-tools/path-order.lib.sh 2>/dev/null || exit 0
+        # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/operator.lib.sh
+        . /usr/local/lib/ai-tools/operator.lib.sh 2>/dev/null || exit 0
+        ai_tools_load_operators 2>/dev/null || exit 0
+        for op in "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}"; do
+            ai_tools_path_order_repoint_user "${op}"
+        done
+    )
 
     # Project-label library: 644 root:root -- read by root principals (the ai-tools-relabel
     # helper and selinux/install-selinux.sh's sweep). It carries SELinux labelling primitives
@@ -1540,10 +1686,9 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man7/ai-tools-messages.7" \
         /usr/local/share/man/man7/ai-tools-messages.7
 
-    # Launch wrapper. Ships system-wide root:root 0755 -- rpm-owned, on every operator's PATH
-    # (path-dedup.sh, wired into operator dotfiles by ai-tools-admin, ranks /usr/local/bin
-    # ahead of the nvm shims, so it shadows nvm's claude). It
-    # runs as the invoking operator, gates on ai-ops membership, and drops to ai-tools via sudo.
+    # Launch wrapper. Ships system-wide root:root 0755 -- rpm-owned, on every operator's PATH (path-order.sh, wired
+    # into operator dotfiles by ai-tools-admin, ranks /usr/local/bin ahead of the nvm shims, so it shadows nvm's
+    # claude). It runs as the invoking operator, gates on ai-ops membership, and drops to ai-tools via sudo.
     log "/usr/local/bin/claude"
     install_subst 755 root root \
         "${SCRIPT_DIR}/src/usr/local/bin/claude.sh" \
@@ -2088,6 +2233,11 @@ do_install() {
             log "test suite skipped -- run it any time with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
     fi
+
+    # Last, so a finding is the final thing on screen whether or not the suite ran: this host may
+    # carry an agent the install did not put there and does not remove, and the operator decides
+    # what to do about it. It draws its own section only when it has something to report.
+    probe_shadowing_agents
 
     logger -t ai-tools-install -p daemon.notice -- "install complete" 2>/dev/null || true
 }

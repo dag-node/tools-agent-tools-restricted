@@ -105,14 +105,14 @@ else
     fail "a host without sudo should report the host limit, got: ${out}"
 fi
 
-# --- wire_init_file: the PATH dedup reaches the operator's bash init ---
+# --- wire_init_file: the PATH ordering line reaches the operator's bash init ---
 # The guard line is what ranks /usr/local/bin (the wrapper) ahead of the nvm shims, so a shell that
 # never sources it resolves `claude` to the nvm-managed binary instead. Driven against fixture
 # files in TESTDIR: the function takes the file as an argument, so no real home is touched.
 section "ai-tools-admin operator add: bash init wiring (unit)"
 
 mktestdir
-DEDUP_LINE="/usr/local/lib/ai-tools/path-dedup.sh"
+GUARD_LINE="/usr/local/lib/ai-tools/path-order.sh"
 
 # wire_file <file> [login-chain] : source the helper in a fresh shell and wire one fixture file.
 wire_file() {
@@ -130,15 +130,15 @@ if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
     fail "sourcing ${HELPER} did not define wire_init_file"
     finish; exit
 fi
-if grep -qF "${DEDUP_LINE}" "${TESTDIR}/.bashrc"; then
-    pass "a created .bashrc carries the dedup guard line"
+if grep -qF "${GUARD_LINE}" "${TESTDIR}/.bashrc"; then
+    pass "a created .bashrc carries the PATH ordering guard line"
 else
     fail "a created .bashrc has no guard line: $(cat "${TESTDIR}/.bashrc")"
 fi
 
 # A created .bash_profile opens with the .bashrc source EL's skel carries. bash reads
 # .bash_profile ALONE at login, so one holding only the guard line leaves a login shell without
-# the account's own init -- its nvm init among it, which the dedup is placed after.
+# the account's own init -- its nvm init among it, which the guard line is placed after.
 wire_file "${TESTDIR}/.bash_profile" login-chain >/dev/null
 printf 'export AI_TOOLS_TEST_MARKER=from_bashrc\n' >> "${TESTDIR}/.bashrc"
 marker="$(HOME="${TESTDIR}" bash -lc 'printf "%s" "${AI_TOOLS_TEST_MARKER:-unset}"' 2>/dev/null || true)"
@@ -154,8 +154,8 @@ fi
 printf '# my own bashrc\nexport NVM_DIR="${HOME}/.nvm"\n' > "${TESTDIR}/.bashrc"
 wire_file "${TESTDIR}/.bashrc" >/dev/null
 out="$(wire_file "${TESTDIR}/.bashrc")"
-if [[ "$(grep -cF "${DEDUP_LINE}" "${TESTDIR}/.bashrc")" == 1 \
-        && "${out}" == *"already present"* ]] && grep -qF '# my own bashrc' "${TESTDIR}/.bashrc"; then
+if [[ "$(grep -cF "${GUARD_LINE}" "${TESTDIR}/.bashrc")" == 1 \
+        && "${out}" == *"already wired"* ]] && grep -qF '# my own bashrc' "${TESTDIR}/.bashrc"; then
     pass "an existing init file keeps its content and takes one guard line"
 else
     fail "re-wiring changed an existing file:"$'\n'"$(cat "${TESTDIR}/.bashrc")"

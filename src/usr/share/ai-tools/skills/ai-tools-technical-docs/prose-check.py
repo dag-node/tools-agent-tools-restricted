@@ -1178,64 +1178,39 @@ PATH_CHECKS = [
 ]
 
 
-# `--wrap` adds three checks that read LINES rather than sentences. They are opt-in rather than
+# `--wrap` adds two checks that read LINES rather than sentences. They are opt-in rather than
 # default because they report how a line is WRAPPED, which a formatter fixes in bulk, and a tree
 # whose lines predate the rule reports every one of them:
 #
-#   comment-tie        a comment or docstring line ending on a word that ties to the next one:
-#                      an article, a conjunction, a preposition, or a wh-word. The word belongs
-#                      at the head of the next line. The set is HEADER_TIES.
 #   comment-width      a comment or docstring line over SOURCE_WIDTH columns (120, the column
 #                      a code file wraps at; `--width` overrides it).
-#   document-width     a Markdown line over DOCUMENT_WIDTH columns (100, the column the tree's
-#                      documents wrap at; `--width` overrides it). A document reflows when it is
+#   document-width     a Markdown line over the column its READER takes -- 80 for a page a
+#                      person reads, AGENT_DOCUMENT_WIDTH (120) for the router, a `*.rule.md`
+#                      and a skill, which an agent retrieves by `grep`; `--width` overrides it.
+#                      A document reflows when it is
 #                      rendered and is read unrendered as well -- in an editor, a diff, a review
 #                      -- and an edit that splices a sentence into a wrapped paragraph is what
-#                      leaves a line long. A table row, a fenced block, a line holding a URL or
-#                      one token, and a man page are not measured: each is a unit the rule
-#                      cannot break, and a line is measured without a reftag link's generated
-#                      destination. The tie rule does not read a document, which reflows.
+#                      leaves a line long. The column is code's, so one review culture and one
+#                      set of tools serve both: a one-sentence edit stays a one-line diff, and a
+#                      reader of a tool that does not soft-wrap sees the paragraph. A table row,
+#                      a fenced block, a line holding a URL or one token, and a man page are not
+#                      measured: each is a unit the rule cannot break, and a line is measured
+#                      without a reftag link's generated destination.
+#
+# Where a line BREAKS is the formatter's to decide, not this checker's: `tools/fill-comments.sh`
+# fills comment prose with Emacs, so a report per break would prompt a reader about a line a tool
+# rewrites in bulk. What is measured here is the width alone.
 #
 # `--config-header`: A CONFIG FILE'S HEADER IS READ IN A TERMINAL AND NEVER REFLOWED.
 # An operator's config file -- a seeded header, a shipped template -- is read as-is, so its prose
-# holds to a fixed width (72 columns, the RFC text width, by default), and a comment line does not
-# end on a word that ties to the next one: an article, a conjunction, a preposition, or a wh-word.
-# The set is the one msg.lib.sh glues to its successor when it wraps a runtime message, mirrored
-# here because this checker is Python and ships apart from that library; tests/unit/prose-check.sh
-# asserts the two sets agree. Every line is measured; the tie rule reads comment lines only,
-# and leaves a commented default (`#KEY=value`) alone, that being a setting rather than prose. A line
-# ending a sentence (`.`, `!`, `?`) is left alone too: a tie word closes a sentence as any other.
-HEADER_TIES = frozenset("""
-    a an the and or nor but so yet
-    of to in on at by for with from into onto upon over under above below
-    between among through during before after about against along across
-    around near off out up down via per as
-    what which who whom whose that when where why how
-""".split())
-HEADER_COMMENT = re.compile(r"^\s*#")
+# holds to a fixed width (72 columns, the RFC text width, by default). Every line is measured, and
+# a commented default (`#KEY=value`) is left alone, that being a setting rather than prose.
 HEADER_DEFAULT = re.compile(r"^\s*#\s*[A-Za-z_][A-Za-z0-9_]*=")
 HEADER_WIDTH = 72
 
 
-TIE_HINT = ("carry the word to the next line; a line does not end on an article, "
-            "a conjunction, a preposition, or a wh-word")
-
-
-def tie_at_line_end(text):
-    """The tie word `text` ends on, or None: a comment marker is stripped, a sentence-closing
-    word is not a tie, and trailing punctuation around the word is ignored."""
-    words = text.lstrip("#/* \t").split()
-    if not words:
-        return None
-    last = words[-1]
-    if last[-1] in ".!?":
-        return None
-    last = last.strip(",;:)\"'`").lower()
-    return last if last in HEADER_TIES else None
-
-
 def header_findings(paths, width):
-    """A line over `width` columns, or a comment line ending on a tie word."""
+    """A line over `width` columns."""
     for path, number, line in file_lines(paths):
         text = line.rstrip()
         if HEADER_DEFAULT.match(text):
@@ -1243,11 +1218,6 @@ def header_findings(paths, width):
         if len(text) > width:
             yield (path, number, "header-width", f"{len(text)}>{width}",
                    f"wrap the line at {width} columns", text)
-        if not HEADER_COMMENT.match(text):
-            continue
-        tie = tie_at_line_end(text)
-        if tie:
-            yield path, number, "header-tie", tie, TIE_HINT, text
 
 
 SOURCE_WIDTH = 120
@@ -1256,10 +1226,10 @@ SOURCE_DIRECTIVE = re.compile(r"^\s*#\s*(shellcheck|noqa|pylint:|type:|pragma)\b
 
 
 def comment_line_findings(source, width):
-    """A source file's comment or docstring line over `width` columns, or ending on a tie word.
+    """A source file's comment or docstring line over `width` columns.
 
     A comment is read as written, in an editor, in `git blame`, or in a deployed file,
-    so the rule a config header holds to applies to it too, at the wider column a code file
+    so the width a config header holds to applies to it too, at the wider column a code file
     wraps at. A code line is not measured: only a comment or a docstring is. A document or
     a man page reflows, so this reads source files only, line by line, where every other check
     reads rejoined sentences.
@@ -1273,20 +1243,35 @@ def comment_line_findings(source, width):
         if len(stripped) > width:
             yield (path, number, "comment-width", f"{len(stripped)}>{width}",
                    f"wrap the comment at {width} columns", stripped.strip())
-        tie = tie_at_line_end(text)
-        if tie:
-            yield path, number, "comment-tie", tie, TIE_HINT, stripped.strip()
 
 
-DOCUMENT_WIDTH = 100
+# A Markdown line's column follows its READER, which is the axis that decides everything else in
+# this file. A page an operator reads is reviewed as text -- one edited sentence stays a small
+# diff, a side-by-side review fits, and a tool that does not soft-wrap shows the paragraph -- so it
+# holds to the column code wraps at. A page an AGENT reads is retrieved by `grep`, which returns
+# the matching line, so a wider column returns more of the claim per hit and splits fewer phrases
+# across a break. `--width` overrides the column whichever reader a path has.
+DOCUMENT_WIDTH = 80
+AGENT_DOCUMENT_WIDTH = 120
+# The agent-facing set: the router, the path-scoped rules, and the skills an agent loads. A
+# document outside it is read by a person and takes DOCUMENT_WIDTH.
+AGENT_DOCUMENT = re.compile(r"(^|/)(CLAUDE|AGENTS)\.md$|\.rule\.md$|(^|/)skills/.*\.md$")
 DOCUMENT_TABLE = re.compile(r"^\s*\|")
 DOCUMENT_FENCE = re.compile(r"^\s*(```|~~~)")
 MAN_PAGE = (".1", ".5", ".8")
 
 
+def document_width(path, width):
+    """The column `path` wraps at: the caller's `--width`, else the column its reader takes."""
+    if width is not None:
+        return width
+    return AGENT_DOCUMENT_WIDTH if AGENT_DOCUMENT.search(path) else DOCUMENT_WIDTH
+
+
 def document_line_findings(source, width):
-    """A Markdown line over `width` columns, outside a fence or a table and holding more than
-    one token, with no URL in it. A man page is left to roff."""
+    """A Markdown line over its reader's column, outside a fence or a table and holding more than
+    one token, with no URL in it. A man page is left to roff. `width` overrides the per-path
+    column, so one `--width` measures every path the run was given."""
     last_path, fenced = None, False
     for path, number, line in source:
         if path == MESSAGE or not is_prose_file(path) or path.endswith(MAN_PAGE):
@@ -1301,9 +1286,10 @@ def document_line_findings(source, width):
                 or "://" in stripped or " " not in stripped.strip()):
             continue
         stripped = REFTAG_LINK.sub(r"\1", stripped)
-        if len(stripped) > width:
-            yield (path, number, "document-width", f"{len(stripped)}>{width}",
-                   f"wrap the line at {width} columns", stripped.strip())
+        column = document_width(path, width)
+        if len(stripped) > column:
+            yield (path, number, "document-width", f"{len(stripped)}>{column}",
+                   f"wrap the line at {column} columns", stripped.strip())
 
 
 def findings(source, checks, path_checks=()):
@@ -1334,7 +1320,7 @@ def selected_findings(source, checks, width, want_wrap):
     yield from findings(source, checks, PATH_CHECKS)
     if want_wrap:
         yield from comment_line_findings(source, width if width is not None else SOURCE_WIDTH)
-        yield from document_line_findings(source, width if width is not None else DOCUMENT_WIDTH)
+        yield from document_line_findings(source, width)
 
 
 def main():
@@ -1352,17 +1338,19 @@ def main():
     parser.add_argument("--new", metavar="REVISION",
                         help="report only the findings these paths add against REVISION")
     parser.add_argument("--wrap", action="store_true",
-                        help="add the line checks: a source comment ending on a tie word or over "
-                             f"--width columns, a Markdown line over {DOCUMENT_WIDTH}")
+                        help="add the line checks: a source comment over --width columns, "
+                             f"a Markdown line over {DOCUMENT_WIDTH} "
+                             f"({AGENT_DOCUMENT_WIDTH} for an agent-facing page)")
     parser.add_argument("--config-header", action="store_true",
                         help="read the paths as config-file headers: a line over --width "
-                             "columns or a comment line ending on a tie word")
+                             "columns")
     parser.add_argument("--path-roots", metavar="ROOTS", default=",".join(PATH_ROOTS),
                         help="comma-separated roots a bare-path finding may begin with "
                              f"(default: {','.join(PATH_ROOTS)})")
     parser.add_argument("--width", metavar="COLUMNS", type=int, default=None,
                         help=f"the column a line is measured against: {HEADER_WIDTH} for "
-                             f"--config-header, {SOURCE_WIDTH} for a source comment, by default")
+                             f"--config-header, {SOURCE_WIDTH} for a source comment, "
+                             f"{DOCUMENT_WIDTH}/{AGENT_DOCUMENT_WIDTH} for a document, by default")
     reading = parser.add_mutually_exclusive_group()
     reading.add_argument("--prose", dest="force", action="store_const", const=True,
                          help="read every line as prose, whatever the extension")

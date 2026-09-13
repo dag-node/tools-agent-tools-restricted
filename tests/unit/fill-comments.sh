@@ -4,7 +4,8 @@
 # Unit test for tools/fill-comments.sh, the Emacs-driven formatter for the comment wrap rule
 # (tools/emacs/ai-tools-fill.el). A formatter that rewrites source files is judged on the lines it
 # leaves as they were as much as on the lines it fills, so one fixture carries every shape: a long prose
-# paragraph, which must come back inside the column with no line ending on a tie word; an
+# paragraph, which must come back inside the column and with no line ending on a tie word -- the
+# filler's own rule, which no checker reads; an
 # aligned comment table, a linter directive, a commented default, a shebang and a code line,
 # each of which must come back byte-identical; and a second run must leave the file as the first
 # left it. Where the
@@ -34,7 +35,7 @@ cat > "${f}" <<'EOF'
 # The helper reads the list from the operator whose allowlist covers the path, and it acts only on a path that operator or the sandbox account holds, so a foreign-owned file is left untouched by the walk.
 #
 #   name          what it holds
-#   comment-tie   a line ending on a tie word
+#   comment-width  a line over the column
 #KEY=a default that is a setting rather than prose, however long the line runs on past the column
 # shellcheck disable=SC2034  # read by the sourced library, whose contract names the
 x=1
@@ -60,12 +61,31 @@ fi
 if [[ -r "${PC}" ]] && command -v python3 >/dev/null 2>&1; then
     printf '%s\n' "${para}" > "${TESTDIR}/para.sh"
     if python3 "${PC}" --wrap --width 72 "${TESTDIR}/para.sh" >/dev/null 2>&1; then
-        pass "the filled paragraph ends no line on a tie word (checker --wrap)"
+        pass "the filled paragraph holds to the column (checker --wrap)"
     else
-        fail "the filled paragraph breaks the wrap rule: $(python3 "${PC}" --wrap --width 72 "${TESTDIR}/para.sh" 2>&1 | head -4)"
+        fail "the filled paragraph breaks the width rule: $(python3 "${PC}" --wrap --width 72 "${TESTDIR}/para.sh" 2>&1 | head -4)"
     fi
 else
-    skip "wrap oracle" "prose-check.py or python3 not available"
+    skip "width oracle" "prose-check.py or python3 not available"
+fi
+
+# Which word may end a line is the FORMATTER's alone -- prose-check measures width and does not
+# read a line's last word -- so the tie behaviour is asserted here, against the set the filler
+# itself declares.
+# A word closing a sentence is not a tie, so the last line of the paragraph is read like any other.
+ties="$(sed -n '/defconst ai-tools-tie-words/,/^ *"/p' "${ROOT}/tools/emacs/ai-tools-fill.el" \
+    | tr -d "'()\"" | tr ' ' '\n' | grep -E '^[a-z]+$' | sort -u)"
+if [[ -z "${ties}" ]]; then
+    skip "tie behaviour" "the filler's word list could not be read from ai-tools-fill.el"
+elif ! awk -v ties="${ties}" '
+        BEGIN { n = split(ties, t, "\n"); for (i = 1; i <= n; i++) tie[t[i]] = 1 }
+        { last = $NF
+          if (last ~ /[.!?]$/) next          # a tie word closing a sentence is not a tie
+          sub(/[^a-zA-Z]+$/, "", last)
+          if (tolower(last) in tie) exit 1 }' <<< "${para}"; then
+    fail "the filler left a line ending on a tie word: $(printf '%s' "${para}" | head -3)"
+else
+    pass "the filler ends no line on a tie word (its own fill-nobreak-predicate)"
 fi
 
 # (2) Every other shape comes back byte-identical.
@@ -78,7 +98,7 @@ same "the SPDX header"        'SPDX-License-Identifier'
 same "the path line"          '# tests/unit/sample.sh'
 same "a linter directive"     'shellcheck disable'
 same "the table header"       'name          what it holds'
-same "a table row"            'comment-tie   a line'
+same "a table row"            'comment-width  a line'
 same "a commented default"    '#KEY=a default'
 same "a section banner"       '# ── A section banner'
 same "a code line with a trailing comment" 'y=2   #'

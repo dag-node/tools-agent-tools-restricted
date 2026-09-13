@@ -303,7 +303,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths confinement npm-verify entrypoint-verify managed-assets providers selinux-groups filters services; do
+for l in log msg conf skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths confinement npm-verify entrypoint-verify managed-assets providers selinux-groups filters services path-order agent-installs; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -335,9 +335,9 @@ install -d -m 0755 %{buildroot}%{ai_libdir}/keys
 # session-env fragment, and one sudoers grant serves every agent.
 install -d -m 0755 %{buildroot}/opt/ai-tools/bin
 install -m 0550 src/opt/ai-tools/bin/ai-tools-run.sh %{buildroot}/opt/ai-tools/bin/ai-tools-run
-# PATH dedup fragment for operator shells; ai-tools-admin wires the source line into
+# PATH ordering fragment for operator shells; ai-tools-admin wires the source line into
 # operator dotfiles, so no /etc/profile.d entry ships.
-install -m 0644 src%{ai_libdir}/path-dedup.sh %{buildroot}%{ai_libdir}/path-dedup.sh
+install -m 0644 src%{ai_libdir}/path-order.sh %{buildroot}%{ai_libdir}/path-order.sh
 
 # ── base: handback systemd units ─────────────────────────────────────────────
 install -d -m 0755 %{buildroot}%{_unitdir}
@@ -470,7 +470,7 @@ touch %{buildroot}/var/log/ai-tools/dotnet.log
 # This agent's payload lives at src/opt/ai-tools/agents/claude-code/ -- named for its MANIFEST,
 # not for the .claude directory it installs into, because that destination is manifest data
 # (config_dir). A second agent adds a sibling directory named for its own manifest.
-# The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path-dedup.sh, wired into
+# The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path-order.sh, wired into
 # operator dotfiles by ai-tools-admin, so it shadows the nvm-managed claude on every
 # operator's PATH); it runs as the invoking operator, gates on ai-ops membership, then drops
 # to the sandbox account via sudo.
@@ -607,6 +607,8 @@ fi
 _at_toolchain=1
 _at_operator=1
 _at_merge=0
+_at_path=""
+_at_repointed=""
 if [ -d /opt/ai-tools/.nvm ]; then
     _at_toolchain=0
 fi
@@ -620,7 +622,45 @@ fi
 if [ -f /etc/ai-tools/operator.conf.rpmnew ]; then
     _at_merge=1
 fi
-if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ]; then
+# Repoint each enrolled operator's guard line where it still names the fragment's former path, then
+# name the operators whose init this scriptlet could not write. The bound on that edit, and what a
+# reading of their shell needs instead, are ai_tools_path_order_repoint's header.
+if command -v bash >/dev/null 2>&1; then
+    _at_repointed="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/path-order.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; ai_tools_load_operators; for op in "${AI_TOOLS_OPERATORS[@]}"; do ai_tools_path_order_repoint_user "${op}"; done' 2>/dev/null || :)"
+    # Read AFTER the repoint, so the report covers what this host still owes once the scriptlet has
+    # done what it can.
+    _at_path="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/path-order.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; ai_tools_load_operators; ai_tools_path_order_stale_operators "${AI_TOOLS_OPERATORS[@]}"' 2>/dev/null || :)"
+fi
+if [ -n "${_at_repointed}" ]; then
+    echo "ai-tools-base: the PATH ordering line now sources /usr/local/lib/ai-tools/path-order.sh in:"
+    echo "${_at_repointed}" | while read -r _at_f; do
+        echo "  ${_at_f}"
+    done
+fi
+# Name an agent of an enabled launcher's name installed outside /usr/local/bin, which runs
+# unconfined when a shell resolves that name to it. Nothing is removed here: which agent a host
+# keeps is the operator's decision.
+_at_agents=""
+if command -v bash >/dev/null 2>&1; then
+    _at_agents="$(bash -c '
+. /usr/local/lib/ai-tools/conf.lib.sh
+. /usr/local/lib/ai-tools/providers.lib.sh
+. /usr/local/lib/ai-tools/path-order.lib.sh
+. /usr/local/lib/ai-tools/agent-installs.lib.sh
+while IFS= read -r launcher; do
+    [ -n "${launcher}" ] || continue
+    while IFS=$'"'"'\t'"'"' read -r path alias; do
+        [ -n "${path}" ] || continue
+        owner="$(ai_tools_agent_install_owner "${path}")"
+        if [ -n "${owner}" ]; then
+            printf "  %s%s -- sudo dnf remove %s\n" "${path}" "${alias:+ (the same file as ${alias})}" "${owner}"
+        else
+            printf "  %s%s -- remove it with the tool that installed it\n" "${path}" "${alias:+ (the same file as ${alias})}"
+        fi
+    done < <(ai_tools_agent_installs "${launcher}")
+done < <(ai_tools_path_order_launchers)' 2>/dev/null || :)"
+fi
+if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_path}" ]; then
     echo "ai-tools-base: steps this host still needs:"
     if [ "${_at_toolchain}" = 1 ]; then
         echo "  sudo ai-tools-admin system bootstrap          # install nvm + Node + Claude Code (network)"
@@ -631,6 +671,18 @@ if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ]; then
     if [ "${_at_merge}" = 1 ]; then
         echo "  sudo ai-tools-admin system post-upgrade       # operator.conf.rpmnew is waiting"
     fi
+    if [ -n "${_at_path}" ]; then
+        echo "${_at_path}" | while read -r _at_u; do
+            echo "  sudo ai-tools-admin operators add ${_at_u} # its PATH ordering line still names the previous fragment"
+        done
+    fi
+fi
+
+if [ -n "${_at_agents}" ]; then
+    echo "ai-tools-base: this host carries an agent outside the sandbox:"
+    echo "${_at_agents}"
+    echo "  or keep it: the \$PATH ordering ranks /usr/local/bin first, so the launcher name"
+    echo "  reaches the sandbox wrapper -- 'which claude' reports what your shell runs today"
 fi
 
 %preun -n ai-tools-base
@@ -972,6 +1024,8 @@ fi
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
 %attr(0644, root, root) %{ai_libdir}/filters.lib.sh
 %attr(0644, root, root) %{ai_libdir}/services.lib.sh
+%attr(0644, root, root) %{ai_libdir}/path-order.lib.sh
+%attr(0644, root, root) %{ai_libdir}/agent-installs.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/keys
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
@@ -980,7 +1034,7 @@ fi
 %dir %attr(0755, root, root) %{ai_libdir}/filters.d
 %attr(0644, root, root) %{ai_libdir}/filters.d/core.rules
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/ai-tools-run
-%attr(0644, root, root) %{ai_libdir}/path-dedup.sh
+%attr(0644, root, root) %{ai_libdir}/path-order.sh
 %{_unitdir}/ai-tools-handback.socket
 %{_unitdir}/ai-tools-handback@.service
 %{_presetdir}/85-ai-tools.preset

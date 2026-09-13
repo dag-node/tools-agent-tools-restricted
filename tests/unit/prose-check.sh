@@ -696,9 +696,9 @@ run_check --message "${msg}"
 assert_rc 1 "TEST-PC-40-message: --message checks a commit message"
 
 # ── `--config-header`: a config file's header is fixed-width text ────────────────────────────────
-# Both rules are pinned from both directions, and the exemptions with them: a commented default
-# is a setting, so its length is not measured and its last word is not read; a comment line
-# that closes a sentence on a tie word is not a wrapped line.
+# The width rule is pinned from both directions, and its one exemption with it: a commented
+# default is a setting, so its length is not measured. Where a line BREAKS is the formatter's,
+# so no case here reads a line's last word.
 long="# $(printf 'x%.0s' $(seq 1 75))"
 run_check --config-header "$(fixture TEST-PC-41-header-width.conf "${long}")"
 assert_grep 'header-width \[77>72\]' "${OUT}" "TEST-PC-41-header-width: a 77-column comment line is reported at the default width"
@@ -706,19 +706,15 @@ run_check --config-header --width 80 "$(fixture TEST-PC-42-header-width-arg.conf
 assert_rc 0 "TEST-PC-42-header-width-arg: the same line is within an explicit width of 80"
 run_check --config-header "$(fixture TEST-PC-43-header-default.conf "#KEY=$(printf 'v%.0s' $(seq 1 75))")"
 assert_rc 0 "TEST-PC-43-header-default: a commented default is not measured"
-run_check --config-header "$(fixture TEST-PC-44-header-tie.conf '# A session starts only inside a' '# listed directory.')"
-assert_grep 'header-tie \[a\]' "${OUT}" "TEST-PC-44-header-tie: a comment line ending on an article is reported"
-run_check --config-header "$(fixture TEST-PC-45-header-tie-prep.conf '# the token is passed to Claude Code by' '# name.')"
-assert_grep 'header-tie \[by\]' "${OUT}" "TEST-PC-45-header-tie-prep: a comment line ending on a preposition is reported"
-run_check --config-header "$(fixture TEST-PC-46-header-tie-sentence.conf '# carve this subtree out.' '# Next sentence.')"
-assert_rc 0 "TEST-PC-46-header-tie-sentence: a tie word closing a sentence is not reported"
+run_check --config-header "$(fixture TEST-PC-44-header-line-end.conf '# A session starts only inside a' '# listed directory.')"
+assert_rc 0 "TEST-PC-44-header-line-end: a line's last word is the formatter's business, not this check's"
 run_check --config-header "$(fixture TEST-PC-47-header-clean.conf '# A session starts only inside' '# a listed directory.' 'KEY=value' '#OTHER=default')"
 assert_rc 0 "TEST-PC-47-header-clean: a wrapped header, a setting and a commented default are silent"
 
 # ── `--wrap`: the line checks on source comments, opt-in ───────────────────────────────────────
-# A source comment is read as written, so under `--wrap` it holds to the tie rule and a 120-column
-# wrap. Opt-in, so the default run stays silent on how a line is wrapped: that is pinned first,
-# since a tree whose comments predate the rule would otherwise report every one of them.
+# A source comment is read as written, so under `--wrap` it holds to a 120-column wrap. Opt-in,
+# so the default run stays silent on how a line is wrapped: that is pinned first, since a tree
+# whose comments predate the rule would otherwise report every one of them.
 silent TEST-PC-48a-wrap-off-by-default.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
 wrapped() {  # wrapped <check> <case>.<ext> <line...>: PASS when the check is reported under --wrap
     local check="$1" name="$2"; shift 2
@@ -732,12 +728,10 @@ wrapped_silent() {  # wrapped_silent <case>.<ext> <line...>: PASS when --wrap re
     if [[ "${RC}" -eq 0 && -z "${OUT}" ]]; then pass "${name%%.*}: silent under --wrap (rc 0)"
     else fail "${name%%.*}: expected no finding under --wrap; rc ${RC}, output: ${OUT}"; fi
 }
-wrapped comment-tie TEST-PC-49-comment-tie.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
-wrapped comment-tie TEST-PC-50-comment-tie-docstring.py 'def f():' '    """Return the rows of' '    the table."""'
-wrapped_silent TEST-PC-51-comment-tie-wrapped.sh 'KEY=1' '# The helper reads the list from the operator,' '# the one whose allowlist covers the path.'
-wrapped_silent TEST-PC-52-comment-tie-sentence.sh '# Carve this subtree out.' '# Next sentence.'
-wrapped_silent TEST-PC-53-comment-tie-prose.md 'A document reflows, so a line may end on the' 'next word.'
-wrapped_silent TEST-PC-54-comment-tie-code.sh 'value="$(cat a)"    # not a comment ending on a' 'x=1'
+# Where a comment line breaks is the Emacs formatter's (`tools/fill-comments.sh`), so a line
+# ending mid-phrase is silent under `--wrap` however it is wrapped.
+wrapped_silent TEST-PC-49-comment-line-end.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
+wrapped_silent TEST-PC-50-comment-line-end-docstring.py 'def f():' '    """Return the rows of' '    the table."""'
 # A source comment wraps at 120 columns, wider than a config header's 72; `--width` overrides it.
 wide="# $(printf 'w%.0s' $(seq 1 125))"
 wrapped comment-width TEST-PC-55-comment-width.sh 'x=1' "${wide}"
@@ -746,12 +740,14 @@ run_check --wrap --width 100 "$(fixture TEST-PC-57-comment-width-arg.sh 'x=1' "#
 assert_grep 'comment-width \[112>100\]' "${OUT}" "TEST-PC-57-comment-width-arg: --width lowers the column a source comment is measured against"
 # A linter directive is read by the linter, so neither line rule reads it, however long or however it ends.
 wrapped_silent TEST-PC-58-comment-directive.sh 'x=1' "# shellcheck disable=SC2154  # set by the sourced library, whose contract names the" "y=2"
-# A Markdown document is read unrendered too -- in an editor, a diff -- so under `--wrap` a line holds
-# to 100 columns. A table row, a fenced block, a URL line, a lone token and a man page are units
-# the rule cannot break, and each is pinned silent.
+# A Markdown line holds to the column its READER takes: 80 for a page a person reads, 120 for the
+# router, a `*.rule.md` and a skill, which an agent retrieves by grep. Each column is pinned,
+# since one that read the same for every path would be no policy at all. A table row, a
+# fenced block, a URL line, a lone token and a man page are units the rule cannot break, and each
+# is pinned silent.
 long_md="$(printf 'word %.0s' $(seq 1 25))"
 wrapped document-width TEST-PC-59-document-width.md '# Title' "${long_md}"
-wrapped_silent TEST-PC-60-document-width-under.md '# Title' "$(printf 'word %.0s' $(seq 1 19))"
+wrapped_silent TEST-PC-60-document-width-under.md '# Title' "$(printf 'word %.0s' $(seq 1 14))"
 wrapped_silent TEST-PC-61-document-width-table.md '| a | b |' '|---|---|' "| $(printf 'cell %.0s' $(seq 1 25)) | x |"
 wrapped_silent TEST-PC-62-document-width-fence.md '```' "${long_md}" '```' 'After the fence.'
 wrapped_silent TEST-PC-63-document-width-url.md "See https://example.invalid/$(printf 'p%.0s' $(seq 1 100)) for the reference."
@@ -759,29 +755,27 @@ wrapped_silent TEST-PC-64-document-width-token.md "$(printf 'p%.0s' $(seq 1 110)
 wrapped_silent TEST-PC-65-document-width-man.1 '.TH X 1' "${long_md}"
 # The parenthesised part of a label link is generated, so a line is measured without it.
 wrapped_silent TEST-PC-75-document-width-label-link.md \
-    "$(printf 'word %.0s' $(seq 1 15))[ref-section-y4v2](../../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-y4v2) ends."
-run_check --wrap --width 80 "$(fixture TEST-PC-66-document-width-arg.md '# Title' "$(printf 'word %.0s' $(seq 1 19))")"
-assert_grep 'document-width \[94>80\]' "${OUT}" "TEST-PC-66-document-width-arg: --width lowers the column a document line is measured against"
+    "$(printf 'word %.0s' $(seq 1 8))[ref-section-y4v2](../../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-y4v2) ends."
+run_check --wrap --width 60 "$(fixture TEST-PC-66-document-width-arg.md '# Title' "$(printf 'word %.0s' $(seq 1 19))")"
+assert_grep 'document-width \[94>60\]' "${OUT}" "TEST-PC-66-document-width-arg: --width lowers the column a document line is measured against"
 
-# The tie set is msg.lib.sh's, mirrored: the runtime wrap and the header check must agree
-# on which words carry to the next line, or a header passes here and wraps differently in a box.
-MSG_LIB="${ROOT}/src/usr/local/lib/ai-tools/msg.lib.sh"
-[[ -r "${MSG_LIB}" ]] || MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
-if [[ -r "${MSG_LIB}" ]]; then
-    lib_ties="$(sed -n '/^readonly _AI_TOOLS_MSG_TIES=/,/"$/p' "${MSG_LIB}" | tr -d '"\\' | sed 's/^readonly _AI_TOOLS_MSG_TIES=//' | tr ' ' '\n' | grep . | sort -u | tr '\n' ' ')"
-    py_ties="$(python3 - "${PC}" <<'EOF'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("pc", sys.argv[1]); pc = importlib.util.module_from_spec(spec); spec.loader.exec_module(pc)
-print(" ".join(sorted(pc.HEADER_TIES)), end=" ")
-EOF
-)"
-    if [[ "${lib_ties}" == "${py_ties}" ]]; then
-        pass "TEST-PC-48-tie-set: the header tie set matches msg.lib.sh's _AI_TOOLS_MSG_TIES"
-    else
-        fail "TEST-PC-48-tie-set: tie sets differ -- msg.lib: '${lib_ties}' checker: '${py_ties}'"
-    fi
-else
-    skip "TEST-PC-48-tie-set" "msg.lib.sh not readable in the repo or installed"
-fi
+# The reader decides the column: the same 94-column line is a finding on a page a person reads and
+# is silent in the router, a rule file and a skill. `--width` overrides the column whichever reader
+# a path has, which TEST-PC-66 pins -- a run given one width measures every path against it.
+med="$(printf 'word %.0s' $(seq 1 19))"
+wrapped document-width TEST-PC-76-document-width-human.md '# Title' "${med}"
+wrapped_silent TEST-PC-77-document-width-rule.rule.md '# Title' "${med}"
+router_dir="${TESTDIR}/router"; mkdir -p "${router_dir}"
+printf '# Title\n%s\n' "${med}" > "${router_dir}/CLAUDE.md"
+run_check --wrap "${router_dir}/CLAUDE.md"
+assert_rc 0 "TEST-PC-78-document-width-router: the router takes the agent column"
+skill_dir="${TESTDIR}/skills"; mkdir -p "${skill_dir}"
+printf '# Title\n%s\n' "${med}" > "${skill_dir}/SKILL.md"
+run_check --wrap "${skill_dir}/SKILL.md"
+assert_rc 0 "TEST-PC-79-document-width-skill: a page under skills/ takes the agent column"
+long_agent="$(printf 'word %.0s' $(seq 1 25))"
+printf '# Title\n%s\n' "${long_agent}" > "${skill_dir}/SKILL.md"
+run_check --wrap "${skill_dir}/SKILL.md"
+assert_grep 'document-width \[124>120\]' "${OUT}" "TEST-PC-80-document-width-agent-over: the agent column is 120, not unlimited"
 
 finish

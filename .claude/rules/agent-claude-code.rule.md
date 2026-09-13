@@ -139,7 +139,7 @@ whitespace or control byte that could split the line or reach the operator's ter
 ## The wrapper (`claude.sh`)
 
 `/usr/local/bin/claude`, `root:root 0755`, rpm-owned, running as the invoking operator.
-`path-dedup.sh` ranks `/usr/local/bin` (Tier 1) ahead of the nvm shims in operator dotfiles, so this
+`path-order.sh` ranks `/usr/local/bin` (Tier 1) ahead of the nvm shims in operator dotfiles, so this
 shadows any nvm-managed `claude` on an operator's PATH ([launch](launch.rule.md)).
 
 It gates in this order, each step refusing before the next can matter:
@@ -300,8 +300,27 @@ reinstall-re-mints-the-entrypoint race the updater works around. It needs the `r
 provider seam already names, an exact-path containment rule for a host-packaged binary
 ([providers](providers.rule.md)), and a packaging split. Not built.
 
-**npm is the default, deliberately, and the reason is not that npm is safer.** The two channels
-trade one risk for another, and the trades sit on opposite sides of this project's threat model:
+**The PATH ordering is needed whatever the channel.** `nvm` prepends its versioned `bin` to the
+front of PATH from the operator's own `~/.bashrc`, so any agent that operator installed with
+`npm i -g` resolves ahead of `/usr/local/bin` until `path-order.sh` runs after that init and puts
+the root-owned directories back in front ([launch](launch.rule.md)). A distro package does not
+settle it either: `/usr/bin` loses to whatever prepended last, exactly as `/usr/local/bin` does.
+
+**What the channel decides is whether a second agent is reachable at all.** Under npm the agent
+lands in the toolchain the sandbox account owns, `0750` at `/opt/ai-tools/.nvm/...`, whose mode
+denies an operator the traverse: this stack does not put an agent on their PATH for the wrapper to
+have to beat. Under a distro package
+the agent is an executable, operator-readable file in `/usr/bin`, and what stands between the
+operator and an unconfined session is **precedence** — a property of each shell's environment
+rather than of the host, and one this project has now found three ways to lose: `sudo`'s
+`secure_path`, a caller resolving the absolute path, and a `/usr/sbin`→`/usr/bin` merge that would
+rank a system directory ahead of `/usr/local/bin` (which is why Tier 1 leads with the `/usr/local`
+pair). Placement holds without being re-verified per shell; precedence does not. The same rule
+serves every agent rather than this one: `ai-tools-run` accepts an executable only under
+`${AI_TOOLS_NVM_DIR}/versions/node/<semver>/bin/<launcher>`.
+
+Past that, the two channels trade one risk for another, and the trades sit on opposite sides of
+this project's threat model:
 
 - **npm's cost is in-model, bounded, and DAC-only.** The exec root is owned by the sandbox account,
   so on a host running **without** the SELinux policy a compromised session can modify `claude.exe`
@@ -317,11 +336,11 @@ trade one risk for another, and the trades sit on opposite sides of this project
   operator's PATH. Running `/usr/bin/claude` starts an **unconfined session as the operator**, with
   their own credentials and home and none of this machinery — the outcome the project exists to
   prevent, reachable today only by operator error. `/usr/local/bin` precedes `/usr/bin` in the
-  default PATH and `path-dedup.sh` ranks it Tier 1, so the wrapper wins; but `sudo`'s `secure_path`
+  default PATH and `path-order.sh` ranks it Tier 1, so the wrapper wins; but `sudo`'s `secure_path`
   commonly omits `/usr/local/bin`, and an IDE plugin resolving an absolute path does too.
 
 So the native hazard cannot be *prevented* (rpm owns that path), only *detected*, while the npm
-hazard is one confinement already contains. Defaulting to npm keeps existing hosts unchanged and
+hazard is one confinement already contains and the pin reports. Defaulting to npm keeps existing hosts unchanged and
 makes the switch an informed operator decision — the same posture as every other trust decision
 here. A host that adopts native gets the PATH assertion as a precondition, not an afterthought.
 

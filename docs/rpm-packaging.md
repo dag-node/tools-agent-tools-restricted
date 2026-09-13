@@ -169,7 +169,8 @@ to run as root.
   absent, leaving an existing allowlist untouched;
 - ensures the `ai-tools` account's linger (its `--user instance` runs the toolchain timer
   and each `ai-tools-run` session); an operator runs `claude` from its own login and needs none;
-- offers, interactively, to wire the host-wide PATH dedup into the user's `~/.bashrc`
+- offers, interactively, to wire the host-wide PATH ordering line into the
+  user's `~/.bashrc`
   and `~/.bash_profile` after their nvm init; a non-interactive run prints the line to add.
 
 `remove <user>` drops the name from `OPERATORS` and the `ai-ops` group, leaving the user's

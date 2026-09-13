@@ -2,12 +2,13 @@
 ;; SPDX-License-Identifier: AGPL-3.0-only
 ;;
 ;; The formatter for the wrap rule the writing standard states: a comment is read as written, so
-;; no comment line ends on an article, a conjunction, a preposition, or a wh-word, and each file
-;; kind wraps at its own column (.dir-locals.el at the repository root: 72 for a config file, 120
-;; for a source file). `prose-check.py --wrap' reports a line that breaks the rule; this file fixes
-;; one. Emacs's paragraph filler already knows every language's comment syntax, so the rule is a
-;; `fill-nobreak-predicate' hook and the widths are `fill-column' per mode, and the tie words are
-;; the set `msg.lib.sh' wraps a runtime message with.
+;; each file kind wraps at its own column, and no comment line ends on an article, a conjunction,
+;; a preposition, or a wh-word. Where a line BREAKS is this file's rule alone -- `prose-check.py'
+;; measures the width and reads no line end. The columns are `fill-column' per mode, from
+;; .dir-locals.el at the repository root: 72 for a config file, 120 for a source file and for the
+;; pages an agent retrieves, 80 for a page a person reads. Emacs's paragraph filler already knows
+;; every language's comment syntax, so the rule is a `fill-nobreak-predicate' hook, and the tie
+;; words are the set `msg.lib.sh' wraps a runtime message with.
 ;;
 ;; Interactive use: load this file, then `M-q' on a comment block. Batch use over whole files:
 ;; `bash tools/fill-comments.sh [--width N] <file>...', which calls `ai-tools-fill-comments-file'.

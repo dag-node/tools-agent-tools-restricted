@@ -243,13 +243,13 @@ option is recoverable at any time, and a silently reverted setting is not. `sett
 the directive for the same reason, which is why a newly shipped hook is installed but stays
 uninvoked until its declaration is merged ([claude-settings](claude-settings.rule.md)).
 
-The cost is that reconciling the `.rpmnew` is manual, so it is signposted rather than automated:
-each package's `%post` prints the pointer whenever one is present, and `sudo ai-tools-admin system
-post-upgrade` names the options the new version documents that the file does not mention, shows the
-difference, and offers to clear the copy. It leaves this file unchanged. An additive merge
-could append an option block the file lacks, but it could never correct the prose of one already
-there, so `operator.conf(5)` is the single current statement of what an option means and the file
-points at the man page rather than restating it.
+The cost is that reconciling the `.rpmnew` is manual, so it is signposted: each package's `%post`
+prints the pointer whenever one is present, and `sudo ai-tools-admin system post-upgrade` names the
+options the new version documents that the file does not mention and shows the difference. It leaves
+this file unchanged, and leaves the copy in place as the baseline the operator edits from, naming it
+as theirs to delete. An additive merge could append an option block the file lacks, but it could
+never correct the prose of one already there, so `operator.conf(5)` is the single current statement
+of what an option means and the file points at the man page rather than restating it.
 
 ### A config file's header is a pointer
 

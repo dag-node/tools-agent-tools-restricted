@@ -10,9 +10,9 @@
 # lacks arrives, the permission rules the file was kept for survive, a dated .bak lands first, and
 # every addition is named), operator.conf is REPORTED and byte-identical afterwards, and the
 # sudoers grant is SHOWN and neither written nor dropped -- its fixture here is a grant of
-# everything to everyone, the one a silent adoption would be worst for. The .rpmnew cleanup is the
-# fourth property: it defaults to yes only once the two files match, so a copy still carrying
-# something to review survives the run.
+# everything to everyone, the one a silent adoption would be worst for. The fourth property belongs
+# to every case: a .rpmnew survives the run, because the copy is the baseline an operator merges
+# from, and each case asserts it is still there and that the run named it as theirs to delete.
 #
 # Drives the DEPLOYED helper against fixtures in the testdir through AI_TOOLS_POSTUPGRADE_ROOT,
 # the root-only path hook (like AI_TOOLS_ALLOWLIST): the live control plane is never read, written
@@ -125,10 +125,10 @@ if [[ ${#baks[@]} -eq 1 && "${out}" == *"${baks[0]}"* ]]; then
 else
     fail "the run did not name the backup it wrote"
 fi
-if [[ -f "${SETTINGS}.rpmnew" ]]; then
-    pass "the copy is kept while the permission rules still differ"
+if [[ -f "${SETTINGS}.rpmnew" && "${out}" == *"then remove ${SETTINGS}.rpmnew"* ]]; then
+    pass "the copy survives the merge and is named as the operator's to remove"
 else
-    fail "dropped a .rpmnew that still had a difference to review"
+    fail "dropped a .rpmnew, or did not name it as the file to remove by hand"
 fi
 
 # The command claims to be idempotent, and an operator re-runs it: a second pass does not merge a declaration
@@ -156,16 +156,17 @@ else
     fail "a current file was rewritten, backed up, or lost its .rpmnew"
 fi
 
-# ── (D) The cleanup prompt defaults to yes only once no difference is left ─────────────────────────
+# ── (D) A merge that matches the shipped copy still leaves it to the operator ──────────────────
 reset_root
 jq . "${SHIPPED_SETTINGS}" > "${SETTINGS}.rpmnew"
 cp "${SETTINGS}.rpmnew" "${TESTDIR}/canonical.json"
 jq '.hooks.PostToolUse = [ .hooks.PostToolUse[0] ]' "${TESTDIR}/canonical.json" > "${SETTINGS}"
 out="$(run_pu)"
-if [[ ! -e "${SETTINGS}.rpmnew" ]] && cmp -s "${SETTINGS}" "${TESTDIR}/canonical.json"; then
-    pass "a merge that leaves the two files identical clears the copy"
+if [[ -f "${SETTINGS}.rpmnew" ]] && cmp -s "${SETTINGS}" "${TESTDIR}/canonical.json" \
+        && [[ "${out}" == *"nothing is left to carry over -- remove ${SETTINGS}.rpmnew"* ]]; then
+    pass "a copy with nothing left to carry over is reported as the operator's to remove"
 else
-    fail "kept a .rpmnew that had nothing left to say"
+    fail "removed a .rpmnew, or did not say the merge left nothing to carry over"
 fi
 
 # ── (E) operator.conf: reported, never written ───────────────────────────────────────────────
@@ -201,8 +202,8 @@ if cmp -s "${CONF}" "${TESTDIR}/pre.conf" && [[ "$(sidecars "${CONF}")" == 0 ]];
 else
     fail "a KEY=value config was rewritten or backed up"
 fi
-if [[ -f "${CONF}.rpmnew" ]]; then
-    pass "the copy to merge from is kept for the operator's own edit"
+if [[ -f "${CONF}.rpmnew" && "${out}" == *"then remove ${CONF}.rpmnew"* ]]; then
+    pass "the copy to merge from is kept, with the hand-merge named"
 else
     fail "dropped the .rpmnew an operator still has to merge by hand"
 fi

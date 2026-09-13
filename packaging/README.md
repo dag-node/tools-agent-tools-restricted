@@ -32,7 +32,7 @@ Each phase prints its command and a green `PASS` or red `FAIL(<code>)` as it run
 
 ```bash
 podman build -t ai-tools-rpmbase:el9 -f packaging/ELBase.Containerfile \
-    --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9.7-minimal .
+    --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9.8-minimal .
 podman build -t ai-tools-rpmtest:el9 -f packaging/Rocky9.Containerfile .
 podman run --rm -t --systemd=always ai-tools-rpmtest:el9
 ```

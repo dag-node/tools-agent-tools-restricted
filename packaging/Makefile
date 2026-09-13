@@ -57,15 +57,24 @@ CONTENT = src docs $(POLICY_SRC) \
 # target: the helper tree lives at ai_libexecdir (/usr/local/libexec/ai-tools), which the F42
 # bin/sbin merge leaves untouched, so one install layout serves both families.
 OCI         ?= podman
-EL9_BASE    ?= quay.io/rockylinux/rockylinux:9.7-minimal
+# Each base image is named by one variable here, which every Containerfile takes as BASE_IMAGE, so
+# the pre-pull covers the same tag the build uses. The EL tags are the MAJOR ones the
+# distro floats onto its newest minor, so 9.9 and 10.3 arrive without an edit here, and the Fedora
+# tag is the one that floats onto the current stable release, so 45 arrives the same way. What that
+# costs is worth knowing: %build compiles the SELinux policy modules against the base image's
+# selinux-policy headers, so a release that moves under a floating tag changes what a build ships,
+# and a Fedora major carries more with it than an EL minor. The pull prints the digest it resolved,
+# which is the record of what a given build used; name a version (or a digest) on the command line
+# to hold a build to it.
+EL9_BASE    ?= quay.io/rockylinux/rockylinux:9-minimal
 EL10_BASE   ?= quay.io/rockylinux/rockylinux:10-minimal
-# FedoraLatestBase pins fedora-minimal:latest internally (single distro, no BASE_IMAGE arg).
+FEDORA_BASE ?= quay.io/fedora/fedora-minimal:latest
 # Extra flags passed to every `OCI build`. Set BUILD_FLAGS=--no-cache to force a clean rebuild
 # when a content-addressed COPY cache hit would otherwise reuse an RPM built from older sources.
 BUILD_FLAGS ?=
 
 .PHONY: all dist srpm rpm clean rpmbase-el9 rpmbase-el10 rpmtest-rocky9 rpmtest-rocky10 \
-        rpmtest-fedora check-version changelog hooks
+        rpmtest-fedora pull-el9 pull-el10 pull-fedora check-version changelog hooks
 
 all:
 	@echo "make dist | srpm | rpm | clean | rpmbase-el9 | rpmbase-el10 | rpmtest-rocky9 | rpmtest-rocky10 | rpmtest-fedora"
@@ -99,11 +108,39 @@ hooks:
 # no test overlay and no `run`. rpmtest-rockyN layers the selftest on top of this; CI's
 # release job targets this directly to get clean release RPMs without re-running the full
 # selftest a prior CI job already passed on the same commit.
-rpmbase-el9:
+rpmbase-el9: pull-el9
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmbase:el9 -f $(CURDIR)/ELBase.Containerfile --build-arg BASE_IMAGE=$(EL9_BASE) --build-arg RPM_RELEASE=$(RPM_RELEASE) $(ROOT)
 
-rpmbase-el10:
+rpmbase-el10: pull-el10
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmbase:el10 -f $(CURDIR)/ELBase.Containerfile --build-arg BASE_IMAGE=$(EL10_BASE) --build-arg RPM_RELEASE=$(RPM_RELEASE) $(ROOT)
+
+# A base image absent from local storage is fetched here rather than by the build, because a
+# registry read that ends early ("unexpected EOF" storing a blob) fails the whole build before it
+# reads a line of this tree, and the podman on the CI runners predates `build --retry`. An image
+# already in storage is left alone, so a local build stays offline and as fast as it was.
+PULL_ATTEMPTS ?= 3
+PULL_DELAY    ?= 15
+define pull_base
+@$(OCI) image exists $(1) || { \
+    attempt=1; \
+    while :; do \
+        $(OCI) pull $(1) && break; \
+        [ "$$attempt" -ge $(PULL_ATTEMPTS) ] && { echo "$(1): pull failed after $(PULL_ATTEMPTS) attempts" >&2; exit 1; }; \
+        echo "$(1): pull attempt $$attempt failed, retrying in $(PULL_DELAY)s" >&2; \
+        attempt=$$((attempt + 1)); sleep $(PULL_DELAY); \
+    done; \
+}; \
+echo "$(1) -> $$($(OCI) image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{else}}{{.Id}}{{end}}' $(1) 2>/dev/null)"
+endef
+
+pull-el9:
+	$(call pull_base,$(EL9_BASE))
+
+pull-el10:
+	$(call pull_base,$(EL10_BASE))
+
+pull-fedora:
+	$(call pull_base,$(FEDORA_BASE))
 
 # The distro overlay on top of the base image, run with systemd as PID 1 so the selftest
 # fires and returns the container's exit status.
@@ -119,8 +156,8 @@ rpmtest-rocky10: rpmbase-el10
 # (single distro, its own FROM and ENTRYPOINT), so there is no separate base/overlay split -- build
 # it and run it directly. Building it compiles the policy modules against Fedora's current
 # headers, as each EL image does against its own.
-rpmtest-fedora:
-	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:fedora -f $(CURDIR)/FedoraLatestBase.Containerfile --build-arg RPM_RELEASE=$(RPM_RELEASE) $(ROOT)
+rpmtest-fedora: pull-fedora
+	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:fedora -f $(CURDIR)/FedoraLatestBase.Containerfile --build-arg BASE_IMAGE=$(FEDORA_BASE) --build-arg RPM_RELEASE=$(RPM_RELEASE) $(ROOT)
 	$(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmtest:fedora
 
 # The tarball asserts what it carries. The policy SOURCE must be there, since %build compiles

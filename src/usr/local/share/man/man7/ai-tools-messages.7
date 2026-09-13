@@ -340,6 +340,10 @@ provisioning failed \-\- ${integration}: its bootstrap failed, with the cause ab
 WARNING.
 could not remove ${user} from ${OPERATORS_GROUP}
 .TP
+.B MSG-M2N9
+WARNING.
+the PATH ordering line is already in ${user}'s shell init, and typing ${launcher} still runs ${winner}
+.TP
 .B MSG-M3D7
 ERROR.
 an interface newer than this one: ${fragment} needs contributed\-command interface ${declared_floor}, and this ai\-tools\-admin implements ${ADMIN_COMMAND_API} \-\- upgrade ai\-tools\-base
@@ -479,6 +483,10 @@ unknown command 'selinux ${resource}' (groups)
 .B MSG-W3T9
 ERROR.
 an incompatible contract: ${fragment} needs contributed\-command interface ${declared_floor}, and this ai\-tools\-admin implements ${ADMIN_COMMAND_API} \-\- a different major is a different contract, so upgrade whichever of the two is behind
+.TP
+.B MSG-W7J6
+WARNING.
+typing ${launcher} in ${user}'s shell runs ${winner}, not ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher} \-\- that agent runs unconfined, as ${user}
 .TP
 .B MSG-W7T4
 ERROR.
@@ -767,6 +775,10 @@ could not verify npm signatures (offline or unsupported) \-\- proceeding; the to
 .B MSG-H9S6
 ERROR.
 control plane present but ${cplib} does not resolve the agents' config dirs
+.TP
+.B MSG-K2D4
+ERROR.
+operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox
 .TP
 .B MSG-P9Q6
 WARNING.
@@ -1383,6 +1395,10 @@ nvm 'default' alias not set \-\- launcher symlinks skipped
 .B MSG-E7D7
 WARNING.
 relabel did not complete \-\- run: sudo ai\-tools\-admin system entrypoints relabel
+.TP
+.B MSG-F6D2
+WARNING.
+an agent outside the sandbox is installed at ${install_path}
 .TP
 .B MSG-G6H3
 WARNING.
