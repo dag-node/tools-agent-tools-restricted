@@ -251,6 +251,14 @@ report_shadowed_operators() {
         "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}")
 }
 
+# Executed, this provisions a host and needs root. Sourced -- by tests/unit/bootstrap.sh, which
+# drives report_shadowed_operators with its readings stubbed -- it defines its functions and stops
+# here: every statement from the root check on provisions. The executed path is unchanged, that
+# check being the next statement.
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    return 0
+fi
+
 [[ "${EUID}" -eq 0 ]] || die MSG-X7Z2 "run as root (sudo)"
 command -v curl >/dev/null 2>&1 || die MSG-T7H8 "curl is required to fetch nvm"
 

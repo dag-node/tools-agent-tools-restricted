@@ -585,6 +585,18 @@ the PATH search, and an account in any other state — one whose reading could n
 included — is named by no line, so the report names an account only where typing the launcher
 starts an agent outside the wrapper.
 
+`bootstrap.sh` pins the report `ai-tools-admin system bootstrap` closes with: which enrolled
+operators a launcher would not reach the wrapper for. It is the last thing said before a host is
+treated as ready, so both directions are driven — a shadowed account named with its launcher and
+the binary that wins, every other state named by no line — along with what the message tells the
+operator to do, that finding a fault does not become the command's exit status, and that no init
+file is written. The helper is **sourced**, stopping at the guard before its provisioning, so one
+function is driven with no toolchain to install; the libraries are sourced before the stubs, where
+the include guard makes the helper's own `source` a no-op and the stubs stand. The reading beneath
+it is `path-order.sh`'s to pin, and the paths a case drives are the ones a host presents: an
+operator's own `npm i -g` under their nvm, and the agent's distribution package at `/usr/bin/claude`
+and `/bin/claude`.
+
 `services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools --status` and
 the launch wrapper's pre-launch warning share. Two properties carry weight beyond the accessors.
 The **last-run stamp** is the one input here a non-root writer controls and it is rendered to the
