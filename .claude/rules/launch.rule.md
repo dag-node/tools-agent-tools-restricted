@@ -374,10 +374,17 @@ and a host is told it is ready there). The base package's `%post` reads the **in
 than this state, naming an operator whose guard line still points at the fragment's former path.
 
 `install.sh` closes with the same per-operator report and one reading none of the others makes:
-an agent of a launcher's name installed in a system directory (`/bin` first, where an agent's own
-distribution package puts it). That binary is on the host whatever an account's PATH does with it —
-it runs unconfined when a shell reaches it first or when it is started by its path — and the
-install is where the wrapper arrives beside it. Both findings are reported and neither fails the
+an agent of a launcher's name installed in a system directory (`/bin` first, where the agent's
+other distribution channel — its own package rather than npm — puts it). That binary is on the host
+whatever an account's PATH does with it,
+and the install is where the wrapper arrives beside it.
+
+**The two findings carry different severities, because only one of them is owed anything.** An
+install found on the host is a **notice** — it states what is there, names the package that owns it
+(`rpm -qf`, so the remedy is the `dnf remove` command rather than a path to go looking for), and
+says which way the reading came out: that every enrolled operator's shell resolves the launcher to
+the wrapper, or that no operator is enrolled yet. An operator the binary **wins for** is an
+**error**, carrying the code `system bootstrap` defines for that situation. Neither fails the
 install: a host carrying both agents is supported, and what decides which one runs is the ordering.
 See
 [cli](cli.rule.md) for the report and [providers](providers.rule.md) for what a launcher name is.

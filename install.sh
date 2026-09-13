@@ -198,6 +198,21 @@ die() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1
 }
+# note: a state of the host the operator reads and decides about. It is not a warning, because the
+# install completed and the state costs them no action; the marker separates it from log()'s
+# per-file progress.
+note() {
+    local IFS=' ' code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf '  %s*%s %s\n' "${C_BOLD}" "${C_RST}" "$*" >&2
+}
+# err: a fault this script found and does not own, so it reports at the severity the state has and
+# leaves the exit status to the install. die is the other direction -- a fault that ends the run.
+err() {
+    local IFS=' ' code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf '  %s!%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2
+}
 
 # Shared message formatter, sourced from the SOURCE TREE (the installed copy may not exist
 # yet -- this script installs it). Frames interactive prompts in the '#' box and carries
@@ -981,9 +996,10 @@ print_banner() {
 #
 # agent_installs_outside_sandbox <launcher> -- print one line per distinct executable of that name
 # in the system directories, as "<path>" and TAB-separated every other spelling of the SAME file.
-# /bin leads because that is where the agent's own distribution package installs it; on a usr-merged
-# host /bin and /usr/bin are one directory, and reporting that as two installs would name a file the
-# operator cannot remove twice. `-ef` compares the files, which is what tells the two hosts apart.
+# /bin leads because that is where the agent's other distribution channel -- its own package rather
+# than the npm one this stack installs -- puts it; on a usr-merged host /bin and /usr/bin are one
+# directory, and reporting that as two installs would name a file the operator cannot remove twice.
+# `-ef` compares the files, which is what tells the two hosts apart.
 agent_installs_outside_sandbox() {
     local launcher="$1" dir candidate idx seen
     local -a paths=() aliases=()
@@ -1026,13 +1042,14 @@ probe_shadowing_agents() {
         [[ -n "${launcher}" ]] || continue
         while IFS=$'\t' read -r install_path install_alias; do
             [[ -n "${install_path}" ]] || continue
-            found+=( "${install_path}${install_alias:+ (the same file as ${install_alias})}" )
+            found+=( "${launcher}"$'\t'"${install_path}"$'\t'"${install_alias}" )
         done < <(agent_installs_outside_sandbox "${launcher}")
     done < <(ai_tools_path_order_launchers)
 
     local -a shadowed=()
-    local record
+    local record operators=0
     if declare -F ai_tools_load_operators >/dev/null 2>&1 && ai_tools_load_operators; then
+        operators="${#AI_TOOLS_OPERATORS[@]}"
         while IFS= read -r record; do
             [[ -n "${record}" ]] && shadowed+=( "${record}" )
         done < <(ai_tools_path_order_shadowed_operators \
@@ -1041,21 +1058,61 @@ probe_shadowing_agents() {
 
     (( ${#found[@]} + ${#shadowed[@]} )) || return 0
     section "Agents outside the sandbox"
-    local path user winner shadow_line
-    for path in "${found[@]}"; do
-        warn MSG-F6D2 "an agent outside the sandbox is installed at ${path}"
-        warn "  it runs unconfined when a shell reaches it first, or when it is started by that path"
-        warn "  remove it, or keep the PATH ordering that ranks ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR} ahead of it"
+
+    # An install found here is a NOTICE: it states what the host carries, and whether an operator
+    # reaches it is the separate per-operator reading, which is where a fault would be. Printing
+    # both at warning severity left a host whose ordering already wins looking like one that
+    # needs work.
+    local package remove_hint
+    for record in "${found[@]}"; do
+        IFS=$'\t' read -r launcher install_path install_alias <<<"${record}"
+        note MSG-F6D2 "an agent outside the sandbox is installed at ${install_path}"
+        [[ -n "${install_alias}" ]] && note "  the same file as ${install_alias}"
+        # rpm knows which package owns it, so the remedy can be the command that removes it rather
+        # than the path to find it in. A file no package owns (the vendor's shell installer) keeps
+        # the path, which is all there is to name.
+        package=""
+        if command -v rpm >/dev/null 2>&1; then
+            package="$(rpm -qf --queryformat '%{NAME}' "${install_path}" 2>/dev/null || true)"
+            [[ "${package}" =~ ^[A-Za-z0-9._+-]+$ ]] || package=""
+        fi
+        if [[ -n "${package}" ]]; then
+            remove_hint="installed by the ${package} package -- remove it with: sudo dnf remove ${package}"
+        else
+            remove_hint="remove it with the tool that installed it, at ${install_path}"
+        fi
+        note "  ${remove_hint}"
+        note '  it runs unconfined when it is started by that path, or when a shell resolves'
+        note "  ${launcher} to it -- which is what the \$PATH ordering decides"
     done
-    for record in "${shadowed[@]}"; do
-        IFS=$'\t' read -r user launcher winner <<<"${record}"
-        # Composed first, so this site CITES the code ai-tools-bootstrap defines for the same
-        # situation rather than declaring a second message under it (see messaging.rule.md).
-        shadow_line="operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox"
-        warn MSG-K2D4 "${shadow_line}"
-        warn "  rank the wrapper ahead of it:  sudo ai-tools-admin operators add ${user}"
-        warn "  or remove that install:        ${winner}"
-    done
+
+    # The reading that decides whether anything is owed: where each enrolled operator's own login
+    # shell resolves the launcher. Stated in both directions, so a host that is already right says
+    # so rather than leaving the operator to run `which` themselves.
+    local user winner shadow_line
+    if (( ${#shadowed[@]} )); then
+        for record in "${shadowed[@]}"; do
+            IFS=$'\t' read -r user launcher winner <<<"${record}"
+            # Composed first, so this site CITES the code ai-tools-bootstrap defines for the same
+            # situation rather than declaring a second message under it (see messaging.rule.md).
+            shadow_line="operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox"
+            err MSG-K2D4 "${shadow_line}"
+            err "  rank the wrapper ahead of it:  sudo ai-tools-admin operators add ${user}"
+            err "  or remove that install:        ${winner}"
+        done
+    elif (( ${#found[@]} && operators )); then
+        local -a named=()
+        for record in "${found[@]}"; do
+            launcher="${record%%$'\t'*}"
+            [[ " ${named[*]-} " == *" ${launcher} "* ]] && continue
+            named+=( "${launcher}" )
+            note "  every enrolled operator's shell resolves ${launcher} to ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher} (the sandbox"
+            note "  wrapper), and the \$PATH ordering is what keeps it that way"
+        done
+    elif (( ${#found[@]} )); then
+        note "  no operator is enrolled yet, and enrolment is what wires the \$PATH ordering:"
+        note "  sudo ai-tools-admin operators add <user>"
+    fi
 }
 
 # ── install ────────────────────────────────────────────────────────────────────
