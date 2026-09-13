@@ -300,8 +300,20 @@ reinstall-re-mints-the-entrypoint race the updater works around. It needs the `r
 provider seam already names, an exact-path containment rule for a host-packaged binary
 ([providers](providers.rule.md)), and a packaging split. Not built.
 
-**npm is the default, deliberately, and the reason is not that npm is safer.** The two channels
-trade one risk for another, and the trades sit on opposite sides of this project's threat model:
+**npm is the default because of where it puts the binary.** Under npm the agent lands in the
+toolchain the sandbox account owns (`0750`, `/opt/ai-tools/.nvm/...`), which an operator cannot
+traverse: there is no agent on their PATH for the wrapper to have to beat. Under a distro package
+the agent is an executable, operator-readable file in `/usr/bin`, and what stands between the
+operator and an unconfined session is **precedence** — a property of each shell's environment
+rather than of the host, and one this project has now found three ways to lose: `sudo`'s
+`secure_path`, a caller resolving the absolute path, and a `/usr/sbin`→`/usr/bin` merge that would
+rank a system directory ahead of `/usr/local/bin` (which is why Tier 1 leads with the `/usr/local`
+pair). Placement holds without being re-verified per shell; precedence does not. The same rule
+serves every agent rather than this one: `ai-tools-run` accepts an executable only under
+`${AI_TOOLS_NVM_DIR}/versions/node/<semver>/bin/<launcher>`.
+
+Past that, the two channels trade one risk for another, and the trades sit on opposite sides of
+this project's threat model:
 
 - **npm's cost is in-model, bounded, and DAC-only.** The exec root is owned by the sandbox account,
   so on a host running **without** the SELinux policy a compromised session can modify `claude.exe`
@@ -321,7 +333,7 @@ trade one risk for another, and the trades sit on opposite sides of this project
   commonly omits `/usr/local/bin`, and an IDE plugin resolving an absolute path does too.
 
 So the native hazard cannot be *prevented* (rpm owns that path), only *detected*, while the npm
-hazard is one confinement already contains. Defaulting to npm keeps existing hosts unchanged and
+hazard is one confinement already contains and the pin reports. Defaulting to npm keeps existing hosts unchanged and
 makes the switch an informed operator decision — the same posture as every other trust decision
 here. A host that adopts native gets the PATH assertion as a precondition, not an afterthought.
 

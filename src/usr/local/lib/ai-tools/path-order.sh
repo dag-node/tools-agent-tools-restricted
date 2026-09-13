@@ -13,9 +13,12 @@
 #
 # PATH is first-match-wins, so the tier order runs least-writable first,
 # which keeps a user- or package-writable entry from shadowing a system
-# binary:
+# binary. Inside Tier 1 the /usr/local pair leads, the order EL itself
+# ships: where /usr/sbin is a symlink to /usr/bin, any other arrangement
+# resolves a distro-packaged binary before the wrapper of the same name
+# in /usr/local/bin.
 #
-#   Tier 1  /usr/local/sbin /usr/sbin /usr/local/bin /usr/bin   root-owned
+#   Tier 1  /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin   root-owned
 #           /usr/lib64/dotnet                                   DNF-managed
 #   Tier 2  ~/.local/bin      manually curated by the user
 #   Tier 3  ~/.dotnet/tools   package-manager populated (NuGet) — curated
@@ -32,7 +35,7 @@
 
 _dedup_path() {
     # Tier 1 core, present on any EL system -- unconditional.
-    local candidate="/usr/local/sbin:/usr/sbin:/usr/local/bin:/usr/bin"
+    local candidate="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
 
     # Optional tiers, in rank order -- only when present.
     local tier_dir
