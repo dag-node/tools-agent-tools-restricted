@@ -608,7 +608,6 @@ _at_toolchain=1
 _at_operator=1
 _at_merge=0
 _at_path=""
-_at_reconcile=""
 if [ -d /opt/ai-tools/.nvm ]; then
     _at_toolchain=0
 fi
@@ -622,29 +621,16 @@ fi
 if [ -f /etc/ai-tools/operator.conf.rpmnew ]; then
     _at_merge=1
 fi
-# Two things about where an operator's shell finds an agent launcher, in one pass
-# (ai_tools_path_order_reconcile_operators, the same library `operators add` asks with and `ai-tools --status`
-# re-checks with).
-#
-# It REPOINTS first: a host upgraded from a release that shipped the PATH ordering fragment under its former
-# name carries a guard line naming a file this package moved, which leaves the ordering unapplied. Repointing
-# one path token inside a line this package itself wrote is not a config merge, and that is why a scriptlet may
-# do it; the bound on the edit is ai_tools_path_order_repoint's header.
-#
-# It then REPORTS: an operator whose shell finds a launcher outside /usr/local/bin types its name and gets
-# an UNCONFINED agent, running as them with none of this machinery, so an upgrade says so per account rather than
-# leaving that to be discovered by a session that was never sandboxed. Each reading is taken from a login shell
-# of the account, bounded by the library's own timeout; an account the reading cannot be taken for is not named,
-# so this never nags a host it could not read. Non-fatal however it ends.
+# A package installs into the host's own directories and leaves every home alone -- editing a
+# personal dotfile from a scriptlet is fragile across shells and users, and the packaging
+# guidelines rule it out -- so this READS and reports. An operator whose bash init still names the
+# PATH ordering fragment's former path has a line that sources a file this version moved, which
+# stops the ordering applying on their next shell; `ai-tools-admin operators add` rewrites it,
+# with the confirm that wired the line in the first place. The accurate reading (which binary that
+# account's shell runs) executes the account's own init, so it belongs to that command and to
+# `ai-tools --status` rather than to a transaction.
 if command -v bash >/dev/null 2>&1; then
-    _at_reconcile="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/providers.lib.sh; . /usr/local/lib/ai-tools/path-order.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; ai_tools_load_operators; ai_tools_path_order_reconcile_operators "${AI_TOOLS_OPERATORS[@]}"' 2>/dev/null || :)"
-    # A repoint is something this upgrade DID, so it is reported where it happened rather than under the steps
-    # the host still owes; only the shadowed accounts are a step.
-    printf '%s\n' "${_at_reconcile}" | while IFS="	" read -r _at_kind _at_file _at_rest; do
-        [ "${_at_kind}" = repointed ] || continue
-        echo "ai-tools-base: repointed the PATH ordering line in ${_at_file} -- the fragment is now /usr/local/lib/ai-tools/path-order.sh"
-    done
-    _at_path="$(printf '%s\n' "${_at_reconcile}" | grep '^shadowed	' || :)"
+    _at_path="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/path-order.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; ai_tools_load_operators; ai_tools_path_order_stale_operators "${AI_TOOLS_OPERATORS[@]}"' 2>/dev/null || :)"
 fi
 if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_path}" ]; then
     echo "ai-tools-base: steps this host still needs:"
@@ -658,8 +644,8 @@ if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_pat
         echo "  sudo ai-tools-admin system post-upgrade       # operator.conf.rpmnew is waiting"
     fi
     if [ -n "${_at_path}" ]; then
-        echo "${_at_path}" | while IFS="	" read -r _at_kind _at_u _at_l _at_w; do
-            echo "  sudo ai-tools-admin operators add ${_at_u} # typing ${_at_l} runs ${_at_w}, outside the sandbox"
+        echo "${_at_path}" | while read -r _at_u; do
+            echo "  sudo ai-tools-admin operators add ${_at_u} # its PATH ordering line names the previous fragment"
         done
     fi
 fi

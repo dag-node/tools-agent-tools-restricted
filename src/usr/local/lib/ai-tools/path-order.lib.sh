@@ -266,6 +266,29 @@ ai_tools_path_order_shadowed_operators() {
     done
 }
 
+# ai_tools_path_order_stale_operators <user>...
+# Print each named account whose bash init still names the FORMER fragment. A READ, and the only
+# question about the PATH ordering an rpm scriptlet asks: a package installs into the host's own
+# directories and leaves a home alone, so the scriptlet reports and `ai-tools-admin operators add`
+# is what rewrites the line, with its confirm. It does not start a login shell either -- the
+# accurate reading executes the account's own init, which is a person's command to give rather
+# than a transaction's.
+ai_tools_path_order_stale_operators() {
+    local user home f
+    for user in "$@"; do
+        [[ -n "${user}" ]] || continue
+        home="$(getent passwd "${user}" | cut -d: -f6)"
+        [[ -n "${home}" && -d "${home}" ]] || continue
+        for f in "${home}/.bashrc" "${home}/.bash_profile"; do
+            [[ -r "${f}" ]] || continue
+            if grep -qF "${AI_TOOLS_PATH_ORDER_FRAGMENT_FORMER}" "${f}" 2>/dev/null; then
+                printf '%s\n' "${user}"
+                break
+            fi
+        done
+    done
+}
+
 # ai_tools_path_order_reconcile_operators <user>...
 # The whole per-host pass, in one call: repoint every guard line naming the former fragment, then report each account
 # whose shell reaches an agent outside /usr/local/bin. Prints one TAB-separated record per event, tagged so a caller
