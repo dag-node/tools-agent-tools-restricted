@@ -19,25 +19,54 @@ export SANDBOX_GROUP=ai-tools
 Each critical step also re-states the sandbox name inline, so a step pasted on its own
 still works.
 
-## 1. Install PATH dedup fragment (root, once)
+## 1. Install the PATH ordering fragment (root, once) <a id="ref-section-y2t3"></a>
 
 ```bash
 sudo install -d -o root -g root -m 751 /usr/local/lib/ai-tools
 sudo install -o root -g root -m 644 \
-    src/usr/local/lib/ai-tools/path-dedup.sh /usr/local/lib/ai-tools/path-dedup.sh
+    src/usr/local/lib/ai-tools/path-order.sh /usr/local/lib/ai-tools/path-order.sh
 ```
 
 (The lib directory's group becomes `ai-tools` once the account exists —
 `install.sh` and the RPM re-assert `root:ai-tools 0751`.)
 
-path-dedup deduplicates the shell's existing `$PATH` and orders it
-root-owned-first, so `/usr/local/bin/claude` — the wrapper that launches
-claude restricted — always resolves ahead of the nvm-managed `claude`. It is
-sourced per-account: only the operator shells wired for it get the ordering,
-and every other account on the host keeps its stock PATH.
+Anthropic's install routes deliver the same artifact. The
+[npm package](https://code.claude.com/docs/en/setup#install-with-npm)
+`@anthropic-ai/claude-code` downloads a native binary that does not use Node.js
+at runtime, and the [dnf package](https://code.claude.com/docs/en/setup#dnf)
+puts that same binary in `/usr/bin`. Node is the distribution and update
+channel rather than a runtime dependency.
 
-`sudo ai-tools-admin operators add <user>` offers to wire the source line into your
-`~/.bashrc` and `~/.bash_profile`. To wire it by hand, add it to **both** files
+This stack takes the npm route, into the toolchain the sandbox account owns
+under `/opt/ai-tools` at `0750`: the binary, the Node it arrives through, and
+the daily npm update all sit inside the restricted account, where an agent
+that does run on Node takes the same toolchain. Your account cannot traverse
+that directory, so you reach the agent through the wrapper at
+`/usr/local/bin/claude`, which checks the caller and the project before it
+drops into the sandbox ([ref-section-e7g6](../README.md#ref-section-e7g6)).
+
+Your own shell can still put another `claude` first. The shell searches `$PATH`
+left to right and runs the first match, and `nvm` prepends its versioned `bin`
+to the front of `$PATH` from your `~/.bashrc`, so an agent you installed with
+`npm i -g` is found before `/usr/local/bin`. A dnf-installed binary is subject
+to the same search: which of `/usr/bin` and `/usr/local/bin` the shell reaches
+first decides, and that order differs between hosts. Either binary answers to
+the name `claude` and may start an unconfined session as you, with your
+credentials and your home, where the wrapper is not ordered ahead of it.
+
+`path-order.sh` is this project's convenience for that: it deduplicates the
+shell's `$PATH` and orders it root-owned-first, so `/usr/local/bin/claude`
+always resolves ahead of an agent further down the PATH. It is sourced
+per-account: only the operator shells wired for it get the ordering, and every
+other account on the host keeps its stock PATH. Ordering your PATH another way
+does the same job — what the confinement needs is that `claude` resolves to the
+wrapper.
+
+`sudo ai-tools-admin operators add <user>` reads which `claude` a shell of that
+account runs today — the wrapper, or an agent elsewhere on its PATH, which
+starts unconfined — and offers to wire the source line into your `~/.bashrc` and
+`~/.bash_profile`. `ai-tools --status` reports the same reading for the shell
+you run it from. To wire it by hand, add it to **both** files
 (non-login interactive shells read only `~/.bashrc`, login shells `~/.bash_profile`),
 after your nvm init:
 
@@ -47,8 +76,8 @@ export NVM_DIR="${HOME}/.nvm"
 ```
 
 ```bash
-# ai-tools PATH dedup (must follow nvm init)
-[[ -f /usr/local/lib/ai-tools/path-dedup.sh ]] && source /usr/local/lib/ai-tools/path-dedup.sh
+# ai-tools PATH ordering (must follow nvm init)
+[[ -f /usr/local/lib/ai-tools/path-order.sh ]] && source /usr/local/lib/ai-tools/path-order.sh
 ```
 
 Those two files are bash's, and `operators add` names your login shell when it
@@ -56,9 +85,9 @@ reads something else. The fragment sources cleanly under zsh, so the same line
 goes in `~/.zshrc` and `~/.zprofile`; a shell that does not read bash (fish) takes
 the same tier ordering in its own syntax.
 
-nvm must be sourced **before** path-dedup: nvm prepends its versioned bin dir
-to `$PATH`, and path-dedup then restructures it into Tier 4, behind the T1
-system bins (which include the wrapper) and T2 `~/.local/bin`. `path-dedup.sh`
+nvm must be sourced **before** the fragment: nvm prepends its versioned bin dir
+to `$PATH`, and the fragment then restructures it into Tier 4, behind the T1
+system bins (which include the wrapper) and T2 `~/.local/bin`. `path-order.sh`
 is idempotent — sourcing it again in the same shell produces the same PATH.
 
 ## 2. Create the `SANDBOX_USER` OS account at `/opt` (root, once)
@@ -225,7 +254,9 @@ owner/group/mode list is `tests/integration/perms.sh`, which
 
 | File | Deploy path |
 |---|---|
-| `src/usr/local/lib/ai-tools/path-dedup.sh` | `/usr/local/lib/ai-tools/path-dedup.sh` (root) |
+| `src/usr/local/lib/ai-tools/path-order.sh` | `/usr/local/lib/ai-tools/path-order.sh` (root) |
+| `src/usr/local/lib/ai-tools/path-order.lib.sh` | `/usr/local/lib/ai-tools/path-order.lib.sh` (root) |
+| `src/usr/local/lib/ai-tools/agent-installs.lib.sh` | `/usr/local/lib/ai-tools/agent-installs.lib.sh` (root) |
 | `src/opt/ai-tools/bin/nvm-update.sh` | `/opt/ai-tools/bin/nvm-update.sh` |
 | `src/usr/local/libexec/ai-tools/ai-tools-chown.sh` | `/usr/local/libexec/ai-tools/ai-tools-chown` (root) |
 | `src/usr/local/libexec/ai-tools/ai-tools-setgid.sh` | `/usr/local/libexec/ai-tools/ai-tools-setgid` (root) |

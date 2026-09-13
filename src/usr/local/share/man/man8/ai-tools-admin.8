@@ -194,23 +194,57 @@ Enrol
 .IR USER ,
 defaulting to
 .BR $SUDO_USER .
-Appends the name to
-.BR OPERATORS ,
-adds the account to
-.BR ai\-ops ,
-seeds that account's own config \(em an allowlist at
+Seeds that account's own config first \(em an allowlist at
 .I ~/.config/ai\-tools/allowed\-projects
 and secret\-name patterns at
 .IR ~/.config/ai\-tools/secret\-patterns ,
-each carrying its format header alone \(em enables
+each carrying its format header alone \(em then appends the name to
+.BR OPERATORS ,
+adds the account to
+.BR ai\-ops ,
+enables
 .BR loginctl (1)
-linger for the sandbox account, and offers to source the PATH ordering
+linger for the sandbox account, and settles where that account's shell finds an
+agent launcher.
+.RS
+.PP
+That last step is the one an operator is asked about. It reads, from a login
+shell of the account, which
+.B claude
+a shell there would run: the sandbox wrapper in
+.IR /usr/local/bin ,
+or an agent installed elsewhere on that PATH \(em which starts unconfined, as
+that operator, outside every control this stack applies. The question states
+which of the two the account gets today and offers to source the PATH ordering
 fragment from the account's
 .I ~/.bashrc
 and
-.IR ~/.bash_profile .
+.IR ~/.bash_profile ,
+after the nvm init. Declining an account that already reaches an agent outside
+.I /usr/local/bin
+is reported as a warning naming the binary that wins, not passed over in
+silence, and the line to add is printed either way.
+.PP
+It also repoints a guard line that names the fragment's former path, which an
+upgrade would otherwise leave sourcing a file that no longer exists. That
+rewrites one path inside a line this stack wrote and leaves the rest of the file
+as it was. The rename does not change what the line does, so it does not write
+a backup.
+.RE
+An account whose home has no
+.I ~/.config
+yet is asked about first, default
+.BR Yes ,
+and the directory is created with the host's umask deciding its mode; the
+ai\-tools directory inside it is
+.B 700
+and its files
+.BR 600 .
+A first enrolment that cannot write the allowlist is refused with the host
+unchanged, since an operator without one can neither start a session nor claim
+a project.
 Idempotent: a re-run reconciles each of those and reports what was already in
-place.
+place, and exits non\-zero when the config is still missing.
 Refuses root and the sandbox account.
 .TP
 .B operators remove \fIUSER\fR
@@ -326,6 +360,9 @@ is reported and never rewritten;
 is shown only.
 Every treatment shows the difference first, confirms, and writes a dated
 backup before changing anything.
+Each file closes by naming its
+.I FILE.rpmnew
+as yours to delete, once you have merged what you want from it by hand.
 Idempotent, and a no-op when no
 .I .rpmnew
 file is waiting.

@@ -3,8 +3,8 @@ name: ai-tools-technical-docs
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the frontmatter name is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 4
-x-ai-tools-updated: 2026-09-12
+x-ai-tools-version: 5
+x-ai-tools-updated: 2026-09-13
 description: >
   Technical writing standard for every software engineering artifact. Use when writing or
   editing README and usage guides, `CLAUDE.md` / `AGENTS.md`, `*.rule.md`, file and module headers,
@@ -483,6 +483,18 @@ reference to something without a reftag is fixed by minting one, and a paragraph
 than one reference is the shape to refuse: the sentence reads complete without following the
 link. The sections of this file carry reftags ahead of a citation, as the one exception: they
 are general principles, cited from other files and other projects.
+
+**A reftag belongs to the principle a referent states, not to its wording.** A rewrite that keeps the principle keeps
+the reftag: rewording the prose, reflowing it, moving the section within its file, and retitling it all leave the id
+alone, because every citation and every log line already naming it goes on resolving. **Whether the principle survived
+is a judgement the writer makes**, by reading the old referent against the new one — a changed title is evidence and
+not the test, and a title reformulated over the same principle is no change at all.
+
+Retire an id when the referent leaves the tree, or when what it states has changed substantially enough that a reader
+following an old citation would land on a different claim; that is a new referent, and it takes a new id. A retirement
+recorded beside a live row stating the same principle is the shape to look for: the id churned under a referent that
+survived, which spends the retired id and strands every reference made before the change. Where a draft mints an id
+and the writer reaches for the minter again over the same principle, the first id stands.
 
 A document's own navigation does not take a reftag. A contents line and a jump to one of the
 document's sections are ordinary links, `[Upgrade behaviour](#upgrade-behaviour)`, whose text is
@@ -1050,31 +1062,29 @@ as a whole line, so a document naming the marker is still checked.
 Run it before committing prose, and on the commit message too — the universal rules cover that
 artifact like any other.
 
-**A comment is read as written, so no comment line ends on a tie word.** A source comment, a
-docstring, and a config file's header are read in an editor or a terminal, which do not reflow
-them, so a line does not end on a word that ties to the next one — an article, a conjunction, a
-preposition, or a wh-word (`, the` at a line end is the usual case) — where a runtime message
-would carry it to the next line. `--wrap` adds the checks that report it: `comment-tie` for a
-source comment ending on a tie word, `comment-width` for one over 120 columns, the column a
-code file wraps at, and `document-width` for a Markdown line over 100 columns, the column a
-document wraps at. A document reflows when rendered and is read unrendered too, in an editor
-and in a diff, and an edit that splices a sentence into a wrapped paragraph is what leaves a
-line long; a table row, a fenced block, a line holding a URL or one token, and a man page are
-not measured, each being a unit the rule cannot break, and the tie rule does not read a
-document. They are opt-in:
-how a line is wrapped is a formatter's job, run over a file once, and a tree whose comments predate
-the rule reports every one of them. A code line is never measured: the width rule is for prose a
-reader has to follow, and a long line of C#, Java or shell is read on a wide screen as written.
-A config file's header holds to 72 columns instead, the RFC text width, ragged right, and is kept
-to what the file is, the one
-rule a reader needs before writing a line, example lines and the file's man page, since a header
-in an operator's file is not rewritten by an upgrade. `--config-header` reports a line over the
-width (`--width` changes it) and a comment line ending on a tie word, leaving a commented default
-(`#KEY=value`) and a sentence-closing word alone:
+**Keep prose to the file's wrap width.** Source comments, docstrings and config headers are read as written — an
+editor and a terminal do not reflow them — so `--wrap` enforces:
+
+- **comment-width** — a source comment or docstring over **120** columns, this stack's code column. Override with
+  `--width` where the language sets another (Black 88, PEP 8 79).
+- **document-width** — a Markdown line over the reader's column: **80** for pages people read (README, `docs/`,
+  guides), which keeps diffs small and side-by-side review readable; **120** for pages agents retrieve
+  (`CLAUDE.md`, `AGENTS.md`, `*.rule.md`, skills), which returns more of the claim per `grep` hit.
+
+Only prose is measured: a code line, a table row, a fenced block, a single-token or URL line, and a man page are
+skipped. These checks are opt-in, since a tree whose prose predates them reports every line.
+
+A config header stays at **72** columns, the RFC text width, ragged right, and is kept to what the file is, the one
+rule a reader needs before writing a line, example lines and the file's man page, since an upgrade does not rewrite
+a header in an operator's file. `--config-header` reports an over-width line (`--width` overrides) and leaves a
+commented default (`#KEY=value`) alone:
 
 ```bash
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --config-header <file>...
 ```
+
+**Where a line breaks is the formatter's, not the writer's.** Write the prose
+and let `tools/fill-comments.sh` wrap it; these checks hold the width alone.
 
 **A file's extension decides how it is read, and `--prose` / `--source` override that.** A `.md`
 page or a man page contributes every line; anything else contributes its comments and docstrings.

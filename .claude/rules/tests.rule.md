@@ -358,7 +358,7 @@ read with, through which the page's own examples are loaded; `operator.conf(5)` 
 `custom-claude-endpoint.conf(5)` to the keys their shipped templates mention, in both directions,
 read with `ai_tools_conf_keys` so the test and `system post-upgrade` agree on what *mentioned*
 means. It closes by running the checker's `--config-header` mode over every config header this
-project writes, so each holds to 72 columns with no line ending on a tie word
+project writes, so each holds to 72 columns
 ([providers](providers.rule.md) states the placement rule). In each pair the help is
 orientation and the page is the reference (see [cli](cli.rule.md)), so it asserts relations
 rather than set equality. For `ai-tools(1)`: the **verb** sets match in both directions, every
@@ -509,8 +509,9 @@ end to end, from dispatch through the registry to each treatment (see
 treatment each file got — the settings JSON merged with its permission rules intact and a dated
 `.bak` written first, `operator.conf` reported and byte-identical afterwards, the sudoers grant
 shown and neither written nor dropped (its fixture is a grant of everything to everyone, so a
-silent adoption fails loudly) — plus the cleanup prompt, which may default to yes only once the
-two files match. Every run is under `setsid`, so each prompt takes its own default: that is the
+silent adoption fails loudly) — plus the property every case shares: the `.rpmnew` survives the run
+and is named as the operator's to delete, the case where the merge leaves the two files matching
+included. Every run is under `setsid`, so each prompt takes its own default: that is the
 unattended behaviour and what makes an interactive command reproducible. The agent-side half of
 the pair is already deployed: `boundary/access.sh` covers `settings.json` and the helper
 directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`, and
@@ -540,13 +541,73 @@ function and the helper is **sourced** rather than run (its root check and its d
 guarded for exactly that), so one function is driven with no host to administer and no state
 written anywhere; each case runs in its own `bash`, because the helper and the harness both
 declare `SANDBOX_USER` readonly. Its second section covers the enrolment's other edit — the guard
-line that sources the PATH dedup, which is what ranks the wrapper ahead of the nvm shims — by
+line that sources the PATH ordering fragment, which is what ranks the wrapper ahead of the nvm
+shims — by
 driving
 `wire_init_file` against fixture files in the testdir. Two of the three assertions are about a file
 the command **creates**: `~/.bash_profile` is what bash reads at login, so the fixture home is run
 through a real `bash -l` to assert the account's `.bashrc` is still read through it, and a file the
 operator already has keeps its content and takes one guard line however often the accumulating
 `operators add` runs.
+
+Its third section covers the enrolment's first step, `ensure_config_home`: the account's `~/.config`
+is where the allowlist is seeded, and a first enrolment that cannot write one is refused with the
+host unchanged ([cli-grammar](cli-grammar.rule.md) spells the command; the helper's header carries
+the ordering), so what the directory costs and who decides its mode are both asserted. The host's
+umask decides that mode, which is driven by running one function under two umasks, while an
+existing `~/.config` keeps whatever mode the account gave it. The default-yes confirm is answered
+**without drawing it** — `AI_TOOLS_ASSUME_YES` for the yes cases, a stubbed
+`ai_tools_msg_confirm` for the declined one — since a prompt that reached `/dev/tty` would block
+the suite until the per-file timeout killed it; the one case that must answer from the default
+runs under `setsid`, which is the unattended enrolment and the reason the default is yes. The two
+refusals complete the set: a declined prompt and a `~/.config` that is a file each report their
+code and return non-zero, which is what makes `op_add` refuse.
+
+`path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
+[launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools --status` re-checks
+with, and `ai-tools-admin system bootstrap` reports from. What gives it teeth is the direction each
+answer sends an operator: a launcher resolving outside `/usr/local/bin` means typing its name
+starts an **unconfined** agent, so a verdict reading that state as fine would turn the one
+question standing between an operator and an unsandboxed session into a formality, while one
+reporting a shadow whenever a probe could not be read would teach them to ignore it. The truth table is therefore
+driven whole, in both directions, and so are the two inputs that reach a shell or a terminal —
+the launcher name interpolated into a command run as another account, and the path that command
+prints back. The repoint a rename owes a deployed host is the other half: it is the one edit this
+project makes to an operator's shell init without asking, so what is asserted is the bound on it —
+one path token, inside a line this project wrote, with the rest of the file byte-identical, a file
+naming neither path untouched, the mode preserved, no sidecar written, and a second pass a
+no-op. The decision is pure and the probing separate (the split `confinement.sh` drives),
+so the file drives the table with no account to probe and **without root**; the two impure readers
+are driven with their dependencies stubbed as shell functions, which is also how the publishing
+contract is asserted from a real caller under `set -u`. The per-operator report is pinned with
+them, in both directions: a shadowed account is named with its launcher and the binary that wins
+the PATH search, and an account in any other state — one whose reading could not be taken
+included — is named by no line, so the report names an account only where typing the launcher
+starts an agent outside the wrapper.
+
+`agent-installs.sh` pins which agents a host carries besides the sandbox's (`agent-installs.lib.sh`),
+the reading `install.sh` and the `ai-tools-base` `%post` report from. What it holds is the shape of
+a host: on a usr-merged host `/bin` and `/usr/bin` are one directory, so one file answers to two
+spellings and must report as one install with the other spelling beside it, while two separate
+binaries are two things to decide about. The inputs that must yield no line are
+driven with them — a launcher name outside the charset, a file without the executable bit, a
+directory that is absent, and a path no package owns, which is what the owner lookup gives a host
+without rpm. The search takes its directories as arguments, so the fixtures are a tree the file
+builds; it needs the executable bit to be **visible** there, which a noexec mount and a label that
+withholds execute each hide, so it probes the directory the fixtures live in and falls back to one
+beside the operator's home.
+
+`bootstrap.sh` pins the report `ai-tools-admin system bootstrap` closes with: which enrolled
+operators a launcher would not reach the wrapper for. It is the last thing said before a host is
+treated as ready, so both directions are driven — a shadowed account named with its launcher and
+the binary that wins, every other state named by no line — along with what the message tells the
+operator to do, that finding a fault does not become the command's exit status, and that no init
+file is written. The helper is **sourced**, stopping at the guard before its provisioning, so one
+function is driven with no toolchain to install; the libraries are sourced before the stubs, where
+the include guard makes the helper's own `source` a no-op and the stubs stand. The reading beneath
+it is `path-order.sh`'s to pin, and the paths a case drives are the ones a host presents: an
+operator's own `npm i -g` under their nvm, and the agent's distribution package at `/usr/bin/claude`
+and `/bin/claude`.
 
 `services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools --status` and
 the launch wrapper's pre-launch warning share. Two properties carry weight beyond the accessors.

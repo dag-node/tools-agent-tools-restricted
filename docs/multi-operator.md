@@ -36,7 +36,11 @@ has its own allowlist and owns its own results, while one sandbox account does t
 - **Not claim, clone, unclaim, lock down or reclaim.** Each of those reaches a root helper over
   `sudo`. The refusal names the command an operator with a sudo grant runs for it.
 
-The account needs a home directory, since its allowlist lives under `~/.config/ai-tools`.
+The account needs a home directory, since its allowlist lives under `~/.config/ai-tools`. A home
+with no `~/.config` in it yet — the usual state of an account that has never logged in — is asked
+about before `operators add` creates one, and Enter or a run with no terminal takes the yes, so an
+unattended enrolment seeds the account. An enrolment that cannot write the allowlist is refused
+with the host unchanged: re-run it once the reason it printed is cleared.
 
 ## What every operator shares
 

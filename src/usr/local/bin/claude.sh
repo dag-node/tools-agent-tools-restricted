@@ -8,7 +8,7 @@
 # re-executes the shared confinement shim /opt/ai-tools/bin/ai-tools-run as the sandbox account
 # (SANDBOX_USER) via sudo. ai-tools-run resolves this agent from its manifest, re-validates the
 # path, and wraps the session in a systemd transient service before exec'ing the versioned binary.
-# path-dedup.sh (wired into operator dotfiles by ai-tools-admin) ranks /usr/local/bin
+# path-order.sh (wired into operator dotfiles by ai-tools-admin) ranks /usr/local/bin
 # (Tier 1) ahead of the nvm shims, so this shadows any nvm-managed claude on an operator's PATH.
 # When operator.conf configures a custom system prompt, this also prepends the resolved
 # `--append-system-prompt-file` / `--system-prompt-file` arguments (claude-prompt.lib.sh) ahead of the

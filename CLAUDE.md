@@ -63,7 +63,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 | Area | Source | Rule |
 |---|---|---|
-| Launch, allowlist gating, sudoers, PATH, the wrapper contract | `bin/ai-tools-run.sh`, `allowed-projects`, `sudoers.d/ai-tools`, `lib/ai-tools/path-dedup.sh` | [launch](.claude/rules/launch.rule.md) |
+| Launch, allowlist gating, sudoers, PATH ordering (the fragment, the reading behind the question, the repoint a rename owes), the wrapper contract | `bin/ai-tools-run.sh`, `allowed-projects`, `sudoers.d/ai-tools`, `lib/ai-tools/path-order.{sh,lib.sh}` | [launch](.claude/rules/launch.rule.md) |
 | **Provider-specific: claude-code** — its wrapper, manifest, entrypoint chain and labelling, custom system prompt, custom API endpoint, session pins, distribution channel | `usr/local/bin/claude.sh`, `lib/ai-tools/claude-{prompt,endpoint}.lib.sh`, `lib/ai-tools/agents.d/claude-code.conf`, `lib/ai-tools/session-env.d/claude-code.env.sh` | [agent-claude-code](.claude/rules/agent-claude-code.rule.md) |
 | Namespaces, SELinux transition, preflight, `/tmp`, optional-group management, how the policy ships and why it is separately licensed | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand), `packaging/ai-tools.spec` (`ai-tools-selinux`) | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
@@ -351,8 +351,8 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   **Shared libraries** live under `/usr/local/lib/ai-tools/`
   (`conf`, `secret-patterns`, `skip-dirs`, `owner-only`, `safe-paths`, `relabel`, `operator`, `control-plane`,
   `confinement`, `npm-verify`, `entrypoint-verify`, `managed-assets`, `providers`, `selinux-groups`, `filters`, `services`,
-  `msg`, `log`, and the claude-code pair `claude-prompt`/`claude-endpoint`),
-  plus `path-dedup.sh`,
+  `msg`, `log`, `path-order`, `agent-installs`, and the claude-code pair `claude-prompt`/`claude-endpoint`),
+  plus `path-order.sh`,
   the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see
   [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned and
   non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account
@@ -378,3 +378,9 @@ the artifact sections inside it carry the differences in structure, altitude, an
   the layer that owns the detail rather than restating it.
 - `src/usr/local/share/man/**` → man pages; see the skill's `references/man-pages.md`.
 - Error messages, notices, and log lines → runtime output: what happened, and what to do.
+
+<!-- Agent-facing prose wraps at 120, the column `prose-check.py` measures this file against and
+     `.dir-locals.el` sets for `.claude/` and the skills. Emacs takes it from the block here.
+Local Variables:
+fill-column: 120
+End: -->

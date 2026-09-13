@@ -296,8 +296,8 @@ There is no hurry. Every option is optional and an unmentioned key keeps its
 default, so a file written before an option existed keeps working exactly as
 it did; what a stale file costs is knowledge of the option, not behaviour.
 .PP
-To list the options the new version documents that your file does not mention,
-see the full difference, and clear the copy when you are done:
+To list the options the new version documents that your file does not mention
+and see the full difference:
 .PP
 .RS 4
 .EX
@@ -309,6 +309,10 @@ Against
 .I operator.conf
 that command only reports: it names the new options and shows the difference,
 and every edit stays yours.
+It leaves the
+.I .rpmnew
+in place as the copy you merge from, and names it so you can delete it once you
+are done.
 .SH EXAMPLES
 Enable the dotnet integration and keep every default elsewhere:
 .PP

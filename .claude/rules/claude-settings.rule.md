@@ -335,10 +335,12 @@ file.
 
 The command runs the merge on a throwaway copy first, so the list it shows is the exact set of
 declarations the real merge adds rather than a promise of one. It then confirms, writes the dated
-`.bak`, names that backup, and offers to drop the `.rpmnew` against what is left: the
-cleanup prompt defaults to yes once the two files match, and to no while the permission rules still
-differ. A refusal on this path does not need a `.shipped` sidecar — the `.rpmnew` is that baseline, and
-the throwaway copy is where the refused merge's own copy lands and is discarded.
+`.bak`, and names that backup. **The `.rpmnew` stays on disk**: the merge covers the hook
+declarations alone, so what is left — the permission rules, which are the host's — is the operator's
+own edit, made from that copy. The block closes by naming the file as theirs to delete, reporting
+either the difference still to review or that the two files now match. A refusal on this path does
+not need a `.shipped` sidecar — the `.rpmnew` is that baseline, and the throwaway copy is where the
+refused merge's own copy lands and is discarded.
 
 `jq` is a hard runtime dependency of every hook this agent ships, not a convenience: each
 parses its event JSON with it, and absent it they take their no-op paths silently — the
