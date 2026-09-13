@@ -152,16 +152,14 @@ of what it can ever send:
 
 - **Separate identity** — `${SANDBOX_USER}` is a system account with no login shell
   and no password. Claude executes under that UID via `sudo`, not as you.
-- **The agent binary sits inside the sandbox** — the
-  [npm way](https://code.claude.com/docs/en/setup#install-with-npm) installs the
-  [Bun](https://bun.com/package-manager)-compiled binary into the Node toolchain
-  `${SANDBOX_USER}` owns under `/opt/ai-tools`, off every operator's PATH — the
-  wrapper in `/usr/local/bin` is what the name resolves to, once
-  `path-order.sh` has run after the `nvm` init that prepends to it. The
-  [dnf way](https://code.claude.com/docs/en/setup#dnf) lands the same binary in
-  `/usr/bin`, which every PATH carries, and the wrapper takes the name there by
-  the classic EL ordering
-  [`path-order.sh`](src/usr/local/lib/ai-tools/path-order.sh) keeps.
+- **The agent binary sits inside the sandbox** — `sudo ai-tools-admin system bootstrap`
+  installs the [npm package](https://code.claude.com/docs/en/setup#install-with-npm) into the
+  Node toolchain `${SANDBOX_USER}` owns under `/opt/ai-tools` at `0750`, which your account
+  cannot traverse: you reach the agent through the wrapper at `/usr/local/bin/claude`
+  ([Architecture at a glance](#architecture-at-a-glance)). An agent **you** installed answers
+  to the same name, so what `claude` resolves to is the one thing to get right —
+  `ai-tools --status` reads which binary your shell runs, and the PATH ordering this project
+  ships for it is [ref-section-y2t3](docs/install-from-source.md#ref-section-y2t3).
 - **Launches only in approved projects** — a wrapper refuses to start Claude
   unless the working directory is listed in `~/.config/ai-tools/allowed-projects`
   (with `!` exclusions to carve out subdirectories or secrets).
@@ -328,7 +326,7 @@ Setting the variables by hand matters only on the manual from-source path — th
 block and every step that uses it are in
 [docs/install-from-source.md](docs/install-from-source.md).
 
-## Architecture at a glance
+## Architecture at a glance <a id="ref-section-e7g6"></a>
 
 ```
 you type `claude`
