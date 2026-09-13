@@ -256,6 +256,7 @@ owner/group/mode list is `tests/integration/perms.sh`, which
 |---|---|
 | `src/usr/local/lib/ai-tools/path-order.sh` | `/usr/local/lib/ai-tools/path-order.sh` (root) |
 | `src/usr/local/lib/ai-tools/path-order.lib.sh` | `/usr/local/lib/ai-tools/path-order.lib.sh` (root) |
+| `src/usr/local/lib/ai-tools/agent-installs.lib.sh` | `/usr/local/lib/ai-tools/agent-installs.lib.sh` (root) |
 | `src/opt/ai-tools/bin/nvm-update.sh` | `/opt/ai-tools/bin/nvm-update.sh` |
 | `src/usr/local/libexec/ai-tools/ai-tools-chown.sh` | `/usr/local/libexec/ai-tools/ai-tools-chown` (root) |
 | `src/usr/local/libexec/ai-tools/ai-tools-setgid.sh` | `/usr/local/libexec/ai-tools/ai-tools-setgid` (root) |

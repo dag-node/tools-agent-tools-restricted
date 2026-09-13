@@ -351,7 +351,7 @@ deliberate scope decisions, not gaps, so a reader tells bounded design from an o
   **Shared libraries** live under `/usr/local/lib/ai-tools/`
   (`conf`, `secret-patterns`, `skip-dirs`, `owner-only`, `safe-paths`, `relabel`, `operator`, `control-plane`,
   `confinement`, `npm-verify`, `entrypoint-verify`, `managed-assets`, `providers`, `selinux-groups`, `filters`, `services`,
-  `msg`, `log`, `path-order`, and the claude-code pair `claude-prompt`/`claude-endpoint`),
+  `msg`, `log`, `path-order`, `agent-installs`, and the claude-code pair `claude-prompt`/`claude-endpoint`),
   plus `path-order.sh`,
   the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see
   [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned and

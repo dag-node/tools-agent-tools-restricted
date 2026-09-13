@@ -186,6 +186,7 @@ check_file /etc/ai-tools/endpoints/custom-claude-endpoint.conf root             
 # PATH ordering fragment: 644 root:root -- world-readable, sourced by the operator shells ai-tools-admin wires.
 # install.sh deploys it here and never into /etc/profile.d, so an unwired account keeps its stock PATH.
 check_file /usr/local/lib/ai-tools/path-order.lib.sh          root              root              644
+check_file /usr/local/lib/ai-tools/agent-installs.lib.sh      root              root              644
 check_file /usr/local/lib/ai-tools/path-order.sh              root              root              644
 # /opt/ai-tools/bin is locked: root:ai-tools 0551, so ai-tools has group r-x but no write. The
 # agent can execute nvm-update.sh and resolve the claude symlink, but cannot edit the updater or

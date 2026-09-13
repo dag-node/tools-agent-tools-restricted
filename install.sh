@@ -912,6 +912,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/managed-assets.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
+    _chk /usr/local/lib/ai-tools/agent-installs.lib.sh
     _chk /usr/local/lib/ai-tools/path-order.lib.sh
     _chk /usr/local/lib/ai-tools/path-order.sh
     _chk /etc/sudoers.d/ai-tools
@@ -989,43 +990,17 @@ print_banner() {
 # install rather than spread through the step that happened to notice them -- and a host where it
 # finds neither an agent nor a shadowed operator does not draw the heading.
 #
-# The directory search is this installer's own. `path-order.lib.sh` reads where an account's shell
-# resolves a launcher and `path-order.sh` orders a PATH; neither reads a system directory for an
-# installed binary. Which agents this host carries besides the sandbox's is asked once, here, in the
-# step that installs the wrapper.
-#
-# agent_installs_outside_sandbox <launcher> -- print one line per distinct executable of that name
-# in the system directories, as "<path>" and TAB-separated every other spelling of the SAME file.
-# /bin leads because that is where the agent's other distribution channel -- its own package rather
-# than the npm one this stack installs -- puts it; on a usr-merged host /bin and /usr/bin are one
-# directory, and reporting that as two installs would name a file the operator cannot remove twice.
-# `-ef` compares the files, which is what tells the two hosts apart.
-agent_installs_outside_sandbox() {
-    local launcher="$1" dir candidate idx seen
-    local -a paths=() aliases=()
-    [[ "${launcher}" =~ ^[A-Za-z0-9._-]+$ ]] || return 0
-    for dir in /bin /usr/bin /usr/sbin /sbin /usr/local/sbin /opt/bin; do
-        candidate="${dir}/${launcher}"
-        [[ -x "${candidate}" && ! -d "${candidate}" ]] || continue
-        seen=""
-        for idx in "${!paths[@]}"; do
-            [[ "${candidate}" -ef "${paths[idx]}" ]] || continue
-            aliases[idx]="${aliases[idx]:+${aliases[idx]}, }${candidate}"
-            seen=1; break
-        done
-        [[ -n "${seen}" ]] && continue
-        paths+=( "${candidate}" ); aliases+=( "" )
-    done
-    for idx in "${!paths[@]}"; do
-        printf '%s\t%s\n' "${paths[idx]}" "${aliases[idx]}"
-    done
-}
-
+# The directory search is agent-installs.lib.sh's, shared with the ai-tools-base %post so a package
+# transaction and a from-source install report the same finding; where an account's shell resolves
+# a launcher is path-order.lib.sh's reading.
 probe_shadowing_agents() {
     local lib=/usr/local/lib/ai-tools/path-order.lib.sh
     local oplib=/usr/local/lib/ai-tools/operator.lib.sh
     local prlib=/usr/local/lib/ai-tools/providers.lib.sh
-    [[ -r "${lib}" && -r "${oplib}" ]] || return 0
+    local agentlib=/usr/local/lib/ai-tools/agent-installs.lib.sh
+    [[ -r "${lib}" && -r "${oplib}" && -r "${agentlib}" ]] || return 0
+    # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/agent-installs.lib.sh
+    source "${agentlib}" 2>/dev/null || return 0
     # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/providers.lib.sh
     source "${prlib}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/path-order.lib.sh
@@ -1035,7 +1010,7 @@ probe_shadowing_agents() {
     declare -F ai_tools_path_order_launchers >/dev/null 2>&1 || return 0
 
     # Which launchers matter is the enabled agents' business (path-order.lib.sh reads the manifests);
-    # where their binaries may sit on this host is agent_installs_outside_sandbox's.
+    # where their binaries may sit on this host is ai_tools_agent_installs's.
     local launcher install_path install_alias
     local -a found=()
     while IFS= read -r launcher; do
@@ -1043,7 +1018,7 @@ probe_shadowing_agents() {
         while IFS=$'\t' read -r install_path install_alias; do
             [[ -n "${install_path}" ]] || continue
             found+=( "${launcher}"$'\t'"${install_path}"$'\t'"${install_alias}" )
-        done < <(agent_installs_outside_sandbox "${launcher}")
+        done < <(ai_tools_agent_installs "${launcher}")
     done < <(ai_tools_path_order_launchers)
 
     local -a shadowed=()
@@ -1068,14 +1043,9 @@ probe_shadowing_agents() {
         IFS=$'\t' read -r launcher install_path install_alias <<<"${record}"
         note MSG-F6D2 "an agent outside the sandbox is installed at ${install_path}"
         [[ -n "${install_alias}" ]] && note "  the same file as ${install_alias}"
-        # rpm knows which package owns it, so the remedy can be the command that removes it rather
-        # than the path to find it in. A file no package owns (the vendor's shell installer) keeps
+        # The owning package is what turns the remedy into a command; a file no package owns keeps
         # the path, which is all there is to name.
-        package=""
-        if command -v rpm >/dev/null 2>&1; then
-            package="$(rpm -qf --queryformat '%{NAME}' "${install_path}" 2>/dev/null || true)"
-            [[ "${package}" =~ ^[A-Za-z0-9._+-]+$ ]] || package=""
-        fi
+        package="$(ai_tools_agent_install_owner "${install_path}")"
         if [[ -n "${package}" ]]; then
             remove_hint="installed by the ${package} package -- remove it with: sudo dnf remove ${package}"
         else
@@ -1494,6 +1464,15 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/managed-assets.lib.sh" \
         /usr/local/lib/ai-tools/managed-assets.lib.sh
+
+    # Host agent probe: 644 root:root -- world-readable, like every shared library. Read by this
+    # installer and by the ai-tools-base %post, which report the agents a host carries outside the
+    # sandbox. It reads directory entries every account can already list, and does not hold any
+    # host data.
+    log "/usr/local/lib/ai-tools/agent-installs.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/agent-installs.lib.sh" \
+        /usr/local/lib/ai-tools/agent-installs.lib.sh
 
     # PATH ordering reader: 644 root:root -- world-readable, like every shared library. Read by ai-tools-admin
     # (which asks about the guard line and writes it), by `ai-tools --status` as the operator, and by the base

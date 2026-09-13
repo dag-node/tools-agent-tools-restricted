@@ -585,6 +585,18 @@ the PATH search, and an account in any other state — one whose reading could n
 included — is named by no line, so the report names an account only where typing the launcher
 starts an agent outside the wrapper.
 
+`agent-installs.sh` pins which agents a host carries besides the sandbox's (`agent-installs.lib.sh`),
+the reading `install.sh` and the `ai-tools-base` `%post` report from. What it holds is the shape of
+a host: on a usr-merged host `/bin` and `/usr/bin` are one directory, so one file answers to two
+spellings and must report as one install with the other spelling beside it, while two separate
+binaries are two things to decide about. The inputs that must yield no line are
+driven with them — a launcher name outside the charset, a file without the executable bit, a
+directory that is absent, and a path no package owns, which is what the owner lookup gives a host
+without rpm. The search takes its directories as arguments, so the fixtures are a tree the file
+builds; it needs the executable bit to be **visible** there, which a noexec mount and a label that
+withholds execute each hide, so it probes the directory the fixtures live in and falls back to one
+beside the operator's home.
+
 `bootstrap.sh` pins the report `ai-tools-admin system bootstrap` closes with: which enrolled
 operators a launcher would not reach the wrapper for. It is the last thing said before a host is
 treated as ready, so both directions are driven — a shadowed account named with its launcher and

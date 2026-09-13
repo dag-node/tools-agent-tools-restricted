@@ -303,7 +303,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths confinement npm-verify entrypoint-verify managed-assets providers selinux-groups filters services path-order; do
+for l in log msg conf skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths confinement npm-verify entrypoint-verify managed-assets providers selinux-groups filters services path-order agent-installs; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -632,6 +632,33 @@ fi
 if command -v bash >/dev/null 2>&1; then
     _at_path="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/path-order.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; ai_tools_load_operators; ai_tools_path_order_stale_operators "${AI_TOOLS_OPERATORS[@]}"' 2>/dev/null || :)"
 fi
+# What else this host carries. An agent of an enabled launcher's name installed outside
+# /usr/local/bin -- the agent's other distribution channel puts one in /bin -- runs UNCONFINED when
+# a shell resolves that name to it or when it is started by its path. Naming it is a directory read
+# and an rpm query, which is inside what a transaction may do; the per-operator reading is not (it
+# runs an account's own init), so that half stays with `ai-tools-admin system bootstrap` and
+# `ai-tools --status`. Nothing is removed here: which of the two agents a host keeps is the
+# operator's decision, and the ordering is what decides which one a name reaches.
+_at_agents=""
+if command -v bash >/dev/null 2>&1; then
+    _at_agents="$(bash -c '
+. /usr/local/lib/ai-tools/conf.lib.sh
+. /usr/local/lib/ai-tools/providers.lib.sh
+. /usr/local/lib/ai-tools/path-order.lib.sh
+. /usr/local/lib/ai-tools/agent-installs.lib.sh
+while IFS= read -r launcher; do
+    [ -n "${launcher}" ] || continue
+    while IFS=$'"'"'\t'"'"' read -r path alias; do
+        [ -n "${path}" ] || continue
+        owner="$(ai_tools_agent_install_owner "${path}")"
+        if [ -n "${owner}" ]; then
+            printf "  %s%s -- sudo dnf remove %s\n" "${path}" "${alias:+ (the same file as ${alias})}" "${owner}"
+        else
+            printf "  %s%s -- remove it with the tool that installed it\n" "${path}" "${alias:+ (the same file as ${alias})}"
+        fi
+    done < <(ai_tools_agent_installs "${launcher}")
+done < <(ai_tools_path_order_launchers)' 2>/dev/null || :)"
+fi
 if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_path}" ]; then
     echo "ai-tools-base: steps this host still needs:"
     if [ "${_at_toolchain}" = 1 ]; then
@@ -648,6 +675,13 @@ if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_pat
             echo "  sudo ai-tools-admin operators add ${_at_u} # its PATH ordering line names the previous fragment"
         done
     fi
+fi
+
+if [ -n "${_at_agents}" ]; then
+    echo "ai-tools-base: this host carries an agent outside the sandbox:"
+    echo "${_at_agents}"
+    echo "  or keep it: the \$PATH ordering ranks /usr/local/bin first, so the launcher name"
+    echo "  reaches the sandbox wrapper -- 'which claude' reports what your shell runs today"
 fi
 
 %preun -n ai-tools-base
@@ -990,6 +1024,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/filters.lib.sh
 %attr(0644, root, root) %{ai_libdir}/services.lib.sh
 %attr(0644, root, root) %{ai_libdir}/path-order.lib.sh
+%attr(0644, root, root) %{ai_libdir}/agent-installs.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/keys
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
