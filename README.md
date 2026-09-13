@@ -6,6 +6,11 @@
 
 **Confine coding agents to a locked-down system account — so they never inherit your keys, sudo rights, or secrets.**
 
+<p align="center">
+  <img src="assets/images/banner-dino-playground.webp" width="100%"
+       alt="Tools Agent Tools Restricted :: Run coding agents sandboxed — under their own locked-down system account.">
+</p>
+
 Agent Tools Restricted runs autonomous coding agents under a dedicated, unprivileged system user (`ai-tools`) with tightly scoped privileges, SELinux confinement, ownership hand-back, and automatic toolchain updates. The agent never runs as you. Claude Code is the first supported agent; the confinement, ownership-handback, and toolchain machinery are deliberately agent-agnostic.
 
 **Scope.** The model defends the host from the agent *while it runs*. It does not make
