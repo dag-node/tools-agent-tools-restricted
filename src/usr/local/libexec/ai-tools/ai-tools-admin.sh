@@ -27,10 +27,13 @@
 # never a command, which here is `--help`/`-h` and `--version`.
 #
 # An operator is a login user (a human or a rootless service account) that drives the sandbox
-# through the shared ai-tools account. `add` is accumulating and idempotent: it appends the
-# name to OPERATORS in /etc/ai-tools/operator.conf, adds the user to the ai-ops group (the
-# sudoers grant and the launch wrapper gate on membership), seeds the user's allowlist, ensures
-# the sandbox account's linger, and offers to wire the PATH dedup. `remove` reverses the host-side
+# through the shared ai-tools account. `add` is accumulating and idempotent: it seeds the user's
+# config in `~/.config/ai-tools` (asking before it creates a missing `.config`), appends the name
+# to OPERATORS in /etc/ai-tools/operator.conf, adds the user to the ai-ops group (the sudoers grant
+# and the launch wrapper gate on membership), ensures the sandbox account's linger, and offers to
+# wire the PATH dedup. The seed comes first so that an account enrolled here holds the
+# `allowed-projects` every later command resolves it through; a first enrolment that cannot write
+# one is refused with the host unchanged. `remove` reverses the host-side
 # membership (drops the name from OPERATORS and ai-ops), leaving the user's own allowlist and config.
 # `list` prints the current operators.
 #
@@ -579,15 +582,60 @@ in_list() {
 
 # seed_config_file <user> <group> <path> <seed-function>: place <path> from what <seed-function>
 # prints, owned by the operator at 600. An existing file holds that operator's own edits and is
-# left as it stands, so enrolment is idempotent.
+# left as it stands, so enrolment is idempotent. Returns non-zero when the file is not there
+# afterwards, so a failed write reaches the caller as the refusal it makes rather than as a step
+# that logged `seeding` and stopped.
 seed_config_file() {
-    local user="$1" group="$2" file="$3" seed="$4" tmp
+    local user="$1" group="$2" file="$3" seed="$4" tmp status=0
     [[ -f "${file}" ]] && return 0
     log "seeding ${file}"
     tmp="$(mktemp)"
-    "${seed}" > "${tmp}"
-    install -o "${user}" -g "${group}" -m 600 "${tmp}" "${file}"
+    "${seed}" > "${tmp}" && install -o "${user}" -g "${group}" -m 600 "${tmp}" "${file}" || status=$?
     rm -f "${tmp}"
+    (( status == 0 )) || warn MSG-P5C5 "could not seed ${file}"
+    return "${status}"
+}
+
+# ensure_config_home <user> <group> <home>: make sure `<home>/.config` exists, since
+# `~/.config/ai-tools` is seeded inside it and an account that has never logged in has no config
+# home yet.
+#
+# An existing one is left as it stands: other applications keep their config there, and its mode is
+# not this command's to decide. A missing one is created with `mkdir`, so the HOST's umask decides
+# the mode -- the compliance answer for a directory this command only has to traverse, and a
+# permissive umask leaves the access boundary where it already is, on the `700`
+# `~/.config/ai-tools` inside it. Creating it asks first, default YES: the write lands in an
+# account's home, and a run with no terminal takes the yes, which is what seeds an operator during
+# an unattended install. `restorecon` gives it `config_home_t`, which root creating it inside the
+# home does not.
+#
+# Returns non-zero when `.config` is absent afterwards, so the caller refuses the enrolment rather
+# than reporting a seed that did not happen.
+ensure_config_home() {
+    local user="$1" group="$2" cfg_home="$3/.config"
+    [[ -d "${cfg_home}" ]] && return 0
+    if [[ -e "${cfg_home}" ]]; then
+        warn MSG-Z6V4 "not a directory: ${cfg_home} -- ${user}'s ai-tools config cannot be seeded inside it"
+        return 1
+    fi
+    log "${user} has no ${cfg_home}, which is where its ai-tools config directory goes"
+    if ! ai_tools_msg_confirm "Create ${cfg_home}, owned by ${user}?" y; then
+        warn MSG-B6P3 "declined: ${cfg_home} was not created, so ${user}'s ai-tools config cannot be seeded"
+        return 1
+    fi
+    if ! mkdir "${cfg_home}"; then
+        warn MSG-S9G3 "could not create ${cfg_home} as ${user}:${group}"
+        return 1
+    fi
+    # A directory root owns is one the operator cannot write, so an ownership this could not set
+    # takes the empty directory with it and the enrolment refuses on a home it did not change.
+    if ! chown "${user}:${group}" "${cfg_home}"; then
+        rmdir "${cfg_home}" 2>/dev/null || true
+        warn MSG-U8E9 "could not give ${cfg_home} to ${user}:${group}; removed the directory again"
+        return 1
+    fi
+    if command -v restorecon >/dev/null 2>&1; then restorecon "${cfg_home}" 2>/dev/null || true; fi
+    log "created ${cfg_home} $(stat -c '%a %U:%G' "${cfg_home}" 2>/dev/null)"
 }
 
 # seed_operator_config <user>: create the config an operator keeps in ~/.config/ai-tools --
@@ -596,16 +644,27 @@ seed_config_file() {
 # enter the directory, reads neither while the root helpers read both on the operator's behalf.
 # This is the one place either file is created for an operator, and both headers come from
 # conf.lib.sh, so an account enrolled on a packaged host gets what a from-source install writes.
+#
+# Each way it can come up short is reported where it happens and returns non-zero, so `op_add`
+# decides what an enrolment missing its `allowed-projects` becomes.
 seed_operator_config() {
-    local user="$1" home group cfg
+    local user="$1" home group cfg status=0
     home="$(getent passwd "${user}" | cut -d: -f6)"
     group="$(id -gn "${user}")"
-    [[ -n "${home}" && -d "${home}" ]] || { warn MSG-R7U6 "no home directory on this host for ${user}; skipping the config seed"; return 0; }
+    if [[ -z "${home}" || ! -d "${home}" ]]; then
+        warn MSG-R7U6 "no home directory on this host for ${user}; skipping the config seed"
+        warn "    create the home, then re-run: sudo ai-tools-admin operators add ${user}"
+        return 1
+    fi
+    ensure_config_home "${user}" "${group}" "${home}" || return 1
     cfg="${home}/.config/ai-tools"
-    [[ -d "${home}/.config" ]] || install -d -o "${user}" -g "${group}" -m 700 "${home}/.config"
-    [[ -d "${cfg}" ]]          || install -d -o "${user}" -g "${group}" -m 700 "${cfg}"
-    seed_config_file "${user}" "${group}" "${cfg}/allowed-projects" ai_tools_conf_allowlist_seed
-    seed_config_file "${user}" "${group}" "${cfg}/secret-patterns"  ai_tools_conf_secret_patterns_seed
+    if [[ ! -d "${cfg}" ]] && ! install -d -o "${user}" -g "${group}" -m 700 "${cfg}"; then
+        warn MSG-N2J8 "could not create ${cfg} at 700 ${user}:${group}"
+        return 1
+    fi
+    seed_config_file "${user}" "${group}" "${cfg}/allowed-projects"  ai_tools_conf_allowlist_seed       || status=1
+    seed_config_file "${user}" "${group}" "${cfg}/secret-patterns"   ai_tools_conf_secret_patterns_seed || status=1
+    return "${status}"
 }
 
 # label_operator_config <user>: give that operator's ~/.config/ai-tools the ai_tools_conf_t SELinux
@@ -760,9 +819,28 @@ op_add() {
     id "${user}" &>/dev/null || die MSG-U8T8 "no such user: ${user}"
 
     ai_tools_load_operators || true   # tolerate an unenrolled host (empty list)
+    local enrolled=0
     if in_list "${user}"; then
+        enrolled=1
         log "${user} is already an operator; reconciling group, config, and sandbox linger"
-    else
+    fi
+
+    # The config is seeded BEFORE either fact that makes an operator, so an enrolment either
+    # completes or leaves the host as it found it. An account in `OPERATORS` and in `ai-ops` whose
+    # `allowed-projects` does not exist is refused at every launch, and does not resolve an owner
+    # in any root helper, while the enrolment reports success -- so the refusal belongs here, ahead
+    # of the first write, where a re-run then enrols the account in full.
+    #
+    # A RECONCILING re-run carries on instead: the record already stands, this run did not write
+    # it, and withdrawing an operator is `operators remove`'s decision. It repairs what it can,
+    # reports what it could not, and exits non-zero at the close.
+    local seeded=0
+    seed_operator_config "${user}" || seeded=1
+    if (( seeded && ! enrolled )); then
+        die MSG-T4X9 "not enrolled: ${user}'s config in ~/.config/ai-tools could not be seeded, and without allowed-projects it cannot start a session or claim a project -- clear the reason above and re-run"
+    fi
+
+    if (( ! enrolled )); then
         local newlist=()
         [[ "${#AI_TOOLS_OPERATORS[@]}" -gt 0 ]] && newlist=( "${AI_TOOLS_OPERATORS[@]}" )
         newlist+=( "${user}" )
@@ -781,7 +859,6 @@ op_add() {
         log "added ${user} to group ${OPERATORS_GROUP}"
     fi
 
-    seed_operator_config "${user}"
     label_operator_config "${user}"
 
     # The sandbox account needs a `systemd --user instance` without an interactive login: its
@@ -799,6 +876,14 @@ op_add() {
     # set it had at login, and the launch wrapper gates on that live set. Name the activation step
     # so the operator's first claude launch does not hit the stale-session refusal.
     log "${user}: start a new login session (or run 'newgrp ${OPERATORS_GROUP}') before launching claude -- ${OPERATORS_GROUP} membership does not apply to already-open shells"
+    # Only a reconciling re-run reaches this: a first enrolment already refused. Said last because
+    # the reason was reported several steps and one prompt back, and non-zero so an unattended
+    # caller reads it without parsing the output.
+    if (( seeded )); then
+        warn MSG-P9K2 "config not seeded for ${user}, which stays enrolled -- without allowed-projects in ~/.config/ai-tools it cannot start a session or claim a project"
+        warn "    re-run once the reason above is cleared: sudo ai-tools-admin operators add ${user}"
+        exit 1
+    fi
 }
 
 op_remove() {

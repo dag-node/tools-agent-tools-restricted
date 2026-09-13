@@ -161,4 +161,98 @@ else
     fail "re-wiring changed an existing file:"$'\n'"$(cat "${TESTDIR}/.bashrc")"
 fi
 
+# --- ensure_config_home: the config home an operator's allowlist is seeded inside ---
+# `operators add` refuses a first enrolment it cannot seed, so whether this function creates
+# ~/.config decides whether an account with no config home can be enrolled at all. Driven against
+# fixture homes in TESTDIR, owned by the caller, so the chown is unprivileged and no real home is
+# touched. Each case runs its own umask, which is what the mode is read from.
+section "ai-tools-admin operators add: the operator's config home (unit)"
+
+# run_ensure <home> <umask> [confirm-rc] : source the helper in a fresh shell, run one umask, and
+# drive ensure_config_home for the calling account. Every case answers the prompt WITHOUT drawing
+# it: AI_TOOLS_ASSUME_YES fast-tracks the default-yes question, and a confirm-rc stubs the shared
+# prompt to that status, which is how the declined case is reached. A case that let the prompt
+# render would read /dev/tty and block the suite on an answer no test can give -- the reason
+# tests/unit/managed-assets.sh drives its own no-terminal case under setsid.
+run_ensure() {
+    AI_TOOLS_ASSUME_YES=1 bash -c '
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        source "$1"
+        declare -F ensure_config_home >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+        umask "$3"
+        if [[ -n "${4-}" ]]; then eval "ai_tools_msg_confirm() { return $4; }"; fi
+        rc=0; ensure_config_home "$(id -un)" "$(id -gn)" "$2" || rc=$?
+        printf "RC=%s\n" "${rc}"
+    ' _ "${HELPER}" "$1" "$2" "${3-}" 2>&1 || true
+}
+
+out="$(run_ensure "${TESTDIR}/home-022" 022)"
+if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
+    fail "sourcing ${HELPER} did not define ensure_config_home"
+    finish; exit
+fi
+mkdir -p "${TESTDIR}/home-022" "${TESTDIR}/home-027"
+
+# 1 + 2. A missing .config is created, and the HOST's umask decides its mode: the same function
+#        under two umasks produces the two modes the host asked for. The account owns it either
+#        way, which is what lets the operator write its own config home afterwards.
+out="$(run_ensure "${TESTDIR}/home-022" 022)"
+mode_022="$(stat -c '%a' "${TESTDIR}/home-022/.config" 2>/dev/null || echo none)"
+out2="$(run_ensure "${TESTDIR}/home-027" 027)"
+mode_027="$(stat -c '%a' "${TESTDIR}/home-027/.config" 2>/dev/null || echo none)"
+if [[ "${out}" == *"RC=0"* && "${mode_022}" == 755 && "${out2}" == *"RC=0"* && "${mode_027}" == 750 ]]; then
+    pass "a missing .config is created, at the mode the host umask gives (755 / 750)"
+else
+    fail "expected 755 under umask 022 and 750 under 027, got '${mode_022}' / '${mode_027}': ${out} ${out2}"
+fi
+
+# 3. No terminal, and no fast-track: the confirm's /dev/tty open fails, so it takes its default and
+#    the directory is created. This is the unattended install -- an enrolment from a scriptlet or a
+#    CI job seeds the account instead of waiting at a prompt.
+mkdir -p "${TESTDIR}/home-notty"
+# shellcheck disable=SC2016  # the inner shell's own positional parameters, passed after the _
+setsid bash -c '
+    set -euo pipefail
+    # shellcheck source=/dev/null
+    source "$1"
+    ensure_config_home "$(id -un)" "$(id -gn)" "$2"
+' _ "${HELPER}" "${TESTDIR}/home-notty" </dev/null >/dev/null 2>&1 || true
+if [[ -d "${TESTDIR}/home-notty/.config" ]]; then
+    pass "with no terminal the confirm defaults to yes and the config home is created"
+else
+    fail "a no-terminal run did not create .config -- an unattended enrolment would be refused"
+fi
+
+# 4. An existing one is left as it stands. Other applications keep their config there, so a mode
+#    the account chose is not re-asserted on every re-enrolment.
+chmod 711 "${TESTDIR}/home-022/.config"
+out="$(run_ensure "${TESTDIR}/home-022" 022)"
+if [[ "${out}" == *"RC=0"* && "$(stat -c '%a' "${TESTDIR}/home-022/.config")" == 711 ]]; then
+    pass "an existing .config keeps its own mode"
+else
+    fail "an existing .config was re-moded to $(stat -c '%a' "${TESTDIR}/home-022/.config"): ${out}"
+fi
+
+# 5. Declined: the directory is left uncreated, the refusal carries its code, and the non-zero
+#    status is what makes `operators add` refuse the enrolment instead of reporting a seed.
+mkdir -p "${TESTDIR}/home-declined"
+out="$(run_ensure "${TESTDIR}/home-declined" 022 1)"
+if [[ "${out}" == *"RC=1"* && "${out}" == *"MSG-B6P3"* && ! -e "${TESTDIR}/home-declined/.config" ]]; then
+    pass "a declined prompt leaves the home as it found it and returns non-zero"
+else
+    fail "a declined prompt should refuse and create nothing, got: ${out}"
+fi
+
+# 6. A .config that is a file: `mkdir` refuses it, and the condition is named here, where an
+#    administrator reads it, instead of surfacing later as a seed that failed for no stated reason.
+mkdir -p "${TESTDIR}/home-file"
+: > "${TESTDIR}/home-file/.config"
+out="$(run_ensure "${TESTDIR}/home-file" 022)"
+if [[ "${out}" == *"RC=1"* && "${out}" == *"MSG-Z6V4"* ]]; then
+    pass "a .config that is not a directory is reported and refused"
+else
+    fail "a non-directory .config should be refused with MSG-Z6V4, got: ${out}"
+fi
+
 finish

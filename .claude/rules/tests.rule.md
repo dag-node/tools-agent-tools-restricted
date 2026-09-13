@@ -548,6 +548,19 @@ through a real `bash -l` to assert the account's `.bashrc` is still read through
 operator already has keeps its content and takes one guard line however often the accumulating
 `operators add` runs.
 
+Its third section covers the enrolment's first step, `ensure_config_home`: the account's `~/.config`
+is where the allowlist is seeded, and a first enrolment that cannot write one is refused with the
+host unchanged ([cli-grammar](cli-grammar.rule.md) spells the command; the helper's header carries
+the ordering), so what the directory costs and who decides its mode are both asserted. The host's
+umask decides that mode, which is driven by running one function under two umasks, while an
+existing `~/.config` keeps whatever mode the account gave it. The default-yes confirm is answered
+**without drawing it** — `AI_TOOLS_ASSUME_YES` for the yes cases, a stubbed
+`ai_tools_msg_confirm` for the declined one — since a prompt that reached `/dev/tty` would block
+the suite until the per-file timeout killed it; the one case that must answer from the default
+runs under `setsid`, which is the unattended enrolment and the reason the default is yes. The two
+refusals complete the set: a declined prompt and a `~/.config` that is a file each report their
+code and return non-zero, which is what makes `op_add` refuse.
+
 `services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools --status` and
 the launch wrapper's pre-launch warning share. Two properties carry weight beyond the accessors.
 The **last-run stamp** is the one input here a non-root writer controls and it is rendered to the

@@ -194,23 +194,35 @@ Enrol
 .IR USER ,
 defaulting to
 .BR $SUDO_USER .
-Appends the name to
-.BR OPERATORS ,
-adds the account to
-.BR ai\-ops ,
-seeds that account's own config \(em an allowlist at
+Seeds that account's own config first \(em an allowlist at
 .I ~/.config/ai\-tools/allowed\-projects
 and secret\-name patterns at
 .IR ~/.config/ai\-tools/secret\-patterns ,
-each carrying its format header alone \(em enables
+each carrying its format header alone \(em then appends the name to
+.BR OPERATORS ,
+adds the account to
+.BR ai\-ops ,
+enables
 .BR loginctl (1)
 linger for the sandbox account, and offers to source the PATH ordering
 fragment from the account's
 .I ~/.bashrc
 and
 .IR ~/.bash_profile .
+An account whose home has no
+.I ~/.config
+yet is asked about first, default
+.BR Yes ,
+and the directory is created with the host's umask deciding its mode; the
+ai\-tools directory inside it is
+.B 700
+and its files
+.BR 600 .
+A first enrolment that cannot write the allowlist is refused with the host
+unchanged, since an operator without one can neither start a session nor claim
+a project.
 Idempotent: a re-run reconciles each of those and reports what was already in
-place.
+place, and exits non\-zero when the config is still missing.
 Refuses root and the sandbox account.
 .TP
 .B operators remove \fIUSER\fR
