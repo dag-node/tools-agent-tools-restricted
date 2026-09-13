@@ -509,8 +509,9 @@ end to end, from dispatch through the registry to each treatment (see
 treatment each file got — the settings JSON merged with its permission rules intact and a dated
 `.bak` written first, `operator.conf` reported and byte-identical afterwards, the sudoers grant
 shown and neither written nor dropped (its fixture is a grant of everything to everyone, so a
-silent adoption fails loudly) — plus the cleanup prompt, which may default to yes only once the
-two files match. Every run is under `setsid`, so each prompt takes its own default: that is the
+silent adoption fails loudly) — plus the property every case shares: the `.rpmnew` survives the run
+and is named as the operator's to delete, the case where the merge leaves the two files matching
+included. Every run is under `setsid`, so each prompt takes its own default: that is the
 unattended behaviour and what makes an interactive command reproducible. The agent-side half of
 the pair is already deployed: `boundary/access.sh` covers `settings.json` and the helper
 directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`, and

@@ -85,14 +85,14 @@
 # services.lib.sh registry both reports and the launch wrapper's pre-launch warning read, so the
 # two commands differ in what each is allowed to see and agree on what they both see.
 #
-# `system post-upgrade` reconciles the `<file>.rpmnew` copies an upgrade leaves beside the
-# %config(noreplace) files this stack owns. rpm keeps what the host edited and parks the new
-# version alongside it; choosing between the two is a judgement about the operator's own
-# configuration, so it happens here, when the operator asks, and never in a scriptlet. Each file
-# gets the treatment its content deserves -- merge, report, or show only, per the post-upgrade registry --
-# and every treatment shows what it would change, confirms, backs the file up before writing, and
-# names each path it touched. The from-source installer reaches the same end through its own
-# keep-or-reset prompts and dated .bak/.shipped sidecars; this is the RPM-side equivalent.
+# `system post-upgrade` reconciles the `<file>.rpmnew` copies an upgrade leaves beside the %config(noreplace) files
+# this stack owns. rpm keeps what the host edited and parks the new version alongside it; choosing between the two
+# is a judgement about the operator's own configuration, so it happens here, when the operator asks, and never
+# in a scriptlet. Each file gets the treatment its content deserves -- merge, report, or show only,
+# per the post-upgrade registry -- and every treatment shows what it would change, confirms, backs the file
+# up before writing, and names each path it touched. The copy itself is never removed: each block names the one
+# to delete, once the operator has merged what they want from it. The from-source installer reaches the same end
+# through its own keep-or-reset prompts and dated .bak/.shipped sidecars; this is the RPM-side equivalent.
 #
 # Deploying from a checkout: docs/install-from-source.md.
 
@@ -1170,12 +1170,13 @@ entrypoints_relabel() {
     exec "${RELABEL_ENTRYPOINT_BIN}"
 }
 
-# ── system post-upgrade: reconcile the .rpmnew files an upgrade leaves ───────────────────────
-# rpm keeps an operator-modified %config(noreplace) file and parks the package's copy beside it as
-# <file>.rpmnew. Choosing between the two is a judgement call about the operator's own
-# configuration, so no scriptlet makes it: this is the explicit, interactive command that does, and
-# it is what the install output points at. Every treatment confirms first, backs the file up before
-# writing, and names each path it touched.
+# ── system post-upgrade: reconcile the .rpmnew files an upgrade leaves ─────────────────────── rpm keeps
+# an operator-modified %config(noreplace) file and parks the package's copy beside it as <file>.rpmnew. Choosing
+# between the two is a judgement call about the operator's own configuration, so no scriptlet makes it: this is
+# the explicit, interactive command that does, and it is what the install output points at. Every treatment
+# confirms first, backs the file up before writing, and names each path it touched. A .rpmnew survives the run,
+# whichever treatment it got: each one leaves part of the reconciliation to the operator, and the copy is
+# the baseline that edit is made from, so each block closes by naming the file to remove once the merge is done.
 #
 # The treatment follows the file's CONTENT, rather than one generic merge covering all three:
 #   json    hook DECLARATIONS merge additively -- they are control plane, and a declaration the
@@ -1210,13 +1211,19 @@ _pu_diff() {
     "${differ}" -u "$1" "$2" 2>/dev/null | sed 's/^/    /' || true
 }
 
-# _pu_cleanup <rpmnew> <default>: offer to drop the .rpmnew now that it has been dealt with.
-_pu_cleanup() {
-    local rpmnew="$1" def="$2"
-    if ai_tools_msg_confirm "  Remove ${rpmnew}?" "${def}"; then
-        rm -f "${rpmnew}" && log "  removed ${rpmnew}"
+# _pu_leave <rpmnew> [merged]: close a file's block by naming what is left to do with the copy. This
+# function prints, and is the only thing any treatment does about the .rpmnew, so the copy survives every run. Each
+# treatment leaves part of the reconciliation to the operator -- the permission rules here, the whole edit
+# for a KEY=value file, the adoption of a sudo grant -- and the copy is the only record of what the package
+# shipped, so deleting it would take away the baseline that edit is made from. It is the operator's file to remove,
+# once the merge they wanted is in place. `merged` says the deployed file now matches the copy byte for byte,
+# so the removal is all that remains.
+_pu_leave() {
+    local rpmnew="$1"
+    if [[ "${2:-}" == merged ]]; then
+        log "  nothing is left to carry over -- remove ${rpmnew} when you are ready"
     else
-        log "  kept ${rpmnew}"
+        log "  merge new config changes by hand, then remove ${rpmnew}"
     fi
 }
 
@@ -1238,7 +1245,7 @@ _pu_json() {
     1)  log "  hook declarations are already current -- nothing to merge"
         log "  the difference left is in the permission rules, which are yours to tune:"
         _pu_diff "${deployed}" "${rpmnew}"
-        _pu_cleanup "${rpmnew}" n
+        _pu_leave "${rpmnew}"
         return 0 ;;
     2)  warn MSG-Q4F6 "cannot merge the hook declarations: ${_ai_tools_conf_merge_reason}"
         warn "    ${deployed} is unchanged -- copy the \"hooks\" block from ${rpmnew} by hand"
@@ -1248,7 +1255,7 @@ _pu_json() {
     log "  hook declarations this version adds:"
     local line
     for line in "${_ai_tools_conf_merge_added[@]}"; do log "    + ${line}"; done
-    log "  nothing else changes -- your permission rules stay as written."
+    log "  nothing else changes -- your permission rules stay as written"
     ai_tools_msg_confirm "  Merge these into ${deployed}?" y || { log "  skipped -- ${deployed} unchanged"; return 0; }
 
     status=0
@@ -1257,17 +1264,17 @@ _pu_json() {
         warn MSG-X9F8 "the merge failed: ${_ai_tools_conf_merge_reason} -- ${deployed} is unchanged"
         return 0
     fi
-    log "  merged. the previous file is saved as ${_ai_tools_conf_merge_backup}"
+    log "  merged -- the previous file is saved as ${_ai_tools_conf_merge_backup}"
 
-    # Offer the cleanup against what is actually left. Once the permission rules match too, the
-    # .rpmnew has no difference left to report and keeping it only invites a second look later.
+    # Close against what is left. Once the permission rules match too, the .rpmnew has no difference left
+    # to report, so the operator is told the removal is all that remains.
     if command -v diff >/dev/null 2>&1 && diff -q "${deployed}" "${rpmnew}" >/dev/null 2>&1; then
-        log "  ${deployed} now matches the shipped file exactly."
-        _pu_cleanup "${rpmnew}" y
+        log "  ${deployed} now matches the shipped file exactly"
+        _pu_leave "${rpmnew}" merged
     else
-        log "  the permission rules still differ -- review them before dropping the copy:"
+        log "  the permission rules still differ -- review them before you remove the copy:"
         _pu_diff "${deployed}" "${rpmnew}"
-        _pu_cleanup "${rpmnew}" n
+        _pu_leave "${rpmnew}"
     fi
 }
 
@@ -1282,13 +1289,13 @@ _pu_keyval() {
         log "  options this version documents that ${deployed} does not mention:"
         for key in "${new_keys[@]}"; do log "    ${key}"; done
         log "  each one is optional and an unmentioned key keeps its default, so leaving them out"
-        log "  breaks nothing. Copy the blocks you want; see operator.conf(5)."
+        log "  breaks nothing -- copy the blocks you want; see operator.conf(5)"
     else
         log "  every option this version documents is already mentioned in ${deployed}"
     fi
     log "  the full difference:"
     _pu_diff "${deployed}" "${rpmnew}"
-    _pu_cleanup "${rpmnew}" n
+    _pu_leave "${rpmnew}"
 }
 
 # _pu_review <deployed> <rpmnew>: show and stop. This file is the sudo grant itself.
@@ -1298,7 +1305,7 @@ _pu_review() {
         "This file defines the sudo grant that lets an operator launch the sandbox. It is shown, never merged: check any change yourself with visudo -c before adopting it."
     _pu_diff "${deployed}" "${rpmnew}"
     log "  adopt the packaged version with:  sudo visudo -c -f ${rpmnew} && sudo cp ${rpmnew} ${deployed}"
-    _pu_cleanup "${rpmnew}" n
+    _pu_leave "${rpmnew}"
 }
 
 postupgrade() {
@@ -1323,7 +1330,7 @@ postupgrade() {
         log "no .rpmnew files are waiting -- every config file this stack owns is reconciled"
         return 0
     fi
-    log "done. this command is idempotent -- re-run it at any time."
+    log "done -- this command is idempotent, re-run it at any time"
 }
 
 # ── status ───────────────────────────────────────────────────────────────────────────────────

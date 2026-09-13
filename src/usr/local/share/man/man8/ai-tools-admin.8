@@ -338,6 +338,9 @@ is reported and never rewritten;
 is shown only.
 Every treatment shows the difference first, confirms, and writes a dated
 backup before changing anything.
+Each file closes by naming its
+.I FILE.rpmnew
+as yours to delete, once you have merged what you want from it by hand.
 Idempotent, and a no-op when no
 .I .rpmnew
 file is waiting.
