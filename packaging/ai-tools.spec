@@ -1127,7 +1127,9 @@ fi
   letter and a digit), and 'ai-tools-messages(7)' lists every code with its severity and the
   component that emits it, so one lookup answers a code met on a terminal or selected in the
   journal. Each structured record carries the code as AI_TOOLS_MSG and the package version as
-  AI_TOOLS_VERSION, so 'journalctl AI_TOOLS_MSG=MSG-A1B2' selects one situation across releases.
+  AI_TOOLS_VERSION, so one situation is selected across releases:
+  'journalctl AI_TOOLS_MSG=MSG-A6D8' lists every secret-named file a session wrote
+  and the handback quarantined.
 - NEW: The trail of a privileged operation names whose tree it was about, not only the root uid
   that wrote the line: every structured record a root helper writes carries AI_TOOLS_OPERATOR and
   AI_TOOLS_PROJECT, and the handback daemon records the session unit each root operation was served
