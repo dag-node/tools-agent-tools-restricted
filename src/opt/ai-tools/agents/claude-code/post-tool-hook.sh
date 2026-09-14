@@ -21,12 +21,10 @@
 #   - the tool input does not contain a file path
 #   - the file is not owned by ai-tools (already handed back, or never agent-written)
 #
-# Ownership handback is delegated to the socket privilege bridge
-# (/usr/local/bin/ai-tools-handback-client), which connects to
-# ai-tools-handback.socket (a root daemon) and sends a CHOWN request. A `sudo
-# ai-tools-chown` call cannot serve here: the session runs under NNP
-# (PR_SET_NO_NEW_PRIVS, forced by RestrictNamespaces=yes in the session service
-# unit), which drops sudo's SUID bit before it can switch uid, so the call fails
+# Ownership handback is delegated to the socket privilege bridge (/usr/local/bin/ai-tools-handback-client),
+# which connects to ai-tools-handback.socket (a root daemon) and sends a CHOWN request. A `sudo ai-tools-chown` call
+# cannot serve here: the session runs under NNP (PR_SET_NO_NEW_PRIVS, forced by RestrictNamespaces=yes in the session
+# service unit), which drops sudo's SUID bit before it can switch uid, so the call fails
 # silently.
 #
 # Installed 750 root:ai-tools: the session executes it through the group and cannot rewrite it,

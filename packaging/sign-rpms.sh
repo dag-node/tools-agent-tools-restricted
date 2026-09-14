@@ -26,14 +26,13 @@
 #   GPG_SIGNING_KEY         ASCII-armored private signing key           (required)
 #   GPG_SIGNING_PASSPHRASE  its passphrase                              (required; org key has one)
 #
-# Fail-closed: a missing key or passphrase, a signing failure, or an RPM that does not carry a
-# signature that verifies exits non-zero, so a release never publishes an unsigned or wrongly
-# signed package. Verification asserts a cryptographic signature LINE validates -- `rpmkeys
-# --checksig` exits 0 for an unsigned package (no signature to fail), so a return-code-only test
-# passes a silent rpmsign no-op; the 0.6.1 assets shipped unsigned that way. Errors use the
-# ::error:: prefix so GitHub Actions surfaces them as annotations; the text reads plainly on a
-# local terminal too. Every secret (imported private key, passphrase) lives in a tmpfs (RAM)
-# scratch tree wiped on exit -- never persistent disk, never the container's real keyring or
+# Fail-closed: a missing key or passphrase, a signing failure, or an RPM that does not carry a signature that verifies
+# exits non-zero, so a release never publishes an unsigned or wrongly signed package. Verification asserts
+# a cryptographic signature LINE validates -- `rpmkeys --checksig` exits 0 for an unsigned package (no signature
+# to fail), so a return-code-only test passes a silent rpmsign no-op; the 0.6.1 assets shipped unsigned that way. Errors
+# use the ::error:: prefix so GitHub Actions surfaces them as annotations; the text reads plainly on a local terminal
+# too. Every secret (imported private key, passphrase) lives in a tmpfs (RAM) scratch tree wiped on exit -- never
+# persistent disk, never the container's real keyring or
 # rpmdb.
 set -euo pipefail
 

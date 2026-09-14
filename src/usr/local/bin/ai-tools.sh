@@ -240,11 +240,10 @@ unset _forless_args
 # read as a typo. It is a pointer and not an alias: the command reconciles a root-owned pin and a
 # file context, so it runs as root, which this CLI refuses.
 #
-# It answers ahead of every gate on purpose. The bootstrap gate would otherwise send an
-# unprovisioned host to the provisioning command, and the root guard would answer `sudo ai-tools
-# --relabel` -- the spelling the older docs printed -- with a list of the verbs root may run, none
-# of which reconciles an entrypoint. Exit 2 is the documented code for a rejected command
-# line (ai-tools(1)).
+# It answers ahead of every gate on purpose. The bootstrap gate would otherwise send an unprovisioned host
+# to the provisioning command, and the root guard would answer `sudo ai-tools --relabel` -- the spelling the older docs
+# printed -- with a list of the verbs root may run, none of which reconciles an entrypoint. Exit 2 is the documented
+# code for a rejected command line (ai-tools(1)).
 if [[ "${1:-}" == "--relabel" ]]; then
     echo "ai-tools: --relabel is now a root command:" >&2
     echo "              sudo ai-tools-admin system entrypoints relabel" >&2
@@ -1551,10 +1550,10 @@ tree_is_pristine() {
 # safe.directory entry and the SELinux label all still apply. The claim would close with its ✓
 # having granted no access at all, and the agent could not enter the tree.
 #
-# The case this exists for is a --for claim: `mkdir ~/proj && ai-tools --project-claim --for svc
-# ~/proj` resolves the owner to svc, so every inode in the tree fails the helpers' guard. This is
-# the CLI-side front line for the count those helpers now report; the refusal names the chown that
-# fixes it, because transferring a tree recursively needs an authority this CLI does not hold.
+# The case this exists for is a --for claim: `mkdir ~/proj && ai-tools --project-claim --for svc ~/proj` resolves
+# the owner to svc, so every inode in the tree fails the helpers' guard. This is the CLI-side front line for the count
+# those helpers now report; the refusal names the chown that fixes it, because transferring a tree recursively needs
+# an authority this CLI does not hold.
 require_claimable_owner() {
     local d="$1" owner
     owner="$(stat -c '%U' "${d}" 2>/dev/null)" || die "cannot read the owner of ${d}"

@@ -171,9 +171,9 @@ FRONTED_QUANTIFIER_INFLECTED = re.compile(
 GUARD = re.compile(r"\b(so|because|since|unless|when|while|until|once|only|if|where|after"
                    r"|before|without|through|via|whenever|as long as)\b")
 
-# The second way a cost claim states its backing: a frequency or a bounded operation as the
-# sentence's own subject, where no conjunction appears. `a single write of the whole text keeps
-# the window negligible` names what makes it small.
+# The second way a cost claim states its backing: a frequency or a bounded operation as the sentence's own subject,
+# where no conjunction appears. `a single write of the whole text keeps the window negligible` names what makes it
+# small.
 COST_BACKING = re.compile(r"\b(single|one|per|bounded|scoped|cached|amortized|idempotent|no-op)\b",
                           re.I)
 
@@ -234,21 +234,19 @@ REFERENCE_SHAPE = re.compile(rf"\bref-(?:{_REFTAG_KINDS})-(?![a-z][0-9][a-z][0-9
 REFTAG_LINK = re.compile(rf"(\[(?:ref-(?:{_REFTAG_KINDS})-[a-z][0-9][a-z][0-9]"
                          r"|(?:FN|NOTE|MSG|URI)-[A-Z][0-9][A-Z][0-9])\])\([^)]*\)")
 
-# `nothing` as the object of an OUTPUT verb names an empty result -- `prints nothing when the two
-# agree` states what a caller reads -- which is the opposite of the defect this check exists for.
-# The defect is a hidden SCOPE: `nothing is exempt` leaves a reader to work out what a sweep
+# `nothing` as the object of an OUTPUT verb names an empty result -- `prints nothing when the two agree` states
+# what a caller reads -- which is the opposite of the defect this check exists for. The defect is a hidden SCOPE:
+# `nothing is exempt` leaves a reader to work out what a sweep
 # reaches.
 #
-# The list is short and stays short, because the exemption turns on the object BEING the output.
-# These verbs take what was written as their object, so `nothing` there is a value. `grants
-# nothing` reads the same way and is not exempt: what is granted is an authority over some scope,
-# which the sentence still has to name -- and `returns nothing` is not here either, since a
-# function returns to its caller (in shell, a status), so the phrase claims something that is
-# seldom true and never says what the caller reads.
+# The list is short and stays short, because the exemption turns on the object BEING the output. These verbs take
+# what was written as their object, so `nothing` there is a value. `grants nothing` reads the same way and is not
+# exempt: what is granted is an authority over some scope, which the sentence still has to name -- and `returns nothing`
+# is not here either, since a function returns to its caller (in shell, a status), so the phrase claims something
+# that is seldom true and never says what the caller reads.
 #
-# The window is one verb and an optional particle, so only the verb that GOVERNS `nothing` exempts
-# it; an output verb elsewhere in the sentence (`the sweep prints a summary, and nothing is
-# exempt`) does not.
+# The window is one verb and an optional particle, so only the verb that GOVERNS `nothing` exempts it; an output verb
+# elsewhere in the sentence (`the sweep prints a summary, and nothing is exempt`) does not.
 _EMITTED_NOTHING = re.compile(
     r"\b(?:print|write|output|emit|report|render|say|yield)(?:s|es|ed|ing)?"
     r"(?:\s+(?:back|out|up|off))?\s+nothing\b", re.IGNORECASE)
@@ -313,11 +311,11 @@ def hidden_scope_nothing(sentence):
 # destination wherever it appears (`author_prose`). A literal belongs in each of them already,
 # so reading one reports the document for showing what it exists to show.
 #
-# A doc comment's CONTRACT LINE is exempt from every one of them. `name <arg>... -- what it
-# does`, with an `args:`/`stdout:` fragment beside it, is the form this standard's doc-comment
-# section prescribes for a shell function, and the reftag families write a target the same way
-# (`FN-Q2H8: <function name>`). The line is already code: every token in it is the signature.
-# Reading it as prose reports the placeholders and the identifier the standard put there.
+# A doc comment's CONTRACT LINE is exempt from every one of them. `name <arg>... -- what it does`,
+# with an `args:`/`stdout:` fragment beside it, is the form this standard's doc-comment section prescribes for a shell
+# function, and the reftag families write a target the same way (`FN-Q2H8: <function name>`). The line is already code:
+# every token in it is the signature. Reading it as prose reports the placeholders and the identifier the standard put
+# there.
 CODE_SPAN_HINT = ("mark it as code -- backticks in Markdown, `<c>` in an XML doc comment -- "
                   "and a command carries its binary")
 
@@ -538,9 +536,9 @@ def vague_verb(sentence):
 # (`both the manifest and the key`, `A and B both hold`), since a reader there can see what a
 # third member would join.
 #
-# `either` and `neither` are out of the set: their common forms are the correlative (`neither
-# owner nor group member`) and the adverb (`the probe could not report that either`), which are
-# different words rather than counts, and reporting them buries the shape this names.
+# `either` and `neither` are out of the set: their common forms are the correlative (`neither owner nor group member`)
+# and the adverb (`the probe could not report that either`), which are different words rather than counts, and reporting
+# them buries the shape this names.
 CLOSED_SET_COUNT = re.compile(
     r"\b(both|the two|the pair)\b"
     r"(?=\s*(?:[.,;:)]|$)"
@@ -607,24 +605,21 @@ def is_prose_file(path):
 # The access-control nouns are here for the same reason as the secrets: `grants nothing on` rewritten
 # as `leaves untouched` reads better and stops saying anything about access.
 #
-# The access VERBS are here for a third reason: each one names the operation a sentence permits or
-# refuses, so a rewrite that drops one changes which operation the sentence is about. The defect
-# this reports, stated as the check sees it -- removed `may not read other users' files`, added `no
-# rule grants access to them` -- keeps the vocabulary of access while retiring the claim about
-# reading, which is why the other two kinds stay silent on it.
+# The access VERBS are here for a third reason: each one names the operation a sentence permits or refuses, so a rewrite
+# that drops one changes which operation the sentence is about. The defect this reports, stated as the check sees it --
+# removed `may not read other users' files`, added `no rule grants access to them` -- keeps the vocabulary of access
+# while retiring the claim about reading, which is why the other two kinds stay silent on it.
 #
-# A special bit and an ACL entry are named here for a fourth reason: in this domain one of them is
-# often the mechanism rather than a detail of it -- setgid on a shared directory is what makes a
-# file born there carry the group, sticky is what stops a group-writer unlinking a file it does not
-# own, and the ACL mask is what a `setfacl -m` recalculates and a `setfacl -n` preserves. A rewrite
-# that renders `drwxr-s--x` as "group r-x" reads as a tidy-up and retires the bit that does the
-# work, so the whole permission vocabulary is matched as terms: the octals in every spelling, the
-# symbolic modes, the ten-character renderings, an ACL entry with its own colon syntax, the
-# setfacl flag that decides whether the mask is recalculated, and the link vocabulary a refusal
-# rests on (lstat over stat, nlink, no-dereference). A mode CHANGED in place reports the same way
-# as one removed, since the old spelling leaves the added side either way. The trailing branches
-# sit outside the `\b` group because each begins or ends with a character that is not a word
-# character, so they carry their own boundaries.
+# A special bit and an ACL entry are named here for a fourth reason: in this domain one of them is often the mechanism
+# rather than a detail of it -- setgid on a shared directory is what makes a file born there carry the group, sticky is
+# what stops a group-writer unlinking a file it does not own, and the ACL mask is what a `setfacl -m` recalculates
+# and a `setfacl -n` preserves. A rewrite that renders `drwxr-s--x` as "group r-x" reads as a tidy-up and retires
+# the bit that does the work, so the whole permission vocabulary is matched as terms: the octals in every spelling,
+# the symbolic modes, the ten-character renderings, an ACL entry with its own colon syntax, the setfacl flag
+# that decides whether the mask is recalculated, and the link vocabulary a refusal rests on (lstat over stat, nlink,
+# no-dereference). A mode CHANGED in place reports the same way as one removed, since the old spelling leaves the added
+# side either way. The trailing branches sit outside the `\b` group because each begins or ends with a character that is
+# not a word character, so they carry their own boundaries.
 #
 # Every octal reduces to the number alone, with no owner attached: `750` and `750 root:root` name
 # one mode, so matching the pair as a second token would report a mode as dropped each time a
@@ -668,19 +663,17 @@ NARROWABLE_TERMS = re.compile(
 # secret` swaps a fact for an obligation; both read as tidying and both retire what the sentence
 # guaranteed. Reported when the removed prose carried one and the added prose does not.
 #
-# The RFC 2119 verbs are in the set because this standard writes reference prose in that register,
-# where each one fixes how binding a sentence is: a `must` demoted to a plain present tense turns a
-# constraint the code was built to satisfy into a report of what it happens to do, which reads as a
-# description a later editor may update rather than a rule they would be breaking. Each negation is
-# spelled before its bare form, so the alternation prefers the longer match and `must not` weakened
-# to `must` is reported rather than absorbed. The RFC's adjectives (REQUIRED, RECOMMENDED,
-# OPTIONAL) stay out: they are ordinary words here -- `Required and fail-closed`, `the optional
-# third arg` -- so reporting them would bury the verbs that do carry the claim.
-# A contraction is matched beside its long form, and each one is spelled before the bare stem it
-# begins with, so `mustn't` reads as `must not` rather than as `must` with a suffix left over. The
-# apostrophe may be either the ASCII or the typographic one, since a document carries whichever its
-# author typed. `will not`/`won't` stay out: `will` fixes when something happens, not how binding
-# it is, and the standard reserves it for genuinely future behaviour.
+# The RFC 2119 verbs are in the set because this standard writes reference prose in that register, where each one fixes
+# how binding a sentence is: a `must` demoted to a plain present tense turns a constraint the code was built to satisfy
+# into a report of what it happens to do, which reads as a description a later editor may update rather than a rule they
+# would be breaking. Each negation is spelled before its bare form, so the alternation prefers the longer match
+# and `must not` weakened to `must` is reported rather than absorbed. The RFC's adjectives (REQUIRED, RECOMMENDED,
+# OPTIONAL) stay out: they are ordinary words here -- `Required and fail-closed`, `the optional third arg` --
+# so reporting them would bury the verbs that do carry the claim. A contraction is matched beside its long form,
+# and each one is spelled before the bare stem it begins with, so `mustn't` reads as `must not` rather than as `must`
+# with a suffix left over. The apostrophe may be either the ASCII or the typographic one, since a document carries
+# whichever its author typed. `will not`/`won't` stay out: `will` fixes when something happens, not how binding it is,
+# and the standard reserves it for genuinely future behaviour.
 MODALITY = re.compile(
     r"\b(never|always|only"
     r"|cannot|can[’']t"

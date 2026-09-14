@@ -89,10 +89,12 @@ rpm --checksig ./*.rpm                         # each line should end in: digest
 sudo dnf install ./*.rpm
 ```
 
-**Upgrade in place; never `dnf remove` first.** From the repository, `sudo dnf upgrade
-'ai-tools*'`; from a downloaded archive, `sudo dnf install ./*.rpm` (a higher version upgrades
-each subpackage). A subpackage that has been renamed carries `Obsoletes` for its old name, so dnf
-performs the rename inside the same transaction, with no package to remove by hand.
+**Upgrade in place; never `dnf remove` first.** From the repository,
+`sudo dnf upgrade 'ai-tools*'`; from a downloaded archive,
+`sudo dnf install ./*.rpm` (a higher version upgrades each subpackage).
+A subpackage that has been renamed carries `Obsoletes` for its old name, so dnf
+performs the rename inside the same transaction, with no package to remove
+by hand.
 
 Removing the packages moves an edited `/etc/ai-tools/operator.conf` to `operator.conf.rpmsave`
 and a fresh install writes an empty one, dropping the operator list (re-add with
@@ -272,20 +274,23 @@ sudo ai-tools-admin selinux groups
 sudo ai-tools-admin selinux groups enable tmpmap localipc buildexec
 ```
 
-That helper `semodule`-loads the compiled `.pp` from the package directory. A layout module
-(`ai_tools_dotnet.pp`) is not enabled that way: it does not add any permission, so the `ai-tools-selinux`
-`%post` loads it for every installed integration whose manifest declares one, the integration's
-own `bootstrap` loads it too, and the integration's `%postun` unloads it on final erase. The
-**experimental** groups are unaudited drafts and
-are **not** packaged: `ai-tools-admin` refuses them and directs the operator to compile and
-verify one from a source checkout first (`install-selinux.sh enable-group` + the `avc/`
-loop). Which groups are stable is read from the host, with `sudo ai-tools-admin selinux
-groups`; the packaged set follows the registry in `selinux-groups.lib.sh` and the integration
-manifests, derived by `selinux/policy/shipped-modules.sh` at build time.
-`%postun` on final erase unloads the core **and** any group a host left loaded (the `.pp` is
-erased with the package, but the compiled module persists in the store otherwise).
-Per-project `semanage fcontext` rules are created by project registration, not by the
-package, so an erase that keeps registered projects leaves their labels in place.
+That helper `semodule`-loads the compiled `.pp` from the package directory.
+A layout module (`ai_tools_dotnet.pp`) is not enabled that way: it does not add
+any permission, so the `ai-tools-selinux` `%post` loads it for every installed
+integration whose manifest declares one, the integration's own `bootstrap` loads
+it too, and the integration's `%postun` unloads it on final erase.
+The **experimental** groups are unaudited drafts and are **not** packaged:
+`ai-tools-admin` refuses them and directs the operator to compile and verify one
+from a source checkout first (`install-selinux.sh enable-group` + the `avc/`
+loop). Which groups are stable is read from the host,
+with `sudo ai-tools-admin selinux groups`; the packaged set follows the registry
+in `selinux-groups.lib.sh` and the integration manifests, derived
+by `selinux/policy/shipped-modules.sh` at build time. `%postun` on final erase
+unloads the core **and** any group a host left loaded (the `.pp` is erased
+with the package, but the compiled module persists in the store otherwise).
+Per-project `semanage fcontext` rules are created by project registration, not
+by the package, so an erase that keeps registered projects leaves their labels
+in place.
 
 ## Preservation on erase
 

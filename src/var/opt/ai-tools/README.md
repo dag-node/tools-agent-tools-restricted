@@ -94,8 +94,9 @@ it only keeps *past* ones out.
 ## Pushing back
 
 Only the **operator** can push. The sandbox account (`ai-tools`) has no SSH key
-or git credential, so it physically cannot reach the remote — `ai-tools
---sandbox-push` runs as the operator and uses the operator's credentials.
+or git credential, so it physically cannot reach the remote —
+`ai-tools --sandbox-push` runs as the operator and uses the operator's
+credentials.
 
 The operator supplies only the **transport** (network) credentials. The commits
 themselves keep the author/committer identity from `/opt/ai-tools/.gitconfig` — the

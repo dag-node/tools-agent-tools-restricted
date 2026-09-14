@@ -7,11 +7,10 @@
 # so a single file disagreeing with its siblings is drift, not intent, and the rule does not require a
 # hand-maintained list of which paths are executable.
 #
-# The gap this closes: a mode flip is INVISIBLE in a normal review. `git show` renders it as a
-# zero-line change, and every install path sets its own mode explicitly (`install_subst 750 root
-# root`, `%attr(0750, root, root)`, asserted for the installed artifacts by
-# tests/integration/perms.sh), so no downstream check has to make the drift noticeable. What it
-# does cause is a file that reads as permanently modified in `git status` once a checkout's mode
+# The gap this closes: a mode flip is INVISIBLE in a normal review. `git show` renders it as a zero-line change,
+# and every install path sets its own mode explicitly (`install_subst 750 root root`, `%attr(0750, root, root)`,
+# asserted for the installed artifacts by tests/integration/perms.sh), so no downstream check has to make the drift
+# noticeable. What it does cause is a file that reads as permanently modified in `git status` once a checkout's mode
 # and the index disagree -- noise that then hides a real change.
 #
 # Only the TRACKED mode is checked, never the mode on disk. A working tree's own modes are
