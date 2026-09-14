@@ -66,12 +66,14 @@ away. A marker joined into the paragraph above it stops marking.")
   "A character drawing a vertical rule in an ASCII diagram or a comment table.")
 
 (defun ai-tools-fill--vertical-columns (line)
-  "The columns LINE carries a vertical rule at."
-  (let ((columns nil) (start 0))
-    (while (string-match ai-tools-fill--vertical-rule line start)
-      (push (match-beginning 0) columns)
-      (setq start (match-end 0)))
-    columns))
+  "The columns LINE carries a vertical rule at.
+`string-match' sets the match data, so the caller's own match is saved around it."
+  (save-match-data
+    (let ((columns nil) (start 0))
+      (while (string-match ai-tools-fill--vertical-rule line start)
+        (push (match-beginning 0) columns)
+        (setq start (match-end 0)))
+      columns)))
 
 (defconst ai-tools-fill--joined-sentence "\\([.!?][]\"')}]*\\)  \\([^ ]\\)"
   "A sentence end carrying two spaces: the punctuation with its closers, and the next word.")
@@ -86,6 +88,14 @@ space a join added is taken back here, where a column of spaces is not touched."
     (goto-char beg)
     (while (re-search-forward ai-tools-fill--joined-sentence end t)
       (replace-match "\\1 \\2" t))))
+
+(defun ai-tools-fill--in-string-p ()
+  "Non-nil when the line at point sits inside a string, which the mode's syntax decides.
+A heredoc body is the case that matters: the text is data this file writes or feeds elsewhere --
+a seeded config header, a fixture, an embedded script -- so a comment marker in it belongs to
+that text rather than to this file, and filling it rewrites what the file emits.
+`syntax-ppss' searches, so the caller's `looking-at' match is saved around it."
+  (save-match-data (nth 3 (syntax-ppss (line-beginning-position)))))
 
 (defun ai-tools-fill--run-in-ranges (beg end ranges)
   "Non-nil when the lines from BEG to END (exclusive) meet a range in RANGES.
@@ -108,7 +118,8 @@ filled. See the file header for what is left alone."
       (goto-char (point-min))
       (while (not (eobp))
         (if (and (looking-at ai-tools-fill--prose-line)
-                 (not (looking-at ai-tools-fill--skip-line)))
+                 (not (looking-at ai-tools-fill--skip-line))
+                 (not (ai-tools-fill--in-string-p)))
             (let* ((prefix (match-string 1))
                    (beg (point))
                    (plain t)

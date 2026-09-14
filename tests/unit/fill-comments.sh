@@ -57,6 +57,9 @@ q=5
 # yes | ok
 # no  | refuse and say why, in a line long enough that a filler would otherwise rewrap it here
 r=6
+cat > /dev/null <<'INNER'
+# A seeded config header inside a heredoc body: data this file writes rather than prose of its own, and long enough that a filler would want to rewrap it.
+INNER
 EOF
 cp "${f}" "${TESTDIR}/before.sh"
 
@@ -138,6 +141,9 @@ same "an aligned signature line" '# ai_tools_example <arg>'
 # rule does not reach it and the rule reading the vertical is what leaves it as written.
 same "a comment table's heading row" '# on  | verdict'
 same "a comment table's widest row"  '# no  | refuse and say why'
+# A heredoc body is data the file writes, so a comment marker in it is that data's. The mode's
+# syntax is what says so, which is why the fixture is a shell file with a real heredoc in it.
+same "a comment line inside a heredoc body" '# A seeded config header inside a heredoc body'
 if (( $(grep -c 'A paragraph that a doc comment' "${f}") == 1 )) \
         && grep -q '^# A paragraph that a doc comment' "${f}" \
         && ! grep -q "contract lines follow, long enough to need rewrapping at the column." "${f}"; then
