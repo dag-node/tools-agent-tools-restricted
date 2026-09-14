@@ -49,16 +49,16 @@ cache), so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS
   groups](#the-policy-groups-a-net-workflow-needs-and-the-layout-module-that-is-not-one)).
 - `filters.d/dotnet.rules` quiets `build`, `publish`, `restore`, `run` and `test` with `-v q`; the rule,
   and why verbosity is a command rule rather than a fragment variable, are in [filters](filters.rule.md).
-- `admin-commands.d/dotnet` is this package's contributed domain, so its administration is spelled `sudo ai-tools-admin
-  dotnet <verb>` ([cli-grammar](cli-grammar.rule.md) for the spelling). `dotnet bootstrap` creates that state root
-  and its three directories: the NuGet cache and the SDK's CLI home are agent-**writable** (`2770`, setgid), the shared
-  tools are **read-only** to the agent (`0755`, root-only writes). It applies **no** SELinux policy of its own —
-  the base's static rule on `integrations(/.*)?` already maps the whole tree to `ai_tools_home_t`, so the type grants
-  `ai_tools_t` the access (write on the cache, exec on the tools) while the DAC modes are the enforced read/write
-  boundary. It also drops the local fcontext rules earlier versions added for the old home-root dotdirs. `dotnet tools
-  install <pkg...>` installs shared global tools; `dotnet status` reports host SDKs/runtimes, and reads enablement
-  through `ai_tools_enabled_integrations` so it reports the same verdict `ai-tools-run` reaches. Its journald tag
-  and log file are `ai-tools-dotnet`/`dotnet.log`, the identity an operator queries.
+- `admin-commands.d/dotnet` is this package's contributed domain, so its administration is spelled
+  `sudo ai-tools-admin dotnet <verb>` ([cli-grammar](cli-grammar.rule.md) for the spelling). `dotnet bootstrap` creates
+  that state root and its three directories: the NuGet cache and the SDK's CLI home are agent-**writable** (`2770`,
+  setgid), the shared tools are **read-only** to the agent (`0755`, root-only writes). It applies **no** SELinux policy
+  of its own — the base's static rule on `integrations(/.*)?` already maps the whole tree to `ai_tools_home_t`,
+  so the type grants `ai_tools_t` the access (write on the cache, exec on the tools) while the DAC modes are
+  the enforced read/write boundary. It also drops the local fcontext rules earlier versions added for the old home-root
+  dotdirs. `dotnet tools install <pkg...>` installs shared global tools; `dotnet status` reports host SDKs/runtimes,
+  and reads enablement through `ai_tools_enabled_integrations` so it reports the same verdict `ai-tools-run` reaches.
+  Its journald tag and log file are `ai-tools-dotnet`/`dotnet.log`, the identity an operator queries.
 - Every step **fails loudly**. A directory it cannot create, or a label it cannot apply on a host that supports
   labelling, exits non-zero with the cause logged through `log.lib.sh` to journald and `/var/log/ai-tools/dotnet.log`
   (see [logging](logging.rule.md)) — a half-provisioned integration that looks installed surfaces later as an opaque
@@ -93,9 +93,9 @@ and the sandbox-clone rule that put .NET's output on the build-output type at cr
 type](#the-build-output-type-and-what-scoping-to-it-does-and-does-not-do)), and it does not add any permission, so it is
 not an operator's consent point: `ai-tools-admin dotnet bootstrap` loads it where the policy package is installed,
 the policy package's `%post` loads the layout module of every installed integration that declares one
-(`selinux_layout_module`), the integration's `%postun` unloads it on final erase, and `install-selinux.sh
-install`/`rebuild` compile and load it from source. Without it, output is typed at the next relabel instead of when it
-is created.
+(`selinux_layout_module`), the integration's `%postun` unloads it on final erase,
+and `install-selinux.sh install`/`rebuild` compile and load it from source. Without it, output is typed at the next
+relabel instead of when it is created.
 
 ## Which groups a project needs
 
@@ -137,11 +137,11 @@ The `/tmp` socket/FIFO **create** denials have a precise cause: the base `files_
 **files/dirs/symlinks** to the private `ai_tools_tmp_t` but **not sockets or FIFOs**, so those default to `tmp_t`,
 which the domain cannot create — which is why multi-node MSBuild hangs on its worker **named pipes** (the `-m:1`
 workaround avoids the pipes). A named-socket **connect** needs a second grant the base also lacks:
-`create_stream_socket_perms` covers `connect` but **not `connectto`** (the peer permission to a listener), so `dotnet
-test`'s Microsoft.Testing.Platform runner gets `EACCES` reaching its test host over the `.local/share` socket even once
-the socket file exists. `localipc` grants the socket/FIFO transition and management **and** `self:unix_stream_socket
-connectto`; all of it is benign — the sandbox's own processes doing socket/FIFO IPC in their own tmp/home, the same
-class as the file management the base already grants.
+`create_stream_socket_perms` covers `connect` but **not `connectto`** (the peer permission to a listener),
+so `dotnet test`'s Microsoft.Testing.Platform runner gets `EACCES` reaching its test host over the `.local/share` socket
+even once the socket file exists. `localipc` grants the socket/FIFO transition and management **and**
+`self:unix_stream_socket connectto`; all of it is benign — the sandbox's own processes doing socket/FIFO IPC in their
+own tmp/home, the same class as the file management the base already grants.
 
 `buildexec` is the boundary: **execute on `ai_tools_project_build_t`** is on-disk code run as a new process image. It
 does not grant a new privilege (`execmem` already concedes in-process native code, and `execute_no_trans` keeps

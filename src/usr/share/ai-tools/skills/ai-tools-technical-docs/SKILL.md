@@ -85,8 +85,8 @@ can open. Abstractions describe; they do not act.
 A sentence shaped *"an X that ⟨property⟩ is not an X"* restates a definition, which a reader cannot check
 against the code. Write what the code does and what follows from it.
 
-- In style: `stop() does not take a target and enumerates every process in the account's cgroup, so a task cannot
-  exclude itself from the sweep.`
+- In style:
+  `stop() does not take a target and enumerates every process in the account's cgroup, so a task cannot exclude itself from the sweep.`
 - Off style: `A stop path the monitored system can put itself outside of is not a stop path.`
 
 A document may carry **one** such formulation as its stated binding rule, where the compression earns its place.
@@ -127,10 +127,10 @@ The defect is the hiding, not the word: `nothing is exempt` in a file that termi
 to work out the scope of a sweep, where `no cgroup under the account is exempt` states it. Name the thing, and the same
 goes for `everything`, `anything`, and `all of them`.
 
-**Where `nothing` is the object of an output verb, it names an empty result and is the right word.** `Prints nothing
-when the set in force matches the baseline` states what a caller reads; there is no absent *input* to name. The exempt
-verbs are the ones whose object **is** the output — `prints`, `writes`, `emits`, `reports`, `renders`, `says`, `yields`,
-`outputs` — and the exemption reaches only the verb that governs the word.
+**Where `nothing` is the object of an output verb, it names an empty result and is the right word.**
+`Prints nothing when the set in force matches the baseline` states what a caller reads; there is no absent *input*
+to name. The exempt verbs are the ones whose object **is** the output — `prints`, `writes`, `emits`, `reports`,
+`renders`, `says`, `yields`, `outputs` — and the exemption reaches only the verb that governs the word.
 
 - In style: `Prints nothing when the set in force matches the baseline.`
 - Off style: `The sweep prints a summary, and nothing is exempt.` — the output verb is in the other clause, so the scope
@@ -142,8 +142,8 @@ Three shapes sit outside the exemption, and each is a claim to write differently
   which the sentence still owes the reader.
 - **`returns nothing`** says what a caller gets *back*, which in shell is a status and in most languages is `void` —
   so the phrase is seldom true and never states what was written. Name the stream: `prints nothing`.
-- **`runs nothing`, `loading nothing`** name an empty *effect* rather than an empty output. Write the effect: `is not
-  executed`, `without loading a module`.
+- **`runs nothing`, `loading nothing`** name an empty *effect* rather than an empty output. Write the effect:
+  `is not executed`, `without loading a module`.
 
 **Where the actor is a person, `nothing` is often the right word and the replacement is not.** "what you have to do
 about it (almost always nothing)" is an action the reader takes; `none` reads as a count of some set the sentence never
@@ -196,8 +196,8 @@ what a row in a report carries.
 
 Open with the behaviour. Where a reader benefits from knowing what the behaviour prevents, that comes second.
 
-- In style: `chown() resolves the path once and acts on the pinned inode, so the change stays inside the tree even
-  when the path is swapped mid-operation.`
+- In style:
+  `chown() resolves the path once and acts on the pinned inode, so the change stays inside the tree even when the path is swapped mid-operation.`
 - Off style: `Without this check a symlink could redirect the chown outside the tree.`
 
 ### Affirmative framing is structural
@@ -238,9 +238,9 @@ as natural there. It is the same figure, in a declarative rather than a procedur
 - In style: `a checkout has no compiled module`, `the header does not register an entry`
 - Off style: `a checkout carries no compiled module`, `the header registers no entry`
 
-**The object's number follows the code, not a preference.** `does not take any path arguments` and `does not take a path
-argument` are different claims about arity — a variadic parameter against a single one — so the signature decides
-which is true. A definite object keeps its article: `does not increment the counter`.
+**The object's number follows the code, not a preference.** `does not take any path arguments`
+and `does not take a path argument` are different claims about arity — a variadic parameter against a single one —
+so the signature decides which is true. A definite object keeps its article: `does not increment the counter`.
 
 The same applies to `nothing` as a subject or object, which the checklist already catches: name the absent input
 instead.
@@ -296,8 +296,8 @@ before a purpose clause stays:
   the clause.
 - **A reader would miss it.** Where the consequence follows from the fact for anyone who knows the domain, the fact
   stands alone.
-- **The consequent names a mechanism.** `so it takes the same report` is vague; `so the commit-msg hook runs the checker
-  over the message` is the same claim, checkable.
+- **The consequent names a mechanism.** `so it takes the same report` is vague;
+  `so the commit-msg hook runs the checker over the message` is the same claim, checkable.
 
 Purpose also lands without the join: as its own sentence, or as a paragraph's whole job. Where a paragraph already makes
 one causal claim, check whether the next sentence earns a second.
@@ -569,9 +569,9 @@ Check each one before accepting a rewrite. A change that moves any of them has c
 - **The modality.** Keep `never`, `always`, `cannot`, `only`, and `must` where the original used one, and name the guard
   that backs it in the same sentence. Do not trade an absolute for `not`; [Back an absolute with its
   check](#back-an-absolute-with-its-check) has the cases where the absolute itself goes.
-- **Every fact, and no new ones.** Account for each fact in the old sentence before deleting it. `stable, and leaks
-  nothing regardless of who runs it` → `stable whoever runs it` drops a disclosure claim. No vocabulary check sees
-  that, so read the two versions side by side.
+- **Every fact, and no new ones.** Account for each fact in the old sentence before deleting it.
+  `stable, and leaks nothing regardless of who runs it` → `stable whoever runs it` drops a disclosure claim. No
+  vocabulary check sees that, so read the two versions side by side.
 
 ## Keep the sentence and raise the finding
 
@@ -682,10 +682,10 @@ and a **runtime message** is a string rather than prose.
 **Shell commands a reader will copy** go on a single line. Backslash continuations do not survive a copy
 out of a terminal, so anything longer than one line ships as a script file the reader runs in one command.
 
-**An example longer than 60 columns goes in a fenced block carrying its language** — ` ```bash ` for a command line,
-` ```text ` for output the reader reads rather than runs, the language's own name for source. Under 60 columns a command
-is a backticked span **inside the sentence that introduces it**, and two commands joined by `&&` take the same measure:
-the width decides, not the count.
+**An example longer than 60 columns goes in a fenced block carrying its language** —
+` ```bash ` for a command line, ` ```text ` for output the reader reads rather than runs, the language's own name
+for source. Under 60 columns a command is a backticked span **inside the sentence that introduces it**, and two commands
+joined by `&&` take the same measure: the width decides, not the count.
 
 The inline form holds **one** command. A second command shown beside it joins the first in a block whatever either
 measures, and so does an example of more than one line: a reader copying a sequence copies one block, and a stack
@@ -832,8 +832,8 @@ Create the file or set APP_CONFIG_PATH.
 
 Off style: `Configuration integrity requirements were not satisfied.`
 
-A refusal names the condition and the path forward: `<path> is not in allowed projects for the current operator. Claim
-it with: ai-tools --project-claim <path>`.
+A refusal names the condition and the path forward:
+`<path> is not in allowed projects for the current operator. Claim it with: ai-tools --project-claim <path>`.
 
 ## Log messages
 
@@ -945,8 +945,8 @@ where the sentence does not name a frequency or a bounded operation, so one alre
 `--all` adds the shape checks, each of which greps a sub-shape of its rule, because the rules themselves are
 about meaning: a word stem repeated across the pivot is the mirror in item 3 and the restated head noun in item 2,
 and an absolute in a sentence with no subordinating conjunction has nowhere for item 5's guard clause to be, and a count
-word with no noun after it and no correlative beside it is item 13's set left unnamed — where a following noun (`both
-files`) or an enumeration (`both the manifest and the key`) names it. It also carries the checks a rewrite needs
+word with no noun after it and no correlative beside it is item 13's set left unnamed — where a following noun
+(`both files`) or an enumeration (`both the manifest and the key`) names it. It also carries the checks a rewrite needs
 a reader for — the `does not` rule in its past and participle inflections, and the verbs that name no operation. Every
 `--all` check wants a reader on each hit. `--kept` is the rewrite mode, described under [Run the checks a rewrite
 needs](#run-the-checks-a-rewrite-needs).

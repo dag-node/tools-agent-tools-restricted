@@ -66,8 +66,8 @@ every project at `/home/<user>/<proj>` report permanently unreachable, with a sa
 
 The grant therefore creates a **condition**, not exposure: it makes already-world-readable entries *reachable*.
 Under `umask 077` that set is empty; under the RHEL default `022` it is the `644` skel files and anything else written
-world-readable. Which of those a host is has a one-line answer, so the prompt states the condition and names `find
-<home> -maxdepth 1 -perm -o+r` rather than asserting either outcome. The prompt is default-NO, is not pre-answered
+world-readable. Which of those a host is has a one-line answer, so the prompt states the condition and names
+`find <home> -maxdepth 1 -perm -o+r` rather than asserting either outcome. The prompt is default-NO, is not pre-answered
 by `AI_TOOLS_ASSUME_YES` or by a verb's `-y`, and a run with no terminal declines and prints the `setfacl` commands (see
 [cli](cli.rule.md), [messaging](messaging.rule.md)).
 
@@ -87,10 +87,10 @@ Two layers, both fail-closed:
   on the directory it would make, which is the whole surface there since only the final component is ever created: it
   refuses a create that would *manufacture* a protected directory (`/efi` or `/lost+found` on a host without one). It
   does not refuse a project nested *inside* a protected tree — descendants pass by design, exactly as for a claim, or no
-  project under a home would work. `--sandbox-remove`/`--sandbox-push` add a second front-line for the destructive `rm
-  -rf`: `require_sandbox_clone` calls the backstop **and** requires a direct-child clone of `SANDBOX_ROOT` that is a git
-  worktree, so the shared clone-area root — a *descendant* of the protected `/var`, hence not caught by the backstop
-  alone — is never a removal target.
+  project under a home would work. `--sandbox-remove`/`--sandbox-push` add a second front-line for the destructive
+  `rm -rf`: `require_sandbox_clone` calls the backstop **and** requires a direct-child clone of `SANDBOX_ROOT` that is
+  a git worktree, so the shared clone-area root — a *descendant* of the protected `/var`, hence not caught
+  by the backstop alone — is never a removal target.
 - **Last line** — `ai-tools-{chown,reclaim,setgid,setfacl,unclaim,lockdown,relabel}` each call the guard right
   after resolving their canonical target, before any mutation. The walkers (`reclaim`, `setgid`, `setfacl`, `unclaim`)
   refuse the whole pass at the project root, before descending.

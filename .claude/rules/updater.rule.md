@@ -61,10 +61,11 @@ deployed, so the prompt requires it and fails closed like any other, no fallback
 
 ## Where the update runs
 
-`nvm-update.service` and `nvm-update.timer` ship in `%{_userunitdir}` and are enabled in `SANDBOX_USER`'s own `systemd
---user instance`, so the updater runs as `SANDBOX_USER` and writes the shared `.nvm` tree (`%h=/opt/ai-tools`) directly.
-The timer fires daily; one instance maintains the toolchain the whole team shares. `ai-tools-bootstrap` enables
-the timer once it has provisioned the toolchain and `SANDBOX_USER`'s linger; `install.sh` enables it for the dev flow.
+`nvm-update.service` and `nvm-update.timer` ship in `%{_userunitdir}` and are enabled in `SANDBOX_USER`'s own
+`systemd --user instance`, so the updater runs as `SANDBOX_USER` and writes the shared `.nvm` tree (`%h=/opt/ai-tools`)
+directly. The timer fires daily; one instance maintains the toolchain the whole team shares. `ai-tools-bootstrap`
+enables the timer once it has provisioned the toolchain and `SANDBOX_USER`'s linger; `install.sh` enables it for the dev
+flow.
 
 ### A `--user unit` here does not carry a mount-namespace option
 
@@ -81,8 +82,8 @@ as a fault whose reason names the translated owner it read ([the empty-set
 classification](#the-run-classifies-itself-ok-skipped-or-failed)), so the state is reported, and the unit-file check is
 what keeps it from arising.
 
-Two properties of that make the guard a **unit-file check** (`tests/integration/systemd.sh`, over every shipped `--user
-unit`) rather than a runtime one:
+Two properties of that make the guard a **unit-file check** (`tests/integration/systemd.sh`, over every shipped
+`--user unit`) rather than a runtime one:
 
 - `systemd-analyze verify` accepts the option, and the unit starts and exits 0 with it.
 - `RestrictNamespaces=yes` does not refuse it. That directive filters the **payload's** `unshare`, `clone` and `setns`,
@@ -106,13 +107,14 @@ under `set -e` with `pipefail` a bare `printf | systemd-cat` pipeline whose `sys
 and aborts it silently, because the line explaining why comes after the statement that failed. A logger never decides
 the fate of the operation it reports on, here as in `log.lib.sh` (see [logging](logging.rule.md)).
 
-`write_stamp` is installed as the script's `EXIT` trap, so the record covers every exit path — a `die`, an uncaught `set
--e` failure, and a clean run alike — and it is best-effort throughout: it never turns a successful update into a failed
-unit, and a host whose stamp is absent gets a warning naming the reinstall that restores it, while the report states
-the unit as unknown rather than guessing. The whole text goes out in a single write, so the window in which a reader
-could see a partial stamp is negligible; one that lands there anyway does not carry a parseable `RESULT` and reads
-as unknown, never as a wrong verdict. The content is the shared `KEY=value` grammar: `RESULT=ok|skipped|failed`,
-`EXIT_CODE`, `FINISHED` (UTC, ISO-8601), `TRIGGER=unit|manual`, `NODE`, and `REASON` on a skip.
+`write_stamp` is installed as the script's `EXIT` trap, so the record covers every exit path — a `die`, an uncaught
+`set -e` failure, and a clean run alike — and it is best-effort throughout: it never turns a successful update
+into a failed unit, and a host whose stamp is absent gets a warning naming the reinstall that restores it, while
+the report states the unit as unknown rather than guessing. The whole text goes out in a single write, so the window
+in which a reader could see a partial stamp is negligible; one that lands there anyway does not carry a parseable
+`RESULT` and reads as unknown, never as a wrong verdict. The content is the shared `KEY=value` grammar:
+`RESULT=ok|skipped|failed`, `EXIT_CODE`, `FINISHED` (UTC, ISO-8601), `TRIGGER=unit|manual`, `NODE`, and `REASON`
+on a skip.
 
 ### The run classifies itself: ok, skipped, or failed
 
@@ -159,8 +161,8 @@ elapses and not when the service succeeds. Ordering on `network-online.target` i
 startup, while this unit is started by a daily timer on a machine that has typically been up for days — so the unit is
 not ordered against it and connectivity is handled where it arises, in the run's own exit status.
 
-The daily window is the host's local time; an operator moves it with `sudo systemctl --user -M ai-tools@.host edit
-nvm-update.timer`.
+The daily window is the host's local time; an operator moves it
+with `sudo systemctl --user -M ai-tools@.host edit nvm-update.timer`.
 
 Each field has a distinct reader. `RESULT` and `EXIT_CODE` are the service's verdict. `FINISHED` carries two: it dates
 that verdict, and its **age** is what `nvm-update.timer` — which can otherwise report only `?` — infers its own health
@@ -300,12 +302,12 @@ provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run 
   trigger: the sandbox updater does not hold any relabel rights and reaches root only through the handback bridge,
   whose domain deliberately holds none either, so a repoint that does not land (handback down in a manual run) leaves
   the relabel to `ai-tools-run`'s fail-closed preflight and the operator's `ai-tools-admin system entrypoints relabel`.
-  The watcher is **enabled by default** on install through the shipped systemd preset — `%systemd_post
-  ai-tools-relabel.path` applies `85-ai-tools.preset`, which lists it beside the handback socket; without that explicit
-  line the distribution's `disable *` default would leave `%systemd_post` a no-op (the same enablement the socket
-  needs). Enabling a `.path` unit does not start it, so the `ai-tools-integration-nodejs` `%posttrans` starts it —
-  the twin of `ai-tools-base`'s `%posttrans` starting the handback socket — making the watcher live on a fresh install
-  without a reboot; it is also restarted across upgrades (`%postun_with_restart`), so it runs without a manual
+  The watcher is **enabled by default** on install through the shipped systemd preset —
+  `%systemd_post ai-tools-relabel.path` applies `85-ai-tools.preset`, which lists it beside the handback socket; without
+  that explicit line the distribution's `disable *` default would leave `%systemd_post` a no-op (the same enablement
+  the socket needs). Enabling a `.path` unit does not start it, so the `ai-tools-integration-nodejs` `%posttrans` starts
+  it — the twin of `ai-tools-base`'s `%posttrans` starting the handback socket — making the watcher live on a fresh
+  install without a reboot; it is also restarted across upgrades (`%postun_with_restart`), so it runs without a manual
   bootstrap. Should it be down anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch
   on a mislabelled entrypoint: proactively at launch (`claude.sh` warns, warn-not-block, from the same registry)
   and in `ai-tools --status` (see [cli](cli.rule.md)).
@@ -319,8 +321,8 @@ The relabel runs outside the handback domain by design: `ai_tools_handback_t` is
 relabel rights (`ai_tools.te`), so the privilege stays off the agent's reach. The watcher is best-effort;
 `ai-tools-run`'s fail-closed preflight (see [confinement](confinement.rule.md)) is the backstop — when SELinux is
 enforcing and the module is installed, it refuses to launch a session whose entrypoint is not `ai_tools_exec_t`,
-so a watcher relabel that does not land degrades to a refused launch the operator clears with `ai-tools-admin system
-entrypoints relabel`, never an unconfined session.
+so a watcher relabel that does not land degrades to a refused launch the operator clears
+with `ai-tools-admin system entrypoints relabel`, never an unconfined session.
 
 ## `loginctl enable-linger`
 
@@ -336,8 +338,8 @@ verifies each package's registry integrity hash, so a corrupted download is reje
 
 The integrity hash proves only that the download matches what the registry advertised, so npm registry **signature**
 verification closes the compromised-registry/mirror vector. `npm-verify.lib.sh` runs `npm audit signatures` (the
-registry ECDSA signature over each package, plus SLSA provenance where published) over the installed toolchain. `npm
-audit signatures` refuses a global install (`EAUDITGLOBAL`), so the verifier audits a throwaway project
+registry ECDSA signature over each package, plus SLSA provenance where published) over the installed toolchain.
+`npm audit signatures` refuses a global install (`EAUDITGLOBAL`), so the verifier audits a throwaway project
 whose `node_modules` is a symlink to the global tree (`npm root -g`) and whose `package.json` lists the global top-level
 packages: npm's arborist reads the real installed tree, including transitive dependencies, with no reinstall and no
 network beyond the registry key/attestation fetch.
@@ -443,8 +445,9 @@ where the labelling half has no label to apply. Both halves answer one question,
 and they share the three things that would otherwise be duplicated: the **trigger** (`ai-tools-relabel.path` watches
 the launcher directory, so it fires on exactly the event that changes an entrypoint), the **privilege** (root,
 which the sandbox-account updater does not have), and the **timing**. Splitting them would buy one name at the cost
-of a second unit and a second command for a step that must run at the same instant anyway — so `system entrypoints
-relabel` keeps `relabel` as its verb and its scope is stated to be the whole reconciliation, not the SELinux half alone.
+of a second unit and a second command for a step that must run at the same instant anyway —
+so `system entrypoints relabel` keeps `relabel` as its verb and its scope is stated to be the whole reconciliation, not
+the SELinux half alone.
 
 The costs of that folding are bounded rather than absent, and both are handled where they arise: a networked step now
 sits inside an otherwise-local verb (which is why it fails soft and connects with a short timeout), and a pin mismatch
@@ -455,11 +458,11 @@ published is the more serious finding, and it is reported first).
 
 **Pinning the registry signing key.** Fetching the keys each run detects a mirror or cache that serves a tampered
 package without the real signature, but not a fully compromised primary registry that serves a forged package,
-signature, and matching keys together. npm does not expose any configuration to pin the signing key for `npm audit
-signatures`, so pinning requires replacing it with a bespoke verification against a hardcoded key — which forgoes npm's
-maintained verifier and the free transitive-tree coverage, and must track npm's key rotation (the endpoint already
-serves one retired and one active key) or a rotation breaks updates. TLS covers the man-in-the-middle key swap,
-so pinning is defense in depth against a primary-registry root-of-trust compromise, held against that cost.
+signature, and matching keys together. npm does not expose any configuration to pin the signing key
+for `npm audit signatures`, so pinning requires replacing it with a bespoke verification against a hardcoded key —
+which forgoes npm's maintained verifier and the free transitive-tree coverage, and must track npm's key rotation (the
+endpoint already serves one retired and one active key) or a rotation breaks updates. TLS covers the man-in-the-middle
+key swap, so pinning is defense in depth against a primary-registry root-of-trust compromise, held against that cost.
 
 For the **agent binary** specifically that gap is now closed from the other side: the entrypoint verification pins its
 key in a root-owned file rather than fetching one, so a compromised registry serving a forged package, signature,

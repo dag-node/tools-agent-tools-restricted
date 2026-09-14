@@ -58,8 +58,9 @@ The `PreToolUse` filter hook may narrow a Bash command before it runs ([filters]
 a permission decision, so the three outcomes are decided on the **rewritten** command. Two consequences bound
 what a rule may do:
 
-- A rule that only inserts arguments after the leading words leaves every entry here matching as written — `Bash(git log
-  *)` covers `git log --format=… -- src/x.c`, so a narrowing rule does not need a new allow entry of its own.
+- A rule that only inserts arguments after the leading words leaves every entry here matching as written —
+  `Bash(git log *)` covers `git log --format=… -- src/x.c`, so a narrowing rule does not need a new allow entry of its
+  own.
 - A rule that changes the leading command word is matched as that new command, and an entry broad enough to cover
   a general-purpose wrapper (`Bash(<wrapper> *)`) is broader than the inspection-only criterion this list holds to.
   Narrow per-command entries are the form that fits.
@@ -96,9 +97,9 @@ for them — it approves a command string, while what the operator has to weigh 
 the agent raises the operation in conversation, and the operator runs it where the consequence lands.
 
 The group is deliberately narrow, and it is a gate rather than a boundary: the same destruction is still reachable
-through a spelling the pattern does not match (`--force` placed after the refspec, `git push origin +branch`, an `rm
--rf` of the work tree), and matching those would take a matcher over intent rather than over text. What it buys is
-that the **habitual** spellings — the ones an agent reaches for without deliberating — cannot be taken silently.
+through a spelling the pattern does not match (`--force` placed after the refspec, `git push origin +branch`,
+an `rm -rf` of the work tree), and matching those would take a matcher over intent rather than over text. What it buys
+is that the **habitual** spellings — the ones an agent reaches for without deliberating — cannot be taken silently.
 
 **Categorical dead-ends** — the core posture refuses these regardless of arguments or target, so a deny stops the agent
 spending a tool call, and emitting an AVC, on an action the kernel refuses anyway:

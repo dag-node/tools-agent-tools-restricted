@@ -53,16 +53,16 @@ so the daemon dispatches without adding trust of its own.
 ## Logging
 
 The daemon keeps its own operation trail (`_audit`), the socket-layer counterpart to the helpers'
-`chown.log`/`setgid.log`/`symlink.log`. Because it is Python it does not source `log.lib.sh`; it writes the same `<ts>
-<LEVEL> [<pid>] <msg>` format to two sinks: journald (stderr → `StandardError=journal`, with an sd-daemon `<N>` priority
-prefix so `journalctl -t ai-tools-handback -p warning` filters) and the root-only `/var/log/ai-tools/handback.log`. It
-runs as root (and `ai_tools_handback_t` holds `create`/`append` on `ai_tools_log_t`, so the write succeeds
-under enforcing), so it is the file's only writer; the agent-side client cannot write the `700` dir (DAC) and stays
-journald-only. Recorded events: rejected peers (`SO_PEERCRED` mismatch, `WARNING`), malformed or refused requests
-(`WARNING`), helper timeouts/exec failures (`ERROR`), and one `INFO` line per served request (`verb`, peer pid, arg,
-helper result) — a non-zero helper exit stays `INFO`, since it is often a routine skip (a path outside the allowlist).
-Both sinks are wrapped in `try`/`except OSError`, so a failed write never blocks or fails a handback. See
-[logging](logging.rule.md).
+`chown.log`/`setgid.log`/`symlink.log`. Because it is Python it does not source `log.lib.sh`; it writes the same
+`<ts> <LEVEL> [<pid>] <msg>` format to two sinks: journald (stderr → `StandardError=journal`, with an sd-daemon `<N>`
+priority prefix so `journalctl -t ai-tools-handback -p warning` filters) and the root-only
+`/var/log/ai-tools/handback.log`. It runs as root (and `ai_tools_handback_t` holds `create`/`append`
+on `ai_tools_log_t`, so the write succeeds under enforcing), so it is the file's only writer; the agent-side client
+cannot write the `700` dir (DAC) and stays journald-only. Recorded events: rejected peers (`SO_PEERCRED` mismatch,
+`WARNING`), malformed or refused requests (`WARNING`), helper timeouts/exec failures (`ERROR`), and one `INFO` line
+per served request (`verb`, peer pid, arg, helper result) — a non-zero helper exit stays `INFO`, since it is often
+a routine skip (a path outside the allowlist). Both sinks are wrapped in `try`/`except OSError`, so a failed write never
+blocks or fails a handback. See [logging](logging.rule.md).
 
 ### The session a root operation was performed for
 
@@ -87,8 +87,8 @@ It passes the same sanitizer as every other logged string, and an unreadable or 
 journald's stream protocol reads a `MESSAGE` and the `<N>` priority and stamps its own `_` fields, so a custom field
 does not reach the journal over stderr. The daemon sends **one datagram** to `/run/systemd/journal/socket`
 with the stdlib (`socket.sendto`); `sendto` is in `@network-io` (included by `@system-service`), and the policy already
-grants `logging_send_syslog_msg(ai_tools_handback_t)`. `python3-systemd` would add a package dependency, and a `logger
---journald` subprocess would fork and exec a root process holding `CAP_DAC_OVERRIDE` for every audit line.
+grants `logging_send_syslog_msg(ai_tools_handback_t)`. `python3-systemd` would add a package dependency,
+and a `logger --journald` subprocess would fork and exec a root process holding `CAP_DAC_OVERRIDE` for every audit line.
 `_journal_entry` assembles the bytes and `_journal_send` sends them, so the record's shape is asserted without a socket
 (`tests/unit/handback.sh`); `AI_TOOLS_JOURNAL_SOCKET` moves the destination for that test, with the same standing
 as `AI_TOOLS_LOG_DIR` (see [tests](tests.rule.md)).

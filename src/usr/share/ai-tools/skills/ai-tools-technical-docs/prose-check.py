@@ -1227,9 +1227,10 @@ PATH_CHECKS = [
 #                      set of tools serve both: a one-sentence edit stays a one-line diff, and a
 #                      reader of a tool that does not soft-wrap sees the paragraph. The
 #                      frontmatter, a fenced or indented code block, an HTML comment, a table
-#                      row, a heading, a line holding a URL or fewer than three tokens, and a
-#                      man page are not measured: each is a unit no wrap shortens (a comment's
-#                      lines are positional), and a line is measured without
+#                      row, a heading, a line holding a URL or fewer than three units (a
+#                      backticked span is one unit), and a man page are not measured: each is a
+#                      unit no wrap shortens (a comment's lines are positional), and a line is
+#                      measured without
 #                      a reftag link's generated destination. A row or a fence is read past a
 #                      blockquote's `>` prefix.
 #
@@ -1301,10 +1302,12 @@ MAN_PAGE = (".1", ".5", ".7", ".8")
 
 
 def unwrappable(text):
-    """True where no wrap shortens `text`: it holds fewer than three tokens. A break moves whole
-    tokens, so a line of two -- a tie word before a path, a URL, an identifier -- can only become
-    two lines of one, which this rule does not measure either."""
-    return len(text.split()) < 3
+    """True where no wrap shortens `text`: it holds fewer than three units, a backticked span
+    being one unit however many words it holds. A break moves whole units -- a span holds a
+    literal that `grep` finds only on one line, so a formatter keeps it whole -- and a line of
+    two, a tie word before a path, a URL, an identifier or a command line in backticks, can only
+    become two lines of one, which this rule does not measure either."""
+    return len(BACKTICK_SPAN.sub("`", text).split()) < 3
 
 
 def document_width(path, width):
@@ -1318,7 +1321,7 @@ def document_line_findings(source, width):
     """A Markdown line over its reader's column that a wrap could shorten: the author's prose as
     `document_prose` reads it, outside the frontmatter as well (a skill's one-line `description`
     is data a loader reads, and runs to a thousand columns), not a table row or a heading, holding
-    three or more tokens, with no URL in it. A man page is left to roff. `width` overrides the
+    three or more units, with no URL in it. A man page is left to roff. `width` overrides the
     per-path column, so one `--width` measures every path the run was given."""
     last_path, state, in_comment = None, None, False
     for path, number, line in source:

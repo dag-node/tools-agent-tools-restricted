@@ -64,15 +64,15 @@ is installed at a time, so the stable name always resolves to the current text a
 churn.
 
 **To keep an edit of your own across upgrades, delete the `x-ai-tools-managed: true` line.** The seeder claims only
-a file carrying that marker, so one without it is yours and is left alone (reported as `kept (operator's own, not
-ai-tools-managed)`). Editing a managed copy in place instead means the next release replaces it, and no copy of the old
-text is kept — answering `n` at the prompt defers that, it does not settle it.
+a file carrying that marker, so one without it is yours and is left alone (reported
+as `kept (operator's own, not ai-tools-managed)`). Editing a managed copy in place instead means the next release
+replaces it, and no copy of the old text is kept — answering `n` at the prompt defers that, it does not settle it.
 
 ## Your own skills stay yours
 
-The seeder acts on a directory only when it matches `ai-tools-*` **and** its `SKILL.md` carries `x-ai-tools-managed:
-true`. Anything else — in the shared root or in an agent's directory — is yours: left exactly as written, never claimed,
-never overwritten. Drop a skill of your own next to the shipped ones and it simply works.
+The seeder acts on a directory only when it matches `ai-tools-*` **and** its `SKILL.md` carries
+`x-ai-tools-managed: true`. Anything else — in the shared root or in an agent's directory — is yours: left exactly
+as written, never claimed, never overwritten. Drop a skill of your own next to the shipped ones and it simply works.
 
 The shipped skills are `root:ai-tools` (files `640`, dirs `750`) and the links are root-owned inside a setgid+sticky
 directory: every session reads the same text, and changing it is a deliberate operator action through the installer.

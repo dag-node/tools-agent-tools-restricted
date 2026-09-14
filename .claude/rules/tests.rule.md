@@ -134,12 +134,12 @@ No file starts or stops a service: `integration/systemd.sh` reads the sandbox ac
 `--user manager` up with no login) and fails when it is absent; a manager down despite linger is skipped, with the start
 command named, and the test does not start it.
 
-Nor does a test mutate **global system state** to exercise a helper — the host's local SELinux policy (`semanage
-fcontext`) most of all. A helper whose real work *is* to add and then remove a policy entry is therefore covered only
-on the branch where it leaves the policy unchanged: the alternative is a teardown that can strand an entry in the policy
-store on a failed run, which costs more than the coverage buys. Where that trades away an assertion, the gap is named
-at the point it is declined — `integration/selinux.sh` does this for `ai_tools_unlabel_project`'s revert path —
-so a reader meets it as a decision rather than as an absence.
+Nor does a test mutate **global system state** to exercise a helper — the host's local SELinux policy
+(`semanage fcontext`) most of all. A helper whose real work *is* to add and then remove a policy entry is therefore
+covered only on the branch where it leaves the policy unchanged: the alternative is a teardown that can strand an entry
+in the policy store on a failed run, which costs more than the coverage buys. Where that trades away an assertion,
+the gap is named at the point it is declined — `integration/selinux.sh` does this for `ai_tools_unlabel_project`'s
+revert path — so a reader meets it as a decision rather than as an absence.
 
 The deployed root helpers read a fixed allowlist path; a test points them at its own dummy allowlist
 via the `AI_TOOLS_ALLOWLIST` environment override (`mk_allowlist` writes the dummy and exports it). This override is
@@ -155,11 +155,12 @@ lines in (a negative-path test feeds a helper `/etc/passwd`, a missing group, a 
 the daemon does not inherit the override — the same limitation as `AI_TOOLS_ALLOWLIST`. The journald sink is unaffected,
 so every line is still queryable by its per-component tag.
 
-`AI_TOOLS_POSTUPGRADE_ROOT` is the fourth hook of that family and the widest in reach: `ai-tools-admin system
-post-upgrade` reconciles a fixed registry of absolute control-plane paths, and this prefixes every one of them,
-so `unit/postupgrade.sh` drives the real command against a fixture tree in its testdir. It carries the same standing
-as the other three — the helper is reachable only as root, `sudo` strips the name, and a caller who could set it may
-already edit those files outright — and is unset in production, where the registry paths stand as written.
+`AI_TOOLS_POSTUPGRADE_ROOT` is the fourth hook of that family and the widest in reach:
+`ai-tools-admin system post-upgrade` reconciles a fixed registry of absolute control-plane paths, and this prefixes
+every one of them, so `unit/postupgrade.sh` drives the real command against a fixture tree in its testdir. It carries
+the same standing as the other three — the helper is reachable only as root, `sudo` strips the name, and a caller
+who could set it may already edit those files outright — and is unset in production, where the registry paths stand
+as written.
 
 `AI_TOOLS_ADMIN_COMMANDS_DIR` (`ai-tools-admin`) belongs to that family too, and redirects the directory the admin
 dispatch discovers its contributed command domains in, so `unit/admin-commands.sh` drives the real dispatch
@@ -276,39 +277,41 @@ a line no filler can shorten remains. `fill-markdown.sh` is its Markdown counter
 in either looks the same from outside: one fixture carries every shape found by rehearsing the filler on real pages —
 frontmatter, a nested fence, a multi-line HTML comment, a list item with an indented continuation, a wide marker,
 an indented code block, a table, a blockquote with an
-alert line, a `prose-check: ignore` line, and a dash after a token wider than the column — and
-the filler must reflow it to a state the gate passes and the checker's `--wrap` finds complete (a filler that copies
-a region through leaves a clean gate and an over-width line), while each defect class, injected by hand, must be
-reported by the gate. It asserts a second run is a no-op and that `--lines` confines a reflow to the blocks it names,
-then reflows every page of the tree into its testdir, agent-facing at 120 and human-facing at 80, and holds them
-to the same three properties. `references.sh` is a third: it drives `ref-index.py`, the cross-reference tool shipped
-beside the checker, and holds the tree to its committed index. A reference names a reftag and the reftag resolves
-to where the target now is, so what the file asserts is that a target which moved, was renamed, or was deleted is
-reported and never silently pointed at its old place: through the repository wrapper `tools/ref-index.sh` it regenerates
-the index and diffs it against `.claude/references.md` and runs `check` over every tracked file, both skipped outside
-a git checkout; then each finding `check` makes — a duplicate reftag, an id shared by two kinds, a reference with no
-target, a same-file reference, a caption with no block after it, a reftag link that is missing or stale, and an ordinary
-link whose file or heading is gone — is driven against a fixture it must report and the corrected form it must stay
-silent on, with `relink` asserted to produce that form, `generate` for its row shape, its order, the example row
-a quoted reftag reserves, and the empty tree, `new` for each family's form, and `where` for the span each kind's syntax
-gives. An empty tree is a valid index, so the lockstep half is green before the first reftag. Its last section drives
-the one finding the **wrapper** holds rather than the shipped tool — a runtime message carrying a URL, a Markdown link,
-or an HTML anchor ([messaging](messaging.rule.md)) — which is repository knowledge on both counts: the emit chokepoints
-are this tree's, and a message string is not prose, so the checker that skips a quoted span never reads it. Each link
-shape is driven with the resolvable form beside it, a non-ASCII URL among them, since matching is on the ASCII delimiter
-a link needs and not on what a URI may contain; the pair that must stay silent is an ordinary message a looser pattern
-would report — a page name in parentheses, and an option set carrying a pipe. Every case id in this file
-and in `prose-check.sh` carries the `TEST-` prefix, so a result line is told from a reftag or a message code
-at a glance. `cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four **gating tables** —
-`OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`, `FOR_ALLOWED_VERBS` — still describe the verbs it
-dispatches. The failure it exists for is silent and one-directional: a verb added to the dispatcher and forgotten
-in `OPERATOR_VERBS` runs for an unenrolled caller, with no message to say so until a root helper refuses it midway.
-So every dispatched verb must be classified — operator-acting, or in the informational set the test names — no verb may
-be both operator-acting and root-allowed, no table may name a verb the dispatcher no longer has, and the help must list
-exactly what the dispatcher accepts. Its last check asserts required **content** rather than consistency: `--help`
-and `--version` must be in `BOOTSTRAP_EXEMPT_VERBS`, because a CLI that cannot print its own usage on an unprovisioned
-host leaves the gate's refusal as the only route to the provisioning command — a regression visible only on the host
-nobody develops against.
+alert line, a `prose-check: ignore` line, a dash after a token wider than the column, and inline code spans placed
+where a greedy break lands inside them — and the filler must reflow it to a state the gate passes and the checker's
+`--wrap` finds complete (a filler that copies a region through leaves a clean gate and an over-width line), while each
+defect class, injected by hand, must be reported by the gate. The one class the gate cannot see — a break inside a code
+span leaves the token stream unchanged — is asserted on the filler's output instead: each span whole on one line, a span
+wider than the column run over on its own. It asserts a second run is a no-op and that `--lines` confines a reflow
+to the blocks it names, then reflows every page of the tree into its testdir, agent-facing at 120 and human-facing
+at 80, and holds them to the same three properties. `references.sh` is a third: it drives `ref-index.py`,
+the cross-reference tool shipped beside the checker, and holds the tree to its committed index. A reference names
+a reftag and the reftag resolves to where the target now is, so what the file asserts is that a target which moved, was
+renamed, or was deleted is reported and never silently pointed at its old place: through the repository wrapper
+`tools/ref-index.sh` it regenerates the index and diffs it against `.claude/references.md` and runs `check` over every
+tracked file, both skipped outside a git checkout; then each finding `check` makes — a duplicate reftag, an id shared
+by two kinds, a reference with no target, a same-file reference, a caption with no block after it, a reftag link that is
+missing or stale, and an ordinary link whose file or heading is gone — is driven against a fixture it must report
+and the corrected form it must stay silent on, with `relink` asserted to produce that form, `generate` for its row
+shape, its order, the example row a quoted reftag reserves, and the empty tree, `new` for each family's form,
+and `where` for the span each kind's syntax gives. An empty tree is a valid index, so the lockstep half is green
+before the first reftag. Its last section drives the one finding the **wrapper** holds rather than the shipped tool —
+a runtime message carrying a URL, a Markdown link, or an HTML anchor ([messaging](messaging.rule.md)) — which is
+repository knowledge on both counts: the emit chokepoints are this tree's, and a message string is not prose,
+so the checker that skips a quoted span never reads it. Each link shape is driven with the resolvable form beside it,
+a non-ASCII URL among them, since matching is on the ASCII delimiter a link needs and not on what a URI may contain;
+the pair that must stay silent is an ordinary message a looser pattern would report — a page name in parentheses,
+and an option set carrying a pipe. Every case id in this file and in `prose-check.sh` carries the `TEST-` prefix,
+so a result line is told from a reftag or a message code at a glance. `cli-verbs.sh` is the same shape one layer
+in: a pure text check that the CLI's four **gating tables** — `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`,
+`BOOTSTRAP_EXEMPT_VERBS`, `FOR_ALLOWED_VERBS` — still describe the verbs it dispatches. The failure it exists for is
+silent and one-directional: a verb added to the dispatcher and forgotten in `OPERATOR_VERBS` runs for an unenrolled
+caller, with no message to say so until a root helper refuses it midway. So every dispatched verb must be classified —
+operator-acting, or in the informational set the test names — no verb may be both operator-acting and root-allowed, no
+table may name a verb the dispatcher no longer has, and the help must list exactly what the dispatcher accepts. Its last
+check asserts required **content** rather than consistency: `--help` and `--version` must be
+in `BOOTSTRAP_EXEMPT_VERBS`, because a CLI that cannot print its own usage on an unprovisioned host leaves the gate's
+refusal as the only route to the provisioning command — a regression visible only on the host nobody develops against.
 
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
@@ -692,15 +695,15 @@ created in the sandbox area by `unconfined_t` is born on the build type with no 
 the live type of **every** enrolled operator's `~/.config/ai-tools`: the rule is per account, and a subtree without it
 denies the root helpers the read that resolves a path's owner, so that operator's projects stop being handed back while
 every DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant need a session,
-and `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks: `systemd-analyze
-verify` on each shipped unit, plus enablement in the correct instance — the `nvm-update` timer in the sandbox account's
-own `--user instance`, the relabel watcher and handback socket in the system instance. The handback chain cannot use
-the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers with its own environment, so the helper reads
-the **real** allowlist — and the automated suite may not write that allowlist, so `hooks.sh` asserts only
-what the deployed `settings.json` **declares** (the hook entries and the deny rules) and the hooks themselves run
-in the manual script, inside the project it claims. The wrapper test stays hermetic by pointing `HOME` at a `/tmp`
-testdir (the wrapper keys its allowlist off `${HOME}`) and runs the wrapper under `setsid`, so it never touches the real
-allowlist or fires a claim prompt. Run as root.
+and `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
+`systemd-analyze verify` on each shipped unit, plus enablement in the correct instance — the `nvm-update` timer
+in the sandbox account's own `--user instance`, the relabel watcher and handback socket in the system instance.
+The handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers with its own
+environment, so the helper reads the **real** allowlist — and the automated suite may not write that allowlist,
+so `hooks.sh` asserts only what the deployed `settings.json` **declares** (the hook entries and the deny rules)
+and the hooks themselves run in the manual script, inside the project it claims. The wrapper test stays hermetic
+by pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`) and runs the wrapper
+under `setsid`, so it never touches the real allowlist or fires a claim prompt. Run as root.
 
 `cli-flags.sh` holds every `ai-tools` command and every option `ai-tools(1)` documents to what it **achieves**, and its
 rows do not read message text, so the command surface can be respelled with the file unchanged
@@ -782,15 +785,15 @@ as the layout the policy rests on, one check per swap vector.
 - **The wrapper prompts on `/dev/tty`, not stdin.** `</dev/null` does not suppress it; `setsid` (no controlling tty)
   does, so the wrapper takes its non-interactive default.
 - **The wrapper keys off `${HOME}`** for the allowlist, so its test mocks the allowlist by pointing `HOME` at a `/tmp`
-  testdir — no helper override needed there. **The CLI does not**: it resolves the invoking user's home through `getent
-  passwd`, so that no environment variable can redirect a registry write. A test that drives both against one fixture
-  must therefore set `HOME` *and* `AI_TOOLS_ALLOWLIST`; setting only the first steers the wrapper while the CLI quietly
-  edits the operator's real allowlist.
+  testdir — no helper override needed there. **The CLI does not**: it resolves the invoking user's home
+  through `getent passwd`, so that no environment variable can redirect a registry write. A test that drives both
+  against one fixture must therefore set `HOME` *and* `AI_TOOLS_ALLOWLIST`; setting only the first steers the wrapper
+  while the CLI quietly edits the operator's real allowlist.
 - **The wrapper detects a controlling terminal by opening `/dev/tty`,** not by the node's permission bits (which read
   `rw` even with no controlling tty). Under `setsid` the open fails, so every wrapper invocation in a test cleanly skips
   the claim prompt instead of acting on it — the integration wrapper test relies on this to never claim a project.
 - **The handback path cannot cross `/tmp`.** `/tmp` and `/var/tmp` are polyinstantiated per session by `pam_namespace`
-  (`/etc/security/namespace.conf`), so a fixture the test creates under `/tmp` is invisible both to the hook's own `sudo
-  -u SANDBOX_USER` session (a fresh, empty `/tmp` instance) and to the host-namespace handback daemon — the hand-back
-  silently no-ops. The one place that drives the live `hook → daemon → helper` chain, the manual script, puts its
-  fixture under the operator's `${HOME}` (shared across namespaces), not in `/tmp`.
+  (`/etc/security/namespace.conf`), so a fixture the test creates under `/tmp` is invisible both to the hook's own
+  `sudo -u SANDBOX_USER` session (a fresh, empty `/tmp` instance) and to the host-namespace handback daemon —
+  the hand-back silently no-ops. The one place that drives the live `hook → daemon → helper` chain, the manual script,
+  puts its fixture under the operator's `${HOME}` (shared across namespaces), not in `/tmp`.

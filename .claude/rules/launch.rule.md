@@ -142,12 +142,12 @@ as an `EXIT` trap before the launch, so it also runs on an interrupted shim.
 **A handback-socket preflight, warn-not-block.** Every agent's ownership handback — the per-turn hooks and this
 session-end sweep alike — runs over `/run/ai-tools/handback.sock`. If it is down, every `CHOWN` fails and the tree
 silently rots into "dubious ownership". Before launch (when a project directory is set — a bare `--version`/`--help` run
-writes to no project), the shim checks the socket and, if absent, emits a framed NOTICE naming the fix (`systemctl
-enable --now ai-tools-handback.socket`, then `ai-tools --reclaim <project>`) and **proceeds**. This is not a confinement
-boundary — DAC, `ai_tools_t`, and the project `user:<operator>` ACL keep the operator's access intact regardless —
-so a down socket warns rather than refusing the launch (refusing would trade availability for a non-security
-convenience). The session-end sweep re-checks the socket and, when it is down, skips the walk and records the stranded
-count rather than a tally of failed calls (see [handback-bridge](handback-bridge.rule.md),
+writes to no project), the shim checks the socket and, if absent, emits a framed NOTICE naming the fix
+(`systemctl enable --now ai-tools-handback.socket`, then `ai-tools --reclaim <project>`) and **proceeds**. This is not
+a confinement boundary — DAC, `ai_tools_t`, and the project `user:<operator>` ACL keep the operator's access intact
+regardless — so a down socket warns rather than refusing the launch (refusing would trade availability
+for a non-security convenience). The session-end sweep re-checks the socket and, when it is down, skips the walk
+and records the stranded count rather than a tally of failed calls (see [handback-bridge](handback-bridge.rule.md),
 [ownership-and-hooks](ownership-and-hooks.rule.md)).
 
 **An operator-side pre-launch service warning (wrapper-side).** Before the final `exec`, the wrapper runs one more
@@ -236,10 +236,10 @@ contract).
 carries the wrong label, so a launch fail-closes until it is restored, which needs the `unconfined_t` that root holds
 (see [updater](updater.rule.md)): the automatic reconcile runs through the root-side `ai-tools-relabel.path` watcher,
 the agent package's `%post` runs it as root, and an administrator runs `sudo ai-tools-admin system entrypoints relabel`
-through the host's own general sudo grant. The toolchain update likewise runs as `SANDBOX_USER` in its own `systemd
---user instance`. The consequence for the account shape `--for` exists to serve is stated plainly: an `ai-ops` operator
-holding no general sudo grant reaches the launch and the stop, and does not reach the on-demand relabel — a reconcile
-the two root-side routes already perform without them.
+through the host's own general sudo grant. The toolchain update likewise runs as `SANDBOX_USER` in its own
+`systemd --user instance`. The consequence for the account shape `--for` exists to serve is stated plainly: an `ai-ops`
+operator holding no general sudo grant reaches the launch and the stop, and does not reach the on-demand relabel —
+a reconcile the two root-side routes already perform without them.
 
 `SANDBOX_USER` does not hold any sudo rights in this file. Two `ai-tools-run` preflights enforce the account boundary
 the sudoers model assumes: it refuses to launch unless it runs **as** `SANDBOX_USER` (a direct or sudo invocation
@@ -267,10 +267,10 @@ the way back, and an operator told only "excluded" is left to work out which of 
 
 ## PATH ordering
 
-Every agent wrapper lives in `/usr/local/bin`, which `path-order.sh` (`/usr/local/lib/ai-tools/path-order.sh`, `644
-root:root`) ranks Tier 1, ahead of the nvm shims it leaves in Tier 4. First match wins, so typing a launcher name always
-enters the sandboxed path and the nvm-managed binary of the same name stays shadowed. The tiers and the first-match-wins
-ordering behind them are in that file's header.
+Every agent wrapper lives in `/usr/local/bin`, which `path-order.sh` (`/usr/local/lib/ai-tools/path-order.sh`,
+`644 root:root`) ranks Tier 1, ahead of the nvm shims it leaves in Tier 4. First match wins, so typing a launcher name
+always enters the sandboxed path and the nvm-managed binary of the same name stays shadowed. The tiers
+and the first-match-wins ordering behind them are in that file's header.
 
 The fragment is sourced per-account: `ai-tools-admin operators add` offers to add the guard line to the operator's
 `~/.bashrc` and `~/.bash_profile` **after** their nvm init, the one position where the ordering holds (the fragment must

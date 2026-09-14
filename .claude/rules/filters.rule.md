@@ -51,9 +51,9 @@ blocking    words that cancel the rule, comma- or whitespace-separated;
 payload     verbatim shell text, inserted as written                    --format='%h %s'
 ```
 
-**The payload lands after the matched words, never at the end.** A trailing insertion changes what a command means: `git
-log -- src/x.c` reads an appended `--format=…` as a pathspec. Inserting at the head of the arguments keeps every rule
-clear of pathspecs, `--`, and subcommand arguments generally.
+**The payload lands after the matched words, never at the end.** A trailing insertion changes what a command means:
+`git log -- src/x.c` reads an appended `--format=…` as a pathspec. Inserting at the head of the arguments keeps every
+rule clear of pathspecs, `--`, and subcommand arguments generally.
 
 **The agent's own flag always wins.** A rule cancels itself when any word after the match is one of its blocking words,
 in either the bare or the `word=value` form — so `git log --stat` and `git log --format=%H` run exactly as written.
@@ -147,10 +147,10 @@ terse mode they have discards content the agent asked for by running them.
 verbosity has no environment-variable form — the per-project restore chatter and the target summary are MSBuild
 console-logger settings, settable only per invocation. Quiet verbosity keeps errors and warnings, which is
 what the agent acts on. The banner is left to `DOTNET_NOLOGO` (set globally by `session-env.d/dotnet.env.sh`), so no
-rule carries `--nologo`: it is redundant with that variable, and — inserted ahead of a positional — it breaks `dotnet
-run <file>.cs`, where .NET 10 stops resolving the file as a file-based app. These rules live with the integration
-for the reason its session-env fragment does: they are .NET knowledge, and they install and are removed with the package
-that has it (see [providers](providers.rule.md)).
+rule carries `--nologo`: it is redundant with that variable, and — inserted ahead of a positional — it breaks
+`dotnet run <file>.cs`, where .NET 10 stops resolving the file as a file-based app. These rules live
+with the integration for the reason its session-env fragment does: they are .NET knowledge, and they install and are
+removed with the package that has it (see [providers](providers.rule.md)).
 
 ## Cost
 

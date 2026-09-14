@@ -33,23 +33,23 @@ states that configuration, the cross-library following it turns on, and the find
 The `source` directives are lint-only; the runtime load gates. A missing critical library fails closed. `conf.lib.sh`
 shows the three shapes that takes, chosen by what the consumer loses without it: `providers.lib.sh` **requires** it
 (without the shared grammar and the trust predicate it can neither parse a manifest nor tell a trusted input
-from a planted one), so it returns non-zero and does not define any resolver, and each consumer loads it as `source … &&
-declare -F <resolver>` and does not resolve any provider on failure — `ai-tools-bootstrap` provisions Node alone,
-`ai-tools-launcher-symlink` refuses to repoint; `operator.lib.sh` fails closed *by consequence* — no parser means no
-operators resolved, and "no owner" already stops a handback; `skip-dirs.lib.sh` fails **soft**, keeping its compiled-in
-defaults, because a skip list is a walk-cost optimization and not an access boundary, so the worst case is a slower walk
-rather than a widened boundary. The launch wrapper and the CLI verify `safe-paths.lib.sh`'s guard functions and `die`
-otherwise; the root helpers bare-`source` it under `set -e`; `ai-tools-chown` and `ai-tools-lockdown` `exit 1`
-when `secret-patterns.lib.sh` will not load; and `msg.lib.sh` is required the same way — it carries the yes/no decisions
-(`ai_tools_msg_confirm`), so its consumers refuse rather than run through a private fallback, with `session-hook.sh`
-the one emit-only exception (see [safe-paths](safe-paths.rule.md), [secret-handling](secret-handling.rule.md),
-[messaging](messaging.rule.md), and the fail-closed invariant in the root `CLAUDE.md`). The logger (`log.lib.sh`)
-and the owner resolver (`operator.lib.sh`) carry faithful fallbacks for their pure-logging/resolving consumers, because
-they log or resolve rather than gate — a missing one degrades output or yields "no owner" (which stops the operation),
-never a bypassed security decision. The exception is the three helpers that print an agent-named path to a terminal
-(`ai-tools-chown`, `ai-tools-lockdown`, `ai-tools-reclaim`): there `log.lib.sh` also supplies the input sanitizer
-(`ai_tools_log_sanitize`), a security function, so they require it fail-closed (`exit 1` if it will not load) rather
-than degrade to emitting a path raw — see [logging](logging.rule.md).
+from a planted one), so it returns non-zero and does not define any resolver, and each consumer loads it
+as `source … && declare -F <resolver>` and does not resolve any provider on failure — `ai-tools-bootstrap` provisions
+Node alone, `ai-tools-launcher-symlink` refuses to repoint; `operator.lib.sh` fails closed *by consequence* — no parser
+means no operators resolved, and "no owner" already stops a handback; `skip-dirs.lib.sh` fails **soft**, keeping its
+compiled-in defaults, because a skip list is a walk-cost optimization and not an access boundary, so the worst case is
+a slower walk rather than a widened boundary. The launch wrapper and the CLI verify `safe-paths.lib.sh`'s guard
+functions and `die` otherwise; the root helpers bare-`source` it under `set -e`; `ai-tools-chown`
+and `ai-tools-lockdown` `exit 1` when `secret-patterns.lib.sh` will not load; and `msg.lib.sh` is required the same way
+— it carries the yes/no decisions (`ai_tools_msg_confirm`), so its consumers refuse rather than run through a private
+fallback, with `session-hook.sh` the one emit-only exception (see [safe-paths](safe-paths.rule.md),
+[secret-handling](secret-handling.rule.md), [messaging](messaging.rule.md), and the fail-closed invariant in the root
+`CLAUDE.md`). The logger (`log.lib.sh`) and the owner resolver (`operator.lib.sh`) carry faithful fallbacks for their
+pure-logging/resolving consumers, because they log or resolve rather than gate — a missing one degrades output or yields
+"no owner" (which stops the operation), never a bypassed security decision. The exception is the three helpers
+that print an agent-named path to a terminal (`ai-tools-chown`, `ai-tools-lockdown`, `ai-tools-reclaim`): there
+`log.lib.sh` also supplies the input sanitizer (`ai_tools_log_sanitize`), a security function, so they require it
+fail-closed (`exit 1` if it will not load) rather than degrade to emitting a path raw — see [logging](logging.rule.md).
 
 ## Accepted findings
 
@@ -73,8 +73,8 @@ for them.
   reads as `if`/`else`; `msg.lib.sh` writes to its caller-chosen descriptor and guards the exit status alone
   (`>&"${fd}" || true`), so a real write error surfaces (`SC2261` cleared). Following also surfaced set-but-unread
   assignments — the `skip-dirs` fallback stubs and a `relabel` fallback branch — removed at the source.
-- **Rationale is centralized.** The repo-wide settings and the accepted findings are documented here. An inline `#
-  shellcheck disable=` is reserved for a local one-off with its own reason comment: the `safe-paths`-style `SC2034`
+- **Rationale is centralized.** The repo-wide settings and the accepted findings are documented here. An inline
+  `# shellcheck disable=` is reserved for a local one-off with its own reason comment: the `safe-paths`-style `SC2034`
   exports, and the single-quoted `sed` regex in `ai-tools-safedir.sh` whose `$`/`()` are literal metacharacters
   (`SC2016`).
 - **A new finding is reviewed, not auto-accepted.** A code outside the accepted set, or an accepted code in a context

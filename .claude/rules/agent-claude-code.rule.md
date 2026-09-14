@@ -163,9 +163,9 @@ It gates in this order, each step refusing before the next can matter:
 
 ## Custom system prompt (`claude-prompt.lib.sh`)
 
-Resolved from `operator.conf` and prepended to `"$@"` just before the final `exec`, as `--append-system-prompt-file
-<path>` (mode `append`, the default — keeps Claude Code's own tool-use and safety guidance) or `--system-prompt-file
-<path>` (mode `replace`).
+Resolved from `operator.conf` and prepended to `"$@"` just before the final `exec`,
+as `--append-system-prompt-file <path>` (mode `append`, the default — keeps Claude Code's own tool-use and safety
+guidance) or `--system-prompt-file <path>` (mode `replace`).
 
 - **`CLAUDE_SYSTEM_PROMPT_FILE` must resolve under `/etc/ai-tools/prompts/`** — the one location the confined
   `ai_tools_t` domain is granted read on (`etc_t`, via `files_read_etc_files`). A root-owned file elsewhere passes

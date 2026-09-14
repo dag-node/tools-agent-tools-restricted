@@ -13,10 +13,14 @@ front door fills only what a diff touched.
 
 Filled, with its structure kept: a paragraph under its own leading indent, a list item and its
 continuation lines under a hanging indent the width of the marker, and a blockquote paragraph
-under its `> ` prefix. Two rules decide where a break falls, shared with the comment filler: no
-line ends on a tie word (the list is read from tools/emacs/ai-tools-fill.el, its one home), and no
-line begins with a token that opens a block, since a wrap that moves a fence, a pipe, a heading
-mark or a list marker to a line start invents the block.
+under its `> ` prefix. Three rules decide where a break falls. Two are shared with the comment
+filler: no line ends on a tie word (the list is read from tools/emacs/ai-tools-fill.el, its one
+home), and no line begins with a token that opens a block, since a wrap that moves a fence, a
+pipe, a heading mark or a list marker to a line start invents the block. The third is shared with
+the checker: no break falls inside an inline code span (the span is the checker's
+`BACKTICK_SPAN`, read from prose-check.py, its one home), since a span holds a literal -- a
+command line, an owner and mode, a flag with its operand -- that `grep` finds only on one line;
+a span wider than the column runs the line over on its own, as the checker's width rule expects.
 
 Left as written, because a line break inside is intentional: YAML frontmatter; a fenced block,
 closed only by its own character at its own length or longer, so a nested fence holds; an HTML
@@ -30,11 +34,14 @@ a placeholder (`<name>`, `<operator>`) that the full table reads as a tag and st
 A column is counted in code points; every non-ASCII character this tree uses is one column wide.
 """
 import argparse
+import importlib.util
 import pathlib
 import re
 import sys
 
-TIE_LIST = pathlib.Path(__file__).resolve().parent / "emacs" / "ai-tools-fill.el"
+TOOLS = pathlib.Path(__file__).resolve().parent
+TIE_LIST = TOOLS / "emacs" / "ai-tools-fill.el"
+CHECKER = TOOLS.parent / "src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
 IGNORE_MARKER = "prose-check: ignore"
 CODE_INDENT = 4
 
@@ -66,7 +73,38 @@ def tie_words():
     return words
 
 
+def code_span_pattern():
+    """The checker's `BACKTICK_SPAN`, the one statement of what a code span is; exits when absent."""
+    try:
+        spec = importlib.util.spec_from_file_location("prose_check", CHECKER)
+        checker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(checker)
+        return checker.BACKTICK_SPAN
+    except (OSError, AttributeError, ImportError) as exc:
+        sys.exit(f"fill-markdown: cannot read the code-span rule from {CHECKER}: {exc}")
+
+
 TIES = tie_words()
+BACKTICK_SPAN = code_span_pattern()
+
+
+def units(text):
+    """`text`'s whitespace-separated words, with the words of one code span joined into a unit.
+
+    A break falls only between units, so a span stays on one line; its inner whitespace is
+    joined as the words around it are, one space, which is what the gate's token stream reads.
+    """
+    spans = [(match.start(), match.end()) for match in BACKTICK_SPAN.finditer(text)]
+    out, previous = [], None
+    for word in re.finditer(r"\S+", text):
+        inside = previous is not None and any(
+            start < word.start() and end > previous for start, end in spans)
+        if inside:
+            out[-1] = out[-1] + " " + word.group(0)
+        else:
+            out.append(word.group(0))
+        previous = word.end()
+    return out
 
 
 def is_tie(word):
@@ -77,12 +115,13 @@ def is_tie(word):
 
 
 def wrap(words, first, cont, width):
-    """`words` as lines at `width`, under the prefix `first` then `cont`.
+    """`words` (the units of `units()`) as lines at `width`, under the prefix `first` then `cont`.
 
     A break moves earlier while the line would end on a tie word, and while the next line would
     begin with a block-opening token; each rule stops before it empties the line it trims. Where
     the block rule cannot be met that way -- the token follows one too wide to share a line -- the
     line runs over the column instead, since a wider line is a line and an invented block is not.
+    A code span is one unit, so it runs over the same way when it alone exceeds the column.
     """
     lines, current = [], []
     for word in words:
@@ -138,31 +177,24 @@ def touches(start, end, ranges):
     return ranges is None or any(low <= end and high >= start + 1 for low, high in ranges)
 
 
-def reflow(source, width, ranges=None):
-    """`source` (a list of lines) reflowed at `width`; returns (lines, blocks filled)."""
-    out, index, filled = [], 0, 0
+def runs(source):
+    """Yield (start, end, first, cont, text) for each run of paragraph lines in `source`, in
+    order: its line range, the prefix of its first line and of a continuation line, and its
+    lines with those prefixes removed. A line outside every run is a block of its own, left as
+    written; the frontmatter, a fenced block and an HTML comment are skipped whole.
+    """
+    index = 0
     fence, fence_prefix = None, ""
     # Four spaces open an indented code block outside a list; inside one they are a continuation
     # paragraph under a wide marker. `listed` holds from a list item to the next line at the
     # margin, the rule `prose-check.py` reads a document with.
     listed = False
     if source and FRONTMATTER.match(source[0]):
-        out.append(source[0])
         index = 1
         while index < len(source):
-            out.append(source[index])
             index += 1
-            if FRONTMATTER.match(out[-1]):
+            if FRONTMATTER.match(source[index - 1]):
                 break
-
-    def fill(start, end, words, first, cont):
-        nonlocal filled
-        if touches(start, end, ranges):
-            out.extend(wrap(words, first, cont, width))
-            filled += 1
-        else:
-            out.extend(source[start:end])
-
     while index < len(source):
         line = source[index]
         quoted = QUOTE.match(line)
@@ -175,45 +207,52 @@ def reflow(source, width, ranges=None):
             elif line.strip() and indent_width < 2:
                 listed = False
         if fence is not None:
-            out.append(line)
             if mark and mark.group(1)[0] == fence[0] and len(mark.group(1)) >= len(fence):
                 fence = None
             index += 1
         elif FENCE_MARK.match(line) or (quoted and FENCE_MARK.match(quoted.group(2))):
             fence_prefix = quoted.group(1) if quoted else ""
             fence = FENCE_MARK.match(line[len(fence_prefix):]).group(1)
-            out.append(line)
             index += 1
         elif COMMENT_OPEN.match(line):
             while index < len(source):
-                out.append(source[index])
                 index += 1
-                if COMMENT_CLOSE in out[-1]:
+                if COMMENT_CLOSE in source[index - 1]:
                     break
         elif quoted:
             prefix, rest = quoted.groups()
             if boundary(rest):
-                out.append(line)
                 index += 1
             else:
                 end = quote_end(source, index + 1, prefix)
-                words = " ".join(QUOTE.match(l).group(2) for l in source[index:end]).split()
-                fill(index, end, words, prefix, prefix)
+                yield index, end, prefix, prefix, [QUOTE.match(l).group(2) for l in source[index:end]]
                 index = end
         elif ITEM.match(line):
             indent, marker, rest = ITEM.match(line).groups()
             end = run_end(source, index + 1)
-            words = rest.split() + " ".join(source[index + 1:end]).split()
-            fill(index, end, words, indent + marker, indent + " " * len(marker))
+            yield index, end, indent + marker, indent + " " * len(marker), [rest, *source[index + 1:end]]
             index = end
         elif boundary(line) or (indent_width >= CODE_INDENT and not listed):
-            out.append(line)  # blank, a block of its own, or an indented code block
-            index += 1
+            index += 1  # blank, a block of its own, or an indented code block
         else:
             indent = line[:indent_width]
             end = run_end(source, index + 1)
-            fill(index, end, " ".join(source[index:end]).split(), indent, indent)
+            yield index, end, indent, indent, source[index:end]
             index = end
+
+
+def reflow(source, width, ranges=None):
+    """`source` (a list of lines) reflowed at `width`; returns (lines, blocks filled)."""
+    out, index, filled = [], 0, 0
+    for start, end, first, cont, text in runs(source):
+        out.extend(source[index:start])
+        if touches(start, end, ranges):
+            out.extend(wrap(units(" ".join(text)), first, cont, width))
+            filled += 1
+        else:
+            out.extend(source[start:end])
+        index = end
+    out.extend(source[index:])
     return out, filled
 
 

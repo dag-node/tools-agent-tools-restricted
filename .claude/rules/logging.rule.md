@@ -41,8 +41,8 @@ poisonable by the account it is being read about.
 `_UID` is not. journald stamps it from the sender's kernel credentials, which the peer cannot set, so pairing the tag
 with the uid of that tag's **legitimate** writer separates the real lines from anything the sandbox account appended:
 `_UID=0` for the root helpers, the handback daemon and the installer; the sandbox account's uid for `ai-tools-run`
-and the hooks; the operator's uid for the CLI. `ai-tools-run` prints its own recipe in exactly that form (`sudo
-journalctl -t ai-tools-run _UID=<sandbox uid> -n 50`).
+and the hooks; the operator's uid for the CLI. `ai-tools-run` prints its own recipe in exactly that form
+(`sudo journalctl -t ai-tools-run _UID=<sandbox uid> -n 50`).
 
 Two tags have no separating filter, because the agent **is** their legitimate writer: `ai-tools-hook` and `ai-tools-run`
 both run as the sandbox account, so a forged line under either carries the same `_UID` as a real one. Their journal
@@ -112,10 +112,10 @@ message.
 ## The fields a record carries
 
 `ai_tools_log_structured <level> <message> [FIELD=value ...]` writes one journal entry carrying both the `MESSAGE`
-an operator reads and the native journald fields a machine consumer selects on. `ai_tools_log_coded <level> <code>
-<message> [FIELD=value ...]` is the shape a **coded** situation takes: the code leads the `MESSAGE` text,
-so the root-only file sink and the plain fallback carry the token a reader searches on, and the same code rides
-as `AI_TOOLS_MSG`.
+an operator reads and the native journald fields a machine consumer selects on.
+`ai_tools_log_coded <level> <code> <message> [FIELD=value ...]` is the shape a **coded** situation takes: the code leads
+the `MESSAGE` text, so the root-only file sink and the plain fallback carry the token a reader searches on, and the same
+code rides as `AI_TOOLS_MSG`.
 
 | field | holds | set by |
 |---|---|---|
@@ -240,8 +240,8 @@ tool-call rate, so an `INFO` per call does not need a drop-in or a lowered level
 
 **Concurrent sessions separate without trusting the agent.** All sessions run as one account, so the uid does not
 distinguish them, and the harness's session id is agent-supplied and therefore not recorded. `_SYSTEMD_USER_UNIT` does
-distinguish them: journald stamps it from the sender's cgroup, and each session is its own transient unit (`journalctl
--t ai-tools-hook _SYSTEMD_USER_UNIT=<unit>`).
+distinguish them: journald stamps it from the sender's cgroup, and each session is its own transient unit
+(`journalctl -t ai-tools-hook _SYSTEMD_USER_UNIT=<unit>`).
 
 **This trail is the agent's own account of what it did, not proof of it.** The sandbox account is `ai-tools-hook`'s
 legitimate writer, so — as with every line a session writes — a forged line under that tag is indistinguishable

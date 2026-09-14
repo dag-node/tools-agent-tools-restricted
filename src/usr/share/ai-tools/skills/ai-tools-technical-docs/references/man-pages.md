@@ -80,8 +80,8 @@ top-level heading.
 
 - **NAME** — `name \- one-line description`, all lowercase apart from proper nouns and terminology. This line feeds
   `apropos` and `whatis`, so it states what the thing is rather than a slogan.
-- **SYNOPSIS** — the grammar, in the fonts and the placeholder vocabulary [Placeholders](#placeholders) fixes: `.B
-  name`, then `.I COMMAND`, then the option and argument groups, each on its own line.
+- **SYNOPSIS** — the grammar, in the fonts and the placeholder vocabulary [Placeholders](#placeholders) fixes:
+  `.B name`, then `.I COMMAND`, then the option and argument groups, each on its own line.
 - **DESCRIPTION** — what the program or format does, how it interacts with files, standard input, standard output,
   and standard error. Describe the usual case; options belong to OPTIONS.
 - **EXIT STATUS** — every code the command returns and what each means.
@@ -140,8 +140,8 @@ and which exit codes to branch on. Internals stay out unless an operator needs o
 Mechanism belongs in the reference tier (`*.rule.md`, file headers). Where an operator needs to know that a mechanism
 exists — because it changes what they should do — state the consequence and leave the mechanism out.
 
-- Off style: `Because the unit runs inside the sandbox account's own user instance, its state cannot be queried
-  directly, so all commands are routed through root over the machine transport.`
+- Off style:
+  `Because the unit runs inside the sandbox account's own user instance, its state cannot be queried directly, so all commands are routed through root over the machine transport.`
 - In style: `Reports the unit as unknown when its state cannot be read. Re-run as root for a full report.`
 
 Keep out anything that applies to one distribution channel rather than to the installed command — a source-tree layout,
