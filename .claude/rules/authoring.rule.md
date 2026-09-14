@@ -82,8 +82,8 @@ A rule stays free-form prose (overview + mechanism), and may add any of these se
 — none mandatory, rules stay fluid:
 
 - **`## Design notes`** — why the domain is shaped this way (rationale as present-tense guarantees).
-- **`## Quirks`** — domain-specific surprising behaviour / foot-guns (e.g. `PrivateTmp` is a no-op for a `--user
-  manager`; a rule named `secrets.*` is auto-quarantined).
+- **`## Quirks`** — domain-specific surprising behaviour / foot-guns (e.g. `PrivateTmp` is a no-op
+  for a `--user manager`; a rule named `secrets.*` is auto-quarantined).
 - **`## Why not`** — rejected alternatives + the reason (e.g. `user_u` → breaks the ai-tools→root sudo; per-session
   `/tmp` → needs a `--system` manager).
 - **`## Deferred`** — domain-scoped, not-yet-built proposals, marked as such (e.g. bubblewrap for confinement; ACL

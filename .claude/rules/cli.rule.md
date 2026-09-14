@@ -63,10 +63,10 @@ otherwise put the incident ladder's last rung out of reach on a host that enable
 the symlink while sessions were live.
 
 `--help`, `--version` and the bare invocation are exempt because they describe **the CLI** rather than the toolchain:
-`usage()` and `AI_TOOLS_VERSION` read no installed state. The gate's own refusal names `sudo ai-tools-admin system
-bootstrap` as the command to run next, so gating the usage would leave that message as the only place an operator could
-find it. `tests/unit/cli-verbs.sh` pins the membership, since the gate is one line far from the table it reads
-and the failure appears only on an unprovisioned host.
+`usage()` and `AI_TOOLS_VERSION` read no installed state. The gate's own refusal names
+`sudo ai-tools-admin system bootstrap` as the command to run next, so gating the usage would leave that message
+as the only place an operator could find it. `tests/unit/cli-verbs.sh` pins the membership, since the gate is one line
+far from the table it reads and the failure appears only on an unprovisioned host.
 
 The set stays narrower than `ROOT_ALLOWED_VERBS`: `--list` and `--providers` describe a toolchain that has to exist
 first, so they stay behind the gate.
@@ -83,18 +83,18 @@ A second gate, `require_operator`, runs before dispatch for the **operator-actin
 in `operator.conf`. Those commands resolve the caller's identity from that list (`operator.lib.sh`, inside the root
 helpers); without the gate an unenrolled user proceeds through the registry writes and confirm prompts only to be
 refused by the first helper that resolves owner (`ai-tools-lockdown`: "not in allowed projects for current operator"),
-after partial state was written and rolled back. The gate replaces that with one up-front message pointing at `sudo
-ai-tools-admin operators add <user>`. `operator.conf` is `644`, so the unprivileged CLI reads `OPERATORS` directly,
-and enrollment there takes effect on the next command — no re-login, unlike the `ai-ops` group the admin verb also
-grants (which the launch wrapper needs and which does require a fresh login). The **informational** commands
+after partial state was written and rolled back. The gate replaces that with one up-front message pointing
+at `sudo ai-tools-admin operators add <user>`. `operator.conf` is `644`, so the unprivileged CLI reads `OPERATORS`
+directly, and enrollment there takes effect on the next command — no re-login, unlike the `ai-ops` group the admin verb
+also grants (which the launch wrapper needs and which does require a fresh login). The **informational** commands
 (`--help`/`--version`/`--list`/`--providers`) stay open, so an unenrolled user can still read usage and inspect
 the host.
 
 A third gate, `require_sudo_access`, refuses a verb whose root helper the caller does not hold a sudo grant
 for, and names the command that reaches it instead (see [The caller with no sudo
-grant](#the-caller-with-no-sudo-grant)). A fourth, `require_runas_target`, refuses a `--for` run when `sudo -n -l -u
-<target>` reports a filesystem step the caller may not run **as** the target (the *runas seam*). A fifth,
-`require_for_target`, runs last and validates a `--for` run (see [Acting for another
+grant](#the-caller-with-no-sudo-grant)). A fourth, `require_runas_target`, refuses a `--for` run
+when `sudo -n -l -u <target>` reports a filesystem step the caller may not run **as** the target (the *runas seam*).
+A fifth, `require_for_target`, runs last and validates a `--for` run (see [Acting for another
 operator](#acting-for-another-operator---for)). The last two are no-ops without the flag.
 
 ### The caller with no sudo grant
@@ -419,10 +419,11 @@ an ordinary account read it — a partial view, the file sink being the authorit
   What is reported is the last run's **outcome**, not the live label. Reading an entrypoint's actual context means
   `stat`ing a file under `/opt/ai-tools/.nvm`, which `ai-tools-bootstrap` creates `0750 SANDBOX_USER:SANDBOX_GROUP` —
   the operator is not in that group and cannot traverse it, and `matchpathcon` computes only what a label *should* be,
-  not what it is. So the record carries the same caveat as the rest of this report: it is an event. `ai-tools-admin
-  status` reads the label itself (`ai_tools_agent_label_report`, read-only — no rule registered, no `restorecon`, no
-  policy-store lock), and `ai-tools-admin system entrypoints relabel` both confirms and repairs it. A mislabel
-  that arises after the recorded run still stops the next launch with the fault and the command that clears it.
+  not what it is. So the record carries the same caveat as the rest of this report: it is an event.
+  `ai-tools-admin status` reads the label itself (`ai_tools_agent_label_report`, read-only — no rule registered, no
+  `restorecon`, no policy-store lock), and `ai-tools-admin system entrypoints relabel` both confirms and repairs it.
+  A mislabel that arises after the recorded run still stops the next launch with the fault and the command that clears
+  it.
 
   **The unit that does the labelling is reported too, and answers a different question.** `ai-tools-relabel.service` is
   in the registry beside the `.path` that triggers it, because a healthy watcher says only that a run *started* —
@@ -430,8 +431,8 @@ an ordinary account read it — a partial view, the file sink being the authorit
   service is inactive whenever it is healthy, so it is judged by the result of its last run rather than by `is-active`
   (see `services.lib.sh`), and its remedy is `systemctl start ai-tools-relabel.service`: that re-runs the work *and*
   clears the recorded failure the report reads, which `ai-tools-admin system entrypoints relabel` does not. The two
-  records answer different questions — the label record covers every caller (an rpm `%post`, the watcher, `system
-  entrypoints relabel`), while the unit covers a watcher run that failed before it reached any labelling at all.
+  records answer different questions — the label record covers every caller (an rpm `%post`, the watcher,
+  `system entrypoints relabel`), while the unit covers a watcher run that failed before it reached any labelling at all.
 
   Every command for such a unit goes through root, and the CLI composes them rather than the registry storing them: each
   names the sandbox **account**, and `services.lib.sh` is deployed with no `@SANDBOX_USER@` substitution. Status
@@ -443,28 +444,30 @@ an ordinary account read it — a partial view, the file sink being the authorit
   and catches both the unit's own output and the `systemd-cat` lines its script emits.
 - `--list` — report every allowlist entry (project / sandbox / exclude / unusable) with its git `safe.directory` status,
   then a **Suggested cleanup** section flagging inconsistent hand-edited entries, each with a copy-paste remediation
-  carrying the full absolute path (an anchored `sed` line-deletion, plus `ai-tools-safedir --remove` / `ai-tools-relabel
-  --remove` where they apply, or `ai-tools --project-claim` to finish a partial claim). It flags, in both directions:
-  a protected system path the tools refuse to touch; a stale allow entry or a stale non-glob `!` exclusion whose path no
-  longer exists; a **glob in an allow line** (unusable — the launch wrapper realpath's allow entries, so a glob there
-  resolves to no path and is inert; globs belong only on `!` lines); a project listed but not fully claimed; and —
-  the reverse direction — a git `safe.directory` with **no** allowlist entry (orphaned, e.g. a hand-deleted line),
-  skipping the deliberately-registered control-plane paths the protected-paths backstop already covers. Entry membership
-  is decided through the shared grammar matcher in `conf.lib.sh` (`ai_tools_conf_allowlist_has_entry`),
-  realpath-normalized, so an entry carrying an end-of-line comment or quotes — or reached by a symlink — reconciles
-  the same as the launch gate reads it, rather than reading as unlisted. It reuses existing predicates and verbs only
-  (no recovery machinery), stays **read-only** (every fix is an emitted command, never an in-place rewrite), and closes
-  with a compact **Maintenance** pointer to the per-project verbs. Informational, so it stays open to a non-operator.
+  carrying the full absolute path (an anchored `sed` line-deletion, plus `ai-tools-safedir --remove` /
+  `ai-tools-relabel --remove` where they apply, or `ai-tools --project-claim` to finish a partial claim). It flags,
+  in both directions: a protected system path the tools refuse to touch; a stale allow entry or a stale non-glob `!`
+  exclusion whose path no longer exists; a **glob in an allow line** (unusable — the launch wrapper realpath's allow
+  entries, so a glob there resolves to no path and is inert; globs belong only on `!` lines); a project listed but not
+  fully claimed; and — the reverse direction — a git `safe.directory` with **no** allowlist entry (orphaned, e.g.
+  a hand-deleted line), skipping the deliberately-registered control-plane paths the protected-paths backstop already
+  covers. Entry membership is decided through the shared grammar matcher in `conf.lib.sh`
+  (`ai_tools_conf_allowlist_has_entry`), realpath-normalized, so an entry carrying an end-of-line comment or quotes —
+  or reached by a symlink — reconciles the same as the launch gate reads it, rather than reading as unlisted. It reuses
+  existing predicates and verbs only (no recovery machinery), stays **read-only** (every fix is an emitted command,
+  never an in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs. Informational,
+  so it stays open to a non-operator.
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree), `--help`.
 - `--for <operator>` — a **modifier**, not a command: run the verb on behalf of another enrolled operator (see [Acting
   for another operator](#acting-for-another-operator---for)).
 
-**`--relabel` prints the new command and exits 2.** The entrypoint reconcile is `sudo ai-tools-admin system entrypoints
-relabel` ([updater](updater.rule.md) owns what it does, [cli-grammar](cli-grammar.rule.md) why it is spelled that way):
-it runs as root, which this CLI refuses, so it is not an alias. The pointer answers **ahead of every gate**, which is
-where its value is — the bootstrap gate would send an unprovisioned host to the provisioning command, and the root guard
-would answer `sudo ai-tools --relabel`, the spelling the older release notes print, with a list of the verbs root may
-run, none of which reconciles an entrypoint. It exits **2**, the documented code for a rejected command line.
+**`--relabel` prints the new command and exits 2.** The entrypoint reconcile is
+`sudo ai-tools-admin system entrypoints relabel` ([updater](updater.rule.md) owns what it does,
+[cli-grammar](cli-grammar.rule.md) why it is spelled that way): it runs as root, which this CLI refuses, so it is not
+an alias. The pointer answers **ahead of every gate**, which is where its value is — the bootstrap gate would send
+an unprovisioned host to the provisioning command, and the root guard would answer `sudo ai-tools --relabel`,
+the spelling the older release notes print, with a list of the verbs root may run, none of which reconciles
+an entrypoint. It exits **2**, the documented code for a rejected command line.
 
 The CLI ships a man page, `ai-tools(1)` (`src/usr/local/share/man/man1/ai-tools.1` → `/usr/local/share/man/man1/`,
 deployed by `install.sh` and the RPM with the same `@AI_TOOLS_VERSION@` substitution as the CLI). It is hand-written
@@ -588,8 +591,8 @@ would refuse the whole claim over one step the rest does not need.
 **What this widens, stated plainly.** An allowlist is an operator's own launch gate, and `--for` lets one operator write
 into another's. That sits inside the model's standing "`ai-ops` operators are trusted" boundary — an operator could
 already claim the project themselves — but it is a real change in who curates a gate, so every mutation is logged
-with both the caller and the target. The sandbox account reaches none of it: the helper is `750 root:root` inside a `750
-root:root` directory and the account does not hold a sudo rule.
+with both the caller and the target. The sandbox account reaches none of it: the helper is `750 root:root` inside
+a `750 root:root` directory and the account does not hold a sudo rule.
 
 ## Enabled, disabled, absent — the three states of an entry
 
@@ -817,8 +820,8 @@ of claim uses: only directories the **operator owns** and that are **not** prote
 by someone else is left untouched — there the sandbox clone (under `/var/opt/ai-tools`, already agent-traversable) is
 the way in. The grant is idempotent: an ancestor the account can already traverse (e.g. one carrying the ACL
 from a prior claim) is skipped. Detection (`reach_scan`) runs up front so the Review overview announces the opt-in,
-and the block runs on the fully-claimed no-op path too — a claimed project can still lose reachability to a later `chmod
-700` on an ancestor.
+and the block runs on the fully-claimed no-op path too — a claimed project can still lose reachability to a later
+`chmod 700` on an ancestor.
 
 **Unclaim** (`--project-unclaim`) reverts that. The CLI classifies the target against `allowed-projects` and acts only
 where something authorizes it:
@@ -857,9 +860,9 @@ the pass never authorized — and for the common case, `git clone --local` (whic
 repo), it would rewrite the **origin's** objects. This is the one refusal in the project that leaves *more* access than
 acting would, since the inode keeps its group and the agent therefore keeps those files after the project is
 deregistered. It is accepted rather than resolved — the alternative reaches outside the authorized tree — and paid
-for in disclosure: the count is reported to the terminal with what it leaves behind and the `find … -links +1 -group
-SANDBOX_GROUP` that lists the files, so the operator can decide about them deliberately instead of inferring the gap
-from two counts.
+for in disclosure: the count is reported to the terminal with what it leaves behind
+and the `find … -links +1 -group SANDBOX_GROUP` that lists the files, so the operator can decide about them deliberately
+instead of inferring the gap from two counts.
 
 **Owner guard (claim and unclaim).** The root helpers `ai-tools-setgid`, `ai-tools-setfacl`, and `ai-tools-unclaim` act
 **only** on paths owned by the projects user or the sandbox account; a path owned by any third party (root, another
@@ -918,8 +921,8 @@ as the write, since an allowlist is `0600` inside a `0700` directory in a home t
 reached only by a `--for` run, and it authorizes against `SUDO_UID` — the uid sudo sets, not the spoofable `SUDO_USER`
 name — refusing a bare root call outright. Repo-local `core.filemode=true` and the allowlist are unprivileged writes.
 `reg_filemode` makes its git calls through `run_as_owner`, since under `--for` the `.git/config` it writes belongs
-to the target operator and the invoking user may not even traverse the tree. `/usr/local/libexec/ai-tools` is `750
-root:root`, so the projects user cannot even stat the helpers — only sudo, as root, reaches them.
+to the target operator and the invoking user may not even traverse the tree. `/usr/local/libexec/ai-tools` is
+`750 root:root`, so the projects user cannot even stat the helpers — only sudo, as root, reaches them.
 
 `--project-create` and `--project-remove` add no helper and no sudoers rule. What they add is `sudo -u <target>`
 on a `--for` run (the *runas seam*), which is not a new grant either: it rides the same general axis, and without

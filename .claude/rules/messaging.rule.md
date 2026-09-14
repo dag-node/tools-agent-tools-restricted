@@ -288,22 +288,22 @@ as a default-NO confirm, and the flag is the auditable decision.
 so each records its outcome through the shared logger ([logging](logging.rule.md)): one INFO line naming the question
 and the answer (`confirm: <question> -> yes|no (answered | default | assume-yes | no-tty-default)`) or the menu choice
 (`menu: chose <n>/<N> (<label>)`). A menu that ends **without** a choice is audited too, naming which way it ended
-(`menu: no terminal and no default -- no answer`, `menu: input closed -- no answer`, `menu: no answer after 3
-attempts`), so the trail distinguishes a declined menu from one never drawn. This gives every user action taken
-through this library **one consistent trail** at the single chokepoint, rather than each call site logging its own
-outcome (or, as before, mostly not). It lands in journald always and in the root-only file sink under the caller's
-`AI_TOOLS_LOG_FILE` when a root helper set one; a non-root caller (the wrapper, the CLI) audits to journald only.
-`msg.lib.sh` sources `log.lib.sh` from its sibling path for this, best-effort — a missing logger drops the audit line,
-never the prompt — and both libs carry an include guard so a consumer that sources both loads each once. The audit never
-alters the decision's exit status, the same guarantee the emitters give.
+(`menu: no terminal and no default -- no answer`, `menu: input closed -- no answer`,
+`menu: no answer after 3 attempts`), so the trail distinguishes a declined menu from one never drawn. This gives every
+user action taken through this library **one consistent trail** at the single chokepoint, rather than each call site
+logging its own outcome (or, as before, mostly not). It lands in journald always and in the root-only file sink
+under the caller's `AI_TOOLS_LOG_FILE` when a root helper set one; a non-root caller (the wrapper, the CLI) audits
+to journald only. `msg.lib.sh` sources `log.lib.sh` from its sibling path for this, best-effort — a missing logger drops
+the audit line, never the prompt — and both libs carry an include guard so a consumer that sources both loads each once.
+The audit never alters the decision's exit status, the same guarantee the emitters give.
 
 ## Umbrella banner
 
 `ai_tools_msg_banner <subtitle> [dim_line...]` renders the **AI-TOOLS** brand mark — the single-sourced ANSI-Shadow
 figlet (`_AI_TOOLS_BANNER_ART`) that heads the installer, the launch, and any sibling tool that sources this lib. Each
 tool supplies its own `subtitle` (`<product> — <what it does>`) and dim meta lines while the art stays constant,
-so the brand reads the same everywhere. `AI-TOOLS` is a brand mark, so product names stay descriptive (`Agent Tools
-Restricted`, `Claude Code Restricted`). It draws on a terminal only.
+so the brand reads the same everywhere. `AI-TOOLS` is a brand mark, so product names stay descriptive
+(`Agent Tools Restricted`, `Claude Code Restricted`). It draws on a terminal only.
 
 Meta lines are composed via `ai_tools_msg_version`, which `v`-prefixes a bare version number (`0.1.0` → `v0.1.0`)
 and passes a build id or `dev` through unchanged. The installer shows one line (`installer · v0.1.0`, the package
@@ -360,18 +360,18 @@ report.
   [updater](updater.rule.md)).
 - **`install.sh` and `selinux/install-selinux.sh`** frame their interactive prompts uniformly. `install.sh` routes every
   prompt through one helper, `confirm_boxed <title> <y|n> <question> [context-line...]`: a fixed 80-column box
-  (`AI_TOOLS_MSG_FULLWIDTH`) titled `<title>` — named for its action (`Review install`, `Existing file`, `SELinux
-  confinement`, …) — framing the context, then the shared inline yes/no prompt — all on `/dev/tty`, because `do_install`
-  tees stdout+stderr to the install log and a prompt must reach the real terminal. Consecutive prompts separate
-  via the lib's leading blank before each box; a non-interactive run takes the default without drawing one. A closing
-  `confirm_boxed` gates the whole verification phase, which runs **last — after the optional SELinux bring-up** so it
-  sees the final labelled state: the installed-files summary (`do_summary`), then the full test suite (`tests/run.sh
-  all`), which includes the permissions check (`tests/integration/perms.sh`, the single source for installed-artifact
-  ownership/modes). It is interactive only (a non-interactive install skips all of it) and defaults to run; `install.sh
-  check-perms` (which runs `perms.sh`) and `tests/run.sh` remain available on demand. The SELinux installer does not
-  tee, so its full-width boxes go to stderr directly. Both source the lib from the **source tree**
-  (`${SCRIPT_DIR}/src/...` / `${DIR}/../src/...`), since the installed copy may not exist yet, and abort if it cannot
-  load.
+  (`AI_TOOLS_MSG_FULLWIDTH`) titled `<title>` — named for its action (`Review install`, `Existing file`,
+  `SELinux confinement`, …) — framing the context, then the shared inline yes/no prompt — all on `/dev/tty`, because
+  `do_install` tees stdout+stderr to the install log and a prompt must reach the real terminal. Consecutive prompts
+  separate via the lib's leading blank before each box; a non-interactive run takes the default without drawing one.
+  A closing `confirm_boxed` gates the whole verification phase, which runs **last — after the optional SELinux
+  bring-up** so it sees the final labelled state: the installed-files summary (`do_summary`), then the full test suite
+  (`tests/run.sh all`), which includes the permissions check (`tests/integration/perms.sh`, the single source
+  for installed-artifact ownership/modes). It is interactive only (a non-interactive install skips all of it)
+  and defaults to run; `install.sh check-perms` (which runs `perms.sh`) and `tests/run.sh` remain available on demand.
+  The SELinux installer does not tee, so its full-width boxes go to stderr directly. Both source the lib
+  from the **source tree** (`${SCRIPT_DIR}/src/...` / `${DIR}/../src/...`), since the installed copy may not exist
+  yet, and abort if it cannot load.
 
 `ai_tools_msg_block` doubles as the **prompt-context renderer**: it shows the title *as given* (so an action-named title
 like `Existing file` stays title-case, unlike the uppercased severity emitters) and keeps an indented path line

@@ -21,10 +21,10 @@ kinds share the mechanism:
 
 ## Manifests
 
-Each installed member package ships one manifest, `/usr/local/lib/ai-tools/{agents,integrations}.d/ <name>.conf`, `644
-root:root`. `<name>` (the basename) is the token an operator writes in `AI_TOOLS_AGENTS` / `AI_TOOLS_INTEGRATIONS`. It
-is `KEY=value` data — **parsed, never sourced**, the same posture as `operator.conf`/`skip-dirs.lib.sh`, so a malformed
-or tampered manifest cannot execute code in the privileged scripts that read it:
+Each installed member package ships one manifest, `/usr/local/lib/ai-tools/{agents,integrations}.d/ <name>.conf`,
+`644 root:root`. `<name>` (the basename) is the token an operator writes in `AI_TOOLS_AGENTS` / `AI_TOOLS_INTEGRATIONS`.
+It is `KEY=value` data — **parsed, never sourced**, the same posture as `operator.conf`/`skip-dirs.lib.sh`,
+so a malformed or tampered manifest cannot execute code in the privileged scripts that read it:
 
 - agents: `npm_package` (the registry package), `launcher` (the bin symlinked at `/opt/ai-tools/bin/<launcher>`,
   and the name `ai-tools-run` matches an executable against to decide whether it may launch), `display_name` (what

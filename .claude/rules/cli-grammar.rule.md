@@ -226,12 +226,12 @@ in authorization policy into a breaking change in the contract. The test is dire
 that collides with an existing one, there was only ever one resource. `/admin/status` and `/status` collide exactly.
 
 A privileged caller seeing more is a **view**, in either of two forms that leave the URI alone: field-level shaping
-by privilege, or an explicit `view` parameter with `BASIC` and `FULL` (AIP-157). This surface does the first: `ai-tools
---status` and `ai-tools-admin status` report **one resource from two vantages**, and each prints `?` for a reading its
-caller lacks the privilege to make. Two commands exist because the binary is the privilege boundary ([Which binary
-a command lives on](#which-binary-a-command-lives-on)), not because there are two sets of facts — which holds because
-the privilege is tested at each read rather than at the dispatch. The readings, and the mechanism behind that, are
-in [cli](cli.rule.md).
+by privilege, or an explicit `view` parameter with `BASIC` and `FULL` (AIP-157). This surface does the first:
+`ai-tools --status` and `ai-tools-admin status` report **one resource from two vantages**, and each prints `?`
+for a reading its caller lacks the privilege to make. Two commands exist because the binary is the privilege boundary
+([Which binary a command lives on](#which-binary-a-command-lives-on)), not because there are two sets of facts —
+which holds because the privilege is tested at each read rather than at the dispatch. The readings, and the mechanism
+behind that, are in [cli](cli.rule.md).
 
 An audience prefix is warranted where the surfaces are separate products with separate authentication on separate
 deployments. This host runs one auth model — Unix identity plus `sudo` — so the binary expresses the boundary on the CLI
@@ -239,26 +239,26 @@ side and authorization middleware expresses it on the HTTP side. Neither needs a
 
 ## Where the surface stands
 
-`ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`, `system bootstrap
-[--scope minimal|full]`, `system entrypoints relabel`, `system post-upgrade`, `status`, `--help`/`-h`, `--version`, plus
-one domain per installed provider — `dotnet bootstrap`, `dotnet tools install <pkg...>`, `dotnet status`.
-`ai-tools-admin(8)` documents the base surface and `tests/unit/man.sh` holds the page, the helper's `usage()` and its
-dispatch arms in agreement, so a command renamed in one of the three fails the suite rather than going stale
-in the others. A contributed domain is outside that pairing by construction — its commands exist only where the package
-is installed — so the page documents the **seam**, `--help` lists the domains this host has, and each domain answers its
-own `--help`.
+`ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`,
+`system bootstrap [--scope minimal|full]`, `system entrypoints relabel`, `system post-upgrade`, `status`, `--help`/`-h`,
+`--version`, plus one domain per installed provider — `dotnet bootstrap`, `dotnet tools install <pkg...>`,
+`dotnet status`. `ai-tools-admin(8)` documents the base surface and `tests/unit/man.sh` holds the page, the helper's
+`usage()` and its dispatch arms in agreement, so a command renamed in one of the three fails the suite rather than going
+stale in the others. A contributed domain is outside that pairing by construction — its commands exist only
+where the package is installed — so the page documents the **seam**, `--help` lists the domains this host has, and each
+domain answers its own `--help`.
 
 Two names carry a `%{_sbindir}` symlink so `sudo <name>` resolves through `secure_path`: `ai-tools`
 and `ai-tools-admin`. Every other command in this project is a verb of one of them, reached at a fixed path the dispatch
-knows — the root helpers under `/usr/local/libexec/ai-tools/` (the provisioning helper among them, exec'd by `system
-bootstrap`) and the contributed command fragments under `/usr/local/lib/ai-tools/admin-commands.d/`.
+knows — the root helpers under `/usr/local/libexec/ai-tools/` (the provisioning helper among them, exec'd
+by `system bootstrap`) and the contributed command fragments under `/usr/local/lib/ai-tools/admin-commands.d/`.
 
 `ai-tools-admin` ships in `ai-tools-base` and runs on an unprovisioned host, so a host reaches `system bootstrap`
-before the toolchain it installs exists. That is why the two `bootstrap`s sit on different mechanisms: `system
-bootstrap` is a base command dispatched from a fixed `case`, while `dotnet bootstrap` is a domain the integration
-package contributes. Each dispatches to a file its own package may not have shipped, so each reports which package
-to install when it is not executable — `system bootstrap`'s helper ships in `ai-tools-integration-nodejs`, the same
-shape `system entrypoints relabel` takes.
+before the toolchain it installs exists. That is why the two `bootstrap`s sit on different mechanisms:
+`system bootstrap` is a base command dispatched from a fixed `case`, while `dotnet bootstrap` is a domain
+the integration package contributes. Each dispatches to a file its own package may not have shipped, so each reports
+which package to install when it is not executable — `system bootstrap`'s helper ships in `ai-tools-integration-nodejs`,
+the same shape `system entrypoints relabel` takes.
 
 `--scope full` rests on that seam: base can only run each enabled integration's `bootstrap` because there is a seam
 to find one through, and it iterates the **enabled** set where the dispatch reads the installed one.

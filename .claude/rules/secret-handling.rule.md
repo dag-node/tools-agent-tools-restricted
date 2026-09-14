@@ -59,10 +59,10 @@ the stronger form, since an excluded subtree is skipped by every walk whatever i
 
 ## Shared secret-pattern set (one source, two consumers)
 
-The secret basename patterns live in a single user-owned config file, `~/.config/ai-tools/secret-patterns` (`<you>:<you>
-600`), co-located with `allowed-projects` and owned the same way: the operator edits it; `SANDBOX_USER` — neither its
-owner nor in its group, and unable to enter the `700 .config/ai-tools` dir — can neither read nor write it; the root
-helpers read it on the operator's behalf, so the agent cannot weaken its own secret classification.
+The secret basename patterns live in a single user-owned config file, `~/.config/ai-tools/secret-patterns`
+(`<you>:<you> 600`), co-located with `allowed-projects` and owned the same way: the operator edits it; `SANDBOX_USER` —
+neither its owner nor in its group, and unable to enter the `700 .config/ai-tools` dir — can neither read nor write it;
+the root helpers read it on the operator's behalf, so the agent cannot weaken its own secret classification.
 
 Both root helpers source `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (`644 root:root`, not
 in a `SANDBOX_USER`-writable dir) for one matcher over that file, so `ai-tools-chown` and `ai-tools-lockdown` never
@@ -109,15 +109,16 @@ why rule files use a non-matching stem (`secret-handling.rule.md`, not `secrets.
 ## Proactive: `ai-tools-lockdown`
 
 `ai-tools-chown` is reactive — it acts only on `SANDBOX_USER`-owned paths, so it never touches a pre-existing user-owned
-secret the agent could already read. `ai-tools-lockdown` (`/usr/local/libexec/ai-tools/ai-tools-lockdown`, run `ai-tools
---lockdown <project>` or `cd <project> && sudo ai-tools-lockdown`) is the proactive counterpart: it walks the current
-directory and, for every path matching the shared secret patterns, sets regular files `600`, directories `700`,
-and owner `<you>:<you>` — revoking `SANDBOX_USER`'s read regardless of who created the path. The owner's own private
-group is the target, the same one `ai-tools-chown` gives an agent-written secret, so a secret ends up identically owned
-whether it was locked down proactively or quarantined on write; leaving the group as `SANDBOX_GROUP` would re-expose it
-the moment the mode was widened. Each locked path also has its sandbox residue stripped. It runs only when the CWD is
-an allowed project and skips `!`-excluded paths, and applies each change through a pinned fd (re-verifying inode
-and type) so a `SANDBOX_USER` path swap cannot redirect root's chmod/chown. `--yes` skips the TTY confirmation.
+secret the agent could already read. `ai-tools-lockdown` (`/usr/local/libexec/ai-tools/ai-tools-lockdown`, run
+`ai-tools --lockdown <project>` or `cd <project> && sudo ai-tools-lockdown`) is the proactive counterpart: it walks
+the current directory and, for every path matching the shared secret patterns, sets regular files `600`, directories
+`700`, and owner `<you>:<you>` — revoking `SANDBOX_USER`'s read regardless of who created the path. The owner's own
+private group is the target, the same one `ai-tools-chown` gives an agent-written secret, so a secret ends
+up identically owned whether it was locked down proactively or quarantined on write; leaving the group
+as `SANDBOX_GROUP` would re-expose it the moment the mode was widened. Each locked path also has its sandbox residue
+stripped. It runs only when the CWD is an allowed project and skips `!`-excluded paths, and applies each change
+through a pinned fd (re-verifying inode and type) so a `SANDBOX_USER` path swap cannot redirect root's chmod/chown.
+`--yes` skips the TTY confirmation.
 
 `--dry-run` previews **both** passes — the secret lock and the seal — naming each path and, for a seal, what would come
 off it. The seal half is the one that acts on paths the operator did not name, so a preview that showed only the secret

@@ -71,8 +71,8 @@ NNP drops `sudo`'s SUID bit, so the hooks reach root operations through the hand
 
 In `--pty` service mode the user manager performs the `exec`, so the SELinux transition is keyed on the manager's domain
 — `init_t` on RHEL/Rocky 9 targeted — via `domtrans_pattern(init_t, ai_tools_exec_t, ai_tools_t)` in `ai_tools.te` (an
-`unconfined_t` rule is retained for a direct exec). The live manager domain and its role are verifiable on the box (`ps
--eZ | grep 'systemd --user'`); the policy authorises both `unconfined_r` and `system_r` for `ai_tools_t`,
+`unconfined_t` rule is retained for a direct exec). The live manager domain and its role are verifiable on the box
+(`ps -eZ | grep 'systemd --user'`); the policy authorises both `unconfined_r` and `system_r` for `ai_tools_t`,
 so the transition fires regardless of which role the manager holds. The manager's domain also needs `search`
 on `ai_tools_project_t` for the `WorkingDirectory` chdir.
 
@@ -335,15 +335,15 @@ properties meet at that boundary:
   distribution. `selinux/policy/shipped-modules.sh` derives the set from the registry's `stability` field
   and the `selinux_layout_module` key of each integration manifest under `src/`; `%build`, `%install`, and `%files`
   (through a file list `%install` writes) read that one derivation, so promoting a group or adding a layout module edits
-  the registry or a manifest and no packaging file. No compiled module is tracked: `.gitignore` covers `*.pp`, `make
-  dist` refuses a tarball carrying one, and `tests/unit/selinux-groups.sh` fails on a tracked one, since a tracked
+  the registry or a manifest and no packaging file. No compiled module is tracked: `.gitignore` covers `*.pp`,
+  `make dist` refuses a tarball carrying one, and `tests/unit/selinux-groups.sh` fails on a tracked one, since a tracked
   binary was built on some other host's headers and no review can read it. A source install compiles the same set
   from the checkout — `install-selinux.sh build`, which `install.sh` runs — and stages it in that same package
   directory; where SELinux is active and `selinux-policy-devel` is absent, `install.sh` refuses the SELinux step
   and names the package, so the absent modules are reported at install rather than met later as a launch the preflight
-  refuses. The container self-tests compile in each image and assert the packaged set against the derivation (`rpm
-  -qlp`), so an interface that does not resolve on a distribution fails that distribution's build; they do not load
-  a module (`getenforce` is `Disabled` in a container), so a rule that fails to load is caught on an enforcing host
+  refuses. The container self-tests compile in each image and assert the packaged set against the derivation
+  (`rpm -qlp`), so an interface that does not resolve on a distribution fails that distribution's build; they do not
+  load a module (`getenforce` is `Disabled` in a container), so a rule that fails to load is caught on an enforcing host
   only.
 - **Licence.** A compiled `.pp` embeds macro expansions from the SELinux reference policy, so it is `GPL-2.0-or-later`
   while the rest of the stack is `AGPL-3.0-only`. Everything under `selinux/policy/` carries that identifier:
