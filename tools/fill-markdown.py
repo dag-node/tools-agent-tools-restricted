@@ -13,10 +13,14 @@ front door fills only what a diff touched.
 
 Filled, with its structure kept: a paragraph under its own leading indent, a list item and its
 continuation lines under a hanging indent the width of the marker, and a blockquote paragraph
-under its `> ` prefix. Two rules decide where a break falls, shared with the comment filler: no
-line ends on a tie word (the list is read from tools/emacs/ai-tools-fill.el, its one home), and no
-line begins with a token that opens a block, since a wrap that moves a fence, a pipe, a heading
-mark or a list marker to a line start invents the block.
+under its `> ` prefix. Three rules decide where a break falls. Two are shared with the comment
+filler: no line ends on a tie word (the list is read from tools/emacs/ai-tools-fill.el, its one
+home), and no line begins with a token that opens a block, since a wrap that moves a fence, a
+pipe, a heading mark or a list marker to a line start invents the block. The third is shared with
+the checker: no break falls inside an inline code span (the span is the checker's
+`BACKTICK_SPAN`, read from prose-check.py, its one home), since a span holds a literal -- a
+command line, an owner and mode, a flag with its operand -- that `grep` finds only on one line;
+a span wider than the column runs the line over on its own, as the checker's width rule expects.
 
 Left as written, because a line break inside is intentional: YAML frontmatter; a fenced block,
 closed only by its own character at its own length or longer, so a nested fence holds; an HTML
@@ -30,11 +34,14 @@ a placeholder (`<name>`, `<operator>`) that the full table reads as a tag and st
 A column is counted in code points; every non-ASCII character this tree uses is one column wide.
 """
 import argparse
+import importlib.util
 import pathlib
 import re
 import sys
 
-TIE_LIST = pathlib.Path(__file__).resolve().parent / "emacs" / "ai-tools-fill.el"
+TOOLS = pathlib.Path(__file__).resolve().parent
+TIE_LIST = TOOLS / "emacs" / "ai-tools-fill.el"
+CHECKER = TOOLS.parent / "src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
 IGNORE_MARKER = "prose-check: ignore"
 CODE_INDENT = 4
 
@@ -66,7 +73,38 @@ def tie_words():
     return words
 
 
+def code_span_pattern():
+    """The checker's `BACKTICK_SPAN`, the one statement of what a code span is; exits when absent."""
+    try:
+        spec = importlib.util.spec_from_file_location("prose_check", CHECKER)
+        checker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(checker)
+        return checker.BACKTICK_SPAN
+    except (OSError, AttributeError, ImportError) as exc:
+        sys.exit(f"fill-markdown: cannot read the code-span rule from {CHECKER}: {exc}")
+
+
 TIES = tie_words()
+BACKTICK_SPAN = code_span_pattern()
+
+
+def units(text):
+    """`text`'s whitespace-separated words, with the words of one code span joined into a unit.
+
+    A break falls only between units, so a span stays on one line; its inner whitespace is
+    joined as the words around it are, one space, which is what the gate's token stream reads.
+    """
+    spans = [(match.start(), match.end()) for match in BACKTICK_SPAN.finditer(text)]
+    out, previous = [], None
+    for word in re.finditer(r"\S+", text):
+        inside = previous is not None and any(
+            start < word.start() and end > previous for start, end in spans)
+        if inside:
+            out[-1] = out[-1] + " " + word.group(0)
+        else:
+            out.append(word.group(0))
+        previous = word.end()
+    return out
 
 
 def is_tie(word):
@@ -77,12 +115,13 @@ def is_tie(word):
 
 
 def wrap(words, first, cont, width):
-    """`words` as lines at `width`, under the prefix `first` then `cont`.
+    """`words` (the units of `units()`) as lines at `width`, under the prefix `first` then `cont`.
 
     A break moves earlier while the line would end on a tie word, and while the next line would
     begin with a block-opening token; each rule stops before it empties the line it trims. Where
     the block rule cannot be met that way -- the token follows one too wide to share a line -- the
     line runs over the column instead, since a wider line is a line and an invented block is not.
+    A code span is one unit, so it runs over the same way when it alone exceeds the column.
     """
     lines, current = [], []
     for word in words:
@@ -197,13 +236,13 @@ def reflow(source, width, ranges=None):
                 index += 1
             else:
                 end = quote_end(source, index + 1, prefix)
-                words = " ".join(QUOTE.match(l).group(2) for l in source[index:end]).split()
+                words = units(" ".join(QUOTE.match(l).group(2) for l in source[index:end]))
                 fill(index, end, words, prefix, prefix)
                 index = end
         elif ITEM.match(line):
             indent, marker, rest = ITEM.match(line).groups()
             end = run_end(source, index + 1)
-            words = rest.split() + " ".join(source[index + 1:end]).split()
+            words = units(" ".join([rest, *source[index + 1:end]]))
             fill(index, end, words, indent + marker, indent + " " * len(marker))
             index = end
         elif boundary(line) or (indent_width >= CODE_INDENT and not listed):
@@ -212,7 +251,7 @@ def reflow(source, width, ranges=None):
         else:
             indent = line[:indent_width]
             end = run_end(source, index + 1)
-            fill(index, end, " ".join(source[index:end]).split(), indent, indent)
+            fill(index, end, units(" ".join(source[index:end])), indent, indent)
             index = end
     return out, filled
 

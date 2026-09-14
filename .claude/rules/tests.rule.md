@@ -276,10 +276,13 @@ a line no filler can shorten remains. `fill-markdown.sh` is its Markdown counter
 in either looks the same from outside: one fixture carries every shape found by rehearsing the filler on real pages —
 frontmatter, a nested fence, a multi-line HTML comment, a list item with an indented continuation, a wide marker,
 an indented code block, a table, a blockquote with an
-alert line, a `prose-check: ignore` line, and a dash after a token wider than the column — and
-the filler must reflow it to a state the gate passes and the checker's `--wrap` finds complete (a filler that copies
-a region through leaves a clean gate and an over-width line), while each defect class, injected by hand, must be
-reported by the gate. It asserts a second run is a no-op and that `--lines` confines a reflow to the blocks it names,
+alert line, a `prose-check: ignore` line, a dash after a token wider than the column, and inline code spans placed
+where a greedy break lands inside them — and the filler must reflow it to a state the gate passes and the checker's
+`--wrap` finds complete (a filler that copies a region through leaves a clean gate and an over-width line), while each
+defect class, injected by hand, must be reported by the gate. The one class the gate cannot see — a break inside a code
+span leaves the token stream unchanged — is asserted on the filler's output instead: each span whole on one line, a span
+wider than the column run over on its own. It asserts a second run is a no-op and that `--lines` confines a reflow
+to the blocks it names,
 then reflows every page of the tree into its testdir, agent-facing at 120 and human-facing at 80, and holds them
 to the same three properties. `references.sh` is a third: it drives `ref-index.py`, the cross-reference tool shipped
 beside the checker, and holds the tree to its committed index. A reference names a reftag and the reftag resolves

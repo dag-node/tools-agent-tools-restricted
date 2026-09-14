@@ -9,7 +9,8 @@
 # filler on real pages, and each is driven from both ends -- the filler must reflow the fixture
 # to a state the gate passes and the checker's `--wrap` finds complete, and each defect class,
 # injected by hand, must be reported by the gate. A second run must leave the file as the first
-# left it, and `--lines` must confine a reflow to the blocks it names. Its last section reflows
+# left it, and `--lines` must confine a reflow to the blocks it names. The one class the gate
+# cannot see, a break inside a code span, is asserted on the filler's output. Its last section reflows
 # the tree's own pages into the testdir and holds them to the same three properties, skipped
 # outside a checkout. A repo dev tool, not a deployed artifact, so it runs from the checkout.
 # The fixture holds a reftag as text, so the tree-wide reference check does not read this file
@@ -37,7 +38,10 @@ mkdir -p "${TESTDIR}/base"
 f="${TESTDIR}/f.md"
 # Every shape the filler must fill or leave alone; each `detects` case names the real page its
 # shape was found on. The URL is the one token wider than the column, so the dash after it lands
-# first on a line unless the filler refuses that break.
+# first on a line unless the filler refuses that break. The span paragraph is measured: at 70
+# columns a greedy break lands inside each of its three spans (the first opens at column 62,
+# the second is wider than the column, the third follows a tie word), and the two lines after it
+# close their span on the column and one past it.
 cat > "${TESTDIR}/base/f.md" <<'FIXTURE'
 ---
 name: fixture
@@ -112,6 +116,15 @@ A command shown indented, which is a code block and not a paragraph:
 
 The label probe is cheap. <!-- prose-check: ignore: a deliberate example the checker skips as a line -->
 The line after the marker, long enough to be rewrapped at a narrow column on its own.
+
+Spans stay whole: a sentence long enough to reach the column `ai-tools --status` is named, then a
+span wider than the column on a line of its own,
+`sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`, then the tie
+rule beside a span, so that no line ends on the `750 root:root` mode of the pin.
+
+A span closing at the column stays: `ai-tools --project-claim --yes .`
+
+A span closing at the column shifts: `ai-tools --project-claim --yes .`
 
 Final paragraph.
 FIXTURE
@@ -216,7 +229,39 @@ else
     fail "--lines did not scope the reflow: $(diff "${TESTDIR}/base/f.md" "${f}" | head -6)"
 fi
 
-# (6) The tree's own pages: every agent-facing page at 120 and every human-facing page at 80
+# (6) A break never falls inside a code span: the literal a span holds is what `git grep` finds,
+# and only on one line. The gate cannot see this class -- a split span is a token stream
+# unchanged -- so the filler is held to it directly: each span whole on one line, the one wider
+# than the column run over on a line of its own, the one closing on the column left there, and
+# the one closing past it moved down whole.
+reflow
+span_whole() {  # span_whole <literal>: PASS when the reflowed fixture holds the literal on one line
+    if [[ "$(grep -c -F -- "$1" "${f}")" -ge 1 ]]; then pass "code span whole on one line: $1"
+    else fail "code span split across lines: $1"; fi
+}
+span_whole 'ai-tools --status'
+span_whole '750 root:root'
+# shellcheck disable=SC2016
+if grep -qxF -- '`sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`,' "${f}"; then
+    pass "a span wider than the column runs over on a line of its own"
+else
+    fail "a span wider than the column was split or shared a line: $(grep -n 'selinux groups' "${f}")"
+fi
+# shellcheck disable=SC2016
+if grep -qxF -- 'A span closing at the column stays: `ai-tools --project-claim --yes .`' "${f}"; then
+    pass "a span closing on the column stays on its line"
+else
+    fail "a span closing on the column was moved: $(grep -n 'closing at the column stays' "${f}")"
+fi
+# shellcheck disable=SC2016
+if grep -qxF -- 'A span closing at the column shifts:' "${f}" \
+        && [[ "$(grep -cxF -- '`ai-tools --project-claim --yes .`' "${f}")" -eq 1 ]]; then
+    pass "a span closing one column past it moves down whole"
+else
+    fail "a span closing one column past it was split or left: $(grep -n 'project-claim' "${f}")"
+fi
+
+# (7) The tree's own pages: every agent-facing page at 120 and every human-facing page at 80
 # reflows to a state the gate passes, the checker finds complete, and a second run leaves alone.
 if ! git -C "${ROOT}" rev-parse --show-toplevel >/dev/null 2>&1; then
     skip "real pages" "not a git checkout"

@@ -817,6 +817,12 @@ wide_token="$(printf 'p%.0s' $(seq 1 90))"
 wrapped_silent TEST-PC-159-document-width-heading.md "# ${long_md}" 'Body.'
 wrapped_silent TEST-PC-160-document-width-two-tokens.md "at ${wide_token}"
 wrapped document-width TEST-PC-161-document-width-three-tokens.md "read at ${wide_token}"
+# A backticked span is one unit however many words it holds: a formatter keeps the literal
+# whole, so a line of a tie word and a wide span is one no wrap shortens, while a third unit
+# beside them is what a wrap moves.
+wide_span="\`$(printf 'word %.0s' $(seq 1 18))end\`"
+wrapped_silent TEST-PC-173-document-width-span-unit.md "at ${wide_span}"
+wrapped document-width TEST-PC-174-document-width-span-third-unit.md "read at ${wide_span}"
 wrapped_silent TEST-PC-162-document-width-quoted-table.md "> | $(printf 'cell %.0s' $(seq 1 25)) | x |"
 wrapped_silent TEST-PC-163-document-width-quoted-fence.md '> ```' "> ${long_md}" '> ```'
 wrapped document-width TEST-PC-164-document-width-quoted-prose.md '> ```' '> code' '> ```' "> ${long_md}"
