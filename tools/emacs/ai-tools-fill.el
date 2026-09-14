@@ -16,8 +16,9 @@
 ;; one of whose lines is indented deeper (an aligned table, an example command), a run drawing a
 ;; table or a diagram (two lines carrying a vertical rule at the same column -- the reading
 ;; `tools/align-tables.py' states, and the tool that puts such a table in order), a line inside a
-;; string or inside a CDATA or `<pre>' region, and every line `ai-tools-fill--skip-line' names.
-;; A docstring is not a comment and is not read.
+;; string, inside a CDATA or `<pre>' region, or inside a fenced block the comment carries (the
+;; commands a header shows), and every line `ai-tools-fill--skip-line' names. A docstring is not a
+;; comment and is not read.
 
 (defconst ai-tools-tie-words
   '("a" "an" "the" "and" "or" "nor" "but" "so" "yet"
@@ -145,6 +146,30 @@ break inside one is content, whatever comment marker the line carries."
                              (1+ depth))))
              (> depth 0))))))
 
+(defconst ai-tools-fill--comment-fence "^[ \t]*\\(?:#\\|//\\)[ \t]*\\(?:```\\|~~~\\)"
+  "A fence marker on a comment line: what a header shows a command between.")
+
+(defvar ai-tools-fill--fence-present nil
+  "Non-nil while the buffer being filled holds a fence marker on a comment line.
+`ai-tools-fill-comments' binds it, so the scan behind `ai-tools-fill--in-comment-fence-p' runs
+only over a buffer that has one.")
+
+(defun ai-tools-fill--in-comment-fence-p ()
+  "Non-nil when the line at point sits inside a fenced block a comment carries.
+A header shows a command, or several, between two fence markers, and each line of it is one a
+reader copies whole: a fill that read them as a paragraph would join two commands into one, or
+wrap one that runs past the column. The checker skips the same lines. A marker on a line of its
+own is a lone token, which ends a run, so this decides only where a run may start."
+  (and ai-tools-fill--fence-present
+       (save-match-data
+         (save-excursion
+           (let ((limit (line-beginning-position))
+                 (count 0))
+             (goto-char (point-min))
+             (while (re-search-forward ai-tools-fill--comment-fence limit t)
+               (setq count (1+ count)))
+             (= 1 (% count 2)))))))
+
 (defun ai-tools-fill--in-string-p ()
   "Non-nil when the line at point sits inside a string, which the mode's syntax decides.
 A heredoc body is the case that matters: the text is data this file writes or feeds elsewhere --
@@ -186,14 +211,18 @@ filled. See the file header for what is left alone."
         (ranges (and ranges (ai-tools-fill--range-markers ranges)))
         (ai-tools-fill--verbatim-present
          (save-excursion (goto-char (point-min))
-                         (re-search-forward ai-tools-fill--verbatim-open nil t))))
+                         (re-search-forward ai-tools-fill--verbatim-open nil t)))
+        (ai-tools-fill--fence-present
+         (save-excursion (goto-char (point-min))
+                         (re-search-forward ai-tools-fill--comment-fence nil t))))
     (save-excursion
       (goto-char (point-min))
       (while (not (eobp))
         (if (and (looking-at ai-tools-fill--prose-line)
                  (not (looking-at ai-tools-fill--skip-line))
                  (not (ai-tools-fill--in-string-p))
-                 (not (ai-tools-fill--in-verbatim-p)))
+                 (not (ai-tools-fill--in-verbatim-p))
+                 (not (ai-tools-fill--in-comment-fence-p)))
             (let* ((prefix (match-string 1))
                    (beg (point))
                    (plain t)

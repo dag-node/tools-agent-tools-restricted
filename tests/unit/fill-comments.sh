@@ -8,9 +8,10 @@
 # ending on a tie word (the filler's own rule, which no checker reads), one indented inside a
 # function body, and a sentence pair whose join takes one space. Left as written: an aligned
 # comment table, a doc comment's contract line, a column of three or more spaces, a table drawn
-# with vertical rules, a heredoc body, a CDATA section, a `<pre>` block, a linter directive, a
-# commented default, a shebang and a code line. Held on the output: a break never falls inside
-# a code span, which the `fill-nobreak-predicate` hook refuses.
+# with vertical rules, a heredoc body, the commands a header shows in a fenced block, a CDATA
+# section, a `<pre>` block, a linter directive, a commented default, a shebang and a code line.
+# Held on the output: a break never falls inside a code span, which the `fill-nobreak-predicate`
+# hook refuses.
 # A second run must leave the file as the first left it, `--lines` must confine the fill to a
 # paragraph it names, and two ranges in one run must both be filled. Refused before Emacs sees
 # it, reported and left as it was: a file holding an escape sequence, and a symlink. Pinned on
@@ -84,6 +85,12 @@ indented() {
     # Its second line is indented the same way, so the run is one paragraph and the fill joins it.
     :
 }
+# A paragraph before the commands a header shows in a fenced block, long enough to need rewrapping.
+# ```bash
+# sudo ai-tools-admin operators add alice
+# sudo ai-tools-admin system bootstrap --with-an-option-long-enough-that-the-line-runs-past-the-column
+# ```
+v=10
 EOF
 cp "${f}" "${TESTDIR}/before.sh"
 
@@ -176,6 +183,17 @@ same "a comment line inside a heredoc body" '# A seeded config header inside a h
 # one is content. Neither is in the tree yet; the rule is here before the first one arrives.
 same "a CDATA payload line" '# a CDATA payload the reader gets'
 same "a <pre> block line"   '# preformatted output whose line breaks are content'
+# The commands a header shows sit in a fenced block inside the comment, and each is a line a
+# reader copies whole: a fill that read them as a paragraph would join two into one, or wrap one
+# that runs past the column.
+same "a command inside a comment fence" '# sudo ai-tools-admin operators add alice'
+same "a wide command inside a comment fence" '# sudo ai-tools-admin system bootstrap'
+if (( $(grep -c 'A paragraph before the commands' "${f}") == 1 )) \
+        && ! grep -qF -- 'long enough to need rewrapping.' "${f}"; then
+    pass "the paragraph before a comment fence is filled, and ends there"
+else
+    fail "the run did not end at the fence: $(grep -n -A2 'A paragraph before the commands' "${f}")"
+fi
 if (( $(grep -c 'A paragraph that a doc comment' "${f}") == 1 )) \
         && grep -q '^# A paragraph that a doc comment' "${f}" \
         && ! grep -q "contract lines follow, long enough to need rewrapping at the column." "${f}"; then
