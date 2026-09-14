@@ -27,7 +27,8 @@
     "along" "across" "around" "near" "off" "out" "up" "down" "via" "per" "as"
     "what" "which" "who" "whom" "whose" "that" "when" "where" "why" "how")
   "The words a line does not end on: they tie to the word after them.
-Mirrors `_AI_TOOLS_MSG_TIES' in msg.lib.sh and `HEADER_TIES' in prose-check.py.")
+Mirrors `_AI_TOOLS_MSG_TIES' in msg.lib.sh, the runtime's own copy. tools/fill-markdown.py reads
+this list at run time, so the two formatters share it.")
 
 (defun ai-tools-no-break-after-tie ()
   "Non-nil when the word before point is a tie word, so the filler does not break here.
