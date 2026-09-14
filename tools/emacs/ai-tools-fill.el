@@ -11,14 +11,12 @@
 ;; Interactive use: load this file, then `M-q' on a comment block. Batch use over whole files:
 ;; `bash tools/fill-comments.sh <file>...', which calls `ai-tools-fill-comments-file'.
 ;;
-;; The batch filler is conservative on purpose. It fills a run of consecutive lines that carry the
-;; same comment prefix followed by one space and text, and leaves every other shape as it finds
-;; it: a run drawing a table or a diagram, read as two of its lines carrying a vertical rule at
-;; the same column -- the reading `tools/align-tables.py' states, and the tool that puts such a
-;; table in order -- a run holding a line with extra indentation (an aligned table, an example
-;; command), a
-;; linter directive, an SPDX header, a commented default (`#KEY=value'), a shebang, a lone token
-;; on a line of its own (a path, a URL), a rule or banner line, and a lone `#' separator.
+;; The batch filler is conservative on purpose. It fills a run of consecutive lines carrying the
+;; same comment prefix, one space and text, and leaves every other shape as it finds it: a run
+;; one of whose lines is indented deeper (an aligned table, an example command), a run drawing a
+;; table or a diagram (two lines carrying a vertical rule at the same column -- the reading
+;; `tools/align-tables.py' states, and the tool that puts such a table in order), a line inside a
+;; string or inside a CDATA or `<pre>' region, and every line `ai-tools-fill--skip-line' names.
 ;; A docstring is not a comment and is not read.
 
 (defconst ai-tools-tie-words
@@ -47,12 +45,19 @@ A word closing a sentence is not a tie; trailing punctuation around the word is 
 (defconst ai-tools-fill--prose-line "^\\([ \t]*\\(?:#\\|//\\)\\) \\([^ \t].*\\)$"
   "A comment line the batch filler may fill: prefix, one space, text.")
 
+(defconst ai-tools-fill--verbatim-open "<!\\[CDATA\\[\\|<pre\\b"
+  "What opens a region a reader gets byte for byte: a CDATA section, a `<pre>' block.")
+
+(defconst ai-tools-fill--verbatim-close "\\]\\]>\\|</pre>"
+  "What closes the region `ai-tools-fill--verbatim-open' opens.")
+
 (defconst ai-tools-fill--skip-line
   (concat "^[ \t]*\\(?:#\\|//\\)[ \t]*"
           "\\(?:!\\|shellcheck\\b\\|noqa\\b\\|pylint:\\|type:\\|pragma\\b\\|SPDX-"
           "\\|ref-index:\\|prose-check:"
           "\\|args:\\|stdout:\\|stderr:\\|returns?:\\|\\$[0-9]"
           "\\|[A-Za-z_][A-Za-z0-9_]*=\\|[^ \t\n]+$\\|.*[^ ] \\{3,\\}[^ ]"
+          "\\|.*\\(?:" ai-tools-fill--verbatim-open "\\|" ai-tools-fill--verbatim-close "\\)"
           "\\|.*[-=_*─━]\\{3,\\}\\)")
   "A comment line the batch filler leaves alone, and that ends the run before it: a shebang,
 a linter directive, an SPDX header, a checker marker (`ref-index: ignore-file', `prose-check:
@@ -89,6 +94,29 @@ space a join added is taken back here, where a column of spaces is not touched."
     (while (re-search-forward ai-tools-fill--joined-sentence end t)
       (replace-match "\\1 \\2" t))))
 
+(defvar ai-tools-fill--verbatim-present nil
+  "Non-nil while the buffer being filled holds a verbatim opener.
+`ai-tools-fill-comments' binds it, so the scan behind `ai-tools-fill--in-verbatim-p' runs only
+over a buffer that has one.")
+
+(defun ai-tools-fill--in-verbatim-p ()
+  "Non-nil when the line at point sits inside a CDATA section or a `<pre>' block.
+Both hold text a reader gets byte for byte -- an XML payload, preformatted output -- so a line
+break inside one is content, whatever comment marker the line carries."
+  (and ai-tools-fill--verbatim-present
+       (save-match-data
+         (save-excursion
+           (let ((limit (line-beginning-position))
+                 (depth 0)
+                 (either (concat ai-tools-fill--verbatim-open "\\|"
+                                 ai-tools-fill--verbatim-close)))
+             (goto-char (point-min))
+             (while (re-search-forward either limit t)
+               (setq depth (if (string-match-p ai-tools-fill--verbatim-close (match-string 0))
+                               (max 0 (1- depth))
+                             (1+ depth))))
+             (> depth 0))))))
+
 (defun ai-tools-fill--in-string-p ()
   "Non-nil when the line at point sits inside a string, which the mode's syntax decides.
 A heredoc body is the case that matters: the text is data this file writes or feeds elsewhere --
@@ -113,13 +141,17 @@ which is how `tools/format.sh' fills what a diff touched. Returns the number of 
 filled. See the file header for what is left alone."
   (let ((filled 0)
         (sentence-end-double-space nil)
-        (colon-double-space nil))
+        (colon-double-space nil)
+        (ai-tools-fill--verbatim-present
+         (save-excursion (goto-char (point-min))
+                         (re-search-forward ai-tools-fill--verbatim-open nil t))))
     (save-excursion
       (goto-char (point-min))
       (while (not (eobp))
         (if (and (looking-at ai-tools-fill--prose-line)
                  (not (looking-at ai-tools-fill--skip-line))
-                 (not (ai-tools-fill--in-string-p)))
+                 (not (ai-tools-fill--in-string-p))
+                 (not (ai-tools-fill--in-verbatim-p)))
             (let* ((prefix (match-string 1))
                    (beg (point))
                    (plain t)

@@ -60,6 +60,13 @@ r=6
 cat > /dev/null <<'INNER'
 # A seeded config header inside a heredoc body: data this file writes rather than prose of its own, and long enough that a filler would want to rewrap it.
 INNER
+# <![CDATA[
+# a CDATA payload the reader gets byte for byte, long enough that a filler would rewrap it
+# ]]>
+# <pre>
+# preformatted output whose line breaks are content, long enough that a filler would rewrap it
+# </pre>
+s=7
 EOF
 cp "${f}" "${TESTDIR}/before.sh"
 
@@ -144,6 +151,10 @@ same "a comment table's widest row"  '# no  | refuse and say why'
 # A heredoc body is data the file writes, so a comment marker in it is that data's. The mode's
 # syntax is what says so, which is why the fixture is a shell file with a real heredoc in it.
 same "a comment line inside a heredoc body" '# A seeded config header inside a heredoc body'
+# A CDATA section and a `<pre>` block hold text a reader gets byte for byte, so a line break in
+# one is content. Neither is in the tree yet; the rule is here before the first one arrives.
+same "a CDATA payload line" '# a CDATA payload the reader gets'
+same "a <pre> block line"   '# preformatted output whose line breaks are content'
 if (( $(grep -c 'A paragraph that a doc comment' "${f}") == 1 )) \
         && grep -q '^# A paragraph that a doc comment' "${f}" \
         && ! grep -q "contract lines follow, long enough to need rewrapping at the column." "${f}"; then
