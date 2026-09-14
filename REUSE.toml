@@ -1,23 +1,17 @@
-# REUSE (https://reuse.software) annotations for paths that carry no SPDX header of their own.
+# REUSE (https://reuse.software) licensing and copyright fallbacks.
 #
-# Every source file states its own licence in a one-line `SPDX-License-Identifier` header. The
-# COPYRIGHT holder is declared here instead of in each file, so it is single-sourced: a file added
-# later inherits it, and the year is one line to update rather than a tree-wide sweep.
-# `precedence = "aggregate"` means a file's own header wins where it has one and
-# these annotations only fill the gaps.
-#
-# The paths listed here are those where a header would be noise rather than information (prose, licence
-# texts, generated data, dotfiles), or a build file beside sources that state the licence themselves.
+# A file's own header, or an adjacent .license file, takes priority; these annotations supply the
+# copyright and the licence a file does not state for itself, each independently. Within this file
+# only the last matching annotation applies, so the broad path is listed first.
 
 version = 1
 SPDX-PackageName = "ai-tools"
 SPDX-PackageDownloadLocation = "https://github.com/dag-node/tools-agent-tools-restricted"
 
-# Catch-all: the maintainer's own work, AGPL-3.0-only. Listed first so the more specific policy
-# entry can narrow it.
+# Default for the maintainer's own work.
 [[annotations]]
 path = "**"
-precedence = "aggregate"
+precedence = "closest"
 SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
 SPDX-License-Identifier = "AGPL-3.0-only"
 
@@ -28,7 +22,7 @@ SPDX-License-Identifier = "AGPL-3.0-only"
 # own ai-tools-selinux subpackage rather than inside the AGPL base.
 [[annotations]]
 path = "selinux/policy/**"
-precedence = "aggregate"
+precedence = "closest"
 SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
 SPDX-License-Identifier = "GPL-2.0-or-later"
 
@@ -42,14 +36,6 @@ SPDX-License-Identifier = "GPL-2.0-or-later"
 # it out, so this covers the repository alone.
 [[annotations]]
 path = "assets/**"
-precedence = "aggregate"
+precedence = "closest"
 SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
 SPDX-License-Identifier = "CC0-1.0"
-
-# The root LICENSE is the AGPL text itself, kept at the top level for GitHub's licence detection;
-# LICENSES/ holds the REUSE-standard copies. The text is the FSF's, not the maintainer's.
-[[annotations]]
-path = "LICENSE"
-precedence = "override"
-SPDX-FileCopyrightText = "2007 Free Software Foundation, Inc. <https://fsf.org/>"
-SPDX-License-Identifier = "AGPL-3.0-only"
