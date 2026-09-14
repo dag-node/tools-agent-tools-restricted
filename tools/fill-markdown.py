@@ -177,31 +177,24 @@ def touches(start, end, ranges):
     return ranges is None or any(low <= end and high >= start + 1 for low, high in ranges)
 
 
-def reflow(source, width, ranges=None):
-    """`source` (a list of lines) reflowed at `width`; returns (lines, blocks filled)."""
-    out, index, filled = [], 0, 0
+def runs(source):
+    """Yield (start, end, first, cont, text) for each run of paragraph lines in `source`, in
+    order: its line range, the prefix of its first line and of a continuation line, and its
+    lines with those prefixes removed. A line outside every run is a block of its own, left as
+    written; the frontmatter, a fenced block and an HTML comment are skipped whole.
+    """
+    index = 0
     fence, fence_prefix = None, ""
     # Four spaces open an indented code block outside a list; inside one they are a continuation
     # paragraph under a wide marker. `listed` holds from a list item to the next line at the
     # margin, the rule `prose-check.py` reads a document with.
     listed = False
     if source and FRONTMATTER.match(source[0]):
-        out.append(source[0])
         index = 1
         while index < len(source):
-            out.append(source[index])
             index += 1
-            if FRONTMATTER.match(out[-1]):
+            if FRONTMATTER.match(source[index - 1]):
                 break
-
-    def fill(start, end, words, first, cont):
-        nonlocal filled
-        if touches(start, end, ranges):
-            out.extend(wrap(words, first, cont, width))
-            filled += 1
-        else:
-            out.extend(source[start:end])
-
     while index < len(source):
         line = source[index]
         quoted = QUOTE.match(line)
@@ -214,45 +207,52 @@ def reflow(source, width, ranges=None):
             elif line.strip() and indent_width < 2:
                 listed = False
         if fence is not None:
-            out.append(line)
             if mark and mark.group(1)[0] == fence[0] and len(mark.group(1)) >= len(fence):
                 fence = None
             index += 1
         elif FENCE_MARK.match(line) or (quoted and FENCE_MARK.match(quoted.group(2))):
             fence_prefix = quoted.group(1) if quoted else ""
             fence = FENCE_MARK.match(line[len(fence_prefix):]).group(1)
-            out.append(line)
             index += 1
         elif COMMENT_OPEN.match(line):
             while index < len(source):
-                out.append(source[index])
                 index += 1
-                if COMMENT_CLOSE in out[-1]:
+                if COMMENT_CLOSE in source[index - 1]:
                     break
         elif quoted:
             prefix, rest = quoted.groups()
             if boundary(rest):
-                out.append(line)
                 index += 1
             else:
                 end = quote_end(source, index + 1, prefix)
-                words = units(" ".join(QUOTE.match(l).group(2) for l in source[index:end]))
-                fill(index, end, words, prefix, prefix)
+                yield index, end, prefix, prefix, [QUOTE.match(l).group(2) for l in source[index:end]]
                 index = end
         elif ITEM.match(line):
             indent, marker, rest = ITEM.match(line).groups()
             end = run_end(source, index + 1)
-            words = units(" ".join([rest, *source[index + 1:end]]))
-            fill(index, end, words, indent + marker, indent + " " * len(marker))
+            yield index, end, indent + marker, indent + " " * len(marker), [rest, *source[index + 1:end]]
             index = end
         elif boundary(line) or (indent_width >= CODE_INDENT and not listed):
-            out.append(line)  # blank, a block of its own, or an indented code block
-            index += 1
+            index += 1  # blank, a block of its own, or an indented code block
         else:
             indent = line[:indent_width]
             end = run_end(source, index + 1)
-            fill(index, end, units(" ".join(source[index:end])), indent, indent)
+            yield index, end, indent, indent, source[index:end]
             index = end
+
+
+def reflow(source, width, ranges=None):
+    """`source` (a list of lines) reflowed at `width`; returns (lines, blocks filled)."""
+    out, index, filled = [], 0, 0
+    for start, end, first, cont, text in runs(source):
+        out.extend(source[index:start])
+        if touches(start, end, ranges):
+            out.extend(wrap(units(" ".join(text)), first, cont, width))
+            filled += 1
+        else:
+            out.extend(source[start:end])
+        index = end
+    out.extend(source[index:])
     return out, filled
 
 
