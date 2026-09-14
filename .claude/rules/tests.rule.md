@@ -261,11 +261,16 @@ a `TESTDIR` copy of `packaging/check-version.sh` (a repo release-gate script, no
 `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match, `vX.Y.Z-rc.N` compares its
 base and relaxes only the `%changelog` match, any other dashed tag is refused, a missing `%changelog` entry is fatal
 for every form. `fill-comments.sh` is a second repo-tool test: it drives `tools/fill-comments.sh`, the Emacs-driven
-formatter for the comment wrap rule, over one fixture carrying every shape the tool must fill or leave alone — a long
-paragraph filled inside the column with no line ending on a tie word (the checker's `--wrap` mode is the oracle),
-and an aligned table, a linter directive, a commented default, a shebang and a code line each back byte-identical —
-and asserts a second run leaves the file as the first left it, and that `--lines` fills the paragraph it names alone.
-Skipped without Emacs. `format.sh` pins the front door over both fillers (`tools/format.sh`): every file in a fixture
+formatter for the comment wrap rule, over one fixture carrying every shape the tool must fill or leave alone. Filled:
+a long paragraph inside the column with no line ending on a tie word (the checker's `--wrap` mode is the oracle),
+one indented inside a function body, and a sentence pair the join gives one space. Left as written: an aligned table,
+a doc comment's contract line, a column of three or more spaces, a table drawn with vertical rules, a heredoc body,
+a CDATA section, a `<pre>` block, a linter directive, a commented default, a shebang and a code line. Each of those
+is a way a formatter silently rewrites what a file emits or what a reader reads as a column, and none is visible in
+review. It also holds the filler's own output to the rule no checker reads — a code span is never split — and asserts
+a second run leaves the file as the first left it, that `--lines` fills the paragraph it names alone, and that two
+ranges in one run are both filled, since the first fill moves every line the later range names. Skipped without
+Emacs. `format.sh` pins the front door over both fillers (`tools/format.sh`): every file in a fixture
 repository goes to the filler for the kind the checker names, at the column it names — a page at 80, a router at 120,
 a source comment at 120, a header under `src/etc/` at 72 — while a man page and a binary file are reported as skipped
 and left as they were, since the failure it exists to prevent is the comment filler pointed at a page. The scope rule is

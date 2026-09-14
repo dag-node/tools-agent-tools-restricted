@@ -658,10 +658,10 @@ INVARIANT_TERMS = re.compile(
 NARROWABLE_TERMS = re.compile(
     r"\b(secrets?|credentials?|tokens?|passwords?|privileges?|permissions?|acls?)\b", re.I)
 
-# Modality is part of the claim, not part of the wording. `never a glob` restated as `not a glob`
-# swaps a universal for a single instance, and `carries no secrets` restated as `must not hold a
-# secret` swaps a fact for an obligation; both read as tidying and both retire what the sentence
-# guaranteed. Reported when the removed prose carried one and the added prose does not.
+# Modality is part of the claim, not part of the wording. `never a glob` restated as `not a glob` swaps a universal
+# for a single instance, and `carries no secrets` restated as `must not hold a secret` swaps a fact for an obligation;
+# both read as tidying and both retire what the sentence guaranteed. Reported when the removed prose carried one
+# and the added prose does not.
 #
 # The RFC 2119 verbs are in the set because this standard writes reference prose in that register, where each one fixes
 # how binding a sentence is: a `must` demoted to a plain present tense turns a constraint the code was built to satisfy

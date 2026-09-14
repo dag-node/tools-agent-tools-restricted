@@ -3,14 +3,18 @@
 # tests/unit/fill-comments.sh
 # Unit test for tools/fill-comments.sh, the Emacs-driven formatter for the comment wrap rule
 # (tools/emacs/ai-tools-fill.el). A formatter that rewrites source files is judged on the lines it
-# leaves as they were as much as on the lines it fills, so one fixture carries every shape: a long
-# prose paragraph, which must come back inside the column and with no line ending on a tie word --
-# the filler's own rule, which no checker reads; and an aligned comment table, a linter directive,
-# a commented default, a shebang and a code line, each of which must come back byte-identical.
-# A second run must leave the file as the first left it, and `--lines` must confine the fill to a
-# paragraph it names. Where the checker is present its `--wrap` mode is the oracle for the filled
-# paragraph. A repo dev tool, not a deployed artifact, so the test runs from the checkout; skipped
-# without Emacs.
+# leaves as they were as much as on the lines it fills, so one fixture carries every shape it must
+# read one way or the other. Filled: a long prose paragraph, inside the column and with no line
+# ending on a tie word (the filler's own rule, which no checker reads), one indented inside a
+# function body, and a sentence pair whose join takes one space. Left as written: an aligned
+# comment table, a doc comment's contract line, a column of three or more spaces, a table drawn
+# with vertical rules, a heredoc body, a CDATA section, a `<pre>` block, a linter directive, a
+# commented default, a shebang and a code line. Held on the output: a break never falls inside
+# a code span, which the `fill-nobreak-predicate` hook refuses.
+# A second run must leave the file as the first left it, `--lines` must confine the fill to a
+# paragraph it names, and two ranges in one run must both be filled. Where the checker is present
+# its `--wrap` mode is the oracle for the filled paragraph. A repo dev tool, not a deployed
+# artifact, so the test runs from the checkout; skipped without Emacs.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -69,6 +73,11 @@ INNER
 s=7
 # Spans stay whole: a sentence long enough to reach the column where `ai-tools --status` is named, then a span wider than the column, `sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`, and the tie rule beside a span, so that no line ends on the `750 root:root` mode of the pin.
 t=8
+indented() {
+    # An indented comment paragraph inside a function body, long enough that the filler has to rewrap it at the column.
+    # Its second line is indented the same way, so the run is one paragraph and the fill joins it.
+    :
+}
 EOF
 cp "${f}" "${TESTDIR}/before.sh"
 
@@ -188,6 +197,17 @@ if grep -qxF -- '# `sudo ai-tools-admin selinux groups enable tmpmap apphost loc
     pass "a span wider than the column runs the line over, on a line of its own"
 else
     fail "a span wider than the column was split: $(grep -n 'selinux groups' "${f}")"
+fi
+
+# A comment block inside a function body is ordinary prose, and is filled. The column rule reads
+# one line: `[^ ]` matches a newline, so an unanchored form takes the NEXT line's indent for a
+# column and skips every indented block in the tree.
+indented_para="$(awk '/^indented\(\) \{/ {on=1; next} /^    :/ {on=0} on' "${f}")"
+if (( $(wc -l <<< "${indented_para}") > 1 )) && awk 'length > 72 {exit 1}' <<< "${indented_para}" \
+        && ! grep -qF -- 'long enough that the filler has to rewrap it at the column.' "${f}"; then
+    pass "an indented comment paragraph is filled"
+else
+    fail "the indented paragraph was not filled: $(printf '%s' "${indented_para}" | head -3)"
 fi
 
 # (3) Idempotent: a second run leaves the file as the first left it.
