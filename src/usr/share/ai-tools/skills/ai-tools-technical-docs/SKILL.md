@@ -3,8 +3,8 @@ name: ai-tools-technical-docs
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the frontmatter name is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 5
-x-ai-tools-updated: 2026-09-13
+x-ai-tools-version: 6
+x-ai-tools-updated: 2026-09-14
 description: >
   Technical writing standard for every software engineering artifact. Use when writing or
   editing README and usage guides, `CLAUDE.md` / `AGENTS.md`, `*.rule.md`, file and module headers,
