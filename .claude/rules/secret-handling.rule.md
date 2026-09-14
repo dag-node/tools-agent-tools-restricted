@@ -8,168 +8,138 @@ paths:
 
 # Secret-named file handling
 
-Two consumers classify basenames against one shared pattern set and revoke
-`SANDBOX_USER`'s read: `ai-tools-chown` reactively (per agent-written path, see
-[ownership-and-hooks](ownership-and-hooks.rule.md)) and `ai-tools-lockdown` proactively
-(over a whole project).
+Two consumers classify basenames against one shared pattern set and revoke `SANDBOX_USER`'s read: `ai-tools-chown`
+reactively (per agent-written path, see [ownership-and-hooks](ownership-and-hooks.rule.md)) and `ai-tools-lockdown`
+proactively (over a whole project).
 
 ## Reactive: `ai-tools-chown`
 
-A secret-named file the agent wrote is breached. `ai-tools-chown` classifies the
-basename against the shared pattern set (`.env`, `*.key`, `*.pem`, `id_*`, `kubeconfig`,
-`*.jks`, `.pgpass`, the name-anchored .NET config patterns, …) and chowns a match (when
-`SANDBOX_USER`-owned, per the agent-written-paths rule) to `<you>:<you> 600`, so
-`SANDBOX_USER` — neither owner nor group member — cannot read the contents. `<you>` is the
-operator that owns the path: `ai-tools-chown` resolves it per path via `operator.lib.sh`
-(`ai_tools_resolve_owner`) and loads that operator's pattern set, so a secret returns to its
-project's operator at `600`, where only that operator can read it. It writes a
-NOTICE to stderr (the hook relays it into the session) and, at `WARNING` level, to the
-operation log (`/var/log/ai-tools/chown.log` and journald; see [logging](logging.rule.md)).
+A secret-named file the agent wrote is breached. `ai-tools-chown` classifies the basename against the shared pattern set
+(`.env`, `*.key`, `*.pem`, `id_*`, `kubeconfig`, `*.jks`, `.pgpass`, the name-anchored .NET config patterns, …)
+and chowns a match (when `SANDBOX_USER`-owned, per the agent-written-paths rule) to `<you>:<you> 600`, so `SANDBOX_USER`
+— neither owner nor group member — cannot read the contents. `<you>` is the operator that owns the path:
+`ai-tools-chown` resolves it per path via `operator.lib.sh` (`ai_tools_resolve_owner`) and loads that operator's pattern
+set, so a secret returns to its project's operator at `600`, where only that operator can read it. It writes a NOTICE
+to stderr (the hook relays it into the session) and, at `WARNING` level, to the operation log
+(`/var/log/ai-tools/chown.log` and journald; see [logging](logging.rule.md)).
 
-This revokes read only. `SANDBOX_USER` is a group-writer on the project dir (not its
-owner), so it can still unlink/replace the path; a replacement is agent-written and
-re-triggers the same handling, and the audit log is root-owned. A project-wide sticky bit
-does not apply: `SANDBOX_USER` is a group-writer and handed-back files are `<you>`-owned,
-so it would block the agent's atomic-rename re-edits. To prevent unlink/replace of the
-operator's own secrets, place them in a dir the agent cannot write (`700 <you>:<you>`) and
-`!`-exclude it — the allowlist is not a read boundary.
+This revokes read only. `SANDBOX_USER` is a group-writer on the project dir (not its owner), so it can still
+unlink/replace the path; a replacement is agent-written and re-triggers the same handling, and the audit log is
+root-owned. A project-wide sticky bit does not apply: `SANDBOX_USER` is a group-writer and handed-back files are
+`<you>`-owned, so it would block the agent's atomic-rename re-edits. To prevent unlink/replace of the operator's own
+secrets, place them in a dir the agent cannot write (`700 <you>:<you>`) and `!`-exclude it — the allowlist is not a read
+boundary.
 
-`ai-tools-setfacl` makes that recipe hold: a path whose mode grants neither group nor other
-bits (`0600`, `0700`) is never granted — no `group:SANDBOX_GROUP:rwX` entry, no
-`user:<operator>:rwX` entry, no default ACL on a directory, no mask recalculation, mode bits
-untouched — and a skipped directory takes its subtree with it. Widening the mode and
-re-claiming is how a path opts in; the skip count is reported, since on a project root it
-means the sandbox account cannot enter the tree at all.
+`ai-tools-setfacl` makes that recipe hold: a path whose mode grants neither group nor other bits (`0600`, `0700`) is
+never granted — no `group:SANDBOX_GROUP:rwX` entry, no `user:<operator>:rwX` entry, no default ACL on a directory, no
+mask recalculation, mode bits untouched — and a skipped directory takes its subtree with it. Widening the mode
+and re-claiming is how a path opts in; the skip count is reported, since on a project root it means the sandbox account
+cannot enter the tree at all.
 
-This is what keeps a `700 <you>:<you>` directory protective. `setfacl -m` recalculates
-the mask to cover the entries it adds, so granting such a directory would return it as `0770` —
-write on the directory, and with it the ability to unlink the secrets inside, which is the very
-thing the `700` is there to stop.
+This is what keeps a `700 <you>:<you>` directory protective. `setfacl -m` recalculates the mask to cover the entries it
+adds, so granting such a directory would return it as `0770` — write on the directory, and with it the ability to unlink
+the secrets inside, which is the very thing the `700` is there to stop.
 
-**The mode is not the whole boundary, so sealing also strips.** Setgid and default-ACL
-inheritance act at create time, so a path created inside a claimed tree already carries the
-project's sandbox group, setgid bit and default ACL. A later `chmod 700` holds the ACL mask at
-`---` but removes none of them, and a numeric `chmod` does not clear a directory's setgid at all
-(GNU chmod keeps it unless the octal carries five digits), so files created inside are born `0660`
-with the inherited entry **effective** — group read *and write*, others denied. That mode comes
-from the default ACL rather than from anyone's umask: POSIX applies a directory's default ACL
-**instead of** the creator's umask, so the residue is identical whoever writes the file and
-however their umask is set ([the permissions
-cheatsheet](../../docs/linux-permissions-cheatsheet.txt) §7b covers the general rule). No file
-inside is reachable while the `700` stands, since traversal is denied at
-the directory, but the grant is dormant rather than gone: widening that one mode later
-re-activates it over everything already inside, including files written while the directory looked
+**The mode is not the whole boundary, so sealing also strips.** Setgid and default-ACL inheritance act at create time,
+so a path created inside a claimed tree already carries the project's sandbox group, setgid bit and default ACL. A later
+`chmod 700` holds the ACL mask at `---` but removes none of them, and a numeric `chmod` does not clear a directory's
+setgid at all (GNU chmod keeps it unless the octal carries five digits), so files created inside are born `0660`
+with the inherited entry **effective** — group read *and write*, others denied. That mode comes from the default ACL
+rather than from anyone's umask: POSIX applies a directory's default ACL **instead of** the creator's umask,
+so the residue is identical whoever writes the file and however their umask is set ([the permissions
+cheatsheet](../../docs/linux-permissions-cheatsheet.txt) §7b covers the general rule). No file inside is reachable while
+the `700` stands, since traversal is denied at the directory, but the grant is dormant rather than gone: widening
+that one mode later re-activates it over everything already inside, including files written while the directory looked
 private.
 
-Every walk over a claimed tree therefore **strips** that residue from an owner-only path rather
-than merely skipping it, so the seal does not rest on a single mode bit staying put.
-`owner-only.lib.sh` is the reference for both halves — which paths are sealed, exactly what the
-strip removes, and what it leaves as found. A `!`-exclusion remains the stronger form, since an
-excluded subtree is skipped by every walk whatever its mode.
+Every walk over a claimed tree therefore **strips** that residue from an owner-only path rather than merely skipping it,
+so the seal does not rest on a single mode bit staying put. `owner-only.lib.sh` is the reference for both halves —
+which paths are sealed, exactly what the strip removes, and what it leaves as found. A `!`-exclusion remains
+the stronger form, since an excluded subtree is skipped by every walk whatever its mode.
 
 ## Shared secret-pattern set (one source, two consumers)
 
-The secret basename patterns live in a single user-owned config file,
-`~/.config/ai-tools/secret-patterns` (`<you>:<you> 600`), co-located with
-`allowed-projects` and owned the same way: the operator edits it; `SANDBOX_USER` —
-neither its owner nor in its group, and unable to enter the `700 .config/ai-tools` dir —
-can neither read nor write it; the root helpers read it on the operator's behalf, so the
-agent cannot weaken its own secret classification.
+The secret basename patterns live in a single user-owned config file, `~/.config/ai-tools/secret-patterns` (`<you>:<you>
+600`), co-located with `allowed-projects` and owned the same way: the operator edits it; `SANDBOX_USER` — neither its
+owner nor in its group, and unable to enter the `700 .config/ai-tools` dir — can neither read nor write it; the root
+helpers read it on the operator's behalf, so the agent cannot weaken its own secret classification.
 
-Both root helpers source `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (`644 root:root`,
-not in a `SANDBOX_USER`-writable dir) for one matcher over that file, so
-`ai-tools-chown` and `ai-tools-lockdown` never drift apart. Its built-in list is the **public
-baseline** — the credential names software writes in general — and ships in the source repo, so
-read is open: the installed copy holds only what is already published. Root-only **write** is
-the boundary, since an agent that could edit the matcher would decide its own classification;
-`tests/boundary/access.sh` asserts that as the agent. An operator's config
-**replaces** it rather than adding to it, and the baseline applies when that file is missing or
-parses empty, so classification never degrades to an empty pattern set. That is what makes the
-seeded file safe to place before an operator has decided anything: enrolment writes the header
-alone — what the file is, the replace rule, an example line and `secret-patterns(5)`, the page
-that holds the reference ([providers](providers.rule.md) states why a seeded header is a pointer)
-— so the baseline stays in force and each upgrade's additions reach that operator until they
-write a pattern of their own. A deployment-specific
-name belongs in the operator's `600` config, alongside the baseline entries they still want, since
-the file replaces rather than extends; a general one missing from the baseline goes
-upstream, since the library is rpm-owned and not `%config`, so an edit there is lost on upgrade.
+Both root helpers source `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (`644 root:root`, not
+in a `SANDBOX_USER`-writable dir) for one matcher over that file, so `ai-tools-chown` and `ai-tools-lockdown` never
+drift apart. Its built-in list is the **public baseline** — the credential names software writes in general — and ships
+in the source repo, so read is open: the installed copy holds only what is already published. Root-only **write** is
+the boundary, since an agent that could edit the matcher would decide its own classification; `tests/boundary/access.sh`
+asserts that as the agent. An operator's config **replaces** it rather than adding to it, and the baseline applies
+when that file is missing or parses empty, so classification never degrades to an empty pattern set. That is what makes
+the seeded file safe to place before an operator has decided anything: enrolment writes the header alone — what the file
+is, the replace rule, an example line and `secret-patterns(5)`, the page that holds the reference
+([providers](providers.rule.md) states why a seeded header is a pointer) — so the baseline stays in force and each
+upgrade's additions reach that operator until they write a pattern of their own. A deployment-specific name belongs
+in the operator's `600` config, alongside the baseline entries they still want, since the file replaces rather than
+extends; a general one missing from the baseline goes upstream, since the library is rpm-owned and not `%config`,
+so an edit there is lost on upgrade.
 
-**Replacing rather than extending has a cost the launch wrapper reports.** A config written once
-holds this host to the set it listed then, and every pattern added upstream since is absent from
-it — a narrowing no party is placed to notice, since the agent cannot read the file and a
-quarantine that did not happen writes no line to any log. `ai_tools_secret_patterns_drift` compares the set in
-force against the baseline as a set, and `claude.sh` logs the result to journald once per launch:
-the file's path, what it adds, and — the half that matters — which baseline patterns it drops, each
-one a credential name this host no longer quarantines. A missing or empty config is the baseline
-itself, so no line is written for it; the report names patterns rather than counts alone, and goes
-to the journal rather than the terminal, being a fact to act on later and not a launch decision. A failure
-to source the library is fail-closed: `ai-tools-chown` exits non-zero and skips that
-path's handback (it stays `SANDBOX_USER`-owned) rather than handing a possible secret back
-as an ordinary file. `ai-tools-chown` runs in `ai_tools_handback_t` (inherited from the
-handback daemon, no transition), so the policy grants that domain `libs_read_lib_files` to
-read the `lib_t`-labelled library.
+**Replacing rather than extending has a cost the launch wrapper reports.** A config written once holds this host
+to the set it listed then, and every pattern added upstream since is absent from it — a narrowing no party is placed
+to notice, since the agent cannot read the file and a quarantine that did not happen writes no line to any log.
+`ai_tools_secret_patterns_drift` compares the set in force against the baseline as a set, and `claude.sh` logs
+the result to journald once per launch: the file's path, what it adds, and — the half that matters — which baseline
+patterns it drops, each one a credential name this host no longer quarantines. A missing or empty config is the baseline
+itself, so no line is written for it; the report names patterns rather than counts alone, and goes to the journal rather
+than the terminal, being a fact to act on later and not a launch decision. A failure to source the library is
+fail-closed: `ai-tools-chown` exits non-zero and skips that path's handback (it stays `SANDBOX_USER`-owned) rather than
+handing a possible secret back as an ordinary file. `ai-tools-chown` runs in `ai_tools_handback_t` (inherited
+from the handback daemon, no transition), so the policy grants that domain `libs_read_lib_files` to read
+the `lib_t`-labelled library.
 
-The patterns are name- or environment-anchored (`appsettings.*.json`, `web.*.config`,
-`*.Production.*`, …), **not** broad `*.*.json`/`*.*.config` catch-alls: those would also
-match build artifacts the toolchain must read (`*.deps.json`, `*.runtimeconfig.json`,
-`project.assets.json`, `*.dll.config`), and quarantining them breaks builds. The set uses
-basename-safe globs only, no bare `config`. A `secrets.*`/`secret.*`/`*.secret`-style stem
-also matches ordinary files named after the topic — which is why rule files use a
-non-matching stem (see [authoring](authoring.rule.md)).
+The patterns are name- or environment-anchored (`appsettings.*.json`, `web.*.config`, `*.Production.*`, …), **not**
+broad `*.*.json`/`*.*.config` catch-alls: those would also match build artifacts the toolchain must read (`*.deps.json`,
+`*.runtimeconfig.json`, `project.assets.json`, `*.dll.config`), and quarantining them breaks builds. The set uses
+basename-safe globs only, no bare `config`. A `secrets.*`/`secret.*`/`*.secret`-style stem also matches ordinary files
+named after the topic — which is why rule files use a non-matching stem (see [authoring](authoring.rule.md)).
 
 ## Quirks
 
-A file the agent writes whose basename matches the secret patterns is quarantined the
-instant it is written — `ai-tools-chown` chowns it to `<you>:<you> 600`, which also catches
-files merely *named* after the topic, not just real secrets: a doc or rule file called
-`secrets.md` matches `secrets.*` and becomes unreadable to the agent. This is why rule
-files use a non-matching stem (`secret-handling.rule.md`, not `secrets.rule.md`; see
+A file the agent writes whose basename matches the secret patterns is quarantined the instant it is written —
+`ai-tools-chown` chowns it to `<you>:<you> 600`, which also catches files merely *named* after the topic, not just real
+secrets: a doc or rule file called `secrets.md` matches `secrets.*` and becomes unreadable to the agent. This is
+why rule files use a non-matching stem (`secret-handling.rule.md`, not `secrets.rule.md`; see
 [authoring](authoring.rule.md)).
 
 ## Proactive: `ai-tools-lockdown`
 
-`ai-tools-chown` is reactive — it acts only on `SANDBOX_USER`-owned paths, so it never
-touches a pre-existing user-owned secret the agent could already read.
-`ai-tools-lockdown` (`/usr/local/libexec/ai-tools/ai-tools-lockdown`, run
-`ai-tools --lockdown <project>` or `cd <project> && sudo ai-tools-lockdown`) is the
-proactive counterpart: it walks the current directory and, for every path matching the
-shared secret patterns, sets regular files `600`, directories `700`, and owner `<you>:<you>` —
-revoking `SANDBOX_USER`'s read regardless of who created the path. The owner's own private group
-is the target, the same one `ai-tools-chown` gives an agent-written secret, so a secret ends up
-identically owned whether it was locked down proactively or quarantined on write; leaving the
-group as `SANDBOX_GROUP` would re-expose it the moment the mode was widened. Each locked path
-also has its sandbox residue stripped.
-It runs only when the CWD is an allowed project and skips `!`-excluded paths, and applies each
-change through a pinned fd (re-verifying inode and type) so a `SANDBOX_USER` path swap cannot
-redirect root's chmod/chown. `--yes` skips the TTY confirmation.
+`ai-tools-chown` is reactive — it acts only on `SANDBOX_USER`-owned paths, so it never touches a pre-existing user-owned
+secret the agent could already read. `ai-tools-lockdown` (`/usr/local/libexec/ai-tools/ai-tools-lockdown`, run `ai-tools
+--lockdown <project>` or `cd <project> && sudo ai-tools-lockdown`) is the proactive counterpart: it walks the current
+directory and, for every path matching the shared secret patterns, sets regular files `600`, directories `700`,
+and owner `<you>:<you>` — revoking `SANDBOX_USER`'s read regardless of who created the path. The owner's own private
+group is the target, the same one `ai-tools-chown` gives an agent-written secret, so a secret ends up identically owned
+whether it was locked down proactively or quarantined on write; leaving the group as `SANDBOX_GROUP` would re-expose it
+the moment the mode was widened. Each locked path also has its sandbox residue stripped. It runs only when the CWD is
+an allowed project and skips `!`-excluded paths, and applies each change through a pinned fd (re-verifying inode
+and type) so a `SANDBOX_USER` path swap cannot redirect root's chmod/chown. `--yes` skips the TTY confirmation.
 
-`--dry-run` previews **both** passes — the secret lock and the seal — naming each path and, for
-a seal, what would come off it. The seal half is the one that acts on paths the operator did not
-name, so a preview that showed only the secret half would understate what an apply does. The
-preview runs the seal pass itself with the strip in report-only mode
-(`AI_TOOLS_RESIDUE_DRY_RUN`), rather than a read-only re-implementation beside it: "what is
-sandbox residue" has one answer, in `owner-only.lib.sh`, so the preview cannot come to describe a
-pass other than the one that follows it. Only the mutations are skipped — every gate, guard and
-pinned-fd re-check still runs — and the apply confirm is never reached, since a preview must not
-ask to apply.
+`--dry-run` previews **both** passes — the secret lock and the seal — naming each path and, for a seal, what would come
+off it. The seal half is the one that acts on paths the operator did not name, so a preview that showed only the secret
+half would understate what an apply does. The preview runs the seal pass itself with the strip in report-only mode
+(`AI_TOOLS_RESIDUE_DRY_RUN`), rather than a read-only re-implementation beside it: "what is sandbox residue" has one
+answer, in `owner-only.lib.sh`, so the preview cannot come to describe a pass other than the one that follows it. Only
+the mutations are skipped — every gate, guard and pinned-fd re-check still runs — and the apply confirm is never
+reached, since a preview must not ask to apply.
 
-It is a user tool: there is **no** sudoers grant letting `SANDBOX_USER` run it, and it
-refuses to run as `SANDBOX_USER`. The `ai-tools` CLI wraps it as `ai-tools --lockdown
-[path]` (it `cd`s into the project and `sudo`s the helper, so sudo prompts for the
-projects user's password; `--dry-run` and `-y`/`--yes` pass through). The CLI never
-pre-checks the helper's path: `/usr/local/libexec/ai-tools` is `750 root:root`, so the
-projects user cannot stat the helper — only `sudo`, as root, can reach it.
+It is a user tool: there is **no** sudoers grant letting `SANDBOX_USER` run it, and it refuses to run as `SANDBOX_USER`.
+The `ai-tools` CLI wraps it as `ai-tools --lockdown [path]` (it `cd`s into the project and `sudo`s the helper, so sudo
+prompts for the projects user's password; `--dry-run` and `-y`/`--yes` pass through). The CLI never pre-checks
+the helper's path: `/usr/local/libexec/ai-tools` is `750 root:root`, so the projects user cannot stat the helper — only
+`sudo`, as root, can reach it.
 
 ### Lockdown on clone
 
-`ai-tools --sandbox-create` runs this lockdown directly after a shallow clone and
-**before** the clone is opened to the agent group or registered, since the tip commit may
-still hold credential files (the clone is born owner-only via `umask 077`, so no file is
-group-readable in the interim — see [cli](cli.rule.md)). If the user declines or lockdown
-fails, the create stops fail-closed — the clone stays private and unregistered — and the
-CLI drops a guard `CLAUDE.md` into the clone instructing the agent to wait until
-lockdown runs (any existing `CLAUDE.md` is preserved via `git mv` to `CLAUDE.md.bak`);
-re-running `--sandbox-create` on the clone path resumes the gate and, on success, removes
-the guard and restores the original. The guard carries a sentinel comment
-(`ai-tools-lockdown-guard`) so the CLI recognizes its own placeholder and never clobbers
-a real `CLAUDE.md`.
+`ai-tools --sandbox-create` runs this lockdown directly after a shallow clone and **before** the clone is opened
+to the agent group or registered, since the tip commit may still hold credential files (the clone is born owner-only
+via `umask 077`, so no file is group-readable in the interim — see [cli](cli.rule.md)). If the user declines or lockdown
+fails, the create stops fail-closed — the clone stays private and unregistered — and the CLI drops a guard `CLAUDE.md`
+into the clone instructing the agent to wait until lockdown runs (any existing `CLAUDE.md` is preserved via `git mv`
+to `CLAUDE.md.bak`); re-running `--sandbox-create` on the clone path resumes the gate and, on success, removes the guard
+and restores the original. The guard carries a sentinel comment (`ai-tools-lockdown-guard`) so the CLI recognizes its
+own placeholder and never clobbers a real `CLAUDE.md`.
