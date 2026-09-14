@@ -9,7 +9,10 @@
 # cell's own alignment are pinned with it -- the heading centred over its column, a column of
 # numbers right, and a column padded wider than its content keeping that padding -- so a clean
 # `check` says a `fix` would leave every line as it is. Two negatives close it: a paragraph whose
-# lines happen to carry a pipe is left as written, and a second run is a no-op.
+# lines happen to carry a pipe is left as written, and a second run is a no-op. A table inside a
+# heredoc body is the data's and is left, while a here-string, an arithmetic shift and a `<<` in
+# a string open no heredoc, so a table after one is still read. A file that is not plain text is
+# refused through the reader every formatter shares, reported and left as it was.
 # A repo dev tool, not a deployed artifact, so the test runs from the checkout.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -41,6 +44,11 @@ cat > "${f}" <<'EOF'
 # The order and the `|| true` are load-bearing: a bare `printf | systemd-cat` pipeline whose
 # systemd-cat fails aborts the whole updater, and aborts it silently.
 x=1
+cat > /dev/null <<'INNER'
+#   on   | verdict
+#   yes | ok
+#   no  | refuse: this row's separator sits one column left of the heading's, as the data has it
+INNER
 EOF
 cp "${f}" "${TESTDIR}/before.sh"
 
@@ -109,6 +117,14 @@ else
     fail "prose with a pipe was read as a table: $(grep -A1 'load-bearing' "${f}")"
 fi
 
+# A table inside a heredoc body is the data's, not the file's: this test's own fixture is written
+# from one, so a tool that read it would rewrite what the suite drives.
+if diff <(grep -A2 'on  | verdict' "${TESTDIR}/before.sh") <(grep -A2 'on  | verdict' "${f}") >/dev/null; then
+    pass "a misaligned table inside a heredoc body is left as written"
+else
+    fail "a heredoc body's table was rewritten: $(grep -A2 'on  | verdict' "${f}")"
+fi
+
 # (6) Idempotent, and `check` is then silent and exits 0 -- a clean check says a fix would leave
 # every line as it is, which is what lets the two be run in either order.
 cp "${f}" "${TESTDIR}/once.sh"
@@ -122,6 +138,42 @@ if out="$(python3 "${TOOL}" check "${f}" 2>&1)" && [[ -z "${out}" ]]; then
     pass "check is silent on the fixed file and exits 0"
 else
     fail "check still reports the fixed file: ${out}"
+fi
+
+# (7) A here-string, an arithmetic shift and a `<<` inside a string open no heredoc. A reader that
+# took one for an opener would hand the rest of the file to the data, and leave every table after
+# it as written without a word.
+hs="${TESTDIR}/herestring.sh"
+cat > "${hs}" <<'EOF'
+#!/usr/bin/env bash
+read -ra parts <<< "abc"
+x=$((1<<3))
+echo "a<<b"
+#   on  | verdict
+#   yes | ok
+#   no   | refuse
+EOF
+if ! python3 "${TOOL}" check "${hs}" >/dev/null 2>&1 && python3 "${TOOL}" fix "${hs}" >/dev/null \
+        && grep -qxF '#   no  | refuse' "${hs}"; then
+    pass "a table after a here-string, a shift and a quoted << is still read"
+else
+    fail "the table after the here-string was left as written: $(tail -3 "${hs}")"
+fi
+
+# (8) A file that is not plain text is refused: reported with the reason, left byte-identical,
+# and the run exits 1 while the file named beside it is still checked. The reader is the one
+# every formatter here shares (`tools/text_file.py`); the full set of shapes it refuses is pinned
+# in `fill-markdown.sh`.
+esc="${TESTDIR}/escape.sh"
+printf '# a | b\n# \033[31mc\033[0m | d\n' > "${esc}"
+cp "${esc}" "${TESTDIR}/escape.before"
+rc=0; out="$(python3 "${TOOL}" check "${esc}" "${TESTDIR}/before.sh" 2>&1)" || rc=$?
+if [[ "${rc}" -eq 1 ]] && grep -qF "align-tables: refused ${esc}: line 2 holds U+001B" <<<"${out}" \
+        && cmp -s "${esc}" "${TESTDIR}/escape.before" \
+        && grep -q 'before.sh:2: table cells do not line up' <<<"${out}"; then
+    pass "a file holding an escape sequence is refused and reported; the file beside it is checked"
+else
+    fail "the refusal did not hold (rc ${rc}): ${out}"
 fi
 
 finish

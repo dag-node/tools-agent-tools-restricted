@@ -16,8 +16,9 @@
 ;; one of whose lines is indented deeper (an aligned table, an example command), a run drawing a
 ;; table or a diagram (two lines carrying a vertical rule at the same column -- the reading
 ;; `tools/align-tables.py' states, and the tool that puts such a table in order), a line inside a
-;; string or inside a CDATA or `<pre>' region, and every line `ai-tools-fill--skip-line' names.
-;; A docstring is not a comment and is not read.
+;; string, inside a CDATA or `<pre>' region, or inside a fenced block the comment carries (the
+;; commands a header shows), and every line `ai-tools-fill--skip-line' names. A docstring is not a
+;; comment and is not read.
 
 (defconst ai-tools-tie-words
   '("a" "an" "the" "and" "or" "nor" "but" "so" "yet"
@@ -79,18 +80,22 @@ the column runs the line over instead, since a wider line is still a line."
 (defconst ai-tools-fill--skip-line
   (concat "^[ \t]*\\(?:#\\|//\\)[ \t]*"
           "\\(?:!\\|shellcheck\\b\\|noqa\\b\\|pylint:\\|type:\\|pragma\\b\\|SPDX-"
-          "\\|ref-index:\\|prose-check:"
-          "\\|args:\\|stdout:\\|stderr:\\|returns?:\\|\\$[0-9]"
-          "\\|[A-Za-z_][A-Za-z0-9_]*=\\|[^ \t\n]+$\\|.*[^ ] \\{3,\\}[^ ]"
+          "\\|ref-index:\\|prose-check:\\|ai-tools-admin-[a-z-]*:"
+          "\\|args:\\|stdout:\\|stderr:\\|returns?:\\|\\$[0-9]+[ \t]"
+          ;; The column rule excludes the newline from both sides: `[^ ]' matches one, so the
+          ;; unanchored form read a line as holding a column whenever the NEXT line was indented
+          ;; three spaces or more -- every comment block inside a function body.
+          "\\|[A-Za-z_][A-Za-z0-9_]*=\\|[^ \t\n]+$\\|.*[^ \n] \\{3,\\}[^ \n]"
           "\\|.*\\(?:" ai-tools-fill--verbatim-open "\\|" ai-tools-fill--verbatim-close "\\)"
           "\\|.*[-=_*─━]\\{3,\\}\\)")
   "A comment line the batch filler leaves alone, and that ends the run before it: a shebang,
 a linter directive, an SPDX header, a checker marker (`ref-index: ignore-file', `prose-check:
-ignore'), a commented default, a lone token (a path, a URL, a name on a line of its own), a rule
-or banner line, a doc comment's contract line (`args:', `stdout:', `$1 path'), and a line holding
-a column of three or more spaces. The last two are code rather than prose -- a signature, a
-parameter table, an example rule -- and a fill reads them as a sentence and wraps the columns
-away. A marker joined into the paragraph above it stops marking.")
+ignore'), a declaration another tool reads (`# ai-tools-admin-verbs: …', which `ai-tools-admin'
+parses out of a contributed command's header), a commented default, a lone token (a path, a URL,
+a name on a line of its own), a rule or banner line, a doc comment's contract line (`args:',
+`stdout:', `$1 path'), and a line holding a column of three or more spaces. The last two are code
+rather than prose -- a signature, a parameter table, an example rule -- and a fill reads them as a
+sentence and wraps the columns away. A marker joined into the paragraph above it stops marking.")
 
 (defconst ai-tools-fill--vertical-rule "[|│┃║]"
   "A character drawing a vertical rule in an ASCII diagram or a comment table.")
@@ -105,19 +110,18 @@ away. A marker joined into the paragraph above it stops marking.")
         (setq start (match-end 0)))
       columns)))
 
-(defconst ai-tools-fill--joined-sentence "\\([.!?][]\"')}]*\\)  \\([^ ]\\)"
-  "A sentence end carrying two spaces: the punctuation with its closers, and the next word.")
-
-(defun ai-tools-fill--single-space (beg end)
-  "Leave one space after each sentence end between BEG and END.
-`fill-delete-newlines' adds a space after a sentence that ended a line, and the squeeze pass that
-would take it back is the one NOSQUEEZE turns off. NOSQUEEZE is what keeps an aligned fragment's
-own column spacing -- a doc comment's `$1 path   file to check' -- so the fill keeps it and the
-space a join added is taken back here, where a column of spaces is not touched."
+(defun ai-tools-fill--join-run (beg end)
+  "Join the lines between BEG and END into one, dropping the `fill-prefix' from each.
+The fill is handed one line, which does two things. `fill-delete-newlines' adds a space after a
+sentence that ended a line -- unconditionally, `sentence-end-double-space' deciding only whether
+`canonically-space-region' takes it back, and that pass is the one NOSQUEEZE turns off -- so a
+run with no line end inside it is never given the second space. And every pass reads the same
+input, so where the breaks fall does not depend on where they fell last time. NOSQUEEZE itself
+stays on, since it is what keeps an aligned fragment's own column spacing."
   (save-excursion
     (goto-char beg)
-    (while (re-search-forward ai-tools-fill--joined-sentence end t)
-      (replace-match "\\1 \\2" t))))
+    (while (re-search-forward (concat "\n" (regexp-quote fill-prefix)) end t)
+      (replace-match " "))))
 
 (defvar ai-tools-fill--verbatim-present nil
   "Non-nil while the buffer being filled holds a verbatim opener.
@@ -142,6 +146,30 @@ break inside one is content, whatever comment marker the line carries."
                              (1+ depth))))
              (> depth 0))))))
 
+(defconst ai-tools-fill--comment-fence "^[ \t]*\\(?:#\\|//\\)[ \t]*\\(?:```\\|~~~\\)"
+  "A fence marker on a comment line: what a header shows a command between.")
+
+(defvar ai-tools-fill--fence-present nil
+  "Non-nil while the buffer being filled holds a fence marker on a comment line.
+`ai-tools-fill-comments' binds it, so the scan behind `ai-tools-fill--in-comment-fence-p' runs
+only over a buffer that has one.")
+
+(defun ai-tools-fill--in-comment-fence-p ()
+  "Non-nil when the line at point sits inside a fenced block a comment carries.
+A header shows a command, or several, between two fence markers, and each line of it is one a
+reader copies whole: a fill that read them as a paragraph would join two commands into one, or
+wrap one that runs past the column. The checker skips the same lines. A marker on a line of its
+own is a lone token, which ends a run, so this decides only where a run may start."
+  (and ai-tools-fill--fence-present
+       (save-match-data
+         (save-excursion
+           (let ((limit (line-beginning-position))
+                 (count 0))
+             (goto-char (point-min))
+             (while (re-search-forward ai-tools-fill--comment-fence limit t)
+               (setq count (1+ count)))
+             (= 1 (% count 2)))))))
+
 (defun ai-tools-fill--in-string-p ()
   "Non-nil when the line at point sits inside a string, which the mode's syntax decides.
 A heredoc body is the case that matters: the text is data this file writes or feeds elsewhere --
@@ -150,14 +178,27 @@ that text rather than to this file, and filling it rewrites what the file emits.
 `syntax-ppss' searches, so the caller's `looking-at' match is saved around it."
   (save-match-data (nth 3 (syntax-ppss (line-beginning-position)))))
 
+(defun ai-tools-fill--range-markers (ranges)
+  "RANGES, a list of (FIRST . LAST) line-number pairs, as (START . END) marker pairs.
+Filling a paragraph shortens the buffer, so a line number read after the first fill names a line
+the caller did not ask for. The numbers are resolved once, before any fill, and the markers then
+move with the text they cover."
+  (mapcar (lambda (range)
+            (cons (save-excursion (goto-char (point-min))
+                                  (forward-line (1- (car range)))
+                                  (point-marker))
+                  (save-excursion (goto-char (point-min))
+                                  (forward-line (cdr range))
+                                  (point-marker))))
+          ranges))
+
 (defun ai-tools-fill--run-in-ranges (beg end ranges)
-  "Non-nil when the lines from BEG to END (exclusive) meet a range in RANGES.
-RANGES is a list of (FIRST . LAST) line-number pairs, inclusive; nil means every run."
+  "Non-nil when the region from BEG to END meets a range in RANGES.
+RANGES is the marker list `ai-tools-fill--range-markers' builds; nil means every run."
   (or (null ranges)
-      (let ((first (line-number-at-pos beg))
-            (last (1- (line-number-at-pos end))))
-        (seq-some (lambda (range) (and (<= (car range) last) (>= (cdr range) first)))
-                  ranges))))
+      (seq-some (lambda (range) (and (< (marker-position (car range)) end)
+                                     (> (marker-position (cdr range)) beg)))
+                ranges)))
 
 (defun ai-tools-fill-comments (&optional ranges)
   "Fill every plain comment paragraph in the current buffer at `fill-column'.
@@ -167,16 +208,21 @@ filled. See the file header for what is left alone."
   (let ((filled 0)
         (sentence-end-double-space nil)
         (colon-double-space nil)
+        (ranges (and ranges (ai-tools-fill--range-markers ranges)))
         (ai-tools-fill--verbatim-present
          (save-excursion (goto-char (point-min))
-                         (re-search-forward ai-tools-fill--verbatim-open nil t))))
+                         (re-search-forward ai-tools-fill--verbatim-open nil t)))
+        (ai-tools-fill--fence-present
+         (save-excursion (goto-char (point-min))
+                         (re-search-forward ai-tools-fill--comment-fence nil t))))
     (save-excursion
       (goto-char (point-min))
       (while (not (eobp))
         (if (and (looking-at ai-tools-fill--prose-line)
                  (not (looking-at ai-tools-fill--skip-line))
                  (not (ai-tools-fill--in-string-p))
-                 (not (ai-tools-fill--in-verbatim-p)))
+                 (not (ai-tools-fill--in-verbatim-p))
+                 (not (ai-tools-fill--in-comment-fence-p)))
             (let* ((prefix (match-string 1))
                    (beg (point))
                    (plain t)
@@ -196,8 +242,8 @@ filled. See the file header for what is left alone."
               (when (and plain (not drawn) (ai-tools-fill--run-in-ranges beg (point) ranges))
                 (let ((end (point-marker))
                       (fill-prefix (concat prefix " ")))
+                  (ai-tools-fill--join-run beg end)
                   (fill-region beg end nil t)
-                  (ai-tools-fill--single-space beg end)
                   (goto-char end)
                   (setq filled (1+ filled)))))
           (forward-line 1))))
@@ -207,9 +253,19 @@ filled. See the file header for what is left alone."
   "Fill the plain comment paragraphs of FILE in place and save it.
 The mode and `fill-column' come from the file's extension and the repository's .dir-locals.el;
 WIDTH overrides the column, and RANGES confines the fill as in `ai-tools-fill-comments'.
-Writes no backup and no lock file."
+Writes no backup and no lock file. FILE is read and written as UTF-8 with Unix line ends, so
+every byte a fill does not touch comes back as it was. A file-local variable is applied only
+where Emacs marks it safe and an `eval:' form never is: the text a formatter reads is not a place
+it takes instructions from. A symlink, or anything but a regular file, is an error rather than a
+fill, since the write would land where the link points."
+  (unless (and (file-regular-p file) (not (file-symlink-p file)))
+    (error "%s: not a regular file, or a symlink" file))
   (let ((create-lockfiles nil)
-        (make-backup-files nil))
+        (make-backup-files nil)
+        (enable-local-variables :safe)
+        (enable-local-eval nil)
+        (coding-system-for-read 'utf-8-unix)
+        (coding-system-for-write 'utf-8-unix))
     (with-current-buffer (find-file-noselect file)
       (let ((fill-column (or width fill-column))
             (require-final-newline nil))

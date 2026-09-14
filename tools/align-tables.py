@@ -3,12 +3,15 @@
 """Align the cells of a pipe-separated table written inside comments.
 
 ```bash
-python3 tools/align-tables.py check <file>...
-python3 tools/align-tables.py fix <file>...
+python3 tools/align-tables.py check [--] <file>...
+python3 tools/align-tables.py fix [--] <file>...
 ```
 
 `check` names each table whose cells do not line up and exits 1; `fix` rewrites them in place.
-A clean `check` is the statement that a `fix` would leave every line as it is.
+A clean `check` is the statement that a `fix` would leave every line as it is. A file is read
+and written through `tools/text_file.py`, which refuses what is not plain text -- a symlink, a
+binary, a control or a bidi character -- and such a file is reported, left as it is, and the run
+exits 1 after the others are done.
 
 A column is as wide as the widest of its cells and of the widths its rows were already written
 at, so a cell too wide for the column widens every other row rather than being squeezed -- the
@@ -25,14 +28,19 @@ neither the rule line nor the comment prefix; `table.el` reads a fully bordered 
 table needs a leading `|`. Hence this.
 
 Left alone: a Markdown table (GFM renders it, and this tree writes it compact), a line inside a
-fenced block, and a run of one table line, since one row has no second to line up with.
+fenced block or a shell heredoc body, and a run of one table line, since one row has no second to
+line up with.
 `tools/emacs/ai-tools-fill.el` leaves a comment table as written, so the filler and this tool do
 not fight over one.
 """
+from __future__ import annotations
+
 import argparse
-import pathlib
 import re
 import sys
+from typing import Iterator
+
+import text_file
 
 # The comment marker, then the indent inside it: the indent belongs to the table rather than to
 # the prefix, since a row may sit deeper than the row before it and the block keeps one prefix.
@@ -40,31 +48,34 @@ COMMENT = re.compile(r"^(\s*(?:#+|//+|;;+))( *)(.*)$")
 RULE = re.compile(r"^[-=+\s]+$")
 NUMBER = re.compile(r"[-+]?\d+(?:\.\d+)?%?$")
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+# A heredoc operator with its delimiter: `<<` or `<<-`, not the `<<<` of a here-string and not
+# the `<<` inside one, then an optional quote around a word.
+HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
-def parts(line):
+def parts(line: str) -> tuple[str, str, str] | None:
     """(marker, indent, body) of a comment line, or None where `line` is not one."""
     match = COMMENT.match(line)
     return (match.group(1), match.group(2), match.group(3)) if match else None
 
 
-def is_rule(body):
+def is_rule(body: str) -> bool:
     """Whether `body` is a rule line: `-`, `=` and `+` alone, with a separator in it."""
     return bool(RULE.match(body)) and ("+" in body or set(body.strip()) <= {"-", "="})
 
 
-def split_row(body):
+def split_row(body: str) -> list[str]:
     """`body`'s cells: on `+` where the line is a rule and carries one, on `|` otherwise."""
     return body.split("+") if is_rule(body) and "+" in body else body.split("|")
 
 
-def carries_table(line):
+def carries_table(line: str) -> bool:
     """Whether `line` is a comment line holding a table row or its rule."""
     read = parts(line)
     return bool(read) and ("|" in read[2] or (is_rule(read[2]) and "+" in read[2]))
 
 
-def numeric_column(cells):
+def numeric_column(cells: list[str]) -> bool:
     """Whether `cells` are a column of numbers: one number at least, and no other content.
 
     A `-` placeholder and an empty cell are neither, so a column of counts with a gap in it is
@@ -74,7 +85,7 @@ def numeric_column(cells):
     return bool(content) and all(NUMBER.match(cell) for cell in content)
 
 
-def alignment(cell):
+def alignment(cell: str) -> str:
     """Where `cell` holds its content: `left`, `right`, or `center`."""
     left, right = len(cell) - len(cell.lstrip(" ")), len(cell) - len(cell.rstrip(" "))
     if not cell.strip() or (left <= 1 and right <= 1):
@@ -84,13 +95,13 @@ def alignment(cell):
     return "right" if left > right else "left"
 
 
-def center(text, width):
+def center(text: str, width: int) -> str:
     """`text` centred in `width`, an odd space falling right so the text sits nearer the left."""
     left = (width - len(text)) // 2
     return " " * left + text + " " * (width - len(text) - left)
 
 
-def render(cell, width, how, first, rule):
+def render(cell: str, width: int, how: str, first: bool, rule: bool) -> str:
     """`cell`'s content in a field of `width`, under alignment `how`.
 
     The first field does not carry a separator before it, so it is one column narrower than the rest:
@@ -103,12 +114,38 @@ def render(cell, width, how, first, rule):
     return placed + " " if first else " " + placed + " "
 
 
-def separator_columns(line):
+def heredoc_body(lines: list[str]) -> set[int]:
+    """The indices of `lines` that sit inside a shell heredoc body.
+
+    Such a line is data the file writes -- a seeded config header, a fixture -- so a comment
+    marker in it belongs to that data, and a table in it is the data's own.
+    `tools/emacs/ai-tools-fill.el` reads the same lines as data, through the mode's syntax.
+    An operator on a comment line, and one whose delimiter no later line closes, open no body:
+    the second is a `<<` in a string or an arithmetic shift, and reading it as a heredoc would
+    hand the rest of the file to the data.
+    """
+    inside, delimiter, body = False, None, set()
+    for index, line in enumerate(lines):
+        if inside:
+            if line.strip() == delimiter:
+                inside = False
+            else:
+                body.add(index)
+            continue
+        match = HEREDOC.search(line)
+        if match and not line.lstrip().startswith("#"):
+            closed = any(later.strip() == match.group(2) for later in lines[index + 1:])
+            if closed:
+                inside, delimiter = True, match.group(2)
+    return body
+
+
+def separator_columns(line: str) -> set[int]:
     """The columns `line` carries a `|` or a `+` at."""
     return {index for index, char in enumerate(line) if char in "|+"}
 
 
-def is_table(rows):
+def is_table(rows: list[str]) -> bool:
     """Whether `rows` are a table: two lines in a row sharing a separator column.
 
     A pipe in prose -- a pipeline in an example, a sed address, an alternation -- lands where the
@@ -119,10 +156,16 @@ def is_table(rows):
     return any(before & after for before, after in zip(columns, columns[1:]))
 
 
-def table_blocks(lines):
+def table_blocks(lines: list[str]) -> Iterator[tuple[int, int]]:
     """Yield (start, end) for each run of two or more comment lines carrying a table."""
     start, marker, fence = None, None, None
+    data = heredoc_body(lines)
     for index, line in enumerate(lines + [""]):
+        if index in data:
+            if start is not None and index - start > 1 and is_table(lines[start:index]):
+                yield start, index
+            start, marker = None, None
+            continue
         mark = FENCE.match(line)
         if fence is not None:
             if mark and mark.group(1)[0] == fence[0] and len(mark.group(1)) >= len(fence):
@@ -141,7 +184,7 @@ def table_blocks(lines):
         start, marker = (index, parts(line)[0]) if held else (None, None)
 
 
-def widths(rows, rules):
+def widths(rows: list[list[str]], rules: list[bool]) -> list[int]:
     """The width of each column: its widest cell, and the widest field its rows were written at.
 
     Keeping the written width is what makes a repair minimal -- a column padded wider than its
@@ -156,7 +199,7 @@ def widths(rows, rules):
     return width
 
 
-def aligned(lines, start, end):
+def aligned(lines: list[str], start: int, end: int) -> list[str]:
     """The block rewritten with one width per column, each cell under its own alignment."""
     read = [parts(line) for line in lines[start:end]]
     indent = min(len(one[1]) for one in read)
@@ -184,7 +227,7 @@ def aligned(lines, start, end):
     return out
 
 
-def realign(text):
+def realign(text: str) -> tuple[str, list[tuple[int, int]]]:
     """(the text with every comment table aligned, the line ranges that were not)."""
     lines = text.split("\n")
     out, off = list(lines), []
@@ -196,27 +239,29 @@ def realign(text):
     return "\n".join(out), off
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="align the cells of a comment's table")
     parser.add_argument("action", choices=("check", "fix"))
-    parser.add_argument("paths", nargs="+")
-    args = parser.parse_args()
+    parser.add_argument("paths", nargs="+", metavar="FILE")
+    args = parser.parse_args(argv)
     status = 0
     for path in args.paths:
         try:
-            text = pathlib.Path(path).read_text()
-        except (OSError, UnicodeDecodeError) as exc:
-            print(f"align-tables: cannot read {path}: {exc}", file=sys.stderr)
+            text, seen = text_file.read(path)
+            fixed, off = realign(text)
+            for first, last in off:
+                print(f"{path}:{first}: table cells do not line up (lines {first}-{last})")
+            if not off:
+                continue
+            if args.action == "fix":
+                text_file.write(path, fixed, seen)
+            else:
+                status = 1
+        except text_file.Refused as exc:
+            print(f"align-tables: {exc}", file=sys.stderr)
             status = 1
-            continue
-        fixed, off = realign(text)
-        for first, last in off:
-            print(f"{path}:{first}: table cells do not line up (lines {first}-{last})")
-        if not off:
-            continue
-        if args.action == "fix":
-            pathlib.Path(path).write_text(fixed)
-        else:
+        except OSError as exc:
+            print(f"align-tables: cannot read {path}: {exc.strerror}", file=sys.stderr)
             status = 1
     return status
 

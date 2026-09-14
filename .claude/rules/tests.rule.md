@@ -261,22 +261,37 @@ a `TESTDIR` copy of `packaging/check-version.sh` (a repo release-gate script, no
 `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match, `vX.Y.Z-rc.N` compares its
 base and relaxes only the `%changelog` match, any other dashed tag is refused, a missing `%changelog` entry is fatal
 for every form. `fill-comments.sh` is a second repo-tool test: it drives `tools/fill-comments.sh`, the Emacs-driven
-formatter for the comment wrap rule, over one fixture carrying every shape the tool must fill or leave alone — a long
-paragraph filled inside the column with no line ending on a tie word (the checker's `--wrap` mode is the oracle),
-and an aligned table, a linter directive, a commented default, a shebang and a code line each back byte-identical —
-and asserts a second run leaves the file as the first left it, and that `--lines` fills the paragraph it names alone.
+formatter for the comment wrap rule, over one fixture carrying every shape the tool must fill or leave alone. Filled:
+a long paragraph inside the column with no line ending on a tie word (the checker's `--wrap` mode is the oracle), one
+indented inside a function body, and a sentence pair the join gives one space. Left as written: an aligned table, a doc
+comment's contract line, a column of three or more spaces, a table drawn with vertical rules, a heredoc body,
+the commands a header shows in a fenced block, a CDATA section, a `<pre>` block, a linter directive, a commented
+default, a shebang and a code line. Each of those is a way a formatter silently rewrites what a file emits
+or what a reader reads as a column, and none is visible in review. It also holds the filler's own output to the rule no
+checker reads — a code span is never split — and asserts a second run leaves the file as the first left it,
+that `--lines` fills the paragraph it names alone, and that two ranges in one run are both filled, since the first fill
+moves every line the later range names. Refused before Emacs sees it, through the reader every formatter shares
+(`tools/text_file.py`): a file holding an escape sequence, and a symlink, each reported with its reason and left as it
+was while the clean file beside it is filled. Two more pin the Emacs side: a file named like one of its options (`-Q`)
+is filled rather than obeyed, since the files are handed over after `--`, and a file-local `eval:` form is not run.
 Skipped without Emacs. `format.sh` pins the front door over both fillers (`tools/format.sh`): every file in a fixture
 repository goes to the filler for the kind the checker names, at the column it names — a page at 80, a router at 120,
-a source comment at 120, a header under `src/etc/` at 72 — while a man page and a binary file are reported as skipped
-and left as they were, since the failure it exists to prevent is the comment filler pointed at a page. The scope rule is
-pinned from both sides: with no file named, only the paragraph a diff touched is filled and an over-width paragraph
-the commit already held is left, `--files` fills that one too, an untracked file is filled whole either way, and `--all`
-warns first. Its exit status is pinned as the closing report's: 0 when no measured line is left over its column, 1 while
-a line no filler can shorten remains. `fill-markdown.sh` is its Markdown counterpart, and pins the filler
-(`tools/fill-markdown.py`) together with the gate that proves a reflow pure (`tools/verify-reflow.py`), because a defect
-in either looks the same from outside: one fixture carries every shape found by rehearsing the filler on real pages —
-frontmatter, a nested fence, a multi-line HTML comment, a list item with an indented continuation, a wide marker,
-an indented code block, a table, a blockquote with an
+a source comment at 120, a header under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker)
+is reported as skipped with its kind and left as it was, since the failure it exists to prevent is the comment filler
+pointed at a page. What may be formatted at all is the explicit scope `FORMAT_SCOPE` names: a unit file, a log
+and a Makefile in the fixture are outside it, so `--all` counts and leaves them, a man page and a binary never reach
+the checker, and a file named on the command line is reported and skipped, as is a path outside the repository, while
+a named path is read from the directory the command was run in. The scope rule is pinned from both sides: with no file
+named, only the paragraph a diff touched is filled and an over-width paragraph the commit already held is left,
+`--files` fills that one too, an untracked file is filled whole either way, and `--all` warns first. Its exit status is
+pinned as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler can shorten
+remains or a filler refused a file, which is reported with its reason and left as it was. Its last case runs a copy
+of the formatter over its own two shell tools: each is one function called on its last line, which bash parses whole,
+so the fill that rewrites the file under the running bash does not end the run mid-line. `fill-markdown.sh` is its
+Markdown counterpart, and pins the filler (`tools/fill-markdown.py`) together with the gate that proves a reflow pure
+(`tools/verify-reflow.py`), because a defect in either looks the same from outside: one fixture carries every shape
+found by rehearsing the filler on real pages — frontmatter, a nested fence, a multi-line HTML comment, a list item
+with an indented continuation, a wide marker, an indented code block, a table, a blockquote with an
 alert line, a `prose-check: ignore` line, a dash after a token wider than the column, and inline code spans placed
 where a greedy break lands inside them — and the filler must reflow it to a state the gate passes and the checker's
 `--wrap` finds complete (a filler that copies a region through leaves a clean gate and an over-width line), while each
@@ -284,20 +299,27 @@ defect class, injected by hand, must be reported by the gate. The one class the 
 span leaves the token stream unchanged — is asserted on the filler's output instead: each span whole on one line, a span
 wider than the column run over on its own. It asserts a second run is a no-op and that `--lines` confines a reflow
 to the blocks it names, then reflows every page of the tree into its testdir, agent-facing at 120 and human-facing
-at 80, and holds them to the same three properties. `align-tables.sh` pins the third formatter,
-`tools/align-tables.py`, over a fixture whose widest cell overflows its column: each placement rule the tool states,
-and the two properties a caller depends on — a paragraph whose lines happen to carry a pipe is left as written, since
-a table is two lines carrying a separator at the same column, and a second fix is a no-op with `check` then silent,
-so `check` and `fix` run in either order. `references.sh` is a third: it drives `ref-index.py`,
-the cross-reference tool shipped beside the checker, and holds the tree to its committed index. A reference names
-a reftag and the reftag resolves to where the target now is, so what the file asserts is that a target which moved, was
-renamed, or was deleted is reported and never silently pointed at its old place: through the repository wrapper
-`tools/ref-index.sh` it regenerates the index and diffs it against `.claude/references.md` and runs `check` over every
-tracked file, both skipped outside a git checkout; then each finding `check` makes — a duplicate reftag, an id shared
-by two kinds, a reference with no target, a same-file reference, a caption with no block after it, a reftag link that is
-missing or stale, and an ordinary link whose file or heading is gone — is driven against a fixture it must report
-and the corrected form it must stay silent on, with `relink` asserted to produce that form, `generate` for its row
-shape, its order, the example row a quoted reftag reserves, and the empty tree, `new` for each family's form,
+at 80, and holds them to the same three properties. It is also where the reader every formatter shares
+(`tools/text_file.py`) is pinned whole: each shape it refuses — a control or a bidi character, a NUL, a carriage return,
+a byte that is not UTF-8, a byte-order mark, a symlink, a FIFO — is reported with its reason and left byte-identical
+while the clean file beside it is filled, a column or a range that is not one is a usage error that writes nothing,
+and the gate fails a base copy that is not text without printing a token of it and refuses a path resolving outside
+the tree. `align-tables.sh` pins the third formatter, `tools/align-tables.py`, over a fixture whose widest cell
+overflows its column: each placement rule the tool states, and the two properties a caller depends on — a paragraph
+whose lines happen to carry a pipe is left as written, since a table is two lines carrying a separator at the same
+column, and a second fix is a no-op with `check` then silent, so `check` and `fix` run in either order. A table inside
+a heredoc body is the data's and is left, while a here-string, an arithmetic shift, a `<<` in a string and an operator
+no later line closes open no heredoc, so a table after one is still read; a file holding an escape sequence is refused
+through the shared reader and reported, with the file beside it still checked. `references.sh` is a third: it drives
+`ref-index.py`, the cross-reference tool shipped beside the checker, and holds the tree to its committed index.
+A reference names a reftag and the reftag resolves to where the target now is, so what the file asserts is that a target
+which moved, was renamed, or was deleted is reported and never silently pointed at its old place: through the repository
+wrapper `tools/ref-index.sh` it regenerates the index and diffs it against `.claude/references.md` and runs `check`
+over every tracked file, both skipped outside a git checkout; then each finding `check` makes — a duplicate reftag,
+an id shared by two kinds, a reference with no target, a same-file reference, a caption with no block after it, a reftag
+link that is missing or stale, and an ordinary link whose file or heading is gone — is driven against a fixture it must
+report and the corrected form it must stay silent on, with `relink` asserted to produce that form, `generate` for its
+row shape, its order, the example row a quoted reftag reserves, and the empty tree, `new` for each family's form,
 and `where` for the span each kind's syntax gives. An empty tree is a valid index, so the lockstep half is green
 before the first reftag. Its last section drives the one finding the **wrapper** holds rather than the shipped tool —
 a runtime message carrying a URL, a Markdown link, or an HTML anchor ([messaging](messaging.rule.md)) — which is

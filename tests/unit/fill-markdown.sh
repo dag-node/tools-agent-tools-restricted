@@ -11,9 +11,14 @@
 # injected by hand, must be reported by the gate. A second run must leave the file as the first
 # left it, and `--lines` must confine a reflow to the blocks it names. The one class the gate
 # cannot see -- a split code span leaves the token stream unchanged -- is asserted on the filler's
-# output instead. Its last section reflows the tree's own pages into the testdir and holds them to
-# the same three properties, skipped outside a checkout. A repo dev tool, not a deployed artifact,
-# so it runs from the checkout.
+# output instead. The tree's own pages are reflowed into the testdir and held to the same three
+# properties, skipped outside a checkout. The reader every formatter shares (`tools/text_file.py`)
+# is pinned here: each shape it refuses -- a control or a bidi character, a NUL, a carriage
+# return, a byte that is not UTF-8, a byte-order mark, a symlink, a FIFO -- is reported with its
+# reason and left byte-identical while the clean file beside it is filled; a column or a range
+# that is not one is a usage error; and the gate refuses a base copy that is not text without
+# printing a token of it, and a path resolving outside the tree. A repo dev tool, not a deployed
+# artifact, so it runs from the checkout.
 # The fixture holds a reftag as text, so the tree-wide reference check does not read this file
 # (the marker on the next line).
 # ref-index: ignore-file
@@ -299,6 +304,83 @@ else
     real_pages agent 120 'CLAUDE.md' '*.rule.md' '*/skills/*.md' '*/orientation/*.md'
     real_pages human 80 'README.md' 'CONTRIBUTING.md' 'SECURITY.md' 'CODE_OF_CONDUCT.md' 'CHANGELOG.md' \
         'docs/*.md' 'selinux/*.md' 'packaging/*.md' 'tests/*.md' 'src/usr/share/ai-tools/subagents/*.md'
+fi
+
+# (8) A file that is not plain text is refused: reported with the reason and the line, left
+# byte-identical, and the run exits 1 while the clean file named beside it is filled. Each shape
+# is a way a rewrap would move what the formatter cannot see, or write where it did not read. The
+# reader is `tools/text_file.py`, shared with the other formatters, so the set is pinned once
+# here; the comment filler and the table aligner each pin one shape of it through their own front.
+refused() {  # refused <label> <file> <reason>: <file> is refused with <reason> and left as it was
+    local label="$1" file="$2" reason="$3" out rc=0
+    [[ -f "${file}" ]] && cp "${file}" "${file}.before"
+    cp "${TESTDIR}/base/f.md" "${f}"
+    out="$(timeout 20 python3 "${FILLER}" --width "${WIDTH}" -- "${file}" "${f}" 2>&1)" || rc=$?
+    if [[ "${rc}" -eq 1 ]] && grep -qF -- "fill-markdown: refused ${file}: ${reason}" <<<"${out}" \
+            && { [[ ! -f "${file}" ]] || cmp -s "${file}" "${file}.before"; } \
+            && ! cmp -s "${f}" "${TESTDIR}/base/f.md"; then
+        pass "refused and left as it was: ${label}"
+    else
+        fail "not refused as expected (rc ${rc}): ${label}: ${out}"
+    fi
+}
+printf 'a line with an escape sequence \033[31mred\033[0m in it\n' > "${TESTDIR}/escape.md"
+printf 'a line with a NUL\0in it\n' > "${TESTDIR}/nul.md"
+printf 'a CRLF line\r\nand another\r\n' > "${TESTDIR}/crlf.md"
+printf 'a line with a bidi override \342\200\256 in it\n' > "${TESTDIR}/bidi.md"
+printf 'a Latin-1 byte \351 in it\n' > "${TESTDIR}/latin1.md"
+printf '\357\273\277a page opening with a byte-order mark\n' > "${TESTDIR}/bom.md"
+printf 'a zero-width\342\200\213space\n' > "${TESTDIR}/zwsp.md"
+printf 'a C1 control \302\233 in it\n' > "${TESTDIR}/c1.md"
+ln -s "${TESTDIR}/base/f.md" "${TESTDIR}/link.md"
+mkfifo "${TESTDIR}/fifo.md"
+refused "an escape sequence"       "${TESTDIR}/escape.md" "line 1 holds U+001B (a control character)"
+refused "a NUL byte"               "${TESTDIR}/nul.md"    "holds a NUL byte at offset 17, so it is not text"
+refused "a carriage return"        "${TESTDIR}/crlf.md"   "line 1 holds a carriage return"
+refused "a bidi override"          "${TESTDIR}/bidi.md"   "line 1 holds U+202E (RIGHT-TO-LEFT OVERRIDE)"
+refused "a byte that is not UTF-8" "${TESTDIR}/latin1.md" "is not UTF-8 at byte 15 (line 1)"
+refused "a byte-order mark"        "${TESTDIR}/bom.md"    "opens with a byte-order mark"
+refused "a zero-width space"       "${TESTDIR}/zwsp.md"   "line 1 holds U+200B (ZERO WIDTH SPACE)"
+refused "a C1 control"             "${TESTDIR}/c1.md"     "line 1 holds U+009B (a control character)"
+refused "a symlink"                "${TESTDIR}/link.md"   "is a symlink"
+refused "a FIFO"                   "${TESTDIR}/fifo.md"   "is not a regular file"
+
+# (9) A column under one, and a range out of order, at line 0, or not a number, are usage errors:
+# exit 2, and nothing written.
+usage_error() {  # usage_error <label> <argument>...: exit 2, the fixture untouched
+    local label="$1" rc=0
+    shift
+    cp "${TESTDIR}/base/f.md" "${f}"
+    python3 "${FILLER}" "$@" -- "${f}" >/dev/null 2>&1 || rc=$?
+    if [[ "${rc}" -eq 2 ]] && cmp -s "${f}" "${TESTDIR}/base/f.md"; then
+        pass "usage error, nothing written: ${label}"
+    else
+        fail "usage error not raised (rc ${rc}): ${label}"
+    fi
+}
+usage_error "a column of 0"           --width 0
+usage_error "a range out of order"    --width "${WIDTH}" --lines 5-3
+usage_error "a range at line 0"       --width "${WIDTH}" --lines 0
+usage_error "a range that is not one" --width "${WIDTH}" --lines 3-x
+
+# (10) The gate reads both copies through the same reader, and confines a path to the tree and to
+# the base directory: a base copy that is not plain text fails with the reason and no token of it
+# is printed, and a path resolving outside the tree is refused rather than read.
+mkdir -p "${TESTDIR}/base2"
+printf 'a token \033[31mred\033[0m here\n' > "${TESTDIR}/base2/g.md"
+printf 'a token red here\n' > "${TESTDIR}/g.md"
+rc=0; OUT="$(cd "${TESTDIR}" && python3 "${GATE}" --against "${TESTDIR}/base2" g.md 2>&1)" || rc=$?
+if [[ "${rc}" -eq 1 ]] && grep -q 'FAIL g.md: refused, line 1 holds U+001B' <<<"${OUT}" \
+        && ! grep -q 'red' <<<"${OUT}"; then
+    pass "the gate fails a base copy that is not plain text, printing no token of it"
+else
+    fail "the gate read the base copy (rc ${rc}): ${OUT}"
+fi
+rc=0; OUT="$(cd "${TESTDIR}/base" && python3 "${GATE}" --against "${TESTDIR}/base2" ../g.md 2>&1)" || rc=$?
+if [[ "${rc}" -eq 1 ]] && grep -q 'FAIL ../g.md: refused, resolves outside' <<<"${OUT}"; then
+    pass "the gate refuses a path resolving outside the tree"
+else
+    fail "the gate read outside the tree (rc ${rc}): ${OUT}"
 fi
 
 finish
