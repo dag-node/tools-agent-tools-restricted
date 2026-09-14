@@ -9,7 +9,8 @@
 # cell's own alignment are pinned with it -- the heading centred over its column, a column of
 # numbers right, and a column padded wider than its content keeping that padding -- so a clean
 # `check` says a `fix` would leave every line as it is. Two negatives close it: a paragraph whose
-# lines happen to carry a pipe is left as written, and a second run is a no-op.
+# lines happen to carry a pipe is left as written, and a second run is a no-op. A file that is not
+# plain text is refused through the reader every formatter shares, reported and left as it was.
 # A repo dev tool, not a deployed artifact, so the test runs from the checkout.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -135,6 +136,22 @@ if out="$(python3 "${TOOL}" check "${f}" 2>&1)" && [[ -z "${out}" ]]; then
     pass "check is silent on the fixed file and exits 0"
 else
     fail "check still reports the fixed file: ${out}"
+fi
+
+# (8) A file that is not plain text is refused: reported with the reason, left byte-identical,
+# and the run exits 1 while the file named beside it is still checked. The reader is the one
+# every formatter here shares (`tools/text_file.py`); the full set of shapes it refuses is pinned
+# in `fill-markdown.sh`.
+esc="${TESTDIR}/escape.sh"
+printf '# a | b\n# \033[31mc\033[0m | d\n' > "${esc}"
+cp "${esc}" "${TESTDIR}/escape.before"
+rc=0; out="$(python3 "${TOOL}" check "${esc}" "${TESTDIR}/before.sh" 2>&1)" || rc=$?
+if [[ "${rc}" -eq 1 ]] && grep -qF "align-tables: refused ${esc}: line 2 holds U+001B" <<<"${out}" \
+        && cmp -s "${esc}" "${TESTDIR}/escape.before" \
+        && grep -q 'before.sh:2: table cells do not line up' <<<"${out}"; then
+    pass "a file holding an escape sequence is refused and reported; the file beside it is checked"
+else
+    fail "the refusal did not hold (rc ${rc}): ${out}"
 fi
 
 finish

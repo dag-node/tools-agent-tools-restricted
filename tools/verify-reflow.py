@@ -3,8 +3,8 @@
 """Prove that a reflow changed line breaks and left the text alone.
 
 ```bash
-python3 tools/verify-reflow.py --base <revision> [--repo P] <path>...
-python3 tools/verify-reflow.py --against <dir> <path>...
+python3 tools/verify-reflow.py --base <revision> [--repo P] [--] <path>...
+python3 tools/verify-reflow.py --against <dir> [--] <path>...
 ```
 
 Reads each path at the base (a git revision, or the same relative path under `--against`) and in
@@ -30,16 +30,24 @@ of hunk by hunk:
    reads past a `>`.
 
 Exits 0 when every path passes and 1 otherwise, printing the path, the check that failed, and the
-position. A path the base does not hold is reported as skipped rather than as a pass. This is the
-mechanical half of the reflow gate; `prose-check.py --kept` is the other half and judges a
-REWRITE, which a reflow that passes here has not made.
+position. A path the base does not hold is reported as skipped rather than as a pass. Both copies
+are read through `tools/text_file.py`, so a copy that is not plain text is reported as a failure
+with its reason and no token of it reaches the terminal; a path that resolves outside the tree or
+the base directory is refused the same way. This is the mechanical half of the reflow gate;
+`prose-check.py --kept` is the other half and judges a REWRITE, which a reflow that passes here
+has not made.
 """
+from __future__ import annotations
+
 import argparse
 import pathlib
 import re
 import subprocess
 import sys
 
+import text_file
+
+GIT_TIMEOUT = 60
 FENCE_MARK = re.compile(r"^\s*(`{3,}|~{3,})")
 TABLE = re.compile(r"^\s*\|")
 COMMENT_OPEN, COMMENT_CLOSE = re.compile(r"^\s*<!--"), "-->"
@@ -56,14 +64,17 @@ ITEM = re.compile(r"^\s*([-*+] +|\d+[.)] +)\S")
 # the token stream cannot see it, so the count of such lines is part of each block's signature.
 MARKER_LINE = re.compile(r"^\s*(?:[-*+] |\d+[.)] |#{1,6} |\||`{3,}|~{3,}|<!--)")
 
+Signature = tuple[str, int, int]
+Partition = tuple[list[str], list[str], list[Signature]]
 
-def quote_parts(line):
+
+def quote_parts(line: str) -> tuple[str, str]:
     """(quote prefix, the rest) of `line`; the prefix is empty outside a blockquote."""
     match = QUOTE.match(line)
     return (match.group(1), match.group(2)) if match else ("", line)
 
 
-def partition(text):
+def partition(text: str) -> Partition:
     """`text` as (protected lines, tokens, block signatures).
 
     A block signature is the leading whitespace, quote prefix and list marker of a
@@ -72,7 +83,9 @@ def partition(text):
     a continuation line, a marker it respaced, or a list item, heading, row or fence a wrap
     invented mid-block is a difference here.
     """
-    protected, tokens, blocks = [], [], []
+    protected: list[str] = []
+    tokens: list[str] = []
+    blocks: list[list] = []
     fence, in_comment, block = None, False, None
     # An indented code block is protected whole: four spaces after a blank line, outside a list,
     # where the same indent is a continuation paragraph the filler may fill (the reading
@@ -127,7 +140,7 @@ def partition(text):
     return protected, tokens, [(head, lazy, markers) for head, _, lazy, markers in blocks]
 
 
-def first_difference(left, right):
+def first_difference(left: list, right: list) -> int | None:
     """The index of the first differing element, or None when one is a prefix of the other."""
     for index, (a, b) in enumerate(zip(left, right)):
         if a != b:
@@ -135,29 +148,47 @@ def first_difference(left, right):
     return None
 
 
-def context(tokens, index, width=6):
-    return " ".join(tokens[max(0, index - width):index + width])
+def context(tokens: list, index: int, width: int = 6) -> str:
+    """The elements of `tokens` around `index`, joined for a report line."""
+    return " ".join(str(token) for token in tokens[max(0, index - width):index + width])
 
 
-def base_text(repo, revision, against, path):
+def inside(root: pathlib.Path, path: str) -> pathlib.Path:
+    """`path` under `root`, or `text_file.Refused` where it resolves outside `root`."""
+    resolved = (root / path).resolve()
+    if root != resolved and root not in resolved.parents:
+        raise text_file.Refused(path, f"resolves outside {root}")
+    return resolved
+
+
+def base_text(repo: pathlib.Path, revision: str | None, against: pathlib.Path | None,
+              path: str) -> str | None:
     """The base copy of `path`, or None where the base does not hold it."""
     if against is not None:
         try:
-            return (against / path).read_text()
-        except OSError:
+            return text_file.read(str(inside(against, path)))[0]
+        except FileNotFoundError:
             return None
-    shown = subprocess.run(["git", "-C", str(repo), "show", f"{revision}:./{path}"],
-                           capture_output=True, text=True)
-    return None if shown.returncode else shown.stdout
+    shown = subprocess.run(
+        ["git", "-C", str(repo), "show", "--end-of-options", f"{revision}:./{path}"],
+        capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT, check=False)
+    return None if shown.returncode else text_file.decode(f"{revision}:{path}", shown.stdout)
 
 
-def verify(repo, revision, against, path):
+def verify(repo: pathlib.Path, revision: str | None, against: pathlib.Path | None,
+           path: str) -> tuple[str, str] | None:
     """(check, detail) for the first failing check on `path`, or None when the reflow is pure."""
-    base = base_text(repo, revision, against, path)
-    if base is None:
-        return "skipped", f"the base does not hold {path}"
-    before = partition(base)
-    after = partition((repo / path).read_text())
+    try:
+        tree = inside(repo, path)
+        base = base_text(repo, revision, against, path)
+        if base is None:
+            return "skipped", f"the base does not hold {path}"
+        before = partition(base)
+        after = partition(text_file.read(str(tree))[0])
+    except text_file.Refused as exc:
+        return "refused", exc.reason
+    except OSError as exc:
+        return "unreadable", exc.strerror
     for name, old, new in (("protected line", before[0], after[0]),
                            ("token", before[1], after[1]),
                            ("block signature", before[2], after[2])):
@@ -174,15 +205,15 @@ def verify(repo, revision, against, path):
     return None
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="prove a reflow changed only line breaks")
     base = parser.add_mutually_exclusive_group(required=True)
     base.add_argument("--base", dest="revision", metavar="REVISION",
                       help="the revision the reflow started from")
     base.add_argument("--against", metavar="DIR", help="read the base copies under DIR instead")
     parser.add_argument("--repo", default=".", help="the tree holding the reflowed paths")
-    parser.add_argument("paths", nargs="+")
-    args = parser.parse_args()
+    parser.add_argument("paths", nargs="+", metavar="PATH")
+    args = parser.parse_args(argv)
     repo = pathlib.Path(args.repo).resolve()
     against = pathlib.Path(args.against).resolve() if args.against else None
 
@@ -194,6 +225,9 @@ def main():
         elif result[0] == "skipped":
             skipped += 1
             print(f"SKIP {path}: {result[1]}")
+        elif result[0] in ("refused", "unreadable"):
+            failed += 1
+            print(f"FAIL {path}: {result[0]}, {result[1]}")
         else:
             failed += 1
             print(f"FAIL {path}: {result[0]} differs at {result[1]}")

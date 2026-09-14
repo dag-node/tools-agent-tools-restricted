@@ -12,9 +12,12 @@
 # commented default, a shebang and a code line. Held on the output: a break never falls inside
 # a code span, which the `fill-nobreak-predicate` hook refuses.
 # A second run must leave the file as the first left it, `--lines` must confine the fill to a
-# paragraph it names, and two ranges in one run must both be filled. Where the checker is present
-# its `--wrap` mode is the oracle for the filled paragraph. A repo dev tool, not a deployed
-# artifact, so the test runs from the checkout; skipped without Emacs.
+# paragraph it names, and two ranges in one run must both be filled. Refused before Emacs sees
+# it, reported and left as it was: a file holding an escape sequence, and a symlink. Pinned on
+# the Emacs side: a file named like one of its options is a file to fill, and a file-local
+# `eval:` form is never run. Where the checker is present its `--wrap` mode is the oracle for the
+# filled paragraph. A repo dev tool, not a deployed artifact, so the test runs from the checkout;
+# skipped without Emacs.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -253,6 +256,57 @@ if ! grep -qxF -- "$(sed -n 4p "${TESTDIR}/before.sh")" "${f}" \
     pass "two ranges in one run: the fill of the first does not move the second"
 else
     fail "the second range missed its paragraph: $(diff "${TESTDIR}/before.sh" "${f}" | head -8)"
+fi
+
+# (6) A file that is not plain text is refused before Emacs sees it: reported with the reason and
+# the line, left byte-identical, and the run exits 1 while the clean file beside it is filled. A
+# symlink is refused the same way, since the write would land where the link points. The reader
+# is `tools/text_file.py`, shared with the other formatters; the full set of shapes it refuses is
+# pinned in `fill-markdown.sh`.
+esc="${TESTDIR}/escape.sh"
+printf '#!/usr/bin/env bash\n# a comment holding an escape sequence \033[31min it\033[0m, long enough that a filler would want to rewrap it\n' > "${esc}"
+cp "${esc}" "${TESTDIR}/escape.before"
+ln -s "${TESTDIR}/before.sh" "${TESTDIR}/link.sh"
+cp "${TESTDIR}/before.sh" "${f}"
+rc=0; out="$(bash "${TOOL}" --width 72 -- "${esc}" "${TESTDIR}/link.sh" "${f}" 2>&1)" || rc=$?
+if [[ "${rc}" -eq 1 ]] && grep -qF "fill-comments: refused ${esc}: line 2 holds U+001B" <<<"${out}" \
+        && cmp -s "${esc}" "${TESTDIR}/escape.before" \
+        && grep -qF "fill-comments: refused ${TESTDIR}/link.sh: is a symlink" <<<"${out}" \
+        && cmp -s "${TESTDIR}/before.sh" "${TESTDIR}/link.sh" \
+        && ! grep -qxF -- "$(sed -n 4p "${TESTDIR}/before.sh")" "${f}"; then
+    pass "an escape sequence and a symlink are refused and left; the clean file beside them is filled"
+else
+    fail "the refusal did not hold (rc ${rc}): ${out}"
+fi
+
+# (7) A file whose name reads as an Emacs option is a file to fill. Emacs's own argument pass
+# consumes `-Q` wherever it stands on the command line, so the files are handed over after `--`;
+# without it the file would drop out of the batch without a word.
+printf '# %s\n' "$(sed -n 4p "${TESTDIR}/before.sh" | cut -c3-)" > "${TESTDIR}/-Q"
+if ( cd "${TESTDIR}" && bash "${TOOL}" --width 72 -- -Q >/dev/null 2>&1 ) \
+        && (( $(wc -l < "${TESTDIR}/-Q") > 1 )); then
+    pass "a file named like an Emacs option is filled, not obeyed"
+else
+    fail "the file named -Q was not filled: $(head -2 "${TESTDIR}/-Q")"
+fi
+
+# (8) A file-local variable is applied only where Emacs marks it safe, and an `eval:` form never:
+# the text a formatter reads is not a place it takes instructions from. The fixture asks, on its
+# first comment line and in a trailing block, for a marker file to be written; the marker must be
+# absent after a fill that still rewraps the paragraph between them.
+lv="${TESTDIR}/locals.sh"
+marker="${TESTDIR}/marker-written"
+{
+    printf '#!/usr/bin/env bash\n'
+    printf '# -*- mode: sh; eval: (with-temp-buffer (write-file "%s")) -*-\n' "${marker}"
+    printf '# %s\n' "$(sed -n 4p "${TESTDIR}/before.sh" | cut -c3-)"
+    printf 'x=1\n# Local Variables:\n# eval: (with-temp-buffer (write-file "%s"))\n# End:\n' "${marker}"
+} > "${lv}"
+bash "${TOOL}" --width 72 -- "${lv}" >/dev/null 2>&1 || true
+if [[ ! -e "${marker}" ]] && (( $(wc -l < "${lv}") > 7 )); then
+    pass "a file-local eval form is not run, and the paragraph beside it is filled"
+else
+    fail "the local-variable form ran, or the fill did not: marker $([[ -e "${marker}" ]] && echo present || echo absent), $(wc -l < "${lv}") lines"
 fi
 
 finish

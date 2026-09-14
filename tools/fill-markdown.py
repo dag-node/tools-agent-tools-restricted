@@ -3,13 +3,15 @@
 """Reflow the paragraphs of a Markdown page at a column, leaving every other block as written.
 
 ```bash
-python3 tools/fill-markdown.py --width N [--lines A-B,C-D] <file>...
+python3 tools/fill-markdown.py --width N [--lines A-B,C-D] [--] <file>...
 ```
 
 The Markdown half of the formatter `tools/format.sh` fronts, beside `tools/fill-comments.sh` for a
 source comment. It rewrites each file in place and prints one line per file. `--lines` names
 1-based inclusive line ranges and confines the reflow to the blocks meeting one, which is how the
-front door fills only what a diff touched.
+front door fills only what a diff touched. A file is read and written through `tools/text_file.py`,
+which refuses what is not plain text -- a symlink, a binary, a control or a bidi character -- and
+the file is then reported, left as it is, and the run exits 1 after the others are filled.
 
 Filled, with its structure kept: a paragraph under its own leading indent, a list item and its
 continuation lines under a hanging indent the width of the marker, and a blockquote paragraph
@@ -33,17 +35,23 @@ a placeholder (`<name>`, `<operator>`) that the full table reads as a tag and st
 
 A column is counted in code points; every non-ASCII character this tree uses is one column wide.
 """
+from __future__ import annotations
+
 import argparse
 import importlib.util
 import pathlib
 import re
 import sys
+from typing import Iterator, NamedTuple, Pattern
+
+import text_file
 
 TOOLS = pathlib.Path(__file__).resolve().parent
 TIE_LIST = TOOLS / "emacs" / "ai-tools-fill.el"
 CHECKER = TOOLS.parent / "src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
 IGNORE_MARKER = "prose-check: ignore"
 CODE_INDENT = 4
+RANGES = re.compile(r"^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$")
 
 # The marker keeps the spaces it was written with: its width is the item's content indent.
 ITEM = re.compile(r"^(\s*)([-*+] +|\d+[.)] +)(\S.*)$")
@@ -60,42 +68,48 @@ LINE_START_BLOCK = re.compile(
     r"^(?:`{3,}|~{3,}|\||#{1,6}$|#{1,6}\W|[-*+]$|[-*_]{3,}$|=+$|\d+[.)]$|>|<!--|<a\b|</a>)")
 
 
-def tie_words():
+class Rules(NamedTuple):
+    """The two rules read from their homes at start: the tie-word set and the code-span pattern."""
+
+    ties: frozenset[str]
+    span: Pattern[str]
+
+
+def tie_words() -> frozenset[str]:
     """The tie-word set, read from the comment filler's `ai-tools-tie-words`; exits when absent."""
     try:
-        text = TIE_LIST.read_text()
-    except OSError as exc:
+        text = TIE_LIST.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
         sys.exit(f"fill-markdown: cannot read the tie list: {exc}")
     match = re.search(r"\(defconst ai-tools-tie-words\s*'\(((?:\s*\"[a-z]+\")+)\s*\)", text)
-    words = set(re.findall(r'"([a-z]+)"', match.group(1))) if match else set()
+    words = frozenset(re.findall(r'"([a-z]+)"', match.group(1))) if match else frozenset()
     if len(words) < 10:
         sys.exit(f"fill-markdown: no tie list in {TIE_LIST}")
     return words
 
 
-def code_span_pattern():
+def code_span_pattern() -> Pattern[str]:
     """The checker's `BACKTICK_SPAN`, the one statement of what a code span is; exits when absent."""
     try:
         spec = importlib.util.spec_from_file_location("prose_check", CHECKER)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"no module at {CHECKER}")
         checker = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(checker)
         return checker.BACKTICK_SPAN
-    except (OSError, AttributeError, ImportError) as exc:
+    except (OSError, AttributeError, ImportError, SyntaxError) as exc:
         sys.exit(f"fill-markdown: cannot read the code-span rule from {CHECKER}: {exc}")
 
 
-TIES = tie_words()
-BACKTICK_SPAN = code_span_pattern()
-
-
-def units(text):
+def units(text: str, span: Pattern[str]) -> list[str]:
     """`text`'s whitespace-separated words, with the words of one code span joined into a unit.
 
     A break falls only between units, so a span stays on one line; its inner whitespace is
     joined as the words around it are, one space, which is what the gate's token stream reads.
     """
-    spans = [(match.start(), match.end()) for match in BACKTICK_SPAN.finditer(text)]
-    out, previous = [], None
+    spans = [(match.start(), match.end()) for match in span.finditer(text)]
+    out: list[str] = []
+    previous = None
     for word in re.finditer(r"\S+", text):
         inside = previous is not None and any(
             start < word.start() and end > previous for start, end in spans)
@@ -107,14 +121,14 @@ def units(text):
     return out
 
 
-def is_tie(word):
+def is_tie(word: str, ties: frozenset[str]) -> bool:
     """Whether a line may not end on `word`: a tie word not closing a sentence (the filler's rule)."""
     if re.search(r"[.!?]$", word):
         return False
-    return re.sub(r"[,;:)\"'`]+$", "", word).lower() in TIES
+    return re.sub(r"[,;:)\"'`]+$", "", word).lower() in ties
 
 
-def wrap(words, first, cont, width):
+def wrap(words: list[str], first: str, cont: str, width: int, ties: frozenset[str]) -> list[str]:
     """`words` (the units of `units()`) as lines at `width`, under the prefix `first` then `cont`.
 
     A break moves earlier while the line would end on a tie word, and while the next line would
@@ -123,12 +137,13 @@ def wrap(words, first, cont, width):
     line runs over the column instead, since a wider line is a line and an invented block is not.
     A code span is one unit, so it runs over the same way when it alone exceeds the column.
     """
-    lines, current = [], []
+    lines: list[str] = []
+    current: list[str] = []
     for word in words:
         prefix = first if not lines else cont
         if current and len(prefix) + len(" ".join(current + [word])) > width:
-            tail = []
-            while len(current) > 1 and is_tie(current[-1]):
+            tail: list[str] = []
+            while len(current) > 1 and is_tie(current[-1], ties):
                 tail.insert(0, current.pop())
             following = tail + [word]
             while len(current) > 1 and LINE_START_BLOCK.match(following[0]):
@@ -145,7 +160,7 @@ def wrap(words, first, cont, width):
     return lines
 
 
-def boundary(line):
+def boundary(line: str) -> bool:
     """Whether `line` stands outside a paragraph run: blank, or a block of its own."""
     return (not line.strip() or bool(ITEM.match(line)) or bool(BLOCK.match(line))
             or bool(FENCE_MARK.match(line)) or bool(COMMENT_OPEN.match(line))
@@ -153,7 +168,7 @@ def boundary(line):
             or bool(ALERT.match(line.strip())))
 
 
-def run_end(source, start):
+def run_end(source: list[str], start: int) -> int:
     """The index after the run of paragraph lines beginning at `start`."""
     index = start
     while index < len(source) and not boundary(source[index]):
@@ -161,7 +176,7 @@ def run_end(source, start):
     return index
 
 
-def quote_end(source, start, prefix):
+def quote_end(source: list[str], start: int, prefix: str) -> int:
     """The index after the run of blockquote lines at `start` sharing `prefix`."""
     index = start
     while index < len(source):
@@ -172,12 +187,12 @@ def quote_end(source, start, prefix):
     return index
 
 
-def touches(start, end, ranges):
+def touches(start: int, end: int, ranges: list[tuple[int, int]] | None) -> bool:
     """Whether the source lines [start, end) meet a `--lines` range; every run does with none."""
     return ranges is None or any(low <= end and high >= start + 1 for low, high in ranges)
 
 
-def runs(source):
+def runs(source: list[str]) -> Iterator[tuple[int, int, str, str, list[str]]]:
     """Yield (start, end, first, cont, text) for each run of paragraph lines in `source`, in
     order: its line range, the prefix of its first line and of a continuation line, and its
     lines with those prefixes removed. A line outside every run is a block of its own, left as
@@ -241,13 +256,15 @@ def runs(source):
             index = end
 
 
-def reflow(source, width, ranges=None):
+def reflow(source: list[str], width: int, rules: Rules,
+           ranges: list[tuple[int, int]] | None = None) -> tuple[list[str], int]:
     """`source` (a list of lines) reflowed at `width`; returns (lines, blocks filled)."""
-    out, index, filled = [], 0, 0
+    out: list[str] = []
+    index, filled = 0, 0
     for start, end, first, cont, text in runs(source):
         out.extend(source[index:start])
         if touches(start, end, ranges):
-            out.extend(wrap(units(" ".join(text)), first, cont, width))
+            out.extend(wrap(units(" ".join(text), rules.span), first, cont, width, rules.ties))
             filled += 1
         else:
             out.extend(source[start:end])
@@ -256,37 +273,60 @@ def reflow(source, width, ranges=None):
     return out, filled
 
 
-def parse_ranges(text):
-    """`A-B,C-D` as a list of (A, B) pairs, 1-based and inclusive; `A` alone is one line."""
+def parse_ranges(text: str) -> list[tuple[int, int]]:
+    """`A-B,C-D` as a list of (A, B) pairs, 1-based and inclusive; `A` alone is one line.
+
+    Raises `ValueError` for anything else: a range out of order, a line 0, a token that is not a
+    number.
+    """
+    if not RANGES.match(text):
+        raise ValueError(f"not a range list: {text!r}")
     ranges = []
     for part in text.split(","):
-        if not part:
-            continue
         low, _, high = part.partition("-")
-        ranges.append((int(low), int(high or low)))
+        pair = (int(low), int(high or low))
+        if pair[0] < 1 or pair[1] < pair[0]:
+            raise ValueError(f"not a range: {part!r}")
+        ranges.append(pair)
     return ranges
 
 
-def main():
+def positive_int(text: str) -> int:
+    """`text` as an int of one or more, for argparse."""
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"{text} is not a column")
+    return value
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="reflow Markdown paragraphs at a column")
-    parser.add_argument("--width", type=int, required=True, help="the column to wrap at")
+    parser.add_argument("--width", type=positive_int, required=True, help="the column to wrap at")
     parser.add_argument("--lines", metavar="RANGES",
                         help="fill only the blocks meeting these 1-based line ranges, `A-B,C-D`")
-    parser.add_argument("paths", nargs="+")
-    args = parser.parse_args()
-    ranges = parse_ranges(args.lines) if args.lines else None
+    parser.add_argument("paths", nargs="+", metavar="FILE")
+    args = parser.parse_args(argv)
+    try:
+        ranges = parse_ranges(args.lines) if args.lines else None
+    except ValueError as exc:
+        parser.error(f"--lines: {exc}")
+    rules = Rules(tie_words(), code_span_pattern())
     status = 0
     for path in args.paths:
         try:
-            text = pathlib.Path(path).read_text()
-        except OSError as exc:
-            print(f"fill-markdown: cannot read {path}: {exc}", file=sys.stderr)
+            text, seen = text_file.read(path)
+            lines, filled = reflow(text.split("\n"), args.width, rules, ranges)
+            joined = "\n".join(lines)
+            if joined != text:
+                text_file.write(path, joined, seen)
+        except text_file.Refused as exc:
+            print(f"fill-markdown: {exc}", file=sys.stderr)
             status = 1
             continue
-        lines, filled = reflow(text.split("\n"), args.width, ranges)
-        joined = "\n".join(lines)
-        if joined != text:
-            pathlib.Path(path).write_text(joined)
+        except OSError as exc:
+            print(f"fill-markdown: cannot read {path}: {exc.strerror}", file=sys.stderr)
+            status = 1
+            continue
         print(f"{path}: {filled} block(s) filled at {args.width} columns")
     return status
 

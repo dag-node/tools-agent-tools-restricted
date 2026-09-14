@@ -90,11 +90,11 @@ the column runs the line over instead, since a wider line is still a line."
   "A comment line the batch filler leaves alone, and that ends the run before it: a shebang,
 a linter directive, an SPDX header, a checker marker (`ref-index: ignore-file', `prose-check:
 ignore'), a declaration another tool reads (`# ai-tools-admin-verbs: …', which `ai-tools-admin'
-parses out of a contributed command's header), a commented default, a lone token (a path, a URL, a name on a line of its own), a rule
-or banner line, a doc comment's contract line (`args:', `stdout:', `$1 path'), and a line holding
-a column of three or more spaces. The last two are code rather than prose -- a signature, a
-parameter table, an example rule -- and a fill reads them as a sentence and wraps the columns
-away. A marker joined into the paragraph above it stops marking.")
+parses out of a contributed command's header), a commented default, a lone token (a path, a URL,
+a name on a line of its own), a rule or banner line, a doc comment's contract line (`args:',
+`stdout:', `$1 path'), and a line holding a column of three or more spaces. The last two are code
+rather than prose -- a signature, a parameter table, an example rule -- and a fill reads them as a
+sentence and wraps the columns away. A marker joined into the paragraph above it stops marking.")
 
 (defconst ai-tools-fill--vertical-rule "[|│┃║]"
   "A character drawing a vertical rule in an ASCII diagram or a comment table.")
@@ -224,9 +224,19 @@ filled. See the file header for what is left alone."
   "Fill the plain comment paragraphs of FILE in place and save it.
 The mode and `fill-column' come from the file's extension and the repository's .dir-locals.el;
 WIDTH overrides the column, and RANGES confines the fill as in `ai-tools-fill-comments'.
-Writes no backup and no lock file."
+Writes no backup and no lock file. FILE is read and written as UTF-8 with Unix line ends, so
+every byte a fill does not touch comes back as it was. A file-local variable is applied only
+where Emacs marks it safe and an `eval:' form never is: the text a formatter reads is not a place
+it takes instructions from. A symlink, or anything but a regular file, is an error rather than a
+fill, since the write would land where the link points."
+  (unless (and (file-regular-p file) (not (file-symlink-p file)))
+    (error "%s: not a regular file, or a symlink" file))
   (let ((create-lockfiles nil)
-        (make-backup-files nil))
+        (make-backup-files nil)
+        (enable-local-variables :safe)
+        (enable-local-eval nil)
+        (coding-system-for-read 'utf-8-unix)
+        (coding-system-for-write 'utf-8-unix))
     (with-current-buffer (find-file-noselect file)
       (let ((fill-column (or width fill-column))
             (require-final-newline nil))
