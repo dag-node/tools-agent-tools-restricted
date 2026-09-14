@@ -1,20 +1,36 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# `tools/fill-comments.sh [--width N] <file>...`
+# `tools/fill-comments.sh [--width N] [--lines A-B,C-D] <file>...`
 # Reflow the plain comment paragraphs of each file in place, at the column the repository's
 # .dir-locals.el gives the file's mode (72 for a config file, 120 for a source file) or at
-# `--width`, so no comment line ends on a tie word and none runs past the column. It is the
-# formatter for what `prose-check.py --wrap` reports; the rule and what is left untouched are in
-# tools/emacs/ai-tools-fill.el. Needs Emacs. Run it as `bash tools/fill-comments.sh`.
+# `--width`, so no comment line ends on a tie word and none runs past the column. `--lines`
+# names 1-based inclusive line ranges and fills only a paragraph meeting one. It is the comment
+# half of the formatter tools/format.sh fronts, which passes both; the rule and what is left
+# untouched are in tools/emacs/ai-tools-fill.el. Needs Emacs. Run it as
+# `bash tools/fill-comments.sh`.
 set -euo pipefail
 
-usage() { printf 'usage: bash tools/fill-comments.sh [--width N] <file>...\n' >&2; exit 2; }
+usage() {
+    printf 'usage: bash tools/fill-comments.sh [--width N] [--lines A-B,C-D] <file>...\n' >&2
+    exit 2
+}
 
 width=nil
+ranges=nil
 declare -a files=()
 while (( $# )); do
     case "$1" in
         --width) [[ "${2:-}" =~ ^[0-9]+$ ]] || usage; width="$2"; shift 2 ;;
+        --lines)
+            [[ "${2:-}" =~ ^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$ ]] || usage
+            # `A-B,C-D` as the elisp list ((A . B) (C . D)); a lone A is the pair (A . A).
+            ranges="'("
+            IFS=, read -ra parts <<< "$2"
+            for part in "${parts[@]}"; do
+                ranges+="(${part%%-*} . ${part##*-}) "
+            done
+            ranges+=")"
+            shift 2 ;;
         -h|--help) usage ;;
         --) shift; files+=("$@"); break ;;
         -*) usage ;;
@@ -28,5 +44,5 @@ lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/emacs/ai-tools-fill.el"
 # The files ride in command-line-args-left, which the form drains so Emacs does not visit them
 # itself afterwards.
 emacs --batch -Q -l "${lib}" \
-    --eval "(progn (dolist (f command-line-args-left) (ai-tools-fill-comments-file f ${width})) (setq command-line-args-left nil))" \
+    --eval "(progn (dolist (f command-line-args-left) (ai-tools-fill-comments-file f ${width} ${ranges})) (setq command-line-args-left nil))" \
     "${files[@]}"

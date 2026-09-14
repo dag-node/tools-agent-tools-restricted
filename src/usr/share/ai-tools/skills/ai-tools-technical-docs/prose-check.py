@@ -8,12 +8,14 @@
 #
 #     python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
 #
-# Five modes. `--staged` reads the added lines of the git index, which is what a pre-commit hook
+# Six modes. `--staged` reads the added lines of the git index, which is what a pre-commit hook
 # runs; `--message` reads a commit message, an artifact this standard covers like any other; named
 # paths are read whole, for a sweep; `--kept` compares the two sides of a diff, and enforces a
 # different rule -- see the `--kept` heading; `--config-header` reads a config file's header
 # as fixed-width text -- see the `--config-header` heading. `--staged` sees only the added half of a sentence
 # an edit split, so a hit it reports alone is worth re-checking against the whole file.
+# `--print-width` does not check: it prints the column each path is measured at, for a formatter
+# to fill at -- see the `--print-width` heading.
 #
 # `--new <revision>` filters the named-path mode: it runs the selected checks
 # over the working tree and over the same paths at <revision>, and reports only what the tree ADDED.
@@ -98,9 +100,11 @@
 # A file carrying `prose-check: ignore-file` as the whole content of a comment line is not read at
 # all, which is how a GENERATED file whose text is copied from elsewhere stays out of the report:
 # its findings name prose that file cannot fix. The file marker is read only as a whole line, so a
-# document describing either marker is still checked.
+# document describing either marker is still checked. A file holding a NUL byte in its first
+# 8 KiB is binary and is not read either: read as source it yields findings off compressed bytes.
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -110,10 +114,24 @@ IGNORE_MARKER = "prose-check: ignore"
 # The file marker is read only as the whole content of a comment line, so a document describing it
 # is still checked. It exists for a GENERATED file whose text is copied from elsewhere -- the
 # cross-reference index reprints every message a component emits -- where a finding names prose
-# this file cannot fix and rewriting the source to satisfy it would change a runtime string.
+# this file cannot fix and rewriting the source to satisfy it would change a runtime string. The
+# comment prefixes are one per file kind the marker is written in, a roff `.\"` among them, since
+# the man page generated from that index carries the same text.
 IGNORE_FILE_MARKER = re.compile(
-    r"^\s*(?:#|//|<!--|;|--)?\s*prose-check: ignore-file\s*(?:-->)?\s*$")
+    r"^\s*(?:#|//|<!--|;|--|\.\\\")?\s*prose-check: ignore-file\s*(?:-->)?\s*$")
 _ignore_file_cache = {}
+# A file is read as text only where its first 8 KiB holds no NUL byte, the sniff `file` and git
+# apply. A tracked image read as source yields findings off compressed bytes.
+BINARY_SNIFF = 8192
+
+
+def is_binary_file(path):
+    """True when `path` holds a NUL byte in its first 8 KiB. An unreadable path is not binary."""
+    try:
+        with open(path, "rb") as handle:
+            return b"\0" in handle.read(BINARY_SNIFF)
+    except OSError:
+        return False
 
 
 def ignored_file(path):
@@ -565,7 +583,7 @@ EXTRA_CHECKS = [
      "cut it"),
 ]
 
-PROSE_WHOLE_FILE = (".md", ".1", ".5", ".8")
+PROSE_WHOLE_FILE = (".md", ".1", ".5", ".7", ".8")
 
 # How to read a path, when `--prose` or `--source` has said: True reads every line, False reads only
 # comments and docstrings, None leaves PROSE_WHOLE_FILE to decide.
@@ -694,7 +712,12 @@ STANDALONE = re.compile(r"^\s*(\||#{1,6}\s|\.[A-Za-z])")
 # file in a tree that carries them, and joined to the block beneath it puts a licence expression
 # inside the header's first sentence.
 MACHINE_TAG = re.compile(r"^\s*(?:#|//|;|--)?\s*SPDX-[\w-]+:\s*\S+\s*$")
-FENCE = re.compile(r"^\s*(```|~~~)")
+# A fence is three or more of one character, and in a document it closes only on the same
+# character at the same length or longer (CommonMark), so a ```` ```bash ```` shown inside a
+# `~~~markdown` block is content rather than a close. A comment's fence is read as a toggle.
+FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+# A blockquote's prefix is read past, so a fence or a table row inside one is the same unit.
+QUOTE_PREFIX = re.compile(r"^\s*(?:>\s?)+")
 # A sentence ends on ONE period. An ellipsis is an elision -- `<arg>...` in a usage line, `..`
 # standing in for the rest of an expression -- and splitting there cuts a literal in half,
 # which costs the tail of it whatever exemption the whole carried.
@@ -736,10 +759,14 @@ def document_prose(number, line, state):
             state["front"] = False
             return None
         return None if FRONTMATTER_TAG.match(line) else line
-    if FENCE.match(line):
-        state["fenced"] = not state["fenced"]
-        return None
+    mark = FENCE.match(QUOTE_PREFIX.sub("", line))
     if state["fenced"]:
+        if (mark and mark.group(1)[0] == state["fenced"][0]
+                and len(mark.group(1)) >= len(state["fenced"])):
+            state["fenced"] = False
+        return None
+    if mark:
+        state["fenced"] = mark.group(1)
         return None
     if not line.strip():
         state.update(blank=True, indented=False)
@@ -1017,8 +1044,14 @@ def kept_findings(revisions):
 
 
 def file_lines(paths):
-    """Yield (path, line number, line) for every line of every readable path."""
+    """Yield (path, line number, line) for every line of every readable text path.
+
+    A binary file yields nothing: it does not hold any prose, and read as source its bytes report
+    as prose.
+    """
     for path in paths:
+        if is_binary_file(path):
+            continue
         try:
             with open(path, errors="ignore") as handle:
                 for number, line in enumerate(handle, 1):
@@ -1192,14 +1225,18 @@ PATH_CHECKS = [
 #                      -- and an edit that splices a sentence into a wrapped paragraph is what
 #                      leaves a line long. The column is code's, so one review culture and one
 #                      set of tools serve both: a one-sentence edit stays a one-line diff, and a
-#                      reader of a tool that does not soft-wrap sees the paragraph. A table row,
-#                      a fenced block, a line holding a URL or one token, and a man page are not
-#                      measured: each is a unit the rule cannot break, and a line is measured
-#                      without a reftag link's generated destination.
+#                      reader of a tool that does not soft-wrap sees the paragraph. The
+#                      frontmatter, a fenced or indented code block, an HTML comment, a table
+#                      row, a heading, a line holding a URL or fewer than three tokens, and a
+#                      man page are not measured: each is a unit no wrap shortens (a comment's
+#                      lines are positional), and a line is measured without
+#                      a reftag link's generated destination. A row or a fence is read past a
+#                      blockquote's `>` prefix.
 #
-# Where a line BREAKS is the formatter's to decide, not this checker's: `tools/fill-comments.sh`
-# fills comment prose with Emacs, so a report per break would prompt a reader about a line a tool
-# rewrites in bulk. What is measured here is the width alone.
+# Where a line BREAKS is the formatter's to decide, not this checker's: `tools/format.sh` fills
+# comment prose with Emacs and a page with its own filler, at the column `--print-width` names, so
+# a report per break would prompt a reader about a line a tool rewrites in bulk. What is measured
+# here is the width alone.
 #
 # `--config-header`: A CONFIG FILE'S HEADER IS READ IN A TERMINAL AND NEVER REFLOWED.
 # An operator's config file -- a seeded header, a shipped template -- is read as-is, so its prose
@@ -1222,7 +1259,8 @@ def header_findings(paths, width):
 
 SOURCE_WIDTH = 120
 # A linter directive is an instruction to a tool, read by that tool, so neither line rule reads it.
-SOURCE_DIRECTIVE = re.compile(r"^\s*#\s*(shellcheck|noqa|pylint:|type:|pragma)\b")
+# So is a SELinux interface's XML documentation (`## <summary>`), read by the policy tools.
+SOURCE_DIRECTIVE = re.compile(r"^\s*#\s*(shellcheck|noqa|pylint:|type:|pragma)\b|^\s*##\s*<")
 
 
 def comment_line_findings(source, width):
@@ -1257,8 +1295,16 @@ AGENT_DOCUMENT_WIDTH = 120
 # document outside it is read by a person and takes DOCUMENT_WIDTH.
 AGENT_DOCUMENT = re.compile(r"(^|/)(CLAUDE|AGENTS)\.md$|\.rule\.md$|(^|/)skills/.*\.md$")
 DOCUMENT_TABLE = re.compile(r"^\s*\|")
-DOCUMENT_FENCE = re.compile(r"^\s*(```|~~~)")
-MAN_PAGE = (".1", ".5", ".8")
+DOCUMENT_HEADING = re.compile(r"^\s*#{1,6}\s")
+HTML_COMMENT_OPEN = re.compile(r"^\s*<!--")
+MAN_PAGE = (".1", ".5", ".7", ".8")
+
+
+def unwrappable(text):
+    """True where no wrap shortens `text`: it holds fewer than three tokens. A break moves whole
+    tokens, so a line of two -- a tie word before a path, a URL, an identifier -- can only become
+    two lines of one, which this rule does not measure either."""
+    return len(text.split()) < 3
 
 
 def document_width(path, width):
@@ -1269,27 +1315,71 @@ def document_width(path, width):
 
 
 def document_line_findings(source, width):
-    """A Markdown line over its reader's column, outside a fence or a table and holding more than
-    one token, with no URL in it. A man page is left to roff. `width` overrides the per-path
-    column, so one `--width` measures every path the run was given."""
-    last_path, fenced = None, False
+    """A Markdown line over its reader's column that a wrap could shorten: the author's prose as
+    `document_prose` reads it, outside the frontmatter as well (a skill's one-line `description`
+    is data a loader reads, and runs to a thousand columns), not a table row or a heading, holding
+    three or more tokens, with no URL in it. A man page is left to roff. `width` overrides the
+    per-path column, so one `--width` measures every path the run was given."""
+    last_path, state, in_comment = None, None, False
     for path, number, line in source:
         if path == MESSAGE or not is_prose_file(path) or path.endswith(MAN_PAGE):
             continue
         if path != last_path:
-            last_path, fenced = path, False
-        if DOCUMENT_FENCE.match(line):
-            fenced = not fenced
+            last_path, state, in_comment = path, document_state(), False
+        if document_prose(number, line, state) is None or state["front"]:
+            continue
+        # An HTML comment's lines are positional -- a file-local variables block is read line by
+        # line -- so a formatter leaves them, and this does not measure them.
+        if in_comment or HTML_COMMENT_OPEN.match(line):
+            in_comment = "-->" not in line
             continue
         stripped = line.rstrip()
-        if (fenced or IGNORE_MARKER in line or DOCUMENT_TABLE.match(stripped)
-                or "://" in stripped or " " not in stripped.strip()):
+        unquoted = QUOTE_PREFIX.sub("", stripped)
+        if (IGNORE_MARKER in line or DOCUMENT_TABLE.match(unquoted)
+                or DOCUMENT_HEADING.match(unquoted) or "://" in stripped):
             continue
         stripped = REFTAG_LINK.sub(r"\1", stripped)
+        if unwrappable(stripped):
+            continue
         column = document_width(path, width)
         if len(stripped) > column:
             yield (path, number, "document-width", f"{len(stripped)}>{column}",
                    f"wrap the line at {column} columns", stripped.strip())
+
+
+# `--print-width`: THE FORMATTER ASKS THE CHECKER FOR THE COLUMN.
+# One line per path, `path<TAB>column<TAB>kind`, so a formatter dispatches on the kind and fills at
+# the column without holding a copy of the rule this file resolves. `-` is the column where no
+# line of the file is measured. The kinds, in the order they are decided:
+#
+#   missing    the path cannot be read; the run exits 1
+#   binary     a NUL byte in the first 8 KiB, so the file is not read
+#   generated  the ignore-file marker on a comment line, so the file is not read
+#   header     under `--config-header`: every line, at HEADER_WIDTH
+#   man        a man page: left to roff
+#   document   a page read whole, at the column its READER takes
+#   source     comments and docstrings, at SOURCE_WIDTH
+#
+# `--width` overrides the column of every measured kind, as it does for the checks; `--prose` and
+# `--source` decide between the last two, as they do for the reading.
+PRINT_WIDTH_KINDS = ("missing", "binary", "generated", "header", "man", "document", "source")
+
+
+def width_of(path, width, header):
+    """(column or None, kind) for `path`: the column `--wrap` or `--config-header` measures it at."""
+    if not os.path.isfile(path):
+        return None, "missing"
+    if is_binary_file(path):
+        return None, "binary"
+    if ignored_file(path):
+        return None, "generated"
+    if header:
+        return (HEADER_WIDTH if width is None else width), "header"
+    if path.endswith(MAN_PAGE) and is_prose_file(path):
+        return None, "man"
+    if is_prose_file(path):
+        return document_width(path, width), "document"
+    return (SOURCE_WIDTH if width is None else width), "source"
 
 
 def findings(source, checks, path_checks=()):
@@ -1344,6 +1434,10 @@ def main():
     parser.add_argument("--config-header", action="store_true",
                         help="read the paths as config-file headers: a line over --width "
                              "columns")
+    parser.add_argument("--print-width", action="store_true",
+                        help="print `path<TAB>column<TAB>kind` per path instead of checking it: "
+                             "the column --wrap (or --config-header) measures it at, `-` where "
+                             f"no line is measured; the kinds are {', '.join(PRINT_WIDTH_KINDS)}")
     parser.add_argument("--path-roots", metavar="ROOTS", default=",".join(PATH_ROOTS),
                         help="comma-separated roots a bare-path finding may begin with "
                              f"(default: {','.join(PATH_ROOTS)})")
@@ -1381,6 +1475,16 @@ def main():
         parser.error("give exactly one of --staged, --message FILE, or one or more paths")
     if args.new is not None and not args.paths:
         parser.error("--new REVISION reads one or more paths")
+
+    if args.print_width:
+        if not args.paths:
+            parser.error("--print-width reads one or more paths")
+        missing = 0
+        for path in args.paths:
+            column, kind = width_of(path, args.width, args.config_header)
+            missing += kind == "missing"
+            print(f"{path}\t{'-' if column is None else column}\t{kind}")
+        return 1 if missing else 0
 
     if args.config_header:
         if not args.paths:

@@ -310,7 +310,29 @@ Emacs-driven formatter for the comment wrap rule, over one fixture carrying ever
 must fill or leave alone — a long paragraph filled inside the column with no line ending on a tie
 word (the checker's `--wrap` mode is the oracle), and an aligned table, a linter directive, a
 commented default, a shebang and a code line each back byte-identical — and asserts a second run
-leaves the file as the first left it. Skipped without Emacs.
+leaves the file as the first left it, and that `--lines` fills the paragraph it names alone.
+Skipped without Emacs.
+`format.sh` pins the front door over both fillers (`tools/format.sh`): every file in a fixture
+repository goes to the filler for the kind the checker names, at the column it names — a page at
+80, a router at 120, a source comment at 120, a header under `src/etc/` at 72 — while a man page
+and a binary file are reported as skipped and left as they were, since the failure it exists to
+prevent is the comment filler pointed at a page. The scope rule is pinned from both sides: with
+no file named, only the paragraph a diff touched is filled and an over-width paragraph the commit
+already held is left, `--files` fills that one too, an untracked file is filled whole either way,
+and `--all` warns first. Its exit status is pinned as the closing report's: 0 when no measured
+line is left over its column, 1 while a line no filler can shorten remains.
+`fill-markdown.sh` is its Markdown counterpart, and pins the filler (`tools/fill-markdown.py`)
+together with the gate that proves a reflow pure (`tools/verify-reflow.py`), because a defect in
+either looks the same from outside: one fixture carries every shape found by rehearsing the
+filler on real pages — frontmatter, a nested fence, a multi-line HTML comment, a list item with
+an indented continuation, a wide marker, an indented code block, a table, a blockquote with an
+alert line, a `prose-check: ignore` line, and a dash after a token wider than the column — and
+the filler must reflow it to a state the gate passes and the checker's `--wrap` finds complete
+(a filler that copies a region through leaves a clean gate and an over-width line), while each
+defect class, injected by hand, must be reported by the gate. It asserts a second run is a no-op
+and that `--lines` confines a reflow to the blocks it names, then reflows every page of the tree
+into its testdir, agent-facing at 120 and human-facing at 80, and holds them to the same three
+properties.
 `references.sh` is a third: it drives `ref-index.py`, the cross-reference tool shipped beside the
 checker, and holds the tree to its committed index. A reference names a reftag and the reftag
 resolves to where the target now is, so what the file asserts is that a target which moved, was

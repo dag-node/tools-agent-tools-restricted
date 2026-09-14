@@ -380,7 +380,8 @@ the artifact sections inside it carry the differences in structure, altitude, an
 - Error messages, notices, and log lines → runtime output: what happened, and what to do.
 
 <!-- Agent-facing prose wraps at 120, the column `prose-check.py` measures this file against and
-     `.dir-locals.el` sets for `.claude/` and the skills. Emacs takes it from the block here.
-Local Variables:
-fill-column: 120
-End: -->
+     `.dir-locals.el` sets for `.claude/` and the skills. Emacs takes it from the block here, whose
+     every line carries the comment prefix and suffix its first line declares. -->
+<!-- Local Variables: -->
+<!-- fill-column: 120 -->
+<!-- End: -->

@@ -258,6 +258,13 @@ silent TEST-PC-99-contract-signature.md \
 # reports every variable and every path in it.
 silent TEST-PC-100-man-page.1 '.TH AI-TOOLS 1' '.B \-\-full' \
     '.I /etc/ai-tools/operator.conf' 'The AI_TOOLS_REQUIRE_SELINUX key is read at launch.'
+# A section-7 page is a man page like the others. The hole this pins is one-directional: an
+# extension the whole-file set lacks is read as SOURCE, and no roff line opens with `#`, so the
+# page reports zero and zero reads as clean. The figure must report (the page is read at all) and
+# the roff markup must not (it is read as a man page, not as a document).
+reports nothing TEST-PC-141-man-page-seven.7 '.TH X 7' 'There is nothing left to check.'
+silent TEST-PC-142-man-page-seven-markup.7 '.TH X 7' '.B \-\-full' \
+    'The AI_TOOLS_REQUIRE_SELINUX key is read at launch.'
 
 # An SPDX identifier is a machine-read tag, and joined to the block beneath it would open
 # the header's first sentence with a licence expression -- which the contract-line rule then
@@ -428,6 +435,19 @@ silent TEST-PC-77-ignore-file.md \
 reports nothing TEST-PC-78-ignore-file-named.md \
     "A file carrying <!-- prose-check: ignore-file --> as a line of its own is not read." \
     "There is nothing left to check."
+# The marker in a roff comment, the form the generated man page carries.
+silent TEST-PC-143-ignore-file-roff.7 '.\" prose-check: ignore-file' '.TH X 7' \
+    'There is nothing left to check.'
+# A binary file is not read: as source it reports figures off compressed bytes. The fixture is
+# a comment line that would report, behind a NUL byte.
+binary="${TESTDIR}/TEST-PC-144-binary.webp"
+printf 'RIFF\0\0WEBP\n# There is nothing left to check.\n' > "${binary}"
+run_check "${binary}"
+if [[ "${RC}" -eq 0 && -z "${OUT}" ]]; then
+    pass "TEST-PC-144-binary: a file holding a NUL byte is not read"
+else
+    fail "TEST-PC-144-binary: expected no finding; rc ${RC}, output: ${OUT}"
+fi
 
 # ── Exit status is the contract a sweep and the pre-commit hook branch on ──────────────────────
 run_check "$(fixture TEST-PC-15-exit-finding.md 'There is nothing left to check.')"
@@ -711,6 +731,37 @@ assert_rc 0 "TEST-PC-44-header-line-end: a line's last word is the formatter's b
 run_check --config-header "$(fixture TEST-PC-47-header-clean.conf '# A session starts only inside' '# a listed directory.' 'KEY=value' '#OTHER=default')"
 assert_rc 0 "TEST-PC-47-header-clean: a wrapped header, a setting and a commented default are silent"
 
+# ── `--print-width`: the column a formatter fills at is the one the checker measures ────────────
+# The formatter does not hold a copy of the width rule; it asks here. So every kind the mode can print is
+# pinned with its column, the two overrides with it, and the one path that fails the run. The
+# tab-separated shape is pinned too: a formatter splits the line on it.
+tab=$'\t'
+width_line() {  # width_line <case id> <expected "column<TAB>kind"> <argument...>: PASS on the line
+    local id="$1" expected="$2"; shift 2
+    run_check --print-width "$@"
+    assert_grep "${tab}${expected}\$" "${OUT}" "${id}: prints ${expected//${tab}/ }"
+}
+width_line TEST-PC-145-width-document "80${tab}document" "$(fixture TEST-PC-145-width-document.md 'A page.')"
+width_line TEST-PC-146-width-rule "120${tab}document" "$(fixture TEST-PC-146-width-rule.rule.md 'A rule.')"
+width_router="${TESTDIR}/width-router"; mkdir -p "${width_router}"; printf 'A router.\n' > "${width_router}/CLAUDE.md"
+width_line TEST-PC-147-width-router "120${tab}document" "${width_router}/CLAUDE.md"
+width_line TEST-PC-148-width-source "120${tab}source" "$(fixture TEST-PC-148-width-source.sh 'x=1')"
+width_line TEST-PC-149-width-header "72${tab}header" --config-header \
+    "$(fixture TEST-PC-149-width-header.conf '# A header.' 'KEY=value')"
+width_line TEST-PC-150-width-man "-${tab}man" "$(fixture TEST-PC-150-width-man.1 '.TH X 1')"
+width_line TEST-PC-151-width-generated "-${tab}generated" \
+    "$(fixture TEST-PC-151-width-generated.md '<!-- prose-check: ignore-file -->' 'Copied text.')"
+width_line TEST-PC-152-width-binary "-${tab}binary" "${binary}"
+width_line TEST-PC-153-width-override-document "60${tab}document" --width 60 \
+    "${TESTDIR}/TEST-PC-145-width-document.md"
+width_line TEST-PC-154-width-override-source "60${tab}source" --width 60 \
+    "${TESTDIR}/TEST-PC-148-width-source.sh"
+width_line TEST-PC-155-width-prose "80${tab}document" --prose "${TESTDIR}/TEST-PC-149-width-header.conf"
+run_check --print-width "${TESTDIR}/TEST-PC-156-absent.md" "${TESTDIR}/TEST-PC-145-width-document.md"
+assert_grep "TEST-PC-156-absent.md${tab}-${tab}missing" "${OUT}" "TEST-PC-156-width-missing: names a path it cannot read"
+assert_rc 1 "TEST-PC-156-width-missing: a missing path fails the run"
+assert_grep "80${tab}document" "${OUT}" "TEST-PC-156-width-missing: the other paths are still printed"
+
 # ── `--wrap`: the line checks on source comments, opt-in ───────────────────────────────────────
 # A source comment is read as written, so under `--wrap` it holds to a 120-column wrap. Opt-in,
 # so the default run stays silent on how a line is wrapped: that is pinned first, since a tree
@@ -740,6 +791,9 @@ run_check --wrap --width 100 "$(fixture TEST-PC-57-comment-width-arg.sh 'x=1' "#
 assert_grep 'comment-width \[112>100\]' "${OUT}" "TEST-PC-57-comment-width-arg: --width lowers the column a source comment is measured against"
 # A linter directive is read by the linter, so neither line rule reads it, however long or however it ends.
 wrapped_silent TEST-PC-58-comment-directive.sh 'x=1' "# shellcheck disable=SC2154  # set by the sourced library, whose contract names the" "y=2"
+# A SELinux interface's XML documentation is read by the policy tools; a plain `##` comment is prose.
+wrapped_silent TEST-PC-171-comment-xml-doc.if "## <summary>$(printf 'w%.0s' $(seq 1 125))</summary>"
+wrapped comment-width TEST-PC-172-comment-double-hash.if "## $(printf 'w%.0s' $(seq 1 125))"
 # A Markdown line holds to the column its READER takes: 80 for a page a person reads, 120 for the
 # router, a `*.rule.md` and a skill, which an agent retrieves by grep. Each column is pinned,
 # since one that read the same for every path would be no policy at all. A table row, a
@@ -753,6 +807,31 @@ wrapped_silent TEST-PC-62-document-width-fence.md '```' "${long_md}" '```' 'Afte
 wrapped_silent TEST-PC-63-document-width-url.md "See https://example.invalid/$(printf 'p%.0s' $(seq 1 100)) for the reference."
 wrapped_silent TEST-PC-64-document-width-token.md "$(printf 'p%.0s' $(seq 1 110))"
 wrapped_silent TEST-PC-65-document-width-man.1 '.TH X 1' "${long_md}"
+# Each unit a wrap cannot shorten, pinned beside the line that MUST still report: a heading; a
+# line of two tokens (a tie word before a path, which the formatter's own rule leaves there),
+# while three is a line a wrap improves; a table row or a fence inside a blockquote, read past
+# the `>`, with the quoted prose after the fence still reporting; an indented code block, while
+# the same indent under a list item is a continuation paragraph; and a fence nested inside a
+# fence of the other character, which a toggle would read as a close.
+wide_token="$(printf 'p%.0s' $(seq 1 90))"
+wrapped_silent TEST-PC-159-document-width-heading.md "# ${long_md}" 'Body.'
+wrapped_silent TEST-PC-160-document-width-two-tokens.md "at ${wide_token}"
+wrapped document-width TEST-PC-161-document-width-three-tokens.md "read at ${wide_token}"
+wrapped_silent TEST-PC-162-document-width-quoted-table.md "> | $(printf 'cell %.0s' $(seq 1 25)) | x |"
+wrapped_silent TEST-PC-163-document-width-quoted-fence.md '> ```' "> ${long_md}" '> ```'
+wrapped document-width TEST-PC-164-document-width-quoted-prose.md '> ```' '> code' '> ```' "> ${long_md}"
+wrapped_silent TEST-PC-165-document-width-indented-code.md 'A command:' '' "    ${long_md}"
+wrapped document-width TEST-PC-166-document-width-list-continuation.md '- An item:' '' "    ${long_md}"
+wrapped_silent TEST-PC-167-document-width-nested-fence.md '~~~markdown' '```bash' "${long_md}" '```' '~~~'
+silent TEST-PC-168-nested-fence-sentence.md '~~~markdown' '```bash' 'There is nothing left to check.' '```' '~~~'
+# An HTML comment's lines are positional (a file-local variables block), so a formatter leaves
+# them and the width rule does not read them; the prose after the close still reports.
+wrapped_silent TEST-PC-169-document-width-comment.md "<!-- ${long_md}" "     ${long_md} -->"
+wrapped document-width TEST-PC-170-document-width-after-comment.md '<!-- a note' '     ends -->' "${long_md}"
+# The frontmatter is data: a skill's one-line `description` runs past any column and no formatter
+# may wrap it. Pinned from both sides, since the fence that closes it is where the body begins.
+wrapped_silent TEST-PC-157-document-width-frontmatter.md '---' "description: ${long_md}" '---' 'Body.'
+wrapped document-width TEST-PC-158-document-width-after-frontmatter.md '---' 'name: x' '---' "${long_md}"
 # The parenthesised part of a label link is generated, so a line is measured without it.
 wrapped_silent TEST-PC-75-document-width-label-link.md \
     "$(printf 'word %.0s' $(seq 1 8))[ref-section-y4v2](../../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-y4v2) ends."

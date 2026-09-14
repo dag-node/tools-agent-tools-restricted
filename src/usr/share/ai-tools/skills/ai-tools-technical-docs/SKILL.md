@@ -3,8 +3,8 @@ name: ai-tools-technical-docs
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the frontmatter name is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 5
-x-ai-tools-updated: 2026-09-13
+x-ai-tools-version: 6
+x-ai-tools-updated: 2026-09-14
 description: >
   Technical writing standard for every software engineering artifact. Use when writing or
   editing README and usage guides, `CLAUDE.md` / `AGENTS.md`, `*.rule.md`, file and module headers,
@@ -1084,7 +1084,7 @@ python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --config-hea
 ```
 
 **Where a line breaks is the formatter's, not the writer's.** Write the prose
-and let `tools/fill-comments.sh` wrap it; these checks hold the width alone.
+and let `tools/format.sh` wrap it; these checks hold the width alone.
 
 **A file's extension decides how it is read, and `--prose` / `--source` override that.** A `.md`
 page or a man page contributes every line; anything else contributes its comments and docstrings.
