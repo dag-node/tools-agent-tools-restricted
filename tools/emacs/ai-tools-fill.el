@@ -42,6 +42,31 @@ A word closing a sentence is not a tie; trailing punctuation around the word is 
 
 (add-hook 'fill-nobreak-predicate #'ai-tools-no-break-after-tie)
 
+(defconst ai-tools-fill--code-span "\\(`+\\)[^`]*?\\1"
+  "An inline code span: a backtick run, content without a backtick, and a matching run.
+`tools/fill-markdown.py' reads the checker's `BACKTICK_SPAN' for the same rule, which elisp
+cannot read, so this states it again -- narrower in one way, since a span whose content holds a
+backtick run of another length is not matched.")
+
+(defun ai-tools-no-break-in-code-span ()
+  "Non-nil when point stands inside a code span, so the filler does not break there.
+A span holds a literal a reader searches for whole -- a command line, an owner and mode, a flag
+with its operand -- and `grep' finds one only while its span is on one line. A span wider than
+the column runs the line over instead, since a wider line is still a line."
+  (save-match-data
+    (let ((break (point))
+          (inside nil))
+      (save-excursion
+        (goto-char (line-beginning-position))
+        (let ((limit (line-end-position)))
+          (while (and (not inside)
+                      (re-search-forward ai-tools-fill--code-span limit t))
+            (when (and (< (match-beginning 0) break) (> (match-end 0) break))
+              (setq inside t)))))
+      inside)))
+
+(add-hook 'fill-nobreak-predicate #'ai-tools-no-break-in-code-span)
+
 (defconst ai-tools-fill--prose-line "^\\([ \t]*\\(?:#\\|//\\)\\) \\([^ \t].*\\)$"
   "A comment line the batch filler may fill: prefix, one space, text.")
 

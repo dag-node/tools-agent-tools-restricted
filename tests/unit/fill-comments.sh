@@ -67,6 +67,8 @@ INNER
 # preformatted output whose line breaks are content, long enough that a filler would rewrap it
 # </pre>
 s=7
+# Spans stay whole: a sentence long enough to reach the column where `ai-tools --status` is named, then a span wider than the column, `sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`, and the tie rule beside a span, so that no line ends on the `750 root:root` mode of the pin.
+t=8
 EOF
 cp "${f}" "${TESTDIR}/before.sh"
 
@@ -170,6 +172,22 @@ if [[ "${after}" == "# A banner is followed by prose at once,"* ]] && (( $(wc -l
     pass "prose after a banner is filled on its own, without absorbing the banner"
 else
     fail "the paragraph after the banner was not filled as expected: $(printf '%s' "${after}" | head -3)"
+fi
+
+# A break never falls inside a code span: the literal a span holds is what `git grep` finds, and
+# only on one line. The rule is the Markdown filler's, which takes the span's definition from the
+# checker; this filler states it again, so it is asserted here on its own output.
+span_whole() {  # span_whole <literal>: PASS when the filled fixture holds the literal on one line
+    if [[ "$(grep -c -F -- "$1" "${f}")" -ge 1 ]]; then pass "code span whole on one line: $1"
+    else fail "code span split across lines: $1"; fi
+}
+span_whole 'ai-tools --status'
+span_whole '750 root:root'
+# shellcheck disable=SC2016
+if grep -qxF -- '# `sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`,' "${f}"; then
+    pass "a span wider than the column runs the line over, on a line of its own"
+else
+    fail "a span wider than the column was split: $(grep -n 'selinux groups' "${f}")"
 fi
 
 # (3) Idempotent: a second run leaves the file as the first left it.
