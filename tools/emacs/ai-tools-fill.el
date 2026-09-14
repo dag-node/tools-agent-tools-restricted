@@ -54,6 +54,20 @@ a linter directive, an SPDX header, a checker marker (`ref-index: ignore-file', 
 ignore'), a commented default, a lone token (a path, a URL, a name on a line of its own), and a
 rule or banner line. A marker joined into the paragraph above it stops marking.")
 
+(defconst ai-tools-fill--joined-sentence "\\([.!?][]\"')}]*\\)  \\([^ ]\\)"
+  "A sentence end carrying two spaces: the punctuation with its closers, and the next word.")
+
+(defun ai-tools-fill--single-space (beg end)
+  "Leave one space after each sentence end between BEG and END.
+`fill-delete-newlines' adds a space after a sentence that ended a line, and the squeeze pass that
+would take it back is the one NOSQUEEZE turns off. NOSQUEEZE is what keeps an aligned fragment's
+own column spacing -- a doc comment's `$1 path   file to check' -- so the fill keeps it and the
+space a join added is taken back here, where a column of spaces is not touched."
+  (save-excursion
+    (goto-char beg)
+    (while (re-search-forward ai-tools-fill--joined-sentence end t)
+      (replace-match "\\1 \\2" t))))
+
 (defun ai-tools-fill--run-in-ranges (beg end ranges)
   "Non-nil when the lines from BEG to END (exclusive) meet a range in RANGES.
 RANGES is a list of (FIRST . LAST) line-number pairs, inclusive; nil means every run."
@@ -90,6 +104,7 @@ filled. See the file header for what is left alone."
                 (let ((end (point-marker))
                       (fill-prefix (concat prefix " ")))
                   (fill-region beg end nil t)
+                  (ai-tools-fill--single-space beg end)
                   (goto-char end)
                   (setq filled (1+ filled)))))
           (forward-line 1))))

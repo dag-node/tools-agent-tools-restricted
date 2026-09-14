@@ -45,6 +45,9 @@ y=2   # a trailing comment is code to the filler
 # A paragraph that a checker marker follows at once, which the filler must leave on its own line.
 # ref-index: ignore-file
 z=3
+# A sentence that ends here.
+# Another sentence follows it.
+w=4
 EOF
 cp "${f}" "${TESTDIR}/before.sh"
 
@@ -89,6 +92,15 @@ elif ! awk -v ties="${ties}" '
     fail "the filler left a line ending on a tie word: $(printf '%s' "${para}" | head -3)"
 else
     pass "the filler ends no line on a tie word (its own fill-nobreak-predicate)"
+fi
+
+# A sentence that ended a line joins the next with ONE space. Emacs adds a second one at such a
+# join and only the squeeze pass takes it back, so a fill that skips that pass doubles the space
+# on every sentence a paragraph carries -- silently, and on every line the formatter touches.
+if grep -qxF '# A sentence that ends here. Another sentence follows it.' "${f}"; then
+    pass "a sentence that ended a line joins the next with one space"
+else
+    fail "the join doubled the sentence space: $(grep -n 'ends here' "${f}")"
 fi
 
 # (2) Every other shape comes back byte-identical.
