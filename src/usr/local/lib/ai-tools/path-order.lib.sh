@@ -51,12 +51,12 @@ readonly AI_TOOLS_PATH_ORDER_GUARD='[[ -f /usr/local/lib/ai-tools/path-order.sh 
 #   winner  "<launcher>=<path>" -- where that launcher resolves for the account. The path is empty when this host
 #           does not install a wrapper of that name, and "?" when the reading could not be taken.
 #
-#   wired | winners                                  | verdict  | status
-#   ------+-------------------------------------------+----------+-------
-#     -   | any winner outside /usr/local/bin         | shadowed |   1
-#     -   | no shadow, any "?"                         | unknown  |   2
-#    yes  | every winner is the wrapper or empty       | wired    |   0
-#    no   | every winner is the wrapper or empty       | clear    |   0
+#   wired |                  winners                  | verdict  | status
+#   ------+-------------------------------------------+----------+--------
+#     -   | any winner outside /usr/local/bin         | shadowed |      1
+#     -   | no shadow, any "?"                        | unknown  |      2
+#   yes   | every winner is the wrapper or empty      | wired    |      0
+#   no    | every winner is the wrapper or empty      | clear    |      0
 #
 # `shadowed` outranks `unknown`, since one launcher read as shadowed states what that account gets whatever another
 # launcher's probe did. An empty winner leaves the verdict alone: this host does not install a wrapper of that name,

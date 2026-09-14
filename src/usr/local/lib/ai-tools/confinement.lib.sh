@@ -35,16 +35,16 @@ _AI_TOOLS_CONFINEMENT_LIB_LOADED=1
 #            LAUNCH exits into refusals. Default "no" (a 5-arg caller) leaves intentional
 #            DAC-only hosts untouched.
 #
-#   enf | mod | want    | have    | mgrdom          | req | verdict              | result
-#   ----+-----+---------+---------+-----------------+-----+----------------------+-------
-#   no  |  -  |    -    |    -    |        -        | no  | ok                   | launch
+#   enf | mod |  want   |  have   |     mgrdom      | req |        verdict        | result
+#   ----+-----+---------+---------+-----------------+-----+-----------------------+--------
+#   no  |  -  |    -    |    -    |        -        | no  | ok                    | launch
 #   no  |  -  |    -    |    -    |        -        | yes | require-not-enforcing | REFUSE
-#   yes |  -  | exec_t  | exec_t  | init/unconf/""  |  -  | ok                   | launch
-#   yes |  -  | exec_t  | exec_t  | other           |  -  | manager-domain       | REFUSE
-#   yes |  -  | exec_t  | !exec_t |        -        |  -  | mislabel             | REFUSE
-#   yes | yes | !exec_t |    -    |        -        |  -  | unverifiable         | REFUSE
-#   yes | no  | !exec_t |    -    |        -        | no  | ok                   | launch
-#   yes | no  | !exec_t |    -    |        -        | yes | require-inactive     | REFUSE
+#   yes |  -  | exec_t  | exec_t  | init/unconf/""  |  -  | ok                    | launch
+#   yes |  -  | exec_t  | exec_t  | other           |  -  | manager-domain        | REFUSE
+#   yes |  -  | exec_t  | !exec_t |        -        |  -  | mislabel              | REFUSE
+#   yes | yes | !exec_t |    -    |        -        |  -  | unverifiable          | REFUSE
+#   yes | no  | !exec_t |    -    |        -        | no  | ok                    | launch
+#   yes | no  | !exec_t |    -    |        -        | yes | require-inactive      | REFUSE
 #   (a "-" cell is don't-care; "" is empty/unreadable)
 #
 # Fail-closed once confinement is EXPECTED (enforcing with the module installed). What each

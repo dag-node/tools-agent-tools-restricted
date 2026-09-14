@@ -23,8 +23,8 @@ require {
 systemd_exec_systemctl(ai_tools_t)
 allow ai_tools_t systemd_systemctl_exec_t:file map;
 
-# Read unit files so `systemctl status` / `systemctl list-units` / `systemctl
-# show` can resolve unit descriptions and states without a full D-Bus round-trip.
+# Read unit files so `systemctl status` / `systemctl list-units` / `systemctl show` can resolve unit descriptions
+# and states without a full D-Bus round-trip.
 systemd_read_unit_files(ai_tools_t)
 
 # Execute journalctl staying in ai_tools_t.

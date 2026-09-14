@@ -53,19 +53,16 @@
 # boundary ai-tools-chown enforces -- chgrp and chmod act on the inode, which a second name
 # can reach from outside the tree, so acting would change a path the walk never authorized.
 #
-# This is the one refusal here that leaves MORE access than acting would: the inode keeps its
-# group, so after the project is deregistered the agent still holds those files through it. That
-# is accepted rather than resolved, because the alternative is worse -- the second name is outside
-# the tree and this pass does not authorize a change out there, and for the common case (`git clone
-# --local`, which hardlinks .git/objects to the source repo) acting would silently rewrite the
-# ORIGIN's objects. What the guard owes the operator instead is disclosure: refusals are counted,
-# reported to the terminal with what they leave behind, and handed the `find -links +1` that lists
-# them, never folded into a silent skip count.
-# Secret-named and '!'-excluded paths are skipped (a locked secret
-# stays where it is), and heavy/transient trees are skipped -- the same rules as setgid/
-# setfacl, via the shared libraries. .git is the exception: the main walk skips it like the
-# other heavy trees, but a dedicated one-shot pass reverts it (it is the tree a claim groups,
-# and optionally normalizes, for the agent), so the unclaim fully revokes the agent's access
+# This is the one refusal here that leaves MORE access than acting would: the inode keeps its group,
+# so after the project is deregistered the agent still holds those files through it. That is accepted rather than
+# resolved, because the alternative is worse -- the second name is outside the tree and this pass does not authorize
+# a change out there, and for the common case (`git clone --local`, which hardlinks .git/objects to the source repo)
+# acting would silently rewrite the ORIGIN's objects. What the guard owes the operator instead is disclosure: refusals
+# are counted, reported to the terminal with what they leave behind, and handed the `find -links +1` that lists them,
+# never folded into a silent skip count. Secret-named and '!'-excluded paths are skipped (a locked secret stays
+# where it is), and heavy/transient trees are skipped -- the same rules as setgid/ setfacl, via the shared libraries.
+# .git is the exception: the main walk skips it like the other heavy trees, but a dedicated one-shot pass reverts it (it
+# is the tree a claim groups, and optionally normalizes, for the agent), so the unclaim fully revokes the agent's access
 # to git history.
 #
 # NOT a round trip. The reversal normalizes; it does not restore. `setfacl -b` clears every

@@ -80,8 +80,8 @@ _PRIO = {'error': '<3>', 'warning': '<4>', 'notice': '<5>', 'info': '<6>', 'debu
 # the priority in the spelling its own protocol defines.
 _PRIO_NUMBER = {'error': '3', 'warning': '4', 'notice': '5', 'info': '6', 'debug': '7'}
 
-# The identifier each journald sink files this daemon's lines under: `journalctl -t
-# ai-tools-handback -p warning` selects them whichever sink wrote them.
+# The identifier each journald sink files this daemon's lines under: `journalctl -t ai-tools-handback -p warning`
+# selects them whichever sink wrote them.
 _IDENTIFIER = 'ai-tools-handback'
 
 # journald's native datagram socket. AI_TOOLS_JOURNAL_SOCKET moves it for the unit test,

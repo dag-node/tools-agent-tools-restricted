@@ -53,9 +53,8 @@ allow ai_tools_t self:process getsession;
 # /proc/sys/net/* symlink reads during runtime startup.
 kernel_read_network_state_symlinks(ai_tools_t)
 
-# TCP connect to a generic (unreserved) port on loopback: the xUnit/VSTest runner and the
-# test host it spawns talk over a TCP socket bound to an ephemeral port, so the runner
-# (ai_tools_t) needs to connect(2) that port -- otherwise it returns EACCES and `dotnet
-# test` fails. Same benign IPC class as the unix-socket connectto; the sandbox is
-# only reaching its own child, not a new host surface.
+# TCP connect to a generic (unreserved) port on loopback: the xUnit/VSTest runner and the test host it spawns talk
+# over a TCP socket bound to an ephemeral port, so the runner (ai_tools_t) needs to connect(2) that port -- otherwise it
+# returns EACCES and `dotnet test` fails. Same benign IPC class as the unix-socket connectto; the sandbox is only
+# reaching its own child, not a new host surface.
 corenet_tcp_connect_generic_port(ai_tools_t)

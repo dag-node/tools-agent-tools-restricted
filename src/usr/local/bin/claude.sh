@@ -260,13 +260,12 @@ while IFS= read -r entry || [[ -n "${entry}" ]]; do
     fi
 done < "${ALLOWLIST}"
 
-# Exclusions are checked first and override allows (mirrors ai-tools-chown). Two shapes reach
-# this, and they are DIFFERENT situations for the operator standing here, so they are reported
-# apart: a line naming this very directory is a project someone PARKED -- `ai-tools
-# --project-disable`, or the same edit by hand -- and the way back is one command, while a line
-# covering it from an ancestor (a parent, or a glob) is a subtree deliberately withheld from a project,
-# where the remedy is to edit that line rather than to re-enable anything. Telling an operator
-# their parked project is merely "excluded" leaves them to work out which of the two they are in.
+# Exclusions are checked first and override allows (mirrors ai-tools-chown). Two shapes reach this, and they are
+# DIFFERENT situations for the operator standing here, so they are reported apart: a line naming this very directory is
+# a project someone PARKED -- `ai-tools --project-disable`, or the same edit by hand -- and the way back is one command,
+# while a line covering it from an ancestor (a parent, or a glob) is a subtree deliberately withheld from a project,
+# where the remedy is to edit that line rather than to re-enable anything. Telling an operator their parked project is
+# merely "excluded" leaves them to work out which of the two they are in.
 if [[ "${#excluded[@]}" -gt 0 ]]; then
     for pat in "${excluded[@]}"; do
         pat="${pat%/}"                         # normalise: strip trailing slash
