@@ -791,6 +791,9 @@ run_check --wrap --width 100 "$(fixture TEST-PC-57-comment-width-arg.sh 'x=1' "#
 assert_grep 'comment-width \[112>100\]' "${OUT}" "TEST-PC-57-comment-width-arg: --width lowers the column a source comment is measured against"
 # A linter directive is read by the linter, so neither line rule reads it, however long or however it ends.
 wrapped_silent TEST-PC-58-comment-directive.sh 'x=1' "# shellcheck disable=SC2154  # set by the sourced library, whose contract names the" "y=2"
+# A SELinux interface's XML documentation is read by the policy tools; a plain `##` comment is prose.
+wrapped_silent TEST-PC-171-comment-xml-doc.if "## <summary>$(printf 'w%.0s' $(seq 1 125))</summary>"
+wrapped comment-width TEST-PC-172-comment-double-hash.if "## $(printf 'w%.0s' $(seq 1 125))"
 # A Markdown line holds to the column its READER takes: 80 for a page a person reads, 120 for the
 # router, a `*.rule.md` and a skill, which an agent retrieves by grep. Each column is pinned,
 # since one that read the same for every path would be no policy at all. A table row, a

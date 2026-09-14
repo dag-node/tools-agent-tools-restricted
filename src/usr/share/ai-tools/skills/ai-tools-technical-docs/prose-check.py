@@ -1233,9 +1233,10 @@ PATH_CHECKS = [
 #                      a reftag link's generated destination. A row or a fence is read past a
 #                      blockquote's `>` prefix.
 #
-# Where a line BREAKS is the formatter's to decide, not this checker's: `tools/fill-comments.sh`
-# fills comment prose with Emacs, so a report per break would prompt a reader about a line a tool
-# rewrites in bulk. What is measured here is the width alone.
+# Where a line BREAKS is the formatter's to decide, not this checker's: `tools/format.sh` fills
+# comment prose with Emacs and a page with its own filler, at the column `--print-width` names, so
+# a report per break would prompt a reader about a line a tool rewrites in bulk. What is measured
+# here is the width alone.
 #
 # `--config-header`: A CONFIG FILE'S HEADER IS READ IN A TERMINAL AND NEVER REFLOWED.
 # An operator's config file -- a seeded header, a shipped template -- is read as-is, so its prose
@@ -1258,7 +1259,8 @@ def header_findings(paths, width):
 
 SOURCE_WIDTH = 120
 # A linter directive is an instruction to a tool, read by that tool, so neither line rule reads it.
-SOURCE_DIRECTIVE = re.compile(r"^\s*#\s*(shellcheck|noqa|pylint:|type:|pragma)\b")
+# So is a SELinux interface's XML documentation (`## <summary>`), read by the policy tools.
+SOURCE_DIRECTIVE = re.compile(r"^\s*#\s*(shellcheck|noqa|pylint:|type:|pragma)\b|^\s*##\s*<")
 
 
 def comment_line_findings(source, width):
