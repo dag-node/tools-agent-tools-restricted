@@ -205,4 +205,29 @@ else
 fi
 rm -f "${repo}/bad.md"
 
+# (8) The formatter is among the files it fills. Bash reads a script a command at a time, so one
+# rewritten under a running bash is read on from the old offset, into the middle of a line, and
+# the run dies of a command that is not one; each shell tool is one function called on its last
+# line, which bash parses whole before running. The fixture takes a copy of the tools and the
+# checker at the layout they resolve each other by, with a long comment line put at the top of
+# each shell tool so that the fill changes the file under the bash running it.
+if ! command -v emacs >/dev/null 2>&1; then
+    skip "the formatter among the files it fills" "emacs not installed"
+else
+    mkdir -p "${repo}/src/usr/share/ai-tools/skills/ai-tools-technical-docs"
+    cp "${PC}" "${repo}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/"
+    cp -r "${ROOT}/tools" "${repo}/tools"
+    rm -rf "${repo}/tools/__pycache__"
+    sed -i "2i # ${long}" "${repo}/tools/format.sh" "${repo}/tools/fill-comments.sh"
+    git -C "${repo}" add -A && git -C "${repo}" -c commit.gpgsign=false commit -qm tools
+    rc=0; OUT="$(cd "${repo}" && bash tools/format.sh tools/format.sh tools/fill-comments.sh 2>&1)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -q '2 file(s) read, 0 over-width line(s) left' <<<"${OUT}" \
+            && ! grep -q 'command not found' <<<"${OUT}" \
+            && ! git -C "${repo}" diff --quiet -- tools/format.sh tools/fill-comments.sh; then
+        pass "the formatter fills its own shell tools and completes"
+    else
+        fail "the run over its own tools did not complete (rc ${rc}): $(tail -3 <<<"${OUT}")"
+    fi
+fi
+
 finish
