@@ -53,6 +53,10 @@ w=4
 # $1 path  $2 existed(1/0)  $3 kept(1/0)  $4 detail (optional parenthetical)
 # ai_tools_example <arg>   -- an aligned signature line whose columns are a table, not a sentence
 q=5
+# on  | verdict
+# yes | ok
+# no  | refuse and say why, in a line long enough that a filler would otherwise rewrap it here
+r=6
 EOF
 cp "${f}" "${TESTDIR}/before.sh"
 
@@ -129,6 +133,11 @@ same "a checker marker line"  '# ref-index: ignore-file'
 same "an args: contract line"  '# args:  <user>'
 same "a positional contract line" '# $1 path  $2 existed'
 same "an aligned signature line" '# ai_tools_example <arg>'
+# A table's rows are prose-shaped, and its columns are carried by a vertical rule the next row
+# repeats at the same column. Its cells are two spaces apart at most, so the three-space column
+# rule does not reach it and the rule reading the vertical is what leaves it as written.
+same "a comment table's heading row" '# on  | verdict'
+same "a comment table's widest row"  '# no  | refuse and say why'
 if (( $(grep -c 'A paragraph that a doc comment' "${f}") == 1 )) \
         && grep -q '^# A paragraph that a doc comment' "${f}" \
         && ! grep -q "contract lines follow, long enough to need rewrapping at the column." "${f}"; then

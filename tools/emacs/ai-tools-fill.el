@@ -13,7 +13,10 @@
 ;;
 ;; The batch filler is conservative on purpose. It fills a run of consecutive lines that carry the
 ;; same comment prefix followed by one space and text, and leaves every other shape as it finds
-;; it: a run holding a line with extra indentation (an aligned table, an example command), a
+;; it: a run drawing a table or a diagram, read as two of its lines carrying a vertical rule at
+;; the same column -- the reading `tools/align-tables.py' states, and the tool that puts such a
+;; table in order -- a run holding a line with extra indentation (an aligned table, an example
+;; command), a
 ;; linter directive, an SPDX header, a commented default (`#KEY=value'), a shebang, a lone token
 ;; on a line of its own (a path, a URL), a rule or banner line, and a lone `#' separator.
 ;; A docstring is not a comment and is not read.
@@ -59,6 +62,17 @@ a column of three or more spaces. The last two are code rather than prose -- a s
 parameter table, an example rule -- and a fill reads them as a sentence and wraps the columns
 away. A marker joined into the paragraph above it stops marking.")
 
+(defconst ai-tools-fill--vertical-rule "[|│┃║]"
+  "A character drawing a vertical rule in an ASCII diagram or a comment table.")
+
+(defun ai-tools-fill--vertical-columns (line)
+  "The columns LINE carries a vertical rule at."
+  (let ((columns nil) (start 0))
+    (while (string-match ai-tools-fill--vertical-rule line start)
+      (push (match-beginning 0) columns)
+      (setq start (match-end 0)))
+    columns))
+
 (defconst ai-tools-fill--joined-sentence "\\([.!?][]\"')}]*\\)  \\([^ ]\\)"
   "A sentence end carrying two spaces: the punctuation with its closers, and the next word.")
 
@@ -98,14 +112,20 @@ filled. See the file header for what is left alone."
             (let* ((prefix (match-string 1))
                    (beg (point))
                    (plain t)
+                   (drawn nil)
+                   (verticals nil)
                    (run-re (concat "^" (regexp-quote prefix) " "))
                    (line-re (concat "^" (regexp-quote prefix) " [^ \t]")))
               (while (and (not (eobp))
                           (looking-at run-re)
                           (not (looking-at ai-tools-fill--skip-line)))
                 (unless (looking-at line-re) (setq plain nil))
+                (let ((columns (ai-tools-fill--vertical-columns
+                                (buffer-substring-no-properties (point) (line-end-position)))))
+                  (when (seq-intersection columns verticals) (setq drawn t))
+                  (setq verticals columns))
                 (forward-line 1))
-              (when (and plain (ai-tools-fill--run-in-ranges beg (point) ranges))
+              (when (and plain (not drawn) (ai-tools-fill--run-in-ranges beg (point) ranges))
                 (let ((end (point-marker))
                       (fill-prefix (concat prefix " ")))
                   (fill-region beg end nil t)
