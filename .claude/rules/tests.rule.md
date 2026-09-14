@@ -284,7 +284,11 @@ defect class, injected by hand, must be reported by the gate. The one class the 
 span leaves the token stream unchanged — is asserted on the filler's output instead: each span whole on one line, a span
 wider than the column run over on its own. It asserts a second run is a no-op and that `--lines` confines a reflow
 to the blocks it names, then reflows every page of the tree into its testdir, agent-facing at 120 and human-facing
-at 80, and holds them to the same three properties. `references.sh` is a third: it drives `ref-index.py`,
+at 80, and holds them to the same three properties. `align-tables.sh` pins the third formatter,
+`tools/align-tables.py`, over a fixture whose widest cell overflows its column: each placement rule the tool states,
+and the two properties a caller depends on — a paragraph whose lines happen to carry a pipe is left as written, since
+a table is two lines carrying a separator at the same column, and a second fix is a no-op with `check` then silent,
+so `check` and `fix` run in either order. `references.sh` is a third: it drives `ref-index.py`,
 the cross-reference tool shipped beside the checker, and holds the tree to its committed index. A reference names
 a reftag and the reftag resolves to where the target now is, so what the file asserts is that a target which moved, was
 renamed, or was deleted is reported and never silently pointed at its old place: through the repository wrapper
