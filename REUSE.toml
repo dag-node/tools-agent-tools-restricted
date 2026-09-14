@@ -15,27 +15,18 @@ precedence = "closest"
 SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
 SPDX-License-Identifier = "AGPL-3.0-only"
 
-# The SELinux policy sources carry their own GPL-2.0-or-later headers; this entry covers what sits
-# beside them without one -- the build Makefile and the draft -- and any module a local build leaves
-# there (gitignored, never tracked: the RPM build compiles its own). A compiled module is GPL because
-# it embeds macro expansions from the SELinux reference policy -- the reason the policy ships as its
-# own ai-tools-selinux subpackage rather than inside the AGPL base.
+# The SELinux policy sources and what sits beside them without a header of its own. Why the policy
+# is GPL rather than AGPL, and why it ships as its own subpackage, is in confinement.rule.md.
 [[annotations]]
 path = "selinux/policy/**"
 precedence = "closest"
 SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
 SPDX-License-Identifier = "GPL-2.0-or-later"
 
-# assets/ holds generated images rather than authored work -- OpenAI's GPT-5.6 produced the README
-# banner and Fable 5.1 optimized it -- so no human authorship stands behind the file, and the
-# copyright the catch-all above would assert over it is doubtful in US and EU law alike. CC0 is
-# correct either way: a public-domain dedication where no rights subsist, and a permissive grant
-# through its Public License Fallback where some do. The maintainer is named as the affirmer because
-# OpenAI's terms assign him "all right, title and interest, if any" in the output, which is what a
-# dedication waives. Nothing under assets/ ships: the tarball's CONTENT list and the spec both leave
-# it out, so this covers the repository alone.
+# Assets intentionally released under CC0-1.0. The maintainer applies CC0 to any copyright and
+# related rights he holds in them. Assets held under other terms stay outside this directory.
 [[annotations]]
-path = "assets/**"
+path = "assets/cc0/**"
 precedence = "closest"
 SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
 SPDX-License-Identifier = "CC0-1.0"

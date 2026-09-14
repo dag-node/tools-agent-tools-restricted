@@ -7,7 +7,7 @@
 **Confine coding agents to a locked-down system account — so they never inherit your keys, sudo rights, or secrets.**
 
 <p align="center">
-  <img src="assets/images/banner-dino-playground.webp" width="100%"
+  <img src="assets/cc0/banner-dino-playground.webp" width="100%"
        alt="Tools Agent Tools Restricted :: Run coding agents sandboxed — under their own locked-down system account.">
 </p>
 
