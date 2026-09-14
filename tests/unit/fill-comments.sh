@@ -48,6 +48,11 @@ z=3
 # A sentence that ends here.
 # Another sentence follows it.
 w=4
+# A paragraph that a doc comment's contract lines follow, long enough to need rewrapping at the column.
+# args:  <user> <systemctl args...>
+# $1 path  $2 existed(1/0)  $3 kept(1/0)  $4 detail (optional parenthetical)
+# ai_tools_example <arg>   -- an aligned signature line whose columns are a table, not a sentence
+q=5
 EOF
 cp "${f}" "${TESTDIR}/before.sh"
 
@@ -119,6 +124,18 @@ same "a section banner"       '# ── A section banner'
 same "a code line with a trailing comment" 'y=2   #'
 # A checker marker joined into the paragraph it follows stops marking, so it ends the run before it.
 same "a checker marker line"  '# ref-index: ignore-file'
+# A contract line and an aligned signature are code: their columns are read as written, and a
+# fill that takes one for a sentence wraps the columns away and leaves the fragment mid-paragraph.
+same "an args: contract line"  '# args:  <user>'
+same "a positional contract line" '# $1 path  $2 existed'
+same "an aligned signature line" '# ai_tools_example <arg>'
+if (( $(grep -c 'A paragraph that a doc comment' "${f}") == 1 )) \
+        && grep -q '^# A paragraph that a doc comment' "${f}" \
+        && ! grep -q "contract lines follow, long enough to need rewrapping at the column." "${f}"; then
+    pass "the paragraph before a contract line is filled, and ends there"
+else
+    fail "the run did not end at the contract line: $(grep -n -A2 'A paragraph that a doc' "${f}")"
+fi
 # The prose after the banner is filled on its own: it still opens on the line after the banner,
 # it now spans several lines, and no line of it runs past the column.
 after="$(awk '/A section banner/ {on=1; next} /^y=2/ {on=0} on' "${f}")"

@@ -48,11 +48,16 @@ A word closing a sentence is not a tie; trailing punctuation around the word is 
   (concat "^[ \t]*\\(?:#\\|//\\)[ \t]*"
           "\\(?:!\\|shellcheck\\b\\|noqa\\b\\|pylint:\\|type:\\|pragma\\b\\|SPDX-"
           "\\|ref-index:\\|prose-check:"
-          "\\|[A-Za-z_][A-Za-z0-9_]*=\\|[^ \t\n]+$\\|.*[-=_*─━]\\{3,\\}\\)")
+          "\\|args:\\|stdout:\\|stderr:\\|returns?:\\|\\$[0-9]"
+          "\\|[A-Za-z_][A-Za-z0-9_]*=\\|[^ \t\n]+$\\|.*[^ ] \\{3,\\}[^ ]"
+          "\\|.*[-=_*─━]\\{3,\\}\\)")
   "A comment line the batch filler leaves alone, and that ends the run before it: a shebang,
 a linter directive, an SPDX header, a checker marker (`ref-index: ignore-file', `prose-check:
-ignore'), a commented default, a lone token (a path, a URL, a name on a line of its own), and a
-rule or banner line. A marker joined into the paragraph above it stops marking.")
+ignore'), a commented default, a lone token (a path, a URL, a name on a line of its own), a rule
+or banner line, a doc comment's contract line (`args:', `stdout:', `$1 path'), and a line holding
+a column of three or more spaces. The last two are code rather than prose -- a signature, a
+parameter table, an example rule -- and a fill reads them as a sentence and wraps the columns
+away. A marker joined into the paragraph above it stops marking.")
 
 (defconst ai-tools-fill--joined-sentence "\\([.!?][]\"')}]*\\)  \\([^ ]\\)"
   "A sentence end carrying two spaces: the punctuation with its closers, and the next word.")
