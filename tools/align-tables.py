@@ -48,7 +48,9 @@ COMMENT = re.compile(r"^(\s*(?:#+|//+|;;+))( *)(.*)$")
 RULE = re.compile(r"^[-=+\s]+$")
 NUMBER = re.compile(r"[-+]?\d+(?:\.\d+)?%?$")
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+# A heredoc operator with its delimiter: `<<` or `<<-`, not the `<<<` of a here-string and not
+# the `<<` inside one, then an optional quote around a word.
+HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
 def parts(line: str) -> tuple[str, str, str] | None:
@@ -118,6 +120,9 @@ def heredoc_body(lines: list[str]) -> set[int]:
     Such a line is data the file writes -- a seeded config header, a fixture -- so a comment
     marker in it belongs to that data, and a table in it is the data's own.
     `tools/emacs/ai-tools-fill.el` reads the same lines as data, through the mode's syntax.
+    An operator on a comment line, and one whose delimiter no later line closes, open no body:
+    the second is a `<<` in a string or an arithmetic shift, and reading it as a heredoc would
+    hand the rest of the file to the data.
     """
     inside, delimiter, body = False, None, set()
     for index, line in enumerate(lines):
@@ -129,7 +134,9 @@ def heredoc_body(lines: list[str]) -> set[int]:
             continue
         match = HEREDOC.search(line)
         if match and not line.lstrip().startswith("#"):
-            inside, delimiter = True, match.group(2)
+            closed = any(later.strip() == match.group(2) for later in lines[index + 1:])
+            if closed:
+                inside, delimiter = True, match.group(2)
     return body
 
 

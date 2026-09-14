@@ -9,8 +9,10 @@
 # cell's own alignment are pinned with it -- the heading centred over its column, a column of
 # numbers right, and a column padded wider than its content keeping that padding -- so a clean
 # `check` says a `fix` would leave every line as it is. Two negatives close it: a paragraph whose
-# lines happen to carry a pipe is left as written, and a second run is a no-op. A file that is not
-# plain text is refused through the reader every formatter shares, reported and left as it was.
+# lines happen to carry a pipe is left as written, and a second run is a no-op. A table inside a
+# heredoc body is the data's and is left, while a here-string, an arithmetic shift and a `<<` in
+# a string open no heredoc, so a table after one is still read. A file that is not plain text is
+# refused through the reader every formatter shares, reported and left as it was.
 # A repo dev tool, not a deployed artifact, so the test runs from the checkout.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -136,6 +138,26 @@ if out="$(python3 "${TOOL}" check "${f}" 2>&1)" && [[ -z "${out}" ]]; then
     pass "check is silent on the fixed file and exits 0"
 else
     fail "check still reports the fixed file: ${out}"
+fi
+
+# (7) A here-string, an arithmetic shift and a `<<` inside a string open no heredoc. A reader that
+# took one for an opener would hand the rest of the file to the data, and leave every table after
+# it as written without a word.
+hs="${TESTDIR}/herestring.sh"
+cat > "${hs}" <<'EOF'
+#!/usr/bin/env bash
+read -ra parts <<< "abc"
+x=$((1<<3))
+echo "a<<b"
+#   on  | verdict
+#   yes | ok
+#   no   | refuse
+EOF
+if ! python3 "${TOOL}" check "${hs}" >/dev/null 2>&1 && python3 "${TOOL}" fix "${hs}" >/dev/null \
+        && grep -qxF '#   no  | refuse' "${hs}"; then
+    pass "a table after a here-string, a shift and a quoted << is still read"
+else
+    fail "the table after the here-string was left as written: $(tail -3 "${hs}")"
 fi
 
 # (8) A file that is not plain text is refused: reported with the reason, left byte-identical,
