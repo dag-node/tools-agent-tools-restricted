@@ -4,14 +4,12 @@
 ;; The formatter for the wrap rule the writing standard states: a comment is read as written, so
 ;; each file kind wraps at its own column, and no comment line ends on an article, a conjunction,
 ;; a preposition, or a wh-word. Where a line BREAKS is this file's rule alone -- `prose-check.py'
-;; measures the width and reads no line end. The columns are `fill-column' per mode, from
-;; .dir-locals.el at the repository root: 72 for a config file, 120 for a source file and for the
-;; pages an agent retrieves, 80 for a page a person reads. Emacs's paragraph filler already knows
-;; every language's comment syntax, so the rule is a `fill-nobreak-predicate' hook, and the tie
-;; words are the set `msg.lib.sh' wraps a runtime message with.
+;; measures the width and does not read where a line ends. The column is `fill-column', which
+;; `.dir-locals.el' at the repository root sets per mode. Emacs's paragraph filler already knows
+;; every language's comment syntax, so the rule is a `fill-nobreak-predicate' hook.
 ;;
 ;; Interactive use: load this file, then `M-q' on a comment block. Batch use over whole files:
-;; `bash tools/fill-comments.sh [--width N] <file>...', which calls `ai-tools-fill-comments-file'.
+;; `bash tools/fill-comments.sh <file>...', which calls `ai-tools-fill-comments-file'.
 ;;
 ;; The batch filler is conservative on purpose. It fills a run of consecutive lines that carry the
 ;; same comment prefix followed by one space and text, and leaves every other shape as it finds
@@ -27,8 +25,8 @@
     "along" "across" "around" "near" "off" "out" "up" "down" "via" "per" "as"
     "what" "which" "who" "whom" "whose" "that" "when" "where" "why" "how")
   "The words a line does not end on: they tie to the word after them.
-Mirrors `_AI_TOOLS_MSG_TIES' in msg.lib.sh, the runtime's own copy. tools/fill-markdown.py reads
-this list at run time, so the two formatters share it.")
+Mirrors `_AI_TOOLS_MSG_TIES' in `msg.lib.sh', the runtime's own copy. `tools/fill-markdown.py'
+reads this list at run time, so the two formatters share it.")
 
 (defun ai-tools-no-break-after-tie ()
   "Non-nil when the word before point is a tie word, so the filler does not break here.

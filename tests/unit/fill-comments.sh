@@ -3,14 +3,14 @@
 # tests/unit/fill-comments.sh
 # Unit test for tools/fill-comments.sh, the Emacs-driven formatter for the comment wrap rule
 # (tools/emacs/ai-tools-fill.el). A formatter that rewrites source files is judged on the lines it
-# leaves as they were as much as on the lines it fills, so one fixture carries every shape: a long prose
-# paragraph, which must come back inside the column and with no line ending on a tie word -- the
-# filler's own rule, which no checker reads; an
-# aligned comment table, a linter directive, a commented default, a shebang and a code line,
-# each of which must come back byte-identical; and a second run must leave the file as the first
-# left it. Where the
-# checker is present its `--wrap` mode is the oracle for the filled paragraph. A repo dev tool,
-# not a deployed artifact, so the test runs from the checkout; skipped without Emacs.
+# leaves as they were as much as on the lines it fills, so one fixture carries every shape: a long
+# prose paragraph, which must come back inside the column and with no line ending on a tie word --
+# the filler's own rule, which no checker reads; and an aligned comment table, a linter directive,
+# a commented default, a shebang and a code line, each of which must come back byte-identical.
+# A second run must leave the file as the first left it, and `--lines` must confine the fill to a
+# paragraph it names. Where the checker is present its `--wrap` mode is the oracle for the filled
+# paragraph. A repo dev tool, not a deployed artifact, so the test runs from the checkout; skipped
+# without Emacs.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 

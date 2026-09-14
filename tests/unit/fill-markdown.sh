@@ -2,17 +2,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/fill-markdown.sh
 # Unit test for tools/fill-markdown.py, the Markdown filler, and tools/verify-reflow.py, the gate
-# that proves a reflow changed line breaks alone. The two are pinned together because a defect in
-# the gate and a defect in the filler look the same from outside: a filler that damages a shape
+# that proves a reflow changed line breaks alone. The filler and the gate are pinned in one file
+# because a defect in either looks the same from outside: a filler that damages a shape
 # the gate does not read passes, and a filler that silently copies a region through leaves a
 # clean gate and an unformatted file. So one fixture carries every shape found by rehearsing the
 # filler on real pages, and each is driven from both ends -- the filler must reflow the fixture
 # to a state the gate passes and the checker's `--wrap` finds complete, and each defect class,
 # injected by hand, must be reported by the gate. A second run must leave the file as the first
 # left it, and `--lines` must confine a reflow to the blocks it names. The one class the gate
-# cannot see, a break inside a code span, is asserted on the filler's output. Its last section reflows
-# the tree's own pages into the testdir and holds them to the same three properties, skipped
-# outside a checkout. A repo dev tool, not a deployed artifact, so it runs from the checkout.
+# cannot see -- a split code span leaves the token stream unchanged -- is asserted on the filler's
+# output instead. Its last section reflows the tree's own pages into the testdir and holds them to
+# the same three properties, skipped outside a checkout. A repo dev tool, not a deployed artifact,
+# so it runs from the checkout.
 # The fixture holds a reftag as text, so the tree-wide reference check does not read this file
 # (the marker on the next line).
 # ref-index: ignore-file
@@ -230,10 +231,9 @@ else
 fi
 
 # (6) A break never falls inside a code span: the literal a span holds is what `git grep` finds,
-# and only on one line. The gate cannot see this class -- a split span is a token stream
-# unchanged -- so the filler is held to it directly: each span whole on one line, the one wider
-# than the column run over on a line of its own, the one closing on the column left there, and
-# the one closing past it moved down whole.
+# and only on one line. The gate cannot see this class, so the filler is held to it directly:
+# each span whole on one line, the one wider than the column run over on a line of its own, the
+# one closing on the column left there, and the one closing past it moved down whole.
 reflow
 span_whole() {  # span_whole <literal>: PASS when the reflowed fixture holds the literal on one line
     if [[ "$(grep -c -F -- "$1" "${f}")" -ge 1 ]]; then pass "code span whole on one line: $1"

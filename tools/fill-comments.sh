@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# `tools/fill-comments.sh [--width N] [--lines A-B,C-D] <file>...`
-# Reflow the plain comment paragraphs of each file in place, at the column the repository's
-# .dir-locals.el gives the file's mode (72 for a config file, 120 for a source file) or at
-# `--width`, so no comment line ends on a tie word and none runs past the column. `--lines`
-# names 1-based inclusive line ranges and fills only a paragraph meeting one. It is the comment
-# half of the formatter tools/format.sh fronts, which passes both; the rule and what is left
-# untouched are in tools/emacs/ai-tools-fill.el. Needs Emacs. Run it as
-# `bash tools/fill-comments.sh`.
+# `bash tools/fill-comments.sh [--width N] [--lines A-B,C-D] <file>...`
+# Reflow the plain comment paragraphs of each file in place at `--width`, or at the column
+# `.dir-locals.el` gives the file's mode: each paragraph is wrapped at that column, and no line
+# ends on a tie word (the `fill-nobreak-predicate` hook in `tools/emacs/ai-tools-fill.el`, which
+# also states what is left as written). `--lines` names 1-based inclusive line ranges and fills
+# only a paragraph meeting one. It is the comment half of the formatter `tools/format.sh` fronts,
+# which passes the column and the ranges. Needs Emacs.
 set -euo pipefail
 
 usage() {

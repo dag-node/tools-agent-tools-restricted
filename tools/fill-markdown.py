@@ -14,11 +14,11 @@ front door fills only what a diff touched.
 Filled, with its structure kept: a paragraph under its own leading indent, a list item and its
 continuation lines under a hanging indent the width of the marker, and a blockquote paragraph
 under its `> ` prefix. Three rules decide where a break falls. Two are shared with the comment
-filler: no line ends on a tie word (the list is read from tools/emacs/ai-tools-fill.el, its one
+filler: no line ends on a tie word (the list is read from `tools/emacs/ai-tools-fill.el`, its one
 home), and no line begins with a token that opens a block, since a wrap that moves a fence, a
 pipe, a heading mark or a list marker to a line start invents the block. The third is shared with
 the checker: no break falls inside an inline code span (the span is the checker's
-`BACKTICK_SPAN`, read from prose-check.py, its one home), since a span holds a literal -- a
+`BACKTICK_SPAN`, read from `prose-check.py`, its one home), since a span holds a literal -- a
 command line, an owner and mode, a flag with its operand -- that `grep` finds only on one line;
 a span wider than the column runs the line over on its own, as the checker's width rule expects.
 
@@ -146,7 +146,7 @@ def wrap(words, first, cont, width):
 
 
 def boundary(line):
-    """Whether `line` cannot continue a paragraph run: blank, or a block of its own."""
+    """Whether `line` stands outside a paragraph run: blank, or a block of its own."""
     return (not line.strip() or bool(ITEM.match(line)) or bool(BLOCK.match(line))
             or bool(FENCE_MARK.match(line)) or bool(COMMENT_OPEN.match(line))
             or bool(QUOTE.match(line)) or IGNORE_MARKER in line or bool(HARD_BREAK.search(line))

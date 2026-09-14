@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# tools/format.sh -- the front door of the width policy: `bash tools/format.sh [--files | --all]
-# [--width N] [<file>...]`. It asks the checker for each file's column and kind
-# (`prose-check.py --print-width`) and dispatches to the filler for that kind -- tools/fill-comments.sh
-# for a source comment or a config header, tools/fill-markdown.py for a page -- so the formatter
-# does not hold a copy of the rule the checker resolves; a kind it has no filler for is reported
-# and left.
+# tools/format.sh -- the front door of the width policy.
+# `bash tools/format.sh [--files | --all] [--width N] [<file>...]`
+# It asks the checker for each file's column and kind (`prose-check.py --print-width`) and
+# dispatches to the filler for that kind -- `tools/fill-comments.sh` for a source comment or a
+# config header, `tools/fill-markdown.py` for a page -- so the formatter does not hold a copy of
+# the rule the checker resolves; a kind it has no filler for is reported and left.
 # It closes by re-running the checker's width modes over what it touched, so what it could not fix
 # is reported, and exits 1 while any of that remains.
 #
@@ -16,7 +16,7 @@
 # repository of the current directory; the checker and the fillers are this repository's, so a
 # sibling checkout is formatted with the same tools.
 #
-# A `.conf` under src/etc/ is a config header, read at 72 through `--config-header`: that is this
+# A `.conf` under `src/etc/` is a config header, read at 72 through `--config-header`: that is this
 # repository's layout, the one fact the checker cannot resolve from a path alone. The sudoers
 # drop-in beside them is not one: its rule lines are read by sudo, not wrapped.
 set -euo pipefail

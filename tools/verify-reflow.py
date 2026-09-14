@@ -14,11 +14,11 @@ of hunk by hunk:
 
 1. The PROTECTED LINES, line for line: YAML frontmatter, a fenced block with its fences, an HTML
    comment from a `<!--` at a line start to its `-->`, a table row, an alert line, an indented
-   code block, and a line carrying `prose-check: ignore`. A line break inside one is
-   intentional, so a difference is a defect in
-   the filler. The fence rule is CommonMark's (a fence closes on its own character at its own
-   length or longer) rather than a toggle, since a toggle reads the ```` ```bash ```` inside a
-   `~~~markdown` block as a close and agrees with a filler that made the same mistake.
+   code block, and a line carrying `prose-check: ignore`. A line break inside one is intentional,
+   so a difference is a defect in the filler. The fence rule is CommonMark's (a fence closes on
+   its own character at its own length or longer) rather than a toggle, since a toggle reads
+   the ```` ```bash ```` inside a `~~~markdown` block as a close and agrees with a filler that
+   made the same mistake.
 2. The TOKEN STREAM: every line split on whitespace, so a changed, dropped, added, or reordered
    word is reported with its position.
 3. The BLOCK SIGNATURES: the leading whitespace, quote prefix and list marker of the first line
