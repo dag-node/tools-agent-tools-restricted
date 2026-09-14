@@ -8,12 +8,14 @@
 #
 #     python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
 #
-# Five modes. `--staged` reads the added lines of the git index, which is what a pre-commit hook
+# Six modes. `--staged` reads the added lines of the git index, which is what a pre-commit hook
 # runs; `--message` reads a commit message, an artifact this standard covers like any other; named
 # paths are read whole, for a sweep; `--kept` compares the two sides of a diff, and enforces a
 # different rule -- see the `--kept` heading; `--config-header` reads a config file's header
 # as fixed-width text -- see the `--config-header` heading. `--staged` sees only the added half of a sentence
 # an edit split, so a hit it reports alone is worth re-checking against the whole file.
+# `--print-width` does not check: it prints the column each path is measured at, for a formatter
+# to fill at -- see the `--print-width` heading.
 #
 # `--new <revision>` filters the named-path mode: it runs the selected checks
 # over the working tree and over the same paths at <revision>, and reports only what the tree ADDED.
@@ -102,6 +104,7 @@
 # 8 KiB is binary and is not read either: read as source it yields findings off compressed bytes.
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -1313,6 +1316,41 @@ def document_line_findings(source, width):
                    f"wrap the line at {column} columns", stripped.strip())
 
 
+# `--print-width`: THE FORMATTER ASKS THE CHECKER FOR THE COLUMN.
+# One line per path, `path<TAB>column<TAB>kind`, so a formatter dispatches on the kind and fills at
+# the column without holding a copy of the rule this file resolves. `-` is the column where no
+# line of the file is measured. The kinds, in the order they are decided:
+#
+#   missing    the path cannot be read; the run exits 1
+#   binary     a NUL byte in the first 8 KiB, so the file is not read
+#   generated  the ignore-file marker on a comment line, so the file is not read
+#   header     under `--config-header`: every line, at HEADER_WIDTH
+#   man        a man page: left to roff
+#   document   a page read whole, at the column its READER takes
+#   source     comments and docstrings, at SOURCE_WIDTH
+#
+# `--width` overrides the column of every measured kind, as it does for the checks; `--prose` and
+# `--source` decide between the last two, as they do for the reading.
+PRINT_WIDTH_KINDS = ("missing", "binary", "generated", "header", "man", "document", "source")
+
+
+def width_of(path, width, header):
+    """(column or None, kind) for `path`: the column `--wrap` or `--config-header` measures it at."""
+    if not os.path.isfile(path):
+        return None, "missing"
+    if is_binary_file(path):
+        return None, "binary"
+    if ignored_file(path):
+        return None, "generated"
+    if header:
+        return (HEADER_WIDTH if width is None else width), "header"
+    if path.endswith(MAN_PAGE) and is_prose_file(path):
+        return None, "man"
+    if is_prose_file(path):
+        return document_width(path, width), "document"
+    return (SOURCE_WIDTH if width is None else width), "source"
+
+
 def findings(source, checks, path_checks=()):
     for path, number, sentence in sentences(source):
         subject = author_prose(path, sentence)
@@ -1365,6 +1403,10 @@ def main():
     parser.add_argument("--config-header", action="store_true",
                         help="read the paths as config-file headers: a line over --width "
                              "columns")
+    parser.add_argument("--print-width", action="store_true",
+                        help="print `path<TAB>column<TAB>kind` per path instead of checking it: "
+                             "the column --wrap (or --config-header) measures it at, `-` where "
+                             f"no line is measured; the kinds are {', '.join(PRINT_WIDTH_KINDS)}")
     parser.add_argument("--path-roots", metavar="ROOTS", default=",".join(PATH_ROOTS),
                         help="comma-separated roots a bare-path finding may begin with "
                              f"(default: {','.join(PATH_ROOTS)})")
@@ -1402,6 +1444,16 @@ def main():
         parser.error("give exactly one of --staged, --message FILE, or one or more paths")
     if args.new is not None and not args.paths:
         parser.error("--new REVISION reads one or more paths")
+
+    if args.print_width:
+        if not args.paths:
+            parser.error("--print-width reads one or more paths")
+        missing = 0
+        for path in args.paths:
+            column, kind = width_of(path, args.width, args.config_header)
+            missing += kind == "missing"
+            print(f"{path}\t{'-' if column is None else column}\t{kind}")
+        return 1 if missing else 0
 
     if args.config_header:
         if not args.paths:

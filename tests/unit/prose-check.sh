@@ -731,6 +731,37 @@ assert_rc 0 "TEST-PC-44-header-line-end: a line's last word is the formatter's b
 run_check --config-header "$(fixture TEST-PC-47-header-clean.conf '# A session starts only inside' '# a listed directory.' 'KEY=value' '#OTHER=default')"
 assert_rc 0 "TEST-PC-47-header-clean: a wrapped header, a setting and a commented default are silent"
 
+# ── `--print-width`: the column a formatter fills at is the one the checker measures ────────────
+# The formatter does not hold a copy of the width rule; it asks here. So every kind the mode can print is
+# pinned with its column, the two overrides with it, and the one path that fails the run. The
+# tab-separated shape is pinned too: a formatter splits the line on it.
+tab=$'\t'
+width_line() {  # width_line <case id> <expected "column<TAB>kind"> <argument...>: PASS on the line
+    local id="$1" expected="$2"; shift 2
+    run_check --print-width "$@"
+    assert_grep "${tab}${expected}\$" "${OUT}" "${id}: prints ${expected//${tab}/ }"
+}
+width_line TEST-PC-145-width-document "80${tab}document" "$(fixture TEST-PC-145-width-document.md 'A page.')"
+width_line TEST-PC-146-width-rule "120${tab}document" "$(fixture TEST-PC-146-width-rule.rule.md 'A rule.')"
+width_router="${TESTDIR}/width-router"; mkdir -p "${width_router}"; printf 'A router.\n' > "${width_router}/CLAUDE.md"
+width_line TEST-PC-147-width-router "120${tab}document" "${width_router}/CLAUDE.md"
+width_line TEST-PC-148-width-source "120${tab}source" "$(fixture TEST-PC-148-width-source.sh 'x=1')"
+width_line TEST-PC-149-width-header "72${tab}header" --config-header \
+    "$(fixture TEST-PC-149-width-header.conf '# A header.' 'KEY=value')"
+width_line TEST-PC-150-width-man "-${tab}man" "$(fixture TEST-PC-150-width-man.1 '.TH X 1')"
+width_line TEST-PC-151-width-generated "-${tab}generated" \
+    "$(fixture TEST-PC-151-width-generated.md '<!-- prose-check: ignore-file -->' 'Copied text.')"
+width_line TEST-PC-152-width-binary "-${tab}binary" "${binary}"
+width_line TEST-PC-153-width-override-document "60${tab}document" --width 60 \
+    "${TESTDIR}/TEST-PC-145-width-document.md"
+width_line TEST-PC-154-width-override-source "60${tab}source" --width 60 \
+    "${TESTDIR}/TEST-PC-148-width-source.sh"
+width_line TEST-PC-155-width-prose "80${tab}document" --prose "${TESTDIR}/TEST-PC-149-width-header.conf"
+run_check --print-width "${TESTDIR}/TEST-PC-156-absent.md" "${TESTDIR}/TEST-PC-145-width-document.md"
+assert_grep "TEST-PC-156-absent.md${tab}-${tab}missing" "${OUT}" "TEST-PC-156-width-missing: names a path it cannot read"
+assert_rc 1 "TEST-PC-156-width-missing: a missing path fails the run"
+assert_grep "80${tab}document" "${OUT}" "TEST-PC-156-width-missing: the other paths are still printed"
+
 # ── `--wrap`: the line checks on source comments, opt-in ───────────────────────────────────────
 # A source comment is read as written, so under `--wrap` it holds to a 120-column wrap. Opt-in,
 # so the default run stays silent on how a line is wrapped: that is pinned first, since a tree
