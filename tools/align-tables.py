@@ -25,7 +25,8 @@ neither the rule line nor the comment prefix; `table.el` reads a fully bordered 
 table needs a leading `|`. Hence this.
 
 Left alone: a Markdown table (GFM renders it, and this tree writes it compact), a line inside a
-fenced block, and a run of one table line, since one row has no second to line up with.
+fenced block or a shell heredoc body, and a run of one table line, since one row has no second to
+line up with.
 `tools/emacs/ai-tools-fill.el` leaves a comment table as written, so the filler and this tool do
 not fight over one.
 """
@@ -103,6 +104,30 @@ def render(cell, width, how, first, rule):
     return placed + " " if first else " " + placed + " "
 
 
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def heredoc_body(lines):
+    """The indices of `lines` that sit inside a shell heredoc body.
+
+    Such a line is data the file writes -- a seeded config header, a fixture -- so a comment
+    marker in it belongs to that data, and a table in it is the data's own.
+    `tools/emacs/ai-tools-fill.el` reads the same lines as data, through the mode's syntax.
+    """
+    inside, delimiter, body = False, None, set()
+    for index, line in enumerate(lines):
+        if inside:
+            if line.strip() == delimiter:
+                inside = False
+            else:
+                body.add(index)
+            continue
+        match = HEREDOC.search(line)
+        if match and not line.lstrip().startswith("#"):
+            inside, delimiter = True, match.group(2)
+    return body
+
+
 def separator_columns(line):
     """The columns `line` carries a `|` or a `+` at."""
     return {index for index, char in enumerate(line) if char in "|+"}
@@ -122,7 +147,13 @@ def is_table(rows):
 def table_blocks(lines):
     """Yield (start, end) for each run of two or more comment lines carrying a table."""
     start, marker, fence = None, None, None
+    data = heredoc_body(lines)
     for index, line in enumerate(lines + [""]):
+        if index in data:
+            if start is not None and index - start > 1 and is_table(lines[start:index]):
+                yield start, index
+            start, marker = None, None
+            continue
         mark = FENCE.match(line)
         if fence is not None:
             if mark and mark.group(1)[0] == fence[0] and len(mark.group(1)) >= len(fence):

@@ -41,6 +41,11 @@ cat > "${f}" <<'EOF'
 # The order and the `|| true` are load-bearing: a bare `printf | systemd-cat` pipeline whose
 # systemd-cat fails aborts the whole updater, and aborts it silently.
 x=1
+cat > /dev/null <<'INNER'
+#   on   | verdict
+#   yes | ok
+#   no  | refuse: this row's separator sits one column left of the heading's, as the data has it
+INNER
 EOF
 cp "${f}" "${TESTDIR}/before.sh"
 
@@ -107,6 +112,14 @@ if diff <(grep -A1 'load-bearing' "${TESTDIR}/before.sh") <(grep -A1 'load-beari
     pass "a paragraph whose lines carry a pipe is left as written"
 else
     fail "prose with a pipe was read as a table: $(grep -A1 'load-bearing' "${f}")"
+fi
+
+# A table inside a heredoc body is the data's, not the file's: this test's own fixture is written
+# from one, so a tool that read it would rewrite what the suite drives.
+if diff <(grep -A2 'on  | verdict' "${TESTDIR}/before.sh") <(grep -A2 'on  | verdict' "${f}") >/dev/null; then
+    pass "a misaligned table inside a heredoc body is left as written"
+else
+    fail "a heredoc body's table was rewritten: $(grep -A2 'on  | verdict' "${f}")"
 fi
 
 # (6) Idempotent, and `check` is then silent and exits 0 -- a clean check says a fix would leave
