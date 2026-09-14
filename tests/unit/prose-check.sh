@@ -804,6 +804,31 @@ wrapped_silent TEST-PC-62-document-width-fence.md '```' "${long_md}" '```' 'Afte
 wrapped_silent TEST-PC-63-document-width-url.md "See https://example.invalid/$(printf 'p%.0s' $(seq 1 100)) for the reference."
 wrapped_silent TEST-PC-64-document-width-token.md "$(printf 'p%.0s' $(seq 1 110))"
 wrapped_silent TEST-PC-65-document-width-man.1 '.TH X 1' "${long_md}"
+# Each unit a wrap cannot shorten, pinned beside the line that MUST still report: a heading; a
+# line of two tokens (a tie word before a path, which the formatter's own rule leaves there),
+# while three is a line a wrap improves; a table row or a fence inside a blockquote, read past
+# the `>`, with the quoted prose after the fence still reporting; an indented code block, while
+# the same indent under a list item is a continuation paragraph; and a fence nested inside a
+# fence of the other character, which a toggle would read as a close.
+wide_token="$(printf 'p%.0s' $(seq 1 90))"
+wrapped_silent TEST-PC-159-document-width-heading.md "# ${long_md}" 'Body.'
+wrapped_silent TEST-PC-160-document-width-two-tokens.md "at ${wide_token}"
+wrapped document-width TEST-PC-161-document-width-three-tokens.md "read at ${wide_token}"
+wrapped_silent TEST-PC-162-document-width-quoted-table.md "> | $(printf 'cell %.0s' $(seq 1 25)) | x |"
+wrapped_silent TEST-PC-163-document-width-quoted-fence.md '> ```' "> ${long_md}" '> ```'
+wrapped document-width TEST-PC-164-document-width-quoted-prose.md '> ```' '> code' '> ```' "> ${long_md}"
+wrapped_silent TEST-PC-165-document-width-indented-code.md 'A command:' '' "    ${long_md}"
+wrapped document-width TEST-PC-166-document-width-list-continuation.md '- An item:' '' "    ${long_md}"
+wrapped_silent TEST-PC-167-document-width-nested-fence.md '~~~markdown' '```bash' "${long_md}" '```' '~~~'
+silent TEST-PC-168-nested-fence-sentence.md '~~~markdown' '```bash' 'There is nothing left to check.' '```' '~~~'
+# An HTML comment's lines are positional (a file-local variables block), so a formatter leaves
+# them and the width rule does not read them; the prose after the close still reports.
+wrapped_silent TEST-PC-169-document-width-comment.md "<!-- ${long_md}" "     ${long_md} -->"
+wrapped document-width TEST-PC-170-document-width-after-comment.md '<!-- a note' '     ends -->' "${long_md}"
+# The frontmatter is data: a skill's one-line `description` runs past any column and no formatter
+# may wrap it. Pinned from both sides, since the fence that closes it is where the body begins.
+wrapped_silent TEST-PC-157-document-width-frontmatter.md '---' "description: ${long_md}" '---' 'Body.'
+wrapped document-width TEST-PC-158-document-width-after-frontmatter.md '---' 'name: x' '---' "${long_md}"
 # The parenthesised part of a label link is generated, so a line is measured without it.
 wrapped_silent TEST-PC-75-document-width-label-link.md \
     "$(printf 'word %.0s' $(seq 1 8))[ref-section-y4v2](../../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-y4v2) ends."

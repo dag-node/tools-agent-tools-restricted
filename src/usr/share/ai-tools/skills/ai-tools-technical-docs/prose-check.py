@@ -712,7 +712,12 @@ STANDALONE = re.compile(r"^\s*(\||#{1,6}\s|\.[A-Za-z])")
 # file in a tree that carries them, and joined to the block beneath it puts a licence expression
 # inside the header's first sentence.
 MACHINE_TAG = re.compile(r"^\s*(?:#|//|;|--)?\s*SPDX-[\w-]+:\s*\S+\s*$")
-FENCE = re.compile(r"^\s*(```|~~~)")
+# A fence is three or more of one character, and in a document it closes only on the same
+# character at the same length or longer (CommonMark), so a ```` ```bash ```` shown inside a
+# `~~~markdown` block is content rather than a close. A comment's fence is read as a toggle.
+FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+# A blockquote's prefix is read past, so a fence or a table row inside one is the same unit.
+QUOTE_PREFIX = re.compile(r"^\s*(?:>\s?)+")
 # A sentence ends on ONE period. An ellipsis is an elision -- `<arg>...` in a usage line, `..`
 # standing in for the rest of an expression -- and splitting there cuts a literal in half,
 # which costs the tail of it whatever exemption the whole carried.
@@ -754,10 +759,14 @@ def document_prose(number, line, state):
             state["front"] = False
             return None
         return None if FRONTMATTER_TAG.match(line) else line
-    if FENCE.match(line):
-        state["fenced"] = not state["fenced"]
-        return None
+    mark = FENCE.match(QUOTE_PREFIX.sub("", line))
     if state["fenced"]:
+        if (mark and mark.group(1)[0] == state["fenced"][0]
+                and len(mark.group(1)) >= len(state["fenced"])):
+            state["fenced"] = False
+        return None
+    if mark:
+        state["fenced"] = mark.group(1)
         return None
     if not line.strip():
         state.update(blank=True, indented=False)
@@ -1216,10 +1225,13 @@ PATH_CHECKS = [
 #                      -- and an edit that splices a sentence into a wrapped paragraph is what
 #                      leaves a line long. The column is code's, so one review culture and one
 #                      set of tools serve both: a one-sentence edit stays a one-line diff, and a
-#                      reader of a tool that does not soft-wrap sees the paragraph. A table row,
-#                      a fenced block, a line holding a URL or one token, and a man page are not
-#                      measured: each is a unit the rule cannot break, and a line is measured
-#                      without a reftag link's generated destination.
+#                      reader of a tool that does not soft-wrap sees the paragraph. The
+#                      frontmatter, a fenced or indented code block, an HTML comment, a table
+#                      row, a heading, a line holding a URL or fewer than three tokens, and a
+#                      man page are not measured: each is a unit no wrap shortens (a comment's
+#                      lines are positional), and a line is measured without
+#                      a reftag link's generated destination. A row or a fence is read past a
+#                      blockquote's `>` prefix.
 #
 # Where a line BREAKS is the formatter's to decide, not this checker's: `tools/fill-comments.sh`
 # fills comment prose with Emacs, so a report per break would prompt a reader about a line a tool
@@ -1281,8 +1293,16 @@ AGENT_DOCUMENT_WIDTH = 120
 # document outside it is read by a person and takes DOCUMENT_WIDTH.
 AGENT_DOCUMENT = re.compile(r"(^|/)(CLAUDE|AGENTS)\.md$|\.rule\.md$|(^|/)skills/.*\.md$")
 DOCUMENT_TABLE = re.compile(r"^\s*\|")
-DOCUMENT_FENCE = re.compile(r"^\s*(```|~~~)")
+DOCUMENT_HEADING = re.compile(r"^\s*#{1,6}\s")
+HTML_COMMENT_OPEN = re.compile(r"^\s*<!--")
 MAN_PAGE = (".1", ".5", ".7", ".8")
+
+
+def unwrappable(text):
+    """True where no wrap shortens `text`: it holds fewer than three tokens. A break moves whole
+    tokens, so a line of two -- a tie word before a path, a URL, an identifier -- can only become
+    two lines of one, which this rule does not measure either."""
+    return len(text.split()) < 3
 
 
 def document_width(path, width):
@@ -1293,23 +1313,32 @@ def document_width(path, width):
 
 
 def document_line_findings(source, width):
-    """A Markdown line over its reader's column, outside a fence or a table and holding more than
-    one token, with no URL in it. A man page is left to roff. `width` overrides the per-path
-    column, so one `--width` measures every path the run was given."""
-    last_path, fenced = None, False
+    """A Markdown line over its reader's column that a wrap could shorten: the author's prose as
+    `document_prose` reads it, outside the frontmatter as well (a skill's one-line `description`
+    is data a loader reads, and runs to a thousand columns), not a table row or a heading, holding
+    three or more tokens, with no URL in it. A man page is left to roff. `width` overrides the
+    per-path column, so one `--width` measures every path the run was given."""
+    last_path, state, in_comment = None, None, False
     for path, number, line in source:
         if path == MESSAGE or not is_prose_file(path) or path.endswith(MAN_PAGE):
             continue
         if path != last_path:
-            last_path, fenced = path, False
-        if DOCUMENT_FENCE.match(line):
-            fenced = not fenced
+            last_path, state, in_comment = path, document_state(), False
+        if document_prose(number, line, state) is None or state["front"]:
+            continue
+        # An HTML comment's lines are positional -- a file-local variables block is read line by
+        # line -- so a formatter leaves them, and this does not measure them.
+        if in_comment or HTML_COMMENT_OPEN.match(line):
+            in_comment = "-->" not in line
             continue
         stripped = line.rstrip()
-        if (fenced or IGNORE_MARKER in line or DOCUMENT_TABLE.match(stripped)
-                or "://" in stripped or " " not in stripped.strip()):
+        unquoted = QUOTE_PREFIX.sub("", stripped)
+        if (IGNORE_MARKER in line or DOCUMENT_TABLE.match(unquoted)
+                or DOCUMENT_HEADING.match(unquoted) or "://" in stripped):
             continue
         stripped = REFTAG_LINK.sub(r"\1", stripped)
+        if unwrappable(stripped):
+            continue
         column = document_width(path, width)
         if len(stripped) > column:
             yield (path, number, "document-width", f"{len(stripped)}>{column}",
