@@ -89,8 +89,8 @@ rpm --checksig ./*.rpm                         # each line should end in: digest
 sudo dnf install ./*.rpm
 ```
 
-**Upgrade in place; never `dnf remove` first.** From the repository,
-`sudo dnf upgrade 'ai-tools*'`; from a downloaded archive,
+**Upgrade in place, without a `dnf remove` first.** From the repository,
+`sudo dnf upgrade --refresh 'ai-tools*'`; from a downloaded archive,
 `sudo dnf install ./*.rpm` (a higher version upgrades each subpackage).
 A subpackage that has been renamed carries `Obsoletes` for its old name, so dnf
 performs the rename inside the same transaction, with no package to remove
