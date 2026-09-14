@@ -258,6 +258,13 @@ silent TEST-PC-99-contract-signature.md \
 # reports every variable and every path in it.
 silent TEST-PC-100-man-page.1 '.TH AI-TOOLS 1' '.B \-\-full' \
     '.I /etc/ai-tools/operator.conf' 'The AI_TOOLS_REQUIRE_SELINUX key is read at launch.'
+# A section-7 page is a man page like the others. The hole this pins is one-directional: an
+# extension the whole-file set lacks is read as SOURCE, and no roff line opens with `#`, so the
+# page reports zero and zero reads as clean. The figure must report (the page is read at all) and
+# the roff markup must not (it is read as a man page, not as a document).
+reports nothing TEST-PC-141-man-page-seven.7 '.TH X 7' 'There is nothing left to check.'
+silent TEST-PC-142-man-page-seven-markup.7 '.TH X 7' '.B \-\-full' \
+    'The AI_TOOLS_REQUIRE_SELINUX key is read at launch.'
 
 # An SPDX identifier is a machine-read tag, and joined to the block beneath it would open
 # the header's first sentence with a licence expression -- which the contract-line rule then
@@ -428,6 +435,19 @@ silent TEST-PC-77-ignore-file.md \
 reports nothing TEST-PC-78-ignore-file-named.md \
     "A file carrying <!-- prose-check: ignore-file --> as a line of its own is not read." \
     "There is nothing left to check."
+# The marker in a roff comment, the form the generated man page carries.
+silent TEST-PC-143-ignore-file-roff.7 '.\" prose-check: ignore-file' '.TH X 7' \
+    'There is nothing left to check.'
+# A binary file is not read: as source it reports figures off compressed bytes. The fixture is
+# a comment line that would report, behind a NUL byte.
+binary="${TESTDIR}/TEST-PC-144-binary.webp"
+printf 'RIFF\0\0WEBP\n# There is nothing left to check.\n' > "${binary}"
+run_check "${binary}"
+if [[ "${RC}" -eq 0 && -z "${OUT}" ]]; then
+    pass "TEST-PC-144-binary: a file holding a NUL byte is not read"
+else
+    fail "TEST-PC-144-binary: expected no finding; rc ${RC}, output: ${OUT}"
+fi
 
 # ── Exit status is the contract a sweep and the pre-commit hook branch on ──────────────────────
 run_check "$(fixture TEST-PC-15-exit-finding.md 'There is nothing left to check.')"

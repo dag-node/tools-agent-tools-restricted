@@ -98,7 +98,8 @@
 # A file carrying `prose-check: ignore-file` as the whole content of a comment line is not read at
 # all, which is how a GENERATED file whose text is copied from elsewhere stays out of the report:
 # its findings name prose that file cannot fix. The file marker is read only as a whole line, so a
-# document describing either marker is still checked.
+# document describing either marker is still checked. A file holding a NUL byte in its first
+# 8 KiB is binary and is not read either: read as source it yields findings off compressed bytes.
 
 import argparse
 import re
@@ -110,10 +111,24 @@ IGNORE_MARKER = "prose-check: ignore"
 # The file marker is read only as the whole content of a comment line, so a document describing it
 # is still checked. It exists for a GENERATED file whose text is copied from elsewhere -- the
 # cross-reference index reprints every message a component emits -- where a finding names prose
-# this file cannot fix and rewriting the source to satisfy it would change a runtime string.
+# this file cannot fix and rewriting the source to satisfy it would change a runtime string. The
+# comment prefixes are one per file kind the marker is written in, a roff `.\"` among them, since
+# the man page generated from that index carries the same text.
 IGNORE_FILE_MARKER = re.compile(
-    r"^\s*(?:#|//|<!--|;|--)?\s*prose-check: ignore-file\s*(?:-->)?\s*$")
+    r"^\s*(?:#|//|<!--|;|--|\.\\\")?\s*prose-check: ignore-file\s*(?:-->)?\s*$")
 _ignore_file_cache = {}
+# A file is read as text only where its first 8 KiB holds no NUL byte, the sniff `file` and git
+# apply. A tracked image read as source yields findings off compressed bytes.
+BINARY_SNIFF = 8192
+
+
+def is_binary_file(path):
+    """True when `path` holds a NUL byte in its first 8 KiB. An unreadable path is not binary."""
+    try:
+        with open(path, "rb") as handle:
+            return b"\0" in handle.read(BINARY_SNIFF)
+    except OSError:
+        return False
 
 
 def ignored_file(path):
@@ -565,7 +580,7 @@ EXTRA_CHECKS = [
      "cut it"),
 ]
 
-PROSE_WHOLE_FILE = (".md", ".1", ".5", ".8")
+PROSE_WHOLE_FILE = (".md", ".1", ".5", ".7", ".8")
 
 # How to read a path, when `--prose` or `--source` has said: True reads every line, False reads only
 # comments and docstrings, None leaves PROSE_WHOLE_FILE to decide.
@@ -1017,8 +1032,14 @@ def kept_findings(revisions):
 
 
 def file_lines(paths):
-    """Yield (path, line number, line) for every line of every readable path."""
+    """Yield (path, line number, line) for every line of every readable text path.
+
+    A binary file yields nothing: it does not hold any prose, and read as source its bytes report
+    as prose.
+    """
     for path in paths:
+        if is_binary_file(path):
+            continue
         try:
             with open(path, errors="ignore") as handle:
                 for number, line in enumerate(handle, 1):
@@ -1258,7 +1279,7 @@ AGENT_DOCUMENT_WIDTH = 120
 AGENT_DOCUMENT = re.compile(r"(^|/)(CLAUDE|AGENTS)\.md$|\.rule\.md$|(^|/)skills/.*\.md$")
 DOCUMENT_TABLE = re.compile(r"^\s*\|")
 DOCUMENT_FENCE = re.compile(r"^\s*(```|~~~)")
-MAN_PAGE = (".1", ".5", ".8")
+MAN_PAGE = (".1", ".5", ".7", ".8")
 
 
 def document_width(path, width):
