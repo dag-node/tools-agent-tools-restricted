@@ -73,6 +73,9 @@ INNER
 s=7
 # Spans stay whole: a sentence long enough to reach the column where `ai-tools --status` is named, then a span wider than the column, `sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`, and the tie rule beside a span, so that no line ends on the `750 root:root` mode of the pin.
 t=8
+# A paragraph before a declaration another tool reads, long enough to need rewrapping at the column.
+# ai-tools-admin-verbs: bootstrap tools status
+u=9
 indented() {
     # An indented comment paragraph inside a function body, long enough that the filler has to rewrap it at the column.
     # Its second line is indented the same way, so the run is one paragraph and the fill joins it.
@@ -149,6 +152,10 @@ same "a section banner"       '# ── A section banner'
 same "a code line with a trailing comment" 'y=2   #'
 # A checker marker joined into the paragraph it follows stops marking, so it ends the run before it.
 same "a checker marker line"  '# ref-index: ignore-file'
+# `ai-tools-admin` parses a contributed command's header for the domain, the interface floor and
+# the verbs, so those lines are data: a fill that joined one into the paragraph above would take
+# the fragment's declaration with it.
+same "a declaration another tool reads" '# ai-tools-admin-verbs:'
 # A contract line and an aligned signature are code: their columns are read as written, and a
 # fill that takes one for a sentence wraps the columns away and leaves the fragment mid-paragraph.
 same "an args: contract line"  '# args:  <user>'

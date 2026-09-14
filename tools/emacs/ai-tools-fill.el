@@ -79,7 +79,7 @@ the column runs the line over instead, since a wider line is still a line."
 (defconst ai-tools-fill--skip-line
   (concat "^[ \t]*\\(?:#\\|//\\)[ \t]*"
           "\\(?:!\\|shellcheck\\b\\|noqa\\b\\|pylint:\\|type:\\|pragma\\b\\|SPDX-"
-          "\\|ref-index:\\|prose-check:"
+          "\\|ref-index:\\|prose-check:\\|ai-tools-admin-[a-z-]*:"
           "\\|args:\\|stdout:\\|stderr:\\|returns?:\\|\\$[0-9]+[ \t]"
           ;; The column rule excludes the newline from both sides: `[^ ]' matches one, so the
           ;; unanchored form read a line as holding a column whenever the NEXT line was indented
@@ -89,7 +89,8 @@ the column runs the line over instead, since a wider line is still a line."
           "\\|.*[-=_*─━]\\{3,\\}\\)")
   "A comment line the batch filler leaves alone, and that ends the run before it: a shebang,
 a linter directive, an SPDX header, a checker marker (`ref-index: ignore-file', `prose-check:
-ignore'), a commented default, a lone token (a path, a URL, a name on a line of its own), a rule
+ignore'), a declaration another tool reads (`# ai-tools-admin-verbs: …', which `ai-tools-admin'
+parses out of a contributed command's header), a commented default, a lone token (a path, a URL, a name on a line of its own), a rule
 or banner line, a doc comment's contract line (`args:', `stdout:', `$1 path'), and a line holding
 a column of three or more spaces. The last two are code rather than prose -- a signature, a
 parameter table, an example rule -- and a fill reads them as a sentence and wraps the columns
