@@ -12,6 +12,9 @@
 # left it, and `--lines` must confine a reflow to the blocks it names. Its last section reflows
 # the tree's own pages into the testdir and holds them to the same three properties, skipped
 # outside a checkout. A repo dev tool, not a deployed artifact, so it runs from the checkout.
+# The fixture holds a reftag as text, so the tree-wide reference check does not read this file
+# (the marker on the next line).
+# ref-index: ignore-file
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -91,6 +94,12 @@ A command shown indented, which is a code block and not a paragraph:
 -   A wide marker whose continuation paragraph sits at four spaces, which is not code here.
 
     The continuation paragraph under the wide marker, long enough to be rewrapped at the column.
+
+    ```text
+    a fenced block inside the item, whose margin line must not end the list for the next block
+    ```
+
+    A continuation paragraph after the fence, still the item's and long enough to be rewrapped.
 
 <a id="ref-table-q4w8"></a>**A reftag caption on its own line**
 

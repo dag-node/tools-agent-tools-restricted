@@ -169,10 +169,11 @@ def reflow(source, width, ranges=None):
         body = line[len(fence_prefix):] if fence is not None and line.startswith(fence_prefix) else line
         mark = FENCE_MARK.match(body)
         indent_width = len(line) - len(line.lstrip(" "))
-        if fence is None and ITEM.match(line):
-            listed = True
-        elif fence is None and line.strip() and indent_width < 2:
-            listed = False
+        if fence is None and not mark:  # a fence and its content leave the state alone
+            if ITEM.match(line):
+                listed = True
+            elif line.strip() and indent_width < 2:
+                listed = False
         if fence is not None:
             out.append(line)
             if mark and mark.group(1)[0] == fence[0] and len(mark.group(1)) >= len(fence):

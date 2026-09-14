@@ -310,7 +310,17 @@ Emacs-driven formatter for the comment wrap rule, over one fixture carrying ever
 must fill or leave alone — a long paragraph filled inside the column with no line ending on a tie
 word (the checker's `--wrap` mode is the oracle), and an aligned table, a linter directive, a
 commented default, a shebang and a code line each back byte-identical — and asserts a second run
-leaves the file as the first left it. Skipped without Emacs.
+leaves the file as the first left it, and that `--lines` fills the paragraph it names alone.
+Skipped without Emacs.
+`format.sh` pins the front door over both fillers (`tools/format.sh`): every file in a fixture
+repository goes to the filler for the kind the checker names, at the column it names — a page at
+80, a router at 120, a source comment at 120, a header under `src/etc/` at 72 — while a man page
+and a binary file are reported as skipped and left as they were, since the failure it exists to
+prevent is the comment filler pointed at a page. The scope rule is pinned from both sides: with
+no file named, only the paragraph a diff touched is filled and an over-width paragraph the commit
+already held is left, `--files` fills that one too, an untracked file is filled whole either way,
+and `--all` warns first. Its exit status is pinned as the closing report's: 0 when no measured
+line is left over its column, 1 while a line no filler can shorten remains.
 `fill-markdown.sh` is its Markdown counterpart, and pins the filler (`tools/fill-markdown.py`)
 together with the gate that proves a reflow pure (`tools/verify-reflow.py`), because a defect in
 either looks the same from outside: one fixture carries every shape found by rehearsing the

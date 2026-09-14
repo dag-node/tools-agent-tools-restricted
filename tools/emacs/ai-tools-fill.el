@@ -49,14 +49,27 @@ A word closing a sentence is not a tie; trailing punctuation around the word is 
 (defconst ai-tools-fill--skip-line
   (concat "^[ \t]*\\(?:#\\|//\\)[ \t]*"
           "\\(?:!\\|shellcheck\\b\\|noqa\\b\\|pylint:\\|type:\\|pragma\\b\\|SPDX-"
+          "\\|ref-index:\\|prose-check:"
           "\\|[A-Za-z_][A-Za-z0-9_]*=\\|[^ \t\n]+$\\|.*[-=_*─━]\\{3,\\}\\)")
   "A comment line the batch filler leaves alone, and that ends the run before it: a shebang,
-a linter directive, an SPDX header, a commented default, a lone token (a path, a URL, a name on
-a line of its own), and a rule or banner line.")
+a linter directive, an SPDX header, a checker marker (`ref-index: ignore-file', `prose-check:
+ignore'), a commented default, a lone token (a path, a URL, a name on a line of its own), and a
+rule or banner line. A marker joined into the paragraph above it stops marking.")
 
-(defun ai-tools-fill-comments ()
+(defun ai-tools-fill--run-in-ranges (beg end ranges)
+  "Non-nil when the lines from BEG to END (exclusive) meet a range in RANGES.
+RANGES is a list of (FIRST . LAST) line-number pairs, inclusive; nil means every run."
+  (or (null ranges)
+      (let ((first (line-number-at-pos beg))
+            (last (1- (line-number-at-pos end))))
+        (seq-some (lambda (range) (and (<= (car range) last) (>= (cdr range) first)))
+                  ranges))))
+
+(defun ai-tools-fill-comments (&optional ranges)
   "Fill every plain comment paragraph in the current buffer at `fill-column'.
-Returns the number of paragraphs filled. See the file header for what is left alone."
+With RANGES, a list of (FIRST . LAST) line-number pairs, fill only a paragraph meeting one,
+which is how `tools/format.sh' fills what a diff touched. Returns the number of paragraphs
+filled. See the file header for what is left alone."
   (let ((filled 0)
         (sentence-end-double-space nil)
         (colon-double-space nil))
@@ -75,7 +88,7 @@ Returns the number of paragraphs filled. See the file header for what is left al
                           (not (looking-at ai-tools-fill--skip-line)))
                 (unless (looking-at line-re) (setq plain nil))
                 (forward-line 1))
-              (when plain
+              (when (and plain (ai-tools-fill--run-in-ranges beg (point) ranges))
                 (let ((end (point-marker))
                       (fill-prefix (concat prefix " ")))
                   (fill-region beg end nil t)
@@ -84,16 +97,17 @@ Returns the number of paragraphs filled. See the file header for what is left al
           (forward-line 1))))
     filled))
 
-(defun ai-tools-fill-comments-file (file &optional width)
+(defun ai-tools-fill-comments-file (file &optional width ranges)
   "Fill the plain comment paragraphs of FILE in place and save it.
 The mode and `fill-column' come from the file's extension and the repository's .dir-locals.el;
-WIDTH overrides the column. Writes no backup and no lock file."
+WIDTH overrides the column, and RANGES confines the fill as in `ai-tools-fill-comments'.
+Writes no backup and no lock file."
   (let ((create-lockfiles nil)
         (make-backup-files nil))
     (with-current-buffer (find-file-noselect file)
       (let ((fill-column (or width fill-column))
             (require-final-newline nil))
-        (let ((count (ai-tools-fill-comments)))
+        (let ((count (ai-tools-fill-comments ranges)))
           (when (buffer-modified-p)
             (save-buffer))
           (message "%s: %d comment paragraph(s) filled at %d columns" file count fill-column))))))

@@ -42,6 +42,9 @@ x=1
 # ── A section banner ──────────────────────────────────────────────────
 # A banner is followed by prose at once, and the prose is filled on its own while the banner stays where it is.
 y=2   # a trailing comment is code to the filler
+# A paragraph that a checker marker follows at once, which the filler must leave on its own line.
+# ref-index: ignore-file
+z=3
 EOF
 cp "${f}" "${TESTDIR}/before.sh"
 
@@ -102,6 +105,8 @@ same "a table row"            'comment-width  a line'
 same "a commented default"    '#KEY=a default'
 same "a section banner"       '# ── A section banner'
 same "a code line with a trailing comment" 'y=2   #'
+# A checker marker joined into the paragraph it follows stops marking, so it ends the run before it.
+same "a checker marker line"  '# ref-index: ignore-file'
 # The prose after the banner is filled on its own: it still opens on the line after the banner,
 # it now spans several lines, and no line of it runs past the column.
 after="$(awk '/A section banner/ {on=1; next} /^y=2/ {on=0} on' "${f}")"
@@ -119,6 +124,19 @@ if cmp -s "${f}" "${TESTDIR}/once.sh"; then
     pass "a second run is a no-op"
 else
     fail "a second run changed the file: $(diff "${TESTDIR}/once.sh" "${f}" | head -4)"
+fi
+
+# (4) `--lines` confines the fill to a paragraph meeting a range, which is how tools/format.sh
+# fills what a diff touched: naming the banner's paragraph alone fills it and leaves the header
+# paragraph as written.
+cp "${TESTDIR}/before.sh" "${f}"
+banner_line="$(grep -n 'A banner is followed' "${f}" | cut -d: -f1)"
+bash "${TOOL}" --width 72 --lines "${banner_line}-${banner_line}" "${f}" >/dev/null 2>&1
+if grep -qxF -- "$(sed -n 4p "${TESTDIR}/before.sh")" "${f}" \
+        && (( $(awk '/A section banner/ {on=1; next} /^y=2/ {on=0} on' "${f}" | wc -l) > 1 )); then
+    pass "--lines fills the named paragraph and leaves the other as written"
+else
+    fail "--lines did not scope the fill: $(diff "${TESTDIR}/before.sh" "${f}" | head -6)"
 fi
 
 finish

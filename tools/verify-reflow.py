@@ -89,6 +89,11 @@ def partition(text):
     for line in lines[front:]:
         quote, rest = quote_parts(line)
         mark = FENCE_MARK.match(rest)
+        if fence is None and not mark:  # a fence and its content leave the state alone
+            if ITEM.match(rest):
+                listed = True
+            elif line.strip() and len(line) - len(line.lstrip(" ")) < 2:
+                listed = False
         if fence is not None:
             protected.append(line)
             if mark and mark.group(1)[0] == fence[0] and len(mark.group(1)) >= len(fence):
@@ -110,10 +115,6 @@ def partition(text):
         if not line.strip():
             block, in_code = None, False
             continue
-        if ITEM.match(rest):
-            listed = True
-        elif len(line) - len(line.lstrip(" ")) < 2:
-            listed = False
         if block is None:
             item = ITEM.match(rest)
             head = line[:len(line) - len(line.lstrip(" "))] + quote + (item.group(1) if item else "")
