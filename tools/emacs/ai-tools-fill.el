@@ -150,14 +150,27 @@ that text rather than to this file, and filling it rewrites what the file emits.
 `syntax-ppss' searches, so the caller's `looking-at' match is saved around it."
   (save-match-data (nth 3 (syntax-ppss (line-beginning-position)))))
 
+(defun ai-tools-fill--range-markers (ranges)
+  "RANGES, a list of (FIRST . LAST) line-number pairs, as (START . END) marker pairs.
+Filling a paragraph shortens the buffer, so a line number read after the first fill names a line
+the caller did not ask for. The numbers are resolved once, before any fill, and the markers then
+move with the text they cover."
+  (mapcar (lambda (range)
+            (cons (save-excursion (goto-char (point-min))
+                                  (forward-line (1- (car range)))
+                                  (point-marker))
+                  (save-excursion (goto-char (point-min))
+                                  (forward-line (cdr range))
+                                  (point-marker))))
+          ranges))
+
 (defun ai-tools-fill--run-in-ranges (beg end ranges)
-  "Non-nil when the lines from BEG to END (exclusive) meet a range in RANGES.
-RANGES is a list of (FIRST . LAST) line-number pairs, inclusive; nil means every run."
+  "Non-nil when the region from BEG to END meets a range in RANGES.
+RANGES is the marker list `ai-tools-fill--range-markers' builds; nil means every run."
   (or (null ranges)
-      (let ((first (line-number-at-pos beg))
-            (last (1- (line-number-at-pos end))))
-        (seq-some (lambda (range) (and (<= (car range) last) (>= (cdr range) first)))
-                  ranges))))
+      (seq-some (lambda (range) (and (< (marker-position (car range)) end)
+                                     (> (marker-position (cdr range)) beg)))
+                ranges)))
 
 (defun ai-tools-fill-comments (&optional ranges)
   "Fill every plain comment paragraph in the current buffer at `fill-column'.
@@ -167,6 +180,7 @@ filled. See the file header for what is left alone."
   (let ((filled 0)
         (sentence-end-double-space nil)
         (colon-double-space nil)
+        (ranges (and ranges (ai-tools-fill--range-markers ranges)))
         (ai-tools-fill--verbatim-present
          (save-excursion (goto-char (point-min))
                          (re-search-forward ai-tools-fill--verbatim-open nil t))))

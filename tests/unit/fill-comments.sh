@@ -212,4 +212,20 @@ else
     fail "--lines did not scope the fill: $(diff "${TESTDIR}/before.sh" "${f}" | head -6)"
 fi
 
+# (5) Two ranges in one run. Filling the first paragraph moves every line after it, so a range
+# read as a line number once that fill has happened names a paragraph the caller did not ask for
+# -- which is how a run over a file with several ranges silently fills some of them. Both named
+# paragraphs must come back filled.
+cp "${TESTDIR}/before.sh" "${f}"
+header_line=4
+banner_line="$(grep -n 'A banner is followed' "${f}" | cut -d: -f1)"
+bash "${TOOL}" --width 72 --lines "${header_line}-${header_line},${banner_line}-${banner_line}" \
+    "${f}" >/dev/null 2>&1
+if ! grep -qxF -- "$(sed -n 4p "${TESTDIR}/before.sh")" "${f}" \
+        && (( $(awk '/A section banner/ {on=1; next} /^y=2/ {on=0} on' "${f}" | wc -l) > 1 )); then
+    pass "two ranges in one run: the fill of the first does not move the second"
+else
+    fail "the second range missed its paragraph: $(diff "${TESTDIR}/before.sh" "${f}" | head -8)"
+fi
+
 finish
