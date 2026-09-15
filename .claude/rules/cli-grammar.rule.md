@@ -280,8 +280,8 @@ cleanup* findings `projects list` reports have one home.
 own scripts bind to. `OPTION_SPELLINGS` maps each key to its command path, and `rewrite_option_spelling` applies
 the table ahead of every gate, so no key reaches a dispatch arm or `usage()` and the collection form is the only
 spelling the tables and the man page carry. A run that used one gets the preferred form named back to it
-(`note_option_spellings`), and `tools/generators/option-spellings.sh` generates `docs/option-spellings.md` from the table,
-so the mapping an operator reads comes from the one the CLI applies.
+(`note_option_spellings`), and `tools/generators/option-spellings.sh` generates `docs/option-spellings.md`
+from the table, so the mapping an operator reads comes from the one the CLI applies.
 
 ## Why not
 

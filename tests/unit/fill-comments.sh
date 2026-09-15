@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/fill-comments.sh
 # Unit test for tools/formatters/fill-comments.sh, the Emacs-driven formatter for the comment wrap rule
-# (tools/formatters/emacs/ai-tools-fill.el). A formatter that rewrites source files is judged on the lines it leaves as they were
-# as much as on the lines it fills, so one fixture carries every shape it must read one way or the other. Filled: a long
-# prose paragraph, inside the column and with no line ending on a tie word (the filler's own rule, which no checker
-# reads), one indented inside a function body, and a sentence pair whose join takes one space. Left as written:
-# an aligned comment table, a doc comment's contract line, a column of three or more spaces, a table drawn with vertical
-# rules, a heredoc body, the commands a header shows in a fenced block, a CDATA
+# (tools/formatters/emacs/ai-tools-fill.el). A formatter that rewrites source files is judged on the lines it leaves
+# as they were as much as on the lines it fills, so one fixture carries every shape it must read one way or the other.
+# Filled: a long prose paragraph, inside the column and with no line ending on a tie word (the filler's own rule,
+# which no checker reads), one indented inside a function body, and a sentence pair whose join takes one space. Left
+# as written: an aligned comment table, a doc comment's contract line, a column of three or more spaces, a table drawn
+# with vertical rules, a heredoc body, the commands a header shows in a fenced block, a CDATA
 # section, a `<pre>` block, a linter directive, a commented default, a shebang and a code line.
 # Held on the output: a break never falls inside a code span, which the `fill-nobreak-predicate`
 # hook refuses.

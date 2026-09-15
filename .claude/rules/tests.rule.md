@@ -245,55 +245,55 @@ the secret/exclusion/skip-list skips, and -- for `-lockdown` -- the proactive sw
 user-owned** secrets (files `600`, dirs `700`, `<you>:<you>`) which the reactive `-chown` never reaches, plus its seal
 pass over the paths sealed by *mode* rather than by name — held to leave the target directory itself alone, on a fixture
 shaped like a fresh sandbox clone, whose owner-only root the seal would otherwise strip of the group and setgid bit
-`normalize_clone` does not restore — and its refusal to run as the sandbox account. The seal cases
-run across three files, because the same guarantee has three consumers: `owner-only.sh` pins the primitives, while
-`setgid.sh` and `lockdown.sh` assert the deployed helpers apply them. What each asserts is that a sealed path is never
-pulled into the agent's group and that the residue behind its mode is removed without the mode widening -- a strip
-that raised the ACL mask would leave the residue "gone" and the path more open than before. `unclaim.sh` closes
-with the CLI-side decision that feeds the helper — the hand-back group — because it publishes **two** results (the
-group, and the hint that no hand-back can run) as globals in its caller's shell rather than on stdout,
-which a `$(...)`-capturing test cannot observe: the assertion is made from a real caller, under `set -u`, so a result
-the function fails to publish aborts the test the same way it would abort an unclaim. No live daemon, no SELinux
-dependency, no wrapper. Run as root (needed to set arbitrary ownership and create third-party-owned fixtures). A fixture
-tree is `chown`ed to the projects user before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one
-out: it sources the shared classifier library (`secret-patterns.lib.sh`) and forces the built-in default pattern set,
-pinning the matcher itself — credential names match case-insensitively, while plain configs and build artifacts
-the toolchain must read do not. `check-version.sh` departs the installed-helper pattern the other way: it runs
-a `TESTDIR` copy of `packaging/check-version.sh` (a repo release-gate script, not a deployed artifact) against fixture
-`VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match, `vX.Y.Z-rc.N` compares its
-base and relaxes only the `%changelog` match, any other dashed tag is refused, a missing `%changelog` entry is fatal
-for every form. `fill-comments.sh` is a second repo-tool test: it drives `tools/formatters/fill-comments.sh`, the Emacs-driven
-formatter for the comment wrap rule, over one fixture carrying every shape the tool must fill or leave alone. Filled:
-a long paragraph inside the column with no line ending on a tie word (the checker's `--wrap` mode is the oracle), one
-indented inside a function body, and a sentence pair the join gives one space. Left as written: an aligned table, a doc
-comment's contract line, a column of three or more spaces, a table drawn with vertical rules, a heredoc body,
-the commands a header shows in a fenced block, a CDATA section, a `<pre>` block, a linter directive, a commented
-default, a shebang and a code line. Each of those is a way a formatter silently rewrites what a file emits
+`normalize_clone` does not restore — and its refusal to run as the sandbox account. The seal cases run across three
+files, because the same guarantee has three consumers: `owner-only.sh` pins the primitives, while `setgid.sh`
+and `lockdown.sh` assert the deployed helpers apply them. What each asserts is that a sealed path is never pulled
+into the agent's group and that the residue behind its mode is removed without the mode widening -- a strip that raised
+the ACL mask would leave the residue "gone" and the path more open than before. `unclaim.sh` closes with the CLI-side
+decision that feeds the helper — the hand-back group — because it publishes **two** results (the group, and the hint
+that no hand-back can run) as globals in its caller's shell rather than on stdout, which a `$(...)`-capturing test
+cannot observe: the assertion is made from a real caller, under `set -u`, so a result the function fails to publish
+aborts the test the same way it would abort an unclaim. No live daemon, no SELinux dependency, no wrapper. Run as root
+(needed to set arbitrary ownership and create third-party-owned fixtures). A fixture tree is `chown`ed to the projects
+user before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it sources the shared
+classifier library (`secret-patterns.lib.sh`) and forces the built-in default pattern set, pinning the matcher itself —
+credential names match case-insensitively, while plain configs and build artifacts the toolchain must read do not.
+`check-version.sh` departs the installed-helper pattern the other way: it runs a `TESTDIR` copy
+of `packaging/check-version.sh` (a repo release-gate script, not a deployed artifact) against fixture `VERSION`/spec
+files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match, `vX.Y.Z-rc.N` compares its base
+and relaxes only the `%changelog` match, any other dashed tag is refused, a missing `%changelog` entry is fatal
+for every form. `fill-comments.sh` is a second repo-tool test: it drives `tools/formatters/fill-comments.sh`,
+the Emacs-driven formatter for the comment wrap rule, over one fixture carrying every shape the tool must fill or leave
+alone. Filled: a long paragraph inside the column with no line ending on a tie word (the checker's `--wrap` mode is
+the oracle), one indented inside a function body, and a sentence pair the join gives one space. Left as written:
+an aligned table, a doc comment's contract line, a column of three or more spaces, a table drawn with vertical rules,
+a heredoc body, the commands a header shows in a fenced block, a CDATA section, a `<pre>` block, a linter directive,
+a commented default, a shebang and a code line. Each of those is a way a formatter silently rewrites what a file emits
 or what a reader reads as a column, and none is visible in review. It also holds the filler's own output to the rule no
 checker reads — a code span is never split — and asserts a second run leaves the file as the first left it,
 that `--lines` fills the paragraph it names alone, and that two ranges in one run are both filled, since the first fill
 moves every line the later range names. Refused before Emacs sees it, through the reader every formatter shares
-(`tools/formatters/text_file.py`): a file holding an escape sequence, and a symlink, each reported with its reason and left as it
-was while the clean file beside it is filled. Two more pin the Emacs side: a file named like one of its options (`-Q`)
-is filled rather than obeyed, since the files are handed over after `--`, and a file-local `eval:` form is not run.
-Skipped without Emacs. `format.sh` pins the front door over both fillers (`tools/formatters/format.sh`): every file in a fixture
-repository goes to the filler for the kind the checker names, at the column it names — a page at 79, a router at 120,
-a source comment at 120, a header under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker)
-is reported as skipped with its kind and left as it was, since the failure it exists to prevent is the comment filler
-pointed at a page. What may be formatted at all is the explicit scope `FORMAT_SCOPE` names: a unit file, a log
-and a Makefile in the fixture are outside it, so `--all` counts and leaves them, a man page and a binary never reach
-the checker, and a file named on the command line is reported and skipped, as is a path outside the repository, while
-a named path is read from the directory the command was run in. The scope rule is pinned from both sides: with no file
-named, only the paragraph a diff touched is filled and an over-width paragraph the commit already held is left,
-`--files` fills that one too, an untracked file is filled whole either way, and `--all` warns first. Its exit status is
-pinned as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler can shorten
-remains or a filler refused a file, which is reported with its reason and left as it was. Its last case runs a copy
-of the formatter over its own two shell tools: each is one function called on its last line, which bash parses whole,
-so the fill that rewrites the file under the running bash does not end the run mid-line. `fill-markdown.sh` is its
-Markdown counterpart, and pins the filler (`tools/formatters/fill-markdown.py`) together with the gate that proves a reflow pure
-(`tools/formatters/verify-reflow.py`), because a defect in either looks the same from outside: one fixture carries every shape
-found by rehearsing the filler on real pages — frontmatter, a nested fence, a multi-line HTML comment, a list item
-with an indented continuation, a wide marker, an indented code block, a table, a blockquote with an
+(`tools/formatters/text_file.py`): a file holding an escape sequence, and a symlink, each reported with its reason
+and left as it was while the clean file beside it is filled. Two more pin the Emacs side: a file named like one of its
+options (`-Q`) is filled rather than obeyed, since the files are handed over after `--`, and a file-local `eval:` form
+is not run. Skipped without Emacs. `format.sh` pins the front door over both fillers (`tools/formatters/format.sh`):
+every file in a fixture repository goes to the filler for the kind the checker names, at the column it names — a page
+at 79, a router at 120, a source comment at 120, a header under `src/etc/` at 72 — while a generated page (one carrying
+the ignore-file marker) is reported as skipped with its kind and left as it was, since the failure it exists to prevent
+is the comment filler pointed at a page. What may be formatted at all is the explicit scope `FORMAT_SCOPE` names: a unit
+file, a log and a Makefile in the fixture are outside it, so `--all` counts and leaves them, a man page and a binary
+never reach the checker, and a file named on the command line is reported and skipped, as is a path outside
+the repository, while a named path is read from the directory the command was run in. The scope rule is pinned from both
+sides: with no file named, only the paragraph a diff touched is filled and an over-width paragraph the commit already
+held is left, `--files` fills that one too, an untracked file is filled whole either way, and `--all` warns first. Its
+exit status is pinned as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler
+can shorten remains or a filler refused a file, which is reported with its reason and left as it was. Its last case runs
+a copy of the formatter over its own two shell tools: each is one function called on its last line, which bash parses
+whole, so the fill that rewrites the file under the running bash does not end the run mid-line. `fill-markdown.sh` is
+its Markdown counterpart, and pins the filler (`tools/formatters/fill-markdown.py`) together with the gate that proves
+a reflow pure (`tools/formatters/verify-reflow.py`), because a defect in either looks the same from outside: one fixture
+carries every shape found by rehearsing the filler on real pages — frontmatter, a nested fence, a multi-line HTML
+comment, a list item with an indented continuation, a wide marker, an indented code block, a table, a blockquote with an
 alert line, a `prose-check: ignore` line, a dash after a token wider than the column, and inline code spans placed
 where a greedy break lands inside them — and the filler must reflow it to a state the gate passes and the checker's
 `--wrap` finds complete (a filler that copies a region through leaves a clean gate and an over-width line), while each
@@ -302,44 +302,45 @@ span leaves the token stream unchanged — is asserted on the filler's output in
 wider than the column run over on its own. It asserts a second run is a no-op and that `--lines` confines a reflow
 to the blocks it names, then reflows every page of the tree into its testdir, agent-facing at 120 and human-facing
 at 79, and holds them to the same three properties. It is also where the reader every formatter shares
-(`tools/formatters/text_file.py`) is pinned whole: each shape it refuses — a control or a bidi character, a NUL, a carriage return,
-a byte that is not UTF-8, a byte-order mark, a symlink, a FIFO — is reported with its reason and left byte-identical
-while the clean file beside it is filled, a column or a range that is not one is a usage error that writes nothing,
-and the gate fails a base copy that is not text without printing a token of it and refuses a path resolving outside
-the tree. `align-tables.sh` pins the third formatter, `tools/formatters/align-tables.py`, over a fixture whose widest cell
-overflows its column: each placement rule the tool states, and the two properties a caller depends on — a paragraph
-whose lines happen to carry a pipe is left as written, since a table is two lines carrying a separator at the same
-column, and a second fix is a no-op with `check` then silent, so `check` and `fix` run in either order. A table inside
-a heredoc body is the data's and is left, while a here-string, an arithmetic shift, a `<<` in a string and an operator
-no later line closes open no heredoc, so a table after one is still read; a file holding an escape sequence is refused
-through the shared reader and reported, with the file beside it still checked. `references.sh` is a third: it drives
-`ref-index.py`, the cross-reference tool shipped beside the checker, and holds the tree to its committed index.
-A reference names a reftag and the reftag resolves to where the target now is, so what the file asserts is that a target
-which moved, was renamed, or was deleted is reported and never silently pointed at its old place: through the repository
-wrapper `tools/generators/ref-index.sh` it regenerates the index and diffs it against `.claude/references.md` and runs `check`
-over every tracked file, both skipped outside a git checkout; then each finding `check` makes — a duplicate reftag,
-an id shared by two kinds, a reference with no target, a same-file reference, a caption with no block after it, a reftag
-link that is missing or stale, and an ordinary link whose file or heading is gone — is driven against a fixture it must
-report and the corrected form it must stay silent on, with `relink` asserted to produce that form, `generate` for its
-row shape, its order, the example row a quoted reftag reserves, and the empty tree, `new` for each family's form,
-and `where` for the span each kind's syntax gives. An empty tree is a valid index, so the lockstep half is green
-before the first reftag. Its last section drives the one finding the **wrapper** holds rather than the shipped tool —
-a runtime message carrying a URL, a Markdown link, or an HTML anchor ([messaging](messaging.rule.md)) — which is
-repository knowledge on both counts: the emit chokepoints are this tree's, and a message string is not prose,
-so the checker that skips a quoted span never reads it. Each link shape is driven with the resolvable form beside it,
-a non-ASCII URL among them, since matching is on the ASCII delimiter a link needs and not on what a URI may contain;
-the pair that must stay silent is an ordinary message a looser pattern would report — a page name in parentheses,
-and an option set carrying a pipe. Every case id in this file and in `prose-check.sh` carries the `TEST-` prefix,
-so a result line is told from a reftag or a message code at a glance. `cli-verbs.sh` is the same shape one layer
-in: a pure text check that the CLI's four **gating tables** — `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`,
-`BOOTSTRAP_EXEMPT_VERBS`, `FOR_ALLOWED_VERBS` — still describe the verbs it dispatches. The failure it exists for is
-silent and one-directional: a verb added to the dispatcher and forgotten in `OPERATOR_VERBS` runs for an unenrolled
-caller, with no message to say so until a root helper refuses it midway. So every dispatched verb must be classified —
-operator-acting, or in the informational set the test names — no verb may be both operator-acting and root-allowed, no
-table may name a verb the dispatcher no longer has, and the help must list exactly what the dispatcher accepts. Its last
-check asserts required **content** rather than consistency: `--help` and `--version` must be
-in `BOOTSTRAP_EXEMPT_VERBS`, because a CLI that cannot print its own usage on an unprovisioned host leaves the gate's
-refusal as the only route to the provisioning command — a regression visible only on the host nobody develops against.
+(`tools/formatters/text_file.py`) is pinned whole: each shape it refuses — a control or a bidi character, a NUL,
+a carriage return, a byte that is not UTF-8, a byte-order mark, a symlink, a FIFO — is reported with its reason and left
+byte-identical while the clean file beside it is filled, a column or a range that is not one is a usage error
+that writes nothing, and the gate fails a base copy that is not text without printing a token of it and refuses a path
+resolving outside the tree. `align-tables.sh` pins the third formatter, `tools/formatters/align-tables.py`,
+over a fixture whose widest cell overflows its column: each placement rule the tool states, and the two properties
+a caller depends on — a paragraph whose lines happen to carry a pipe is left as written, since a table is two lines
+carrying a separator at the same column, and a second fix is a no-op with `check` then silent, so `check` and `fix` run
+in either order. A table inside a heredoc body is the data's and is left, while a here-string, an arithmetic shift,
+a `<<` in a string and an operator no later line closes open no heredoc, so a table after one is still read; a file
+holding an escape sequence is refused through the shared reader and reported, with the file beside it still checked.
+`references.sh` is a third: it drives `ref-index.py`, the cross-reference tool shipped beside the checker, and holds
+the tree to its committed index. A reference names a reftag and the reftag resolves to where the target now is,
+so what the file asserts is that a target which moved, was renamed, or was deleted is reported and never silently
+pointed at its old place: through the repository wrapper `tools/generators/ref-index.sh` it regenerates the index
+and diffs it against `.claude/references.md` and runs `check` over every tracked file, both skipped outside a git
+checkout; then each finding `check` makes — a duplicate reftag, an id shared by two kinds, a reference with no target,
+a same-file reference, a caption with no block after it, a reftag link that is missing or stale, and an ordinary link
+whose file or heading is gone — is driven against a fixture it must report and the corrected form it must stay silent
+on, with `relink` asserted to produce that form, `generate` for its row shape, its order, the example row a quoted
+reftag reserves, and the empty tree, `new` for each family's form, and `where` for the span each kind's syntax gives.
+An empty tree is a valid index, so the lockstep half is green before the first reftag. Its last section drives the one
+finding the **wrapper** holds rather than the shipped tool — a runtime message carrying a URL, a Markdown link,
+or an HTML anchor ([messaging](messaging.rule.md)) — which is repository knowledge on both counts: the emit chokepoints
+are this tree's, and a message string is not prose, so the checker that skips a quoted span never reads it. Each link
+shape is driven with the resolvable form beside it, a non-ASCII URL among them, since matching is on the ASCII delimiter
+a link needs and not on what a URI may contain; the pair that must stay silent is an ordinary message a looser pattern
+would report — a page name in parentheses, and an option set carrying a pipe. Every case id in this file
+and in `prose-check.sh` carries the `TEST-` prefix, so a result line is told from a reftag or a message code
+at a glance. `cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four **gating tables** —
+`OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`, `FOR_ALLOWED_VERBS` — still describe the verbs it
+dispatches. The failure it exists for is silent and one-directional: a verb added to the dispatcher and forgotten
+in `OPERATOR_VERBS` runs for an unenrolled caller, with no message to say so until a root helper refuses it midway.
+So every dispatched verb must be classified — operator-acting, or in the informational set the test names — no verb may
+be both operator-acting and root-allowed, no table may name a verb the dispatcher no longer has, and the help must list
+exactly what the dispatcher accepts. Its last check asserts required **content** rather than consistency: `--help`
+and `--version` must be in `BOOTSTRAP_EXEMPT_VERBS`, because a CLI that cannot print its own usage on an unprovisioned
+host leaves the gate's refusal as the only route to the provisioning command — a regression visible only on the host
+nobody develops against.
 
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
@@ -385,17 +386,17 @@ and a man page as a `.BR` cross-reference, while a test and a source file are dr
 Every section so far pairs a page with what it documents. Two more hold each page to the way a page is **written**,
 against the font and placeholder rules whose home is `references/man-pages.md` in the shipped `ai-tools-technical-docs`
 skill; the reference and the check are edited together, so the convention and what enforces it cannot disagree. They
-read the **authored** pages (`man1`, `man5`, `man8`) and leave `ai-tools-messages(7)` to the `tools/generators/man-messages.sh`
-lockstep: each emitter's own string decides that page's markup. The rules are that no page carries a pointy-bracket
-placeholder, which roff renders literally and which marks prose never brought to the page's grammar; that every italic
-token on a SYNOPSIS line or a `.TP`/`.TQ` tag line is an uppercase placeholder, italic being what a reader substitutes,
-while running-text italic keeps the filenames and emphasis `man-pages(7)` puts there; that `man --warnings` does not
-report a macro or formatting warning; and that the trailing positional argument's **shape** — optional, repeating,
-or neither — agrees with the command's own `usage()`. That last one compares the brackets and the ellipsis and not
-the placeholder's name: the page names an argument in the man-page vocabulary while the help keeps its own spelling,
-and the difference is deliberate. What it catches is a page promising repetition its parser does not take, or dropping
-it where the parser does. A wrong font renders as cleanly as a right one, so none of the four is visible without
-a check.
+read the **authored** pages (`man1`, `man5`, `man8`) and leave `ai-tools-messages(7)`
+to the `tools/generators/man-messages.sh` lockstep: each emitter's own string decides that page's markup. The rules are
+that no page carries a pointy-bracket placeholder, which roff renders literally and which marks prose never brought
+to the page's grammar; that every italic token on a SYNOPSIS line or a `.TP`/`.TQ` tag line is an uppercase placeholder,
+italic being what a reader substitutes, while running-text italic keeps the filenames and emphasis `man-pages(7)` puts
+there; that `man --warnings` does not report a macro or formatting warning; and that the trailing positional argument's
+**shape** — optional, repeating, or neither — agrees with the command's own `usage()`. That last one compares
+the brackets and the ellipsis and not the placeholder's name: the page names an argument in the man-page vocabulary
+while the help keeps its own spelling, and the difference is deliberate. What it catches is a page promising repetition
+its parser does not take, or dropping it where the parser does. A wrong font renders as cleanly as a right one, so none
+of the four is visible without a check.
 
 `sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same class: a pure
 decision with a security consequence. `projects create` skips the secret scan, the git-history prompt and the proceed

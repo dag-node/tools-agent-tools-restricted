@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/format.sh
-# Unit test for tools/formatters/format.sh, the front door of the width policy. What it holds is the contract between the checker
-# and the fillers: every file goes to the filler for the kind the checker names, at the column the checker names,
-# and a kind with no filler is reported and left as it was -- the failure this exists to prevent is the comment filler
-# pointed at a Markdown page, which rewraps the commands in its fenced blocks. The scope rule is pinned from both sides,
-# since it is what bounds the diff a run produces: with no file named, only the paragraph a diff touched is filled
-# and an over-width paragraph the commit already held is left, while `--files` fills that one too and an untracked file
-# is filled whole either way. What may be formatted at all is the explicit scope: a unit file, a log and a Makefile
-# in the fixture are outside it, so `--all` counts and leaves them, and one named on the command line is reported
-# and skipped, as is a path outside the repository. The closing report is pinned by its exit status: 0 when no measured
-# line is left over its column, 1 when a line no filler can shorten remains or a filler refused a file. Hermetic:
-# a fixture repository in the testdir, formatted from inside it, with this checkout's tools. The comment-filler cases
-# skip without Emacs. A fixture holds a reftag as text, so the tree-wide reference check does not read this file (the
-# marker on the next line).
+# Unit test for tools/formatters/format.sh, the front door of the width policy. What it holds is the contract
+# between the checker and the fillers: every file goes to the filler for the kind the checker names, at the column
+# the checker names, and a kind with no filler is reported and left as it was -- the failure this exists to prevent is
+# the comment filler pointed at a Markdown page, which rewraps the commands in its fenced blocks. The scope rule is
+# pinned from both sides, since it is what bounds the diff a run produces: with no file named, only the paragraph a diff
+# touched is filled and an over-width paragraph the commit already held is left, while `--files` fills that one too
+# and an untracked file is filled whole either way. What may be formatted at all is the explicit scope: a unit file,
+# a log and a Makefile in the fixture are outside it, so `--all` counts and leaves them, and one named on the command
+# line is reported and skipped, as is a path outside the repository. The closing report is pinned by its exit status: 0
+# when no measured line is left over its column, 1 when a line no filler can shorten remains or a filler refused a file.
+# Hermetic: a fixture repository in the testdir, formatted from inside it, with this checkout's tools.
+# The comment-filler cases skip without Emacs. A fixture holds a reftag as text, so the tree-wide reference check does
+# not read this file (the marker on the next line).
 # ref-index: ignore-file
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

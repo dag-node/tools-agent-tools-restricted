@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/fill-markdown.sh
-# Unit test for tools/formatters/fill-markdown.py, the Markdown filler, and tools/formatters/verify-reflow.py, the gate that proves a reflow
-# changed line breaks alone. The filler and the gate are pinned in one file because a defect in either looks the same
-# from outside: a filler that damages a shape the gate does not read passes, and a filler that silently copies a region
-# through leaves a clean gate and an unformatted file. So one fixture carries every shape found by rehearsing the filler
-# on real pages, and each is driven from both ends -- the filler must reflow the fixture to a state the gate passes
-# and the checker's `--wrap` finds complete, and each defect class, injected by hand, must be reported by the gate.
-# A second run must leave the file as the first left it, and `--lines` must confine a reflow to the blocks it names.
-# The one class the gate cannot see -- a split code span leaves the token stream unchanged -- is asserted
-# on the filler's output instead. The tree's own pages are reflowed into the testdir and held to the same three
-# properties, skipped outside a checkout. The reader every formatter shares (`tools/formatters/text_file.py`) is pinned here: each
-# shape it refuses -- a control or a bidi character, a NUL, a carriage return, a byte that is not UTF-8, a byte-order
-# mark, a symlink, a FIFO -- is reported with its reason and left byte-identical while the clean file beside it is
-# filled; a column or a range that is not one is a usage error; and the gate refuses a base copy that is not text
-# without printing a token of it, and a path resolving outside the tree. A repo dev tool, not a deployed artifact, so it
-# runs from the checkout. The fixture holds a reftag as text, so the tree-wide reference check does not read this file
-# (the marker on the next line).
+# Unit test for tools/formatters/fill-markdown.py, the Markdown filler, and tools/formatters/verify-reflow.py, the gate
+# that proves a reflow changed line breaks alone. The filler and the gate are pinned in one file because a defect
+# in either looks the same from outside: a filler that damages a shape the gate does not read passes, and a filler
+# that silently copies a region through leaves a clean gate and an unformatted file. So one fixture carries every shape
+# found by rehearsing the filler on real pages, and each is driven from both ends -- the filler must reflow the fixture
+# to a state the gate passes and the checker's `--wrap` finds complete, and each defect class, injected by hand, must be
+# reported by the gate. A second run must leave the file as the first left it, and `--lines` must confine a reflow
+# to the blocks it names. The one class the gate cannot see -- a split code span leaves the token stream unchanged -- is
+# asserted on the filler's output instead. The tree's own pages are reflowed into the testdir and held to the same three
+# properties, skipped outside a checkout. The reader every formatter shares (`tools/formatters/text_file.py`) is pinned
+# here: each shape it refuses -- a control or a bidi character, a NUL, a carriage return, a byte that is not UTF-8,
+# a byte-order mark, a symlink, a FIFO -- is reported with its reason and left byte-identical while the clean file
+# beside it is filled; a column or a range that is not one is a usage error; and the gate refuses a base copy that is
+# not text without printing a token of it, and a path resolving outside the tree. A repo dev tool, not a deployed
+# artifact, so it runs from the checkout. The fixture holds a reftag as text, so the tree-wide reference check does not
+# read this file (the marker on the next line).
 # ref-index: ignore-file
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -301,8 +301,9 @@ fi
 
 # (8) A file that is not plain text is refused: reported with the reason and the line, left byte-identical, and the run
 # exits 1 while the clean file named beside it is filled. Each shape is a way a rewrap would move what the formatter
-# cannot see, or write where it did not read. The reader is `tools/formatters/text_file.py`, shared with the other formatters,
-# so the set is pinned once here; the comment filler and the table aligner each pin one shape of it through their own
+# cannot see, or write where it did not read. The reader is `tools/formatters/text_file.py`, shared with the other
+# formatters, so the set is pinned once here; the comment filler and the table aligner each pin one shape of it
+# through their own
 # front.
 refused() {  # refused <label> <file> <reason>: <file> is refused with <reason> and left as it was
     local label="$1" file="$2" reason="$3" out rc=0

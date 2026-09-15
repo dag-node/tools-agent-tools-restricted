@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# tools/generators/ref-index.sh -- run the skill's ref-index.py over this repository. The tracked files it reads and the index it
-# writes are named here once, for the pre-commit hook, the unit test, and a developer's own run; the tool itself is
-# generic and takes both as arguments.
+# tools/generators/ref-index.sh -- run the skill's ref-index.py over this repository. The tracked files it reads
+# and the index it writes are named here once, for the pre-commit hook, the unit test, and a developer's own run;
+# the tool itself is generic and takes both as arguments.
 #
 #     ```text
 #     bash tools/generators/ref-index.sh generate          retire what the tree dropped, then rewrite

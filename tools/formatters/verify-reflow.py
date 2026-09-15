@@ -88,7 +88,8 @@ def partition(text: str) -> Partition:
     blocks: list[list] = []
     fence, in_comment, block = None, False, None
     # An indented code block is protected whole: four spaces after a blank line, outside a list, where the same indent
-    # is a continuation paragraph the filler may fill (the reading `prose-check.py` and `tools/formatters/fill-markdown.py` share).
+    # is a continuation paragraph the filler may fill (the reading `prose-check.py`
+    # and `tools/formatters/fill-markdown.py` share).
     listed, in_code = False, False
     lines = text.split("\n")
     front = 0

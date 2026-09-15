@@ -579,8 +579,8 @@ check_config_headers
 # the convention's home and is edited with this check so the two cannot disagree.
 #
 # It reads the AUTHORED pages (man1, man5, man8) and not ai-tools-messages(7): that page is rendered from the runtime
-# message strings, so its markup is decided by each emitter rather than by an author, and the tools/generators/man-messages.sh
-# lockstep is what holds it. Pure text, no root, no
+# message strings, so its markup is decided by each emitter rather than by an author,
+# and the tools/generators/man-messages.sh lockstep is what holds it. Pure text, no root, no
 # install.
 #
 # Three rules, each a way a page drifts silently -- a wrong font renders as cleanly as a right one:

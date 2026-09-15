@@ -7,11 +7,12 @@
 # ```
 #
 # It asks the checker for each file's column and kind (`prose-check.py --print-width`) and dispatches to the filler
-# for that kind -- `tools/formatters/fill-comments.sh` for a source comment or a config header, `tools/formatters/fill-markdown.py` for a page
-# -- so the formatter does not hold a copy of the rule the checker resolves; a kind it has no filler for is reported
-# and left. It closes by re-running the checker's width modes over what it touched, so what it could not fix is
-# reported, and exits 1 while any of that remains, while a filler refused a file, or where the checker itself could not
-# run -- a report that read an aborted run as a clean one would exit 0 over lines it never measured.
+# for that kind -- `tools/formatters/fill-comments.sh` for a source comment or a config header,
+# `tools/formatters/fill-markdown.py` for a page -- so the formatter does not hold a copy of the rule the checker
+# resolves; a kind it has no filler for is reported and left. It closes by re-running the checker's width modes
+# over what it touched, so what it could not fix is reported, and exits 1 while any of that remains, while a filler
+# refused a file, or where the checker itself could not run -- a report that read an aborted run as a clean one would
+# exit 0 over lines it never measured.
 #
 # Scope: with no file, the paragraphs a diff touched -- `git diff -U0 HEAD` over the working tree and the index, each
 # filler filling only a block meeting an added line -- so the diff it produces is bounded by what was edited. `--files`

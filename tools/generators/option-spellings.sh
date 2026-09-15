@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# tools/generators/option-spellings.sh -- generate docs/option-spellings.md from the CLI's OPTION_SPELLINGS table. The page is
-# derived, never authored: every row is read off src/usr/local/bin/ai-tools.sh by text, so the spelling an operator
-# reads and the one the CLI rewrites have one home. `rows` is the same read, for tests/unit/cli-verbs.sh, which holds
-# every value to a dispatched command and the committed page to the table.
+# tools/generators/option-spellings.sh -- generate docs/option-spellings.md from the CLI's OPTION_SPELLINGS table.
+# The page is derived, never authored: every row is read off src/usr/local/bin/ai-tools.sh by text, so the spelling
+# an operator reads and the one the CLI rewrites have one home. `rows` is the same read, for tests/unit/cli-verbs.sh,
+# which holds every value to a dispatched command and the committed page to the table.
 #
 #     bash tools/generators/option-spellings.sh generate   rewrite the page from the table
 #     bash tools/generators/option-spellings.sh print      write the page to stdout
