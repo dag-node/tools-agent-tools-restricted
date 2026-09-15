@@ -88,7 +88,7 @@ EOF
 
 A command shown indented, which is a code block and not a paragraph:
 
-    sudo ai-tools --audit --since '2 days ago' --and-a-tail-long-enough-to-wrap-if-read-as-prose
+    sudo ai-tools audit --since '2 days ago' --and-a-tail-long-enough-to-wrap-if-read-as-prose
 
 - A list item whose first line is long enough to need rewrapping at a narrow column.
 
@@ -118,14 +118,14 @@ A command shown indented, which is a code block and not a paragraph:
 The label probe is cheap. <!-- prose-check: ignore: a deliberate example the checker skips as a line -->
 The line after the marker, long enough to be rewrapped at a narrow column on its own.
 
-Spans stay whole: a sentence long enough to reach the column `ai-tools --status` is named, then a
+Spans stay whole: a sentence long enough to reach the column `ai-tools status` is named, then a
 span wider than the column on a line of its own,
 `sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`, then the tie
 rule beside a span, so that no line ends on the `750 root:root` mode of the pin.
 
-A span closing at the column stays: `ai-tools --project-claim --yes .`
+A span closing at this column stays: `ai-tools projects claim --yes .`
 
-A span closing at the column shifts: `ai-tools --project-claim --yes .`
+A span closing at this column shifts: `ai-tools projects claim --yes .`
 
 Final paragraph.
 FIXTURE
@@ -210,8 +210,8 @@ detects "list marker respaced" "wip notes" '-   A wide marker' '- A wide marker'
 detects "a wrap invented a list item" "wip notes" \
     $'on-its-own) -\na dash after' $'on-its-own)\n- a dash after'
 detects "indented code block rewrapped" "wip issues" \
-    $'    sudo ai-tools --audit --since \'2 days ago\' --and-a-tail' \
-    $'    sudo ai-tools --audit --since \'2 days ago\'\n    --and-a-tail'
+    $'    sudo ai-tools audit --since \'2 days ago\' --and-a-tail' \
+    $'    sudo ai-tools audit --since \'2 days ago\'\n    --and-a-tail'
 detects "ignore-marker line rewrapped" "docs/entrypoint-verification.md" \
     'The label probe is cheap. <!-- prose-check: ignore:' $'The label probe is cheap.\n<!-- prose-check: ignore:'
 
@@ -237,7 +237,7 @@ span_whole() {  # span_whole <literal>: PASS when the reflowed fixture holds the
     if [[ "$(grep -c -F -- "$1" "${f}")" -ge 1 ]]; then pass "code span whole on one line: $1"
     else fail "code span split across lines: $1"; fi
 }
-span_whole 'ai-tools --status'
+span_whole 'ai-tools status'
 span_whole '750 root:root'
 # shellcheck disable=SC2016
 if grep -qxF -- '`sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`,' "${f}"; then
@@ -246,17 +246,17 @@ else
     fail "a span wider than the column was split or shared a line: $(grep -n 'selinux groups' "${f}")"
 fi
 # shellcheck disable=SC2016
-if grep -qxF -- 'A span closing at the column stays: `ai-tools --project-claim --yes .`' "${f}"; then
+if grep -qxF -- 'A span closing at this column stays: `ai-tools projects claim --yes .`' "${f}"; then
     pass "a span closing on the column stays on its line"
 else
     fail "a span closing on the column was moved: $(grep -n 'closing at the column stays' "${f}")"
 fi
 # shellcheck disable=SC2016
-if grep -qxF -- 'A span closing at the column shifts:' "${f}" \
-        && [[ "$(grep -cxF -- '`ai-tools --project-claim --yes .`' "${f}")" -eq 1 ]]; then
+if grep -qxF -- 'A span closing at this column shifts:' "${f}" \
+        && [[ "$(grep -cxF -- '`ai-tools projects claim --yes .`' "${f}")" -eq 1 ]]; then
     pass "a span closing one column past it moves down whole"
 else
-    fail "a span closing one column past it was split or left: $(grep -n 'project-claim' "${f}")"
+    fail "a span closing one column past it was split or left: $(grep -n 'projects claim' "${f}")"
 fi
 
 # (7) The tree's own pages: every agent-facing page at 120 and every human-facing page at 79

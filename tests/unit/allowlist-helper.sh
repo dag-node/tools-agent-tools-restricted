@@ -186,7 +186,7 @@ else
     fail "--remove failed on an already-removed project (rc=${rc}): ${out}"
 fi
 
-# ── `--disable` / `--enable`: the privileged half of `ai-tools --project-disable`/`--project-enable` ── What separates
+# ── `--disable` / `--enable`: the privileged half of `ai-tools projects disable`/`projects enable` ── What separates
 # them from an add/remove pair is that they edit the operator's OWN line in place. A `--for` target's allowlist is
 # as much a curated document as the invoker's, so the position and the comment must survive a park/restore performed
 # by root on someone else's file.

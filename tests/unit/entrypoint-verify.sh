@@ -32,7 +32,7 @@ fi
 # shellcheck source=/dev/null
 source "${LIB}"
 
-# The stamp accessors, which is how `ai-tools --status` reads the label record this library writes. Loaded here
+# The stamp accessors, which is how `ai-tools status` reads the label record this library writes. Loaded here
 # so the round-trip is asserted through the REAL reader rather than a local one: the record and the reader are only
 # worth anything if they agree on the grammar.
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
@@ -132,7 +132,7 @@ ${GOOD_JSON}|linux-arm64|a platform the manifest does not list
 EOF
 
 # ── The pin path ─────────────────────────────────────────────────────────────────────────────
-# Public, because `ai-tools --status` reads the pin to report verification state and must not hardcode where it lives.
+# Public, because `ai-tools status` reads the pin to report verification state and must not hardcode where it lives.
 # The agent name becomes a path component, so it is allowlisted to one plain identifier first — the same guard
 # ai_tools_agent_manifest_field applies — and a name that could escape the pin directory must yield NOTHING rather than
 # a path outside it.
@@ -163,7 +163,7 @@ else
 fi
 
 # ── The label record ─────────────────────────────────────────────────────────────────────────
-# The labelling half of a reconciliation files its outcome beside the pin, and `ai-tools --status` reads it to report
+# The labelling half of a reconciliation files its outcome beside the pin, and `ai-tools status` reads it to report
 # whether the last relabel could apply an agent's SELinux rules. Without it the report shows the verification half alone
 # -- a fresh green line written by the same run whose labelling failed, which reads as an all-clear rather than as half
 # a story.
@@ -183,7 +183,7 @@ for bad in "../../etc/passwd" "a/b" ".." "" "a b"; do
     fi
 done
 
-# A result outside the vocabulary is refused rather than filed: `ai-tools --status` reports an unrecognised RESULT
+# A result outside the vocabulary is refused rather than filed: `ai-tools status` reports an unrecognised RESULT
 # as "no labelling recorded", so a typo would read as a host that has never relabelled instead of as the outcome it
 # meant to record.
 mktestdir
@@ -212,7 +212,7 @@ else
         pass "the sandbox account cannot write a label record (root-only by construction)"
     fi
 
-    # Written in the stamp grammar, so `--status` reads it through the same accessors as the pin rather than a second
+    # Written in the stamp grammar, so `status` reads it through the same accessors as the pin rather than a second
     # reader that could drift.
     if ai_tools_entrypoint_label_write claude-code failed rule-not-registered \
        && [[ "$(ai_tools_service_stamp_field "$(ai_tools_entrypoint_label_path claude-code)" RESULT)" == failed \

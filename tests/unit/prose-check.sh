@@ -194,7 +194,7 @@ silent TEST-PC-12-cost-compounds.md \
 # a document alone, so each of those is driven with one sentence in both places -- reported as a document, silent
 # as a comment. Widened to comments the document-only checks report several thousand sites in this tree, which no
 # pre-commit hook can answer for; narrowed further they report a clean tree.
-reports bare-option      TEST-PC-84-bare-option.md "Pass --project-claim to register the tree."
+reports bare-option      TEST-PC-84-bare-option.md "Pass --dry-run to preview the claim."
 reports bare-option      TEST-PC-85-bare-option-short.md "The -n spelling was dropped at 0.15.0."
 reports bare-option      TEST-PC-86-bare-option-comment.sh \
     'x=1' '# The claim takes --for and refuses root.'
@@ -209,7 +209,7 @@ reports bare-path        TEST-PC-90-bare-path-extension.md \
 # they were run over.
 # shellcheck disable=SC2016
 silent TEST-PC-91-markup-backticked.md \
-    'Pass `--project-claim` to register the tree, writing `<operator>` into the registry.' \
+    'Pass `--dry-run` to preview the claim, writing `<operator>` into the registry.' \
     'The unit hands `AI_TOOLS_AGENT_EXEC` to `src/usr/local/bin/ai-tools-run`.'
 
 # The three shapes a bare `-` takes in prose and none of which is an option: a hyphenated word, the spaced dashes
@@ -265,7 +265,7 @@ reports bare-option TEST-PC-101-spdx.sh \
 # parts, where no later pass matches it.
 # shellcheck disable=SC2016
 silent TEST-PC-104-span-holds-a-period.md \
-    'A refusal reads `ai-tools --project-claim <path>. Claim it with the CLI` and stops.'
+    'A refusal reads `ai-tools projects claim <path>. Claim it with the CLI` and stops.'
 # A span glued to the next word by a hyphen was one word, so the separator that replaces it goes outside: inserted
 # inside, it hands the option check a leading `-macro`.
 # shellcheck disable=SC2016
@@ -289,7 +289,7 @@ silent TEST-PC-107-span-double-backtick.md \
 # the exemption takes that prose with it, and the second case is what catches that.
 silent TEST-PC-108-indented-code.md \
     "Start here -- one command answers it:" "" \
-    "    sudo ai-tools --audit --since '2 days ago'" "" \
+    "    sudo ai-tools audit --since '2 days ago'" "" \
     "It reads the two trails and reports what refused."
 reports bare-option TEST-PC-109-list-continuation.md \
     "- An item whose continuation runs on:" "" \

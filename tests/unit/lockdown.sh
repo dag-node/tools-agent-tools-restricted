@@ -60,7 +60,7 @@ if command -v setfacl >/dev/null 2>&1; then
     chmod 2700 "${proj}/privatedir"
     chmod 0600 "${proj}/notes.txt"
 fi
-# A sandbox clone as `ai-tools --sandbox-create` hands it to the secret gate: owner-only throughout, since the CLI runs
+# A sandbox clone as `ai-tools projects clone` hands it to the secret gate: owner-only throughout, since the CLI runs
 # the clone under a pinned `umask 077`; grouped to the sandbox account by the setgid clone area; carrying a checked-in
 # secret and a depth-one directory.
 clone="${TESTDIR}/clone"

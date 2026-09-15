@@ -421,7 +421,7 @@ else
 fi
 
 # ── The per-agent outcome the report closes with ──────────────────────────────────────────────
-# ai-tools-relabel-agent records this per agent so `ai-tools --status` can report the labelling half
+# ai-tools-relabel-agent records this per agent so `ai-tools status` can report the labelling half
 # of a reconciliation; the operator cannot inspect the labels themselves, the entrypoint living in a toolchain they
 # cannot traverse. Two properties matter beyond the mapping. A path that is not installed YET (rc 3 -- the ordinary
 # pre-bootstrap state) must not read as labels applied, or a host that has never provisioned reports green for work

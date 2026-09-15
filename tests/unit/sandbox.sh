@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/sandbox.sh
-# Unit test for the pure decisions behind the ai-tools.sh flows -- the `--sandbox-create` pair, the precondition
-# `--project-create`'s skipped prompts rest on (tree_is_pristine), and the exclusion reader the claim-time scans prune
+# Unit test for the pure decisions behind the ai-tools.sh flows -- the `projects clone` pair, the precondition
+# `projects create`'s skipped prompts rest on (tree_is_pristine), and the exclusion reader the claim-time scans prune
 # their walks with (allowlist_exclusions, at the end).
 #
-# The `--sandbox-create` pair:
+# The `projects clone` pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
 #     host or operator identity in it; the operator overrides the whole name with `--branch`, so this
 #     only pins the default shape and the leaf extraction.
@@ -109,12 +109,12 @@ else
 fi
 
 # ── tree_is_pristine ──────────────────────────────────────────────────────────────────────────
-# The predicate `--project-create`'s flow rests on, and the reason it is pinned here rather than left to the CLI test:
+# The predicate `projects create`'s flow rests on, and the reason it is pinned here rather than left to the CLI test:
 # what it gates is the SECRET SCAN. A claim skips that scan, the git-history prompt, and the proceed confirm when this
 # returns 0, so every way it could wrongly say yes is a way to grant an agent access to a tree no scan has covered. It
 # must answer for the tree as it is on disk -- never for what a caller asserts about it -- so the cases are the states
 # that must read as NOT pristine.
-section "tree_is_pristine: the precondition behind --project-create's skipped prompts (unit)"
+section "tree_is_pristine: the precondition behind projects create's skipped prompts (unit)"
 
 pristine() { call tree_is_pristine "$1"; }
 
@@ -169,7 +169,7 @@ else
 fi
 
 # An empty directory with no repository at all is still pristine: the predicate is about contents,
-# and `--project-create`'s git init failing is a warning, not a reason to rescan an empty tree.
+# and `projects create`'s git init failing is a warning, not a reason to rescan an empty tree.
 if pristine "${bare}"; then
     pass "an empty directory with no repository is pristine"
 else

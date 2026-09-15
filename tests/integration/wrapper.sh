@@ -124,7 +124,7 @@ fi
 out_excl="$(run_wrapper "${excluded}")"
 assert_msg MSG-K8K2 "${out_excl}" "wrapper refuses a '!'-excluded subdir of an approved project"
 
-# (2c) The two halves of `--project-disable` meet HERE, and nowhere else: the verb's whole promise
+# (2c) The two halves of `projects disable` meet HERE, and nowhere else: the verb's whole promise
 #      is that a parked project cannot be launched in, and that is this gate's decision, not the
 #      CLI's. Both sides are covered apart -- the CLI writes the line (tests/integration/cli.sh),
 #      the wrapper honours a '!' CWD (case 2b) -- so what this asserts is that they agree about
@@ -156,11 +156,11 @@ else
     disable_out="$(run_cli "${CLI_ARGV[@]}" "${approved}")"
     if grep -qi 'unknown command' <<<"${disable_out}"; then
         # A deployed CLI older than this test: an environment fact, not a defect to report as one.
-        skip "disabled project refused at launch" "the installed ai-tools has no --project-disable"
+        skip "disabled project refused at launch" "the installed ai-tools has no $(cli_cmd_text ai-tools.projects.disable) verb"
     elif ! grep -qxF "!${approved}" "${fixture_allowlist}"; then
-        fail "--project-disable did not park the entry: $(printf '%s' "${disable_out}" | awk 'NF' | tail -3 | tr '\n' ' ')"
+        fail "ai-tools.projects.disable did not park the entry: $(printf '%s' "${disable_out}" | awk 'NF' | tail -3 | tr '\n' ' ')"
     else
-        pass "--project-disable parks the approved project in the wrapper's own allowlist"
+        pass "ai-tools.projects.disable parks the approved project in the wrapper's own allowlist"
 
         out_disabled="$(run_wrapper "${approved}")"
         # By code, not by prose: the parked-project refusal has to be told from the carve-out one (MSG-K8K2/MSG-W2P3),
@@ -182,9 +182,9 @@ else
         enable_out="$(run_cli "${CLI_ARGV[@]}" "${approved}")"
         out_reenabled="$(run_wrapper "${approved}")"
         if printf '%s' "${out_reenabled}" | grep -qE "no session started|allowlist not found|excluded by|disabled"; then
-            fail "wrapper still blocked the project after --project-enable (enable: $(printf '%s' "${enable_out}" | awk 'NF' | tail -2 | tr '\n' ' ')) (launch: ${out_reenabled})"
+            fail "wrapper still blocked the project after ai-tools.projects.enable (enable: $(printf '%s' "${enable_out}" | awk 'NF' | tail -2 | tr '\n' ' ')) (launch: ${out_reenabled})"
         else
-            pass "the launch gate accepts it again after --project-enable"
+            pass "the launch gate accepts it again after ai-tools.projects.enable"
         fi
     fi
 fi
