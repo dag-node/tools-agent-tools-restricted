@@ -7,7 +7,7 @@
 # an operator be a NON-member of @SANDBOX_GROUP@ (defence in depth: the operator's home configs are then unreachable
 # from the sandbox group) while the agent can still read/write everything it hands back.
 #
-# Invoked as root two ways: by `ai-tools --project-claim` via operator `sudo` (the operator is not a SANDBOX_GROUP
+# Invoked as root two ways: by `ai-tools projects claim` via operator `sudo` (the operator is not a SANDBOX_GROUP
 # member, so changing the project's group needs root), and by the ai-tools-handback daemon when the SessionStart hook
 # (session-hook.sh session-start) sends a SETGID request over the handback socket. The handback path runs
 # IN ai_tools_handback_t (inherited from the daemon, no domain transition); the claim path runs as root

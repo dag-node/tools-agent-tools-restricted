@@ -42,7 +42,7 @@ source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null || true
 : "${AI_TOOLS_ENTRYPOINT_PIN_DIR:=/var/opt/ai-tools/state/entrypoint-pin.d}"
 # The labelling half of the same reconciliation records its outcome beside the pin, in the same grammar
 # and with the same ownership. It lives HERE, next to the pin, rather than in relabel.lib.sh which performs
-# the labelling: `ai-tools --status` reads both, and it runs as the operator, who can read this library (644) but not
+# the labelling: `ai-tools status` reads both, and it runs as the operator, who can read this library (644) but not
 # that one (640 root:root). One record the report can read is worth more than a record filed next to the code
 # that writes it.
 : "${AI_TOOLS_ENTRYPOINT_LABEL_DIR:=/var/opt/ai-tools/state/entrypoint-label.d}"
@@ -176,7 +176,7 @@ ai_tools_entrypoint_pin_path() {
 
 # ai_tools_entrypoint_label_path <agent> : print the path of the record holding what the last
 #   reconciliation could do about that agent's SELinux labels. Public for the same reason the pin
-#   path is: `ai-tools --status` reports it and must not hardcode where it lives.
+#   path is: `ai-tools status` reports it and must not hardcode where it lives.
 ai_tools_entrypoint_label_path() {
     _ai_tools_ev_record_path "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}" "${1:-}"
 }

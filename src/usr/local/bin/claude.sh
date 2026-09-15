@@ -242,7 +242,7 @@ done < "${ALLOWLIST}"
 
 # Exclusions are checked first and override allows (mirrors ai-tools-chown). Two shapes reach this, and they are
 # DIFFERENT situations for the operator standing here, so they are reported apart: a line naming this very directory is
-# a project someone PARKED -- `ai-tools --project-disable`, or the same edit by hand -- and the way back is one command,
+# a project someone PARKED -- `ai-tools projects disable`, or the same edit by hand -- and the way back is one command,
 # while a line covering it from an ancestor (a parent, or a glob) is a subtree deliberately withheld from a project,
 # where the remedy is to edit that line rather than to re-enable anything. Telling an operator their parked project is
 # merely "excluded" leaves them to work out which of the two they are in.
@@ -341,7 +341,7 @@ fi
 # ── Claim guard ─────────────────────────────────────────────────────────────────
 # The cwd passed the allowlist, but a registered path can still be incompletely
 # "claimed". Three independent gaps, all detected read-only here; the fix is always
-# delegated to `ai-tools --project-claim` (idempotent) -- this wrapper never performs a
+# delegated to `ai-tools projects claim` (idempotent) -- this wrapper never performs a
 # chgrp or a relabel itself, it only detects, offers, and (on consent) calls the CLI:
 #   ownership  -- group not the sandbox group, or no group-execute. The sandbox user runs with
 #                 this dir as its cwd, and Node's posix_spawn then fails EACCES on every
@@ -362,7 +362,7 @@ readonly GITCONFIG="/opt/ai-tools/.gitconfig"
 readonly SAFEDIR_BIN="/usr/local/libexec/ai-tools/ai-tools-safedir"
 
 # project_labelled <dir>  -- 0 when SELinux is NOT enforcing (no label needed) or <dir> already carries
-# ai_tools_project_t. Read-only, no privilege; the authoritative relabel lives in `ai-tools --project-claim` (->
+# ai_tools_project_t. Read-only, no privilege; the authoritative relabel lives in `ai-tools projects claim` (->
 # ai-tools-relabel), never duplicated here.
 project_labelled() {
     command -v getenforce >/dev/null 2>&1 || return 0

@@ -3,7 +3,7 @@
 # /usr/local/libexec/ai-tools/ai-tools-audit
 # Answers one question: what was refused, rejected, stranded or flagged BETWEEN two points in time? It reports EVENTS,
 # never current state -- a condition recorded here may have been resolved since, and confirming that is
-# `ai-tools --status`'s job, not this one's. Conflating the two invites acting on a finding that is already fixed.
+# `ai-tools status`'s job, not this one's. Conflating the two invites acting on a finding that is already fixed.
 # The detections already exist and are already recorded -- what they lacked was a reader, and a detection nobody reads
 # is decoration.
 #
@@ -20,7 +20,7 @@
 # than mixed into the first (see .claude/rules/logging.rule.md).
 #
 # Root-only: the file sink is unreadable to anyone else, so there is no trail for a non-root caller to do here. Reached
-# through `sudo ai-tools --audit` with no NOPASSWD grant, like ai-tools-lockdown and ai-tools-reclaim.
+# through `sudo ai-tools audit` with no NOPASSWD grant, like ai-tools-lockdown and ai-tools-reclaim.
 #
 # Usage:  ai-tools-audit [--since <when>]        <when> is anything date(1) parses
 #

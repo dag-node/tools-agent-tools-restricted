@@ -22,7 +22,7 @@
 # Net effect: the agent (group @SANDBOX_GROUP@) loses access via both the group owner and
 # the named ACL entry, and the tree carries plain Unix permissions under the new group.
 #
-# Invoked as root via sudo by the management CLI (`ai-tools --project-unclaim`), the same no-NOPASSWD model
+# Invoked as root via sudo by the management CLI (`ai-tools projects unclaim`), the same no-NOPASSWD model
 # as `ai-tools-{relabel,lockdown,setfacl}`. Running as root is required to chgrp to an arbitrary group and to act
 # on files the projects user does not own. The project path and target group the CLI passes are re-validated here,
 # and the path must resolve at or under a registered project (allowed-projects) or the helper is a no-op.

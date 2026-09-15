@@ -227,7 +227,7 @@ report=""; status=0
 report="$(ai_tools_label_agent_paths)" || status=$?
 
 # record_label_outcome <agent> <ok|failed|skipped> [reason-token] : file what this run could do
-#   about that agent's labels where `ai-tools --status` can read it. The operator cannot inspect
+#   about that agent's labels where `ai-tools status` can read it. The operator cannot inspect
 #   the labels themselves -- the entrypoint sits in a toolchain they cannot traverse -- so this
 #   record is the only account of the labelling half they have, the counterpart to the pin the
 #   verification half writes. Best-effort: a record that cannot be written is reported and never

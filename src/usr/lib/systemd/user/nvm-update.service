@@ -7,7 +7,7 @@ Documentation=man:systemd.service(5)
 # connectivity is a runtime condition, not a startup one. The updater treats an unreachable registry
 # as transient (exit 3, stamped "skipped") and Restart= retries it.
 # The retry is bounded: 6 starts per 6h at RestartSec covers a ~2.5h outage, after which the
-# unit stops trying and `ai-tools --status` reports the run as stale.
+# unit stops trying and `ai-tools status` reports the run as stale.
 StartLimitIntervalSec=6h
 StartLimitBurst=6
 

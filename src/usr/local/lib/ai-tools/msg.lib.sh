@@ -461,8 +461,8 @@ ai_tools_msg_pick() {
 
 # ai_tools_cmd_display <abs-path> -- echo how a command should be PRINTED to the user: the bare name when `command -v`
 # resolves it to that same absolute path on this PATH, and the absolute path otherwise. A printed command is meant to be
-# typed, so `ai-tools --status` reads better than `/usr/local/bin/ai-tools --status` -- but only where the short form
-# runs the same program, so a host with an unexpected PATH still gets a command that works.
+# typed, so `ai-tools status` reads better than `/usr/local/bin/ai-tools status` -- but only where the short form runs
+# the same program, so a host with an unexpected PATH still gets a command that works.
 ai_tools_cmd_display() {
     local path="${1:-}" name resolved
     [[ "${path}" == /* ]] || { printf '%s' "${path}"; return 0; }

@@ -206,7 +206,7 @@ FORCE_KILL=false
 
 # refuse_positional_argument <argument> -- refuse anything that is not an option, and exit 2.
 #
-# WHY THIS IS AN ERROR RATHER THAN AN IGNORED ARGUMENT. Someone typing a path after `--stop` believes they are NARROWING
+# WHY THIS IS AN ERROR RATHER THAN AN IGNORED ARGUMENT. Someone typing a path after `stop` believes they are NARROWING
 # the command. Proceeding would do the opposite of that belief -- end every session on the host -- and the confirmation
 # defaults YES, so a reflexive Enter completes it. A refusal costs one corrected command; the alternative costs every
 # running session.
@@ -717,8 +717,8 @@ unit_working_directory() {
     # Attribution does not decide any part of the sweep here, so this is not a gate -- it is what keeps a value this
     # helper cannot interpret from being printed as though it could be used. The concrete case is
     # print_reclaim_guidance, which turns each attributed directory into a command the operator is invited to run:
-    # an unstripped marker emitted `ai-tools --reclaim !/opt/ai-tools`, which is not a runnable command and, pasted
-    # into an interactive bash, is not even an inert one.
+    # an unstripped marker emitted `ai-tools projects handback !/opt/ai-tools`, which is not a runnable command
+    # and, pasted into an interactive bash, is not even an inert one.
     #
     # The shape is ALLOWLISTED rather than the markers enumerated, so a rendering systemd adds later degrades
     # to `unknown` instead of reaching the operator as a broken command. `~` (WorkingDirectory=~, the account's home)
@@ -845,9 +845,9 @@ print_session_table() {
 # the operator must translate mid-incident.
 #
 # CALLED WITH AGENT SESSIONS' DIRECTORIES ONLY. The account's plumbing has no project to hand back, and its
-# WorkingDirectory is routinely a path `ai-tools --reclaim` would refuse outright: the account's dbus broker reports
-# `/opt/ai-tools`, the control plane, which the safe-paths backstop protects. Emitting it produced a remedy that cannot
-# run, offered to an operator mid-incident with no marker to distinguish it from the one that can.
+# WorkingDirectory is routinely a path `ai-tools projects handback` would refuse outright: the account's dbus broker
+# reports `/opt/ai-tools`, the control plane, which the safe-paths backstop protects. Emitting it produced a remedy
+# that cannot run, offered to an operator mid-incident with no marker to distinguish it from the one that can.
 print_reclaim_guidance() {
     local directory
     local -A seen=()

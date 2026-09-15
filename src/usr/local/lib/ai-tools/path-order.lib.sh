@@ -9,10 +9,10 @@
 #
 # The decision is pure (ai_tools_path_order_verdict) and the probing is separate, the split confinement.lib.sh makes
 # for the launch decision, so the truth table is driven in tests/unit/path-order.sh against no account at all.
-# The callers: `ai-tools-admin operators add` (asks, then wires), `ai-tools --status` (re-checks, from the operator's
-# own shell), `ai-tools-admin system bootstrap` (names each operator whose shell reaches an agent elsewhere),
-# and the base package's %post (repoints an init file that still sources the fragment's former path, and names
-# the operators it could not write for).
+# The callers: `ai-tools-admin operators add` (asks, then wires), `ai-tools status` (re-checks, from the operator's own
+# shell), `ai-tools-admin system bootstrap` (names each operator whose shell reaches an agent elsewhere), and the base
+# package's %post (repoints an init file that still sources the fragment's former path, and names the operators it could
+# not write for).
 #
 # It reports where a name resolves and does not decide any access question, so a reading it cannot take yields `unknown`
 # and the caller asks or reports rather than refusing.
@@ -41,7 +41,7 @@ readonly AI_TOOLS_PATH_ORDER_FRAGMENT="/usr/local/lib/ai-tools/path-order.sh"
 # reason the SELinux registry records a group's former module name: a rename answers for the hosts already running
 # the old name.
 readonly AI_TOOLS_PATH_ORDER_FRAGMENT_FORMER="/usr/local/lib/ai-tools/path-dedup.sh"
-# shellcheck disable=SC2034  # read by ai-tools-admin, which appends this line, and by `ai-tools --status`
+# shellcheck disable=SC2034  # read by ai-tools-admin, which appends this line, and by `ai-tools status`
 readonly AI_TOOLS_PATH_ORDER_GUARD='[[ -f /usr/local/lib/ai-tools/path-order.sh ]] && source /usr/local/lib/ai-tools/path-order.sh || true'
 
 # ai_tools_path_order_verdict <wired> <winner>... Echo a verdict token and return 0 (the ordering is right), 1 (a
@@ -247,7 +247,7 @@ ai_tools_path_order_repoint_user() {
 #
 # It exists for `ai-tools-admin system bootstrap`, which reports what a freshly provisioned host still owes and does not
 # hold a loop of its own. An account this reading could not be taken for is left unnamed, because a report that guessed
-# would name a host it could not read, and the operator's own `ai-tools --status` answers precisely.
+# would name a host it could not read, and the operator's own `ai-tools status` answers precisely.
 ai_tools_path_order_shadowed_operators() {
     local user pair launcher
     for user in "$@"; do

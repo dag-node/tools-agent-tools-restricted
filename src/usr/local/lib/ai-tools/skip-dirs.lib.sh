@@ -13,7 +13,7 @@
 #     is safe as an OWNERSHIP outcome -- the files are world-readable, so the owner field does
 #     not decide access to them, and the tree is regenerable. It is a claim about ownership
 #     alone: no sweep inspects what a tree holds, here or anywhere else. To have a tree handed
-#     back to the operator, remove it from the skip list (or run `ai-tools --reclaim --full`).
+#     back to the operator, remove it from the skip list (or run `ai-tools projects handback --full`).
 #   - setgid/ACL normalization: a skipped tree is given neither a setgid bit nor an ACL.
 #   - secret lockdown: a skipped tree is not scanned for secret-named files.
 #

@@ -216,7 +216,7 @@ seed_managed_assets_step() {
 # (path-order.lib.sh).
 #
 # It belongs to this command because the reading is taken from a login shell of that account, which needs the root this
-# command already holds; `ai-tools --status` re-reads it afterwards from the operator's own shell. It reads those init
+# command already holds; `ai-tools status` re-reads it afterwards from the operator's own shell. It reads those init
 # files and does not rewrite any of them: `ai-tools-admin operators add` is this project's one writer of that line.
 report_shadowed_operators() {
     local polib=/usr/local/lib/ai-tools/path-order.lib.sh

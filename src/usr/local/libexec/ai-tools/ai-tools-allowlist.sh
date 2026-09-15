@@ -36,7 +36,7 @@
 #   ai-tools-allowlist --operator <name> --disable <absolute-project-path>
 #
 # `--enable` and `--disable` neither add nor drop a line: they take the leading '!' off an entry, or put it
-# on, IN PLACE. They are the privileged half of `ai-tools --project-enable`/`--project-disable` (and of the claim's
+# on, IN PLACE. They are the privileged half of `ai-tools projects enable`/`projects disable` (and of the claim's
 # re-enable prompt), and they are deliberately not an add/remove pair: the line keeps its position and its comment,
 # so a park-and-restore round trip leaves an ordered, commented allowed-projects exactly as its operator wrote it.
 #

@@ -15,8 +15,8 @@
 # otherwise ONE confirmation covers the whole set (count + a sample with owner/group/mode), and each path is applied
 # via `ai-tools-chown --yes` so the per-path prompt never fires inside the batch.
 #
-# Runs as root via sudo under `ai-tools --reclaim` (no-NOPASSWD, like ai-tools-setfacl); root is required to chown files
-# the projects user does not own.
+# Runs as root via sudo under `ai-tools projects handback` (no-NOPASSWD, like ai-tools-setfacl); root is required
+# to chown files the projects user does not own.
 #
 # Deploy:
 #   ```bash

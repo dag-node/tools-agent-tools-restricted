@@ -10,7 +10,7 @@
 #      not here). NNP is deliberately not set at the sudo level: ai-tools-run must not run under
 #      PR_SET_NO_NEW_PRIVS at the scope it occupies before exec, or sudo's own PAM authentication
 #      breaks. The session gets it from the unit instead.
-#   2. run ai-tools-stop as ROOT (`ai-tools --stop`, which terminates every running agent
+#   2. run ai-tools-stop as ROOT (`ai-tools stop`, which terminates every running agent
 #      session; see the security note in this file)
 #
 # One rule serves every agent, because it names the shared agent-agnostic shim: a second agent

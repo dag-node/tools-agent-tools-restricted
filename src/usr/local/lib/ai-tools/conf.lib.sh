@@ -546,7 +546,7 @@ ai_tools_conf_allowlist_has_exclusion() {
 
 # ai_tools_conf_allowlist_matching_lines <array-name> <allowlist-file> <path> : set the named array
 #   to every RAW line of <allowlist-file> whose ALLOW entry matches <path>, and return 0 when at
-#   least one did. For a caller that must DELETE the line (unclaim, the `--list` remediation): the raw
+#   least one did. For a caller that must DELETE the line (unclaim, the `projects list` remediation): the raw
 #   text is what a line-anchored `sed` removes, and it can differ from <path> -- a comment, quotes,
 #   or a symlinked spelling -- so reconstructing the line from <path> would fail to match.
 ai_tools_conf_allowlist_matching_lines() {

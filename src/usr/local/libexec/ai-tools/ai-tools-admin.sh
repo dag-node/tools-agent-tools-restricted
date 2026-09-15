@@ -67,7 +67,7 @@
 # signed manifest: the unattended callers (ai-tools-relabel.service, the agent package's %post) may answer
 # from an unchanged pin, and an administrator asking for a reconcile is asking for the fetch.
 #
-# `status` reports this host's health as root: the same resource `ai-tools --status` reports to an operator, completed
+# `status` reports this host's health as root: the same resource `ai-tools status` reports to an operator, completed
 # with the three readings that vantage point prints as `?` -- the sandbox account's own `systemd --user units`,
 # whose bus root reaches over the machine transport; the entrypoint pin, in a state directory a non-operator has no
 # traverse bit on; and the SELinux type each agent path carries right now, inside a 0750 toolchain. Every verdict comes
@@ -1085,8 +1085,8 @@ _restore_group_static_labels() {
 }
 
 # sel_list is a read-only REPORT, not operational output, so it renders as a plain section (like the CLI's
-# `--providers`/`--list`) instead of `log`'s per-line `ai-tools-admin:` prefix. The core module uses the same bracketed
-# [LOADED]/[disabled] state column as the group rows for one legend.
+# `providers`/`projects list`) instead of `log`'s per-line `ai-tools-admin:` prefix. The core module uses the same
+# bracketed [LOADED]/[disabled] state column as the group rows for one legend.
 sel_list() {
     require_selinux || return 0
     local core_state='[disabled]' modules
@@ -1377,7 +1377,7 @@ postupgrade() {
 }
 
 # ── status ───────────────────────────────────────────────────────────────────────────────────
-# `ai-tools --status` read from root's vantage -- one resource reported twice, not a second report. Which readings root
+# `ai-tools status` read from root's vantage -- one resource reported twice, not a second report. Which readings root
 # adds and why the two agree is .claude/rules/cli.rule.md; what this file contributes is the rendering, in the plain
 # bracket-token idiom the rest of this tool uses. The verdicts come from services.lib.sh and relabel.lib.sh, which emit
 # data and leave every consumer to format it.
@@ -1537,7 +1537,7 @@ status_labels() {
 }
 
 # status: the host report. Exits non-zero when something is broken, so it is usable from a monitor or a cron check
-# without parsing this output -- the same contract `ai-tools --status` offers, and the reason `?` and `n/a` are never
+# without parsing this output -- the same contract `ai-tools status` offers, and the reason `?` and `n/a` are never
 # counted: a reading this vantage point could not make must not make a healthy host alarm every night.
 status() {
     [[ $# -eq 0 ]] || reject MSG-T6S6 "status: takes no arguments"

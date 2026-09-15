@@ -544,7 +544,7 @@ _ai_tools_label_agent_config_dir() {
 #     agent <agent> <ok|failed|none>   that agent's whole outcome, closing its lines: every path it
 #                                      declares took its type, one of them did not, or neither is
 #                                      installed to label. This is what ai-tools-relabel-agent
-#                                      records per agent for `ai-tools --status` to report, so the
+#                                      records per agent for `ai-tools status` to report, so the
 #                                      operator can see the labelling half from outside the
 #                                      toolchain they cannot read.
 #   Returns 0 when every path it managed is correctly labelled, 1 when one is not, a rule could

@@ -14,7 +14,7 @@
 #                            agent manifests via providers.lib.sh -- see main)
 #
 # Every run records its outcome in a last-run stamp (see write_stamp), the only evidence an operator has of this unit's
-# health: it lives in the sandbox account's own `systemd --user` manager, which `ai-tools --status` cannot query
+# health: it lives in the sandbox account's own `systemd --user` manager, which `ai-tools status` cannot query
 # from the operator's session.
 #
 # The exit status classifies the run for the two readers that act on it -- that stamp, and the
@@ -29,13 +29,13 @@
 # The split is deliberately coarse. It is not a diagnosis of why the registry was unreachable -- a
 # disconnected laptop and a registry outage are one state from here -- only of whether a retry is
 # the right response and whether an operator should be alarmed now. A transient condition that
-# PERSISTS still surfaces: the stamp ages, and `ai-tools --status` reports it stale past its grace.
+# PERSISTS still surfaces: the stamp ages, and `ai-tools status` reports it stale past its grace.
 
 set -euo pipefail
 IFS=$'\n\t'
 
 readonly AI_TOOLS_BIN="/opt/ai-tools/bin"
-# The last-run stamp `ai-tools --status` reads. The install creates it; this script only ever rewrites that one existing
+# The last-run stamp `ai-tools status` reads. The install creates it; this script only ever rewrites that one existing
 # inode. Its directory is root-owned and NOT group-writable, so this account -- and so the agent, which runs as it --
 # cannot create, unlink, rename, or symlink-swap anything there: the whole surface the stamp adds is the contents
 # of this single file.
@@ -76,7 +76,7 @@ die() {
 # skip <reason-token> <message> : end the run as TRANSIENT (see the header) -- the counterpart to die for a condition
 # this host did not cause and cannot fix, where the correct outcome is that the toolchain is left alone. It is a notice,
 # not an error: it exits EXIT_TRANSIENT, so the unit retries it, and records <reason-token> in the stamp,
-# so `ai-tools --status` can say WHY a run made no change instead of reporting a failure the operator would go looking
+# so `ai-tools status` can say WHY a run made no change instead of reporting a failure the operator would go looking
 # for.
 skip() { _run_skip_reason="$1"; shift
          echo "SKIP : $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p notice 2>/dev/null || true
@@ -93,7 +93,7 @@ skip() { _run_skip_reason="$1"; shift
 # and the function always returns 0.
 #
 # TRIGGER says whether SYSTEMD started this run, which is what makes the run evidence about the TIMER rather than only
-# about the update: no state nvm-update.timer publishes is reachable from an operator session, so `ai-tools --status`
+# about the update: no state nvm-update.timer publishes is reachable from an operator session, so `ai-tools status`
 # infers its health from a run having happened -- and a run this script did by hand is no evidence about a schedule.
 # systemd sets INVOCATION_ID for every unit it starts, so its presence separates the two. A run started by hand
 # THROUGH the manager (`systemctl --user start nvm-update.service`) is indistinguishable from a triggered one and counts

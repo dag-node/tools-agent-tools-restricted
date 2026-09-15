@@ -28,7 +28,7 @@
 # dir" advice rests on that directory case. `setfacl -n` (add the entry, leave the mask alone) is not used either: it
 # would leave a dormant grant that any later chmod widening the group bits activates.
 #
-# Runs as root via sudo under `ai-tools --project-claim` (no-NOPASSWD, like ai-tools-lockdown); CAP_FOWNER lets it ACL
+# Runs as root via sudo under `ai-tools projects claim` (no-NOPASSWD, like ai-tools-lockdown); CAP_FOWNER lets it ACL
 # files the operator does not own. The walk skips secret-named, '!'-excluded, skip-list, and foreign-owned paths.
 # Alongside the ACL, the walk normalizes the primary group of a DRIFTED path -- group-accessible yet not group
 # @SANDBOX_GROUP@ (it arrived by rename, inheriting neither the setgid group nor the default ACL) -- so a re-claim's

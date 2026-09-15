@@ -3,7 +3,7 @@
 # /usr/local/libexec/ai-tools/ai-tools-relabel
 # Apply (or revert) the ai_tools_project_t SELinux label on ONE approved project directory, so the confined agent
 # (ai_tools_t) can read and write it. This is the privileged half of project claiming: `semanage fcontext` needs root,
-# which the unprivileged `ai-tools` CLI does not have, so `--project-claim` / `--project-create` invoke this via sudo.
+# which the unprivileged `ai-tools` CLI does not have, so `projects claim` / `projects create` invoke this via sudo.
 # There is NO sudoers NOPASSWD grant for it (by design): sudo prompts for the projects user's password, the same pattern
 # as ai-tools-lockdown.
 #
@@ -37,7 +37,7 @@ readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 # The owner is resolved PER PATH (ai_tools_resolve_owner), the way every other per-project helper does it, rather than
 # by loading one operator up front. On a multi-operator host the entry that authorizes a label lives in whichever
 # operator's registry holds the project, and reading a single operator's file refuses every project registered to any
-# of the others -- a secondary operator's own claim, and every `--project-claim --for <op>`, would leave the tree
+# of the others -- a secondary operator's own claim, and every `projects claim --for <op>`, would leave the tree
 # unlabelled while the rest of the claim reported success. A load failure leaves the resolver undefined,
 # which allowlisted() treats as "no owner" and refuses on: no label is granted from a half-parsed identity.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
