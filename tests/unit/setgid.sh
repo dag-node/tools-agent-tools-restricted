@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/setgid.sh
-# Hermetic unit tests for the deployed ai-tools-setgid helper: project setgid + group
-# normalization, the secret-dir skip, and the owner guard. Installed helper against a /tmp
-# testdir with a dummy allowlist; no path outside the testdir is touched.
+# Hermetic unit tests for the deployed ai-tools-setgid helper: project setgid + group normalization, the secret-dir
+# skip, and the owner guard. Installed helper against a /tmp testdir with a dummy allowlist; no path outside the testdir
+# is touched.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -56,9 +56,9 @@ else
     skip "owner guard" "user 'nobody' not present"
 fi
 
-# (A4) the owner-guard skip is REPORTED, not silent. This is the half that matters to the CLI:
-# a walk that did not normalize any directory must read differently from one that had no work to
-# do, or a claim over a tree owned by a third party closes with a clean check mark.
+# (A4) the owner-guard skip is REPORTED, not silent. This is the half that matters to the CLI: a walk that did not
+# normalize any directory must read differently from one that had no work to do, or a claim over a tree owned by a third
+# party closes with a clean check mark.
 if ${foreign}; then
     guard_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
     # The code separates this report from the project-root one below, which reads alike.
@@ -78,19 +78,19 @@ else
 fi
 
 # ── Owner-only (sealed) paths ────────────────────────────────────────────────
-# A second project, so the earlier cases keep their fixture. These are what make `chmod 700` a
-# boundary rather than a mask: the pass must not pull a sealed dir into the agent's group, and
-# must strip the residue such a dir carries from having been created inside a claimed tree.
+# A second project, so the earlier cases keep their fixture. These are what make `chmod 700` a boundary rather than
+# a mask: the pass must not pull a sealed dir into the agent's group, and must strip the residue such a dir carries
+# from having been created inside a claimed tree.
 p2="${TESTDIR}/proj2"
 mkdir -p "${p2}/plain" "${p2}/sealed/inside" "${p2}/inherited"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${p2}"
 chmod 0770 "${p2}" "${p2}/plain" "${p2}/sealed/inside"
 chmod 0700 "${p2}/sealed"
-# The inherited-then-sealed case: born group SANDBOX_GROUP + setgid + the project's ACL inside a
-# claimed tree, then sealed by the operator. That residue is what a later chmod re-activates.
-# Build it in that ORDER -- ACL first, the operator's chmod last. `setfacl -m` recalculates the
-# mask, so seeding the ACL after the chmod would raise the group bits back to rwx and leave a
-# 2770 dir that is not owner-only at all, testing the opposite of what this case is for.
+# The inherited-then-sealed case: born group SANDBOX_GROUP + setgid + the project's ACL inside a claimed tree, then
+# sealed by the operator. That residue is what a later chmod re-activates. Build it in that ORDER -- ACL first,
+# the operator's chmod last. `setfacl -m` recalculates the mask, so seeding the ACL after the chmod would raise
+# the group bits back to rwx and leave a 2770 dir that is not owner-only at all, testing the opposite of what this case
+# is for.
 chgrp "${SANDBOX_GROUP}" "${p2}/inherited"
 have_acl=false
 if command -v setfacl >/dev/null 2>&1 \
@@ -158,10 +158,9 @@ else
 fi
 
 # ── The project root itself owned by a third party ───────────────────────────
-# (E) The case that decides whether a claim granted anything at all: every directory under an
-# unreachable root inherits neither, so the agent cannot enter the tree. It gets its own wording
-# rather than folding into the count, because "1 directory skipped" reads as a detail while this
-# is the whole outcome.
+# (E) The case that decides whether a claim granted anything at all: every directory under an unreachable root inherits
+# neither, so the agent cannot enter the tree. It gets its own wording rather than folding into the count, because "1
+# directory skipped" reads as a detail while this is the whole outcome.
 p3="${TESTDIR}/proj3"
 mkdir -p "${p3}/sub"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${p3}"

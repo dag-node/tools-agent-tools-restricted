@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# /usr/local/bin/ai-tools-selftest  (test image only)
-# Automated admin/operator/agent smoke test for the ai-tools RPMs, run once on boot by
-# ai-tools-selftest.service after the system instance is up (the handback socket and the
-# sandbox account's `--user manager` need a live systemd, so this cannot run at image-build
-# time). It walks the documented Quick-start workflow end to end, reports per-phase results,
-# then stops the container with the aggregate status via `systemctl exit`.
+# /usr/local/bin/ai-tools-selftest  (test image only) Automated admin/operator/agent smoke test for the ai-tools RPMs,
+# run once on boot by ai-tools-selftest.service after the system instance is up (the handback socket and the sandbox
+# account's `--user manager` need a live systemd, so this cannot run at image-build time). It walks the documented
+# Quick-start workflow end to end, reports per-phase results, then stops the container with the aggregate status
+# via `systemctl exit`.
 #
-# What a container CAN validate here: package dependency resolution (the ai-tools
-# metapackage pulling every subpackage), the install scriptlets minus SELinux, the
-# bootstrap toolchain, operator enrolment, project claim, the test suite's DAC/systemd
-# parts, and a DAC-confined `claude --version` session.
-# What it CANNOT: SELinux-enforcing confinement. `getenforce` is Disabled in a container,
-# so %post skips `semodule` and the ai_tools_t domain transition is not exercised -- that
-# still needs the enforcing host. Phases note this where relevant.
+# What a container CAN validate here: package dependency resolution (the ai-tools metapackage pulling every subpackage),
+# the install scriptlets minus SELinux, the bootstrap toolchain, operator enrolment, project claim, the test suite's
+# DAC/systemd parts, and a DAC-confined `claude --version` session. What it CANNOT: SELinux-enforcing confinement.
+# `getenforce` is Disabled in a container, so %post skips `semodule` and the ai_tools_t domain transition is not
+# exercised -- that still needs the enforcing host. Phases note this where relevant.
 #
 # Env (set by the Containerfile, override at `podman run -e`):
 #   OPERATOR   the non-root login user enrolled as the operator (default: tester)
@@ -51,8 +48,8 @@ phase() {
     fi
 }
 
-# as_operator <cmd...> : run a command in a fresh login shell of the operator, so it picks
-# up the ai-ops group membership `operators add` just granted (a stale shell would not).
+# as_operator <cmd...> : run a command in a fresh login shell of the operator, so it picks up the ai-ops group
+# membership `operators add` just granted (a stale shell would not).
 as_operator() { runuser -l "${OPERATOR}" -c "$*"; }
 
 # ── environment dump ─────────────────────────────────────────────────────────
@@ -66,19 +63,18 @@ systemctl is-system-running || true
 set +x
 
 # ── installed-artifact + dependency checks ───────────────────────────────────
-# The metapackage's job is to pull the base plus the agents/integration umbrellas and every
-# member. The expected set is derived from the RPMs the build produced (the local repo the image
-# installed from), not a list kept by hand here, so a subpackage added to the spec is asserted
-# automatically and a member whose weak dependency silently fails to resolve is caught.
+# The metapackage's job is to pull the base plus the agents/integration umbrellas and every member. The expected set is
+# derived from the RPMs the build produced (the local repo the image installed from), not a list kept by hand here,
+# so a subpackage added to the spec is asserted automatically and a member whose weak dependency silently fails
+# to resolve is caught.
 phase "Metapackage pulled every built subpackage" \
     bash -c 'set -e; [ -d /tmp/ai-repo ] || { echo "no local repo to derive the expected set from" >&2; exit 1; }
              rpm -q $(rpm -qp --qf "%{NAME}\n" /tmp/ai-repo/*.rpm | sort -u) >/dev/null'
 
-# Every name a subpackage Obsoletes must also be Provided by it -- the two halves of the rpm
-# rename contract (see docs/rpm-packaging.md). With the Obsoletes alone, anything still depending
-# on the old name loses its provider mid-transaction; with the Provides alone, dnf cannot replace
-# the installed old package at all and the upgrade fails outright. Derived from the built set, so
-# this covers a rename introduced later without being told about it.
+# Every name a subpackage Obsoletes must also be Provided by it -- the two halves of the rpm rename contract (see
+# docs/rpm-packaging.md). With the Obsoletes alone, anything still depending on the old name loses its provider
+# mid-transaction; with the Provides alone, dnf cannot replace the installed old package at all and the upgrade fails
+# outright. Derived from the built set, so this covers a rename introduced later without being told about it.
 phase "Renamed subpackages Provide every name they Obsolete" \
     bash -c 'set -e
              for r in /tmp/ai-repo/*.rpm; do
@@ -88,10 +84,9 @@ phase "Renamed subpackages Provide every name they Obsolete" \
                  done
              done'
 
-# Enabled AND active, asserted separately. is-enabled proves the PACKAGE preset
-# (85-ai-tools.preset) enabled the socket -- the image no longer enables it out-of-band, so a
-# regression that ships it disabled (the class of bug where a source install worked but the RPM
-# left the handback dead) fails here. is-active proves the socket is then actually listening.
+# Enabled AND active, asserted separately. is-enabled proves the PACKAGE preset (85-ai-tools.preset) enabled the socket
+# -- the image no longer enables it out-of-band, so a regression that ships it disabled (the class of bug where a source
+# install worked but the RPM left the handback dead) fails here. is-active proves the socket is then actually listening.
 phase "Handback socket enabled by the package preset" \
     systemctl is-enabled --quiet ai-tools-handback.socket
 phase "Handback socket is active (system instance up)" \
@@ -103,23 +98,22 @@ phase "Core helpers + wrapper installed on PATH" \
 phase "safedir + reclaim helpers present (the late spec additions)" \
     bash -c 'test -x /usr/local/libexec/ai-tools/ai-tools-safedir && test -x /usr/local/libexec/ai-tools/ai-tools-reclaim'
 
-# The provisioning helper does not have a name on PATH: `ai-tools-admin system bootstrap` execs
-# it at this fixed path, so what the PATH phase cannot cover is asserted here.
+# The provisioning helper does not have a name on PATH: `ai-tools-admin system bootstrap` execs it at this fixed path,
+# so what the PATH phase cannot cover is asserted here.
 phase "provisioning helper present at the path ai-tools-admin execs" \
     test -x /usr/local/libexec/ai-tools/ai-tools-bootstrap
 
-# The contributed-command seam, end to end on a real install: ai-tools-integration-dotnet ships a
-# command fragment and no name on PATH, so this is the one phase that proves discovery, the trust
-# check and the exec all line up on packaged files. `dotnet status` is read-only and works on a
-# host with no .NET, which it reports.
+# The contributed-command seam, end to end on a real install: ai-tools-integration-dotnet ships a command fragment
+# and no name on PATH, so this is the one phase that proves discovery, the trust check and the exec all line
+# up on packaged files. `dotnet status` is read-only and works on a host with no .NET, which it reports.
 phase "contributed command domain dispatches (dotnet status)" \
     ai-tools-admin dotnet status
 
-# The policy modules ai-tools-selinux ships are the ones selinux/policy/shipped-modules.sh derives from
-# the group registry and the integration manifests -- the list the spec's %build compiled inside
-# this image -- one .pp per name and no other. Read from the built RPM rather than the installed
-# tree, so a %files list that drifted from the derivation fails here whether or not the package
-# was installed. getenforce is Disabled in a container, so whether a module LOADS is not covered.
+# The policy modules ai-tools-selinux ships are the ones selinux/policy/shipped-modules.sh derives from the group
+# registry and the integration manifests -- the list the spec's %build compiled inside this image -- one .pp per name
+# and no other. Read from the built RPM rather than the installed tree, so a %files list that drifted
+# from the derivation fails here whether or not the package was installed. getenforce is Disabled in a container,
+# so whether a module LOADS is not covered.
 phase "ai-tools-selinux ships exactly the derived policy module set" \
     bash -c 'set -e
              rpm=$(ls /tmp/ai-repo/ai-tools-selinux-*.rpm | head -1)
@@ -130,18 +124,17 @@ phase "ai-tools-selinux ships exactly the derived policy module set" \
              echo "${have}" | tr "\n" " "; echo' _ "${SRC_DIR}"
 
 # ── toolchain provisioning (network) ─────────────────────────────────────────
-# Run at runtime, not build: under a live systemd, bootstrap enables the sandbox account's
-# linger and the nvm-update.timer in its own `--user instance`. Idempotent (reuses an existing
-# nvm/Node), so a re-run is cheap.
+# Run at runtime, not build: under a live systemd, bootstrap enables the sandbox account's linger
+# and the nvm-update.timer in its own `--user instance`. Idempotent (reuses an existing nvm/Node), so a re-run is cheap.
 phase "system bootstrap (nvm + Node + claude; linger + timer)" \
     ai-tools-admin system bootstrap
 
 phase "claude launcher symlink resolves to the nvm-installed binary" \
     bash -c 'test -L /opt/ai-tools/bin/claude && readlink -f /opt/ai-tools/bin/claude | grep -q "/versions/node/"'
 
-# The timer enablement is the root-provisioned wants symlink under the sandbox home (the
-# only place a confined session may not write); checking it on disk is robust without
-# entering the user manager. tests/run.sh's systemd.sh is the authoritative coverage.
+# The timer enablement is the root-provisioned wants symlink under the sandbox home (the only place a confined session
+# may not write); checking it on disk is robust without entering the user manager. tests/run.sh's systemd.sh is
+# the authoritative coverage.
 phase "nvm-update.timer enabled in the ai-tools --user instance" \
     test -L /opt/ai-tools/.config/systemd/user/timers.target.wants/nvm-update.timer
 
@@ -155,29 +148,26 @@ phase "${OPERATOR} is in ai-ops + listed in operator.conf" \
 # ── project claim ────────────────────────────────────────────────────────────
 mkdir -p "${PROJECT}"; chown "${OPERATOR}:${OPERATOR}" "${PROJECT}"
 as_operator "cd '${PROJECT}' && git init -q" || true
-# The project sits inside the operator's home (mode 700), unreachable by the sandbox account. A
-# home ROOT (a direct child of /home) is itself an exact protected path (safe-paths.lib.sh), so
-# reg_reach's blocking-ancestor walk hits it first and always warns-and-skips rather than granting
-# -- this scenario exercises that blocked path, never the grant-apply branch (which needs a
-# blocking ancestor the operator owns that is NOT a home root, e.g. a private dir one level deeper).
-# Either way the claim itself still succeeds; reg_reach's outcome is a warning, not a failure.
+# The project sits inside the operator's home (mode 700), unreachable by the sandbox account. A home ROOT (a direct
+# child of /home) is itself an exact protected path (safe-paths.lib.sh), so reg_reach's blocking-ancestor walk hits it
+# first and always warns-and-skips rather than granting -- this scenario exercises that blocked path, never
+# the grant-apply branch (which needs a blocking ancestor the operator owns that is NOT a home root, e.g. a private dir
+# one level deeper). Either way the claim itself still succeeds; reg_reach's outcome is a warning, not a failure.
 
-# Drive the claim non-interactively. AI_TOOLS_ASSUME_YES=1 is the CLI's own assume-yes hook, but it
-# only fast-tracks default-YES prompts (here: .git normalization) -- by design (messaging.rule.md),
-# it never pre-answers a default-NO one. The claim's own proceed prompt ("Apply the pending steps IN
-# PLACE?") is default-NO, so it needs the CLI's per-invocation `--yes`, the same flag claude.sh passes
-# for its own delegated claim.
+# Drive the claim non-interactively. AI_TOOLS_ASSUME_YES=1 is the CLI's own assume-yes hook, but it only fast-tracks
+# default-YES prompts (here: .git normalization) -- by design (messaging.rule.md), it never pre-answers a default-NO
+# one. The claim's own proceed prompt ("Apply the pending steps IN PLACE?") is default-NO, so it needs the CLI's
+# per-invocation `--yes`, the same flag claude.sh passes for its own delegated claim.
 phase "operator claims the project (allowlist + ACL + safedir + label)" \
-    as_operator "AI_TOOLS_ASSUME_YES=1 ai-tools --project-claim --yes '${PROJECT}'"
+    as_operator "AI_TOOLS_ASSUME_YES=1 ai-tools projects claim --yes '${PROJECT}'"
 
 phase "project is in the operator's allowlist" \
     bash -c "grep -q '${PROJECT}' /home/${OPERATOR}/.config/ai-tools/allowed-projects"
 
-# OCI image layers do not carry POSIX ACLs, and they preserve directory setgid inconsistently
-# across the build-time scriptlet writes (per distro): so both the base %post ai-ops ACL and the
-# sandbox-tree setgid bit can be lost from the committed layer. On a real host the scriptlets apply
-# both at install and they persist (no image layer); re-assert both here at runtime so perms.sh
-# exercises the same state a real install has.
+# OCI image layers do not carry POSIX ACLs, and they preserve directory setgid inconsistently across the build-time
+# scriptlet writes (per distro): so both the base %post ai-ops ACL and the sandbox-tree setgid bit can be lost
+# from the committed layer. On a real host the scriptlets apply both at install and they persist (no image layer);
+# re-assert both here at runtime so perms.sh exercises the same state a real install has.
 banner "Re-assert sandbox-area ACL + setgid (OCI layers drop build-time dir attrs)"
 chmod 2750 /var/opt/ai-tools 2>/dev/null || :
 chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
@@ -190,8 +180,8 @@ setfacl -m  g:ai-ops:r-x /var/opt/ai-tools \
 
 # ── the project test suite (DAC + systemd parts; SELinux parts no-op/skip) ────
 if [[ "${RUN_TESTS}" == "1" && -f "${SRC_DIR}/tests/run.sh" ]]; then
-    # run.sh insists on sudo (EUID 0 + SUDO_USER). Go through the operator's NOPASSWD sudo,
-    # which sets SUDO_USER=<operator> itself, exercising the real invocation path.
+    # run.sh insists on sudo (EUID 0 + SUDO_USER). Go through the operator's NOPASSWD sudo, which sets
+    # SUDO_USER=<operator> itself, exercising the real invocation path.
     phase "tests/run.sh all" \
         as_operator "sudo bash '${SRC_DIR}/tests/run.sh' all"
 else
@@ -199,9 +189,9 @@ else
 fi
 
 # ── reachability diagnostic (why can / can't the agent reach the project) ─────
-# ai-tools-run checks `[[ -d AI_TOOLS_PROJECT_DIR ]]` AS the agent, so the agent must traverse every
-# ancestor. Dump each ancestor's perms + ACL and whether the agent can stat the project, so a
-# traverse-grant gap is visible rather than only surfacing as the session error.
+# ai-tools-run checks `[[ -d AI_TOOLS_PROJECT_DIR ]]` AS the agent, so the agent must traverse every ancestor. Dump each
+# ancestor's perms + ACL and whether the agent can stat the project, so a traverse-grant gap is visible rather than only
+# surfacing as the session error.
 banner "Reachability diagnostic"
 set -x
 ls -ld /home "/home/${OPERATOR}" "${PROJECT}" 2>&1 || true
@@ -212,9 +202,9 @@ set +x
 
 # ── confined session smoke test (auth-free) ──────────────────────────────────
 # `claude --version` flows wrapper -> ai-ops gate -> allowlist -> sudo -> ai-tools-run ->
-# `systemd-run --user --pty -- claude.exe --version`, so it exercises the whole confined
-# launch without an API key. `script` provides a controlling tty for the wrapper's
-# /dev/tty probe and ai-tools-run's `--pty`; `timeout` guards a hung update check.
+# `systemd-run --user --pty -- claude.exe --version`, so it exercises the whole confined launch without an API key.
+# `script` provides a controlling tty for the wrapper's /dev/tty probe and ai-tools-run's `--pty`; `timeout` guards
+# a hung update check.
 phase "confined session launches (claude --version through the wrapper)" \
     as_operator "cd '${PROJECT}' && script -qec 'timeout 90 claude --version' /dev/null"
 
@@ -232,7 +222,7 @@ else
     printf '\n\033[1;31m##### ai-tools container selftest: FAILURES ABOVE #####\033[0m\n'
 fi
 
-# Stop the systemd payload and surface the aggregate status as the container exit code,
-# so `podman run` returns non-zero on failure (CI-friendly).
+# Stop the systemd payload and surface the aggregate status as the container exit code, so `podman run` returns non-zero
+# on failure (CI-friendly).
 note "stopping container with exit code ${rc_total}"
 systemctl exit "${rc_total}" 2>/dev/null || { systemctl halt --no-block; exit "${rc_total}"; }

@@ -1,30 +1,29 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/conf.lib.sh
-# The one KEY=value grammar every ai-tools config file is read with, the trust predicate that
-# decides whether a file may be read at all, and three things that share the grammar and so live
-# beside it: the dated config sidecars (`<name>.<YYYYMMDD>[-N].{bak,shipped}`, whose stamp
-# ai_tools_conf_sidecar_path is the single home of), the settings.json hook-declaration merge, and
-# every read AND write of allowed-projects. Sourced (never executed) by operator.lib.sh,
-# skip-dirs.lib.sh, providers.lib.sh, the launch wrapper, the CLI and the root helpers, so a key
-# and an allowlist line read the same whichever component reads them. The grammar, the
-# present/absent distinction the provider gating turns on, and what the trust predicate requires
-# are in providers.rule.md; the allowlist state model is in cli.rule.md.
+# The one KEY=value grammar every ai-tools config file is read with, the trust predicate that decides whether a file may
+# be read at all, and three things that share the grammar and so live beside it: the dated config sidecars
+# (`<name>.<YYYYMMDD>[-N].{bak,shipped}`, whose stamp ai_tools_conf_sidecar_path is the single home
+# of), the settings.json hook-declaration merge, and every read AND write of allowed-projects. Sourced (never executed)
+# by operator.lib.sh, skip-dirs.lib.sh, providers.lib.sh, the launch wrapper, the CLI and the root helpers, so a key
+# and an allowlist line read the same whichever component reads them. The grammar, the present/absent distinction
+# the provider gating turns on, and what the trust predicate requires are in providers.rule.md; the allowlist state
+# model is in cli.rule.md.
 #
-# Config files are PARSED, never sourced: a malformed or tampered file yields a bad value, never
-# executed code in a privileged script. List splitting pins IFS locally, because the sourcing
-# scripts run under the strict-mode IFS=$'\n\t', where an inherited IFS would read "a b" as one
-# item -- for a provider allowlist, a wrong "no such provider" verdict.
+# Config files are PARSED, never sourced: a malformed or tampered file yields a bad value, never executed code
+# in a privileged script. List splitting pins IFS locally, because the sourcing scripts run under the strict-mode
+# IFS=$'\n\t', where an inherited IFS would read "a b" as one item -- for a provider allowlist, a wrong "no such
+# provider" verdict.
 #
-# A trust refusal reports the owner uid and mode the predicate read (ai_tools_conf_untrusted_reason).
-# That uid is the owner on disk only inside the initial user namespace: in any other, a host uid
-# with no mapping reads back as the overflow uid 65534 while stat exits 0, so a root-owned file
-# reads as a nobody-owned one and is refused. ai_tools_conf_uid_map_is_identity detects that
-# namespace and the reason names it, so the refusal is not investigated as a mode or a label.
+# A trust refusal reports the owner uid and mode the predicate read (ai_tools_conf_untrusted_reason). That uid is
+# the owner on disk only inside the initial user namespace: in any other, a host uid with no mapping reads back
+# as the overflow uid 65534 while stat exits 0, so a root-owned file reads as a nobody-owned one and is refused.
+# ai_tools_conf_uid_map_is_identity detects that namespace and the reason names it, so the refusal is not investigated
+# as a mode or a label.
 
-# Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on the
-# second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset
-# guard and trips the sourcing shell's `set -e`).
+# Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on the second
+# pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing
+# shell's `set -e`).
 if [[ -n "${_AI_TOOLS_CONF_LIB:-}" ]]; then
     return 0
 fi
@@ -213,8 +212,8 @@ ai_tools_conf_list() {
 }
 
 # ── Sidecar files: what an upgrade preserves when it touches an operator's config ────────────
-# An install that rewrites a config the operator owns leaves two kinds of copy behind, and they
-# answer different questions -- neither substitutes for the other:
+# An install that rewrites a config the operator owns leaves two kinds of copy behind, and they answer different
+# questions -- neither substitutes for the other:
 #
 #   <name>.<YYYYMMDD>.bak       what the operator HAD. The only thing that restores their
 #                               settings if a rewrite is valid but wrong, which no syntax check
@@ -224,17 +223,15 @@ ai_tools_conf_list() {
 #                               unattended, so the hand merge has a source -- a host installed
 #                               from the RPM has no checkout to copy from.
 #
-# The date stamp makes them survive successive runs: each install adds a copy rather than
-# overwriting the evidence of the last. A same-day second copy takes a `-N` counter, so a .bak
-# is never overwritten -- an operator who ran the installer twice in a day is exactly the one
-# who needs the first copy.
+# The date stamp makes them survive successive runs: each install adds a copy rather than overwriting the evidence
+# of the last. A same-day second copy takes a `-N` counter, so a .bak is never overwritten -- an operator who ran
+# the installer twice in a day is exactly the one who needs the first copy.
 #
-# The two kinds accumulate differently, because they record different things. A .bak records that
-# a run replaced the file, so each one is distinct evidence and every rewrite writes one. A
-# .shipped records the baseline that was on offer, so ai_tools_conf_reference reuses an existing
-# copy whose content already matches and dates a new one only for a baseline the directory does
-# not hold. A host re-running the installer against an unchanged source tree therefore keeps one
-# copy per DIFFERENT baseline it was offered, rather than one per run.
+# The two kinds accumulate differently, because they record different things. A .bak records that a run replaced
+# the file, so each one is distinct evidence and every rewrite writes one. A .shipped records the baseline that was
+# on offer, so ai_tools_conf_reference reuses an existing copy whose content already matches and dates a new one only
+# for a baseline the directory does not hold. A host re-running the installer against an unchanged source tree therefore
+# keeps one copy per DIFFERENT baseline it was offered, rather than one per run.
 
 # ai_tools_conf_sidecar_path <path> <kind> : print an UNUSED sidecar path for <path>. Returns 1
 #   without printing when the day's namespace is exhausted, so a caller never silently reuses a
@@ -309,20 +306,19 @@ ai_tools_conf_require_jq() {
 }
 
 # ── JSON hook declarations ───────────────────────────────────────────────────────────────────
-# An agent's settings file is kept across an upgrade, because it carries host tuning a reset
-# would revert. Its HOOK DECLARATIONS are not tuning though: they are control plane that merges
-# additively and that no lower-precedence layer may remove, so a version that ships a new hook
-# has to get that declaration into a kept file or the hook it installed never runs.
+# An agent's settings file is kept across an upgrade, because it carries host tuning a reset would revert. Its HOOK
+# DECLARATIONS are not tuning though: they are control plane that merges additively and that no lower-precedence layer
+# may remove, so a version that ships a new hook has to get that declaration into a kept file or the hook it installed
+# never runs.
 #
-# The merge adds only declarations the file lacks and leaves every other key -- the permission
-# arrays it was kept for, an operator's own hook -- as written. Reporting is the caller's: this
-# sets what happened and returns how it went, so the same decision can be rendered by an
-# installer, a test, or a future agent's tooling without the wording living here.
+# The merge adds only declarations the file lacks and leaves every other key -- the permission arrays it was kept
+# for, an operator's own hook -- as written. Reporting is the caller's: this sets what happened and returns how it went,
+# so the same decision can be rendered by an installer, a test, or a future agent's tooling without the wording living
+# here.
 
-# The shipped hook commands a deployed file does not declare, as "<event>: <command>". The
-# command binds to $command before the membership test: inside index(), `.` is that function's
-# own input -- the $have array -- so an unbound form asks whether the array contains itself and
-# does not report a gap wherever the event already declares a hook.
+# The shipped hook commands a deployed file does not declare, as "<event>: <command>". The command binds to $command
+# before the membership test: inside index(), `.` is that function's own input -- the $have array -- so an unbound form
+# asks whether the array contains itself and does not report a gap wherever the event already declares a hook.
 # shellcheck disable=SC2016  # jq variables, bound by `--slurpfile` and jq's own `as`
 readonly _AI_TOOLS_CONF_HOOKS_MISSING_FILTER='
     . as $cur
@@ -332,8 +328,8 @@ readonly _AI_TOOLS_CONF_HOOKS_MISSING_FILTER='
     | select(($have | index($command)) == null)
     | "\($event.key): \($command)"'
 
-# Append whole matcher groups whose commands are absent, so a group arrives with its matcher
-# intact; a group already fully declared is left alone.
+# Append whole matcher groups whose commands are absent, so a group arrives with its matcher intact; a group already
+# fully declared is left alone.
 # shellcheck disable=SC2016  # jq variables, as in the merge program
 readonly _AI_TOOLS_CONF_HOOKS_MERGE_FILTER='
     ($shipped[0].hooks // {}) as $ship
@@ -390,8 +386,8 @@ ai_tools_conf_merge_hook_declarations() {
         return 2
     fi
 
-    # Keep what the operator had before replacing it: this is the only copy that restores host
-    # tuning if a merge is valid JSON yet wrong, which the JSON check cannot catch.
+    # Keep what the operator had before replacing it: this is the only copy that restores host tuning if a merge is
+    # valid JSON yet wrong, which the JSON check cannot catch.
     _ai_tools_conf_merge_backup="$(ai_tools_conf_backup "${deployed}")" || true
     _ai_tools_conf_match_perms "${tmp}" "${deployed}"
     mv -f "${tmp}" "${deployed}" || { rm -f "${tmp}"; _refuse "the merged file could not be moved into place"; return 2; }
@@ -404,17 +400,15 @@ ai_tools_conf_merge_hook_declarations() {
 }
 
 # ── KEY=value files: report new keys, never rewrite ──────────────────────────────────────────
-# A KEY=value config is mostly DOCUMENTATION -- commented option blocks explaining each key --
-# and an operator's copy is kept across an upgrade, so a key a new version introduces arrives
-# nowhere. The consequence differs from the JSON case and so does the treatment: with the
-# present/absent grammar an absent key already means its default, so what a stale file loses is
-# the operator's chance to KNOW the option exists, not the behaviour.
+# A KEY=value config is mostly DOCUMENTATION -- commented option blocks explaining each key -- and an operator's copy is
+# kept across an upgrade, so a key a new version introduces arrives nowhere. The consequence differs from the JSON case
+# and so does the treatment: with the present/absent grammar an absent key already means its default, so what a stale
+# file loses is the operator's chance to KNOW the option exists, not the behaviour.
 #
-# That is why these are reported and never merged. Splicing a commented block into a file whose
-# layout, ordering and local annotations are the operator's would rewrite prose for a
-# discoverability gain, and a file that carries the launch allowlist or the operator list is the
-# last one to edit unattended. The caller names the new keys and drops the shipped baseline
-# beside the file; the operator merges what they want.
+# That is why these are reported and never merged. Splicing a commented block into a file whose layout, ordering
+# and local annotations are the operator's would rewrite prose for a discoverability gain, and a file that carries
+# the launch allowlist or the operator list is the last one to edit unattended. The caller names the new keys and drops
+# the shipped baseline beside the file; the operator merges what they want.
 
 # ai_tools_conf_keys <array-name> <file> : set the named array to every KEY this file mentions,
 #   whether the key is live or written as a commented-out default (`#KEY=` / `# KEY =`). Both
@@ -430,8 +424,8 @@ ai_tools_conf_keys() {
         line="${line#"${line%%[![:space:]]*}"}"       # strip leading whitespace
         if [[ "${line}" == \#* ]]; then
             line="${line#\#}"                         # a commented default is still a mention
-            # ...but only when written hard against the `#` or one space in. A comment indented
-            # further is illustrative prose: operator.conf's header documents the grammar with
+            # ...but only when written hard against the `#` or one space in. A comment indented further is illustrative
+            # prose: operator.conf's header documents the grammar with
             # lines like `#   KEY=value`, so counting those would make the minimally seeded file
             # `ai-tools-admin operators add` writes report every documented key as new.
             [[ "${line}" != "  "* ]] || continue
@@ -473,20 +467,19 @@ ai_tools_conf_new_keys() {
 }
 
 # ── Path-list files (allowed-projects) ───────────────────────────────────────────────────────
-# The launch allowlist is one path per line rather than KEY=value, but it is read with the SAME
-# rules as everything else: a whole-line or end-of-line `#` comment, and one matched quote layer
-# for a path that must contain a space or a literal `#`. Sharing the grammar is the point --
-# every reader of this file (the launch wrapper, the CLI, the owner resolver, and each root helper
-# that walks or labels a project; providers.rule.md names them) parses it here, and a rule
-# that lives in each of them separately is a rule that drifts.
+# The launch allowlist is one path per line rather than KEY=value, but it is read with the SAME rules as everything
+# else: a whole-line or end-of-line `#` comment, and one matched quote layer for a path that must contain a space
+# or a literal `#`. Sharing the grammar is the point -- every reader of this file (the launch wrapper, the CLI,
+# the owner resolver, and each root helper that walks or labels a project; providers.rule.md names them) parses it here,
+# and a rule that lives in each of them separately is a rule that drifts.
 #
 #   /home/op/project              a path
 #   /home/op/project   # why      an end-of-line comment: `#` after whitespace ends the entry
 #   "/home/op/ai works"           quotes carry a space, and make `#` inside them literal
 #   !/home/op/project/vendor      an exclusion; the `!` precedes the quotes: !"/a b"
 #
-# An entry is NOT resolved or validated here: callers canonicalize with realpath and match
-# exclusions as globs, and this only decides what text the line denotes.
+# An entry is NOT resolved or validated here: callers canonicalize with realpath and match exclusions as globs, and this
+# only decides what text the line denotes.
 
 # ai_tools_conf_path_entry <line> : set _ai_tools_conf_value to the entry <line> denotes and
 #   return 0; return 1 for a line that does not carry an entry (blank, or a whole-line comment), which
@@ -508,16 +501,15 @@ ai_tools_conf_path_entry() {
 }
 
 # ── Allowlist membership (exact-entry matching) ──────────────────────────────────────────────
-# One predicate for "is this path an entry of allowed-projects", shared by every component that
-# asks: the launch wrapper's post-claim confirm, the claim/unclaim CLI (reg/unreg, project_state),
-# and the relabel helper. They read the file through that grammar, so an entry written in
+# One predicate for "is this path an entry of allowed-projects", shared by every component that asks: the launch
+# wrapper's post-claim confirm, the claim/unclaim CLI (reg/unreg, project_state), and the relabel helper. They read
+# the file through that grammar, so an entry written in
 # that grammar -- an end-of-line comment (`/p   # why`), a quoted path (`"/p with space"`), or a
-# spelling reached by a symlink or trailing slash -- is a MATCH here, where a raw `grep -qxF`
-# against the stored line would miss it and report the project unlisted. Comparison is on
-# realpath-normalized values, the same canonicalization the launch gate applies, so the confirm
-# and the gate agree. A stored entry that no longer resolves cannot equal an existing target and
-# is skipped (the launch wrapper drops unresolvable entries the same way). Callers pass an
-# existing path (a realpath'd project dir); membership of a non-existent path is never asserted.
+# spelling reached by a symlink or trailing slash -- is a MATCH here, where a raw `grep -qxF` against the stored line
+# would miss it and report the project unlisted. Comparison is on realpath-normalized values, the same canonicalization
+# the launch gate applies, so the confirm and the gate agree. A stored entry that no longer resolves cannot equal
+# an existing target and is skipped (the launch wrapper drops unresolvable entries the same way). Callers pass
+# an existing path (a realpath'd project dir); membership of a non-existent path is never asserted.
 
 # _ai_tools_conf_allowlist_norm <path> : print <path> realpath-normalized, or <path> itself when
 #   it does not resolve, so the two membership predicates canonicalize target and entry identically.
@@ -554,7 +546,7 @@ ai_tools_conf_allowlist_has_exclusion() {
 
 # ai_tools_conf_allowlist_matching_lines <array-name> <allowlist-file> <path> : set the named array
 #   to every RAW line of <allowlist-file> whose ALLOW entry matches <path>, and return 0 when at
-#   least one did. For a caller that must DELETE the line (unclaim, the `--list` remediation): the raw
+#   least one did. For a caller that must DELETE the line (unclaim, the `projects list` remediation): the raw
 #   text is what a line-anchored `sed` removes, and it can differ from <path> -- a comment, quotes,
 #   or a symlinked spelling -- so reconstructing the line from <path> would fail to match.
 ai_tools_conf_allowlist_matching_lines() {
@@ -592,13 +584,12 @@ ai_tools_conf_allowlist_exclusion_lines() {
 }
 
 # ── Allowlist editing (the one implementation of a registry change) ──────────────────────────
-# An allowed-projects line has four states to move between -- absent, listed, disabled (a `!`
-# exclusion parks it), and gone -- and three components change one: the CLI on the operator's own
-# file, ai-tools-allowlist on another operator's (a `--for` run), and install.sh de-registering its
-# own checkout. All three write through these functions, so one matcher decides what a line
-# names for every writer and every reader. The file is the agent's LAUNCH GATE: a writer that
-# matched lines differently from the reader would leave a project reachable after a "removal", or
-# park it twice over.
+# An allowed-projects line has four states to move between -- absent, listed, disabled (a `!` exclusion parks it),
+# and gone -- and three components change one: the CLI on the operator's own file, ai-tools-allowlist on another
+# operator's (a `--for` run), and install.sh de-registering its own checkout. All three write through these functions,
+# so one matcher decides what a line names for every writer and every reader. The file is the agent's LAUNCH GATE:
+# a writer that matched lines differently from the reader would leave a project reachable after a "removal", or park it
+# twice over.
 #
 # Every one of them is idempotent, verifies by RE-READING the file rather than trusting a write,
 # and reports three outcomes apart:
@@ -622,9 +613,9 @@ _ai_tools_conf_allowlist_write() {
     mode="$(stat -c '%a' "${file}" 2>/dev/null || true)"
     tmp="$(mktemp "${file}.XXXXXX" 2>/dev/null)" || return 1
     if ! cat -- "${src}" > "${tmp}" 2>/dev/null; then rm -f -- "${tmp}"; return 1; fi
-    # Best-effort metadata: a root writer restores another operator's ownership, an unprivileged
-    # one is already writing as the owner. A mode that will not apply is worth failing over --
-    # this file is 0600 by design and a widened one exposes an operator's project list.
+    # Best-effort metadata: a root writer restores another operator's ownership, an unprivileged one is already writing
+    # as the owner. A mode that will not apply is worth failing over -- this file is 0600 by design and a widened one
+    # exposes an operator's project list.
     [[ -n "${owner}" ]] && chown "${owner}" "${tmp}" 2>/dev/null
     if [[ -n "${mode}" ]] && ! chmod "${mode}" "${tmp}" 2>/dev/null; then rm -f -- "${tmp}"; return 1; fi
     mv -f -- "${tmp}" "${file}" 2>/dev/null || { rm -f -- "${tmp}"; return 1; }
@@ -655,10 +646,10 @@ ai_tools_conf_allowlist_add() {
         listed)   return 0 ;;
         disabled) return 2 ;;
     esac
-    # A hand-edited registry can run to EOF part-way through its last line, and every reader here
-    # keeps that entry (the read loops take a final unbroken line). So the append opens a new line
-    # first: written straight, it would join the two paths into a third that no project matches,
-    # dropping the claimed one from the launch gate while the preceding entry changed meaning.
+    # A hand-edited registry can run to EOF part-way through its last line, and every reader here keeps that entry (the
+    # read loops take a final unbroken line). So the append opens a new line first: written straight, it would join
+    # the two paths into a third that no project matches, dropping the claimed one from the launch gate while
+    # the preceding entry changed meaning.
     [[ -n "$(tail -c 1 -- "${file}" 2>/dev/null)" ]] && line_break=$'\n'
     printf '%s%s\n' "${line_break}" "${path}" >> "${file}" 2>/dev/null || return 1
     ai_tools_conf_allowlist_has_entry "${file}" "${path}" || return 1
@@ -670,8 +661,8 @@ ai_tools_conf_allowlist_add() {
 #   Removing what is not there succeeds: an unclaim run twice is not an error.
 ai_tools_conf_allowlist_remove() {
     local file="$1" path="$2" tmp line keep m
-    # Names distinct from any scalar a sibling library uses: every consumer sources this file, and
-    # an array here sharing a name with a local there reads as a type conflict at lint time.
+    # Names distinct from any scalar a sibling library uses: every consumer sources this file, and an array here sharing
+    # a name with a local there reads as a type conflict at lint time.
     local -a doomed_lines=() parked_lines=()
     [[ -f "${file}" ]] || return 0
     ai_tools_conf_allowlist_matching_lines  doomed_lines "${file}" "${path}" || true
@@ -704,12 +695,11 @@ _ai_tools_conf_allowlist_retag() {
     else
         ai_tools_conf_allowlist_exclusion_lines retag_lines "${file}" "${path}" || return 2
     fi
-    # ENABLE additionally collapses duplicates. Un-parking `!/p` while an allow line for `/p`
-    # already exists -- the pair the old "append over an exclusion" bug created -- would leave two
-    # live entries for one path. So the FIRST line naming the path survives, un-parked, in its own
-    # position, and every later line naming it is dropped: one live entry per path, which is the
-    # invariant every reader of this file assumes. DISABLE does not need that rule, since parking each
-    # of several allow lines leaves them all excluded, which is one state and not two.
+    # ENABLE additionally collapses duplicates. Un-parking `!/p` while an allow line for `/p` already exists -- the pair
+    # the old "append over an exclusion" bug created -- would leave two live entries for one path. So the FIRST line
+    # naming the path survives, un-parked, in its own position, and every later line naming it is dropped: one live
+    # entry per path, which is the invariant every reader of this file assumes. DISABLE does not need that rule, since
+    # parking each of several allow lines leaves them all excluded, which is one state and not two.
     local -a live_lines=()
     if [[ "${op}" == enable ]]; then
         ai_tools_conf_allowlist_matching_lines live_lines "${file}" "${path}" || true
@@ -721,16 +711,15 @@ _ai_tools_conf_allowlist_retag() {
         for m in "${retag_lines[@]}"; do
             [[ "${line}" == "${m}" ]] || continue
             if [[ "${op}" == disable ]]; then
-                # Insert the '!' before the first non-blank character, so an indented entry keeps
-                # its indentation and the '!' still opens the entry the grammar reads.
+                # Insert the '!' before the first non-blank character, so an indented entry keeps its indentation
+                # and the '!' still opens the entry the grammar reads.
                 head="${line%%[![:space:]]*}"
                 line="${head}!${line#"${head}"}"
             elif ${emitted}; then
                 continue 2                      # a later duplicate of a path already restored
             else
-                # Delete the FIRST '!' -- the one that opens the entry. One in a trailing comment
-                # is left alone. A line that carries none is already the allow entry and is kept
-                # as it is.
+                # Delete the FIRST '!' -- the one that opens the entry. One in a trailing comment is left alone. A line
+                # that carries none is already the allow entry and is kept as it is.
                 line="${line/'!'/}"
                 emitted=true
             fi
@@ -770,19 +759,17 @@ ai_tools_conf_allowlist_enable() {
 }
 
 # ── Seed text for an operator's own config files ──────────────────────────────────────────────
-# A file an operator keeps in ~/.config/ai-tools is created carrying its header and no entry, so
-# the operator edits a file that states what it is rather than a blank one. The text lives here
-# because it is written from more than one place -- `ai-tools-admin operators add` on any
-# installed host, and install.sh for the account a from-source install enrols -- and a header
-# written twice is a header that disagrees with itself about what the file accepts. Each function
+# A file an operator keeps in ~/.config/ai-tools is created carrying its header and no entry, so the operator edits
+# a file that states what it is rather than a blank one. The text lives here because it is written from more than one
+# place -- `ai-tools-admin operators add` on any installed host, and install.sh for the account a from-source install
+# enrols -- and a header written twice is a header that disagrees with itself about what the file accepts. Each function
 # PRINTS; the caller places the file with the ownership and mode it needs (600, inside a 700
 # directory).
 #
-# A seeded header is written once and no upgrade rewrites it, so it carries what the file is,
-# the one rule a reader needs before writing a line, example lines, and the man page that holds
-# the reference -- the page ships with the package and reaches every host on every upgrade,
-# where a header stays as it was on the day the account was enrolled. tests/unit/man.sh caps
-# the allowlist header and reads the page's examples through ai_tools_conf_path_entry.
+# A seeded header is written once and no upgrade rewrites it, so it carries what the file is, the one rule a reader
+# needs before writing a line, example lines, and the man page that holds the reference -- the page ships
+# with the package and reaches every host on every upgrade, where a header stays as it was on the day the account was
+# enrolled. tests/unit/man.sh caps the allowlist header and reads the page's examples through ai_tools_conf_path_entry.
 
 # ai_tools_conf_allowlist_seed : print the header a fresh allowed-projects carries. It does not
 #   name any project, so a session cannot start anywhere until the CLI or the operator adds an
@@ -799,9 +786,9 @@ ai_tools_conf_allowlist_seed() {
         "#   \"/home/op/ai works\"  # note   quote a path containing a space;" \
         "#                                 '#' starts a comment" \
         "#" \
-        "# Managed by the ai-tools CLI: --project-claim, --project-create" \
-        "# and --sandbox-create register a project; --project-disable" \
-        "# and --project-enable park and restore one; --list reviews the file." \
+        "# Managed by the ai-tools CLI: projects claim, projects create and" \
+        "# projects clone register a project; projects disable and projects" \
+        "# enable park and restore one; projects list reviews the file." \
         "# Full reference: man 5 allowed-projects" \
         ""
 }

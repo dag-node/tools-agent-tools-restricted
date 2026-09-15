@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/wrapper.sh
-# Integration: the deployed launch wrapper (/usr/local/bin/claude). Exercises the ai-ops
-# operator gate, the allowlist gate, and the symlink-existence guard against the REAL
-# installed wrapper, hermetically: the wrapper keys its allowlist off ${HOME}, so the test
-# points HOME at a /tmp testdir with a controlled allowed-projects (no dependency on the
-# operator's real allowlist, and no dependency on whether the install dir is a project).
-# Every wrapper run is detached via setsid so the wrapper's /dev/tty claim prompt can never
-# fire -- the test never claims a project as a side effect. Run as root via sudo.
+# Integration: the deployed launch wrapper (/usr/local/bin/claude). Exercises the ai-ops operator gate, the allowlist
+# gate, and the symlink-existence guard against the REAL installed wrapper, hermetically: the wrapper keys its allowlist
+# off ${HOME}, so the test points HOME at a /tmp testdir with a controlled allowed-projects (no dependency
+# on the operator's real allowlist, and no dependency on whether the install dir is a project). Every wrapper run is
+# detached via setsid so the wrapper's /dev/tty claim prompt can never fire -- the test never claims a project as a side
+# effect. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
+# The CLI commands this file drives, and the remedies it reads back, are named by key through the spelling table.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/cli-spelling.sh"
 require_root
 
 readonly wrapper="/usr/local/bin/claude"
@@ -21,41 +22,38 @@ if [[ ! -x "${wrapper}" ]]; then
 fi
 
 mktestdir
-# A hermetic HOME with a controlled allowlist: approve one temp project dir, leave a sibling
-# unapproved. The home tree is owned by the projects user so the wrapper (run as that user)
-# reads its own allowlist.
+# A hermetic HOME with a controlled allowlist: approve one temp project dir, leave a sibling unapproved. The home tree
+# is owned by the projects user so the wrapper (run as that user) reads its own allowlist.
 home="${TESTDIR}/home"
 approved="${TESTDIR}/approved"
 unapproved="${TESTDIR}/unapproved"
-# An excluded subdir UNDER the approved parent: the allowlist approves ${approved} but carves
-# ${approved}/secret back out with a '!' rule, exactly as ai-tools-chown honours it.
+# An excluded subdir UNDER the approved parent: the allowlist approves ${approved} but carves ${approved}/secret back
+# out with a '!' rule, exactly as ai-tools-chown honours it.
 excluded="${approved}/secret"
 mkdir -p "${home}/.config/ai-tools" "${approved}" "${unapproved}" "${excluded}"
 printf '%s\n' "${approved}" "!${excluded}" > "${home}/.config/ai-tools/allowed-projects"
 chmod -R 0755 "${home}" "${approved}" "${unapproved}"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${home}" "${approved}" "${unapproved}"
 
-# Run the deployed wrapper as the projects user with the hermetic HOME, from $1 as cwd,
-# detached (setsid) so no /dev/tty prompt can fire. HOME is set via `env` (the command sudo
-# execs), not a sudo command-line assignment, so it reaches the wrapper regardless of sudo's
-# env_reset/set_home handling -- the wrapper keys its allowlist off ${HOME}. Echoes combined
+# Run the deployed wrapper as the projects user with the hermetic HOME, from $1 as cwd, detached (setsid) so no /dev/tty
+# prompt can fire. HOME is set via `env` (the command sudo execs), not a sudo command-line assignment, so it reaches
+# the wrapper regardless of sudo's env_reset/set_home handling -- the wrapper keys its allowlist off ${HOME}. Echoes
+# combined
 # stdout+stderr.
 #
-# The probe args are two-fold on purpose: a SOLE `--version`/`--help` is the wrapper's
-# print-and-exit pass-through and legitimately skips the CWD gates under test, so a second
-# dummy argument keeps the gates in the path; `--version` stays first so that if a gate ever
-# regresses and the session launches, claude prints/errors and exits fast instead of
-# hanging the suite on an interactive session.
+# The probe args are two-fold on purpose: a SOLE `--version`/`--help` is the wrapper's print-and-exit pass-through
+# and legitimately skips the CWD gates under test, so a second dummy argument keeps the gates in the path; `--version`
+# stays first so that if a gate ever regresses and the session launches, claude prints/errors and exits fast instead
+# of hanging the suite on an interactive session.
 run_wrapper() {  # $1 = cwd
     ( cd "$1" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
         "${wrapper}" --version --gate-probe < /dev/null 2>&1 || true )
 }
 
-# gate_refused <output>: true when the output carries either allowlist-gate refusal code --
-# MSG-N2Z7 (this project is not set up for the agent) or MSG-C9S6 (no allowlist file at all).
-# For these assertions the two codes are one situation, "the gate did not let the session start",
-# and which of them fires depends on whether the fixture allowlist exists; a check that the gate
-# did NOT fire therefore matches on both codes.
+# gate_refused <output>: true when the output carries either allowlist-gate refusal code -- MSG-N2Z7 (this project is
+# not set up for the agent) or MSG-C9S6 (no allowlist file at all). For these assertions the two codes are one
+# situation, "the gate did not let the session start", and which of them fires depends on whether the fixture allowlist
+# exists; a check that the gate did NOT fire therefore matches on both codes.
 gate_refused() { grep -qxE 'MSG-N2Z7|MSG-C9S6' <<<"$1"; }
 
 # (0) Operator gate: the wrapper refuses anyone not in the ai-ops group BEFORE it reaches the
@@ -73,9 +71,8 @@ else
     pass "wrapper short-circuits at the ai-ops gate before the allowlist check"
 fi
 
-# The allowlist-gate cases (1)-(3) exercise the wrapper PAST its symlink guard, which
-# needs the provisioned toolchain's bin/claude symlink; without it every run stops at
-# "claude symlink not found" before the gate under test.
+# The allowlist-gate cases (1)-(3) exercise the wrapper PAST its symlink guard, which needs the provisioned toolchain's
+# bin/claude symlink; without it every run stops at "claude symlink not found" before the gate under test.
 if [[ ! -L "/opt/ai-tools/bin/claude" ]]; then
     skip "wrapper allowlist-gate cases (1)-(3)" "toolchain not provisioned -- run: sudo ai-tools-admin system bootstrap"
 else
@@ -90,9 +87,9 @@ assert_msg MSG-N2Z7 "${out}" "wrapper blocks execution from an unapproved direct
 # (1a) Cancelling names BOTH commands. The screen the menu sits under carries none (it states
 #      each choice once, in the menu), so the refusal is the only place they appear -- an
 #      operator who cancels, or whose run has no terminal, must still be told what to run.
-if printf '%s' "${out}" | grep -qF -- '--sandbox-create' \
-        && printf '%s' "${out}" | grep -qF -- '--project-claim'; then
-    pass "the cancel path names both --sandbox-create and --project-claim"
+if printf '%s' "${out}" | grep -qF -- "$(cli_cmd_text ai-tools.projects.clone)" \
+        && printf '%s' "${out}" | grep -qF -- "$(cli_cmd_text ai-tools.projects.claim)"; then
+    pass "the cancel path names both the clone and the claim"
 else
     fail "the cancel path did not name both setup commands (output: ${out})"
 fi
@@ -127,7 +124,7 @@ fi
 out_excl="$(run_wrapper "${excluded}")"
 assert_msg MSG-K8K2 "${out_excl}" "wrapper refuses a '!'-excluded subdir of an approved project"
 
-# (2c) The two halves of `--project-disable` meet HERE, and nowhere else: the verb's whole promise
+# (2c) The two halves of ai-tools.projects.disable meet HERE, and nowhere else: the verb's whole promise
 #      is that a parked project cannot be launched in, and that is this gate's decision, not the
 #      CLI's. Both sides are covered apart -- the CLI writes the line (tests/integration/cli.sh),
 #      the wrapper honours a '!' CWD (case 2b) -- so what this asserts is that they agree about
@@ -141,53 +138,53 @@ cli=/usr/local/bin/ai-tools
 if [[ ! -x "${cli}" ]]; then
     skip "disabled project refused at launch" "${cli} not installed"
 else
-    # The two readers reach the same file by DIFFERENT routes, and a test that steers only one of
-    # them silently drives the operator's real registry: the wrapper keys its allowlist off
-    # ${HOME}, while the CLI resolves the invoking user's home through `getent passwd` -- on
-    # purpose, so no environment variable can redirect a registry write. So the CLI is pointed
-    # at the fixture with AI_TOOLS_ALLOWLIST, the root-only hook the rest of the suite uses, and
-    # HOME is kept as well so both agree on the file.
+    # The two readers reach the same file by DIFFERENT routes, and a test that steers only one of them silently drives
+    # the operator's real registry: the wrapper keys its allowlist off ${HOME}, while the CLI resolves the invoking
+    # user's home through `getent passwd` -- on purpose, so no environment variable can redirect a registry write.
+    # So the CLI is pointed at the fixture with AI_TOOLS_ALLOWLIST, the root-only hook the rest of the suite uses,
+    # and HOME is kept as well so both agree on the file.
     fixture_allowlist="${home}/.config/ai-tools/allowed-projects"
     run_cli() {  # $@ = CLI args, run as the operator against the fixture registry
         setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
             AI_TOOLS_ALLOWLIST="${fixture_allowlist}" \
             "${cli}" "$@" < /dev/null 2>&1 || true
     }
-    # The park assertion is ANCHORED to a whole line. A substring test for "!${approved}" also
-    # matches the fixture's own carve-out line (!${approved}/secret), so it would pass whether or
-    # not the verb did anything -- and then the launch assertion fails with no clue why.
-    disable_out="$(run_cli --project-disable "${approved}")"
+    # The park assertion is ANCHORED to a whole line. A substring test for "!${approved}" also matches the fixture's own
+    # carve-out line (!${approved}/secret), so it would pass whether or not the verb did anything -- and then the launch
+    # assertion fails with no clue why.
+    cli_cmd ai-tools.projects.disable || exit 2
+    disable_out="$(run_cli "${CLI_ARGV[@]}" "${approved}")"
     if grep -qi 'unknown command' <<<"${disable_out}"; then
         # A deployed CLI older than this test: an environment fact, not a defect to report as one.
-        skip "disabled project refused at launch" "the installed ai-tools has no --project-disable"
+        skip "disabled project refused at launch" "the installed ai-tools has no $(cli_cmd_text ai-tools.projects.disable) verb"
     elif ! grep -qxF "!${approved}" "${fixture_allowlist}"; then
-        fail "--project-disable did not park the entry: $(printf '%s' "${disable_out}" | awk 'NF' | tail -3 | tr '\n' ' ')"
+        fail "ai-tools.projects.disable did not park the entry: $(printf '%s' "${disable_out}" | awk 'NF' | tail -3 | tr '\n' ' ')"
     else
-        pass "--project-disable parks the approved project in the wrapper's own allowlist"
+        pass "ai-tools.projects.disable parks the approved project in the wrapper's own allowlist"
 
         out_disabled="$(run_wrapper "${approved}")"
-        # By code, not by prose: the parked-project refusal has to be told from the carve-out
-        # one (MSG-K8K2/MSG-W2P3), which the gate reaches for a '!' entry of a different shape.
+        # By code, not by prose: the parked-project refusal has to be told from the carve-out one (MSG-K8K2/MSG-W2P3),
+        # which the gate reaches for a '!' entry of a different shape.
         assert_msg MSG-R2V6 "${out_disabled}" \
             "the launch gate refuses a project the CLI disabled (the verb's whole promise)"
-        # The refusal has to name the way back, or the operator's next move is a claim over a
-        # project that is already claimed -- which is what the not-yet-claimed screen would invite.
-        if printf '%s' "${out_disabled}" | grep -qF -- '--project-enable'; then
-            pass "and it names --project-enable rather than offering a claim"
+        # The refusal has to name the way back, or the operator's next move is a claim over a project that is already
+        # claimed -- which is what the not-yet-claimed screen would invite.
+        if printf '%s' "${out_disabled}" | grep -qF -- "$(cli_cmd_text ai-tools.projects.enable)"; then
+            pass "and it names the re-enable rather than offering a claim"
         else
-            fail "the refusal did not name --project-enable: ${out_disabled}"
+            fail "the refusal did not name the re-enable: ${out_disabled}"
         fi
 
-        # And back: re-enabling must restore the launch, or the pair is a one-way door. This is
-        # the same assertion as case (2), made after a park/restore round trip rather than on a
-        # fresh allowlist -- so an edit that left the line subtly different (moved, requoted,
-        # duplicated) shows up as a project that no longer launches.
-        enable_out="$(run_cli --project-enable "${approved}")"
+        # And back: re-enabling must restore the launch, or the pair is a one-way door. This is the same assertion
+        # as case (2), made after a park/restore round trip rather than on a fresh allowlist -- so an edit that left
+        # the line subtly different (moved, requoted, duplicated) shows up as a project that no longer launches.
+        cli_cmd ai-tools.projects.enable || exit 2
+        enable_out="$(run_cli "${CLI_ARGV[@]}" "${approved}")"
         out_reenabled="$(run_wrapper "${approved}")"
         if printf '%s' "${out_reenabled}" | grep -qE "no session started|allowlist not found|excluded by|disabled"; then
-            fail "wrapper still blocked the project after --project-enable (enable: $(printf '%s' "${enable_out}" | awk 'NF' | tail -2 | tr '\n' ' ')) (launch: ${out_reenabled})"
+            fail "wrapper still blocked the project after ai-tools.projects.enable (enable: $(printf '%s' "${enable_out}" | awk 'NF' | tail -2 | tr '\n' ' ')) (launch: ${out_reenabled})"
         else
-            pass "the launch gate accepts it again after --project-enable"
+            pass "the launch gate accepts it again after ai-tools.projects.enable"
         fi
     fi
 fi
@@ -205,10 +202,10 @@ fi  # toolchain provisioned (bin/claude symlink present)
 
 # ── Symlink-existence guard: `-L`, not `-e` ──────────────────────────────────────────
 #
-# The wrapper must test link existence with `[[ -L ]]`, not `[[ -e ]]`: `-e` dereferences the
-# full chain (bin/claude -> versioned bin/claude -> .../claude-code/bin/claude.exe), and the
-# package dir is mode 700 owned by the agent, so the invoking user cannot stat the final
-# target (EACCES) and `-e` would report a valid link as missing. `-L` tests the link itself.
+# The wrapper must test link existence with `[[ -L ]]`, not `[[ -e ]]`: `-e` dereferences the full chain (bin/claude ->
+# versioned bin/claude -> .../claude-code/bin/claude.exe), and the package dir is mode 700 owned by the agent,
+# so the invoking user cannot stat the final target (EACCES) and `-e` would report a valid link as missing. `-L` tests
+# the link itself.
 section "Wrapper symlink-existence guard (-L not -e)"
 
 # (A) Reproduce the hazard hermetically: a symlink chain whose final target sits behind a
@@ -244,31 +241,29 @@ fi
 
 # ── Fail-closed on a missing safety library ──────────────────────────────────────
 #
-# The wrapper sources safe-paths.lib.sh and MUST refuse to start if it (or its guard
-# functions) cannot load -- a fail-open no-op stub would launch with the protected-path guard
-# off (the exact fail-open the project removed, [[fail-closed-everywhere]]). Prove it on the
-# real wrapper body: copy it, repoint SAFE_PATHS_LIB at a nonexistent file, and confirm the
-# copy refuses before doing anything. The check runs before the operator/allowlist gates, so
-# it fires regardless of who runs it or from where.
+# The wrapper sources safe-paths.lib.sh and MUST refuse to start if it (or its guard functions) cannot load --
+# a fail-open no-op stub would launch with the protected-path guard off (the exact fail-open the project removed,
+# [[fail-closed-everywhere]]). Prove it on the real wrapper body: copy it, repoint SAFE_PATHS_LIB at a nonexistent file,
+# and confirm the copy refuses before doing anything. The check runs before the operator/allowlist gates, so it fires
+# regardless of who runs it or from where.
 section "Wrapper fails closed when the safety library is unloadable"
 brk="${TESTDIR}/claude-broken"
 sed 's#^readonly SAFE_PATHS_LIB=.*#readonly SAFE_PATHS_LIB="/nonexistent/ai-tools/safe-paths.lib.sh"#' \
     "${wrapper}" > "${brk}"
-# Run the copy via `bash <file>`, not by executing it: TESTDIR is under /tmp, which a hardened
-# host mounts noexec (and the tmp label blocks execve under confinement), so a direct exec fails
-# with EACCES before the wrapper's own logic runs. `bash <file>` reads it as a script, exercising
-# the fail-closed branch regardless of the mount options or the file's SELinux type.
+# Run the copy via `bash <file>`, not by executing it: TESTDIR is under /tmp, which a hardened host mounts noexec (and
+# the tmp label blocks execve under confinement), so a direct exec fails with EACCES before the wrapper's own logic
+# runs. `bash <file>` reads it as a script, exercising the fail-closed branch regardless of the mount options
+# or the file's SELinux type.
 fc_out="$(setsid bash "${brk}" --version < /dev/null 2>&1 || true)"
 assert_msg MSG-U6A9 "${fc_out}" "wrapper refuses to start when safe-paths.lib.sh cannot load (fail closed)"
 
 # ── The wrapper actually CONSULTS the protected-paths backstop ───────────────────
 #
-# safe-paths.sh unit-tests the library in isolation; this proves the deployed wrapper calls it
-# on the launch CWD. Allowlist a protected system directory in the hermetic HOME (the
-# mis-configuration the backstop exists to catch) and launch from it: the wrapper must refuse
-# with the protected-path message even though the allowlist "approves" it. The operator gate
-# runs first, so if this environment's operator is not in ai-ops the run is intercepted there --
-# skip rather than misreport.
+# safe-paths.sh unit-tests the library in isolation; this proves the deployed wrapper calls it on the launch CWD.
+# Allowlist a protected system directory in the hermetic HOME (the mis-configuration the backstop exists to catch)
+# and launch from it: the wrapper must refuse with the protected-path message even though the allowlist "approves" it.
+# The operator gate runs first, so if this environment's operator is not in ai-ops the run is intercepted there -- skip
+# rather than misreport.
 section "Wrapper consults the protected-paths backstop (defense in depth)"
 printf '%s\n' "/etc" > "${home}/.config/ai-tools/allowed-projects"
 pp_out="$(run_wrapper /etc)"

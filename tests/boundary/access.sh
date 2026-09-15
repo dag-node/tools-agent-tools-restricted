@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/access.sh
-# Boundary: what the sandbox account can and cannot actually reach at runtime, probed AS the
-# agent (`runuser -u ai-tools`). Each check names the threat its boundary prevents. "can"
-# checks confirm access the sandbox needs to function; "cannot" checks confirm control-plane
-# integrity and secret isolation. Probe-only (`test -r`/`-w`/`-x`); the one unlink attempt
-# targets a DECOY file (projects-user-owned, in the sticky .claude dir) so real control-plane
-# files are never at risk. Run as root via sudo; drops to the agent per check.
+# Boundary: what the sandbox account can and cannot actually reach at runtime, probed AS the agent
+# (`runuser -u ai-tools`). Each check names the threat its boundary prevents. "can" checks confirm access the sandbox
+# needs to function; "cannot" checks confirm control-plane integrity and secret isolation. Probe-only
+# (`test -r`/`-w`/`-x`); the one unlink attempt targets a DECOY file (projects-user-owned, in the sticky .claude dir)
+# so real control-plane files are never at risk. Run as root via sudo; drops to the agent per check.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/cli-spelling.sh"
 require_root
 
 section "Sandbox access boundaries (run as the agent)"
@@ -18,10 +18,9 @@ if ! command -v runuser >/dev/null; then
     skip "sandbox access boundaries" "runuser not available"; finish; exit
 fi
 
-# Config dir traversal: the allowlist and secret-pattern config live under
-# ~/.config/ai-tools (700). If the agent could traverse it, it could read the allowlist,
-# read secret-patterns to learn what triggers quarantine, or forge entries -- all via plain
-# file I/O, no sudo.
+# Config dir traversal: the allowlist and secret-pattern config live under ~/.config/ai-tools (700). If the agent could
+# traverse it, it could read the allowlist, read secret-patterns to learn what triggers quarantine, or forge entries --
+# all via plain file I/O, no sudo.
 confdir="${PROJECTS_HOME}/.config/ai-tools"
 if ! runuser -u "${SANDBOX_USER}" -- test -x "${confdir}" 2>/dev/null; then
     pass "cannot traverse ${confdir} (700 ${PROJECTS_USER}:${PROJECTS_GROUP}): allowlist + secret config unreachable to agent"
@@ -29,12 +28,11 @@ else
     fail "can traverse ${confdir} -- agent could read/tamper with the allowlist or secret-pattern config"
 fi
 
-# The product's headline promise (README): a session "does not reach your secrets, SSH keys, or
-# unrelated projects". The agent is neither the operator nor in the operator's primary group, so
-# the operator's private credential stores stay out of reach by plain DAC. Probe that directly
-# against the operator's real home: for each sensitive store that exists, the agent must be able
-# to neither traverse it (dirs) nor read it (files). An exposure here is a real hole in the
-# promise, not a product-internal detail -- so it FAILs rather than skips. Absent stores skip.
+# The product's headline promise (README): a session "does not reach your secrets, SSH keys, or unrelated projects".
+# The agent is neither the operator nor in the operator's primary group, so the operator's private credential stores
+# stay out of reach by plain DAC. Probe that directly against the operator's real home: for each sensitive store
+# that exists, the agent must be able to neither traverse it (dirs) nor read it (files). An exposure here is a real hole
+# in the promise, not a product-internal detail -- so it FAILs rather than skips. Absent stores skip.
 for _sec in .ssh .gnupg .aws .kube .docker/config.json .netrc .config/gh/hosts.yml; do
     _p="${PROJECTS_HOME}/${_sec}"
     [[ -e "${_p}" ]] || continue
@@ -53,11 +51,10 @@ for _sec in .ssh .gnupg .aws .kube .docker/config.json .netrc .config/gh/hosts.y
     fi
 done
 
-# Secret-pattern library (644 root:root) defines what basenames trigger quarantine. READ is
-# deliberately open: the built-in list is the public baseline and ships in the source repo, so
-# the installed copy holds only what is already published. WRITE is the boundary -- an agent that
-# could edit the matcher would decide its own classification. The operator's own patterns are
-# not in this file; they live in the 700 .config/ai-tools dir this suite asserts on.
+# Secret-pattern library (644 root:root) defines what basenames trigger quarantine. READ is deliberately open:
+# the built-in list is the public baseline and ships in the source repo, so the installed copy holds only what is
+# already published. WRITE is the boundary -- an agent that could edit the matcher would decide its own classification.
+# The operator's own patterns are not in this file; they live in the 700 .config/ai-tools dir this suite asserts on.
 splib=/usr/local/lib/ai-tools/secret-patterns.lib.sh
 if ! runuser -u "${SANDBOX_USER}" -- test -w "${splib}" 2>/dev/null; then
     pass "cannot write ${splib} (644 root:root): the agent cannot redefine what counts as a secret"
@@ -65,8 +62,8 @@ else
     fail "can write ${splib} -- agent can edit the secret-pattern matcher and avoid triggering it"
 fi
 
-# Skip-dir library (644 root:root) is sourced by session-hook.sh while it runs AS the
-# agent. World read is intentional and required; the content is not sensitive.
+# Skip-dir library (644 root:root) is sourced by session-hook.sh while it runs AS the agent. World read is intentional
+# and required; the content is not sensitive.
 skip_dirs_lib=/usr/local/lib/ai-tools/skip-dirs.lib.sh
 if runuser -u "${SANDBOX_USER}" -- test -r "${skip_dirs_lib}" 2>/dev/null; then
     pass "can read ${skip_dirs_lib} (644 root:root): required by session-hook.sh at runtime"
@@ -74,8 +71,8 @@ else
     fail "cannot read ${skip_dirs_lib} -- session-hook.sh will fail to source the skip list"
 fi
 
-# /usr/local/libexec/ai-tools (750 root:root) holds the root helpers. Listing it lets the agent
-# enumerate helper names and probe for discrepancies against what sudoers authorises.
+# /usr/local/libexec/ai-tools (750 root:root) holds the root helpers. Listing it lets the agent enumerate helper names
+# and probe for discrepancies against what sudoers authorises.
 sbindir=/usr/local/libexec/ai-tools
 if ! runuser -u "${SANDBOX_USER}" -- test -r "${sbindir}" 2>/dev/null; then
     pass "cannot list ${sbindir} (750 root:root): helper names not enumerable by agent"
@@ -83,11 +80,10 @@ else
     fail "can list ${sbindir} -- agent can enumerate root helper names"
 fi
 
-# The boundary half of `ai-tools-unclaim --unlisted` (see unit/unclaim.sh for the runtime half).
-# That mode acts outside the allowlist, bounded instead by the operator identity it resolves from
-# SUDO_UID plus OPERATORS. Both inputs must be out of the agent's reach, or it could aim a root
-# permission rewrite at a tree of its choosing: the helper itself is unreadable, and the
-# operator roster is not agent-writable. The third input, sudo, the agent does not hold at all
+# The boundary half of `ai-tools-unclaim --unlisted` (see unit/unclaim.sh for the runtime half). That mode acts outside
+# the allowlist, bounded instead by the operator identity it resolves from SUDO_UID plus OPERATORS. Both inputs must be
+# out of the agent's reach, or it could aim a root permission rewrite at a tree of its choosing: the helper itself is
+# unreadable, and the operator roster is not agent-writable. The third input, sudo, the agent does not hold at all
 # (boundary/sudo.sh).
 opconf=/etc/ai-tools/operator.conf
 if ! runuser -u "${SANDBOX_USER}" -- test -w "${opconf}" 2>/dev/null; then
@@ -96,8 +92,8 @@ else
     fail "can write ${opconf} -- agent could add itself to OPERATORS"
 fi
 
-# settings.json (640) declares the hooks and the permissions allow/deny lists. Write access
-# would let the agent expand its tool scope, drop deny rules, or remove hooks -- no signal.
+# settings.json (640) declares the hooks and the permissions allow/deny lists. Write access would let the agent expand
+# its tool scope, drop deny rules, or remove hooks -- no signal.
 sf=/opt/ai-tools/.claude/settings.json
 if ! runuser -u "${SANDBOX_USER}" -- test -w "${sf}" 2>/dev/null; then
     pass "cannot write ${sf} (640 no group-write): agent cannot extend its own allowed tool scope"
@@ -105,11 +101,10 @@ else
     fail "can write ${sf} -- agent could add permissions.allow rules, remove deny rules, or drop hooks"
 fi
 
-# The orientation text is what every session in every project is told about its own boundaries,
-# before it does anything. A session that could edit it would decide what the next session believes
-# about the sandbox -- the shared file and the per-agent link both, since either end serves the
-# same read. The runtime half of this pair is integration/perms.sh (modes) and
-# unit/managed-assets.sh (a real file at the link's path is never displaced).
+# The orientation text is what every session in every project is told about its own boundaries, before it does anything.
+# A session that could edit it would decide what the next session believes about the sandbox -- the shared file
+# and the per-agent link both, since either end serves the same read. The runtime half of this pair is
+# integration/perms.sh (modes) and unit/managed-assets.sh (a real file at the link's path is never displaced).
 for _orient in /opt/ai-tools/orientation /opt/ai-tools/orientation/AGENTS.md; do
     if [[ ! -e "${_orient}" ]]; then
         skip "${_orient}" "shipped orientation not seeded on this host"
@@ -120,9 +115,9 @@ for _orient in /opt/ai-tools/orientation /opt/ai-tools/orientation/AGENTS.md; do
     fi
 done
 
-# Even without file write, a group-writer of the DIRECTORY could unlink+recreate the file.
-# The sticky bit on .claude (3770) forbids that: you can only unlink a file you own OR in a
-# dir you own; the agent owns neither. Tested with a DECOY (same ownership, same dir).
+# Even without file write, a group-writer of the DIRECTORY could unlink+recreate the file. The sticky bit on .claude
+# (3770) forbids that: you can only unlink a file you own OR in a dir you own; the agent owns neither. Tested
+# with a DECOY (same ownership, same dir).
 _decoy=""; mk_fixture_file _decoy /opt/ai-tools/.claude sticky
 chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${_decoy}"
 chmod 640 "${_decoy}"
@@ -133,18 +128,16 @@ else
     fail "sticky .claude FAILED: agent deleted a ${PROJECTS_USER}-owned file -- settings.json and hooks can be replaced"
 fi
 
-# Custom system prompt / custom endpoint: the agent-side half of "the sandbox cannot widen its own
-# surface" (the runtime refusal is unit/claude-prompt.sh + unit/claude-endpoint.sh). The enforced
-# property is PERSISTENCE, not a running session's own environment: the prompt/endpoint config is
-# operator configuration delivered at launch, and a session altering its OWN process env cannot
-# repoint the already-started Claude Code client (it reads ANTHROPIC_BASE_URL at startup; a Bash-tool
-# child's export does not reach the parent) -- and arbitrary egress is a network-policy matter, not
-# this variable. What matters here is that the agent cannot WRITE these root-owned inputs: it cannot
-# change what any session is launched with, cannot plant an untrusted file the resolver would honour,
-# and cannot swap the auth token other sessions use. The resolvers honour these inputs only while
-# root owns them and they are not group/other-writable, so we prove the agent cannot reach that
-# writable state. The endpoint file is group-READABLE (the fragment reads it), so this asserts write
-# specifically. Each is skipped when absent (a partial install).
+# Custom system prompt / custom endpoint: the agent-side half of "the sandbox cannot widen its own surface" (the runtime
+# refusal is unit/claude-prompt.sh + unit/claude-endpoint.sh). The enforced property is PERSISTENCE, not a running
+# session's own environment: the prompt/endpoint config is operator configuration delivered at launch, and a session
+# altering its OWN process env cannot repoint the already-started Claude Code client (it reads ANTHROPIC_BASE_URL
+# at startup; a Bash-tool child's export does not reach the parent) -- and arbitrary egress is a network-policy matter,
+# not this variable. What matters here is that the agent cannot WRITE these root-owned inputs: it cannot change what any
+# session is launched with, cannot plant an untrusted file the resolver would honour, and cannot swap the auth token
+# other sessions use. The resolvers honour these inputs only while root owns them and they are not group/other-writable,
+# so we prove the agent cannot reach that writable state. The endpoint file is group-READABLE (the fragment reads it),
+# so this asserts write specifically. Each is skipped when absent (a partial install).
 for _cc in \
     /usr/local/lib/ai-tools/claude-prompt.lib.sh \
     /usr/local/lib/ai-tools/claude-endpoint.lib.sh \
@@ -161,8 +154,8 @@ for _cc in \
     fi
 done
 
-# post-tool-hook.sh (750) fires after every Write/Edit. Overwriting it with an empty script
-# would skip handback and secret quarantine for the rest of the session.
+# post-tool-hook.sh (750) fires after every Write/Edit. Overwriting it with an empty script would skip handback
+# and secret quarantine for the rest of the session.
 hook=/opt/ai-tools/.claude/post-tool-hook.sh
 if ! runuser -u "${SANDBOX_USER}" -- test -w "${hook}" 2>/dev/null; then
     pass "cannot write ${hook} (750 no group-write): hand-back and quarantine hooks protected"
@@ -170,8 +163,8 @@ else
     fail "can write ${hook} -- agent could empty the hook and disable hand-back / secret quarantine"
 fi
 
-# session-hook.sh (750) runs the Stop sweep and SessionStart reclaim. Overwriting it would
-# leave agent-owned files in the tree and skip setgid normalisation.
+# session-hook.sh (750) runs the Stop sweep and SessionStart reclaim. Overwriting it would leave agent-owned files
+# in the tree and skip setgid normalisation.
 shook=/opt/ai-tools/.claude/session-hook.sh
 if ! runuser -u "${SANDBOX_USER}" -- test -w "${shook}" 2>/dev/null; then
     pass "cannot write ${shook} (750 no group-write): stop-sweep and session-start protected"
@@ -179,8 +172,8 @@ else
     fail "can write ${shook} -- agent could disable the stop-sweep or session-start reclaim"
 fi
 
-# nvm-update.sh (550) is run by the daily timer AS the projects user. Injection here executes
-# arbitrary commands in the projects user's context on the next timer fire -- persistent.
+# nvm-update.sh (550) is run by the daily timer AS the projects user. Injection here executes arbitrary commands
+# in the projects user's context on the next timer fire -- persistent.
 updater=/opt/ai-tools/bin/nvm-update.sh
 if ! runuser -u "${SANDBOX_USER}" -- test -w "${updater}" 2>/dev/null; then
     pass "cannot write ${updater} (550 no group-write): scheduled updater protected from code injection"
@@ -188,8 +181,8 @@ else
     fail "can write ${updater} -- agent could inject commands run as ${PROJECTS_USER} by the daily timer"
 fi
 
-# Hooks must remain agent-executable, or Claude Code silently skips them and the entire
-# hand-back / quarantine system stops with no error.
+# Hooks must remain agent-executable, or Claude Code silently skips them and the entire hand-back / quarantine system
+# stops with no error.
 if runuser -u "${SANDBOX_USER}" -- test -x "${hook}" 2>/dev/null; then
     pass "can execute ${hook} (750 group-exec): PostToolUse hook will fire"
 else
@@ -201,15 +194,13 @@ else
     fail "cannot execute ${shook} -- stop-sweep / session-start silently skipped"
 fi
 
-# The control-plane home root is root:${SANDBOX_GROUP} at CP_HOME_MODE (control-plane.lib.sh,
-# asserted in integration/perms.sh). Three parts of that mode matter here: SETGID, so an entry
-# born under it stays in the sandbox group; group r-x, so the agent traverses and reads but must
-# NOT create new top-level entries, or it could drop files that shadow control assets or escape
-# its own subtrees (.nvm/.cache); and o+x, which lets an operator readlink the launcher without
-# listing the directory. This probe covers the middle one with a real create attempt; the probe
-# is removed whether or not it (wrongly) succeeded.
-# The probes here are paths the AGENT is asked to create, so they take their name from the
-# harness rule before they exist and are registered so a wrongly-created one is swept.
+# The control-plane home root is root:${SANDBOX_GROUP} at CP_HOME_MODE (control-plane.lib.sh, asserted
+# in integration/perms.sh). Three parts of that mode matter here: SETGID, so an entry born under it stays in the sandbox
+# group; group r-x, so the agent traverses and reads but must NOT create new top-level entries, or it could drop files
+# that shadow control assets or escape its own subtrees (.nvm/.cache); and o+x, which lets an operator readlink
+# the launcher without listing the directory. This probe covers the middle one with a real create attempt; the probe is
+# removed whether or not it (wrongly) succeeded. The probes here are paths the AGENT is asked to create, so they take
+# their name from the harness rule before they exist and are registered so a wrongly-created one is swept.
 _homeprobe="/opt/ai-tools/$(ai_test_name homelock)"
 _cleanup+=("${_homeprobe}")
 runuser -u "${SANDBOX_USER}" -- touch "${_homeprobe}" 2>/dev/null || true
@@ -220,13 +211,11 @@ else
     pass "cannot create files in /opt/ai-tools (root-owned, no group write): agent confined to its own subtrees"
 fi
 
-# The sandbox account's `systemd --user manager` runs unconfined (ai-tools maps to unconfined_u),
-# so a `--user unit` the agent could drop and get enabled would run OUTSIDE the ai_tools_t session
-# confinement at the next manager start -- a full confinement escape (no RestrictNamespaces, no
-# ai_tools_t). The whole unit search tree (~/.config/systemd/user and its .wants dirs) is
-# root-owned (root:${SANDBOX_GROUP} 2750), so the agent has group r-x but no write and can place
-# neither a unit file nor an enablement symlink. Probed with real create attempts in both the
-# unit dir and a .wants dir.
+# The sandbox account's `systemd --user manager` runs unconfined (ai-tools maps to unconfined_u), so a `--user unit`
+# the agent could drop and get enabled would run OUTSIDE the ai_tools_t session confinement at the next manager start --
+# a full confinement escape (no RestrictNamespaces, no ai_tools_t). The whole unit search tree (~/.config/systemd/user
+# and its .wants dirs) is root-owned (root:${SANDBOX_GROUP} 2750), so the agent has group r-x but no write and can place
+# neither a unit file nor an enablement symlink. Probed with real create attempts in both the unit dir and a .wants dir.
 for _d in /opt/ai-tools/.config/systemd/user /opt/ai-tools/.config/systemd/user/timers.target.wants; do
     _unitprobe="${_d}/$(ai_test_name escape).unit"
     _cleanup+=("${_unitprobe}")
@@ -239,12 +228,11 @@ for _d in /opt/ai-tools/.config/systemd/user /opt/ai-tools/.config/systemd/user/
     fi
 done
 
-# Claude Code persists its state (.claude.json under CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude)
-# atomically -- a temp file beside the target, then rename -- so persistence needs create+rename
-# in the CONTAINING DIR, not write on the file. .claude (root:ai-tools 3770) grants the agent
-# exactly that through the group bits, while the sticky bit keeps the root-owned control files
-# undeletable (the settings.json lock has its own case). A regression here fails every state
-# save silently: login and onboarding state are lost and each session demands a fresh token.
+# Claude Code persists its state (.claude.json under CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude) atomically -- a temp file
+# beside the target, then rename -- so persistence needs create+rename in the CONTAINING DIR, not write on the file.
+# .claude (root:ai-tools 3770) grants the agent exactly that through the group bits, while the sticky bit keeps
+# the root-owned control files undeletable (the settings.json lock has its own case). A regression here fails every
+# state save silently: login and onboarding state are lost and each session demands a fresh token.
 _state_name="$(ai_test_name state)"
 _state_tmp="/opt/ai-tools/.claude/${_state_name}.tmp"
 _state_dst="/opt/ai-tools/.claude/${_state_name}.json"
@@ -258,8 +246,8 @@ else
 fi
 rm -f "${_state_tmp}" "${_state_dst}"
 
-# .gitignore (640) is the default-deny guard that keeps secrets uncommittable if the operator
-# versions the control plane. Agent group-read but NOT group-write: it cannot weaken the denylist.
+# .gitignore (640) is the default-deny guard that keeps secrets uncommittable if the operator versions the control
+# plane. Agent group-read but NOT group-write: it cannot weaken the denylist.
 gi=/opt/ai-tools/.gitignore
 if [[ -e "${gi}" ]] && ! runuser -u "${SANDBOX_USER}" -- test -w "${gi}" 2>/dev/null; then
     pass "cannot write ${gi} (640 no group-write): agent cannot re-include secrets into a commit"
@@ -267,11 +255,11 @@ elif [[ -e "${gi}" ]]; then
     fail "can write ${gi} -- agent could weaken the default-deny secret guard"
 fi
 
-# /opt/ai-tools is deliberately NOT a nosuid mount (the sudo UID-switch to the sandbox account
-# needs suid to take effect there -- see launch.rule.md), and the agent owns its toolchain tree
-# (.nvm). A suid/sgid binary born under an agent-owned, non-nosuid path would be a standing
-# escalation primitive. The toolchain the updater installs carries none today; assert it stays
-# that way. Scoped to the agent-owned trees to keep the walk cheap and the finding meaningful.
+# /opt/ai-tools is deliberately NOT a nosuid mount (the sudo UID-switch to the sandbox account needs suid to take effect
+# there -- see launch.rule.md), and the agent owns its toolchain tree (.nvm). A suid/sgid binary born
+# under an agent-owned, non-nosuid path would be a standing escalation primitive. The toolchain the updater installs
+# carries none today; assert it stays that way. Scoped to the agent-owned trees to keep the walk cheap and the finding
+# meaningful.
 suid_hits=""
 for _tree in /opt/ai-tools/.nvm /opt/ai-tools/.cache; do
     [[ -d "${_tree}" ]] || continue
@@ -285,14 +273,13 @@ else
 fi
 
 # ── The seal, from the agent's side ──────────────────────────────────────────────────────────
-# The boundary half of the owner-only guarantee (unit/owner-only.sh and unit/{setgid,lockdown}.sh
-# are the runtime half). Two things have to hold, and neither follows from the other.
+# The boundary half of the owner-only guarantee (unit/owner-only.sh and unit/{setgid,lockdown}.sh are the runtime half).
+# Two things have to hold, and neither follows from the other.
 #
-# First, the agent cannot reach a sealed path. A stripped 0700 directory is what an operator is
-# left with after `chmod 700` inside a claimed tree, and the point of removing the inherited
-# group/setgid/ACL is that the mode is then the only thing standing -- so assert it stands, from
-# the account it exists to stop. The parent is deliberately traversable, or it would be what
-# denies access and the assertion would prove no boundary.
+# First, the agent cannot reach a sealed path. A stripped 0700 directory is what an operator is left
+# with after `chmod 700` inside a claimed tree, and the point of removing the inherited group/setgid/ACL is
+# that the mode is then the only thing standing -- so assert it stands, from the account it exists to stop. The parent
+# is deliberately traversable, or it would be what denies access and the assertion would prove no boundary.
 mktestdir
 sealed="${TESTDIR}/sealed"
 mkdir -p "${sealed}"
@@ -309,10 +296,10 @@ else
     pass "the agent cannot enter a sealed 0700 directory or read what is inside it"
 fi
 
-# Second, the agent cannot reach the code that decides what sealing means. owner-only.lib.sh
-# carries the predicate every claim walk gates on and the strip that removes the sandbox's own
-# residue; were it agent-writable, the agent could make its own group read as "not residue" and
-# have the next claim leave the grant standing. Same standing as secret-patterns.lib.sh.
+# Second, the agent cannot reach the code that decides what sealing means. owner-only.lib.sh carries the predicate every
+# claim walk gates on and the strip that removes the sandbox's own residue; were it agent-writable, the agent could make
+# its own group read as "not residue" and have the next claim leave the grant standing. Same standing
+# as secret-patterns.lib.sh.
 oolib=/usr/local/lib/ai-tools/owner-only.lib.sh
 if [[ ! -e "${oolib}" ]]; then
     skip "owner-only library not agent-writable" "not installed at ${oolib}"
@@ -322,12 +309,11 @@ else
     pass "the agent cannot write owner-only.lib.sh (the seal predicate and residue strip)"
 fi
 
-# ai-tools-allowlist edits an operator's allowed-projects -- the launch gate deciding where a
-# session may start. Reaching it would let the agent approve its own projects, so this is the
-# boundary half of the pair whose runtime half (each of the helper's gates fires) is in
-# tests/unit/allowlist-helper.sh. The helper is 750 root:root inside a 750 root:root directory and
-# the sandbox account does not hold a sudo rule, so it is unreachable three ways over; assert the two the
-# filesystem can show.
+# ai-tools-allowlist edits an operator's allowed-projects -- the launch gate deciding where a session may start.
+# Reaching it would let the agent approve its own projects, so this is the boundary half of the pair whose runtime half
+# (each of the helper's gates fires) is in tests/unit/allowlist-helper.sh. The helper is 750 root:root inside a 750
+# root:root directory and the sandbox account does not hold a sudo rule, so it is unreachable three ways over; assert
+# the two the filesystem can show.
 alhelper=/usr/local/libexec/ai-tools/ai-tools-allowlist
 if [[ ! -e "${alhelper}" ]]; then
     skip "cross-operator allowlist helper not agent-reachable" "not installed at ${alhelper}"
@@ -339,9 +325,8 @@ else
     pass "the agent cannot execute or write ai-tools-allowlist (the cross-operator launch gate)"
 fi
 
-# The gate itself: an operator's allowed-projects. The agent must not be able to add a project to
-# any operator's registry -- with or without the helper. The primary operator's is the one this
-# host is guaranteed to have.
+# The gate itself: an operator's allowed-projects. The agent must not be able to add a project to any operator's
+# registry -- with or without the helper. The primary operator's is the one this host is guaranteed to have.
 opallow="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
 if [[ ! -e "${opallow}" ]]; then
     skip "operator allowlist not agent-writable" "not present at ${opallow}"
@@ -352,9 +337,9 @@ else
 fi
 
 # ── Entrypoint verification: the agent must not be able to bless its own binary ───────────────
-# The pin is only worth comparing against while the account it constrains cannot write it -- nor
-# the key that decided what went into it. Probed rather than inferred from modes, so an ACL that
-# contradicts a correct-looking mode still fails.
+# The pin is only worth comparing against while the account it constrains cannot write it -- nor the key that decided
+# what went into it. Probed rather than inferred from modes, so an ACL that contradicts a correct-looking mode still
+# fails.
 for _ev_path in /var/opt/ai-tools/state/entrypoint-pin.d \
                 /var/opt/ai-tools/state/entrypoint-label.d \
                 /usr/local/lib/ai-tools/keys \
@@ -369,8 +354,8 @@ for _ev_path in /var/opt/ai-tools/state/entrypoint-pin.d \
     fi
 done
 
-# The pin directory's contents, specifically: a directory the agent cannot write is only half the
-# guarantee if an existing pin inside it is writable (or is a symlink it can redirect).
+# The pin directory's contents, specifically: a directory the agent cannot write is only half the guarantee if
+# an existing pin inside it is writable (or is a symlink it can redirect).
 _ev_pin=/var/opt/ai-tools/state/entrypoint-pin.d/claude-code
 if [[ ! -e "${_ev_pin}" ]]; then
     skip "entrypoint pin not agent-writable" "no pin recorded yet at ${_ev_pin}"
@@ -382,10 +367,9 @@ else
     pass "the agent cannot write its own entrypoint pin"
 fi
 
-# The labelling record, for a different reason from the pin: it does not gate a launch, it is REPORTED. An
-# agent that could write it could tell `ai-tools --status` its labels were applied on a host where
-# the relabel had failed -- turning the operator's one window onto the labelling half into
-# something the sandbox account writes.
+# The labelling record, for a different reason from the pin: it does not gate a launch, it is REPORTED. An agent
+# that could write it could tell ai-tools.status its labels were applied on a host where the relabel had failed --
+# turning the operator's one window onto the labelling half into something the sandbox account writes.
 _ev_label=/var/opt/ai-tools/state/entrypoint-label.d/claude-code
 if [[ ! -e "${_ev_label}" ]]; then
     skip "entrypoint label record not agent-writable" "no record written yet at ${_ev_label}"
@@ -399,14 +383,12 @@ fi
 
 # ── journald attribution: a tag is not an attribution, _UID is ───────────────────────────────
 # Every documented journal query pairs a syslog tag with the uid of that tag's legitimate writer
-# (.claude/rules/logging.rule.md). This is the reason, probed rather than asserted from the
-# design: the agent can write /dev/log under ANY tag, including a root helper's, so a tag-only
-# query is poisonable by the very account it reports on. Emit a line AS the agent under
-# ai-tools-chown's tag, then check both directions -- it must appear under the sandbox uid (the
-# forgery does reach the trail, so the uid is load-bearing rather than ceremony) and must NOT
-# appear under _UID=0 (the documented form excludes it). The probe line names itself as a test so
-# a later reader of the real trail is not misled by it. A host with no journald skips: absence of
-# the line is evidence either way.
+# (.claude/rules/logging.rule.md). This is the reason, probed rather than asserted from the design: the agent can write
+# /dev/log under ANY tag, including a root helper's, so a tag-only query is poisonable by the very account it reports
+# on. Emit a line AS the agent under ai-tools-chown's tag, then check both directions -- it must appear
+# under the sandbox uid (the forgery does reach the trail, so the uid is load-bearing rather than ceremony) and must NOT
+# appear under _UID=0 (the documented form excludes it). The probe line names itself as a test so a later reader
+# of the real trail is not misled by it. A host with no journald skips: absence of the line is evidence either way.
 if ! command -v logger >/dev/null || ! command -v journalctl >/dev/null; then
     skip "journald _UID attribution" "logger or journalctl not available"
 else
@@ -433,10 +415,10 @@ else
 fi
 
 # ── the audit reader and the trail it reports are out of reach ───────────────────────────────
-# `ai-tools --audit` presents the root-only file sink as EVIDENCE, and that claim rests on this
-# vantage: the sandbox account can neither read the trail (so it cannot know what an operator is
-# about to be shown) nor write it (so it cannot plant or erase a finding), and cannot run or
-# alter the reader itself. Asserted from the agent's side, because that is the side the claim is
+# ai-tools.audit presents the root-only file sink as EVIDENCE, and that claim rests on this vantage: the sandbox account
+# can neither read the trail (so it cannot know what an operator is about to be shown) nor write it (so it cannot plant
+# or erase a finding), and cannot run or alter the reader itself. Asserted from the agent's side, because that is
+# the side the claim is
 # about.
 _audit_bin=/usr/local/libexec/ai-tools/ai-tools-audit
 if [[ ! -x "${_audit_bin}" ]]; then
@@ -457,13 +439,12 @@ else
 fi
 
 # ── the stop path is out of reach from inside a session ──────────────────────────────────────
-# `ai-tools --stop` is the incident ladder's stop rung: the one control that acts on a session
-# already running. A control the monitored system can disarm is not a control, so the claim rests
-# on this vantage -- the account a session runs as can neither run the helper (which would let a
-# session terminate every operator's work, or exhaust the trail with noise) nor alter it. There is
-# no authorization input for it to aim at either: the command accepts neither a target nor an allowlist, so
-# what it terminates is decided by cgroup-slice membership alone. What the agent CAN do is be
-# stopped: the kill is delivered by root to a cgroup, and no process inside the cgroup takes part.
+# ai-tools.stop is the incident ladder's stop rung: the one control that acts on a session already running. A control
+# the monitored system can disarm is not a control, so the claim rests on this vantage -- the account a session runs
+# as can neither run the helper (which would let a session terminate every operator's work, or exhaust the trail
+# with noise) nor alter it. There is no authorization input for it to aim at either: the command accepts neither
+# a target nor an allowlist, so what it terminates is decided by cgroup-slice membership alone. What the agent CAN do is
+# be stopped: the kill is delivered by root to a cgroup, and no process inside the cgroup takes part.
 _stop_bin=/usr/local/libexec/ai-tools/ai-tools-stop
 if [[ ! -e "${_stop_bin}" ]]; then
     skip "stop helper not agent-reachable" "not installed at ${_stop_bin}"
@@ -483,11 +464,10 @@ else
 fi
 
 # ── the trail is append-only to the agent ────────────────────────────────────────────────────
-# The tool-call record's whole value rests on one asymmetry: the agent WRITES the trail (the
-# hooks run as the sandbox account, so it must be able to) but cannot go back and remove a line
-# it would rather an operator did not read. That is what makes journald a usable sink for a
-# record of the agent's own actions, where the session transcript -- which the agent owns -- is
-# not. Probe the two ways a line could be unmade: the journal's own storage, and journalctl's
+# The tool-call record's whole value rests on one asymmetry: the agent WRITES the trail (the hooks run as the sandbox
+# account, so it must be able to) but cannot go back and remove a line it would rather an operator did not read. That is
+# what makes journald a usable sink for a record of the agent's own actions, where the session transcript --
+# which the agent owns -- is not. Probe the two ways a line could be unmade: the journal's own storage, and journalctl's
 # destructive verbs. Both are DAC facts, which is what this vantage sees.
 _journal_dir=/var/log/journal
 if [[ ! -d "${_journal_dir}" ]]; then
@@ -512,10 +492,9 @@ else
         pass "the agent cannot create or rewrite journal storage: its own trail is append-only to it"
     fi
 
-    # journalctl's destructive verbs must fail for the agent. `--vacuum-time` would discard the
-    # trail wholesale; it is the single most valuable call an agent covering its tracks could
-    # make. (Bash(journalctl *) is denied in settings.json too, but that is a tooling hint --
-    # this asserts the floor underneath it.)
+    # journalctl's destructive verbs must fail for the agent. `--vacuum-time` would discard the trail wholesale; it is
+    # the single most valuable call an agent covering its tracks could make. (Bash(journalctl *) is denied
+    # in settings.json too, but that is a tooling hint -- this asserts the floor underneath it.)
     if runuser -u "${SANDBOX_USER}" -- journalctl --vacuum-time=99999d >/dev/null 2>&1; then
         fail "the agent can run 'journalctl --vacuum-time' -- it can discard the trail it is recorded in"
     else
@@ -524,29 +503,30 @@ else
 fi
 
 # ── The two project verbs that write the filesystem as an owner ─────────────────
-# The boundary half of the pair for `--project-create` and `--project-remove`. Their runtime
-# refusals are asserted in integration/cli.sh; what makes those meaningful is that the agent
-# cannot reach the verbs at all. `--project-remove` matters most: it deletes a whole project
-# tree, and an agent that could invoke it could destroy the operator's work.
+# The boundary half of the pair for ai-tools.projects.create and ai-tools.projects.remove.inplace. Their runtime
+# refusals are asserted in integration/cli.sh; what makes those meaningful is that the agent cannot reach the verbs
+# at all. The removal matters most: it deletes a whole project tree, and an agent that could invoke it could destroy
+# the operator's work.
 #
-# Both are driven with NO path argument, so a regression that let one through would still
-# have no path to act on -- the create refuses a missing path outright, and the remove would
-# resolve the agent's own cwd, which is not a claimed project of the agent's. The assertion
-# is on the principal guard's own message CODE, not merely on a non-zero exit, since every one of
-# these commands has other reasons to fail.
-for _verb in --project-create --project-remove; do
-    _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_CLI:-/usr/local/bin/ai-tools}" "${_verb}" 2>&1)" \
+# Both are driven with NO path argument, so a regression that let one through would still have no path to act on --
+# the create refuses a missing path outright, and the remove would resolve the agent's own cwd, which is not a claimed
+# project of the agent's. The assertion is on the principal guard's own message CODE, not merely on a non-zero exit,
+# since every one of these commands has other reasons to fail. Each is named by the key tests/lib/cli-spelling.sh
+# turns into today's tokens, so a respelling of the surface edits that table alone.
+for _key in ai-tools.projects.create ai-tools.projects.remove.inplace; do
+    cli_cmd "${_key}" || exit 2
+    _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_CLI:-/usr/local/bin/ai-tools}" "${CLI_ARGV[@]}" 2>&1)" \
         && _rc=0 || _rc=$?
     if (( _rc == 0 )); then
-        fail "the agent was not refused ${_verb} at all"
+        fail "the agent was not refused ${_key} at all"
     else
-        assert_msg MSG-Q6Q8 "${_out}" "the agent cannot reach ${_verb} (principal guard)"
+        assert_msg MSG-Q6Q8 "${_out}" "the agent cannot reach ${_key} (principal guard)"
     fi
 done
 
-# And it cannot reach the runas seam those verbs use under `--for`. `sudo -u <operator>` is how
-# a `--for` run acts as the target; the agent does not hold a sudo rule at all, and the session runs
-# under PR_SET_NO_NEW_PRIVS, which drops sudo's SUID bit. Either alone is sufficient here.
+# And it cannot reach the runas seam those verbs use under `--for`. `sudo -u <operator>` is how a `--for` run acts
+# as the target; the agent does not hold a sudo rule at all, and the session runs under PR_SET_NO_NEW_PRIVS, which drops
+# sudo's SUID bit. Either alone is sufficient here.
 if runuser -u "${SANDBOX_USER}" -- sudo -n -u "${PROJECTS_USER}" true >/dev/null 2>&1; then
     fail "the agent can run commands as ${PROJECTS_USER} via sudo -u -- the runas seam is reachable"
 else

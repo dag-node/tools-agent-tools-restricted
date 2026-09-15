@@ -3,30 +3,27 @@ policy_module(ai_tools_systemd, 0.1.0)
 
 # ai_tools OPTIONAL GROUP: systemd  [DEFAULT: DISABLED]
 #
-# Grants ai_tools_t permission to execute systemctl and journalctl, and to read systemd
-# unit files, so the agent can check service status, inspect journal logs, list units, or
-# query timer state. systemctl is labelled systemd_systemctl_exec_t, on which the core
-# module does not grant execute.
+# Grants ai_tools_t permission to execute systemctl and journalctl, and to read systemd unit files, so the agent can
+# check service status, inspect journal logs, list units, or query timer state. systemctl is labelled
+# systemd_systemctl_exec_t, on which the core module does not grant execute.
 #
-# This module's rule set covers the exec and the unit-file reads. systemctl then talks to
-# PID 1 over D-Bus, which needs socket permissions that surface only once the exec is
-# permitted, so a bring-up pass against a real workload is what completes this module.
+# This module's rule set covers the exec and the unit-file reads. systemctl then talks to PID 1 over D-Bus, which needs
+# socket permissions that surface only once the exec is permitted, so a bring-up pass against a real workload is
+# what completes this module.
 
 require {
     type ai_tools_t;
     type systemd_systemctl_exec_t;   # referenced directly in this module's map allow
 }
 
-# Execute systemctl staying in ai_tools_t (no transition to systemctl_t).
-# can_exec (inside the interface) grants read+execute+execute_no_trans.
-# RHEL9 also requires map for mmap'd execution -- add it explicitly.
+# Execute systemctl staying in ai_tools_t (no transition to systemctl_t). can_exec (inside the interface) grants
+# read+execute+execute_no_trans. RHEL9 also requires map for mmap'd execution -- add it explicitly.
 systemd_exec_systemctl(ai_tools_t)
 allow ai_tools_t systemd_systemctl_exec_t:file map;
 
-# Read unit files so `systemctl status` / `systemctl list-units` / `systemctl
-# show` can resolve unit descriptions and states without a full D-Bus round-trip.
+# Read unit files so `systemctl status` / `systemctl list-units` / `systemctl show` can resolve unit descriptions
+# and states without a full D-Bus round-trip.
 systemd_read_unit_files(ai_tools_t)
 
-# Execute journalctl staying in ai_tools_t.
-# journalctl_exec already includes the map permission.
+# Execute journalctl staying in ai_tools_t. journalctl_exec already includes the map permission.
 journalctl_exec(ai_tools_t)

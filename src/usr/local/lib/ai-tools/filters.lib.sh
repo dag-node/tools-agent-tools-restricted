@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/filters.lib.sh
-# Token-saving command filters: rewrite a Bash command so the tool itself produces less output,
-# and strip terminal control noise from output the model is about to read. Sourced by an agent's
-# hook adapter (Claude Code: agents/claude-code/filter-hook.sh), which supplies that agent's JSON
-# hook contract; everything decided here is agent-agnostic.
+# Token-saving command filters: rewrite a Bash command so the tool itself produces less output, and strip terminal
+# control noise from output the model is about to read. Sourced by an agent's hook adapter (Claude Code:
+# agents/claude-code/filter-hook.sh), which supplies that agent's JSON hook contract; everything decided here is
+# agent-agnostic.
 #
-# This is TOKEN ECONOMY, NOT A BOUNDARY. A rewrite decides how verbose a command is, never what
-# the agent may run: the harness re-evaluates its own permission rules on the rewritten command,
-# so a rewrite can neither reach past a deny rule nor silence a prompt. Every failure direction
-# here -- an untrusted rules file, an unparseable line, a command the engine does not fully
-# understand -- yields NO rewrite, which costs tokens and changes the command in no other way.
+# This is TOKEN ECONOMY, NOT A BOUNDARY. A rewrite decides how verbose a command is, never what the agent may run:
+# the harness re-evaluates its own permission rules on the rewritten command, so a rewrite can neither reach past a deny
+# rule nor silence a prompt. Every failure direction here -- an untrusted rules file, an unparseable line, a command
+# the engine does not fully understand -- yields NO rewrite, which costs tokens and changes the command in no other way.
 #
 # ── Rules are data ───────────────────────────────────────────────────────────────────────────
-# One rule set per package, /usr/local/lib/ai-tools/filters.d/<name>.rules, root-owned and
-# PARSED, never sourced -- the same posture as the provider manifests. <name> is the token an
-# operator writes in operator.conf AI_TOOLS_FILTERS. Four TAB-separated columns:
+# One rule set per package, /usr/local/lib/ai-tools/filters.d/<name>.rules, root-owned and PARSED, never sourced --
+# the same posture as the provider manifests. <name> is the token an operator writes in operator.conf AI_TOOLS_FILTERS.
+# Four TAB-separated columns:
 #
 #   match       the literal leading words a command must start with ("git log")
 #   action      args -- insert <payload> right after those words
@@ -28,21 +27,21 @@
 #
 # `#` begins a whole-line comment. A line with fewer than four columns is skipped.
 #
-# Payload placement is AFTER the matched words, never at the end: `git log -- src/x.c` would read
-# an appended `--format=...` as a pathspec, and inserting keeps every rule clear of trailing
-# pathspecs, `--`, and subcommand arguments generally.
+# Payload placement is AFTER the matched words, never at the end: `git log -- src/x.c` would read an appended
+# `--format=...` as a pathspec, and inserting keeps every rule clear of trailing pathspecs, `--`, and subcommand
+# arguments generally.
 #
 # ── What may be rewritten ────────────────────────────────────────────────────────────────────
-# A command is rewritten only when every character of it is in a small allowlist of letters,
-# digits and `_ . / = : , + @ -` and space. Anything else -- a pipe, a redirect, a quote, a
-# substitution, an escape, a glob, a newline -- passes through untouched, because inserting words
-# into a command the engine has not fully parsed could change what it does. The allowlist governs
-# the AGENT's command; a rule's payload is root-owned and is inserted verbatim.
+# A command is rewritten only when every character of it is in a small allowlist of letters, digits
+# and `_ . / = : , + @ -` and space. Anything else -- a pipe, a redirect, a quote, a substitution, an escape, a glob,
+# a newline -- passes through untouched, because inserting words into a command the engine has not fully parsed could
+# change what it does. The allowlist governs the AGENT's command; a rule's payload is root-owned and is inserted
+# verbatim.
 #
 # ── Which rule wins ──────────────────────────────────────────────────────────────────────────
-# The applying rule with the most matched words, and on a tie the one loaded last. The base's own
-# set (core.rules) loads first, so a provider's set can deliberately override a core rule -- how a
-# wrapper like rtk takes over `git log` from the native rule.
+# The applying rule with the most matched words, and on a tie the one loaded last. The base's own set (core.rules) loads
+# first, so a provider's set can deliberately override a core rule -- how a wrapper like rtk takes over `git log`
+# from the native rule.
 #
 # ── Enablement ───────────────────────────────────────────────────────────────────────────────
 # operator.conf AI_TOOLS_FILTERS, in the shared grammar (conf.lib.sh):
@@ -54,16 +53,16 @@
 # sets are not gated on provider enablement: a rule is inert unless the agent runs the command it
 # matches, so the gate would have no effect and this runs on every Bash call.
 
-# Include guard: an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and
-# trips the sourcing shell's `set -e`.
+# Include guard: an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing
+# shell's `set -e`.
 if [[ -n "${_AI_TOOLS_FILTERS_LIB_LOADED:-}" ]]; then
     return 0
 fi
 
-# conf.lib.sh is REQUIRED: it carries the trust predicate that decides whether a rules file may be
-# read at all, and the grammar AI_TOOLS_FILTERS is written in. Without it this file can neither
-# tell a root-owned rule set from a planted one nor read the kill switch, so it defines NO FUNCTION
-# and returns non-zero -- the adapter's `source ... && declare -F` guard then leaves the command
+# conf.lib.sh is REQUIRED: it carries the trust predicate that decides whether a rules file may be read at all,
+# and the grammar AI_TOOLS_FILTERS is written in. Without it this file can neither tell a root-owned rule set
+# from a planted one nor read the kill switch, so it defines NO FUNCTION and returns non-zero -- the adapter's
+# `source ... && declare -F` guard then leaves the command
 # unfiltered.
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
@@ -71,31 +70,30 @@ if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_conf_list >/dev/null 2>&1; then
     return 1
 fi
-# Journald is where a tamper refusal belongs. Deliberately NOT stderr: this runs on every Bash
-# call, and a per-call warning would flood the transcript with the tokens the feature exists to
-# save. The deployed permissions are asserted by tests/integration/perms.sh and, as the agent, by
+# Journald is where a tamper refusal belongs. Deliberately NOT stderr: this runs on every Bash call, and a per-call
+# warning would flood the transcript with the tokens the feature exists to save. The deployed permissions are asserted
+# by tests/integration/perms.sh and, as the agent, by
 # tests/boundary/filters.sh.
 # shellcheck source=SCRIPTDIR/log.lib.sh
 source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
 
 _AI_TOOLS_FILTERS_LIB_LOADED=1
 
-# Deployed paths, overridable so tests drive a /tmp fixture tree without touching the real host.
-# Unlike the same-named hooks in providers.lib.sh, these are readable by a caller inside a session
-# (an agent's hook runs in the agent's own process, whose environment a project settings layer can
-# add to), and they need no protection: an override chooses only WHERE to look, and every file
-# found there still has to pass ai_tools_conf_is_trusted. Pointed anywhere the sandbox account can
-# write, the directory or the file is refused and no rule loads, so the override reaches root-owned
-# rules or none.
+# Deployed paths, overridable so tests drive a /tmp fixture tree without touching the real host. Unlike the same-named
+# hooks in providers.lib.sh, these are readable by a caller inside a session (an agent's hook runs in the agent's own
+# process, whose environment a project settings layer can add to), and they need no protection: an override chooses only
+# WHERE to look, and every file found there still has to pass ai_tools_conf_is_trusted. Pointed anywhere the sandbox
+# account can write, the directory or the file is refused and no rule loads, so the override reaches root-owned rules
+# or none.
 : "${AI_TOOLS_FILTERS_DIR:=/usr/local/lib/ai-tools/filters.d}"
 : "${AI_TOOLS_OPERATOR_CONF:=/etc/ai-tools/operator.conf}"
 
-# The characters a command may consist of to be eligible for rewriting. A positive allowlist, so
-# a metacharacter nobody thought of is excluded by construction rather than by enumeration.
+# The characters a command may consist of to be eligible for rewriting. A positive allowlist, so a metacharacter nobody
+# thought of is excluded by construction rather than by enumeration.
 readonly _AI_TOOLS_FILTER_SAFE_COMMAND='^[A-Za-z0-9_./=:,+@ -]+$'
 
-# The loaded rule set: one TAB-joined "match action blocking payload" record per rule, in load
-# order. Populated by ai_tools_filter_rules_load, read by ai_tools_filter_rewrite.
+# The loaded rule set: one TAB-joined "match action blocking payload" record per rule, in load order. Populated
+# by ai_tools_filter_rules_load, read by ai_tools_filter_rewrite.
 _AI_TOOLS_FILTER_RULES=()
 
 # _ai_tools_filter_log <message...> : record a refusal in journald when log.lib.sh loaded.
@@ -130,8 +128,8 @@ ai_tools_filter_apply_rule() {
         [[ "${command_words[index]}" == "${match_words[index]}" ]] || return 1
     done
 
-    # A blocking word cancels the rule, so the agent's own flag always wins over the rule's. Both
-    # the bare word and its `word=value` form count, so `--verbosity` blocks `--verbosity=quiet`.
+    # A blocking word cancels the rule, so the agent's own flag always wins over the rule's. Both the bare word and its
+    # `word=value` form count, so `--verbosity` blocks `--verbosity=quiet`.
     ai_tools_conf_split blocking_tokens "${blocking}"
     local word token
     for word in "${command_words[@]:match_length}"; do
@@ -209,8 +207,8 @@ ai_tools_filter_rules_load() {
         return 0
     fi
 
-    # A present AI_TOOLS_FILTERS is the exact set (empty = the kill switch); absent, unreadable or
-    # untrusted falls back to every installed set, which can only ever be root-owned rules.
+    # A present AI_TOOLS_FILTERS is the exact set (empty = the kill switch); absent, unreadable or untrusted falls back
+    # to every installed set, which can only ever be root-owned rules.
     local -a rule_sets=()
     if ! ai_tools_conf_is_trusted "${AI_TOOLS_OPERATOR_CONF}" \
             || ! ai_tools_conf_list rule_sets "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_FILTERS; then
@@ -219,8 +217,8 @@ ai_tools_filter_rules_load() {
 
     local set_name
     for set_name in "${rule_sets[@]}"; do
-        # Allowlist the name before it becomes a path, as the manifest resolver does: rule-set
-        # names are plain identifiers, so no value here can address a file outside filters.d.
+        # Allowlist the name before it becomes a path, as the manifest resolver does: rule-set names are plain
+        # identifiers, so no value here can address a file outside filters.d.
         [[ "${set_name}" =~ ^[A-Za-z0-9._-]+$ && "${set_name}" != *..* ]] || continue
         [[ -e "${AI_TOOLS_FILTERS_DIR}/${set_name}.rules" ]] || continue
         _ai_tools_filter_load_file "${AI_TOOLS_FILTERS_DIR}/${set_name}.rules" || true
@@ -244,8 +242,8 @@ ai_tools_filter_rewrite() {
     for record in "${_AI_TOOLS_FILTER_RULES[@]}"; do
         IFS=$'\t' read -r match action blocking payload <<< "${record}"
         read -ra match_words <<< "${match}"
-        # Longest match wins; `>=` hands a tie to the later rule, which is how a provider set
-        # overrides the core set it loads after.
+        # Longest match wins; `>=` hands a tie to the later rule, which is how a provider set overrides the core set it
+        # loads after.
         (( ${#match_words[@]} >= best_length )) || continue
         ai_tools_filter_apply_rule "${command}" "${match}" "${action}" "${blocking}" "${payload}" \
             || continue

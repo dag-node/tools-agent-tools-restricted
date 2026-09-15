@@ -392,7 +392,7 @@ install -d -m 0750 %{buildroot}/var/opt/ai-tools/state
 # the whole value of a pin is that the account it constrains cannot write it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-pin.d
 # What the last reconciliation could do about each agent's SELinux labels -- the labelling half's
-# counterpart to the pin, written by the same helper and read by `ai-tools --status`. Same
+# counterpart to the pin, written by the same helper and read by `ai-tools status`. Same
 # ownership for the same reason: it reports on the sandbox account, which must not be able to
 # rewrite it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-label.d
@@ -528,7 +528,7 @@ done
 # operator disable survives). Only enables; posttrans starts it.
 %systemd_post ai-tools-handback.socket
 # Grant the ai-ops operators group access to the shared sandbox area through a group ACL, so
-# operators create and work in clones (`ai-tools --sandbox-create`) without joining the ai-tools
+# operators create and work in clones (`ai-tools projects clone`) without joining the ai-tools
 # group: traverse on the outer dir, rwX on sandbox-projects (a default ACL so clones inherit the
 # operator access), and read on the doc. One grant covers every operator and outlives a leave of
 # the ai-tools group. This is the shared-area counterpart to ai-tools-setfacl's per-project
@@ -970,7 +970,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 %files
 %doc docs/rpm-packaging.md docs/project-lifecycle.md docs/entrypoint-verification.md
-%doc docs/session-stop.md docs/multi-operator.md README.md
+%doc docs/session-stop.md docs/multi-operator.md docs/option-spellings.md README.md
 
 # The module files come from the list %%install wrote (`-f`): one line per module the build derived.
 %files -n ai-tools-selinux -f selinux-files.list
@@ -1054,7 +1054,7 @@ fi
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects
 %attr(0640, root, ai-tools) /var/opt/ai-tools/README.md
 # Operator-readable state written BY the sandbox account: the last-run stamps of the units that
-# live in that account's own `systemd --user manager`, which `ai-tools --status` cannot query from
+# live in that account's own `systemd --user manager`, which `ai-tools status` cannot query from
 # the operator's session (services.lib.sh reads them). root owns the directory and it is NOT
 # group-writable -- the account gets traverse only, so it cannot add, unlink, rename, or
 # symlink-swap anything here. Each stamp is created by the owning package's %post and rewritten in
@@ -1108,7 +1108,7 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-bootstrap
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
 # The updater's last-run stamp: rewritten by nvm-update.sh on every exit, read by
-# `ai-tools --status` (the base's state directory owns the placement). Owned by the sandbox
+# `ai-tools status` (the base's state directory owns the placement). Owned by the sandbox
 # account so it may rewrite the contents, group ai-ops so operators read it without joining the
 # sandbox group, and no world bits. %ghost with %post creating it: the content is runtime evidence,
 # but the inode must exist for the account to write it -- the directory is not group-writable.

@@ -62,7 +62,7 @@ grant, which the host's own sudoers decides.
 reports which of the two shapes the enrolment produced \(em an account that
 can claim projects as well as launch sessions, or one that launches sessions
 on projects another operator claimed for it with
-.BR "ai\-tools \-\-project\-claim \-\-for" .
+.BR "ai\-tools projects claim \-\-for" .
 .PP
 Group membership applies to new login sessions, so an operator enrolled from
 an already-open shell starts a new one before launching an agent.
@@ -173,11 +173,11 @@ is the command an administrator runs when neither did \(em an out-of-band
 upgrade, or a watcher that was down \(em and when either
 .B status
 or
-.B "ai\-tools \-\-status"
+.B "ai\-tools status"
 reports an entrypoint unverified or not labelled.
 .B status
 answers from the labels themselves, where
-.B "ai\-tools \-\-status"
+.B "ai\-tools status"
 answers from the last reconciliation's record.
 .SH COMMANDS
 .TP
@@ -377,7 +377,7 @@ and what SELinux type its paths carry.
 .RS
 .PP
 It is the same report
-.B "ai\-tools \-\-status"
+.B "ai\-tools status"
 gives an operator, completed with the three readings that vantage point lacks
 the privilege for and prints as
 .BR ? :
@@ -390,7 +390,7 @@ Every verdict comes from the registry both reports read, so the two differ in
 what each is allowed to see and never in what either says about the same unit.
 .PP
 The label reading is the one this command alone can give.
-.B "ai\-tools \-\-status"
+.B "ai\-tools status"
 reports what the last reconciliation
 .IR achieved ,
 an event that may be hours old; this reports the type the file carries now, so
@@ -537,7 +537,7 @@ Claim a project for a passwordless service account you enrolled earlier:
 .RS 4
 .EX
 sudo ai\-tools\-admin operators add svc\-agent
-ai\-tools \-\-project\-claim \-\-for svc\-agent ~/src/myproject
+ai\-tools projects claim \-\-for svc\-agent ~/src/myproject
 .EE
 .RE
 .PP

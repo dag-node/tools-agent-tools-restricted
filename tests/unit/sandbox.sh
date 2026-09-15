@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/sandbox.sh
-# Unit test for the pure decisions behind the ai-tools.sh flows -- the `--sandbox-create` pair,
-# the precondition `--project-create`'s skipped prompts rest on (tree_is_pristine),
-# and the exclusion reader the claim-time scans prune their walks with (allowlist_exclusions, at the end).
+# Unit test for the pure decisions behind the ai-tools.sh flows -- the ai-tools.projects.clone pair, the precondition
+# ai-tools.projects.create's skipped prompts rest on (tree_is_pristine), and the exclusion reader the claim-time scans
+# prune their walks with (allowlist_exclusions, at the end).
 #
-# The `--sandbox-create` pair:
+# The ai-tools.projects.clone pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
 #     host or operator identity in it; the operator overrides the whole name with `--branch`, so this
 #     only pins the default shape and the leaf extraction.
@@ -17,10 +17,9 @@
 # the remote push, the sandbox-area clone) is not driven here -- it needs a terminal, credentials,
 # and the real sandbox tree.
 #
-# The CLI carries a sourced-guard, so this loads it to expose its functions without running the
-# gates or dispatch. It must be sourced AS THE PROJECTS USER: ai-tools refuses to run (even to be
-# sourced) as root or the sandbox account. Fixtures live in the /tmp testdir, owned by that user so
-# its git can read them. Run as root via sudo (suite contract).
+# The CLI carries a sourced-guard, so this loads it to expose its functions without running the gates or dispatch. It
+# must be sourced AS THE PROJECTS USER: ai-tools refuses to run (even to be sourced) as root or the sandbox account.
+# Fixtures live in the /tmp testdir, owned by that user so its git can read them. Run as root via sudo (suite contract).
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -35,16 +34,19 @@ if ! command -v git >/dev/null 2>&1; then
     skip "sandbox create-flow helpers" "git not available"; finish; exit
 fi
 
-# call <helper> <args...> : source the CLI as the projects user (sourced-guard skips gates/dispatch)
-# and run one helper, echoing its stdout; returns the helper's exit status. $0 is set to "_" so the
-# guard sees BASH_SOURCE[0] (the CLI path) != $0 and returns from the source.
+# call <helper> <args...> : source the CLI as the projects user (sourced-guard skips gates/dispatch) and run one helper,
+# echoing its stdout; returns the helper's exit status. $0 is set to "_" so the guard sees BASH_SOURCE[0] (the CLI path)
+# != $0 and returns from the source.
 call() {
     local helper="$1"; shift
     # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
     runuser -u "${PROJECTS_USER}" -- bash -c '
         helper="$1"; cli="$2"; shift 2
+        # The CLI reads its command from the positional parameters and shifts them as it goes, so the helper'"'"'s
+        # arguments are held aside and the source sees none.
+        args=("$@"); set --
         source "${cli}" >/dev/null 2>&1 || exit 99
-        "${helper}" "$@"
+        "${helper}" "${args[@]}"
     ' _ "${helper}" "${CLI}" "$@"
 }
 
@@ -58,9 +60,8 @@ if ! runuser -u "${PROJECTS_USER}" -- bash -c \
 fi
 
 # ── sandbox_default_branch ────────────────────────────────────────────────────────────────────
-# The default is sandbox/<leaf>, leaf = the from-ref's last component, with NO host/operator
-# identity -- so it is stable whoever runs it and wherever, and does not leak either into the
-# branch name.
+# The default is sandbox/<leaf>, leaf = the from-ref's last component, with NO host/operator identity -- so it is stable
+# whoever runs it and wherever, and does not leak either into the branch name.
 def_is() {  # def_is <from> <expected>
     local got; got="$(call sandbox_default_branch "$1")" \
         && [[ "${got}" == "$2" ]] \
@@ -108,20 +109,19 @@ else
 fi
 
 # ── tree_is_pristine ──────────────────────────────────────────────────────────────────────────
-# The predicate `--project-create`'s flow rests on, and the reason it is pinned here rather than
-# left to the CLI test: what it gates is the SECRET SCAN. A claim skips that scan, the git-history
-# prompt, and the proceed confirm when this returns 0, so every way it could wrongly say yes is a
-# way to grant an agent access to a tree no scan has covered. It must answer for the tree as it is on
-# disk -- never for what a caller asserts about it -- so the cases are the states that must
-# read as NOT pristine.
-section "tree_is_pristine: the precondition behind --project-create's skipped prompts (unit)"
+# The predicate ai-tools.projects.create's flow rests on, and the reason it is pinned here rather than left to the CLI
+# test: what it gates is the SECRET SCAN. A claim skips that scan, the git-history prompt, and the proceed confirm
+# when this returns 0, so every way it could wrongly say yes is a way to grant an agent access to a tree no scan has
+# covered. It must answer for the tree as it is on disk -- never for what a caller asserts about it -- so the cases are
+# the states that must read as NOT pristine.
+section "tree_is_pristine: the precondition behind ai-tools.projects.create's skipped prompts (unit)"
 
 pristine() { call tree_is_pristine "$1"; }
 
-# Fixtures are built AS ROOT and handed over at the end, the same way the repo fixture is.
-# The predicate only reads the tree, so what matters is that the projects user can read it when
-# `call` runs; driving each mkdir/git through runuser instead would make every fixture line a
-# command that can fail under `set -e` for reasons unrelated to what is being tested.
+# Fixtures are built AS ROOT and handed over at the end, the same way the repo fixture is. The predicate only reads
+# the tree, so what matters is that the projects user can read it when `call` runs; driving each mkdir/git
+# through runuser instead would make every fixture line a command that can fail under `set -e` for reasons unrelated
+# to what is being tested.
 work="${TESTDIR}/pristine"
 fresh="${work}/fresh"
 bare="${work}/bare"
@@ -136,8 +136,7 @@ else
     fail "a freshly created project was not recognised as pristine"
 fi
 
-# A secret-named file is the exact thing the skipped scan exists to catch, so its presence has to
-# put the scan back.
+# A secret-named file is the exact thing the skipped scan exists to catch, so its presence has to put the scan back.
 printf 'TOKEN=x\n' > "${fresh}/.env"
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${fresh}/.env"
 if pristine "${fresh}"; then
@@ -158,8 +157,8 @@ else
 fi
 rm -rf "${fresh}/sub"
 
-# Commits are the other half: the git-history prompt is inferred to yes only because a repository
-# with no commits has no history to expose.
+# Commits are the other half: the git-history prompt is inferred to yes only because a repository with no commits has no
+# history to expose.
 git -C "${fresh}" -c user.email=t@example.invalid -c user.name=t add -A
 git -C "${fresh}" -c user.email=t@example.invalid -c user.name=t commit -qm first
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${fresh}"
@@ -170,7 +169,7 @@ else
 fi
 
 # An empty directory with no repository at all is still pristine: the predicate is about contents,
-# and `--project-create`'s git init failing is a warning, not a reason to rescan an empty tree.
+# and ai-tools.projects.create's git init failing is a warning, not a reason to rescan an empty tree.
 if pristine "${bare}"; then
     pass "an empty directory with no repository is pristine"
 else
@@ -178,11 +177,10 @@ else
 fi
 
 # ── allowlist_exclusions ──────────────────────────────────────────────────────────────────────
-# The read-only scans a claim runs (acl_drift_scan, sealed_setgid_scan) prune every '!' exclusion
-# from their walk, and read the registry through the shared allowlist grammar: an exclusion line
-# carrying an end-of-line comment or quotes names the same path here as in the launch wrapper,
-# so a carve-out is neither reported as drift nor offered to the repair walk. Only the exclusions
-# are printed, without their '!', and a commented-out line is not one.
+# The read-only scans a claim runs (acl_drift_scan, sealed_setgid_scan) prune every '!' exclusion from their walk,
+# and read the registry through the shared allowlist grammar: an exclusion line carrying an end-of-line comment
+# or quotes names the same path here as in the launch wrapper, so a carve-out is neither reported as drift nor offered
+# to the repair walk. Only the exclusions are printed, without their '!', and a commented-out line is not one.
 section "allowlist_exclusions: the carve-outs the claim-time scans prune (unit)"
 
 excl_work="${TESTDIR}/exclusions"

@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/settings-merge.sh
-# Unit test for the hook-declaration merge (conf.lib.sh), the step that lets a NEWLY SHIPPED hook
-# reach a host whose settings.json is kept across the upgrade.
+# Unit test for the hook-declaration merge (conf.lib.sh), the step that lets a NEWLY SHIPPED hook reach a host
+# whose settings.json is kept across the upgrade.
 #
-# What makes this worth pinning: the merge edits an operator-owned control-plane file, and every
-# way it can go wrong is quiet. A merge that drops the permission arrays silently changes what
-# runs; a merge that skips an event leaves a hook declared nowhere and the feature inert; a result
-# that names fewer additions than it made hides the edit from the operator reviewing the install
-# log. So the assertions come in three groups -- what must ARRIVE, what must SURVIVE, and what
-# must be REPORTED -- plus the sidecars, which answer different questions (.bak is what the
-# operator had, .shipped is what they were meant to get) and do not substitute for each other.
+# What makes this worth pinning: the merge edits an operator-owned control-plane file, and every way it can go wrong is
+# quiet. A merge that drops the permission arrays silently changes what runs; a merge that skips an event leaves a hook
+# declared nowhere and the feature inert; a result that names fewer additions than it made hides the edit
+# from the operator reviewing the install log. So the assertions come in three groups -- what must ARRIVE, what must
+# SURVIVE, and what must be REPORTED -- plus the sidecars, which answer different questions (.bak is what the operator
+# had, .shipped is what they were meant to get) and do not substitute for each other.
 #
-# Drives the DEPLOYED library, like the other unit tests: the decision lives in conf.lib.sh
-# precisely so it can be exercised without stubs or text extraction.
+# Drives the DEPLOYED library, like the other unit tests: the decision lives in conf.lib.sh precisely so it can be
+# exercised without stubs or text extraction.
 #
 # No network, no session: fixtures are built in the testdir.
 
@@ -42,8 +41,8 @@ fi
 
 mktestdir
 
-# Render the library's structured result the way a caller does, so the assertions read what
-# an operator would have been told rather than reaching into the library's variables one by one.
+# Render the library's structured result the way a caller does, so the assertions read what an operator would have been
+# told rather than reaching into the library's variables one by one.
 # shellcheck disable=SC2154  # the _ai_tools_conf_merge_* results are set by the sourced
 # conf.lib.sh, which shellcheck cannot follow through the LIB path variable
 merge_report() {
@@ -94,9 +93,8 @@ else
     fail "the permission arrays changed -- a merge must not decide what may run"
 fi
 
-# Host tuning is the whole reason the file is kept, so it must survive a merge verbatim: a
-# relaxed deny entry (the documented case, alongside an enabled SELinux group) and an added env
-# key, states an upgrade must not quietly revert.
+# Host tuning is the whole reason the file is kept, so it must survive a merge verbatim: a relaxed deny entry (the
+# documented case, alongside an enabled SELinux group) and an added env key, states an upgrade must not quietly revert.
 tuned="${TESTDIR}/tuned.json"
 mk_stale "${tuned}"
 jq '.permissions.deny -= ["Bash(rpm)"] | .env.SITE_PROXY = "http://proxy.example:3128"' \
@@ -149,12 +147,12 @@ else
 fi
 
 # --- Sidecars: two files, two different recoveries --------------------------------------------
-# Both are date-stamped and neither overwrites an earlier copy, so an operator who ran the
-# installer twice keeps the first -- the run they usually want back.
+# Both are date-stamped and neither overwrites an earlier copy, so an operator who ran the installer twice keeps
+# the first -- the run they usually want back.
 count_sidecars() { local g=("$1".*."$2"); [[ -e "${g[0]}" ]] && printf '%d' "${#g[@]}" || printf '0'; }
 
-# .bak answers "what did I have?" -- the only copy that restores host tuning if a merge ever
-# produces valid JSON that is nonetheless wrong, which the parse check cannot catch.
+# .bak answers "what did I have?" -- the only copy that restores host tuning if a merge ever produces valid JSON that is
+# nonetheless wrong, which the parse check cannot catch.
 bak="${TESTDIR}/bak.json"; mk_stale "${bak}"; original="$(cat "${bak}")"
 report="$(merge_report "${bak}" "${SHIPPED}")"
 backup_path="$(sed -n 's/^backup: //p' <<< "${report}")"
@@ -178,8 +176,8 @@ else
     fail "a no-op run left a backup implying an edit"
 fi
 
-# .shipped answers "what was I supposed to get?" -- written only when the merge could NOT run,
-# because an RPM-installed host has no source checkout to hand-merge from.
+# .shipped answers "what was I supposed to get?" -- written only when the merge could NOT run, because an RPM-installed
+# host has no source checkout to hand-merge from.
 broken="${TESTDIR}/broken.json"; printf '{ "hooks": broken' > "${broken}"
 before="$(cat "${broken}")"
 report="$(merge_report "${broken}" "${SHIPPED}" 2>&1)"
@@ -200,9 +198,9 @@ else
     fail "the refusal gives no reason: ${report}"
 fi
 
-# A second refusal offering the SAME baseline resolves to the copy already beside the file, so a
-# host that re-runs the installer keeps one copy per baseline it was offered rather than one per
-# run. The refusal still names a path to merge from.
+# A second refusal offering the SAME baseline resolves to the copy already beside the file, so a host that re-runs
+# the installer keeps one copy per baseline it was offered rather than one per run. The refusal still names a path
+# to merge from.
 merge_report "${broken}" "${SHIPPED}" >/dev/null 2>&1
 if [[ "$(count_sidecars "${broken}" shipped)" == 1 ]]; then
     pass "a second refusal on the same baseline reuses the copy beside the file"

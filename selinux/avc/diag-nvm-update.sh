@@ -10,14 +10,13 @@
 #   2. the SYMLINK handback verb resolves and repoints cleanly (the timer's last step),
 #      which needs ai_tools_handback_t getattr on the ai_tools_exec_t entrypoint.
 #
-# RUN AS THE AGENT (ai-tools UID, ai_tools_t domain) from inside an approved project.
-# Read-only except for one bridge call at the end (SYMLINK against the CURRENTLY ACTIVE
-# versioned binary -- idempotent, exactly what a successful nvm-update run's last step does).
+# RUN AS THE AGENT (ai-tools UID, ai_tools_t domain) from inside an approved project. Read-only except for one bridge
+# call at the end (SYMLINK against the CURRENTLY ACTIVE versioned binary -- idempotent, exactly what a successful
+# nvm-update run's last step does).
 #
 # PASS=N FAIL=0 means the posture is healthy. A section-2 FAIL means the node tree
-# became agent-WRITABLE (an integrity regression -- it must stay read-only); a section-4
-# FAIL means the SYMLINK verb is broken (the timer's repoint would fail with
-# "failed to repoint ... via handback SYMLINK").
+# became agent-WRITABLE (an integrity regression -- it must stay read-only); a section-4 FAIL means the SYMLINK verb is
+# broken (the timer's repoint would fail with "failed to repoint ... via handback SYMLINK").
 
 set -uo pipefail
 IFS=$'\n\t'
@@ -66,13 +65,12 @@ done
 ########################################
 # 2. Write-access probes -- the node tree must stay READ-ONLY to the agent
 #
-# The sandbox's Node tree is deliberately left at its default usr_t/bin_t/lib_t, for
-# which ai_tools_t holds only read access (files_read_usr_files / libs_read_lib_files /
-# corecmd_exec_bin). The agent must NOT be able to write it -- a writable tree would let
-# it rewrite its own program tree mid-session. So here a DENIED write is the healthy
-# result (PASS) and a SUCCESSFUL write is a regression (FAIL): it means a writable label
-# (e.g. ai_tools_home_t) leaked onto the tree. Only the carved-out ai_tools_home_t paths
-# (.npm, .cache, .config, .local) are legitimately agent-writable -- the control probe.
+# The sandbox's Node tree is deliberately left at its default usr_t/bin_t/lib_t, for which ai_tools_t holds only read
+# access (files_read_usr_files / libs_read_lib_files / corecmd_exec_bin). The agent must NOT be able to write it --
+# a writable tree would let it rewrite its own program tree mid-session. So here a DENIED write is the healthy result
+# (PASS) and a SUCCESSFUL write is a regression (FAIL): it means a writable label (e.g. ai_tools_home_t) leaked
+# onto the tree. Only the carved-out ai_tools_home_t paths (.npm, .cache, .config, .local) are legitimately
+# agent-writable -- the control probe.
 ########################################
 step "2. Write-access probes -- the node tree MUST be read-only to the agent (a writable path is a regression)"
 # probe_ro: a path that must be read-only to the agent -- DENIED is PASS, writable is FAIL.
@@ -107,14 +105,12 @@ probe_rw "${HOME}/.npm" "(control: ai_tools_home_t carve-out, must stay writable
 ########################################
 # 3. Symlink-resolution chain -- the stat() the SYMLINK verb depends on
 #
-# ai-tools-launcher-symlink (root, ai_tools_handback_t) does `[[ -e TARGET ]]`, which
-# stat()s through the versioned bin/claude symlink to its resolved end, claude.exe
-# (ai_tools_exec_t). This step runs the identical chain from ai_tools_t (which holds
-# libs_read_lib_files + the entrypoint grant) as a sanity check that the chain itself
-# is sound. ai_tools_handback_t is granted getattr on ai_tools_exec_t in ai_tools.te,
-# so its own `[[ -e ]]` resolves too -- section 4 exercises that path live through the
-# bridge. (A denied getattr there silently reports false -- the swallowed-EACCES shape
-# -- and the helper fails closed with "target does not exist".)
+# ai-tools-launcher-symlink (root, ai_tools_handback_t) does `[[ -e TARGET ]]`, which stat()s through the versioned
+# bin/claude symlink to its resolved end, claude.exe (ai_tools_exec_t). This step runs the identical chain
+# from ai_tools_t (which holds libs_read_lib_files + the entrypoint grant) as a sanity check that the chain itself is
+# sound. ai_tools_handback_t is granted getattr on ai_tools_exec_t in ai_tools.te, so its own `[[ -e ]]` resolves too --
+# section 4 exercises that path live through the bridge. (A denied getattr there silently reports false --
+# the swallowed-EACCES shape -- and the helper fails closed with "target does not exist".)
 ########################################
 step "3. Symlink-resolution chain (same stat() chain ai-tools-launcher-symlink follows, run from ai_tools_t)"
 if [[ -e "${versioned_claude}" ]]; then
@@ -128,12 +124,10 @@ note "ai_tools_handback_t holds getattr on this type -- section 4 confirms its [
 ########################################
 # 4. Live SYMLINK verb through the handback bridge
 #
-# Idempotent: repoints the stable symlink at the CURRENTLY ACTIVE versioned
-# binary -- exactly nvm-update.sh's last step, and a no-op for this running
-# session (claude_link already resolves here). A clean OK proves the bridge AND
-# ai_tools_handback_t's policy are sufficient end-to-end; "target does not
-# exist" is the live reproduction of the gap that makes nvm-update.sh die with
-# "failed to repoint ... via handback SYMLINK" -> "ai-tools update failed".
+# Idempotent: repoints the stable symlink at the CURRENTLY ACTIVE versioned binary -- exactly nvm-update.sh's last step,
+# and a no-op for this running session (claude_link already resolves here). A clean OK proves the bridge
+# AND ai_tools_handback_t's policy are sufficient end-to-end; "target does not exist" is the live reproduction
+# of the gap that makes nvm-update.sh die with "failed to repoint ... via handback SYMLINK" -> "ai-tools update failed".
 ########################################
 step "4. Live SYMLINK verb (/usr/local/bin/ai-tools-handback-client SYMLINK ...)"
 if out="$(/usr/local/bin/ai-tools-handback-client SYMLINK "${versioned_claude}" 2>&1)"; then

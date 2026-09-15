@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/secret-patterns.sh
-# Unit test for the shared secret-name classifier (secret-patterns.lib.sh), the single
-# matcher ai-tools-chown and ai-tools-lockdown both source. Pins the SHIPPED default pattern
-# set's behaviour hermetically: it sources the deployed library and forces the built-in
-# defaults (independent of the operator's live secret-patterns config), then asserts the
-# security-critical properties -- credential names match, matching is case-insensitive, and
-# environment/name-anchored .NET configs match while plain configs and build artifacts the
-# toolchain must read do NOT (a false positive quarantines a build input and breaks the
-# build). Run as root via sudo (the suite contract); does not need privilege of its own.
+# Unit test for the shared secret-name classifier (secret-patterns.lib.sh), the single matcher ai-tools-chown
+# and ai-tools-lockdown both source. Pins the SHIPPED default pattern set's behaviour hermetically: it sources
+# the deployed library and forces the built-in defaults (independent of the operator's live secret-patterns config),
+# then asserts the security-critical properties -- credential names match, matching is case-insensitive,
+# and environment/name-anchored .NET configs match while plain configs and build artifacts the toolchain must read do
+# NOT (a false positive quarantines a build input and breaks the build). Run as root via sudo (the suite contract); does
+# not need privilege of its own.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -24,9 +23,8 @@ if ! source "${LIB}"; then
     skip "secret classifier" "could not source ${LIB}"; finish; exit
 fi
 
-# Force the SHIPPED defaults so the test is independent of the operator's secret-patterns
-# config: copy the built-in list and mark patterns loaded, so ai_tools_is_secret_basename
-# skips the config-file read.
+# Force the SHIPPED defaults so the test is independent of the operator's secret-patterns config: copy the built-in list
+# and mark patterns loaded, so ai_tools_is_secret_basename skips the config-file read.
 AI_TOOLS_SECRET_PATTERNS=("${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}")
 _AI_TOOLS_PATTERNS_LOADED=1
 
@@ -65,10 +63,10 @@ for n in appsettings.json web.config MyApp.deps.json MyApp.runtimeconfig.json \
 done
 ${build_ok} && pass "plain configs and build artifacts are NOT quarantined"
 
-# (5) The seeded config file leaves classification unchanged. `ai-tools-admin operators add`
-# writes that file at enrolment, before the operator has decided anything, so what it writes must
-# parse to an empty set and leave the built-in baseline in force -- a seed that parsed to even one
-# pattern would REPLACE the baseline and silently stop quarantining every name it dropped.
+# (5) The seeded config file leaves classification unchanged. `ai-tools-admin operators add` writes that file
+# at enrolment, before the operator has decided anything, so what it writes must parse to an empty set and leave
+# the built-in baseline in force -- a seed that parsed to even one pattern would REPLACE the baseline and silently stop
+# quarantining every name it dropped.
 CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 if [[ -r "${CONF_LIB}" ]]; then
     # shellcheck source=/dev/null
@@ -84,9 +82,8 @@ if declare -F ai_tools_conf_secret_patterns_seed >/dev/null 2>&1; then
     else
         fail "the seeded config changed the loaded pattern set (${#AI_TOOLS_SECRET_PATTERNS[@]} patterns)"
     fi
-    # The one claim the seeded header must always carry, asserted by the grep that follows it: an
-    # operator's pattern REPLACES the baseline rather than adding to it, so a file holding one
-    # name classifies on that name alone.
+    # The one claim the seeded header must always carry, asserted by the grep that follows it: an operator's pattern
+    # REPLACES the baseline rather than adding to it, so a file holding one name classifies on that name alone.
     if grep -qi 'REPLACES the built-in baseline' "${seed_file}"; then
         pass "the seeded header states that a pattern replaces the baseline"
     else
@@ -100,15 +97,14 @@ else
     skip "seeded secret-patterns config" "conf.lib.sh defines no seed function"
 fi
 
-# (6) The drift report, which the launch wrapper logs once per session. What it exists to catch is
-# a file written once and never re-read: because an operator's set REPLACES the baseline, such a
-# file keeps this host on the patterns it listed then and drops every one added upstream since. So
-# the assertions are about the two silent directions -- no file and an empty file must read as
-# agreement (the baseline is in force, and a host that has decided nothing should not be nagged),
-# while a real file must name what it DROPS, that being the half that stops quarantining anything.
+# (6) The drift report, which the launch wrapper logs once per session. What it exists to catch is a file written once
+# and never re-read: because an operator's set REPLACES the baseline, such a file keeps this host on the patterns it
+# listed then and drops every one added upstream since. So the assertions are about the two silent directions -- no file
+# and an empty file must read as agreement (the baseline is in force, and a host that has decided nothing should not be
+# nagged), while a real file must name what it DROPS, that being the half that stops quarantining anything.
 if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
-    # The preceding cases need no fixture on disk; this section is the first here that does, so it
-    # creates the testdir the harness tears down.
+    # The preceding cases need no fixture on disk; this section is the first here that does, so it creates the testdir
+    # the harness tears down.
     mktestdir
     _drift_file="${TESTDIR}/drift-patterns"
 
@@ -131,9 +127,9 @@ if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
         fail "an empty config reported drift: ${out}"
     fi
 
-    # A copy of the baseline, reordered and with one line repeated: the same SET, so the report
-    # must stay silent. Ordering is not a difference, and a host that mirrored the baseline into
-    # its own file should not be told it diverged.
+    # A copy of the baseline, reordered and with one line repeated: the same SET, so the report must stay silent.
+    # Ordering is not a difference, and a host that mirrored the baseline into its own file should not be told it
+    # diverged.
     printf '%s\n' "${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}" | LC_ALL=C sort -r > "${_drift_file}"
     printf '%s\n' "${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[0]}" >> "${_drift_file}"
     _AI_TOOLS_PATTERNS_LOADED=""
@@ -143,9 +139,9 @@ if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
         fail "a set-identical config reported drift: ${out}"
     fi
 
-    # The real case, driven as ONE pattern in and one out, so both lists are named in full and the
-    # assertion does not depend on where a name falls against the cap. The dropped half is the one
-    # an operator acts on: that pattern is a credential name this host stopped quarantining.
+    # The real case, driven as ONE pattern in and one out, so both lists are named in full and the assertion does not
+    # depend on where a name falls against the cap. The dropped half is the one an operator acts on: that pattern is
+    # a credential name this host stopped quarantining.
     printf '%s\n' "${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}" | grep -vxF '*.pem' > "${_drift_file}"
     printf '*.asc\n' >> "${_drift_file}"
     _AI_TOOLS_PATTERNS_LOADED=""
@@ -158,9 +154,9 @@ if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
         fail "the drift report did not name the file, the addition, or the dropped pattern: ${out}"
     fi
 
-    # A wide difference stays ONE line: the report is read at a glance in the journal, and the file
-    # itself is where the whole set is read. Driven with a config that keeps two patterns, so the
-    # dropped list runs well past the cap.
+    # A wide difference stays ONE line: the report is read at a glance in the journal, and the file itself is
+    # where the whole set is read. Driven with a config that keeps two patterns, so the dropped list runs well past
+    # the cap.
     printf '.env\n*.asc\n' > "${_drift_file}"
     _AI_TOOLS_PATTERNS_LOADED=""
     out="$(ai_tools_secret_patterns_drift)" || true

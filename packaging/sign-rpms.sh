@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# Sign release RPMs with the dag-node org signing key and export the matching public key.
-# Runs INSIDE the matching-EL build container (ai-tools-rpmbase:elN) so the rpm/gnupg
-# toolchain that signs is the same one that built the packages -- see the org playbook in
-# github-org-dag-node/GPG-HINTS.md and docs/rpm-packaging.md. The release workflow invokes
-# it over the freshly built RPMs before publishing, so every published package carries a
-# header signature an operator verifies with `rpm --import RPM-GPG-KEY-dag-node`.
+# Sign release RPMs with the dag-node org signing key and export the matching public key. Runs INSIDE the matching-EL
+# build container (ai-tools-rpmbase:elN) so the rpm/gnupg toolchain that signs is the same one that built the packages
+# -- see the org playbook in github-org-dag-node/GPG-HINTS.md and docs/rpm-packaging.md. The release workflow invokes it
+# over the freshly built RPMs before publishing, so every published package carries a header signature an operator
+# verifies with `rpm --import RPM-GPG-KEY-dag-node`.
 #
 # Usage (rpm-sign + gnupg2 + rpm-build must be present in the container):
 #   ```bash
@@ -13,27 +12,26 @@
 #   packaging/sign-rpms.sh [--secrets-stdin] --selftest                   # prove the whole chain on a throwaway RPM
 #   ```
 #
-# `--secrets-stdin` reads the secrets from stdin -- first line the passphrase, the remainder the
-# ASCII-armored private key -- instead of the environment, so a container invocation never
-# carries them in its environment (podman records `-e` values in the on-disk container config).
+# `--secrets-stdin` reads the secrets from stdin -- first line the passphrase, the remainder the ASCII-armored private
+# key -- instead of the environment, so a container invocation never carries them in its environment (podman records
+# `-e` values in the on-disk container config).
 #
-# `--selftest` builds a disposable package, signs it, and verifies it through the identical code
-# path, so the release workflow can prove the key, passphrase, rpmsign, and verification all
-# work in this exact container BEFORE any real RPM is built or published. It does not leave an artifact
+# `--selftest` builds a disposable package, signs it, and verifies it through the identical code path, so the release
+# workflow can prove the key, passphrase, rpmsign, and verification all work in this exact container BEFORE any real RPM
+# is built or published. It does not leave an artifact
 # behind.
 #
 # Environment (from the dag-node org CI secrets):
 #   GPG_SIGNING_KEY         ASCII-armored private signing key           (required)
 #   GPG_SIGNING_PASSPHRASE  its passphrase                              (required; org key has one)
 #
-# Fail-closed: a missing key or passphrase, a signing failure, or an RPM that does not carry a
-# signature that verifies exits non-zero, so a release never publishes an unsigned or wrongly
-# signed package. Verification asserts a cryptographic signature LINE validates -- `rpmkeys
-# --checksig` exits 0 for an unsigned package (no signature to fail), so a return-code-only test
-# passes a silent rpmsign no-op; the 0.6.1 assets shipped unsigned that way. Errors use the
-# ::error:: prefix so GitHub Actions surfaces them as annotations; the text reads plainly on a
-# local terminal too. Every secret (imported private key, passphrase) lives in a tmpfs (RAM)
-# scratch tree wiped on exit -- never persistent disk, never the container's real keyring or
+# Fail-closed: a missing key or passphrase, a signing failure, or an RPM that does not carry a signature that verifies
+# exits non-zero, so a release never publishes an unsigned or wrongly signed package. Verification asserts
+# a cryptographic signature LINE validates -- `rpmkeys --checksig` exits 0 for an unsigned package (no signature
+# to fail), so a return-code-only test passes a silent rpmsign no-op; the 0.6.1 assets shipped unsigned that way. Errors
+# use the ::error:: prefix so GitHub Actions surfaces them as annotations; the text reads plainly on a local terminal
+# too. Every secret (imported private key, passphrase) lives in a tmpfs (RAM) scratch tree wiped on exit -- never
+# persistent disk, never the container's real keyring or
 # rpmdb.
 set -euo pipefail
 
@@ -53,13 +51,13 @@ import_signing_key() {
     printf '%s\n' "${fpr}"
 }
 
-# Write <home>/.rpmmacros so rpmsign drives gpg non-interactively: loopback pinentry and the
-# passphrase from a 0600 file, never argv (world-readable via /proc).
+# Write <home>/.rpmmacros so rpmsign drives gpg non-interactively: loopback pinentry and the passphrase from a 0600
+# file, never argv (world-readable via /proc).
 #
-# %{__gpg} is the ONLY binary token. rpm's stock %__gpg_sign_cmd is `%{__gpg} gpg ...`, which on
-# EL10 (where %__gpg is defined as /usr/bin/gpg) expands to `/usr/bin/gpg gpg ...` -- gpg invoked
-# with argv[1]="gpg", a bogus input filename, so it does not sign the package. Copying that literal `gpg`
-# into the override is why the 0.6.1 el10 RPMs shipped unsigned; here %{__gpg} stands alone.
+# %{__gpg} is the ONLY binary token. rpm's stock %__gpg_sign_cmd is `%{__gpg} gpg ...`, which on EL10 (where %__gpg is
+# defined as /usr/bin/gpg) expands to `/usr/bin/gpg gpg ...` -- gpg invoked with argv[1]="gpg", a bogus input filename,
+# so it does not sign the package. Copying that literal `gpg` into the override is why the 0.6.1 el10 RPMs shipped
+# unsigned; here %{__gpg} stands alone.
 write_rpm_macros() {
     local home="$1" fpr="$2" passfile="$3"
     cat > "${home}/.rpmmacros" <<EOF
@@ -68,11 +66,10 @@ write_rpm_macros() {
 EOF
 }
 
-# Verify each RPM carries a signature that validates against <pubkey>. Import the key into a
-# throwaway rpmdb, then require `rpmkeys -Kv` to print a cryptographic "Signature ... OK" line:
-# that line appears ONLY when a signature is present AND checks out. An unsigned package has no
-# signature line (only digests) yet still exits 0, so asserting the line -- not the exit code --
-# is what stops a silent signing no-op from shipping.
+# Verify each RPM carries a signature that validates against <pubkey>. Import the key into a throwaway rpmdb, then
+# require `rpmkeys -Kv` to print a cryptographic "Signature ... OK" line: that line appears ONLY when a signature is
+# present AND checks out. An unsigned package has no signature line (only digests) yet still exits 0, so asserting
+# the line -- not the exit code -- is what stops a silent signing no-op from shipping.
 verify_signatures() {
     local pubkey="$1"; shift
     local verifydb rpm out
@@ -80,8 +77,8 @@ verify_signatures() {
     rpmkeys --dbpath "${verifydb}" --import "${pubkey}" \
         || die "could not import the exported public key for verification"
     for rpm in "$@"; do
-        # A non-zero exit means a signature is present but BAD/NOKEY; the grep afterwards catches
-        # the unsigned case, which exits 0 with no signature line.
+        # A non-zero exit means a signature is present but BAD/NOKEY; the grep afterwards catches the unsigned case,
+        # which exits 0 with no signature line.
         out="$(rpmkeys --dbpath "${verifydb}" -Kv "${rpm}" 2>&1)" \
             || die "signature check failed for ${rpm}: ${out}"
         grep -Eqi 'signature[^:]*:[[:space:]]*OK' <<<"${out}" \
@@ -89,8 +86,8 @@ verify_signatures() {
     done
 }
 
-# Sign the given RPMs with the already-imported key + macros, export the public key to
-# <pubkey_out>, and verify every signature. Assumes GNUPGHOME/HOME/.rpmmacros are set up.
+# Sign the given RPMs with the already-imported key + macros, export the public key to <pubkey_out>, and verify every
+# signature. Assumes GNUPGHOME/HOME/.rpmmacros are set up.
 sign_and_verify() {
     local pubkey_out="$1"; shift
     rpmsign --addsign "$@" || die "rpmsign failed"
@@ -99,8 +96,8 @@ sign_and_verify() {
     verify_signatures "${pubkey_out}" "$@"
 }
 
-# Build a disposable noarch RPM under <dir> and echo its path. Used by `--selftest` to exercise the
-# real sign+verify path without touching a release artifact.
+# Build a disposable noarch RPM under <dir> and echo its path. Used by `--selftest` to exercise the real sign+verify
+# path without touching a release artifact.
 build_selftest_rpm() {
     local dir="$1"
     command -v rpmbuild >/dev/null 2>&1 || die "rpmbuild not found (install rpm-build) -- needed for --selftest"
@@ -151,14 +148,13 @@ main() {
     command -v rpmsign >/dev/null 2>&1 || die "rpmsign not found (install rpm-sign)"
     command -v rpmkeys >/dev/null 2>&1 || die "rpmkeys not found (install rpm-sign)"
 
-    # One scratch tree holds every secret (imported private keyring, passphrase file). Prefer
-    # tmpfs (/dev/shm, RAM) so key material never lands on persistent disk; fall back to the
-    # default TMPDIR where /dev/shm is absent. gpg needs the private key in a keyring DIRECTORY
-    # (it cannot sign from a variable), and rpmsign forks gpg once per package, so the passphrase
-    # must stay re-readable here rather than a one-shot stream -- keeping it on the same RAM tree
-    # as the unavoidable keyring leaves disk exposure unchanged. The runner VM is ephemeral.
-    # Script-global, not local: the EXIT trap fires after main returns, where a local is out of
-    # scope -- an unbound reference under `set -u` -- and the wipe must still run.
+    # One scratch tree holds every secret (imported private keyring, passphrase file). Prefer tmpfs (/dev/shm, RAM)
+    # so key material never lands on persistent disk; fall back to the default TMPDIR where /dev/shm is absent. gpg
+    # needs the private key in a keyring DIRECTORY (it cannot sign from a variable), and rpmsign forks gpg once
+    # per package, so the passphrase must stay re-readable here rather than a one-shot stream -- keeping it on the same
+    # RAM tree as the unavoidable keyring leaves disk exposure unchanged. The runner VM is ephemeral. Script-global, not
+    # local: the EXIT trap fires after main returns, where a local is out of scope -- an unbound reference
+    # under `set -u` -- and the wipe must still run.
     workdir="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"
     trap 'rm -rf "${workdir}"' EXIT
 

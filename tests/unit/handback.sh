@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/handback.sh
-# Unit test for the handback daemon's own audit record: the native journald entry it writes,
-# and the session unit it stamps on one. The daemon is the only component placed to name
-# the session a root operation was performed for, a root helper not running in that unit,
-# so what this file asserts is that the value arrives, that an unreadable cgroup leaves
+# Unit test for the handback daemon's own audit record: the native journald entry it writes, and the session unit it
+# stamps on one. The daemon is the only component placed to name the session a root operation was performed for, a root
+# helper not running in that unit, so what this file asserts is that the value arrives, that an unreadable cgroup leaves
 # the field absent, and that no value a peer controls can forge a field beside it.
 #
-# The record's shape is asserted through the PURE builder (_journal_entry), so every case
-# runs with no socket and no journald. The transport (_journal_send) is one case of its own,
-# skipped on a host that refuses the send, and its fail direction is asserted beside it:
-# an absent socket is reported and not raised, leaving the stream sink to carry the MESSAGE.
+# The record's shape is asserted through the PURE builder (_journal_entry), so every case runs with no socket and no
+# journald. The transport (_journal_send) is one case of its own, skipped on a host that refuses the send, and its fail
+# direction is asserted beside it: an absent socket is reported and not raised, leaving the stream sink to carry
+# the MESSAGE.
 #
 # Hermetic: every fixture lives in the test's own /tmp testdir, and the deployed daemon is
 # loaded as a MODULE (compile+exec under a non-__main__ name, so its `if __name__` guard does
-# not run it) and driven function by function. Pure text plus one AF_UNIX socket, so it does
-# not need any privilege of its own; run as root via sudo like the rest of the suite.
+# not run it) and driven function by function. Pure text plus one AF_UNIX socket, so it does not need any privilege
+# of its own; run as root via sudo like the rest of the suite.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -31,10 +30,9 @@ fi
 
 mktestdir
 
-# The driver prints one `<case> <verdict> <detail>` line per assertion. A verdict is
-# PASS, FAIL, or the SKIP the transport case takes on a host that refuses the send.
-# Each result is reported by the harness under its own case id, and a failure carries
-# what arrived.
+# The driver prints one `<case> <verdict> <detail>` line per assertion. A verdict is PASS, FAIL, or the SKIP
+# the transport case takes on a host that refuses the send. Each result is reported by the harness under its own case
+# id, and a failure carries what arrived.
 DRIVER="${TESTDIR}/driver.py"
 cat > "${DRIVER}" <<'PY'
 import builtins

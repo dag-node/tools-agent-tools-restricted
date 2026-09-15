@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/lockdown.sh
-# Hermetic unit tests for the deployed ai-tools-lockdown helper: the PROACTIVE secret sweep.
-# Unlike ai-tools-chown (reactive, agent-owned paths only), lockdown locks down EVERY
-# secret-named path under an allowed project -- including pre-existing user-owned ones the
-# agent could otherwise read -- setting files 600, directories 700, owner <you>:<you>.
-# It operates on the CWD (not a path arg), honours the same allowlist + '!'-exclusions + skip
-# list, refuses to run as the sandbox account, and applies through a pinned fd. Run against a
-# /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST override) as root.
+# Hermetic unit tests for the deployed ai-tools-lockdown helper: the PROACTIVE secret sweep. Unlike ai-tools-chown
+# (reactive, agent-owned paths only), lockdown locks down EVERY secret-named path under an allowed project -- including
+# pre-existing user-owned ones the agent could otherwise read -- setting files 600, directories 700, owner <you>:<you>.
+# It operates on the CWD (not a path arg), honours the same allowlist + '!'-exclusions + skip list, refuses to run
+# as the sandbox account, and applies through a pinned fd. Run against a /tmp testdir with a dummy allowlist
+# (AI_TOOLS_ALLOWLIST override) as root.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -25,10 +24,9 @@ proj="${TESTDIR}/proj"
 mkdir -p "${proj}/secrets" "${proj}/vendor" "${proj}/.git"
 chmod 0755 "${TESTDIR}" "${proj}"
 
-# Pre-existing, user-owned fixtures -- the case ai-tools-chown's owner guard skips, since it acts
-# only on a path the sandbox account currently owns, which is what lockdown exists to cover. Secret-named
-# file + dir, an ordinary file, a secret under a '!'-excluded subtree, and a secret under a
-# skipped (.git) tree.
+# Pre-existing, user-owned fixtures -- the case ai-tools-chown's owner guard skips, since it acts only on a path
+# the sandbox account currently owns, which is what lockdown exists to cover. Secret-named file + dir, an ordinary file,
+# a secret under a '!'-excluded subtree, and a secret under a skipped (.git) tree.
 mk_secret() { : > "$1"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "$1"; chmod 0644 "$1"; }
 mk_secret "${proj}/.env"                                            # secret file
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}/secrets"; chmod 0755 "${proj}/secrets"  # secret dir
@@ -36,9 +34,9 @@ chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}/secrets"; chmod 0755 "${proj
 mk_secret "${proj}/README.md" && chmod 0644 "${proj}/README.md"     # ordinary (non-secret name)
 mk_secret "${proj}/vendor/.npmrc"                                   # secret under '!'-excluded
 mk_secret "${proj}/.git/id_rsa"                                     # secret under skipped .git
-# A secret carrying the residue a file born inside a claimed tree would have: the project's
-# inherited group ACL entry. chmod alone only masks it, so the lock has to remove it. Kept on its
-# own fixture because `setfacl -m` recalculates the mask, which moves the visible mode bits.
+# A secret carrying the residue a file born inside a claimed tree would have: the project's inherited group ACL entry.
+# chmod alone only masks it, so the lock has to remove it. Kept on its own fixture because `setfacl -m` recalculates
+# the mask, which moves the visible mode bits.
 residue_acl=false
 if command -v setfacl >/dev/null 2>&1; then
     mk_secret "${proj}/residue.key"
@@ -46,10 +44,9 @@ if command -v setfacl >/dev/null 2>&1; then
         residue_acl=true
     fi
 fi
-# Owner-only, NON-secret fixtures: the paths an operator seals by MODE rather than by name, which
-# no pattern reaches. Built in the real order -- the ACL arrives by inheritance first, the
-# operator's chmod comes after -- so the entry is present but masked, as on a path created inside
-# a claimed tree.
+# Owner-only, NON-secret fixtures: the paths an operator seals by MODE rather than by name, which no pattern reaches.
+# Built in the real order -- the ACL arrives by inheritance first, the operator's chmod comes after -- so the entry is
+# present but masked, as on a path created inside a claimed tree.
 seal_fx=false
 if command -v setfacl >/dev/null 2>&1; then
     mkdir -p "${proj}/privatedir"
@@ -63,10 +60,19 @@ if command -v setfacl >/dev/null 2>&1; then
     chmod 2700 "${proj}/privatedir"
     chmod 0600 "${proj}/notes.txt"
 fi
-mk_allowlist "${proj}" "!${proj}/vendor"
+# A sandbox clone as ai-tools.projects.clone hands it to the secret gate: owner-only throughout, since the CLI runs
+# the clone under a pinned `umask 077`; grouped to the sandbox account by the setgid clone area; carrying a checked-in
+# secret and a depth-one directory.
+clone="${TESTDIR}/clone"
+mkdir -p "${clone}/src"
+: > "${clone}/.env"
+chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${clone}"
+chmod 2700 "${clone}" "${clone}/src"
+chmod 0600 "${clone}/.env"
+mk_allowlist "${proj}" "!${proj}/vendor" "${clone}"
 
-# Run the deployed helper in <cwd> (it acts on pwd), non-interactive (`--yes`), never aborting
-# the suite. Captures combined output to <outfile>; sets the global LD_RC to its exit code.
+# Run the deployed helper in <cwd> (it acts on pwd), non-interactive (`--yes`), never aborting the suite. Captures
+# combined output to <outfile>; sets the global LD_RC to its exit code.
 run_ld() {  # <cwd> <outfile> [args...]
     local cwd="$1" out="$2"; shift 2
     ( cd "${cwd}" && "${HELPER}" "$@" ) < /dev/null > "${out}" 2>&1 && LD_RC=0 || LD_RC=$?
@@ -174,8 +180,8 @@ assert_msg MSG-K8Z6 "$(cat "${TESTDIR}/refuse")" "the refusal names the unresolv
 mk_secret "${proj}/fresh.key"
 ( cd "${proj}" && SUDO_USER="${SANDBOX_USER}" "${HELPER}" --yes ) < /dev/null > "${TESTDIR}/asagent" 2>&1 \
     && agent_rc=0 || agent_rc=$?
-# The mode is what distinguishes "refused" from "locked" here: a locked secret is now owned
-# <you>:<you> too, so ownership alone no longer tells the two apart.
+# The mode is what distinguishes "refused" from "locked" here: a locked secret is now owned <you>:<you> too,
+# so ownership alone no longer tells the two apart.
 if [[ "${agent_rc}" -ne 0 ]] \
         && [[ "$(perm "${proj}/fresh.key")" == 644 ]] \
         && [[ "$(stat -c '%U:%G' "${proj}/fresh.key")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" ]]; then
@@ -215,6 +221,32 @@ if ${seal_fx}; then
     fi
 else
     skip "owner-only seal pass" "setfacl unavailable"
+fi
+
+# (6) The seal enumeration leaves the target directory itself alone. The CLI's pinned `umask 077` makes a clone
+#     owner-only throughout, so with the root on the seal list an apply on a tip commit holding a secret would clear
+#     the root's setgid bit and move its group off the sandbox account's -- and normalize_clone restores the mode
+#     bits, not the group, so the agent would be refused at the root of a clone reported ready. The root keeps its
+#     mode and group, the pass does not descend into it (the depth-one directory keeps both too), and the secret
+#     inside is still locked.
+run_ld "${clone}" "${TESTDIR}/clone-apply" --yes
+if [[ "${LD_RC}" -ne 0 ]]; then
+    fail "lockdown --yes on the clone exited ${LD_RC}: $(cat "${TESTDIR}/clone-apply")"
+fi
+if [[ "$(stat -c '%a %G' "${clone}")" == "2700 ${SANDBOX_GROUP}" ]]; then
+    pass "an owner-only clone root keeps its setgid bit and group ${SANDBOX_GROUP} (the target is not sealed)"
+else
+    fail "the clone root ended $(stat -c '%a %G' "${clone}"), expected 2700 ${SANDBOX_GROUP}"
+fi
+if [[ "$(stat -c '%a %G' "${clone}/src")" == "2700 ${SANDBOX_GROUP}" ]]; then
+    pass "the pass does not descend into an owner-only root (the depth-one dir keeps setgid and group)"
+else
+    fail "the depth-one dir ended $(stat -c '%a %G' "${clone}/src"), expected 2700 ${SANDBOX_GROUP}"
+fi
+if [[ "$(stat -c '%U:%G' "${clone}/.env")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(perm "${clone}/.env")" == 600 ]]; then
+    pass "the secret inside the owner-only clone is still locked to ${PROJECTS_USER}:${PROJECTS_GROUP} 600"
+else
+    fail "the clone's secret ended $(stat -c '%U:%G' "${clone}/.env") $(perm "${clone}/.env")"
 fi
 
 finish

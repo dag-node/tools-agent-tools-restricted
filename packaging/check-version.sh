@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# Enforce the release-metadata invariant: packaging/VERSION, the newest %changelog entry in
-# ai-tools.spec, and — when a tag argument is given — the release tag all name the same
-# version. A version bump therefore cannot ship without a matching %changelog entry, and a
-# tag cannot publish against a stale VERSION. Fail-closed: any mismatch exits non-zero.
+# Enforce the release-metadata invariant: packaging/VERSION, the newest %changelog entry in ai-tools.spec, and —
+# when a tag argument is given — the release tag all name the same version. A version bump therefore cannot ship without
+# a matching %changelog entry, and a tag cannot publish against a stale VERSION. Fail-closed: any mismatch exits
+# non-zero.
 #
 # Usage:
 #   packaging/check-version.sh                 # VERSION == newest %changelog entry
@@ -11,8 +11,8 @@
 #   packaging/check-version.sh vX.Y.Z-rc.N     # base X.Y.Z == VERSION; %changelog match relaxed
 #                                              # (RC notes aren't finalized; the final tag gates them)
 #
-# Errors use the ::error:: prefix so GitHub Actions surfaces them as annotations; the text
-# reads plainly on a local terminal too.
+# Errors use the ::error:: prefix so GitHub Actions surfaces them as annotations; the text reads plainly on a local
+# terminal too.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,8 +21,8 @@ spec="${here}/ai-tools.spec"
 
 file_version="$(cat "${version_file}")"
 
-# Parse the tag argument up front: a prerelease tag (vX.Y.Z-rc.N, the only dashed shape
-# accepted) compares by its base X.Y.Z and relaxes the %changelog match.
+# Parse the tag argument up front: a prerelease tag (vX.Y.Z-rc.N, the only dashed shape accepted) compares by its base
+# X.Y.Z and relaxes the %changelog match.
 tag="${1:-}"
 tag_version=""
 prerelease=0
@@ -38,8 +38,8 @@ if [[ -n "${tag}" ]]; then
     fi
 fi
 
-# Newest changelog entry: the first "* <date> <author> - X.Y.Z-R" header after %changelog.
-# Split the header on " - " and take the trailing "X.Y.Z-R" field, then drop the `-R` release.
+# Newest changelog entry: the first "* <date> <author> - X.Y.Z-R" header after %changelog. Split the header on " - "
+# and take the trailing "X.Y.Z-R" field, then drop the `-R` release.
 head_version="$(awk '
     /^%changelog/ { in_log = 1; next }
     in_log && /^\*/ {

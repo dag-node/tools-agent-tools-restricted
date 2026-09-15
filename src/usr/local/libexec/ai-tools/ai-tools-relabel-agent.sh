@@ -12,13 +12,13 @@
 #              confined session can write its own state. Freshly installed files are born the
 #              default type and only restorecon applies these.
 #
-# Why both live in one helper, and why a mismatch fails the run while an unverifiable entrypoint
-# does not: .claude/rules/updater.rule.md.
+# Why both live in one helper, and why a mismatch fails the run while an unverifiable entrypoint does not:
+# .claude/rules/updater.rule.md.
 #
-# It is agent-agnostic: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext
-# and config_dir in its manifest under /usr/local/lib/ai-tools/agents.d), and this helper
-# registers them as local file-context rules. The labelling body lives in relabel.lib.sh, shared
-# with selinux/install-selinux.sh's verify pass so the two cannot drift.
+# It is agent-agnostic: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext and config_dir in its
+# manifest under /usr/local/lib/ai-tools/agents.d), and this helper registers them as local file-context rules.
+# The labelling body lives in relabel.lib.sh, shared with selinux/install-selinux.sh's verify pass so the two cannot
+# drift.
 #
 # Usage:
 #   ai-tools-relabel-agent              relabel every enabled agent's paths (idempotent)
@@ -27,16 +27,15 @@
 #                                       labels -- run while its manifest still exists (rpm %preun
 #                                       of the agent package)
 #
-# Runs as root (a domain that holds relabel), never the sandbox account. Three callers drive the
-# default form: ai-tools-bootstrap at provision time, the ai-tools-relabel.path watcher after an
-# upgrade, and `ai-tools-admin system entrypoints relabel` on demand. Every one of them is already
-# root, so this helper carries no %ai-ops sudoers rule and its 750 root:root mode is the whole
-# gate. The domain story -- the watcher, the
-# ai-tools-run fail-closed backstop, and why the relabel privilege stays off the agent-reachable
-# handback domain -- is in .claude/rules/updater.rule.md.
+# Runs as root (a domain that holds relabel), never the sandbox account. Three callers drive the default form:
+# ai-tools-bootstrap at provision time, the ai-tools-relabel.path watcher after an upgrade,
+# and `ai-tools-admin system entrypoints relabel` on demand. Every one of them is already root, so this helper carries
+# no %ai-ops sudoers rule and its 750 root:root mode is the whole gate. The domain story -- the watcher,
+# the ai-tools-run fail-closed backstop, and why the relabel privilege stays off the agent-reachable handback domain --
+# is in .claude/rules/updater.rule.md.
 #
-# No-ops when SELinux is off or the ai_tools module is not installed: there is no
-# ai_tools_exec_t to assign, which is a supported (DAC-only) deployment, not a failure.
+# No-ops when SELinux is off or the ai_tools module is not installed: there is no ai_tools_exec_t to assign, which is
+# a supported (DAC-only) deployment, not a failure.
 #
 # Deploy:
 #   ```bash
@@ -47,9 +46,8 @@
 
 set -euo pipefail
 
-# Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/relabel.log
-# (shared with ai-tools-relabel). Best-effort -- a no-op fallback keeps the helper working
-# if the lib is missing.
+# Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/relabel.log (shared
+# with ai-tools-relabel). Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
 AI_TOOLS_LOG_TAG="ai-tools-relabel-agent"
 AI_TOOLS_LOG_FILE="relabel.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
@@ -58,14 +56,14 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_info() { :; }; ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
 fi
 
-# say reports progress on stdout, the stream an operator reads the run's story from; warn and die
-# report a problem on stderr and carry the severity, so no message text spells one out. A warning
-# that used to travel with the status lines therefore moves streams -- deliberately: it is not part
-# of that story, and a caller capturing stdout was capturing warnings with it.
+# say reports progress on stdout, the stream an operator reads the run's story from; warn and die report a problem
+# on stderr and carry the severity, so no message text spells one out. A warning that used to travel with the status
+# lines therefore moves streams -- deliberately: it is not part of that story, and a caller capturing stdout was
+# capturing warnings with it.
 say() { printf 'ai-tools-relabel-agent: %s\n' "$*"; }
-# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
-# message, the shape tests/lib/harness.sh's assert_msg reads, and carried into the log line.
-# Matched inline: this helper does not load the library.
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
+# tests/lib/harness.sh's assert_msg reads, and carried into the log line. Matched inline: this helper does not load
+# the library.
 warn() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
@@ -81,26 +79,26 @@ die() {
 
 [[ "${EUID}" -eq 0 ]] || die MSG-M3E7 "must run as root (via sudo)"
 
-# The labelling body + the manifest resolver it reads. REQUIRED: without them this helper can
-# resolve no agent and would silently label no file, leaving the next launch to fail closed on a
-# mislabelled entrypoint with no explanation. Bare source under `set -e`.
+# The labelling body + the manifest resolver it reads. REQUIRED: without them this helper can resolve no agent and would
+# silently label no file, leaving the next launch to fail closed on a mislabelled entrypoint with no explanation. Bare
+# source under `set -e`.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
 source /usr/local/lib/ai-tools/relabel.lib.sh
 declare -F ai_tools_label_agent_paths >/dev/null 2>&1 \
     || die MSG-S9Z3 "relabel.lib.sh is incomplete -- reinstall ai-tools-base"
 
-# Serialize against the other callers of this helper before touching the policy store: the agent
-# package's %post, the ai-tools-relabel.path watcher, and `ai-tools-admin system entrypoints relabel` all run it, and an
-# upgrade drives two of them at once. Taken here so it covers `--remove` as well, which writes the
-# same store. Proceeding unserialized is reported, not fatal (see relabel.lib.sh).
+# Serialize against the other callers of this helper before touching the policy store: the agent package's %post,
+# the ai-tools-relabel.path watcher, and `ai-tools-admin system entrypoints relabel` all run it, and an upgrade drives
+# two of them at once. Taken here so it covers `--remove` as well, which writes the same store. Proceeding unserialized
+# is reported, not fatal (see relabel.lib.sh).
 ai_tools_relabel_lock
 [[ -z "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]] \
     || { warn MSG-E4U5 "relabels are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
          ai_tools_log_warn "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
 
-# `--remove <agent>`: erase-time counterpart, invoked by the agent package's own %preun while its
-# manifest is still on disk. Dropping the rules matters because the types they name belong to the
-# base policy, which the host may erase next.
+# `--remove <agent>`: erase-time counterpart, invoked by the agent package's own %preun while its manifest is still
+# on disk. Dropping the rules matters because the types they name belong to the base policy, which the host may erase
+# next.
 if [[ "${1:-}" == --remove ]]; then
     agent="${2:?usage: ai-tools-relabel-agent --remove <agent-name>}"
     rc=0; ai_tools_unlabel_agent_paths "${agent}" || rc=$?
@@ -153,10 +151,9 @@ pin_agent_entrypoint() {
         say "${agent}: not provisioned -- nothing to verify or pin"
         return 0
     fi
-    # The installed version, read from the package metadata beside the entrypoint. It is
-    # sandbox-owned, so it is accepted only in semver shape -- and claiming a different version
-    # gains the caller no advantage: every candidate manifest is signed, so a false claim yields a checksum that
-    # does not match rather than one that does.
+    # The installed version, read from the package metadata beside the entrypoint. It is sandbox-owned, so it is
+    # accepted only in semver shape -- and claiming a different version gains the caller no advantage: every candidate
+    # manifest is signed, so a false claim yields a checksum that does not match rather than one that does.
     version="$(_installed_agent_version "${entrypoint}")"
     if [[ -z "${version}" ]]; then
         say "${agent}: could not read the installed version -- not pinned"
@@ -219,33 +216,33 @@ if declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
         pin_agent_entrypoint "${pin_agent}" || pin_failures=$(( pin_failures + 1 ))
     done < <(ai_tools_enabled_agents 2>/dev/null)
 fi
-# Reported before any labelling outcome: an entrypoint that is not the binary its vendor published
-# is a more serious finding than any label, and the remedy is different in kind.
+# Reported before any labelling outcome: an entrypoint that is not the binary its vendor published is a more serious
+# finding than any label, and the remedy is different in kind.
 (( pin_failures == 0 )) \
     || die MSG-W6V4 "treat the toolchain as tampered: ${pin_failures} agent entrypoint(s) do NOT match the checksum their vendor signed for the installed version; reprovision it (sudo ai-tools-admin system bootstrap) and, if it recurs, investigate before launching a session"
 
-# Collect the report first, so the lib's return code survives (2 = the SELinux layer is not
-# active here, which is a supported deployment and not a failure).
+# Collect the report first, so the lib's return code survives (2 = the SELinux layer is not active here, which is
+# a supported deployment and not a failure).
 report=""; status=0
 report="$(ai_tools_label_agent_paths)" || status=$?
 
 # record_label_outcome <agent> <ok|failed|skipped> [reason-token] : file what this run could do
-#   about that agent's labels where `ai-tools --status` can read it. The operator cannot inspect
+#   about that agent's labels where `ai-tools status` can read it. The operator cannot inspect
 #   the labels themselves -- the entrypoint sits in a toolchain they cannot traverse -- so this
 #   record is the only account of the labelling half they have, the counterpart to the pin the
 #   verification half writes. Best-effort: a record that cannot be written is reported and never
 #   changes the outcome of the relabel it describes.
 record_label_outcome() {
     ai_tools_entrypoint_label_write "$1" "$2" "${3:-}" && return 0
-    warn MSG-G5H9 "could not record ${1}'s labelling outcome for ai-tools --status"
+    warn MSG-G5H9 "could not record ${1}'s labelling outcome for ai-tools status"
     ai_tools_log_warn "could not write the label record for $1"
     return 0
 }
 
 if (( status == 2 )); then
     say "SELinux confinement inactive -- no agent labelling needed"
-    # Recorded rather than left silent: on a DAC-only host there is no entrypoint to label and no fault to
-    # fix, which is a different report from "this vantage point cannot tell".
+    # Recorded rather than left silent: on a DAC-only host there is no entrypoint to label and no fault to fix, which is
+    # a different report from "this vantage point cannot tell".
     for label_agent in "${enabled_agents[@]:-}"; do
         [[ -n "${label_agent}" ]] || continue
         record_label_outcome "${label_agent}" skipped selinux-inactive
@@ -253,9 +250,8 @@ if (( status == 2 )); then
     exit 0
 fi
 
-# Render the lib's status lines: it reports per path and per agent, this decides what an operator
-# reads and what fails the run. The wanted type travels with a "bad" line, since an agent
-# declares two paths that carry different types.
+# Render the lib's status lines: it reports per path and per agent, this decides what an operator reads and what fails
+# the run. The wanted type travels with a "bad" line, since an agent declares two paths that carry different types.
 labelled=0 mislabelled=0 stale=0
 declare -A agent_outcome=() agent_reason=()
 if [[ -n "${report}" ]]; then
@@ -277,9 +273,9 @@ if [[ -n "${report}" ]]; then
             skip)  agent_reason["${subject}"]="rule-not-registered"
                    warn MSG-X7F9 "labelling skipped for ${subject} -- ${detail} ${wanted}"
                    ai_tools_log_warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
-            # Closes an agent's lines with its whole outcome. Recorded here, where the per-agent
-            # reason lines have already been seen, so a failure is filed with the cause that
-            # decides the remedy rather than with a bare "failed".
+            # Closes an agent's lines with its whole outcome. Recorded here, where the per-agent reason lines have
+            # already been seen, so a failure is filed with the cause that decides the remedy rather than with a bare
+            # "failed".
             agent) agent_outcome["${subject}"]="${detail}" ;;
         esac
     done <<< "${report}"
@@ -288,24 +284,23 @@ fi
 for label_agent in "${!agent_outcome[@]}"; do
     case "${agent_outcome[${label_agent}]}" in
         ok)     record_label_outcome "${label_agent}" ok ;;
-        # Nothing installed to label: the ordinary state before ai-tools-bootstrap provisions the
-        # toolchain, and not a fault -- so it is filed the same way an inactive SELinux layer is.
+        # Nothing installed to label: the ordinary state before ai-tools-bootstrap provisions the toolchain, and not
+        # a fault -- so it is filed the same way an inactive SELinux layer is.
         none)   record_label_outcome "${label_agent}" skipped not-provisioned ;;
         failed) record_label_outcome "${label_agent}" failed \
                     "${agent_reason[${label_agent}]:-did-not-take-its-type}" ;;
     esac
 done
 
-# A stale declaration is reported FIRST, because it is the more specific cause and the only one
-# here this helper cannot clear: the entrypoint is installed somewhere the declared rule does not
-# reach, so every relabel -- this one included -- leaves it unlabelled and every launch
-# fail-closes. Naming the module or a rerun as the remedy would send the operator around a loop
-# that cannot end. The fix is upstream of this helper, in the agent package's manifest.
+# A stale declaration is reported FIRST, because it is the more specific cause and the only one here this helper cannot
+# clear: the entrypoint is installed somewhere the declared rule does not reach, so every relabel -- this one included
+# -- leaves it unlabelled and every launch fail-closes. Naming the module or a rerun as the remedy would send
+# the operator around a loop that cannot end. The fix is upstream of this helper, in the agent package's manifest.
 (( stale == 0 )) \
     || die MSG-M2M5 "a stale declaration stops this relabel: ${stale} agent(s) install their entrypoint where their manifest no longer says, so it cannot be labelled; update the agent package (dnf update 'ai-tools-agents-*'), then rerun"
-# A mislabelled path is a broken session: a mislabelled entrypoint runs unconfined (ai-tools-run
-# refuses the launch) and a mislabelled config directory leaves the agent unable to write its own
-# state. Fail rather than report success -- this is the earlier, clearer signal.
+# A mislabelled path is a broken session: a mislabelled entrypoint runs unconfined (ai-tools-run refuses the launch)
+# and a mislabelled config directory leaves the agent unable to write its own state. Fail rather than report success --
+# this is the earlier, clearer signal.
 (( mislabelled == 0 )) \
     || die MSG-A3B5 "the relabel did not take: ${mislabelled} path(s) did not take their type -- is the ai_tools module loaded? run: sudo selinux/install-selinux.sh install"
 (( status == 0 )) \

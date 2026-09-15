@@ -1,8 +1,8 @@
 # Claude Code options
 
-Catalog of the Claude Code settings and environment variables that shape an agent session,
-what the sandbox sets by default, and what an operator MAY add. The authoritative,
-version-current references are Claude Code's own docs:
+Catalog of the Claude Code settings and environment variables that shape
+an agent session, what the sandbox sets by default, and what an operator MAY
+add. The authoritative, version-current references are Claude Code's own docs:
 
 - Settings keys: <https://code.claude.com/docs/en/settings>
 - Environment variables: <https://code.claude.com/docs/en/env-vars>
@@ -17,15 +17,17 @@ A session's configuration comes from three places in this project:
 | Structural pins | `ai-tools-run` (`HOME`, `SHELL`, `PATH`) and the agent's session-env fragment, `session-env.d/claude-code.env.sh` (`CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, `DISABLE_AUTOUPDATER`) | root-owned, agent cannot edit | every session |
 | Per-project overrides | `<project>/.claude/settings.json` (project layer) | operator (agent-writable tree) | one project |
 
-Claude Code merges these by precedence: managed policy > command line > local project >
-project > user. The control-plane `settings.json` is the **user** layer, so a project layer
-overrides its single-valued keys (`env`, `disableAutoMode`) but cannot remove its merged-set
-keys (`permissions.deny`, `hooks`). See
+Claude Code merges these by precedence: managed policy > command line > local
+project > project > user. The control-plane `settings.json` is the **user**
+layer, so a project layer overrides its single-valued keys (`env`,
+`disableAutoMode`) but cannot remove its merged-set keys (`permissions.deny`,
+`hooks`). See
 [`.claude/rules/claude-settings.rule.md`](../.claude/rules/claude-settings.rule.md).
 
 A machine-wide, unoverridable lock uses managed policy
-(`/etc/claude-code/managed-settings.json`); the sandbox does not ship it, because that file
-applies to every Claude Code user on the host, not only the sandbox account.
+(`/etc/claude-code/managed-settings.json`); the sandbox does not ship it,
+because that file applies to every Claude Code user on the host, not only
+the sandbox account.
 
 ## Set by the sandbox
 
@@ -42,17 +44,19 @@ applies to every Claude Code user on the host, not only the sandbox account.
 | `TERM`, `COLORTERM`, `LANG`/`LC_*`, `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`, `XDG_RUNTIME_DIR` | forwarded from operator | `ai-tools-run` `--setenv` | Terminal, locale, and outbound-proxy shaping imported by name from the operator's environment. |
 
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` subsumes `DISABLE_TELEMETRY`,
-`DISABLE_ERROR_REPORTING`, `DISABLE_FEEDBACK_COMMAND`, and
-`CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY`, so those four need not be set individually. It does
-not touch essential Anthropic API traffic or the WebFetch domain safety check. There is no
-`DISABLE_FEEDBACK` variable (the `/feedback` opt-out is `DISABLE_FEEDBACK_COMMAND`).
+`DISABLE_ERROR_REPORTING`, `DISABLE_FEEDBACK_COMMAND`,
+and `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY`, so those four need not be set
+individually. It does not touch essential Anthropic API traffic or the WebFetch
+domain safety check. There is no `DISABLE_FEEDBACK` variable (the `/feedback`
+opt-out is `DISABLE_FEEDBACK_COMMAND`).
 
 ## Options an operator MAY add
 
-Set these in a project's `.claude/settings.json` (the `env` block for environment variables,
-top-level for keys) to tune one project without altering the shipped control plane. The
-structural pins the control plane sets are the exception — overriding `HOME`/`PATH`/`CLAUDE_CONFIG_DIR`
-breaks the session layout.
+Set these in a project's `.claude/settings.json` (the `env` block
+for environment variables, top-level for keys) to tune one project without
+altering the shipped control plane. The structural pins the control plane sets
+are the exception — overriding `HOME`/`PATH`/`CLAUDE_CONFIG_DIR` breaks
+the session layout.
 
 ### Auth and model
 
@@ -128,7 +132,8 @@ Often the fix when a Bash or MCP call hangs.
 
 ## Machine-wide locks (not shipped)
 
-To make a setting unoverridable by any project or session, place it in managed policy at
-`/etc/claude-code/managed-settings.json` (root-owned, world-readable). This is host-global —
-it governs every Claude Code user on the machine, not just the sandbox account — so the
-sandbox leaves it to the host administrator rather than shipping it.
+To make a setting unoverridable by any project or session, place it in managed
+policy at `/etc/claude-code/managed-settings.json` (root-owned,
+world-readable). This is host-global — it governs every Claude Code user
+on the machine, not just the sandbox account — so the sandbox leaves it
+to the host administrator rather than shipping it.

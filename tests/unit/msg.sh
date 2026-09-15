@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/msg.sh
-# Hermetic unit tests for the shared message formatter (msg.lib.sh): the box never
-# exceeds 80 columns, every framed line is a '#' comment (paste-safe), the wrap never
-# ends a line on a tie-word (preposition/article/conjunction) and never splits a single
-# token (paths survive), and plain mode keeps a phrase on one line so the test suite's
-# substring greps still match. The two question renderers carry decisions rather than
-# formatting, so each is driven to its answer-less end: a menu with no default must yield
-# NOTHING on stdout and a non-zero status on every path that fails to get an index (no
-# terminal, closed input, three unanswered attempts), or a caller would read an unanswered
-# menu as a chosen option. Pure formatting -- no root, no install dependency: the
-# library does not carry a token substitution, so the repo source IS the deployed artifact. The
-# test validates the source of truth directly (so it never reports a false failure against a
-# not-yet-redeployed installed copy), falling back to the installed path outside a checkout.
+# Hermetic unit tests for the shared message formatter (msg.lib.sh): the box never exceeds 80 columns, every framed line
+# is a '#' comment (paste-safe), the wrap never ends a line on a tie-word (preposition/article/conjunction) and never
+# splits a single token (paths survive), and plain mode keeps a phrase on one line so the test suite's substring greps
+# still match. The two question renderers carry decisions rather than formatting, so each is driven to its answer-less
+# end: a menu with no default must yield NOTHING on stdout and a non-zero status on every path that fails to get
+# an index (no terminal, closed input, three unanswered attempts), or a caller would read an unanswered menu as a chosen
+# option. Pure formatting -- no root, no install dependency: the library does not carry a token substitution,
+# so the repo source IS the deployed artifact. The test validates the source of truth directly (so it never reports
+# a false failure against a not-yet-redeployed installed copy), falling back to the installed path outside a checkout.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -27,18 +24,17 @@ fi
 # shellcheck source=/dev/null
 source "${LIB}"
 
-# Tie-words the wrap must never strand at a line end (subset of the library's set, the
-# ones these fixtures exercise).
+# Tie-words the wrap must never strand at a line end (subset of the library's set, the ones these fixtures exercise).
 readonly TIES=" a an the and or nor but for of to in on at by with from into under via as "
 
-# A long sentence whose natural break points fall on tie-words, plus a long unbreakable
-# token (an absolute path) that must stay intact.
+# A long sentence whose natural break points fall on tie-words, plus a long unbreakable token (an absolute path)
+# that must stay intact.
 LONG="The agent writes files to the project and hands them back to you on the next turn \
 for review by the operator, then waits at /opt/ai-tools/very/long/path/that/should/not/be/split/ever \
 before it continues."
 
-# (1) An alert box never exceeds 50 columns (except an unbreakable token overflowing);
-# the headline box never exceeds 80.
+# (1) An alert box never exceeds 50 columns (except an unbreakable token overflowing); the headline box never exceeds
+# 80.
 over="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 "${LONG}" \
     | awk '{ if (length($0) > 50 && index($0, "/opt/ai-tools/") == 0) print }')"
 h_over="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg_headline "Claim project (in place)" 1 "${LONG}" \
@@ -57,8 +53,8 @@ else
     fail "framed line(s) do not begin with '#':"$'\n'"${bad}"
 fi
 
-# (3) No CONTENT line ends on a tie-word (the no-trailing-preposition rule). Content
-# lines start "# " (rules start "#-"); strip the frame and inspect the last word.
+# (3) No CONTENT line ends on a tie-word (the no-trailing-preposition rule). Content lines start "# " (rules start
+# "#-"); strip the frame and inspect the last word.
 tie_violation=""
 while IFS= read -r l; do
     [[ "${l}" == '# '* ]] || continue          # skip the top/bottom rules
@@ -83,8 +79,8 @@ else
     fail "an unbreakable token was split across lines"
 fi
 
-# (5) Plain mode (non-tty / forced) keeps a multi-word phrase on ONE line, so a grep for what a
-# message SAYS -- a count, a path, a named command -- still matches it whole.
+# (5) Plain mode (non-tty / forced) keeps a multi-word phrase on ONE line, so a grep for what a message SAYS -- a count,
+# a path, a named command -- still matches it whole.
 phrase='invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch'
 if AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "ai-tools-run: ${phrase}" 2>&1 \
         | grep -qF "${phrase}"; then
@@ -102,14 +98,14 @@ else
 fi
 
 # ── ai_tools_msg_block: titled guidance screen with verbatim commands ──────────────
-# block() goes to stderr; capture it. Indented command lines stay verbatim (one line),
-# a flush-left prose line wraps, and an over-wide command overflows the right border.
-CMD='       /usr/local/bin/ai-tools --sandbox-create /a/very/long/path/that/overflows/the/right/border/of/the/box'
+# block() goes to stderr; capture it. Indented command lines stay verbatim (one line), a flush-left prose line wraps,
+# and an over-wide command overflows the right border.
+CMD='       /usr/local/bin/ai-tools projects clone /a/very/long/path/that/overflows/the/right/border/of/the/box'
 mapfile -t blk < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg_block "This project is not claimed yet" \
     "Two ways to make the current directory available to the sandboxed agent:" \
     "" \
     "  1. Claim it in place:" \
-    "       /usr/local/bin/ai-tools --project-claim" \
+    "       /usr/local/bin/ai-tools projects claim" \
     "${CMD}" 2>&1)
 
 # (7) The title sits in the top rule.
@@ -127,7 +123,7 @@ else
 fi
 
 # (9) A short indented command stays verbatim on ONE line (not wrapped/split).
-if printf '%s\n' "${blk[@]}" | grep -qF '/usr/local/bin/ai-tools --project-claim'; then
+if printf '%s\n' "${blk[@]}" | grep -qF '/usr/local/bin/ai-tools projects claim'; then
     pass "an indented command stays verbatim on one line"
 else
     fail "an indented command was reflowed"
@@ -136,15 +132,15 @@ fi
 # (10) The over-wide command overflows intact (its own line > 80, whole command present).
 over_line="$(printf '%s\n' "${blk[@]}" | grep -F 'overflows/the/right/border' || true)"
 if [[ -n "${over_line}" && ${#over_line} -gt 80 ]] \
-        && grep -qF -- '--sandbox-create /a/very/long/path/that/overflows/the/right/border/of/the/box' <<<"${over_line}"; then
+        && grep -qF -- 'projects clone /a/very/long/path/that/overflows/the/right/border/of/the/box' <<<"${over_line}"; then
     pass "an over-wide command overflows the border intact"
 else
     fail "over-wide command not kept whole on its own line: '${over_line}'"
 fi
 
-# (11) Orphan control: a final single-word widow is pulled up. At width 74 the sample wraps
-# to a "does." widow without it; with it, the tie-glued tail ("for what each does.") drops to
-# the last line and the first line ends on a substantial word, not a little function word.
+# (11) Orphan control: a final single-word widow is pulled up. At width 74 the sample wraps to a "does." widow without
+# it; with it, the tie-glued tail ("for what each does.") drops to the last line and the first line ends
+# on a substantial word, not a little function word.
 mapfile -t wl < <(ai_tools_msg_wrap 74 \
     "Both default to the current directory. See 'ai-tools --help' for what each does.")
 if (( ${#wl[@]} == 2 )) && [[ "${wl[1]}" == *" "* && "${wl[0]}" == *"--help'" ]]; then
@@ -153,8 +149,8 @@ else
     fail "orphan control wrong: $(printf '[%s]' "${wl[@]}")"
 fi
 
-# (12) ai_tools_msg_pick returns the default with no terminal (setsid detaches /dev/tty), so
-# an unattended run never blocks on input and takes the safe default.
+# (12) ai_tools_msg_pick returns the default with no terminal (setsid detaches /dev/tty), so an unattended run never
+# blocks on input and takes the safe default.
 sel="$(setsid bash -c 'source "'"${LIB}"'"; ai_tools_msg_pick 3 a b c' </dev/null 2>/dev/null || true)"
 if [[ "${sel}" == "3" ]]; then
     pass "ai_tools_msg_pick yields the default when no terminal is present"
@@ -163,9 +159,9 @@ else
 fi
 
 # ── ai_tools_msg_pick, no-default mode ────────────────────────────────────────────
-# `none` is the mode that refuses to answer for the user: every way it can fail to get a
-# valid index must yield NOTHING on stdout and a non-zero status, so a caller cannot mistake
-# an unanswered menu for a chosen option (the claude wrapper reads that as Cancel).
+# `none` is the mode that refuses to answer for the user: every way it can fail to get a valid index must yield NOTHING
+# on stdout and a non-zero status, so a caller cannot mistake an unanswered menu for a chosen option (the claude wrapper
+# reads that as Cancel).
 
 # (12b) No terminal: non-zero, empty stdout -- the caller decides, the lib does not.
 nd_rc=0
@@ -186,12 +182,11 @@ else
     fail "ai_tools_msg_pick accepted an out-of-range default (rc=${ba_rc}, out='${bad_sel}')"
 fi
 
-# (12d) With a terminal: empty input RE-ASKS and, after three attempts, gives up -- while a
-# valid index is echoed. Both need a real controlling terminal (the menu is drawn on
-# /dev/tty), so they run under a `script` pty; the probe writes its result to a file, since
-# everything the pty carries is one stream. A host with no pty available skips rather than
-# misreports. Each run is bounded by `timeout`, so a regression that blocks on the read
-# fails the check instead of hanging the suite.
+# (12d) With a terminal: empty input RE-ASKS and, after three attempts, gives up -- while a valid index is echoed. Both
+# need a real controlling terminal (the menu is drawn on /dev/tty), so they run under a `script` pty; the probe writes
+# its result to a file, since everything the pty carries is one stream. A host with no pty available skips rather than
+# misreports. Each run is bounded by `timeout`, so a regression that blocks on the read fails the check instead
+# of hanging the suite.
 mktestdir
 probe="${TESTDIR}/pick-probe.sh"
 cat > "${probe}" <<EOF
@@ -202,8 +197,8 @@ sel="\$(ai_tools_msg_pick none "Create sandbox"\$'\t'"an isolated copy" \\
 printf '%s' "\${sel}" > "${TESTDIR}/sel"
 printf '%s' "\${rc}"  > "${TESTDIR}/rc"
 EOF
-# pick_probe <input> -- run the probe under a pty with <input> on its stdin; echoes
-# "<rc>:<selection>", or "nopty" when a pseudo-terminal cannot be allocated.
+# pick_probe <input> -- run the probe under a pty with <input> on its stdin; echoes "<rc>:<selection>", or "nopty"
+# when a pseudo-terminal cannot be allocated.
 pick_probe() {
     : > "${TESTDIR}/sel"; : > "${TESTDIR}/rc"
     if ! printf '%b' "$1" | timeout 20 script -qec "bash ${probe}" /dev/null >/dev/null 2>&1; then
@@ -233,8 +228,8 @@ else
 fi
 
 # ── ai_tools_cmd_display: a command the user can type ──────────────────────────────
-# (12e) The bare name only where PATH resolves it to that SAME absolute path; the absolute
-# path otherwise, so a host with an unexpected PATH still gets a command that works.
+# (12e) The bare name only where PATH resolves it to that SAME absolute path; the absolute path otherwise, so a host
+# with an unexpected PATH still gets a command that works.
 mkdir -p "${TESTDIR}/bin" "${TESTDIR}/elsewhere"
 printf '#!/bin/sh\n' > "${TESTDIR}/bin/ai-tools-probe"
 cp "${TESTDIR}/bin/ai-tools-probe" "${TESTDIR}/elsewhere/ai-tools-probe"
@@ -247,8 +242,8 @@ else
     fail "ai_tools_cmd_display wrong (on-path='${on_path}', shadowed='${shadowed}')"
 fi
 
-# (13) Caller-IFS independence: the claude wrapper sets IFS=$'\n\t' (no space). The wrap must
-# still split on spaces and wrap, not collapse the line into one over-wide unbreakable unit.
+# (13) Caller-IFS independence: the claude wrapper sets IFS=$'\n\t' (no space). The wrap must still split on spaces
+# and wrap, not collapse the line into one over-wide unbreakable unit.
 ifs_over="$(IFS=$'\n\t'; AI_TOOLS_MSG_BOX=1 ai_tools_msg ERROR 1 \
     "claude: /home/x/Development/NDF26/ClaudeCodeRestricted is not accessible to the sandbox now" \
     | awk '{ if (length($0) > 80) print }')"
@@ -258,9 +253,9 @@ else
     fail "caller IFS=\$'\\n\\t' broke wrapping (over-wide line):"$'\n'"${ifs_over}"
 fi
 
-# (14) Fixed-width mode: AI_TOOLS_MSG_FULLWIDTH pins every box to its CLASS's frame --
-# alerts to 50 columns, headline/block boxes to 80 -- so a sequence of boxes aligns
-# per class. A short and a longer message must frame identically within a class.
+# (14) Fixed-width mode: AI_TOOLS_MSG_FULLWIDTH pins every box to its CLASS's frame -- alerts to 50 columns,
+# headline/block boxes to 80 -- so a sequence of boxes aligns per class. A short and a longer message must frame
+# identically within a class.
 short_w="$(AI_TOOLS_MSG_BOX=1 AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg ERROR 1 "short" | awk '/^#/&&!s{print length;s=1}')"
 long_w="$(AI_TOOLS_MSG_BOX=1 AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg ERROR 1 \
     "a longer message that still fits the cap" | awk '/^#/&&!s{print length;s=1}')"
@@ -272,9 +267,8 @@ else
     fail "fixed-width frames wrong (alert short=${short_w}, long=${long_w}, headline=${head_w})"
 fi
 
-# (14b) A headline box carries its caller-composed title verbatim in the top rule, and
-# plain mode emits the title as a content line (it is block structure, not decoration),
-# so logs and substring greps still see which block opened.
+# (14b) A headline box carries its caller-composed title verbatim in the top rule, and plain mode emits the title
+# as a content line (it is block structure, not decoration), so logs and substring greps still see which block opened.
 mapfile -t hl < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg_headline "WARNING: interior permission drift" 1 "details")
 plain_hl="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_headline "Secret lockdown" 1 "scanning")"
 if [[ "${hl[1]}" == '#-- WARNING: interior permission drift '* ]] \
@@ -286,8 +280,8 @@ else
 fi
 
 # ── ai_tools_msg_confirm: the single yes/no prompt ─────────────────────────────────
-# Each probe runs under setsid (no controlling tty), so the /dev/tty open fails and the
-# confirm answers from its default -- the unattended path every consumer relies on.
+# Each probe runs under setsid (no controlling tty), so the /dev/tty open fails and the confirm answers from its default
+# -- the unattended path every consumer relies on.
 _confirm() { setsid bash -c 'source "'"${LIB}"'"; '"$1" </dev/null 2>/dev/null; }
 
 # (15) With no terminal the confirm takes its explicit default: 0 for y, 1 for n.
@@ -299,8 +293,8 @@ else
     fail "confirm no-tty defaults wrong (y rc=${y_rc}, n rc=${n_rc})"
 fi
 
-# (16) AI_TOOLS_ASSUME_YES=1 fast-tracks ONLY a default-YES prompt; a default-NO
-# question is never flipped to yes by the environment.
+# (16) AI_TOOLS_ASSUME_YES=1 fast-tracks ONLY a default-YES prompt; a default-NO question is never flipped to yes
+# by the environment.
 ay_rc=0; _confirm 'AI_TOOLS_ASSUME_YES=1 ai_tools_msg_confirm "Q?" y' || ay_rc=$?
 an_rc=0; _confirm 'AI_TOOLS_ASSUME_YES=1 ai_tools_msg_confirm "Q?" n' || an_rc=$?
 if [[ "${ay_rc}" == 0 && "${an_rc}" == 1 ]]; then
@@ -309,8 +303,8 @@ else
     fail "AI_TOOLS_ASSUME_YES semantics wrong (y rc=${ay_rc}, n rc=${an_rc})"
 fi
 
-# (17) The default is a required, validated argument -- a missing or bad value is an
-# error, never a silently assumed answer.
+# (17) The default is a required, validated argument -- a missing or bad value is an error, never a silently assumed
+# answer.
 miss_rc=0; _confirm 'ai_tools_msg_confirm "Q?"'   || miss_rc=$?
 bad_rc=0;  _confirm 'ai_tools_msg_confirm "Q?" x' || bad_rc=$?
 if [[ "${miss_rc}" != 0 && "${bad_rc}" == 2 ]]; then
@@ -327,13 +321,13 @@ else
 fi
 
 # ── ai_tools_msg_challenge: the typed-name challenge ───────────────────────────────
-# The interactive branch needs a controlling terminal, which this suite does not allocate (every
-# prompt assertion in this file drives the no-tty path under setsid, for the same reason). What
-# IS drivable is the half that carries the guarantee: with no terminal the challenge must decline,
-# since a destructive verb behind one has to be unreachable from cron by construction.
+# The interactive branch needs a controlling terminal, which this suite does not allocate (every prompt assertion
+# in this file drives the no-tty path under setsid, for the same reason). What IS drivable is the half that carries
+# the guarantee: with no terminal the challenge must decline, since a destructive verb behind one has to be unreachable
+# from cron by construction.
 
-# (19) No terminal -- and therefore no possible answer -- declines. It has no default to fall
-# back on, which is what distinguishes it from a confirm.
+# (19) No terminal -- and therefore no possible answer -- declines. It has no default to fall back on, which is
+# what distinguishes it from a confirm.
 ch_rc=0; _confirm 'ai_tools_msg_challenge "Delete?" myproj' || ch_rc=$?
 if [[ "${ch_rc}" != 0 ]]; then
     pass "challenge declines with no terminal (no default to fall back on)"
@@ -341,8 +335,8 @@ else
     fail "challenge returned success with no terminal (rc=${ch_rc})"
 fi
 
-# (20) A missing <expected> is a caller error, never an assumed match -- the same rule the
-# confirm's required default follows.
+# (20) A missing <expected> is a caller error, never an assumed match -- the same rule the confirm's required default
+# follows.
 chm_rc=0; _confirm 'ai_tools_msg_challenge "Delete?"' || chm_rc=$?
 if [[ "${chm_rc}" != 0 ]]; then
     pass "challenge rejects a missing expected value (rc=${chm_rc})"
@@ -350,18 +344,18 @@ else
     fail "challenge accepted a missing expected value"
 fi
 
-# (21) The prompt states what to type: the value is a deliberateness check, not a secret, so
-# hiding it would only make the challenge a guessing game.
+# (21) The prompt states what to type: the value is a deliberateness check, not a secret, so hiding it would only make
+# the challenge a guessing game.
 if grep -qF '[type %s to confirm]' "${LIB}"; then
     pass "challenge prompt echoes the value to type"
 else
     fail "challenge prompt no longer states what to type"
 fi
 
-# (22) With a terminal: an exact answer matches, anything else does not, and the answer -- which
-# is untrusted input reaching a log sink -- is sanitized before it is recorded. Same `script` pty
-# harness as the pick cases, and the same graceful skip where no pty can be allocated. The
-# audit line is captured by stubbing the logger AFTER sourcing, so the real sanitizer still runs.
+# (22) With a terminal: an exact answer matches, anything else does not, and the answer -- which is untrusted input
+# reaching a log sink -- is sanitized before it is recorded. Same `script` pty harness as the pick cases, and the same
+# graceful skip where no pty can be allocated. The audit line is captured by stubbing the logger AFTER sourcing,
+# so the real sanitizer still runs.
 chprobe="${TESTDIR}/challenge-probe.sh"
 cat > "${chprobe}" <<EOF
 source "${LIB}"
@@ -370,8 +364,8 @@ rc=0
 ai_tools_msg_challenge "Delete myproj?" myproj || rc=\$?
 printf '%s' "\${rc}" > "${TESTDIR}/chrc"
 EOF
-# challenge_probe <input> -- run the probe under a pty with <input> on its stdin; echoes the
-# challenge's exit status, or "nopty" when a pseudo-terminal cannot be allocated.
+# challenge_probe <input> -- run the probe under a pty with <input> on its stdin; echoes the challenge's exit status,
+# or "nopty" when a pseudo-terminal cannot be allocated.
 challenge_probe() {
     : > "${TESTDIR}/chrc"; : > "${TESTDIR}/audit"
     if ! printf '%b' "$1" | timeout 20 script -qec "bash ${chprobe}" /dev/null >/dev/null 2>&1; then
@@ -392,8 +386,8 @@ else
             fail "challenge rejected the exact expected value (rc=${match_rc})"
         fi
 
-        # A near miss is still a miss: the point of the challenge is that only the exact name
-        # counts, so a prefix must not pass.
+        # A near miss is still a miss: the point of the challenge is that only the exact name counts, so a prefix must
+        # not pass.
         near_rc="$(challenge_probe 'mypro\n')"
         if [[ "${near_rc}" != 0 ]]; then
             pass "challenge rejects a near miss (rc=${near_rc})"
@@ -401,9 +395,9 @@ else
             fail "challenge accepted a value that is not the expected one"
         fi
 
-        # The untrusted-input case: an answer carrying a terminal escape is recorded through the
-        # shared allowlist sanitizer, so no raw control byte reaches the root-owned trail an
-        # operator later cats. The decision itself is recorded either way.
+        # The untrusted-input case: an answer carrying a terminal escape is recorded through the shared allowlist
+        # sanitizer, so no raw control byte reaches the root-owned trail an operator later cats. The decision itself is
+        # recorded either way.
         esc_rc="$(challenge_probe '\033[31mBAD\n')"
         audit="$(cat "${TESTDIR}/audit" 2>/dev/null || true)"
         if [[ "${esc_rc}" != 0 ]] && grep -q 'challenge:' <<<"${audit}" \
@@ -415,8 +409,8 @@ else
     fi
 fi
 
-# (23) Include guard: a consumer that sources the lib directly AND through
-# safe-paths.lib.sh must survive the re-source under `set -e` (readonly constants).
+# (23) Include guard: a consumer that sources the lib directly AND through safe-paths.lib.sh must survive the re-source
+# under `set -e` (readonly constants).
 if bash -c 'set -euo pipefail; source "'"${LIB}"'"; source "'"${LIB}"'"'; then
     pass "a second source of msg.lib.sh is a no-op (include guard)"
 else
@@ -424,15 +418,15 @@ else
 fi
 
 # ── Message codes: a leading code on an alert or a block ───────────────────────────
-# The code is the identity a test asserts, so what matters is where it lands in each mode: in
-# the box title on a terminal (free against the alert's 46-column text budget) and on its OWN
-# leading line in plain mode, ahead of the caller's lines -- never as a prefix on the first line,
-# so every existing grep on a message line keeps matching. The fixture id CODE is not a minted
-# reftag; the index tool is told to skip its line so it never reads it as a reference.
+# The code is the identity a test asserts, so what matters is where it lands in each mode: in the box title
+# on a terminal (free against the alert's 46-column text budget) and on its OWN leading line in plain mode, ahead
+# of the caller's lines -- never as a prefix on the first line, so every existing grep on a message line keeps matching.
+# The fixture id CODE is not a minted reftag; the index tool is told to skip its line so it never reads it
+# as a reference.
 CODE='MSG-A1B2'   # ref-index: ignore
 
-# (24) Boxed alert: the code joins the severity in the top rule and appears in no content line;
-# the frame still fits its class.
+# (24) Boxed alert: the code joins the severity in the top rule and appears in no content line; the frame still fits its
+# class.
 mapfile -t coded < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg ERROR 1 "${CODE}" "short message")
 coded_wide="$(printf '%s\n' "${coded[@]}" | awk '{ if (length($0) > 50) print }')"
 if [[ "${coded[1]}" == "#-- ERROR ${CODE} "* && -z "${coded_wide}" ]] \
@@ -450,8 +444,8 @@ else
     fail "plain coded alert wrong: $(printf '[%s]' "${plain_coded}")"
 fi
 
-# (26) An uncoded call renders byte-for-byte as before in both modes: no empty leading line,
-# no title change -- the incremental migration rests on this.
+# (26) An uncoded call renders byte-for-byte as before in both modes: no empty leading line, no title change --
+# the incremental migration rests on this.
 plain_uncoded="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "first line" "second line" 2>&1)"
 mapfile -t uncoded < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg ERROR 1 "short message")
 if [[ "${plain_uncoded}" == "first line"$'\n'"second line" && "${uncoded[1]}" == '#-- ERROR -'* ]]; then
@@ -460,8 +454,8 @@ else
     fail "uncoded alert changed: plain=$(printf '[%s]' "${plain_uncoded}") top='${uncoded[1]}'"
 fi
 
-# (27) Only the exact form is a code: a lowercase id, a code with trailing punctuation, or a
-# five-character id is prose and stays on the message line.
+# (27) Only the exact form is a code: a lowercase id, a code with trailing punctuation, or a five-character id is prose
+# and stays on the message line.
 prose_ok=1
 for word in 'msg-a1b2' "${CODE}:" "${CODE}X" 'MSG-AB12'; do
     out="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "${word}" "rest" 2>&1)"
@@ -473,10 +467,10 @@ else
     fail "code detection wrong for '${word}': $(printf '[%s]' "${out}")"
 fi
 
-# (28) A coded block: the code follows the title in the top rule; plain mode leads with the
-# code, then the lines verbatim -- the body stays uncoded and the title, as before, is dropped.
+# (28) A coded block: the code follows the title in the top rule; plain mode leads with the code, then the lines
+# verbatim -- the body stays uncoded and the title, as before, is dropped.
 mapfile -t cblk < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg_block "${CODE}" "Set up this project" \
-    "Two ways:" "" "  1. Claim it:" "       ai-tools --project-claim" 2>&1)
+    "Two ways:" "" "  1. Claim it:" "       ai-tools projects claim" 2>&1)
 plain_cblk="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_block "${CODE}" "Set up this project" \
     "Two ways:" "  1. Claim it:" 2>&1)"
 if [[ "${cblk[1]}" == "#-- Set up this project ${CODE} "* ]] \
@@ -486,13 +480,11 @@ else
     fail "coded block wrong: top='${cblk[1]}' plain=$(printf '[%s]' "${plain_cblk}")"
 fi
 
-# (29) The components that report without the library -- the helpers that never source it, the
-# CLI's principal guards, which answer before it is loaded, the stop helper, whose emitters
-# carry a fallback for the run where it did not load at all, and the logger, which this library
-# SOURCES and so cannot call up into -- each match a leading code inline, and every inline copy
-# is the library's own anchored form: a copy that drifts is a helper that prints
-# a code as prose, or reads prose as a code. Checked in the source tree (the copies are text), and
-# skipped outside a checkout.
+# (29) The components that report without the library -- the helpers that never source it, the CLI's principal guards,
+# which answer before it is loaded, the stop helper, whose emitters carry a fallback for the run where it did not load
+# at all, and the logger, which this library SOURCES and so cannot call up into -- each match a leading code inline,
+# and every inline copy is the library's own anchored form: a copy that drifts is a helper that prints a code as prose,
+# or reads prose as a code. Checked in the source tree (the copies are text), and skipped outside a checkout.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 inline_matchers=(
     src/usr/local/libexec/ai-tools/ai-tools-admin.sh
@@ -534,8 +526,8 @@ else
     fi
 fi
 
-# (30) A coded die through a local helper: the code is its own first line and the helper's own
-# prefixed message follows whole, on the next line rather than inline.
+# (30) A coded die through a local helper: the code is its own first line and the helper's own prefixed message follows
+# whole, on the next line rather than inline.
 admin_die="$(bash -c 'source <(sed -n "/^die() {/,/^}/p" "'"${REPO}"'/src/usr/local/libexec/ai-tools/ai-tools-admin.sh"); die "'"${CODE}"'" "not a claimed project"' 2>&1 || true)"
 if [[ "${admin_die}" == "${CODE}"$'\n'"ai-tools-admin: error: not a claimed project" ]]; then
     pass "a local die() prints the code on its own line, then its prefixed message"

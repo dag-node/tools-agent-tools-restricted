@@ -5,44 +5,37 @@ paths:
 
 # Test organization and invariants
 
-Tests live under `tests/`, split by category, with one shared harness. `tests/run.sh
-[unit|integration|boundary|all]` dispatches; the suite as a whole needs root, so it is invoked
-via `sudo` (the harness derives the unprivileged project user from `SUDO_USER`). A file that
-needs root says so itself with `require_root`, and the pure library suites — the ones that stub
-what they drive and build fixtures they own — deliberately do not, so they can also be run
-**directly as an unprivileged user** during development; the harness then takes the invoker as
-the project user. Run as root with **no** sudo context it refuses: there is no unprivileged
-identity to derive, and fixtures built root-owned would be skipped by every owner guard under
-test — a suite that passes with no assertion behind it. It streams
-each file's output live, then — on any failure — reprints the failing files and their `FAIL`
-lines as an end-of-run summary, so a long run does not need scrolling; an all-green run exits zero
-with no summary. Each file runs under a per-file wall-clock budget
-(`AI_TOOLS_TEST_FILE_TIMEOUT`, default 600s): a file that blocks — on a terminal read, a wedged
-daemon, or a fixture process holding a pipe open — is killed and reported as a failure with its
-transcript, rather than hanging the run. That matters beyond convenience because `install.sh`
-runs this suite as its verification phase, so an unbounded file stalls an install. A green file that recorded no `PASS` (every check skipped, or no
-harness result line) and a category with no test files are listed in an end-of-run
-`no coverage` notice, parsed from `finish()`'s result line: green-by-exit-status alone cannot
-hide a run with no assertions behind it. The default stays lenient — a partial/dev install
-legitimately skips — and `AI_TOOLS_TEST_STRICT=1` turns the notice into a failure. Strict is
-the enforcing-host full-install gate (`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`); the
-container selftest stays lenient because SELinux is legitimately absent there, so
-`selinux.sh`'s all-skip is a documented limitation, not a broken prerequisite.
+Tests live under `tests/`, split by category, with one shared harness. `tests/run.sh [unit|integration|boundary|all]`
+dispatches; the suite as a whole needs root, so it is invoked via `sudo` (the harness derives the unprivileged project
+user from `SUDO_USER`). A file that needs root says so itself with `require_root`, and the pure library suites —
+the ones that stub what they drive and build fixtures they own — deliberately do not, so they can also be run **directly
+as an unprivileged user** during development; the harness then takes the invoker as the project user. Run as root
+with **no** sudo context it refuses: there is no unprivileged identity to derive, and fixtures built root-owned would be
+skipped by every owner guard under test — a suite that passes with no assertion behind it. It streams each file's output
+live, then — on any failure — reprints the failing files and their `FAIL` lines as an end-of-run summary, so a long run
+does not need scrolling; an all-green run exits zero with no summary. Each file runs under a per-file wall-clock budget
+(`AI_TOOLS_TEST_FILE_TIMEOUT`, default 600s): a file that blocks — on a terminal read, a wedged daemon, or a fixture
+process holding a pipe open — is killed and reported as a failure with its transcript, rather than hanging the run.
+That matters beyond convenience because `install.sh` runs this suite as its verification phase, so an unbounded file
+stalls an install. A green file that recorded no `PASS` (every check skipped, or no harness result line) and a category
+with no test files are listed in an end-of-run `no coverage` notice, parsed from `finish()`'s result line:
+green-by-exit-status alone cannot hide a run with no assertions behind it. The default stays lenient — a partial/dev
+install legitimately skips — and `AI_TOOLS_TEST_STRICT=1` turns the notice into a failure. Strict is the enforcing-host
+full-install gate (`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`); the container selftest stays lenient because SELinux
+is legitimately absent there, so `selinux.sh`'s all-skip is a documented limitation, not a broken prerequisite.
 
-The harness carries a fourth emitter for that reason. `skip` records a check that could not
-run, and reaching the notice is the point of it. `note` records a fact about the run that is not
-a verdict — `prose-check.sh` names which checker it drove — and does not increment the counter,
-so it stays out of the notice. `AI_TOOLS_TEST_STRICT=1` then fails a run only where a check was
-left unrun.
+The harness carries a fourth emitter for that reason. `skip` records a check that could not run, and reaching the notice
+is the point of it. `note` records a fact about the run that is not a verdict — `prose-check.sh` names which checker it
+drove — and does not increment the counter, so it stays out of the notice. `AI_TOOLS_TEST_STRICT=1` then fails a run
+only where a check was left unrun.
 
-A skip records a state the host is in, not the vantage the suite runs from. The suite is root,
-so an assertion that holds only for an unprivileged caller — the stop helper's own root check, a
-cgroup file whose mode root reads through, a probe the services library withholds from non-root —
-is driven as the projects user through `runuser`, and the CLI's help is read as that user too,
-since the CLI refuses root before it prints. A skip that every full install emits is a check in
-the wrong place. An optional host feature outside this project's install (`pam_namespace`
-polyinstantiation of `/tmp`) is reported only where it is present; where it is absent, the
-default, the file does not print a line for it.
+A skip records a state the host is in, not the vantage the suite runs from. The suite is root, so an assertion
+that holds only for an unprivileged caller — the stop helper's own root check, a cgroup file whose mode root reads
+through, a probe the services library withholds from non-root — is driven as the projects user through `runuser`,
+and the CLI's help is read as that user too, since the CLI refuses root before it prints. A skip that every full install
+emits is a check in the wrong place. An optional host feature outside this project's install (`pam_namespace`
+polyinstantiation of `/tmp`) is reported only where it is present; where it is absent, the default, the file does not
+print a line for it.
 
 ```
 tests/
@@ -57,875 +50,815 @@ tests/
   manual/          operator-run live flow verification (NOT dispatched by run.sh)
 ```
 
-`manual/` is not dispatched by `run.sh`, because its contents cannot be run the way the suite
-is: `verify-live-flows.sh` drives the CLI **as the operator**, which prompts on
-`/dev/tty`, `sudo`s for each root step, and writes the operator's own registries — none of which a
-root-run hermetic suite reproduces. It exists for what only a live run shows (a claim, lockdown
-and unclaim completing end to end, `ai-tools --status` read from the vantage point that has to
-read it, and the **live handback chain** — hook, socket, daemon, `ai-tools-chown` — driven as the
-sandbox account against a fixture inside the project that run claimed, since the daemon reads the
-operator's real allowlist and no automated file may write it), and it is bounded by two rules that
-keep a convenience script from becoming a hazard:
-it works only inside a workspace `mktemp -d` created for that run — never adopting an existing
-path, and refusing to remove one outside it — and it **leaves every installed file untouched**, so a check
-that would need to write shared runtime state (the updater's last-run stamp) reads it and asserts
-agreement instead. A state the host is not already in is skipped rather than manufactured; the
-unit suites drive those against fixtures they own.
+`manual/` is not dispatched by `run.sh`, because its contents cannot be run the way the suite is: `verify-live-flows.sh`
+drives the CLI **as the operator**, which prompts on `/dev/tty`, `sudo`s for each root step, and writes the operator's
+own registries — none of which a root-run hermetic suite reproduces. It exists for what only a live run shows (a claim,
+lockdown and unclaim completing end to end, `ai-tools status` read from the vantage point that has to read it,
+and the **live handback chain** — hook, socket, daemon, `ai-tools-chown` — driven as the sandbox account
+against a fixture inside the project that run claimed, since the daemon reads the operator's real allowlist and no
+automated file may write it), and it is bounded by two rules that keep a convenience script from becoming a hazard: it
+works only inside a workspace `mktemp -d` created for that run — never adopting an existing path, and refusing to remove
+one outside it — and it **leaves every installed file untouched**, so a check that would need to write shared runtime
+state (the updater's last-run stamp) reads it and asserts agreement instead. A state the host is not already in is
+skipped rather than manufactured; the unit suites drive those against fixtures they own.
 
-The SELinux AVC bring-up tooling is **not** part of this suite: it lives with the policy it
-supports, under `selinux/avc/` (`run.sh` does not dispatch it).
+The SELinux AVC bring-up tooling is **not** part of this suite: it lives with the policy it supports,
+under `selinux/avc/` (`run.sh` does not dispatch it).
 
 ## What a test asserts about a message
 
-A test asserts a **message code** for the identity of a refusal, a warning, or a notice, and greps
-the message **text** only for what it says — a count, a path, a named command, a rendered mark.
-`assert_msg <code> <output> [<what>]` (`lib/harness.sh`) matches the code on a line of its own,
-where every emitter and every local `die()`/`warn()` puts a leading code in plain mode, so one
-assertion separates two refusals that read alike and the wording stays free to change
-([messaging](messaging.rule.md)). A file whose cases also turn on the exit status defines a local
-`refused` helper asserting the code and the status together, since a refusal printed at exit 0 is
-one a caller reads as success.
+A test asserts a **message code** for the identity of a refusal, a warning, or a notice, and greps the message **text**
+only for what it says — a count, a path, a named command, a rendered mark. `assert_msg <code> <output> [<what>]`
+(`lib/harness.sh`) matches the code on a line of its own, where every emitter and every local `die()`/`warn()` puts
+a leading code in plain mode, so one assertion separates two refusals that read alike and the wording stays free
+to change ([messaging](messaging.rule.md)). A file whose cases also turn on the exit status defines a local `refused`
+helper asserting the code and the status together, since a refusal printed at exit 0 is one a caller reads as success.
 
-A helper taking a code as a parameter takes its **label first**, so the code sits in a later
-argument and the call reads as a citation rather than as a second definition of a message its
-emitter already owns ([messaging](messaging.rule.md)).
+A helper taking a code as a parameter takes its **label first**, so the code sits in a later argument and the call reads
+as a citation rather than as a second definition of a message its emitter already owns ([messaging](messaging.rule.md)).
 
-A grep over the text stays where what it selects is a **group** of situations rather than one
-message: a negative assertion that no refusal of some kind fired, or a skip that steps aside for
-an environment fact. Where that group is closed by construction, the grep names each code instead
-— `wrapper.sh`'s `gate_refused` names each code the launch gate can raise.
+A grep over the text stays where what it selects is a **group** of situations rather than one message: a negative
+assertion that no refusal of some kind fired, or a skip that steps aside for an environment fact. Where that group is
+closed by construction, the grep names each code instead — `wrapper.sh`'s `gate_refused` names each code the launch gate
+can raise.
+
+## How a test names a command
+
+A test names an `ai-tools` command by a **key** that `lib/cli-spelling.sh` turns into the tokens the deployed CLI
+accepts, and that table is the only place in the suite a command is spelled. A key is the command's path with the binary
+in front and a dot for each space, so `ai-tools status` is `ai-tools.status`. The binary is part of the key because
+`status` names a command on `ai-tools-admin` as well, and because the key is what a **result line** carries: one
+greppable token per command, told apart from the same word in ordinary prose. One removal verb derives its kind
+from the path, so its two keys name the kind rather than a command path — `ai-tools.projects.remove.inplace`
+and `ai-tools.projects.remove.clone`.
+
+An **option** is written as typed. It carries its own mark, so `--for` is already the one greppable token per option
+that a key has to manufacture for a command, and no sentence holds one by accident; the conversion to the resource
+grammar respelled commands and left options alone, so there is no second spelling for a key to abstract over. A result
+line therefore reads as the invocation does — the command by key, the option after it as an operator types it. Driving
+one still goes through `cli_flag`, which is where a rename would land (`--dry-run` losing its short form went
+through exactly that seam), and an option that is really a command's other spelling belongs in `cli_cmd_option`, keyed
+by command.
+
+The key reaches the suite's own voice, not the assertions alone: a result line, a comment and a section heading all
+carry it, so a respelling of the command surface edits that table alone. Where the **spelling itself** is what a file is
+about it stays as written — the table's own mapping, `unit/cli-verbs.sh` and `unit/man.sh` reading the CLI's command
+paths out of its gating tables and its man page, and the fixtures that stand in for an operator-facing document
+or message (`unit/prose-check.sh`, `unit/fill-markdown.sh`, `unit/fill-comments.sh`, `unit/msg.sh`), where a key would
+hold those tools to text that never occurs. `manual/verify-live-flows.sh` is the one file that spells a command
+throughout: an operator reads that run and copies from it, so its headings, result lines and remedies carry the command
+in the collection form as they would type it.
+
+A key is one word carrying hyphens and dots, and no backtick marks it, so what keeps it findable is the rule a code span
+rests on from the other side: a break falls between words, never inside one. Both fillers hold to it,
+and `unit/fill-comments.sh` and `unit/fill-markdown.sh` each pin it against a fixture whose line has too short a tail
+to hold a key, so a filler taught to break on a hyphen or a dot would split it there.
+
+The keys are also `integration/cli-flags.sh`'s trace row labels and the key list its surface digest reads
+out of the table's `case` entries, so renaming one changes what a trace compares by label. The rest of a trace row —
+the exit status, the call log, the state digest — is unaffected, and a baseline is re-recorded after a key rename lands.
 
 ## Hermeticity contract
 
-Every test works **only inside its own dedicated `/tmp` testdir** (`mktestdir` sets
-`TESTDIR`), builds its fixtures there with **known content defined in the test**, never
-reads or writes the operator's real files (notably the real
-`~/.config/ai-tools/allowed-projects`), and removes everything it created on exit (the
-harness `EXIT` trap). A test never relies on arbitrary pre-existing state, and never
-touches a path outside its testdir boundary.
+Every test works **only inside its own dedicated `/tmp` testdir** (`mktestdir` sets `TESTDIR`), builds its fixtures
+there with **known content defined in the test**, never reads or writes the operator's real files (notably the real
+`~/.config/ai-tools/allowed-projects`), and removes everything it created on exit (the harness `EXIT` trap). A test
+never relies on arbitrary pre-existing state, and never touches a path outside its testdir boundary.
 
 ### Fixture names and the residue sweep
 
-A test that must create a path **outside** its testdir — in the clone area, the control plane, the
-cgroup root, the operator's home when `/tmp` is `noexec` — names it by one rule, so a leftover is
-recognisable as this suite's and the sweep matches one pattern:
+A test that must create a path **outside** its testdir — in the clone area, the control plane, the cgroup root,
+the operator's home when `/tmp` is `noexec` — names it by one rule, so a leftover is recognisable as this suite's
+and the sweep matches one pattern:
 
 ```
 .ai-tools-test-<group>-<thing>-XXXXXX
 ```
 
-`<group>` is the category directory the file runs from (`unit`, `integration`, `boundary`),
-`<thing>` says what the path is for (the file's stem for its testdir and log dir; `victim`,
-`homelock`, `c3`, `relabel` for a single fixture), and `XXXXXX` is six random alphanumerics. The
-harness derives the group and stem from the file, and `mk_fixture_dir`/`mk_fixture_file <var>
-<parent> <thing>` create the path with `mktemp` and register it for teardown in one call, assigning
-it to the caller's variable — assigned rather than printed, because a `$(...)` capture would run
-the registration in a subshell and lose it. A path the **agent** is asked to create (the boundary
-probes) is named with `ai_test_name <thing>` before it exists and registered by the test. The
-testdir itself follows the rule (`/tmp/.ai-tools-test-unit-chown-XXXXXX`), so one pattern covers
-every fixture the suite makes. Where the CLI names the path — a clone takes its source's basename
-or `--dir` — the test hands it a name under the rule, so a clone that ever lands outside the fixture
-clone area reads as residue. `on_teardown` accumulates: a file may register several non-path
-cleanups, run in order after the path sweep.
+`<group>` is the category directory the file runs from (`unit`, `integration`, `boundary`), `<thing>` says what the path
+is for (the file's stem for its testdir and log dir; `victim`, `homelock`, `c3`, `relabel` for a single fixture),
+and `XXXXXX` is six random alphanumerics. The harness derives the group and stem from the file,
+and `mk_fixture_dir`/`mk_fixture_file <var> <parent> <thing>` create the path with `mktemp` and register it for teardown
+in one call, assigning it to the caller's variable — assigned rather than printed, because a `$(...)` capture would run
+the registration in a subshell and lose it. A path the **agent** is asked to create (the boundary probes) is named
+with `ai_test_name <thing>` before it exists and registered by the test. The testdir itself follows the rule
+(`/tmp/.ai-tools-test-unit-chown-XXXXXX`), so one pattern covers every fixture the suite makes. Where the CLI names
+the path — a clone takes its source's basename or `--dir` — the test hands it a name under the rule, so a clone
+that ever lands outside the fixture clone area reads as residue. `on_teardown` accumulates: a file may register several
+non-path cleanups, run in order after the path sweep.
 
-`run.sh` runs the **residue sweep** (`lib/residue.sh`) before any category: it lists each
-directory fixtures are born in (`/tmp`, the operator's home, `/var/opt/ai-tools` and its clone
-area, `/opt/ai-tools`, `.claude`, the `--user unit` directories, `/var/log/journal`, the cgroup v2
-root) one level deep for that pattern, removes each match, and prints one line per removal; a
-match it cannot remove refuses the run. `sudo tests/run.sh residue` runs the sweep alone. A
-fixture cgroup is killed (`cgroup.kill` over its subtree) and then `rmdir`ed. The suite runs one
-at a time: a second run started while one is live sweeps the first run's fixtures. The manual
-script names its `--for` drill tree in the clone area under the same rule (group `manual`), so a
-tree its removal did not complete is cleared by the sweep, which holds the root that script never
-takes.
+`run.sh` runs the **residue sweep** (`lib/residue.sh`) before any category: it lists each directory fixtures are born
+in (`/tmp`, the operator's home, `/var/opt/ai-tools` and its clone area, `/opt/ai-tools`, `.claude`, the `--user unit`
+directories, `/var/log/journal`, the cgroup v2 root) one level deep for that pattern, removes each match, and prints one
+line per removal; a match it cannot remove refuses the run. `sudo tests/run.sh residue` runs the sweep alone. A fixture
+cgroup is killed (`cgroup.kill` over its subtree) and then `rmdir`ed. The suite runs one at a time: a second run started
+while one is live sweeps the first run's fixtures. The manual script names its `--for` drill tree in the clone area
+under the same rule (group `manual`), so a tree its removal did not complete is cleared by the sweep, which holds
+the root that script never takes.
 
-One fixture cannot carry the rule and is listed by its fixed path instead:
-`integration/ai-tools-run.sh` probes entrypoint containment in
-`/opt/ai-tools/.nvm/versions/node/v0.0.1`, because the shim accepts an entrypoint only at a bare
-semver version directory. No Node release carries that version, so only that test creates it, and the
-test **fails** when it already exists: a skip would let residue silently cost the coverage. The teardown is the harness `EXIT` trap, which also fires on the `SIGTERM` the
-per-file timeout sends, so only a `SIGKILL` or a failed `rm` leaves residue for the sweep.
+One fixture cannot carry the rule and is listed by its fixed path instead: `integration/ai-tools-run.sh` probes
+entrypoint containment in `/opt/ai-tools/.nvm/versions/node/v0.0.1`, because the shim accepts an entrypoint only
+at a bare semver version directory. No Node release carries that version, so only that test creates it, and the test
+**fails** when it already exists: a skip would let residue silently cost the coverage. The teardown is the harness
+`EXIT` trap, which also fires on the `SIGTERM` the per-file timeout sends, so only a `SIGKILL` or a failed `rm` leaves
+residue for the sweep.
 
-No automated file writes live runtime state. The one place a real hook runs is the manual
-script, where the Stop sweep advances the shared sweep marker under `.claude` as a session's
-would; the automated suite never moves that marker, which the hook rotates by `mv` inside the
-sticky `.claude` directory and a root-written one could never be replaced in. No file starts or
-stops a service: `integration/systemd.sh`
-reads the sandbox account's linger record (what keeps its `--user manager` up with no login) and
-fails when it is absent; a manager down despite linger is skipped, with the start command named,
-and the test does not start it.
+No automated file writes live runtime state. The one place a real hook runs is the manual script, where the Stop sweep
+advances the shared sweep marker under `.claude` as a session's would; the automated suite never moves that marker,
+which the hook rotates by `mv` inside the sticky `.claude` directory and a root-written one could never be replaced in.
+No file starts or stops a service: `integration/systemd.sh` reads the sandbox account's linger record (what keeps its
+`--user manager` up with no login) and fails when it is absent; a manager down despite linger is skipped, with the start
+command named, and the test does not start it.
 
-Nor does a test mutate **global system state** to exercise a helper — the host's local SELinux
-policy (`semanage fcontext`) most of all. A helper whose real work *is* to add and then remove a
-policy entry is therefore covered only on the branch where it leaves the policy unchanged: the alternative is
-a teardown that can strand an entry in the policy store on a failed run, which costs more than
-the coverage buys. Where that trades away an assertion, the gap is named at the point it is
-declined — `integration/selinux.sh` does this for `ai_tools_unlabel_project`'s revert path — so a
-reader meets it as a decision rather than as an absence.
+Nor does a test mutate **global system state** to exercise a helper — the host's local SELinux policy
+(`semanage fcontext`) most of all. A helper whose real work *is* to add and then remove a policy entry is therefore
+covered only on the branch where it leaves the policy unchanged: the alternative is a teardown that can strand an entry
+in the policy store on a failed run, which costs more than the coverage buys. Where that trades away an assertion,
+the gap is named at the point it is declined — `integration/selinux.sh` does this for `ai_tools_unlabel_project`'s
+revert path — so a reader meets it as a decision rather than as an absence.
 
-The deployed root helpers read a fixed allowlist path; a test points them at its own dummy
-allowlist via the `AI_TOOLS_ALLOWLIST` environment override (`mk_allowlist` writes the
-dummy and exports it). This override is a **root-only test hook**: `sudo` strips it
-(`env_reset`, and it is not in `env_keep`) and the handback daemon execs the helpers with
-its own environment, so neither the operator nor the agent can inject it in production —
-only a root caller that sets the env and execs a helper directly (the test suite) can
-redirect it.
+The deployed root helpers read a fixed allowlist path; a test points them at its own dummy allowlist
+via the `AI_TOOLS_ALLOWLIST` environment override (`mk_allowlist` writes the dummy and exports it). This override is
+a **root-only test hook**: `sudo` strips it (`env_reset`, and it is not in `env_keep`) and the handback daemon execs
+the helpers with its own environment, so neither the operator nor the agent can inject it in production — only a root
+caller that sets the env and execs a helper directly (the test suite) can redirect it.
 
-The harness redirects the helpers' root-only **file log** the same way: it exports
-`AI_TOOLS_LOG_DIR` (the third root-only hook, same rationale as `AI_TOOLS_ALLOWLIST`) at a
-throwaway `/tmp` dir cleaned up on exit, so a helper a test execs directly writes its
-`chown.log`/`setgid.log`/… lines there instead of appending to — or raising spurious
-`ERROR` lines in (a negative-path test feeds a helper `/etc/passwd`, a missing group, a
-bogus version) — the production `/var/log/ai-tools` trail. A helper the **live daemon**
-execs (`integration/handback.sh`) keeps the real dir, since the daemon does not inherit the
-override — the same limitation as `AI_TOOLS_ALLOWLIST`. The journald sink is unaffected, so
-every line is still queryable by its per-component tag.
+The harness redirects the helpers' root-only **file log** the same way: it exports `AI_TOOLS_LOG_DIR` (the third
+root-only hook, same rationale as `AI_TOOLS_ALLOWLIST`) at a throwaway `/tmp` dir cleaned up on exit, so a helper a test
+execs directly writes its `chown.log`/`setgid.log`/… lines there instead of appending to — or raising spurious `ERROR`
+lines in (a negative-path test feeds a helper `/etc/passwd`, a missing group, a bogus version) — the production
+`/var/log/ai-tools` trail. A helper the **live daemon** execs (`integration/handback.sh`) keeps the real dir, since
+the daemon does not inherit the override — the same limitation as `AI_TOOLS_ALLOWLIST`. The journald sink is unaffected,
+so every line is still queryable by its per-component tag.
 
 `AI_TOOLS_POSTUPGRADE_ROOT` is the fourth hook of that family and the widest in reach:
-`ai-tools-admin system post-upgrade` reconciles a fixed registry of absolute control-plane paths, and
-this prefixes every one of them, so `unit/postupgrade.sh` drives the real command against a
-fixture tree in its testdir. It carries the same standing as the other three — the helper is
-reachable only as root, `sudo` strips the name, and a caller who could set it may already edit
-those files outright — and is unset in production, where the registry paths stand as written.
+`ai-tools-admin system post-upgrade` reconciles a fixed registry of absolute control-plane paths, and this prefixes
+every one of them, so `unit/postupgrade.sh` drives the real command against a fixture tree in its testdir. It carries
+the same standing as the other three — the helper is reachable only as root, `sudo` strips the name, and a caller
+who could set it may already edit those files outright — and is unset in production, where the registry paths stand
+as written.
 
-`AI_TOOLS_ADMIN_COMMANDS_DIR` (`ai-tools-admin`) belongs to that family too, and redirects the
-directory the admin dispatch discovers its contributed command domains in, so
-`unit/admin-commands.sh` drives the real dispatch against fixture fragments in its testdir instead
-of the host's own. It carries the same standing as `AI_TOOLS_POSTUPGRADE_ROOT` — the tool is
-reachable only as root, `sudo` strips the name, and a caller who could set it may already write the
-directory it redirects.
+`AI_TOOLS_ADMIN_COMMANDS_DIR` (`ai-tools-admin`) belongs to that family too, and redirects the directory the admin
+dispatch discovers its contributed command domains in, so `unit/admin-commands.sh` drives the real dispatch
+against fixture fragments in its testdir instead of the host's own. It carries the same standing
+as `AI_TOOLS_POSTUPGRADE_ROOT` — the tool is reachable only as root, `sudo` strips the name, and a caller who could set
+it may already write the directory it redirects.
 
-`AI_TOOLS_ENTRYPOINT_PIN_DIR` (`entrypoint-verify.lib.sh`) is the fifth, and it carries more weight
-than the others: the production pin decides whether a session may launch at all, so a test that
-wrote a deliberately wrong checksum into it would refuse every launch on the host until the next
-reconcile. `integration/ai-tools-run.sh` redirects it at a `mktemp -d` instead and drives the
-mismatch refusal through the deployed shim — the feature's actual guarantee, and the one gate that
-needs a VALID executable to reach, since every other refusal case exits before it. Its complement
-(an unpinned entrypoint must NOT be refused, or an air-gapped host stops launching) is deliberately
-left to the pure verdict: no other part of that run is invalid, so driving it would start a real
-session. Its sibling `AI_TOOLS_ENTRYPOINT_LABEL_DIR`, which moves the labelling record written
-beside the pin, carries none of that weight — the record is reported without gating a launch — so
-`unit/entrypoint-verify.sh` redirects it at its testdir and writes real records through the library.
+`AI_TOOLS_ENTRYPOINT_PIN_DIR` (`entrypoint-verify.lib.sh`) is the fifth, and it carries more weight than the others:
+the production pin decides whether a session may launch at all, so a test that wrote a deliberately wrong checksum
+into it would refuse every launch on the host until the next reconcile. `integration/ai-tools-run.sh` redirects it
+at a `mktemp -d` instead and drives the mismatch refusal through the deployed shim — the feature's actual guarantee,
+and the one gate that needs a VALID executable to reach, since every other refusal case exits before it. Its complement
+(an unpinned entrypoint must NOT be refused, or an air-gapped host stops launching) is deliberately left to the pure
+verdict: no other part of that run is invalid, so driving it would start a real session. Its sibling
+`AI_TOOLS_ENTRYPOINT_LABEL_DIR`, which moves the labelling record written beside the pin, carries none of that weight —
+the record is reported without gating a launch — so `unit/entrypoint-verify.sh` redirects it at its testdir and writes
+real records through the library.
 
-`AI_TOOLS_LAUNCHER_DIR` (`relabel.lib.sh`) is the sixth, and the one hook no automated test
-consumes. It redirects where the entrypoint reconciliation looks for an agent's stable launcher
-symlink, which is what lets the `stale` verdict be driven **end to end on a live host** — point it
-at a directory whose `claude` link resolves to a real file the declared pattern does not cover, and
-`ai-tools-relabel-agent` must print the stale warning and exit non-zero:
+`AI_TOOLS_LAUNCHER_DIR` (`relabel.lib.sh`) is the sixth, and the one hook no automated test consumes. It redirects
+where the entrypoint reconciliation looks for an agent's stable launcher symlink, which is what lets the `stale` verdict
+be driven **end to end on a live host** — point it at a directory whose `claude` link resolves to a real file
+the declared pattern does not cover, and `ai-tools-relabel-agent` must print the stale warning and exit non-zero:
 
 ```
 sudo bash -c 'n=$(find /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/node_modules -name claude -type f | head -1); d=$(mktemp -d); ln -s "$n" "$d/claude"; env AI_TOOLS_LAUNCHER_DIR="$d" /usr/local/libexec/ai-tools/ai-tools-relabel-agent; echo "exit=$?"; rm -rf "$d"'
 ```
 
-`AI_TOOLS_RELABEL_LOCK` and `AI_TOOLS_RELABEL_LOCK_WAIT` (`relabel.lib.sh`) are the seventh, and
-the first of the family a test drives directly: they move the lock that serializes writes to the
-policy store, and shorten the wait for it, so `unit/relabel.sh` exercises real cross-process
-contention against a lock file in its own testdir. They carry the lightest standing of the family —
-what they redirect is an advisory lock, so a caller who sets one can leave a run unserialized,
-which is the documented fail-soft and never changes what a label may be applied to.
+`AI_TOOLS_RELABEL_LOCK` and `AI_TOOLS_RELABEL_LOCK_WAIT` (`relabel.lib.sh`) are the seventh, and the first of the family
+a test drives directly: they move the lock that serializes writes to the policy store, and shorten the wait for it,
+so `unit/relabel.sh` exercises real cross-process contention against a lock file in its own testdir. They carry
+the lightest standing of the family — what they redirect is an advisory lock, so a caller who sets one can leave a run
+unserialized, which is the documented fail-soft and never changes what a label may be applied to.
 
-`AI_TOOLS_SANDBOX_ROOT` (`ai-tools.sh`) is the eighth, and it sits with `AI_TOOLS_GITCONFIG` and
-`AI_TOOLS_ALLOWLIST` on the operator side of the family: the CLI runs as the operator without
-`sudo`, so the operator's own environment reaches it, and it carries the same standing as those
-two. It moves the directory a clone is made in and read as the sandbox kind from, and the
-operator owns every clone, so a caller who sets it does not gain any reach beyond claiming a
-clone made elsewhere; the clone kind's destructive removal stays scoped to a direct child of that
-directory, and the protected-paths backstop still refuses a system directory named there.
-`integration/cli-flags.sh` points it at a clone area in its fixtures so the clone rows never
-touch the shared one, and `integration/cli.sh` aims the clone removal's refusal rows at a fixture
-root the same way; both skip on an installed CLI that predates the override, since a destructive
-verb is never aimed at the real clone area even to assert a refusal.
+`AI_TOOLS_SANDBOX_ROOT` (`ai-tools.sh`) is the eighth, and it sits with `AI_TOOLS_GITCONFIG` and `AI_TOOLS_ALLOWLIST`
+on the operator side of the family: the CLI runs as the operator without `sudo`, so the operator's own environment
+reaches it, and it carries the same standing as those two. It moves the directory a clone is made in and read
+as the sandbox kind from, and the operator owns every clone, so a caller who sets it does not gain any reach beyond
+claiming a clone made elsewhere; the clone kind's destructive removal stays scoped to a direct child of that directory,
+and the protected-paths backstop still refuses a system directory named there. `integration/cli-flags.sh` points it
+at a clone area in its fixtures so the clone rows never touch the shared one, and `integration/cli.sh` aims the clone
+removal's refusal rows at a fixture root the same way; both skip on an installed CLI that predates the override, since
+a destructive verb is never aimed at the real clone area even to assert a refusal.
 
-`AI_TOOLS_JOURNAL_SOCKET` (`ai-tools-handback`) joins that family: it moves where the daemon
-sends its journal datagram, so `unit/handback.sh` binds a throwaway socket in its testdir instead
-of writing the host's journal. The daemon's environment comes from its root-owned unit, so neither
-an operator nor the agent can set it in production, and a caller who could set it moves where an
-**attribution field** lands, which does not feed any authorization decision (see
+`AI_TOOLS_JOURNAL_SOCKET` (`ai-tools-handback`) joins that family: it moves where the daemon sends its journal datagram,
+so `unit/handback.sh` binds a throwaway socket in its testdir instead of writing the host's journal. The daemon's
+environment comes from its root-owned unit, so neither an operator nor the agent can set it in production, and a caller
+who could set it moves where an **attribution field** lands, which does not feed any authorization decision (see
 [handback-bridge](handback-bridge.rule.md)).
 
-It is not in the suite because the full function registers a `semanage fcontext` rule, and this
-suite does not mutate the host's SELinux policy to test a helper — the same line
-`integration/selinux.sh` draws for `ai_tools_unlabel_project`. That check is safe *because* it
-re-asserts the rule that is already registered, leaving the policy store unchanged; a fixture
-manifest would not, which is why the hook redirects the **launcher** rather than the manifest
-directory. The pure decision behind the verdict is covered hermetically in `unit/relabel.sh`, and
-the live agreement between declaration and installation in `integration/selinux.sh`; what this
-exercises is the wiring between them and the renderer's exit status.
+It is not in the suite because the full function registers a `semanage fcontext` rule, and this suite does not mutate
+the host's SELinux policy to test a helper — the same line `integration/selinux.sh` draws
+for `ai_tools_unlabel_project`. That check is safe *because* it re-asserts the rule that is already registered, leaving
+the policy store unchanged; a fixture manifest would not, which is why the hook redirects the **launcher** rather than
+the manifest directory. The pure decision behind the verdict is covered hermetically in `unit/relabel.sh`, and the live
+agreement between declaration and installation in `integration/selinux.sh`; what this exercises is the wiring
+between them and the renderer's exit status.
 
 ## Two-ended assertions
 
-A security guarantee is covered by a **pair** of tests, not one, and the pair is what makes the
-coverage meaningful:
+A security guarantee is covered by a **pair** of tests, not one, and the pair is what makes the coverage meaningful:
 
-- a **runtime** assertion that the refusal fires — drive the deployed code into the bad state
-  (an untrusted config, a mislabelled entrypoint, a path outside the allowlist) and assert it
-  resolves to *less* access and says so;
-- a **boundary** assertion, executed **as the agent**, that the bad state is unreachable — the
-  agent cannot write the file, directory, or binary whose corruption the refusal exists to catch.
+- a **runtime** assertion that the refusal fires — drive the deployed code into the bad state (an untrusted config,
+  a mislabelled entrypoint, a path outside the allowlist) and assert it resolves to *less* access and says so;
+- a **boundary** assertion, executed **as the agent**, that the bad state is unreachable — the agent cannot write
+  the file, directory, or binary whose corruption the refusal exists to catch.
 
-Neither is sufficient alone. The runtime half catches a host someone has already broken (an
-operator's `chmod`, a botched install, a tamper); the boundary half catches the agent trying to
-break it. A guarantee with only the first is untested against its actual adversary; one with only
-the second silently stops refusing the day the predicate regresses.
+Neither is sufficient alone. The runtime half catches a host someone has already broken (an operator's `chmod`,
+a botched install, a tamper); the boundary half catches the agent trying to break it. A guarantee with only the first is
+untested against its actual adversary; one with only the second silently stops refusing the day the predicate regresses.
 
-The provider seam is the worked example: `unit/providers.sh` drives each untrusted input through
-the resolver and asserts the fail-closed verdict, while `boundary/providers.sh` probes the same
-deployed files as the sandbox account and asserts none of them is agent-writable. A new guarantee
-lands with both halves, in the category each belongs to.
+The provider seam is the worked example: `unit/providers.sh` drives each untrusted input through the resolver
+and asserts the fail-closed verdict, while `boundary/providers.sh` probes the same deployed files as the sandbox account
+and asserts none of them is agent-writable. A new guarantee lands with both halves, in the category each belongs to.
 
 ## Categories
 
-**`unit`** — hermetic logic tests of the deployed helpers (`ai-tools-chown`, `-setgid`,
-`-setfacl`, `-unclaim`, `-safedir`, `-reclaim`, `-lockdown`). Each runs the **installed** helper (so it exercises
-the real, token-substituted artifact) against a `/tmp` testdir and a dummy allowlist,
-asserting the algorithm: allowlist gating, the owner guard (acts only on projects-user- or
-sandbox-account-owned paths) where it applies, ACL/setgid/permission transforms, the
-secret/exclusion/skip-list skips, and -- for `-lockdown` -- the proactive sweep that locks
-**pre-existing user-owned** secrets (files `600`, dirs `700`, `<you>:<you>`) which
-the reactive `-chown` never reaches, plus its seal pass over the paths sealed by *mode* rather
-than by name, and its refusal to run as the sandbox account.
-The seal cases run across three files, because the same guarantee has three consumers:
-`owner-only.sh` pins the primitives, while `setgid.sh` and `lockdown.sh` assert the deployed
-helpers apply them. What each asserts is that a sealed path is never pulled into the
-agent's group and that the residue behind its mode is removed without the mode widening -- a
-strip that raised the ACL mask would leave the residue "gone" and the path more open than
-before. `unclaim.sh` closes with the CLI-side decision that feeds the helper — the hand-back
-group — because it publishes **two** results (the group, and the hint that no hand-back can run)
-as globals in its caller's shell rather than on stdout, which a `$(...)`-capturing test cannot
-observe: the assertion is made from a real caller, under `set -u`, so a result the function fails
-to publish aborts the test the same way it would abort an unclaim. No live
-daemon, no SELinux dependency, no wrapper. Run as root (needed to set arbitrary ownership
-and create third-party-owned fixtures). A fixture tree is `chown`ed to the projects user
-before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it
-sources the shared classifier library (`secret-patterns.lib.sh`) and forces the built-in
-default pattern set, pinning the matcher itself — credential names match case-insensitively,
-while plain configs and build artifacts the toolchain must read do not. `check-version.sh`
-departs the installed-helper pattern the other way: it runs a `TESTDIR` copy of
-`packaging/check-version.sh` (a repo release-gate script, not a deployed artifact) against
-fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the
-three-way match, `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match,
-any other dashed tag is refused, a missing `%changelog` entry is fatal for every form.
-`fill-comments.sh` is a second repo-tool test: it drives `tools/fill-comments.sh`, the
-Emacs-driven formatter for the comment wrap rule, over one fixture carrying every shape the tool
-must fill or leave alone — a long paragraph filled inside the column with no line ending on a tie
-word (the checker's `--wrap` mode is the oracle), and an aligned table, a linter directive, a
-commented default, a shebang and a code line each back byte-identical — and asserts a second run
-leaves the file as the first left it. Skipped without Emacs.
-`references.sh` is a third: it drives `ref-index.py`, the cross-reference tool shipped beside the
-checker, and holds the tree to its committed index. A reference names a reftag and the reftag
-resolves to where the target now is, so what the file asserts is that a target which moved, was
-renamed, or was deleted is reported and never silently pointed at its old place: through the
-repository wrapper `tools/ref-index.sh` it regenerates the index and diffs it against
-`.claude/references.md` and runs `check` over every tracked file, both skipped outside a git
-checkout; then each finding `check` makes — a duplicate reftag, an id shared by two kinds, a
-reference with no target, a same-file reference, a caption with no block after it, a reftag link
-that is missing or stale, and an ordinary link whose file or heading is gone — is driven against
-a fixture it must report and the corrected form it must stay silent on, with `relink` asserted to
-produce that form, `generate` for its row shape, its order, the example row a quoted reftag
-reserves, and the empty tree, `new` for each family's form, and `where` for the span each kind's
-syntax gives. An empty tree is a valid index, so the lockstep half is green before the first
-reftag. Its last section drives the one finding the **wrapper** holds rather than the shipped
-tool — a runtime message carrying a URL, a Markdown link, or an HTML anchor
-([messaging](messaging.rule.md)) — which is repository knowledge on both counts: the emit
-chokepoints are this tree's, and a message string is not prose, so the checker that skips a quoted
-span never reads it. Each link shape is driven with the resolvable form beside it, a non-ASCII URL
-among them, since matching is on the ASCII delimiter a link needs and not on what a URI may
-contain; the pair that must stay silent is an ordinary message a looser pattern would report — a
-page name in parentheses, and an option set carrying a pipe. Every case id in this file and in
-`prose-check.sh` carries the `TEST-` prefix, so a
-result line is told from a reftag or a message code at a glance.
-`cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four
-**gating tables** — `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`,
-`FOR_ALLOWED_VERBS` — still describe the verbs it dispatches. The failure it exists for is
-silent and one-directional: a verb added to the dispatcher and forgotten in `OPERATOR_VERBS`
-runs for an unenrolled caller, with no message to say so until a root helper refuses it midway. So
-every dispatched verb must be classified — operator-acting, or in the informational set the test
-names — no verb may be both operator-acting and root-allowed, no table may name a verb the
-dispatcher no longer has, and the help must list exactly what the dispatcher accepts. Its last
-check asserts required **content** rather than consistency: `--help` and `--version` must be in
-`BOOTSTRAP_EXEMPT_VERBS`, because a CLI that cannot print its own usage on an unprovisioned host
-leaves the gate's refusal as the only route to the provisioning command — a regression visible
-only on the host nobody develops against.
+**`unit`** — hermetic logic tests of the deployed helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`,
+`-safedir`, `-reclaim`, `-lockdown`). Each runs the **installed** helper (so it exercises the real, token-substituted
+artifact) against a `/tmp` testdir and a dummy allowlist, asserting the algorithm: allowlist gating, the owner guard
+(acts only on projects-user- or sandbox-account-owned paths) where it applies, ACL/setgid/permission transforms,
+the secret/exclusion/skip-list skips, and -- for `-lockdown` -- the proactive sweep that locks **pre-existing
+user-owned** secrets (files `600`, dirs `700`, `<you>:<you>`) which the reactive `-chown` never reaches, plus its seal
+pass over the paths sealed by *mode* rather than by name — held to leave the target directory itself alone, on a fixture
+shaped like a fresh sandbox clone, whose owner-only root the seal would otherwise strip of the group and setgid bit
+`normalize_clone` does not restore — and its refusal to run as the sandbox account. The seal cases run across three
+files, because the same guarantee has three consumers: `owner-only.sh` pins the primitives, while `setgid.sh`
+and `lockdown.sh` assert the deployed helpers apply them. What each asserts is that a sealed path is never pulled
+into the agent's group and that the residue behind its mode is removed without the mode widening -- a strip that raised
+the ACL mask would leave the residue "gone" and the path more open than before. `unclaim.sh` closes with the CLI-side
+decision that feeds the helper — the hand-back group — because it publishes **two** results (the group, and the hint
+that no hand-back can run) as globals in its caller's shell rather than on stdout, which a `$(...)`-capturing test
+cannot observe: the assertion is made from a real caller, under `set -u`, so a result the function fails to publish
+aborts the test the same way it would abort an unclaim. No live daemon, no SELinux dependency, no wrapper. Run as root
+(needed to set arbitrary ownership and create third-party-owned fixtures). A fixture tree is `chown`ed to the projects
+user before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it sources the shared
+classifier library (`secret-patterns.lib.sh`) and forces the built-in default pattern set, pinning the matcher itself —
+credential names match case-insensitively, while plain configs and build artifacts the toolchain must read do not.
+`check-version.sh` departs the installed-helper pattern the other way: it runs a `TESTDIR` copy
+of `packaging/check-version.sh` (a repo release-gate script, not a deployed artifact) against fixture `VERSION`/spec
+files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match, `vX.Y.Z-rc.N` compares its base
+and relaxes only the `%changelog` match, any other dashed tag is refused, a missing `%changelog` entry is fatal
+for every form. `fill-comments.sh` is a second repo-tool test: it drives `tools/formatters/fill-comments.sh`,
+the Emacs-driven formatter for the comment wrap rule, over one fixture carrying every shape the tool must fill or leave
+alone. Filled: a long paragraph inside the column with no line ending on a tie word (the checker's `--wrap` mode is
+the oracle), one indented inside a function body, and a sentence pair the join gives one space. Left as written:
+an aligned table, a doc comment's contract line, a column of three or more spaces, a table drawn with vertical rules,
+a heredoc body, the commands a header shows in a fenced block, a CDATA section, a `<pre>` block, a linter directive,
+a commented default, a shebang and a code line. Each of those is a way a formatter silently rewrites what a file emits
+or what a reader reads as a column, and none is visible in review. It also holds the filler's own output to the rule no
+checker reads — a code span is never split — and asserts a second run leaves the file as the first left it,
+that `--lines` fills the paragraph it names alone, and that two ranges in one run are both filled, since the first fill
+moves every line the later range names. Refused before Emacs sees it, through the reader every formatter shares
+(`tools/formatters/text_file.py`): a file holding an escape sequence, and a symlink, each reported with its reason
+and left as it was while the clean file beside it is filled. Two more pin the Emacs side: a file named like one of its
+options (`-Q`) is filled rather than obeyed, since the files are handed over after `--`, and a file-local `eval:` form
+is not run. Skipped without Emacs. `format.sh` pins the front door over both fillers (`tools/formatters/format.sh`):
+every file in a fixture repository goes to the filler for the kind the checker names, at the column it names — a page
+at 79, a router at 120, a source comment at 120, a header under `src/etc/` at 72 — while a generated page (one carrying
+the ignore-file marker) is reported as skipped with its kind and left as it was, since the failure it exists to prevent
+is the comment filler pointed at a page. What may be formatted at all is the explicit scope `FORMAT_SCOPE` names: a unit
+file, a log and a Makefile in the fixture are outside it, so `--all` counts and leaves them, a man page and a binary
+never reach the checker, and a file named on the command line is reported and skipped, as is a path outside
+the repository, while a named path is read from the directory the command was run in. The scope rule is pinned from both
+sides: with no file named, only the paragraph a diff touched is filled and an over-width paragraph the commit already
+held is left, `--files` fills that one too, an untracked file is filled whole either way, and `--all` warns first. Its
+exit status is pinned as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler
+can shorten remains or a filler refused a file, which is reported with its reason and left as it was. Its last case runs
+a copy of the formatter over its own two shell tools: each is one function called on its last line, which bash parses
+whole, so the fill that rewrites the file under the running bash does not end the run mid-line. `fill-markdown.sh` is
+its Markdown counterpart, and pins the filler (`tools/formatters/fill-markdown.py`) together with the gate that proves
+a reflow pure (`tools/formatters/verify-reflow.py`), because a defect in either looks the same from outside: one fixture
+carries every shape found by rehearsing the filler on real pages — frontmatter, a nested fence, a multi-line HTML
+comment, a list item with an indented continuation, a wide marker, an indented code block, a table, a blockquote with an
+alert line, a `prose-check: ignore` line, a dash after a token wider than the column, and inline code spans placed
+where a greedy break lands inside them — and the filler must reflow it to a state the gate passes and the checker's
+`--wrap` finds complete (a filler that copies a region through leaves a clean gate and an over-width line), while each
+defect class, injected by hand, must be reported by the gate. The one class the gate cannot see — a break inside a code
+span leaves the token stream unchanged — is asserted on the filler's output instead: each span whole on one line, a span
+wider than the column run over on its own. It asserts a second run is a no-op and that `--lines` confines a reflow
+to the blocks it names, then reflows every page of the tree into its testdir, agent-facing at 120 and human-facing
+at 79, and holds them to the same three properties. It is also where the reader every formatter shares
+(`tools/formatters/text_file.py`) is pinned whole: each shape it refuses — a control or a bidi character, a NUL,
+a carriage return, a byte that is not UTF-8, a byte-order mark, a symlink, a FIFO — is reported with its reason and left
+byte-identical while the clean file beside it is filled, a column or a range that is not one is a usage error
+that writes nothing, and the gate fails a base copy that is not text without printing a token of it and refuses a path
+resolving outside the tree. `align-tables.sh` pins the third formatter, `tools/formatters/align-tables.py`,
+over a fixture whose widest cell overflows its column: each placement rule the tool states, and the two properties
+a caller depends on — a paragraph whose lines happen to carry a pipe is left as written, since a table is two lines
+carrying a separator at the same column, and a second fix is a no-op with `check` then silent, so `check` and `fix` run
+in either order. A table inside a heredoc body is the data's and is left, while a here-string, an arithmetic shift,
+a `<<` in a string and an operator no later line closes open no heredoc, so a table after one is still read; a file
+holding an escape sequence is refused through the shared reader and reported, with the file beside it still checked.
+`references.sh` is a third: it drives `ref-index.py`, the cross-reference tool shipped beside the checker, and holds
+the tree to its committed index. A reference names a reftag and the reftag resolves to where the target now is,
+so what the file asserts is that a target which moved, was renamed, or was deleted is reported and never silently
+pointed at its old place: through the repository wrapper `tools/generators/ref-index.sh` it regenerates the index
+and diffs it against `.claude/references.md` and runs `check` over every tracked file, both skipped outside a git
+checkout; then each finding `check` makes — a duplicate reftag, an id shared by two kinds, a reference with no target,
+a same-file reference, a caption with no block after it, a reftag link that is missing or stale, and an ordinary link
+whose file or heading is gone — is driven against a fixture it must report and the corrected form it must stay silent
+on, with `relink` asserted to produce that form, `generate` for its row shape, its order, the example row a quoted
+reftag reserves, and the empty tree, `new` for each family's form, and `where` for the span each kind's syntax gives.
+An empty tree is a valid index, so the lockstep half is green before the first reftag. Its last section drives the one
+finding the **wrapper** holds rather than the shipped tool — a runtime message carrying a URL, a Markdown link,
+or an HTML anchor ([messaging](messaging.rule.md)) — which is repository knowledge on both counts: the emit chokepoints
+are this tree's, and a message string is not prose, so the checker that skips a quoted span never reads it. Each link
+shape is driven with the resolvable form beside it, a non-ASCII URL among them, since matching is on the ASCII delimiter
+a link needs and not on what a URI may contain; the pair that must stay silent is an ordinary message a looser pattern
+would report — a page name in parentheses, and an option set carrying a pipe. Every case id in this file
+and in `prose-check.sh` carries the `TEST-` prefix, so a result line is told from a reftag or a message code
+at a glance. `cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four **gating tables** —
+`OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`, `FOR_ALLOWED_VERBS` — still describe the verbs it
+dispatches. The failure it exists for is silent and one-directional: a verb added to the dispatcher and forgotten
+in `OPERATOR_VERBS` runs for an unenrolled caller, with no message to say so until a root helper refuses it midway.
+So every dispatched verb must be classified — operator-acting, or in the informational set the test names — no verb may
+be both operator-acting and root-allowed, no table may name a verb the dispatcher no longer has, and the help must list
+exactly what the dispatcher accepts. Its last check asserts required **content** rather than consistency: `--help`
+and `--version` must be in `BOOTSTRAP_EXEMPT_VERBS`, because a CLI that cannot print its own usage on an unprovisioned
+host leaves the gate's refusal as the only route to the provisioning command — a regression visible only on the host
+nobody develops against.
 
-`man.sh` is a pure text-sync check over this project's man pages and what each documents. The
-two command pages are held to the `usage()` heredoc of their command — `ai-tools(1)` against the
-CLI, `ai-tools-admin(8)` against the admin helper — validated from the repo sources (or the
-installed pair outside a checkout) and executing neither command, since the CLI's bootstrap gate
-fail-closes on an unprovisioned host and the helper refuses a non-root caller. The config pages
-are held to their files: `allowed-projects(5)` and `secret-patterns(5)` to the header each file
-is seeded with (capped, naming the page, registering no entry) and to the parser each file is
-read with, through which the page's own examples are loaded; `operator.conf(5)` and
-`custom-claude-endpoint.conf(5)` to the keys their shipped templates mention, in both directions,
-read with `ai_tools_conf_keys` so the test and `system post-upgrade` agree on what *mentioned*
-means. It closes by running the checker's `--config-header` mode over every config header this
-project writes, so each holds to 72 columns
-([providers](providers.rule.md) states the placement rule). In each pair the help is
-orientation and the page is the reference (see [cli](cli.rule.md)), so it asserts relations
-rather than set equality. For `ai-tools(1)`: the **verb** sets match in both directions, every
-option the help names is documented, and every option the page documents is one a CLI **parser**
-accepts. The last is the direction with teeth: what goes stale is an option outliving its parser,
-whereas requiring the help to name every documented option is what makes slimming the help
-impossible.
+`man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
+to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
+— validated from the repo sources (or the installed pair outside a checkout) and executing neither command, since
+the CLI's bootstrap gate fail-closes on an unprovisioned host and the helper refuses a non-root caller. The config pages
+are held to their files: `allowed-projects(5)` and `secret-patterns(5)` to the header each file is seeded with (capped,
+naming the page, registering no entry) and to the parser each file is read with, through which the page's own examples
+are loaded; `operator.conf(5)` and `custom-claude-endpoint.conf(5)` to the keys their shipped templates mention, in both
+directions, read with `ai_tools_conf_keys` so the test and `system post-upgrade` agree on what *mentioned* means. It
+closes by running the checker's `--config-header` mode over every config header this project writes, so each holds to 72
+columns ([providers](providers.rule.md) states the placement rule). In each pair the help is orientation and the page is
+the reference (see [cli](cli.rule.md)), so it asserts relations rather than set equality. For `ai-tools(1)`:
+the **verb** sets match in both directions, every option the help names is documented, and every option the page
+documents is one a CLI **parser** accepts. The last is the direction with teeth: what goes stale is an option outliving
+its parser, whereas requiring the help to name every documented option is what makes slimming the help impossible.
 
-`ai-tools-admin(8)` gets the same relations over a surface spelled in bare words rather than long
-options ([cli-grammar](cli-grammar.rule.md)), so what is compared is the whole **command path** —
-`selinux groups enable`, three tokens. The parser direction becomes a dispatch check: the helper
-splits its dispatch across nested `case` statements, one per domain and collection, so a whole
-path never appears in a single arm and each token of a documented path must be an arm somewhere in
-the helper. That is what catches a page still naming a command after the dispatch renamed it,
-without pinning where in the nesting the arm sits. Both pages are then checked for a non-empty
-`.TH` version field.
+`ai-tools-admin(8)` gets the same relations over a surface spelled in bare words rather than long options
+([cli-grammar](cli-grammar.rule.md)), so what is compared is the whole **command path** — `selinux groups enable`, three
+tokens. The parser direction becomes a dispatch check: the helper splits its dispatch across nested `case` statements,
+one per domain and collection, so a whole path never appears in a single arm and each token of a documented path must be
+an arm somewhere in the helper. That is what catches a page still naming a command after the dispatch renamed it,
+without pinning where in the nesting the arm sits. Both pages are then checked for a non-empty `.TH` version field.
 
-`ai-tools-providers(5)` is the third page, and its pairing is with **data** rather than a
-command: the shipped manifests under `agents.d` and `integrations.d` carry a pointer to it and no
-key documentation of their own, so the page is the only statement of what a key means. The keys
-each manifest sets are read with `ai_tools_conf_keys`, the parser the tooling uses, and compared
-with the `.TP` tags under KEYS in both directions — a key a manifest sets and the page lacks is an
-operator reading a file the manual does not explain, and a documented key no manifest sets is a
-stale entry.
+`ai-tools-providers(5)` is the third page, and its pairing is with **data** rather than a command: the shipped manifests
+under `agents.d` and `integrations.d` carry a pointer to it and no key documentation of their own, so the page is
+the only statement of what a key means. The keys each manifest sets are read with `ai_tools_conf_keys`, the parser
+the tooling uses, and compared with the `.TP` tags under KEYS in both directions — a key a manifest sets and the page
+lacks is an operator reading a file the manual does not explain, and a documented key no manifest sets is a stale entry.
 
-`ai-tools-messages(7)` pairs with neither a command nor a file, but with the **generator** that
-writes it: `tools/man-messages.sh` derives the page from `.claude/references.md`, so the check
-regenerates it and fails on a difference ([messaging](messaging.rule.md)). It then compares the
-count of message codes the index defines with the count of entries the page carries, which catches
-a code the generator drops rather than refuses. A stale catalog renders as cleanly as a current
-one, so the diff is what makes the drift visible. The generator reads a repository file, so a run
-outside a checkout skips.
+`ai-tools-messages(7)` pairs with neither a command nor a file, but with the **generator** that writes it:
+`tools/generators/man-messages.sh` derives the page from `.claude/references.md`, so the check regenerates it and fails
+on a difference ([messaging](messaging.rule.md)). It then compares the count of message codes the index defines
+with the count of entries the page carries, which catches a code the generator drops rather than refuses. A stale
+catalog renders as cleanly as a current one, so the diff is what makes the drift visible. The generator reads
+a repository file, so a run outside a checkout skips.
 
-Its last section covers the page's own editorial rule — the catalog documents what the tree emits
-and leaves development material out — by driving the citation filter over a **fixture** catalog,
-which `man-messages.sh print` renders from an index named on its command line. What the fixture
-supplies is the citation the tree does not hold: a Markdown file under `tests/`, alongside a
-document, a shipped man page, and a source file. A document renders as its path and a man page as
-a `.BR` cross-reference, while a test and a source file are dropped whatever their extension.
+Its last section covers the page's own editorial rule — the catalog documents what the tree emits and leaves development
+material out — by driving the citation filter over a **fixture** catalog, which `man-messages.sh print` renders
+from an index named on its command line. What the fixture supplies is the citation the tree does not hold: a Markdown
+file under `tests/`, alongside a document, a shipped man page, and a source file. A document renders as its path
+and a man page as a `.BR` cross-reference, while a test and a source file are dropped whatever their extension.
 
-Every section so far pairs a page with what it documents. Two more hold each page to the way a page
-is **written**, against the font and placeholder rules whose home is `references/man-pages.md` in
-the shipped `ai-tools-technical-docs` skill; the reference and the check are edited together, so
-the convention and what enforces it cannot disagree. They read the **authored** pages (`man1`,
-`man5`, `man8`) and leave `ai-tools-messages(7)` to the `tools/man-messages.sh` lockstep: each
-emitter's own string decides that page's markup. The rules are that no page carries a
-pointy-bracket placeholder, which roff renders literally and which marks prose never brought to the
-page's grammar; that every italic token on a SYNOPSIS line or a `.TP`/`.TQ` tag line is an
-uppercase placeholder, italic being what a reader substitutes, while running-text italic keeps the
-filenames and emphasis `man-pages(7)` puts there; that `man --warnings` does not report a macro
-or formatting warning; and that the trailing positional argument's **shape** — optional,
-repeating, or neither — agrees with the command's own `usage()`. That last one compares the
-brackets and the ellipsis and not the placeholder's name: the page names an argument in the
-man-page vocabulary while the help keeps its own spelling, and the difference is deliberate. What
-it catches is a page promising repetition its parser does not take, or dropping it where the
-parser does. A wrong font renders as cleanly as a
-right one, so none of the four is visible without a check.
+Every section so far pairs a page with what it documents. Two more hold each page to the way a page is **written**,
+against the font and placeholder rules whose home is `references/man-pages.md` in the shipped `ai-tools-technical-docs`
+skill; the reference and the check are edited together, so the convention and what enforces it cannot disagree. They
+read the **authored** pages (`man1`, `man5`, `man8`) and leave `ai-tools-messages(7)`
+to the `tools/generators/man-messages.sh` lockstep: each emitter's own string decides that page's markup. The rules are
+that no page carries a pointy-bracket placeholder, which roff renders literally and which marks prose never brought
+to the page's grammar; that every italic token on a SYNOPSIS line or a `.TP`/`.TQ` tag line is an uppercase placeholder,
+italic being what a reader substitutes, while running-text italic keeps the filenames and emphasis `man-pages(7)` puts
+there; that `man --warnings` does not report a macro or formatting warning; and that the trailing positional argument's
+**shape** — optional, repeating, or neither — agrees with the command's own `usage()`. That last one compares
+the brackets and the ellipsis and not the placeholder's name: the page names an argument in the man-page vocabulary
+while the help keeps its own spelling, and the difference is deliberate. What it catches is a page promising repetition
+its parser does not take, or dropping it where the parser does. A wrong font renders as cleanly as a right one, so none
+of the four is visible without a check.
 
-`sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same
-class: a pure decision with a security consequence. `--project-create` skips the secret scan, the
-git-history prompt and the proceed confirm when it returns 0, so every way it could wrongly say yes
-is a way to grant an agent access to a tree no scan has covered — which is why the claim re-derives it
-from the tree rather than trusting the caller's hint, and why the cases driven here are the states
-that must read as **not** pristine (any file beyond the README, one nested deeper, any commit).
+`sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same class: a pure
+decision with a security consequence. `projects create` skips the secret scan, the git-history prompt and the proceed
+confirm when it returns 0, so every way it could wrongly say yes is a way to grant an agent access to a tree no scan has
+covered — which is why the claim re-derives it from the tree rather than trusting the caller's hint, and why the cases
+driven here are the states that must read as **not** pristine (any file beyond the README, one nested deeper, any
+commit).
 
-`conf.sh` and `providers.sh` are the library pair behind the provider seam (see
-[providers](providers.rule.md)). `conf.sh` pins the shared `KEY=value` grammar every
-`operator.conf` key and every manifest is read with — quotes optional, commas and whitespace
-both separating, inline comments ending a value, a present-but-empty key distinguishable
-from an absent one — plus two properties whose breakage is silent in production: the
-splitter must be **IFS-independent** (it is sourced into scripts that set `IFS=$'\n\t'`,
-where an inherited IFS collapses a multi-item value into one bogus item), and
-`ai_tools_conf_is_trusted` must refuse every state a non-root writer can create
-(non-root-owned, group- or other-writable, a symlink), for directories as well as files. The
-refusal's text is pinned with it: the owner uid and mode the predicate read, the map parser over
-fixture `uid_map` contents (the kernel's padded identity line, a translated map, a multi-range map,
-an empty one, and the identity line under the strict-mode IFS), and — inside a real user namespace
-where `unshare -Ur` is permitted, skipped otherwise — the clause naming a translated uid beside the
-`65534` it read. Its
-new-option report carries a third: a commented **default** (`#KEY=`, `# KEY=`) is a mention while
-an indented **example** in a header block is not, so a file seeded with `operator.conf`'s own
-grammar comments is not mistaken for one that already knows every option.
-`providers.sh` drives the enablement truth table and then, for each untrusted input in turn
-— `operator.conf`, a manifest, a manifest directory — asserts the resolver moves to *less*
-access and says so, never more. It closes with the installed-manifest field reader
-(`ai_tools_installed_integrations_declaring`), which `relabel.lib.sh` reads `build_output_dirs`
-through: a key is read from an installed integration whether or not it is enabled, since a
-project's label is applied at claim time, and an untrusted manifest or directory does not yield
-any value, under the same trust rules as the resolver. It then drives the empty-set verdict the updater reads once the
-resolver printed an empty set: each refused input, and an allowlist none of whose names resolved, reads
-`fault` with the path and the owner and mode named on one line, while an empty allowlist, an empty
-manifest directory, and a set of `default_enable=no` manifests read `none` — the split that decides
-whether the updater exits `1` or maintains `npm` and exits `0`.
+`conf.sh` and `providers.sh` are the library pair behind the provider seam (see [providers](providers.rule.md)).
+`conf.sh` pins the shared `KEY=value` grammar every `operator.conf` key and every manifest is read with — quotes
+optional, commas and whitespace both separating, inline comments ending a value, a present-but-empty key distinguishable
+from an absent one — plus two properties whose breakage is silent in production: the splitter must be
+**IFS-independent** (it is sourced into scripts that set `IFS=$'\n\t'`, where an inherited IFS collapses a multi-item
+value into one bogus item), and `ai_tools_conf_is_trusted` must refuse every state a non-root writer can create
+(non-root-owned, group- or other-writable, a symlink), for directories as well as files. The refusal's text is pinned
+with it: the owner uid and mode the predicate read, the map parser over fixture `uid_map` contents (the kernel's padded
+identity line, a translated map, a multi-range map, an empty one, and the identity line under the strict-mode IFS),
+and — inside a real user namespace where `unshare -Ur` is permitted, skipped otherwise — the clause naming a translated
+uid beside the `65534` it read. Its new-option report carries a third: a commented **default** (`#KEY=`, `# KEY=`) is
+a mention while an indented **example** in a header block is not, so a file seeded with `operator.conf`'s own grammar
+comments is not mistaken for one that already knows every option. `providers.sh` drives the enablement truth table
+and then, for each untrusted input in turn — `operator.conf`, a manifest, a manifest directory — asserts the resolver
+moves to *less* access and says so, never more. It closes with the installed-manifest field reader
+(`ai_tools_installed_integrations_declaring`), which `relabel.lib.sh` reads `build_output_dirs` through: a key is read
+from an installed integration whether or not it is enabled, since a project's label is applied at claim time,
+and an untrusted manifest or directory does not yield any value, under the same trust rules as the resolver. It then
+drives the empty-set verdict the updater reads once the resolver printed an empty set: each refused input,
+and an allowlist none of whose names resolved, reads `fault` with the path and the owner and mode named on one line,
+while an empty allowlist, an empty manifest directory, and a set of `default_enable=no` manifests read `none` —
+the split that decides whether the updater exits `1` or maintains `npm` and exits `0`.
 
-`claude-prompt.sh` and `claude-endpoint.sh` are the runtime half of the custom system prompt and
-custom API endpoint (see [launch](launch.rule.md) and [providers](providers.rule.md)). Each drives
-its resolver over a root-only base-dir override and asserts the surface-widening guard: a prompt or
-endpoint file the sandbox account could influence (group/other-writable, a symlink, a writable base
-or `operator.conf`), one outside the trusted base, or otherwise invalid, resolves to **no injection
-or a launch refusal**, never to passing an untrusted or wrong value to Claude Code. `claude-endpoint.sh`
-additionally pins that only the four recognised keys are read (an arbitrary key never becomes session
-environment) and that the auth token is imported by name (its value never appears in the resolved
-arguments). The agent-side half of both — the files and libs are not agent-writable — is in
-`boundary/access.sh`.
+`claude-prompt.sh` and `claude-endpoint.sh` are the runtime half of the custom system prompt and custom API endpoint
+(see [launch](launch.rule.md) and [providers](providers.rule.md)). Each drives its resolver over a root-only base-dir
+override and asserts the surface-widening guard: a prompt or endpoint file the sandbox account could influence
+(group/other-writable, a symlink, a writable base or `operator.conf`), one outside the trusted base, or otherwise
+invalid, resolves to **no injection or a launch refusal**, never to passing an untrusted or wrong value to Claude Code.
+`claude-endpoint.sh` additionally pins that only the four recognised keys are read (an arbitrary key never becomes
+session environment) and that the auth token is imported by name (its value never appears in the resolved arguments).
+The agent-side half of both — the files and libs are not agent-writable — is in `boundary/access.sh`.
 
-`filters.sh` pins the token-saving command filters (`filters.lib.sh`, see
-[filters](filters.rule.md)). Filtering is not a boundary, so what the file asserts is that every
-way a rule can fail to fit lands on **pass-through** — the command as the agent wrote it: the
-shape allowlist (a pipeline, redirect, quote, substitution or glob is never rewritten), the
-blocking words that let the agent's own flag win, rule precedence, the `AI_TOOLS_FILTERS` switch
-including its empty-value kill form, and each untrusted rules file or directory. Its noise-strip
-section pins the other half of the contract — control bytes go, every line survives.
+`filters.sh` pins the token-saving command filters (`filters.lib.sh`, see [filters](filters.rule.md)). Filtering is not
+a boundary, so what the file asserts is that every way a rule can fail to fit lands on **pass-through** — the command
+as the agent wrote it: the shape allowlist (a pipeline, redirect, quote, substitution or glob is never rewritten),
+the blocking words that let the agent's own flag win, rule precedence, the `AI_TOOLS_FILTERS` switch including its
+empty-value kill form, and each untrusted rules file or directory. Its noise-strip section pins the other half
+of the contract — control bytes go, every line survives.
 
-`settings-merge.sh` pins `install.sh`'s hook-declaration reconciler, the step that lets a newly
-shipped hook reach a host whose `settings.json` is kept across an upgrade (see
-[claude-settings](claude-settings.rule.md)). It edits an operator-owned control-plane file and
-every way it can go wrong is quiet, so the assertions come in three groups — what must **arrive**
-(each shipped declaration the kept file lacks), what must **survive** (the handback declaration,
-the permission arrays, a relaxed deny entry, an operator's own hook), and what must be **said**
-(the report names every addition, since the operator reviews the install log rather than the
-JSON) — plus the two sidecars, which answer different questions and do not substitute for each
-other: `.bak` is what the operator had, `.shipped` is what they were meant to get, written only
-when the merge could not run. It drives the deployed `conf.lib.sh` directly, like the other
-library unit tests: the decision lives there rather than in `install.sh` precisely so it can be
-exercised without stubs or text extraction, and the installer keeps only the rendering.
+`settings-merge.sh` pins `install.sh`'s hook-declaration reconciler, the step that lets a newly shipped hook reach
+a host whose `settings.json` is kept across an upgrade (see [claude-settings](claude-settings.rule.md)). It edits
+an operator-owned control-plane file and every way it can go wrong is quiet, so the assertions come in three groups —
+what must **arrive** (each shipped declaration the kept file lacks), what must **survive** (the handback declaration,
+the permission arrays, a relaxed deny entry, an operator's own hook), and what must be **said** (the report names every
+addition, since the operator reviews the install log rather than the JSON) — plus the two sidecars, which answer
+different questions and do not substitute for each other: `.bak` is what the operator had, `.shipped` is what they were
+meant to get, written only when the merge could not run. It drives the deployed `conf.lib.sh` directly, like the other
+library unit tests: the decision lives there rather than in `install.sh` precisely so it can be exercised without stubs
+or text extraction, and the installer keeps only the rendering.
 
-`install-guards.sh` is the other `install.sh` unit test, and it covers the decision that sits
-before the dispatch: which account the install enrols. Every refusal is driven through
-`--operator`, the one route by which a name reaches that decision without a terminal (the prompt
-reads `/dev/tty`, so its branch is not drivable here) — root, the sandbox account, an account that
-does not exist, and the flag's own valueless form. Each case runs the installer with an
-unrecognized action, so a run that reaches the dispatch at all prints usage and exits having
-written no state, which is also how "admitted" is asserted. Beyond the refusals it pins what the
-flag does **not** decide: a `SUDO_USER=root` invocation naming a usable operator is admitted,
-while the same invocation naming nobody is refused, so the flag chooses who is enrolled and never
-how the script was invoked. Its second section drives the **source-tree gate** through
-`install.sh check-tree`, which runs the gate alone, against a fixture checkout the test builds (a copy
-of the installer with the libraries it sources, in a repository of its own): a clean tree passes and
-names its commit, an uncommitted tree is refused with its paths listed and the flag named, a path the
-sandbox account owns is marked `[agent]`, `--allow-uncommitted` admits the same tree with a warning,
-and a tree without a `.git` directory passes with no commit to name. A fixture, and the action that
-leaves the host unchanged, because the real checkout reports whatever state the developer left it in
-and an `install` run against a fixture would install from it if the gate ever failed open.
+`install-guards.sh` is the other `install.sh` unit test, and it covers the decision that sits before the dispatch:
+which account the install enrols. Every refusal is driven through `--operator`, the one route by which a name reaches
+that decision without a terminal (the prompt reads `/dev/tty`, so its branch is not drivable here) — root, the sandbox
+account, an account that does not exist, and the flag's own valueless form. Each case runs the installer
+with an unrecognized action, so a run that reaches the dispatch at all prints usage and exits having written no state,
+which is also how "admitted" is asserted. Beyond the refusals it pins what the flag does **not** decide:
+a `SUDO_USER=root` invocation naming a usable operator is admitted, while the same invocation naming nobody is refused,
+so the flag chooses who is enrolled and never how the script was invoked. Its second section drives the **source-tree
+gate** through `install.sh check-tree`, which runs the gate alone, against a fixture checkout the test builds (a copy
+of the installer with the libraries it sources, in a repository of its own): a clean tree passes and names its commit,
+an uncommitted tree is refused with its paths listed and the flag named, a path the sandbox account owns is marked
+`[agent]`, `--allow-uncommitted` admits the same tree with a warning, and a tree without a `.git` directory passes
+with no commit to name. A fixture, and the action that leaves the host unchanged, because the real checkout reports
+whatever state the developer left it in and an `install` run against a fixture would install from it if the gate ever
+failed open.
 
-`postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade`
-end to end, from dispatch through the registry to each treatment (see
-[providers](providers.rule.md) and [claude-settings](claude-settings.rule.md)). It asserts which
-treatment each file got — the settings JSON merged with its permission rules intact and a dated
-`.bak` written first, `operator.conf` reported and byte-identical afterwards, the sudoers grant
-shown and neither written nor dropped (its fixture is a grant of everything to everyone, so a
-silent adoption fails loudly) — plus the property every case shares: the `.rpmnew` survives the run
-and is named as the operator's to delete, the case where the merge leaves the two files matching
-included. Every run is under `setsid`, so each prompt takes its own default: that is the
-unattended behaviour and what makes an interactive command reproducible. The agent-side half of
-the pair is already deployed: `boundary/access.sh` covers `settings.json` and the helper
-directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`, and
-`boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
+`postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade` end to end,
+from dispatch through the registry to each treatment (see [providers](providers.rule.md)
+and [claude-settings](claude-settings.rule.md)). It asserts which treatment each file got — the settings JSON merged
+with its permission rules intact and a dated `.bak` written first, `operator.conf` reported and byte-identical
+afterwards, the sudoers grant shown and neither written nor dropped (its fixture is a grant of everything to everyone,
+so a silent adoption fails loudly) — plus the property every case shares: the `.rpmnew` survives the run and is named
+as the operator's to delete, the case where the merge leaves the two files matching included. Every run is
+under `setsid`, so each prompt takes its own default: that is the unattended behaviour and what makes an interactive
+command reproducible. The agent-side half of the pair is already deployed: `boundary/access.sh` covers `settings.json`
+and the helper directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`,
+and `boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
 
-`admin-commands.sh` pins the seam that lets a provider package add a domain to `ai-tools-admin`
-(see [providers](providers.rule.md)). What it drives is a dispatch that **execs a file as root**, so
-every assertion targets a way discovery could widen the surface: a group-writable or non-root-owned
-fragment, a group-writable directory, a fragment claiming a base name (`system`, and the reserved
-`status`), and a basename outside the domain charset are each driven and asserted to leave the
-command surface smaller, with the refusal reported — and a path-shaped command name must read as an
-unknown command rather than reaching an exec, since membership of the discovered set is the gate
-and not the string. The positive half is the same contract from the other side: a trusted fragment
-is exec'd with the remaining arguments intact, and `--help` lists exactly what dispatches, summary
-included, because a help and a dispatch that disagree is the failure one discovery function exists
-to prevent. Fixtures are root-owned by construction — anything else is untrusted, which is the
-point — and the deployed helper reads them through `AI_TOOLS_ADMIN_COMMANDS_DIR`. Its boundary half
-is in `boundary/providers.sh`: the agent cannot write the directory or any fragment in it.
+`admin-commands.sh` pins the seam that lets a provider package add a domain to `ai-tools-admin` (see
+[providers](providers.rule.md)). What it drives is a dispatch that **execs a file as root**, so every assertion targets
+a way discovery could widen the surface: a group-writable or non-root-owned fragment, a group-writable directory,
+a fragment claiming a base name (`system`, and the reserved `status`), and a basename outside the domain charset are
+each driven and asserted to leave the command surface smaller, with the refusal reported — and a path-shaped command
+name must read as an unknown command rather than reaching an exec, since membership of the discovered set is the gate
+and not the string. The positive half is the same contract from the other side: a trusted fragment is exec'd
+with the remaining arguments intact, and `--help` lists exactly what dispatches, summary included, because a help
+and a dispatch that disagree is the failure one discovery function exists to prevent. Fixtures are root-owned
+by construction — anything else is untrusted, which is the point — and the deployed helper reads them
+through `AI_TOOLS_ADMIN_COMMANDS_DIR`. Its boundary half is in `boundary/providers.sh`: the agent cannot write
+the directory or any fragment in it.
 
-`admin-operator-add.sh` pins the other reported decision that command makes: the line
-`operators add` closes with, naming which of the two operator shapes the enrolment produced. The
-verdict is read out of `sudo -l -U`, so what the file drives is the direction that misleads — a
-sudo which fails for its own reasons must read as *undetermined* rather than as a verdict about
-the account, since an administrator acts on that line at the moment of the decision and a false
-"no grant" sends them to a `--for` workflow they do not need. `sudo` is stubbed as a shell
-function and the helper is **sourced** rather than run (its root check and its dispatch are
-guarded for exactly that), so one function is driven with no host to administer and no state
-written anywhere; each case runs in its own `bash`, because the helper and the harness both
-declare `SANDBOX_USER` readonly. Its second section covers the enrolment's other edit — the guard
-line that sources the PATH ordering fragment, which is what ranks the wrapper ahead of the nvm
-shims — by
-driving
-`wire_init_file` against fixture files in the testdir. Two of the three assertions are about a file
-the command **creates**: `~/.bash_profile` is what bash reads at login, so the fixture home is run
-through a real `bash -l` to assert the account's `.bashrc` is still read through it, and a file the
-operator already has keeps its content and takes one guard line however often the accumulating
-`operators add` runs.
+`admin-operator-add.sh` pins the other reported decision that command makes: the line `operators add` closes
+with, naming which of the two operator shapes the enrolment produced. The verdict is read out of `sudo -l -U`,
+so what the file drives is the direction that misleads — a sudo which fails for its own reasons must read
+as *undetermined* rather than as a verdict about the account, since an administrator acts on that line at the moment
+of the decision and a false "no grant" sends them to a `--for` workflow they do not need. `sudo` is stubbed as a shell
+function and the helper is **sourced** rather than run (its root check and its dispatch are guarded for exactly
+that), so one function is driven with no host to administer and no state written anywhere; each case runs in its own
+`bash`, because the helper and the harness both declare `SANDBOX_USER` readonly. Its second section covers
+the enrolment's other edit — the guard line that sources the PATH ordering fragment, which is what ranks the wrapper
+ahead of the nvm shims — by driving `wire_init_file` against fixture files in the testdir. Two of the three assertions
+are about a file the command **creates**: `~/.bash_profile` is what bash reads at login, so the fixture home is run
+through a real `bash -l` to assert the account's `.bashrc` is still read through it, and a file the operator already has
+keeps its content and takes one guard line however often the accumulating `operators add` runs.
 
-Its third section covers the enrolment's first step, `ensure_config_home`: the account's `~/.config`
-is where the allowlist is seeded, and a first enrolment that cannot write one is refused with the
-host unchanged ([cli-grammar](cli-grammar.rule.md) spells the command; the helper's header carries
-the ordering), so what the directory costs and who decides its mode are both asserted. The host's
-umask decides that mode, which is driven by running one function under two umasks, while an
-existing `~/.config` keeps whatever mode the account gave it. The default-yes confirm is answered
-**without drawing it** — `AI_TOOLS_ASSUME_YES` for the yes cases, a stubbed
-`ai_tools_msg_confirm` for the declined one — since a prompt that reached `/dev/tty` would block
-the suite until the per-file timeout killed it; the one case that must answer from the default
-runs under `setsid`, which is the unattended enrolment and the reason the default is yes. The two
-refusals complete the set: a declined prompt and a `~/.config` that is a file each report their
-code and return non-zero, which is what makes `op_add` refuse.
+Its third section covers the enrolment's first step, `ensure_config_home`: the account's `~/.config` is
+where the allowlist is seeded, and a first enrolment that cannot write one is refused with the host unchanged
+([cli-grammar](cli-grammar.rule.md) spells the command; the helper's header carries the ordering), so what the directory
+costs and who decides its mode are both asserted. The host's umask decides that mode, which is driven by running one
+function under two umasks, while an existing `~/.config` keeps whatever mode the account gave it. The default-yes
+confirm is answered **without drawing it** — `AI_TOOLS_ASSUME_YES` for the yes cases, a stubbed `ai_tools_msg_confirm`
+for the declined one — since a prompt that reached `/dev/tty` would block the suite until the per-file timeout killed
+it; the one case that must answer from the default runs under `setsid`, which is the unattended enrolment and the reason
+the default is yes. The two refusals complete the set: a declined prompt and a `~/.config` that is a file each report
+their code and return non-zero, which is what makes `op_add` refuse.
 
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
-[launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools --status` re-checks
-with, and `ai-tools-admin system bootstrap` reports from. What gives it teeth is the direction each
-answer sends an operator: a launcher resolving outside `/usr/local/bin` means typing its name
-starts an **unconfined** agent, so a verdict reading that state as fine would turn the one
-question standing between an operator and an unsandboxed session into a formality, while one
-reporting a shadow whenever a probe could not be read would teach them to ignore it. The truth table is therefore
-driven whole, in both directions, and so are the two inputs that reach a shell or a terminal —
-the launcher name interpolated into a command run as another account, and the path that command
-prints back. The repoint a rename owes a deployed host is the other half: it is the one edit this
-project makes to an operator's shell init without asking, so what is asserted is the bound on it —
-one path token, inside a line this project wrote, with the rest of the file byte-identical, a file
-naming neither path untouched, the mode preserved, no sidecar written, and a second pass a
-no-op. The decision is pure and the probing separate (the split `confinement.sh` drives),
-so the file drives the table with no account to probe and **without root**; the two impure readers
-are driven with their dependencies stubbed as shell functions, which is also how the publishing
-contract is asserted from a real caller under `set -u`. The per-operator report is pinned with
-them, in both directions: a shadowed account is named with its launcher and the binary that wins
-the PATH search, and an account in any other state — one whose reading could not be taken
-included — is named by no line, so the report names an account only where typing the launcher
-starts an agent outside the wrapper.
+[launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools status` re-checks
+with, and `ai-tools-admin system bootstrap` reports from. What gives it teeth is the direction each answer sends
+an operator: a launcher resolving outside `/usr/local/bin` means typing its name starts an **unconfined** agent,
+so a verdict reading that state as fine would turn the one question standing between an operator and an unsandboxed
+session into a formality, while one reporting a shadow whenever a probe could not be read would teach them to ignore it.
+The truth table is therefore driven whole, in both directions, and so are the two inputs that reach a shell
+or a terminal — the launcher name interpolated into a command run as another account, and the path that command prints
+back. The repoint a rename owes a deployed host is the other half: it is the one edit this project makes
+to an operator's shell init without asking, so what is asserted is the bound on it — one path token, inside a line this
+project wrote, with the rest of the file byte-identical, a file naming neither path untouched, the mode preserved, no
+sidecar written, and a second pass a no-op. The decision is pure and the probing separate (the split `confinement.sh`
+drives), so the file drives the table with no account to probe and **without root**; the two impure readers are driven
+with their dependencies stubbed as shell functions, which is also how the publishing contract is asserted from a real
+caller under `set -u`. The per-operator report is pinned with them, in both directions: a shadowed account is named
+with its launcher and the binary that wins the PATH search, and an account in any other state — one whose reading could
+not be taken included — is named by no line, so the report names an account only where typing the launcher starts
+an agent outside the wrapper.
 
-`agent-installs.sh` pins which agents a host carries besides the sandbox's (`agent-installs.lib.sh`),
-the reading `install.sh` and the `ai-tools-base` `%post` report from. What it holds is the shape of
-a host: on a usr-merged host `/bin` and `/usr/bin` are one directory, so one file answers to two
-spellings and must report as one install with the other spelling beside it, while two separate
-binaries are two things to decide about. The inputs that must yield no line are
-driven with them — a launcher name outside the charset, a file without the executable bit, a
-directory that is absent, and a path no package owns, which is what the owner lookup gives a host
-without rpm. The search takes its directories as arguments, so the fixtures are a tree the file
-builds; it needs the executable bit to be **visible** there, which a noexec mount and a label that
-withholds execute each hide, so it probes the directory the fixtures live in and falls back to one
-beside the operator's home.
+`agent-installs.sh` pins which agents a host carries besides the sandbox's (`agent-installs.lib.sh`), the reading
+`install.sh` and the `ai-tools-base` `%post` report from. What it holds is the shape of a host: on a usr-merged host
+`/bin` and `/usr/bin` are one directory, so one file answers to two spellings and must report as one install
+with the other spelling beside it, while two separate binaries are two things to decide about. The inputs that must
+yield no line are driven with them — a launcher name outside the charset, a file without the executable bit, a directory
+that is absent, and a path no package owns, which is what the owner lookup gives a host without rpm. The search takes
+its directories as arguments, so the fixtures are a tree the file builds; it needs the executable bit to be **visible**
+there, which a noexec mount and a label that withholds execute each hide, so it probes the directory the fixtures live
+in and falls back to one beside the operator's home.
 
-`bootstrap.sh` pins the report `ai-tools-admin system bootstrap` closes with: which enrolled
-operators a launcher would not reach the wrapper for. It is the last thing said before a host is
-treated as ready, so both directions are driven — a shadowed account named with its launcher and
-the binary that wins, every other state named by no line — along with what the message tells the
-operator to do, that finding a fault does not become the command's exit status, and that no init
-file is written. The helper is **sourced**, stopping at the guard before its provisioning, so one
-function is driven with no toolchain to install; the libraries are sourced before the stubs, where
-the include guard makes the helper's own `source` a no-op and the stubs stand. The reading beneath
-it is `path-order.sh`'s to pin, and the paths a case drives are the ones a host presents: an
-operator's own `npm i -g` under their nvm, and the agent's distribution package at `/usr/bin/claude`
-and `/bin/claude`.
+`bootstrap.sh` pins the report `ai-tools-admin system bootstrap` closes with: which enrolled operators a launcher would
+not reach the wrapper for. It is the last thing said before a host is treated as ready, so both directions are driven —
+a shadowed account named with its launcher and the binary that wins, every other state named by no line —
+along with what the message tells the operator to do, that finding a fault does not become the command's exit status,
+and that no init file is written. The helper is **sourced**, stopping at the guard before its provisioning, so one
+function is driven with no toolchain to install; the libraries are sourced before the stubs, where the include guard
+makes the helper's own `source` a no-op and the stubs stand. The reading beneath it is `path-order.sh`'s to pin,
+and the paths a case drives are the ones a host presents: an operator's own `npm i -g` under their nvm, and the agent's
+distribution package at `/usr/bin/claude` and `/bin/claude`.
 
-`services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools --status` and
-the launch wrapper's pre-launch warning share. Two properties carry weight beyond the accessors.
-The **last-run stamp** is the one input here a non-root writer controls and it is rendered to the
-operator's terminal, so every way a hostile or corrupt value could reach that terminal — a
-symlinked stamp, a control byte or escape sequence, an over-long or unanchored line — is driven
-and must read as *no value*, degrading the unit to `unknown` rather than to a wrong verdict. And
-the age reader takes the key it reads (default `FINISHED`), because the entrypoint pin
-records a `VERIFIED` time in the same grammar and both must age through one implementation — so the
-default is pinned too, a regression there silently turning every existing caller's age unknown. And
-the **freshness** mapping exists for a failure a `RESULT` cannot express — every recorded run
-succeeds while the schedule driving them has stopped — so the file asserts that a successful run
-goes `stale` past `max_age`, that a failed one stays `failed` at any age, that an unknown or
-future-dated age never manufactures staleness out of an absence, and that `fired` mode reads
-recency alone, letting one stamp yield two verdicts (a healthy trigger beside the failed run it
-started). The same "the trigger is not the run" split appears for **system** units: a `Type=oneshot`
-service is inactive whenever it is healthy, so the file drives its three states from unit properties
-— never run reads `unknown` rather than an OK it has not earned, a successful last run reads OK
-though `is-active` would say DOWN, and a failed one reads FAILED and needs attention — plus that a
-unit with no `Type` is still judged by `is-active`, and that the launch wrapper's filter does not
-select `ai-tools-relabel.service` (the `.path` already carries that warning). `systemctl` is stubbed
-as a shell function, so no real unit is touched.
+`services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools status` and the launch wrapper's
+pre-launch warning share. Two properties carry weight beyond the accessors. The **last-run stamp** is the one input here
+a non-root writer controls and it is rendered to the operator's terminal, so every way a hostile or corrupt value could
+reach that terminal — a symlinked stamp, a control byte or escape sequence, an over-long or unanchored line — is driven
+and must read as *no value*, degrading the unit to `unknown` rather than to a wrong verdict. And the age reader takes
+the key it reads (default `FINISHED`), because the entrypoint pin records a `VERIFIED` time in the same grammar and both
+must age through one implementation — so the default is pinned too, a regression there silently turning every existing
+caller's age unknown. And the **freshness** mapping exists for a failure a `RESULT` cannot express — every recorded run
+succeeds while the schedule driving them has stopped — so the file asserts that a successful run goes `stale` past
+`max_age`, that a failed one stays `failed` at any age, that an unknown or future-dated age never manufactures staleness
+out of an absence, and that `fired` mode reads recency alone, letting one stamp yield two verdicts (a healthy trigger
+beside the failed run it started). The same "the trigger is not the run" split appears for **system** units:
+a `Type=oneshot` service is inactive whenever it is healthy, so the file drives its three states from unit properties —
+never run reads `unknown` rather than an OK it has not earned, a successful last run reads OK though `is-active` would
+say DOWN, and a failed one reads FAILED and needs attention — plus that a unit with no `Type` is still judged
+by `is-active`, and that the launch wrapper's filter does not select `ai-tools-relabel.service` (the `.path` already
+carries that warning). `systemctl` is stubbed as a shell function, so no real unit is touched.
 
-Its last section covers the **live reading a root caller adds** — the machine transport
-`ai-tools-admin status` reaches a sandbox-user unit through ([cli](cli.rule.md)). The verdict that
-reading feeds is the pure `ai_tools_service_stamp_verdict`, split out from the probing for exactly
-this reason (the same split `ai_tools_confinement_verdict` makes for the launch decision), so the
-whole truth table is driven with no manager to query and no privilege to hold — a test cannot fake
-root, `EUID` being readonly. Every case is one of two claims, and both are one-directional. A live
-reading may only **add** an answer where the stamp declined to give one, so a caller whose live
-reading is `unknown` — every unprivileged one — reports exactly what it reported before the
-transport existed; and a live `active` is **not** a clean bill, since for a timer it says the
-schedule is loaded rather than that runs are happening, so the stamp still decides freshness and a
-`stale` or `skipped` verdict survives it. The probe's own gate is asserted from the side that
-matters: with no sandbox account named, and (off a root run) for a non-root caller, it is not
-offered at all — while the **system** scope stays readable by any caller, since reading that one as
-privileged would silently stop the launch wrapper's pre-launch warning from checking anything.
+Its last section covers the **live reading a root caller adds** — the machine transport `ai-tools-admin status` reaches
+a sandbox-user unit through ([cli](cli.rule.md)). The verdict that reading feeds is the pure
+`ai_tools_service_stamp_verdict`, split out from the probing for exactly this reason (the same split
+`ai_tools_confinement_verdict` makes for the launch decision), so the whole truth table is driven with no manager
+to query and no privilege to hold — a test cannot fake root, `EUID` being readonly. Every case is one of two claims,
+and both are one-directional. A live reading may only **add** an answer where the stamp declined to give one,
+so a caller whose live reading is `unknown` — every unprivileged one — reports exactly what it reported
+before the transport existed; and a live `active` is **not** a clean bill, since for a timer it says the schedule is
+loaded rather than that runs are happening, so the stamp still decides freshness and a `stale` or `skipped` verdict
+survives it. The probe's own gate is asserted from the side that matters: with no sandbox account named, and (off a root
+run) for a non-root caller, it is not offered at all — while the **system** scope stays readable by any caller, since
+reading that one as privileged would silently stop the launch wrapper's pre-launch warning from checking anything.
 
-`relabel.sh` pins the other manifest-supplied decision with a security consequence: the
-entrypoint file-context predicate (`relabel.lib.sh`). A declared pattern becomes a `semanage`
-rule granting `ai_tools_exec_t`, the confined domain's exec entrypoint, so the test drives every
-way a pattern could name something outside the sandbox toolchain (traversal, alternation, a
-foreign prefix) and asserts each is refused — plus that the type is the library's constant, never
-manifest-supplied. `ai_tools_operator_conf_valid` is driven the same way, over the path that
-becomes an `ai_tools_conf_t` rule: its input is a home read from a passwd entry, so a wildcard, an
-alternation, or a bracket expression there must be refused rather than widening the rule to homes
-nobody enrolled, and the pattern it builds must escape every dot. It then pins the two pure decisions behind the declared-vs-installed
-reconciliation: `ai_tools_entrypoint_reconcile_verdict` over its whole truth table — where `stale`
-is the verdict that must fail a relabel, being the one cause a rerun cannot clear, and an
-uninterpretable flag must err toward it rather than toward blessing a divergence — and
-`_ai_tools_entrypoint_path_reportable`, the allowlist that keeps an agent-influenced path from
-splitting a status line or carrying an escape sequence to the operator's terminal. Both are pure,
-so they need no provisioned host; the resolution they consume is exercised in
-`integration/selinux.sh`.
+`relabel.sh` pins the other manifest-supplied decision with a security consequence: the entrypoint file-context
+predicate (`relabel.lib.sh`). A declared pattern becomes a `semanage` rule granting `ai_tools_exec_t`, the confined
+domain's exec entrypoint, so the test drives every way a pattern could name something outside the sandbox toolchain
+(traversal, alternation, a foreign prefix) and asserts each is refused — plus that the type is the library's constant,
+never manifest-supplied. `ai_tools_operator_conf_valid` is driven the same way, over the path that becomes
+an `ai_tools_conf_t` rule: its input is a home read from a passwd entry, so a wildcard, an alternation, or a bracket
+expression there must be refused rather than widening the rule to homes nobody enrolled, and the pattern it builds must
+escape every dot. It then pins the two pure decisions behind the declared-vs-installed reconciliation:
+`ai_tools_entrypoint_reconcile_verdict` over its whole truth table — where `stale` is the verdict that must fail
+a relabel, being the one cause a rerun cannot clear, and an uninterpretable flag must err toward it rather than toward
+blessing a divergence — and `_ai_tools_entrypoint_path_reportable`, the allowlist that keeps an agent-influenced path
+from splitting a status line or carrying an escape sequence to the operator's terminal. Both are pure, so they need no
+provisioned host; the resolution they consume is exercised in `integration/selinux.sh`.
 
-The build-output rule beside the project rule (see [dotnet](dotnet.rule.md)) is driven with the
-manifest reader, `semanage` and `restorecon` stubbed: the pattern unions the names every installed
-integration declares in C-locale order, refuses a name carrying a path or a regex metacharacter
-(a manifest could otherwise widen the rule past the directories it names) and escapes a dot; a
-label registers the project rule first and the build rule second, since among rules sharing a stem
-the later one is the match; a build rule the store refuses fails the label rather than being
-skipped; a sandbox clone registers neither; and an unlabel drops the build rule it finds by
-**listing** the local rules under the project rule — an older name set included, a sibling
-project's rule untouched, a pattern with a space parsed whole — so no rule outlives the claim on a
-subtree the confined domain manages.
+The build-output rule beside the project rule (see [dotnet](dotnet.rule.md)) is driven with the manifest reader,
+`semanage` and `restorecon` stubbed: the pattern unions the names every installed integration declares in C-locale
+order, refuses a name carrying a path or a regex metacharacter (a manifest could otherwise widen the rule past
+the directories it names) and escapes a dot; a label registers the project rule first and the build rule second, since
+among rules sharing a stem the later one is the match; a build rule the store refuses fails the label rather than being
+skipped; a sandbox clone registers neither; and an unlabel drops the build rule it finds by **listing** the local rules
+under the project rule — an older name set included, a sibling project's rule untouched, a pattern with a space parsed
+whole — so no rule outlives the claim on a subtree the confined domain manages.
 
-Two further sections cover what happens when a rule does **not** register, with `semanage` stubbed
-as a shell function so no policy store is touched. The first asserts the refusal carries
-`semanage`'s stderr, collapsed to one line, and that it arrives on the **status line** rather than
-in a variable — the labelling runs inside a `$(...)` in `ai-tools-relabel-agent`, so a variable set
-there is gone by the time the renderer reads it, and the assertion is made through that same
-capture. It also pins the stream split in the other direction: `semanage`'s stdout must never reach
-the caller, which parses that stream as verdict lines. The second drives `ai_tools_relabel_lock`
-across real processes — a held lock is reported as held, the contended run proceeds anyway, the
-lock is released when its holder exits, and an uncreatable lock file is reported rather than fatal.
-A third pins the per-agent verdict each agent's report closes with, which is what
-`ai-tools-relabel-agent` files for `ai-tools --status`: both halves stubbed, over the whole truth
-table. Two entries carry the weight — a path that is not installed yet must read as "nothing to
-label" rather than as labels applied, and must not fail the run, or every host would report green
-before provisioning and non-zero after it.
+Two further sections cover what happens when a rule does **not** register, with `semanage` stubbed as a shell function
+so no policy store is touched. The first asserts the refusal carries `semanage`'s stderr, collapsed to one line,
+and that it arrives on the **status line** rather than in a variable — the labelling runs inside a `$(...)`
+in `ai-tools-relabel-agent`, so a variable set there is gone by the time the renderer reads it, and the assertion is
+made through that same capture. It also pins the stream split in the other direction: `semanage`'s stdout must never
+reach the caller, which parses that stream as verdict lines. The second drives `ai_tools_relabel_lock` across real
+processes — a held lock is reported as held, the contended run proceeds anyway, the lock is released when its holder
+exits, and an uncreatable lock file is reported rather than fatal. A third pins the per-agent verdict each agent's
+report closes with, which is what `ai-tools-relabel-agent` files for `ai-tools status`: both halves stubbed,
+over the whole truth table. Two entries carry the weight — a path that is not installed yet must read as "nothing
+to label" rather than as labels applied, and must not fail the run, or every host would report green before provisioning
+and non-zero after it.
 
-A fourth covers the **read-only** live-label report `ai-tools-admin status` renders, which answers a
-different question from the relabel beside it: what type each agent path carries now, rather than
-what the last run achieved. Two properties carry the weight. It must not write — a status command
-that relabelled the host it is reporting on would change the state it describes, and would need a
-policy-store lock to do it — so `restorecon` and `semanage` are stubbed to leave a marker on disk
-(both run inside a `$(...)` where a failed assertion would not survive) and the section is judged
-on the markers still being absent. And the **field order** is a contract: the consumer reads each
-line with a plain `read`, so an unreadable label must report `unknown` rather than an empty field
-that would shift every later field left, rendering a type where a path belongs in a report whose
-whole job is to be believed. `CP_HOME` is a readonly constant, so the config directory cannot be
-moved into the testdir; the fixture agent's name is one no package ships, which makes that half
-report deterministically as not installed and leaves the entrypoint half to carry the type
-comparisons.
+A fourth covers the **read-only** live-label report `ai-tools-admin status` renders, which answers a different question
+from the relabel beside it: what type each agent path carries now, rather than what the last run achieved. Two
+properties carry the weight. It must not write — a status command that relabelled the host it is reporting on would
+change the state it describes, and would need a policy-store lock to do it — so `restorecon` and `semanage` are stubbed
+to leave a marker on disk (both run inside a `$(...)` where a failed assertion would not survive) and the section is
+judged on the markers still being absent. And the **field order** is a contract: the consumer reads each line
+with a plain `read`, so an unreadable label must report `unknown` rather than an empty field that would shift every
+later field left, rendering a type where a path belongs in a report whose whole job is to be believed. `CP_HOME` is
+a readonly constant, so the config directory cannot be moved into the testdir; the fixture agent's name is one no
+package ships, which makes that half report deterministically as not installed and leaves the entrypoint half to carry
+the type comparisons.
 
-`entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`,
-see [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an
-absent pin must read as `unpinned` and never as a mismatch (collapsing them would report a fresh
-install as tamper, or — inverted — bless a tampered one); a checksum is admitted only in exact
-64-hex shape, so malformed JSON, an absent platform, or a crafted value yields an empty result rather than
-a value that could compare equal to a partial observation; a URL template with no `{version}` slot
-is refused rather than fetched as-is, since one manifest for every version reads as "verified"
-while checking a release it never looked at; and the template charset excludes every character that could
-carry a shell metacharacter or a traversal into `curl`. It also pins the public pin path, which `ai-tools --status` reads to report verification
-state: an agent name becomes a path component, so a name that could escape the pin directory must
-yield an empty result. Its pin-reuse section covers the shortcut the unattended callers take (see
-[updater](updater.rule.md)), where the failure direction is the opposite of the rest of the file: a
-reused verdict is indistinguishable downstream from a fresh one, so each assertion drives a way the
-predicate could answer a question it was not asked — a changed checksum, version, or inputs digest,
-and a pin recording no digest at all. The whole section is guarded on the deployed library carrying
-the predicate, because an absent function exits 127, which every negative case would otherwise read
-as a correct refusal. The label record written beside it is covered the same way — the shared path guard,
-a `RESULT` outside the vocabulary refused rather than filed (an unrecognised value reads as "never
-relabelled", which is a different report from the one it meant to make), a reason that is not a
-token dropped rather than written where the reader's charset clamp would silently lose it, and a
-round trip asserted through `services.lib.sh`'s **real** accessors, since a record and its reader
-are worth little unless they agree on the grammar. It closes with the one impure assertion that does not need a vendor: the library refuses a
-**non-root** pin write itself, rather than letting it fail on `EACCES`, so the caller can tell "not
-permitted" from "the directory is missing". The
-signed-manifest probe is not driven here — it needs the vendor's live endpoint, `gpgv`, and a
-300 MB hash — and its boundary half (neither the pin, the pin directory, the shipped key, nor the
-library is agent-writable) is in `boundary/access.sh`.
+`entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`, see
+[updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an absent pin must read
+as `unpinned` and never as a mismatch (collapsing them would report a fresh install as tamper, or — inverted — bless
+a tampered one); a checksum is admitted only in exact 64-hex shape, so malformed JSON, an absent platform, or a crafted
+value yields an empty result rather than a value that could compare equal to a partial observation; a URL template
+with no `{version}` slot is refused rather than fetched as-is, since one manifest for every version reads as "verified"
+while checking a release it never looked at; and the template charset excludes every character that could carry a shell
+metacharacter or a traversal into `curl`. It also pins the public pin path, which `ai-tools status` reads to report
+verification state: an agent name becomes a path component, so a name that could escape the pin directory must yield
+an empty result. Its pin-reuse section covers the shortcut the unattended callers take (see [updater](updater.rule.md)),
+where the failure direction is the opposite of the rest of the file: a reused verdict is indistinguishable downstream
+from a fresh one, so each assertion drives a way the predicate could answer a question it was not asked — a changed
+checksum, version, or inputs digest, and a pin recording no digest at all. The whole section is guarded on the deployed
+library carrying the predicate, because an absent function exits 127, which every negative case would otherwise read
+as a correct refusal. The label record written beside it is covered the same way — the shared path guard, a `RESULT`
+outside the vocabulary refused rather than filed (an unrecognised value reads as "never relabelled", which is
+a different report from the one it meant to make), a reason that is not a token dropped rather than written
+where the reader's charset clamp would silently lose it, and a round trip asserted through `services.lib.sh`'s **real**
+accessors, since a record and its reader are worth little unless they agree on the grammar. It closes with the one
+impure assertion that does not need a vendor: the library refuses a **non-root** pin write itself, rather than letting
+it fail on `EACCES`, so the caller can tell "not permitted" from "the directory is missing". The signed-manifest probe
+is not driven here — it needs the vendor's live endpoint, `gpgv`, and a 300 MB hash — and its boundary half (neither
+the pin, the pin directory, the shipped key, nor the library is agent-writable) is in `boundary/access.sh`.
 
-`handback.sh` covers the handback daemon's own record, and what it asserts of the session unit is
-the fail direction: an unreadable cgroup leaves the field **absent**, and a newline in an
-agent-named path is replaced by the sanitizer, so it does not open a second session-unit field in
-the newline-delimited protocol. The transport case skips where an `AF_UNIX` datagram send is
-refused, since a datagram that never left is not evidence about the daemon.
+`handback.sh` covers the handback daemon's own record, and what it asserts of the session unit is the fail direction:
+an unreadable cgroup leaves the field **absent**, and a newline in an agent-named path is replaced by the sanitizer,
+so it does not open a second session-unit field in the newline-delimited protocol. The transport case skips
+where an `AF_UNIX` datagram send is refused, since a datagram that never left is not evidence about the daemon.
 
-`selinux-groups.sh` pins the optional-group registry (`selinux-groups.lib.sh`, shared by
-`ai-tools-admin selinux` and `install-selinux.sh`): the four-field accessors (including the
-`stability` field, guarding the regression where a fourth pipe field bleeds into the reason), the
-validity predicate the `selinux groups enable` gate depends on (an unknown name is rejected), and the
-`is_experimental` predicate agreeing with the field (it decides whether `selinux groups enable` loads a
-shipped module or refuses and points to the source workflow). And — because the shipped set is
-derived from the registry (`selinux/policy/shipped-modules.sh`, the list the spec's `%build` and
-`install.sh` compile; see [confinement](confinement.rule.md)) — registry↔shipped-set lockstep:
-the derivation yields a non-empty set holding the core, every name on it has a `.te` source, a
-group is on it exactly when the registry marks it **stable** (an experimental group on the list
-would ship unaudited; a stable one off it has no module for `selinux groups enable` to load),
-every policy module on disk is either a registered group or a **layout module** some shipped
-integration manifest declares (`selinux_layout_module`) and is then on the set, and no compiled
-`.pp` is tracked anywhere (a tracked one was built on some other host's headers). The lockstep
-half reads git track-state, so it needs the checkout. Its installed-host counterpart is in
-`integration/perms.sh`, which asserts the staged package directory holds that derived set and no
-other file, at the modes the RPM ships; the container self-test asserts the same set against the
-built `ai-tools-selinux` RPM with `rpm -qlp`. It also pins the former-module seam: each group split out of the old
-`ai_tools_netcore` module names it as its former module, the reverse read yields both groups
-(the set a swap loads in the old module's place, or a host loses the half it did not ask for), a
-group without a former module reports none, and no former name collides with a current group's
-module — the swap would otherwise unload a live group.
+`selinux-groups.sh` pins the optional-group registry (`selinux-groups.lib.sh`, shared by `ai-tools-admin selinux`
+and `install-selinux.sh`): the four-field accessors (including the `stability` field, guarding the regression
+where a fourth pipe field bleeds into the reason), the validity predicate the `selinux groups enable` gate depends
+on (an unknown name is rejected), and the `is_experimental` predicate agreeing with the field (it decides whether
+`selinux groups enable` loads a shipped module or refuses and points to the source workflow). And — because the shipped
+set is derived from the registry (`selinux/policy/shipped-modules.sh`, the list the spec's `%build` and `install.sh`
+compile; see [confinement](confinement.rule.md)) — registry↔shipped-set lockstep: the derivation yields a non-empty set
+holding the core, every name on it has a `.te` source, a group is on it exactly when the registry marks it **stable**
+(an experimental group on the list would ship unaudited; a stable one off it has no module for `selinux groups enable`
+to load), every policy module on disk is either a registered group or a **layout module** some shipped integration
+manifest declares (`selinux_layout_module`) and is then on the set, and no compiled `.pp` is tracked anywhere (a tracked
+one was built on some other host's headers). The lockstep half reads git track-state, so it needs the checkout. Its
+installed-host counterpart is in `integration/perms.sh`, which asserts the staged package directory holds that derived
+set and no other file, at the modes the RPM ships; the container self-test asserts the same set against the built
+`ai-tools-selinux` RPM with `rpm -qlp`. It also pins the former-module seam: each group split out of the old
+`ai_tools_netcore` module names it as its former module, the reverse read yields both groups (the set a swap loads
+in the old module's place, or a host loses the half it did not ask for), a group without a former module reports none,
+and no former name collides with a current group's module — the swap would otherwise unload a live group.
 
-It closes with the registry's one impure accessor, `ai_tools_selinux_group_loaded`, whose failure
-mode is a **race** rather than a wrong answer: `semodule -l` needs several writes to deliver a
-few hundred module names, so reading it as `semodule -l | grep -qx` lets grep exit on the match
-and leaves the writer to die of SIGPIPE, which `pipefail` reports as 141 — a loaded module read as
-absent, about half the time. `semodule` is stubbed as a shell function emitting one line per
-`printf`, so a single-write listing cannot hide the regression, and the probe is driven 25 times
-because one green run is not evidence about a race. The same shape reached production twice (the
-`.TH` check in `man.sh` failed at random on the EL container runners for exactly this reason), so
-each remaining `semodule -l` probe now captures the listing before matching it.
+It closes with the registry's one impure accessor, `ai_tools_selinux_group_loaded`, whose failure mode is a **race**
+rather than a wrong answer: `semodule -l` needs several writes to deliver a few hundred module names, so reading it
+as `semodule -l | grep -qx` lets grep exit on the match and leaves the writer to die of SIGPIPE, which `pipefail`
+reports as 141 — a loaded module read as absent, about half the time. `semodule` is stubbed as a shell function emitting
+one line per `printf`, so a single-write listing cannot hide the regression, and the probe is driven 25 times because
+one green run is not evidence about a race. The same shape reached production twice (the `.TH` check in `man.sh` failed
+at random on the EL container runners for exactly this reason), so each remaining `semodule -l` probe now captures
+the listing before matching it.
 
-**`integration`** — checks that need a completed install and the running system
-(`perms.sh`, `wrapper.sh`, `hooks.sh`, `symlink-helper.sh`, `handback.sh`, `cli.sh`, `cli-flags.sh`,
-`ai-tools-run.sh`, `systemd.sh`, `selinux.sh`): installed-artifact ownership/modes, sudoers
-syntax, the wrapper launched end-to-end (its allowlist gate, `!`-exclusion refusal,
-fail-closed load of `safe-paths.lib.sh`, and consultation of the protected-paths backstop on
-the launch CWD), the handback `socket → daemon → helper` chain (including its negative paths —
-unknown verb, wrong/empty/non-absolute/control-character args, and an out-of-allowlist CHOWN
-all refused), the CLI principal guard (refuses root and the sandbox account), `ai-tools-run`'s
-`AI_TOOLS_AGENT_EXEC` / `AI_TOOLS_PROJECT_DIR` re-validation and its entrypoint gates (a bad value —
-or an entrypoint that does not match its pin — is refused before any session launches — including a real sibling binary in the same versioned `bin` directory, which
-is refused because no enabled agent manifest claims that launcher, and a non-semver version
-directory) plus its pinned session-confinement properties
-(`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the claude-code session-env pins
-(`DISABLE_AUTOUPDATER`, `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE` — asserted by **sourcing** the
-fragment into the two arrays it is contracted to append to, so a fragment that stops appending or
-appends to a renamed array fails rather than silently costing the session its environment), the
-`settings.json` hook + deny-rule declarations, and SELinux labels (the `claude.exe` entrypoint and the handback daemon
-binary). Every assertion about the shim lives in `ai-tools-run.sh` beside it — its input
-validation, the unit properties it pins, and the session env it sources — so a change to the
-shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoint label.
-`selinux.sh` asserts the confinement layer is enforcing: when the
-`ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t` nor
-`ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is
-optional). It also holds the two entrypoint assertions that need a labelled host — that each
-agent's declared file-context rule still covers what its package installed, and that no link in
-the exec chain carries a type the confined domain may manage — and, where the `ai_tools_dotnet`
-layout module is loaded, the build-output labelling that only libselinux can answer: a path under
-one of the module's directories resolves to `ai_tools_project_build_t` and every other clone path
-to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`),
-and a `bin/` directory created in the sandbox area by `unconfined_t` is born on the build type with
-no `restorecon`. It closes by reading the live type of **every** enrolled operator's
-`~/.config/ai-tools`: the rule is per account, and a subtree without it denies the root helpers the
-read that resolves a path's owner, so that operator's projects stop being handed back while every
-DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant need a session, and
-`selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
-`systemd-analyze verify` on each shipped unit, plus enablement in the correct instance —
-the `nvm-update` timer in the sandbox account's own `--user instance`, the relabel watcher
-and handback socket in the system instance. The
-handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers
-with its own environment, so the helper reads the **real** allowlist — and the automated suite
-may not write that allowlist, so `hooks.sh` asserts only what the deployed `settings.json`
-**declares** (the hook entries and the deny rules) and the hooks themselves run in the manual
-script, inside the project it claims. The wrapper test stays hermetic by
-pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`) and runs
-the wrapper under `setsid`, so it never touches the real allowlist or fires a claim prompt.
-Run as root.
+**`integration`** — checks that need a completed install and the running system (`perms.sh`, `wrapper.sh`, `hooks.sh`,
+`symlink-helper.sh`, `handback.sh`, `cli.sh`, `cli-flags.sh`, `ai-tools-run.sh`, `systemd.sh`, `selinux.sh`):
+installed-artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end (its allowlist gate, `!`-exclusion
+refusal, fail-closed load of `safe-paths.lib.sh`, and consultation of the protected-paths backstop on the launch CWD),
+the handback `socket → daemon → helper` chain (including its negative paths — unknown verb,
+wrong/empty/non-absolute/control-character args, and an out-of-allowlist CHOWN all refused), the CLI principal guard
+(refuses root and the sandbox account), `ai-tools-run`'s `AI_TOOLS_AGENT_EXEC` / `AI_TOOLS_PROJECT_DIR` re-validation
+and its entrypoint gates (a bad value — or an entrypoint that does not match its pin — is refused before any session
+launches — including a real sibling binary in the same versioned `bin` directory, which is refused because no enabled
+agent manifest claims that launcher, and a non-semver version directory) plus its pinned session-confinement properties
+(`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the claude-code session-env pins (`DISABLE_AUTOUPDATER`,
+`CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE` — asserted by **sourcing** the fragment into the two arrays it is contracted
+to append to, so a fragment that stops appending or appends to a renamed array fails rather than silently costing
+the session its environment), the `settings.json` hook + deny-rule declarations, and SELinux labels (the `claude.exe`
+entrypoint and the handback daemon binary). Every assertion about the shim lives in `ai-tools-run.sh` beside it — its
+input validation, the unit properties it pins, and the session env it sources — so a change to the shim has one file
+to answer to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh` asserts the confinement layer is
+enforcing: when the `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t`
+nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is optional). It also
+holds the two entrypoint assertions that need a labelled host — that each agent's declared file-context rule still
+covers what its package installed, and that no link in the exec chain carries a type the confined domain may manage —
+and, where the `ai_tools_dotnet` layout module is loaded, the build-output labelling that only libselinux can answer:
+a path under one of the module's directories resolves to `ai_tools_project_build_t` and every other clone path
+to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`), and a `bin/` directory
+created in the sandbox area by `unconfined_t` is born on the build type with no `restorecon`. It closes by reading
+the live type of **every** enrolled operator's `~/.config/ai-tools`: the rule is per account, and a subtree without it
+denies the root helpers the read that resolves a path's owner, so that operator's projects stop being handed back while
+every DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant need a session,
+and `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
+`systemd-analyze verify` on each shipped unit, plus enablement in the correct instance — the `nvm-update` timer
+in the sandbox account's own `--user instance`, the relabel watcher and handback socket in the system instance.
+The handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers with its own
+environment, so the helper reads the **real** allowlist — and the automated suite may not write that allowlist,
+so `hooks.sh` asserts only what the deployed `settings.json` **declares** (the hook entries and the deny rules)
+and the hooks themselves run in the manual script, inside the project it claims. The wrapper test stays hermetic
+by pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`) and runs the wrapper
+under `setsid`, so it never touches the real allowlist or fires a claim prompt. Run as root.
 
-`cli-flags.sh` holds every `ai-tools` command and every option `ai-tools(1)` documents to what it
-**achieves**, and its rows do not read message text, so the command surface can be respelled with
-the file unchanged ([cli-grammar](cli-grammar.rule.md)). A row names a command by a key that
-`lib/cli-spelling.sh` turns into today's tokens, drives the deployed CLI as the projects user with
-`lib/cli-stubs.sh`'s `sudo` shim first on its `PATH`, and reads one of three channels: the helper
-call the CLI made, with its arguments and the directory it was made from (the shim records every
-`sudo <helper>` and execs a stub of the helper without elevating the CLI — the CLI resolves `sudo`
-by name and already runs unprivileged, so the shim is not a hook and the CLI carries none for it);
-the registry or filesystem state left behind, read through the deployed `conf.lib.sh` and fixture
-repositories; or the exit status, paired for a refusal with an empty call log, which asserts the
-ordering rule that a refused command does not call `sudo` first. Every run is under `setsid`, so
-a default-NO prompt declines and `--yes` is observable as the call that then happens. The file
-closes by extracting
-the options the page documents, with `man.sh`'s extractor, and fails on any option without a row
-and on any row driving an option the page dropped. A rename edits the spelling table alone, and
-the file green before and after is the retention proof.
+`cli-flags.sh` holds every `ai-tools` command and every option `ai-tools(1)` documents to what it **achieves**, and its
+rows do not read message text, so the command surface can be respelled with the file unchanged
+([cli-grammar](cli-grammar.rule.md)). A row names a command by a key that `lib/cli-spelling.sh` turns into today's
+tokens ([How a test names a command](#how-a-test-names-a-command)), drives the deployed CLI as the projects user
+with `lib/cli-stubs.sh`'s `sudo` shim first on its `PATH`, and reads one of three channels: the helper call the CLI
+made, with its arguments and the directory it was made from (the shim records every `sudo <helper>` and execs a stub
+of the helper without elevating the CLI — the CLI resolves `sudo` by name and already runs unprivileged, so the shim is
+not a hook and the CLI carries none for it); the registry or filesystem state left behind, read through the deployed
+`conf.lib.sh` and fixture repositories; or the exit status, paired for a refusal with an empty call log, which asserts
+the ordering rule that a refused command does not call `sudo` first. Every run is under `setsid`, so a default-NO prompt
+declines and `--yes` is observable as the call that then happens. The file closes by extracting the options the page
+documents, with `man.sh`'s extractor, and fails on any option without a row and on any row driving an option the page
+dropped. A rename edits the spelling table alone, and the file green before and after is the retention proof.
 
-The assertions name what a row expects, so a change no row names — a helper call gained, an exit
-code moved, a mode a walk left different — passes them. `AI_TOOLS_CLI_FLAGS_TRACE=<file>` closes
-that: the file then also **records** every row (its key-form label, exit status, the whole call
-log, and a digest of the registries and the fixture tree), headed by a surface digest read from
-the CLI source — per command key, the option arms its parser accepts and the gating tables that
-list it, plus any dispatch arm no key reaches — so a command that gained an option or a gate shows
-without a row for it. Fixture paths, account names and the generated clone names are written as
-tokens, and commit ids and times are left out, so two traces from the same host compare with `diff`: one recorded on
-`develop`, one on the branch after `install.sh` deployed it, and an empty diff is the statement
-that every outcome a row or the digest observes is unchanged. A difference the ticket lists in
-advance is expected; any other is a regression.
+The assertions name what a row expects, so a change no row names — a helper call gained, an exit code moved, a mode
+a walk left different — passes them. `AI_TOOLS_CLI_FLAGS_TRACE=<file>` closes that: the file then also **records** every
+row (its key-form label, exit status, the whole call log, and a digest of the registries and the fixture tree), headed
+by a surface digest read from the CLI source — per command key, the option arms its parser accepts and the gating tables
+that list it, plus any dispatch arm no key reaches — so a command that gained an option or a gate shows without a row
+for it. Fixture paths, account names and the generated clone names are written as tokens, and commit ids and times are
+left out, so two traces from the same host compare with `diff`: one recorded on `develop`, one on the branch
+after `install.sh` deployed it, and an empty diff is the statement that every outcome a row or the digest observes is
+unchanged. A difference the ticket lists in advance is expected; any other is a regression.
 
-The file pins its own umask. A umask is process state the CLI inherits through `runuser` (whose
-PAM stack carries no `pam_umask`), so the rows and the trace run under 022 whatever the host's
-login default, which is what makes a trace comparable across hosts and keeps a fixture readable
-by the account a row runs as. The verbs whose result a umask could change — a create, which sets
-its modes outright, and a clone, born private and then opened — are then re-driven under 077 and
-027 and held to the modes `ai-tools(1)` states, so the guarantee that the operator's shell umask
-does not decide what the agent can read is asserted rather than assumed, and on one host. The
-pass does not read or write the host's umask configuration: it sets the builtin in the test's
-shell, which dies with it.
+The file pins its own umask. A umask is process state the CLI inherits through `runuser` (whose PAM stack carries no
+`pam_umask`), so the rows and the trace run under 022 whatever the host's login default, which is what makes a trace
+comparable across hosts and keeps a fixture readable by the account a row runs as. The verbs whose result a umask could
+change — a create, which sets its modes outright, and a clone, born private and then opened — are then re-driven
+under 077 and 027 and held to the modes `ai-tools(1)` states, so the guarantee that the operator's shell umask does not
+decide what the agent can read is asserted rather than assumed, and on one host. The pass does not read or write
+the host's umask configuration: it sets the builtin in the test's shell, which dies with it.
 
-`perms.sh` is the **single source** for the deployed-artifact permission assertions (every
-installed file and directory's owner/group/mode): `install.sh` does not carry a parallel checker —
-`sudo ./install.sh check-perms` execs `perms.sh`, and the install's verification phase reaches
-it through `tests/run.sh all`. Adding or repermissioning an installed file means updating the
-`check_file` list here, nowhere else.
+`perms.sh` is the **single source** for the deployed-artifact permission assertions (every installed file
+and directory's owner/group/mode): `install.sh` does not carry a parallel checker — `sudo ./install.sh check-perms`
+execs `perms.sh`, and the install's verification phase reaches it through `tests/run.sh all`. Adding or repermissioning
+an installed file means updating the `check_file` list here, nowhere else.
 
-**`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`)
-(`access.sh`, `providers.sh`, `filters.sh`, `sudo.sh`): the agent cannot write the secret-pattern library or the
-control plane, cannot reach the operator's credential stores (`~/.ssh`, `~/.gnupg`, …), and
-does not hold any sudo rights — `sudo -l` reports it is not allowed to run sudo at all (both NOPASSWD
-rules belong to the projects user and drop privilege), plus the account hygiene that invariant
-leans on (nologin shell, locked password, non-membership in `ai-ops`). It also asserts the agent
-cannot write the **pin**, the pin directory, the shipped signing key, or the verifier library — the
-inputs that decide what a verified checksum is — so it can neither record nor authorise a checksum
-for a binary it modified. Those are root-owned files, so they are DAC facts and this vantage sees
-them. Its one assertion that is not a permission check is the journald one: it *writes* a line as
-the agent under a root helper's syslog tag and asserts journald files it under the sandbox uid and
-not under `_UID=0`. That is the boundary half of the documented query form (see
-[logging](logging.rule.md)) — the forgery is reachable, and what makes it separable is the uid the
-sender cannot set, not the tag. A host with no journald skips: an absent line is not evidence.
-`providers.sh` asserts
-the deployed half of "the sandbox cannot widen its own surface": none of `operator.conf`,
-`conf.lib.sh`, `providers.lib.sh`, the four provider directories, the manifests, fragments and
-contributed commands in them, or the `ai-tools-run` shim and the `bin` directory holding it is
-agent-writable, while
-the NuGet restore cache the dotnet integration needs
-**is** — both directions matter, since a read-only cache breaks the integration as surely as a
-writable tools dir breaks the boundary. `admin-commands.d` and the `dotnet` command in it are the
-highest-privilege pair in that list: what a writable one would buy is not a wider session but a
-command `ai-tools-admin` runs as root. It is the counterpart to `unit/providers.sh` and
-`unit/admin-commands.sh`, which assert the runtime refusals; this one asserts the agent cannot
-reach the state those refusals exist to catch. `filters.sh` is the same pair for the command filters: the engine, `filters.d`
-and the rule sets in it, `operator.conf`, and the agent-side hook body are all asserted
-non-agent-writable — the engine because it is sourced as the agent on every Bash call, the rule
-sets because they decide what every command in a session becomes. These probe **DAC and
-account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside
-the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
-boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`. A
-property the **type layout alone** enforces is therefore not assertable here, and reads as its DAC
-answer: the agent's inability to write its own entrypoint is one (DAC permits it — the account owns
-that tree), so it is asserted in `integration/selinux.sh` as the layout the policy rests on, one
-check per swap vector.
+**`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`) (`access.sh`, `providers.sh`,
+`filters.sh`, `sudo.sh`): the agent cannot write the secret-pattern library or the control plane, cannot reach
+the operator's credential stores (`~/.ssh`, `~/.gnupg`, …), and does not hold any sudo rights — `sudo -l` reports it is
+not allowed to run sudo at all (both NOPASSWD rules belong to the projects user and drop privilege), plus the account
+hygiene that invariant leans on (nologin shell, locked password, non-membership in `ai-ops`). It also asserts the agent
+cannot write the **pin**, the pin directory, the shipped signing key, or the verifier library — the inputs that decide
+what a verified checksum is — so it can neither record nor authorise a checksum for a binary it modified. Those are
+root-owned files, so they are DAC facts and this vantage sees them. Its one assertion that is not a permission check is
+the journald one: it *writes* a line as the agent under a root helper's syslog tag and asserts journald files it
+under the sandbox uid and not under `_UID=0`. That is the boundary half of the documented query form (see
+[logging](logging.rule.md)) — the forgery is reachable, and what makes it separable is the uid the sender cannot set,
+not the tag. A host with no journald skips: an absent line is not evidence. `providers.sh` asserts the deployed half
+of "the sandbox cannot widen its own surface": none of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four
+provider directories, the manifests, fragments and contributed commands in them, or the `ai-tools-run` shim
+and the `bin` directory holding it is agent-writable, while the NuGet restore cache the dotnet integration needs **is**
+— both directions matter, since a read-only cache breaks the integration as surely as a writable tools dir breaks
+the boundary. `admin-commands.d` and the `dotnet` command in it are the highest-privilege pair in that list:
+what a writable one would buy is not a wider session but a command `ai-tools-admin` runs as root. It is the counterpart
+to `unit/providers.sh` and `unit/admin-commands.sh`, which assert the runtime refusals; this one asserts the agent
+cannot reach the state those refusals exist to catch. `filters.sh` is the same pair for the command filters: the engine,
+`filters.d` and the rule sets in it, `operator.conf`, and the agent-side hook body are all asserted non-agent-writable —
+the engine because it is sourced as the agent on every Bash call, the rule sets because they decide what every command
+in a session becomes. These probe **DAC and account state** from the sandbox account's vantage — they run as the sandbox
+*user*, not inside the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
+boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`. A property the **type layout
+alone** enforces is therefore not assertable here, and reads as its DAC answer: the agent's inability to write its own
+entrypoint is one (DAC permits it — the account owns that tree), so it is asserted in `integration/selinux.sh`
+as the layout the policy rests on, one check per swap vector.
 
 ## Quirks
 
-- **The result word carries a colour escape.** `harness.sh` colours `PASS` green, `SKIP` yellow
-  and `FAIL` red when stdout is a terminal or `AI_TOOLS_TEST_COLOR=1`. `run.sh` and `install.sh`
-  both set that variable, because each pipes the suite through `tee` and the harness's own tty test
-  then reads false while a terminal is still watching. Only the word is wrapped, so a grep on a
-  result *message* is unaffected; a grep anchored on the *word* must allow the escape, as
-  `run.sh`'s failure summary (`_FAIL_RE`) does. Anchored without it the summary comes back empty on
-  a coloured run, while the suite still reports the failure and exits non-zero.
-- **Setgid bits survive numeric `chmod`.** GNU coreutils `chmod` with an octal mode does
-  not clear a directory's setgid/setuid bit; a testdir under a setgid parent inherits it.
-  Assertions on the rwx bits use `perm()` (low 3 octal digits), not raw `stat %a`.
-- **The wrapper prompts on `/dev/tty`, not stdin.** `</dev/null` does not suppress it;
-  `setsid` (no controlling tty) does, so the wrapper takes its non-interactive default.
-- **The wrapper keys off `${HOME}`** for the allowlist, so its test mocks the allowlist by
-  pointing `HOME` at a `/tmp` testdir — no helper override needed there. **The CLI does not**: it
-  resolves the invoking user's home through `getent passwd`, so that no environment variable
-  can redirect a registry write. A test that drives both against one fixture must therefore set
-  `HOME` *and* `AI_TOOLS_ALLOWLIST`; setting only the first steers the wrapper while the CLI
-  quietly edits the operator's real allowlist.
-- **The wrapper detects a controlling terminal by opening `/dev/tty`,** not by the node's
-  permission bits (which read `rw` even with no controlling tty). Under `setsid` the open
-  fails, so every wrapper invocation in a test cleanly skips the claim prompt instead of
-  acting on it — the integration wrapper test relies on this to never claim a project.
-- **The handback path cannot cross `/tmp`.** `/tmp` and `/var/tmp` are polyinstantiated per
-  session by `pam_namespace` (`/etc/security/namespace.conf`), so a fixture the test creates
-  under `/tmp` is invisible both to the hook's own `sudo -u SANDBOX_USER` session (a fresh,
-  empty `/tmp` instance) and to the host-namespace handback daemon — the hand-back silently
-  no-ops. The one place that drives the live `hook → daemon → helper` chain, the manual script,
+- **The result word carries a colour escape.** `harness.sh` colours `PASS` green, `SKIP` yellow and `FAIL` red
+  when stdout is a terminal or `AI_TOOLS_TEST_COLOR=1`. `run.sh` and `install.sh` both set that variable, because each
+  pipes the suite through `tee` and the harness's own tty test then reads false while a terminal is still watching. Only
+  the word is wrapped, so a grep on a result *message* is unaffected; a grep anchored on the *word* must allow
+  the escape, as `run.sh`'s failure summary (`_FAIL_RE`) does. Anchored without it the summary comes back empty
+  on a coloured run, while the suite still reports the failure and exits non-zero.
+- **Setgid bits survive numeric `chmod`.** GNU coreutils `chmod` with an octal mode does not clear a directory's
+  setgid/setuid bit; a testdir under a setgid parent inherits it. Assertions on the rwx bits use `perm()` (low 3 octal
+  digits), not raw `stat %a`.
+- **The wrapper prompts on `/dev/tty`, not stdin.** `</dev/null` does not suppress it; `setsid` (no controlling tty)
+  does, so the wrapper takes its non-interactive default.
+- **The wrapper keys off `${HOME}`** for the allowlist, so its test mocks the allowlist by pointing `HOME` at a `/tmp`
+  testdir — no helper override needed there. **The CLI does not**: it resolves the invoking user's home
+  through `getent passwd`, so that no environment variable can redirect a registry write. A test that drives both
+  against one fixture must therefore set `HOME` *and* `AI_TOOLS_ALLOWLIST`; setting only the first steers the wrapper
+  while the CLI quietly edits the operator's real allowlist.
+- **The wrapper detects a controlling terminal by opening `/dev/tty`,** not by the node's permission bits (which read
+  `rw` even with no controlling tty). Under `setsid` the open fails, so every wrapper invocation in a test cleanly skips
+  the claim prompt instead of acting on it — the integration wrapper test relies on this to never claim a project.
+- **The handback path cannot cross `/tmp`.** `/tmp` and `/var/tmp` are polyinstantiated per session by `pam_namespace`
+  (`/etc/security/namespace.conf`), so a fixture the test creates under `/tmp` is invisible both to the hook's own
+  `sudo -u SANDBOX_USER` session (a fresh, empty `/tmp` instance) and to the host-namespace handback daemon —
+  the hand-back silently no-ops. The one place that drives the live `hook → daemon → helper` chain, the manual script,
   puts its fixture under the operator's `${HOME}` (shared across namespaces), not in `/tmp`.

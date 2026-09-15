@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/confinement.lib.sh
-# The pure decision behind ai-tools-run's fail-closed SELinux launch preflight: a session that does
-# not transition into ai_tools_t runs UNCONFINED, so ai-tools-run checks the transition's inputs
-# BEFORE launch (a wrapper cannot observe its successor's post-exec domain). ai-tools-run probes the
-# host and calls ai_tools_confinement_verdict; the decision lives here, free of I/O, so it is
-# unit-tested apart from the probing (tests/unit/confinement.sh, no SELinux host needed). See
+# The pure decision behind ai-tools-run's fail-closed SELinux launch preflight: a session that does not transition
+# into ai_tools_t runs UNCONFINED, so ai-tools-run checks the transition's inputs BEFORE launch (a wrapper cannot
+# observe its successor's post-exec domain). ai-tools-run probes the host and calls ai_tools_confinement_verdict;
+# the decision lives here, free of I/O, so it is unit-tested apart from the probing (tests/unit/confinement.sh, no
+# SELinux host needed). See
 # confinement.rule.md.
 #
-# Sourced, not executed. Deployed 644 root:root -- no secrets; sourced by ai-tools-run (as the
-# sandbox account) and the unit test (as root).
+# Sourced, not executed. Deployed 644 root:root -- no secrets; sourced by ai-tools-run (as the sandbox account)
+# and the unit test (as root).
 #
 # Deploy:
 #   ```bash
@@ -35,33 +35,30 @@ _AI_TOOLS_CONFINEMENT_LIB_LOADED=1
 #            LAUNCH exits into refusals. Default "no" (a 5-arg caller) leaves intentional
 #            DAC-only hosts untouched.
 #
-#   enf | mod | want    | have    | mgrdom          | req | verdict              | result
-#   ----+-----+---------+---------+-----------------+-----+----------------------+-------
-#   no  |  -  |    -    |    -    |        -        | no  | ok                   | launch
+#   enf | mod |  want   |  have   |     mgrdom      | req |        verdict        | result
+#   ----+-----+---------+---------+-----------------+-----+-----------------------+--------
+#   no  |  -  |    -    |    -    |        -        | no  | ok                    | launch
 #   no  |  -  |    -    |    -    |        -        | yes | require-not-enforcing | REFUSE
-#   yes |  -  | exec_t  | exec_t  | init/unconf/""  |  -  | ok                   | launch
-#   yes |  -  | exec_t  | exec_t  | other           |  -  | manager-domain       | REFUSE
-#   yes |  -  | exec_t  | !exec_t |        -        |  -  | mislabel             | REFUSE
-#   yes | yes | !exec_t |    -    |        -        |  -  | unverifiable         | REFUSE
-#   yes | no  | !exec_t |    -    |        -        | no  | ok                   | launch
-#   yes | no  | !exec_t |    -    |        -        | yes | require-inactive     | REFUSE
+#   yes |  -  | exec_t  | exec_t  | init/unconf/""  |  -  | ok                    | launch
+#   yes |  -  | exec_t  | exec_t  | other           |  -  | manager-domain        | REFUSE
+#   yes |  -  | exec_t  | !exec_t |        -        |  -  | mislabel              | REFUSE
+#   yes | yes | !exec_t |    -    |        -        |  -  | unverifiable          | REFUSE
+#   yes | no  | !exec_t |    -    |        -        | no  | ok                    | launch
+#   yes | no  | !exec_t |    -    |        -        | yes | require-inactive      | REFUSE
 #   (a "-" cell is don't-care; "" is empty/unreadable)
 #
-# Fail-closed once confinement is EXPECTED (enforcing with the module installed). What each
-# refusal means, and the remedy each one prints, are in confinement.rule.md and in ai-tools-run's
-# refusal text. Two properties of the table are easy to miss reading it: manager-domain is
-# ADVISORY, so an unreadable ("") domain does not block and require does not change that; and the
-# two require-* tokens replace launches that are otherwise the DAC-only "ok".
+# Fail-closed once confinement is EXPECTED (enforcing with the module installed). What each refusal means,
+# and the remedy each one prints, are in confinement.rule.md and in ai-tools-run's refusal text. Two properties
+# of the table are easy to miss reading it: manager-domain is ADVISORY, so an unreadable ("") domain does not block
+# and require does not change that; and the two require-* tokens replace launches that are otherwise the DAC-only "ok".
 #
-# ai_tools_confinement_module_present <matchpathcon-type>
-# Classify the `module` verdict input from a probe of a CORE-module-owned path (e.g.
-# `matchpathcon /opt/ai-tools/.config` -> ai_tools_home_t): print "yes" when <type> is an
-# ai_tools_* type, else "no". A core-owned path resolves to an ai_tools_* type ONLY when the core
-# module's file-contexts are live in the running policy, so this is the sandbox-account-readable
-# stand-in for reading the root-only module store, which ai-tools-run cannot read from the sandbox
-# account -- matchpathcon reads the world-readable file-contexts and computes from the path string,
-# needing no privilege. An empty or foreign type (module absent, or matchpathcon unavailable) ->
-# "no". Pure, like the verdict, so it is unit-tested.
+# ai_tools_confinement_module_present <matchpathcon-type> Classify the `module` verdict input from a probe
+# of a CORE-module-owned path (e.g. `matchpathcon /opt/ai-tools/.config` -> ai_tools_home_t): print "yes" when <type> is
+# an ai_tools_* type, else "no". A core-owned path resolves to an ai_tools_* type ONLY when the core module's
+# file-contexts are live in the running policy, so this is the sandbox-account-readable stand-in for reading
+# the root-only module store, which ai-tools-run cannot read from the sandbox account -- matchpathcon reads
+# the world-readable file-contexts and computes from the path string, needing no privilege. An empty or foreign type
+# (module absent, or matchpathcon unavailable) -> "no". Pure, like the verdict, so it is unit-tested.
 ai_tools_confinement_module_present() {
     if [[ "$1" == ai_tools_* ]]; then printf 'yes'; else printf 'no'; fi
 }
@@ -85,8 +82,8 @@ ai_tools_confinement_verdict() {
         printf 'ok'; return 0
     fi
 
-    # Label unresolved: distinguish a half-installed host (module present -> fail closed) from an
-    # intentional DAC-only deployment (module absent -> launch, unless the operator requires SELinux).
+    # Label unresolved: distinguish a half-installed host (module present -> fail closed) from an intentional DAC-only
+    # deployment (module absent -> launch, unless the operator requires SELinux).
     if [[ "${module}" == "yes" ]]; then
         printf 'unverifiable'; return 1
     fi

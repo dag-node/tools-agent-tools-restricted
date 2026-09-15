@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/managed-assets.sh
-# Unit test for the shipped-asset seeder and the withdrawal pass (managed-assets.lib.sh), which
-# decide what skills and subagents every session on the host reads. Each runs
-# unattended in a package scriptlet with its output scrolling past in a dnf transaction, so
-# every way either can go wrong is quiet, and each property is one an operator would only
+# Unit test for the shipped-asset seeder and the withdrawal pass (managed-assets.lib.sh), which decide what skills
+# and subagents every session on the host reads. Each runs unattended in a package scriptlet with its output scrolling
+# past in a dnf transaction, so every way either can go wrong is quiet, and each property is one an operator would only
 # discover much later:
 #
 #   1. THE MARKER IS THE CLAIM. An asset without `x-ai-tools-managed: true` is the operator's own
@@ -29,9 +28,9 @@
 #      It lands on the one path each agent reads as user-scope instructions, so a link placed over
 #      an operator's own file there would silently replace what every session on the host loads.
 #
-# Drives the INSTALLED library against fixtures in its own /tmp testdir: every root is an argument,
-# so no case reads or writes /usr/share/ai-tools, /opt/ai-tools, or any live asset. Needs root --
-# the seeder chowns what it places and the withdrawal creates a 0700 root:root directory.
+# Drives the INSTALLED library against fixtures in its own /tmp testdir: every root is an argument, so no case reads
+# or writes /usr/share/ai-tools, /opt/ai-tools, or any live asset. Needs root -- the seeder chowns what it places
+# and the withdrawal creates a 0700 root:root directory.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -58,8 +57,8 @@ mktestdir
 SHIPPED="${TESTDIR}/shipped"
 LIVE="${TESTDIR}/live"
 
-# A withdrawn name has to come from the real AI_TOOLS_RETIRED_ASSETS list, which is `readonly` --
-# so these fixtures pin the shipped list itself, not a copy of it.
+# A withdrawn name has to come from the real AI_TOOLS_RETIRED_ASSETS list, which is `readonly` -- so these fixtures pin
+# the shipped list itself, not a copy of it.
 readonly WITHDRAWN_SKILL="ai-tools-docs-reference"
 
 # write_skill <root> <name> <version> [managed]  -- a directory asset with its SKILL.md marker.
@@ -75,8 +74,8 @@ write_skill() {
     } > "${root}/skills/${name}/SKILL.md"
 }
 
-# write_subagent <root> <name> <version>  -- the FILE-per-asset kind, so the other branch of the
-# seeder's directory-vs-file split is exercised too.
+# write_subagent <root> <name> <version>  -- the FILE-per-asset kind, so the other branch of the seeder's
+# directory-vs-file split is exercised too.
 write_subagent() {
     local root="$1" name="$2" version="$3"
     mkdir -p "${root}/subagents"
@@ -84,9 +83,9 @@ write_subagent() {
         "${name}" "${version}" > "${root}/subagents/${name}.md"
 }
 
-# write_orientation <root> <version>  -- the fixed-name kind. Its marker rides in an HTML comment
-# rather than YAML frontmatter, because every byte of this file is read by the model in every
-# session; the seeder's line-anchored greps see it either way, which is what this fixture pins.
+# write_orientation <root> <version>  -- the fixed-name kind. Its marker rides in an HTML comment rather than YAML
+# frontmatter, because every byte of this file is read by the model in every session; the seeder's line-anchored greps
+# see it either way, which is what this fixture pins.
 write_orientation() {
     local root="$1" version="$2"
     mkdir -p "${root}/orientation"
@@ -104,9 +103,8 @@ seed() { ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root skills subagen
 # ── Seeding ──────────────────────────────────────────────────────────────────────
 
 reset_roots
-# Alphabetical order is glob order, so `aaa` (an UPDATE, which reads a version) runs before `zzz`
-# (a fresh SEED, which reports one). That is the order in which a version read on only the update
-# path leaks into the seed report.
+# Alphabetical order is glob order, so `aaa` (an UPDATE, which reads a version) runs before `zzz` (a fresh SEED,
+# which reports one). That is the order in which a version read on only the update path leaks into the seed report.
 write_skill "${SHIPPED}" ai-tools-aaa-updated 2
 write_skill "${LIVE}"    ai-tools-aaa-updated 1
 write_skill "${SHIPPED}" ai-tools-zzz-seeded  7
@@ -129,8 +127,8 @@ if [[ -f "${LIVE}/subagents/ai-tools-sub-seeded.md" ]]; then
 else
     fail "the subagent file was not seeded: ${out}"
 fi
-# Property 4: the seed report must name 7, the asset's own version -- not 2, the one the update
-# immediately before it read.
+# Property 4: the seed report must name 7, the asset's own version -- not 2, the one the update immediately before it
+# read.
 if grep -q 'ai-tools-zzz-seeded seeded (v7)' <<<"${out}"; then
     pass "a seeded asset reports its OWN version, not the previous iteration's"
 else
@@ -138,10 +136,10 @@ else
 fi
 
 # ── The update default, with no terminal ─────────────────────────────────────────
-# Property 2. Driven WITHOUT AI_TOOLS_ASSUME_YES and under setsid, so there is no controlling
-# terminal: ai_tools_msg_confirm cannot open /dev/tty and takes its default. That default must be
-# UPDATE. setsid is also what keeps this from blocking -- the same call on a terminal would read
-# /dev/tty and wait for an answer no test can give.
+# Property 2. Driven WITHOUT AI_TOOLS_ASSUME_YES and under setsid, so there is no controlling terminal:
+# ai_tools_msg_confirm cannot open /dev/tty and takes its default. That default must be UPDATE. setsid is also
+# what keeps this from blocking -- the same call on a terminal would read /dev/tty and wait for an answer no test can
+# give.
 reset_roots
 write_skill "${SHIPPED}" ai-tools-aaa-updated 5
 write_skill "${LIVE}"    ai-tools-aaa-updated 4
@@ -181,10 +179,9 @@ else
 fi
 
 # ── A withdrawn name is never seeded ─────────────────────────────────────────────
-# Property 3, in the state that occurs: the source root STILL CARRIES the withdrawn asset,
-# because rpm has not yet removed the previous package's files. Both directions are driven -- the
-# live root missing it (which is where seeding it would be a real regression) and holding it (where
-# reporting on it is the misleading half).
+# Property 3, in the state that occurs: the source root STILL CARRIES the withdrawn asset, because rpm has not
+# yet removed the previous package's files. Both directions are driven -- the live root missing it (which is
+# where seeding it would be a real regression) and holding it (where reporting on it is the misleading half).
 reset_roots
 write_skill "${SHIPPED}" "${WITHDRAWN_SKILL}" 1
 write_skill "${SHIPPED}" ai-tools-zzz-seeded  2
@@ -230,8 +227,7 @@ if (( ${#retired[@]} == 1 )) && [[ -f "${retired[0]}/SKILL.md" ]]; then
 else
     fail "the withdrawn asset was not preserved under retired/: ${out}"
 fi
-# The copy is the operator's recovery material, so the directory holding it must be out of the
-# sandbox account's reach.
+# The copy is the operator's recovery material, so the directory holding it must be out of the sandbox account's reach.
 if [[ "$(stat -c '%a %U' "${LIVE}/retired")" == "700 root" ]]; then
     pass "retired/ is 0700 root-owned (operator recovery material, unreachable from the sandbox)"
 else
@@ -258,8 +254,8 @@ else
 fi
 
 # ── Orientation: a fixed-name asset, linked under each agent's own filename ──────
-# Property 6. The seeding half first: the kind carries ONE file at a name the seeder knows, so the
-# ai-tools-* namespace does not apply to it and the managed marker is the whole of what it claims by.
+# Property 6. The seeding half first: the kind carries ONE file at a name the seeder knows, so the ai-tools-* namespace
+# does not apply to it and the managed marker is the whole of what it claims by.
 reset_roots
 write_orientation "${SHIPPED}" 3
 out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root orientation 2>&1)" || true
@@ -276,9 +272,9 @@ else
     AGENT_DIR="${TESTDIR}/agent"; rm -rf "${AGENT_DIR}"; mkdir -p "${AGENT_DIR}"
     SHARED_FILE="${LIVE}/orientation/AGENTS.md"
 
-    # The link's name comes from the agent's manifest, not from the source file, which is the whole
-    # reason this is not ai_tools_link_shared_assets: Claude Code reads CLAUDE.md and no other file
-    # at user scope, so a link named for the source would never be loaded.
+    # The link's name comes from the agent's manifest, not from the source file, which is the whole reason this is not
+    # ai_tools_link_shared_assets: Claude Code reads CLAUDE.md and no other file at user scope, so a link named
+    # for the source would never be loaded.
     out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
     if [[ -L "${AGENT_DIR}/CLAUDE.md" ]] \
        && [[ "$(readlink -- "${AGENT_DIR}/CLAUDE.md")" == "${SHARED_FILE}" ]]; then
@@ -295,8 +291,8 @@ else
         fail "a correct link was acted on or reported: ${out}"
     fi
 
-    # A link left by an earlier layout points somewhere else; it is repointed rather than kept,
-    # or the agent goes on loading a file this project no longer maintains.
+    # A link left by an earlier layout points somewhere else; it is repointed rather than kept, or the agent goes
+    # on loading a file this project no longer maintains.
     ln -sfn "${TESTDIR}/gone.md" "${AGENT_DIR}/CLAUDE.md"
     out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
     if [[ "$(readlink -- "${AGENT_DIR}/CLAUDE.md")" == "${SHARED_FILE}" ]] \
@@ -306,8 +302,8 @@ else
         fail "a stale orientation link was not repointed: ${out}"
     fi
 
-    # The property that matters most: this path is the operator's user-scope instructions for every
-    # session on the host, so anything REAL there wins and is reported, never displaced by a link.
+    # The property that matters most: this path is the operator's user-scope instructions for every session on the host,
+    # so anything REAL there wins and is reported, never displaced by a link.
     rm -f "${AGENT_DIR}/CLAUDE.md"
     printf 'the operator wrote this\n' > "${AGENT_DIR}/CLAUDE.md"
     out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
@@ -319,8 +315,8 @@ else
         fail "an operator's own memory file was displaced by the shared link: ${out}"
     fi
 
-    # An agent that does not declare a memory_file reaches the linker with an empty name (the resolver
-    # skips it, but the guard is what keeps a bad manifest from writing to the directory itself).
+    # An agent that does not declare a memory_file reaches the linker with an empty name (the resolver skips it,
+    # but the guard is what keeps a bad manifest from writing to the directory itself).
     rm -f "${AGENT_DIR}/CLAUDE.md"
     ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" "" root >/dev/null 2>&1 || true
     if [[ -z "$(ls -A "${AGENT_DIR}")" ]]; then
@@ -330,11 +326,10 @@ else
     fi
 fi
 
-# Property 7. THE KIND LIST IS THE TYPE. AI_TOOLS_ASSET_KINDS is the one declaration of what the
-# project ships; a caller naming a kind outside it, or no kind at all, is refused with a reason
-# rather than seeding less than it asked for. The seeder once defaulted to `agents`, a directory
-# the tree never carried, so a caller relying on the default would have skipped the subagents and
-# the orientation with no line saying so -- the quiet shape this refusal replaces.
+# Property 7. THE KIND LIST IS THE TYPE. AI_TOOLS_ASSET_KINDS is the one declaration of what the project ships; a caller
+# naming a kind outside it, or no kind at all, is refused with a reason rather than seeding less than it asked for.
+# The seeder once defaulted to `agents`, a directory the tree never carried, so a caller relying on the default would
+# have skipped the subagents and the orientation with no line saying so -- the quiet shape this refusal replaces.
 write_skill "${SHIPPED}" ai-tools-kind-probe 1
 out="$(ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root agents 2>&1)" && rc=0 || rc=$?
 if (( rc != 0 )) && grep -q 'agents is not an asset kind' <<<"${out}" \
@@ -357,12 +352,11 @@ else
     fail "the withdrawal pass accepted an unknown kind (rc=${rc}): ${out}"
 fi
 
-# Property 8. THE FRONTMATTER IS YAML. A skill's and a subagent's frontmatter is read by the
-# product that loads it and by a renderer that shows it, both as YAML, and the seeder's own greps
-# are line-anchored and see the markers either way -- so a scalar broken by a continuation line
-# at column one passes every other property here while the loader reads a truncated description. Parsed
-# with PyYAML where the host has it; the name and the description must both survive the parse.
-# Reads the repo source, falling back to the installed pristine copies, like the checker tests.
+# Property 8. THE FRONTMATTER IS YAML. A skill's and a subagent's frontmatter is read by the product that loads it
+# and by a renderer that shows it, both as YAML, and the seeder's own greps are line-anchored and see the markers either
+# way -- so a scalar broken by a continuation line at column one passes every other property here while the loader reads
+# a truncated description. Parsed with PyYAML where the host has it; the name and the description must both survive
+# the parse. Reads the repo source, falling back to the installed pristine copies, like the checker tests.
 ASSET_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/share/ai-tools"
 [[ -d "${ASSET_ROOT}/skills" ]] || ASSET_ROOT="/usr/share/ai-tools"
 if python3 -c 'import yaml' 2>/dev/null; then

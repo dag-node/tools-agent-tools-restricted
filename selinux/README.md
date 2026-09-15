@@ -1,8 +1,9 @@
 # Optional SELinux confinement — `ai_tools_t`
 
-An extra **mandatory access control** layer for the Claude Code sandbox, separate
-from and on top of the DAC (ownership/permission) model in the main install. It
-confines the agent to its own SELinux domain with a **path boundary**:
+An extra **mandatory access control** layer for the Claude Code sandbox,
+separate from and on top of the DAC (ownership/permission) model in the main
+install. It confines the agent to its own SELinux domain with a **path
+boundary**:
 
 | Type | Applied to | `ai_tools_t` may |
 |---|---|---|
@@ -14,28 +15,32 @@ confines the agent to its own SELinux domain with a **path boundary**:
 | everything else (e.g. other `/home` files = `user_home_t`) | — | **no access** once enforcing |
 
 This is what stops the agent inadvertently touching **unrelated** files: once
-`ai_tools_t` is enforcing, it can write `ai_tools_project_t` and `ai_tools_home_t`
-but not `user_home_t`, `etc_t`, other users' files, etc. DAC still applies
-underneath — both layers must allow an access.
+`ai_tools_t` is enforcing, it can write `ai_tools_project_t`
+and `ai_tools_home_t` but not `user_home_t`, `etc_t`, other users' files, etc.
+DAC still applies underneath — both layers must allow an access.
 
 ## Enforcing by default, compiled from source
 
-Every module `install-selinux.sh` loads is compiled on this host from the sources under
-`policy/`, so a source install needs `selinux-policy-devel` (see *Building from source*); the
-RPM ships the same modules compiled at package build, per distribution (the mechanism is the
-confinement rule's *How the policy ships*, in `../.claude/rules/confinement.rule.md`). The core
-loads **enforcing**. A missing transition **fails closed**: if an agent's
-entrypoint loses its label (a Node upgrade before the relabel lands), `ai-tools-run` refuses to
-launch rather than start an unconfined session, and names `ai-tools-admin system entrypoints relabel` as the fix. The
-layer as a whole is still optional — a host that never installs the module runs DAC-only, which
-the launch preflight recognises and allows.
+Every module `install-selinux.sh` loads is compiled on this host
+from the sources under `policy/`, so a source install needs
+`selinux-policy-devel` (see *Building from source*); the RPM ships the same
+modules compiled at package build, per distribution (the mechanism is
+the confinement rule's *How the policy ships*,
+in `../.claude/rules/confinement.rule.md`). The core loads **enforcing**.
+A missing transition **fails closed**: if an agent's entrypoint loses its label
+(a Node upgrade before the relabel lands), `ai-tools-run` refuses to launch
+rather than start an unconfined session, and names
+`ai-tools-admin system entrypoints relabel` as the fix. The layer as a whole is
+still optional — a host that never installs the module runs DAC-only,
+which the launch preflight recognises and allows.
 
-You cannot confine a complex app (Node + git + the Bash tool) correctly by
-guessing rules — the rule set must be *observed*. The policy here was completed
-that way: load **permissive** (`permissive ai_tools_t;` in `ai_tools.te`), log what
-`ai_tools_t` does, fold those denials in, then remove that line to enforce. To
-re-open that loop, uncomment `permissive ai_tools_t;`, recompile, and reload; the
-installer detects the mode from the source and reports it.
+You cannot confine a complex app (Node + git + the Bash tool) correctly
+by guessing rules — the rule set must be *observed*. The policy here was
+completed that way: load **permissive** (`permissive ai_tools_t;`
+in `ai_tools.te`), log what `ai_tools_t` does, fold those denials in, then
+remove that line to enforce. To re-open that loop, uncomment
+`permissive ai_tools_t;`, recompile, and reload; the installer detects the mode
+from the source and reports it.
 
 ## Layout
 
@@ -55,15 +60,16 @@ selinux/
                          avc/.avc-last-run
 ```
 
-The filenames this page names (`ai_tools.te`, `ai_tools.pp`, …) live under `policy/`; the bring-up
-scripts under `avc/`. `install-selinux.sh` stays at `selinux/` and resolves both.
+The filenames this page names (`ai_tools.te`, `ai_tools.pp`, …) live
+under `policy/`; the bring-up scripts under `avc/`. `install-selinux.sh` stays
+at `selinux/` and resolves both.
 
 ## Optional policy groups
 
-The core module alone covers repo-only work (project/home/tmp files, git, coreutils,
-HTTPS to the Anthropic API, the handback socket). The optional groups widen the
-surface for tasks that reach past it, all **disabled by default**, each named for the
-capability it grants:
+The core module alone covers repo-only work (project/home/tmp files, git,
+coreutils, HTTPS to the Anthropic API, the handback socket). The optional
+groups widen the surface for tasks that reach past it, all **disabled
+by default**, each named for the capability it grants:
 
 | group | grants |
 |---|---|
@@ -76,26 +82,29 @@ capability it grants:
 | `localipc` | unix sockets and FIFOs under `/tmp` and the home state, connect to the session's own sockets and to a loopback port (`dotnet test`, multi-node MSBuild, a dev server and its browser) |
 | `buildexec` | execute on a project's build output — the directories an integration's manifest names and its layout module types; a script written there runs too — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) |
 
-Which groups a toolchain needs is its integration manifest's to say (`selinux_groups`, see
-`ai-tools-providers(5)`); `ai-tools --providers` and `ai-tools-admin <integration> status` name the
-ones not loaded. A toolchain whose build output must be typed the moment it is created also ships
-a **layout module** (`ai_tools_dotnet` for .NET): file transitions and file contexts only, no
-grant, so it is not a group and loads with the integration rather than by an operator's choice.
+Which groups a toolchain needs is its integration manifest's to say
+(`selinux_groups`, see `ai-tools-providers(5)`); `ai-tools providers`
+and `ai-tools-admin <integration> status` name the ones not loaded. A toolchain
+whose build output must be typed the moment it is created also ships a **layout
+module** (`ai_tools_dotnet` for .NET): file transitions and file contexts only,
+no grant, so it is not a group and loads with the integration rather than
+by an operator's choice.
 
-Each group is either **stable** or **experimental**, which decides how it ships and which
-command may enable it. A group earns `stable` as it is audited, so the current value
-is read from the host rather than from this table:
+Each group is either **stable** or **experimental**, which decides how it ships
+and which command may enable it. A group earns `stable` as it is audited,
+so the current value is read from the host rather than from this table:
 
 ```bash
 sudo ai-tools-admin selinux groups
 ```
 
-**Stable** groups have a rule set exercised against the workload they serve on an enforcing
-host (`tmpmap` grants exactly `ai_tools_tmp_t:file map`; `localipc` and `buildexec` are the
-.NET bring-up's IPC and build-output execute). They are on the **shipped set**: compiled as
-`ai_tools_<group>.pp` beside the core under `/usr/share/selinux/packages/ai-tools` by the RPM
-build or by `install-selinux.sh build`, and loaded on any installed host with no toolchain,
-several in one command:
+**Stable** groups have a rule set exercised against the workload they serve
+on an enforcing host (`tmpmap` grants exactly `ai_tools_tmp_t:file map`;
+`localipc` and `buildexec` are the .NET bring-up's IPC and build-output
+execute). They are on the **shipped set**: compiled as `ai_tools_<group>.pp`
+beside the core under `/usr/share/selinux/packages/ai-tools` by the RPM build
+or by `install-selinux.sh build`, and loaded on any installed host with no
+toolchain, several in one command:
 
 ```bash
 sudo ai-tools-admin selinux groups
@@ -103,11 +112,12 @@ sudo ai-tools-admin selinux groups enable tmpmap localipc buildexec
 sudo ai-tools-admin selinux groups disable tmpmap
 ```
 
-**Experimental** groups are unaudited drafts: their rule set has not been verified under
-permissive against a real workload. They are **off the shipped set** and cannot be enabled
-through `ai-tools-admin` — that helper refuses an experimental group and points here. Compile,
-audit, and load one from a source checkout, then re-run the bring-up loop (§2 / `avc/`) before
-relying on it:
+**Experimental** groups are unaudited drafts: their rule set has not been
+verified under permissive against a real workload. They are **off the shipped
+set** and cannot be enabled through `ai-tools-admin` — that helper refuses
+an experimental group and points here. Compile, audit, and load one
+from a source checkout, then re-run the bring-up loop (§2 / `avc/`)
+before relying on it:
 
 ```bash
 sudo dnf install selinux-policy-devel                  # once, to compile a module
@@ -115,11 +125,12 @@ sudo ./install-selinux.sh enable-group podman          # compiles from .te/.fc, 
 # ... exercise the workload, then verify under permissive with avc/ (see §2) ...
 ```
 
-Both front doors read the same group registry (`selinux-groups.lib.sh`), so they agree on
-which groups exist and which are stable. Promoting a group to stable — after its rules are
-audited — means marking it `stable` in that library; `shipped-modules.sh` derives the shipped
-set from that field, so no packaging file names the group. `disable-group` works for any
-loaded group through either door.
+Both front doors read the same group registry (`selinux-groups.lib.sh`),
+so they agree on which groups exist and which are stable. Promoting a group
+to stable — after its rules are audited — means marking it `stable`
+in that library; `shipped-modules.sh` derives the shipped set from that field,
+so no packaging file names the group. `disable-group` works for any loaded
+group through either door.
 
 ## Building from source
 
@@ -128,12 +139,14 @@ sudo dnf install selinux-policy-devel
 sudo ./install-selinux.sh build          # compile the shipped set, stage it for ai-tools-admin
 ```
 
-`selinux-policy-devel` is required by every action here that compiles — `install`, `build`,
-`rebuild`, and `enable-group` — since a checkout does not carry a compiled module. An RPM host has
-the shipped set compiled already and needs the toolchain only to build an experimental group
-or a module edited on that host. `build` compiles every module on the shipped set (what
-`shipped-modules.sh` prints) and stages it under `/usr/share/selinux/packages/ai-tools`,
-loading none; it is the step `install.sh` runs, and `install` runs it after loading the core.
+`selinux-policy-devel` is required by every action here that compiles —
+`install`, `build`, `rebuild`, and `enable-group` — since a checkout does not
+carry a compiled module. An RPM host has the shipped set compiled already
+and needs the toolchain only to build an experimental group or a module edited
+on that host. `build` compiles every module on the shipped set (what
+`shipped-modules.sh` prints) and stages it
+under `/usr/share/selinux/packages/ai-tools`, loading none; it is the step
+`install.sh` runs, and `install` runs it after loading the core.
 
 ## 1. Load and label
 
@@ -142,11 +155,11 @@ cd selinux
 sudo ./install-selinux.sh install
 ```
 
-This compiles and loads `ai_tools.pp` (enforcing) — a later run rebuilds it when a `.te`,
-`.if`, or `.fc` is newer than the earlier build, through `make` — stages the shipped set for `ai-tools-admin`,
-labels each agent's config directory (`ai_tools_home_t`) and
-the `claude.exe` entrypoint, and labels every project in
-`~/.config/ai-tools/allowed-projects` as `ai_tools_project_t`.
+This compiles and loads `ai_tools.pp` (enforcing) — a later run rebuilds it
+when a `.te`, `.if`, or `.fc` is newer than the earlier build, through `make` —
+stages the shipped set for `ai-tools-admin`, labels each agent's config
+directory (`ai_tools_home_t`) and the `claude.exe` entrypoint, and labels every
+project in `~/.config/ai-tools/allowed-projects` as `ai_tools_project_t`.
 
 Verify:
 
@@ -159,10 +172,10 @@ ps -eo label,cmd | grep -m1 '[c]laude'      # process label -> ...:ai_tools_t
 
 ## 2. Bring-up to enforcing (audit2allow loop)
 
-While permissive, **exercise every path the agent uses**, so the kernel logs the
-full rule set. Two scripts automate this — split by privilege, because the agent
-can exercise the surface but cannot read the audit log, and root can read the log
-but should not be the one acting as the agent:
+While permissive, **exercise every path the agent uses**, so the kernel logs
+the full rule set. Two scripts automate this — split by privilege, because
+the agent can exercise the surface but cannot read the audit log, and root can
+read the log but should not be the one acting as the agent:
 
 ```bash
 # 1. AS THE AGENT, inside a confined claude in an approved project:
@@ -175,11 +188,11 @@ sudo bash selinux/avc/avc-analyze.sh  # splits denials into NEW vs EXPECTED BOUN
 
 `avc-testsuite.sh` **aborts unless it is running in `ai_tools_t`** — running it
 unconfined would log no denial and the empty result would look like success. It
-writes a start marker (`selinux/avc/.avc-last-run`); `avc-analyze.sh` reads it so
-`ausearch -ts` starts at exactly the right instant. The analyzer classifies each
-denial: **EXPECTED BOUNDARY** ones (the `user_home_t` / `config_home_t` /
-non-`http_port_t` accesses `ai_tools.te` already `dontaudit`s) must stay denied,
-and only the **NEW** ones are candidates to fold in.
+writes a start marker (`selinux/avc/.avc-last-run`); `avc-analyze.sh` reads it
+so `ausearch -ts` starts at exactly the right instant. The analyzer classifies
+each denial: **EXPECTED BOUNDARY** ones (the `user_home_t` / `config_home_t` /
+non-`http_port_t` accesses `ai_tools.te` already `dontaudit`s) must stay
+denied, and only the **NEW** ones are candidates to fold in.
 
 The same thing by hand:
 
@@ -188,44 +201,50 @@ sudo ausearch -m AVC -su ai_tools_t -ts recent              # inspect raw denial
 sudo ausearch -m AVC -su ai_tools_t -ts recent | audit2allow -R   # suggested rules
 ```
 
-Fold the suggested allows into the **BRING-UP** section of `ai_tools.te` (prefer
-the refpolicy interfaces `audit2allow -R` suggests over raw `allow` lines), then
-rebuild and reload:
+Fold the suggested allows into the **BRING-UP** section of `ai_tools.te`
+(prefer the refpolicy interfaces `audit2allow -R` suggests over raw `allow`
+lines), then rebuild and reload:
 
 ```bash
 sudo ./install-selinux.sh rebuild     # recompile from source + reload (still permissive)
 ```
 
-`rebuild` recompiles `ai_tools.pp` from the edited `.te`/`.fc`, reloads it, and
-re-applies labels — the loop step after every source edit. (`install` rebuilds the same
-way when a source is newer than the build, and it re-offers the optional groups.)
+`rebuild` recompiles `ai_tools.pp` from the edited `.te`/`.fc`, reloads it,
+and re-applies labels — the loop step after every source edit. (`install`
+rebuilds the same way when a source is newer than the build, and it re-offers
+the optional groups.)
 
-Repeat exercise → `audit2allow` → fold-in → reload until `ausearch` shows **no new
-`ai_tools_t` denials** across a full session including git push and an update run.
+Repeat exercise → `audit2allow` → fold-in → reload until `ausearch` shows **no
+new `ai_tools_t` denials** across a full session including git push
+and an update run.
 
-One class of proposal is never folded in: anything that would let the domain reach root.
-`ai_tools_t` holds no `sudo_exec_t` execute, no `auth_domtrans_chk_passwd`, and none of the
-PAM or capability permissions a privilege escalation needs; `ai_tools.te` lists that withheld
-set explicitly. Root operations go through the `ai-tools-handback` socket instead, whose
-daemon runs in its own domain. Granting the sudo path would not make `sudo` work in any
-case: the session runs under `NoNewPrivileges`, which drops sudo's SUID bit.
+One class of proposal is never folded in: anything that would let the domain
+reach root. `ai_tools_t` holds no `sudo_exec_t` execute, no
+`auth_domtrans_chk_passwd`, and none of the PAM or capability permissions
+a privilege escalation needs; `ai_tools.te` lists that withheld set explicitly.
+Root operations go through the `ai-tools-handback` socket instead, whose daemon
+runs in its own domain. Granting the sudo path would not make `sudo` work
+in any case: the session runs under `NoNewPrivileges`, which drops sudo's SUID
+bit.
 
 ### What a bring-up pass grants, and what it refuses
 
-A raw `audit2allow` of a full session proposes far more than the agent needs — the work is
-deciding what it *needs* against what some tool merely *probed*. A process-table walk, a
-listing of the invoking user's home, and reads of container storage all appear in the logs
-and are all refused.
+A raw `audit2allow` of a full session proposes far more than the agent needs —
+the work is deciding what it *needs* against what some tool merely *probed*.
+A process-table walk, a listing of the invoking user's home, and reads
+of container storage all appear in the logs and are all refused.
 
-Both halves of that decision are recorded where they are enforced, each rule stating its own
-reason: the grants in the body of `ai_tools.te`, and the refusals in its **THE BOUNDARY**
-section, which is `dontaudit` throughout and explains per entry why the access is denied
-rather than allowed. Read that section before adding anything to it.
+Both halves of that decision are recorded where they are enforced, each rule
+stating its own reason: the grants in the body of `ai_tools.te`,
+and the refusals in its **THE BOUNDARY** section, which is `dontaudit`
+throughout and explains per entry why the access is denied rather than allowed.
+Read that section before adding anything to it.
 
-One case is worth knowing separately, because it looks like a missing grant and is not: the
-agent's writes to its own HOME state (`/opt/ai-tools/.npm`, `.cache`, `.local`) land on paths
-labelled `ai_tools_home_t` in `ai_tools.fc`. Granting `usr_t` write instead would also hand
-the agent the read-only node tree, so the fix is the label, not the rule.
+One case is worth knowing separately, because it looks like a missing grant
+and is not: the agent's writes to its own HOME state (`/opt/ai-tools/.npm`,
+`.cache`, `.local`) land on paths labelled `ai_tools_home_t` in `ai_tools.fc`.
+Granting `usr_t` write instead would also hand the agent the read-only node
+tree, so the fix is the label, not the rule.
 
 ## 3. Flip to enforcing
 
@@ -240,27 +259,27 @@ sudo ./install-selinux.sh rebuild     # recompile from source + reload -> ai_too
 sudo ausearch -m AVC -ts recent | grep ai_tools_t   # confirm still clean under load
 ```
 
-The rest of the system stays at its normal enforcing/targeted setting throughout;
-only `ai_tools_t`'s own permissive flag changed.
+The rest of the system stays at its normal enforcing/targeted setting
+throughout; only `ai_tools_t`'s own permissive flag changed.
 
 ## 4. Verify enforcement (the negative test)
 
-Bring-up proves the agent *can* do what it needs. The inverse — proving it *cannot*
-do what it must not — is `avc-denials.sh`. It attempts every denied access on
-purpose (the optional-group surfaces that are off: `systemctl`, `rpm`,
-`firewall-cmd`, `podman`; and the in-core boundary: other domains' `/proc`, the
-user's home, container storage, a non-`http` port, the MTA) and confirms each is
-refused.
+Bring-up proves the agent *can* do what it needs. The inverse — proving it
+*cannot* do what it must not — is `avc-denials.sh`. It attempts every denied
+access on purpose (the optional-group surfaces that are off: `systemctl`,
+`rpm`, `firewall-cmd`, `podman`; and the in-core boundary: other domains'
+`/proc`, the user's home, container storage, a non-`http` port, the MTA)
+and confirms each is refused.
 
 The catch: the boundary accesses are `dontaudit`'d, so under enforcing they are
-blocked **silently** — `ausearch` reports an empty result and that looks like the
-probe never ran. So the run-mode half brackets the probe with `semodule -DB` …
-`semodule -B`, which disables/re-enables dontaudit **system-wide** for the window,
-making those denials visible. A trap restores dontaudit on any exit, including
-Ctrl-C.
+blocked **silently** — `ausearch` reports an empty result and that looks like
+the probe never ran. So the run-mode half brackets the probe
+with `semodule -DB` … `semodule -B`, which disables/re-enables dontaudit
+**system-wide** for the window, making those denials visible. A trap restores
+dontaudit on any exit, including Ctrl-C.
 
-Split by privilege, same as bring-up — root toggles dontaudit and reads the log,
-the agent triggers the denials:
+Split by privilege, same as bring-up — root toggles dontaudit and reads
+the log, the agent triggers the denials:
 
 ```bash
 # 1. AS <you> (root), in a terminal:
@@ -272,67 +291,73 @@ bash selinux/avc/avc-denials.sh probe     # every attempt is expected to FAIL
 # 3. back in terminal 1: press Enter   # ausearch + classify, then -B restores
 ```
 
-It hands off to `avc-analyze.sh`, which now sorts denials into **three** buckets:
-**EXPECTED BOUNDARY** (`dontaudit`'d in the core module), **EXPECTED
-GROUP-DISABLED** (only an optional group would allow them — `enable-group <name>`,
-*not* a core change), and **NEW** (a real gap to review). Group-surface denials
-(`rpm_exec_t`, `systemd_systemctl_exec_t`, `firewalld_t`, …) land in the second
-bucket instead of being misreported as NEW. A clean verification shows entries in
-the two EXPECTED buckets and **no entry** under NEW or "ran (group enabled?)".
+It hands off to `avc-analyze.sh`, which now sorts denials into **three**
+buckets: **EXPECTED BOUNDARY** (`dontaudit`'d in the core module), **EXPECTED
+GROUP-DISABLED** (only an optional group would allow them —
+`enable-group <name>`, *not* a core change), and **NEW** (a real gap
+to review). Group-surface denials (`rpm_exec_t`, `systemd_systemctl_exec_t`,
+`firewalld_t`, …) land in the second bucket instead of being misreported
+as NEW. A clean verification shows entries in the two EXPECTED buckets and **no
+entry** under NEW or "ran (group enabled?)".
 
 ## After a Node upgrade
 
-A freshly installed `claude.exe` is mislabelled (`bin_t`), so the
-`unconfined_t → ai_tools_t` transition stops firing. `ai-tools-run` **fail-closes** on this —
-it refuses to launch rather than run unconfined — so a mislabelled entrypoint keeps the
-agent safe while it waits to be relabelled.
+A freshly installed `claude.exe` is mislabelled (`bin_t`),
+so the `unconfined_t → ai_tools_t` transition stops firing. `ai-tools-run`
+**fail-closes** on this — it refuses to launch rather than run unconfined —
+so a mislabelled entrypoint keeps the agent safe while it waits to be
+relabelled.
 
-The daily `nvm-update` timer relabels the new entrypoint automatically: the repoint it makes
-triggers the root-side `ai-tools-relabel.path` watcher, which runs `ai-tools-relabel-agent` as root.
-That helper is agent-agnostic — for each enabled agent it applies the entrypoint file-context that
-agent's own manifest declares (`entrypoint_fcontext`, mapped to the `ai_tools_exec_t` this module
-defines), `restorecon`s every binary it matches, and verifies the type. So a normal upgrade keeps
-the agent confined across version bumps with no manual step, and a second agent is labelled by
-the same pass without a policy change.
+The daily `nvm-update` timer relabels the new entrypoint automatically:
+the repoint it makes triggers the root-side `ai-tools-relabel.path` watcher,
+which runs `ai-tools-relabel-agent` as root. That helper is agent-agnostic —
+for each enabled agent it applies the entrypoint file-context that agent's own
+manifest declares (`entrypoint_fcontext`, mapped to the `ai_tools_exec_t` this
+module defines), `restorecon`s every binary it matches, and verifies the type.
+So a normal upgrade keeps the agent confined across version bumps with no
+manual step, and a second agent is labelled by the same pass without a policy
+change.
 
-Relabel by hand only if you upgraded Node some other way, or if the timer's relabel failed
-(`ai-tools-run` will be refusing to launch and pointing you here):
+Relabel by hand only if you upgraded Node some other way, or if the timer's
+relabel failed (`ai-tools-run` will be refusing to launch and pointing you
+here):
 
 ```bash
 sudo ai-tools-admin system entrypoints relabel
 ```
 
-To re-apply **all** labels after changing the policy (entrypoint + home-state + every
-project), use the full sweep:
+To re-apply **all** labels after changing the policy (entrypoint + home-state +
+every project), use the full sweep:
 
 ```bash
 cd selinux && sudo ./install-selinux.sh relabel
 ```
 
-Both paths **verify** the entrypoint label and remind you that a *running* claude keeps its
-old context until you exit and relaunch.
+Both paths **verify** the entrypoint label and remind you that a *running*
+claude keeps its old context until you exit and relaunch.
 
 ## Adding a project later
 
-`ai-tools --project-create <dir>` registers a **real** project for the DAC layer
+`ai-tools projects create <dir>` registers a **real** project for the DAC layer
 but does not label it for SELinux. After adding one, re-run:
 
 ```bash
 cd selinux && sudo ./install-selinux.sh relabel
 ```
 
-**Sandbox** clones are different — they label themselves. Because every clone lives
-under the fixed parent `/var/opt/ai-tools/sandbox-projects/`, a static fcontext rule
-in `ai_tools.fc` maps the whole tree to `ai_tools_project_t`, and `ai-tools
---sandbox-create` runs `restorecon` on the new clone itself (the projects user is
-`unconfined_t`, which the policy grants relabel to `ai_tools_project_t`). No manual
-`relabel` is needed. The agent reaches clones through the `files_search_var`
-traversal grant in `ai_tools.te` (search-only on `var_t`, the type of `/var`,
-`/var/opt`, and the sandbox parent dirs).
+**Sandbox** clones are different — they label themselves. Because every clone
+lives under the fixed parent `/var/opt/ai-tools/sandbox-projects/`, a static
+fcontext rule in `ai_tools.fc` maps the whole tree to `ai_tools_project_t`,
+and `ai-tools projects clone` runs `restorecon` on the new clone itself (the
+projects user is `unconfined_t`, which the policy grants relabel
+to `ai_tools_project_t`). No manual `relabel` is needed. The agent reaches
+clones through the `files_search_var` traversal grant in `ai_tools.te`
+(search-only on `var_t`, the type of `/var`, `/var/opt`, and the sandbox parent
+dirs).
 
-This only works once the module is **loaded** — the static rule and the
-`ai_tools_project_t` type ship in the `.pp`. After pulling these changes rebuild and
-reload:
+This only works once the module is **loaded** — the static rule
+and the `ai_tools_project_t` type ship in the `.pp`. After pulling these
+changes rebuild and reload:
 
 ```bash
 cd selinux && sudo ./install-selinux.sh rebuild
@@ -344,44 +369,49 @@ cd selinux && sudo ./install-selinux.sh rebuild
 cd selinux && sudo ./install-selinux.sh remove
 ```
 
-Unloads the module, deletes the project fcontext rules, and `restorecon`s
-each agent's config directory, the nvm tree, and each project back to default contexts.
-DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`) is untouched.
+Unloads the module, deletes the project fcontext rules, and `restorecon`s each
+agent's config directory, the nvm tree, and each project back to default
+contexts. DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`)
+is untouched.
 
 ## Notes
 
-- **Minimal surface:** the domain holds manage rights on the types the module declares for
-  its own trees — project, project build output, home, and private-tmp — and one entrypoint
-  transition. What it reaches beyond those is
-  read-only or execute-only: the nvm tree, `/etc`, shared libraries, the controlling pty,
-  DNS and outbound HTTPS, the handback socket, and a process baseline. The accesses the
-  agent *probed but does not need* (other domains' `/proc`, the user's home listing,
-  container storage) are additionally `dontaudit`'d, so they stay denied and quiet.
+- **Minimal surface:** the domain holds manage rights on the types the module
+  declares for its own trees — project, project build output, home,
+  and private-tmp — and one entrypoint transition. What it reaches beyond those
+  is read-only or execute-only: the nvm tree, `/etc`, shared libraries,
+  the controlling pty, DNS and outbound HTTPS, the handback socket,
+  and a process baseline. The accesses the agent *probed but does not need*
+  (other domains' `/proc`, the user's home listing, container storage) are
+  additionally `dontaudit`'d, so they stay denied and quiet.
 - **git is covered:** `ai_tools_project_t` manage rights include the dir
-  create/rename/unlink that git needs (`index.lock`, refs, objects); `git` itself
-  runs from `corecmd_exec_bin`. No git permission from the main install changes.
-- **Belt and suspenders:** SELinux here does not replace the DAC model — the
-  locked `bin`, sticky `.claude`, and `<you>:ai-tools` control files still stand; a
-  given access must pass both layers.
-- **Cross-distro type names:** the `require {}` block in `ai_tools.te` is a *hard*
-  load-time dependency — a type that does not exist in the running base policy
-  makes `semodule` fail for every user (`Failed to resolve typeattributeset`).
-  Type names vary across `selinux-policy` versions (RHEL 9 vs UEK vs RHEL 10) and
-  optional sub-packages, so the **extended-boundary** types in section (6) are
+  create/rename/unlink that git needs (`index.lock`, refs, objects); `git`
+  itself runs from `corecmd_exec_bin`. No git permission from the main install
+  changes.
+- **Belt and suspenders:** SELinux here does not replace the DAC model —
+  the locked `bin`, sticky `.claude`, and `<you>:ai-tools` control files still
+  stand; a given access must pass both layers.
+- **Cross-distro type names:** the `require {}` block in `ai_tools.te` is
+  a *hard* load-time dependency — a type that does not exist in the running
+  base policy makes `semodule` fail for every user
+  (`Failed to resolve typeattributeset`). Type names vary
+  across `selinux-policy` versions (RHEL 9 vs UEK vs RHEL 10) and optional
+  sub-packages, so the **extended-boundary** types in section (6) are
   deliberately kept *out* of `require {}` while their `dontaudit` rules stay
   commented. Known variations: `/etc/sudoers` is `etc_sudoers_t` on full RHEL 9
-  policy but plain `etc_t` on this UEK build; `/run/user/<uid>` is `user_runtime_t`
-  on RHEL 9 but `user_tmp_t` here; `container_var_run_t` exists only with
-  `container-selinux`. Before uncommenting a section-(6) rule: confirm the type
-  with `seinfo -t <type_t>`, add it to `require {}`, then rebuild. The
-  `avc-analyze.sh` classifier carries both spellings — it only tags log lines, so
-  unknown names there are harmless.
-- **Sudoers stays inaccessible even where it is `etc_t`:** where `/etc/sudoers` is
-  labelled plain `etc_t` (this UEK build), the MAC layer *allows* the read via
-  `files_read_etc_files` — but **DAC still denies it**: `/etc/sudoers` is
-  `0440 root:root` and `/etc/sudoers.d` is `0750 root:root`, while `ai-tools` is a
-  non-root UID in no supplementary groups, so both return `EACCES` (verified with
-  SELinux disabled for the test). What the UEK label costs is only the *MAC
-  redundancy* for sudoers, not the protection itself; `/etc/shadow` (`shadow_t` +
-  `0000`) keeps full dual-layer coverage everywhere. `avc-denials.sh` section H
-  verifies the *outcome* (inaccessible), independent of which layer enforces it.
+  policy but plain `etc_t` on this UEK build; `/run/user/<uid>` is
+  `user_runtime_t` on RHEL 9 but `user_tmp_t` here; `container_var_run_t`
+  exists only with `container-selinux`. Before uncommenting a section-(6) rule:
+  confirm the type with `seinfo -t <type_t>`, add it to `require {}`, then
+  rebuild. The `avc-analyze.sh` classifier carries both spellings — it only
+  tags log lines, so unknown names there are harmless.
+- **Sudoers stays inaccessible even where it is `etc_t`:** where `/etc/sudoers`
+  is labelled plain `etc_t` (this UEK build), the MAC layer *allows* the read
+  via `files_read_etc_files` — but **DAC still denies it**: `/etc/sudoers` is
+  `0440 root:root` and `/etc/sudoers.d` is `0750 root:root`, while `ai-tools`
+  is a non-root UID in no supplementary groups, so both return `EACCES`
+  (verified with SELinux disabled for the test). What the UEK label costs is
+  only the *MAC redundancy* for sudoers, not the protection itself;
+  `/etc/shadow` (`shadow_t` + `0000`) keeps full dual-layer coverage
+  everywhere. `avc-denials.sh` section H verifies the *outcome* (inaccessible),
+  independent of which layer enforces it.

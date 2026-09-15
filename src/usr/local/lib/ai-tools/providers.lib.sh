@@ -1,26 +1,24 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/providers.lib.sh
-# Resolve which sandboxed providers are enabled and how to provision each: the seam that keeps
-# the toolchain and launch layers provider-agnostic. A provider's details live in the manifest its
-# own package ships (/usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, <name> being the
-# token an operator writes in operator.conf's AI_TOOLS_AGENTS / AI_TOOLS_INTEGRATIONS), and that
-# key gates which are enabled. The manifest fields and what reads each, the fail-closed enablement
-# rules, and the trust predicate every input and its directory pass are in providers.rule.md; the
-# values one agent declares are that manifest's own comments.
+# Resolve which sandboxed providers are enabled and how to provision each: the seam that keeps the toolchain and launch
+# layers provider-agnostic. A provider's details live in the manifest its own package ships
+# (/usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, <name> being the token an operator writes
+# in operator.conf's AI_TOOLS_AGENTS / AI_TOOLS_INTEGRATIONS), and that key gates which are enabled. The manifest fields
+# and what reads each, the fail-closed enablement rules, and the trust predicate every input and its directory pass are
+# in providers.rule.md; the values one agent declares are that manifest's own comments.
 #
-# Manifests and operator.conf are DATA, parsed through conf.lib.sh and never sourced, so a
-# malformed or tampered file yields a bad value rather than code running in the scripts that read
-# it. conf.lib.sh is therefore a hard dependency: a load failure leaves this file defining NO
-# RESOLVER and returning non-zero, so a consumer falls back (Node-only bootstrap, npm-only update,
-# no integration env) rather than guessing which providers it has. The pure verdicts
-# (ai_tools_provider_is_enabled, ai_tools_agent_sweeps_at_exit, ai_tools_provider_gate) take no
-# input but their arguments, so tests/unit/providers.sh drives them over the truth table; the
-# resolvers around them read the files and print data-only stdout, with every refusal on stderr
-# and in journald, naming the owner and mode the predicate read.
+# Manifests and operator.conf are DATA, parsed through conf.lib.sh and never sourced, so a malformed or tampered file
+# yields a bad value rather than code running in the scripts that read it. conf.lib.sh is therefore a hard dependency:
+# a load failure leaves this file defining NO RESOLVER and returning non-zero, so a consumer falls back (Node-only
+# bootstrap, npm-only update, no integration env) rather than guessing which providers it has. The pure verdicts
+# (ai_tools_provider_is_enabled, ai_tools_agent_sweeps_at_exit, ai_tools_provider_gate) take no input but their
+# arguments, so tests/unit/providers.sh drives them over the truth table; the resolvers around them read the files
+# and print data-only stdout, with every refusal on stderr and in journald, naming the owner and mode the predicate
+# read.
 
-# Include guard: consumers may source this alongside libs that also pull it in. An if-statement,
-# not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
+# Include guard: consumers may source this alongside libs that also pull it in. An if-statement, not `[[ ]] && return`,
+# which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
 if [[ -n "${_AI_TOOLS_PROVIDERS_LIB_LOADED:-}" ]]; then
     return 0
 fi
@@ -43,10 +41,9 @@ _ai_tools_provider_warn() {
     return 0
 }
 
-# Shared KEY=value grammar + the trust predicate. REQUIRED: without it this file cannot parse a
-# manifest or tell a trusted input from a planted one, and guessing either would be exactly the
-# fail-open this seam exists to prevent. Return non-zero and define no resolver, so the consumer's
-# `source ... && declare -F ...` guard then falls back.
+# Shared KEY=value grammar + the trust predicate. REQUIRED: without it this file cannot parse a manifest or tell
+# a trusted input from a planted one, and guessing either would be exactly the fail-open this seam exists to prevent.
+# Return non-zero and define no resolver, so the consumer's `source ... && declare -F ...` guard then falls back.
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
@@ -56,15 +53,15 @@ if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         "providers.lib.sh: conf.lib.sh missing or incomplete -- no providers resolved"
     return 1
 fi
-# Logging is best-effort here (the refusals also go to stderr for the operator at the
-# terminal); journald is where a tamper signal is durable. Mirrors msg.lib.sh's optional load.
+# Logging is best-effort here (the refusals also go to stderr for the operator at the terminal); journald is
+# where a tamper signal is durable. Mirrors msg.lib.sh's optional load.
 # shellcheck source=SCRIPTDIR/log.lib.sh
 source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
 
 _AI_TOOLS_PROVIDERS_LIB_LOADED=1
 
-# Deployed paths; all overridable as root-only test hooks (mirrors AI_TOOLS_OPERATOR_CONF in
-# skip-dirs.lib.sh), so tests point them at a fixture tree without touching the real host.
+# Deployed paths; all overridable as root-only test hooks (mirrors AI_TOOLS_OPERATOR_CONF in skip-dirs.lib.sh), so tests
+# point them at a fixture tree without touching the real host.
 : "${AI_TOOLS_AGENTS_DIR:=/usr/local/lib/ai-tools/agents.d}"
 : "${AI_TOOLS_INTEGRATIONS_DIR:=/usr/local/lib/ai-tools/integrations.d}"
 : "${AI_TOOLS_OPERATOR_CONF:=/etc/ai-tools/operator.conf}"
@@ -265,8 +262,8 @@ ai_tools_agents_empty_verdict() {
 #   apply the trust predicate before reading.
 _ai_tools_manifest_field() {
     local manifest_dir="$1" provider_name="$2" wanted_key="$3"
-    # Allowlist the name before it becomes a path: manifest basenames are plain identifiers, so
-    # anything else -- a separator, a traversal -- cannot address a file outside the manifest dir.
+    # Allowlist the name before it becomes a path: manifest basenames are plain identifiers, so anything else --
+    # a separator, a traversal -- cannot address a file outside the manifest dir.
     [[ "${provider_name}" =~ ^[A-Za-z0-9._-]+$ && "${provider_name}" != *..* ]] || return 1
     local manifest_file="${manifest_dir}/${provider_name}.conf"
     ai_tools_conf_is_trusted "${manifest_file}" || return 1

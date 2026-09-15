@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # install.sh -- from-source installer for the ai-tools Claude Code sandbox
 #
-# PREFER the packaged install (`sudo dnf install ./*.rpm` from a release zip): it
-# deploys the same files through RPM and is the supported path for production use.
-# Running this script directly is for DEVELOPMENT from a source checkout, and needs
-# the one-time prerequisites this header lists completed first (the RPM provisions them itself).
+# PREFER the packaged install (`sudo dnf install ./*.rpm` from a release zip): it deploys the same files through RPM
+# and is the supported path for production use. Running this script directly is for DEVELOPMENT from a source checkout,
+# and needs the one-time prerequisites this header lists completed first (the RPM provisions them itself).
 #
 # Usage:
 #   sudo ./install.sh install              deploy all files, enable timer
@@ -17,11 +16,11 @@
 #   sudo ./install.sh check-tree           name the commit an install would deploy, and list the
 #                                          uncommitted paths that would refuse it; the host is unchanged
 #
-# Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run
-# as the projects user, not in install.sh:
+# Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run as the projects user, not
+# in install.sh:
 #   ```bash
-#   ai-tools --project-create <dir>        # register a real project
-#   ai-tools --sandbox-create <dir>        # shallow-clone a repo into the sandbox area
+#   ai-tools projects create <dir>         # register a real project
+#   ai-tools projects clone <dir>          # shallow-clone a repo into the sandbox area
 #   ```
 #
 # Prerequisites (one-time manual steps before running install;
@@ -35,10 +34,10 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 
-# refuse_early <code> <line>... -- the refusals that answer before the styled emitters are defined:
-# the argument parse, the root guard, and the operator validation. Renders what plain mode
-# renders -- the code on its own leading line, then each caller line whole -- and exits 1. The
-# matcher is the library's own anchored form (tests/unit/msg.sh holds every inline copy to it).
+# refuse_early <code> <line>... -- the refusals that answer before the styled emitters are defined: the argument parse,
+# the root guard, and the operator validation. Renders what plain mode renders -- the code on its own leading line, then
+# each caller line whole -- and exits 1. The matcher is the library's own anchored form (tests/unit/msg.sh holds every
+# inline copy to it).
 refuse_early() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
@@ -54,11 +53,10 @@ usage() {
     exit 1
 }
 
-# Arguments: an optional action (default install), an optional `--operator`, which names the
-# account to enrol instead of asking for it -- what an unattended install and the guard tests use,
-# and the only route by which a name other than SUDO_USER arrives without a terminal -- and
-# `--allow-uncommitted`, which lets an install deploy a checkout carrying uncommitted changes,
-# the developer's own work in progress (the source-tree gate in do_install refuses one without it).
+# Arguments: an optional action (default install), an optional `--operator`, which names the account to enrol instead
+# of asking for it -- what an unattended install and the guard tests use, and the only route by which a name other than
+# SUDO_USER arrives without a terminal -- and `--allow-uncommitted`, which lets an install deploy a checkout carrying
+# uncommitted changes, the developer's own work in progress (the source-tree gate in do_install refuses one without it).
 ACTION=""
 OPERATOR_OPT=""
 ALLOW_UNCOMMITTED=0
@@ -80,41 +78,39 @@ readonly ACTION="${ACTION:-install}" OPERATOR_OPT ALLOW_UNCOMMITTED
 
 # ── Guards ─────────────────────────────────────────────────────────────────────
 
-# The SELinux installer meets the same situation and prints this code as a deliberate twin
-# (messaging.rule.md), so the code is defined here alone.
+# The SELinux installer meets the same situation and prints this code as a deliberate twin (messaging.rule.md),
+# so the code is defined here alone.
 [[ "${EUID}" -eq 0 ]] \
     || refuse_early MSG-K4W7 "error: run with sudo"
 
-# Sandbox service account the agent runs as. This is only a PARTIAL knob: owner
-# strings and the sudoers principal/runas spec (the @SANDBOX_USER@/@SANDBOX_GROUP@
-# tokens and the `-g`/`-o`/`-u` arguments the install commands pass) follow these vars, but the account name
-# is also baked into paths (/opt/ai-tools), SELinux types (ai_tools_t), and helper
-# binary names (ai-tools-chown), which stay literal. Renaming the account in full
-# requires changing those too. See docs/naming-conventions.md.
+# Sandbox service account the agent runs as. This is only a PARTIAL knob: owner strings and the sudoers principal/runas
+# spec (the @SANDBOX_USER@/@SANDBOX_GROUP@ tokens and the `-g`/`-o`/`-u` arguments the install commands pass) follow
+# these vars, but the account name is also baked into paths (/opt/ai-tools), SELinux types (ai_tools_t), and helper
+# binary names (ai-tools-chown), which stay literal. Renaming the account in full requires changing those too. See
+# docs/naming-conventions.md.
 readonly SANDBOX_USER="ai-tools"
 readonly SANDBOX_GROUP="ai-tools"
 
-# coded_refusal <code> <text> -- a refusal as a VALUE: the code on the first line, the text on the
-# second, which emit_coded hands to warn or die and the entry-point validation prints itself.
-# operator_refusal's branches define their codes through it, so each of its situations keeps a
-# code of its own while a site printing the value need not know which branch produced it.
+# coded_refusal <code> <text> -- a refusal as a VALUE: the code on the first line, the text on the second,
+# which emit_coded hands to warn or die and the entry-point validation prints itself. operator_refusal's branches define
+# their codes through it, so each of its situations keeps a code of its own while a site printing the value need not
+# know which branch produced it.
 coded_refusal() { printf '%s\n' "$1" "$2"; }
-# emit_coded <emitter> <value> -- hand a coded_refusal value to warn or die as the two arguments
-# they read: the code, then the text.
+# emit_coded <emitter> <value> -- hand a coded_refusal value to warn or die as the two arguments they read: the code,
+# then the text.
 emit_coded() { "$1" "${2%%$'\n'*}" "${2#*$'\n'}"; }
 
-# operator_refusal <name> -- print why <name> cannot be the operator this install enrols, as a
-# coded_refusal value, or an empty string when it can. The single home for that decision, because a name
-# reaches it by three routes -- the invoking SUDO_USER, `--operator`, and the prompt -- which must
-# refuse alike or the route decides the outcome; do_install re-asks it before binding the account.
+# operator_refusal <name> -- print why <name> cannot be the operator this install enrols, as a coded_refusal value,
+# or an empty string when it can. The single home for that decision, because a name reaches it by three routes --
+# the invoking SUDO_USER, `--operator`, and the prompt -- which must refuse alike or the route decides the outcome;
+# do_install re-asks it before binding the account.
 #
-# Root is the one that matters: `ai-tools-admin operators add` refuses it outright and this script
-# reaches the same end state by a different route (the @PROJECTS_USER@ substitution plus
-# `usermod -aG ai-ops`), producing a host nobody can provision -- the CLI refuses root every
-# mutating verb, `--for` refuses root as a target, and operator.lib.sh resolves path owners from
-# OPERATORS, so the ownership handback would restore agent-written files to root:ai-tools. It is
-# reachable without meaning to: sudo invoked from a root shell sets SUDO_USER=root, so `sudo -i`
-# followed by `sudo ./install.sh` arrives here with a resolvable home and a real group.
+# Root is the one that matters: `ai-tools-admin operators add` refuses it outright and this script reaches the same end
+# state by a different route (the @PROJECTS_USER@ substitution plus `usermod -aG ai-ops`), producing a host nobody can
+# provision -- the CLI refuses root every mutating verb, `--for` refuses root as a target, and operator.lib.sh resolves
+# path owners from OPERATORS, so the ownership handback would restore agent-written files to root:ai-tools. It is
+# reachable without meaning to: sudo invoked from a root shell sets SUDO_USER=root, so `sudo -i` followed
+# by `sudo ./install.sh` arrives here with a resolvable home and a real group.
 operator_refusal() {
     local name="$1" home
     if [[ -z "${name}" ]]; then
@@ -132,17 +128,15 @@ operator_refusal() {
     fi
 }
 
-# operator_create_hint <name> -- print on stderr how to bring <name> into existence as an operator
-# account. Called from the two refusal sites where the name is a usable choice that has simply not
-# been created yet, so the command arrives at the point the reader is blocked rather than in a box
-# every install draws. Emits with printf rather than warn(), which is defined further down: this
-# runs from the entry-point validation as well, before the emitters exist.
+# operator_create_hint <name> -- print on stderr how to bring <name> into existence as an operator account. Called
+# from the two refusal sites where the name is a usable choice that has simply not been created yet, so the command
+# arrives at the point the reader is blocked rather than in a box every install draws. Emits with printf rather than
+# warn(), which is defined further down: this runs from the entry-point validation as well, before the emitters exist.
 #
-# The two halves are separate decisions. `useradd` creates the normal login account this script
-# enrols. `usermod -aG wheel` is this host's general sudo grant, which install.sh never writes:
-# claim, unclaim, lockdown and reclaim reach root helpers carrying no NOPASSWD rule, so a host
-# needs at least one operator holding that grant, and which accounts hold it is the
-# administrator's decision.
+# The two halves are separate decisions. `useradd` creates the normal login account this script enrols.
+# `usermod -aG wheel` is this host's general sudo grant, which install.sh never writes: claim, unclaim, lockdown
+# and reclaim reach root helpers carrying no NOPASSWD rule, so a host needs at least one operator holding that grant,
+# and which accounts hold it is the administrator's decision.
 operator_create_hint() {
     local name="$1"
     printf '    create one, then re-run this install:\n' >&2
@@ -150,8 +144,8 @@ operator_create_hint() {
     printf '    the wheel half is this host'"'"'s general sudo grant, which this script does not write\n' >&2
 }
 
-# The install runs its verification suite as SUDO_USER, so that variable is required whichever
-# account is enrolled: `--operator` decides WHO is enrolled, never how this script was invoked.
+# The install runs its verification suite as SUDO_USER, so that variable is required whichever account is enrolled:
+# `--operator` decides WHO is enrolled, never how this script was invoked.
 : "${SUDO_USER:?error: SUDO_USER not set -- invoke via sudo, not as root directly}"
 PROJECTS_USER="${OPERATOR_OPT:-${SUDO_USER}}"
 OPERATOR_REFUSAL="$(operator_refusal "${PROJECTS_USER}")"
@@ -169,25 +163,23 @@ PROJECTS_GROUP="$(id -gn "${PROJECTS_USER}")"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-# Styled output, mirroring the ai-tools CLI so install and day-to-day management
-# read the same. Colours only on a TTY; piped/redirected output stays plain.
+# Styled output, mirroring the ai-tools CLI so install and day-to-day management read the same. Colours only on a TTY;
+# piped/redirected output stays plain.
 if [[ -t 1 ]]; then
     readonly C_BOLD=$'\033[1m' C_DIM=$'\033[2m' C_GRN=$'\033[32m' C_YEL=$'\033[33m' C_RED=$'\033[31m' C_RST=$'\033[0m'
 else
     readonly C_BOLD='' C_DIM='' C_GRN='' C_YEL='' C_RED='' C_RST=''
 fi
 
-# Each emitter pins IFS locally before "$*": this script runs under IFS=$'\n\t', where the join
-# character is a NEWLINE, so a call passing more than one word would break its message across
-# lines. Same guard as the CLI's join_words.
+# Each emitter pins IFS locally before "$*": this script runs under IFS=$'\n\t', where the join character is a NEWLINE,
+# so a call passing more than one word would break its message across lines. Same guard as the CLI's join_words.
 say()     { local IFS=' '; printf '%s\n' "$*"; }
 section() { local IFS=' '; printf '\n%s── %s ──%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
 ok()      { local IFS=' '; printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
 # log: a dim checklist bullet for each deployed file / action.
 log()     { local IFS=' '; printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*"; }
-# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
-# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since these helpers
-# report before the library is loaded.
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
+# tests/lib/harness.sh's assert_msg reads. Matched inline, since these helpers report before the library is loaded.
 warn() {
     local IFS=' ' code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
@@ -198,19 +190,18 @@ die() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf '%sinstall: error:%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2; exit 1
 }
-# err: a fault this script found and does not own, so it reports at the severity the state has and
-# leaves the exit status to the install. die is the other direction -- a fault that ends the run.
+# err: a fault this script found and does not own, so it reports at the severity the state has and leaves the exit
+# status to the install. die is the other direction -- a fault that ends the run.
 err() {
     local IFS=' ' code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf '  %s!%s %s\n' "${C_RED}" "${C_RST}" "$*" >&2
 }
 
-# Shared message formatter, sourced from the SOURCE TREE (the installed copy may not exist
-# yet -- this script installs it). Frames interactive prompts in the '#' box and carries
-# the yes/no prompts (ai_tools_msg_confirm). REQUIRED, like control-plane.lib.sh:
-# the prompts gate decisions, and the source tree that provides this script provides the
-# lib -- a missing file means a broken checkout, which is fatal rather than degraded.
+# Shared message formatter, sourced from the SOURCE TREE (the installed copy may not exist yet -- this script installs
+# it). Frames interactive prompts in the '#' box and carries the yes/no prompts (ai_tools_msg_confirm). REQUIRED, like
+# control-plane.lib.sh: the prompts gate decisions, and the source tree that provides this script provides the lib --
+# a missing file means a broken checkout, which is fatal rather than degraded.
 readonly MSG_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/msg.lib.sh"
 # die_unsourced <lib> -- one situation for every library this script sources from its checkout.
 die_unsourced() { die MSG-R9A8 "cannot source ${1} -- the checkout is incomplete; re-clone or re-download it"; }
@@ -219,31 +210,28 @@ source "${MSG_LIB}" || die_unsourced "${MSG_LIB}"
 # One fixed 80-column frame for every box in the install flow, so consecutive prompts align.
 export AI_TOOLS_MSG_FULLWIDTH=1
 
-# Version stamped into the deployed CLI (`ai-tools --version`); the RPM stamps %{version}
-# from the same file at build. A missing file falls back to "dev" rather than aborting, and
-# silently: stderr is redirected before the input, since the shell reports a failed input
-# redirection through whatever stderr it holds at that point.
+# Version stamped into the deployed CLI (`ai-tools --version`); the RPM stamps %{version} from the same file at build.
+# A missing file falls back to "dev" rather than aborting, and silently: stderr is redirected before the input, since
+# the shell reports a failed input redirection through whatever stderr it holds at that point.
 AI_TOOLS_VERSION="$(tr -d '[:space:]' 2>/dev/null < "${SCRIPT_DIR}/packaging/VERSION" || true)"
 readonly AI_TOOLS_VERSION="${AI_TOOLS_VERSION:-dev}"
 
-# Control-plane boundary-mode constants, sourced from the SOURCE TREE (the installed copy may not
-# exist yet). The single source for the /opt/ai-tools home/dir modes the dev install and the spec
-# %files both assert; these modes are load-bearing, so a missing lib is fatal rather than silently
-# falling back.
+# Control-plane boundary-mode constants, sourced from the SOURCE TREE (the installed copy may not exist yet). The single
+# source for the /opt/ai-tools home/dir modes the dev install and the spec %files both assert; these modes are
+# load-bearing, so a missing lib is fatal rather than silently falling back.
 readonly CONTROL_PLANE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-plane.lib.sh"
 # shellcheck source=/dev/null
 source "${CONTROL_PLANE_LIB}" || die_unsourced "${CONTROL_PLANE_LIB}"
 
-# The shared config grammar, sourced from the SOURCE TREE like the other libs. It carries the
-# config-sidecar handling and the hook-declaration merge this script applies to a KEPT
-# settings.json, so a missing lib would mean an upgrade silently leaving a newly shipped hook
-# undeclared -- fatal here, like the others.
+# The shared config grammar, sourced from the SOURCE TREE like the other libs. It carries the config-sidecar handling
+# and the hook-declaration merge this script applies to a KEPT settings.json, so a missing lib would mean an upgrade
+# silently leaving a newly shipped hook undeclared -- fatal here, like the others.
 readonly CONF_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/conf.lib.sh
 source "${CONF_LIB}" || die_unsourced "${CONF_LIB}"
 
-# Managed-asset seeder (agents/skills), sourced from the SOURCE TREE. Requires msg.lib.sh
-# (sourced with the other libs) for the update confirm; a missing lib is fatal like the others.
+# Managed-asset seeder (agents/skills), sourced from the SOURCE TREE. Requires msg.lib.sh (sourced with the other libs)
+# for the update confirm; a missing lib is fatal like the others.
 readonly MANAGED_ASSETS_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/managed-assets.lib.sh"
 # shellcheck source=/dev/null
 source "${MANAGED_ASSETS_LIB}" || die_unsourced "${MANAGED_ASSETS_LIB}"
@@ -263,21 +251,18 @@ confirm_boxed() {
     ai_tools_msg_confirm "${question}" "${def}"
 }
 
-# source_tree_gate -- the source tree root deploys is one the operator reviewed. This checkout is
-# usually a claimed project, so a session can edit install.sh and every file under src/, and
-# this script then deploys them as root. The review point is the commit: the operator reads the
-# diff and commits, and the install names the commit it deploys (TREE_LINE, which the review
-# prompt repeats). A tree with uncommitted changes is listed, path by path with its git status
-# code and `[agent]` on a path the sandbox account owns -- the mark that says a session wrote it
-# and no one has committed it -- and REFUSED, unless the command line carries
-# `--allow-uncommitted`: deploying work in progress to see it run is a valid step of developing
-# this project, and the flag is how that decision is stated once, per invocation, rather than
-# answered at a prompt whose default would have to be guessed. Interactive and unattended runs
-# take the same path. A checkout that is not a git repository (a tarball) has no commit to name
-# and passes. Root reads the repository through an explicit safe.directory, since git refuses
-# another user's checkout otherwise; both git calls are reads. `install.sh check-tree` runs this
-# alone, which is how the unit test drives it against a fixture checkout and how an operator
-# reads the verdict without installing.
+# source_tree_gate -- the source tree root deploys is one the operator reviewed. This checkout is usually a claimed
+# project, so a session can edit install.sh and every file under src/, and this script then deploys them as root.
+# The review point is the commit: the operator reads the diff and commits, and the install names the commit it deploys
+# (TREE_LINE, which the review prompt repeats). A tree with uncommitted changes is listed, path by path with its git
+# status code and `[agent]` on a path the sandbox account owns -- the mark that says a session wrote it and no one has
+# committed it -- and REFUSED, unless the command line carries `--allow-uncommitted`: deploying work in progress to see
+# it run is a valid step of developing this project, and the flag is how that decision is stated once, per invocation,
+# rather than answered at a prompt whose default would have to be guessed. Interactive and unattended runs take the same
+# path. A checkout that is not a git repository (a tarball) has no commit to name and passes. Root reads the repository
+# through an explicit safe.directory, since git refuses another user's checkout otherwise; both git calls are reads.
+# `install.sh check-tree` runs this alone, which is how the unit test drives it against a fixture checkout
+# and how an operator reads the verdict without installing.
 TREE_LINE=""
 source_tree_gate() {
     local head_line="" uncommitted=""
@@ -316,13 +301,12 @@ source_tree_gate() {
     die MSG-U8C9 "the checkout ${SCRIPT_DIR} carries ${total} uncommitted path(s) -- review and commit them (git -C ${SCRIPT_DIR} status; git -C ${SCRIPT_DIR} diff), or install work in progress with: sudo ${SCRIPT_DIR}/install.sh install --allow-uncommitted"
 }
 
-# Decide what to do with an existing user config file. Interactive: ask whether to keep it
-# (default) or reset it to shipped defaults. Declining the first prompt always leads to a
-# second, default-No confirmation stating the impact, so every reset is a deliberate two-step
-# choice; warn overrides the generic impact line for files that discard particular
-# operator-maintained state (operator.conf, settings.json, the allowlist). Both prompts default
-# to keeping, so Enter -- and any non-interactive run -- never clobbers user edits. Returns 0
-# to KEEP the existing file, 1 to (re)seed it.
+# Decide what to do with an existing user config file. Interactive: ask whether to keep it (default) or reset it
+# to shipped defaults. Declining the first prompt always leads to a second, default-No confirmation stating the impact,
+# so every reset is a deliberate two-step choice; warn overrides the generic impact line for files that discard
+# particular operator-maintained state (operator.conf, settings.json, the allowlist). Both prompts default to keeping,
+# so Enter -- and any non-interactive run -- never clobbers user edits. Returns 0 to KEEP the existing file, 1
+# to (re)seed it.
 # $1 path   file to check
 # $2 warn   impact line for the second prompt (default: a generic reset note); pass a specific
 #           one for a reset that discards particular state
@@ -339,9 +323,8 @@ keep_existing() {
     return 1
 }
 
-# Report a keep_existing outcome in one consistent line, so every seeded file confirms what
-# happened in the same vocabulary regardless of the branch taken: kept, reseeded (an existing
-# file replaced), or created (none was there).
+# Report a keep_existing outcome in one consistent line, so every seeded file confirms what happened in the same
+# vocabulary regardless of the branch taken: kept, reseeded (an existing file replaced), or created (none was there).
 # $1 path  $2 existed(1/0)  $3 kept(1/0)  $4 detail (optional parenthetical)
 seed_result() {
     local path="$1" existed="$2" kept="$3" detail="${4:-}"
@@ -352,12 +335,11 @@ seed_result() {
     log "${path} ${verb}${detail:+ (${detail})}"
 }
 
-# Announce the options a kept KEY=value config does not mention yet, and leave the shipped
-# baseline beside it to copy the documentation from. Unlike the hook declarations, this
-# NEVER rewrites the file: with the present/absent grammar an absent key already means its
-# default, so a stale config costs the operator the knowledge that an option exists rather than
-# the behaviour -- not worth editing prose whose layout and annotations are theirs, least of all
-# in the file that carries the operator list.
+# Announce the options a kept KEY=value config does not mention yet, and leave the shipped baseline beside it to copy
+# the documentation from. Unlike the hook declarations, this NEVER rewrites the file: with the present/absent grammar
+# an absent key already means its default, so a stale config costs the operator the knowledge that an option exists
+# rather than the behaviour -- not worth editing prose whose layout and annotations are theirs, least of all in the file
+# that carries the operator list.
 # $1 deployed config   $2 shipped config
 report_new_conf_keys() {
     local deployed="$1" shipped="$2" reference=""
@@ -373,20 +355,19 @@ report_new_conf_keys() {
     if [[ -n "${reference}" ]]; then
         warn "  documented in ${reference} -- copy the blocks you want;"
         warn "  each is optional and an unmentioned key keeps its default"
-        # Suggested, not run, and deliberately not gated on diff(1) being installed: this is a
-        # line for the operator to paste, and a host without diff simply ignores it.
+        # Suggested, not run, and deliberately not gated on diff(1) being installed: this is a line for the operator
+        # to paste, and a host without diff simply ignores it.
         warn "  compare:  diff -u ${deployed} ${reference}"
     fi
     return 0
 }
 
-# Render the shared hook-declaration merge (conf.lib.sh) in the installer's voice. The decision,
-# the backup, and the baseline copy are the library's; what belongs here is only how the outcome
-# reads in an install log.
+# Render the shared hook-declaration merge (conf.lib.sh) in the installer's voice. The decision, the backup,
+# and the baseline copy are the library's; what belongs here is only how the outcome reads in an install log.
 #
-# A kept settings.json is the one control-plane file an upgrade does not overwrite, so without
-# this a newly shipped hook never reaches an existing host: the hook body and its data install,
-# the declaration that invokes them does not, and the feature is silently inert.
+# A kept settings.json is the one control-plane file an upgrade does not overwrite, so without this a newly shipped hook
+# never reaches an existing host: the hook body and its data install, the declaration that invokes them does not,
+# and the feature is silently inert.
 # $1 deployed settings.json   $2 shipped settings.json
 reconcile_hook_declarations() {
     local deployed="$1" shipped="$2" status=0
@@ -403,9 +384,9 @@ reconcile_hook_declarations() {
         return 0 ;;
     esac
 
-    # An affirmative outcome, not a warning: the merge is the intended path, and a warning that
-    # reports success trains an operator to skim past the ones that matter. It is still not
-    # routine -- an operator-owned control-plane file changed -- so every addition is named.
+    # An affirmative outcome, not a warning: the merge is the intended path, and a warning that reports success trains
+    # an operator to skim past the ones that matter. It is still not routine -- an operator-owned control-plane file
+    # changed -- so every addition is named.
     ok "${deployed}: merged in the hook declarations this version ships"
     local line
     for line in "${_ai_tools_conf_merge_added[@]}"; do
@@ -415,21 +396,20 @@ reconcile_hook_declarations() {
     return 0
 }
 
-# Create a directory only if it does not already exist, preserving perms on
-# existing dirs. Applies owner/mode only to newly created directories.
+# Create a directory only if it does not already exist, preserving perms on existing dirs. Applies owner/mode only
+# to newly created directories.
 ensure_dir() {
     local mode="$1" owner="$2" group="$3" dir="$4"
     [[ -d "${dir}" ]] || install -d -o "${owner}" -g "${group}" -m "${mode}" "${dir}"
 }
 
-# Make sure `<home>/.config` exists and belongs to the account whose home it is, before the ai-tools
-# config directory is placed inside it. It is created here rather than as a parent of that
-# directory because `install -d` gives a parent it creates the DEFAULT attributes -- root-owned,
-# `0755` -- applying `-o`/`-g`/`-m` to the last component alone, which leaves the operator unable to
-# write its own config home. `mkdir` also lets the host's umask decide the mode, which is the host's
-# call for a directory this installer only has to traverse; the access boundary is the `700`
-# `~/.config/ai-tools` inside it. An existing one is left as it stands, mode and owner alike.
-# `restorecon` gives a created one `config_home_t`, which root creating it inside the home does not.
+# Make sure `<home>/.config` exists and belongs to the account whose home it is, before the ai-tools config directory is
+# placed inside it. It is created here rather than as a parent of that directory because `install -d` gives a parent it
+# creates the DEFAULT attributes -- root-owned, `0755` -- applying `-o`/`-g`/`-m` to the last component alone,
+# which leaves the operator unable to write its own config home. `mkdir` also lets the host's umask decide the mode,
+# which is the host's call for a directory this installer only has to traverse; the access boundary is the `700`
+# `~/.config/ai-tools` inside it. An existing one is left as it stands, mode and owner alike. `restorecon` gives
+# a created one `config_home_t`, which root creating it inside the home does not.
 ensure_config_home() {
     local owner="$1" group="$2" dir="$3/.config"
     [[ -d "${dir}" ]] && return 0
@@ -439,11 +419,9 @@ ensure_config_home() {
     log "created ${dir} $(stat -c '%a %U:%G' "${dir}" 2>/dev/null)"
 }
 
-# Install a file after substituting the projects-user tokens (@PROJECTS_HOME@,
-# @PROJECTS_USER@, @PROJECTS_GROUP@) and the sandbox-account tokens
-# (@SANDBOX_USER@, @SANDBOX_GROUP@) with their resolved values. Handles files that
-# embed the projects user's home, name, or primary group, or the sandbox account
-# name (sudoers, chown script, hook).
+# Install a file after substituting the projects-user tokens (@PROJECTS_HOME@, @PROJECTS_USER@, @PROJECTS_GROUP@)
+# and the sandbox-account tokens (@SANDBOX_USER@, @SANDBOX_GROUP@) with their resolved values. Handles files that embed
+# the projects user's home, name, or primary group, or the sandbox account name (sudoers, chown script, hook).
 install_subst() {
     local mode="$1" owner="$2" group="$3" src="$4" dst="$5"
     local tmp
@@ -459,21 +437,19 @@ install_subst() {
     rm -f "${tmp}"
 }
 
-# Run `systemctl --user` as a given user with that user's runtime bus environment.
-# Emits a warning rather than aborting if the user session is not active. The remedy names a
-# root command: the sandbox account has no login shell, so "run it as that user" is not
-# something an operator can actually do.
+# Run `systemctl --user` as a given user with that user's runtime bus environment. Emits a warning rather than aborting
+# if the user session is not active. The remedy names a root command: the sandbox account has no login shell, so "run it
+# as that user" is not something an operator can actually do.
 # args:  <user> <systemctl args...>
 user_systemctl() {
     local user="$1"; shift
     local uid
     uid="$(id -u "${user}")"
-    # Reach the account's manager over systemd's machine transport, as root. Dropping into the
-    # account with sudo instead requires that account's own bus to accept the connection, and it
-    # refuses one from a process root switched into -- the manager is running and healthy, the
-    # bus simply declines. `-M <user>@.host` goes to the same manager through the system bus,
-    # where root is already authorized. The sudo form stays as a fallback for a host whose
-    # systemd lacks the machine transport.
+    # Reach the account's manager over systemd's machine transport, as root. Dropping into the account with sudo instead
+    # requires that account's own bus to accept the connection, and it refuses one from a process root switched into --
+    # the manager is running and healthy, the bus simply declines. `-M <user>@.host` goes to the same manager
+    # through the system bus, where root is already authorized. The sudo form stays as a fallback for a host
+    # whose systemd lacks the machine transport.
     systemctl --user -M "${user}@.host" "$@" 2>/dev/null && return 0
     sudo -u "${user}" \
         XDG_RUNTIME_DIR="/run/user/${uid}" \
@@ -485,13 +461,12 @@ user_systemctl() {
 
 # Bring up a user's `systemd --user manager` and wait until the SYSTEM manager reports it active.
 #
-# `loginctl enable-linger` returns before the manager is up, so the enablement would
-# otherwise race it. Readiness is asked of the system manager (`is-active user@<uid>.service`)
-# rather than probed through the account's own bus: that is the authoritative answer to "is the
-# manager running", it does not need a bus connection, and a bus probe answers a different and narrower
-# question -- whether root can currently reach that account's bus -- which is not what gates
-# provisioning. Starting user@<uid>.service first is the documented, idempotent way to have the
-# manager exist at all for a nologin account.
+# `loginctl enable-linger` returns before the manager is up, so the enablement would otherwise race it. Readiness is
+# asked of the system manager (`is-active user@<uid>.service`) rather than probed through the account's own bus: that is
+# the authoritative answer to "is the manager running", it does not need a bus connection, and a bus probe answers
+# a different and narrower question -- whether root can currently reach that account's bus -- which is not what gates
+# provisioning. Starting user@<uid>.service first is the documented, idempotent way to have the manager exist at all
+# for a nologin account.
 # args:  <user> [timeout_seconds]   returns 0 once the manager is active
 wait_user_manager() {
     local user="$1" timeout="${2:-15}" uid deadline
@@ -507,15 +482,13 @@ wait_user_manager() {
     return 1
 }
 
-# Assert the sandbox nvm tree's intended ownership/mode on every (re)install, even
-# when the dirs pre-exist from README step 3. The tree is the agent's PRIVATE Node
-# install (the agent runs AS ai-tools and legitimately writes here on update); lock the
-# three top dirs to 750 ai-tools:ai-tools -- owner rwx, no world access -- so whatever
-# the initial `nvm install` left behind cannot stay broader than intended. The version
-# subtrees nvm creates at 700 are already tighter and are left untouched; this is the
-# top-level assertion, not a recursive sweep. Skips when nvm is not yet installed, and
-# WARNS rather than swallowing a chown/chmod failure -- a hardening step that fails
-# quietly could leave the tree mis-permissioned with no signal.
+# Assert the sandbox nvm tree's intended ownership/mode on every (re)install, even when the dirs pre-exist from README
+# step 3. The tree is the agent's PRIVATE Node install (the agent runs AS ai-tools and legitimately writes here
+# on update); lock the three top dirs to 750 ai-tools:ai-tools -- owner rwx, no world access -- so whatever the initial
+# `nvm install` left behind cannot stay broader than intended. The version subtrees nvm creates at 700 are already
+# tighter and are left untouched; this is the top-level assertion, not a recursive sweep. Skips when nvm is not
+# yet installed, and WARNS rather than swallowing a chown/chmod failure -- a hardening step that fails quietly could
+# leave the tree mis-permissioned with no signal.
 lockdown_nvm_permissions() {
     local ai_nvm_dir="/opt/ai-tools/.nvm"
     [[ -d "${ai_nvm_dir}" ]] || return 0   # nvm not yet installed
@@ -530,10 +503,10 @@ lockdown_nvm_permissions() {
     done
 }
 
-# Point /opt/ai-tools/bin/<launcher> at each enabled agent's versioned binary directly, without
-# running nvm-update.service (which also prunes old Node versions). Which launchers those are
-# comes from the agent manifests, so this installer is agent-agnostic. Emits a warning and returns
-# when the sandbox nvm tree or a launcher is not yet installed.
+# Point /opt/ai-tools/bin/<launcher> at each enabled agent's versioned binary directly, without running
+# nvm-update.service (which also prunes old Node versions). Which launchers those are comes from the agent manifests,
+# so this installer is agent-agnostic. Emits a warning and returns when the sandbox nvm tree or a launcher is not
+# yet installed.
 bootstrap_launcher_symlinks() {
     local ai_nvm_dir="/opt/ai-tools/.nvm"
     local ai_tools_bin="/opt/ai-tools/bin"
@@ -546,8 +519,8 @@ bootstrap_launcher_symlinks() {
     fi
 
     local node_version
-    # cd / first: this `sudo -u` step inherits the installer's CWD, and run from an operator dir
-    # the sandbox account cannot traverse (e.g. a 0700 home), nvm/npm's internal getcwd warns.
+    # cd / first: this `sudo -u` step inherits the installer's CWD, and run from an operator dir the sandbox account
+    # cannot traverse (e.g. a 0700 home), nvm/npm's internal getcwd warns.
     node_version="$(sudo -u "${SANDBOX_USER}" bash -c \
         "cd / && source '${ai_nvm_dir}/nvm.sh' --no-use && nvm version default 2>/dev/null" \
         2>/dev/null || true)"
@@ -558,9 +531,8 @@ bootstrap_launcher_symlinks() {
         return
     fi
 
-    # The enabled agents' launchers, from the manifests this run deployed (providers.lib.sh is
-    # the same resolver the updater and ai-tools-run use). A resolver that will not load leaves
-    # the list empty and the warning says so.
+    # The enabled agents' launchers, from the manifests this run deployed (providers.lib.sh is the same resolver
+    # the updater and ai-tools-run use). A resolver that will not load leaves the list empty and the warning says so.
     local -a launchers=()
     # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/providers.lib.sh
     if source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null \
@@ -576,16 +548,15 @@ bootstrap_launcher_symlinks() {
         return
     fi
 
-    # Lock /opt/ai-tools/bin to 0551, owned root:ai-tools: ai-tools gets group r-x
-    # (it must execute nvm-update.sh and resolve the launcher symlinks) but no write, so
-    # the agent can neither tamper with the updater nor swap a symlink a wrapper
-    # resolves and trusts; the o+x search bit lets an operator readlink bin/<launcher>.
-    # Enforce even when the dir pre-existed (README step 3 creates it ai-tools-owned).
+    # Lock /opt/ai-tools/bin to 0551, owned root:ai-tools: ai-tools gets group r-x (it must execute nvm-update.sh
+    # and resolve the launcher symlinks) but no write, so the agent can neither tamper with the updater nor swap
+    # a symlink a wrapper resolves and trusts; the o+x search bit lets an operator readlink bin/<launcher>. Enforce even
+    # when the dir pre-existed (README step 3 creates it ai-tools-owned).
     ensure_dir "${CP_DIR_MODES[bin]}" root "${SANDBOX_GROUP}" "${ai_tools_bin}"
     chown "root:${SANDBOX_GROUP}" "${ai_tools_bin}"
     ai_tools_apply_mode "${CP_DIR_MODES[bin]}" "${ai_tools_bin}"
-    # Create each symlink via the root helper -- the only writer of the locked dir, and the same
-    # validating path the sandbox updater uses on every Node upgrade.
+    # Create each symlink via the root helper -- the only writer of the locked dir, and the same validating path
+    # the sandbox updater uses on every Node upgrade.
     local launcher versioned_launcher
     for launcher in "${launchers[@]}"; do
         versioned_launcher="${ai_nvm_dir}/versions/node/${node_version}/bin/${launcher}"
@@ -603,8 +574,8 @@ bootstrap_launcher_symlinks() {
     done
 }
 
-# Restore SELinux file contexts for every path this script deploys.
-# No-op when SELinux is disabled or restorecon is not installed.
+# Restore SELinux file contexts for every path this script deploys. No-op when SELinux is disabled or restorecon is not
+# installed.
 do_selinux_restore() {
     if ! command -v restorecon &>/dev/null; then
         warn MSG-P2N3 "restorecon not found -- skipping SELinux context restoration"
@@ -638,23 +609,21 @@ do_selinux_restore() {
         /usr/lib/systemd/system/ai-tools-relabel.service
 }
 
-# The policy toolchain every SELinux step of a source install needs: make plus the refpolicy
-# devel Makefile from selinux-policy-devel. A checkout carries no compiled policy module (the RPM
-# compiles its own at build time), so this is what turns the .te/.fc into something semodule can
-# load. install-selinux.sh checks the same pair before each compile.
+# The policy toolchain every SELinux step of a source install needs: make plus the refpolicy devel Makefile
+# from selinux-policy-devel. A checkout carries no compiled policy module (the RPM compiles its own at build time),
+# so this is what turns the .te/.fc into something semodule can load. install-selinux.sh checks the same pair
+# before each compile.
 selinux_toolchain_present() {
     command -v make >/dev/null 2>&1 && [[ -f /usr/share/selinux/devel/Makefile ]]
 }
 
-# Compile the shipped policy set from this checkout and stage it under the canonical package
-# directory, so the installed ai-tools-admin can `selinux groups enable` a stable group with no
-# checkout at hand (parity with the RPM, whose build compiles the same derived list:
-# selinux/policy/shipped-modules.sh). install-selinux.sh build does the work; the groups stay OFF until
-# an operator enables one. A host with SELinux inactive has no module to stage. A host with it
-# active and no toolchain is REFUSED the SELinux step here, with the package named: a source
-# install that cannot produce the modules must not skip them quietly, since a session on such a
-# host fail-closes at launch with no message naming this as the cause. offer_selinux reads the
-# refusal and does not draw its prompt.
+# Compile the shipped policy set from this checkout and stage it under the canonical package directory, so the installed
+# ai-tools-admin can `selinux groups enable` a stable group with no checkout at hand (parity with the RPM, whose build
+# compiles the same derived list: selinux/policy/shipped-modules.sh). install-selinux.sh build does the work; the groups
+# stay OFF until an operator enables one. A host with SELinux inactive has no module to stage. A host with it active
+# and no toolchain is REFUSED the SELinux step here, with the package named: a source install that cannot produce
+# the modules must not skip them quietly, since a session on such a host fail-closes at launch with no message naming
+# this as the cause. offer_selinux reads the refusal and does not draw its prompt.
 SELINUX_STEP_REFUSED=0
 stage_selinux_modules() {
     local selinux_script="${SCRIPT_DIR}/selinux/install-selinux.sh"
@@ -679,14 +648,12 @@ stage_selinux_modules() {
         || die MSG-K9P5 "the SELinux policy modules did not compile (see above); fix the cause and re-run"
 }
 
-# Offer to bring up the optional SELinux confinement layer. install-selinux.sh is
-# a deliberately decoupled installer, so this only SUGGESTS it and runs it on
-# explicit consent. We are already root with SUDO_USER set -- exactly what that
-# script requires -- so it runs in-place when accepted. Skips cleanly when the
-# script is absent, SELinux is disabled, or stage_selinux_modules refused the step
-# for want of the toolchain (that refusal already named the package and the command).
-# Defaults to install when SELinux is active (Enter = install). A child failure is
-# tolerated so it never aborts an otherwise-complete install.
+# Offer to bring up the optional SELinux confinement layer. install-selinux.sh is a deliberately decoupled installer,
+# so this only SUGGESTS it and runs it on explicit consent. We are already root with SUDO_USER set -- exactly
+# what that script requires -- so it runs in-place when accepted. Skips cleanly when the script is absent, SELinux is
+# disabled, or stage_selinux_modules refused the step for want of the toolchain (that refusal already named the package
+# and the command). Defaults to install when SELinux is active (Enter = install). A child failure is tolerated so it
+# never aborts an otherwise-complete install.
 offer_selinux() {
     local selinux_script="${SCRIPT_DIR}/selinux/install-selinux.sh"
     [[ -f "${selinux_script}" ]] || return 0
@@ -698,10 +665,9 @@ offer_selinux() {
     local mode
     mode="$(getenforce 2>/dev/null || true)"
 
-    # SELinux off (Disabled, or no userspace): the confinement layer cannot load, so skip the
-    # section. DAC-only confinement is the model for running inside a container, where the
-    # container runtime is the isolation boundary; on a non-containerized host the SELinux layer
-    # is recommended, so say so.
+    # SELinux off (Disabled, or no userspace): the confinement layer cannot load, so skip the section. DAC-only
+    # confinement is the model for running inside a container, where the container runtime is the isolation boundary;
+    # on a non-containerized host the SELinux layer is recommended, so say so.
     if [[ -z "${mode}" || "${mode}" == "Disabled" ]]; then
         warn MSG-Q5R3 "SELinux is inactive -- the agent runs DAC-only (no ai_tools_t domain). DAC-only"
         warn "  suits running inside a container; on a non-containerized host the SELinux layer"
@@ -709,32 +675,31 @@ offer_selinux() {
         return 0
     fi
 
-    # Enforcing -> the confinement layer takes effect on load, so recommend it; a permissive
-    # bring-up host gets the neutral "optional".
+    # Enforcing -> the confinement layer takes effect on load, so recommend it; a permissive bring-up host gets
+    # the neutral "optional".
     local suffix="optional"
     [[ "${mode}" == "Enforcing" ]] && suffix="recommended"
     section "SELinux confinement (${suffix})"
 
-    # Current module state up front, so the decision -- and especially a skip -- is
-    # unambiguous about what stays loaded and enforcing from a previous install.
-    # Rendered as [a, b]: a name list reads as one value that way, where space-separated names
-    # blur into the prose around them and hide how many there are.
+    # Current module state up front, so the decision -- and especially a skip -- is unambiguous about what stays loaded
+    # and enforcing from a previous install. Rendered as [a, b]: a name list reads as one value that way,
+    # where space-separated names blur into the prose around them and hide how many there are.
     local loaded
-    # `paste -d` takes a LIST of delimiters and cycles through them, so ', ' would alternate
-    # comma and space rather than joining with both; join on the comma, then space it out.
+    # `paste -d` takes a LIST of delimiters and cycles through them, so ', ' would alternate comma and space rather than
+    # joining with both; join on the comma, then space it out.
     loaded="$(semodule -l 2>/dev/null | grep '^ai_tools' | paste -sd ',' - | sed 's/,/, /g' || true)"
     [[ -n "${loaded}" ]] && loaded="[${loaded}]"
 
-    # How a kept module actually behaves on THIS host: only global Enforcing mode blocks. Under
-    # Permissive the module is loaded but logs rather than enforces, so do not claim "enforcing".
+    # How a kept module actually behaves on THIS host: only global Enforcing mode blocks. Under Permissive the module is
+    # loaded but logs rather than enforces, so do not claim "enforcing".
     local mode_state="active and enforcing"
     [[ "${mode}" == "Enforcing" ]] || mode_state="loaded but not enforcing (SELinux is ${mode})"
 
     say "  SELinux is active. A confinement layer locks the agent"
     say "  to domain ${C_BOLD}ai_tools_t${C_RST} (compiled from this checkout; loads ${C_BOLD}ENFORCING${C_RST})."
-    # State the No-path up front so the decision is unambiguous: this step only ADDS
-    # confinement -- it never unloads a module -- so a skip leaves any module from a previous
-    # install exactly as it was, and Yes on an already-loaded module rebuilds and reloads it in
+    # State the No-path up front so the decision is unambiguous: this step only ADDS confinement -- it never unloads
+    # a module -- so a skip leaves any module from a previous install exactly as it was, and Yes on an already-loaded
+    # module rebuilds and reloads it in
     # place.
     local ctx
     if [[ -n "${loaded}" ]]; then
@@ -757,17 +722,17 @@ offer_selinux() {
         fi
     elif [[ -n "${loaded}" ]]; then
         log "skipped the bring-up -- the loaded module(s) stay ${mode_state}: ${loaded}"
-        # ai-tools-admin is the shipped entry point and is deployed by now, so name it rather
-        # than the checkout path an installed host may not keep.
+        # ai-tools-admin is the shipped entry point and is deployed by now, so name it rather than the checkout path
+        # an installed host may not keep.
         if command -v ai-tools-admin >/dev/null 2>&1; then
             say "    ${C_DIM}manage them with: sudo ai-tools-admin selinux groups${C_RST}"
         else
             say "    ${C_DIM}manage them with: sudo ${selinux_script} {install|remove|list-groups}${C_RST}"
         fi
-        # Declining the bring-up still relabels: the module stays loaded, and a Node upgrade can
-        # leave the agent entrypoint mislabelled (bin_t) -- which fail-closes the launch -- so the
-        # filesystem labels must be re-applied to match it. This is the single relabel on the
-        # decline path; the accept path already relabels inside install-selinux.sh install.
+        # Declining the bring-up still relabels: the module stays loaded, and a Node upgrade can leave the agent
+        # entrypoint mislabelled (bin_t) -- which fail-closes the launch -- so the filesystem labels must be re-applied
+        # to match it. This is the single relabel on the decline path; the accept path already relabels inside
+        # install-selinux.sh install.
         "${selinux_script}" relabel || warn MSG-E7D7 "relabel did not complete -- run: sudo ai-tools-admin system entrypoints relabel"
     else
         log "skipped -- the sandbox runs without SELinux confinement until you run:"
@@ -775,17 +740,15 @@ offer_selinux() {
     fi
 }
 
-# Suggest lint tools the sandboxed agent can use in its sessions (shellcheck for shell
-# sources, rpmlint for RPM specs, yamllint for YAML/workflows) when the host lacks them.
-# A tool counts as present by its binary (any install method: package, pip, manual) or by
-# its package name, so a tool already usable is never re-suggested. Print-only, and strictly
-# from the repos ALREADY enabled -- it neither installs anything nor enables EPEL (which
-# carries all three on EL); a tool no enabled repo provides is silently dropped from the
-# suggestion. Any packaged version serves; no pinning.
+# Suggest lint tools the sandboxed agent can use in its sessions (shellcheck for shell sources, rpmlint for RPM specs,
+# yamllint for YAML/workflows) when the host lacks them. A tool counts as present by its binary (any install method:
+# package, pip, manual) or by its package name, so a tool already usable is never re-suggested. Print-only, and strictly
+# from the repos ALREADY enabled -- it neither installs anything nor enables EPEL (which carries all three on EL);
+# a tool no enabled repo provides is silently dropped from the suggestion. Any packaged version serves; no pinning.
 suggest_lint_tools() {
     command -v dnf >/dev/null 2>&1 || return 0
-    # The script-global IFS ($'\n\t') would join ${available[*]} with newlines and break
-    # the dnf command line across lines; the join needs a space.
+    # The script-global IFS ($'\n\t') would join ${available[*]} with newlines and break the dnf command line
+    # across lines; the join needs a space.
     local IFS=' '
     local -a available=()
     local t bin
@@ -801,8 +764,7 @@ suggest_lint_tools() {
     say ""
 }
 
-# Print a one-line summary row for a single file.
-# Returns 1 (and prints MISSING) when the file does not exist.
+# Print a one-line summary row for a single file. Returns 1 (and prints MISSING) when the file does not exist.
 _summary_row() {
     local file="$1"
     if [[ ! -e "${file}" ]]; then
@@ -817,15 +779,15 @@ _summary_row() {
     printf '  %-54s  %-22s  %4s  %s\n' "${file}" "${owner}" "${perms}" "${setype}"
 }
 
-# Print a summary table of every installed file with owner, mode, and SELinux
-# type, then report how many are present vs missing.
+# Print a summary table of every installed file with owner, mode, and SELinux type, then report how many are present vs
+# missing.
 do_summary() {
     local -i ok=0 missing=0
     local sep
     sep="$(printf '─%.0s' {1..90})"
 
-    # (( var++ )) evaluates to the old value, which is 0 on the first call and
-    # causes `set -e` to abort. Use plain assignment to avoid that trap.
+    # (( var++ )) evaluates to the old value, which is 0 on the first call and causes `set -e` to abort. Use plain
+    # assignment to avoid that trap.
     _chk() {
         if _summary_row "$1"; then
             ok=$(( ok + 1 ))
@@ -934,9 +896,9 @@ do_summary() {
             "${ok}" "$(( ok + missing ))" "${missing}"
     fi
 
-    # Sandbox git identity: the name/email the agent authors commits with, read from the shared
-    # control-plane gitconfig. Surfaced so the operator can verify it -- and catch the
-    # ai-tools@<hostname> fallback -- and knows the one command that reconfigures it.
+    # Sandbox git identity: the name/email the agent authors commits with, read from the shared control-plane gitconfig.
+    # Surfaced so the operator can verify it -- and catch the ai-tools@<hostname> fallback -- and knows the one command
+    # that reconfigures it.
     local _gc=/opt/ai-tools/.gitconfig _gcname _gcemail
     if [[ -f "${_gc}" ]]; then
         _gcname="$(git config --file "${_gc}" user.name 2>/dev/null || true)"
@@ -948,10 +910,9 @@ do_summary() {
     printf '\n'
 }
 
-# Installer banner. Delegates to the shared umbrella renderer (msg.lib.sh) so the AI-TOOLS
-# brand mark is single-sourced; the installer only supplies its subtitle, the package
-# version (AI_TOOLS_VERSION, the same value `ai-tools --version` reports -- not the noisy
-# git-describe), and the "installer" mode word (this is the install phase, not the running
+# Installer banner. Delegates to the shared umbrella renderer (msg.lib.sh) so the AI-TOOLS brand mark is single-sourced;
+# the installer only supplies its subtitle, the package version (AI_TOOLS_VERSION, the same value `ai-tools --version`
+# reports -- not the noisy git-describe), and the "installer" mode word (this is the install phase, not the running
 # app). The renderer stays silent when stdout is not a terminal.
 print_banner() {
     ai_tools_msg_banner \
@@ -959,19 +920,18 @@ print_banner() {
         "installer · $(ai_tools_msg_version "${AI_TOOLS_VERSION}")"
 }
 
-# probe_shadowing_agents -- name the agents this host carries outside the sandbox, and the enrolled
-# operators whose shell reaches one. Two situations at two severities: an install found on the host
-# warns, and an operator it wins for is an error carrying the code `system bootstrap` defines.
-# Neither fails the install -- a host keeping both agents is supported, and what decides which one a
-# name reaches is the ordering.
+# probe_shadowing_agents -- name the agents this host carries outside the sandbox, and the enrolled operators
+# whose shell reaches one. Two situations at two severities: an install found on the host warns, and an operator it wins
+# for is an error carrying the code `system bootstrap` defines. Neither fails the install -- a host keeping both agents
+# is supported, and what decides which one a name reaches is the ordering.
 #
-# It reads first and reports second, so the findings arrive under one section at the end of the
-# install rather than spread through the step that happened to notice them -- and a host where it
-# finds neither an agent nor a shadowed operator does not draw the heading.
+# It reads first and reports second, so the findings arrive under one section at the end of the install rather than
+# spread through the step that happened to notice them -- and a host where it finds neither an agent nor a shadowed
+# operator does not draw the heading.
 #
-# The directory search is agent-installs.lib.sh's, shared with the ai-tools-base %post so a package
-# transaction and a from-source install report the same finding; where an account's shell resolves
-# a launcher is path-order.lib.sh's reading.
+# The directory search is agent-installs.lib.sh's, shared with the ai-tools-base %post so a package transaction
+# and a from-source install report the same finding; where an account's shell resolves a launcher is path-order.lib.sh's
+# reading.
 probe_shadowing_agents() {
     local lib=/usr/local/lib/ai-tools/path-order.lib.sh
     local oplib=/usr/local/lib/ai-tools/operator.lib.sh
@@ -988,8 +948,8 @@ probe_shadowing_agents() {
     source "${oplib}" 2>/dev/null || return 0
     declare -F ai_tools_path_order_launchers >/dev/null 2>&1 || return 0
 
-    # Which launchers matter is the enabled agents' business (path-order.lib.sh reads the manifests);
-    # where their binaries may sit on this host is ai_tools_agent_installs's.
+    # Which launchers matter is the enabled agents' business (path-order.lib.sh reads the manifests); where their
+    # binaries may sit on this host is ai_tools_agent_installs's.
     local launcher install_path install_alias
     local -a found=()
     while IFS= read -r launcher; do
@@ -1013,15 +973,15 @@ probe_shadowing_agents() {
     (( ${#found[@]} + ${#shadowed[@]} )) || return 0
     section "Agents outside the sandbox"
 
-    # A second agent warns whether or not an account reaches it today: what stands between it and an
-    # unconfined session is an ordering any later change to a PATH can undo.
+    # A second agent warns whether or not an account reaches it today: what stands between it and an unconfined session
+    # is an ordering any later change to a PATH can undo.
     local package remove_hint
     for record in "${found[@]}"; do
         IFS=$'\t' read -r launcher install_path install_alias <<<"${record}"
         warn MSG-F6D2 "an agent outside the sandbox is installed at ${install_path}"
         [[ -n "${install_alias}" ]] && warn "  the same file as ${install_alias}"
-        # The owning package is what turns the remedy into a command; a file no package owns keeps
-        # the path, which is all there is to name.
+        # The owning package is what turns the remedy into a command; a file no package owns keeps the path, which is
+        # all there is to name.
         package="$(ai_tools_agent_install_owner "${install_path}")"
         if [[ -n "${package}" ]]; then
             remove_hint="installed by the ${package} package -- remove it with: sudo dnf remove ${package}"
@@ -1033,14 +993,14 @@ probe_shadowing_agents() {
         warn "  ${launcher} to it -- which is what the \$PATH ordering decides"
     done
 
-    # Where each enrolled operator's own login shell resolves the launcher, stated in both
-    # directions, so a host that is already right says so.
+    # Where each enrolled operator's own login shell resolves the launcher, stated in both directions, so a host that is
+    # already right says so.
     local user winner shadow_line
     if (( ${#shadowed[@]} )); then
         for record in "${shadowed[@]}"; do
             IFS=$'\t' read -r user launcher winner <<<"${record}"
-            # Composed first, so this site CITES the code ai-tools-bootstrap defines for the same
-            # situation rather than declaring a second message under it (see messaging.rule.md).
+            # Composed first, so this site CITES the code ai-tools-bootstrap defines for the same situation rather than
+            # declaring a second message under it (see messaging.rule.md).
             shadow_line="operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox"
             err MSG-K2D4 "${shadow_line}"
             err "  rank the wrapper ahead of it:  sudo ai-tools-admin operators add ${user}"
@@ -1063,12 +1023,11 @@ probe_shadowing_agents() {
 
 # ── install ────────────────────────────────────────────────────────────────────
 
-# Deploy every sandbox file with its intended owner and mode (root helpers, libs,
-# hooks, the wrapper, the CLI, systemd units), seed user config without clobbering
-# edits, bootstrap the launcher symlinks, enable the nvm-update timer, restore SELinux
-# contexts, offer the optional SELinux bring-up, and -- if confirmed at the end --
-# run the installed-files summary and the test suite (which includes the permissions
-# check). Aborts if the sandbox user is absent.
+# Deploy every sandbox file with its intended owner and mode (root helpers, libs, hooks, the wrapper, the CLI, systemd
+# units), seed user config without clobbering edits, bootstrap the launcher symlinks, enable the nvm-update timer,
+# restore SELinux contexts, offer the optional SELinux bring-up, and -- if confirmed at the end -- run
+# the installed-files summary and the test suite (which includes the permissions check). Aborts if the sandbox user is
+# absent.
 do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die MSG-R6Y6 "sandbox account ${SANDBOX_USER} not found -- create it first (README step 2)"
@@ -1079,11 +1038,10 @@ do_install() {
 
     source_tree_gate
 
-    # Proceed gate -- everything up to here is print-only; the first change to the host
-    # (including the install log itself) happens only past this point. Two questions:
-    # Enter proceeds through the first, but the second defaults to CANCEL, so an
-    # accidental double-Enter does not install anything. Interactive only -- an unattended run
-    # (CI, container self-test) proceeds as before.
+    # Proceed gate -- everything up to here is print-only; the first change to the host (including the install log
+    # itself) happens only past this point. Two questions: Enter proceeds through the first, but the second defaults
+    # to CANCEL, so an accidental double-Enter does not install anything. Interactive only -- an unattended run (CI,
+    # container self-test) proceeds as before.
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
         if ! confirm_boxed "Review install" y "Proceed with the install?" \
             "This installs the ai-tools sandbox from this source tree onto the host." \
@@ -1102,18 +1060,16 @@ do_install() {
         fi
     fi
 
-    # Capture the full install transcript to /var/log/ai-tools/install.log. tee keeps
-    # colour on the terminal and writes a colour-stripped copy to the file; stderr is
-    # folded in so warnings land in the log too. The dir is created 700 root:root now so
-    # the target exists; the log-directory block re-enforces perms and the SELinux relabel
-    # applies ai_tools_log_t. A logger marker brackets the run in journald.
+    # Capture the full install transcript to /var/log/ai-tools/install.log. tee keeps colour on the terminal and writes
+    # a colour-stripped copy to the file; stderr is folded in so warnings land in the log too. The dir is created 700
+    # root:root now so the target exists; the log-directory block re-enforces perms and the SELinux relabel applies
+    # ai_tools_log_t. A logger marker brackets the run in journald.
     install -d -o root -g root -m 700 /var/log/ai-tools 2>/dev/null || true
     exec > >(tee >(sed -u 's/\x1b\[[0-9;]*m//g' >> /var/log/ai-tools/install.log)) 2>&1
-    # The >> open *creates* install.log honouring the install umask (027 -> 640), and
-    # the pre-create loop further down skips it (its `[[ ! -e ]]` guard sees it already exists),
-    # so enforce 600 here -- install.log is the one log that must be born before that loop.
-    # The other four are created 600 by that loop and are never written before it, so this
-    # block leaves them alone (no umask-dependent touch, single creation path).
+    # The >> open *creates* install.log honouring the install umask (027 -> 640), and the pre-create loop further
+    # down skips it (its `[[ ! -e ]]` guard sees it already exists), so enforce 600 here -- install.log is the one log
+    # that must be born before that loop. The other four are created 600 by that loop and are never written before it,
+    # so this block leaves them alone (no umask-dependent touch, single creation path).
     chmod 600 /var/log/ai-tools/install.log 2>/dev/null || true
     logger -t ai-tools-install -p daemon.notice -- \
         "install started (projects user ${PROJECTS_USER}, sandbox ${SANDBOX_USER}:${SANDBOX_GROUP})" \
@@ -1121,23 +1077,20 @@ do_install() {
 
     section "System files (root-owned)"
 
-    # All ai-tools sudo-helpers live under one dir (parallels /usr/local/lib/ai-tools).
-    # libexec, not sbin: /usr/local/libexec is untouched by the Fedora bin/sbin merge, so one
-    # layout serves EL and Fedora, and FHS-correct for programs invoked by other programs (the
-    # handback socket, the sudo relabel-agent rule, sibling helpers), never typed. `install` does
-    # not create parents, so make it first. 750 root:root -- no world bit, preventing non-root
-    # users from listing the helper names. The helpers run in ai_tools_t via sudo with no domain
-    # transition; bin_t is the correct context for the tree. Enforce on re-install even when the
-    # dir pre-exists.
+    # All ai-tools sudo-helpers live under one dir (parallels /usr/local/lib/ai-tools). libexec, not sbin:
+    # /usr/local/libexec is untouched by the Fedora bin/sbin merge, so one layout serves EL and Fedora, and FHS-correct
+    # for programs invoked by other programs (the handback socket, the sudo relabel-agent rule, sibling helpers), never
+    # typed. `install` does not create parents, so make it first. 750 root:root -- no world bit, preventing non-root
+    # users from listing the helper names. The helpers run in ai_tools_t via sudo with no domain transition; bin_t is
+    # the correct context for the tree. Enforce on re-install even when the dir pre-exists.
     log "/usr/local/libexec/ai-tools/"
     ensure_dir 750 root root /usr/local/libexec/ai-tools
     chown root:root /usr/local/libexec/ai-tools
     chmod 750 /usr/local/libexec/ai-tools
-    # Migration: the helper tree used to live at /usr/local/sbin/ai-tools. Remove the old tree so
-    # a from-source upgrade does not strand stale-path helpers a caller might still resolve. Guard
-    # to a real directory (never a symlink -- a Fedora host where /usr/local/sbin -> /usr/local/bin
-    # would otherwise take out /usr/local/bin/ai-tools). The new tree is a different path, already
-    # placed by this run.
+    # Migration: the helper tree used to live at /usr/local/sbin/ai-tools. Remove the old tree so a from-source upgrade
+    # does not strand stale-path helpers a caller might still resolve. Guard to a real directory (never a symlink --
+    # a Fedora host where /usr/local/sbin -> /usr/local/bin would otherwise take out /usr/local/bin/ai-tools). The new
+    # tree is a different path, already placed by this run.
     if [[ -d /usr/local/sbin/ai-tools && ! -L /usr/local/sbin/ai-tools ]]; then
         log "removing superseded /usr/local/sbin/ai-tools"
         rm -rf /usr/local/sbin/ai-tools
@@ -1193,70 +1146,66 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh" \
         /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
 
-    # Shared libraries, sourced by the helpers AND by the operator-run CLI/wrapper.
-    # The dir is root-owned, group SANDBOX_GROUP, 0751: the agent enters via group,
-    # and the world-execute bit lets an operator (who is NOT a SANDBOX_GROUP member
-    # under the multi-operator model) TRAVERSE in to source the world-readable 644
-    # libs (msg/log/safe-paths/skip-dirs) by path, without being able to LIST the
-    # dir. Every file here is 644 root:root: each one carries shipped logic and a
-    # general list, so none of them holds host- or operator-specific data. No write
-    # for anyone but root, so the rules cannot be altered. Enforce on re-install even
-    # when the dir pre-exists.
+    # Shared libraries, sourced by the helpers AND by the operator-run CLI/wrapper. The dir is root-owned, group
+    # SANDBOX_GROUP, 0751: the agent enters via group, and the world-execute bit lets an operator (who is NOT
+    # a SANDBOX_GROUP member under the multi-operator model) TRAVERSE in to source the world-readable 644 libs
+    # (msg/log/safe-paths/skip-dirs) by path, without being able to LIST the dir. Every file here is 644 root:root: each
+    # one carries shipped logic and a general list, so none of them holds host- or operator-specific data. No write
+    # for anyone but root, so the rules cannot be altered. Enforce on re-install even when the dir pre-exists.
     log "/usr/local/lib/ai-tools/"
     ensure_dir 751 root "${SANDBOX_GROUP}" /usr/local/lib/ai-tools
     chown root:"${SANDBOX_GROUP}" /usr/local/lib/ai-tools
     chmod 751 /usr/local/lib/ai-tools
 
-    # Secret-name matcher: read by the root helpers (ai-tools-chown, ai-tools-lockdown),
-    # and 644 root:root because the built-in list is the PUBLIC baseline of credential
-    # names -- it ships in the source repo, so the on-disk copy holds only what is already
-    # published. The operator's own patterns live in their 600 config, never here. Root-only
+    # Secret-name matcher: read by the root helpers (ai-tools-chown, ai-tools-lockdown), and 644 root:root because
+    # the built-in list is the PUBLIC baseline of credential names -- it ships in the source repo, so the on-disk copy
+    # holds only what is already published. The operator's own patterns live in their 600 config, never here. Root-only
     # write is what stops the agent weakening its own classification.
     log "/usr/local/lib/ai-tools/secret-patterns.lib.sh"
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/secret-patterns.lib.sh" \
         /usr/local/lib/ai-tools/secret-patterns.lib.sh
 
-    # Seal primitives (owner-only predicate + residue strip): read only by the root helpers
-    # that walk a claimed tree, but does not carry any secrets -- 644 root:root, like msg/log/
-    # safe-paths. Substituted: the strip is keyed on the sandbox group's name.
+    # Seal primitives (owner-only predicate + residue strip): read only by the root helpers that walk a claimed tree,
+    # but does not carry any secrets -- 644 root:root, like msg/log/ safe-paths. Substituted: the strip is keyed
+    # on the sandbox group's name.
     log "/usr/local/lib/ai-tools/owner-only.lib.sh"
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/owner-only.lib.sh" \
         /usr/local/lib/ai-tools/owner-only.lib.sh
 
-    # Skip-dir list/selector: sourced by the root helpers, by session-hook.sh (as the
-    # agent), and by the operator-run CLI (the claim drift scan) -- 644 root:root, like
-    # msg/log/safe-paths. It does not carry any secrets: the names are documented. No tokens to
+    # Skip-dir list/selector: sourced by the root helpers, by session-hook.sh (as the agent), and by the operator-run
+    # CLI (the claim drift scan) -- 644 root:root, like msg/log/safe-paths. It does not carry any secrets: the names are
+    # documented. No tokens to
     # substitute.
     log "/usr/local/lib/ai-tools/skip-dirs.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/skip-dirs.lib.sh" \
         /usr/local/lib/ai-tools/skip-dirs.lib.sh
 
-    # npm signature verifier: sourced by nvm-update.sh and ai-tools-bootstrap (both run as the
-    # sandbox account) to verify the toolchain's npm registry signatures before activation.
-    # 644 root:root -- world-readable, no secrets; token-free, so no substitution.
+    # npm signature verifier: sourced by nvm-update.sh and ai-tools-bootstrap (both run as the sandbox account)
+    # to verify the toolchain's npm registry signatures before activation. 644 root:root -- world-readable, no secrets;
+    # token-free, so no substitution.
     log "/usr/local/lib/ai-tools/npm-verify.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/npm-verify.lib.sh" \
         /usr/local/lib/ai-tools/npm-verify.lib.sh
 
-    # Entrypoint verifier: proves an agent's installed entrypoint is the binary its vendor
-    # published, against a per-release manifest the vendor SIGNED with a key this install pins. Read by
-    # root (ai-tools-relabel-agent writes the pin) and by the sandbox account (ai-tools-run compares
-    # it at launch), so 644 root:root -- world-readable, no secrets, no tokens.
+    # Entrypoint verifier: proves an agent's installed entrypoint is the binary its vendor published,
+    # against a per-release manifest the vendor SIGNED with a key this install pins. Read by root
+    # (ai-tools-relabel-agent writes the pin) and by the sandbox account (ai-tools-run compares it at launch), so 644
+    # root:root -- world-readable, no secrets, no tokens.
     log "/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/entrypoint-verify.lib.sh" \
         /usr/local/lib/ai-tools/entrypoint-verify.lib.sh
 
-    # The pinned vendor release-signing keys, one per agent. 755 dir / 644 keys: public key
-    # material, read by root at pin time. The pin is only as good as this file being root-owned and
-    # replaced solely by a package install -- never edited on the host.
+    # The pinned vendor release-signing keys, one per agent. 755 dir / 644 keys: public key material, read by root
+    # at pin time. The pin is only as good as this file being root-owned and replaced solely by a package install --
+    # never edited on the host.
     install -o root -g root -d -m 755 /usr/local/lib/ai-tools/keys
-    # Verified entrypoint pins: root-owned and not group-writable, so the account the pin
-    # constrains cannot write it. 755 so the sandbox account can read the pin at launch.
+    # Verified entrypoint pins: root-owned and not group-writable, so the account the pin constrains cannot write it.
+    # 755 so the sandbox account can read the pin at launch.
     install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-pin.d
     install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-label.d
     log "/usr/local/lib/ai-tools/keys/claude-code.asc"
@@ -1264,27 +1213,26 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/claude-code.asc" \
         /usr/local/lib/ai-tools/keys/claude-code.asc
 
-    # Shared KEY=value config grammar + the trust predicate: 644 root:root -- world-readable,
-    # sourced by operator.lib.sh, skip-dirs.lib.sh and providers.lib.sh so every key in
-    # operator.conf and every provider manifest parses identically. No secrets, no tokens.
+    # Shared KEY=value config grammar + the trust predicate: 644 root:root -- world-readable, sourced
+    # by operator.lib.sh, skip-dirs.lib.sh and providers.lib.sh so every key in operator.conf and every provider
+    # manifest parses identically. No secrets, no tokens.
     log "/usr/local/lib/ai-tools/conf.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/conf.lib.sh" \
         /usr/local/lib/ai-tools/conf.lib.sh
 
-    # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and
-    # nvm-update (both run as the sandbox account) to resolve which agents to provision from the
-    # manifests in agents.d. No secrets, no tokens.
+    # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and nvm-update (both run
+    # as the sandbox account) to resolve which agents to provision from the manifests in agents.d. No secrets, no
+    # tokens.
     log "/usr/local/lib/ai-tools/providers.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/providers.lib.sh" \
         /usr/local/lib/ai-tools/providers.lib.sh
 
-    # Token-saving command filters: the engine (644 root:root -- world-readable, sourced by an
-    # agent's filter hook, which runs as the sandbox account) plus the filters.d directory and the
-    # base's own rule set. Root-owned and non-group-writable is what makes a rule set trusted
-    # enough to parse; a rules file a non-root account could write would decide what every command
-    # in a session becomes. Read-only data, no secrets.
+    # Token-saving command filters: the engine (644 root:root -- world-readable, sourced by an agent's filter hook,
+    # which runs as the sandbox account) plus the filters.d directory and the base's own rule set. Root-owned
+    # and non-group-writable is what makes a rule set trusted enough to parse; a rules file a non-root account could
+    # write would decide what every command in a session becomes. Read-only data, no secrets.
     log "/usr/local/lib/ai-tools/filters.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.lib.sh" \
@@ -1295,43 +1243,42 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/core.rules" \
         /usr/local/lib/ai-tools/filters.d/core.rules
 
-    # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by
-    # ai-tools-admin (to load a staged group) and selinux/install-selinux.sh (to compile one)
-    # so the two never disagree on the group set. Read-only data, no secrets.
+    # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by ai-tools-admin (to load
+    # a staged group) and selinux/install-selinux.sh (to compile one) so the two never disagree on the group set.
+    # Read-only data, no secrets.
     log "/usr/local/lib/ai-tools/selinux-groups.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh" \
         /usr/local/lib/ai-tools/selinux-groups.lib.sh
 
-    # Service-health registry: 644 root:root -- world-readable, the single source `ai-tools --status`
-    # and the launch wrapper's pre-launch health warning share. Read-only data, no secrets.
+    # Service-health registry: 644 root:root -- world-readable, the single source `ai-tools status` and the launch
+    # wrapper's pre-launch health warning share. Read-only data, no secrets.
     log "/usr/local/lib/ai-tools/services.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/services.lib.sh" \
         /usr/local/lib/ai-tools/services.lib.sh
 
-    # Agent manifests: the agents.d directory (0755 root:root) plus each agent's <name>.conf
-    # (644, parsed data naming its npm package + launcher). This from-source installer deploys the
-    # full stack, so it lays down the claude-code manifest here (the RPM ships it in the agent
-    # subpackage). No secrets, no tokens.
+    # Agent manifests: the agents.d directory (0755 root:root) plus each agent's <name>.conf (644, parsed data naming
+    # its npm package + launcher). This from-source installer deploys the full stack, so it lays down the claude-code
+    # manifest here (the RPM ships it in the agent subpackage). No secrets, no tokens.
     log "/usr/local/lib/ai-tools/agents.d/claude-code.conf"
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/agents.d
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/agents.d/claude-code.conf" \
         /usr/local/lib/ai-tools/agents.d/claude-code.conf
 
-    # The claude-code agent's session env (config dir, compile cache, in-session updater),
-    # sourced by ai-tools-run after every enabled integration so these pins are authoritative.
-    # Root-owned and non-group-writable is what makes it trusted enough to source. No secrets.
+    # The claude-code agent's session env (config dir, compile cache, in-session updater), sourced by ai-tools-run
+    # after every enabled integration so these pins are authoritative. Root-owned and non-group-writable is what makes
+    # it trusted enough to source. No secrets.
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/session-env.d
     log "/usr/local/lib/ai-tools/session-env.d/claude-code.env.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/claude-code.env.sh" \
         /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
 
-    # Claude Code-specific resolvers: the custom system prompt (claude.sh, wrapper-side) and the
-    # custom API endpoint (its own fragment, sandbox-side). Root-owned and non-group-writable so
-    # both are trusted enough to source. No secrets (the endpoint's token lives in its own file).
+    # Claude Code-specific resolvers: the custom system prompt (claude.sh, wrapper-side) and the custom API endpoint
+    # (its own fragment, sandbox-side). Root-owned and non-group-writable so both are trusted enough to source. No
+    # secrets (the endpoint's token lives in its own file).
     for _cc_lib in claude-prompt.lib.sh claude-endpoint.lib.sh; do
         log "/usr/local/lib/ai-tools/${_cc_lib}"
         install -o root -g root -m 644 \
@@ -1339,23 +1286,21 @@ do_install() {
             "/usr/local/lib/ai-tools/${_cc_lib}"
     done
 
-    # Integration manifest + session-env-fragment directories (base owns them; ai-tools-integration-*
-    # members drop files here). Created empty; the optional dotnet integration's files are laid down
-    # in the integration step when this from-source install includes it.
+    # Integration manifest + session-env-fragment directories (base owns them; ai-tools-integration-* members drop files
+    # here). Created empty; the optional dotnet integration's files are laid down in the integration step when this
+    # from-source install includes it.
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/integrations.d
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/session-env.d
-    # The contributed-command directory, base-owned like the other three and load-bearing for the
-    # same reason, one step further out: ai-tools-admin execs what it finds here AS ROOT, so only
-    # root writes it. 0755 root:root carries that (write is owner-only) and keeps the directory
-    # listable, which is what `ai-tools-admin --help` reads: it is answered ahead of the root check
-    # and names this host's contributed domains for any caller. Each fragment inside is 0750
-    # root:root, so the domain names are readable and the fragments themselves are not.
+    # The contributed-command directory, base-owned like the other three and load-bearing for the same reason, one step
+    # further out: ai-tools-admin execs what it finds here AS ROOT, so only root writes it. 0755 root:root carries
+    # that (write is owner-only) and keeps the directory listable, which is what `ai-tools-admin --help` reads: it is
+    # answered ahead of the root check and names this host's contributed domains for any caller. Each fragment inside is
+    # 0750 root:root, so the domain names are readable and the fragments themselves are not.
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/admin-commands.d
 
-    # dotnet integration data files (optional; inert without a host dotnet). The session-env
-    # fragment ai-tools-run sources when dotnet is enabled, and the manifest providers.lib.sh reads.
-    # The manifest also carries the summary `ai-tools-admin --help` prints for the command domain
-    # this package contributes. No secrets.
+    # dotnet integration data files (optional; inert without a host dotnet). The session-env fragment ai-tools-run
+    # sources when dotnet is enabled, and the manifest providers.lib.sh reads. The manifest also carries the summary
+    # `ai-tools-admin --help` prints for the command domain this package contributes. No secrets.
     log "/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/dotnet.env.sh" \
@@ -1364,110 +1309,107 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/dotnet.conf" \
         /usr/local/lib/ai-tools/integrations.d/dotnet.conf
-    # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the
-    # .NET layer rather than in the base's core.rules.
+    # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET layer rather than
+    # in the base's core.rules.
     log "/usr/local/lib/ai-tools/filters.d/dotnet.rules"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/dotnet.rules" \
         /usr/local/lib/ai-tools/filters.d/dotnet.rules
-    # The `dotnet` domain of ai-tools-admin: the command that creates the sandbox NuGet cache and
-    # shared tools dir, installs global tools, and reports the integration's state. 750 root:root,
-    # like every other root-executed helper -- ai-tools-admin execs it after checking that both it
-    # and its directory are root-owned and not group- or other-writable. The basename is the domain
-    # token, so this file IS the `dotnet` in `sudo ai-tools-admin dotnet bootstrap`.
+    # The `dotnet` domain of ai-tools-admin: the command that creates the sandbox NuGet cache and shared tools dir,
+    # installs global tools, and reports the integration's state. 750 root:root, like every other root-executed helper
+    # -- ai-tools-admin execs it after checking that both it and its directory are root-owned and not group-
+    # or other-writable. The basename is the domain token, so this file IS the `dotnet`
+    # in `sudo ai-tools-admin dotnet bootstrap`.
     log "/usr/local/lib/ai-tools/admin-commands.d/dotnet"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh" \
         /usr/local/lib/ai-tools/admin-commands.d/dotnet
 
-    # SELinux policy modules: compiled from this checkout and staged under the canonical package
-    # dir (see stage_selinux_modules). Loading and labelling the core is offer_selinux's step,
-    # later; this lays the modules down for ai-tools-admin, or refuses the SELinux step outright
-    # on a host that cannot compile them. No secrets.
+    # SELinux policy modules: compiled from this checkout and staged under the canonical package dir (see
+    # stage_selinux_modules). Loading and labelling the core is offer_selinux's step, later; this lays the modules
+    # down for ai-tools-admin, or refuses the SELinux step outright on a host that cannot compile them. No secrets.
     stage_selinux_modules
 
-    # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by
-    # the hooks (run as ai-tools), and by the CLI (run as the projects user, NOT in
-    # SANDBOX_GROUP), so every principal must read it; it does not carry any secrets. Carries
-    # @AI_TOOLS_VERSION@, which every structured record reports as AI_TOOLS_VERSION.
+    # Logger library: 644 root:root -- world-readable. Sourced by the root helpers, by the hooks (run as ai-tools),
+    # and by the CLI (run as the projects user, NOT in SANDBOX_GROUP), so every principal must read it; it does not
+    # carry any secrets. Carries @AI_TOOLS_VERSION@, which every structured record reports as AI_TOOLS_VERSION.
     log "/usr/local/lib/ai-tools/log.lib.sh"
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/log.lib.sh" \
         /usr/local/lib/ai-tools/log.lib.sh
 
-    # Message formatter: 644 root:root -- world-readable. Sourced by the operator wrapper
-    # and CLI, by the hooks (run as ai-tools), and by ai-tools-run, so every principal must
-    # read it; it does not carry any secrets. No tokens to substitute.
+    # Message formatter: 644 root:root -- world-readable. Sourced by the operator wrapper and CLI, by the hooks (run
+    # as ai-tools), and by ai-tools-run, so every principal must read it; it does not carry any secrets. No tokens
+    # to substitute.
     log "/usr/local/lib/ai-tools/msg.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/msg.lib.sh" \
         /usr/local/lib/ai-tools/msg.lib.sh
 
-    # Operator-identity resolver: 644 root:root -- world-readable. Sourced by the root helpers
-    # (which run in ai_tools_handback_t) AND the agent hooks (ai_tools_t); both read it to
-    # resolve the operator from /etc/ai-tools/operator.conf, and it does not carry any secrets. No tokens.
+    # Operator-identity resolver: 644 root:root -- world-readable. Sourced by the root helpers (which run
+    # in ai_tools_handback_t) AND the agent hooks (ai_tools_t); both read it to resolve the operator
+    # from /etc/ai-tools/operator.conf, and it does not carry any secrets. No tokens.
     log "/usr/local/lib/ai-tools/operator.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/operator.lib.sh" \
         /usr/local/lib/ai-tools/operator.lib.sh
 
-    # Protected-paths backstop: 644 root:root -- world-readable. Sourced by the operator
-    # wrapper and CLI AND the root helpers, so every principal that resolves a target path
-    # reads the same list; it does not carry any secrets. No tokens to substitute.
+    # Protected-paths backstop: 644 root:root -- world-readable. Sourced by the operator wrapper and CLI AND the root
+    # helpers, so every principal that resolves a target path reads the same list; it does not carry any secrets. No
+    # tokens to substitute.
     log "/usr/local/lib/ai-tools/safe-paths.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/safe-paths.lib.sh" \
         /usr/local/lib/ai-tools/safe-paths.lib.sh
 
-    # SELinux launch-gate decision: 644 root:root -- world-readable, no secrets. Sourced by
-    # ai-tools-run (fail-closed) and the confinement unit test.
+    # SELinux launch-gate decision: 644 root:root -- world-readable, no secrets. Sourced by ai-tools-run (fail-closed)
+    # and the confinement unit test.
     log "/usr/local/lib/ai-tools/confinement.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/confinement.lib.sh" \
         /usr/local/lib/ai-tools/confinement.lib.sh
 
-    # Control-plane boundary-mode constants: 644 root:root. The single source for the
-    # /opt/ai-tools home/dir modes, sourced by this installer and matching the spec %files
-    # declarations. No secrets, no tokens.
+    # Control-plane boundary-mode constants: 644 root:root. The single source for the /opt/ai-tools home/dir modes,
+    # sourced by this installer and matching the spec %files declarations. No secrets, no tokens.
     log "/usr/local/lib/ai-tools/control-plane.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-plane.lib.sh" \
         /usr/local/lib/ai-tools/control-plane.lib.sh
 
-    # Managed-asset seeder: 644 root:root -- sourced by this installer and ai-tools-bootstrap
-    # (both root) to seed the ai-tools-* agents/skills. No secrets, no tokens.
+    # Managed-asset seeder: 644 root:root -- sourced by this installer and ai-tools-bootstrap (both root) to seed
+    # the ai-tools-* agents/skills. No secrets, no tokens.
     log "/usr/local/lib/ai-tools/managed-assets.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/managed-assets.lib.sh" \
         /usr/local/lib/ai-tools/managed-assets.lib.sh
 
-    # Host agent probe: 644 root:root -- world-readable, like every shared library. Read by this
-    # installer and by the ai-tools-base %post.
+    # Host agent probe: 644 root:root -- world-readable, like every shared library. Read by this installer
+    # and by the ai-tools-base %post.
     log "/usr/local/lib/ai-tools/agent-installs.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/agent-installs.lib.sh" \
         /usr/local/lib/ai-tools/agent-installs.lib.sh
 
-    # PATH ordering reader: 644 root:root -- world-readable, like every shared library. Read by ai-tools-admin
-    # (which asks about the guard line and writes it), by `ai-tools --status` as the operator, and by the base
-    # package's %post. No secrets, no tokens.
+    # PATH ordering reader: 644 root:root -- world-readable, like every shared library. Read by ai-tools-admin (which
+    # asks about the guard line and writes it), by `ai-tools status` as the operator, and by the base package's %post.
+    # No secrets, no tokens.
     log "/usr/local/lib/ai-tools/path-order.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/path-order.lib.sh" \
         /usr/local/lib/ai-tools/path-order.lib.sh
 
-    # PATH ordering shell fragment: 644 root:root -- world-readable. Sourced by operator login shells
-    # via the dotfile lines ai-tools-admin wires (never installed into /etc/profile.d, so unwired accounts keep
-    # their stock PATH). No secrets, no tokens.
+    # PATH ordering shell fragment: 644 root:root -- world-readable. Sourced by operator login shells via the dotfile
+    # lines ai-tools-admin wires (never installed into /etc/profile.d, so unwired accounts keep their stock PATH). No
+    # secrets, no tokens.
     log "/usr/local/lib/ai-tools/path-order.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/path-order.sh" \
         /usr/local/lib/ai-tools/path-order.sh
 
-    # A host installed from a release that shipped that fragment under its former name carries a guard line
-    # naming the path this step has just moved, which would leave the ordering unapplied on every enrolled
-    # operator's next shell. Repoint it here, in the step that moved the file; the base package's %post does
-    # the same for a host that upgrades. What the edit is bounded to is ai_tools_path_order_repoint's header.
+    # A host installed from a release that shipped that fragment under its former name carries a guard line naming
+    # the path this step has just moved, which would leave the ordering unapplied on every enrolled operator's next
+    # shell. Repoint it here, in the step that moved the file; the base package's %post does the same for a host
+    # that upgrades. What the edit is bounded to is ai_tools_path_order_repoint's header.
     local repointed
     while IFS= read -r repointed; do
         [[ -n "${repointed}" ]] && log "repointed the PATH ordering line in ${repointed}"
@@ -1484,10 +1426,10 @@ do_install() {
         done
     )
 
-    # Project-label library: 644 root:root -- read by root principals (the ai-tools-relabel
-    # helper and selinux/install-selinux.sh's sweep). It carries SELinux labelling primitives
-    # and resolves project paths at runtime from the allowlist, so it does not hold any
-    # host-specific data to withhold. Root-only write keeps the label rules out of the agent's reach.
+    # Project-label library: 644 root:root -- read by root principals (the ai-tools-relabel helper
+    # and selinux/install-selinux.sh's sweep). It carries SELinux labelling primitives and resolves project paths
+    # at runtime from the allowlist, so it does not hold any host-specific data to withhold. Root-only write keeps
+    # the label rules out of the agent's reach.
     log "/usr/local/lib/ai-tools/relabel.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/relabel.lib.sh" \
@@ -1499,76 +1441,71 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh" \
         /usr/local/libexec/ai-tools/ai-tools-lockdown
 
-    # SELinux project-label helper. 750 root:root -- root-owned, root-only-executable:
-    # run by the user via sudo (no SANDBOX_USER grant), never by ai-tools. install_subst
-    # substitutes @PROJECTS_HOME@ (the allowlist path it validates a target against).
+    # SELinux project-label helper. 750 root:root -- root-owned, root-only-executable: run by the user via sudo (no
+    # SANDBOX_USER grant), never by ai-tools. install_subst substitutes @PROJECTS_HOME@ (the allowlist path it validates
+    # a target against).
     log "/usr/local/libexec/ai-tools/ai-tools-relabel"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-relabel.sh" \
         /usr/local/libexec/ai-tools/ai-tools-relabel
 
-    # SELinux entrypoint-relabel helper. 750 root:root -- run AS root: automatically by the
-    # ai-tools-relabel.path watcher after a Node upgrade, and on demand by
-    # `sudo ai-tools-admin system entrypoints relabel`; never by ai-tools. No @-substitution needed (no
-    # placeholders), but install_subst keeps the deploy path uniform with the other helpers.
+    # SELinux entrypoint-relabel helper. 750 root:root -- run AS root: automatically by the ai-tools-relabel.path
+    # watcher after a Node upgrade, and on demand by `sudo ai-tools-admin system entrypoints relabel`; never
+    # by ai-tools. No @-substitution needed (no placeholders), but install_subst keeps the deploy path uniform
+    # with the other helpers.
     log "/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh" \
         /usr/local/libexec/ai-tools/ai-tools-relabel-agent
 
-    # Node toolchain bootstrap (creates the sandbox account + installs nvm/Node/claude). Run by
-    # the operator (sudo) before/independently of install; deployed here for re-runs and the RPM.
+    # Node toolchain bootstrap (creates the sandbox account + installs nvm/Node/claude). Run by the operator (sudo)
+    # before/independently of install; deployed here for re-runs and the RPM.
     log "/usr/local/libexec/ai-tools/ai-tools-bootstrap"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh" \
         /usr/local/libexec/ai-tools/ai-tools-bootstrap
 
-    # Host administration: ai-tools-admin operators add|remove|list manages the OPERATORS list and
-    # ai-ops membership. This dev install binds the invoking user as the sole operator inline.
+    # Host administration: ai-tools-admin operators add|remove|list manages the OPERATORS list and ai-ops membership.
+    # This dev install binds the invoking user as the sole operator inline.
     log "/usr/local/libexec/ai-tools/ai-tools-admin"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh" \
         /usr/local/libexec/ai-tools/ai-tools-admin
 
     # Put the one human-facing admin command where `sudo <name>` resolves it. The sudo-helpers
-    # under /usr/local/libexec/ai-tools/ are invoked by the daemon, by sudoers and by
-    # ai-tools-admin at fixed paths and stay hidden there -- provisioning among them, reached as
-    # `ai-tools-admin system bootstrap` -- and so do the contributed command fragments, reached as
-    # `ai-tools-admin <provider> <verb>`. ai-tools-admin itself is typed by an administrator and
-    # documented as a bare command. sudo resolves a bare command against
-    # the sudoers secure_path, which on stock EL is /sbin:/bin:/usr/sbin:/usr/bin -- it does
-    # NOT include /usr/local/sbin -- so the symlink lives in /usr/sbin (also on root's shell
-    # PATH). The target keeps its canonical /usr/local/libexec/ai-tools/ path (sudoers, perms
-    # checks, docs reference it).
+    # under /usr/local/libexec/ai-tools/ are invoked by the daemon, by sudoers and by ai-tools-admin at fixed paths
+    # and stay hidden there -- provisioning among them, reached as `ai-tools-admin system bootstrap` -- and so do
+    # the contributed command fragments, reached as `ai-tools-admin <provider> <verb>`. ai-tools-admin itself is typed
+    # by an administrator and documented as a bare command. sudo resolves a bare command against the sudoers
+    # secure_path, which on stock EL is /sbin:/bin:/usr/sbin:/usr/bin -- it does NOT include /usr/local/sbin --
+    # so the symlink lives in /usr/sbin (also on root's shell PATH). The target keeps its canonical
+    # /usr/local/libexec/ai-tools/ path (sudoers, perms checks, docs reference it).
     log "/usr/sbin/ai-tools-admin -> /usr/local/libexec/ai-tools/ai-tools-admin"
     ln -sfn /usr/local/libexec/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
-    # The ai-tools CLI gets the same secure_path symlink for the OPPOSITE reason: it must
-    # never run under sudo, and without the symlink `sudo ai-tools` dies with sudo's
-    # "command not found" (/usr/local/bin is not in secure_path) before the CLI's own
-    # refusal -- "run as the projects user" -- can explain the right invocation.
+    # The ai-tools CLI gets the same secure_path symlink for the OPPOSITE reason: it must never run under sudo,
+    # and without the symlink `sudo ai-tools` dies with sudo's "command not found" (/usr/local/bin is not
+    # in secure_path) before the CLI's own refusal -- "run as the projects user" -- can explain the right invocation.
     log "/usr/sbin/ai-tools -> /usr/local/bin/ai-tools"
     ln -sfn /usr/local/bin/ai-tools /usr/sbin/ai-tools
 
-    # Handback privilege bridge daemon.  750 root:root -- root-owned and only
-    # root-executable: this is the privileged endpoint; the SANDBOX_USER reaches it
-    # via the socket, never by exec'ing it directly.  install_subst substitutes
+    # Handback privilege bridge daemon.  750 root:root -- root-owned and only root-executable: this is the privileged
+    # endpoint; the SANDBOX_USER reaches it via the socket, never by exec'ing it directly.  install_subst substitutes
     # @SANDBOX_USER@ in the Python source before deployment.
     log "/usr/local/libexec/ai-tools/ai-tools-handback"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-handback.py" \
         /usr/local/libexec/ai-tools/ai-tools-handback
 
-    # Handback client.  750 root:SANDBOX_GROUP -- root-owned but group-executable so
-    # SANDBOX_USER (a member of SANDBOX_GROUP) can run it from the hooks and the
-    # updater; world cannot.  install_subst substitutes @SANDBOX_GROUP@.
+    # Handback client.  750 root:SANDBOX_GROUP -- root-owned but group-executable so SANDBOX_USER (a member
+    # of SANDBOX_GROUP) can run it from the hooks and the updater; world cannot.  install_subst substitutes
+    # @SANDBOX_GROUP@.
     log "/usr/local/bin/ai-tools-handback-client"
     install_subst 750 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/usr/local/bin/ai-tools-handback-client.py" \
         /usr/local/bin/ai-tools-handback-client
 
-    # Systemd socket and service template for the handback bridge.  644 root:root --
-    # systemd reads them as root; no world write.  install_subst substitutes
-    # @SANDBOX_GROUP@ in the socket unit (SocketGroup=).
+    # Systemd socket and service template for the handback bridge.  644 root:root -- systemd reads them as root; no
+    # world write.  install_subst substitutes @SANDBOX_GROUP@ in the socket unit (SocketGroup=).
     log "/usr/lib/systemd/system/ai-tools-handback.socket"
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/lib/systemd/system/ai-tools-handback.socket" \
@@ -1577,18 +1514,18 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/lib/systemd/system/ai-tools-handback@.service" \
         /usr/lib/systemd/system/ai-tools-handback@.service
-    # The systemd preset that enables the socket by default. install.sh enables it explicitly
-    # itself, but placing the preset keeps parity with the RPM and hardens against a later
-    # `systemctl preset` (as a package install runs) silently disabling the handback.
+    # The systemd preset that enables the socket by default. install.sh enables it explicitly itself, but placing
+    # the preset keeps parity with the RPM and hardens against a later `systemctl preset` (as a package install runs)
+    # silently disabling the handback.
     log "/usr/lib/systemd/system-preset/85-ai-tools.preset"
     install -d -o root -g root -m 755 /usr/lib/systemd/system-preset
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/lib/systemd/system-preset/85-ai-tools.preset" \
         /usr/lib/systemd/system-preset/85-ai-tools.preset
 
-    # Toolchain update units. The service+timer live in %{_userunitdir} and are enabled in
-    # the sandbox account's own `systemd --user instance` (it owns and writes the shared .nvm
-    # tree). 644 root:root -- systemd reads them as root; no world write.
+    # Toolchain update units. The service+timer live in %{_userunitdir} and are enabled in the sandbox account's own
+    # `systemd --user instance` (it owns and writes the shared .nvm tree). 644 root:root -- systemd reads them as root;
+    # no world write.
     log "/usr/lib/systemd/user/nvm-update.service"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/lib/systemd/user/nvm-update.service" \
@@ -1598,10 +1535,9 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/lib/systemd/user/nvm-update.timer" \
         /usr/lib/systemd/user/nvm-update.timer
 
-    # Post-upgrade relabel watcher. The .path watches the control-plane bin directory whose
-    # entries the updater repoints, and triggers the root-side .service (restorecon to
-    # ai_tools_exec_t), so the SELinux domain transition keeps firing after a Node bump for
-    # whichever agent's launcher moved. 644 root:root.
+    # Post-upgrade relabel watcher. The .path watches the control-plane bin directory whose entries the updater
+    # repoints, and triggers the root-side .service (restorecon to ai_tools_exec_t), so the SELinux domain transition
+    # keeps firing after a Node bump for whichever agent's launcher moved. 644 root:root.
     log "/usr/lib/systemd/system/ai-tools-relabel.path"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/lib/systemd/system/ai-tools-relabel.path" \
@@ -1611,75 +1547,72 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/lib/systemd/system/ai-tools-relabel.service" \
         /usr/lib/systemd/system/ai-tools-relabel.service
 
-    # Project-lifecycle CLI. Runs AS the projects user (never root, never ai-tools)
-    # and does not need privilege: it only edits allowed-projects and the git
-    # safe.directory list, both writable by the projects user. 755 root:root --
-    # world-executable (the in-script guard refuses to run as root or ai-tools),
-    # root-owned so the agent cannot tamper with it.
+    # Project-lifecycle CLI. Runs AS the projects user (never root, never ai-tools) and does not need privilege: it only
+    # edits allowed-projects and the git safe.directory list, both writable by the projects user. 755 root:root --
+    # world-executable (the in-script guard refuses to run as root or ai-tools), root-owned so the agent cannot tamper
+    # with it.
     log "/usr/local/bin/ai-tools"
     install_subst 755 root root \
         "${SCRIPT_DIR}/src/usr/local/bin/ai-tools.sh" \
         /usr/local/bin/ai-tools
 
-    # ai-tools(1) man page. /usr/local/share/man/man1 is owned by the EL filesystem
-    # package, so only the page itself is deployed. Version-substituted like the CLI,
-    # and kept option-synced with the CLI's usage() text by tests/unit/man.sh.
+    # ai-tools(1) man page. /usr/local/share/man/man1 is owned by the EL filesystem package, so only the page itself is
+    # deployed. Version-substituted like the CLI, and kept option-synced with the CLI's usage() text
+    # by tests/unit/man.sh.
     log "/usr/local/share/man/man1/ai-tools.1"
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man1/ai-tools.1" \
         /usr/local/share/man/man1/ai-tools.1
 
-    # ai-tools-admin(8). Section 8 because every command it documents refuses a non-root
-    # caller. Version-substituted and command-synced with the helper's usage() the same way.
+    # ai-tools-admin(8). Section 8 because every command it documents refuses a non-root caller. Version-substituted
+    # and command-synced with the helper's usage() the same way.
     log "/usr/local/share/man/man8/ai-tools-admin.8"
     install -d -o root -g root -m 755 /usr/local/share/man/man8
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man8/ai-tools-admin.8" \
         /usr/local/share/man/man8/ai-tools-admin.8
 
-    # operator.conf(5). Documents the shared KEY=value grammar and every host option, so an
-    # operator reading the config has a manual rather than only its inline comments.
+    # operator.conf(5). Documents the shared KEY=value grammar and every host option, so an operator reading the config
+    # has a manual rather than only its inline comments.
     log "/usr/local/share/man/man5/operator.conf.5"
     install -d -o root -g root -m 755 /usr/local/share/man/man5
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/operator.conf.5" \
         /usr/local/share/man/man5/operator.conf.5
 
-    # ai-tools-providers(5). The provider manifests under agents.d and integrations.d and every
-    # key they take, so a manifest's own header can stay a pointer.
+    # ai-tools-providers(5). The provider manifests under agents.d and integrations.d and every key they take,
+    # so a manifest's own header can stay a pointer.
     log "/usr/local/share/man/man5/ai-tools-providers.5"
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-providers.5" \
         /usr/local/share/man/man5/ai-tools-providers.5
 
-    # allowed-projects(5). The operator's project allowlist: its grammar, what an entry
-    # and an exclusion mean, and the entry states. The seeded file's header is written once and never
-    # rewritten, so it points here rather than carrying the reference.
+    # allowed-projects(5). The operator's project allowlist: its grammar, what an entry and an exclusion mean,
+    # and the entry states. The seeded file's header is written once and never rewritten, so it points here rather than
+    # carrying the reference.
     log "/usr/local/share/man/man5/allowed-projects.5"
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/allowed-projects.5" \
         /usr/local/share/man/man5/allowed-projects.5
 
-    # secret-patterns(5). The operator's secret-name patterns: the glob grammar, what a match
-    # does, and the replace-the-baseline rule. Seeded once like the allowlist, so its header
-    # points here too.
+    # secret-patterns(5). The operator's secret-name patterns: the glob grammar, what a match does,
+    # and the replace-the-baseline rule. Seeded once like the allowlist, so its header points here too.
     log "/usr/local/share/man/man5/secret-patterns.5"
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/secret-patterns.5" \
         /usr/local/share/man/man5/secret-patterns.5
 
-    # custom-claude-endpoint.conf(5). The endpoint file's four options, their validation
-    # and their precedence, so the %config(noreplace) template can stay a pointer.
+    # custom-claude-endpoint.conf(5). The endpoint file's four options, their validation and their precedence,
+    # so the %config(noreplace) template can stay a pointer.
     log "/usr/local/share/man/man5/custom-claude-endpoint.conf.5"
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/custom-claude-endpoint.conf.5" \
         /usr/local/share/man/man5/custom-claude-endpoint.conf.5
 
-    # ai-tools-messages(7). Every message code the tree emits, with its severity and the component
-    # that emits it, so `journalctl AI_TOOLS_MSG=<code>` and a code read off a terminal both
-    # resolve to a message. Section 7 because it documents a convention rather than a command, and
-    # the man7 dir is created here: unlike man1, no EL package owns it under /usr/local. Generated
-    # from the cross-reference index by tools/man-messages.sh, never edited.
+    # ai-tools-messages(7). Every message code the tree emits, with its severity and the component that emits it,
+    # so `journalctl AI_TOOLS_MSG=<code>` and a code read off a terminal both resolve to a message. Section 7 because it
+    # documents a convention rather than a command, and the man7 dir is created here: unlike man1, no EL package owns it
+    # under /usr/local. Generated from the cross-reference index by tools/generators/man-messages.sh, never edited.
     log "/usr/local/share/man/man7/ai-tools-messages.7"
     install -d -o root -g root -m 755 /usr/local/share/man/man7
     install_subst 644 root root \
@@ -1694,10 +1627,9 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/bin/claude.sh" \
         /usr/local/bin/claude
 
-    # Sandbox project area. /var/opt is FHS-correct for variable data paired with an
-    # /opt install. Owned root:SANDBOX_GROUP; the inner sandbox-projects dir is setgid
-    # (clones born group SANDBOX_GROUP) and group-writable (the agent works in the
-    # clones). setgid is what lets the agent and an operator share the clone files
+    # Sandbox project area. /var/opt is FHS-correct for variable data paired with an /opt install. Owned
+    # root:SANDBOX_GROUP; the inner sandbox-projects dir is setgid (clones born group SANDBOX_GROUP) and group-writable
+    # (the agent works in the clones). setgid is what lets the agent and an operator share the clone files
     # through the group. Enforce ownership/mode on re-install even when the dirs
     # pre-exist.
     log "/var/opt/ai-tools/"
@@ -1709,15 +1641,14 @@ do_install() {
     chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
     chmod 2770 /var/opt/ai-tools/sandbox-projects
 
-    # Operator-readable state written BY the sandbox account: the last-run stamps of the units in
-    # that account's own `systemd --user manager` (nvm-update), which `ai-tools --status` cannot
-    # query from the operator's session. The directory is root-owned and deliberately NOT
-    # group-writable -- the account gets traverse only -- so the surface the stamps add is the
-    # contents of the individual files created here, never the directory: the account cannot add,
-    # unlink, rename, or symlink-swap anything in it. Each stamp is therefore created HERE, owned
-    # by the account (which rewrites it in place) with group ai-ops so operators read it directly.
-    # setgid is stripped symbolically: the parent is setgid and neither `install -d -m` nor a
-    # numeric chmod clears an inherited setgid bit on a directory (see tests.rule.md).
+    # Operator-readable state written BY the sandbox account: the last-run stamps of the units in that account's own
+    # `systemd --user manager` (nvm-update), which `ai-tools status` cannot query from the operator's session.
+    # The directory is root-owned and deliberately NOT group-writable -- the account gets traverse only --
+    # so the surface the stamps add is the contents of the individual files created here, never the directory:
+    # the account cannot add, unlink, rename, or symlink-swap anything in it. Each stamp is therefore created HERE,
+    # owned by the account (which rewrites it in place) with group ai-ops so operators read it directly. setgid is
+    # stripped symbolically: the parent is setgid and neither `install -d -m` nor a numeric chmod clears an inherited
+    # setgid bit on a directory (see tests.rule.md).
     log "/var/opt/ai-tools/state/"
     ensure_dir 0750 root "${SANDBOX_GROUP}" /var/opt/ai-tools/state
     chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools/state
@@ -1728,19 +1659,19 @@ do_install() {
     chown "${SANDBOX_USER}:ai-ops" /var/opt/ai-tools/state/nvm-update.status
     chmod 0640 /var/opt/ai-tools/state/nvm-update.status
 
-    # Sandbox workflow doc. Shipped documentation (not user-edited config), so it is
-    # refreshed on every re-install. 640 root:SANDBOX_GROUP.
+    # Sandbox workflow doc. Shipped documentation (not user-edited config), so it is refreshed on every re-install. 640
+    # root:SANDBOX_GROUP.
     log "/var/opt/ai-tools/README.md"
     install_subst 640 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/var/opt/ai-tools/README.md" \
         /var/opt/ai-tools/README.md
 
-    # Operator access to the shared sandbox area via an ai-ops group ACL, so operators create and
-    # work in clones (`ai-tools --sandbox-create`) WITHOUT joining SANDBOX_GROUP: ai-ops gets traverse
-    # on the outer dir, rwX on sandbox-projects (default ACL so clones inherit operator access), and
-    # read on the doc. One grant covers every operator, and an operator stays in ai-ops after leaving
-    # SANDBOX_GROUP. This is the shared-area counterpart to ai-tools-setfacl's per-project
-    # user:<operator> grant. ai-ops is created later in this script; ensure it first (idempotent).
+    # Operator access to the shared sandbox area via an ai-ops group ACL, so operators create and work in clones
+    # (`ai-tools projects clone`) WITHOUT joining SANDBOX_GROUP: ai-ops gets traverse on the outer dir, rwX
+    # on sandbox-projects (default ACL so clones inherit operator access), and read on the doc. One grant covers every
+    # operator, and an operator stays in ai-ops after leaving SANDBOX_GROUP. This is the shared-area counterpart
+    # to ai-tools-setfacl's per-project user:<operator> grant. ai-ops is created later in this script; ensure it first
+    # (idempotent).
     log "ai-ops ACL on the sandbox area"
     getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
     if command -v setfacl >/dev/null 2>&1; then
@@ -1748,20 +1679,18 @@ do_install() {
         setfacl -m g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects
         setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects
         setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md
-        # Traverse only on the state dir: operators read the stamps inside (whose own group is
-        # ai-ops), never write there. What the mode buys is scope, not integrity -- a stamp's
-        # CONTENT is written by the sandbox account and trusted accordingly (services.lib.sh).
+        # Traverse only on the state dir: operators read the stamps inside (whose own group is ai-ops), never write
+        # there. What the mode buys is scope, not integrity -- a stamp's CONTENT is written by the sandbox account
+        # and trusted accordingly (services.lib.sh).
         setfacl -m g:ai-ops:r-x /var/opt/ai-tools/state
     else
         warn MSG-Q7E7 "setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create"
     fi
 
-    # Operation-log directory for the root helpers. Dir 700 root:root, each file 600
-    # root:root -- the helpers append as root; ai-tools cannot read or tamper with the
-    # trail (secret filenames recorded by ai-tools-chown are not exposed). journald is
-    # the parallel sink for every component (see log.lib.sh). Pre-create each file so
-    # the SELinux relabel can apply ai_tools_log_t and appends are pure appends; never
-    # truncate an existing log.
+    # Operation-log directory for the root helpers. Dir 700 root:root, each file 600 root:root -- the helpers append
+    # as root; ai-tools cannot read or tamper with the trail (secret filenames recorded by ai-tools-chown are not
+    # exposed). journald is the parallel sink for every component (see log.lib.sh). Pre-create each file so the SELinux
+    # relabel can apply ai_tools_log_t and appends are pure appends; never truncate an existing log.
     log "/var/log/ai-tools/"
     ensure_dir 700 root root /var/log/ai-tools
     chown root:root /var/log/ai-tools
@@ -1772,8 +1701,8 @@ do_install() {
         fi
     done
 
-    # Static %ai-ops group drop-in -- no per-operator substitution, only the sandbox-account
-    # tokens. Membership in ai-ops is what grants access.
+    # Static %ai-ops group drop-in -- no per-operator substitution, only the sandbox-account tokens. Membership
+    # in ai-ops is what grants access.
     log "/etc/sudoers.d/ai-tools"
     local tmp_sudoers
     tmp_sudoers="$(mktemp)"
@@ -1785,20 +1714,19 @@ do_install() {
     install -o root -g root -m 0440 \
         "${tmp_sudoers}" /etc/sudoers.d/ai-tools
     rm -f "${tmp_sudoers}"
-    # The drop-in used to be named for one agent. Both files define the same %ai-ops rules, so
-    # leaving the old one behind is duplicate-but-harmless -- and confusing when auditing who
-    # granted what. The RPM drops it as part of the upgrade; this covers the from-source flow.
+    # The drop-in used to be named for one agent. Both files define the same %ai-ops rules, so leaving the old one
+    # behind is duplicate-but-harmless -- and confusing when auditing who granted what. The RPM drops it as part
+    # of the upgrade; this covers the from-source flow.
     rm -f /etc/sudoers.d/ai-tools-claude
 
-    # Host config. The root helpers and the agent hooks resolve the operators from this file
-    # at runtime (via operator.lib.sh) instead of substituting an identity into each helper, so
-    # the helper files are identical on every host. 644 root:root: world-readable -- both the
-    # agent (ai_tools_t hooks) and the root helpers (ai_tools_handback_t) read it, and it must not hold
-    # no secret -- and root-write-only, so the agent cannot rewrite the identity root hands files
-    # back to. Seeded from the src/etc template with the invoking user as the sole operator; an
-    # EXISTING file is kept by default (keep_existing prompt; unattended installs always keep)
-    # -- ai-tools-admin manages the OPERATORS line in place and the operator maintains the
-    # SKIP_* settings (reference: skip-dirs.lib.sh) -- with owner and mode re-asserted.
+    # Host config. The root helpers and the agent hooks resolve the operators from this file at runtime (via
+    # operator.lib.sh) instead of substituting an identity into each helper, so the helper files are identical on every
+    # host. 644 root:root: world-readable -- both the agent (ai_tools_t hooks) and the root helpers
+    # (ai_tools_handback_t) read it, and it must not hold no secret -- and root-write-only, so the agent cannot rewrite
+    # the identity root hands files back to. Seeded from the src/etc template with the invoking user as the sole
+    # operator; an EXISTING file is kept by default (keep_existing prompt; unattended installs always keep) --
+    # ai-tools-admin manages the OPERATORS line in place and the operator maintains the SKIP_* settings (reference:
+    # skip-dirs.lib.sh) -- with owner and mode re-asserted.
     ensure_dir 755 root root /etc/ai-tools
     chown root:root /etc/ai-tools
     chmod 755 /etc/ai-tools
@@ -1816,12 +1744,11 @@ do_install() {
         seed_result "${opconf}" "${opconf_existed}" 0 "operator ${PROJECTS_USER}"
     fi
 
-    # Claude Code custom system prompt + custom API endpoint (the claude-code agent's config files).
-    # Both ship inert and an EXISTING copy is kept (operator edits survive a re-install, matching the
-    # RPM's %config(noreplace)), with owner and mode re-asserted. Both are 640 root:SANDBOX_GROUP: the
-    # sandbox account reads them but neither is world-readable -- the endpoint holds a bearer token,
-    # and a custom prompt may be proprietary. The operator edits each with sudo; the dirs stay 755 so
-    # claude.sh can stat the prompt file as the operator.
+    # Claude Code custom system prompt + custom API endpoint (the claude-code agent's config files). Both ship inert
+    # and an EXISTING copy is kept (operator edits survive a re-install, matching the RPM's %config(noreplace)),
+    # with owner and mode re-asserted. Both are 640 root:SANDBOX_GROUP: the sandbox account reads them but neither is
+    # world-readable -- the endpoint holds a bearer token, and a custom prompt may be proprietary. The operator edits
+    # each with sudo; the dirs stay 755 so claude.sh can stat the prompt file as the operator.
     ensure_dir 755 root root /etc/ai-tools/prompts
     local sysprompt=/etc/ai-tools/prompts/claude-system-prompt.md sysprompt_existed=0
     [[ -f "${sysprompt}" ]] && sysprompt_existed=1
@@ -1845,19 +1772,18 @@ do_install() {
         seed_result "${endpointf}" "${endpointf_existed}" 0 "inert default"
     fi
 
-    # ai-ops operators group + membership grants the operator the sudoers rules (the RPM
-    # creates the group via sysusers; the dev install creates it here). The sandbox account must
-    # not drive itself as an operator, so binding refuses it by re-asking operator_refusal -- the
-    # same guard ai-tools-admin applies, and the same code the entry point would have printed.
-    # `usermod -aG` adds the group while preserving the user's existing groups.
+    # ai-ops operators group + membership grants the operator the sudoers rules (the RPM creates the group via sysusers;
+    # the dev install creates it here). The sandbox account must not drive itself as an operator, so binding refuses it
+    # by re-asking operator_refusal -- the same guard ai-tools-admin applies, and the same code the entry point would
+    # have printed. `usermod -aG` adds the group while preserving the user's existing groups.
     local binding_refusal
     binding_refusal="$(operator_refusal "${PROJECTS_USER}")"
     [[ -z "${binding_refusal}" ]] || emit_coded die "${binding_refusal}"
     getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
-    # Report what this run actually did. `usermod -aG` is idempotent, so re-running the installer
-    # would otherwise announce "adding" on every pass for an operator who has been a member since
-    # the first one -- and a re-install that says it granted something it did not is the kind of
-    # line that makes an operator stop trusting the rest of the output.
+    # Report what this run actually did. `usermod -aG` is idempotent, so re-running the installer would otherwise
+    # announce "adding" on every pass for an operator who has been a member since the first one -- and a re-install
+    # that says it granted something it did not is the kind of line that makes an operator stop trusting the rest
+    # of the output.
     if id -nG "${PROJECTS_USER}" 2>/dev/null | tr ' ' '\n' | grep -qxF ai-ops; then
         log "${PROJECTS_USER} is already in group ai-ops"
     else
@@ -1867,15 +1793,14 @@ do_install() {
 
     section "ai-tools control plane (/opt/ai-tools)"
 
-    # The control plane is owned root:ai-tools: root owns the locked control files while the agent
-    # (which runs AS ai-tools) reaches them through group ai-tools. The home and bin dirs' owner
-    # and boundary modes (home 2751, bin 0551, .claude 3770) are asserted at the END of this
-    # section from the constants in control-plane.lib.sh, so the dev install and the spec %files
-    # declare the same boundary. Files land with their explicit owner/group and content
+    # The control plane is owned root:ai-tools: root owns the locked control files while the agent (which runs
+    # AS ai-tools) reaches them through group ai-tools. The home and bin dirs' owner and boundary modes (home 2751, bin
+    # 0551, .claude 3770) are asserted at the END of this section from the constants in control-plane.lib.sh, so the dev
+    # install and the spec %files declare the same boundary. Files land with their explicit owner/group and content
     # modes, and .claude is created up front so the hooks can land in it.
 
-    # Control-plane files are owned root, group ai-tools: the agent gets group read/exec but can
-    # never write them, so it cannot rewrite its own updater, hook, or hook config.
+    # Control-plane files are owned root, group ai-tools: the agent gets group read/exec but can never write them, so it
+    # cannot rewrite its own updater, hook, or hook config.
     log "/opt/ai-tools/bin/nvm-update.sh"
     install -o root -g "${SANDBOX_GROUP}" -m 550 \
         "${SCRIPT_DIR}/src/opt/ai-tools/bin/nvm-update.sh" \
@@ -1886,15 +1811,14 @@ do_install() {
         "${SCRIPT_DIR}/src/opt/ai-tools/bin/ai-tools-run.sh" \
         /opt/ai-tools/bin/ai-tools-run
 
-    # Each enabled agent's config directory holds both mutable agent state (sessions/, history,
-    # credentials -- ai-tools-owned) AND that agent's root-of-trust control files (settings.json,
-    # its hooks). Root ownership of the control files is not enough on its own: a group-writer can
-    # unlink+recreate any file in a dir it can write. So the dir is root-owned with setgid+sticky
-    # (CP_AGENT_CONFIG_MODE): ai-tools stays a group-writer -- it can create and manage its own
-    # state files -- but the sticky bit forbids it from deleting or replacing files it does not
-    # own, and it is not the dir owner, so it cannot bypass that. setgid keeps new entries in group
-    # ai-tools. The DIRECTORIES are created here, from the manifests (the base names none of them),
-    # so the agent layer can install into its own; modes are re-asserted at section end.
+    # Each enabled agent's config directory holds both mutable agent state (sessions/, history, credentials --
+    # ai-tools-owned) AND that agent's root-of-trust control files (settings.json, its hooks). Root ownership
+    # of the control files is not enough on its own: a group-writer can unlink+recreate any file in a dir it can write.
+    # So the dir is root-owned with setgid+sticky (CP_AGENT_CONFIG_MODE): ai-tools stays a group-writer -- it can create
+    # and manage its own state files -- but the sticky bit forbids it from deleting or replacing files it does not own,
+    # and it is not the dir owner, so it cannot bypass that. setgid keeps new entries in group ai-tools. The DIRECTORIES
+    # are created here, from the manifests (the base names none of them), so the agent layer can install into its own;
+    # modes are re-asserted at section end.
     local agent_config_dir agent_asset_dir _agent
     while IFS=$'\t' read -r _ agent_config_dir; do
         [[ -n "${agent_config_dir}" ]] || continue
@@ -1902,9 +1826,9 @@ do_install() {
         ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${agent_config_dir}"
     done < <(ai_tools_agent_config_dirs)
 
-    # The claude-code agent layer: its hooks and settings, into the directory its own manifest
-    # declares. This from-source installer deploys the whole stack, so it lays down the agent's
-    # files here (the RPM ships them in the agent subpackage).
+    # The claude-code agent layer: its hooks and settings, into the directory its own manifest declares. This
+    # from-source installer deploys the whole stack, so it lays down the agent's files here (the RPM ships them
+    # in the agent subpackage).
     local claude_config_dir="/opt/ai-tools/.claude"
     ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${claude_config_dir}"
     install_subst 750 root "${SANDBOX_GROUP}" \
@@ -1916,14 +1840,13 @@ do_install() {
     install_subst 750 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/filter-hook.sh" \
         "${claude_config_dir}/filter-hook.sh"
-    # settings.json is kept by default when it already exists (keep_existing prompt;
-    # unattended installs always keep): it may carry deliberate host tuning -- e.g. a deny
-    # entry relaxed alongside an enabled SELinux group (see claude-settings.rule.md) -- that a
-    # reset would revert, so it passes a warn and the reset is gated behind the second
-    # confirmation. Ownership and mode are re-asserted either way, so a kept file still
-    # satisfies the control-plane integrity checks. A kept file additionally has this version's
-    # hook DECLARATIONS reconciled into it, so keeping host tuning never costs a shipped hook
-    # (reconcile_hook_declarations); the permission rules it was kept for are not touched.
+    # settings.json is kept by default when it already exists (keep_existing prompt; unattended installs always keep):
+    # it may carry deliberate host tuning -- e.g. a deny entry relaxed alongside an enabled SELinux group (see
+    # claude-settings.rule.md) -- that a reset would revert, so it passes a warn and the reset is gated behind
+    # the second confirmation. Ownership and mode are re-asserted either way, so a kept file still satisfies
+    # the control-plane integrity checks. A kept file additionally has this version's hook DECLARATIONS reconciled
+    # into it, so keeping host tuning never costs a shipped hook (reconcile_hook_declarations); the permission rules it
+    # was kept for are not touched.
     local settings="${claude_config_dir}/settings.json" settings_existed=0
     [[ -f "${settings}" ]] && settings_existed=1
     if keep_existing "${settings}" \
@@ -1939,10 +1862,10 @@ do_install() {
         seed_result "${settings}" "${settings_existed}" 0
     fi
 
-    # .gitconfig: root:SANDBOX_GROUP 644 (world-readable, root-write-only). safe.directory is
-    # registered through the ai-tools-safedir root helper -- see its header for the 644/sudo model.
-    # Ownership and mode are re-asserted even when keeping existing content; keep_existing preserves
-    # safe.directory entries (and any customisations) on re-install.
+    # .gitconfig: root:SANDBOX_GROUP 644 (world-readable, root-write-only). safe.directory is registered
+    # through the ai-tools-safedir root helper -- see its header for the 644/sudo model. Ownership and mode are
+    # re-asserted even when keeping existing content; keep_existing preserves safe.directory entries (and any
+    # customisations) on re-install.
     local _gitconfig="/opt/ai-tools/.gitconfig" _gitconfig_existed=0
     [[ -f "${_gitconfig}" ]] && _gitconfig_existed=1
     if keep_existing "${_gitconfig}"; then
@@ -1950,8 +1873,8 @@ do_install() {
         chmod 644 "${_gitconfig}"
         seed_result "${_gitconfig}" "${_gitconfig_existed}" 1
     else
-        # Derive the sandbox email domain from the projects user's git user.email;
-        # fall back to the machine's fully-qualified hostname.
+        # Derive the sandbox email domain from the projects user's git user.email; fall back to the machine's
+        # fully-qualified hostname.
         local _projects_email _domain
         _projects_email="$(git config --file "${PROJECTS_HOME}/.gitconfig" \
                                user.email 2>/dev/null || \
@@ -1969,12 +1892,11 @@ do_install() {
         seed_result "${_gitconfig}" "${_gitconfig_existed}" 0 "ai-tools@${_domain}"
     fi
 
-    # .gitignore: a default-deny guard for a git repo in /opt/ai-tools that versions the control
-    # plane. It ignores everything, then re-includes only durable control-plane assets (.gitconfig,
-    # the .claude guardrails, skills, auto-memory) and re-asserts a hard secret denylist last, so
-    # auth tokens (.credentials.json, .claude.json), conversation logs (history.jsonl, sessions/),
-    # and nvm/npm churn are never committable. root:SANDBOX_GROUP 640: the agent reads it through
-    # the group but never writes it. keep_existing preserves customisations on re-install.
+    # .gitignore: a default-deny guard for a git repo in /opt/ai-tools that versions the control plane. It ignores
+    # everything, then re-includes only durable control-plane assets (.gitconfig, the .claude guardrails, skills,
+    # auto-memory) and re-asserts a hard secret denylist last, so auth tokens (.credentials.json, .claude.json),
+    # conversation logs (history.jsonl, sessions/), and nvm/npm churn are never committable. root:SANDBOX_GROUP 640:
+    # the agent reads it through the group but never writes it. keep_existing preserves customisations on re-install.
     local _gitignore="/opt/ai-tools/.gitignore" _gitignore_existed=0
     [[ -f "${_gitignore}" ]] && _gitignore_existed=1
     if keep_existing "${_gitignore}"; then
@@ -1987,10 +1909,10 @@ do_install() {
         seed_result "${_gitignore}" "${_gitignore_existed}" 0
     fi
 
-    # Assert the control-plane home and dir boundary modes from the shared constants: the home is
-    # owned root:ai-tools with the o+x search bit and setgid (CP_HOME_MODE), bin is locked, and
-    # every agent's config directory is setgid+sticky. The agent reaches the tree through group
-    # ai-tools; root owns the locked control files so the agent cannot replace them.
+    # Assert the control-plane home and dir boundary modes from the shared constants: the home is owned root:ai-tools
+    # with the o+x search bit and setgid (CP_HOME_MODE), bin is locked, and every agent's config directory is
+    # setgid+sticky. The agent reaches the tree through group ai-tools; root owns the locked control files so the agent
+    # cannot replace them.
     section "Control-plane assertions"
     log "ownership and boundary modes (root:${SANDBOX_GROUP})"
     chown "root:${SANDBOX_GROUP}" /opt/ai-tools /opt/ai-tools/bin
@@ -2002,14 +1924,13 @@ do_install() {
         ai_tools_apply_mode "${CP_AGENT_CONFIG_MODE}" "${agent_config_dir}"
     done < <(ai_tools_agent_config_dirs)
 
-    # Shipped assets: stage pristine copies to the datadir (the single seed source shared with
-    # ai-tools-bootstrap), then place them.
+    # Shipped assets: stage pristine copies to the datadir (the single seed source shared with ai-tools-bootstrap), then
+    # place them.
     #
-    # Both kinds are agent-agnostic, so each is seeded ONCE into its own shared root
-    # (/opt/ai-tools/skills, /opt/ai-tools/subagents) and every agent's directories get a symlink
-    # per asset -- one place to author or update an asset, however many agents read it. Only
-    # ai-tools-* assets carrying x-ai-tools-managed are touched, an operator's own is never
-    # claimed, and an existing managed asset updates only on confirm (default keep). See
+    # Both kinds are agent-agnostic, so each is seeded ONCE into its own shared root (/opt/ai-tools/skills,
+    # /opt/ai-tools/subagents) and every agent's directories get a symlink per asset -- one place to author or update
+    # an asset, however many agents read it. Only ai-tools-* assets carrying x-ai-tools-managed are touched,
+    # an operator's own is never claimed, and an existing managed asset updates only on confirm (default keep). See
     # managed-assets.lib.sh and shipped-assets.rule.md.
     log "/usr/share/ai-tools/{skills,subagents,orientation} (pristine managed assets)"
     install -d -o root -g root -m 755 /usr/share/ai-tools
@@ -2017,9 +1938,9 @@ do_install() {
     for _kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
         rm -rf "/usr/share/ai-tools/${_kind}"
         cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/${_kind}" "/usr/share/ai-tools/${_kind}"
-        # A from-source install copies the working tree, where a local import of a shipped script
-        # leaves a bytecode cache beside it. It is gitignored, so a CI build from a fresh checkout
-        # never carries one; dropping it keeps a from-source install identical to the packaged one.
+        # A from-source install copies the working tree, where a local import of a shipped script leaves a bytecode
+        # cache beside it. It is gitignored, so a CI build from a fresh checkout never carries one; dropping it keeps
+        # a from-source install identical to the packaged one.
         find "/usr/share/ai-tools/${_kind}" -name __pycache__ -type d -prune -exec rm -rf {} +
         chown -R root:root "/usr/share/ai-tools/${_kind}"
         find "/usr/share/ai-tools/${_kind}" -type d -exec chmod 755 {} +
@@ -2049,9 +1970,9 @@ do_install() {
         done < <(ai_tools_agent_asset_dirs "${_spec#*:}")
     done
 
-    # The orientation text is one file rather than a directory of assets, and it lands under the
-    # filename each agent reads as user-scope instructions -- so it is linked by name from the
-    # manifest instead of by iterating a shared root.
+    # The orientation text is one file rather than a directory of assets, and it lands under the filename each agent
+    # reads as user-scope instructions -- so it is linked by name from the manifest instead of by iterating a shared
+    # root.
     local _memory_target
     while IFS=$'\t' read -r _agent _memory_target; do
         log "linking the shared orientation into ${_memory_target}"
@@ -2063,14 +1984,12 @@ do_install() {
 
     # --- Allowlist (create with format header if absent; keep on re-install) ---
     #
-    # An existing allowlist holds the user's approved projects. A re-install keeps
-    # it by default; overwriting removes all approved projects (destructive), so
-    # keep_existing requires an explicit second confirmation before doing so.
-    # The install dir is not added: registering a project is the CLI's business
-    # (`ai-tools --project-claim`), and an entry the operator already holds for this checkout is
-    # theirs and is left as it is. What keeps a session's edits to this checkout from being
-    # deployed unread is the source-tree gate at the start of do_install, which names the commit
-    # the install deploys and refuses an uncommitted tree without `--allow-uncommitted`.
+    # An existing allowlist holds the user's approved projects. A re-install keeps it by default; overwriting removes
+    # all approved projects (destructive), so keep_existing requires an explicit second confirmation before doing so.
+    # The install dir is not added: registering a project is the CLI's business (`ai-tools projects claim`),
+    # and an entry the operator already holds for this checkout is theirs and is left as it is. What keeps a session's
+    # edits to this checkout from being deployed unread is the source-tree gate at the start of do_install, which names
+    # the commit the install deploys and refuses an uncommitted tree without `--allow-uncommitted`.
 
     ensure_config_home "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}"
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/ai-tools"
@@ -2080,8 +1999,8 @@ do_install() {
             "Removes every approved project from the allowlist (the directories are untouched)."; then
         seed_result "${allowlist}" "${allowlist_existed}" 1
     else
-        # The header text is conf.lib.sh's, the same one `ai-tools-admin operators add` seeds on a
-        # packaged host, so an operator meets one description of what the file accepts.
+        # The header text is conf.lib.sh's, the same one `ai-tools-admin operators add` seeds on a packaged host,
+        # so an operator meets one description of what the file accepts.
         ai_tools_conf_allowlist_seed > "${allowlist}"
         chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${allowlist}"
         chmod 600 "${allowlist}"
@@ -2091,11 +2010,10 @@ do_install() {
             seed_result "${allowlist}" 0 0
         fi
     fi
-    # Secret-name patterns: user-owned 600, from the same conf.lib.sh header
-    # `ai-tools-admin operators add` seeds. The seeded file carries the header alone, so
-    # classification keeps using the baseline in secret-patterns.lib.sh until this operator
-    # writes a pattern; an
-    # existing file holds their edits, so a re-install keeps it unless they consent to re-seed.
+    # Secret-name patterns: user-owned 600, from the same conf.lib.sh header `ai-tools-admin operators add` seeds.
+    # The seeded file carries the header alone, so classification keeps using the baseline in secret-patterns.lib.sh
+    # until this operator writes a pattern; an existing file holds their edits, so a re-install keeps it unless they
+    # consent to re-seed.
     local patternfile="${PROJECTS_HOME}/.config/ai-tools/secret-patterns"
     local secret_existed=0; [[ -f "${patternfile}" ]] && secret_existed=1
     if keep_existing "${patternfile}"; then
@@ -2109,27 +2027,24 @@ do_install() {
 
     section "Systemd (auto-update timer)"
 
-    # The sandbox launch (ai-tools-run) runs `systemd-run --user` as ${SANDBOX_USER} to wrap
-    # each session in a transient service unit, which needs ${SANDBOX_USER}'s own systemd
-    # user instance (its /run/user/<uid>/bus). ${SANDBOX_USER} has no login shell, so only
-    # linger keeps that instance alive; without it ai-tools-run aborts at its bus-socket
+    # The sandbox launch (ai-tools-run) runs `systemd-run --user` as ${SANDBOX_USER} to wrap each session in a transient
+    # service unit, which needs ${SANDBOX_USER}'s own systemd user instance (its /run/user/<uid>/bus). ${SANDBOX_USER}
+    # has no login shell, so only linger keeps that instance alive; without it ai-tools-run aborts at its bus-socket
     # preflight ("user instance not reachable").
     log "enabling linger for ${SANDBOX_USER}"
     loginctl enable-linger "${SANDBOX_USER}"
-    # enable-linger returns before the manager is listening, so bring it up and wait until it
-    # actually answers (wait_user_manager). Its verdict gates only the two live calls: the
-    # root-side provisioning that follows must happen either way, so a host whose manager never
-    # comes up still has the timer enabled for its next boot.
+    # enable-linger returns before the manager is listening, so bring it up and wait until it actually answers
+    # (wait_user_manager). Its verdict gates only the two live calls: the root-side provisioning that follows must
+    # happen either way, so a host whose manager never comes up still has the timer enabled for its next boot.
     local sandbox_uid manager_ready=0
     sandbox_uid="$(id -u "${SANDBOX_USER}")"
     wait_user_manager "${SANDBOX_USER}" && manager_ready=1
 
-    # Enable nvm-update.timer in ${SANDBOX_USER}'s `--user instance`. The home (/opt/ai-tools) is
-    # root-owned (2751), so the account cannot create ~/.config and `systemctl --user enable` run
-    # as the account cannot write the timers.target.wants symlink. Root provisions the XDG config
-    # tree and the enablement symlink instead -- root:${SANDBOX_GROUP} 2750 (setgid inherited from
-    # the control-plane home), so the account's manager reads its units through the group but
-    # cannot add a `--user unit` (a confined session must not register a unit the account's
+    # Enable nvm-update.timer in ${SANDBOX_USER}'s `--user instance`. The home (/opt/ai-tools) is root-owned (2751),
+    # so the account cannot create ~/.config and `systemctl --user enable` run as the account cannot write
+    # the timers.target.wants symlink. Root provisions the XDG config tree and the enablement symlink instead --
+    # root:${SANDBOX_GROUP} 2750 (setgid inherited from the control-plane home), so the account's manager reads its
+    # units through the group but cannot add a `--user unit` (a confined session must not register a unit the account's
     # unconfined manager would run). daemon-reload + start then activate it in the running instance.
     install -d -o root -g "${SANDBOX_GROUP}" -m 2750 \
         /opt/ai-tools/.config \
@@ -2138,14 +2053,12 @@ do_install() {
         /opt/ai-tools/.config/systemd/user/timers.target.wants
     ln -sfn /usr/lib/systemd/user/nvm-update.timer \
         /opt/ai-tools/.config/systemd/user/timers.target.wants/nvm-update.timer
-    # Pre-seed the timer's Persistent run-stamp BEFORE starting it, so it begins on its next
-    # scheduled window rather than an immediate catch-up nvm-update run. That run reinstalls the
-    # agent package -- reminting claude.exe at lib_t (a freshly written entrypoint is born the
-    # default type; only restorecon applies ai_tools_exec_t) -- and its async repoint -> relabel
-    # chain races the operator's first launch, so the first claude refuses on a mislabelled
-    # entrypoint. The toolchain is current at install time, so "last run = now" is truthful
-    # (mtime is all systemd reads). Same fix as ai-tools-bootstrap; see
-    # .claude/rules/updater.rule.md. The home is root-owned, so root creates
+    # Pre-seed the timer's Persistent run-stamp BEFORE starting it, so it begins on its next scheduled window rather
+    # than an immediate catch-up nvm-update run. That run reinstalls the agent package -- reminting claude.exe at lib_t
+    # (a freshly written entrypoint is born the default type; only restorecon applies ai_tools_exec_t) -- and its async
+    # repoint -> relabel chain races the operator's first launch, so the first claude refuses on a mislabelled
+    # entrypoint. The toolchain is current at install time, so "last run = now" is truthful (mtime is all systemd
+    # reads). Same fix as ai-tools-bootstrap; see .claude/rules/updater.rule.md. The home is root-owned, so root creates
     # the account-owned XDG_DATA_HOME path the `--user manager` reads and later updates itself.
     install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 \
         /opt/ai-tools/.local \
@@ -2159,8 +2072,8 @@ do_install() {
         user_systemctl "${SANDBOX_USER}" daemon-reload
         user_systemctl "${SANDBOX_USER}" start nvm-update.timer
     else
-        # The symlink is in place, so the timer starts with the manager at next boot. Say
-        # what is not running now and what to check, rather than pointing at a nologin account.
+        # The symlink is in place, so the timer starts with the manager at next boot. Say what is not running now
+        # and what to check, rather than pointing at a nologin account.
         warn MSG-M7K6 "the systemd --user manager of ${SANDBOX_USER} did not come up -- the auto-update timer"
         warn "  is enabled but not running, so toolchain updates wait for the next boot."
         warn "  Check:  sudo systemctl status user@${sandbox_uid}.service"
@@ -2179,10 +2092,9 @@ do_install() {
     bootstrap_launcher_symlinks
     do_selinux_restore
 
-    # offer_selinux is the single labelling point: it relabels through install-selinux.sh on both
-    # the accept path (install action) and the declined-but-loaded path (relabel action), so a
-    # SELinux-active host relabels exactly once here, in one tool's consistent output. No step to
-    # do afterwards.
+    # offer_selinux is the single labelling point: it relabels through install-selinux.sh on both the accept path
+    # (install action) and the declined-but-loaded path (relabel action), so a SELinux-active host relabels exactly once
+    # here, in one tool's consistent output. No step to do afterwards.
     offer_selinux
 
     section "Install complete -- next steps"
@@ -2192,10 +2104,10 @@ do_install() {
         say ""
     fi
     say "  check the install (run as ${PROJECTS_USER}, no sudo):"
-    say "    ${C_BOLD}ai-tools --status${C_RST}                             ${C_DIM}# every managed unit, and what to run for a broken one${C_RST}"
+    say "    ${C_BOLD}ai-tools status${C_RST}                               ${C_DIM}# every managed unit, and what to run for a broken one${C_RST}"
     say ""
     say "  register projects with the ai-tools CLI (run as ${PROJECTS_USER}, no sudo):"
-    say "    ${C_BOLD}ai-tools --project-claim /path/to/project${C_RST}     ${C_DIM}# claim a project in place${C_RST}"
+    say "    ${C_BOLD}ai-tools projects claim /path/to/project${C_RST}      ${C_DIM}# claim a project in place${C_RST}"
     say "    ${C_BOLD}ai-tools --help${C_RST}                               ${C_DIM}# all commands${C_RST}"
     say "  configure and read up:"
     say "    ${C_BOLD}/etc/ai-tools/operator.conf${C_RST}                  ${C_DIM}# host options, each documented inline${C_RST}"
@@ -2205,28 +2117,27 @@ do_install() {
     say ""
     suggest_lint_tools
 
-    # Optional post-install verification, run LAST -- after the optional SELinux setup -- so
-    # the installed-files summary and the full test suite both see the final, labelled state.
-    # The permissions check lives in the suite (tests/integration/perms.sh, the single source).
-    # Interactive only and gated behind one confirm (defaults to run); a non-interactive install
-    # skips all of it (a surprising, heavy default), leaving `install.sh check-perms` and
-    # `tests/run.sh` available on demand.
+    # Optional post-install verification, run LAST -- after the optional SELinux setup -- so the installed-files summary
+    # and the full test suite both see the final, labelled state. The permissions check lives in the suite
+    # (tests/integration/perms.sh, the single source). Interactive only and gated behind one confirm (defaults to run);
+    # a non-interactive install skips all of it (a surprising, heavy default), leaving `install.sh check-perms`
+    # and `tests/run.sh` available on demand.
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
         if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
             warn MSG-A7X8 "toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail"
             warn "until it is; for a full pass run sudo ai-tools-admin system bootstrap first, then re-test"
             warn "with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
-        # The section header prints only when the suite runs, so a skip avoids an
-        # empty "Verify" heading in the transcript.
+        # The section header prints only when the suite runs, so a skip avoids an empty "Verify" heading
+        # in the transcript.
         if confirm_boxed "Run test suite" y "Run it now?" \
                 "Run the full test suite (incl. the permissions check) now to verify the install?"; then
             section "Verify"
             section "Installed files"
             do_summary
-            # do_install's log tee makes the suite's own tty test false. This script answered
-            # that question at startup, before the redirect, so hand the answer down: C_GRN is
-            # set only on a terminal, and the log copy has its escapes stripped by the tee's sed.
+            # do_install's log tee makes the suite's own tty test false. This script answered that question at startup,
+            # before the redirect, so hand the answer down: C_GRN is set only on a terminal, and the log copy has its
+            # escapes stripped by the tee's sed.
             AI_TOOLS_TEST_COLOR="${C_GRN:+1}" "${SCRIPT_DIR}/tests/run.sh" all \
                 || warn MSG-Y5P5 "test suite reported failures -- review the output above"
         else
@@ -2234,9 +2145,9 @@ do_install() {
         fi
     fi
 
-    # Last, so a finding is the final thing on screen whether or not the suite ran: this host may
-    # carry an agent the install did not put there and does not remove, and the operator decides
-    # what to do about it. It draws its own section only when it has something to report.
+    # Last, so a finding is the final thing on screen whether or not the suite ran: this host may carry an agent
+    # the install did not put there and does not remove, and the operator decides what to do about it. It draws its own
+    # section only when it has something to report.
     probe_shadowing_agents
 
     logger -t ai-tools-install -p daemon.notice -- "install complete" 2>/dev/null || true
@@ -2244,18 +2155,16 @@ do_install() {
 
 # ── uninstall ──────────────────────────────────────────────────────────────────
 
-# Disable the nvm-update timer and remove every deployed system and control-plane file.
-# Preserves operator and agent state so a reinstall keeps working: the .nvm toolchain and
-# the bin/claude entrypoint into it, /etc/ai-tools/operator.conf, ~/.config/ai-tools, the
-# ai-tools account, and the agent's own .claude state. Allowlist and git safe.directory
-# pruning for this project are offered interactively.
+# Disable the nvm-update timer and remove every deployed system and control-plane file. Preserves operator and agent
+# state so a reinstall keeps working: the .nvm toolchain and the bin/claude entrypoint into it,
+# /etc/ai-tools/operator.conf, ~/.config/ai-tools, the ai-tools account, and the agent's own .claude state. Allowlist
+# and git safe.directory pruning for this project are offered interactively.
 do_uninstall() {
     printf '\n%sUninstalling the ai-tools Claude Code sandbox%s\n' "${C_BOLD}" "${C_RST}"
 
     section "Systemd"
-    # The timer's enablement symlink is root-created in a non-agent-writable dir, so `systemctl
-    # --user disable` (run as the account) cannot remove it; stop it in the instance, then root
-    # removes the symlink.
+    # The timer's enablement symlink is root-created in a non-agent-writable dir, so `systemctl --user disable` (run
+    # as the account) cannot remove it; stop it in the instance, then root removes the symlink.
     log "stop nvm-update.timer (${SANDBOX_USER}'s --user instance)"
     user_systemctl "${SANDBOX_USER}" stop nvm-update.timer 2>/dev/null || true
     rm -f /opt/ai-tools/.config/systemd/user/timers.target.wants/nvm-update.timer
@@ -2268,12 +2177,12 @@ do_uninstall() {
 
     section "Removing files"
     log "system files"
-    # Remove the helper and library trees whole: they hold only deployed files, never
-    # operator or agent state, so a dir-level removal does not leave a file behind and never
-    # drifts out of sync with the install list the way an enumerated rm would.
+    # Remove the helper and library trees whole: they hold only deployed files, never operator or agent state,
+    # so a dir-level removal does not leave a file behind and never drifts out of sync with the install list the way
+    # an enumerated rm would.
     rm -rf /usr/local/libexec/ai-tools
-    # Sweep the pre-0.10.0 helper location too, in case an uninstall follows an install that
-    # never ran the migration. Guarded to a real dir so a Fedora sbin->bin symlink is left alone.
+    # Sweep the pre-0.10.0 helper location too, in case an uninstall follows an install that never ran the migration.
+    # Guarded to a real dir so a Fedora sbin->bin symlink is left alone.
     [ -d /usr/local/sbin/ai-tools ] && [ ! -L /usr/local/sbin/ai-tools ] && rm -rf /usr/local/sbin/ai-tools
     rm -f /usr/sbin/ai-tools-admin             # sudo-PATH symlinks -> /usr/local/libexec/ai-tools/...
     rm -f /usr/sbin/ai-tools                   # secure_path symlink -> /usr/local/bin/ai-tools
@@ -2288,19 +2197,19 @@ do_uninstall() {
     rm -f /usr/local/share/man/man5/custom-claude-endpoint.conf.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude
-    # Units, after the stop/disable. Globs cover the handback socket+service and
-    # the relabel path+service in one sweep, plus the updater service+timer.
+    # Units, after the stop/disable. Globs cover the handback socket+service and the relabel path+service in one sweep,
+    # plus the updater service+timer.
     rm -f /usr/lib/systemd/system/ai-tools-*
     rm -f /usr/lib/systemd/user/nvm-update.*
     rm -f /etc/sudoers.d/ai-tools /etc/sudoers.d/ai-tools-claude
-    # Keep /etc/ai-tools/operator.conf: it holds the operator bindings written by
-    # ai-tools-admin, preserved like ~/.config/ai-tools so a reinstall keeps operators bound.
+    # Keep /etc/ai-tools/operator.conf: it holds the operator bindings written by ai-tools-admin, preserved like
+    # ~/.config/ai-tools so a reinstall keeps operators bound.
 
     log "ai-tools control-plane files"
-    # Remove only the deployed control-plane scripts and settings by name. Keep
-    # /opt/ai-tools/bin itself and the launcher symlinks in it: they point into the preserved
-    # .nvm toolchain, so the entrypoints stay live for a reinstall without a re-bootstrap.
-    # The agent's own state under .claude (e.g. .claude.json, project state) is likewise kept.
+    # Remove only the deployed control-plane scripts and settings by name. Keep /opt/ai-tools/bin itself
+    # and the launcher symlinks in it: they point into the preserved .nvm toolchain, so the entrypoints stay live
+    # for a reinstall without a re-bootstrap. The agent's own state under .claude (e.g. .claude.json, project state) is
+    # likewise kept.
     rm -f /opt/ai-tools/bin/nvm-update.sh
     rm -f /opt/ai-tools/bin/ai-tools-run /opt/ai-tools/bin/claude-run
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
@@ -2314,10 +2223,9 @@ do_uninstall() {
     # Optionally remove this project from the allowlist (default: keep)
     local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
     # Membership and the removal both go through conf.lib.sh -- the same editing functions the CLI
-    # and the ai-tools-allowlist helper use. A raw `grep -qxF` plus a hand-escaped `sed` was the
-    # third implementation of this edit in the tree, and the narrowest: it saw only a line spelled
-    # exactly as ${SCRIPT_DIR}, so an entry carrying a comment or quotes read as absent and the
-    # question was never asked.
+    # and the ai-tools-allowlist helper use. A raw `grep -qxF` plus a hand-escaped `sed` was the third implementation
+    # of this edit in the tree, and the narrowest: it saw only a line spelled exactly as ${SCRIPT_DIR}, so an entry
+    # carrying a comment or quotes read as absent and the question was never asked.
     if [[ -f "${allowlist}" ]] \
             && [[ "$(ai_tools_conf_allowlist_state "${allowlist}" "${SCRIPT_DIR}")" != absent ]]; then
         if confirm_boxed "Keep registration" y \
@@ -2358,10 +2266,10 @@ do_uninstall() {
 # ── dispatch ───────────────────────────────────────────────────────────────────
 
 # ── The operator this install enrols ─────────────────────────────────────────────
-# operator_is_enrolled <account> -- succeed when <account> already holds both facts that make an
-# operator on this host: a name in OPERATORS (/etc/ai-tools/operator.conf) and membership of
-# ai-ops. An unreadable or untrusted config, or a name holding only one of the two, fails the
-# test, so a host whose enrolment is absent or half-written reaches the enrolment prompt.
+# operator_is_enrolled <account> -- succeed when <account> already holds both facts that make an operator on this host:
+# a name in OPERATORS (/etc/ai-tools/operator.conf) and membership of ai-ops. An unreadable or untrusted config,
+# or a name holding only one of the two, fails the test, so a host whose enrolment is absent or half-written reaches
+# the enrolment prompt.
 operator_is_enrolled() {
     local account="$1" conf=/etc/ai-tools/operator.conf name
     local -a operators=()
@@ -2379,31 +2287,29 @@ operator_is_enrolled() {
 # choose_operator -- name the operator this install enrols, rather than adopting SUDO_USER
 # unannounced.
 #
-# This install enrols ONE account with both facts that make an operator: ai-ops membership and a
-# name in OPERATORS. The prompt defaults to SUDO_USER, so a plain Enter and a non-interactive run
-# both enrol the invoking account; answering No reads a name and refuses it through
-# operator_refusal, the same predicate the entry-point validation applies.
+# This install enrols ONE account with both facts that make an operator: ai-ops membership and a name in OPERATORS.
+# The prompt defaults to SUDO_USER, so a plain Enter and a non-interactive run both enrol the invoking account;
+# answering No reads a name and refuses it through operator_refusal, the same predicate the entry-point validation
+# applies.
 #
-# Two routes skip the prompt. `--operator <account>` pre-answers it, which an unattended install
-# uses and which lets the refusals be driven without a terminal. An invoking account
-# operator_is_enrolled reports as an operator has answered it on an earlier run, and a re-install
-# re-asserts that enrolment whichever way it is answered, so the run logs the account and proceeds.
-# `--operator` still names a different account on such a host.
+# Two routes skip the prompt. `--operator <account>` pre-answers it, which an unattended install uses and which lets
+# the refusals be driven without a terminal. An invoking account operator_is_enrolled reports as an operator has
+# answered it on an earlier run, and a re-install re-asserts that enrolment whichever way it is answered, so the run
+# logs the account and proceeds. `--operator` still names a different account on such a host.
 #
-# The default is the usual answer: the invoking account reached this script through sudo, so it
-# holds the grant a claim needs, and the ownership handback restores agent-written files to it,
-# which keeps an editor or IDE working in a claimed project seeing its own files. The prompt offers
-# accounts of that same shape, because one operator comes out of this install and a host whose only
-# operator does not hold a sudo grant can register no project.
+# The default is the usual answer: the invoking account reached this script through sudo, so it holds the grant a claim
+# needs, and the ownership handback restores agent-written files to it, which keeps an editor or IDE working
+# in a claimed project seeing its own files. The prompt offers accounts of that same shape, because one operator comes
+# out of this install and a host whose only operator does not hold a sudo grant can register no project.
 #
-# So the prompt states what enrolment does not confer: `ai-tools-admin` enrols an account holding
-# no grant later, and a grant-holding operator claims its projects with the CLI's `--for` switch.
-# The prompt names that switch alone, without the claim verb carrying it, so respelling the verb in
-# the resource grammar leaves behind no stale command here, and writes the switch's target as a
-# placeholder -- the account enrolled here runs such a claim more often than it receives one.
+# So the prompt states what enrolment does not confer: `ai-tools-admin` enrols an account holding no grant later,
+# and a grant-holding operator claims its projects with the CLI's `--for` switch. The prompt names that switch alone,
+# without the claim verb carrying it, so respelling the verb in the resource grammar leaves behind no stale command
+# here, and writes the switch's target as a placeholder -- the account enrolled here runs such a claim more often than
+# it receives one.
 #
-# operator_create_hint prints the useradd command, from the two sites that refuse an unresolvable
-# name, keeping it out of the prompt every install draws.
+# operator_create_hint prints the useradd command, from the two sites that refuse an unresolvable name, keeping it
+# out of the prompt every install draws.
 choose_operator() {
     local candidate attempts=3 refusal
     if [[ -n "${OPERATOR_OPT}" ]]; then
@@ -2459,14 +2365,13 @@ case "${ACTION}" in
         do_uninstall
         ;;
     check-perms)
-        # The permissions check lives in the test suite (the single source). Run the perms
-        # integration test directly; it reads SUDO_USER for the projects user, so no extra
-        # setup is needed here.
+        # The permissions check lives in the test suite (the single source). Run the perms integration test directly; it
+        # reads SUDO_USER for the projects user, so no extra setup is needed here.
         exec bash "${SCRIPT_DIR}/tests/integration/perms.sh"
         ;;
     check-tree)
-        # The source-tree gate alone: the commit an install would deploy, and the refusal an
-        # uncommitted tree meets, leaving the host unchanged. What the unit test drives.
+        # The source-tree gate alone: the commit an install would deploy, and the refusal an uncommitted tree meets,
+        # leaving the host unchanged. What the unit test drives.
         source_tree_gate
         ;;
     *)

@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/log.sh
-# Unit test for the shared logger's input sanitization: the shell ai_tools_log_sanitize in
-# log.lib.sh and the parallel _sanitize in the handback daemon. Both are a default-deny
-# ALLOWLIST -- they keep only printable ASCII (0x20-0x7E) and replace every other byte/code
-# point (ASCII controls, and the whole non-ASCII space incl. the Trojan-Source bidi class)
-# with '?'. The security property is therefore simple and checkable directly: whatever the
-# input, the output contains ONLY printable ASCII, so a crafted filename can never carry a
-# terminal escape, a forged newline, or a bidi override into the audit trail; and clean ASCII
-# is passed through unchanged (no false positives on ordinary paths). The daemon is exercised
-# on the same bytes so the two trails share one contract. The deferred control/bidi *detector*
-# (retained, unused) is pinned lightly so it does not rot before the quarantine sink is built.
-# Run as root via sudo (the suite contract); does not need privilege of its own.
+# Unit test for the shared logger's input sanitization: the shell ai_tools_log_sanitize in log.lib.sh and the parallel
+# _sanitize in the handback daemon. Both are a default-deny ALLOWLIST -- they keep only printable ASCII (0x20-0x7E)
+# and replace every other byte/code point (ASCII controls, and the whole non-ASCII space incl. the Trojan-Source bidi
+# class) with '?'. The security property is therefore simple and checkable directly: whatever the input, the output
+# contains ONLY printable ASCII, so a crafted filename can never carry a terminal escape, a forged newline, or a bidi
+# override into the audit trail; and clean ASCII is passed through unchanged (no false positives on ordinary paths).
+# The daemon is exercised on the same bytes so the two trails share one contract. The deferred control/bidi *detector*
+# (retained, unused) is pinned lightly so it does not rot before the quarantine sink is built. Run as root via sudo (the
+# suite contract); does not need privilege of its own.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -34,19 +32,18 @@ fi
 # is_printable_ascii <text>: true when every byte is in 0x20-0x7E (checked byte-wise under C).
 is_printable_ascii() { local LC_ALL=C; [[ "$1" != *[^[:print:]]* ]]; }
 
-# hx <value>: byte-exact hex rendering for a FAILURE message. A value this test reports on may,
-# on a regression, still hold the very control/bidi byte the sanitizer was meant to remove;
-# printing it straight to stderr (which run.sh tees to a terminal) would re-introduce the
-# terminal injection this test exists to prevent -- and `printf %q` still passes a printable
-# bidi code point through raw. od is safe and diagnostic, trusting no value under test.
+# hx <value>: byte-exact hex rendering for a FAILURE message. A value this test reports on may, on a regression, still
+# hold the very control/bidi byte the sanitizer was meant to remove; printing it straight to stderr (which run.sh tees
+# to a terminal) would re-introduce the terminal injection this test exists to prevent -- and `printf %q` still passes
+# a printable bidi code point through raw. od is safe and diagnostic, trusting no value under test.
 hx() { printf '%s' "$1" | od -An -tx1 | tr -s ' \n' ' '; }
 
-# Vectors from raw bytes so construction is locale-independent. DANGER mixes ASCII controls,
-# C1, the bidi overrides/isolates, zero-width, separators, BOM, and multi-byte UTF-8.
+# Vectors from raw bytes so construction is locale-independent. DANGER mixes ASCII controls, C1, the bidi
+# overrides/isolates, zero-width, separators, BOM, and multi-byte UTF-8.
 readonly DANGER=$'a\x1bb\xc2\x85c\xe2\x80\xaed\xe2\x81\xa6e\xe2\x80\x8bf\xe2\x80\xa8g\xef\xbb\xbfh\xc2\xadi caf\xc3\xa9'
 readonly CLEAN='/proj/src/a-b_c.TAR.gz (v1.2) [ok] ~temp #3'
-# A message code, driven for its SHAPE: it is carried into the trail by whatever reduced the text
-# around it, so what this file asserts of it is that neither reduction touches it.
+# A message code, driven for its SHAPE: it is carried into the trail by whatever reduced the text around it,
+# so what this file asserts of it is that neither reduction touches it.
 readonly REFTAG='MSG-A6D8'   # ref-index: ignore -- a shape under test, not a citation
 
 # (1) The allowlist property: any input reduces to printable-ASCII-only output.
@@ -73,8 +70,8 @@ else
     fail "shell sanitizer altered clean ASCII; output bytes: $(hx "${out}")"
 fi
 
-# (4) Deferred control/bidi detector (retained, unused): still defined, and still strips a
-# control byte while preserving legitimate multi-byte UTF-8 -- pinned so it does not rot.
+# (4) Deferred control/bidi detector (retained, unused): still defined, and still strips a control byte while preserving
+# legitimate multi-byte UTF-8 -- pinned so it does not rot.
 if ! declare -F ai_tools_log_sanitize_unicode_controlchars >/dev/null; then
     skip "deferred detector" "installed log.lib.sh predates ai_tools_log_sanitize_unicode_controlchars"
 else
@@ -86,8 +83,8 @@ else
     fi
 fi
 
-# (5) Daemon parity: the handback daemon's _sanitize is the same allowlist. Drive it on the
-# same bytes; assert the same property (printable-ASCII output; clean input unchanged).
+# (5) Daemon parity: the handback daemon's _sanitize is the same allowlist. Drive it on the same bytes; assert the same
+# property (printable-ASCII output; clean input unchanged).
 if ! command -v python3 >/dev/null 2>&1 || [[ ! -r "${DAEMON}" ]]; then
     skip "handback daemon _sanitize parity" "python3 or daemon unavailable"
 elif python3 - "${DAEMON}" "${DANGER}" "${CLEAN}" <<'PY'
@@ -115,11 +112,10 @@ else
 fi
 
 # ── structured journal fields ────────────────────────────────────────────────────────────────
-# ai_tools_log_structured carries the machine-readable half of a record (logging.rule.md). Its
-# security claim is narrow and worth pinning exactly: a FIELD cannot forge a sibling field, and
-# a caller cannot claim journald's trusted namespace. logger(1) is stubbed as a shell function
-# so the entry is captured instead of sent; the stub writes to a file because the real call is
-# the tail of a pipeline and therefore runs in a subshell.
+# ai_tools_log_structured carries the machine-readable half of a record (logging.rule.md). Its security claim is narrow
+# and worth pinning exactly: a FIELD cannot forge a sibling field, and a caller cannot claim journald's trusted
+# namespace. logger(1) is stubbed as a shell function so the entry is captured instead of sent; the stub writes
+# to a file because the real call is the tail of a pipeline and therefore runs in a subshell.
 section "logger: structured journal fields (unit)"
 if ! declare -F ai_tools_log_structured >/dev/null; then
     skip "structured logging" "installed log.lib.sh predates ai_tools_log_structured"
@@ -131,8 +127,8 @@ else
     }
 
     AI_TOOLS_LOG_TAG="ai-tools-unit-test"
-    # A newline inside a value is the forgery vector the newline-delimited protocol invites: if
-    # it survived, the text after it would parse as a field of its own.
+    # A newline inside a value is the forgery vector the newline-delimited protocol invites: if it survived, the text
+    # after it would parse as a field of its own.
     ai_tools_log_structured info "a structured message" \
         AI_TOOLS_TOOL=Bash \
         AI_TOOLS_CMD="$(printf 'evil\nAI_TOOLS_TOOL=forged')" \
@@ -256,13 +252,12 @@ else
 fi
 
 # ── a message code survives both reductions ──────────────────────────────────────────────────
-# Two reductions stand between a code and the trail: `ai_tools_log_sanitize`, and the narrower
-# MESSAGE clamp the tool-call record applies (which drops the space, `"` and `=` a key=value
-# rendering is delimited by). A code is `MSG-` and four characters, all printable ASCII with none
-# of those three, so it passes both -- a property to assert rather than assume, since a reduced
-# code is a code no query selects on. The clamp is read out of the hook rather than restated
-# here, so a range widened or narrowed there fails this case instead of quietly mangling
-# every code in the trail.
+# Two reductions stand between a code and the trail: `ai_tools_log_sanitize`, and the narrower MESSAGE clamp
+# the tool-call record applies (which drops the space, `"` and `=` a key=value rendering is delimited by). A code is
+# `MSG-` and four characters, all printable ASCII with none of those three, so it passes both -- a property to assert
+# rather than assume, since a reduced code is a code no query selects on. The clamp is read out of the hook rather than
+# restated here, so a range widened or narrowed there fails this case instead of quietly mangling every code
+# in the trail.
 section "logger: a message code survives both reductions (unit)"
 if [[ "$(ai_tools_log_sanitize "${REFTAG}")" == "${REFTAG}" ]]; then
     pass "the shared allowlist leaves a message code unchanged"

@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/boundary/sudo.sh
-# Boundary: the sandbox account does not hold any sudo rights -- the first security-model invariant
-# in CLAUDE.md. Both NOPASSWD rules in sudoers.d/ai-tools are `%ai-ops` GROUP rules, held by the
-# operators -- one dropping privilege to the sandbox account, one running a fixed-path helper as
-# root -- and the agent runs AS the sandbox account, which is not in that group, so it can invoke
-# neither. Asserts that at runtime (`sudo -l` for the sandbox account reports it is not allowed to
-# run sudo at all) and statically (no grant line names the sandbox account as principal). Also
-# pins the account hygiene the invariant depends on -- nologin shell, locked password, and
-# non-membership in ai-ops. Run as root via sudo.
+# Boundary: the sandbox account does not hold any sudo rights -- the first security-model invariant in CLAUDE.md. Both
+# NOPASSWD rules in sudoers.d/ai-tools are `%ai-ops` GROUP rules, held by the operators -- one dropping privilege
+# to the sandbox account, one running a fixed-path helper as root -- and the agent runs AS the sandbox account, which is
+# not in that group, so it can invoke neither. Asserts that at runtime (`sudo -l` for the sandbox account reports it is
+# not allowed to run sudo at all) and statically (no grant line names the sandbox account as principal). Also pins
+# the account hygiene the invariant depends on -- nologin shell, locked password, and non-membership in ai-ops. Run
+# as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -17,11 +16,10 @@ require_root
 readonly SUDOERS="/etc/sudoers.d/ai-tools"
 section "Agent sudo rights (the sandbox account has none)"
 
-# (1) Runtime: what sudo would let the sandbox account run. The invariant is that the agent can
-# run NO COMMAND via sudo -- so assert the canonical "not allowed to run sudo" message positively,
-# not merely the absence of the two known targets. A negative check (no ai-tools-run / no relabel)
-# would pass a rogue drop-in granting the agent some OTHER command (e.g. ALL=(ALL) NOPASSWD:ALL);
-# the positive form fails on any grant at all. (`-n`: never prompt.)
+# (1) Runtime: what sudo would let the sandbox account run. The invariant is that the agent can run NO COMMAND via sudo
+# -- so assert the canonical "not allowed to run sudo" message positively, not merely the absence of the two known
+# targets. A negative check (no ai-tools-run / no relabel) would pass a rogue drop-in granting the agent some OTHER
+# command (e.g. ALL=(ALL) NOPASSWD:ALL); the positive form fails on any grant at all. (`-n`: never prompt.)
 avail="$(sudo -n -l -U "${SANDBOX_USER}" 2>&1 || true)"
 if grep -qiE 'not allowed to run sudo|is not allowed to execute' <<<"${avail}"; then
     pass "sudo grants ${SANDBOX_USER} nothing (\"not allowed to run sudo\")"
@@ -29,8 +27,8 @@ else
     fail "sudo -l shows one or more privileged targets for ${SANDBOX_USER} (expected none): ${avail}"
 fi
 
-# (2) Static: the deployed drop-in. No grant line may name the sandbox account as principal
-# (the leading field). A rule `ai-tools ALL=(...)` would give the agent a sudo path.
+# (2) Static: the deployed drop-in. No grant line may name the sandbox account as principal (the leading field). A rule
+# `ai-tools ALL=(...)` would give the agent a sudo path.
 if [[ ! -r "${SUDOERS}" ]]; then
     skip "sudoers principal" "${SUDOERS} unreadable"
 elif grep -qE "^[[:space:]]*${SANDBOX_USER}[[:space:]]+ALL=" "${SUDOERS}"; then
@@ -39,10 +37,10 @@ else
     pass "${SUDOERS} names no ${SANDBOX_USER} grant (no sudo rule for the agent)"
 fi
 
-# (3) Static: the privilege-lowering grant uses the operators group (%ai-ops) as principal and
-# drops to the sandbox account. Exactly one such drop rule exists (ai-tools-run); the other rule
-# targets root (the relabel helper), not the sandbox account. Confirms the rule lowers privilege
-# (never raises the agent's), so even invoked it hands the caller no capability it does not already have.
+# (3) Static: the privilege-lowering grant uses the operators group (%ai-ops) as principal and drops to the sandbox
+# account. Exactly one such drop rule exists (ai-tools-run); the other rule targets root (the relabel helper), not
+# the sandbox account. Confirms the rule lowers privilege (never raises the agent's), so even invoked it hands
+# the caller no capability it does not already have.
 if [[ -r "${SUDOERS}" ]]; then
     n="$(grep -cE "^[[:space:]]*%ai-ops[[:space:]]+ALL=\(${SANDBOX_USER}:" "${SUDOERS}" || true)"
     if [[ "${n}" -eq 1 ]]; then
@@ -53,9 +51,9 @@ if [[ -r "${SUDOERS}" ]]; then
 fi
 
 # ── Account hygiene the "no sudo rights" invariant leans on ──────────────────────
-# CLAUDE.md: the sandbox account has no login shell and no password, and is never a member of
-# ai-ops (ai-tools-run refuses to launch if it is). A shell or password would give an attacker who
-# reached the account an interactive foothold; ai-ops membership would hand it the operator grant.
+# CLAUDE.md: the sandbox account has no login shell and no password, and is never a member of ai-ops (ai-tools-run
+# refuses to launch if it is). A shell or password would give an attacker who reached the account an interactive
+# foothold; ai-ops membership would hand it the operator grant.
 section "Sandbox account hygiene (${SANDBOX_USER})"
 
 if ! getent passwd "${SANDBOX_USER}" >/dev/null 2>&1; then
@@ -69,8 +67,8 @@ else
         fail "${SANDBOX_USER} login shell is '${shell}' -- expected a nologin/false shell"
     fi
 
-    # (5) No usable password: the shadow password field is locked (! or *) or empty-locked, so
-    # the account cannot be authenticated into. Prefer `passwd -S`; fall back to the shadow field.
+    # (5) No usable password: the shadow password field is locked (! or *) or empty-locked, so the account cannot be
+    # authenticated into. Prefer `passwd -S`; fall back to the shadow field.
     if command -v passwd >/dev/null 2>&1 && pw_status="$(passwd -S "${SANDBOX_USER}" 2>/dev/null)"; then
         # `passwd -S` field 2: L (locked), NP (no password), or P (usable password).
         pw_state="$(awk '{print $2}' <<<"${pw_status}")"
@@ -92,8 +90,8 @@ else
         fi
     fi
 
-    # (6) Not in ai-ops: the operator grant is a %ai-ops group rule, so membership would give the
-    # agent the operator's privileges. ai-tools-run also refuses to launch when this holds.
+    # (6) Not in ai-ops: the operator grant is a %ai-ops group rule, so membership would give the agent the operator's
+    # privileges. ai-tools-run also refuses to launch when this holds.
     if id -nG "${SANDBOX_USER}" 2>/dev/null | tr ' ' '\n' | grep -qx 'ai-ops'; then
         fail "${SANDBOX_USER} is a member of ai-ops -- the agent would hold the operator sudo grant"
     else

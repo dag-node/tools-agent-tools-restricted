@@ -14,8 +14,8 @@
 #     still applies while a localhost one does not.
 # The agent-side half (the endpoint file is not agent-writable) lives in tests/boundary/access.sh.
 #
-# Hermetic: /tmp fixtures with a root-only AI_TOOLS_ENDPOINT_BASE_DIR override. Run as root (needed
-# to create root-owned fixtures the trust predicate accepts).
+# Hermetic: /tmp fixtures with a root-only AI_TOOLS_ENDPOINT_BASE_DIR override. Run as root (needed to create root-owned
+# fixtures the trust predicate accepts).
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
