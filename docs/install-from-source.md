@@ -67,7 +67,7 @@ to the wrapper.
 `sudo ai-tools-admin operators add <user>` reads which `claude` a shell
 of that account runs today — the wrapper, or an agent elsewhere on its PATH,
 which starts unconfined — and offers to wire the source line into your
-`~/.bashrc` and `~/.bash_profile`. `ai-tools --status` reports the same reading
+`~/.bashrc` and `~/.bash_profile`. `ai-tools status` reports the same reading
 for the shell you run it from. To wire it by hand, add it to **both** files
 (non-login interactive shells read only `~/.bashrc`, login shells
 `~/.bash_profile`), after your nvm init:
@@ -214,7 +214,7 @@ Enrolment writes the two facts that make an operator — `ai-ops` membership
 and a name in `OPERATORS`. **Claiming a project needs a general sudo grant
 as well**, which this project does not writes; the host's own sudoers decides
 it. An operator without one launches agent sessions, and another operator
-claims for it with `ai-tools --project-claim --for <operator>`. A host needs
+claims for it with `ai-tools projects claim --for <operator>`. A host needs
 at least one operator holding the grant, so enrol one that does — a service
 account holding none is enrolled after the install with `ai-tools-admin`,
 rather than named at this prompt.
@@ -248,10 +248,10 @@ about that account.
 Register projects with the `ai-tools` CLI, run as your own user (no sudo):
 
 ```bash
-ai-tools --project-claim /path/to/project     # an existing directory, claimed in place
-ai-tools --project-create /path/to/new        # a new project directory, created and claimed
-ai-tools --sandbox-create /path/to/repo       # an isolated shallow clone
-ai-tools --lockdown /path/to/project          # revoke agent access to secrets (sudo)
+ai-tools projects claim /path/to/project       # an existing directory, claimed in place
+ai-tools projects create /path/to/new          # a new project directory, created and claimed
+ai-tools projects clone /path/to/repo          # an isolated shallow clone
+ai-tools projects lockdown /path/to/project    # revoke agent access to secrets (sudo)
 ```
 
 [project-lifecycle.md](project-lifecycle.md) covers registering in depth —

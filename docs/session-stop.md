@@ -1,6 +1,6 @@
 # Stopping a running session
 
-`ai-tools --stop` terminates agent sessions that are **already running**,
+`ai-tools stop` terminates agent sessions that are **already running**,
 and everything they spawned. It is not how you finish a session you are done
 with — `/exit` inside the session is, and it lets the session run its own
 session-end handback. This kills the process tree instead. Every other operator
@@ -50,8 +50,8 @@ confirm_stop → end_session → terminate_gracefully → kill_outright → rest
 ### One form
 
 ```
-ai-tools --stop              # terminate every agent session on this host
-ai-tools --stop --dry-run    # list what would be terminated, change nothing
+ai-tools stop              # terminate every agent session on this host
+ai-tools stop --dry-run    # list what would be terminated, change nothing
 ```
 
 Run it as yourself, not under `sudo` — the CLI reaches the root helper on its
@@ -82,7 +82,7 @@ Two reasons, and the first is the one that matters:
 
 A path is refused with exit 2 rather than accepted-and-ignored, so that if
 targeted stopping is ever built — which needs a session-to-project mapping
-recorded by **root** at launch, not the user manager's word — `--stop <path>`
+recorded by **root** at launch, not the user manager's word — `stop <path>`
 moves from *error* to *accepted*. Nobody's existing command silently changes
 meaning.
 
@@ -123,14 +123,14 @@ and the sweep consults neither class to decide what it reaches. What the split
 buys is that the line you read first during an incident does not tell you four
 agents were running when one was.
 
-Only agent sessions produce a `--reclaim` line, because only they have
+Only agent sessions produce a `projects handback` line, because only they have
 a project to hand back. The account's dbus broker reports `/opt/ai-tools`
 as its working directory — the control plane, which the protected-paths
 backstop refuses — so listing it offered a remedy that cannot run.
 
 ### A second run is not silent
 
-Running `--stop` again straight after a successful one is **not** a no-op,
+Running `stop` again straight after a successful one is **not** a no-op,
 and that follows from sweeping every cgroup rather than being a defect in it.
 The user manager the first run restored is itself inside the swept slice,
 so the second run finds it, terminates it, and restarts it again:
@@ -166,7 +166,7 @@ in the trail afterwards:
 |---|---|---|
 | 0 | stopped and verified gone, or no session was running | reclaim the projects it names ([After a stop: reclaim](#after-a-stop-reclaim)) |
 | 1 | something survived `SIGKILL` | see [A process survived](#a-process-survived-exit-1) |
-| 2 | usage — an unknown option, or a path (this command does not take a target) | run `ai-tools --stop` |
+| 2 | usage — an unknown option, or a path (this command does not take a target) | run `ai-tools stop` |
 | 4 | you declined at the confirmation | no session was stopped |
 | 5 | the helper could not run (no cgroup v2, no sandbox account) | a broken host, not a failed stop |
 
@@ -186,7 +186,7 @@ writes may still be owned by the sandbox account. The command names the command
 to run for each project it terminated:
 
 ```
-ai-tools --reclaim /home/<you>/projects/api
+ai-tools projects handback /home/<you>/projects/api
 ```
 
 The next session that starts in that project also notices the missing
@@ -307,7 +307,7 @@ behind a general sudo grant. Since the helper does not take a target
 or an authorization input, the rule has no argument surface at all —
 the narrowest shape a NOPASSWD rule can have.
 
-Root reaches the same command directly (`ai-tools --stop` is one of the verbs
+Root reaches the same command directly (`ai-tools stop` is one of the verbs
 that write no operator-owned state, so the CLI admits root; the helper required
 root regardless), which matters because root is the identity a monitoring
 daemon usually runs as.
@@ -371,8 +371,8 @@ the command is idempotent.
 
 Attribution is best-effort and display-only: a `WorkingDirectory` is read
 from the account's own user manager, so a rogue unit can misreport it — and all
-that buys is a wrong label in the table and a missing `--reclaim` line. It
-cannot affect what is terminated, because the sweep does not consult it.
+that buys is a wrong label in the table and a missing `projects handback` line.
+It cannot affect what is terminated, because the sweep does not consult it.
 
 ### Residual failure modes
 
@@ -489,7 +489,7 @@ and the record.
   │                                        mid-run; re-running is the remedy    │
   │  restart user@<uid>.service -- AFTER verification, reported separately,     │
   │        never folded into the stop's exit status                             │
-  │  name the --reclaim per project terminated                                  │
+  │  name the projects handback per project terminated                          │
   └────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -600,7 +600,7 @@ Known, bounded, and not yet built:
 
 - `ai-tools(1)` — the option grammar and every exit code
 - [docs/project-lifecycle.md](project-lifecycle.md) — claiming projects,
-  and `--reclaim`
+  and `projects handback`
 - [`.claude/rules/cli.rule.md`](../.claude/rules/cli.rule.md) — the domain
   contract, for contributors
 - [`.claude/rules/governance.rule.md`](../.claude/rules/governance.rule.md) —

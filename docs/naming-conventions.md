@@ -40,7 +40,7 @@ by naming the grant rather than by inventing a role:
   account rather than a person.
 - an operator **without** one launches sessions and reads the reports. Projects
   are claimed for it by the first shape,
-  with `ai-tools --project-claim --for <operator>`. A passwordless service
+  with `ai-tools projects claim --for <operator>`. A passwordless service
   account that runs an agent is this shape, and "service account" describes its
   intent — the host does not record any field that distinguishes it from any
   other grant-less operator.
@@ -169,8 +169,8 @@ way:
 `ai_tools_allowlist_covers`, `ai-tools-allowlist`) and the man page's.
 "Registry" on its own, "approved projects", and "project list" are not used
 for it. "The registries" is reserved for the allowlist entry together
-with the `safe.directory` entry, the pair `--project-unclaim`
-and `--project-remove` drop.
+with the `safe.directory` entry, the pair `projects unclaim`
+and `projects remove` drop.
 
 ## Agent vs subagent
 
@@ -180,7 +180,7 @@ the vocabulary:
 - **agent** — a packaged coding assistant that runs confined in the sandbox:
   Claude Code today. It is what `ai-tools-agents-*` packages ship,
   what `agents.d/<name>.conf` describes, what `operator.conf AI_TOOLS_AGENTS`
-  enables, and what `ai-tools --providers` lists.
+  enables, and what `ai-tools providers` lists.
 - **subagent** — a delegate role definition an agent reads and dispatches
   to (the `ai-tools-reference-architect` markdown file). Shared across agents,
   so it lives in `/opt/ai-tools/subagents` beside `skills`.

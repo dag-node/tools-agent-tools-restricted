@@ -19,7 +19,7 @@ package the build produced resolved from the metapackage alone, derived
 from the built set rather than a list kept by hand, so a new subpackage is
 covered without editing either. The selftest walks the documented Quick-start
 end to end — `ai-tools-admin system bootstrap`, `ai-tools-admin operators add`,
-`ai-tools --project-claim`, `tests/run.sh all`, and an auth-free confined
+`ai-tools projects claim`, `tests/run.sh all`, and an auth-free confined
 `claude --version` session — then calls `systemctl exit` with the aggregate
 status, so the command exits non-zero if any phase fails. Use `rpmtest-rocky10`
 for Rocky 10.
