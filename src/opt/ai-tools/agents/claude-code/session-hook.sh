@@ -67,7 +67,7 @@
 #
 # Installed 750 root:ai-tools: the session executes it through the group and cannot rewrite it, which is what keeps
 # the sweeps out of the agent's control (see ownership-and-hooks.rule.md). Deploying from a checkout:
-# docs/install-from-source.md. Wired to the Stop, SessionStart, and SessionEnd hooks in settings.json (the SessionStart
+# docs/install/from-source.md. Wired to the Stop, SessionStart, and SessionEnd hooks in settings.json (the SessionStart
 # entry passes "session-start", the SessionEnd entry "session-end").
 
 set -euo pipefail

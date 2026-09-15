@@ -1,5 +1,7 @@
 # Entrypoint verification
 
+[System](index.md) · **Entrypoint verification** — [all docs](../index.md)
+
 How `ai-tools` proves that the agent binary it is about to run is the one its
 vendor published, what
 you have to do about it (almost always nothing), and what each failure means. <!-- prose-check: ignore: the reader is the actor; "nothing" is the action they take -->
@@ -163,5 +165,5 @@ across sessions and across operators indefinitely.
 
 - `operator.conf(5)` — `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` and the other
   switches
-- `docs/project-lifecycle.md` — claiming projects and running sessions
+- `docs/projects/index.md` — claiming projects and running sessions
 - `.claude/rules/updater.rule.md` — the mechanism, for contributors

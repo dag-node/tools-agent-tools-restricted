@@ -52,7 +52,7 @@
 #     pins it to the ZERO-ARGUMENT form, which grants the bare command (all automation needs, since
 #     the confirmation defaults YES with no terminal) and withholds `--force` and `--dry-run`. The
 #     helper does not take a target or an authorization input, so the rule does not expose any
-#     argument surface. Why it is granted this way, and what it widens: docs/session-stop.md.
+#     argument surface. Why it is granted this way, and what it widens: docs/sessions/stop.md.
 #   - @SANDBOX_USER@ has no login shell and no other sudo rights, and is not a member of ai-ops.
 #     ai-tools-run refuses to launch if it ever becomes one.
 #

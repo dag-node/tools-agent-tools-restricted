@@ -1,5 +1,7 @@
 # Stopping a running session
 
+[Sessions](index.md) · **Stop** — [all docs](../index.md)
+
 `ai-tools stop` terminates agent sessions that are **already running**,
 and everything they spawned. It is not how you finish a session you are done
 with — `/exit` inside the session is, and it lets the session run its own
@@ -23,14 +25,14 @@ Follow the pointer rather than expecting the same paragraph twice.
 |---|---|---|---|
 | an operator running the command | `ai-tools(1)`, then §1 here | the option grammar and exit codes (man page); what to run, what each outcome means, what to do next | why the code is shaped this way |
 | a security or systems reviewer | §2–§3 here | the invariants relied on, where containment ends, residual failure modes | how to use the command |
-| a contributor or coding agent | [`.claude/rules/cli.rule.md`](../.claude/rules/cli.rule.md) | the domain contract, and which project-wide conventions this component inverts | the reasoning behind each inversion — it links here |
+| a contributor or coding agent | [`.claude/rules/cli.rule.md`](../../.claude/rules/cli.rule.md) | the domain contract, and which project-wide conventions this component inverts | the reasoning behind each inversion — it links here |
 | reading the code | `ai-tools-stop.sh`'s header and its function names | this file's local mechanism and its exit contract | the design essay |
 
 Two other rules carry a one-line note that this component is their exception,
-each linking back here: [messaging](../.claude/rules/messaging.rule.md) (the
-confirmation defaults *yes*) and [logging](../.claude/rules/logging.rule.md)
+each linking back here: [messaging](../../.claude/rules/messaging.rule.md) (the
+confirmation defaults *yes*) and [logging](../../.claude/rules/logging.rule.md)
 (the logger loads best-effort).
-[safe-paths](../.claude/rules/safe-paths.rule.md) no longer names this helper
+[safe-paths](../../.claude/rules/safe-paths.rule.md) no longer names this helper
 at all: it took a caller-supplied path only for the per-project form, and there
 is no longer one.
 
@@ -545,7 +547,7 @@ inverted for that reason alone:
    and does not pretend to be — which externals a run touches and which of them
    are on the kill path (I7) is stated in the helper's header, beside the code.
 2. **The confirmation defaults to yes.** The principle
-   in [messaging](../.claude/rules/messaging.rule.md) is unchanged — *the
+   in [messaging](../../.claude/rules/messaging.rule.md) is unchanged — *the
    default is the safe outcome*; which outcome is safe is what flips.
 
 ---
@@ -599,9 +601,9 @@ Known, bounded, and not yet built:
 ## See also
 
 - `ai-tools(1)` — the option grammar and every exit code
-- [docs/project-lifecycle.md](project-lifecycle.md) — claiming projects,
+- [Project lifecycle](../projects/index.md) — claiming projects,
   and `projects handback`
-- [`.claude/rules/cli.rule.md`](../.claude/rules/cli.rule.md) — the domain
+- [`.claude/rules/cli.rule.md`](../../.claude/rules/cli.rule.md) — the domain
   contract, for contributors
-- [`.claude/rules/governance.rule.md`](../.claude/rules/governance.rule.md) —
+- [`.claude/rules/governance.rule.md`](../../.claude/rules/governance.rule.md) —
   where this rung sits in the incident ladder

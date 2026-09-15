@@ -1,5 +1,7 @@
 # Claude Code options
 
+[Agents](index.md) · **Claude Code** — [all docs](../index.md)
+
 Catalog of the Claude Code settings and environment variables that shape
 an agent session, what the sandbox sets by default, and what an operator MAY
 add. The authoritative, version-current references are Claude Code's own docs:
@@ -22,7 +24,7 @@ project > project > user. The control-plane `settings.json` is the **user**
 layer, so a project layer overrides its single-valued keys (`env`,
 `disableAutoMode`) but cannot remove its merged-set keys (`permissions.deny`,
 `hooks`). See
-[`.claude/rules/claude-settings.rule.md`](../.claude/rules/claude-settings.rule.md).
+[`.claude/rules/claude-settings.rule.md`](../../.claude/rules/claude-settings.rule.md).
 
 A machine-wide, unoverridable lock uses managed policy
 (`/etc/claude-code/managed-settings.json`); the sandbox does not ship it,

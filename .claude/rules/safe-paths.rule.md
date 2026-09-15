@@ -103,7 +103,7 @@ target, to vet that caller-supplied path — advisorily, since it only *selected
 to it. It does not take a path at all: what it terminates is decided by cgroup-slice membership, so there is no
 caller-supplied path to vet and the library is not loaded. A helper comes into scope here by *taking an argument
 that names a path*, which is the same rule that keeps the `dotnet` admin command out: its targets are fixed literals
-compiled into it, so it has no caller-supplied path to vet. [docs/session-stop.md](../../docs/session-stop.md).
+compiled into it, so it has no caller-supplied path to vet. [docs/sessions/stop.md](../../docs/sessions/stop.md).
 
 ## Load failure fails closed
 

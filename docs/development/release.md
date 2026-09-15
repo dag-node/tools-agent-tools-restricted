@@ -1,9 +1,11 @@
 # Branching and release
 
+[Development](index.md) · **Release** — [all docs](../index.md)
+
 How a change travels from a feature branch to a signed RPM on `rpm.dagnode.com`
 — the branch model, the tag/version grammar, and the exact commands for each
 step. Pipeline mechanics (signing, verification, the dag-node/rpm publish) are
-specified in [rpm-packaging.md](rpm-packaging.md)
+specified in [RPM packaging](../rpm-packaging.md)
 and `.github/workflows/ci.yml`; this doc is the process guideline on top
 of them.
 
@@ -184,7 +186,7 @@ to `main`.
 Signing is mandatory and preflight-checked before anything builds; fork PRs
 never see the signing secret (the release job runs only on tags
 and `workflow_dispatch`); `v*` tag creation is restricted to maintainers
-by a ruleset. Details in [ref-section-a6s8](rpm-packaging.md#ref-section-a6s8).
+by a ruleset. Details in [ref-section-a6s8](../rpm-packaging.md#ref-section-a6s8).
 
 Rehearsal RPMs are signed with the real key, so they carry the distinct Release
 `0.<run>.rehearsal.git<sha>` — a leaked rehearsal artifact can never share

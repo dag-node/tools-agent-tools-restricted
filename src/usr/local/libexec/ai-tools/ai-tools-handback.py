@@ -41,7 +41,7 @@
 # afterwards.  See .claude/rules/handback-bridge.rule.md.
 #
 # Installed 750 root:root as ai-tools-handback, with @SANDBOX_USER@ substituted at install. Deploying from a checkout:
-# docs/install-from-source.md.
+# docs/install/from-source.md.
 
 import datetime
 import os

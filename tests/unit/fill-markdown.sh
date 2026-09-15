@@ -206,9 +206,9 @@ detects "table row rewrapped" "any page with a table" \
     '| `<path>` | a long table row that must not be touched by any filler at all, ever |' \
     $'| `<path>` | a long table row that must not\n  be touched by any filler at all, ever |'
 detects "a word changed" "any page" 'A plain paragraph' 'A simple paragraph'
-detects "quote prefix dropped on a continuation line" "docs/session-stop.md" \
+detects "quote prefix dropped on a continuation line" "docs/sessions/stop.md" \
     $'its prefix\n> by a filler' $'its prefix\nby a filler'
-detects "alert line merged into its paragraph" "docs/project-lifecycle.md" \
+detects "alert line merged into its paragraph" "docs/projects/index.md" \
     $'> [!NOTE]\n> A blockquote' '> [!NOTE] A blockquote'
 detects "list marker respaced" "wip notes" '-   A wide marker' '- A wide marker'
 detects "a wrap invented a list item" "wip notes" \
@@ -216,7 +216,7 @@ detects "a wrap invented a list item" "wip notes" \
 detects "indented code block rewrapped" "wip issues" \
     $'    sudo ai-tools audit --since \'2 days ago\' --and-a-tail' \
     $'    sudo ai-tools audit --since \'2 days ago\'\n    --and-a-tail'
-detects "ignore-marker line rewrapped" "docs/entrypoint-verification.md" \
+detects "ignore-marker line rewrapped" "docs/system/entrypoint-verification.md" \
     'The label probe is cheap. <!-- prose-check: ignore:' $'The label probe is cheap.\n<!-- prose-check: ignore:'
 
 # (5) `--lines` confines the reflow to the blocks meeting a range: the plain paragraph is named
