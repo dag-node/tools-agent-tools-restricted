@@ -780,7 +780,8 @@ else
     # The keys this file drives: every literal `$(f <key>)`, plus the keys of each `for k in ...` loop over flags. A key
     # reaches the table through cli_flag, so a typo does not yield a token.
     used="$( { grep -oE '\$\(f [a-z.-]+\)' "${BASH_SOURCE[0]}" | awk '{print $2}' | tr -d ')';
-               grep -oE '^for k in [a-z. -]+; do' "${BASH_SOURCE[0]}" | sed 's/^for k in //; s/; do$//' | tr ' ' '\n'; } \
+               grep -oE '^[[:space:]]*for k in [a-z. -]+; do' "${BASH_SOURCE[0]}" \
+                   | sed 's/^[[:space:]]*for k in //; s/; do$//' | tr ' ' '\n'; } \
             | sort -u | while read -r k; do cli_flag "${k}" 2>/dev/null && printf '\n'; done | grep -E '^--' | sort -u)"
     unrowed="$(comm -23 <(printf '%s\n' "${documented}") <(printf '%s\n' "${used}"))"
     stale="$(comm -13 <(printf '%s\n' "${documented}") <(printf '%s\n' "${used}"))"

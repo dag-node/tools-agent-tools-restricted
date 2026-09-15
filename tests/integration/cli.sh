@@ -666,10 +666,11 @@ EOF
         refused "${key} refuses a path outside every claimed project" MSG-J3K5
     done
 
-    # (9) --sandbox-remove refuses a target that is not a real clone, BEFORE any rm -rf: the clone-area root itself
-    # (require_sandbox_clone: not a direct-child clone) and a path outside SANDBOX_ROOT. A destructive verb is never
-    # aimed at the REAL clone area, even to assert a refusal: the rows run against a fixture clone area
-    # through the AI_TOOLS_SANDBOX_ROOT override, and skip on an installed CLI that predates it.
+    # (9) `projects remove` decides its kind from the path, so the clone-area root itself and a path outside the clone
+    # area are the in-place kind and meet the registry gate (not a claimed project) BEFORE any `rm -rf`; a clone is
+    # a direct child of the area, which neither is. A destructive verb is never aimed at the REAL clone area, even
+    # to assert a refusal: the rows run against a fixture clone area through the AI_TOOLS_SANDBOX_ROOT override,
+    # and skip on an installed CLI that predates it.
     if ! grep -q 'AI_TOOLS_SANDBOX_ROOT' "${CLI}"; then
         skip "--sandbox-remove guards" "the installed ${CLI} predates the AI_TOOLS_SANDBOX_ROOT override; deploy the checkout first"
     else
@@ -679,17 +680,17 @@ EOF
         out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
                 AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_SANDBOX_ROOT="${sroot}" \
                 setsid "${CLI}" "${CLI_ARGV[@]}" "${sroot}" 2>&1)" && rc=0 || rc=$?
-        assert_msg MSG-T4Z6 "${out}" "--sandbox-remove refuses the clone-area root (not a direct-child clone)"
+        assert_msg MSG-P8Y8 "${out}" "the clone-area root is not a registered project, so its removal is refused"
         if [[ ${rc} -ne 0 ]] && [[ -d "${sroot}" ]]; then
-            pass "--sandbox-remove refuses the clone-area root (not a direct-child clone)"
+            pass "the refused clone-area root is left in place"
         else
-            fail "--sandbox-remove did not refuse the clone-area root (rc=${rc}): ${out}"
+            fail "the clone-area root was not refused (rc=${rc}): ${out}"
         fi
 
         out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
                 AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_SANDBOX_ROOT="${sroot}" \
                 setsid "${CLI}" "${CLI_ARGV[@]}" "${lone}" 2>&1)" && rc=0 || rc=$?
-        refused "--sandbox-remove refuses a path outside SANDBOX_ROOT, by the same check" MSG-T4Z6
+        refused "a path outside the clone area is not a registered project, so its removal is refused" MSG-P8Y8
     fi
 fi
 

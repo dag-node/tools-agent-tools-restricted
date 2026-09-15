@@ -42,8 +42,11 @@ call() {
     # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
     runuser -u "${PROJECTS_USER}" -- bash -c '
         helper="$1"; cli="$2"; shift 2
+        # The CLI reads its command from the positional parameters and shifts them as it goes, so the helper'"'"'s
+        # arguments are held aside and the source sees none.
+        args=("$@"); set --
         source "${cli}" >/dev/null 2>&1 || exit 99
-        "${helper}" "$@"
+        "${helper}" "${args[@]}"
     ' _ "${helper}" "${CLI}" "$@"
 }
 
