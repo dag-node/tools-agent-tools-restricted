@@ -1,29 +1,25 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# selinux/avc/avc-testsuite.sh -- exercise the ai_tools_t surface so a PERMISSIVE
-# bring-up logs the full AVC set for audit2allow. RUN AS THE AGENT (claude, the
-# ai-tools UID) from inside an approved project dir -- the kernel only attributes
-# AVCs to ai_tools_t when the calling process is in that domain.
+# selinux/avc/avc-testsuite.sh -- exercise the ai_tools_t surface so a PERMISSIVE bring-up logs the full AVC set
+# for audit2allow. RUN AS THE AGENT (claude, the ai-tools UID) from inside an approved project dir -- the kernel only
+# attributes AVCs to ai_tools_t when the calling process is in that domain.
 #
-# Pairs with selinux/avc/avc-analyze.sh, which you run as root afterwards to turn the
-# logged denials into policy (it reads the start marker this script writes).
+# Pairs with selinux/avc/avc-analyze.sh, which you run as root afterwards to turn the logged denials into policy (it
+# reads the start marker this script writes).
 #
 # Flow:
 #   1. (in an approved project, inside a confined claude)  bash selinux/avc/avc-testsuite.sh
 #   2. (as <you>, root)                                       sudo selinux/avc/avc-analyze.sh
 #
-# PREFLIGHT GUARD: if this process is NOT in ai_tools_t the script ABORTS. Running
-# it unconfined produces ZERO ai_tools_t AVCs, so `ausearch -su ai_tools_t` would
-# come back empty and you'd wrongly conclude the policy is complete. The usual
-# cause is the claude.exe entrypoint not being labelled ai_tools_exec_t (so the
-# unconfined_t->ai_tools_t transition never fired) -- the guard tells you how to
-# fix it.
+# PREFLIGHT GUARD: if this process is NOT in ai_tools_t the script ABORTS. Running it unconfined produces ZERO
+# ai_tools_t AVCs, so `ausearch -su ai_tools_t` would come back empty and you'd wrongly conclude the policy is complete.
+# The usual cause is the claude.exe entrypoint not being labelled ai_tools_exec_t (so the unconfined_t->ai_tools_t
+# transition never fired) -- the guard tells you how to fix it.
 #
-# Run this during a bring-up pass, with `permissive ai_tools_t;` uncommented in
-# ai_tools.te: the kernel then logs each access instead of blocking it, which is what
-# makes the run a complete record of the surface. Against the shipped ENFORCING module a
-# denied step fails for real; the assertions tally it and the run continues, so the
-# summary reports which accesses the policy is missing.
+# Run this during a bring-up pass, with `permissive ai_tools_t;` uncommented in ai_tools.te: the kernel then logs each
+# access instead of blocking it, which is what makes the run a complete record of the surface. Against the shipped
+# ENFORCING module a denied step fails for real; the assertions tally it and the run continues, so the summary reports
+# which accesses the policy is missing.
 
 set -uo pipefail   # NOT -e: several of this script's steps are EXPECTED to fail (denied
                    # connects, missing tools); we never want that to abort the run.
@@ -37,10 +33,9 @@ readonly SECRETS="${SCRATCH}/secrets"      # left for the Stop sweep to quaranti
 note() { printf '\033[1;36m[avc]\033[0m %s\n' "$*"; }
 step() { printf '\033[1;33m--- %s\033[0m\n' "$*"; }
 
-# Assertion helpers. The script runs without `set -e` (steps are expected to fail),
-# so assertions never abort -- they tally into ASSERT_PASS/ASSERT_FAIL and the run
-# prints a summary at the end. label_of() returns just the SELinux TYPE of a path,
-# or empty if it cannot be read (getattr denied under enforcing is itself a signal).
+# Assertion helpers. The script runs without `set -e` (steps are expected to fail), so assertions never abort -- they
+# tally into ASSERT_PASS/ASSERT_FAIL and the run prints a summary at the end. label_of() returns just the SELinux TYPE
+# of a path, or empty if it cannot be read (getattr denied under enforcing is itself a signal).
 ASSERT_PASS=0
 ASSERT_FAIL=0
 pass() { ASSERT_PASS=$((ASSERT_PASS + 1)); printf '\033[1;32m[PASS]\033[0m %s\n' "$*"; }
@@ -86,8 +81,8 @@ case "${proj_ctx}" in
 esac
 
 ########################################
-# Start marker -- the exact instant analysis should look from. `ausearch -ts` wants
-# 'MM/DD/YYYY HH:MM:SS'. avc-analyze.sh reads this file.
+# Start marker -- the exact instant analysis should look from. `ausearch -ts` wants 'MM/DD/YYYY HH:MM:SS'.
+# avc-analyze.sh reads this file.
 ########################################
 
 START="$(date '+%m/%d/%Y %H:%M:%S')"
@@ -96,8 +91,8 @@ printf '%s\n' "${START}" > "${MARKER}" 2>/dev/null \
 note "start marker: ${START}  ->  ${MARKER}"
 echo
 
-# Fresh scratch (rerunnable; ai-tools is group-writer on the project dir so it can
-# unlink any <you>:<you> secret a previous Stop sweep quarantined here).
+# Fresh scratch (rerunnable; ai-tools is group-writer on the project dir so it can unlink any <you>:<you> secret
+# a previous Stop sweep quarantined here).
 rm -rf "${SCRATCH}" 2>/dev/null || true
 mkdir -p "${SECRETS}"
 
@@ -300,12 +295,10 @@ semodule -l 2>/dev/null | grep -q '^ai_tools_podman' && {
     podman info 2>/dev/null | head -5 || true
 } || note "podman group not loaded -- skip (enable-group podman to cover it)"
 
-# apphost: the .NET memfd double-mapped JIT / apphost creation (execute on a tmpfs
-# memfd file). Any managed dotnet invocation spins the CLR and sets up its executable
-# code heap through that path, so `dotnet --info` exercises it; a real executable
-# build/run under the agent (dotnet run / an xunit.v3 or ASP.NET Core project) covers
-# it more fully. Skipped when the group is off or dotnet is absent (an optional
-# integration that does not ship a runtime).
+# apphost: the .NET memfd double-mapped JIT / apphost creation (execute on a tmpfs memfd file). Any managed dotnet
+# invocation spins the CLR and sets up its executable code heap through that path, so `dotnet --info` exercises it;
+# a real executable build/run under the agent (dotnet run / an xunit.v3 or ASP.NET Core project) covers it more fully.
+# Skipped when the group is off or dotnet is absent (an optional integration that does not ship a runtime).
 semodule -l 2>/dev/null | grep -q '^ai_tools_apphost' && {
     if command -v dotnet >/dev/null 2>&1; then
         note "apphost group loaded -- exercising the .NET memfd JIT via dotnet --info"
@@ -315,9 +308,8 @@ semodule -l 2>/dev/null | grep -q '^ai_tools_apphost' && {
     fi
 } || note "apphost group not loaded -- skip (enable-group apphost to cover it)"
 
-# localipc group: the .NET runtime's IPC is probe-able without dotnet -- create a unix socket
-# and a FIFO under /tmp (which the base does not create there), connect to the socket, and
-# getsid. Skipped if the group is off.
+# localipc group: the .NET runtime's IPC is probe-able without dotnet -- create a unix socket and a FIFO under /tmp
+# (which the base does not create there), connect to the socket, and getsid. Skipped if the group is off.
 semodule -l 2>/dev/null | grep -qx 'ai_tools_localipc' && {
     note "localipc group loaded -- exercising a /tmp socket (create+connect) + FIFO and getsid"
     if command -v python3 >/dev/null 2>&1; then
@@ -337,12 +329,11 @@ finally:
     fi
 } || note "localipc group not loaded -- skip (enable-group localipc to cover it)"
 
-# buildexec group: the execute grant is on ai_tools_project_build_t alone. A script under a
-# directory the dotnet layout module types (bin/, created here, so born on that type by the
-# module's named transition) runs, while the same script beside it stays ai_tools_project_t
-# and is refused with 126. Both outcomes are reported, since a hook that runs means the grant
-# is wider than the group states, and a bin/ that is refused means the layout module is not
-# loaded. Running a real build's output is left to `dotnet run` under the agent.
+# buildexec group: the execute grant is on ai_tools_project_build_t alone. A script under a directory the dotnet layout
+# module types (bin/, created here, so born on that type by the module's named transition) runs, while the same script
+# beside it stays ai_tools_project_t and is refused with 126. Both outcomes are reported, since a hook that runs means
+# the grant is wider than the group states, and a bin/ that is refused means the layout module is not loaded. Running
+# a real build's output is left to `dotnet run` under the agent.
 semodule -l 2>/dev/null | grep -qx 'ai_tools_buildexec' && {
     note "buildexec group loaded -- exercising execute on build output vs. the rest of the tree"
     _bo="${SCRATCH}/build-output-probe"; mkdir -p "${_bo}/bin" "${_bo}/hooks"

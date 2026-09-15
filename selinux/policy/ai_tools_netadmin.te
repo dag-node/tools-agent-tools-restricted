@@ -3,24 +3,22 @@ policy_module(ai_tools_netadmin, 0.1.0)
 
 # ai_tools OPTIONAL GROUP: netadmin  [DEFAULT: DISABLED]
 #
-# Grants ai_tools_t D-Bus send_msg permission to firewalld and NetworkManager. Both
-# binaries (/usr/bin/firewall-cmd, /usr/bin/nmcli) are bin_t and already executable from
-# the core module, but their privileged backends act only on a D-Bus message the core
-# does not grant permission to send, so without this group the command runs and does not
-# get any response.
+# Grants ai_tools_t D-Bus send_msg permission to firewalld and NetworkManager. Both binaries (/usr/bin/firewall-cmd,
+# /usr/bin/nmcli) are bin_t and already executable from the core module, but their privileged backends act only
+# on a D-Bus message the core does not grant permission to send, so without this group the command runs and does not get
+# any response.
 #
-# This module's rule set covers the send_msg pair. A real firewalld or NetworkManager
-# exchange can also need receive_msg or unix-socket permissions, which a bring-up pass
-# against a live daemon is what surfaces.
+# This module's rule set covers the send_msg pair. A real firewalld or NetworkManager exchange can also need receive_msg
+# or unix-socket permissions, which a bring-up pass against a live daemon is what surfaces.
 
 require {
     type ai_tools_t;
 }
 
-# firewall-cmd -> firewalld D-Bus: allows the agent to send D-Bus messages to
-# the firewalld daemon so firewall-cmd queries and changes take effect.
+# firewall-cmd -> firewalld D-Bus: allows the agent to send D-Bus messages to the firewalld daemon so firewall-cmd
+# queries and changes take effect.
 firewalld_dbus_chat(ai_tools_t)
 
-# nmcli -> NetworkManager D-Bus: same pattern -- allows D-Bus communication
-# to NetworkManager_t for interface status queries and configuration changes.
+# nmcli -> NetworkManager D-Bus: same pattern -- allows D-Bus communication to NetworkManager_t for interface status
+# queries and configuration changes.
 networkmanager_dbus_chat(ai_tools_t)
