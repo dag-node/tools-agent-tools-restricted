@@ -74,8 +74,10 @@ INNER
 # preformatted output whose line breaks are content, long enough that a filler would rewrap it
 # </pre>
 s=7
-# Spans stay whole: a sentence long enough to reach the column where `ai-tools --status` is named, then a span wider than the column, `sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`, and the tie rule beside a span, so that no line ends on the `750 root:root` mode of the pin.
+# Spans stay whole: a sentence long enough to reach the column where `ai-tools status` is named, then a span wider than the column, `sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`, and the tie rule beside a span, so that no line ends on the `750 root:root` mode of the pin.
 t=8
+# A command key is one word, so a fill moves it down whole rather than breaking it apart: the tail of this line has no room left for ai-tools.projects.remove.inplace once the sentence has run on this far.
+t2=8
 # A paragraph before a declaration another tool reads, long enough to need rewrapping at the column.
 # ai-tools-admin-verbs: bootstrap tools status
 u=9
@@ -217,8 +219,17 @@ span_whole() {  # span_whole <literal>: PASS when the filled fixture holds the l
     if [[ "$(grep -c -F -- "$1" "${f}")" -ge 1 ]]; then pass "code span whole on one line: $1"
     else fail "code span split across lines: $1"; fi
 }
-span_whole 'ai-tools --status'
+span_whole 'ai-tools status'
 span_whole '750 root:root'
+# A test's command key (tests/lib/cli-spelling.sh) carries hyphens and dots, and no backtick marks it, so it rests
+# on the same rule from the other side: a break falls between words, never inside one. What it costs if it does not
+# is the suite's own notation, which `git grep` then finds on no line. The fixture leaves the tail of a line too
+# short to hold the key, so a filler that broke on a hyphen or a dot would split it there.
+if [[ "$(grep -c -F -- 'ai-tools.projects.remove.inplace' "${f}")" -eq 1 ]]; then
+    pass "a command key is one word: the fill moves it down whole rather than breaking it"
+else
+    fail "a command key was broken by the fill: $(grep -n 'remove' "${f}")"
+fi
 # shellcheck disable=SC2016
 if grep -qxF -- '# `sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`,' "${f}"; then
     pass "a span wider than the column runs the line over, on a line of its own"

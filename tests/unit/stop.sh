@@ -491,8 +491,8 @@ FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/proj/alpha/sub/
 
 # A WORKING DIRECTORY THAT IS NOT AN ABSOLUTE PATH YIELDS AN EMPTY VALUE. systemd renders the "missing is ok" flag
 # as a `!` prefix over d-bus (`WorkingDirectory=!/opt/ai-tools`), and an unstripped one reached the operator inside
-# a `--reclaim` command that will not run -- and that, pasted into an interactive bash, is not even inert. Driven
-# through the real function, with the systemctl calls it makes stubbed out.
+# an ai-tools.projects.handback command that will not run -- and that, pasted into an interactive bash, is not even
+# inert. Driven through the real function, with the systemctl calls it makes stubbed out.
 systemctl() { printf 'WorkingDirectory=%s\n' "${STUB_WORKING_DIR}"; }
 timeout()   { shift; "$@"; }
 for stub_case in "!/srv/p:/srv/p" "-/srv/p:/srv/p" "/srv/p:/srv/p" "~:" "!~:" "relative/p:" ":"; do
@@ -695,7 +695,7 @@ fi
 # reached, so both refusals carry the same token to search for.
 assert_msg MSG-B7K4 "${HELPER_OUTPUT}" "the helper's unknown-option refusal carries the CLI's code"
 # A PATH IS REFUSED, NOT IGNORED. Accepting it and terminating everything anyway would invert what the operator asked
-# for, in the destructive direction; and refusing keeps `--stop <path>` free to mean something narrower later without
+# for, in the destructive direction; and refusing keeps `stop <path>` free to mean something narrower later without
 # an existing command line silently changing meaning. The refusal has to NAME the alternatives, or it is a dead end
 # mid-incident.
 run_helper /some/project

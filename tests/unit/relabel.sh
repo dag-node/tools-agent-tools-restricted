@@ -421,12 +421,12 @@ else
 fi
 
 # ── The per-agent outcome the report closes with ──────────────────────────────────────────────
-# ai-tools-relabel-agent records this per agent so `ai-tools --status` can report the labelling half
-# of a reconciliation; the operator cannot inspect the labels themselves, the entrypoint living in a toolchain they
-# cannot traverse. Two properties matter beyond the mapping. A path that is not installed YET (rc 3 -- the ordinary
-# pre-bootstrap state) must not read as labels applied, or a host that has never provisioned reports green for work
-# that did not happen; and it must not fail the relabel either, which would make every fresh install exit non-zero. Both
-# halves are stubbed, so this drives the decision without a policy store.
+# ai-tools-relabel-agent records this per agent so ai-tools.status can report the labelling half of a reconciliation;
+# the operator cannot inspect the labels themselves, the entrypoint living in a toolchain they cannot traverse. Two
+# properties matter beyond the mapping. A path that is not installed YET (rc 3 -- the ordinary pre-bootstrap state) must
+# not read as labels applied, or a host that has never provisioned reports green for work that did not happen; and it
+# must not fail the relabel either, which would make every fresh install exit non-zero. Both halves are stubbed, so this
+# drives the decision without a policy store.
 section "relabel: the per-agent outcome closing the report (unit)"
 if declare -F ai_tools_label_agent_paths >/dev/null 2>&1; then
     _ai_tools_entrypoint_policy_active() { return 0; }

@@ -114,7 +114,7 @@ fi
 # on every Bash call; read-only data plus pure logic, does not carry secrets.
 check_file /usr/local/lib/ai-tools/filters.lib.sh            root              root              644
 # Service-health registry: 644 root:root -- world-readable, sourced by the operator launch wrapper and the CLI
-# (`--status`); read-only data, no secrets.
+# (ai-tools.status); read-only data, no secrets.
 check_file /usr/local/lib/ai-tools/services.lib.sh           root              root              644
 # The three provider directories, owned by ai-tools-base (each member package drops only its own files into them). 0755
 # root:root is SECURITY-LOAD-BEARING, not housekeeping: these decide which agents get provisioned and what env a session
@@ -348,7 +348,7 @@ check_file /usr/local/lib/ai-tools/msg.lib.sh                 root root 644
 check_file /var/opt/ai-tools                                  root              "${SANDBOX_GROUP}" 2750
 check_file /var/opt/ai-tools/sandbox-projects                 root              "${SANDBOX_GROUP}" 2770
 check_file /var/opt/ai-tools/README.md                        root              "${SANDBOX_GROUP}" 640
-# Last-run state the sandbox account publishes for `ai-tools --status` to read (its `--user units` are not queryable
+# Last-run state the sandbox account publishes for ai-tools.status to read (its `--user units` are not queryable
 # from the operator's session). The mode is what bounds the surface a sandbox-written stamp adds, so both halves are
 # asserted: the directory 0750 root:SANDBOX_GROUP -- root-owned and NOT group-writable, so the account has traverse only
 # and can neither add, unlink, rename, nor symlink-swap anything here (no setgid: the bit inherited from the 2750 parent

@@ -100,12 +100,12 @@ fi
 # ── ai_tools_msg_block: titled guidance screen with verbatim commands ──────────────
 # block() goes to stderr; capture it. Indented command lines stay verbatim (one line), a flush-left prose line wraps,
 # and an over-wide command overflows the right border.
-CMD='       /usr/local/bin/ai-tools --sandbox-create /a/very/long/path/that/overflows/the/right/border/of/the/box'
+CMD='       /usr/local/bin/ai-tools projects clone /a/very/long/path/that/overflows/the/right/border/of/the/box'
 mapfile -t blk < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg_block "This project is not claimed yet" \
     "Two ways to make the current directory available to the sandboxed agent:" \
     "" \
     "  1. Claim it in place:" \
-    "       /usr/local/bin/ai-tools --project-claim" \
+    "       /usr/local/bin/ai-tools projects claim" \
     "${CMD}" 2>&1)
 
 # (7) The title sits in the top rule.
@@ -123,7 +123,7 @@ else
 fi
 
 # (9) A short indented command stays verbatim on ONE line (not wrapped/split).
-if printf '%s\n' "${blk[@]}" | grep -qF '/usr/local/bin/ai-tools --project-claim'; then
+if printf '%s\n' "${blk[@]}" | grep -qF '/usr/local/bin/ai-tools projects claim'; then
     pass "an indented command stays verbatim on one line"
 else
     fail "an indented command was reflowed"
@@ -132,7 +132,7 @@ fi
 # (10) The over-wide command overflows intact (its own line > 80, whole command present).
 over_line="$(printf '%s\n' "${blk[@]}" | grep -F 'overflows/the/right/border' || true)"
 if [[ -n "${over_line}" && ${#over_line} -gt 80 ]] \
-        && grep -qF -- '--sandbox-create /a/very/long/path/that/overflows/the/right/border/of/the/box' <<<"${over_line}"; then
+        && grep -qF -- 'projects clone /a/very/long/path/that/overflows/the/right/border/of/the/box' <<<"${over_line}"; then
     pass "an over-wide command overflows the border intact"
 else
     fail "over-wide command not kept whole on its own line: '${over_line}'"
@@ -470,7 +470,7 @@ fi
 # (28) A coded block: the code follows the title in the top rule; plain mode leads with the code, then the lines
 # verbatim -- the body stays uncoded and the title, as before, is dropped.
 mapfile -t cblk < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg_block "${CODE}" "Set up this project" \
-    "Two ways:" "" "  1. Claim it:" "       ai-tools --project-claim" 2>&1)
+    "Two ways:" "" "  1. Claim it:" "       ai-tools projects claim" 2>&1)
 plain_cblk="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_block "${CODE}" "Set up this project" \
     "Two ways:" "  1. Claim it:" 2>&1)"
 if [[ "${cblk[1]}" == "#-- Set up this project ${CODE} "* ]] \

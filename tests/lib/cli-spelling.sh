@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/lib/cli-spelling.sh
-# The one place a test spells an ai-tools command. A test names what a command DOES -- a key such as `projects.claim` --
-# and this table turns the key into the tokens the deployed CLI accepts, so no assertion in the suite carries
-# a spelling. A rename of the command surface (.claude/rules/cli-grammar.rule.md) edits this file alone;
-# tests/integration/cli-flags.sh then re-asserts every effect against the new spelling, which is what makes that file
-# the retention proof for the conversion.
+# The one place a test spells an ai-tools command. A test names what a command DOES -- a key such
+# as `ai-tools.projects.claim` -- and this table turns the key into the tokens the deployed CLI accepts, so no assertion
+# in the suite carries a spelling. A rename of the command surface (.claude/rules/cli-grammar.rule.md) edits this file
+# alone; tests/integration/cli-flags.sh then re-asserts every effect against the new spelling, which is what makes
+# that file the retention proof for the conversion.
+#
+# A key is the command's path with the binary in front and a dot for each space, so `ai-tools status` is
+# `ai-tools.status`. The binary is part of the key because `status` names a command on ai-tools-admin as well,
+# and because a key is what the suite's own voice carries -- a result line, a comment and a section heading alike: one
+# greppable token per command, told apart from the same word in ordinary prose. An option is written as typed, since it
+# carries its own mark already. `projects remove` decides its kind from the path, so neither of its keys is a command
+# path: each names the kind the row drives, and a row reads as what it removes.
 #
 # The CLI accepts two spellings of each command, and AI_TOOLS_CLI_SPELLING selects which one cli_cmd fills:
 # `collection`, the default, is the collection form (`projects claim`); `option` is the option spelling the CLI keeps
@@ -31,52 +38,52 @@ cli_cmd() {
         printf 'cli-spelling: unknown spelling: %s (collection or option)\n' "${spelling}" >&2; return 1
     fi
     case "$1" in
-        help)              CLI_ARGV=(--help) ;;
-        version)           CLI_ARGV=(--version) ;;
-        projects.list)     CLI_ARGV=(projects list) ;;
-        projects.create)   CLI_ARGV=(projects create) ;;
-        projects.claim)    CLI_ARGV=(projects claim) ;;
-        projects.unclaim)  CLI_ARGV=(projects unclaim) ;;
-        projects.remove)   CLI_ARGV=(projects remove) ;;
-        projects.disable)  CLI_ARGV=(projects disable) ;;
-        projects.enable)   CLI_ARGV=(projects enable) ;;
-        projects.clone)    CLI_ARGV=(projects clone) ;;
-        projects.push)     CLI_ARGV=(projects push) ;;
-        # The clone kind of `projects remove`: one verb decides the kind from the path, and a row that drives a clone
-        # keeps this key so the clone rows read as what they remove.
-        sandbox.remove)    CLI_ARGV=(projects remove) ;;
-        projects.lockdown) CLI_ARGV=(projects lockdown) ;;
-        projects.handback) CLI_ARGV=(projects handback) ;;
-        status)            CLI_ARGV=(status) ;;
-        providers)         CLI_ARGV=(providers) ;;
-        audit)             CLI_ARGV=(audit) ;;
-        stop)              CLI_ARGV=(stop) ;;
+        ai-tools.help)                    CLI_ARGV=(--help) ;;
+        ai-tools.version)                 CLI_ARGV=(--version) ;;
+        ai-tools.projects.list)           CLI_ARGV=(projects list) ;;
+        ai-tools.projects.create)         CLI_ARGV=(projects create) ;;
+        ai-tools.projects.claim)          CLI_ARGV=(projects claim) ;;
+        ai-tools.projects.unclaim)        CLI_ARGV=(projects unclaim) ;;
+        # One verb, two kinds: the same tokens either way, and the key says which kind the row drives.
+        ai-tools.projects.remove.inplace) CLI_ARGV=(projects remove) ;;
+        ai-tools.projects.remove.clone)   CLI_ARGV=(projects remove) ;;
+        ai-tools.projects.disable)        CLI_ARGV=(projects disable) ;;
+        ai-tools.projects.enable)         CLI_ARGV=(projects enable) ;;
+        ai-tools.projects.clone)          CLI_ARGV=(projects clone) ;;
+        ai-tools.projects.push)           CLI_ARGV=(projects push) ;;
+        ai-tools.projects.lockdown)       CLI_ARGV=(projects lockdown) ;;
+        ai-tools.projects.handback)       CLI_ARGV=(projects handback) ;;
+        ai-tools.status)                  CLI_ARGV=(status) ;;
+        ai-tools.providers)               CLI_ARGV=(providers) ;;
+        ai-tools.audit)                   CLI_ARGV=(audit) ;;
+        ai-tools.stop)                    CLI_ARGV=(stop) ;;
         *) printf 'cli-spelling: unknown command key: %s\n' "$1" >&2; return 1 ;;
     esac
 }
 
-# cli_cmd_option <key>: the same keys in the option spelling, one token each. `help` has no option spelling of its own:
-# `--help` and `-h` are the command in either form.
+# cli_cmd_option <key>: the same keys in the option spelling, one token each. `ai-tools.help` has no option spelling
+# of its own: `--help` and `-h` are the command in either form.
 cli_cmd_option() {
     case "$1" in
-        help)              CLI_ARGV=(--help) ;;
-        version)           CLI_ARGV=(-V) ;;
-        projects.list)     CLI_ARGV=(--list) ;;
-        projects.create)   CLI_ARGV=(--project-create) ;;
-        projects.claim)    CLI_ARGV=(--project-claim) ;;
-        projects.unclaim)  CLI_ARGV=(--project-unclaim) ;;
-        projects.remove)   CLI_ARGV=(--project-remove) ;;
-        projects.disable)  CLI_ARGV=(--project-disable) ;;
-        projects.enable)   CLI_ARGV=(--project-enable) ;;
-        projects.clone)    CLI_ARGV=(--sandbox-create) ;;
-        projects.push)     CLI_ARGV=(--sandbox-push) ;;
-        sandbox.remove)    CLI_ARGV=(--sandbox-remove) ;;
-        projects.lockdown) CLI_ARGV=(--lockdown) ;;
-        projects.handback) CLI_ARGV=(--reclaim) ;;
-        status)            CLI_ARGV=(--status) ;;
-        providers)         CLI_ARGV=(--providers) ;;
-        audit)             CLI_ARGV=(--audit) ;;
-        stop)              CLI_ARGV=(--stop) ;;
+        ai-tools.help)                    CLI_ARGV=(--help) ;;
+        ai-tools.version)                 CLI_ARGV=(-V) ;;
+        ai-tools.projects.list)           CLI_ARGV=(--list) ;;
+        ai-tools.projects.create)         CLI_ARGV=(--project-create) ;;
+        ai-tools.projects.claim)          CLI_ARGV=(--project-claim) ;;
+        ai-tools.projects.unclaim)        CLI_ARGV=(--project-unclaim) ;;
+        # The kind the collection form derives from the path is what the two option spellings named outright.
+        ai-tools.projects.remove.inplace) CLI_ARGV=(--project-remove) ;;
+        ai-tools.projects.remove.clone)   CLI_ARGV=(--sandbox-remove) ;;
+        ai-tools.projects.disable)        CLI_ARGV=(--project-disable) ;;
+        ai-tools.projects.enable)         CLI_ARGV=(--project-enable) ;;
+        ai-tools.projects.clone)          CLI_ARGV=(--sandbox-create) ;;
+        ai-tools.projects.push)           CLI_ARGV=(--sandbox-push) ;;
+        ai-tools.projects.lockdown)       CLI_ARGV=(--lockdown) ;;
+        ai-tools.projects.handback)       CLI_ARGV=(--reclaim) ;;
+        ai-tools.status)                  CLI_ARGV=(--status) ;;
+        ai-tools.providers)               CLI_ARGV=(--providers) ;;
+        ai-tools.audit)                   CLI_ARGV=(--audit) ;;
+        ai-tools.stop)                    CLI_ARGV=(--stop) ;;
         *) printf 'cli-spelling: unknown command key: %s\n' "$1" >&2; return 1 ;;
     esac
 }

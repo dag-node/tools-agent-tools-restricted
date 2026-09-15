@@ -87,8 +87,8 @@ assert_msg MSG-N2Z7 "${out}" "wrapper blocks execution from an unapproved direct
 # (1a) Cancelling names BOTH commands. The screen the menu sits under carries none (it states
 #      each choice once, in the menu), so the refusal is the only place they appear -- an
 #      operator who cancels, or whose run has no terminal, must still be told what to run.
-if printf '%s' "${out}" | grep -qF -- "$(cli_cmd_text projects.clone)" \
-        && printf '%s' "${out}" | grep -qF -- "$(cli_cmd_text projects.claim)"; then
+if printf '%s' "${out}" | grep -qF -- "$(cli_cmd_text ai-tools.projects.clone)" \
+        && printf '%s' "${out}" | grep -qF -- "$(cli_cmd_text ai-tools.projects.claim)"; then
     pass "the cancel path names both the clone and the claim"
 else
     fail "the cancel path did not name both setup commands (output: ${out})"
@@ -124,7 +124,7 @@ fi
 out_excl="$(run_wrapper "${excluded}")"
 assert_msg MSG-K8K2 "${out_excl}" "wrapper refuses a '!'-excluded subdir of an approved project"
 
-# (2c) The two halves of `--project-disable` meet HERE, and nowhere else: the verb's whole promise
+# (2c) The two halves of ai-tools.projects.disable meet HERE, and nowhere else: the verb's whole promise
 #      is that a parked project cannot be launched in, and that is this gate's decision, not the
 #      CLI's. Both sides are covered apart -- the CLI writes the line (tests/integration/cli.sh),
 #      the wrapper honours a '!' CWD (case 2b) -- so what this asserts is that they agree about
@@ -152,15 +152,15 @@ else
     # The park assertion is ANCHORED to a whole line. A substring test for "!${approved}" also matches the fixture's own
     # carve-out line (!${approved}/secret), so it would pass whether or not the verb did anything -- and then the launch
     # assertion fails with no clue why.
-    cli_cmd projects.disable || exit 2
+    cli_cmd ai-tools.projects.disable || exit 2
     disable_out="$(run_cli "${CLI_ARGV[@]}" "${approved}")"
     if grep -qi 'unknown command' <<<"${disable_out}"; then
         # A deployed CLI older than this test: an environment fact, not a defect to report as one.
-        skip "disabled project refused at launch" "the installed ai-tools has no --project-disable"
+        skip "disabled project refused at launch" "the installed ai-tools has no $(cli_cmd_text ai-tools.projects.disable) verb"
     elif ! grep -qxF "!${approved}" "${fixture_allowlist}"; then
-        fail "--project-disable did not park the entry: $(printf '%s' "${disable_out}" | awk 'NF' | tail -3 | tr '\n' ' ')"
+        fail "ai-tools.projects.disable did not park the entry: $(printf '%s' "${disable_out}" | awk 'NF' | tail -3 | tr '\n' ' ')"
     else
-        pass "--project-disable parks the approved project in the wrapper's own allowlist"
+        pass "ai-tools.projects.disable parks the approved project in the wrapper's own allowlist"
 
         out_disabled="$(run_wrapper "${approved}")"
         # By code, not by prose: the parked-project refusal has to be told from the carve-out one (MSG-K8K2/MSG-W2P3),
@@ -169,7 +169,7 @@ else
             "the launch gate refuses a project the CLI disabled (the verb's whole promise)"
         # The refusal has to name the way back, or the operator's next move is a claim over a project that is already
         # claimed -- which is what the not-yet-claimed screen would invite.
-        if printf '%s' "${out_disabled}" | grep -qF -- "$(cli_cmd_text projects.enable)"; then
+        if printf '%s' "${out_disabled}" | grep -qF -- "$(cli_cmd_text ai-tools.projects.enable)"; then
             pass "and it names the re-enable rather than offering a claim"
         else
             fail "the refusal did not name the re-enable: ${out_disabled}"
@@ -178,13 +178,13 @@ else
         # And back: re-enabling must restore the launch, or the pair is a one-way door. This is the same assertion
         # as case (2), made after a park/restore round trip rather than on a fresh allowlist -- so an edit that left
         # the line subtly different (moved, requoted, duplicated) shows up as a project that no longer launches.
-        cli_cmd projects.enable || exit 2
+        cli_cmd ai-tools.projects.enable || exit 2
         enable_out="$(run_cli "${CLI_ARGV[@]}" "${approved}")"
         out_reenabled="$(run_wrapper "${approved}")"
         if printf '%s' "${out_reenabled}" | grep -qE "no session started|allowlist not found|excluded by|disabled"; then
-            fail "wrapper still blocked the project after --project-enable (enable: $(printf '%s' "${enable_out}" | awk 'NF' | tail -2 | tr '\n' ' ')) (launch: ${out_reenabled})"
+            fail "wrapper still blocked the project after ai-tools.projects.enable (enable: $(printf '%s' "${enable_out}" | awk 'NF' | tail -2 | tr '\n' ' ')) (launch: ${out_reenabled})"
         else
-            pass "the launch gate accepts it again after --project-enable"
+            pass "the launch gate accepts it again after ai-tools.projects.enable"
         fi
     fi
 fi

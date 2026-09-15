@@ -235,4 +235,43 @@ check_option_spellings() {
 }
 check_option_spellings
 
+# ── Every key the suite names resolves through the spelling table ──────────────────────────────
+# A test names a command by a key that tests/lib/cli-spelling.sh turns into today's tokens (tests.rule.md). A key
+# the table no longer holds is caught at RUN time by cli_cmd's own refusal, which is the root suite on a deployed
+# install -- and a row whose assertion reads only the call log passes anyway, because a command that never started
+# leaves the same empty log. So the resolution is checked here instead: pure text, no root, no install, one second.
+#
+# What it reads is the first literal token after each function that takes a key. It must NOT filter to tokens already
+# shaped like a key: a key that lost its namespace is precisely the defect, so a token is collected on the call shape
+# alone and then resolved. Quoted spans go first and comments after them, which drops both a token the shell expands
+# (only a literal is checkable) and a driver's name inside a message, in that order so a `#` inside a string is not read
+# as opening a comment.
+check_spelling_keys() {
+    local lib="${ROOT}/tests/lib/cli-spelling.sh"
+    if [[ ! -r "${lib}" ]]; then
+        skip "spelling keys resolve" "no ${lib}"; return
+    fi
+    # shellcheck source=../lib/cli-spelling.sh
+    source "${lib}"
+    local drivers='cli|cli_in|cli_flag_first|cli_cmd|cli_cmd_text|cli_cmd_option|spell|pd_cli|run_for'
+    local -a keys
+    mapfile -t keys < <(sed -E 's/"[^"]*"//g; s/'\''[^'\'']*'\''//g; s/#.*//' "${ROOT}"/tests/*/*.sh \
+                        | grep -hoE "\b(${drivers})[[:space:]]+[A-Za-z][A-Za-z0-9.-]*" \
+                        | sed -E "s/^(${drivers})[[:space:]]+//" \
+                        | grep -vxE "${drivers}" | sort -u)
+    if (( ${#keys[@]} == 0 )); then
+        fail "no command key found in the suite -- the reader stopped matching"; return
+    fi
+    local key unresolved=""
+    for key in "${keys[@]}"; do
+        cli_cmd "${key}" >/dev/null 2>&1 || unresolved+=" ${key}"
+    done
+    if [[ -n "${unresolved}" ]]; then
+        fail "command key(s) the suite names that tests/lib/cli-spelling.sh does not hold:${unresolved}"
+    else
+        pass "every command key the suite names resolves (${#keys[@]} keys)"
+    fi
+}
+check_spelling_keys
+
 finish

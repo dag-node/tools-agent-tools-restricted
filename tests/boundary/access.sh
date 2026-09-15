@@ -9,6 +9,7 @@
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/cli-spelling.sh"
 require_root
 
 section "Sandbox access boundaries (run as the agent)"
@@ -367,7 +368,7 @@ else
 fi
 
 # The labelling record, for a different reason from the pin: it does not gate a launch, it is REPORTED. An agent
-# that could write it could tell `ai-tools --status` its labels were applied on a host where the relabel had failed --
+# that could write it could tell ai-tools.status its labels were applied on a host where the relabel had failed --
 # turning the operator's one window onto the labelling half into something the sandbox account writes.
 _ev_label=/var/opt/ai-tools/state/entrypoint-label.d/claude-code
 if [[ ! -e "${_ev_label}" ]]; then
@@ -414,10 +415,10 @@ else
 fi
 
 # ── the audit reader and the trail it reports are out of reach ───────────────────────────────
-# `ai-tools --audit` presents the root-only file sink as EVIDENCE, and that claim rests on this vantage: the sandbox
-# account can neither read the trail (so it cannot know what an operator is about to be shown) nor write it (so it
-# cannot plant or erase a finding), and cannot run or alter the reader itself. Asserted from the agent's side, because
-# that is the side the claim is
+# ai-tools.audit presents the root-only file sink as EVIDENCE, and that claim rests on this vantage: the sandbox account
+# can neither read the trail (so it cannot know what an operator is about to be shown) nor write it (so it cannot plant
+# or erase a finding), and cannot run or alter the reader itself. Asserted from the agent's side, because that is
+# the side the claim is
 # about.
 _audit_bin=/usr/local/libexec/ai-tools/ai-tools-audit
 if [[ ! -x "${_audit_bin}" ]]; then
@@ -438,12 +439,12 @@ else
 fi
 
 # ── the stop path is out of reach from inside a session ──────────────────────────────────────
-# `ai-tools --stop` is the incident ladder's stop rung: the one control that acts on a session already running.
-# A control the monitored system can disarm is not a control, so the claim rests on this vantage -- the account
-# a session runs as can neither run the helper (which would let a session terminate every operator's work, or exhaust
-# the trail with noise) nor alter it. There is no authorization input for it to aim at either: the command accepts
-# neither a target nor an allowlist, so what it terminates is decided by cgroup-slice membership alone. What the agent
-# CAN do is be stopped: the kill is delivered by root to a cgroup, and no process inside the cgroup takes part.
+# ai-tools.stop is the incident ladder's stop rung: the one control that acts on a session already running. A control
+# the monitored system can disarm is not a control, so the claim rests on this vantage -- the account a session runs
+# as can neither run the helper (which would let a session terminate every operator's work, or exhaust the trail
+# with noise) nor alter it. There is no authorization input for it to aim at either: the command accepts neither
+# a target nor an allowlist, so what it terminates is decided by cgroup-slice membership alone. What the agent CAN do is
+# be stopped: the kill is delivered by root to a cgroup, and no process inside the cgroup takes part.
 _stop_bin=/usr/local/libexec/ai-tools/ai-tools-stop
 if [[ ! -e "${_stop_bin}" ]]; then
     skip "stop helper not agent-reachable" "not installed at ${_stop_bin}"
@@ -502,21 +503,24 @@ else
 fi
 
 # ── The two project verbs that write the filesystem as an owner ─────────────────
-# The boundary half of the pair for `--project-create` and `--project-remove`. Their runtime refusals are asserted
-# in integration/cli.sh; what makes those meaningful is that the agent cannot reach the verbs at all. `--project-remove`
-# matters most: it deletes a whole project tree, and an agent that could invoke it could destroy the operator's work.
+# The boundary half of the pair for ai-tools.projects.create and ai-tools.projects.remove.inplace. Their runtime
+# refusals are asserted in integration/cli.sh; what makes those meaningful is that the agent cannot reach the verbs
+# at all. The removal matters most: it deletes a whole project tree, and an agent that could invoke it could destroy
+# the operator's work.
 #
 # Both are driven with NO path argument, so a regression that let one through would still have no path to act on --
 # the create refuses a missing path outright, and the remove would resolve the agent's own cwd, which is not a claimed
 # project of the agent's. The assertion is on the principal guard's own message CODE, not merely on a non-zero exit,
-# since every one of these commands has other reasons to fail.
-for _verb in --project-create --project-remove; do
-    _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_CLI:-/usr/local/bin/ai-tools}" "${_verb}" 2>&1)" \
+# since every one of these commands has other reasons to fail. Each is named by the key tests/lib/cli-spelling.sh
+# turns into today's tokens, so a respelling of the surface edits that table alone.
+for _key in ai-tools.projects.create ai-tools.projects.remove.inplace; do
+    cli_cmd "${_key}" || exit 2
+    _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_CLI:-/usr/local/bin/ai-tools}" "${CLI_ARGV[@]}" 2>&1)" \
         && _rc=0 || _rc=$?
     if (( _rc == 0 )); then
-        fail "the agent was not refused ${_verb} at all"
+        fail "the agent was not refused ${_key} at all"
     else
-        assert_msg MSG-Q6Q8 "${_out}" "the agent cannot reach ${_verb} (principal guard)"
+        assert_msg MSG-Q6Q8 "${_out}" "the agent cannot reach ${_key} (principal guard)"
     fi
 done
 

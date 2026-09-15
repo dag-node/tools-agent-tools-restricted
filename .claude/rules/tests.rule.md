@@ -82,6 +82,42 @@ assertion that no refusal of some kind fired, or a skip that steps aside for an 
 closed by construction, the grep names each code instead — `wrapper.sh`'s `gate_refused` names each code the launch gate
 can raise.
 
+## How a test names a command
+
+A test names an `ai-tools` command by a **key** that `lib/cli-spelling.sh` turns into the tokens the deployed CLI
+accepts, and that table is the only place in the suite a command is spelled. A key is the command's path with the binary
+in front and a dot for each space, so `ai-tools status` is `ai-tools.status`. The binary is part of the key because
+`status` names a command on `ai-tools-admin` as well, and because the key is what a **result line** carries: one
+greppable token per command, told apart from the same word in ordinary prose. One removal verb derives its kind
+from the path, so its two keys name the kind rather than a command path — `ai-tools.projects.remove.inplace`
+and `ai-tools.projects.remove.clone`.
+
+An **option** is written as typed. It carries its own mark, so `--for` is already the one greppable token per option
+that a key has to manufacture for a command, and no sentence holds one by accident; the conversion to the resource
+grammar respelled commands and left options alone, so there is no second spelling for a key to abstract over. A result
+line therefore reads as the invocation does — the command by key, the option after it as an operator types it. Driving
+one still goes through `cli_flag`, which is where a rename would land (`--dry-run` losing its short form went
+through exactly that seam), and an option that is really a command's other spelling belongs in `cli_cmd_option`, keyed
+by command.
+
+The key reaches the suite's own voice, not the assertions alone: a result line, a comment and a section heading all
+carry it, so a respelling of the command surface edits that table alone. Where the **spelling itself** is what a file is
+about it stays as written — the table's own mapping, `unit/cli-verbs.sh` and `unit/man.sh` reading the CLI's command
+paths out of its gating tables and its man page, and the fixtures that stand in for an operator-facing document
+or message (`unit/prose-check.sh`, `unit/fill-markdown.sh`, `unit/fill-comments.sh`, `unit/msg.sh`), where a key would
+hold those tools to text that never occurs. `manual/verify-live-flows.sh` is the one file that spells a command
+throughout: an operator reads that run and copies from it, so its headings, result lines and remedies carry the command
+in the collection form as they would type it.
+
+A key is one word carrying hyphens and dots, and no backtick marks it, so what keeps it findable is the rule a code span
+rests on from the other side: a break falls between words, never inside one. Both fillers hold to it,
+and `unit/fill-comments.sh` and `unit/fill-markdown.sh` each pin it against a fixture whose line has too short a tail
+to hold a key, so a filler taught to break on a hyphen or a dot would split it there.
+
+The keys are also `integration/cli-flags.sh`'s trace row labels and the key list its surface digest reads
+out of the table's `case` entries, so renaming one changes what a trace compares by label. The rest of a trace row —
+the exit status, the call log, the state digest — is unaffected, and a baseline is re-recorded after a key rename lands.
+
 ## Hermeticity contract
 
 Every test works **only inside its own dedicated `/tmp` testdir** (`mktestdir` sets `TESTDIR`), builds its fixtures
@@ -736,16 +772,16 @@ under `setsid`, so it never touches the real allowlist or fires a claim prompt. 
 `cli-flags.sh` holds every `ai-tools` command and every option `ai-tools(1)` documents to what it **achieves**, and its
 rows do not read message text, so the command surface can be respelled with the file unchanged
 ([cli-grammar](cli-grammar.rule.md)). A row names a command by a key that `lib/cli-spelling.sh` turns into today's
-tokens, drives the deployed CLI as the projects user with `lib/cli-stubs.sh`'s `sudo` shim first on its `PATH`,
-and reads one of three channels: the helper call the CLI made, with its arguments and the directory it was made
-from (the shim records every `sudo <helper>` and execs a stub of the helper without elevating the CLI — the CLI resolves
-`sudo` by name and already runs unprivileged, so the shim is not a hook and the CLI carries none for it); the registry
-or filesystem state left behind, read through the deployed `conf.lib.sh` and fixture repositories; or the exit status,
-paired for a refusal with an empty call log, which asserts the ordering rule that a refused command does not call `sudo`
-first. Every run is under `setsid`, so a default-NO prompt declines and `--yes` is observable as the call that then
-happens. The file closes by extracting the options the page documents, with `man.sh`'s extractor, and fails on any
-option without a row and on any row driving an option the page dropped. A rename edits the spelling table alone,
-and the file green before and after is the retention proof.
+tokens ([How a test names a command](#how-a-test-names-a-command)), drives the deployed CLI as the projects user
+with `lib/cli-stubs.sh`'s `sudo` shim first on its `PATH`, and reads one of three channels: the helper call the CLI
+made, with its arguments and the directory it was made from (the shim records every `sudo <helper>` and execs a stub
+of the helper without elevating the CLI — the CLI resolves `sudo` by name and already runs unprivileged, so the shim is
+not a hook and the CLI carries none for it); the registry or filesystem state left behind, read through the deployed
+`conf.lib.sh` and fixture repositories; or the exit status, paired for a refusal with an empty call log, which asserts
+the ordering rule that a refused command does not call `sudo` first. Every run is under `setsid`, so a default-NO prompt
+declines and `--yes` is observable as the call that then happens. The file closes by extracting the options the page
+documents, with `man.sh`'s extractor, and fails on any option without a row and on any row driving an option the page
+dropped. A rename edits the spelling table alone, and the file green before and after is the retention proof.
 
 The assertions name what a row expects, so a change no row names — a helper call gained, an exit code moved, a mode
 a walk left different — passes them. `AI_TOOLS_CLI_FLAGS_TRACE=<file>` closes that: the file then also **records** every

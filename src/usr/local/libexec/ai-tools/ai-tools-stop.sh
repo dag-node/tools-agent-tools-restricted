@@ -218,7 +218,7 @@ FORCE_KILL=false
 #
 # AND IT KEEPS A LATER EXTENSION NON-BREAKING. If per-target stopping is ever built -- which needs a session-to-project
 # mapping the session cannot influence, i.e. something root records at launch, NOT the user manager's WorkingDirectory
-# -- then `--stop <path>` moves from an error to an accepted, narrower request. That is a pure widening and no existing
+# -- then `stop <path>` moves from an error to an accepted, narrower request. That is a pure widening and no existing
 # command line changes meaning. Had it meant "stop everything, ignoring your path", the identical line would silently
 # begin doing something different, which is the one outcome that cannot be rolled out safely.
 #

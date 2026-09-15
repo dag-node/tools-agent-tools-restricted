@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/services.sh
 # Unit test for the service-health registry (services.lib.sh), the single source shared by
-# `ai-tools --status` and the launch wrapper's pre-launch health warning. Pins:
+# ai-tools.status and the launch wrapper's pre-launch health warning. Pins:
 #   * the '|'-delimited record accessor and the registry shape;
 #   * ai_tools_service_state's active/down/failed/stale/absent/unknown mapping, including that a
 #     sandbox-user unit is never queried through systemctl -- it reports from its last-run stamp,
@@ -17,7 +17,7 @@
 #     operator did by hand (which is no evidence about a schedule) is declined in both directions;
 #   * the 'skipped' verdict for a run that correctly did NOTHING -- the updater finding the
 #     registry unreachable, where the previous toolchain stays and there is no fault to fix. It must
-#     not alarm (needs_attention says no, so `--status` stays green and exits zero) and must not
+#     not alarm (needs_attention says no, so ai-tools.status stays green and exits zero) and must not
 #     claim health either, so it stays distinct from active, still ages into 'stale' when the
 #     condition persists, and leaves the TRIGGER's own verdict untouched in 'fired' mode;
 #   * ai_tools_service_stamp_field's defensive read of that stamp. It is the one input here a
@@ -101,7 +101,7 @@ else
     fail "registry is missing an expected unit: ${recs}"
 fi
 
-# The update service's stamp path is the one the updater writes; a drift between the two would leave `--status`
+# The update service's stamp path is the one the updater writes; a drift between the two would leave ai-tools.status
 # permanently reporting 'unknown' with no reason to say why.
 svc_rec="$(grep '^nvm-update\.service|' <<<"${recs}")"
 if [[ "$(ai_tools_service_field "${svc_rec}" 7)" == /var/opt/ai-tools/state/nvm-update.status ]]; then
@@ -319,7 +319,7 @@ fi
 # A run that made no change because it COULD not (the updater with an unreachable registry) is its own verdict,
 # between success and fault. Reporting it as FAILED would send an operator after a host that is fine; reporting it as OK
 # would claim an update that never happened. So it must read 'skipped', must not count as needing attention --
-# or a disconnected laptop makes `--status` exit non-zero every night, training its reader to ignore it -- and must
+# or a disconnected laptop makes ai-tools.status exit non-zero every night, training its reader to ignore it -- and must
 # still carry its REASON.
 mk_stamp "RESULT=skipped" "EXIT_CODE=3" "FINISHED=$(at_age 3600)" "REASON=offline"
 st_skipped="$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"

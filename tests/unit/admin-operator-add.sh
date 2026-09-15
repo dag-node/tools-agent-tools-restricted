@@ -70,7 +70,7 @@ fi
 #    shape, so the line names the command another operator claims with rather than refusing.
 out="$(run_report 1 0)"
 if [[ "${out}" == *"holds no general sudo grant"* \
-        && "${out}" == *"$(cli_cmd_text projects.claim) --for svc-op"* ]]; then
+        && "${out}" == *"$(cli_cmd_text ai-tools.projects.claim) --for svc-op"* ]]; then
     pass "a refused claim helper reports no grant and names the --for command"
 else
     fail "refusal should report no grant plus the --for command, got: ${out}"
