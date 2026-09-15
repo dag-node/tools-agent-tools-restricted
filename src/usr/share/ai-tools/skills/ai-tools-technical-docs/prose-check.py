@@ -704,7 +704,7 @@ INDENTED_CODE = re.compile(r"^ {4,}\S")
 LIST_MARKER = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
 # A link reference definition (`[label]: destination`), which is link syntax rather than the author's prose:
 # the destination is an address a renderer resolves, and no wrap shortens it. The shape is CommonMark's,
-# and `tools/fill-markdown.py` reads it the same way -- a checker that measured one would report a line that filler
+# and `tools/formatters/fill-markdown.py` reads it the same way -- a checker that measured one would report a line that filler
 # leaves as written.
 LINK_DEFINITION = re.compile(r"^ {0,3}\[[^\]]+\]:\s*\S")
 
@@ -1200,7 +1200,7 @@ PATH_CHECKS = [
 #                      a reftag link's generated destination. A row or a fence is read past a
 #                      blockquote's `>` prefix.
 #
-# Where a line BREAKS is the formatter's to decide, not this checker's: `tools/format.sh` fills comment prose with Emacs
+# Where a line BREAKS is the formatter's to decide, not this checker's: `tools/formatters/format.sh` fills comment prose with Emacs
 # and a page with its own filler, at the column `--print-width` names, so a report per break would prompt a reader
 # about a line a tool rewrites in bulk. What is measured here is the width alone.
 #

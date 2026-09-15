@@ -3,15 +3,15 @@
 # Reflow the plain comment paragraphs of each file in place.
 #
 # ```bash
-# bash tools/fill-comments.sh [--width N] [--lines A-B,C-D] [--] <file>...
+# bash tools/formatters/fill-comments.sh [--width N] [--lines A-B,C-D] [--] <file>...
 # ```
 #
 # Each paragraph is wrapped at `--width`, or at the column `.dir-locals.el` gives the file's mode, and no line ends
-# on a tie word (the `fill-nobreak-predicate` hook in `tools/emacs/ai-tools-fill.el`, which also states what is left
+# on a tie word (the `fill-nobreak-predicate` hook in `tools/formatters/emacs/ai-tools-fill.el`, which also states what is left
 # as written). `--lines` names 1-based inclusive line ranges and fills only a paragraph meeting one. It is the comment
-# half of the formatter `tools/format.sh` fronts, which passes the column and the ranges. Needs Emacs and python3.
+# half of the formatter `tools/formatters/format.sh` fronts, which passes the column and the ranges. Needs Emacs and python3.
 #
-# Each file is vetted through `tools/text_file.py` before Emacs sees it: one that is not plain text -- a symlink,
+# Each file is vetted through `tools/formatters/text_file.py` before Emacs sees it: one that is not plain text -- a symlink,
 # a binary, a control or a bidi character -- is reported and left as it is, the others are filled, and the run exits 1.
 # Emacs takes the files after `--`, so a name that reads as one of its own options (`-Q`, `-chdir`) is a file to fill
 # rather than an option to obey.
@@ -22,7 +22,7 @@
 set -euo pipefail
 
 usage() {
-    printf 'usage: bash tools/fill-comments.sh [--width N] [--lines A-B,C-D] [--] <file>...\n' >&2
+    printf 'usage: bash tools/formatters/fill-comments.sh [--width N] [--lines A-B,C-D] [--] <file>...\n' >&2
     exit 2
 }
 

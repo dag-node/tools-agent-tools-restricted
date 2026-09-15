@@ -471,7 +471,7 @@ check_config_page custom-claude-endpoint.conf "${CONFIG_TEMPLATES}/endpoints/cus
 # a wrong catalog renders as cleanly as a right one, and an operator who searches a code read off a terminal meets
 # whichever entry the page kept. The index is a repository file, so an installed-only run skips.
 MESSAGES_MAN="${ROOT}/src/usr/local/share/man/man7/ai-tools-messages.7"
-MESSAGES_GEN="${ROOT}/tools/man-messages.sh"
+MESSAGES_GEN="${ROOT}/tools/generators/man-messages.sh"
 section "man page: ai-tools-messages(7) in lockstep with the cross-reference index (unit)"
 check_messages_page() {
     if [[ ! -r "${MESSAGES_GEN}" || ! -r "${ROOT}/.claude/references.md" ]]; then
@@ -579,7 +579,7 @@ check_config_headers
 # the convention's home and is edited with this check so the two cannot disagree.
 #
 # It reads the AUTHORED pages (man1, man5, man8) and not ai-tools-messages(7): that page is rendered from the runtime
-# message strings, so its markup is decided by each emitter rather than by an author, and the tools/man-messages.sh
+# message strings, so its markup is decided by each emitter rather than by an author, and the tools/generators/man-messages.sh
 # lockstep is what holds it. Pure text, no root, no
 # install.
 #

@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# tools/option-spellings.sh -- generate docs/option-spellings.md from the CLI's OPTION_SPELLINGS table. The page is
+# tools/generators/option-spellings.sh -- generate docs/option-spellings.md from the CLI's OPTION_SPELLINGS table. The page is
 # derived, never authored: every row is read off src/usr/local/bin/ai-tools.sh by text, so the spelling an operator
 # reads and the one the CLI rewrites have one home. `rows` is the same read, for tests/unit/cli-verbs.sh, which holds
 # every value to a dispatched command and the committed page to the table.
 #
-#     bash tools/option-spellings.sh generate   rewrite the page from the table
-#     bash tools/option-spellings.sh print      write the page to stdout
-#     bash tools/option-spellings.sh rows       one `<option><TAB><command>` line per table row
-#     bash tools/option-spellings.sh stale      exit 1 when the committed page differs from the table
+#     bash tools/generators/option-spellings.sh generate   rewrite the page from the table
+#     bash tools/generators/option-spellings.sh print      write the page to stdout
+#     bash tools/generators/option-spellings.sh rows       one `<option><TAB><command>` line per table row
+#     bash tools/generators/option-spellings.sh stale      exit 1 when the committed page differs from the table
 #
 # An empty read is a hard error: the table has moved or changed shape, and a page with no rows would read as a CLI
 # with no option spellings.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CLI="src/usr/local/bin/ai-tools.sh"
 PAGE="docs/option-spellings.md"
 cd "${ROOT}"
@@ -42,8 +42,8 @@ rows() {
 # so the table reads aligned in the source as well as rendered.
 render() {
     cat <<'MARKDOWN'
-<!-- GENERATED from src/usr/local/bin/ai-tools.sh (OPTION_SPELLINGS) by tools/option-spellings.sh; do not edit this
-     file. Change a row in the table and run `bash tools/option-spellings.sh generate`; tests/unit/cli-verbs.sh
+<!-- GENERATED from src/usr/local/bin/ai-tools.sh (OPTION_SPELLINGS) by tools/generators/option-spellings.sh; do not edit this
+     file. Change a row in the table and run `bash tools/generators/option-spellings.sh generate`; tests/unit/cli-verbs.sh
      regenerates the page and fails on a difference. -->
 MARKDOWN
     # The generated-file marker is printed rather than written in the heredoc: the checker reads it as a whole line
@@ -96,10 +96,10 @@ case "${command}" in
     generate) mkdir -p "$(dirname "${PAGE}")"; render > "${PAGE}" ;;
     stale)
         if ! render | diff -q - "${PAGE}" >/dev/null; then
-            echo "${PAGE} is stale; run: bash tools/option-spellings.sh generate" >&2
+            echo "${PAGE} is stale; run: bash tools/generators/option-spellings.sh generate" >&2
             exit 1
         fi ;;
     *)
-        echo "usage: bash tools/option-spellings.sh generate|print|rows|stale" >&2
+        echo "usage: bash tools/generators/option-spellings.sh generate|print|rows|stale" >&2
         exit 2 ;;
 esac

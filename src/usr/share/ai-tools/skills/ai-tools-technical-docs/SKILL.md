@@ -994,10 +994,10 @@ in an operator's file. `--config-header` reports an over-width line (`--width` o
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --config-header <file>...
 ```
 
-**Where a line breaks is the formatter's, not the writer's.** Write the prose and let `tools/format.sh` wrap it; these
+**Where a line breaks is the formatter's, not the writer's.** Write the prose and let `tools/formatters/format.sh` wrap it; these
 checks hold the width alone.
 
-**Table cells must line up.** After editing a table inside a comment, run `python3 tools/align-tables.py fix <file>`;
+**Table cells must line up.** After editing a table inside a comment, run `python3 tools/formatters/align-tables.py fix <file>`;
 `check` reports any table whose cells are misaligned. Alignment decisions — column widths, number right-alignment,
 heading centering, rule-line placement — are owned by the tool.
 

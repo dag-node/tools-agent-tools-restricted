@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# tools/format.sh -- the front door of the width policy.
+# tools/formatters/format.sh -- the front door of the width policy.
 #
 # ```bash
-# bash tools/format.sh [--files | --all] [--width N] [--] [<file>...]
+# bash tools/formatters/format.sh [--files | --all] [--width N] [--] [<file>...]
 # ```
 #
 # It asks the checker for each file's column and kind (`prose-check.py --print-width`) and dispatches to the filler
-# for that kind -- `tools/fill-comments.sh` for a source comment or a config header, `tools/fill-markdown.py` for a page
+# for that kind -- `tools/formatters/fill-comments.sh` for a source comment or a config header, `tools/formatters/fill-markdown.py` for a page
 # -- so the formatter does not hold a copy of the rule the checker resolves; a kind it has no filler for is reported
 # and left. It closes by re-running the checker's width modes over what it touched, so what it could not fix is
 # reported, and exits 1 while any of that remains, while a filler refused a file, or where the checker itself could not
@@ -38,7 +38,7 @@
 set -euo pipefail
 
 usage() {
-    printf 'usage: bash tools/format.sh [--files | --all] [--width N] [--] [<file>...]\n' >&2
+    printf 'usage: bash tools/formatters/format.sh [--files | --all] [--width N] [--] [<file>...]\n' >&2
     exit 2
 }
 
@@ -74,7 +74,7 @@ main() {
     local -a width=() named=() files=() tracked=() changed=() untracked=() present=()
     local -a documents=() sources=() headers=() lines=()
     tools="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    checker="${tools}/../src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
+    checker="${tools}/../../src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
     while (( $# )); do
         case "$1" in
             --files) scope=files; shift ;;

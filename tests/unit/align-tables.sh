@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/align-tables.sh
-# Unit test for tools/align-tables.py, the formatter for the tables a comment carries. What it asserts is the property
+# Unit test for tools/formatters/align-tables.py, the formatter for the tables a comment carries. What it asserts is the property
 # a reader checks by eye and a tool has to check mechanically: after a fix every separator in the block sits at one
 # column, the `+` of the rule line included. The fixture is a truth table whose widest cell overflows its column,
 # the case a majority vote gets wrong: it squeezes that row, where the column has to grow in every row. The three rules
@@ -16,7 +16,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TOOL="${ROOT}/tools/align-tables.py"
+TOOL="${ROOT}/tools/formatters/align-tables.py"
 section "align-tables: the comment table formatter (unit)"
 
 if [[ ! -r "${TOOL}" ]]; then
@@ -156,7 +156,7 @@ else
 fi
 
 # (8) A file that is not plain text is refused: reported with the reason, left byte-identical, and the run exits 1 while
-# the file named beside it is still checked. The reader is the one every formatter here shares (`tools/text_file.py`);
+# the file named beside it is still checked. The reader is the one every formatter here shares (`tools/formatters/text_file.py`);
 # the full set of shapes it refuses is pinned in `fill-markdown.sh`.
 esc="${TESTDIR}/escape.sh"
 printf '# a | b\n# \033[31mc\033[0m | d\n' > "${esc}"

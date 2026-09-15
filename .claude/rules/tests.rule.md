@@ -262,7 +262,7 @@ the toolchain must read do not. `check-version.sh` departs the installed-helper 
 a `TESTDIR` copy of `packaging/check-version.sh` (a repo release-gate script, not a deployed artifact) against fixture
 `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match, `vX.Y.Z-rc.N` compares its
 base and relaxes only the `%changelog` match, any other dashed tag is refused, a missing `%changelog` entry is fatal
-for every form. `fill-comments.sh` is a second repo-tool test: it drives `tools/fill-comments.sh`, the Emacs-driven
+for every form. `fill-comments.sh` is a second repo-tool test: it drives `tools/formatters/fill-comments.sh`, the Emacs-driven
 formatter for the comment wrap rule, over one fixture carrying every shape the tool must fill or leave alone. Filled:
 a long paragraph inside the column with no line ending on a tie word (the checker's `--wrap` mode is the oracle), one
 indented inside a function body, and a sentence pair the join gives one space. Left as written: an aligned table, a doc
@@ -273,10 +273,10 @@ or what a reader reads as a column, and none is visible in review. It also holds
 checker reads — a code span is never split — and asserts a second run leaves the file as the first left it,
 that `--lines` fills the paragraph it names alone, and that two ranges in one run are both filled, since the first fill
 moves every line the later range names. Refused before Emacs sees it, through the reader every formatter shares
-(`tools/text_file.py`): a file holding an escape sequence, and a symlink, each reported with its reason and left as it
+(`tools/formatters/text_file.py`): a file holding an escape sequence, and a symlink, each reported with its reason and left as it
 was while the clean file beside it is filled. Two more pin the Emacs side: a file named like one of its options (`-Q`)
 is filled rather than obeyed, since the files are handed over after `--`, and a file-local `eval:` form is not run.
-Skipped without Emacs. `format.sh` pins the front door over both fillers (`tools/format.sh`): every file in a fixture
+Skipped without Emacs. `format.sh` pins the front door over both fillers (`tools/formatters/format.sh`): every file in a fixture
 repository goes to the filler for the kind the checker names, at the column it names — a page at 79, a router at 120,
 a source comment at 120, a header under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker)
 is reported as skipped with its kind and left as it was, since the failure it exists to prevent is the comment filler
@@ -290,8 +290,8 @@ pinned as the closing report's: 0 when no measured line is left over its column,
 remains or a filler refused a file, which is reported with its reason and left as it was. Its last case runs a copy
 of the formatter over its own two shell tools: each is one function called on its last line, which bash parses whole,
 so the fill that rewrites the file under the running bash does not end the run mid-line. `fill-markdown.sh` is its
-Markdown counterpart, and pins the filler (`tools/fill-markdown.py`) together with the gate that proves a reflow pure
-(`tools/verify-reflow.py`), because a defect in either looks the same from outside: one fixture carries every shape
+Markdown counterpart, and pins the filler (`tools/formatters/fill-markdown.py`) together with the gate that proves a reflow pure
+(`tools/formatters/verify-reflow.py`), because a defect in either looks the same from outside: one fixture carries every shape
 found by rehearsing the filler on real pages — frontmatter, a nested fence, a multi-line HTML comment, a list item
 with an indented continuation, a wide marker, an indented code block, a table, a blockquote with an
 alert line, a `prose-check: ignore` line, a dash after a token wider than the column, and inline code spans placed
@@ -302,11 +302,11 @@ span leaves the token stream unchanged — is asserted on the filler's output in
 wider than the column run over on its own. It asserts a second run is a no-op and that `--lines` confines a reflow
 to the blocks it names, then reflows every page of the tree into its testdir, agent-facing at 120 and human-facing
 at 79, and holds them to the same three properties. It is also where the reader every formatter shares
-(`tools/text_file.py`) is pinned whole: each shape it refuses — a control or a bidi character, a NUL, a carriage return,
+(`tools/formatters/text_file.py`) is pinned whole: each shape it refuses — a control or a bidi character, a NUL, a carriage return,
 a byte that is not UTF-8, a byte-order mark, a symlink, a FIFO — is reported with its reason and left byte-identical
 while the clean file beside it is filled, a column or a range that is not one is a usage error that writes nothing,
 and the gate fails a base copy that is not text without printing a token of it and refuses a path resolving outside
-the tree. `align-tables.sh` pins the third formatter, `tools/align-tables.py`, over a fixture whose widest cell
+the tree. `align-tables.sh` pins the third formatter, `tools/formatters/align-tables.py`, over a fixture whose widest cell
 overflows its column: each placement rule the tool states, and the two properties a caller depends on — a paragraph
 whose lines happen to carry a pipe is left as written, since a table is two lines carrying a separator at the same
 column, and a second fix is a no-op with `check` then silent, so `check` and `fix` run in either order. A table inside
@@ -316,7 +316,7 @@ through the shared reader and reported, with the file beside it still checked. `
 `ref-index.py`, the cross-reference tool shipped beside the checker, and holds the tree to its committed index.
 A reference names a reftag and the reftag resolves to where the target now is, so what the file asserts is that a target
 which moved, was renamed, or was deleted is reported and never silently pointed at its old place: through the repository
-wrapper `tools/ref-index.sh` it regenerates the index and diffs it against `.claude/references.md` and runs `check`
+wrapper `tools/generators/ref-index.sh` it regenerates the index and diffs it against `.claude/references.md` and runs `check`
 over every tracked file, both skipped outside a git checkout; then each finding `check` makes — a duplicate reftag,
 an id shared by two kinds, a reference with no target, a same-file reference, a caption with no block after it, a reftag
 link that is missing or stale, and an ordinary link whose file or heading is gone — is driven against a fixture it must
@@ -370,7 +370,7 @@ the tooling uses, and compared with the `.TP` tags under KEYS in both directions
 lacks is an operator reading a file the manual does not explain, and a documented key no manifest sets is a stale entry.
 
 `ai-tools-messages(7)` pairs with neither a command nor a file, but with the **generator** that writes it:
-`tools/man-messages.sh` derives the page from `.claude/references.md`, so the check regenerates it and fails
+`tools/generators/man-messages.sh` derives the page from `.claude/references.md`, so the check regenerates it and fails
 on a difference ([messaging](messaging.rule.md)). It then compares the count of message codes the index defines
 with the count of entries the page carries, which catches a code the generator drops rather than refuses. A stale
 catalog renders as cleanly as a current one, so the diff is what makes the drift visible. The generator reads
@@ -385,7 +385,7 @@ and a man page as a `.BR` cross-reference, while a test and a source file are dr
 Every section so far pairs a page with what it documents. Two more hold each page to the way a page is **written**,
 against the font and placeholder rules whose home is `references/man-pages.md` in the shipped `ai-tools-technical-docs`
 skill; the reference and the check are edited together, so the convention and what enforces it cannot disagree. They
-read the **authored** pages (`man1`, `man5`, `man8`) and leave `ai-tools-messages(7)` to the `tools/man-messages.sh`
+read the **authored** pages (`man1`, `man5`, `man8`) and leave `ai-tools-messages(7)` to the `tools/generators/man-messages.sh`
 lockstep: each emitter's own string decides that page's markup. The rules are that no page carries a pointy-bracket
 placeholder, which roff renders literally and which marks prose never brought to the page's grammar; that every italic
 token on a SYNOPSIS line or a `.TP`/`.TQ` tag line is an uppercase placeholder, italic being what a reader substitutes,

@@ -43,8 +43,8 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 - **`.claude/references.md`** — the generated cross-reference index: every reftag in the tree, with its id, its name,
   its file, and the files that cite it. A reference in prose names a reftag, never a position, a line, or a heading
   anchor, and a reftag exists only for a citation from another file; a session that meets one resolves it here,
-  and `bash tools/ref-index.sh where <reftag>` prints the live line. Regenerated from the tree
-  with `bash tools/ref-index.sh generate`, not edited. The grammar is the `ai-tools-technical-docs` skill's,
+  and `bash tools/generators/ref-index.sh where <reftag>` prints the live line. Regenerated from the tree
+  with `bash tools/generators/ref-index.sh generate`, not edited. The grammar is the `ai-tools-technical-docs` skill's,
   and the authoring rule states when a referent takes a reftag. `.claude/.referenced.md` beside it holds the reftags
   the tree has retired, each with the release it was retired at, for the minter alone: it is history, and a session does
   not read it.

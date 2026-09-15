@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/fill-comments.sh
-# Unit test for tools/fill-comments.sh, the Emacs-driven formatter for the comment wrap rule
-# (tools/emacs/ai-tools-fill.el). A formatter that rewrites source files is judged on the lines it leaves as they were
+# Unit test for tools/formatters/fill-comments.sh, the Emacs-driven formatter for the comment wrap rule
+# (tools/formatters/emacs/ai-tools-fill.el). A formatter that rewrites source files is judged on the lines it leaves as they were
 # as much as on the lines it fills, so one fixture carries every shape it must read one way or the other. Filled: a long
 # prose paragraph, inside the column and with no line ending on a tie word (the filler's own rule, which no checker
 # reads), one indented inside a function body, and a sentence pair whose join takes one space. Left as written:
@@ -22,7 +22,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TOOL="${ROOT}/tools/fill-comments.sh"
+TOOL="${ROOT}/tools/formatters/fill-comments.sh"
 PC="${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
 section "fill-comments: the comment wrap formatter (unit)"
 
@@ -121,7 +121,7 @@ fi
 # read a line's last word -- so the tie behaviour is asserted here, against the set the filler
 # itself declares.
 # A word closing a sentence is not a tie, so the last line of the paragraph is read like any other.
-ties="$(sed -n '/defconst ai-tools-tie-words/,/^ *"/p' "${ROOT}/tools/emacs/ai-tools-fill.el" \
+ties="$(sed -n '/defconst ai-tools-tie-words/,/^ *"/p' "${ROOT}/tools/formatters/emacs/ai-tools-fill.el" \
     | tr -d "'()\"" | tr ' ' '\n' | grep -E '^[a-z]+$' | sort -u)"
 if [[ -z "${ties}" ]]; then
     skip "tie behaviour" "the filler's word list could not be read from ai-tools-fill.el"
@@ -246,7 +246,7 @@ else
     fail "a second run changed the file: $(diff "${TESTDIR}/once.sh" "${f}" | head -4)"
 fi
 
-# (4) `--lines` confines the fill to a paragraph meeting a range, which is how tools/format.sh
+# (4) `--lines` confines the fill to a paragraph meeting a range, which is how tools/formatters/format.sh
 # fills what a diff touched: naming the banner's paragraph alone fills it and leaves the header
 # paragraph as written.
 cp "${TESTDIR}/before.sh" "${f}"
@@ -278,7 +278,7 @@ fi
 # (6) A file that is not plain text is refused before Emacs sees it: reported with the reason and
 # the line, left byte-identical, and the run exits 1 while the clean file beside it is filled. A
 # symlink is refused the same way, since the write would land where the link points. The reader
-# is `tools/text_file.py`, shared with the other formatters; the full set of shapes it refuses is
+# is `tools/formatters/text_file.py`, shared with the other formatters; the full set of shapes it refuses is
 # pinned in `fill-markdown.sh`.
 esc="${TESTDIR}/escape.sh"
 printf '#!/usr/bin/env bash\n# a comment holding an escape sequence \033[31min it\033[0m, long enough that a filler would want to rewrap it\n' > "${esc}"

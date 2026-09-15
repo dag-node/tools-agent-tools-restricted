@@ -759,7 +759,7 @@ wrapped_silent() {  # wrapped_silent <case>.<ext> <line...>: PASS when --wrap re
     if [[ "${RC}" -eq 0 && -z "${OUT}" ]]; then pass "${name%%.*}: silent under --wrap (rc 0)"
     else fail "${name%%.*}: expected no finding under --wrap; rc ${RC}, output: ${OUT}"; fi
 }
-# Where a comment line breaks is the Emacs formatter's (`tools/fill-comments.sh`), so a line ending mid-phrase is silent
+# Where a comment line breaks is the Emacs formatter's (`tools/formatters/fill-comments.sh`), so a line ending mid-phrase is silent
 # under `--wrap` however it is wrapped.
 wrapped_silent TEST-PC-49-comment-line-end.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
 wrapped_silent TEST-PC-50-comment-line-end-docstring.py 'def f():' '    """Return the rows of' '    the table."""'
