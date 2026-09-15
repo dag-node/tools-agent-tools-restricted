@@ -339,7 +339,10 @@ drive_rows() {
     drive cli help;               expect "help exits 0 with no helper call"            rc_is 0
     expect "help reaches no helper" cli_log_empty
     drive run_in "${R}";          expect "the bare invocation exits 0"                  rc_is 0
-    drive cli version;            expect "version exits 0 and prints the version line" test "${rc}" -eq 0 -a "$(grep -cE '^ai-tools [0-9a-z.]+$' <<<"${out}")" -eq 1
+    # The version is substituted at install from the RPM version-release, which carries a dash, so the row pins
+    # the line's shape -- the name and one whitespace-free token -- rather than a version grammar. The token may not
+    # open with a dash: the option spelling prints `ai-tools --version` in its notice, which is not the version line.
+    drive cli version;            expect "version exits 0 and prints the version line" test "${rc}" -eq 0 -a "$(grep -cE '^ai-tools [^-[:space:]][^[:space:]]*$' <<<"${out}")" -eq 1
     expect "version reaches no helper" cli_log_empty
     drive cli projects.list;      expect "the project listing exits 0"                 rc_is 0
     expect "the listing reaches no helper" cli_log_empty
