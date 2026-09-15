@@ -502,7 +502,7 @@ prompt_groups() {
 ########################################
 
 # The per-project label primitive (semanage fcontext + restorecon) lives in the shared relabel.lib.sh -- the SAME body
-# the ai-tools-relabel root helper runs, so `--project-create`/`--project-claim` and this sweep cannot drift. Prefer
+# the ai-tools-relabel root helper runs, so `projects create`/`projects claim` and this sweep cannot drift. Prefer
 # the repo copy alongside this script; fall back to the deployed lib.
 RELABEL_LIB="${DIR}/../src/usr/local/lib/ai-tools/relabel.lib.sh"
 [[ -r "${RELABEL_LIB}" ]] || RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"

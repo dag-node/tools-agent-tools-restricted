@@ -19,8 +19,8 @@
 # Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run as the projects user, not
 # in install.sh:
 #   ```bash
-#   ai-tools --project-create <dir>        # register a real project
-#   ai-tools --sandbox-create <dir>        # shallow-clone a repo into the sandbox area
+#   ai-tools projects create <dir>         # register a real project
+#   ai-tools projects clone <dir>          # shallow-clone a repo into the sandbox area
 #   ```
 #
 # Prerequisites (one-time manual steps before running install;
@@ -1251,7 +1251,7 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh" \
         /usr/local/lib/ai-tools/selinux-groups.lib.sh
 
-    # Service-health registry: 644 root:root -- world-readable, the single source `ai-tools --status` and the launch
+    # Service-health registry: 644 root:root -- world-readable, the single source `ai-tools status` and the launch
     # wrapper's pre-launch health warning share. Read-only data, no secrets.
     log "/usr/local/lib/ai-tools/services.lib.sh"
     install -o root -g root -m 644 \
@@ -1391,7 +1391,7 @@ do_install() {
         /usr/local/lib/ai-tools/agent-installs.lib.sh
 
     # PATH ordering reader: 644 root:root -- world-readable, like every shared library. Read by ai-tools-admin (which
-    # asks about the guard line and writes it), by `ai-tools --status` as the operator, and by the base package's %post.
+    # asks about the guard line and writes it), by `ai-tools status` as the operator, and by the base package's %post.
     # No secrets, no tokens.
     log "/usr/local/lib/ai-tools/path-order.lib.sh"
     install -o root -g root -m 644 \
@@ -1642,7 +1642,7 @@ do_install() {
     chmod 2770 /var/opt/ai-tools/sandbox-projects
 
     # Operator-readable state written BY the sandbox account: the last-run stamps of the units in that account's own
-    # `systemd --user manager` (nvm-update), which `ai-tools --status` cannot query from the operator's session.
+    # `systemd --user manager` (nvm-update), which `ai-tools status` cannot query from the operator's session.
     # The directory is root-owned and deliberately NOT group-writable -- the account gets traverse only --
     # so the surface the stamps add is the contents of the individual files created here, never the directory:
     # the account cannot add, unlink, rename, or symlink-swap anything in it. Each stamp is therefore created HERE,
@@ -1667,7 +1667,7 @@ do_install() {
         /var/opt/ai-tools/README.md
 
     # Operator access to the shared sandbox area via an ai-ops group ACL, so operators create and work in clones
-    # (`ai-tools --sandbox-create`) WITHOUT joining SANDBOX_GROUP: ai-ops gets traverse on the outer dir, rwX
+    # (`ai-tools projects clone`) WITHOUT joining SANDBOX_GROUP: ai-ops gets traverse on the outer dir, rwX
     # on sandbox-projects (default ACL so clones inherit operator access), and read on the doc. One grant covers every
     # operator, and an operator stays in ai-ops after leaving SANDBOX_GROUP. This is the shared-area counterpart
     # to ai-tools-setfacl's per-project user:<operator> grant. ai-ops is created later in this script; ensure it first
@@ -1986,7 +1986,7 @@ do_install() {
     #
     # An existing allowlist holds the user's approved projects. A re-install keeps it by default; overwriting removes
     # all approved projects (destructive), so keep_existing requires an explicit second confirmation before doing so.
-    # The install dir is not added: registering a project is the CLI's business (`ai-tools --project-claim`),
+    # The install dir is not added: registering a project is the CLI's business (`ai-tools projects claim`),
     # and an entry the operator already holds for this checkout is theirs and is left as it is. What keeps a session's
     # edits to this checkout from being deployed unread is the source-tree gate at the start of do_install, which names
     # the commit the install deploys and refuses an uncommitted tree without `--allow-uncommitted`.

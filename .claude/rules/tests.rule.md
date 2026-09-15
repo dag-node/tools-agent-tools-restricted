@@ -115,7 +115,7 @@ and `unit/fill-comments.sh` and `unit/fill-markdown.sh` each pin it against a fi
 to hold a key, so a filler taught to break on a hyphen or a dot would split it there.
 
 The keys are also `integration/cli-flags.sh`'s trace row labels and the key list its surface digest reads
-out of the table's `case` arms, so renaming one changes what a trace compares by label. The rest of a trace row —
+out of the table's `case` entries, so renaming one changes what a trace compares by label. The rest of a trace row —
 the exit status, the call log, the state digest — is unaffected, and a baseline is re-recorded after a key rename lands.
 
 ## Hermeticity contract
