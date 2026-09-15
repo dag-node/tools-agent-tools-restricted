@@ -7,8 +7,8 @@ shipped user layer (`/opt/ai-tools/.claude/settings.json`) or a project's
 `.claude/settings.json`. Source-only: the package never installs it (it governs
 every Claude Code user on the host), so an administrator copies it into place.
 
-See [`docs/claude-options.md`](../../../docs/claude-options.md) for what each
-key does.
+See [`docs/agents/claude-code.md`](../../../docs/agents/claude-code.md)
+for what each key does.
 
 ## Point Claude Code at a custom Anthropic-compatible endpoint
 

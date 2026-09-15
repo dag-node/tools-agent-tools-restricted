@@ -1,5 +1,7 @@
 # RPM packaging
 
+[All docs](index.md)
+
 This note specifies the RPM packaging of the project: the package set,
 the boundary each subpackage owns, the runtime operator-identity contract
 that lets the helpers ship operator-agnostic, and the scriptlet behaviour. It
@@ -436,8 +438,7 @@ Prerelease tags (`vX.Y.Z-rc.N`) run the same sign-and-verify path but publish
 only a GitHub **prerelease** and skip the `dag-node/rpm` notify — the central
 repo serves final tags only. A `workflow_dispatch` run rehearses the identical
 path with every publish step skipped, leaving the signed output as a workflow
-artifact. The process is
-[`branching-and-release.md`](branching-and-release.md).
+artifact. The process is [Branching and release](development/release.md).
 
 The signing key and org secrets (`GPG_SIGNING_KEY`, `GPG_SIGNING_PASSPHRASE`,
 `RPM_REPO_DISPATCH_TOKEN`) are in the org playbook `GPG-HINTS.md`; the central

@@ -22,7 +22,7 @@
 # denies, alters or hides anything, so refusing would only trade tokens for lost work.
 #
 # Installed 750 root:ai-tools, like the other hooks: the session executes it through the group and cannot rewrite it.
-# Deploying from a checkout: docs/install-from-source.md.
+# Deploying from a checkout: docs/install/from-source.md.
 
 set -euo pipefail
 

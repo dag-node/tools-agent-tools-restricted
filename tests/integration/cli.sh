@@ -703,10 +703,10 @@ fi
 # what this asserts is that the verb is dispatched at all and that a mistyped one is refused rather than passed through.
 #
 # THE EXACT CODE IS ASSERTED, not merely non-zero. cmd_stop propagates the helper's exit status, so these codes are
-# a published contract (ai-tools(1), docs/session-stop.md): 2 is usage, and 1 already means "a process survived SIGKILL"
-# -- a caller told 1 for a typo reads it as a failed kill. A `-ne 0` assertion cannot see that difference, and did not:
-# the CLI refused through its own die (1) against a documented 2, and only the live drill, which pins the code, caught
-# it.
+# a published contract (ai-tools(1), docs/sessions/stop.md): 2 is usage, and 1 already means "a process survived
+# SIGKILL" -- a caller told 1 for a typo reads it as a failed kill. A `-ne 0` assertion cannot see that difference,
+# and did not: the CLI refused through its own die (1) against a documented 2, and only the live drill, which pins
+# the code, caught it.
 if command -v runuser >/dev/null 2>&1; then
     section "ai-tools.stop (argument grammar)"
     spell ai-tools.stop

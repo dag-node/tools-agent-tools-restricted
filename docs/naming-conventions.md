@@ -1,5 +1,7 @@
 # Naming conventions — user/group/home identities
 
+[All docs](index.md)
+
 This codebase coordinates several distinct identities that a bare "user" would
 conflate: an operator that drives the sandbox, that operator's group or home,
 the operator a given path's ownership resolves to, the unprivileged sandbox

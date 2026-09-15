@@ -19,7 +19,7 @@
 # Installed 750 root:@SANDBOX_GROUP@ as ai-tools-handback-client, with @SANDBOX_GROUP@ substituted at install: the group
 # execute bit is what lets a session run it, and root ownership is what stops the session rewriting it. Deploying
 # from a checkout:
-# docs/install-from-source.md.
+# docs/install/from-source.md.
 
 import socket
 import sys

@@ -81,7 +81,7 @@ process, change these in `ai-tools-selftest.service`'s `Environment=` or invoke
 
 The release process — branch model, tag grammar, RC prereleases, the dispatch
 rehearsal, and the channel rule — is
-[`docs/branching-and-release.md`](../docs/branching-and-release.md).
+[`docs/development/release.md`](../docs/development/release.md).
 The packaging-side tooling for it:
 
 ```bash

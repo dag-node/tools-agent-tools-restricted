@@ -40,6 +40,9 @@ at a glance](#architecture-at-a-glance) · [From source](#from-source) ·
 logging](#operation-logging) · [SELinux](#selinux) · [Community](#community) ·
 [License](#license)
 
+**Operator documentation**: [all docs](docs/index.md) — about, install,
+operators, projects, sessions, agents, system, tests, development.
+
 ## Requirements
 
 - **Enterprise Linux 9 or 10** — RHEL and its rebuilds (Rocky, AlmaLinux,
@@ -124,7 +127,7 @@ the directory) or `ai-tools projects remove` (deletes it too, behind
 a typed-name confirmation). To take a project out of service without releasing
 it — no session starts there, while its permissions and label stay as they are
 — `ai-tools projects disable`, and `projects enable` to put it back. All of it
-is in [docs/project-lifecycle.md](docs/project-lifecycle.md).
+is in [docs/projects/index.md](docs/projects/index.md).
 
 ### Upgrading
 
@@ -196,7 +199,7 @@ and credentials out of what it can ever send:
   to the same name, so what `claude` resolves to is the one thing to get right
   — `ai-tools status` reads which binary your shell runs, and the PATH ordering
   this project ships for it is
-  [ref-section-y2t3](docs/install-from-source.md#ref-section-y2t3).
+  [ref-section-y2t3](docs/install/from-source.md#ref-section-y2t3).
 - **Launches only in approved projects** — a wrapper refuses to start Claude
   unless the working directory is listed
   in `~/.config/ai-tools/allowed-projects` (with `!` exclusions to carve
@@ -225,7 +228,7 @@ and credentials out of what it can ever send:
   in past commits are never on disk within its reach, and secret-named files
   in the tip commit are locked down before the clone is opened to the agent
   at all. An in-place claim keeps `.git` access an explicit opt-in prompt. See
-  [docs/project-lifecycle.md](docs/project-lifecycle.md).
+  [docs/projects/index.md](docs/projects/index.md).
 - **Collaborative access** — a POSIX default ACL on each approved tree makes
   you and Claude co-writers without `${PROJECTS_USER}` joining
   `${SANDBOX_GROUP}`: `g:${SANDBOX_GROUP}:rwX` grants Claude access to your
@@ -233,7 +236,7 @@ and credentials out of what it can ever send:
   umask-independent; world access stays closed. Applied
   at `ai-tools projects claim`, which skips owner-only paths (`600`/`700`)
   so a private file or directory is never opened to the agent — see
-  [docs/project-lifecycle.md](docs/project-lifecycle.md).
+  [docs/projects/index.md](docs/projects/index.md).
 - **Shared skills, one copy** — the documentation and engineering-judgment
   skills the project ships live once in `/opt/ai-tools/skills`; each agent's
   config directory holds a symlink per skill, so a skill is authored
@@ -264,7 +267,7 @@ and credentials out of what it can ever send:
   — a session cannot put itself outside the sweep. The session does not take
   part in any of it: the account it runs as can neither invoke, read nor alter
   the helper. What each outcome means and what a stop cannot undo are
-  in [docs/session-stop.md](docs/session-stop.md).
+  in [docs/sessions/stop.md](docs/sessions/stop.md).
 - **Auto-updating** — a `systemd --user` timer in `${SANDBOX_USER}`'s own
   instance keeps Node and `@anthropic-ai/claude-code` current
   under `/opt/ai-tools`, and a root-side watcher relabels the new entrypoint
@@ -320,7 +323,7 @@ value is pinned where the sandbox account cannot write it — so a binary
 modified after installation refuses to launch. It does not need any per-release
 maintenance and does not reach the network at launch; what it checks, what each
 failure means, and how it behaves on an air-gapped host are
-in [docs/entrypoint-verification.md](docs/entrypoint-verification.md).
+in [docs/system/entrypoint-verification.md](docs/system/entrypoint-verification.md).
 
 ## If you are an agent reading this
 
@@ -389,7 +392,7 @@ are fixed and do not track the account name.
 
 Setting the variables by hand matters only on the manual from-source path —
 the export block and every step that uses it are
-in [docs/install-from-source.md](docs/install-from-source.md).
+in [docs/install/from-source.md](docs/install/from-source.md).
 
 ## Architecture at a glance <a id="ref-section-e7g6"></a>
 
@@ -432,9 +435,9 @@ exist — steps 1–3 create them (once the package is deployed,
 `sudo ai-tools-admin system bootstrap` does both in one idempotent command).
 The four steps, the full source→deploy file map,
 and `sudo ./install.sh uninstall` are
-in [docs/install-from-source.md](docs/install-from-source.md); registering
+in [docs/install/from-source.md](docs/install/from-source.md); registering
 projects is the same as the package path — see
-[docs/project-lifecycle.md](docs/project-lifecycle.md).
+[docs/projects/index.md](docs/projects/index.md).
 
 ## Upgrade behaviour
 

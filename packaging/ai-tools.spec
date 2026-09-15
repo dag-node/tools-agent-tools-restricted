@@ -969,8 +969,7 @@ fi
 # File lists
 # ─────────────────────────────────────────────────────────────────────────────
 %files
-%doc docs/rpm-packaging.md docs/project-lifecycle.md docs/entrypoint-verification.md
-%doc docs/session-stop.md docs/multi-operator.md docs/option-spellings.md README.md
+%doc docs README.md
 
 # The module files come from the list %%install wrote (`-f`): one line per module the build derived.
 %files -n ai-tools-selinux -f selinux-files.list

@@ -111,8 +111,8 @@ is answered accurately rather than through one representative. `projects push`, 
 verbs reach no helper that can refuse the command, and are not probed. Neither is `stop`, the privileged verb
 an operator without a general grant can already run through the `%ai-ops` rule for its helper: probing it answers "grant
 present" every time, so the entry would carry no information. (That rule covers the bare form only, so `stop`'s flagged
-forms do meet sudo's ordinary prompt — see [docs/session-stop.md](../../docs/session-stop.md). The probe could not have
-reported that either: it asks about a helper, not about a command line.)
+forms do meet sudo's ordinary prompt — see [docs/sessions/stop.md](../../docs/sessions/stop.md). The probe could not
+have reported that either: it asks about a helper, not about a command line.)
 
 The probe is `sudo -n -l <helper>`, which cannot prompt. An operator holding a general grant gets exit 0 and the command
 echoed back, whether or not a credential is cached — listing an allowed command is not itself password-gated on a stock
@@ -295,14 +295,14 @@ an ordinary account read it — a partial view, the file sink being the authorit
   as "everything", so a typo does not silently become a reassuring wall of old findings.
 - `stop` — terminate every running agent session and everything it spawned, through the `ai-tools-stop` root helper,
   which `%ai-ops` grants NOPASSWD in its bare form (the one rule in the drop-in whose passwordlessness is its purpose:
-  an unattended detector cannot answer a prompt — [docs/session-stop.md](../../docs/session-stop.md)). The only verb
+  an unattended detector cannot answer a prompt — [docs/sessions/stop.md](../../docs/sessions/stop.md)). The only verb
   that acts on a session **already running**; every other control here changes what the *next* launch gets. It is
   **not** the session-lifecycle command — `/exit` inside a session is, and it lets the session run its own `SessionEnd`
   handback. The CLI half is deliberately thin — option grammar only — because every remaining decision is a security
   decision that must not be made twice in two places.
 
   Four properties a contributor has to hold on to; the reasoning for each is
-  in **[docs/session-stop.md](../../docs/session-stop.md)**, which is this component's single source of truth:
+  in **[docs/sessions/stop.md](../../docs/sessions/stop.md)**, which is this component's single source of truth:
 
   - **Sessions are found and killed by cgroup**, never by process tree, and liveness is read from the kernel. systemd
     supplies one thing only — a unit's `WorkingDirectory` — and that is **display**: it labels a row and fills

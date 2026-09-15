@@ -1,5 +1,7 @@
 # Install from source
 
+[Install](index.md) · **From source** — [all docs](../index.md)
+
 The manual path — four root steps a checkout installs with, no RPM. The package
 install (see the README) automates all of it;
 `sudo ai-tools-admin system bootstrap` automates steps 2–3 once `install.sh`
@@ -7,7 +9,7 @@ has deployed it, and `install.sh` automates everything from step 4 on.
 
 Set the recurring identities once, in the shell you run these steps
 in, so every command pastes verbatim (the full naming spec is
-in [naming-conventions.md](naming-conventions.md)):
+in [Naming conventions](../naming-conventions.md)):
 
 ```bash
 export PROJECTS_USER="$(id -un)"
@@ -44,7 +46,7 @@ through, and the daily npm update all sit inside the restricted account,
 where an agent that does run on Node takes the same toolchain. Your account
 cannot traverse that directory, so you reach the agent through the wrapper
 at `/usr/local/bin/claude`, which checks the caller and the project before it
-drops into the sandbox ([ref-section-e7g6](../README.md#ref-section-e7g6)).
+drops into the sandbox ([ref-section-e7g6](../../README.md#ref-section-e7g6)).
 
 Your own shell can still put another `claude` first. The shell searches `$PATH`
 left to right and runs the first match, and `nvm` prepends its versioned `bin`
@@ -254,7 +256,7 @@ ai-tools projects clone /path/to/repo          # an isolated shallow clone
 ai-tools projects lockdown /path/to/project    # revoke agent access to secrets (sudo)
 ```
 
-[project-lifecycle.md](project-lifecycle.md) covers registering in depth —
+[Project lifecycle](../projects/index.md) covers registering in depth —
 claim vs sandbox clone, what each consent prompt grants (including
 the traverse-only parent grant a home-nested project needs), and every
 recovery/reversal path.
