@@ -317,6 +317,10 @@ rc_not0() { [[ "${rc}" -ne 0 ]]; }
 # the ordering rule that a refused command does not prompt for sudo first.
 quiet_rc()      { [[ "${rc}" -eq "$1" ]] && cli_log_empty; }
 quiet_refusal() { [[ "${rc}" -ne 0 ]] && cli_log_empty; }
+# quiet_report <max-rc>: a report that RAN and reached no helper. A report closes at 0 or at 1 with something broken
+# to say, so the status is bounded rather than fixed -- and bounding it is what separates a report from a command
+# that never started, which leaves the same empty call log.
+quiet_report()  { [[ "${rc}" -le "$1" ]] && cli_log_empty; }
 st_is()   { [[ "$(st "$1")" == "$2" ]]; }
 st_for_is() { [[ "$(st_for "$1")" == "$2" ]]; }
 not_called() { ! cli_called "$1"; }
@@ -337,13 +341,13 @@ drive_rows() {
     # ── A. Reads, help, and the incident rung ─────────────────────────────────────────
     section "reports, ai-tools.help, ai-tools.version, ai-tools.stop, ai-tools.audit"
     seed "${R}/pa"
-    drive cli help;               expect "help exits 0 with no helper call"            rc_is 0
+    drive cli ai-tools.help;               expect "help exits 0 with no helper call"            rc_is 0
     expect "help reaches no helper" cli_log_empty
     drive run_in "${R}";          expect "the bare invocation exits 0"                  rc_is 0
     # The version is substituted at install from the RPM version-release, which carries a dash, so the row pins
     # the line's shape -- the name and one whitespace-free token -- rather than a version grammar. The token may not
     # open with a dash: the option spelling prints `ai-tools --version` in its notice, which is not the version line.
-    drive cli version;            expect "version exits 0 and prints the version line" test "${rc}" -eq 0 -a "$(grep -cE '^ai-tools [^-[:space:]][^[:space:]]*$' <<<"${out}")" -eq 1
+    drive cli ai-tools.version;            expect "version exits 0 and prints the version line" test "${rc}" -eq 0 -a "$(grep -cE '^ai-tools [^-[:space:]][^[:space:]]*$' <<<"${out}")" -eq 1
     expect "version reaches no helper" cli_log_empty
     drive cli ai-tools.projects.list;      expect "the project listing exits 0"                 rc_is 0
     expect "the listing reaches no helper" cli_log_empty
@@ -354,26 +358,30 @@ drive_rows() {
     else
         expect "the collection spelling prints no spelling notice" test "$(grep -cxF MSG-W3W8 <<<"${out}")" -eq 0
     fi
-    drive cli status;             expect "status reaches no helper"                    cli_log_empty
-    drive cli providers;          expect "providers reaches no helper"                 cli_log_empty
+    # Both reports are asserted to have RUN as well as to have reached no helper. An empty call log is also what a row
+    # whose command never started leaves behind, so on its own it passes for the wrong reason -- which is how a key this
+    # table no longer holds reads as a green row. `status` exits 1 to report an unhealthy host, so the assertion is
+    # on the pair of statuses a report can close with.
+    drive cli ai-tools.status;    expect "the host report runs and reaches no helper"     quiet_report 1
+    drive cli ai-tools.providers; expect "the provider report runs and reaches no helper" quiet_report 0
 
     cli_stub_reset
-    drive cli stop;               expect "stop calls the stop helper with no argument" test "$(cli_call_count ai-tools-stop)" -eq 1 -a -z "$(cli_calls ai-tools-stop)"
+    drive cli ai-tools.stop;               expect "stop calls the stop helper with no argument" test "$(cli_call_count ai-tools-stop)" -eq 1 -a -z "$(cli_calls ai-tools-stop)"
     for k in all dry-run yes yes.short force; do
-        cli_stub_reset; drive cli stop "$(f "${k}")"
+        cli_stub_reset; drive cli ai-tools.stop "$(f "${k}")"
         expect "stop passes $(f "${k}") through to the helper" cli_called ai-tools-stop "^$(f "${k}")$"
     done
-    cli_stub_reset; drive cli stop -n
+    cli_stub_reset; drive cli ai-tools.stop -n
     expect "stop has no -n short form (it is kept free for a --no)"   quiet_rc 2
-    cli_stub_reset; drive cli stop "${R}/pa"
+    cli_stub_reset; drive cli ai-tools.stop "${R}/pa"
     expect "stop refuses a path with exit 2"                          rc_is 2
     expect "stop's refused path reaches no helper"                    cli_log_empty
-    cli_stub_reset; drive cli stop --bogus
+    cli_stub_reset; drive cli ai-tools.stop --bogus
     expect "stop refuses an unknown option with exit 2, no helper"    quiet_rc 2
 
-    cli_stub_reset; drive cli audit
+    cli_stub_reset; drive cli ai-tools.audit
     expect "audit calls the audit helper"                             cli_called ai-tools-audit
-    cli_stub_reset; drive cli audit "$(f since)" "2 days ago"
+    cli_stub_reset; drive cli ai-tools.audit "$(f since)" "2 days ago"
     expect "audit passes --since and its value through verbatim"      cli_called ai-tools-audit "^$(f since)${T}2 days ago$"
 
     # ── B. Claim ─────────────────────────────────────────────────────────────────────
