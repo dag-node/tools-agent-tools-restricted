@@ -1,51 +1,45 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# Draft MATERIAL for a %changelog block from the Conventional-Commit subjects since the last
-# stable release. It removes the blank-page burden and does not replace the editing pass: it
-# does not write a file and does not stage a change.
+# Draft MATERIAL for a %changelog block from the Conventional-Commit subjects since the last stable release. It removes
+# the blank-page burden and does not replace the editing pass: it does not write a file and does not stage a change.
 #
-# What it prints is one line per commit, which is NOT what ships. A changelog is grouped by what
-# the operator gained, not by commit -- a feature built over nine commits is one entry, and a
-# commit that only moved code is none -- so the block that ships is shorter than this draft and
-# is reconciled once, before the release. Writing an entry per merge during development produces
-# a commit log with headings.
+# What it prints is one line per commit, which is NOT what ships. A changelog is grouped by what the operator gained,
+# not by commit -- a feature built over nine commits is one entry, and a commit that only moved code is none --
+# so the block that ships is shorter than this draft and is reconciled once, before the release. Writing an entry
+# per merge during development produces a commit log with headings.
 #
-# stdout is the draft; stderr carries the guidance and the commits that usually earn no entry,
-# so a redirect captures the draft alone.
+# stdout is the draft; stderr carries the guidance and the commits that usually earn no entry, so a redirect captures
+# the draft alone.
 #
-# CATEGORIES. An RPM %changelog is still a changelog -- the packaging format does not prescribe
-# any vocabulary of its own, so Keep a Changelog's categories apply here, spelled as this spec's
-# uppercase bullet prefixes:
+# CATEGORIES. An RPM %changelog is still a changelog -- the packaging format does not prescribe any vocabulary of its
+# own, so Keep a Changelog's categories apply here, spelled as this spec's uppercase bullet prefixes:
 #   NEW:       a capability the operator did not have         (ADDED)
 #   CHANGE:    behaviour that differs on upgrade              (CHANGED / REMOVED / DEPRECATED)
 #   SECURITY:  the operator's exposure changes, either way    (SECURITY)
 #   FIX:       a defect the operator may have hit             (FIXED)
 #   DOCS:      operator-facing documentation only
 #   LICENSE:   licensing or distribution terms
-# A breaking change is a CHANGE: that names the action to take ("Update any script that ..."),
-# since this spec has never carried a separate BREAKING prefix.
+# A breaking change is a CHANGE: that names the action to take ("Update any script that ..."), since this spec has never
+# carried a separate BREAKING prefix.
 #
-# ORDER. What may cost the reader comes first -- breaking CHANGE, then SECURITY -- because the
-# main reason to scan a changelog is to find those. Gains follow (NEW), then FIX by severity,
-# then DOCS, so the block still reads forward rather than as a defect list. Do not end on a
-# failure sentence.
+# ORDER. What may cost the reader comes first -- breaking CHANGE, then SECURITY -- because the main reason to scan
+# a changelog is to find those. Gains follow (NEW), then FIX by severity, then DOCS, so the block still reads forward
+# rather than as a defect list. Do not end on a failure sentence.
 #
-# WRITING AN ENTRY. The full standard is the ai-tools-technical-docs skill, change-docs section;
-# what it comes down to here: one or two sentences, what the operator gains or must do rather
-# than how it was built, a rule or lib named only where that makes the entry shorter, and the
-# gain stated plainly -- an operator deciding whether to upgrade wants the fact, and an entry
-# that sounds sold reads as less trustworthy. Version bumps, tests, refactors, formatting and CI
-# earn no entry.
+# WRITING AN ENTRY. The full standard is the ai-tools-technical-docs skill, change-docs section; what it comes
+# down to here: one or two sentences, what the operator gains or must do rather than how it was built, a rule or lib
+# named only where that makes the entry shorter, and the gain stated plainly -- an operator deciding whether to upgrade
+# wants the fact, and an entry that sounds sold reads as less trustworthy. Version bumps, tests, refactors, formatting
+# and CI earn no entry.
 #
-# GROUPING is the pass this tool exists to feed, and a subject line rarely carries enough to do
-# it: the reader-facing why lives in the commit BODY, which is where two commits reveal
-# themselves as one entry. Run `--material` for those, and when a body still leaves it unclear,
-# read the change itself (git show <sha>) rather than guessing from the subject.
+# GROUPING is the pass this tool exists to feed, and a subject line rarely carries enough to do it: the reader-facing
+# why lives in the commit BODY, which is where two commits reveal themselves as one entry. Run `--material` for those,
+# and when a body still leaves it unclear, read the change itself (git show <sha>) rather than guessing
+# from the subject.
 #
-# Reading more does NOT mean writing more. The material is long so the entry can be short: the
-# bodies are read to decide what groups with what, then summarized in a sentence or two. Every
-# detail stays where it already is -- in the commit message and the commit itself -- and an entry
-# that reproduces it has copied the wrong thing.
+# Reading more does NOT mean writing more. The material is long so the entry can be short: the bodies are read to decide
+# what groups with what, then summarized in a sentence or two. Every detail stays where it already is -- in the commit
+# message and the commit itself -- and an entry that reproduces it has copied the wrong thing.
 #
 # Usage:
 #   packaging/changelog-draft.sh             bullets for packaging/VERSION, paste-ready
@@ -60,17 +54,16 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 spec="${here}/ai-tools.spec"
 
-# The prefixes an entry may carry. Read by both modes: the draft assigns one, `--check` refuses
-# anything outside the set, so a sixth category is added here rather than invented per release.
+# The prefixes an entry may carry. Read by both modes: the draft assigns one, `--check` refuses anything outside
+# the set, so a sixth category is added here rather than invented per release.
 readonly CATEGORIES='NEW|CHANGE|FIX|SECURITY|DOCS|LICENSE'
-# An entry longer than this many lines has stopped being one or two sentences. Advisory: `--check`
-# reports and never fails, since a genuinely complex upgrade step can earn the space.
+# An entry longer than this many lines has stopped being one or two sentences. Advisory: `--check` reports and never
+# fails, since a genuinely complex upgrade step can earn the space.
 readonly MAX_ENTRY_LINES=5
 
 # ── `--check [--all]`: lint the newest block, or every released block ──────────────────────────
-# Default is the newest block, the one being written. `--all` sweeps the history too: a shipped
-# entry is the public record of that release, so what it reports is a reading list rather than
-# a work list.
+# Default is the newest block, the one being written. `--all` sweeps the history too: a shipped entry is the public
+# record of that release, so what it reports is a reading list rather than a work list.
 if [[ "${1:-}" == "--check" ]]; then
     awk -v cats="${CATEGORIES}" -v maxlines="${MAX_ENTRY_LINES}" -v all="${2:-}" '
         /^%changelog/ { in_log = 1; next }
@@ -120,15 +113,14 @@ fi
 
 version="$(cat "${here}/VERSION")"
 
-# Anchor on the newest STABLE tag (vX.Y.Z) reachable from HEAD, excluding the vX.Y.Z-rc.N
-# prereleases cut during stabilization: a final %changelog entry spans everything since the
-# last release, not just since the last RC. With no stable tag yet, span all history.
+# Anchor on the newest STABLE tag (vX.Y.Z) reachable from HEAD, excluding the vX.Y.Z-rc.N prereleases cut
+# during stabilization: a final %changelog entry spans everything since the last release, not just since the last RC.
+# With no stable tag yet, span all history.
 anchor="$(git -C "${here}" describe --tags --abbrev=0 --match 'v*' --exclude '*-*' 2>/dev/null || true)"
 range="${anchor:+${anchor}..}HEAD"
 
-# Attribute the draft to the packager already named in the spec's %changelog (the identity the
-# entry will be pasted next to), not the committer's git identity. Fall back to git config only
-# when the spec does not carry an entry yet.
+# Attribute the draft to the packager already named in the spec's %changelog (the identity the entry will be pasted next
+# to), not the committer's git identity. Fall back to git config only when the spec does not carry an entry yet.
 packager="$(awk '
     /^%changelog/ { in_log = 1; next }
     in_log && /^\*/ {
@@ -145,10 +137,9 @@ if [[ -z "${packager}" ]]; then
 fi
 date="$(LC_ALL=C date +'%a %b %d %Y')"
 
-# Ordered so a reader scanning the block meets what may cost them first. Breaking changes are
-# CHANGE: entries and lead it, which is what keeps them in one place.
-# classify <subject> -> sets CAT (the bullet prefix) and DESC (the subject minus its type).
-# Shared by both modes, so `--material` files a commit exactly where the draft would.
+# Ordered so a reader scanning the block meets what may cost them first. Breaking changes are CHANGE: entries and lead
+# it, which is what keeps them in one place. classify <subject> -> sets CAT (the bullet prefix) and DESC (the subject
+# minus its type). Shared by both modes, so `--material` files a commit exactly where the draft would.
 CAT=""; DESC=""
 classify() {
     local subject="$1" type scope bang
@@ -158,10 +149,10 @@ classify() {
     else
         type="other"; scope=""; bang=""; DESC="${subject}"
     fi
-    # A security entry is a judgement the author makes, so this only NOMINATES: a security scope,
-    # or a CVE in the subject. Everything else lands in its type's category for the author to
-    # re-file, which is the safe direction -- a missed nomination is edited in, while an automatic
-    # SECURITY: on an unrelated commit would be published as one.
+    # A security entry is a judgement the author makes, so this only NOMINATES: a security scope, or a CVE
+    # in the subject. Everything else lands in its type's category for the author to re-file, which is the safe
+    # direction -- a missed nomination is edited in, while an automatic SECURITY: on an unrelated commit would be
+    # published as one.
     if [[ "${scope}" == "security" || "${DESC}" =~ CVE-[0-9]{4}-[0-9]+ ]]; then CAT="SECURITY"; return; fi
     if [[ -n "${bang}" ]]; then CAT="BREAKING"; return; fi
     case "${type}" in

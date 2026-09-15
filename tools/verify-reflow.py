@@ -53,15 +53,15 @@ TABLE = re.compile(r"^\s*\|")
 COMMENT_OPEN, COMMENT_CLOSE = re.compile(r"^\s*<!--"), "-->"
 FRONTMATTER = re.compile(r"^---\s*$")
 IGNORE_MARKER = "prose-check: ignore"
-# A blockquote's prefix is structure, not a token: a filled quote carries it on every new line,
-# so the tokens are read past it and the block signature records it instead.
+# A blockquote's prefix is structure, not a token: a filled quote carries it on every new line, so the tokens are read
+# past it and the block signature records it instead.
 QUOTE = re.compile(r"^(\s*(?:>\s?)+)(.*)$")
 ALERT = re.compile(r"^\[![A-Z]+\]\s*$")
-# A list marker with the spaces after it: its width is the item's content indent, so a marker
-# respaced is a structure change and is part of the block signature.
+# A list marker with the spaces after it: its width is the item's content indent, so a marker respaced is a structure
+# change and is part of the block signature.
 ITEM = re.compile(r"^\s*([-*+] +|\d+[.)] +)\S")
-# A token that opens a block at a line start. A wrap that moves one there invents the block, and
-# the token stream cannot see it, so the count of such lines is part of each block's signature.
+# A token that opens a block at a line start. A wrap that moves one there invents the block, and the token stream cannot
+# see it, so the count of such lines is part of each block's signature.
 MARKER_LINE = re.compile(r"^\s*(?:[-*+] |\d+[.)] |#{1,6} |\||`{3,}|~{3,}|<!--)")
 
 Signature = tuple[str, int, int]
@@ -87,9 +87,8 @@ def partition(text: str) -> Partition:
     tokens: list[str] = []
     blocks: list[list] = []
     fence, in_comment, block = None, False, None
-    # An indented code block is protected whole: four spaces after a blank line, outside a list,
-    # where the same indent is a continuation paragraph the filler may fill (the reading
-    # `prose-check.py` and `tools/fill-markdown.py` share).
+    # An indented code block is protected whole: four spaces after a blank line, outside a list, where the same indent
+    # is a continuation paragraph the filler may fill (the reading `prose-check.py` and `tools/fill-markdown.py` share).
     listed, in_code = False, False
     lines = text.split("\n")
     front = 0

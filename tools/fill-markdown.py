@@ -200,9 +200,9 @@ def runs(source: list[str]) -> Iterator[tuple[int, int, str, str, list[str]]]:
     """
     index = 0
     fence, fence_prefix = None, ""
-    # Four spaces open an indented code block outside a list; inside one they are a continuation
-    # paragraph under a wide marker. `listed` holds from a list item to the next line at the
-    # margin, the rule `prose-check.py` reads a document with.
+    # Four spaces open an indented code block outside a list; inside one they are a continuation paragraph under a wide
+    # marker. `listed` holds from a list item to the next line at the margin, the rule `prose-check.py` reads a document
+    # with.
     listed = False
     if source and FRONTMATTER.match(source[0]):
         index = 1
