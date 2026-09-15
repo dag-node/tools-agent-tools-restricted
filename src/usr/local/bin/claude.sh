@@ -312,8 +312,8 @@ if [[ "${approved}" != true ]]; then
             ;;
         2)
             # Claim in place. `--yes` pre-answers only the CLI's proceed prompt (you chose claiming here);
-            # the secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit. `projects claim`
-            # is idempotent and registers a brand-new path from scratch.
+            # the secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit.
+            # `ai-tools projects claim` is idempotent and registers a brand-new path from scratch.
             "${AI_TOOLS_CLI}" projects claim --yes "${cwd}" || true
             # Confirm the claim registered the path before falling through to the claim guard, which re-verifies
             # ownership/label (both just applied) and then launches. Match through the shared grammar so an entry
@@ -413,8 +413,8 @@ if ${own_gap} || ${label_gap}; then
     ai_tools_msg_confirm "Claim it in place now?" "${claim_default}" && claim_ok=true
     if ${claim_ok}; then
         # Delegate the claim. `--yes` pre-answers only the CLI's proceed prompt (you answered it here); its
-        # secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit. `--project-claim` is
-        # idempotent and closes whichever gaps apply.
+        # secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit.
+        # `ai-tools projects claim` is idempotent and closes whichever gaps apply.
         "${AI_TOOLS_CLI}" projects claim --yes "${cwd}" || true
         # Re-verify the FATAL gaps closed before launching.
         cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"

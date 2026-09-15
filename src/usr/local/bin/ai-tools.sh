@@ -1917,7 +1917,7 @@ cmd_project_claim() {
 # It REFUSES a path that already exists, which is the sharp line between this verb and `projects claim`: a create
 # that quietly claimed whatever was already there would make the two interchangeable, and the operation that grants
 # an agent access to a tree is not one to arrive at by a typo. Recovering a half-finished create is therefore
-# `projects claim` on the new directory; a re-run of this verb refuses the path as one that exists.
+# `ai-tools projects claim` on the new directory; a re-run of this verb refuses the path as one that exists.
 #
 # <path> is REQUIRED and has no cwd default, unlike every other verb here: the cwd always exists, so a defaulted create
 # could only ever refuse.
@@ -2026,7 +2026,7 @@ cmd_project_create() {
     # The seal is a statement about a path the operator restricted deliberately. A umask is not that -- it is a default
     # for every new file, carrying no intent about a directory created a moment ago BY a command whose whole purpose is
     # to give the agent somewhere to work. So the mode is set rather than inherited, and it is not asked
-    # about: for anyone who typed `projects create` the answer is the same, and declining would yield a project
+    # about: for anyone who typed `ai-tools projects create` the answer is the same, and declining would yield a project
     # whose files the agent's group has no read on.
     #
     # 0750 rather than 0770: the agent's write access comes from the claim's ACL (g:SANDBOX_GROUP:rwX, which raises
@@ -2864,8 +2864,8 @@ cmd_project_remove() {
     # `rm -rf <d>` finishes by unlinking <d> from the directory that contains it -- which needs write+execute THERE,
     # on a directory that is not part of the project and so is not covered by the walk. Missing it produces the worst
     # outcome this verb has: rm descends, deletes every file successfully, and fails only on the top directory, leaving
-    # an empty husk that is already deregistered. Its remedy is not `projects handback` either, since the parent was
-    # never the project's to reclaim.
+    # an empty husk that is already deregistered. Its remedy is not `ai-tools projects handback` either, since
+    # the parent was never the project's to reclaim.
     local rm_parent="${d%/*}"; [[ -n "${rm_parent}" ]] || rm_parent=/
     if [[ -z "$(run_as_owner find "${rm_parent}" -maxdepth 0 -writable -executable 2>/dev/null)" ]]; then
         die MSG-H3F6 "the parent directory is not writable by ${OWNER_USER}: ${rm_parent}" \
@@ -4158,8 +4158,8 @@ cmd_project_list() {
     # Reverse reconciliation: a git safe.directory entry with no matching allowlist line is an ORPHAN -- git still
     # trusts the tree though no allowlist line names it (the line was hand-deleted, or an unclaim was interrupted
     # before the safedir drop). Removing the stale safedir (and its label) is the cleanup; the entry is not a claimed
-    # project, so it is not offered `projects unclaim`, which would refuse an unlisted target. Control-plane entries
-    # (/opt/ai-tools) are registered deliberately and are protected paths, so they are skipped.
+    # project, so it is not offered `ai-tools projects unclaim`, which would refuse an unlisted target. Control-plane
+    # entries (/opt/ai-tools) are registered deliberately and are protected paths, so they are skipped.
     local sdir
     while IFS= read -r sdir; do
         [[ -n "${sdir}" ]] || continue
