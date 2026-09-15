@@ -60,7 +60,16 @@ if command -v setfacl >/dev/null 2>&1; then
     chmod 2700 "${proj}/privatedir"
     chmod 0600 "${proj}/notes.txt"
 fi
-mk_allowlist "${proj}" "!${proj}/vendor"
+# A sandbox clone as `ai-tools --sandbox-create` hands it to the secret gate: owner-only throughout, since the CLI runs
+# the clone under a pinned `umask 077`; grouped to the sandbox account by the setgid clone area; carrying a checked-in
+# secret and a depth-one directory.
+clone="${TESTDIR}/clone"
+mkdir -p "${clone}/src"
+: > "${clone}/.env"
+chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${clone}"
+chmod 2700 "${clone}" "${clone}/src"
+chmod 0600 "${clone}/.env"
+mk_allowlist "${proj}" "!${proj}/vendor" "${clone}"
 
 # Run the deployed helper in <cwd> (it acts on pwd), non-interactive (`--yes`), never aborting the suite. Captures
 # combined output to <outfile>; sets the global LD_RC to its exit code.
@@ -212,6 +221,32 @@ if ${seal_fx}; then
     fi
 else
     skip "owner-only seal pass" "setfacl unavailable"
+fi
+
+# (6) The seal enumeration leaves the target directory itself alone. The CLI's pinned `umask 077` makes a clone
+#     owner-only throughout, so with the root on the seal list an apply on a tip commit holding a secret would clear
+#     the root's setgid bit and move its group off the sandbox account's -- and normalize_clone restores the mode
+#     bits, not the group, so the agent would be refused at the root of a clone reported ready. The root keeps its
+#     mode and group, the pass does not descend into it (the depth-one directory keeps both too), and the secret
+#     inside is still locked.
+run_ld "${clone}" "${TESTDIR}/clone-apply" --yes
+if [[ "${LD_RC}" -ne 0 ]]; then
+    fail "lockdown --yes on the clone exited ${LD_RC}: $(cat "${TESTDIR}/clone-apply")"
+fi
+if [[ "$(stat -c '%a %G' "${clone}")" == "2700 ${SANDBOX_GROUP}" ]]; then
+    pass "an owner-only clone root keeps its setgid bit and group ${SANDBOX_GROUP} (the target is not sealed)"
+else
+    fail "the clone root ended $(stat -c '%a %G' "${clone}"), expected 2700 ${SANDBOX_GROUP}"
+fi
+if [[ "$(stat -c '%a %G' "${clone}/src")" == "2700 ${SANDBOX_GROUP}" ]]; then
+    pass "the pass does not descend into an owner-only root (the depth-one dir keeps setgid and group)"
+else
+    fail "the depth-one dir ended $(stat -c '%a %G' "${clone}/src"), expected 2700 ${SANDBOX_GROUP}"
+fi
+if [[ "$(stat -c '%U:%G' "${clone}/.env")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" && "$(perm "${clone}/.env")" == 600 ]]; then
+    pass "the secret inside the owner-only clone is still locked to ${PROJECTS_USER}:${PROJECTS_GROUP} 600"
+else
+    fail "the clone's secret ended $(stat -c '%U:%G' "${clone}/.env") $(perm "${clone}/.env")"
 fi
 
 finish

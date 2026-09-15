@@ -243,7 +243,9 @@ artifact) against a `/tmp` testdir and a dummy allowlist, asserting the algorith
 (acts only on projects-user- or sandbox-account-owned paths) where it applies, ACL/setgid/permission transforms,
 the secret/exclusion/skip-list skips, and -- for `-lockdown` -- the proactive sweep that locks **pre-existing
 user-owned** secrets (files `600`, dirs `700`, `<you>:<you>`) which the reactive `-chown` never reaches, plus its seal
-pass over the paths sealed by *mode* rather than by name, and its refusal to run as the sandbox account. The seal cases
+pass over the paths sealed by *mode* rather than by name — held to leave the target directory itself alone, on a fixture
+shaped like a fresh sandbox clone, whose owner-only root the seal would otherwise strip of the group and setgid bit
+`normalize_clone` does not restore — and its refusal to run as the sandbox account. The seal cases
 run across three files, because the same guarantee has three consumers: `owner-only.sh` pins the primitives, while
 `setgid.sh` and `lockdown.sh` assert the deployed helpers apply them. What each asserts is that a sealed path is never
 pulled into the agent's group and that the residue behind its mode is removed without the mode widening -- a strip
