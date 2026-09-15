@@ -1,12 +1,13 @@
 # Install from source
 
-The manual path — four root steps a checkout installs with, no RPM. The package install
-(see the README) automates all of it; `sudo ai-tools-admin system bootstrap` automates steps 2–3
-once `install.sh` has deployed it, and `install.sh` automates everything from step 4 on.
+The manual path — four root steps a checkout installs with, no RPM. The package
+install (see the README) automates all of it;
+`sudo ai-tools-admin system bootstrap` automates steps 2–3 once `install.sh`
+has deployed it, and `install.sh` automates everything from step 4 on.
 
-Set the recurring identities once, in the shell you run these steps in, so every command
-pastes verbatim (the full naming spec is in
-[naming-conventions.md](naming-conventions.md)):
+Set the recurring identities once, in the shell you run these steps
+in, so every command pastes verbatim (the full naming spec is
+in [naming-conventions.md](naming-conventions.md)):
 
 ```bash
 export PROJECTS_USER="$(id -un)"
@@ -16,8 +17,8 @@ export SANDBOX_USER=ai-tools
 export SANDBOX_GROUP=ai-tools
 ```
 
-Each critical step also re-states the sandbox name inline, so a step pasted on its own
-still works.
+Each critical step also re-states the sandbox name inline, so a step pasted
+on its own still works.
 
 ## 1. Install the PATH ordering fragment (root, once) <a id="ref-section-y2t3"></a>
 
@@ -30,45 +31,46 @@ sudo install -o root -g root -m 644 \
 (The lib directory's group becomes `ai-tools` once the account exists —
 `install.sh` and the RPM re-assert `root:ai-tools 0751`.)
 
-Anthropic's install routes deliver the same artifact. The
-[npm package](https://code.claude.com/docs/en/setup#install-with-npm)
+Anthropic's install routes deliver the same artifact. The [npm
+package](https://code.claude.com/docs/en/setup#install-with-npm)
 `@anthropic-ai/claude-code` downloads a native binary that does not use Node.js
 at runtime, and the [dnf package](https://code.claude.com/docs/en/setup#dnf)
 puts that same binary in `/usr/bin`. Node is the distribution and update
 channel rather than a runtime dependency.
 
 This stack takes the npm route, into the toolchain the sandbox account owns
-under `/opt/ai-tools` at `0750`: the binary, the Node it arrives through, and
-the daily npm update all sit inside the restricted account, where an agent
-that does run on Node takes the same toolchain. Your account cannot traverse
-that directory, so you reach the agent through the wrapper at
-`/usr/local/bin/claude`, which checks the caller and the project before it
+under `/opt/ai-tools` at `0750`: the binary, the Node it arrives
+through, and the daily npm update all sit inside the restricted account,
+where an agent that does run on Node takes the same toolchain. Your account
+cannot traverse that directory, so you reach the agent through the wrapper
+at `/usr/local/bin/claude`, which checks the caller and the project before it
 drops into the sandbox ([ref-section-e7g6](../README.md#ref-section-e7g6)).
 
 Your own shell can still put another `claude` first. The shell searches `$PATH`
 left to right and runs the first match, and `nvm` prepends its versioned `bin`
-to the front of `$PATH` from your `~/.bashrc`, so an agent you installed with
-`npm i -g` is found before `/usr/local/bin`. A dnf-installed binary is subject
-to the same search: which of `/usr/bin` and `/usr/local/bin` the shell reaches
-first decides, and that order differs between hosts. Either binary answers to
-the name `claude` and may start an unconfined session as you, with your
-credentials and your home, where the wrapper is not ordered ahead of it.
+to the front of `$PATH` from your `~/.bashrc`, so an agent you installed
+with `npm i -g` is found before `/usr/local/bin`. A dnf-installed binary is
+subject to the same search: which of `/usr/bin` and `/usr/local/bin` the shell
+reaches first decides, and that order differs between hosts. Either binary
+answers to the name `claude` and may start an unconfined session as you,
+with your credentials and your home, where the wrapper is not ordered ahead
+of it.
 
-`path-order.sh` is this project's convenience for that: it deduplicates the
-shell's `$PATH` and orders it root-owned-first, so `/usr/local/bin/claude`
+`path-order.sh` is this project's convenience for that: it deduplicates
+the shell's `$PATH` and orders it root-owned-first, so `/usr/local/bin/claude`
 always resolves ahead of an agent further down the PATH. It is sourced
 per-account: only the operator shells wired for it get the ordering, and every
 other account on the host keeps its stock PATH. Ordering your PATH another way
-does the same job — what the confinement needs is that `claude` resolves to the
-wrapper.
+does the same job — what the confinement needs is that `claude` resolves
+to the wrapper.
 
-`sudo ai-tools-admin operators add <user>` reads which `claude` a shell of that
-account runs today — the wrapper, or an agent elsewhere on its PATH, which
-starts unconfined — and offers to wire the source line into your `~/.bashrc` and
-`~/.bash_profile`. `ai-tools --status` reports the same reading for the shell
-you run it from. To wire it by hand, add it to **both** files
-(non-login interactive shells read only `~/.bashrc`, login shells `~/.bash_profile`),
-after your nvm init:
+`sudo ai-tools-admin operators add <user>` reads which `claude` a shell
+of that account runs today — the wrapper, or an agent elsewhere on its PATH,
+which starts unconfined — and offers to wire the source line into your
+`~/.bashrc` and `~/.bash_profile`. `ai-tools --status` reports the same reading
+for the shell you run it from. To wire it by hand, add it to **both** files
+(non-login interactive shells read only `~/.bashrc`, login shells
+`~/.bash_profile`), after your nvm init:
 
 ```bash
 export NVM_DIR="${HOME}/.nvm"
@@ -82,8 +84,8 @@ export NVM_DIR="${HOME}/.nvm"
 
 Those two files are bash's, and `operators add` names your login shell when it
 reads something else. The fragment sources cleanly under zsh, so the same line
-goes in `~/.zshrc` and `~/.zprofile`; a shell that does not read bash (fish) takes
-the same tier ordering in its own syntax.
+goes in `~/.zshrc` and `~/.zprofile`; a shell that does not read bash (fish)
+takes the same tier ordering in its own syntax.
 
 nvm must be sourced **before** the fragment: nvm prepends its versioned bin dir
 to `$PATH`, and the fragment then restructures it into Tier 4, behind the T1
@@ -116,19 +118,20 @@ sudo install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 755 /opt/ai-tools
 sudo passwd -l "${SANDBOX_USER}"
 ```
 
-The `install -d` creates `/opt/ai-tools` owned by the account with `+x` for all, so
-`${PROJECTS_USER}` can traverse into `bin/`. The RPM ships this account via `sysusers.d`, so
-this step applies only to the from-source path.
+The `install -d` creates `/opt/ai-tools` owned by the account with `+x`
+for all, so `${PROJECTS_USER}` can traverse into `bin/`. The RPM ships this
+account via `sysusers.d`, so this step applies only to the from-source path.
 
-`/home` is mounted `nosuid`, which would prevent the `sudo` UID-switch from taking
-effect. `/opt/ai-tools` has no `nosuid` restriction, so the switch to `${SANDBOX_USER}`
-actually takes effect.
+`/home` is mounted `nosuid`, which would prevent the `sudo` UID-switch
+from taking effect. `/opt/ai-tools` has no `nosuid` restriction, so the switch
+to `${SANDBOX_USER}` actually takes effect.
 
 ## 3. Install nvm + Node + claude as `SANDBOX_USER` (root, once)
 
-`sudo ai-tools-admin system bootstrap` does steps 2 and 3 in one idempotent command once the
-package is installed — it creates the account, installs the toolchain, seeds the symlink, and
-enables the `nvm-update.timer`. The manual equivalent:
+`sudo ai-tools-admin system bootstrap` does steps 2 and 3 in one idempotent
+command once the package is installed — it creates the account, installs
+the toolchain, seeds the symlink, and enables the `nvm-update.timer`.
+The manual equivalent:
 
 ```bash
 # cd first: the block runs as ${SANDBOX_USER}, which cannot occupy your home as cwd
@@ -155,81 +158,92 @@ sudo -u "${SANDBOX_USER}" bash -c '
 '
 ```
 
-Once `install.sh` (step 4) has run, `/opt/ai-tools/bin` is locked `0551 root:ai-tools` and
-only root maintains the symlink: instead of that `ln`, run
-`sudo ai-tools-admin system bootstrap` (idempotent -- it provisions whatever is missing and
-seeds the symlink through the root helper), or re-run `sudo ./install.sh install`.
+Once `install.sh` (step 4) has run, `/opt/ai-tools/bin` is locked
+`0551 root:ai-tools` and only root maintains the symlink: instead of that `ln`,
+run `sudo ai-tools-admin system bootstrap` (idempotent -- it provisions
+whatever is missing and seeds the symlink through the root helper), or re-run
+`sudo ./install.sh install`.
 
 ## 4. Run the install script (root, once)
 
-Everything from here on is fully automated by `install.sh`. **Complete steps 2 and 3
-first** — the account must exist (else the script stops with `ai-tools user not found`)
-and `/opt/ai-tools/bin` must exist (step 3 creates it; the script writes `nvm-update.sh`
-into it). `sudo ai-tools-admin system bootstrap` does both in one idempotent command. Then run
-`sudo ./install.sh install`.
+Everything from here on is fully automated by `install.sh`. **Complete steps 2
+and 3 first** — the account must exist (else the script stops
+with `ai-tools user not found`) and `/opt/ai-tools/bin` must exist (step 3
+creates it; the script writes `nvm-update.sh` into it).
+`sudo ai-tools-admin system bootstrap` does both in one idempotent command.
+Then run `sudo ./install.sh install`.
 
-The script asks which account to enrol as the operator, offering the invoking `SUDO_USER`
-as the default — answer No to name another. A non-interactive run and a plain Enter both
-take `SUDO_USER`. `root` is refused at either route, including the one that reaches it by
-accident: `sudo` from a root shell sets `SUDO_USER=root`, and the resulting host has an
-operator the CLI refuses every project verb.
+The script asks which account to enrol as the operator, offering the invoking
+`SUDO_USER` as the default — answer No to name another. A non-interactive run
+and a plain Enter both take `SUDO_USER`. `root` is refused at either route,
+including the one that reaches it by accident: `sudo` from a root shell sets
+`SUDO_USER=root`, and the resulting host has an operator the CLI refuses every
+project verb.
 
-**Enrolling your own login account is the usual choice.** Agent-written files are handed
-back to it, so an editor or IDE working in a claimed project keeps seeing its own files,
-and a login that can already `sudo` holds what claiming needs. Enrol a different account
-when this host is being set up for someone else, or when a dedicated provisioning account
-owns the projects. Create one before installing:
+**Enrolling your own login account is the usual choice.** Agent-written files
+are handed back to it, so an editor or IDE working in a claimed project keeps
+seeing its own files, and a login that can already `sudo` holds what claiming
+needs. Enrol a different account when this host is being set up for someone
+else, or when a dedicated provisioning account owns the projects. Create one
+before installing:
 
 ```bash
 sudo useradd -m -s /bin/bash op && sudo usermod -aG wheel op
 ```
 
-`useradd` creates the login account the script enrols; `usermod -aG wheel` is this host's
-general sudo grant, which this project does not write. Naming an account
-that does not exist yet refuses the install and prints this same command.
+`useradd` creates the login account the script enrols; `usermod -aG wheel` is
+this host's general sudo grant, which this project does not write. Naming
+an account that does not exist yet refuses the install and prints this same
+command.
 
-The question is asked once per account. A re-install whose invoking account already holds
-both facts — a name in `OPERATORS` and `ai-ops` membership — reports whose host it is
-working on and re-asserts that enrolment without prompting.
+The question is asked once per account. A re-install whose invoking account
+already holds both facts — a name in `OPERATORS` and `ai-ops` membership —
+reports whose host it is working on and re-asserts that enrolment without
+prompting.
 
-Name the account up front to skip the question — what an unattended install uses, and how
-to enrol a different account on a host that already has one:
+Name the account up front to skip the question — what an unattended install
+uses, and how to enrol a different account on a host that already has one:
 `sudo ./install.sh install --operator op`.
 
-The name is refused on the same terms as a typed one (`root`, the `ai-tools` sandbox
-account, an account that does not exist or has no home), and it decides only **who is
-enrolled**: the script still runs as `sudo`, and its verification suite still runs as the
-invoking `SUDO_USER`.
+The name is refused on the same terms as a typed one (`root`, the `ai-tools`
+sandbox account, an account that does not exist or has no home), and it decides
+only **who is enrolled**: the script still runs as `sudo`, and its verification
+suite still runs as the invoking `SUDO_USER`.
 
-Enrolment writes the two facts that make an operator — `ai-ops` membership and a name in
-`OPERATORS`. **Claiming a project needs a general sudo grant as well**, which this project does not
-writes; the host's own sudoers decides it. An operator without one launches agent sessions,
-and another operator claims for it with `ai-tools --project-claim --for <operator>`. A host
-needs at least one operator holding the grant, so enrol one that does — a service account
-holding none is enrolled after the install with `ai-tools-admin`, rather than named at this
-prompt.
+Enrolment writes the two facts that make an operator — `ai-ops` membership
+and a name in `OPERATORS`. **Claiming a project needs a general sudo grant
+as well**, which this project does not writes; the host's own sudoers decides
+it. An operator without one launches agent sessions, and another operator
+claims for it with `ai-tools --project-claim --for <operator>`. A host needs
+at least one operator holding the grant, so enrol one that does — a service
+account holding none is enrolled after the install with `ai-tools-admin`,
+rather than named at this prompt.
 
-The script deploys the static `%ai-ops` sudoers drop-in, the helpers and the system
-units, creates the approved-projects allowlist with format documentation, installs the
-`ai-tools` project CLI and the `/var/opt/ai-tools` sandbox area, enables the
-`nvm-update.timer` in `${SANDBOX_USER}`'s `--user instance`, and enables the
-`ai-tools-relabel.path` watcher. It is idempotent — safe to re-run after updates. It deploys
-the commit the checkout is at and names it before asking to proceed. A checkout with uncommitted
-changes is listed, with the paths the sandbox account wrote marked, and refused, so what root
-deploys is a tree you reviewed and committed. To deploy work in progress while developing, say so
-on the command line: `sudo ./install.sh install --allow-uncommitted`.
+The script deploys the static `%ai-ops` sudoers drop-in, the helpers
+and the system units, creates the approved-projects allowlist with format
+documentation, installs the `ai-tools` project CLI and the `/var/opt/ai-tools`
+sandbox area, enables the `nvm-update.timer` in `${SANDBOX_USER}`'s
+`--user instance`, and enables the `ai-tools-relabel.path` watcher. It is
+idempotent — safe to re-run after updates. It deploys the commit the checkout
+is at and names it before asking to proceed. A checkout with uncommitted
+changes is listed, with the paths the sandbox account wrote marked,
+and refused, so what root deploys is a tree you reviewed and committed.
+To deploy work in progress while developing, say so on the command line:
+`sudo ./install.sh install --allow-uncommitted`.
 
-Whether the checkout is registered as a project is the CLI's business, and the install leaves that
-entry as it finds it.
+Whether the checkout is registered as a project is the CLI's business,
+and the install leaves that entry as it finds it.
 
-Enrol each further login user as an operator (ai-ops membership, allowlist seed):
+Enrol each further login user as an operator (ai-ops membership, allowlist
+seed):
 
 ```bash
 sudo ai-tools-admin operators add <user>     # defaults to $SUDO_USER
 ```
 
-It reports which shape the enrolment produced — whether the account can claim projects, or
-only launch sessions and have them claimed for it — by asking sudo about that account.
+It reports which shape the enrolment produced — whether the account can claim
+projects, or only launch sessions and have them claimed for it — by asking sudo
+about that account.
 
 Register projects with the `ai-tools` CLI, run as your own user (no sudo):
 
@@ -240,17 +254,18 @@ ai-tools --sandbox-create /path/to/repo       # an isolated shallow clone
 ai-tools --lockdown /path/to/project          # revoke agent access to secrets (sudo)
 ```
 
-[project-lifecycle.md](project-lifecycle.md) covers registering in depth — claim vs
-sandbox clone, what each consent prompt grants (including the traverse-only parent grant
-a home-nested project needs), and every recovery/reversal path.
+[project-lifecycle.md](project-lifecycle.md) covers registering in depth —
+claim vs sandbox clone, what each consent prompt grants (including
+the traverse-only parent grant a home-nested project needs), and every
+recovery/reversal path.
 
 To remove everything installed by this script: `sudo ./install.sh uninstall`.
 
 ## Files
 
 The source→deploy map `install.sh` applies (the authoritative per-artifact
-owner/group/mode list is `tests/integration/perms.sh`, which
-`sudo ./install.sh check-perms` runs):
+owner/group/mode list is `tests/integration/perms.sh`,
+which `sudo ./install.sh check-perms` runs):
 
 | File | Deploy path |
 |---|---|
