@@ -110,9 +110,9 @@ a killed prior session's leftovers) and the `session-end` pass (graceful-exit co
 sweep, so it never flips ownership mid-turn under a live `git` command. The other skipped trees (`node_modules`,
 `.venv`, …) stay agent-owned, which is safe as an ownership outcome — the files are world-readable, so the owner field
 does not decide access to them, and the tree is regenerable. That is a claim about ownership alone: no sweep inspects
-what a tree holds. The operator's on-demand counterpart is `ai-tools --reclaim [--full]` (the `ai-tools-reclaim` helper,
-which walks a project and delegates to the same `ai-tools-chown`; see [cli](cli.rule.md)) — e.g. before a backup,
-with `--full` to include the skipped heavy trees.
+what a tree holds. The operator's on-demand counterpart is `ai-tools projects handback [--full]` (the `ai-tools-reclaim`
+helper, which walks a project and delegates to the same `ai-tools-chown`; see [cli](cli.rule.md)) — e.g.
+before a backup, with `--full` to include the skipped heavy trees.
 
 ### Clean-exit marker
 
@@ -136,9 +136,10 @@ Every pass checks the handback socket before acting, since a socket that is down
 of attempts would then report work that did not happen. So the sweeps and the reclaim count **confirmed** handbacks
 (client exit 0), not attempts; a down socket makes each pass skip its walk and record the stranded count,
 and the `session-start` pass — the one the operator reads — surfaces a distinct `SessionStart` NOTICE naming the fix
-(`systemctl enable --now ai-tools-handback.socket`, then `ai-tools --reclaim <project>`) whenever agent-owned `.git`
-paths are stranded, instead of the "reclaimed N" wording. `ai-tools-run`'s launch-time preflight is the front-line
-detector for the same condition (see [launch](launch.rule.md), [handback-bridge](handback-bridge.rule.md)).
+(`systemctl enable --now ai-tools-handback.socket`, then `ai-tools projects handback <project>`) whenever agent-owned
+`.git` paths are stranded, instead of the "reclaimed N" wording. `ai-tools-run`'s launch-time preflight is
+the front-line detector for the same condition (see [launch](launch.rule.md),
+[handback-bridge](handback-bridge.rule.md)).
 
 ## Setgid normalization
 

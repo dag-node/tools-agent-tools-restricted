@@ -55,7 +55,7 @@ helper's tag lands under the sandbox uid and is absent from the same tag at `_UI
 the trail depends on — the agent can append but cannot unmake: journal storage refuses it a new file, none of its files
 is agent-writable, and `journalctl`'s destructive verbs (`--vacuum-time`, `--rotate`) fail for that account.
 
-**The reader for these trails is `ai-tools --audit`** (see [cli](cli.rule.md)). It reports the file sink as evidence
+**The reader for these trails is `ai-tools audit`** (see [cli](cli.rule.md)). It reports the file sink as evidence
 and the sandbox-written launch refusals separately, which is this distinction made operational rather than left
 to whoever runs the query.
 
@@ -103,7 +103,7 @@ so the reduction is preserved rather than the load being made fatal
 ([docs/session-stop.md](../../docs/session-stop.md)). The values it reduces are a unit name and a session's
 `WorkingDirectory`, both read from the sandbox account's own user manager; that helper additionally refuses any working
 directory that is not an absolute path, so a value it cannot interpret degrades to `unknown` instead of reaching
-the operator inside a `--reclaim` command it is invited to run.
+the operator inside a `projects handback` command it is invited to run.
 
 The test harness applies the same allowlist to every `pass`/`fail`/`skip`/`section` line (`_san`), so a suite run —
 which executes as root via `sudo`, often on a live host — cannot print a crafted byte a fixture carried into a result

@@ -77,7 +77,7 @@ The state root's label comes from the base's static rule on `integrations(/.*)?`
 The groups are named for the **capability** each grants, not for .NET, because each is a class of SELinux access another
 toolchain needs too ([confinement](confinement.rule.md) covers the group machinery). They are disjoint — one never
 implies another — so a session takes on only the surface its workload needs. What is .NET's about them is declared
-in the integration's manifest (`ai-tools-providers(5)`): `selinux_groups` names the set, and the `--providers` status
+in the integration's manifest (`ai-tools-providers(5)`): `selinux_groups` names the set, and the `providers` status
 block and `ai-tools-admin dotnet status` read that key to name the ones not loaded, with the command that enables them.
 No group is enabled automatically.
 
@@ -191,9 +191,8 @@ What follows from that placement:
   own file contexts decide.
 - `SKIP_ARTIFACT_DIRS` (`skip-dirs.lib.sh`) is a walk-cost setting with its own name set; the two mechanisms do not read
   each other.
-- `ai_tools_project_labelled` and the project verdict in `--status` read the project root's type alone; a build
-  directory carrying the wrong type is not reported anywhere. A build-type check belongs in `dotnet status`, and is not
-  built.
+- `ai_tools_project_labelled` and the project verdict in `status` read the project root's type alone; a build directory
+  carrying the wrong type is not reported anywhere. A build-type check belongs in `dotnet status`, and is not built.
 - Unclaim finds the build rule by **listing** the local rules registered under the project rule, so a rule written
   under an earlier name set is dropped with the claim and does not keep a subtree of an unclaimed project on a type
   the confined domain manages.

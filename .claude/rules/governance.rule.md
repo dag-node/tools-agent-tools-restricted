@@ -50,7 +50,7 @@ column is why the host's safety does not rest on it.
 
 | Expected of the agent | The enforced control beside it |
 |---|---|
-| Accept a stop or a restriction immediately, without finishing the current step first | `ai-tools --stop` ends the session whether or not it accepts anything: the kill is delivered by root to a cgroup, and no process inside the cgroup takes part in it. The allowlist, the provider manifests, and `operator.conf` then gate the next launch from files the agent cannot write. |
+| Accept a stop or a restriction immediately, without finishing the current step first | `ai-tools stop` ends the session whether or not it accepts anything: the kill is delivered by root to a cgroup, and no process inside the cgroup takes part in it. The allowlist, the provider manifests, and `operator.conf` then gate the next launch from files the agent cannot write. |
 | Report a gap in the sandbox instead of using it | Every refusal is asserted from both ends, so a reachable gap is a missing test — not a capability anyone granted. |
 | Do not misrepresent what ran, what failed, or what was skipped | The root-only file sink and the handback daemon's per-request audit line record every privileged operation independently of the session ([logging](logging.rule.md), [handback-bridge](handback-bridge.rule.md)). |
 | Do not work to widen the grant; ask the operator for an authority the work needs | Every input deciding what a session gets passes a trust predicate the sandbox account cannot satisfy, and each failure direction yields less ([providers](providers.rule.md)). |
@@ -63,7 +63,7 @@ here.
 ## The stop rung is enforced, not dispositional
 
 The standard's rule that a control the system can decline is not a control applies most sharply to stopping, because
-"the agent stops when asked" is the easiest thing to write and the hardest to mean. `ai-tools --stop` is what makes
+"the agent stops when asked" is the easiest thing to write and the hardest to mean. `ai-tools stop` is what makes
 that row enforced: the operator signals a cgroup as root, the session's cooperation is not an input, and the account it
 runs as can neither run, read nor alter the helper — asserted from the agent's own vantage
 in `tests/boundary/access.sh`. Its undeclinable command deliberately takes **no** authorization input and **no** target,
@@ -93,7 +93,7 @@ the system — but it is a line that has to be **drawn and shown** rather than l
 So the two trails are kept distinguishable at every layer that touches them. The root-only file sink (`700 root:root`,
 root writers only) is evidence: the sandbox account can neither read it, to learn what an operator is about to be shown,
 nor write it, to plant or erase a finding. Journald under `ai-tools-hook` and `ai-tools-run` is the session's own
-account. Every documented query pairs the tag with the writer's `_UID`; `ai-tools --audit` reports the two in separate
+account. Every documented query pairs the tag with the writer's `_UID`; `ai-tools audit` reports the two in separate
 titled sections rather than merging them ([cli](cli.rule.md)); and the boundary suite asserts, as the agent,
 that the sandbox can append to journald but cannot unmake what it appended.
 

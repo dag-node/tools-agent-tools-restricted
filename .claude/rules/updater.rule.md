@@ -98,7 +98,7 @@ Running there puts the updater's health out of the operator's reach: querying a 
 own bus, the machine transport (`systemctl --user -M`) needs root, and no sudo rule grants either — so a failing update
 is invisible from an operator session while the toolchain silently stops advancing. `nvm-update.sh` closes
 that by recording every run's outcome in a **last-run stamp**, `/var/opt/ai-tools/state/nvm-update.status`,
-which `ai-tools --status` reads through `services.lib.sh` (see [cli](cli.rule.md)).
+which `ai-tools status` reads through `services.lib.sh` (see [cli](cli.rule.md)).
 
 The stamp is the second of two independent records, and deliberately so: the first is what the run *says* (its
 `log`/`warn`/`die` output, which the unit routes to the journal), and a run can fail silently. `nvm-update.sh`'s
@@ -142,7 +142,7 @@ of which resolved, is a **fault** — `die`, exit `1`, `RESULT=failed` — becau
 the status the unit's `RestartPreventExitStatus=` already withholds a retry from. A configuration that asks for no agent
 (`AI_TOOLS_AGENTS` set and empty, no manifest installed, or every manifest `default_enable=no` with the key unset) is
 logged and the run continues over `npm`. The fault reason carries every refused path with the owner and mode
-the predicate read, so `ai-tools --status` reports `FAILED` on the first run after the fault and the journal line names
+the predicate read, so `ai-tools status` reports `FAILED` on the first run after the fault and the journal line names
 the input to look at. The verdict is a `fault`/`none` line and not a new `RESULT` token:
 `ai_tools_service_stamp_verdict` declines a word outside `ok|skipped|failed`, so a token added there would report
 as unknown and leave `ai_tools_service_needs_attention` unmoved.
@@ -173,7 +173,7 @@ and the timer's verdict is declined for anything else. Without it a run the oper
 timer as healthy for the whole grace window and, worse, suppress the staleness that is the only way a stopped schedule
 surfaces at all. A run started by hand *through* the manager (`systemctl --user start nvm-update.service`) is
 indistinguishable from a triggered one and counts as `unit`: the inference is bounded to systemd-started runs, not
-to scheduled ones. `NODE` lets `ai-tools --status` report the active Node version without reading the `700` toolchain,
+to scheduled ones. `NODE` lets `ai-tools status` report the active Node version without reading the `700` toolchain,
 which the operator cannot. `REASON` is written only on a skip and says which transient condition ended the run
 (`offline`), so the report can state why a run made no change instead of leaving the operator to infer it.
 
@@ -252,7 +252,7 @@ that runs out proceeds unserialized and says so, since labelling is idempotent a
 so an untaken lock costs a repeat run rather than a wrong label.
 
 `semanage`'s own stderr is what a refusal reports, carried on the status line the helper renders and logs
-(`relabel.log`, journald, and so `ai-tools --audit`) — the store being held and a type the loaded policy does not define
+(`relabel.log`, journald, and so `ai-tools audit`) — the store being held and a type the loaded policy does not define
 need different remedies, and the message is the only thing that tells them apart.
 
 ### The labelling half leaves a record too
@@ -260,7 +260,7 @@ need different remedies, and the message is the only thing that tells them apart
 Each run records what it could do about every enabled agent's labels,
 in `/var/opt/ai-tools/state/entrypoint-label.d/<agent>` — the same `KEY=value` grammar, directory ownership,
 and defensive reader as the pin beside it (`AGENT`, `RESULT=ok|failed|skipped`, `LABELLED`, and a `REASON` token
-on anything but `ok`). `ai-tools --status` reports it under that agent's verification line (see [cli](cli.rule.md)).
+on anything but `ok`). `ai-tools status` reports it under that agent's verification line (see [cli](cli.rule.md)).
 
 It exists because **the operator can observe neither the label nor the run that applies it**. The entrypoint is
 in a toolchain they cannot traverse, `matchpathcon` computes only what a label should be, and two of the three callers —
@@ -310,7 +310,7 @@ provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run 
   install without a reboot; it is also restarted across upgrades (`%postun_with_restart`), so it runs without a manual
   bootstrap. Should it be down anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch
   on a mislabelled entrypoint: proactively at launch (`claude.sh` warns, warn-not-block, from the same registry)
-  and in `ai-tools --status` (see [cli](cli.rule.md)).
+  and in `ai-tools status` (see [cli](cli.rule.md)).
 - **On demand**, through `sudo ai-tools-admin system entrypoints relabel`, which runs the same helper as root. It is
   an administrator command rather than an operator one: it carries no `%ai-ops` NOPASSWD rule and is reached
   through the host's own general sudo grant, the axis [CLAUDE.md](../../CLAUDE.md) names (see

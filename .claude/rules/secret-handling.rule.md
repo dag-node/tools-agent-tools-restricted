@@ -110,20 +110,19 @@ why rule files use a non-matching stem (`secret-handling.rule.md`, not `secrets.
 
 `ai-tools-chown` is reactive — it acts only on `SANDBOX_USER`-owned paths, so it never touches a pre-existing user-owned
 secret the agent could already read. `ai-tools-lockdown` (`/usr/local/libexec/ai-tools/ai-tools-lockdown`, run
-`ai-tools --lockdown <project>` or `cd <project> && sudo ai-tools-lockdown`) is the proactive counterpart: it walks
-the current directory and, for every path matching the shared secret patterns, sets regular files `600`, directories
-`700`, and owner `<you>:<you>` — revoking `SANDBOX_USER`'s read regardless of who created the path. The owner's own
-private group is the target, the same one `ai-tools-chown` gives an agent-written secret, so a secret ends
-up identically owned whether it was locked down proactively or quarantined on write; leaving the group
+`ai-tools projects lockdown <project>` or `cd <project> && sudo ai-tools-lockdown`) is the proactive counterpart: it
+walks the current directory and, for every path matching the shared secret patterns, sets regular files `600`,
+directories `700`, and owner `<you>:<you>` — revoking `SANDBOX_USER`'s read regardless of who created the path.
+The owner's own private group is the target, the same one `ai-tools-chown` gives an agent-written secret, so a secret
+ends up identically owned whether it was locked down proactively or quarantined on write; leaving the group
 as `SANDBOX_GROUP` would re-expose it the moment the mode was widened. Each locked path also has its sandbox residue
 stripped. The seal pass that follows covers the owner-only paths **under** the target and leaves the target directory
-itself as it is, still pruning the subtree of an owner-only root the way the claim walkers do. `ai-tools
---sandbox-create` runs its `git clone` under a pinned `umask 077`, so a clone reaches the gate owner-only throughout,
-and a root on the seal list would lose the setgid bit and the sandbox group the clone area gave it before
-`normalize_clone` opens the tree, which restores the mode bits and not the group. It runs
-only when the CWD is an allowed project and skips `!`-excluded paths, and applies each change
-through a pinned fd (re-verifying inode and type) so a `SANDBOX_USER` path swap cannot redirect root's chmod/chown.
-`--yes` skips the TTY confirmation.
+itself as it is, still pruning the subtree of an owner-only root the way the claim walkers do. `ai-tools projects clone`
+runs its `git clone` under a pinned `umask 077`, so a clone reaches the gate owner-only throughout, and a root
+on the seal list would lose the setgid bit and the sandbox group the clone area gave it before `normalize_clone` opens
+the tree, which restores the mode bits and not the group. It runs only when the CWD is an allowed project and skips
+`!`-excluded paths, and applies each change through a pinned fd (re-verifying inode and type) so a `SANDBOX_USER` path
+swap cannot redirect root's chmod/chown. `--yes` skips the TTY confirmation.
 
 `--dry-run` previews **both** passes — the secret lock and the seal — naming each path and, for a seal, what would come
 off it. The seal half is the one that acts on paths the operator did not name, so a preview that showed only the secret
@@ -134,18 +133,18 @@ the mutations are skipped — every gate, guard and pinned-fd re-check still run
 reached, since a preview must not ask to apply.
 
 It is a user tool: there is **no** sudoers grant letting `SANDBOX_USER` run it, and it refuses to run as `SANDBOX_USER`.
-The `ai-tools` CLI wraps it as `ai-tools --lockdown [path]` (it `cd`s into the project and `sudo`s the helper, so sudo
-prompts for the projects user's password; `--dry-run` and `-y`/`--yes` pass through). The CLI never pre-checks
+The `ai-tools` CLI wraps it as `ai-tools projects lockdown [path]` (it `cd`s into the project and `sudo`s the helper,
+so sudo prompts for the projects user's password; `--dry-run` and `-y`/`--yes` pass through). The CLI never pre-checks
 the helper's path: `/usr/local/libexec/ai-tools` is `750 root:root`, so the projects user cannot stat the helper — only
 `sudo`, as root, can reach it.
 
 ### Lockdown on clone
 
-`ai-tools --sandbox-create` runs this lockdown directly after a shallow clone and **before** the clone is opened
+`ai-tools projects clone` runs this lockdown directly after a shallow clone and **before** the clone is opened
 to the agent group or registered, since the tip commit may still hold credential files (the clone is born owner-only
 via `umask 077`, so no file is group-readable in the interim — see [cli](cli.rule.md)). If the user declines or lockdown
 fails, the create stops fail-closed — the clone stays private and unregistered — and the CLI drops a guard `CLAUDE.md`
 into the clone instructing the agent to wait until lockdown runs (any existing `CLAUDE.md` is preserved via `git mv`
-to `CLAUDE.md.bak`); re-running `--sandbox-create` on the clone path resumes the gate and, on success, removes the guard
+to `CLAUDE.md.bak`); re-running `projects clone` on the clone path resumes the gate and, on success, removes the guard
 and restores the original. The guard carries a sentinel comment (`ai-tools-lockdown-guard`) so the CLI recognizes its
 own placeholder and never clobbers a real `CLAUDE.md`.

@@ -124,7 +124,7 @@ each reach the catalog in the change that makes them ([tests](tests.rule.md)).
 
 ### One situation, two processes: a deliberate twin
 
-A situation two processes both report carries **one code**, emitted at each site. `ai-tools --stop` and `ai-tools-stop`
+A situation two processes both report carries **one code**, emitted at each site. `ai-tools stop` and `ai-tools-stop`
 each refuse a path, and each refuse an unknown option, in texts that are deliberate twins —
 `refuse_positional_argument`'s header states why neither side can source the other — so an operator meets the same token
 whichever side answered.
@@ -208,7 +208,7 @@ decided by the caller rather than by an index. A caller that cannot state that o
 
 `ai_tools_cmd_display <abs-path>` renders a command for **printing**: the bare name (`ai-tools`) when `command -v`
 resolves that name to the same absolute path on this PATH, and the absolute path otherwise. A printed command is meant
-to be typed, and `/usr/local/bin/ai-tools --project-claim` beside a `claude` the operator just ran reads as a second,
+to be typed, and `/usr/local/bin/ai-tools projects claim` beside a `claude` the operator just ran reads as a second,
 unrelated tool; the resolve check is what keeps the short form honest, so a host whose PATH does not carry the directory
 still gets a command that works. Every site that prints a component's own path for the user to run goes through it.
 
@@ -234,13 +234,13 @@ Pre-answering is two distinct mechanisms, by direction:
 - `AI_TOOLS_ASSUME_YES=1` (environment; unattended runs, tests) skips the prompt and answers yes **only when the default
   is already `y`** — it fast-tracks safe-direction questions and never flips a default-NO question.
 - A default-NO question is pre-answered only by an **explicit per-invocation flag** on the command that owns it —
-  `ai-tools --project-claim -y/--yes` (the launch wrapper's delegated claim, covering just the proceed prompt),
+  `ai-tools projects claim -y/--yes` (the launch wrapper's delegated claim, covering just the proceed prompt),
   `ai-tools-lockdown --yes`, `ai-tools-chown --yes` (the batch caller's per-path skip) — an auditable operator decision,
   never ambient state.
 
 ### The stop confirmation defaults YES, and that is the rule, not an exception to it
 
-`ai-tools --stop` inverts that direction: its confirmation defaults **YES**, so a bare Enter, a pipe, a cron run
+`ai-tools stop` inverts that direction: its confirmation defaults **YES**, so a bare Enter, a pipe, a cron run
 and an absent `msg.lib.sh` all proceed, and only a deliberate `n` declines. The principle is unchanged — *give it
 the default that is the safe outcome* — and it is **which outcome is safe** that flips: for the one control whose job is
 to end a session already running, declining is the failure. `--dry-run` is how that command is looked at without acting,
@@ -279,7 +279,7 @@ string reaching a log sink or a terminal gets ([logging](logging.rule.md)). With
 loaded best-effort here — the answer is **omitted** rather than recorded raw; the decision itself is recorded either
 way.
 
-Where a caller pre-answers it (`ai-tools --project-remove -y`), that is the same explicit per-invocation flag rule
+Where a caller pre-answers it (`ai-tools projects remove -y`), that is the same explicit per-invocation flag rule
 as a default-NO confirm, and the flag is the auditable decision.
 
 ## Decision audit trail
@@ -344,11 +344,11 @@ report.
   menu under it, each with the consequence that distinguishes it — **1)** Create sandbox (*the session runs in the copy,
   not here*), **2)** Claim here (*its group becomes `ai-tools`*), **3)** Cancel. Because the block does not name
   a command, the Cancel path — which is also the no-terminal and unanswered-menu path — prints both commands itself,
-  plain and under the frame. The **finish-setup** screen keeps its per-gap bullets, its embedded `--sandbox-create`
+  plain and under the frame. The **finish-setup** screen keeps its per-gap bullets, its embedded `projects clone`
   command (its prompt is a yes/no confirm offering only the claim, so the alternative has nowhere else to appear),
   and its severity-based default.
-- **`ai-tools.sh`** routes `die()` and `warn()` through the error/warning emitters, and builds the `--project-claim` /
-  `--sandbox-create` flows from `ai_tools_msg_headline` blocks (Review, Secret lockdown, `.git` history, Reachability,
+- **`ai-tools.sh`** routes `die()` and `warn()` through the error/warning emitters, and builds the `projects claim` /
+  `projects clone` flows from `ai_tools_msg_headline` blocks (Review, Secret lockdown, `.git` history, Reachability,
   Apply — see [cli](cli.rule.md)). The flows carry **no sudo-password notices**: the first sudo prompt (the secret scan)
   lands directly under the Secret-lockdown headline, and sudo's own prompt is self-explanatory.
 - **`ai-tools-run.sh`** routes its pre-launch refusals and the podman NOTICE.

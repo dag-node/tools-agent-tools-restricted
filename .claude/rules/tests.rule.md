@@ -53,7 +53,7 @@ tests/
 `manual/` is not dispatched by `run.sh`, because its contents cannot be run the way the suite is: `verify-live-flows.sh`
 drives the CLI **as the operator**, which prompts on `/dev/tty`, `sudo`s for each root step, and writes the operator's
 own registries — none of which a root-run hermetic suite reproduces. It exists for what only a live run shows (a claim,
-lockdown and unclaim completing end to end, `ai-tools --status` read from the vantage point that has to read it,
+lockdown and unclaim completing end to end, `ai-tools status` read from the vantage point that has to read it,
 and the **live handback chain** — hook, socket, daemon, `ai-tools-chown` — driven as the sandbox account
 against a fixture inside the project that run claimed, since the daemon reads the operator's real allowlist and no
 automated file may write it), and it is bounded by two rules that keep a convenience script from becoming a hazard: it
@@ -398,7 +398,7 @@ it where the parser does. A wrong font renders as cleanly as a right one, so non
 a check.
 
 `sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same class: a pure
-decision with a security consequence. `--project-create` skips the secret scan, the git-history prompt and the proceed
+decision with a security consequence. `projects create` skips the secret scan, the git-history prompt and the proceed
 confirm when it returns 0, so every way it could wrongly say yes is a way to grant an agent access to a tree no scan has
 covered — which is why the claim re-derives it from the tree rather than trusting the caller's hint, and why the cases
 driven here are the states that must read as **not** pristine (any file beyond the README, one nested deeper, any
@@ -521,7 +521,7 @@ the default is yes. The two refusals complete the set: a declined prompt and a `
 their code and return non-zero, which is what makes `op_add` refuse.
 
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
-[launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools --status` re-checks
+[launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools status` re-checks
 with, and `ai-tools-admin system bootstrap` reports from. What gives it teeth is the direction each answer sends
 an operator: a launcher resolving outside `/usr/local/bin` means typing its name starts an **unconfined** agent,
 so a verdict reading that state as fine would turn the one question standing between an operator and an unsandboxed
@@ -559,7 +559,7 @@ makes the helper's own `source` a no-op and the stubs stand. The reading beneath
 and the paths a case drives are the ones a host presents: an operator's own `npm i -g` under their nvm, and the agent's
 distribution package at `/usr/bin/claude` and `/bin/claude`.
 
-`services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools --status` and the launch wrapper's
+`services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools status` and the launch wrapper's
 pre-launch warning share. Two properties carry weight beyond the accessors. The **last-run stamp** is the one input here
 a non-root writer controls and it is rendered to the operator's terminal, so every way a hostile or corrupt value could
 reach that terminal — a symlinked stamp, a control byte or escape sequence, an over-long or unanchored line — is driven
@@ -621,7 +621,7 @@ made through that same capture. It also pins the stream split in the other direc
 reach the caller, which parses that stream as verdict lines. The second drives `ai_tools_relabel_lock` across real
 processes — a held lock is reported as held, the contended run proceeds anyway, the lock is released when its holder
 exits, and an uncreatable lock file is reported rather than fatal. A third pins the per-agent verdict each agent's
-report closes with, which is what `ai-tools-relabel-agent` files for `ai-tools --status`: both halves stubbed,
+report closes with, which is what `ai-tools-relabel-agent` files for `ai-tools status`: both halves stubbed,
 over the whole truth table. Two entries carry the weight — a path that is not installed yet must read as "nothing
 to label" rather than as labels applied, and must not fail the run, or every host would report green before provisioning
 and non-zero after it.
@@ -645,7 +645,7 @@ a tampered one); a checksum is admitted only in exact 64-hex shape, so malformed
 value yields an empty result rather than a value that could compare equal to a partial observation; a URL template
 with no `{version}` slot is refused rather than fetched as-is, since one manifest for every version reads as "verified"
 while checking a release it never looked at; and the template charset excludes every character that could carry a shell
-metacharacter or a traversal into `curl`. It also pins the public pin path, which `ai-tools --status` reads to report
+metacharacter or a traversal into `curl`. It also pins the public pin path, which `ai-tools status` reads to report
 verification state: an agent name becomes a path component, so a name that could escape the pin directory must yield
 an empty result. Its pin-reuse section covers the shortcut the unattended callers take (see [updater](updater.rule.md)),
 where the failure direction is the opposite of the rest of the file: a reused verdict is indistinguishable downstream

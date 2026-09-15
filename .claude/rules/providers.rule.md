@@ -83,7 +83,7 @@ the recoverable error, an operator tree left sandbox-owned is not.
 The sweep only chooses which paths to **offer**; each one still passes `ai-tools-chown`'s allowlist, exclusion, secret,
 and born-owner re-validation as root, so it cannot reach a path the hooks could not. It runs from an `EXIT` trap,
 so an interrupted shim (Ctrl-C, `SIGTERM`) still converges; a `SIGKILL` leaves the tree to the next session's sweep
-or `ai-tools --reclaim`.
+or `ai-tools projects handback`.
 
 ## `entrypoint_fcontext` and `config_dir` — the agent declares its own paths
 
@@ -351,7 +351,7 @@ surface **as the agent** and asserts none of it is agent-writable (catching the 
   a provider name without knowing which kind carries it (`ai-tools-admin` reads `admin_summary` this way). The namespace
   is flat, so at most one kind holds the name; integrations are tried first.
 - `ai_tools_provider_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` / `baseline` /
-  `untrusted`), read-only and side-effect free. The resolvers read it, and so does `ai-tools --providers` (see
+  `untrusted`), read-only and side-effect free. The resolvers read it, and so does `ai-tools providers` (see
   [cli](cli.rule.md)), so an operator asking what is enabled and a session being launched consult one implementation.
 
 Data-only stdout (safe in `$(...)`); enabled-but-uninstalled names and every trust refusal go to stderr, and to journald

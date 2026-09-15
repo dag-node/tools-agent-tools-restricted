@@ -153,7 +153,7 @@ It gates in this order, each step refusing before the next can matter:
    on the `realpath`-canonicalized CWD.
 6. **Claim guard** — three gaps detected read-only: group/mode (fatal — the session starts but `posix_spawn` fails
    `EACCES` on every child), SELinux label (fatal under enforcing), and git `safe.directory` (non-fatal). The wrapper
-   never performs a `chgrp` or a relabel itself; it detects, offers, and delegates to `ai-tools --project-claim`
+   never performs a `chgrp` or a relabel itself; it detects, offers, and delegates to `ai-tools projects claim`
    ([cli](cli.rule.md)).
 7. **Prompt resolution** and a **best-effort service-health warning** (the relabel watcher; the handback socket is
    the shim's to report — see [launch](launch.rule.md)).

@@ -44,7 +44,7 @@ one of them refuses toward *less* access:
    `AI_TOOLS_AGENT_EXEC` and `AI_TOOLS_PROJECT_DIR` through `env_keep`.
 
 A wrapper **detects and delegates; it never repairs.** Ownership, label, and `safe.directory` gaps are reported
-read-only and fixed by `ai-tools --project-claim` (see [cli](cli.rule.md)) — no wrapper performs a `chgrp` or a relabel
+read-only and fixed by `ai-tools projects claim` (see [cli](cli.rule.md)) — no wrapper performs a `chgrp` or a relabel
 itself.
 
 Agent-specific inputs a wrapper may additionally resolve (a custom system prompt, an API endpoint) are that agent's rule
@@ -143,15 +143,15 @@ as an `EXIT` trap before the launch, so it also runs on an interrupted shim.
 session-end sweep alike — runs over `/run/ai-tools/handback.sock`. If it is down, every `CHOWN` fails and the tree
 silently rots into "dubious ownership". Before launch (when a project directory is set — a bare `--version`/`--help` run
 writes to no project), the shim checks the socket and, if absent, emits a framed NOTICE naming the fix
-(`systemctl enable --now ai-tools-handback.socket`, then `ai-tools --reclaim <project>`) and **proceeds**. This is not
-a confinement boundary — DAC, `ai_tools_t`, and the project `user:<operator>` ACL keep the operator's access intact
-regardless — so a down socket warns rather than refusing the launch (refusing would trade availability
+(`systemctl enable --now ai-tools-handback.socket`, then `ai-tools projects handback <project>`) and **proceeds**. This
+is not a confinement boundary — DAC, `ai_tools_t`, and the project `user:<operator>` ACL keep the operator's access
+intact regardless — so a down socket warns rather than refusing the launch (refusing would trade availability
 for a non-security convenience). The session-end sweep re-checks the socket and, when it is down, skips the walk
 and records the stranded count rather than a tally of failed calls (see [handback-bridge](handback-bridge.rule.md),
 [ownership-and-hooks](ownership-and-hooks.rule.md)).
 
 **An operator-side pre-launch service warning (wrapper-side).** Before the final `exec`, the wrapper runs one more
-warn-not-block check, from `services.lib.sh` — the same registry `ai-tools --status` reads (see [cli](cli.rule.md)). It
+warn-not-block check, from `services.lib.sh` — the same registry `ai-tools status` reads (see [cli](cli.rule.md)). It
 warns about a down **system** service the wrapper owns, currently the `ai-tools-relabel.path` watcher: while it is
 down a post-upgrade launch fail-closes on a mislabelled entrypoint, so surfacing it *before* the next Node bump is
 the point. The registry marks each service with a `preflight` — `ai-tools-handback.socket` is `shim` (the socket NOTICE
@@ -223,7 +223,7 @@ The first rule **drops** privilege to the lower-privileged `SANDBOX_USER`; the a
 not in `ai-ops` and has no rule of its own, so it can invoke neither. `ai-tools-run` is a fixed-path target (no glob);
 the versioned binary is exec'd by `ai-tools-run` after it re-validates `AI_TOOLS_AGENT_EXEC`.
 
-The second rule runs **as root**: `ai-tools --stop` terminates every running agent session, which means signalling
+The second rule runs **as root**: `ai-tools stop` terminates every running agent session, which means signalling
 the sandbox account's cgroups. It is scoped by a **fixed, non-glob path** plus the trailing `""` that pins it
 to the **zero-argument** form, since a command listed without arguments permits *any* (`sudoers(5)`) — so the `""`
 grants the **bare** command only, and `--force` and `--dry-run` fall outside it and meet sudo's ordinary prompt.
@@ -262,7 +262,7 @@ with an excluded CWD, and `ai-tools-chown` skips ownership restoration on exclud
 **The refusal distinguishes the two things a `!` line means**, applying the same test the CLI does (see
 [cli](cli.rule.md)): a line naming the CWD with an approved project **strictly enclosing** it is a carve-out — a subtree
 withheld from that project — and the remedy is to edit that line; one with no approved project enclosing it is a project
-that was **parked**, and the refusal names `ai-tools --project-enable` instead. Both refuse identically; what differs is
+that was **parked**, and the refusal names `ai-tools projects enable` instead. Both refuse identically; what differs is
 the way back, and an operator told only "excluded" is left to work out which of the two they are standing in.
 
 ## PATH ordering
@@ -314,16 +314,16 @@ A reading of **another** account is taken from a login shell of that account (`r
 only its own init files can say what its sessions get, and grepping them answers for the guard line rather than
 for the ordering — which is exactly the distinction the `wired`-and-still-`shadowed` case turns on, where the line is
 present and something after it prepends to PATH. A reading of **this** shell does not need any privilege, which is
-why `ai-tools --status` makes it: the CLI runs in the operator's own login shell, so `command -v` there resolves
+why `ai-tools status` makes it: the CLI runs in the operator's own login shell, so `command -v` there resolves
 what typing the name would run. The launcher name is admitted only in a launcher's own charset before it reaches
 that command, and the answer only as an absolute path with no whitespace or control byte.
 
 The consumers read it at the moments the state can change: `operators add` (asks with the stake named, and warns rather
-than passing in silence when a shadowed account declines), `ai-tools --status` (re-checks, and counts a shadowed
-launcher toward its non-zero exit), and `ai-tools-admin system bootstrap` (names each shadowed operator once
-the toolchain it just provisioned is in place — a reading of another account needs the root that command already holds,
-and a host is told it is ready there). The base package's `%post` reads the **init files** rather than this state,
-naming an operator whose guard line still points at the fragment's former path.
+than passing in silence when a shadowed account declines), `ai-tools status` (re-checks, and counts a shadowed launcher
+toward its non-zero exit), and `ai-tools-admin system bootstrap` (names each shadowed operator once the toolchain it
+just provisioned is in place — a reading of another account needs the root that command already holds, and a host is
+told it is ready there). The base package's `%post` reads the **init files** rather than this state, naming an operator
+whose guard line still points at the fragment's former path.
 
 `install.sh` closes with the same per-operator report and one reading none of the others makes: an agent of a launcher's
 name installed in a system directory (`/bin` first, where the agent's other distribution channel — its own package
