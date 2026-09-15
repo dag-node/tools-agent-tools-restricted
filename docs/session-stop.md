@@ -460,36 +460,36 @@ and the record.
 
 ```
   ┌ 1. parse ──────────────────────────────────────────────────────────────────┐
-  │  no target, no authorization input: nothing to decide, nothing to trust     │
-  │  --all accepted and inert; a PATH is refused (exit 2), never ignored        │
+  │  no target, no authorization input: nothing to decide, nothing to trust    │
+  │  --all accepted and inert; a PATH is refused (exit 2), never ignored       │
   └────────────────────────────────────────────────────────────────────────────┘
   ┌ 2. enumerate ──────────────────────────────────────────────────────────────┐
-  │  walk  /sys/fs/cgroup/user.slice/user-<uid>.slice                           │
-  │        descend slices → stop at the first .service/.scope = ONE SESSION     │
-  │        the manager service is descended into, never emitted                 │
-  │        NOTHING is exempt -- init.scope is enumerated like anything else     │
-  │  attribute each unit via WorkingDirectory  (best-effort, DISPLAY ONLY:      │
-  │        it selects nothing, so `unknown` costs a label, not a target)        │
-  │  classify agent session vs account plumbing  (advisory, DISPLAY ONLY:       │
-  │        splits the counts and orders the table; selects nothing)             │
+  │  walk  /sys/fs/cgroup/user.slice/user-<uid>.slice                          │
+  │        descend slices → stop at the first .service/.scope = ONE SESSION    │
+  │        the manager service is descended into, never emitted                │
+  │        NOTHING is exempt -- init.scope is enumerated like anything else    │
+  │  attribute each unit via WorkingDirectory  (best-effort, DISPLAY ONLY:     │
+  │        it selects nothing, so `unknown` costs a label, not a target)       │
+  │  classify agent session vs account plumbing  (advisory, DISPLAY ONLY:      │
+  │        splits the counts and orders the table; selects nothing)            │
   └────────────────────────────────────────────────────────────────────────────┘
   ┌ 3. confirm ────────────────────────────────────────────────────────────────┐
-  │  the table, then a question that DEFAULTS TO YES; consent path recorded     │
+  │  the table, then a question that DEFAULTS TO YES; consent path recorded    │
   └────────────────────────────────────────────────────────────────────────────┘
   ┌ 4. end each session ───────────────────────────────────────────────────────┐
-  │  SIGTERM pass, deepest-first, re-collected each second, up to 10s           │
-  │        → empty?  outcome = terminated                                       │
-  │  SIGKILL pass:  write cgroup.kill (atomic, re-asserted per pass)            │
-  │                 + validated per-pid kill as the pre-5.14 fallback           │
-  │        → empty?  outcome = killed        else  outcome = alive              │
+  │  SIGTERM pass, deepest-first, re-collected each second, up to 10s          │
+  │        → empty?  outcome = terminated                                      │
+  │  SIGKILL pass:  write cgroup.kill (atomic, re-asserted per pass)           │
+  │                 + validated per-pid kill as the pre-5.14 fallback          │
+  │        → empty?  outcome = killed        else  outcome = alive             │
   └────────────────────────────────────────────────────────────────────────────┘
   ┌ 5. sweep, restore, report ─────────────────────────────────────────────────┐
-  │  re-enumerate the whole slice; any live cgroup → did not complete (exit 1)  │
-  │  live but not one the loop reported  → reappeared: a session started        │
-  │                                        mid-run; re-running is the remedy    │
-  │  restart user@<uid>.service -- AFTER verification, reported separately,     │
-  │        never folded into the stop's exit status                             │
-  │  name the projects handback per project terminated                          │
+  │  re-enumerate the whole slice; any live cgroup → did not complete (exit 1) │
+  │  live but not one the loop reported  → reappeared: a session started       │
+  │                                        mid-run; re-running is the remedy   │
+  │  restart user@<uid>.service -- AFTER verification, reported separately,    │
+  │        never folded into the stop's exit status                            │
+  │  name the projects handback per project terminated                         │
   └────────────────────────────────────────────────────────────────────────────┘
 ```
 
