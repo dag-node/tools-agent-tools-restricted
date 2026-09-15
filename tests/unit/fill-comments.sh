@@ -221,7 +221,7 @@ span_whole() {  # span_whole <literal>: PASS when the filled fixture holds the l
 }
 span_whole 'ai-tools status'
 span_whole '750 root:root'
-# A test's command key (tests/lib/cli-spelling.sh) carries hyphens and dots and is marked by nothing, so it rests
+# A test's command key (tests/lib/cli-spelling.sh) carries hyphens and dots, and no backtick marks it, so it rests
 # on the same rule from the other side: a break falls between words, never inside one. What it costs if it does not
 # is the suite's own notation, which `git grep` then finds on no line. The fixture leaves the tail of a line too
 # short to hold the key, so a filler that broke on a hyphen or a dot would split it there.

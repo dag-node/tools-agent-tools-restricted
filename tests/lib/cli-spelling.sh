@@ -9,9 +9,10 @@
 #
 # A key is the command's path with the binary in front and a dot for each space, so `ai-tools status` is
 # `ai-tools.status`. The binary is part of the key because `status` names a command on ai-tools-admin as well,
-# and because a key is what a test's own assertion labels carry: one greppable token per command, told apart
-# from the same word in ordinary prose. `projects remove` decides its kind from the path, so neither of its keys is
-# a command path: each names the kind the row drives, and a row reads as what it removes.
+# and because a key is what the suite's own voice carries -- a result line, a comment and a section heading alike: one
+# greppable token per command, told apart from the same word in ordinary prose. An option is written as typed, since it
+# carries its own mark already. `projects remove` decides its kind from the path, so neither of its keys is a command
+# path: each names the kind the row drives, and a row reads as what it removes.
 #
 # The CLI accepts two spellings of each command, and AI_TOOLS_CLI_SPELLING selects which one cli_cmd fills:
 # `collection`, the default, is the collection form (`projects claim`); `option` is the option spelling the CLI keeps

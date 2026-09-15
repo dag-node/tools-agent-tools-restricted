@@ -23,7 +23,7 @@
 # refuses any path that is not inside it, so there is no input -- a stale directory, an unset variable, a symlink
 # swapped in -- that can point the cleanup at something else. It runs no `sudo rm`: no step it takes needs root to undo.
 #
-# The single exception is --for-drill, which is opt-in for exactly that reason: it creates one project in the shared
+# The single exception is `--for-drill`, which is opt-in for exactly that reason: it creates one project in the shared
 # clone area, owned by another operator, and deletes it again through projects remove. Nothing else this script does
 # reaches outside the workspace.
 #
@@ -59,11 +59,11 @@
 # so and prints the command.
 #
 # usage: tests/manual/verify-live-flows.sh [--keep] [--stop-all-drill] [--for-drill]
-#   --keep             leave the workspace and its registry entries in place for inspection
-#   --stop-all-drill   also TERMINATE EVERY RUNNING AGENT SESSION, to prove the incident ladder's stop
-#                      rung on this host. Destructive by design; see section 8.
-#   --for-drill        also drive projects create/projects remove --for another enrolled operator
-#                      (section 3b). Needs a second operator to already exist; skipped if none does.
+#   `--keep`             leave the workspace and its registry entries in place for inspection
+#   `--stop-all-drill`   also TERMINATE EVERY RUNNING AGENT SESSION, to prove the incident ladder's stop
+#                        rung on this host. Destructive by design; see section 8.
+#   `--for-drill`        also drive `projects create`/`projects remove` `--for` another enrolled operator
+#                        (section 3b). Needs a second operator to already exist; skipped if none does.
 
 set -uo pipefail          # deliberately NOT -e: a failing check must be recorded, not fatal
 
@@ -83,8 +83,8 @@ done
 readonly CLI=/usr/local/bin/ai-tools
 readonly SANDBOX_GROUP=ai-tools
 # The shared clone area: root-owned, carrying g:ai-ops:rwX plus a default ACL from the install, and deliberately outside
-# the protected-paths set. Section 3b needs a parent BOTH operators can write, because projects create --for runs its
-# mkdir as the target.
+# the protected-paths set. Section 3b needs a parent BOTH operators can write, because `projects create --for` runs its
+# `mkdir` as the target.
 readonly SANDBOX_ROOT=/var/opt/ai-tools/sandbox-projects
 readonly STAMP=/var/opt/ai-tools/state/nvm-update.status
 ME="$(id -un)"; MY_GROUP="$(id -gn)"
@@ -593,7 +593,7 @@ ROOT_STEP
     # the workspace removable either way.
 fi
 
-# ── 3b. --for on projects create / projects remove (opt-in) ──────────────────────────────────
+# ── 3b. `--for` on `projects create` / `projects remove` (opt-in) ────────────────────────────
 # The two verbs that act on the FILESYSTEM as the operator they run for, which is a sudoers question of its own (Runas),
 # separate from the ai-tools helper grants. Nothing hermetic can prove it: it needs a second enrolled operator,
 # and enrolling one would modify the host.
@@ -618,7 +618,7 @@ elif ! ${FOR_DRILL}; then
     skip "--for create/remove (would act for ${OTHER_OP}; re-run with --for-drill)"
     note "the run would create a tree owned by ${OTHER_OP} and delete it again"
 else
-    # WHERE the project goes is the first thing this drill teaches. projects create --for runs `mkdir` AS the target,
+    # WHERE the project goes is the first thing this drill teaches. `projects create --for` runs `mkdir` AS the target,
     # so the parent must be a directory that operator can write -- and the invoker's own home is exactly what that is
     # not (0700, and owned by someone else). Putting it there fails with a bare "Permission denied" from mkdir, which is
     # the same reachability rule the claim enforces for the sandbox account, arriving one layer earlier.
