@@ -34,9 +34,10 @@ URI on the other side.
 
 Verb-noun ordering is a **convention rather than a rule with one correct answer**: clig.dev declines to prescribe either
 order, PatternFly recommends the opposite, and the .NET CLI mixes both. Every guide does agree on internal consistency,
-so the value is in holding one order rather than in which order it is. `noun verb` is the one held here, and this
-project's existing names already encode it — `--project-claim` and `--sandbox-create` are noun-verb pairs carrying
-a hyphen where a space belongs.
+so the value is in holding one order rather than in which order it is. `noun verb` is the one held here, and the option
+spellings kept from the releases before this grammar already encode it — `--project-claim` and `--sandbox-create` are
+noun-verb pairs carrying a hyphen where the space belongs, so each maps onto its command path by dropping the hyphen
+rather than by reordering anything.
 
 ## Singular domains, plural collections
 
@@ -227,7 +228,7 @@ that collides with an existing one, there was only ever one resource. `/admin/st
 
 A privileged caller seeing more is a **view**, in either of two forms that leave the URI alone: field-level shaping
 by privilege, or an explicit `view` parameter with `BASIC` and `FULL` (AIP-157). This surface does the first:
-`ai-tools --status` and `ai-tools-admin status` report **one resource from two vantages**, and each prints `?`
+`ai-tools status` and `ai-tools-admin status` report **one resource from two vantages**, and each prints `?`
 for a reading its caller lacks the privilege to make. Two commands exist because the binary is the privilege boundary
 ([Which binary a command lives on](#which-binary-a-command-lives-on)), not because there are two sets of facts —
 which holds because the privilege is tested at each read rather than at the dispatch. The readings, and the mechanism
@@ -263,27 +264,31 @@ the same shape `system entrypoints relabel` takes.
 `--scope full` rests on that seam: base can only run each enabled integration's `bootstrap` because there is a seam
 to find one through, and it iterates the **enabled** set where the dispatch reads the installed one.
 
-**The `ai-tools` conversion needs a domain model this project does not yet state.** Naming `projects` and `sandboxes`
-as collections is a claim the code does not make: `allowed-projects` is a **single registry** with one entry format,
-every claimed directory is a line in it, and the kind is **derived from the path prefix** rather than stored
-(`ai-tools.sh` computes `kind="sandbox"` for a path under `SANDBOX_ROOT`, and `require_sandbox_clone` agrees). Three
-questions decide the nouns, and each changes them: whether a project is one claimed directory or a group of them;
-whether a sandbox is a kind of project (`GET /projects?kind=sandbox`) or its own collection; and where `--list`'s
-cross-cutting *Suggested cleanup* findings live if the listing splits. Until they are answered `ai-tools` keeps its
-`--verb` commands, which are pinned by `ai-tools(1)`, `tests/unit/man.sh`, `tests/unit/cli-verbs.sh`
-and `tests/integration/cli.sh`, and printed as the remedy in refusals across the CLI, the launch wrapper and the root
-helpers.
+`ai-tools` conforms too: `projects [list|create|claim|unclaim|remove|enable|disable|clone|push|lockdown|handback]`,
+`providers [list]`, `status`, `audit`, `stop`, `--help`/`-h`, `--version`. `COLLECTIONS` names the plural nouns a verb
+follows, and a bare one runs its `list`. Every gating table keys on the **command path** rather than on one token,
+and `tests/unit/cli-verbs.sh` holds each dispatched path to a classification in them.
 
-**The grammar and the hierarchy are separable.** Two costs the option-spelling imposes are namespace collisions
-that exist whatever a project turns out to be: `BOOTSTRAP_EXEMPT_VERBS` carries `-h`, `-V` and `""` only because verbs
-and options share one namespace and a bare invocation has to be spelled as an empty verb, and `tests/unit/man.sh` tells
-a verb from an option by **indentation** in the `usage()` heredoc — four spaces against two. Dropping the dashes while
-keeping every name (`ai-tools project-claim`) settles both and commits to no hierarchy.
+**One registry carries those nouns.** `allowed-projects` has one entry format and every claimed directory is a line
+in it, so a clone is a **kind** of project derived from the path prefix rather than a collection of its own:
+`projects clone` makes one, and `projects remove` reads the kind from the path (`ai-tools.sh` computes `kind="sandbox"`
+for a path under `SANDBOX_ROOT`, and `require_sandbox_clone` agrees). On the REST side that projects
+as `GET /projects?kind=sandbox`. The listing stays one command for the same reason, so the cross-cutting *Suggested
+cleanup* findings `projects list` reports have one home.
+
+**The option spelling of each command is kept**, because the typed command surface is the one interface an operator's
+own scripts bind to. `OPTION_SPELLINGS` maps each key to its command path, and `rewrite_option_spelling` applies
+the table ahead of every gate, so no key reaches a dispatch arm or `usage()` and the collection form is the only
+spelling the tables and the man page carry. A run that used one gets the preferred form named back to it
+(`note_option_spellings`), and `tools/option-spellings.sh` generates `docs/option-spellings.md` from the table,
+so the mapping an operator reads comes from the one the CLI applies.
 
 ## Why not
 
-- **A deprecation alias beside a renamed command.** The repo does not carry migration shims: the code reflects the final
-  state and dev hosts are cleaned by hand. A renamed command is renamed.
+- **A deprecation alias inside the code.** The repo does not carry migration shims: an internal name that is renamed is
+  renamed, the code reflects the final state, and dev hosts are cleaned by hand. The **typed** surface is
+  where that stops — an operator's scripts bind to the command they type, so each option spelling is kept and rewritten
+  to its command path before any gate reads it ([Where the surface stands](#where-the-surface-stands)).
 - **`--` as a marker for an unsettled surface.** It reads as an option, which is the collision itself. Projects gating
   an unstable surface use an explicit namespace instead — `kubectl alpha`, `gh preview`, `cargo -Z` — which graduates
   by dropping the prefix.
