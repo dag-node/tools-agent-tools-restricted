@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/manual/verify-live-flows.sh
 # Operator-run verification of the project-lifecycle flows the automated suite cannot drive: claim, lockdown and unclaim
-# end to end, as the operator, against a throwaway project, with `ai-tools --status` read from the vantage point
+# end to end, as the operator, against a throwaway project, with `ai-tools status` read from the vantage point
 # that actually has to read it.
 #
 # Why this exists alongside tests/: run.sh is invoked as root and exercises the root helpers directly with its own
@@ -10,6 +10,10 @@
 # the operator's real allowlist -- none of which a root-run hermetic suite can reproduce. So this script is not
 # dispatched by run.sh and asserts what only a live run shows: that the flows complete, that a seal survives them,
 # and that what the operator is told matches what happened.
+#
+# It is the one file under tests/ that spells a command rather than naming it by a tests/lib/cli-spelling.sh key.
+# An operator reads this run, and copies from it: a section heading, a result line and a remedy all have to carry
+# the command as they would type it, so each is written in the collection form the CLI prefers.
 #
 # WHAT IT TOUCHES, AND WHAT IT WILL NOT. One workspace directory that `mktemp -d` creates under ${HOME} for this run,
 # holding the project, a copy of it and a hardlink target; and the two operator registries the claim itself writes --
@@ -20,7 +24,7 @@
 # swapped in -- that can point the cleanup at something else. It runs no `sudo rm`: no step it takes needs root to undo.
 #
 # The single exception is --for-drill, which is opt-in for exactly that reason: it creates one project in the shared
-# clone area, owned by another operator, and deletes it again through --project-remove. Nothing else this script does
+# clone area, owned by another operator, and deletes it again through projects remove. Nothing else this script does
 # reaches outside the workspace.
 #
 # Nothing installed is modified: no unit started, stopped or enabled, no package state, no control-plane file, no
@@ -36,13 +40,13 @@
 # lockdown and unclaim steps invoke sudo themselves, exactly as they do for any project, so run this where you can
 # answer a password prompt. A completed install and provisioned toolchain are assumed.
 #
-# THE ONE DESTRUCTIVE CHECK IS OPT-IN. `ai-tools --stop` terminates EVERY agent session on the host, which is what it is
+# THE ONE DESTRUCTIVE CHECK IS OPT-IN. `ai-tools stop` terminates EVERY agent session on the host, which is what it is
 # for and cannot be proven any other way -- a stop that is scoped to a fixture proves the mechanism, not the rung. It
 # runs only with --stop-all-drill, and only when a session is actually running; without the flag the section still
 # exercises everything that is reversible (the dry run, the refusals, the trail). Run it when no session holds work you
 # want.
 #
-# A SECOND OPT-IN COVERS --for. --project-create/--project-remove are the two verbs that touch the filesystem
+# A SECOND OPT-IN COVERS --for. projects create/projects remove are the two verbs that touch the filesystem
 # AS the operator they act for (`sudo -u <target>`), so proving them needs a second enrolled operator and a Runas grant
 # -- neither of which this script may manufacture. With --for-drill it uses one that ALREADY exists on the host,
 # and skips with the reason otherwise.
@@ -50,7 +54,7 @@
 # It is the one section that writes OUTSIDE the workspace, and both halves of that are forced by what it is testing:
 # the tree is created as the OTHER operator, who cannot write inside this operator's home, so it goes in the shared
 # clone area (/var/opt/ai-tools/sandbox-projects, the one place on a stock install both reach) and is deleted again
-# by the --project-remove that follows. That is also why it is opt-in: the tree is owned by that account, so if
+# by the projects remove that follows. That is also why it is opt-in: the tree is owned by that account, so if
 # the removal does not complete, clearing the remains needs a privilege this script deliberately never takes -- it says
 # so and prints the command.
 #
@@ -58,7 +62,7 @@
 #   --keep             leave the workspace and its registry entries in place for inspection
 #   --stop-all-drill   also TERMINATE EVERY RUNNING AGENT SESSION, to prove the incident ladder's stop
 #                      rung on this host. Destructive by design; see section 8.
-#   --for-drill        also drive --project-create/--project-remove --for another enrolled operator
+#   --for-drill        also drive projects create/projects remove --for another enrolled operator
 #                      (section 3b). Needs a second operator to already exist; skipped if none does.
 
 set -uo pipefail          # deliberately NOT -e: a failing check must be recorded, not fatal
@@ -79,7 +83,7 @@ done
 readonly CLI=/usr/local/bin/ai-tools
 readonly SANDBOX_GROUP=ai-tools
 # The shared clone area: root-owned, carrying g:ai-ops:rwX plus a default ACL from the install, and deliberately outside
-# the protected-paths set. Section 3b needs a parent BOTH operators can write, because --project-create --for runs its
+# the protected-paths set. Section 3b needs a parent BOTH operators can write, because projects create --for runs its
 # mkdir as the target.
 readonly SANDBOX_ROOT=/var/opt/ai-tools/sandbox-projects
 readonly STAMP=/var/opt/ai-tools/state/nvm-update.status
@@ -180,14 +184,14 @@ cleanup() {
     local rc=$?
     if ${KEEP}; then
         note "--keep: left ${WORKSPACE} and its registry entries in place"
-        note "        undo with: ai-tools --project-unclaim -y --group ${MY_GROUP} ${PROJ} && rm -rf ${WORKSPACE}"
+        note "        undo with: ai-tools projects unclaim -y --group ${MY_GROUP} ${PROJ} && rm -rf ${WORKSPACE}"
         return "${rc}"
     fi
     # Drop the registry entries first (while the paths still exist, which the helper requires), then remove what we
     # created. Best-effort throughout: cleanup must not turn a reported failure into a crash, and a half-built fixture
     # must still be removable.
-    "${CLI}" --project-unclaim -y --group "${MY_GROUP}" "${PROJ}" >/dev/null 2>&1 || true
-    "${CLI}" --project-unclaim -y --group "${MY_GROUP}" "${COPY}" >/dev/null 2>&1 || true
+    "${CLI}" projects unclaim -y --group "${MY_GROUP}" "${PROJ}" >/dev/null 2>&1 || true
+    "${CLI}" projects unclaim -y --group "${MY_GROUP}" "${COPY}" >/dev/null 2>&1 || true
     safe_rm "${PROJ}"; safe_rm "${COPY}"; safe_rm "${OUTSIDE}"
     # rmdir, not rm -r: it removes the workspace only if the per-project removals emptied it, so anything unexpected
     # still in there is preserved for the operator to look at.
@@ -255,9 +259,9 @@ note "fixture built"
 # AI_TOOLS_ASSUME_YES answers the default-YES questions (secret lockdown, .git normalization); -y answers the claim's
 # own default-NO proceed prompt. The reachability opt-in is default-NO and stays declined, which is right here: no step
 # launches a session.
-section "1. ai-tools --project-claim"
+section "1. ai-tools projects claim"
 sudo_why "the claim's root steps: the secret scan and lockdown, then group+setgid, the ACL walk, and the SELinux label"
-CLAIM_OUT="$(AI_TOOLS_ASSUME_YES=1 "${CLI}" --project-claim -y "${PROJ}" 2>&1)"; CLAIM_RC=$?
+CLAIM_OUT="$(AI_TOOLS_ASSUME_YES=1 "${CLI}" projects claim -y "${PROJ}" 2>&1)"; CLAIM_RC=$?
 printf '%s\n' "${CLAIM_OUT}" | sed 's/^/        /'
 check "the claim completes (rc=${CLAIM_RC})" test "${CLAIM_RC}" -eq 0
 
@@ -306,7 +310,7 @@ fi
 # ── 2. lockdown --dry-run then apply ─────────────────────────────────────────────────────────
 # A directory born INSIDE the claimed tree inherits group, setgid and the default ACL; sealing it with chmod masks all
 # three without removing any. That is the residue the seal pass strips.
-section "2. ai-tools --lockdown (dry run, then apply)"
+section "2. ai-tools projects lockdown (dry run, then apply)"
 if ! ${TREE_CLAIMED}; then
     skip "the whole lockdown section (nothing was granted, so nothing inherits residue)"
 else
@@ -334,7 +338,7 @@ note "sealed fixtures: ${BEFORE} (inherited group + default ACL), ${BEFORE_OWN} 
     || fail "own-group seal fixture is '${BEFORE_OWN}', want '2700 ${MY_GROUP}' -- the setgid arm is not exercised"
 
 sudo_why "the lockdown helper, in preview mode (it still runs as root to read the whole tree)"
-DRY_OUT="$(cd "${PROJ}" && "${CLI}" --lockdown --dry-run "${PROJ}" 2>&1)"; DRY_RC=$?
+DRY_OUT="$(cd "${PROJ}" && "${CLI}" projects lockdown --dry-run "${PROJ}" 2>&1)"; DRY_RC=$?
 printf '%s\n' "${DRY_OUT}" | sed 's/^/        /'
 check "the dry run completes (rc=${DRY_RC})" test "${DRY_RC}" -eq 0
 if grep -q 'inherited-then-sealed' <<<"${DRY_OUT}" && grep -q 'own-group-sealed' <<<"${DRY_OUT}"; then
@@ -349,7 +353,7 @@ check "the dry run changed nothing" \
          = "${AFTER_DRY}|${AFTER_DRY_ACL}|$(mode_of "${SEALED_OWN}") $(group_of "${SEALED_OWN}")"
 
 sudo_why "the lockdown helper, applying: locks the secret and strips the sealed path's residue"
-LOCK_OUT="$(cd "${PROJ}" && "${CLI}" --lockdown -y "${PROJ}" 2>&1)"; LOCK_RC=$?
+LOCK_OUT="$(cd "${PROJ}" && "${CLI}" projects lockdown -y "${PROJ}" 2>&1)"; LOCK_RC=$?
 printf '%s\n' "${LOCK_OUT}" | sed 's/^/        /'
 check "the lockdown completes (rc=${LOCK_RC})" test "${LOCK_RC}" -eq 0
 # The strip may only ever REMOVE reach, so every arm is checked against a mode that did not widen. A path that came back
@@ -376,7 +380,7 @@ fi
 # allowlist. That is exactly why it belongs in a live run rather than only in the hermetic suites -- what it proves is
 # that the edit lands in the FILE the launch gate reads, at the position the operator left it, and comes back
 # byte-identical.
-section "2b. ai-tools --project-disable / --project-enable"
+section "2b. ai-tools projects disable / projects enable"
 AL="${HOME}/.config/ai-tools/allowed-projects"
 if [[ ! -r "${AL}" ]]; then
     skip "the park/restore round trip (no readable allowlist at ${AL})"
@@ -385,7 +389,7 @@ elif ! ${TREE_CLAIMED}; then
 else
     AL_BEFORE="$(cat "${AL}")"
     AL_LINE_BEFORE="$(grep -nxF "${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
-    DIS_OUT="$("${CLI}" --project-disable "${PROJ}" 2>&1)"; DIS_RC=$?
+    DIS_OUT="$("${CLI}" projects disable "${PROJ}" 2>&1)"; DIS_RC=$?
     check "the disable completes (rc=${DIS_RC})" test "${DIS_RC}" -eq 0
     if grep -qxF "!${PROJ}" "${AL}"; then
         pass "the entry is parked in the operator's real allowlist"
@@ -400,14 +404,14 @@ else
     check "the disable says the ownership handback stops" grep -qi 'handback' <<<"${DIS_OUT}"
 
     # A parked project is not an unclaimed one, and the verbs that would silently no-op say so.
-    REC_OUT="$("${CLI}" --reclaim "${PROJ}" 2>&1)"; REC_RC=$?
+    REC_OUT="$("${CLI}" projects handback "${PROJ}" 2>&1)"; REC_RC=$?
     if [[ "${REC_RC}" -ne 0 ]] && ! grep -qi 'not a claimed project' <<<"${REC_OUT}"; then
-        pass "--reclaim over the parked project does not report it as unclaimed"
+        pass "projects handback over the parked project does not report it as unclaimed"
     else
-        fail "--reclaim called the parked project unclaimed: $(printf '%s' "${REC_OUT}" | tail -2 | tr '\n' ' ')"
+        fail "projects handback called the parked project unclaimed: $(printf '%s' "${REC_OUT}" | tail -2 | tr '\n' ' ')"
     fi
 
-    ENA_OUT="$("${CLI}" --project-enable "${PROJ}" 2>&1)"; ENA_RC=$?
+    ENA_OUT="$("${CLI}" projects enable "${PROJ}" 2>&1)"; ENA_RC=$?
     if [[ "${ENA_RC}" -eq 0 ]]; then
         pass "the enable completes"
     else
@@ -589,7 +593,7 @@ ROOT_STEP
     # the workspace removable either way.
 fi
 
-# ── 3b. --for on --project-create / --project-remove (opt-in) ─────────────────────────────────
+# ── 3b. --for on projects create / projects remove (opt-in) ──────────────────────────────────
 # The two verbs that act on the FILESYSTEM as the operator they run for, which is a sudoers question of its own (Runas),
 # separate from the ai-tools helper grants. Nothing hermetic can prove it: it needs a second enrolled operator,
 # and enrolling one would modify the host.
@@ -597,7 +601,7 @@ fi
 # So this uses one that already exists, and is opt-in because the tree it builds is owned by that account -- if
 # the removal does not complete, clearing it needs a privilege this script never takes. Without --for-drill the section
 # still reports whether the host COULD run it.
-section "3b. --for on --project-create / --project-remove"
+section "3b. --for on projects create / projects remove"
 OTHER_OP=""
 if [[ -r /etc/ai-tools/operator.conf ]]; then
     while IFS= read -r cand; do
@@ -614,7 +618,7 @@ elif ! ${FOR_DRILL}; then
     skip "--for create/remove (would act for ${OTHER_OP}; re-run with --for-drill)"
     note "the run would create a tree owned by ${OTHER_OP} and delete it again"
 else
-    # WHERE the project goes is the first thing this drill teaches. --project-create --for runs `mkdir` AS the target,
+    # WHERE the project goes is the first thing this drill teaches. projects create --for runs `mkdir` AS the target,
     # so the parent must be a directory that operator can write -- and the invoker's own home is exactly what that is
     # not (0700, and owned by someone else). Putting it there fails with a bare "Permission denied" from mkdir, which is
     # the same reachability rule the claim enforces for the sandbox account, arriving one layer earlier.
@@ -634,7 +638,7 @@ else
         note "the project goes in the shared area, not the workspace: it is created AS ${OTHER_OP},"
         note "who cannot write inside ${HOME}"
         sudo_why "creating a project AS ${OTHER_OP} (sudo -u), and its claim's root steps"
-        FC_OUT="$("${CLI}" --project-create --for "${OTHER_OP}" "${FOR_PROJ}" 2>&1)"; FC_RC=$?
+        FC_OUT="$("${CLI}" projects create --for "${OTHER_OP}" "${FOR_PROJ}" 2>&1)"; FC_RC=$?
         printf '%s\n' "${FC_OUT}" | sed 's/^/        /'
         if grep -qi 'holds no sudo grant to run' <<<"${FC_OUT}"; then
             # The refusal this section exists to be able to see: helper grants are not a Runas grant, and a host can
@@ -653,9 +657,12 @@ else
             note "ownership is the point: a claim FOR an operator over a tree they do not own grants nothing"
 
             # The cross-operator half of the enable/disable pair: the invoker cannot even read that registry, so both go
-            # through the ai-tools-allowlist root helper.
-            for pair_verb in --project-disable --project-enable; do
-                PAIR_OUT="$("${CLI}" "${pair_verb}" --for "${OTHER_OP}" "${FOR_PROJ}" 2>&1)"; PAIR_RC=$?
+            # through the ai-tools-allowlist root helper. A command is a collection and its verb, so each is held as one
+            # string and split into its two tokens at the call; a single-token expansion would hand the CLI
+            # `projects disable` as one argument.
+            for pair_verb in "projects disable" "projects enable"; do
+                read -ra pair_argv <<<"${pair_verb}"
+                PAIR_OUT="$("${CLI}" "${pair_argv[@]}" --for "${OTHER_OP}" "${FOR_PROJ}" 2>&1)"; PAIR_RC=$?
                 if [[ "${PAIR_RC}" -eq 0 ]]; then
                     pass "${pair_verb} --for ${OTHER_OP} completes (through the root helper)"
                 else
@@ -664,7 +671,7 @@ else
             done
 
             sudo_why "deleting that project AS ${OTHER_OP}"
-            FR_OUT="$("${CLI}" --project-remove --for "${OTHER_OP}" -y "${FOR_PROJ}" 2>&1)"; FR_RC=$?
+            FR_OUT="$("${CLI}" projects remove --for "${OTHER_OP}" -y "${FOR_PROJ}" 2>&1)"; FR_RC=$?
             printf '%s\n' "${FR_OUT}" | sed 's/^/        /'
             if [[ "${FR_RC}" -eq 0 ]] && [[ ! -e "${FOR_PROJ}" ]]; then
                 pass "the remove completes and the tree is gone"
@@ -677,8 +684,8 @@ else
 fi
 
 # ── 3. unclaim: classification, then the real thing ──────────────────────────────────────────
-section "3. ai-tools --project-unclaim"
-INSIDE_OUT="$("${CLI}" --project-unclaim "${PROJ}/src" 2>&1)"; INSIDE_RC=$?
+section "3. ai-tools projects unclaim"
+INSIDE_OUT="$("${CLI}" projects unclaim "${PROJ}/src" 2>&1)"; INSIDE_RC=$?
 if [[ "${INSIDE_RC}" -ne 0 ]] && grep -q 'inside a claimed project' <<<"${INSIDE_OUT}"; then
     pass "a path inside the project is refused, naming the claimed parent"
 else
@@ -700,7 +707,7 @@ else
 fi
 
 sudo_why "the unclaim's root steps: revert the SELinux label, then the filesystem hand-back"
-UNCLAIM_OUT="$("${CLI}" --project-unclaim -y --group "${MY_GROUP}" "${PROJ}" 2>&1)"; UNCLAIM_RC=$?
+UNCLAIM_OUT="$("${CLI}" projects unclaim -y --group "${MY_GROUP}" "${PROJ}" 2>&1)"; UNCLAIM_RC=$?
 printf '%s\n' "${UNCLAIM_OUT}" | sed 's/^/        /'
 check "the unclaim completes (rc=${UNCLAIM_RC})" test "${UNCLAIM_RC}" -eq 0
 if grep -qi 'unbound variable' <<<"${UNCLAIM_OUT}"; then
@@ -738,7 +745,7 @@ else
 fi
 
 # ── 4. unclaim --force on the unregistered copy ──────────────────────────────────────────────
-section "4. ai-tools --project-unclaim --force (unregistered copy)"
+section "4. ai-tools projects unclaim --force (unregistered copy)"
 # --force acts on the ai-tools fingerprint, so the copy must carry one. Establish that FIRST: without it the command
 # correctly refuses (`nothing to unclaim here`), and asserting anything past that point measures the fixture, not
 # the flag. The two checks after the apply would even PASS on such a copy -- no abort, group already the operator's --
@@ -749,12 +756,12 @@ elif [[ "$(group_of "${COPY}/src")" != "${SANDBOX_GROUP}" ]]; then
     skip "--force checks (the copy carries no ai-tools fingerprint -- was the original granted?)"
 else
     pass "the copy carries the agent group, so --force has something to act on"
-    FORCE_DRY="$("${CLI}" --project-unclaim --force --dry-run "${COPY}" 2>&1)"; FORCE_DRY_RC=$?
+    FORCE_DRY="$("${CLI}" projects unclaim --force --dry-run "${COPY}" 2>&1)"; FORCE_DRY_RC=$?
     printf '%s\n' "${FORCE_DRY}" | head -20 | sed 's/^/        /'
     check "the --force dry run completes (rc=${FORCE_DRY_RC})" test "${FORCE_DRY_RC}" -eq 0
     check "the dry run changed nothing" test "$(group_of "${COPY}/src")" = "${SANDBOX_GROUP}"
     sudo_why "the --force hand-back on the unregistered copy (the dry run above needed none)"
-    FORCE_OUT="$("${CLI}" --project-unclaim --force -y --group "${MY_GROUP}" "${COPY}" 2>&1)"; FORCE_RC=$?
+    FORCE_OUT="$("${CLI}" projects unclaim --force -y --group "${MY_GROUP}" "${COPY}" 2>&1)"; FORCE_RC=$?
     printf '%s\n' "${FORCE_OUT}" | sed 's/^/        /'
     check "the --force unclaim completes (rc=${FORCE_RC})" test "${FORCE_RC}" -eq 0
     if grep -qi 'unbound variable' <<<"${FORCE_OUT}"; then
@@ -765,10 +772,10 @@ else
     check "the copy is normalized to ${MY_GROUP}" test "$(group_of "${COPY}/src")" = "${MY_GROUP}"
 fi
 
-# ── 5. --sandbox-create flag validation (parses only; no clone is created) ────────────────────
-section "5. ai-tools --sandbox-create flag validation"
+# ── 5. projects clone flag validation (parses only; no clone is created) ─────────────────────
+section "5. ai-tools projects clone flag validation"
 for flag in --from --branch --dir; do
-    OUT="$("${CLI}" --sandbox-create "${flag}" -oops 2>&1)"; RC=$?
+    OUT="$("${CLI}" projects clone "${flag}" -oops 2>&1)"; RC=$?
     if [[ "${RC}" -ne 0 ]] && grep -qxF -- MSG-S4M8 <<<"${OUT}"; then
         pass "${flag} refuses an option-shaped value"
     else
@@ -776,9 +783,9 @@ for flag in --from --branch --dir; do
     fi
 done
 
-# ── 6. --status ──────────────────────────────────────────────────────────────────────────────
-section "6. ai-tools --status"
-STATUS_OUT="$("${CLI}" --status 2>&1)"; STATUS_RC=$?
+# ── 6. status ────────────────────────────────────────────────────────────────────────────────
+section "6. ai-tools status"
+STATUS_OUT="$("${CLI}" status 2>&1)"; STATUS_RC=$?
 printf '%s\n' "${STATUS_OUT}" | sed 's/^/        /'
 note "exit status ${STATUS_RC} (0 = nothing broken; 1 = something is, which may be true of this host)"
 check "the report names the handback socket" grep -q 'ai-tools-handback.socket' <<<"${STATUS_OUT}"
@@ -786,7 +793,7 @@ check "the report names the update service"  grep -q 'nvm-update.service'       
 
 # A unit whose file is not installed reads as not-installed, not as unqueryable. Driven by pointing the presence lookup
 # at an empty directory rather than by uninstalling anything.
-NOUNIT_OUT="$(AI_TOOLS_USER_UNIT_DIRS=/nonexistent-user-units "${CLI}" --status 2>&1)"
+NOUNIT_OUT="$(AI_TOOLS_USER_UNIT_DIRS=/nonexistent-user-units "${CLI}" status 2>&1)"
 if grep -E 'nvm-update\.(timer|service).*not installed' <<<"${NOUNIT_OUT}" >/dev/null; then
     pass "an uninstalled sandbox-user unit reads as 'n/a (not installed)', not '?'"
 else
@@ -848,14 +855,14 @@ else
     skip "unit suites (not run from a checkout)"
 fi
 
-# ── 8. the stop rung: ai-tools --stop ────────────────────────────────────────────────────────
+# ── 8. the stop rung: ai-tools stop ──────────────────────────────────────────────────────────
 # The incident ladder's stop rung, and the one control here that acts on a session ALREADY RUNNING. Everything
 # reversible runs unconditionally; the undeclinable form (`--all`) runs only with --stop-all-drill, because proving it
 # means ending every session on the host.
 #
 # This is also the DRILL: an escalation ladder nobody has ever climbed is a document, not a control, so the destructive
 # half is meant to be run deliberately, periodically, with the trail read afterwards -- not merely to be tested once.
-section "8. ai-tools --stop"
+section "8. ai-tools stop"
 
 SANDBOX_UID_N="$(id -u "${SANDBOX_GROUP}" 2>/dev/null || true)"
 CG2_MOUNT="$(awk '$3 == "cgroup2" { print $2; exit }' /proc/mounts)"
@@ -891,16 +898,16 @@ manager_is_up() {
 }
 
 if [[ -z "${SANDBOX_UID_N}" || ! -d "${SANDBOX_SLICE_DIR}" ]]; then
-    skip "--stop (the sandbox account has no per-user slice on this host -- nothing has run yet)"
+    skip "stop (the sandbox account has no per-user slice on this host -- nothing has run yet)"
 else
     # A PATH IS REFUSED, and the refusal has to name what to do instead. This is the whole of the argument contract:
     # there is no per-project form, and accepting a path would invert what the operator asked for -- they typed a path
     # to NARROW the command, and it terminates everything.
-    OUT="$("${CLI}" --stop /some/project 2>&1)"; RC=$?
+    OUT="$("${CLI}" stop /some/project 2>&1)"; RC=$?
     if [[ "${RC}" -eq 2 ]] && grep -qxF -- MSG-A3M9 <<<"${OUT}" && grep -q '/exit' <<<"${OUT}"; then
-        pass "--stop refuses a path (rc=2) and names /exit as the way to end one session"
+        pass "stop refuses a path (rc=2) and names /exit as the way to end one session"
     else
-        fail "--stop did not refuse a path properly (rc=${RC}): ${OUT}"
+        fail "stop did not refuse a path properly (rc=${RC}): ${OUT}"
     fi
 
     # The refusal happens BEFORE sudo: a command that is going to be refused must not first prompt for a password.
@@ -908,20 +915,20 @@ else
     if ! grep -qi 'password' <<<"${OUT}"; then
         pass "the path refusal lands before any sudo prompt"
     else
-        fail "--stop prompted for a password before refusing a path: ${OUT}"
+        fail "stop prompted for a password before refusing a path: ${OUT}"
     fi
 
     TASKS_BEFORE="$(session_task_count)"
     note "sandbox slice holds ${TASKS_BEFORE} task(s) outside the user manager's init.scope"
 
     # The dry run does not change a path, and says so. Safe whether or not a session is running.
-    sudo_why "--stop --dry-run enumerates the sandbox account's cgroups"
-    OUT="$("${CLI}" --stop --dry-run 2>&1)"; RC=$?
+    sudo_why "stop --dry-run enumerates the sandbox account's cgroups"
+    OUT="$("${CLI}" stop --dry-run 2>&1)"; RC=$?
     printf '%s\n' "${OUT}" | sed 's/^/        /'
     if [[ "${RC}" -eq 0 ]]; then
-        pass "--stop --dry-run exits 0"
+        pass "stop --dry-run exits 0"
     else
-        fail "--stop --dry-run exited ${RC}"
+        fail "stop --dry-run exited ${RC}"
     fi
     if [[ "$(session_task_count)" == "${TASKS_BEFORE}" ]]; then
         pass "the dry run stopped nothing (task count unchanged)"
@@ -930,22 +937,22 @@ else
     fi
 
     if ! ${STOP_ALL_DRILL}; then
-        skip "--stop (destructive; re-run with --stop-all-drill to prove the stop rung)"
+        skip "stop (destructive; re-run with --stop-all-drill to prove the stop rung)"
         note "it ends EVERY agent session on this host, including any in another terminal"
     elif [[ "${TASKS_BEFORE}" -eq 0 ]]; then
-        skip "--stop (nothing is running, so a successful stop would prove nothing)"
+        skip "stop (nothing is running, so a successful stop would prove nothing)"
         note "start a session first: ai-tools claude, in a claimed project, from another terminal"
     else
         printf '  %sDRILL%s  ending every agent session on this host in 5s -- Ctrl-C to abort\n' \
             "${C_R}" "${C_0}"
         sleep 5
-        sudo_why "--stop signals the sandbox account's cgroups as root"
-        OUT="$("${CLI}" --stop --yes 2>&1)"; RC=$?
+        sudo_why "stop signals the sandbox account's cgroups as root"
+        OUT="$("${CLI}" stop --yes 2>&1)"; RC=$?
         printf '%s\n' "${OUT}" | sed 's/^/        /'
         if [[ "${RC}" -eq 0 ]]; then
-            pass "--stop completed and reported success (exit 0)"
+            pass "stop completed and reported success (exit 0)"
         else
-            fail "--stop exited ${RC} -- 1 means something survived SIGKILL, 5 that the helper could not run"
+            fail "stop exited ${RC} -- 1 means something survived SIGKILL, 5 that the helper could not run"
         fi
         TASKS_AFTER="$(session_task_count)"
         if [[ "${TASKS_AFTER}" -eq 0 ]]; then
@@ -970,11 +977,11 @@ else
         # than being a defect in it. The manager the stop run restored is itself inside the swept slice, so a second run
         # finds it, stops it, and restarts it again. What must hold is that no AGENT session is found (the first stop
         # took) and the run still exits 0. A second run reporting agent sessions would mean the first one did not.
-        OUT="$("${CLI}" --stop --yes 2>&1)"; RC=$?
+        OUT="$("${CLI}" stop --yes 2>&1)"; RC=$?
         if [[ "${RC}" -eq 0 ]] && grep -qi 'no agent session' <<<"${OUT}"; then
-            pass "a second --stop finds no agent session and exits 0 (only the restored manager goes)"
+            pass "a second stop finds no agent session and exits 0 (only the restored manager goes)"
         else
-            fail "the second --stop still reported agent sessions, or failed (rc=${RC}): ${OUT}"
+            fail "the second stop still reported agent sessions, or failed (rc=${RC}): ${OUT}"
         fi
         note "the stop cannot run the agent's session-end handback: reclaim each project it named"
     fi
