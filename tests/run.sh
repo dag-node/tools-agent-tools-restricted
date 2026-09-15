@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# tests/run.sh [unit|integration|boundary|all]
-# Test dispatcher. Runs the chosen category's test files and aggregates pass/fail by exit
-# status. On any failure it reprints the failing files' FAIL lines as an end-of-run summary,
-# so a long run does not need scrolling; an all-green run omits the summary. Run via sudo: every
-# category needs root (unit/integration set arbitrary ownership and run the deployed helpers;
-# boundary drops to the agent via `sudo -u`).
+# tests/run.sh [unit|integration|boundary|all] Test dispatcher. Runs the chosen category's test files and aggregates
+# pass/fail by exit status. On any failure it reprints the failing files' FAIL lines as an end-of-run summary, so a long
+# run does not need scrolling; an all-green run omits the summary. Run via sudo: every category needs root
+# (unit/integration set arbitrary ownership and run the deployed helpers; boundary drops to the agent via `sudo -u`).
 #
 # Categories (see .claude/rules/tests.rule.md):
 #   unit         hermetic helper-logic tests (/tmp testdir + dummy allowlist; no live daemon)
@@ -13,16 +11,14 @@
 #   boundary     confinement checks run as the agent (SANDBOX_USER)
 #   all          every category
 #
-# A green exit proves coverage only when something PASSed: a file whose run recorded zero
-# passes (every check skipped, or no harness result line at all) and a category with no test
-# files are listed in an end-of-run "no coverage" notice. The default stays lenient -- a
-# partial/dev install legitimately skips -- and AI_TOOLS_TEST_STRICT=1 turns the notice into
-# a failure, the mode the full-install CI gate runs.
+# A green exit proves coverage only when something PASSed: a file whose run recorded zero passes (every check skipped,
+# or no harness result line at all) and a category with no test files are listed in an end-of-run "no coverage" notice.
+# The default stays lenient -- a partial/dev install legitimately skips -- and AI_TOOLS_TEST_STRICT=1 turns the notice
+# into a failure, the mode the full-install CI gate runs.
 #
-# Before any category runs, the residue sweep (lib/residue.sh) removes what an earlier run left
-# behind -- every path named by the harness's fixture rule in the places fixtures are born, and
-# the one fixed-name probe -- and reports each removal; a leftover it cannot remove refuses the
-# run. `run.sh residue` runs the sweep alone.
+# Before any category runs, the residue sweep (lib/residue.sh) removes what an earlier run left behind -- every path
+# named by the harness's fixture rule in the places fixtures are born, and the one fixed-name probe -- and reports each
+# removal; a leftover it cannot remove refuses the run. `run.sh residue` runs the sweep alone.
 
 set -uo pipefail
 
@@ -43,17 +39,16 @@ if ! ai_test_residue_sweep "${_projects_home}"; then
 fi
 [[ "${mode}" == residue ]] && exit 0
 
-# Each test file's stdout is a pipe here (tee), so the harness's own tty test cannot see the
-# terminal reading this run. Pass the verdict down instead, and colour this file's own headline
-# from the same answer.
+# Each test file's stdout is a pipe here (tee), so the harness's own tty test cannot see the terminal reading this run.
+# Pass the verdict down instead, and colour this file's own headline from the same answer.
 if [[ -t 1 ]]; then export AI_TOOLS_TEST_COLOR=1; fi
 if [[ "${AI_TOOLS_TEST_COLOR:-0}" == "1" ]]; then
     _C_PASS=$'\033[32m' _C_FAIL=$'\033[31m' _C_OFF=$'\033[0m'
 else
     _C_PASS='' _C_FAIL='' _C_OFF=''
 fi
-# The harness prefixes the result word with a colour escape, so the summary's grep allows one
-# before FAIL. Anchored without it, the summary would silently come back empty on a coloured run.
+# The harness prefixes the result word with a colour escape, so the summary's grep allows one before FAIL. Anchored
+# without it, the summary would silently come back empty on a coloured run.
 _FAIL_RE="^[[:space:]]*($(printf '\033')\[[0-9;]*m)?FAIL"
 readonly _FAIL_RE
 
@@ -72,15 +67,14 @@ run_dir() {
         ran=$(( ran + 1 ))
         name="$1/$(basename "${f}")"
         printf '\n══════ %s ══════\n' "${name}"
-        # Stream output live (tee) while capturing it, so a failed file's FAIL lines can be
-        # reprinted in the end-of-run summary. PIPESTATUS[0] is the test's status, not tee's.
+        # Stream output live (tee) while capturing it, so a failed file's FAIL lines can be reprinted in the end-of-run
+        # summary. PIPESTATUS[0] is the test's status, not tee's.
         out="$(mktemp)"
-        # BOUNDED IN TIME. A test file that blocks -- on a terminal read, on a wedged daemon, on a
-        # fixture process holding a pipe open -- otherwise hangs the whole run with no output and no
-        # exit, and this suite is run by `install.sh` as its verification phase, so a hung file
-        # stalls an install. `timeout` makes that a FAILED file with a diagnosable transcript
-        # instead. The budget is per file and generous: the slowest legitimate file drives a
-        # ten-second graceful stop and waits on real processes.
+        # BOUNDED IN TIME. A test file that blocks -- on a terminal read, on a wedged daemon, on a fixture process
+        # holding a pipe open -- otherwise hangs the whole run with no output and no exit, and this suite is run
+        # by `install.sh` as its verification phase, so a hung file stalls an install. `timeout` makes that a FAILED
+        # file with a diagnosable transcript instead. The budget is per file and generous: the slowest legitimate file
+        # drives a ten-second graceful stop and waits on real processes.
         timeout --foreground "${FILE_TIMEOUT}" bash "${f}" 2>&1 | tee "${out}"
         st="${PIPESTATUS[0]}"
         if [[ "${st}" -eq 124 ]]; then
@@ -93,8 +87,8 @@ run_dir() {
             _failed+=("${name}")
             { printf '\n%s\n' "${name}"; grep -E "${_FAIL_RE}" "${out}" || true; } >> "${_summary}"
         else
-            # A green exit proves coverage only when something PASSed: classify from the
-            # harness finish() line (the only line matching this shape).
+            # A green exit proves coverage only when something PASSed: classify from the harness finish() line (the only
+            # line matching this shape).
             line="$(grep -E "${re}" "${out}" | tail -1)"
             if [[ "${line}" =~ ${re} ]]; then
                 [[ "${BASH_REMATCH[1]}" -gt 0 ]] \
@@ -116,17 +110,16 @@ case "${mode}" in
     *) echo "usage: run.sh [unit|integration|boundary|all|residue]" >&2; exit 2 ;;
 esac
 
-# Failure summary: which files failed and their FAIL lines, so a long run does not have to
-# be scrolled. Printed only when something failed; an all-green run stays quiet.
+# Failure summary: which files failed and their FAIL lines, so a long run does not have to be scrolled. Printed only
+# when something failed; an all-green run stays quiet.
 if [[ "${rc}" -ne 0 ]]; then
     printf '\n══════ failures (%d file%s) ══════\n' \
         "${#_failed[@]}" "$([[ "${#_failed[@]}" -eq 1 ]] || echo s)"
     cat "${_summary}"
 fi
 
-# No-coverage notice: green-by-status files with no assertion behind them, and empty categories.
-# Lenient by default; AI_TOOLS_TEST_STRICT=1 (the full-install CI gate) fails the run, so a
-# broken prerequisite cannot hide behind skips.
+# No-coverage notice: green-by-status files with no assertion behind them, and empty categories. Lenient by default;
+# AI_TOOLS_TEST_STRICT=1 (the full-install CI gate) fails the run, so a broken prerequisite cannot hide behind skips.
 if [[ ${#_nocoverage[@]} -gt 0 ]]; then
     printf '\n══════ no coverage (%d) ══════\n' "${#_nocoverage[@]}"
     printf '  %s\n' "${_nocoverage[@]}"

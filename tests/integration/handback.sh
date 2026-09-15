@@ -1,44 +1,40 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/handback.sh
-# Integration: the handback-bridge + entrypoint regression guards. Pins the labels and DAC
-# that the socket privilege bridge and the SELinux domain-transition depend on: the claude.exe
-# entrypoint type, the socket's owner/mode and /run/ai-tools traversability, the socket-unit
-# directives (systemd-252 traps), and a live SYMLINK verb end-to-end as the agent. Unit validity
-# and enablement live in systemd.sh; the session's own confinement properties and env pins live
-# in ai-tools-run.sh, beside the shim that sets them. Run as root.
+# Integration: the handback-bridge + entrypoint regression guards. Pins the labels and DAC that the socket privilege
+# bridge and the SELinux domain-transition depend on: the claude.exe entrypoint type, the socket's owner/mode
+# and /run/ai-tools traversability, the socket-unit directives (systemd-252 traps), and a live SYMLINK verb end-to-end
+# as the agent. Unit validity and enablement live in systemd.sh; the session's own confinement properties and env pins
+# live in ai-tools-run.sh, beside the shim that sets them. Run as root.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-# The negative section drives real rejections through the live socket; each connection
-# is a transient ai-tools-handback@<n>.service that systemd marks FAILED when the daemon
-# exits non-zero on the bad request. Clear those instances on exit so the manager's
-# failed-unit list shows only genuine faults -- not this suite's synthetic rejections, which
-# an operator auditing `systemctl --failed` would otherwise keep rediscovering.
+# The negative section drives real rejections through the live socket; each connection is a transient
+# ai-tools-handback@<n>.service that systemd marks FAILED when the daemon exits non-zero on the bad request. Clear those
+# instances on exit so the manager's failed-unit list shows only genuine faults -- not this suite's synthetic
+# rejections, which an operator auditing `systemctl --failed` would otherwise keep rediscovering.
 on_teardown systemctl reset-failed 'ai-tools-handback@*'
 
-# The systemd units (the nvm-update timer in the sandbox account's `--user instance`, the
-# relabel watcher, this socket) are validated and their enablement checked in systemd.sh.
+# The systemd units (the nvm-update timer in the sandbox account's `--user instance`, the relabel watcher, this socket)
+# are validated and their enablement checked in systemd.sh.
 
 section "Handback bridge + entrypoint (regression guards)"
 
-# (1) claude.exe must carry ai_tools_exec_t, or the unconfined_t/init_t -> ai_tools_t
-# transition never fires and ai-tools-run's preflight refuses to launch. It is a HARD LINK to
-# the platform-package ELF, so a bulk restorecon can demote the shared inode to lib_t;
-# install-selinux.sh relabels it LAST. Only meaningful when the ai_tools module is installed.
+# (1) claude.exe must carry ai_tools_exec_t, or the unconfined_t/init_t -> ai_tools_t transition never fires
+# and ai-tools-run's preflight refuses to launch. It is a HARD LINK to the platform-package ELF, so a bulk restorecon
+# can demote the shared inode to lib_t; install-selinux.sh relabels it LAST. Only meaningful when the ai_tools module is
+# installed.
 #
-# The module supplies the TYPE; the rule that maps this path to it comes from the claude-code
-# manifest and is registered by ai-tools-relabel-agent (see providers.rule.md). So the two
-# conditions are checked separately: no module is a legitimate skip (the SELinux layer is
-# optional), but a loaded module whose file-contexts do not map the entrypoint is the broken
-# state ai-tools-run fail-closes on, and it FAILS here rather than skipping quietly.
+# The module supplies the TYPE; the rule that maps this path to it comes from the claude-code manifest and is registered
+# by ai-tools-relabel-agent (see providers.rule.md). So the two conditions are checked separately: no module is
+# a legitimate skip (the SELinux layer is optional), but a loaded module whose file-contexts do not map the entrypoint
+# is the broken state ai-tools-run fail-closes on, and it FAILS here rather than skipping quietly.
 _exe="$(ls -1 /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe 2>/dev/null | head -1)"
 _module_loaded=no
-# The listing is captured, not piped into `grep -q`: an early-exiting reader makes semodule die of
-# SIGPIPE, which this file's pipefail reports as "module absent" -- see the note on
-# ai_tools_selinux_group_loaded (selinux-groups.lib.sh).
+# The listing is captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE, which this
+# file's pipefail reports as "module absent" -- see the note on ai_tools_selinux_group_loaded (selinux-groups.lib.sh).
 _modules=""
 if command -v semodule >/dev/null 2>&1; then
     _modules="$(semodule -l 2>/dev/null || true)"
@@ -56,11 +52,10 @@ else
     fail "claude.exe is '$(stat -c '%C' "${_exe}" 2>/dev/null)', NOT ai_tools_exec_t -- ai-tools-run will refuse to launch. Fix: install-selinux.sh relabel"
 fi
 
-# (1a) The handback daemon binary must carry ai_tools_handback_exec_t, or the socket-activated
-# service transitions into unconfined_service_t instead of ai_tools_handback_t -- the exact
-# regression a bulk relabel that skipped /usr/local/libexec/ai-tools caused (connectto then failed,
-# CHOWN broke under enforcing). Pin the label on the deployed daemon. Only meaningful when the
-# module is installed (matchpathcon maps the path to the type).
+# (1a) The handback daemon binary must carry ai_tools_handback_exec_t, or the socket-activated service transitions
+# into unconfined_service_t instead of ai_tools_handback_t -- the exact regression a bulk relabel that skipped
+# /usr/local/libexec/ai-tools caused (connectto then failed, CHOWN broke under enforcing). Pin the label on the deployed
+# daemon. Only meaningful when the module is installed (matchpathcon maps the path to the type).
 _hbd="/usr/local/libexec/ai-tools/ai-tools-handback"
 if [[ ! -x "${_hbd}" ]]; then
     skip "handback daemon label" "${_hbd} not installed"
@@ -72,9 +67,9 @@ else
     fail "handback daemon is '$(stat -c '%C' "${_hbd}" 2>/dev/null)', NOT ai_tools_handback_exec_t -- the daemon runs unconfined and connectto/CHOWN fail. Fix: restorecon -Rv /usr/local/libexec/ai-tools"
 fi
 
-# (2) Handback socket is 0660 root:SANDBOX_GROUP and /run/ai-tools is traversable by the
-# sandbox user. The systemd-252 RuntimeDirectoryGroup= trap left the dir root:root and
-# un-traversable; the fix is RuntimeDirectoryMode=0711 (world `--x`, contents unlistable).
+# (2) Handback socket is 0660 root:SANDBOX_GROUP and /run/ai-tools is traversable by the sandbox user. The systemd-252
+# RuntimeDirectoryGroup= trap left the dir root:root and un-traversable; the fix is RuntimeDirectoryMode=0711 (world
+# `--x`, contents unlistable).
 _sock="/run/ai-tools/handback.sock"
 if [[ ! -S "${_sock}" ]]; then
     skip "handback socket DAC" "${_sock} not present (service not started?)"
@@ -87,8 +82,8 @@ else
     fi
 fi
 
-# (3) Deployed socket unit must NOT use RuntimeDirectoryGroup= (unknown key on systemd 252,
-# silently ignored -> dir root:root) and MUST set RuntimeDirectoryMode=0711.
+# (3) Deployed socket unit must NOT use RuntimeDirectoryGroup= (unknown key on systemd 252, silently ignored -> dir
+# root:root) and MUST set RuntimeDirectoryMode=0711.
 _unit="/usr/lib/systemd/system/ai-tools-handback.socket"
 if [[ ! -f "${_unit}" ]]; then
     skip "handback socket unit directives" "${_unit} missing"
@@ -105,9 +100,9 @@ else
     fi
 fi
 
-# (4) Live SYMLINK verb end-to-end, idempotent (repoint to the CURRENT target). Exercises
-# the full bridge as ${SANDBOX_USER}: socket reach (0711) + SO_PEERCRED + the daemon's
-# getattr on the ai_tools_exec_t entrypoint. No net change: the target is unchanged.
+# (4) Live SYMLINK verb end-to-end, idempotent (repoint to the CURRENT target). Exercises the full bridge
+# as ${SANDBOX_USER}: socket reach (0711) + SO_PEERCRED + the daemon's getattr on the ai_tools_exec_t entrypoint. No net
+# change: the target is unchanged.
 _client="/usr/local/bin/ai-tools-handback-client"
 _tgt="$(readlink /opt/ai-tools/bin/claude 2>/dev/null || true)"
 if ! command -v runuser >/dev/null 2>&1; then
@@ -123,11 +118,10 @@ else
     fail "handback SYMLINK verb FAILED -- check /run/ai-tools (0711) reachable and ai_tools_handback_t getattr on ai_tools_exec_t"
 fi
 
-# (4a) The served request must leave a line in the daemon's own trail
-# (/var/log/ai-tools/handback.log, root-only, written by the root daemon at its hardcoded
-# path -- unaffected by the harness AI_TOOLS_LOG_DIR override). Its presence proves the
-# daemon file sink AND, under enforcing, the ai_tools_handback_t -> ai_tools_log_t append
-# rule; the daemon writes it before answering OK, so it is present once the client returned.
+# (4a) The served request must leave a line in the daemon's own trail (/var/log/ai-tools/handback.log, root-only,
+# written by the root daemon at its hardcoded path -- unaffected by the harness AI_TOOLS_LOG_DIR override). Its presence
+# proves the daemon file sink AND, under enforcing, the ai_tools_handback_t -> ai_tools_log_t append rule; the daemon
+# writes it before answering OK, so it is present once the client returned.
 if [[ "${_symlink_ok:-0}" != 1 ]]; then
     skip "handback.log served-request line" "live SYMLINK verb did not run"
 elif grep -qF "arg=${_tgt} -> OK" /var/log/ai-tools/handback.log 2>/dev/null; then
@@ -138,34 +132,31 @@ fi
 
 # ── Bridge input validation + allowlist boundary (negative, as the agent) ────────
 #
-# The whole privilege bridge rests on the daemon rejecting bad input and the helper
-# re-validating the allowlist. Drive the real client AS the sandbox account and prove a
-# request it must NOT honour does not change a path. The client exits non-zero and relays the
-# daemon's ERR reason on any rejection.
+# The whole privilege bridge rests on the daemon rejecting bad input and the helper re-validating the allowlist. Drive
+# the real client AS the sandbox account and prove a request it must NOT honour does not change a path. The client exits
+# non-zero and relays the daemon's ERR reason on any rejection.
 section "Handback bridge: input validation + allowlist boundary (negative)"
 
 if ! command -v runuser >/dev/null 2>&1 || [[ ! -x "${_client}" || ! -S "${_sock}" ]]; then
     skip "handback negative" "runuser, client, or socket unavailable"
 else
-    # Drive the client as the agent; capture combined output and the exit code without
-    # tripping `set -e` (the assignment failure sits in a && / || list, which is exempt).
+    # Drive the client as the agent; capture combined output and the exit code without tripping `set -e` (the assignment
+    # failure sits in a && / || list, which is exempt).
     drive() { runuser -u "${SANDBOX_USER}" -- "${_client}" "$@" 2>&1; }
 
-    # (probe) The daemon must ANSWER -- any reply, even ERR, proves the listener and the
-    # per-connection handler run. A client-transport error (connect refused/denied, or a
-    # reset before the request is read) means no daemon answered, so every per-case
-    # per-verb assert would fail with the same client error; report the bridge itself once
-    # and skip them. The one-command fix relabels the daemon and rebinds the listener.
+    # (probe) The daemon must ANSWER -- any reply, even ERR, proves the listener and the per-connection handler run.
+    # A client-transport error (connect refused/denied, or a reset before the request is read) means no daemon answered,
+    # so every per-case per-verb assert would fail with the same client error; report the bridge itself once and skip
+    # them. The one-command fix relabels the daemon and rebinds the listener.
     #
-    # The unknown verb is SELFTEST (not a generic BOGUS): the daemon logs it verbatim as
-    # `unknown verb 'SELFTEST'`, so this suite's synthetic rejections self-identify in the
-    # real handback.log an operator later audits, rather than reading as a live intrusion
-    # probe. Keep it self-describing if renamed.
+    # The unknown verb is SELFTEST (not a generic BOGUS): the daemon logs it verbatim as `unknown verb 'SELFTEST'`,
+    # so this suite's synthetic rejections self-identify in the real handback.log an operator later audits, rather than
+    # reading as a live intrusion probe. Keep it self-describing if renamed.
     probe_out="$(drive SELFTEST /probe)" || true
     if grep -qiE 'connection reset|connection refused|permission denied|incomplete response|no such file' <<<"${probe_out}"; then
-        # The remedy depends on the confinement layer: with SELinux active the usual cause
-        # is a listener bound before the daemon was labelled (relabel rebinds it in order);
-        # on a DAC-only host the socket unit itself needs attention.
+        # The remedy depends on the confinement layer: with SELinux active the usual cause is a listener bound
+        # before the daemon was labelled (relabel rebinds it in order); on a DAC-only host the socket unit itself needs
+        # attention.
         if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
             _fix="sudo $(cd "$(dirname "${BASH_SOURCE[0]}")/../../selinux" 2>/dev/null && pwd)/install-selinux.sh relabel; diagnose: journalctl -u 'ai-tools-handback@*', ausearch -m avc,selinux_err -ts recent"
         else
@@ -175,8 +166,8 @@ else
         skip "handback negative cases (6)-(8)" "bridge does not answer"
     else
 
-    # (6) Unknown verb is rejected before any helper runs (SELFTEST, self-identifying in the
-    # daemon's audit log -- see the transport probe).
+    # (6) Unknown verb is rejected before any helper runs (SELFTEST, self-identifying in the daemon's audit log -- see
+    # the transport probe).
     out="$(drive SELFTEST /etc/hostname)" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'unknown verb' <<<"${out}"; then
         pass "daemon rejects an unknown verb (no helper dispatched)"
@@ -184,8 +175,8 @@ else
         fail "unknown verb not cleanly rejected (rc=${rc}): ${out}"
     fi
 
-    # (6a) Wrong argument count is rejected by the client before any socket I/O (it requires
-    # exactly VERB ARG). A missing arg must not reach the daemon as a bare verb.
+    # (6a) Wrong argument count is rejected by the client before any socket I/O (it requires exactly VERB ARG).
+    # A missing arg must not reach the daemon as a bare verb.
     out="$(drive CHOWN)" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'usage' <<<"${out}"; then
         pass "client rejects a wrong argument count (usage error, no request sent)"
@@ -201,9 +192,9 @@ else
         fail "empty argument not cleanly rejected (rc=${rc}): ${out}"
     fi
 
-    # (6c) A control character in the argument (here DEL, 0x7f, on the same line so it is not a
-    # request terminator) is rejected by the daemon's control-char pre-filter -- defense against
-    # a smuggled path that a later helper might mishandle.
+    # (6c) A control character in the argument (here DEL, 0x7f, on the same line so it is not a request terminator) is
+    # rejected by the daemon's control-char pre-filter -- defense against a smuggled path that a later helper might
+    # mishandle.
     out="$(drive CHOWN "$(printf '/etc/\177evil')")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'malformed' <<<"${out}"; then
         pass "daemon rejects an argument containing a control character"
@@ -219,11 +210,10 @@ else
         fail "non-absolute arg not cleanly rejected (rc=${rc}): ${out}"
     fi
 
-    # (8) The allowlist boundary holds THROUGH the bridge: a CHOWN on a root-owned file that
-    # is NOT in any allowlist is refused by ai-tools-chown, leaving the victim untouched. The
-    # victim lives under /var/opt/ai-tools (root-owned, NOT /tmp -- which is polyinstantiated
-    # and would not cross to the daemon, and NOT allowlisted), so a buggy bridge that chowned
-    # it would be a real privilege leak this test would catch.
+    # (8) The allowlist boundary holds THROUGH the bridge: a CHOWN on a root-owned file that is NOT in any allowlist is
+    # refused by ai-tools-chown, leaving the victim untouched. The victim lives under /var/opt/ai-tools (root-owned, NOT
+    # /tmp -- which is polyinstantiated and would not cross to the daemon, and NOT allowlisted), so a buggy bridge
+    # that chowned it would be a real privilege leak this test would catch.
     victim=""; mk_fixture_file victim /var/opt/ai-tools victim
     chown root:root "${victim}"; chmod 0600 "${victim}"
     before="$(stat -c '%U:%G' "${victim}")"

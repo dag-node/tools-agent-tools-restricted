@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/check-version.sh
-# Unit test for packaging/check-version.sh, the release-metadata gate the release job runs
-# at tag time (and `make -C packaging check-version` locally). Pins the tag grammar and the
-# agreement rules hermetically on a TESTDIR copy with fixture VERSION/spec files: a bare run
-# and a final vX.Y.Z tag require the three-way match, a vX.Y.Z-rc.N tag compares its base
-# and relaxes only the %changelog match (surfacing a note), any other dashed tag is refused,
-# and a missing %changelog entry stays fatal for every form. Exercises the repo's own copy
-# (the script is not a deployed artifact); does not need privilege beyond the suite contract.
+# Unit test for packaging/check-version.sh, the release-metadata gate the release job runs at tag time (and
+# `make -C packaging check-version` locally). Pins the tag grammar and the agreement rules hermetically on a TESTDIR
+# copy with fixture VERSION/spec files: a bare run and a final vX.Y.Z tag require the three-way match, a vX.Y.Z-rc.N tag
+# compares its base and relaxes only the %changelog match (surfacing a note), any other dashed tag is refused,
+# and a missing %changelog entry stays fatal for every form. Exercises the repo's own copy (the script is not a deployed
+# artifact); does not need privilege beyond the suite contract.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -23,8 +22,8 @@ fi
 mktestdir
 cp "${SRC}" "${TESTDIR}/check-version.sh"
 
-# write_fixture <version> <changelog-head|-> : VERSION plus a minimal spec whose newest
-# %changelog entry names <changelog-head>; '-' writes a spec with no %changelog entry.
+# write_fixture <version> <changelog-head|-> : VERSION plus a minimal spec whose newest %changelog entry names
+# <changelog-head>; '-' writes a spec with no %changelog entry.
 write_fixture() {
     printf '%s\n' "$1" > "${TESTDIR}/VERSION"
     {
@@ -33,8 +32,8 @@ write_fixture() {
     } > "${TESTDIR}/ai-tools.spec"
 }
 
-# expect <ok|refused> <description> [tag]: run the TESTDIR copy (via bash, not execve --
-# /tmp is noexec) and assert its exit status.
+# expect <ok|refused> <description> [tag]: run the TESTDIR copy (via bash, not execve -- /tmp is noexec) and assert its
+# exit status.
 expect() {
     local want="$1" what="$2"; shift 2
     local st=0

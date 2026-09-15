@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/skip-dirs.sh
-# Unit test for the shared directory-skip selector (skip-dirs.lib.sh): the category defaults,
-# the per-consumer skip sets the lib owns, the optional skip_git override, the operator.conf
-# category overrides (parsed, not sourced), and the `-type d` matcher that skips DIRECTORIES
-# only -- so a file sharing a skipped name is still walked. Sources the deployed library and
-# exercises a /tmp testdir; does not require privilege of its own. Run as root via sudo (suite contract).
+# Unit test for the shared directory-skip selector (skip-dirs.lib.sh): the category defaults, the per-consumer skip sets
+# the lib owns, the optional skip_git override, the operator.conf category overrides (parsed, not sourced),
+# and the `-type d` matcher that skips DIRECTORIES only -- so a file sharing a skipped name is still walked. Sources
+# the deployed library and exercises a /tmp testdir; does not require privilege of its own. Run as root via sudo (suite
+# contract).
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/chown.sh
-# Hermetic unit tests for the deployed ai-tools-chown helper: it acts only on agent
-# (SANDBOX_USER)-owned paths, hands ordinary ones back to <projects-user>:SANDBOX_GROUP with
-# world bits stripped, quarantines secret-named ones to <projects-user>:<projects-user> 600,
-# honors '!' exclusions, refuses paths outside the allowlist, and is TOCTOU-safe (pinned fd,
-# refuses symlink redirection). Installed helper against a /tmp testdir with a dummy
-# allowlist. This test stays out of /var/log to keep its hermetic boundary; the audit-log
-# FILE's ownership and mode are pinned in perms.sh (the written log line itself is not asserted).
+# Hermetic unit tests for the deployed ai-tools-chown helper: it acts only on agent (SANDBOX_USER)-owned paths, hands
+# ordinary ones back to <projects-user>:SANDBOX_GROUP with world bits stripped, quarantines secret-named ones
+# to <projects-user>:<projects-user> 600, honors '!' exclusions, refuses paths outside the allowlist, and is TOCTOU-safe
+# (pinned fd, refuses symlink redirection). Installed helper against a /tmp testdir with a dummy allowlist. This test
+# stays out of /var/log to keep its hermetic boundary; the audit-log FILE's ownership and mode are pinned in perms.sh
+# (the written log line itself is not asserted).
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -27,13 +26,13 @@ chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}" "${excl}"   # pre-existing 
 chmod 0755 "${TESTDIR}" "${proj}" "${excl}"                       # traversable for the EACCES check
 mk_allowlist "${proj}" "!${excl}"
 
-# Run the validator the way the hook does: detached from any tty, stdin from /dev/null, so
-# it takes its non-interactive apply branch. Captures stderr for the NOTICE assertions.
+# Run the validator the way the hook does: detached from any tty, stdin from /dev/null, so it takes its non-interactive
+# apply branch. Captures stderr for the NOTICE assertions.
 run() { setsid "${HELPER}" "$1" < /dev/null > /dev/null 2>"${2:-/dev/null}" || true; }
 
-# (1) A path outside the allowlist is left untouched. The reactive hook handler runs per
-# written file, so an out-of-allowlist path is a graceful skip (exit 0, no hand-back) rather
-# than a hard error: the file stays SANDBOX_USER-owned, never chowned to the operator.
+# (1) A path outside the allowlist is left untouched. The reactive hook handler runs per written file,
+# so an out-of-allowlist path is a graceful skip (exit 0, no hand-back) rather than a hard error: the file stays
+# SANDBOX_USER-owned, never chowned to the operator.
 out="${TESTDIR}/outside"; : > "${out}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${out}"; chmod 644 "${out}"
 "${HELPER}" "${out}" < /dev/null > /dev/null 2>&1 || true
 if [[ "$(stat -c '%U:%G' "${out}")" == "${SANDBOX_USER}:${SANDBOX_GROUP}" ]]; then
@@ -51,8 +50,8 @@ else
     fail "ordinary file ended $(stat -c '%U:%G' "${ord}") $(perm "${ord}")"
 fi
 
-# (2a) A data file the Write tool stamped group-executable (0670, no ACL) -> the stray group
-# execute is stripped while group write is kept (owner has no execute, so it is not a script).
+# (2a) A data file the Write tool stamped group-executable (0670, no ACL) -> the stray group execute is stripped while
+# group write is kept (owner has no execute, so it is not a script).
 gx="${proj}/data.bin"; : > "${gx}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${gx}"; chmod 0670 "${gx}"
 run "${gx}"
 if [[ "$(perm "${gx}")" == 660 ]]; then
@@ -61,8 +60,8 @@ else
     fail "stray-exec data file ended $(perm "${gx}") (want 660)"
 fi
 
-# (2b) A genuine script the agent wrote (owner rwx) keeps its group r-x -- owner-execute marks
-# it executable, so handback strips only world and leaves 750.
+# (2b) A genuine script the agent wrote (owner rwx) keeps its group r-x -- owner-execute marks it executable,
+# so handback strips only world and leaves 750.
 scr="${proj}/run.sh"; : > "${scr}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${scr}"; chmod 0755 "${scr}"
 run "${scr}"
 if [[ "$(perm "${scr}")" == 750 ]]; then
@@ -103,12 +102,12 @@ for name in .env.local id_ed25519 server.key cert.pem .pgpass ID_ED25519; do
     fi
 done
 ${sec_ok} && pass "secret-named files -> ${PROJECTS_USER}:${PROJECTS_GROUP} 600 + NOTICE (incl. upper-case)"
-# The NOTICE's identity, asserted by code on the last run's output: the wording above is content
-# (that a breach was reported at all), the code is which situation reported it.
+# The NOTICE's identity, asserted by code on the last run's output: the wording above is content (that a breach was
+# reported at all), the code is which situation reported it.
 assert_msg MSG-A6D8 "$(cat "${err}")" "the breach NOTICE carries its message code"
 
-# (4) The agent cannot read a quarantined secret -- asserted against the deployed file rather
-# than inferred from its mode.
+# (4) The agent cannot read a quarantined secret -- asserted against the deployed file rather than inferred from its
+# mode.
 qs="${proj}/.env.local"
 if ! sudo -u "${SANDBOX_USER}" cat "${qs}" < /dev/null > /dev/null 2>&1; then
     pass "the agent cannot read the quarantined secret (EACCES)"
@@ -173,8 +172,8 @@ else
     fail "symlink redirection modified the outside victim: now $(stat -c '%U:%G %a' "${victim}")"
 fi
 
-# (11) Argument handling: `--yes` (the batch caller's per-path-prompt skip) is accepted and
-# applies the same hand-back; an unknown option or a second path is rejected (usage, rc 2).
+# (11) Argument handling: `--yes` (the batch caller's per-path-prompt skip) is accepted and applies the same hand-back;
+# an unknown option or a second path is rejected (usage, rc 2).
 by="${proj}/batch.txt"; : > "${by}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${by}"; chmod 0644 "${by}"
 setsid "${HELPER}" --yes "${by}" < /dev/null > /dev/null 2>&1 || true
 if [[ "$(stat -c '%U:%G' "${by}")" == "${PROJECTS_USER}:${SANDBOX_GROUP}" ]]; then
@@ -190,11 +189,10 @@ else
     fail "argument validation wrong (unknown-opt rc=${badopt_rc}, two-path rc=${twoarg_rc})"
 fi
 
-# (12) Symlinked PARENT: a link INSIDE the project pointing at an outside directory cannot
-# smuggle an out-of-allowlist file into handback. `realpath -e` canonicalises the whole path
-# (parents included), so a hand-back of proj/evildir/loot -- where evildir -> an outside dir --
-# resolves to the real outside path, which is not under any allowlisted project and is left
-# untouched. Distinct from (10), which redirects the FINAL component.
+# (12) Symlinked PARENT: a link INSIDE the project pointing at an outside directory cannot smuggle an out-of-allowlist
+# file into handback. `realpath -e` canonicalises the whole path (parents included), so a hand-back of proj/evildir/loot
+# -- where evildir -> an outside dir -- resolves to the real outside path, which is not under any allowlisted project
+# and is left untouched. Distinct from (10), which redirects the FINAL component.
 outdir="${TESTDIR}/outside_dir"; mkdir -p "${outdir}"
 loot="${outdir}/loot"; : > "${loot}"; chown root:root "${loot}"; chmod 0600 "${loot}"
 lbefore="$(stat -c '%U:%G %a' "${loot}")"

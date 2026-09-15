@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/safe-paths.sh
-# Unit test for the protected-paths backstop (safe-paths.lib.sh), the shared list and guard
-# the launch wrapper, the claim CLI, and every elevated helper source to refuse acting on a
-# system directory even when the allowlist (mis)includes it. Pins the matching contract
-# hermetically: it sources the deployed library and asserts the exact-or-ancestor rule --
-# a system directory (and "/") is protected, a user home root is protected exactly, while
-# a real project nested under an operator home or the sandbox-clone area passes. Also checks the assert emits a refusal and returns
-# non-zero on a protected target and is silent + zero on a safe one, and pins the second,
-# narrower predicate beside it -- ai_tools_traverse_grant_allowed, which admits the acting
-# operator's own home root for a traverse-only ACL and no other path. Run as root via sudo
-# (the suite contract); the only case needing privilege (a foreign-owned fixture) skips without
-# it, so the file also runs directly as an operator.
+# Unit test for the protected-paths backstop (safe-paths.lib.sh), the shared list and guard the launch wrapper,
+# the claim CLI, and every elevated helper source to refuse acting on a system directory even when the allowlist
+# (mis)includes it. Pins the matching contract hermetically: it sources the deployed library and asserts
+# the exact-or-ancestor rule -- a system directory (and "/") is protected, a user home root is protected exactly, while
+# a real project nested under an operator home or the sandbox-clone area passes. Also checks the assert emits a refusal
+# and returns non-zero on a protected target and is silent + zero on a safe one, and pins the second, narrower predicate
+# beside it -- ai_tools_traverse_grant_allowed, which admits the acting operator's own home root for a traverse-only ACL
+# and no other path. Run as root via sudo (the suite contract); the only case needing privilege (a foreign-owned
+# fixture) skips without it, so the file also runs directly as an operator.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -88,16 +86,16 @@ else
 fi
 
 # ── The traverse-grant predicate ─────────────────────────────────────────────
-# ai_tools_traverse_grant_allowed vets a strictly weaker operation than the target backstop
-# backstop: one `u:ai-tools:--x` entry on ONE directory, which grants search permission and not read. It therefore admits the acting operator's OWN home root, which the backstop refuses as a
-# target -- so these assertions are about the difference between the two, and case (2b) still
-# stands unchanged. What keeps the carve-out from becoming a hole is the owner argument: it is
-# checked before the home-root exemption, so the exemption reaches exactly one account's home.
+# ai_tools_traverse_grant_allowed vets a strictly weaker operation than the target backstop backstop: one
+# `u:ai-tools:--x` entry on ONE directory, which grants search permission and not read. It therefore admits the acting
+# operator's OWN home root, which the backstop refuses as a target -- so these assertions are about the difference
+# between the two, and case (2b) still stands unchanged. What keeps the carve-out from becoming a hole is the owner
+# argument: it is checked before the home-root exemption, so the exemption reaches exactly one account's home.
 section "traverse-grant predicate (unit)"
 
-# This file stays runnable unprivileged (it drives a pure library), so the fixture ownership is
-# only asserted where it can be arranged: run as root the testdir is root-owned and has to be
-# handed over, run as the operator it is already theirs.
+# This file stays runnable unprivileged (it drives a pure library), so the fixture ownership is only asserted where it
+# can be arranged: run as root the testdir is root-owned and has to be handed over, run as the operator it is already
+# theirs.
 mktestdir
 owned="${TESTDIR}/owned"; mkdir -p "${owned}"
 if [[ "$(id -u)" -eq 0 ]]; then chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${owned}"; fi

@@ -1,34 +1,32 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/lib/harness.sh
-# Shared harness sourced by every test file. Provides the result counters, a /tmp testdir
-# boundary with automatic teardown, a dummy-allowlist fixture, and the permission helper.
+# Shared harness sourced by every test file. Provides the result counters, a /tmp testdir boundary with automatic
+# teardown, a dummy-allowlist fixture, and the permission helper.
 #
-# Hermeticity contract (see .claude/rules/tests.rule.md): a test works ONLY inside its own
-# /tmp testdir, builds its fixtures there with known content, never reads or writes the
-# operator's real files, and removes everything it created on exit.
+# Hermeticity contract (see .claude/rules/tests.rule.md): a test works ONLY inside its own /tmp testdir, builds its
+# fixtures there with known content, never reads or writes the operator's real files, and removes everything it created
+# on exit.
 
 set -euo pipefail
 
 declare -i _pass=0 _fail=0 _skip=0
 
-# _san <text>: reduce text to printable ASCII (0x20-0x7E), replacing every other byte with '?'.
-# Result messages interpolate values that may carry crafted control/bidi bytes -- a filename
-# fixture, a daemon reply relayed verbatim, or a sanitizer's own output on the regression the
-# assertion just caught. The suite runs as ROOT via sudo, often on a live host, and run.sh tees
-# every line to the terminal, so a raw byte reaching stdout/stderr could inject a terminal
-# escape or bidi reordering. This is the suite-wide net: sanitize at the point every result is
-# printed, so no individual test can emit a dangerous byte regardless of what it interpolates.
-# Byte-wise under a forced C locale, so it is locale-independent and neutralizes multi-byte
-# sequences too. (An individual test may still hex-render a value for a better diagnostic.)
+# _san <text>: reduce text to printable ASCII (0x20-0x7E), replacing every other byte with '?'. Result messages
+# interpolate values that may carry crafted control/bidi bytes -- a filename fixture, a daemon reply relayed verbatim,
+# or a sanitizer's own output on the regression the assertion just caught. The suite runs as ROOT via sudo, often
+# on a live host, and run.sh tees every line to the terminal, so a raw byte reaching stdout/stderr could inject
+# a terminal escape or bidi reordering. This is the suite-wide net: sanitize at the point every result is printed, so no
+# individual test can emit a dangerous byte regardless of what it interpolates. Byte-wise under a forced C locale, so it
+# is locale-independent and neutralizes multi-byte sequences too. (An individual test may still hex-render a value
+# for a better diagnostic.)
 _san() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
 
-# Colour on the RESULT WORD only, so a long run reads at a glance. Enabled when stdout is a
-# terminal, or when AI_TOOLS_TEST_COLOR=1 -- run.sh and install.sh set that because they pipe this
-# output through tee, which makes the tty test false while a terminal is still reading it. These
-# are fixed constants chosen here, never interpolated from a test, so _san's guarantee that no
-# test-supplied byte reaches the terminal as an escape is unchanged. Messages stay uncoloured, so a
-# grep for a result message keeps matching; a grep anchored on the WORD must allow the prefix (see
+# Colour on the RESULT WORD only, so a long run reads at a glance. Enabled when stdout is a terminal,
+# or when AI_TOOLS_TEST_COLOR=1 -- run.sh and install.sh set that because they pipe this output through tee, which makes
+# the tty test false while a terminal is still reading it. These are fixed constants chosen here, never interpolated
+# from a test, so _san's guarantee that no test-supplied byte reaches the terminal as an escape is unchanged. Messages
+# stay uncoloured, so a grep for a result message keeps matching; a grep anchored on the WORD must allow the prefix (see
 # run.sh's failure summary).
 if [[ -t 1 || "${AI_TOOLS_TEST_COLOR:-0}" == "1" ]]; then
     _C_PASS=$'\033[32m' _C_FAIL=$'\033[31m' _C_SKIP=$'\033[33m' _C_NOTE=$'\033[2m' _C_OFF=$'\033[0m'
@@ -39,15 +37,15 @@ fi
 pass()    { printf '  %sPASS%s  %s\n' "${_C_PASS}" "${_C_OFF}" "$(_san "$*")";            _pass=$(( _pass + 1 )); }
 fail()    { printf '  %sFAIL%s  %s\n' "${_C_FAIL}" "${_C_OFF}" "$(_san "$*")" >&2;        _fail=$(( _fail + 1 )); }
 skip()    { printf '  %sSKIP%s  %s  (%s)\n' "${_C_SKIP}" "${_C_OFF}" "$(_san "$1")" "$(_san "$2")"; _skip=$(( _skip + 1 )); }
-# note <subject> <detail>: report which supported state a host is in. Increments no counter, so
-# it stays out of run.sh's no-coverage notice; a check that could not run emits skip instead.
+# note <subject> <detail>: report which supported state a host is in. Increments no counter, so it stays out of run.sh's
+# no-coverage notice; a check that could not run emits skip instead.
 note()    { printf '  %sNOTE%s  %s  (%s)\n' "${_C_NOTE}" "${_C_OFF}" "$(_san "$1")" "$(_san "$2")"; }
 section() { printf '\n── %s\n' "$(_san "$*")"; }
 
-# assert_msg <code> <output> [<what>]: PASS when <output> carries the message code <code> on a line
-# of its own -- where every emitter and local die()/warn() puts a leading code in plain mode -- and
-# FAIL otherwise, quoting the output's head. A test asserts a code for the identity of a refusal or
-# a warning and greps prose only for content, so the wording is free to change (messaging.rule.md).
+# assert_msg <code> <output> [<what>]: PASS when <output> carries the message code <code> on a line of its own --
+# where every emitter and local die()/warn() puts a leading code in plain mode -- and FAIL otherwise, quoting
+# the output's head. A test asserts a code for the identity of a refusal or a warning and greps prose only for content,
+# so the wording is free to change (messaging.rule.md).
 assert_msg() {
     local code="$1" output="$2" what="${3:-emits ${1}}"
     if grep -qxF -- "${code}" <<<"${output}"; then
@@ -57,15 +55,14 @@ assert_msg() {
     fi
 }
 
-# perm <path>: the rwx permission bits only, as octal (masks setgid/setuid/sticky). GNU
-# coreutils `chmod` with a numeric mode does NOT clear a directory's setgid bit, and a
-# testdir created under a setgid parent inherits it, so mode assertions compare the low 3
-# octal digits via this helper, not the raw `stat %a`. `8#` keeps it base-8 in any shell.
+# perm <path>: the rwx permission bits only, as octal (masks setgid/setuid/sticky). GNU coreutils `chmod` with a numeric
+# mode does NOT clear a directory's setgid bit, and a testdir created under a setgid parent inherits it, so mode
+# assertions compare the low 3 octal digits via this helper, not the raw `stat %a`. `8#` keeps it base-8 in any shell.
 perm() { local m; m="$(stat -c '%a' "$1" 2>/dev/null)"; printf '%o' "$(( 8#${m:-0} & 8#777 ))"; }
 
-# check_file <path> <owner> <group> <mode>: PASS when the file's actual owner, group, and
-# octal mode all match; FAIL (naming the mismatch) otherwise, or when the path is absent.
-# Used by the integration suite to assert deployed-artifact ownership/permissions.
+# check_file <path> <owner> <group> <mode>: PASS when the file's actual owner, group, and octal mode all match; FAIL
+# (naming the mismatch) otherwise, or when the path is absent. Used by the integration suite to assert deployed-artifact
+# ownership/permissions.
 check_file() {
     local file="$1" exp_owner="$2" exp_group="$3" exp_mode="$4"
     if [[ ! -e "${file}" ]]; then
@@ -86,28 +83,26 @@ check_file() {
     fi
 }
 
-# check_file_optional <path> <owner> <group> <mode>: like check_file, but a missing path is a
-# SKIP, not a FAIL -- for artifacts created on demand (a per-operator override file, a %ghost log
-# written on first use) that are legitimately absent on a fresh install yet, when present, must
-# still match the model.
+# check_file_optional <path> <owner> <group> <mode>: like check_file, but a missing path is a SKIP, not a FAIL --
+# for artifacts created on demand (a per-operator override file, a %ghost log written on first use) that are
+# legitimately absent on a fresh install yet, when present, must still match the model.
 check_file_optional() {
     [[ -e "$1" ]] || { skip "$1" "absent until created on demand"; return; }
     check_file "$@"
 }
 
-# require_root: abort unless run as root. Helper tests set arbitrary ownership/ACLs and
-# create third-party-owned fixtures, which needs root; the suites are invoked via sudo.
+# require_root: abort unless run as root. Helper tests set arbitrary ownership/ACLs and create third-party-owned
+# fixtures, which needs root; the suites are invoked via sudo.
 require_root() {
     [[ "${EUID}" -eq 0 ]] || { echo "error: run with sudo" >&2; exit 1; }
 }
 
-# The unprivileged project user (and the sandbox account) the helpers collaborate with,
-# derived from the invocation -- never hard-coded. Three cases, because not every suite needs
-# root: under sudo it is the operator who invoked it; run DIRECTLY as an unprivileged user (which
-# the pure library suites support -- they stub what they drive and build fixtures they own) the
-# invoker is that user; run as root with no sudo context there is no unprivileged identity to
-# derive and no default to guess from, so refuse -- fixtures would be built root-owned and every
-# owner guard under test would skip them, passing the suite while proving no property.
+# The unprivileged project user (and the sandbox account) the helpers collaborate with, derived from the invocation --
+# never hard-coded. Three cases, because not every suite needs root: under sudo it is the operator who invoked it; run
+# DIRECTLY as an unprivileged user (which the pure library suites support -- they stub what they drive and build
+# fixtures they own) the invoker is that user; run as root with no sudo context there is no unprivileged identity
+# to derive and no default to guess from, so refuse -- fixtures would be built root-owned and every owner guard
+# under test would skip them, passing the suite while proving no property.
 if [[ -n "${SUDO_USER:-}" ]]; then
     PROJECTS_USER="${SUDO_USER}"
 elif [[ "${EUID}" -ne 0 ]]; then
@@ -123,20 +118,18 @@ readonly PROJECTS_USER PROJECTS_GROUP PROJECTS_HOME PROJECTS_UID
 readonly SANDBOX_USER="ai-tools"
 readonly SANDBOX_GROUP="ai-tools"
 
-# Every path a test creates outside its own testdir is named by one rule, so a leftover is
-# recognisable as this suite's and a sweep can find it without guessing:
+# Every path a test creates outside its own testdir is named by one rule, so a leftover is recognisable as this suite's
+# and a sweep can find it without guessing:
 #
 #     .ai-tools-test-<group>-<thing>-XXXXXX
 #
-# <group> is the category directory the file runs from (unit, integration, boundary; the
-# operator-run script under manual/ names itself), <thing> names what the path is for (the
-# file's stem for its testdir; homelock, victim, c3 for a single fixture), and XXXXXX is six
-# random alphanumerics, mktemp's own. The leading dot keeps
-# a leftover out of a plain listing and gives the residue sweep (tests/lib/residue.sh, run by
-# run.sh before every run) one pattern to match. The mk_fixture_* helpers create AND register in one
-# call, so a fixture cannot be born outside the teardown list; a test that must name a path
-# before it exists (a probe the agent is asked to create) takes the name from ai_test_name and
-# registers it itself.
+# <group> is the category directory the file runs from (unit, integration, boundary; the operator-run script
+# under manual/ names itself), <thing> names what the path is for (the file's stem for its testdir; homelock, victim, c3
+# for a single fixture), and XXXXXX is six random alphanumerics, mktemp's own. The leading dot keeps a leftover
+# out of a plain listing and gives the residue sweep (tests/lib/residue.sh, run by run.sh before every run) one pattern
+# to match. The mk_fixture_* helpers create AND register in one call, so a fixture cannot be born outside the teardown
+# list; a test that must name a path before it exists (a probe the agent is asked to create) takes the name
+# from ai_test_name and registers it itself.
 readonly AI_TOOLS_TEST_PREFIX=".ai-tools-test"
 TEST_GROUP="$(basename "$(cd "$(dirname "$0")" && pwd)")"
 TEST_STEM="$(basename "$0" .sh)"
@@ -147,11 +140,10 @@ ai_test_name() {
     printf '%s-%s-%s-%s' "${AI_TOOLS_TEST_PREFIX}" "${TEST_GROUP}" "$1" \
         "$(head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 6)"
 }
-# mk_fixture_dir <var> <parent> <thing> / mk_fixture_file <var> <parent> <thing>: create a
-# fixture under <parent> (mktemp: unique, born 0700/0600) named by the rule, register it for
-# teardown, and assign its path to the caller's variable <var>. The path is ASSIGNED, never
-# printed: a `$(...)` capture would run the registration in a subshell and lose it, leaving
-# the fixture outside the teardown list. The caller sets the mode and owner the case needs.
+# mk_fixture_dir <var> <parent> <thing> / mk_fixture_file <var> <parent> <thing>: create a fixture under <parent>
+# (mktemp: unique, born 0700/0600) named by the rule, register it for teardown, and assign its path to the caller's
+# variable <var>. The path is ASSIGNED, never printed: a `$(...)` capture would run the registration in a subshell
+# and lose it, leaving the fixture outside the teardown list. The caller sets the mode and owner the case needs.
 mk_fixture_dir() {
     local -n _out="$1"
     _out="$(mktemp -d "$2/${AI_TOOLS_TEST_PREFIX}-${TEST_GROUP}-$3-XXXXXX")" || return 1
@@ -163,23 +155,19 @@ mk_fixture_file() {
     _cleanup+=("${_out}")
 }
 
-# Teardown removes every artifact a test registered, on any exit. Nothing outside these
-# paths is ever touched. It returns success unconditionally: it runs in the EXIT trap, and
-# under `set -e` a non-zero teardown status -- e.g. the empty-_cleanup loop where the final
-# `[[ -n "" ]]` is false, or an `rm` of an already-gone path -- would otherwise become the
-# script's exit status and mask an all-PASS run as a failure. The result comes from finish.
-# The trap also fires on the SIGTERM run.sh's per-file timeout sends, so a file killed on its
-# budget still tears down; only a SIGKILL or a failed rm leaves residue, which the pre-run
-# sweep then reports and removes.
+# Teardown removes every artifact a test registered, on any exit. Nothing outside these paths is ever touched. It
+# returns success unconditionally: it runs in the EXIT trap, and under `set -e` a non-zero teardown status -- e.g.
+# the empty-_cleanup loop where the final `[[ -n "" ]]` is false, or an `rm` of an already-gone path -- would otherwise
+# become the script's exit status and mask an all-PASS run as a failure. The result comes from finish. The trap also
+# fires on the SIGTERM run.sh's per-file timeout sends, so a file killed on its budget still tears down; only a SIGKILL
+# or a failed rm leaves residue, which the pre-run sweep then reports and removes.
 #
-# on_teardown registers one non-path cleanup command -- state that is not a file to unlink --
-# run directly (no eval; best-effort, output discarded) after the path sweep, in registration
-# order. Each call is kept in its own array (a nameref, so no eval), so a file may register
-# several. The live cases: the bridge integration test clearing the transient
-# `ai-tools-handback@*` instances its negative cases leave FAILED, the stop test killing its
-# fixture cgroup, and the hooks test restoring the live sweep marker it moved. Quote a glob you
-# want passed to the command literally (systemd does its own unit-name matching):
-# on_teardown systemctl reset-failed 'ai-tools-handback@*'.
+# on_teardown registers one non-path cleanup command -- state that is not a file to unlink -- run directly (no eval;
+# best-effort, output discarded) after the path sweep, in registration order. Each call is kept in its own array (a
+# nameref, so no eval), so a file may register several. The live cases: the bridge integration test clearing
+# the transient `ai-tools-handback@*` instances its negative cases leave FAILED, the stop test killing its fixture
+# cgroup, and the hooks test restoring the live sweep marker it moved. Quote a glob you want passed to the command
+# literally (systemd does its own unit-name matching): on_teardown systemctl reset-failed 'ai-tools-handback@*'.
 declare -a _cleanup=()
 declare -i _teardown_n=0
 on_teardown() {
@@ -199,52 +187,46 @@ _teardown() {
 }
 trap _teardown EXIT
 
-# Redirect the helpers' root-only file logs (chown.log, setgid.log, setfacl.log, ...) away
-# from the production /var/log/ai-tools into a throwaway dir, so a test run never appends
-# to -- or raises spurious ERROR lines in (a negative-path test feeds a helper /etc/passwd,
-# a missing group, a bogus version) -- the real operation trail. AI_TOOLS_LOG_DIR is a
-# root-only hook, exactly like AI_TOOLS_ALLOWLIST / AI_TOOLS_OPERATOR_CONF: sudo strips it
-# and the live handback daemon execs helpers with its own environment, so only a root
-# caller execing a helper directly (this suite) redirects it. The journald sink still
-# carries every line under its per-component tag, so no line is lost. A helper the LIVE
-# daemon execs (integration/handback.sh) keeps the real dir -- the daemon does not inherit
-# this -- matching the AI_TOOLS_ALLOWLIST limitation. Registered for teardown.
+# Redirect the helpers' root-only file logs (chown.log, setgid.log, setfacl.log, ...) away from the production
+# /var/log/ai-tools into a throwaway dir, so a test run never appends to -- or raises spurious ERROR lines in (a
+# negative-path test feeds a helper /etc/passwd, a missing group, a bogus version) -- the real operation trail.
+# AI_TOOLS_LOG_DIR is a root-only hook, exactly like AI_TOOLS_ALLOWLIST / AI_TOOLS_OPERATOR_CONF: sudo strips it
+# and the live handback daemon execs helpers with its own environment, so only a root caller execing a helper directly
+# (this suite) redirects it. The journald sink still carries every line under its per-component tag, so no line is lost.
+# A helper the LIVE daemon execs (integration/handback.sh) keeps the real dir -- the daemon does not inherit this --
+# matching the AI_TOOLS_ALLOWLIST limitation. Registered for teardown.
 _test_logdir=""; mk_fixture_dir _test_logdir /tmp "${TEST_STEM}-log"
 export AI_TOOLS_LOG_DIR="${_test_logdir}"
 
-# mktestdir: create THE dedicated /tmp boundary for this test (named by the fixture rule, with
-# the file's stem as its thing) and register it for teardown. Mode 0755 so an `sudo -u ai-tools`
-# boundary check can traverse in to a fixture (the fixture's own mode is what the check
-# exercises). Sets the global TESTDIR.
+# mktestdir: create THE dedicated /tmp boundary for this test (named by the fixture rule, with the file's stem as its
+# thing) and register it for teardown. Mode 0755 so an `sudo -u ai-tools` boundary check can traverse in to a fixture
+# (the fixture's own mode is what the check exercises). Sets the global TESTDIR.
 mktestdir() {
     mk_fixture_dir TESTDIR /tmp "${TEST_STEM}"
     chmod 0755 "${TESTDIR}"
 }
 
-# mk_allowlist <line>...: write a dummy allowed-projects in TESTDIR with the given KNOWN
-# content (one entry per line; '!'-prefixed lines are exclusions, exactly as in production)
-# and point the deployed helpers at it via the AI_TOOLS_ALLOWLIST test hook. Also seeds a
-# matching operator.conf fixture (mk_operator) so the helpers resolve the same identity the
-# fixtures are owned by. Exported so a helper run as a child process inherits both.
+# mk_allowlist <line>...: write a dummy allowed-projects in TESTDIR with the given KNOWN content (one entry per line;
+# '!'-prefixed lines are exclusions, exactly as in production) and point the deployed helpers at it
+# via the AI_TOOLS_ALLOWLIST test hook. Also seeds a matching operator.conf fixture (mk_operator) so the helpers resolve
+# the same identity the fixtures are owned by. Exported so a helper run as a child process inherits both.
 mk_allowlist() {
     printf '%s\n' "$@" > "${TESTDIR}/allowed-projects"
     export AI_TOOLS_ALLOWLIST="${TESTDIR}/allowed-projects"
     mk_operator
 }
 
-# mk_operator: write a dummy operator.conf in TESTDIR naming the test's projects user (the
-# real SUDO_USER the fixtures are owned by) as the sole operator, and point the deployed
-# helpers at it via the AI_TOOLS_OPERATOR_CONF test hook -- the operator-identity counterpart
-# to AI_TOOLS_ALLOWLIST, carrying the same root-only-injection rationale. Home and group are
-# derived from the name at runtime (getent/id), so only the OPERATORS list is written.
-# Exported so a child helper inherits it.
+# mk_operator: write a dummy operator.conf in TESTDIR naming the test's projects user (the real SUDO_USER the fixtures
+# are owned by) as the sole operator, and point the deployed helpers at it via the AI_TOOLS_OPERATOR_CONF test hook --
+# the operator-identity counterpart to AI_TOOLS_ALLOWLIST, carrying the same root-only-injection rationale. Home
+# and group are derived from the name at runtime (getent/id), so only the OPERATORS list is written. Exported so a child
+# helper inherits it.
 mk_operator() {
     printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${TESTDIR}/operator.conf"
     export AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf"
 }
 
-# finish: print the per-file summary and exit non-zero if anything failed (so a runner can
-# aggregate by exit status).
+# finish: print the per-file summary and exit non-zero if anything failed (so a runner can aggregate by exit status).
 finish() {
     printf '\n%s\n  %d passed, %d failed, %d skipped\n' \
         "──────────────────────────────────────────" "${_pass}" "${_fail}" "${_skip}"

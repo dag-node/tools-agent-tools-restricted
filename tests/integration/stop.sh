@@ -1,27 +1,25 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/stop.sh
-# Integration test for the session-stop helper (ai-tools-stop): the kill path itself, driven
-# against REAL processes in a REAL cgroup, on the running kernel.
+# Integration test for the session-stop helper (ai-tools-stop): the kill path itself, driven against REAL processes
+# in a REAL cgroup, on the running kernel.
 #
-# WHAT THIS COVERS THAT THE UNIT TEST CANNOT. unit/stop.sh pins enumeration and liveness against a
-# fixture tree of ordinary files; no entry there is a process and no process is signalled. The property
-# this helper exists for -- a stop that is reported as done HAS happened, including everything the
-# session spawned -- is a kernel property, and the three ways a child escapes a process-tree walk
-# (a plain fork, setsid(2), and the double fork that re-parents the child away from the session)
-# can only be demonstrated by running them.
+# WHAT THIS COVERS THAT THE UNIT TEST CANNOT. unit/stop.sh pins enumeration and liveness against a fixture tree
+# of ordinary files; no entry there is a process and no process is signalled. The property this helper exists for --
+# a stop that is reported as done HAS happened, including everything the session spawned -- is a kernel property,
+# and the three ways a child escapes a process-tree walk (a plain fork, setsid(2), and the double fork that re-parents
+# the child away from the session) can only be demonstrated by running them.
 #
-# WHY A FIXTURE CGROUP AND NOT A LIVE SESSION. The helper walks one subtree, named by two globals.
-# Pointing those at a cgroup this test creates and owns gives the real mechanism -- cgroup.procs,
-# cgroup.kill, /proc verification -- over processes this test spawned and reaps, with no dependency
-# on a session running, no operator's allowlist read, and no way for a defect here to reach the
-# sandbox account's own slice. The one form that must run against the real slice is `--all`, which
-# by construction ends every session on the host including the one running the suite: it is proven
-# by hand from a plain root shell, and lives in tests/manual/verify-live-flows.sh.
+# WHY A FIXTURE CGROUP AND NOT A LIVE SESSION. The helper walks one subtree, named by two globals. Pointing those
+# at a cgroup this test creates and owns gives the real mechanism -- cgroup.procs, cgroup.kill, /proc verification --
+# over processes this test spawned and reaps, with no dependency on a session running, no operator's allowlist read,
+# and no way for a defect here to reach the sandbox account's own slice. The one form that must run against the real
+# slice is `--all`, which by construction ends every session on the host including the one running the suite: it is
+# proven by hand from a plain root shell, and lives in tests/manual/verify-live-flows.sh.
 #
-# The helper is SOURCED (inert by construction, see its entry point) so the fixture globals can be
-# set. Only unit_working_directory is stubbed: the fixture cgroups are not systemd units, and
-# attribution is best-effort and never decides liveness.
+# The helper is SOURCED (inert by construction, see its entry point) so the fixture globals can be set. Only
+# unit_working_directory is stubbed: the fixture cgroups are not systemd units, and attribution is best-effort and never
+# decides liveness.
 #
 # Needs root (writing cgroup.procs and cgroup.kill) and a cgroup v2 hierarchy; skips without them.
 
@@ -48,15 +46,15 @@ if [[ -z "${CGROUP2_ROOT}" || ! -d "${CGROUP2_ROOT}" ]]; then
 fi
 
 mktestdir
-# Named by the harness's fixture rule, so the pre-run residue sweep recognises a slice an
-# aborted run left at the cgroup root; stop_fixture_cleanup owns it during the run.
+# Named by the harness's fixture rule, so the pre-run residue sweep recognises a slice an aborted run left at the cgroup
+# root; stop_fixture_cleanup owns it during the run.
 FIXTURE_SLICE="${CGROUP2_ROOT}/$(ai_test_name stop).slice"
 GO="${TESTDIR}/release-the-payloads"
 
-# Teardown owns the fixture unconditionally: a payload that ignores SIGTERM, a run that aborts
-# mid-assertion, and a helper defect all leave processes running, and every one of them is inside
-# the fixture cgroup. cgroup.kill takes the whole subtree in one write; rmdir then succeeds once
-# the kernel has reaped. Registered before the first cgroup is created.
+# Teardown owns the fixture unconditionally: a payload that ignores SIGTERM, a run that aborts mid-assertion,
+# and a helper defect all leave processes running, and every one of them is inside the fixture cgroup. cgroup.kill takes
+# the whole subtree in one write; rmdir then succeeds once the kernel has reaped. Registered before the first cgroup is
+# created.
 stop_fixture_cleanup() {
     local dir
     local _attempt
@@ -87,9 +85,9 @@ if ! declare -F end_session >/dev/null 2>&1; then
     finish; exit
 fi
 
-# Aim the walk at the fixture. The manager-service special case is pointed at a name that does not
-# exist, so no cgroup in the fixture is descended-into rather than emitted. There is no exemption to
-# neutralize: the helper does not spare a cgroup.
+# Aim the walk at the fixture. The manager-service special case is pointed at a name that does not exist, so no cgroup
+# in the fixture is descended-into rather than emitted. There is no exemption to neutralize: the helper does not spare
+# a cgroup.
 # shellcheck disable=SC2034  # all three are read by the sourced helper
 SANDBOX_SLICE="${FIXTURE_SLICE}"
 # shellcheck disable=SC2034
@@ -100,11 +98,10 @@ FORCE_KILL=false
 mkdir -p "${TESTDIR}/project"
 unit_working_directory() { printf '%s' "${TESTDIR}/project"; }
 
-# start_payload <cgroup-dir> <release-file> <bash-body> -- start a process, place it in the cgroup,
-# and publish its pid in PAYLOAD_PID. Each payload blocks until its release file appears, so it is
-# moved into the fixture BEFORE it forks anything: a child inherits its parent's cgroup at fork,
-# which is the whole mechanism under test, and a child forked before the move would inherit the
-# suite's own cgroup.
+# start_payload <cgroup-dir> <release-file> <bash-body> -- start a process, place it in the cgroup, and publish its pid
+# in PAYLOAD_PID. Each payload blocks until its release file appears, so it is moved into the fixture BEFORE it forks
+# anything: a child inherits its parent's cgroup at fork, which is the whole mechanism under test, and a child forked
+# before the move would inherit the suite's own cgroup.
 #
 # TWO THINGS HERE ARE LOAD-BEARING, and both are about file descriptors rather than about stopping:
 #
@@ -125,8 +122,8 @@ start_payload() {
     disown "${PAYLOAD_PID}" 2>/dev/null || true
 }
 
-# process_parent <pid> -- PRINT the ppid from /proc/<pid>/stat. Read after the LAST ')', since comm
-# may contain one; the fields there are `state ppid ...`.
+# process_parent <pid> -- PRINT the ppid from /proc/<pid>/stat. Read after the LAST ')', since comm may contain one;
+# the fields there are `state ppid ...`.
 process_parent() {
     local stat_line fields
     [[ -r "/proc/$1/stat" ]] || return 1
@@ -136,9 +133,9 @@ process_parent() {
     printf '%s' "${fields[1]}"
 }
 
-# live_count <cgroup> -- how many of the cgroup's tasks are still in /proc. The helper's own
-# verification is cgroup-based; this asks the process table separately, so a "stopped" claim is
-# checked against something other than the mechanism that made it.
+# live_count <cgroup> -- how many of the cgroup's tasks are still in /proc. The helper's own verification is
+# cgroup-based; this asks the process table separately, so a "stopped" claim is checked against something other than
+# the mechanism that made it.
 live_count() {
     local pid count=0
     while read -r pid; do [[ -d "/proc/${pid}" ]] && count=$(( count + 1 )); done \
@@ -151,9 +148,9 @@ live_count() {
 #         grandchild (re-parented away from the session, so it drops out of the ppid graph). All
 #         three stay in the cgroup, which is why the cgroup is what this helper enumerates.
 #
-# EVERY SPAWN IS BACKGROUNDED, including the setsid one. `setsid sleep 300` without `&` runs in the
-# FOREGROUND for its full 300 seconds, so the payload never reaches the lines after it and the case
-# the test is named for is never created -- a fixture that quietly tests less than it claims.
+# EVERY SPAWN IS BACKGROUNDED, including the setsid one. `setsid sleep 300` without `&` runs in the FOREGROUND for its
+# full 300 seconds, so the payload never reaches the lines after it and the case the test is named for is never created
+# -- a fixture that quietly tests less than it claims.
 start_payload "${FIXTURE_SLICE}/sess-a.service" "${GO}" \
     'sleep 300 & setsid sleep 300 & bash -c "sleep 300 &"; sleep 300'
 sess_a_leader="${PAYLOAD_PID}"
@@ -177,11 +174,11 @@ else
     fail "expected at least 4 tasks in sess-a, found ${#a_tasks[@]}: ${a_tasks[*]}"
 fi
 
-# The double-forked grandchild is the case a ppid walk cannot see. What makes it unreachable is not
-# that its parent became PID 1 specifically -- an ancestor marked PR_SET_CHILD_SUBREAPER adopts it
-# instead, and a `systemd --user session` is one -- but that its parent is OUTSIDE the cgroup. So
-# that is what is asserted: a task in the cgroup, other than the leader, whose parent is not in the
-# cgroup. A walk rooted at the session leader cannot reach it whichever process adopted it.
+# The double-forked grandchild is the case a ppid walk cannot see. What makes it unreachable is not that its parent
+# became PID 1 specifically -- an ancestor marked PR_SET_CHILD_SUBREAPER adopts it instead,
+# and a `systemd --user session` is one -- but that its parent is OUTSIDE the cgroup. So that is what is asserted:
+# a task in the cgroup, other than the leader, whose parent is not in the cgroup. A walk rooted at the session leader
+# cannot reach it whichever process adopted it.
 declare -A a_task_set=()
 for task_pid in "${a_tasks[@]}"; do a_task_set["${task_pid}"]=1; done
 reparented=false
@@ -211,8 +208,8 @@ else
 fi
 
 # ── The escalation ────────────────────────────────────────────────────────────────────────────
-# A payload that ignores SIGTERM must cost the grace period and then be killed -- and the trail
-# must say which pass ended it, because that is the most useful line in it after an incident.
+# A payload that ignores SIGTERM must cost the grace period and then be killed -- and the trail must say which pass
+# ended it, because that is the most useful line in it after an incident.
 outcome="$(end_session "${FIXTURE_SLICE}/sess-b.service")"
 if [[ "${outcome}" == "killed" ]]; then
     pass "a session that ignores SIGTERM escalates to SIGKILL and is reported as killed"
@@ -226,8 +223,8 @@ else
 fi
 
 # ── `--force` ───────────────────────────────────────────────────────────────────────────────────
-# `--force` must never report `terminated`: it skips the graceful pass entirely, so the trail cannot
-# claim a process was given the chance to flush anything.
+# `--force` must never report `terminated`: it skips the graceful pass entirely, so the trail cannot claim a process was
+# given the chance to flush anything.
 FORCE_KILL=true
 outcome="$(end_session "${FIXTURE_SLICE}/sess-c.service")"
 FORCE_KILL=false
@@ -243,8 +240,8 @@ else
 fi
 
 # ── The whole command, end to end ─────────────────────────────────────────────────────────────
-# main() against the fixture slice: selection, confirmation, the kill, the verification sweep, the
-# exit status and the trail -- the same code path an operator runs, over processes this test owns.
+# main() against the fixture slice: selection, confirmation, the kill, the verification sweep, the exit status
+# and the trail -- the same code path an operator runs, over processes this test owns.
 mkdir -p "${FIXTURE_SLICE}/sess-d.service"
 GO_D="${TESTDIR}/release-the-payloads-2"
 start_payload "${FIXTURE_SLICE}/sess-d.service" "${GO_D}" 'sleep 300 & sleep 300'
@@ -255,23 +252,23 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
     sleep 0.5
 done
 
-# THE MANAGER RESTORE IS STUBBED, and this is the one stub that matters here. main() ends by
-# restarting user@<uid>.service, which on this host is the REAL sandbox account's user manager --
-# a fixture run must not restart, or fail to restart, a live service outside its own testdir. The
-# stub records that it was called, so the wiring is still asserted; what it must not do is act.
+# THE MANAGER RESTORE IS STUBBED, and this is the one stub that matters here. main() ends by restarting
+# user@<uid>.service, which on this host is the REAL sandbox account's user manager -- a fixture run must not restart,
+# or fail to restart, a live service outside its own testdir. The stub records that it was called, so the wiring is
+# still asserted; what it must not do is act.
 #
-# IT RECORDS INTO A FILE, NOT A VARIABLE, and that is not a style choice. run_main captures main()
-# through `$(...)`, which runs it in a SUBSHELL: a variable the stub sets there is gone the moment
-# the substitution closes, so a flag would read `false` however faithfully the stub ran -- an
-# assertion that fails while the code is correct. The marker outlives the subshell because the
-# filesystem does. (Same family as the `$(...)` foot-guns already documented in this file's
+# IT RECORDS INTO A FILE, NOT A VARIABLE, and that is not a style choice. run_main captures main() through `$(...)`,
+# which runs it in a SUBSHELL: a variable the stub sets there is gone the moment the substitution closes, so a flag
+# would read `false` however faithfully the stub ran -- an assertion that fails while the code is correct. The marker
+# outlives the subshell because the filesystem does. (Same family as the `$(...)` foot-guns already documented in this
+# file's
 # start_payload.)
 RESTORE_MARKER="${TESTDIR}/restore-user-manager-called"
 restore_user_manager() { : > "${RESTORE_MARKER}"; return 0; }
 
-# run_main <dry-run?> -- set the request the way the argument parser would and run main(),
-# capturing its output and status. Always `--yes`: the confirmation is covered in unit/stop.sh, and a
-# prompt here would block the suite on a terminal read.
+# run_main <dry-run?> -- set the request the way the argument parser would and run main(), capturing its output
+# and status. Always `--yes`: the confirmation is covered in unit/stop.sh, and a prompt here would block the suite
+# on a terminal read.
 # shellcheck disable=SC2034  # the request globals are read by the sourced helper's main()
 run_main() {
     rm -f "${RESTORE_MARKER}"
@@ -306,8 +303,8 @@ if grep -q "${TESTDIR}/project" <<< "${MAIN_OUTPUT}"; then
 else
     fail "no reclaim guidance for the stopped project: ${MAIN_OUTPUT}"
 fi
-# The manager restore is part of the command, not an optional extra: the sweep covers every cgroup, so
-# a run that kills without restoring leaves the host unable to start the next session.
+# The manager restore is part of the command, not an optional extra: the sweep covers every cgroup, so a run that kills
+# without restoring leaves the host unable to start the next session.
 if [[ -e "${RESTORE_MARKER}" ]]; then
     pass "the run restores the user manager it necessarily terminated"
 else
@@ -322,8 +319,8 @@ else
     fail "the trail does not record the stop: $(tail -5 "${stop_log}" 2>&1)"
 fi
 
-# Nothing running is a successful stop, not an error -- the idempotence an operator relies on when
-# re-running the command after an interrupted one.
+# Nothing running is a successful stop, not an error -- the idempotence an operator relies on when re-running
+# the command after an interrupted one.
 run_main false
 if (( MAIN_STATUS == 0 )); then
     pass "re-running the stop with nothing left is exit 0 (the command is idempotent)"
@@ -332,8 +329,8 @@ else
 fi
 
 # ── The mechanism the guarantee prefers ───────────────────────────────────────────────────────
-# cgroup.kill (5.14+) is what makes the kill atomic against a fork. Its absence is a supported
-# fallback, so this asserts which one this host actually used rather than requiring either.
+# cgroup.kill (5.14+) is what makes the kill atomic against a fork. Its absence is a supported fallback, so this asserts
+# which one this host actually used rather than requiring either.
 if [[ -e "${FIXTURE_SLICE}/sess-d.service/cgroup.kill" ]]; then
     if grep -q "no cgroup.kill on this kernel" "${stop_log}" 2>/dev/null; then
         fail "cgroup.kill exists on this host but the run reported it absent"

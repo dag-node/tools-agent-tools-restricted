@@ -1,25 +1,21 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/fill-markdown.sh
-# Unit test for tools/fill-markdown.py, the Markdown filler, and tools/verify-reflow.py, the gate
-# that proves a reflow changed line breaks alone. The filler and the gate are pinned in one file
-# because a defect in either looks the same from outside: a filler that damages a shape
-# the gate does not read passes, and a filler that silently copies a region through leaves a
-# clean gate and an unformatted file. So one fixture carries every shape found by rehearsing the
-# filler on real pages, and each is driven from both ends -- the filler must reflow the fixture
-# to a state the gate passes and the checker's `--wrap` finds complete, and each defect class,
-# injected by hand, must be reported by the gate. A second run must leave the file as the first
-# left it, and `--lines` must confine a reflow to the blocks it names. The one class the gate
-# cannot see -- a split code span leaves the token stream unchanged -- is asserted on the filler's
-# output instead. The tree's own pages are reflowed into the testdir and held to the same three
-# properties, skipped outside a checkout. The reader every formatter shares (`tools/text_file.py`)
-# is pinned here: each shape it refuses -- a control or a bidi character, a NUL, a carriage
-# return, a byte that is not UTF-8, a byte-order mark, a symlink, a FIFO -- is reported with its
-# reason and left byte-identical while the clean file beside it is filled; a column or a range
-# that is not one is a usage error; and the gate refuses a base copy that is not text without
-# printing a token of it, and a path resolving outside the tree. A repo dev tool, not a deployed
-# artifact, so it runs from the checkout.
-# The fixture holds a reftag as text, so the tree-wide reference check does not read this file
+# Unit test for tools/fill-markdown.py, the Markdown filler, and tools/verify-reflow.py, the gate that proves a reflow
+# changed line breaks alone. The filler and the gate are pinned in one file because a defect in either looks the same
+# from outside: a filler that damages a shape the gate does not read passes, and a filler that silently copies a region
+# through leaves a clean gate and an unformatted file. So one fixture carries every shape found by rehearsing the filler
+# on real pages, and each is driven from both ends -- the filler must reflow the fixture to a state the gate passes
+# and the checker's `--wrap` finds complete, and each defect class, injected by hand, must be reported by the gate.
+# A second run must leave the file as the first left it, and `--lines` must confine a reflow to the blocks it names.
+# The one class the gate cannot see -- a split code span leaves the token stream unchanged -- is asserted
+# on the filler's output instead. The tree's own pages are reflowed into the testdir and held to the same three
+# properties, skipped outside a checkout. The reader every formatter shares (`tools/text_file.py`) is pinned here: each
+# shape it refuses -- a control or a bidi character, a NUL, a carriage return, a byte that is not UTF-8, a byte-order
+# mark, a symlink, a FIFO -- is reported with its reason and left byte-identical while the clean file beside it is
+# filled; a column or a range that is not one is a usage error; and the gate refuses a base copy that is not text
+# without printing a token of it, and a path resolving outside the tree. A repo dev tool, not a deployed artifact, so it
+# runs from the checkout. The fixture holds a reftag as text, so the tree-wide reference check does not read this file
 # (the marker on the next line).
 # ref-index: ignore-file
 set -euo pipefail
@@ -42,12 +38,11 @@ mktestdir
 WIDTH=70
 mkdir -p "${TESTDIR}/base"
 f="${TESTDIR}/f.md"
-# Every shape the filler must fill or leave alone; each `detects` case names the real page its
-# shape was found on. The URL is the one token wider than the column, so the dash after it lands
-# first on a line unless the filler refuses that break. The span paragraph is measured: at 70
-# columns a greedy break lands inside each of its three spans (the first opens at column 62,
-# the second is wider than the column, the third follows a tie word), and the two lines after it
-# close their span on the column and one past it.
+# Every shape the filler must fill or leave alone; each `detects` case names the real page its shape was found on.
+# The URL is the one token wider than the column, so the dash after it lands first on a line unless the filler refuses
+# that break. The span paragraph is measured: at 70 columns a greedy break lands inside each of its three spans (the
+# first opens at column 62, the second is wider than the column, the third follows a tie word), and the two lines
+# after it close their span on the column and one past it.
 cat > "${TESTDIR}/base/f.md" <<'FIXTURE'
 ---
 name: fixture
@@ -150,9 +145,8 @@ else
     fail "the gate reports the reflowed fixture: $(head -3 <<<"${OUT}")"
 fi
 
-# (2) ...and the checker finds complete: a filler that copies a region through leaves a clean gate
-# and an over-width line, which is how one class hid. The checker is the oracle, so the two tools
-# agree on what is measured.
+# (2) ...and the checker finds complete: a filler that copies a region through leaves a clean gate and an over-width
+# line, which is how one class hid. The checker is the oracle, so the two tools agree on what is measured.
 left="$(python3 "${PC}" --wrap --width "${WIDTH}" "${f}" 2>&1 | grep -c 'document-width' || true)"
 if [[ "${left}" -eq 0 ]]; then
     pass "every measured line is within ${WIDTH} columns after the reflow (checker --wrap)"
@@ -169,10 +163,9 @@ else
     fail "a second run changed the file: $(diff "${TESTDIR}/once.md" "${f}" | head -4)"
 fi
 
-# (4) Each defect class, injected into the reflowed fixture, is reported by the gate. The
-# `present` text is a line the reflow leaves stable, so a STALE verdict means the fixture no
-# longer holds the shape rather than that the gate missed it.
-# detects <class> <found on> <present> <broken>
+# (4) Each defect class, injected into the reflowed fixture, is reported by the gate. The `present` text is a line
+# the reflow leaves stable, so a STALE verdict means the fixture no longer holds the shape rather than that the gate
+# missed it. detects <class> <found on> <present> <broken>
 detects() {
     local name="$1" found_on="$2" present="$3" broken="$4"
     reflow
@@ -306,11 +299,11 @@ else
         'docs/*.md' 'selinux/*.md' 'packaging/*.md' 'tests/*.md' 'src/usr/share/ai-tools/subagents/*.md'
 fi
 
-# (8) A file that is not plain text is refused: reported with the reason and the line, left
-# byte-identical, and the run exits 1 while the clean file named beside it is filled. Each shape
-# is a way a rewrap would move what the formatter cannot see, or write where it did not read. The
-# reader is `tools/text_file.py`, shared with the other formatters, so the set is pinned once
-# here; the comment filler and the table aligner each pin one shape of it through their own front.
+# (8) A file that is not plain text is refused: reported with the reason and the line, left byte-identical, and the run
+# exits 1 while the clean file named beside it is filled. Each shape is a way a rewrap would move what the formatter
+# cannot see, or write where it did not read. The reader is `tools/text_file.py`, shared with the other formatters,
+# so the set is pinned once here; the comment filler and the table aligner each pin one shape of it through their own
+# front.
 refused() {  # refused <label> <file> <reason>: <file> is refused with <reason> and left as it was
     local label="$1" file="$2" reason="$3" out rc=0
     [[ -f "${file}" ]] && cp "${file}" "${file}.before"
@@ -345,8 +338,8 @@ refused "a C1 control"             "${TESTDIR}/c1.md"     "line 1 holds U+009B (
 refused "a symlink"                "${TESTDIR}/link.md"   "is a symlink"
 refused "a FIFO"                   "${TESTDIR}/fifo.md"   "is not a regular file"
 
-# (9) A column under one, and a range out of order, at line 0, or not a number, are usage errors:
-# exit 2, and nothing written.
+# (9) A column under one, and a range out of order, at line 0, or not a number, are usage errors: exit 2, and nothing
+# written.
 usage_error() {  # usage_error <label> <argument>...: exit 2, the fixture untouched
     local label="$1" rc=0
     shift
@@ -363,9 +356,9 @@ usage_error "a range out of order"    --width "${WIDTH}" --lines 5-3
 usage_error "a range at line 0"       --width "${WIDTH}" --lines 0
 usage_error "a range that is not one" --width "${WIDTH}" --lines 3-x
 
-# (10) The gate reads both copies through the same reader, and confines a path to the tree and to
-# the base directory: a base copy that is not plain text fails with the reason and no token of it
-# is printed, and a path resolving outside the tree is refused rather than read.
+# (10) The gate reads both copies through the same reader, and confines a path to the tree and to the base directory:
+# a base copy that is not plain text fails with the reason and no token of it is printed, and a path resolving outside
+# the tree is refused rather than read.
 mkdir -p "${TESTDIR}/base2"
 printf 'a token \033[31mred\033[0m here\n' > "${TESTDIR}/base2/g.md"
 printf 'a token red here\n' > "${TESTDIR}/g.md"

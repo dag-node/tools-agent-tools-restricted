@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/owner-only.sh
-# Unit test for the shared seal primitives (owner-only.lib.sh), which ai-tools-setgid,
-# ai-tools-setfacl, ai-tools-lockdown and ai-tools-chown all source: the owner-only predicate
-# that decides which paths the operator sealed, and the residue strip that makes a seal hold.
+# Unit test for the shared seal primitives (owner-only.lib.sh), which ai-tools-setgid, ai-tools-setfacl,
+# ai-tools-lockdown and ai-tools-chown all source: the owner-only predicate that decides which paths the operator
+# sealed, and the residue strip that makes a seal hold.
 #
-# The property under test is one-directional: a strip may only ever REMOVE the sandbox's reach.
-# Every case therefore asserts the mode is not widened, on top of asserting the residue is gone
-# -- a strip that silently raised the ACL mask would leave the residue "removed" and the path
-# more open than before, which is the exact failure the `-n` flag exists to prevent.
+# The property under test is one-directional: a strip may only ever REMOVE the sandbox's reach. Every case therefore
+# asserts the mode is not widened, on top of asserting the residue is gone -- a strip that silently raised the ACL mask
+# would leave the residue "removed" and the path more open than before, which is the exact failure the `-n` flag exists
+# to prevent.
 #
-# The strip also answers ai-tools-lockdown's `--dry-run`, so one section pins the two properties
-# that makes it worth doing here rather than in a caller: the preview names exactly what the
-# apply removes, and it does not touch a path.
+# The strip also answers ai-tools-lockdown's `--dry-run`, so one section pins the two properties that makes it worth
+# doing here rather than in a caller: the preview names exactly what the apply removes, and it does not touch a path.
 #
-# It also pins the three platform behaviours the design rests on (see "platform assumptions"),
-# so a change in coreutils/acl semantics fails here rather than silently unsealing trees.
-# Run as root via sudo (the suite contract); root is needed to chgrp fixtures to a third party.
+# It also pins the three platform behaviours the design rests on (see "platform assumptions"), so a change
+# in coreutils/acl semantics fails here rather than silently unsealing trees. Run as root via sudo (the suite contract);
+# root is needed to chgrp fixtures to a third party.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -43,17 +42,16 @@ fi
 readonly SBX="${AI_TOOLS_SANDBOX_GROUP}"          # the lib's own idea of the sandbox group
 mktestdir
 
-# A group that is neither the sandbox group nor the operator's, standing in for a group the
-# operator set deliberately. 'root' always exists; fall back to skipping that one case.
+# A group that is neither the sandbox group nor the operator's, standing in for a group the operator set deliberately.
+# 'root' always exists; fall back to skipping that one case.
 THIRD=root
 if [[ "${THIRD}" == "${SBX}" || "${THIRD}" == "${PROJECTS_GROUP}" ]]; then THIRD=""; fi
 
 mode_of() { stat -c '%a' "$1"; }
 has_acl()  { getfacl -c -- "$2" 2>/dev/null | grep -q "^$1"; }
 
-# strip <path> <ftype> <group> [operator-group] -- pin the inode and run the strip exactly as
-# the helpers do (through /proc/self/fd), asserting on the way out that the mode never widened.
-# Sets STRIP_RC and STRIP_MODE_BEFORE/AFTER.
+# strip <path> <ftype> <group> [operator-group] -- pin the inode and run the strip exactly as the helpers do (through
+# /proc/self/fd), asserting on the way out that the mode never widened. Sets STRIP_RC and STRIP_MODE_BEFORE/AFTER.
 strip() {
     local p="$1" ftype="$2" grp="$3" opgrp="${4:-}" fd
     STRIP_MODE_BEFORE="$(mode_of "${p}")"
@@ -73,11 +71,10 @@ strip() {
 }
 
 # ── platform assumptions ──────────────────────────────────────────────────────────────────
-# The two OS behaviours that make a strip necessary at all: sealing a path with chmod removes
-# neither the setgid bit (the reason harness.sh carries `perm`) nor the default ACL. If a
-# platform ever stopped behaving this way, the corresponding arm of the strip is dead code and
-# should be retired -- so assert it rather than assume it. Mode is read raw here, not through
-# `perm`, precisely because the setgid bit is what is under test.
+# The two OS behaviours that make a strip necessary at all: sealing a path with chmod removes neither the setgid bit
+# (the reason harness.sh carries `perm`) nor the default ACL. If a platform ever stopped behaving this way,
+# the corresponding arm of the strip is dead code and should be retired -- so assert it rather than assume it. Mode is
+# read raw here, not through `perm`, precisely because the setgid bit is what is under test.
 mkdir -p "${TESTDIR}/plat"
 chgrp "${SBX}" "${TESTDIR}/plat" 2>/dev/null || true
 chmod 2770 "${TESTDIR}/plat"
@@ -208,10 +205,9 @@ strip "${TESTDIR}/d" directory "${PROJECTS_GROUP}" "${PROJECTS_GROUP}"
     || fail "a second strip claimed another change"
 
 # ── dry run: report the same arms, act on none of them ────────────────────────────────────
-# ai-tools-lockdown's `--dry-run` drives the seal pass through this function with
-# AI_TOOLS_RESIDUE_DRY_RUN set, which is why a preview describes the run that follows it
-# (secret-handling.rule.md). Two properties are pinned here: the preview names what the apply
-# then removes, and it leaves the path byte-for-byte as found.
+# ai-tools-lockdown's `--dry-run` drives the seal pass through this function with AI_TOOLS_RESIDUE_DRY_RUN set, which is
+# why a preview describes the run that follows it (secret-handling.rule.md). Two properties are pinned here: the preview
+# names what the apply then removes, and it leaves the path byte-for-byte as found.
 mkdir "${TESTDIR}/dry"
 chown "${PROJECTS_USER}:${SBX}" "${TESTDIR}/dry"
 setfacl -m "g:${SBX}:rwX" -m "d:g:${SBX}:rwX" "${TESTDIR}/dry" 2>/dev/null || true

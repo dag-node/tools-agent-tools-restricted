@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/setfacl.sh
-# Hermetic unit tests for the deployed ai-tools-setfacl helper: the group-permission ACL it
-# applies at project claim, the opt-in `--with-git` .git normalization (group + setgid + ACL),
-# its owner guard, and its secret/exclusion/skip-list skips. Runs the installed helper against a
-# /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST); reads and does not write a path outside
-# the testdir.
+# Hermetic unit tests for the deployed ai-tools-setfacl helper: the group-permission ACL it applies at project claim,
+# the opt-in `--with-git` .git normalization (group + setgid + ACL), its owner guard, and its secret/exclusion/skip-list
+# skips. Runs the installed helper against a /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST); reads and does
+# not write a path outside the testdir.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -23,14 +22,12 @@ fi
 mktestdir
 proj="${TESTDIR}/proj"
 mkdir -p "${proj}/sub" "${proj}/noted" "${proj}/.git/objects" "${proj}/.env/inside" "${proj}/private/nested"
-# Pin the fixture's directory modes. mktestdir chmods only TESTDIR, so these would otherwise
-# inherit the RUNNER's umask -- and under umask 077 they land 0700, which the owner-only guard
-# then skips, taking the whole tree (project root included) out of the walk. Mode is behaviour
-# here, not cosmetics, so the test states it rather than inheriting it.
+# Pin the fixture's directory modes. mktestdir chmods only TESTDIR, so these would otherwise inherit the RUNNER's umask
+# -- and under umask 077 they land 0700, which the owner-only guard then skips, taking the whole tree (project root
+# included) out of the walk. Mode is behaviour here, not cosmetics, so the test states it rather than inheriting it.
 find "${proj}" -type d -exec chmod 0755 {} +
-# sub is '!'-excluded by a plain line; noted by a line carrying an end-of-line comment,
-# which the shared allowlist grammar admits. A walk that read the second line raw would match no path
-# against it and grant the carve-out.
+# sub is '!'-excluded by a plain line; noted by a line carrying an end-of-line comment, which the shared allowlist
+# grammar admits. A walk that read the second line raw would match no path against it and grant the carve-out.
 mk_allowlist "${proj}" "!${proj}/sub" "!${proj}/noted   # carve-out"
 
 if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
@@ -38,8 +35,8 @@ if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
 fi
 setfacl -b "${proj}" 2>/dev/null || true       # undo the probe entry
 
-# Fixtures (a fresh /tmp dir does not inherit setgid and no default ACL, so any ACL afterwards
-# is attributable to the helper).
+# Fixtures (a fresh /tmp dir does not inherit setgid and no default ACL, so any ACL afterwards is attributable
+# to the helper).
 ( umask 077; : > "${proj}/sub_restricted" )    # 600: group locked out
 mv "${proj}/sub_restricted" "${proj}/restricted"
 : > "${proj}/world";        chmod 0644 "${proj}/world"        # stray other-read
@@ -50,18 +47,17 @@ mv "${proj}/sub_restricted" "${proj}/restricted"
 : > "${proj}/excluded"; mv "${proj}/excluded" "${proj}/sub/excluded"  # under '!' sub
 : > "${proj}/noted/excluded"                                          # under the commented '!'
 : > "${proj}/private/nested/k"                                       # inside the 0700 subtree
-# Same reason as the directory fixtures: pin every file's mode, then restore the one fixture
-# whose owner-only mode is the point (A2). Without this the runner's umask decides which files
-# the owner-only guard skips, and the ACL assertions become umask-dependent.
+# Same reason as the directory fixtures: pin every file's mode, then restore the one fixture whose owner-only mode is
+# the point (A2). Without this the runner's umask decides which files the owner-only guard skips, and the ACL assertions
+# become umask-dependent.
 find "${proj}" -type f -exec chmod 0644 {} +
 chmod 0600 "${proj}/restricted"
-# Owner-only DIRECTORY, set before the helper ever runs. Creating it afterwards would let it
-# inherit proj's default ACL at birth, and the inherited entries (harmless -- a 0700 mode holds
+# Owner-only DIRECTORY, set before the helper ever runs. Creating it afterwards would let it inherit proj's default ACL
+# at birth, and the inherited entries (harmless -- a 0700 mode holds
 # the mask at ---) would be indistinguishable from entries the helper wrote.
 chmod 0700 "${proj}/private"
-# The whole tree must be owned by the projects user, or the helper's owner guard skips it
-# (fixtures are created here as root). 'foreign' is then re-owned to a third party to
-# exercise that guard.
+# The whole tree must be owned by the projects user, or the helper's owner guard skips it (fixtures are created here
+# as root). 'foreign' is then re-owned to a third party to exercise that guard.
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}"
 if id nobody >/dev/null 2>&1; then
     : > "${proj}/foreign"; chown nobody:nobody "${proj}/foreign"; foreign=true
@@ -84,11 +80,11 @@ else
     fail "root default ACL missing/loose: $(tr '\n' ' ' <<<"${droot}")"
 fi
 
-# (A2) an owner-only file (0600) is left out of the agent's reach entirely -- no group entry,
-# no operator entry, no mask raised. `setfacl -m` recalculates the mask, so granting here would
+# (A2) an owner-only file (0600) is left out of the agent's reach entirely -- no group entry, no operator entry, no mask
+# raised. `setfacl -m` recalculates the mask, so granting here would
 # give the agent EFFECTIVE rw while `ls -l` still shows `-rw-------`; the operator cannot review a
-# grant they cannot see, so the claim honours the mode instead. secret-handling.rule.md tells
-# operators to use `700 <you>:<you>` for exactly this, which only holds if the walk skips it.
+# grant they cannot see, so the claim honours the mode instead. secret-handling.rule.md tells operators to use
+# `700 <you>:<you>` for exactly this, which only holds if the walk skips it.
 fr="$(getfacl -p "${proj}/restricted" 2>/dev/null)"
 if ! grep -qE "^(group:${SANDBOX_GROUP}|user:${PROJECTS_USER}):" <<<"${fr}" \
         && [[ "$(perm "${proj}/restricted")" == 600 ]]; then
@@ -97,8 +93,8 @@ else
     fail "600 file was opened: $(perm "${proj}/restricted") $(tr '\n' ' ' <<<"${fr}")"
 fi
 
-# (A2b) the same for a DIRECTORY, and its whole subtree goes with it: an unreachable directory's
-# contents cannot be granted through it, so descending would re-open what the parent sealed.
+# (A2b) the same for a DIRECTORY, and its whole subtree goes with it: an unreachable directory's contents cannot be
+# granted through it, so descending would re-open what the parent sealed.
 priv="${proj}/private"
 mkdir -p "${priv}/nested"; : > "${priv}/nested/k"
 chmod 700 "${priv}"; chmod 0644 "${priv}/nested/k"
@@ -111,8 +107,8 @@ else
     fail "700 dir opened: $(perm "${priv}") dir_acl=$(getfacl -p "${priv}" 2>/dev/null | tr '\n' ' ')"
 fi
 
-# (A2c) the skip is REPORTED, not silent: under `--with-git` it means history the operator asked
-# to share was not shared, so a quiet skip would leave them believing the opposite.
+# (A2c) the skip is REPORTED, not silent: under `--with-git` it means history the operator asked to share was not
+# shared, so a quiet skip would leave them believing the opposite.
 sealed_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
 assert_msg MSG-C9Z6 "${sealed_err}" "owner-only skips are reported on stderr"
 
@@ -131,18 +127,17 @@ else
     fail "other access not stripped: $(stat -c '%A' "${proj}/world")"
 fi
 
-# (A5) the operator-named grant mirrors the group grant -- the operator's umask-independent
-# access to agent-written files, so it co-writes without SANDBOX_GROUP membership.
-# Asserted on a group-accessible file: an owner-only one is skipped outright (A2), so it would
-# prove no property of the operator grant.
+# (A5) the operator-named grant mirrors the group grant -- the operator's umask-independent access to agent-written
+# files, so it co-writes without SANDBOX_GROUP membership. Asserted on a group-accessible file: an owner-only one is
+# skipped outright (A2), so it would prove no property of the operator grant.
 if grep -qE "^default:user:${PROJECTS_USER}:rwx" <<<"${droot}" && u "${proj}/world"; then
     pass "operator gains user:${PROJECTS_USER}:rwX (access + default), no group membership needed"
 else
     fail "operator user ACL missing: root_default=$(grep -E '^default:user:' <<<"${droot}" | tr '\n' ' ') file=$(getfacl -p "${proj}/world" 2>/dev/null | grep -E '^user:' | tr '\n' ' ')"
 fi
 
-# (B) secret-named file and secret-dir subtree get NEITHER grant (group or operator), so a
-# secret is exposed to neither the agent group nor a named operator entry.
+# (B) secret-named file and secret-dir subtree get NEITHER grant (group or operator), so a secret is exposed to neither
+# the agent group nor a named operator entry.
 if ! g "${proj}/.env.local" && ! g "${proj}/.env/inside/k" && ! dg "${proj}/.env" \
    && ! u "${proj}/.env.local" && ! du "${proj}/.env"; then
     pass "secret-named file and secret-dir subtree are left untouched (no group or operator ACL)"
@@ -167,8 +162,8 @@ else
     skip "owner guard" "user 'nobody' not present"
 fi
 
-# (B5) the owner-guard skip is REPORTED, not silent -- the half the CLI reads. Without the report,
-# a claim over a tree owned by a third party closes with a clean ✓ while granting no path at all.
+# (B5) the owner-guard skip is REPORTED, not silent -- the half the CLI reads. Without the report, a claim over a tree
+# owned by a third party closes with a clean ✓ while granting no path at all.
 if ${foreign}; then
     guard_err="$(setsid "${HELPER}" "${proj}" < /dev/null 2>&1 >/dev/null || true)"
     # The code separates this report from the project-root one below, which reads alike.
@@ -183,9 +178,8 @@ setsid "${HELPER}" "${out}" < /dev/null > /dev/null 2>&1 || true
 if ! dg "${out}"; then pass "a non-allowlisted path is left untouched"
 else fail "non-allowlisted ${out} gained the project ACL"; fi
 
-# (D) `--with-git`: the opt-in pass normalizes .git (group ACL + setgid + group ownership),
-# while a secret-named path inside .git is still skipped (the secret/exclusion skips apply
-# to the .git pass too).
+# (D) `--with-git`: the opt-in pass normalizes .git (group ACL + setgid + group ownership), while a secret-named path
+# inside .git is still skipped (the secret/exclusion skips apply to the .git pass too).
 setsid "${HELPER}" --with-git "${proj}" < /dev/null > /dev/null 2>&1 || true
 if g "${proj}/.git/objects/o" && u "${proj}/.git/objects/o"; then pass "--with-git applies the group + operator ACL inside .git"
 else fail "--with-git did not ACL .git contents"; fi
@@ -198,8 +192,8 @@ fi
 if ! g "${proj}/.git/.env.local"; then pass "a secret-named path inside .git stays skipped under --with-git"
 else fail "a secret inside .git was ACL'd under --with-git"; fi
 
-# (E) the project ROOT owned by a third party: every path under it is then unreachable through
-# it, so this is the whole outcome of the claim rather than one skipped path, and it says so.
+# (E) the project ROOT owned by a third party: every path under it is then unreachable through it, so this is the whole
+# outcome of the claim rather than one skipped path, and it says so.
 p2="${TESTDIR}/proj2"
 mkdir -p "${p2}/sub"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${p2}"

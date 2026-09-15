@@ -15,17 +15,17 @@
 #   * the loaded probe against a full-size module listing -- the one impure accessor, driven over
 #     a stubbed `semodule` because its failure mode is a race rather than a wrong answer.
 #
-# Sources the deployed lib; the lockstep half additionally needs the repo policy sources, so it
-# runs only in a checkout. No root risk and no SELinux dependency: the real semodule is never
-# called -- the probe section shadows it with a shell function.
+# Sources the deployed lib; the lockstep half additionally needs the repo policy sources, so it runs only in a checkout.
+# No root risk and no SELinux dependency: the real semodule is never called -- the probe section shadows it with a shell
+# function.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 # Read-only (sources a world-readable lib, reads repo files); no root needed, like man.sh.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# Installed copy first, then the source tree (the lib does not carry a token substitution, so the two
-# are identical); the lockstep half needs the checkout regardless.
+# Installed copy first, then the source tree (the lib does not carry a token substitution, so the two are identical);
+# the lockstep half needs the checkout regardless.
 LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 [[ -r "${LIB}" ]] || LIB="${ROOT}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 section "selinux-groups: registry accessors + filesystem lockstep (unit)"
@@ -48,9 +48,9 @@ else
 fi
 
 # --- A renamed group's former module name resolves, and only for a renamed group ---
-# Both front doors and the selinux %post replace a loaded former module with the group's current
-# one; a former name that is itself a current group's module, or is malformed, would make that
-# swap unload a live group or pass a bad token to semodule.
+# Both front doors and the selinux %post replace a loaded former module with the group's current one; a former name
+# that is itself a current group's module, or is malformed, would make that swap unload a live group or pass a bad token
+# to semodule.
 if declare -F ai_tools_selinux_group_former_module >/dev/null 2>&1; then
     for g in localipc buildexec; do
         if [[ "$(ai_tools_selinux_group_former_module "${g}")" == "ai_tools_netcore" ]]; then
@@ -59,8 +59,8 @@ if declare -F ai_tools_selinux_group_former_module >/dev/null 2>&1; then
             fail "ai_tools_selinux_group_former_module ${g} -> '$(ai_tools_selinux_group_former_module "${g}")'"
         fi
     done
-    # The reverse read is what a swap loads in the old module's place: both groups, in one
-    # transaction, or a host loses the half it did not ask for.
+    # The reverse read is what a swap loads in the old module's place: both groups, in one transaction, or a host loses
+    # the half it did not ask for.
     if [[ "$(ai_tools_selinux_groups_from_former_module ai_tools_netcore | sort | tr '\n' ' ')" == "buildexec localipc " ]]; then
         pass "ai_tools_netcore maps back to both localipc and buildexec"
     else
@@ -101,8 +101,8 @@ for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
     r="$(ai_tools_selinux_group_reason "${entry}")"
     stability="$(ai_tools_selinux_group_stability "${entry}")"
     names+=( "${n}" )
-    # Every field parses, and stability is exactly one of the two known values (a fourth pipe
-    # field must not bleed into the reason -- the accessor-shift regression this guards).
+    # Every field parses, and stability is exactly one of the two known values (a fourth pipe field must not bleed
+    # into the reason -- the accessor-shift regression this guards).
     if [[ "${n}" =~ ^[a-z][a-z0-9]*$ && -n "${d}" && -n "${r}" \
           && ( "${stability}" == experimental || "${stability}" == stable ) \
           && "${r}" != experimental && "${r}" != stable ]]; then
@@ -110,8 +110,8 @@ for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
     else
         fail "group record malformed: name='${n}' desc='${d}' reason='${r}' stability='${stability}'"
     fi
-    # The experimental predicate the `selinux groups enable` gate keys on must agree with the
-    # field: 'stable' groups skip the gate, everything else warns and confirms.
+    # The experimental predicate the `selinux groups enable` gate keys on must agree with the field: 'stable' groups
+    # skip the gate, everything else warns and confirms.
     if [[ "${stability}" == stable ]]; then
         ai_tools_selinux_group_is_experimental "${n}" \
             && fail "group '${n}' is stable but is_experimental returned true"
@@ -132,17 +132,15 @@ else
 fi
 
 # --- The loaded probe survives a full-size module listing (SIGPIPE regression) ---
-# ai_tools_selinux_group_loaded reads `semodule -l`, which on a real host is several hundred lines
-# -- past a stdio buffer, so the command needs more than one write to deliver it. Written as
-# `semodule -l | grep -qx`, grep exits on the match, the still-writing semodule dies of SIGPIPE, and
-# the `set -o pipefail` every consumer of this library runs under turns that into 141: the probe
-# reports NOT LOADED for a module that IS. An ai_tools* name sorts early, so the match lands in the
-# first buffer and the race is lost about half the time -- which is what makes it worth pinning
-# rather than reasoning about. `semodule` is stubbed as a shell function (like `systemctl` in
-# services.sh and `semanage` in relabel.sh), emitting one printf per line the way a C program with
-# a 4 KiB stdio buffer does -- a single-write listing would deliver everything before any reader
-# could exit and hide the regression. The probe is driven repeatedly because one passing run
-# is no evidence about a race.
+# ai_tools_selinux_group_loaded reads `semodule -l`, which on a real host is several hundred lines -- past a stdio
+# buffer, so the command needs more than one write to deliver it. Written as `semodule -l | grep -qx`, grep exits
+# on the match, the still-writing semodule dies of SIGPIPE, and the `set -o pipefail` every consumer of this library
+# runs under turns that into 141: the probe reports NOT LOADED for a module that IS. An ai_tools* name sorts early,
+# so the match lands in the first buffer and the race is lost about half the time -- which is what makes it worth
+# pinning rather than reasoning about. `semodule` is stubbed as a shell function (like `systemctl` in services.sh
+# and `semanage` in relabel.sh), emitting one printf per line the way a C program with a 4 KiB stdio buffer does --
+# a single-write listing would deliver everything before any reader could exit and hide the regression. The probe is
+# driven repeatedly because one passing run is no evidence about a race.
 semodule() {
     [[ "${1:-}" == -l ]] || return 1
     printf '%s\n' abrt accountsd acct afs aiccu aide ajaxterm ai_tools ai_tools_tmpmap
@@ -166,10 +164,9 @@ else
 fi
 
 # --- Lockstep with the shipped set + the source tree + git (real checkout only) ---
-# This half needs the .te SOURCES, the derivation script, and git track-state, all present only
-# in a source checkout. A partial deployment skips it: the RPM selftest container copies the
-# policy sources without .git, so gate on the git work tree, not the dir. The accessor and
-# validity checks already ran and carry this file's coverage.
+# This half needs the .te SOURCES, the derivation script, and git track-state, all present only in a source checkout.
+# A partial deployment skips it: the RPM selftest container copies the policy sources without .git, so gate on the git
+# work tree, not the dir. The accessor and validity checks already ran and carry this file's coverage.
 POL="${ROOT}/selinux/policy"
 SHIPPED="${ROOT}/selinux/policy/shipped-modules.sh"
 if ! git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -177,8 +174,8 @@ if ! git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     finish; exit
 fi
 
-# The derived shipped set, as the spec's %build and install.sh read it. One failing derivation is
-# one failing build, so it is a FAIL here rather than a skip.
+# The derived shipped set, as the spec's %build and install.sh read it. One failing derivation is one failing build,
+# so it is a FAIL here rather than a skip.
 shipped=()
 if [[ -f "${SHIPPED}" ]] && mapfile -t shipped < <(bash "${SHIPPED}") && (( ${#shipped[@]} )); then
     pass "shipped-modules.sh derives a non-empty set: ${shipped[*]}"
@@ -187,8 +184,8 @@ else
 fi
 is_shipped() { printf '%s\n' "${shipped[@]}" | grep -qx "$1"; }
 
-# The core is on the list unconditionally, and every name on it has the .te source the build
-# compiles from -- a derived name with no source is a build that fails at make.
+# The core is on the list unconditionally, and every name on it has the .te source the build compiles from -- a derived
+# name with no source is a build that fails at make.
 if is_shipped ai_tools; then
     pass "the core ai_tools is on the shipped set"
 else
@@ -199,10 +196,9 @@ for m in "${shipped[@]}"; do
     [[ -f "${POL}/${m}.te" ]] || fail "shipped module '${m}' has no source ${POL}/${m}.te"
 done
 
-# Forward: each registry group has a .te source, and it is on the shipped set exactly when the
-# registry marks it stable. An EXPERIMENTAL group is compiled and verified from source on demand
-# and must stay off the list, or an unaudited module ships; a STABLE group left off it has no
-# module for `selinux groups enable` to load.
+# Forward: each registry group has a .te source, and it is on the shipped set exactly when the registry marks it stable.
+# An EXPERIMENTAL group is compiled and verified from source on demand and must stay off the list, or an unaudited
+# module ships; a STABLE group left off it has no module for `selinux groups enable` to load.
 for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
     n="$(ai_tools_selinux_group_name "${entry}")"
     [[ -f "${POL}/ai_tools_${n}.te" ]] \
@@ -222,11 +218,11 @@ for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
     fi
 done
 
-# Reverse: every optional .te on disk (any ai_tools_*.te, excluding the core ai_tools.te) is either
-# a group in the registry or a LAYOUT MODULE some shipped integration manifest declares
-# (selinux_layout_module) -- a policy module nobody can reach through `selinux groups enable` or
-# an integration's bootstrap is a mistake. A layout module is on the shipped set like a stable
-# group, since the selinux %post loads it for every installed integration that declares it.
+# Reverse: every optional .te on disk (any ai_tools_*.te, excluding the core ai_tools.te) is either a group
+# in the registry or a LAYOUT MODULE some shipped integration manifest declares (selinux_layout_module) -- a policy
+# module nobody can reach through `selinux groups enable` or an integration's bootstrap is a mistake. A layout module is
+# on the shipped set like a stable group, since the selinux %post loads it for every installed integration that declares
+# it.
 layout_modules=()
 for manifest in "${ROOT}"/src/usr/local/lib/ai-tools/integrations.d/*.conf; do
     [[ -f "${manifest}" ]] || continue
@@ -249,9 +245,9 @@ for te in "${POL}"/ai_tools_*.te; do
     fi
 done
 
-# No compiled module is tracked, anywhere in the tree: each is compiled per distribution at
-# build time, and a tracked .pp is a binary built on some other host's headers that no review
-# can read. A local build leaves them in the working tree, gitignored.
+# No compiled module is tracked, anywhere in the tree: each is compiled per distribution at build time, and a tracked
+# .pp is a binary built on some other host's headers that no review can read. A local build leaves them in the working
+# tree, gitignored.
 tracked="$(git -C "${ROOT}" ls-files -- '*.pp' 2>/dev/null || true)"
 if [[ -z "${tracked}" ]]; then
     pass "no compiled .pp is tracked"

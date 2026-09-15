@@ -1,31 +1,29 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/lib/residue.sh
-# The pre-run residue sweep run.sh runs before dispatching a category: finds what an earlier run
-# left behind and removes it, so a run starts from a host that carries none of this suite's
-# fixtures. Sourced by run.sh as root; it does not source harness.sh (which sets traps and
-# derives a project user) and takes the project user's home as an argument instead.
+# The pre-run residue sweep run.sh runs before dispatching a category: finds what an earlier run left behind and removes
+# it, so a run starts from a host that carries none of this suite's fixtures. Sourced by run.sh as root; it does not
+# source harness.sh (which sets traps and derives a project user) and takes the project user's home as an argument
+# instead.
 #
-# What it finds is decided by the name rule in harness.sh: every path a test creates outside its
-# testdir is `.ai-tools-test-<group>-<thing>-XXXXXX`, so one pattern over the directories fixtures
-# are born in (AI_TEST_RESIDUE_SITES, scanned one level deep, never recursively) is the whole
-# search. The one path that cannot carry the rule is listed by name: ai-tools-run accepts an
-# entrypoint only at a bare semver version directory, so integration/ai-tools-run.sh probes it
-# in `v0.0.1` inside the live toolchain tree (a version Node never shipped).
+# What it finds is decided by the name rule in harness.sh: every path a test creates outside its testdir is
+# `.ai-tools-test-<group>-<thing>-XXXXXX`, so one pattern over the directories fixtures are born
+# in (AI_TEST_RESIDUE_SITES, scanned one level deep, never recursively) is the whole search. The one path that cannot
+# carry the rule is listed by name: ai-tools-run accepts an entrypoint only at a bare semver version directory,
+# so integration/ai-tools-run.sh probes it in `v0.0.1` inside the live toolchain tree (a version Node never shipped).
 #
-# Removal is `rm -rf` for a file or directory, and for a fixture cgroup (integration/stop.sh makes
-# one at the cgroup v2 root) a cgroup.kill over the subtree and then rmdir, deepest first. A path
-# that survives removal is reported and fails the sweep, so run.sh refuses to run rather than
-# start a suite on a host it could not clean. The suite is run one at a time: a second run
-# started while one is live would sweep the first run's fixtures.
+# Removal is `rm -rf` for a file or directory, and for a fixture cgroup (integration/stop.sh makes one at the cgroup v2
+# root) a cgroup.kill over the subtree and then rmdir, deepest first. A path that survives removal is reported and fails
+# the sweep, so run.sh refuses to run rather than start a suite on a host it could not clean. The suite is run one
+# at a time: a second run started while one is live would sweep the first run's fixtures.
 
 readonly AI_TEST_RESIDUE_GLOB='.ai-tools-test-*'
 readonly AI_TEST_RESIDUE_FIXED=(/opt/ai-tools/.nvm/versions/node/v0.0.1)
 
-# ai_test_residue_sites <projects-home>: PRINT the directories fixtures are born in, one per
-# line, existing ones only. The operator's home holds the noexec-/tmp fallback dirs and the
-# manual suite's workspace fixtures; the clone area holds the manual `--for` drill's tree beside
-# the label probes. The cgroup v2 root is read from /proc/mounts, the way the stop helper reads it.
+# ai_test_residue_sites <projects-home>: PRINT the directories fixtures are born in, one per line, existing ones only.
+# The operator's home holds the noexec-/tmp fallback dirs and the manual suite's workspace fixtures; the clone area
+# holds the manual `--for` drill's tree beside the label probes. The cgroup v2 root is read from /proc/mounts, the way
+# the stop helper reads it.
 ai_test_residue_sites() {
     local home="$1" d mount_point fstype
     local -a sites=(
@@ -48,8 +46,8 @@ ai_test_residue_sites() {
     return 0
 }
 
-# ai_test_residue_find <projects-home>: PRINT every leftover, one absolute path per line -- each
-# entry under a site matching the name rule, and each fixed path that exists.
+# ai_test_residue_find <projects-home>: PRINT every leftover, one absolute path per line -- each entry under a site
+# matching the name rule, and each fixed path that exists.
 ai_test_residue_find() {
     local site p
     while IFS= read -r site; do
@@ -84,9 +82,8 @@ ai_test_residue_remove() {
     [[ ! -e "${p}" ]]
 }
 
-# ai_test_residue_sweep <projects-home>: find, remove, and report every leftover. Silent when
-# there is none; each removal is one line, so the run log says what an earlier run left.
-# Returns non-zero when a path could not be removed.
+# ai_test_residue_sweep <projects-home>: find, remove, and report every leftover. Silent when there is none; each
+# removal is one line, so the run log says what an earlier run left. Returns non-zero when a path could not be removed.
 ai_test_residue_sweep() {
     local p rc=0 found=0
     while IFS= read -r p; do

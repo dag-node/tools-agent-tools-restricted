@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/safedir.sh
-# Hermetic unit tests for the deployed ai-tools-safedir helper: the git safe.directory entry it
-# adds at project claim and removes at unclaim, its idempotency, the allowlist gate on add, and
-# the root:SANDBOX_GROUP 644 it leaves behind. Runs the installed helper against a /tmp testdir
-# with a dummy allowlist (AI_TOOLS_ALLOWLIST) and a fixture gitconfig (AI_TOOLS_GITCONFIG); reads
-# and does not write a path outside the testdir.
+# Hermetic unit tests for the deployed ai-tools-safedir helper: the git safe.directory entry it adds at project claim
+# and removes at unclaim, its idempotency, the allowlist gate on add, and the root:SANDBOX_GROUP 644 it leaves behind.
+# Runs the installed helper against a /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST) and a fixture gitconfig
+# (AI_TOOLS_GITCONFIG); reads and does not write a path outside the testdir.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -47,8 +46,8 @@ run "${proj}" || true
 if [[ "$(count "${proj}")" == 1 ]]; then pass "add is idempotent (no duplicate entry)"
 else fail "re-add produced $(count "${proj}") entries"; fi
 
-# (D) a path no operator's allowlist covers is left unregistered (fail-closed), and the refusal
-# is reported rather than recorded in the log alone -- a direct run reaches no other account of it.
+# (D) a path no operator's allowlist covers is left unregistered (fail-closed), and the refusal is reported rather than
+# recorded in the log alone -- a direct run reaches no other account of it.
 outside_err="$(AI_TOOLS_GITCONFIG="${gc}" setsid "${HELPER}" "${outside}" < /dev/null 2>&1 > /dev/null || true)"
 if ! listed "${outside}"; then pass "a non-allowlisted path is left unregistered"
 else fail "non-allowlisted ${outside} was registered"; fi

@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/unclaim.sh
-# Hermetic unit tests for the deployed ai-tools-unclaim helper: the filesystem hand-back it
-# performs at project unclaim -- clear the agent ACL + default ACL, regroup to a target
-# group, drop group write, and clear the setgid bit on directories -- plus the dedicated
-# .git reversal pass, its owner guard, secret skip, and target-group validation. Installed
-# helper against a /tmp testdir.
+# Hermetic unit tests for the deployed ai-tools-unclaim helper: the filesystem hand-back it performs at project unclaim
+# -- clear the agent ACL + default ACL, regroup to a target group, drop group write, and clear the setgid bit
+# on directories -- plus the dedicated .git reversal pass, its owner guard, secret skip, and target-group validation.
+# Installed helper against a /tmp testdir.
 #
-# A closing section covers the CLI-side decision that feeds this helper,
-# ai-tools.sh's resolve_handback_group, because it has TWO results (the group, and the hint that
-# no hand-back can run) and therefore returns both as globals in its caller's shell rather than on
-# stdout. No part of that is visible from a `$(...)` capture -- which is how it regressed: the
-# capture's subshell dropped the second result, and reading it back under `set -u` aborted every
-# unclaim before it touched anything. So the assertion is made from a real caller.
+# A closing section covers the CLI-side decision that feeds this helper, ai-tools.sh's resolve_handback_group, because
+# it has TWO results (the group, and the hint that no hand-back can run) and therefore returns both as globals in its
+# caller's shell rather than on stdout. No part of that is visible from a `$(...)` capture -- which is how it regressed:
+# the capture's subshell dropped the second result, and reading it back under `set -u` aborted every unclaim before it
+# touched anything. So the assertion is made from a real caller.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -30,8 +28,8 @@ fi
 mktestdir
 proj="${TESTDIR}/proj"
 mkdir -p "${proj}/d" "${proj}/.env" "${proj}/.git/objects" "${proj}/vendor"
-# vendor is carved out by an exclusion line carrying an end-of-line comment, which the shared
-# allowlist grammar admits: the walk must skip it exactly as it skips a plain '!' line.
+# vendor is carved out by an exclusion line carrying an end-of-line comment, which the shared allowlist grammar admits:
+# the walk must skip it exactly as it skips a plain '!' line.
 mk_allowlist "${proj}" "!${proj}/vendor   # carve-out"
 
 if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
@@ -39,8 +37,7 @@ if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
 fi
 setfacl -b "${proj}" 2>/dev/null || true
 
-# Simulate the claimed state: setgid dir, group-rw file, 400 file, a secret, and the
-# group-permission ACL claim applies.
+# Simulate the claimed state: setgid dir, group-rw file, 400 file, a secret, and the group-permission ACL claim applies.
 : > "${proj}/f";  chmod 0660 "${proj}/f"
 chmod 2770 "${proj}/d"                         # setgid dir, as claim leaves it
 : > "${proj}/ro"; chmod 0400 "${proj}/ro"
@@ -48,8 +45,8 @@ chmod 2770 "${proj}/d"                         # setgid dir, as claim leaves it
 : > "${proj}/sh"; chmod 0770 "${proj}/sh"      # a genuine script (owner has execute)
 : > "${proj}/.env/secret"
 : > "${proj}/vendor/v"; chmod 0660 "${proj}/vendor/v"   # inside the commented carve-out
-# .git as a `--with-git` claim leaves it: setgid dirs + group-rw object (the main walk skips
-# .git, so only the dedicated reversal pass can revert these).
+# .git as a `--with-git` claim leaves it: setgid dirs + group-rw object (the main walk skips .git, so only the dedicated
+# reversal pass can revert these).
 : > "${proj}/.git/objects/o"; chmod 0660 "${proj}/.git/objects/o"
 chmod 2770 "${proj}/.git" "${proj}/.git/objects"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}"
@@ -86,8 +83,8 @@ fi
 if [[ "$(perm "${proj}/ro")" == 400 ]]; then pass "a 400 file stays 400 (group already has no write)"
 else fail "ro is $(stat -c '%a' "${proj}/ro") (want 400)"; fi
 
-# (C2) a data file that landed group-executable (the agent Write's stray exec bit, surfaced
-# when `setfacl -b` promotes group::r-x into the mode) -> 640: execute stripped along with write.
+# (C2) a data file that landed group-executable (the agent Write's stray exec bit, surfaced when `setfacl -b` promotes
+# group::r-x into the mode) -> 640: execute stripped along with write.
 if [[ "$(perm "${proj}/gx")" == 640 && "$(stat -c '%G' "${proj}/gx")" == "${PROJECTS_GROUP}" ]] \
         && ! agentacl "${proj}/gx"; then
     pass "group-executable data file -> 640 (stray execute stripped)"
@@ -107,8 +104,8 @@ fi
 if agentacl "${proj}/.env/secret"; then pass "a secret-named path is left untouched"
 else fail "a secret path was regrouped/cleared"; fi
 
-# (D2) a subtree excluded by a '!' line carrying a comment is left untouched: the walk reads
-# the line through the shared grammar, so the carve-out is skipped exactly as a plain '!' line is.
+# (D2) a subtree excluded by a '!' line carrying a comment is left untouched: the walk reads the line through the shared
+# grammar, so the carve-out is skipped exactly as a plain '!' line is.
 if agentacl "${proj}/vendor/v" && [[ "$(perm "${proj}/vendor/v")" == 660 ]]; then
     pass "a subtree excluded by a commented '!' line is left untouched (shared grammar)"
 else fail "vendor/v was reverted despite its commented exclusion: $(stat -c '%a' "${proj}/vendor/v")"; fi
@@ -131,8 +128,8 @@ else
     fail "accepted a nonexistent target group"
 fi
 
-# (G) .git is reverted by the dedicated pass (the main walk skips it): the object is
-# regrouped + agent ACL cleared + group write dropped, and the .git dir setgid is cleared.
+# (G) .git is reverted by the dedicated pass (the main walk skips it): the object is regrouped + agent ACL cleared +
+# group write dropped, and the .git dir setgid is cleared.
 if [[ "$(stat -c '%G' "${proj}/.git/objects/o")" == "${PROJECTS_GROUP}" ]] \
         && ! agentacl "${proj}/.git/objects/o" \
         && [[ "$(perm "${proj}/.git")" == 750 && "$(stat -c '%G' "${proj}/.git")" == "${PROJECTS_GROUP}" ]] \
@@ -142,9 +139,9 @@ else
     fail ".git not fully reverted: objects/o group $(stat -c '%G' "${proj}/.git/objects/o"), .git $(stat -c '%a %G' "${proj}/.git")"
 fi
 
-# (H) a target NOT in allowed-projects is a no-op: unclaim must never modify permissions
-# outside the allowlist. The dummy allowlist lists only ${proj}, so a sibling tree is
-# unlisted -- resolve_owner and _is_allowed both gate on membership and leave it untouched.
+# (H) a target NOT in allowed-projects is a no-op: unclaim must never modify permissions outside the allowlist.
+# The dummy allowlist lists only ${proj}, so a sibling tree is unlisted -- resolve_owner and _is_allowed both gate
+# on membership and leave it untouched.
 unlisted="${TESTDIR}/unlisted"
 mkdir -p "${unlisted}"
 : > "${unlisted}/f"; chmod 0660 "${unlisted}/f"
@@ -158,10 +155,9 @@ else
 fi
 
 # ── `--unlisted`: the residue gate replaces the allowlist gate ─────────────────────────────
-# The mode exists for a claimed project copied or moved out of the allowlist. What makes it
-# safe on a mistyped path is not caution about which bits it writes -- those are identical to
-# a listed unclaim -- but that it writes them ONLY to a path still carrying the ai-tools
-# fingerprint. Every assertion here is a form of that one property.
+# The mode exists for a claimed project copied or moved out of the allowlist. What makes it safe on a mistyped path is
+# not caution about which bits it writes -- those are identical to a listed unclaim -- but that it writes them ONLY
+# to a path still carrying the ai-tools fingerprint. Every assertion here is a form of that one property.
 
 # The mode resolves its owner from the invoking operator, so it needs one configured.
 operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
@@ -173,8 +169,8 @@ if [[ -r "${operator_conf}" ]] && grep -qE "^[[:space:]]*OPERATORS=.*\b${PROJECT
     : > "${copy}/owned"; chmod 0660 "${copy}/owned"
     chmod 2770 "${copy}/sub"
     : > "${copy}/node_modules/dep"; chmod 0660 "${copy}/node_modules/dep"
-    # Not residue: a file of the operator's own that was never part of any claim. The whole
-    # point of the mode is that this one is not touched.
+    # Not residue: a file of the operator's own that was never part of any claim. The whole point of the mode is
+    # that this one is not touched.
     : > "${copy}/mine"; chmod 0664 "${copy}/mine"
     chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${copy}"
     chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${copy}/mine"
@@ -189,16 +185,16 @@ if [[ -r "${operator_conf}" ]] && grep -qE "^[[:space:]]*OPERATORS=.*\b${PROJECT
         fail "--unlisted left res at $(stat -c '%a %G' "${copy}/res") (want 640 ${PROJECTS_GROUP})"
     fi
 
-    # (J) THE property: a path with no ai-tools fingerprint is not touched at all. This is what
-    # makes running the mode on the wrong directory a no-op rather than a mass permission edit.
+    # (J) THE property: a path with no ai-tools fingerprint is not touched at all. This is what makes running the mode
+    # on the wrong directory a no-op rather than a mass permission edit.
     if [[ "$(perm "${copy}/mine")" == 664 ]]; then
         pass "--unlisted leaves a non-residue file byte-for-byte (residue gate)"
     else
         fail "--unlisted modified a non-residue file: mine is $(stat -c '%a' "${copy}/mine") (want 664)"
     fi
 
-    # (K) a sandbox-OWNED inode is handed back to the operator: regrouping alone would leave
-    # the agent its access through the user bits, and ai-tools-reclaim refuses an unlisted path.
+    # (K) a sandbox-OWNED inode is handed back to the operator: regrouping alone would leave the agent its access
+    # through the user bits, and ai-tools-reclaim refuses an unlisted path.
     if id "${SANDBOX_USER}" >/dev/null 2>&1; then
         if [[ "$(stat -c '%U' "${copy}/owned")" == "${PROJECTS_USER}" ]]; then
             pass "--unlisted chowns a sandbox-owned file back to the operator"
@@ -209,8 +205,8 @@ if [[ -r "${operator_conf}" ]] && grep -qE "^[[:space:]]*OPERATORS=.*\b${PROJECT
         skip "--unlisted chown" "sandbox account not present"
     fi
 
-    # (L) the skip list still applies without `--full`, so residue in a heavy tree survives --
-    # the reason the CLI reports it and offers `--full` rather than silently under-reverting.
+    # (L) the skip list still applies without `--full`, so residue in a heavy tree survives -- the reason the CLI
+    # reports it and offers `--full` rather than silently under-reverting.
     if [[ "$(stat -c '%G' "${copy}/node_modules/dep")" == "${SANDBOX_GROUP}" ]]; then
         pass "--unlisted honors the skip list (node_modules residue left for --full)"
     else
@@ -225,16 +221,16 @@ if [[ -r "${operator_conf}" ]] && grep -qE "^[[:space:]]*OPERATORS=.*\b${PROJECT
         fail "--full did not reach node_modules/dep"
     fi
 
-    # (N) `--unlisted` is refused on a REGISTERED project: the caller picked the wrong mode, and
-    # running the narrower per-path gate over a real project would silently under-revert it.
+    # (N) `--unlisted` is refused on a REGISTERED project: the caller picked the wrong mode, and running the narrower
+    # per-path gate over a real project would silently under-revert it.
     if ! setsid "${HELPER}" "${proj}" "${PROJECTS_GROUP}" --unlisted < /dev/null > /dev/null 2>&1; then
         pass "--unlisted is refused on a registered project"
     else
         fail "--unlisted accepted a registered project"
     fi
 
-    # (O) fails closed with no invoking operator: the identity that bounds the walk cannot be
-    # resolved, so no path is touched. `env -u SUDO_UID` reproduces a direct root call.
+    # (O) fails closed with no invoking operator: the identity that bounds the walk cannot be resolved, so no path is
+    # touched. `env -u SUDO_UID` reproduces a direct root call.
     noop="${TESTDIR}/noop"
     mkdir -p "${noop}"; : > "${noop}/f"; chmod 0660 "${noop}/f"
     chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${noop}"
@@ -250,10 +246,10 @@ else
 fi
 
 # ── Hardlink guard (both modes) ──────────────────────────────────────────────────────────
-# chgrp and chmod act on the INODE, which a second name reaches from outside the tree, so a
-# multiply-linked regular file is refused rather than changed through. Same boundary
-# ai-tools-chown enforces; asserted here in the LISTED mode, where the tree is fully authorized
-# and the guard is therefore the only thing standing between the walk and the outside name.
+# chgrp and chmod act on the INODE, which a second name reaches from outside the tree, so a multiply-linked regular file
+# is refused rather than changed through. Same boundary ai-tools-chown enforces; asserted here in the LISTED mode,
+# where the tree is fully authorized and the guard is therefore the only thing standing between the walk and the outside
+# name.
 hl_proj="${TESTDIR}/hlproj"
 mkdir -p "${hl_proj}"
 outside="${TESTDIR}/outside-target"
@@ -279,12 +275,11 @@ else
 fi
 
 # ── CLI: the hand-back group decision (ai-tools.sh resolve_handback_group) ────────────────────
-# Driven from a REAL caller: source the CLI (its sourced-guard skips the gates and dispatch), call
-# the function, then read both results back the way cmd_project_unclaim does. Run as the projects
-# user, since ai-tools refuses to be sourced as root or the sandbox account, and under setsid so
-# the no-terminal path takes its default instead of prompting. `set -u` is on inside, so a result
-# the function failed to publish to its caller is an abort here -- exactly the failure being
-# pinned, and one no stdout-capturing test can see.
+# Driven from a REAL caller: source the CLI (its sourced-guard skips the gates and dispatch), call the function, then
+# read both results back the way cmd_project_unclaim does. Run as the projects user, since ai-tools refuses to be
+# sourced as root or the sandbox account, and under setsid so the no-terminal path takes its default instead
+# of prompting. `set -u` is on inside, so a result the function failed to publish to its caller is an abort here --
+# exactly the failure being pinned, and one no stdout-capturing test can see.
 section "ai-tools --project-unclaim: hand-back group resolution (unit)"
 readonly CLI="/usr/local/bin/ai-tools"
 if [[ ! -x "${CLI}" ]]; then
@@ -312,8 +307,8 @@ else
         else
             fail "resolve_handback_group '${PROJECTS_GROUP}' -> '${out}', expected '${PROJECTS_GROUP}|'"
         fi
-        # No `--group` and no terminal: both prompts take their defaults (hand back: yes; to the
-        # invoking user's group), so the caller still gets a usable group and no hint.
+        # No `--group` and no terminal: both prompts take their defaults (hand back: yes; to the invoking user's group),
+        # so the caller still gets a usable group and no hint.
         out="$(resolve_hb "")" || out="<abort>"
         if [[ "${out}" == "${PROJECTS_GROUP}|" ]]; then
             pass "with no --group and no terminal the defaults resolve to the invoker's own group"

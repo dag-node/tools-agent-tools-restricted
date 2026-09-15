@@ -30,9 +30,9 @@
 #     that each reported record still carries its remedy command or the empty remedy whose commands
 #     the consumer composes.
 #
-# systemctl is stubbed as a shell FUNCTION (which overrides the PATH lookup), so the test does not need an
-# executable shim -- and works where /tmp is mounted noexec. The stamp fixtures are written with
-# known content in the test's own /tmp testdir; no real unit, no real stamp, no root.
+# systemctl is stubbed as a shell FUNCTION (which overrides the PATH lookup), so the test does not need an executable
+# shim -- and works where /tmp is mounted noexec. The stamp fixtures are written with known content in the test's own
+# /tmp testdir; no real unit, no real stamp, no root.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -56,17 +56,17 @@ if ! source "${LIB}" \
 fi
 mktestdir
 
-# A sandbox-user unit's PRESENCE is read from its unit file -- the one live fact the operator's
-# session can see about that account's manager -- so the whole file points the lookup at a fixture
-# directory. Without it every case would depend on which optional packages this host
-# installed, which is exactly the environment coupling a unit test must not have.
+# A sandbox-user unit's PRESENCE is read from its unit file -- the one live fact the operator's session can see
+# about that account's manager -- so the whole file points the lookup at a fixture directory. Without it every case
+# would depend on which optional packages this host installed, which is exactly the environment coupling a unit test
+# must not have.
 mkdir -p "${TESTDIR}/user-units"
 export AI_TOOLS_USER_UNIT_DIRS="${TESTDIR}/user-units"
 
-# user_unit <name> : make a sandbox-user unit look INSTALLED. Presence is checked before the stamp
-# is read, so every unit name this file drives as sandbox-user needs one -- without it the state
-# resolves to 'absent' and the case under test never runs. Called where each name is introduced,
-# rather than from one list up here, so a name added later cannot quietly miss it.
+# user_unit <name> : make a sandbox-user unit look INSTALLED. Presence is checked before the stamp is read, so every
+# unit name this file drives as sandbox-user needs one -- without it the state resolves to 'absent' and the case
+# under test never runs. Called where each name is introduced, rather than from one list up here, so a name added later
+# cannot quietly miss it.
 user_unit() { : > "${TESTDIR}/user-units/$1"; }
 user_unit nvm-update.timer
 user_unit nvm-update.service
@@ -82,8 +82,8 @@ else
     fail "field accessor wrong: 1=$(ai_tools_service_field "${rec}" 1) 4=$(ai_tools_service_field "${rec}" 4) 6=$(ai_tools_service_field "${rec}" 6) 7=$(ai_tools_service_field "${rec}" 7)"
 fi
 
-# A record that omits the trailing stamp field yields the empty string, not an unbound-variable
-# abort -- the state resolver keys on that emptiness to mean "does not publish a stamp".
+# A record that omits the trailing stamp field yields the empty string, not an unbound-variable abort -- the state
+# resolver keys on that emptiness to mean "does not publish a stamp".
 if [[ -z "$(ai_tools_service_field "unit-y|system|critical|none|why|how" 7)" ]]; then
     pass "an absent trailing field reads as empty"
 else
@@ -101,8 +101,8 @@ else
     fail "registry is missing an expected unit: ${recs}"
 fi
 
-# The update service's stamp path is the one the updater writes; a drift between the two would
-# leave `--status` permanently reporting 'unknown' with no reason to say why.
+# The update service's stamp path is the one the updater writes; a drift between the two would leave `--status`
+# permanently reporting 'unknown' with no reason to say why.
 svc_rec="$(grep '^nvm-update\.service|' <<<"${recs}")"
 if [[ "$(ai_tools_service_field "${svc_rec}" 7)" == /var/opt/ai-tools/state/nvm-update.status ]]; then
     pass "nvm-update.service names the updater's stamp path"
@@ -114,8 +114,8 @@ fi
 # comes from _SVC_STATE (active|down|absent); an unset unit defaults to absent. is-active succeeds
 # only for 'active'; cat (presence) succeeds for anything not 'absent'. ---
 declare -A _SVC_STATE=()
-# Unit properties for the `show` verb, keyed "<unit>|<property>". A unit with no Type entry reads
-# as a non-service, which is what every unit here was before oneshots were distinguished.
+# Unit properties for the `show` verb, keyed "<unit>|<property>". A unit with no Type entry reads as a non-service,
+# which is what every unit here was before oneshots were distinguished.
 declare -A _SVC_PROP=()
 systemctl() {
     local verb="$1"; shift
@@ -151,10 +151,10 @@ else
 fi
 
 # --- (B1) a Type=oneshot service is judged by its LAST RUN, not by is-active ---
-# Such a unit is 'inactive' whenever it is healthy, so is-active would report every successful run
-# as DOWN and -- worse -- report a run that FAILED hours ago the same way, hiding it behind a
-# remedy that does not apply. ai-tools-relabel.service is the case that matters: it is triggered by
-# a .path watcher whose own health is no evidence about whether the relabel it started succeeded.
+# Such a unit is 'inactive' whenever it is healthy, so is-active would report every successful run as DOWN and -- worse
+# -- report a run that FAILED hours ago the same way, hiding it behind a remedy that does not apply.
+# ai-tools-relabel.service is the case that matters: it is triggered by a .path watcher whose own health is no evidence
+# about whether the relabel it started succeeded.
 ONESHOT=ai-tools-relabel.service
 _SVC_STATE=( [${ONESHOT}]=down )
 
@@ -184,8 +184,8 @@ else
     fail "a failed oneshot read as '${st_failed}' (needs_attention decides the exit status)"
 fi
 
-# The unit that triggers it is a .path, which has no Type -- so that reading must not change
-# how any non-service unit is judged.
+# The unit that triggers it is a .path, which has no Type -- so that reading must not change how any non-service unit is
+# judged.
 _SVC_STATE=( [ai-tools-relabel.path]=active )
 _SVC_PROP=()
 if [[ "$(ai_tools_service_state ai-tools-relabel.path system)" == active ]]; then
@@ -194,9 +194,9 @@ else
     fail "a non-service unit was judged as a oneshot"
 fi
 
-# The registry entry, and the remedy it names. `ai-tools-admin system entrypoints relabel` does the same work through a
-# different path, which leaves this unit's recorded failure standing -- so the remedy has to be the
-# one that both re-runs the work and clears what the report reads.
+# The registry entry, and the remedy it names. `ai-tools-admin system entrypoints relabel` does the same work
+# through a different path, which leaves this unit's recorded failure standing -- so the remedy has to be the one
+# that both re-runs the work and clears what the report reads.
 relabel_rec=""
 while IFS= read -r rec; do
     [[ "$(ai_tools_service_field "${rec}" 1)" == "${ONESHOT}" ]] && relabel_rec="${rec}"
@@ -209,8 +209,8 @@ else
     fail "ai-tools-relabel.service registry entry missing or wrong: ${relabel_rec:-<absent>}"
 fi
 
-# The launch wrapper must not warn about it: ai-tools-relabel.path already carries that warning,
-# and one upgrade would otherwise print two lines for one condition.
+# The launch wrapper must not warn about it: ai-tools-relabel.path already carries that warning, and one upgrade would
+# otherwise print two lines for one condition.
 _SVC_PROP=( [${ONESHOT}|Type]=oneshot [${ONESHOT}|ExecMainStartTimestamp]="Tue 2026-08-25 19:49:22 CEST"
             [${ONESHOT}|Result]=exit-code )
 _SVC_STATE=( [${ONESHOT}]=down )
@@ -221,8 +221,8 @@ else
 fi
 _SVC_PROP=(); _SVC_STATE=()
 
-# A sandbox-user unit is never queried through systemctl -- that account's bus is unreachable from
-# here, so a stub reporting it 'active' must not be able to leak into the verdict.
+# A sandbox-user unit is never queried through systemctl -- that account's bus is unreachable from here, so a stub
+# reporting it 'active' must not be able to leak into the verdict.
 _SVC_STATE=( [nvm-update.service]=active )
 if [[ "$(ai_tools_service_state nvm-update.service sandbox-user)" == unknown ]]; then
     pass "a sandbox-user unit ignores systemctl entirely (no stamp -> unknown)"
@@ -234,10 +234,10 @@ fi
 STAMP="${TESTDIR}/nvm-update.status"
 mk_stamp() { printf '%s\n' "$@" > "${STAMP}"; }
 
-# An uninstalled sandbox-user unit is 'absent', not 'unknown': every unit in the registry ships
-# with an OPTIONAL package, and "this host cannot query it" would send the operator after a unit
-# no package installed. Asserted against a FRESH stamp, because absence has to beat one an
-# uninstall left behind -- the unit is gone whatever the file still says about its last run.
+# An uninstalled sandbox-user unit is 'absent', not 'unknown': every unit in the registry ships with an OPTIONAL
+# package, and "this host cannot query it" would send the operator after a unit no package installed. Asserted
+# against a FRESH stamp, because absence has to beat one an uninstall left behind -- the unit is gone whatever the file
+# still says about its last run.
 mk_stamp 'RESULT=ok' "FINISHED=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 if [[ "$(ai_tools_service_state not-installed.timer sandbox-user "${STAMP}" fired 172800)" == absent \
    && "$(ai_tools_service_state not-installed.service sandbox-user "${STAMP}" result 172800)" == absent ]]; then
@@ -260,8 +260,8 @@ else
 fi
 
 # --- (B3) every way the stamp can be hostile or corrupt reads as NO value -> 'unknown' ---
-# Each case is a way a value written by the unprivileged sandbox account could otherwise reach the
-# operator's terminal, or a way a wrong verdict could be manufactured.
+# Each case is a way a value written by the unprivileged sandbox account could otherwise reach the operator's terminal,
+# or a way a wrong verdict could be manufactured.
 stamp_rejects() {
     local desc="$1"; shift
     mk_stamp "$@"
@@ -280,8 +280,8 @@ stamp_rejects "an unanchored line (key not at line start)"    'NOTRESULT=ok'
 stamp_rejects "an over-long value"                            "RESULT=$(printf 'o%.0s' {1..80})"
 stamp_rejects "an empty file"                                 ''
 
-# A syntactically valid but unrecognised result word is a different failure: the field reads fine,
-# and it is the STATE resolver that must fall through to unknown rather than guess a verdict.
+# A syntactically valid but unrecognised result word is a different failure: the field reads fine, and it is the STATE
+# resolver that must fall through to unknown rather than guess a verdict.
 mk_stamp 'RESULT=maybe'
 if [[ "$(ai_tools_service_stamp_field "${STAMP}" RESULT)" == maybe \
    && "$(ai_tools_service_state nvm-update.service sandbox-user "${STAMP}")" == unknown ]]; then
@@ -291,10 +291,9 @@ else
 fi
 
 # --- (B4) freshness: a successful run that stopped repeating must not read as OK forever ---
-# The failure this guards is the one a RESULT alone cannot express: every recorded run succeeded,
-# but the schedule driving them stopped, so the last verdict stays green while the toolchain
-# silently falls behind. Times are written relative to now so the assertions never depend on a
-# fixed date.
+# The failure this guards is the one a RESULT alone cannot express: every recorded run succeeded, but the schedule
+# driving them stopped, so the last verdict stays green while the toolchain silently falls behind. Times are written
+# relative to now so the assertions never depend on a fixed date.
 at_age() { date -u -d "@$(( $(date -u +%s) - $1 ))" +%Y-%m-%dT%H:%M:%SZ; }
 readonly DAY=86400 GRACE=172800   # GRACE mirrors the registry's 48h max_age
 user_unit u                       # the synthetic unit these cases drive
@@ -317,11 +316,11 @@ else
     fail "an old failed run was reported stale"
 fi
 
-# A run that made no change because it COULD not (the updater with an unreachable registry) is its own
-# verdict, between success and fault. Reporting it as FAILED would send an operator after a host
-# that is fine; reporting it as OK would claim an update that never happened. So it must read
-# 'skipped', must not count as needing attention -- or a disconnected laptop makes `--status` exit
-# non-zero every night, training its reader to ignore it -- and must still carry its REASON.
+# A run that made no change because it COULD not (the updater with an unreachable registry) is its own verdict,
+# between success and fault. Reporting it as FAILED would send an operator after a host that is fine; reporting it as OK
+# would claim an update that never happened. So it must read 'skipped', must not count as needing attention --
+# or a disconnected laptop makes `--status` exit non-zero every night, training its reader to ignore it -- and must
+# still carry its REASON.
 mk_stamp "RESULT=skipped" "EXIT_CODE=3" "FINISHED=$(at_age 3600)" "REASON=offline"
 st_skipped="$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
 got_reason="$(ai_tools_service_stamp_field "${STAMP}" REASON)"
@@ -333,8 +332,8 @@ else
         ai_tools_service_needs_attention skipped && echo yes || echo no))"
 fi
 
-# The escalation is the grace window's job: offline once calls for no action, offline for a week
-# is a toolchain that has stopped advancing, and only the age can tell those apart.
+# The escalation is the grace window's job: offline once calls for no action, offline for a week is a toolchain that has
+# stopped advancing, and only the age can tell those apart.
 mk_stamp "RESULT=skipped" "EXIT_CODE=3" "FINISHED=$(at_age $(( 13 * DAY )))" "REASON=offline"
 if [[ "$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")" == stale ]]; then
     pass "a skipped run that keeps repeating ages into stale"
@@ -342,10 +341,9 @@ else
     fail "an old skipped run did not go stale"
 fi
 
-# 'fired' mode: the trigger's verdict is the recency of a SYSTEMD-STARTED run, and no other input. A
-# RECENT run that failed still proves the timer fired, so the timer is healthy while the service it
-# started is not -- the two must not collapse into one verdict, or a failing service would also
-# condemn a working schedule.
+# 'fired' mode: the trigger's verdict is the recency of a SYSTEMD-STARTED run, and no other input. A RECENT run
+# that failed still proves the timer fired, so the timer is healthy while the service it started is not -- the two must
+# not collapse into one verdict, or a failing service would also condemn a working schedule.
 mk_stamp "RESULT=failed" "EXIT_CODE=1" "FINISHED=$(at_age 3600)" "TRIGGER=unit"
 st_fired="$(ai_tools_service_state u sandbox-user "${STAMP}" fired  "${GRACE}")"
 st_ran="$(  ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
@@ -355,9 +353,9 @@ else
     fail "'fired' mode was swayed by RESULT: trigger=${st_fired} run=${st_ran}"
 fi
 
-# The same separation for a skipped run: 'fired' mode must not read RESULT at all. A run that found
-# the registry unreachable still proves the timer started it, so the trigger stays healthy -- and
-# the skipped verdict must not leak onto the unit that did not skip anything.
+# The same separation for a skipped run: 'fired' mode must not read RESULT at all. A run that found the registry
+# unreachable still proves the timer started it, so the trigger stays healthy -- and the skipped verdict must not leak
+# onto the unit that did not skip anything.
 mk_stamp "RESULT=skipped" "EXIT_CODE=3" "FINISHED=$(at_age 3600)" "TRIGGER=unit" "REASON=offline"
 st_fired="$(ai_tools_service_state u sandbox-user "${STAMP}" fired  "${GRACE}")"
 st_ran="$(  ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
@@ -373,11 +371,11 @@ else
     fail "'fired' mode did not go stale on an old stamp"
 fi
 
-# A run the OPERATOR started is not evidence about a schedule. Counting it would report a dead
-# timer as healthy for the whole grace window -- and suppress the staleness that is the only way a
-# stopped schedule ever surfaces -- so a hand run (and a stamp predating the field) declines the
-# judgment in BOTH directions: fresh does not mean OK, old does not mean stale. The run itself is
-# still the service's own verdict, which is what keeps this from losing information.
+# A run the OPERATOR started is not evidence about a schedule. Counting it would report a dead timer as healthy
+# for the whole grace window -- and suppress the staleness that is the only way a stopped schedule ever surfaces --
+# so a hand run (and a stamp predating the field) declines the judgment in BOTH directions: fresh does not mean OK, old
+# does not mean stale. The run itself is still the service's own verdict, which is what keeps this from losing
+# information.
 mk_stamp "RESULT=ok" "FINISHED=$(at_age 3600)" "TRIGGER=manual"
 st_fired="$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")"
 st_ran="$(  ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
@@ -392,8 +390,8 @@ else
     fail "'fired' mode judged a non-systemd run: fresh=${st_fired} old=${st_old} none=${st_nofield} run=${st_ran}"
 fi
 
-# No max_age means no freshness judgment, and an UNPARSEABLE date must not manufacture staleness
-# out of an absence -- an unknown age is not an old one.
+# No max_age means no freshness judgment, and an UNPARSEABLE date must not manufacture staleness out of an absence --
+# an unknown age is not an old one.
 mk_stamp "RESULT=ok" "FINISHED=$(at_age $(( 99 * DAY )))"
 st_nomax="$(ai_tools_service_state u sandbox-user "${STAMP}" result "")"
 mk_stamp "RESULT=ok" "FINISHED=not-a-date"
@@ -413,10 +411,10 @@ else
     fail "a future-dated stamp gave age $(ai_tools_service_stamp_age "${STAMP}")"
 fi
 
-# The age reader takes the KEY, because a second record in this grammar carries a time an operator
-# reads as an age: an entrypoint pin's VERIFIED (see cli.rule.md). Both must age through this one
-# implementation, so the key is a parameter rather than a copied function -- and the default must
-# stay FINISHED, or every existing caller silently starts reporting "age unknown".
+# The age reader takes the KEY, because a second record in this grammar carries a time an operator reads as an age:
+# an entrypoint pin's VERIFIED (see cli.rule.md). Both must age through this one implementation, so the key is
+# a parameter rather than a copied function -- and the default must stay FINISHED, or every existing caller silently
+# starts reporting "age unknown".
 mk_stamp "RESULT=ok" "FINISHED=$(at_age 7200)" "VERIFIED=$(at_age 300)"
 age_default="$(ai_tools_service_stamp_age "${STAMP}")"
 age_keyed="$(ai_tools_service_stamp_age "${STAMP}" VERIFIED)"
@@ -437,8 +435,8 @@ else
     fail "an absent key produced an age: ${age_absent}"
 fi
 
-# The registry's own records must carry the freshness policy, or none of it ever applies in
-# production: both nvm-update records point at the stamp, and the timer reads it in 'fired' mode.
+# The registry's own records must carry the freshness policy, or none of it ever applies in production: both nvm-update
+# records point at the stamp, and the timer reads it in 'fired' mode.
 svc_rec="$(grep '^nvm-update\.service|' <<<"${recs}")"
 tmr_rec="$(grep '^nvm-update\.timer|'   <<<"${recs}")"
 if [[ "$(ai_tools_service_field "${svc_rec}" 8)" == result \
@@ -450,9 +448,9 @@ else
     fail "registry freshness wiring wrong: svc mode=$(ai_tools_service_field "${svc_rec}" 8) age=$(ai_tools_service_field "${svc_rec}" 9); timer mode=$(ai_tools_service_field "${tmr_rec}" 8)"
 fi
 
-# needs_attention is the single definition of "broken" both the scanner and the CLI report from.
-# 'unknown' must stay out of it: a vantage point that cannot tell is not a fault, and counting it
-# would make every unqueryable unit alarm on a healthy host.
+# needs_attention is the single definition of "broken" both the scanner and the CLI report from. 'unknown' must stay
+# out of it: a vantage point that cannot tell is not a fault, and counting it would make every unqueryable unit alarm
+# on a healthy host.
 att_ok=true
 for _s in down failed stale; do
     ai_tools_service_needs_attention "${_s}" || att_ok=false
@@ -513,10 +511,10 @@ else
 fi
 
 # --- (E) a FAILED unit is reported by the 'all' scan, and by neither system-scope filter ---
-# Driven through a fixture registry (the record array is plain data) so the assertion depends on
-# this test's own stamp rather than the host's real one. This is the last section; no case after it
-# reads the registry. The wrapper/system filters must stay clean: only a sandbox-user unit can be
-# 'failed', so the launch wrapper's warning still speaks only of units that are not running.
+# Driven through a fixture registry (the record array is plain data) so the assertion depends on this test's own stamp
+# rather than the host's real one. This is the last section; no case after it reads the registry. The wrapper/system
+# filters must stay clean: only a sandbox-user unit can be 'failed', so the launch wrapper's warning still speaks only
+# of units that are not running.
 mk_stamp 'RESULT=failed' 'EXIT_CODE=1' 'FINISHED=2026-08-17T05:50:59Z'
 user_unit fixture-user.service
 _AI_TOOLS_SERVICES=(
@@ -531,10 +529,9 @@ if ai_tools_services_scan all \
 else
     fail "the 'all' scan missed the failed unit: [${AI_TOOLS_SERVICES_DOWN[*]}]"
 fi
-# Its remedy field is deliberately EMPTY: re-running it goes through the sandbox account's `--user`
-# manager, so the command names that account and the consumer composes it (services.lib.sh ships
-# with no @SANDBOX_USER@ substitution). An accidental value here would print an unsubstituted
-# command to the operator.
+# Its remedy field is deliberately EMPTY: re-running it goes through the sandbox account's `--user` manager,
+# so the command names that account and the consumer composes it (services.lib.sh ships with no @SANDBOX_USER@
+# substitution). An accidental value here would print an unsubstituted command to the operator.
 if [[ -z "$(ai_tools_service_field "${AI_TOOLS_SERVICES_DOWN[0]}" 6)" ]]; then
     pass "a sandbox-user record leaves the remedy to the consumer"
 else
@@ -547,15 +544,14 @@ else
 fi
 
 # ── the live reading a ROOT caller adds, and what it may and may not override ───────────────────
-# `ai-tools-admin status` reaches the sandbox account's own manager over the machine transport,
-# which the operator cannot; the verdict that reading feeds into is the pure function, so it
-# is driven here over its whole truth table with no manager to query and no privilege to hold.
+# `ai-tools-admin status` reaches the sandbox account's own manager over the machine transport, which the operator
+# cannot; the verdict that reading feeds into is the pure function, so it is driven here over its whole truth table
+# with no manager to query and no privilege to hold.
 #
-# Every case is one of two claims. A live reading may only ADD an answer where the stamp declined
-# to give one -- so an unprivileged caller, whose live reading is always `unknown`, reports exactly
-# what it reported before this transport existed. And a live `active` is not a clean bill: for a
-# timer it says the schedule is loaded, not that runs are happening, so the stamp still decides
-# freshness and a stale or skipped run survives it.
+# Every case is one of two claims. A live reading may only ADD an answer where the stamp declined to give one --
+# so an unprivileged caller, whose live reading is always `unknown`, reports exactly what it reported before this
+# transport existed. And a live `active` is not a clean bill: for a timer it says the schedule is loaded, not that runs
+# are happening, so the stamp still decides freshness and a stale or skipped run survives it.
 section "services: the live reading, and the verdict it feeds (unit)"
 
 if ! declare -F ai_tools_service_stamp_verdict >/dev/null 2>&1; then
@@ -572,16 +568,16 @@ else
         fi
     }
 
-    # The manager wins where it is decisive. A stamp records a run that has already ended, so it
-    # cannot improve on "this unit is failed/stopped right now" -- and reporting a healthy last run
-    # over a stopped unit is the misreport the live probe exists to remove.
+    # The manager wins where it is decisive. A stamp records a run that has already ended, so it cannot improve on "this
+    # unit is failed/stopped right now" -- and reporting a healthy last run over a stopped unit is the misreport
+    # the live probe exists to remove.
     verdict failed "a live FAILED unit overrides a stamp recording a healthy recent run" \
         failed result ok unit 60 172800
     verdict down "a live DOWN unit overrides a stamp recording a healthy recent run" \
         down result ok unit 60 172800
 
-    # The three places the stamp declines: each was a flat 'unknown' before, and each is where the
-    # live reading is worth having.
+    # The three places the stamp declines: each was a flat 'unknown' before, and each is where the live reading is worth
+    # having.
     verdict active "an unreadable stamp resolves to the live reading, not to unknown" \
         active result "" "" "" 172800
     verdict active "'fired' mode declines a hand-started run and falls back to the live reading" \
@@ -589,9 +585,8 @@ else
     verdict active "'fired' mode with no usable age falls back to the live reading" \
         active fired ok unit "" 172800
 
-    # The same three with no transport -- an operator, or a root caller whose probe did not
-    # complete. Each takes the stamp-only verdict, so a caller that gains a live reading gains an
-    # answer and keeps every answer it had.
+    # The same three with no transport -- an operator, or a root caller whose probe did not complete. Each takes
+    # the stamp-only verdict, so a caller that gains a live reading gains an answer and keeps every answer it had.
     verdict unknown "an unreachable manager leaves an unreadable stamp reading unknown" \
         unknown result "" "" "" 172800
     verdict unknown "an unreachable manager leaves a hand-started run reading unknown" \
@@ -599,8 +594,8 @@ else
     verdict unknown "an unrecognised RESULT word still declines rather than guessing" \
         unknown result mystery unit 60 172800
 
-    # A live 'active' is not authoritative, and these are the cases that prove it: the stamp still
-    # decides freshness and still reports a run that declined to act.
+    # A live 'active' is not authoritative, and these are the cases that prove it: the stamp still decides freshness
+    # and still reports a run that declined to act.
     verdict stale "a live-active unit whose runs stopped is still STALE" \
         active result ok unit 200000 172800
     verdict stale "a live-active TIMER whose runs stopped is still STALE" \
@@ -610,8 +605,8 @@ else
     verdict failed "a stamped failure is reported with no transport at all" \
         unknown result failed unit 60 172800
 
-    # And the probe's own gate. Both refusals resolve to the stamp-only reading, which is the
-    # direction every failure in this path takes.
+    # And the probe's own gate. Both refusals resolve to the stamp-only reading, which is the direction every failure
+    # in this path takes.
     _AI_TOOLS_SERVICE_SANDBOX_ACCOUNT=""
     if _ai_tools_service_systemctl sandbox-user; then
         fail "the live probe was offered with no sandbox account named"
@@ -619,9 +614,8 @@ else
         pass "no sandbox account named: the live probe is not offered"
     fi
     ai_tools_service_sandbox_account ai-tools
-    # The non-root half is asked from a non-root process: a root run drops to the projects user
-    # through runuser (the library is world-readable) rather than skipping the vantage the
-    # refusal exists for.
+    # The non-root half is asked from a non-root process: a root run drops to the projects user through runuser (the
+    # library is world-readable) rather than skipping the vantage the refusal exists for.
     # shellcheck disable=SC2016  # $1 is the inner shell's positional
     probe_offered_to_projects_user() {
         runuser -u "${PROJECTS_USER}" -- bash -c \
@@ -641,9 +635,8 @@ else
     else
         pass "a non-root caller (${PROJECTS_USER}) is not offered the live probe, whatever account is named"
     fi
-    # A system unit's state is world-readable, so that scope is offered to every caller -- the
-    # asymmetry is the point, and reading it as privileged would silently stop the launch
-    # wrapper's pre-launch warning from checking anything.
+    # A system unit's state is world-readable, so that scope is offered to every caller -- the asymmetry is the point,
+    # and reading it as privileged would silently stop the launch wrapper's pre-launch warning from checking anything.
     if _ai_tools_service_systemctl system; then
         pass "a system unit stays readable by any caller"
     else

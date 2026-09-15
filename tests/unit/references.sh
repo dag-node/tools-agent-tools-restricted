@@ -1,26 +1,25 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/references.sh
-# Unit test for ref-index.py, the cross-reference tool shipped beside the ai-tools-technical-docs
-# skill, and for the index it keeps. A reference names a reftag, and the reftag resolves
-# to the target's current place, so the guarantee under test is that a target which moved, was
-# renamed, or was deleted is REPORTED; a reference left pointing at the old place is the defect.
-# Each finding `check` can make is driven with a fixture it MUST report and with the corrected
-# form it MUST stay silent on, so neither a check that stopped firing nor one widened
+# Unit test for ref-index.py, the cross-reference tool shipped beside the ai-tools-technical-docs skill,
+# and for the index it keeps. A reference names a reftag, and the reftag resolves to the target's current place,
+# so the guarantee under test is that a target which moved, was renamed, or was deleted is REPORTED; a reference left
+# pointing at the old place is the defect. Each finding `check` can make is driven with a fixture it MUST report
+# and with the corrected form it MUST stay silent on, so neither a check that stopped firing nor one widened
 # into reporting good prose survives.
 #
 # The first section holds the tree to its committed index: the index is regenerated and diffed
 # against .claude/references.md, and `check` runs over every tracked file. Both read the checkout
-# through tools/ref-index.sh, which names the file list once, so they skip outside a git
-# checkout. An empty tree is a valid index, so the section is green before the first reftag.
+# through tools/ref-index.sh, which names the file list once, so they skip outside a git checkout. An empty tree is
+# a valid index, so the section is green before the first reftag.
 #
-# Hermetic: fixtures are written in the test's own /tmp testdir and the tool is run on those
-# paths only, from inside the testdir so its `file:line` reports carry the fixture's relative
-# path. Pure text analysis, so it does not need privilege of its own; run as root via sudo like
-# the rest of the suite. Validates the repo source, falling back to the installed copies.
+# Hermetic: fixtures are written in the test's own /tmp testdir and the tool is run on those paths only, from inside
+# the testdir so its `file:line` reports carry the fixture's relative path. Pure text analysis, so it does not need
+# privilege of its own; run as root via sudo like the rest of the suite. Validates the repo source, falling back
+# to the installed copies.
 #
-# This file holds reftags as fixture text, so the tree-wide check does not read it (the marker
-# on the next line). The fixture text carries `$1` and backticks that are content, not expansions.
+# This file holds reftags as fixture text, so the tree-wide check does not read it (the marker on the next line).
+# The fixture text carries `$1` and backticks that are content, not expansions.
 # ref-index: ignore-file
 # shellcheck disable=SC2016
 set -euo pipefail
@@ -47,8 +46,8 @@ fi
 mktestdir
 note "tool" "${RI}"
 
-# run_ri <argument...>: run the tool from inside TESTDIR, leaving its output in OUT and its
-# status in RC. A finding makes `check` exit 1, which `|| RC=$?` keeps non-fatal under `set -e`.
+# run_ri <argument...>: run the tool from inside TESTDIR, leaving its output in OUT and its status in RC. A finding
+# makes `check` exit 1, which `|| RC=$?` keeps non-fatal under `set -e`.
 RC=0 OUT=""
 run_ri() {
     RC=0
@@ -62,9 +61,9 @@ fixture() {
     printf '%s\n' "$@" > "${TESTDIR}/${path}"
 }
 
-# Every result line names its CASE, never the fixture text: the fixtures hold deliberate defects,
-# and a transcript that is read and grepped does not carry them. A failure prints the report.
-# reports <finding> <case> <argument...>: PASS when `check` over the arguments reports the finding.
+# Every result line names its CASE, never the fixture text: the fixtures hold deliberate defects, and a transcript
+# that is read and grepped does not carry them. A failure prints the report. reports <finding> <case> <argument...>:
+# PASS when `check` over the arguments reports the finding.
 reports() {
     local finding="$1" case="$2"; shift 2
     run_ri check "$@"
@@ -128,8 +127,8 @@ fixture docs/self.md '## Own section <a id="ref-section-e5f6"></a>' '' 'See [ref
 reports same-file TEST-RI-06-same-file docs/self.md
 assert_grep '\[Own section\](#own-section)' "${OUT}" "TEST-RI-06-same-file: the report names the jump link to use"
 
-# A listing's caption sits before a fence and a table's before a table row; any other kind's
-# caption sits before whatever block follows it.
+# A listing's caption sits before a fence and a table's before a table row; any other kind's caption sits
+# before whatever block follows it.
 fixture docs/orphan.md '<a id="ref-listing-g7h8"></a>**A listing**' '' 'Prose, not a fence.'
 reports misplaced TEST-RI-07-misplaced docs/orphan.md
 fixture docs/drawn.md '<a id="ref-listing-g7h8"></a>**A listing**' '' '```' 'code' '```'
@@ -159,8 +158,8 @@ reports same-file TEST-RI-09-moved-in docs/moved.md
 run_ri relink docs/moved.md
 assert_grep 'a.md#ref-section-i9j0' "$(cat "${TESTDIR}/docs/moved.md")" "TEST-RI-09-moved-in: relink leaves a same-file site as written"
 
-# Navigation and file links are ordinary links, checked for resolving; they do not take a reftag.
-# The slug keeps the text of a backticked span, which is the CLAUDE.md heading shape.
+# Navigation and file links are ordinary links, checked for resolving; they do not take a reftag. The slug keeps
+# the text of a backticked span, which is the CLAUDE.md heading shape.
 fixture docs/nav.md '# Title' '' '**Contents**: [Requirements](#requirements) · [Gone](#no-such-heading)' '' \
     '## Requirements' '' 'See [missing](nope.md) and [the models](a.md#ref-section-a1b2).'
 reports link TEST-RI-10-link-anchor docs/a.md docs/nav.md
@@ -183,29 +182,28 @@ fixture docs/code-stale.md 'The spec [URI-O5P6](https://example.invalid/old) and
 reports stale TEST-RI-11-uri-stale src/s.sh docs/code.md docs/code-stale.md
 fixture src/u.sh '# see FN-Q7R8, which is nowhere'
 reports undefined TEST-RI-11-code-undefined src/u.sh
-# A message target is the emit call, and a test cites the code beside the output it captured: the
-# quoted string there opens with an expansion, does not name a message, and reads as a reference.
+# A message target is the emit call, and a test cites the code beside the output it captured: the quoted string there
+# opens with an expansion, does not name a message, and reads as a reference.
 fixture tests/s.sh 'out="$(chown_path /x 2>&1)"' 'assert_msg MSG-M3N4 "${out}" "refuses a path outside the allowlist"'
 silent TEST-RI-11-msg-cited-by-test src/s.sh tests/s.sh
-# The other citing shape: the code in a LATER argument, where a parameterised assertion helper
-# names the code it expects beside the substring it greps. Only the command's first argument
-# defines a message, so this reads as a reference and the helper is listed among the citing files.
+# The other citing shape: the code in a LATER argument, where a parameterised assertion helper names the code it expects
+# beside the substring it greps. Only the command's first argument defines a message, so this reads as a reference
+# and the helper is listed among the citing files.
 fixture tests/param.sh 'refuses "a path outside the allowlist" MSG-M3N4 "not in allowed projects"'
 silent TEST-RI-11-msg-cited-in-argument src/s.sh tests/param.sh
 run_ri generate src/s.sh tests/param.sh
 assert_grep '^| m3n4 | \[MSG-M3N4\](src/s.sh) | not in allowed projects: \$1 | src/s.sh | tests/param.sh | die |$' \
     "${OUT}" "TEST-RI-11-msg-argument-row: the message keeps its emitter and lists the citing test"
-# A call that breaks between the code and its message is still one command, so the code is still
-# its first argument and the call still defines the message -- the name coming off the next line.
+# A call that breaks between the code and its message is still one command, so the code is still its first argument
+# and the call still defines the message -- the name coming off the next line.
 fixture src/wrapped.sh 'ai_tools_msg_warn MSG-M3N9 \' '    "The group is an unaudited draft."'
 silent TEST-RI-11-msg-continued src/wrapped.sh
 run_ri generate src/wrapped.sh
 assert_grep '^| m3n9 | \[MSG-M3N9\](src/wrapped.sh) | The group is an unaudited draft. | src/wrapped.sh |  | ai_tools_msg_warn |$' \
     "${OUT}" "TEST-RI-11-msg-continued-row: a continued emit call names its message and its emitter"
-# A quote inside the message does not always close it: a double-quoted string re-opens
-# quoting inside a command substitution, and a backslash escapes the quote after it. Each
-# shape ends the name short of what the emitter prints, and the truncation shows only once
-# something renders the name.
+# A quote inside the message does not always close it: a double-quoted string re-opens quoting inside a command
+# substitution, and a backslash escapes the quote after it. Each shape ends the name short of what the emitter prints,
+# and the truncation shows only once something renders the name.
 fixture src/nested.sh "coded_refusal MSG-M3P7 \"declares \$(printf '%q' \"\${floor}\"), which is not <major>.<minor>\"" \
     "refuse MSG-M3P8 \"no agent provides \\\"\${launcher}\\\" -- refusing to launch\""
 run_ri generate src/nested.sh
@@ -245,18 +243,18 @@ else
 fi
 assert_grep '^| k1l2 | \[FN-K1L2\](src/s.sh) | chown_path | src/s.sh | docs/code.md, src/t.sh |  |$' \
     "$(cat "${TESTDIR}/index.md")" "TEST-RI-13-generate-code: a code target links to its file and lists every citing file"
-# A backticked span is blanked before a target is matched, so that a reftag shown in backticks is
-# not read as one; the name is the heading as written, and the span's text is part of it.
+# A backticked span is blanked before a target is matched, so that a reftag shown in backticks is not read as one;
+# the name is the heading as written, and the span's text is part of it.
 fixture docs/span.md '## Security model — what `SANDBOX_USER` can do <a id="ref-section-g9f6"></a>'
 run_ri generate docs/span.md --out span-index.md
 assert_grep '| Security model — what `SANDBOX_USER` can do |' "$(cat "${TESTDIR}/span-index.md")" \
     "TEST-RI-13-generate-span: a name keeps the text of a backticked span in the heading"
 run_ri generate --at docs/index.md docs/a.md
 assert_grep '(a.md#ref-section-a1b2)' "${OUT}" "TEST-RI-13-generate-at: --at computes the links from where the index lives"
-# A name may carry a pipe, as a message naming an option set does: `--scope minimal|full`. Raw,
-# the pipe opens a column and shifts every later cell left. Every command that writes or reads
-# a row is driven here, because the guarantee is the round trip rather than the escaping alone:
-# `where` resolves the row's FILE cell, so it reports a live line only while the columns hold.
+# A name may carry a pipe, as a message naming an option set does: `--scope minimal|full`. Raw, the pipe opens a column
+# and shifts every later cell left. Every command that writes or reads a row is driven here, because the guarantee is
+# the round trip rather than the escaping alone: `where` resolves the row's FILE cell, so it reports a live line only
+# while the columns hold.
 fixture src/pipe.sh 'reject MSG-P1P2 "system bootstrap: unknown scope (--scope minimal|full)"'
 run_ri generate src/pipe.sh --out pipe-index.md
 assert_grep '^| p1p2 | \[MSG-P1P2\](src/pipe.sh) | system bootstrap: unknown scope (--scope minimal\\|full) | src/pipe.sh |  | reject |$' \
@@ -287,8 +285,8 @@ assert_grep '^section .*ref-section-<id>' "${OUT}" "TEST-RI-15-kinds: the regist
 assert_grep '^uri .*URI-<ID>' "${OUT}" "TEST-RI-15-kinds-code: the code families are listed with the kinds"
 run_ri new spreadsheet --index index.md
 if [[ "${RC}" -eq 2 ]]; then pass "TEST-RI-15-new-unknown: an unknown family is refused"; else fail "TEST-RI-15-new-unknown: rc ${RC}"; fi
-# A mint is recorded nowhere, so a batch drawn in one call is what makes several ids distinct:
-# each joins the taken set as it is drawn.
+# A mint is recorded nowhere, so a batch drawn in one call is what makes several ids distinct: each joins the taken set
+# as it is drawn.
 run_ri new section --count 12 --index index.md
 distinct="$(printf '%s\n' "${OUT}" | sort -u | wc -l)"
 if [[ "$(printf '%s\n' "${OUT}" | wc -l)" -eq 12 && "${distinct}" -eq 12 ]]; then
@@ -300,9 +298,8 @@ run_ri new section --count 0 --index index.md
 if [[ "${RC}" -eq 2 ]]; then pass "TEST-RI-15-new-count-zero: a count under 1 is refused"; else fail "TEST-RI-15-new-count-zero: rc ${RC}"; fi
 
 # ── retire: a reftag that leaves the tree keeps its id, and a return is reported ──────────────
-# The index still holds MSG-M3N4; a tree without its emit site retires the row with the date, the
-# minter then reads the retired file, and a target under the retired reftag is a `resurrected`
-# finding rather than a fresh definition.
+# The index still holds MSG-M3N4; a tree without its emit site retires the row with the date, the minter then reads
+# the retired file, and a target under the retired reftag is a `resurrected` finding rather than a fresh definition.
 run_ri retire docs/a.md docs/b.md src/t.sh docs/code.md --index index.md --retired retired.md --release 0.16.0
 assert_grep '^retired MSG-M3N4 ' "${OUT}" "TEST-RI-17-retire: a reftag the files no longer define is reported retired"
 assert_grep "^| m3n4 | MSG-M3N4 | not in allowed projects: \$1 | src/s.sh | docs/code.md, src/t.sh, tests/s.sh | die | $(date +%Y-%m-%d) | 0.16.0 |$" \
@@ -327,13 +324,12 @@ run_ri where ref-section-z9z9 --index index.md
 if [[ "${RC}" -eq 1 ]]; then pass "TEST-RI-16-where-unknown: a reftag the index lacks exits 1"; else fail "TEST-RI-16-where-unknown: rc ${RC}"; fi
 
 # ── messages: the link shapes a runtime message may not carry ─────────────────────────────────
-# This one finding belongs to the repository wrapper. A message string is not prose, so the checker
-# that skips a quoted span never reads it, and knowing that a code in the first argument
-# makes an emit call is repository knowledge. Each link shape is driven with the resolvable form
-# beside it, and the pair that must stay silent is what keeps the pattern off an ordinary message:
-# a page name in parentheses reads as a Markdown link to a looser pattern, and an option set
-# carries the pipe a row escapes. The non-ASCII case is the one a character-set rule would miss,
-# every scheme being spelled in ASCII whatever follows it.
+# This one finding belongs to the repository wrapper. A message string is not prose, so the checker that skips a quoted
+# span never reads it, and knowing that a code in the first argument makes an emit call is repository knowledge. Each
+# link shape is driven with the resolvable form beside it, and the pair that must stay silent is what keeps the pattern
+# off an ordinary message: a page name in parentheses reads as a Markdown link to a looser pattern, and an option set
+# carries the pipe a row escapes. The non-ASCII case is the one a character-set rule would miss, every scheme being
+# spelled in ASCII whatever follows it.
 if [[ -r "${WRAPPER}" ]] && git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     fixture src/links.sh '#!/usr/bin/env bash' \
         'die MSG-B4T6 "read https://example.com/rule first"' \

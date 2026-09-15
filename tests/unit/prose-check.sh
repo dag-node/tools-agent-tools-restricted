@@ -1,44 +1,38 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/prose-check.sh
-# Unit test for prose-check.py, the checker shipped beside the ai-tools-technical-docs skill. It
-# is the mechanical half of the writing standard: every artifact in this tree is swept with it,
-# and a rule that silently stops firing takes the whole sweep with it -- a regression here reads
-# as "the tree is clean" rather than as a failure, which is why the checks are pinned from both
-# directions. Each default check is driven with a sentence it MUST report and with the corrected
-# form it MUST stay silent on, so neither a broken pattern nor one widened into reporting good
+# Unit test for prose-check.py, the checker shipped beside the ai-tools-technical-docs skill. It is the mechanical half
+# of the writing standard: every artifact in this tree is swept with it, and a rule that silently stops firing takes
+# the whole sweep with it -- a regression here reads as "the tree is clean" rather than as a failure, which is
+# why the checks are pinned from both directions. Each default check is driven with a sentence it MUST report
+# and with the corrected form it MUST stay silent on, so neither a broken pattern nor one widened into reporting good
 # prose survives.
 #
-# Also pins the three behaviours a caller depends on but no finding names: the exit status (a
-# sweep and the pre-commit hook branch on it), the suppression paths (`prose-check: ignore`,
-# `prose-check: ignore-file` for a generated file, and
-# the backticked span that lets a style guide quote the prose it warns against), and the
-# extension-driven read mode that `--prose`/`--source` override. `--kept` is driven over a real
-# git index, since it is the check that guards a security claim through a rewrite.
+# Also pins the three behaviours a caller depends on but no finding names: the exit status (a sweep and the pre-commit
+# hook branch on it), the suppression paths (`prose-check: ignore`, `prose-check: ignore-file` for a generated file,
+# and the backticked span that lets a style guide quote the prose it warns against), and the extension-driven read mode
+# that `--prose`/`--source` override. `--kept` is driven over a real git index, since it is the check that guards
+# a security claim through a rewrite.
 #
-# The markup checks are pinned from both sides of their SURFACE as well as their pattern.
-# `bare-option` reads a document and a source comment; `bare-placeholder`, `bare-variable`
-# and `bare-path` read a document alone, so each of those is driven with one sentence in both
-# places. Widened to comments the document-only checks report several thousand sites in this
-# tree, a pre-commit hook no commit can answer for; narrowed further they report a clean tree.
-# The exemptions carry the rest of the pattern work and each is driven through the one check
-# that reads it: a roff page, a doc comment's contract line, an SPDX tag, and a Markdown link.
-# The regions that are not the author's prose -- a document's frontmatter, its indented code
-# blocks, and the addresses in it -- are pinned from BOTH sides, since each is bounded by prose
-# the checks must still read: a folded scalar's body, a list continuation at the same indent,
-# and the sentence a URL sits in.
+# The markup checks are pinned from both sides of their SURFACE as well as their pattern. `bare-option` reads a document
+# and a source comment; `bare-placeholder`, `bare-variable` and `bare-path` read a document alone, so each of those is
+# driven with one sentence in both places. Widened to comments the document-only checks report several thousand sites
+# in this tree, a pre-commit hook no commit can answer for; narrowed further they report a clean tree. The exemptions
+# carry the rest of the pattern work and each is driven through the one check that reads it: a roff page, a doc
+# comment's contract line, an SPDX tag, and a Markdown link. The regions that are not the author's prose -- a document's
+# frontmatter, its indented code blocks, and the addresses in it -- are pinned from BOTH sides, since each is bounded
+# by prose the checks must still read: a folded scalar's body, a list continuation at the same indent, and the sentence
+# a URL sits in.
 #
-# `invariant-altitude` is pinned from both sides of its scope, since it is the one check that
-# reads the file NAME. The two ways that scope can regress are not symmetric: narrowed to no file
-# it stays silent, which reads as a clean sweep, so the router fixture it MUST report on is what
-# catches that; widened, it reports every file mode and test path in the tree, which the rule
-# fixture catches on the first hit.
+# `invariant-altitude` is pinned from both sides of its scope, since it is the one check that reads the file NAME.
+# The two ways that scope can regress are not symmetric: narrowed to no file it stays silent, which reads as a clean
+# sweep, so the router fixture it MUST report on is what catches that; widened, it reports every file mode and test path
+# in the tree, which the rule fixture catches on the first hit.
 #
-# Hermetic: fixtures are written in the test's own /tmp testdir and the checker is run on those
-# paths only. Pure text analysis, so it does not need privilege of its own; run as root via sudo
-# like the rest of the suite. Validates the repo source, falling back to the installed copies.
-# The fixtures hold cross-reference reftags as text, so the tree-wide reference check does not
-# read this file (the marker on the next line).
+# Hermetic: fixtures are written in the test's own /tmp testdir and the checker is run on those paths only. Pure text
+# analysis, so it does not need privilege of its own; run as root via sudo like the rest of the suite. Validates
+# the repo source, falling back to the installed copies. The fixtures hold cross-reference reftags as text,
+# so the tree-wide reference check does not read this file (the marker on the next line).
 # ref-index: ignore-file
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -64,8 +58,8 @@ fi
 mktestdir
 note "checker" "${PC}"
 
-# run_check <argument...>: run the checker, leaving its output in OUT and its status in RC. A
-# finding makes it exit 1, which `|| RC=$?` keeps non-fatal under `set -e`.
+# run_check <argument...>: run the checker, leaving its output in OUT and its status in RC. A finding makes it exit 1,
+# which `|| RC=$?` keeps non-fatal under `set -e`.
 RC=0 OUT=""
 run_check() {
     RC=0
@@ -79,11 +73,11 @@ fixture() {
     printf '%s' "${TESTDIR}/${name}"
 }
 
-# Every result line names its CASE: a unique per-case id, never the sentence the case drives. The
-# fixture file carries the same id, so the checker's own `path:line:` report and the harness
-# result line name one case, and the deliberate bad examples half of these fixtures hold stay in
-# the fixtures, where the standard is their one home and a transcript that is read, pasted and
-# grepped does not carry them. A failure prints the finding, which is the detail a reader needs.
+# Every result line names its CASE: a unique per-case id, never the sentence the case drives. The fixture file carries
+# the same id, so the checker's own `path:line:` report and the harness result line name one case, and the deliberate
+# bad examples half of these fixtures hold stay in the fixtures, where the standard is their one home and a transcript
+# that is read, pasted and grepped does not carry them. A failure prints the finding, which is the detail a reader
+# needs.
 #
 # reports <check> <case>.<ext> <line...>: PASS when the named check is reported for the fixture.
 reports() {
@@ -125,9 +119,9 @@ assert_grep() {
     fi
 }
 
-# omits <check> <description>: PASS when the last run_check did NOT report the named check. The
-# fixture may carry other findings, so this is the assertion for a check that must not FIRE, as
-# distinct from `silent`, which requires a fixture the whole default set passes over.
+# omits <check> <description>: PASS when the last run_check did NOT report the named check. The fixture may carry other
+# findings, so this is the assertion for a check that must not FIRE, as distinct from `silent`, which requires a fixture
+# the whole default set passes over.
 omits() {
     if grep -q -- "$1" <<<"${OUT}"; then
         fail "$2 -- reported ${1}: ${OUT}"
@@ -139,9 +133,9 @@ omits() {
 # ── Each default check fires on the shape it names ────────────────────────────────────────────
 reports fronted-quantifier TEST-PC-01-fronted-quantifier.md "The helper takes no path argument."
 reports nothing            TEST-PC-02-nothing.md            "There is nothing left to check."
-# An emit verb elsewhere in the sentence does not exempt a `nothing` it does not govern. This is
-# the widening guard on the empty-result carve-out: read loosely it silences the defect the check
-# exists for, and the sentence that names both is what catches it.
+# An emit verb elsewhere in the sentence does not exempt a `nothing` it does not govern. This is the widening guard
+# on the empty-result carve-out: read loosely it silences the defect the check exists for, and the sentence that names
+# both is what catches it.
 reports nothing            TEST-PC-79-nothing-ungoverned.md \
     "The sweep prints a summary, and nothing is exempt."
 reports unbacked-cost      TEST-PC-03-unbacked-cost.md      "The label probe is cheap."
@@ -153,21 +147,21 @@ reports positional-reference TEST-PC-67-positional.md \
 reports positional-reference TEST-PC-68-positional-paren.md \
     "An explicit answer at the end of the install (below) puts the line back."
 reports positional-reference TEST-PC-69-positional-placement.md "The details are printed plain below the box."
-# A reftag is a prefix, a dash, and a four-character id; a prefix followed by anything else is a
-# reftag a search will not find. The bare `ref-` prefix opens ordinary words and is not read.
+# A reftag is a prefix, a dash, and a four-character id; a prefix followed by anything else is a reftag a search will
+# not find. The bare `ref-` prefix opens ordinary words and is not read.
 reports reference-shape TEST-PC-71-reference-shape.md "The owner rule [ref-section-k7q](../cli.rule.md#x) holds."
 reports reference-shape TEST-PC-72-reference-shape-code.md "The refusal prints MSG-12 and stops."
 
 # ── ...and stays silent on the corrected form, which is the half a widened pattern breaks ─────
 silent TEST-PC-06-fronted-quantifier-ok.md "The helper does not take a path argument."
 silent TEST-PC-07-nothing-ok.md "The helper does not read the path argument, so the validator is skipped."
-# `nothing` as the object of an OUTPUT verb names an empty result, which is a contract rather than
-# a hidden scope. Two of the verbs, since the exemption turns on the object being the output.
+# `nothing` as the object of an OUTPUT verb names an empty result, which is a contract rather than a hidden scope. Two
+# of the verbs, since the exemption turns on the object being the output.
 silent TEST-PC-80-nothing-result.md \
     "Prints nothing when the set in force matches the baseline." \
     "The drift report writes nothing on a host that has kept the shipped patterns."
-# The verbs NOT exempt, each a different claim: an authority whose scope is still owed, a value a
-# caller gets back rather than reads, and an empty effect. A widened list silences all three.
+# The verbs NOT exempt, each a different claim: an authority whose scope is still owed, a value a caller gets back
+# rather than reads, and an empty effect. A widened list silences all three.
 reports nothing TEST-PC-81-nothing-granted.md "A claim over a sealed directory grants nothing."
 reports nothing TEST-PC-82-nothing-returned.md "The helper returns nothing when the two agree."
 reports nothing TEST-PC-83-nothing-run.md "A comment between the two runs nothing."
@@ -176,16 +170,16 @@ silent TEST-PC-73-reference-ok.md \
     "The owner rule [ref-section-j9l2](../cli.rule.md#ref-section-j9l2) holds, and the message carries MSG-F6Z3."
 # shellcheck disable=SC2016
 silent TEST-PC-74-reference-tool-name.md 'Run `ref-index.py` before a commit.'
-# A cost claim backed by a frequency, and one backed by a bounded operation named as the subject.
-# Both carry a cost word, so each fails if the backing half of the check stops being applied.
+# A cost claim backed by a frequency, and one backed by a bounded operation named as the subject. Both carry a cost
+# word, so each fails if the backing half of the check stops being applied.
 silent TEST-PC-08-cost-frequency.md "It runs once per restart, not per connection, so the relabel is cheap."
 silent TEST-PC-09-cost-bounded.md "A single write of the whole text keeps the window negligible."
 # shellcheck disable=SC2016
 silent TEST-PC-10-predicted-action-ok.md \
     'The installer creates `operator.conf` root-owned, and the probe reads it there.'
-# The three neighbouring registers the vocabulary is kept small for: an advisory document
-# addressing its reader, a man page addressing an operator, and `reader` naming a FUNCTION. Each
-# fails if the check widens beyond the two subjects that name a person outright.
+# The three neighbouring registers the vocabulary is kept small for: an advisory document addressing its reader, a man
+# page addressing an operator, and `reader` naming a FUNCTION. Each fails if the check widens beyond the two subjects
+# that name a person outright.
 silent TEST-PC-11-person-registers.md \
     "A reader should stop at the first mismatch, and you can set the key by hand." \
     "A clamped reader will refuse the value, which the caller reports."
@@ -195,11 +189,10 @@ silent TEST-PC-12-cost-compounds.md \
     "The prompt is fast-tracked when its default is yes, and the build is fail-fast."
 
 # ── The markup checks: a literal a reader types is backticked ─────────────────────────────────
-# One check per kind over one rule, and what each is pinned for differs. The surface split
-# carries the most: `bare-option` reads a document AND a source comment, while
-# `bare-placeholder`, `bare-variable` and `bare-path` read a document alone, so each of those is
-# driven with one sentence in both places -- reported as a document, silent as a comment. Widened
-# to comments the document-only checks report several thousand sites in this tree, which no
+# One check per kind over one rule, and what each is pinned for differs. The surface split carries the most:
+# `bare-option` reads a document AND a source comment, while `bare-placeholder`, `bare-variable` and `bare-path` read
+# a document alone, so each of those is driven with one sentence in both places -- reported as a document, silent
+# as a comment. Widened to comments the document-only checks report several thousand sites in this tree, which no
 # pre-commit hook can answer for; narrowed further they report a clean tree.
 reports bare-option      TEST-PC-84-bare-option.md "Pass --project-claim to register the tree."
 reports bare-option      TEST-PC-85-bare-option-short.md "The -n spelling was dropped at 0.15.0."
@@ -212,15 +205,15 @@ reports bare-path        TEST-PC-89-bare-path-root.md "The gate is staged under 
 reports bare-path        TEST-PC-90-bare-path-extension.md \
     "The seeder reads managed-assets.lib.sh from the datadir."
 
-# The corrected form, every kind at once: what the sweep leaves behind must be silent,
-# or the checks report the tree they were run over.
+# The corrected form, every kind at once: what the sweep leaves behind must be silent, or the checks report the tree
+# they were run over.
 # shellcheck disable=SC2016
 silent TEST-PC-91-markup-backticked.md \
     'Pass `--project-claim` to register the tree, writing `<operator>` into the registry.' \
     'The unit hands `AI_TOOLS_AGENT_EXEC` to `src/usr/local/bin/ai-tools-run`.'
 
-# The three shapes a bare `-` takes in prose and none of which is an option: a hyphenated word,
-# the spaced dashes an author writes for an em dash, and a Markdown list marker.
+# The three shapes a bare `-` takes in prose and none of which is an option: a hyphenated word, the spaced dashes
+# an author writes for an em dash, and a Markdown list marker.
 silent TEST-PC-92-option-not-an-option.md \
     "A well-maintained page keeps its wording, and the gate -- a read-only one -- refuses." \
     "- an item in a list takes a marker"
@@ -229,77 +222,71 @@ silent TEST-PC-92-option-not-an-option.md \
 silent TEST-PC-93-placeholder-html.md \
     "A tag such as <code>x</code> is markup, so the check reads it as one."
 
-# The scope split, from the side that floods: the same sentence in a source comment is not
-# read by the document-only checks, a comment sitting inside the code it describes,
-# where an identifier and a path are the grammar of the file.
+# The scope split, from the side that floods: the same sentence in a source comment is not read by the document-only
+# checks, a comment sitting inside the code it describes, where an identifier and a path are the grammar of the file.
 silent TEST-PC-94-variable-comment.sh 'x=1' '# The unit hands AI_TOOLS_AGENT_EXEC to the shim.'
 silent TEST-PC-95-path-comment.sh 'x=1' '# The seeder reads managed-assets.lib.sh from the datadir.'
 
-# A Markdown link's text and its destination are both paths by construction, so the line carrying
-# one is measured without it.
+# A Markdown link's text and its destination are both paths by construction, so the line carrying one is measured
+# without it.
 silent TEST-PC-96-path-link.md \
     "The conventions are in [docs/naming-conventions.md](docs/naming-conventions.md)."
-# The prose readings a path pattern takes if it is loosened: a coordination, a ratio,
-# and a sentence-final abbreviation.
+# The prose readings a path pattern takes if it is loosened: a coordination, a ratio, and a sentence-final abbreviation.
 silent TEST-PC-97-path-prose.md "The ratio of docs:code stays low, and/or the header is filled, etc."
 # A version number ends in a dot and a digit exactly as a man page's filename does.
 silent TEST-PC-98-path-version.md "Rocky 9.5 and release 0.16.0 carry one policy."
 
-# A doc comment's contract line is the form this standard prescribes for a shell function,
-# so every token in it is the signature rather than prose that forgot its backticks. Each
-# branch is driven through the one check that reads it: the fragment key through an option
-# in a comment, the signature through a placeholder in a document.
+# A doc comment's contract line is the form this standard prescribes for a shell function, so every token in it is
+# the signature rather than prose that forgot its backticks. Each branch is driven through the one check that reads it:
+# the fragment key through an option in a comment, the signature through a placeholder in a document.
 silent TEST-PC-99-contract-fragment.sh \
     'x=1' '# usage: ai-tools-admin operators add --for <name>'
 silent TEST-PC-99-contract-signature.md \
     'seed_asset <kind> <name> -- place the shipped asset, and report what it replaced.'
 
-# A roff page's markup is its fonts, held by the man-page lint, and read as raw roff a page
-# reports every variable and every path in it.
+# A roff page's markup is its fonts, held by the man-page lint, and read as raw roff a page reports every variable
+# and every path in it.
 silent TEST-PC-100-man-page.1 '.TH AI-TOOLS 1' '.B \-\-full' \
     '.I /etc/ai-tools/operator.conf' 'The AI_TOOLS_REQUIRE_SELINUX key is read at launch.'
-# A section-7 page is a man page like the others. The hole this pins is one-directional: an
-# extension the whole-file set lacks is read as SOURCE, and no roff line opens with `#`, so the
-# page reports zero and zero reads as clean. The figure must report (the page is read at all) and
-# the roff markup must not (it is read as a man page, not as a document).
+# A section-7 page is a man page like the others. The hole this pins is one-directional: an extension the whole-file set
+# lacks is read as SOURCE, and no roff line opens with `#`, so the page reports zero and zero reads as clean. The figure
+# must report (the page is read at all) and the roff markup must not (it is read as a man page, not as a document).
 reports nothing TEST-PC-141-man-page-seven.7 '.TH X 7' 'There is nothing left to check.'
 silent TEST-PC-142-man-page-seven-markup.7 '.TH X 7' '.B \-\-full' \
     'The AI_TOOLS_REQUIRE_SELINUX key is read at launch.'
 
-# An SPDX identifier is a machine-read tag, and joined to the block beneath it would open
-# the header's first sentence with a licence expression -- which the contract-line rule then
-# exempts, taking the whole header with it.
+# An SPDX identifier is a machine-read tag, and joined to the block beneath it would open the header's first sentence
+# with a licence expression -- which the contract-line rule then exempts, taking the whole header with it.
 reports bare-option TEST-PC-101-spdx.sh \
     '# SPDX-License-Identifier: AGPL-3.0-only' '# The claim takes --for and refuses root.'
 
-# A backticked span is what every check reads past, so each way one can be lost is pinned
-# here rather than left to whichever check reports first. A span may hold a period of its own,
-# and a cut there leaves the span open on both parts, where no later pass matches it.
+# A backticked span is what every check reads past, so each way one can be lost is pinned here rather than left
+# to whichever check reports first. A span may hold a period of its own, and a cut there leaves the span open on both
+# parts, where no later pass matches it.
 # shellcheck disable=SC2016
 silent TEST-PC-104-span-holds-a-period.md \
     'A refusal reads `ai-tools --project-claim <path>. Claim it with the CLI` and stops.'
-# A span glued to the next word by a hyphen was one word, so the separator that replaces it goes
-# outside: inserted inside, it hands the option check a leading `-macro`.
+# A span glued to the next word by a hyphen was one word, so the separator that replaces it goes outside: inserted
+# inside, it hands the option check a leading `-macro`.
 # shellcheck disable=SC2016
 silent TEST-PC-105-span-glued.md 'The `an`-macro form is read as one word.'
-# The same glue with no hyphen: a span carrying an English suffix is one word, and a dash
-# placeholder inside it hands the option check a `--s` to report.
+# The same glue with no hyphen: a span carrying an English suffix is one word, and a dash placeholder inside it hands
+# the option check a `--s` to report.
 # shellcheck disable=SC2016
 silent TEST-PC-106-span-suffix.md 'A session that `cat`s the root-owned log keeps reading.'
-# A span closes on the run of backticks that OPENED it, which is how a span holds a backtick
-# of its own. Paired by single backticks instead, the opener closes on the backtick inside
-# the span, and every code reference after it in the sentence is read as prose.
+# A span closes on the run of backticks that OPENED it, which is how a span holds a backtick of its own. Paired
+# by single backticks instead, the opener closes on the backtick inside the span, and every code reference after it
+# in the sentence is read as prose.
 # shellcheck disable=SC2016
 silent TEST-PC-107-span-double-backtick.md \
     'A value carrying `` ` `` is passed to `logger` as one argument.'
 
 # ── The regions of a document that are not its author's prose ─────────────────────────────────
 #
-# A Markdown code block written INDENTED does not carry a marker of its own -- four spaces
-# after a blank line -- so a usage document that shows a command in one reports every option
-# and path the command carries. Pinned from both sides, because the indent that opens a code
-# block outside a list is a continuation line inside one: read too loosely, the exemption takes
-# that prose with it, and the second case is what catches that.
+# A Markdown code block written INDENTED does not carry a marker of its own -- four spaces after a blank line --
+# so a usage document that shows a command in one reports every option and path the command carries. Pinned from both
+# sides, because the indent that opens a code block outside a list is a continuation line inside one: read too loosely,
+# the exemption takes that prose with it, and the second case is what catches that.
 silent TEST-PC-108-indented-code.md \
     "Start here -- one command answers it:" "" \
     "    sudo ai-tools --audit --since '2 days ago'" "" \
@@ -308,9 +295,9 @@ reports bare-option TEST-PC-109-list-continuation.md \
     "- An item whose continuation runs on:" "" \
     "    The launcher takes --full and refuses root."
 
-# Frontmatter is machine-read: a loader's keys, its one-token values, and the set of globs
-# a `paths:` list holds. A folded scalar's body is prose and stays, which the second case
-# pins -- a shipped asset's description is written to this standard like any other sentence.
+# Frontmatter is machine-read: a loader's keys, its one-token values, and the set of globs a `paths:` list holds.
+# A folded scalar's body is prose and stays, which the second case pins -- a shipped asset's description is written
+# to this standard like any other sentence.
 silent TEST-PC-110-frontmatter.md \
     "---" "paths:" "  - src/usr/local/lib/ai-tools/msg.lib.sh" "---" \
     "The library wraps a refusal to the terminal width."
@@ -318,38 +305,37 @@ reports bare-option TEST-PC-111-frontmatter-body.md \
     "---" "description: >" "  Use where the launcher takes --full and refuses root." "---" \
     "The rule is stated once."
 
-# A URL is machine-read wherever it appears, and its own path and query carry the separators
-# every pattern here looks for: the filename a link destination ends in, and the identifier
-# a bug-tracker query carries. The second case pins that the exemption stops at the address.
+# A URL is machine-read wherever it appears, and its own path and query carry the separators every pattern here looks
+# for: the filename a link destination ends in, and the identifier a bug-tracker query carries. The second case pins
+# that the exemption stops at the address.
 silent TEST-PC-112-url.md \
     "The AV rules are at https://example.org/notebook/src/avc_rules.md and stay current."
 reports bare-option TEST-PC-113-url-prose.md \
     "The page at https://example.org/a_b.md says the launcher takes --full."
 
-# A suspended hyphen carries a compound's tail onto the conjunction and is not an option.
-# Pinned from both sides: the two marks the exemption needs are the conjunction and the compound,
-# and a sentence carrying neither still reports the short options in it.
+# A suspended hyphen carries a compound's tail onto the conjunction and is not an option. Pinned from both sides:
+# the two marks the exemption needs are the conjunction and the compound, and a sentence carrying neither still reports
+# the short options in it.
 silent TEST-PC-116-option-suspended-hyphen.md \
     "The ACL makes the whole tree agent-readable and -writable once it is claimed."
 reports bare-option TEST-PC-117-option-short-pair.md "Pass -v and -x to the shim."
 
-# A wrapped span may close on a later line, and a continuation line beginning with what the span
-# holds -- a `|` alternation reads as a table row -- ends the block inside it, leaving the span
-# open on both parts.
+# A wrapped span may close on a later line, and a continuation line beginning with what the span holds -- a `|`
+# alternation reads as a table row -- ends the block inside it, leaving the span open on both parts.
 # shellcheck disable=SC2016
 silent TEST-PC-118-span-wrapped-alternation.md \
     'The logger records one line (`confirm: <question> -> yes|no (answered' \
     '| default | assume-yes)`) for every decision.'
 
-# An absolute root is a directory on its own, so the path that follows it is optional. Pinned
-# from both sides: the boundary that admits `/opt` must still refuse a word that merely
-# begins with it, or every `/optional` in the tree reads as a path.
+# An absolute root is a directory on its own, so the path that follows it is optional. Pinned from both sides:
+# the boundary that admits `/opt` must still refuse a word that merely begins with it, or every `/optional` in the tree
+# reads as a path.
 reports bare-path TEST-PC-120-path-absolute-root.md "The account is created at /opt, never at /home."
 silent TEST-PC-121-path-absolute-word.md "An /optional group is enabled by the operator alone."
 
-# A literal cut by its own backticks leaves the rest of the token outside them, where a rename
-# over the marked spans edits one half. Pinned against the two forms it sits beside, since
-# each puts an ordinary sentence next to a span: a coordination, and a closing period.
+# A literal cut by its own backticks leaves the rest of the token outside them, where a rename over the marked spans
+# edits one half. Pinned against the two forms it sits beside, since each puts an ordinary sentence next to a span:
+# a coordination, and a closing period.
 # shellcheck disable=SC2016
 reports split-literal TEST-PC-122-split-literal.md \
     'The unit is `/usr/lib/systemd/system/ai-tools-handback`@.service on the host.'
@@ -358,57 +344,56 @@ silent TEST-PC-123-split-literal-coordination.md \
     'The type keeps it off other domains'"'"' `tmp_t`/`user_tmp_t` files.' \
     'The seeder reads `managed-assets.lib.sh`. It runs as root.'
 
-# A doc-comment format marks its own literals, and a file written in one is not asked to carry
-# Markdown as well. Pinned from both sides: the same sentence with the mark taken off reports.
+# A doc-comment format marks its own literals, and a file written in one is not asked to carry Markdown as well. Pinned
+# from both sides: the same sentence with the mark taken off reports.
 silent TEST-PC-124-doc-markup.cs \
     '/// Runs the build with <c>--verbosity=quiet</c>, reported by <see cref="Builder"/>.'
 reports bare-option TEST-PC-125-doc-markup-bare.cs \
     '/// Runs the build with --verbosity=quiet and reports what it wrote.'
 
-# An assignment is one literal: the name marked without its value leaves half of what a reader
-# types outside the span.
+# An assignment is one literal: the name marked without its value leaves half of what a reader types outside the span.
 reports bare-option TEST-PC-126-option-value.md "The scriptlet passes --scope=full to the seeder."
 silent TEST-PC-127-option-value-marked.md \
     'The scriptlet passes `--scope=full` to the seeder.'
-# The value stops before the punctuation closing the sentence around it, so the finding's
-# token -- and the span a sweep wraps -- holds the assignment alone.
+# The value stops before the punctuation closing the sentence around it, so the finding's token -- and the span a sweep
+# wraps -- holds the assignment alone.
 run_check "$(fixture TEST-PC-129-option-value-punctuation.md \
     "The scriptlet passes --scope=full, then the rest.")"
 assert_grep '\[--scope=full\]' "${OUT}" "TEST-PC-129: the value stops before the comma"
-# An assignment's name is uppercase-initial (`Type=oneshot`) or carries an underscore
-# (`default_enable=no`); an HTML attribute is lowercase and is not one.
+# An assignment's name is uppercase-initial (`Type=oneshot`) or carries an underscore (`default_enable=no`); an HTML
+# attribute is lowercase and is not one.
 reports bare-variable TEST-PC-130-assignment.md "The unit sets Type=oneshot and nothing else."
 run_check "$(fixture TEST-PC-131-html-attribute.md \
     '## Security model <a id="ref-section-e7n8"></a>' '' 'The section states the model.')"
 omits bare-variable "TEST-PC-131: an HTML attribute is not an assignment"
 
-# An option opens a token after a bracket or a slash as well as after a space, so the second of
-# a pair (`--help/-h`) and a bracketed one (`--check [--all]`) are reported like the first.
+# An option opens a token after a bracket or a slash as well as after a space, so the second of a pair (`--help/-h`)
+# and a bracketed one (`--check [--all]`) are reported like the first.
 reports bare-option TEST-PC-132-option-after-slash.md 'The listing is `--help`/-h and nothing else.'
 reports bare-option TEST-PC-133-option-after-bracket.md 'Run it as `--check` [--all] on the block.'
-# The suspended-hyphen exemption takes a compound right before the conjunction and a word as the
-# tail; a short option after a plain `and` is reported.
+# The suspended-hyphen exemption takes a compound right before the conjunction and a word as the tail; a short option
+# after a plain `and` is reported.
 silent TEST-PC-134-suspended-hyphen.md 'The tree is agent-readable and -writable by design.'
 reports bare-option TEST-PC-135-and-short-option.md 'It returns EACCES and -e would report it missing.'
 reports bare-option TEST-PC-136-and-after-comma.md 'A symlink is listed, and -type f excludes it.'
-# A contract line's colon form takes an identifier carrying an underscore or a dash; a prose
-# sentence opening on a plain word and a colon is read.
+# A contract line's colon form takes an identifier carrying an underscore or a dash; a prose sentence opening on a plain
+# word and a colon is read.
 reports bare-option TEST-PC-137-word-colon.sh 'x=1' '# Flags: --suggest appends the proposal.'
 silent TEST-PC-138-contract-colon.sh 'x=1' '# run_gate: pass --allow-uncommitted through to the gate.'
-# A fenced block inside a comment is code, as in a document, and the fence closes: a bare option
-# after the closing fence is reported.
+# A fenced block inside a comment is code, as in a document, and the fence closes: a bare option after the closing fence
+# is reported.
 silent TEST-PC-139-comment-fence.sh 'x=1' '# Usage:' '#   ```bash' '#   podman build -t image -f file .' '#   ```'
 reports bare-option TEST-PC-140-comment-fence-closed.sh 'x=1' '# Usage:' '#   ```bash' \
     '#   podman build -t image -f file .' '#   ```' '# Then pass --rm to it.'
 
-# An ellipsis is an elision rather than a sentence end, and a split there cuts a literal in two,
-# taking from the tail whatever exemption the whole line carried.
+# An ellipsis is an elision rather than a sentence end, and a split there cuts a literal in two, taking from the tail
+# whatever exemption the whole line carried.
 silent TEST-PC-128-ellipsis.sh 'x=1' \
     '# seed_asset <kind> <name>... -- place the shipped asset, and report what it replaced.'
 
-# A filename is spelled in one case throughout, while a product whose name ends in an extension
-# is capitalised. Pinned from both sides: the narrowing that keeps the product name out must
-# leave the uppercase filename a repository's own router carries.
+# A filename is spelled in one case throughout, while a product whose name ends in an extension is capitalised. Pinned
+# from both sides: the narrowing that keeps the product name out must leave the uppercase filename a repository's own
+# router carries.
 silent TEST-PC-114-path-product.md "The updater keeps Node.js current under the account."
 reports bare-path TEST-PC-115-path-uppercase.md "The router CLAUDE.md holds the invariants."
 
@@ -425,10 +410,9 @@ silent TEST-PC-13-allow-marker.md "The label probe is cheap. <!-- prose-check: i
 # shellcheck disable=SC2016
 silent TEST-PC-14-quoted-span.md \
     'Write `does not take a path argument` rather than the fronted `takes no path`.'
-# The file marker takes the whole file out of the report -- what a generated file needs, its text
-# being copied from targets it cannot edit. Pinned from both sides, because the two failures are
-# not symmetric: read too loosely it silences every document that merely NAMES the marker, and the
-# second case is the one that catches that.
+# The file marker takes the whole file out of the report -- what a generated file needs, its text being copied
+# from targets it cannot edit. Pinned from both sides, because the two failures are not symmetric: read too loosely it
+# silences every document that merely NAMES the marker, and the second case is the one that catches that.
 silent TEST-PC-77-ignore-file.md \
     "<!-- prose-check: ignore-file -->" "There is nothing left to check." \
     "The helper takes no path argument."
@@ -438,8 +422,8 @@ reports nothing TEST-PC-78-ignore-file-named.md \
 # The marker in a roff comment, the form the generated man page carries.
 silent TEST-PC-143-ignore-file-roff.7 '.\" prose-check: ignore-file' '.TH X 7' \
     'There is nothing left to check.'
-# A binary file is not read: as source it reports figures off compressed bytes. The fixture is
-# a comment line that would report, behind a NUL byte.
+# A binary file is not read: as source it reports figures off compressed bytes. The fixture is a comment line that would
+# report, behind a NUL byte.
 binary="${TESTDIR}/TEST-PC-144-binary.webp"
 printf 'RIFF\0\0WEBP\n# There is nothing left to check.\n' > "${binary}"
 run_check "${binary}"
@@ -456,8 +440,8 @@ run_check "$(fixture TEST-PC-16-exit-clean.md 'The helper does not take a path a
 assert_rc 0 "TEST-PC-16-exit-clean: exits 0 when clean"
 
 # ── The extension decides how a file is read, and `--prose`/`--source` override it ─────────────────
-# A .conf is read as SOURCE: its comments are prose and its body is not. Without the override a
-# document whose name lost its extension reads as source and scores a misleading zero.
+# A .conf is read as SOURCE: its comments are prose and its body is not. Without the override a document whose name lost
+# its extension reads as source and scores a misleading zero.
 run_check "$(fixture TEST-PC-17-source-comment.conf 'KEY=value' '# There is nothing left to check.')"
 assert_rc 1 "TEST-PC-17-source-comment: source mode reads a # comment"
 
@@ -472,13 +456,12 @@ md="$(fixture TEST-PC-19-prose-as-source.md '# There is nothing left to check.' 
 run_check --source "${md}"
 assert_rc 1 "TEST-PC-19-prose-as-source: --source reads a .md as comments only"
 
-# ── invariant-altitude: mechanism in the always-loaded layer, reported there and nowhere else ──
-# One sentence, two placements. The mark is a file mode, which a domain rule states and a router
-# points at; what the check reads is the PATH, so the same sentence must report in a CLAUDE.md
-# and stay unreported in a rule file -- the scope is the whole check, and one that stopped
-# reading the path would report every header and rule in the tree.
-# The router fixture takes the one name the check reads, so its case id travels in the assertion.
-# The backticked spans are fixture content, not shell substitutions -- as at TEST-PC-14.
+# ── invariant-altitude: mechanism in the always-loaded layer, reported there and nowhere else ── One sentence, two
+# placements. The mark is a file mode, which a domain rule states and a router points at; what the check reads is
+# the PATH, so the same sentence must report in a CLAUDE.md and stay unreported in a rule file -- the scope is the whole
+# check, and one that stopped reading the path would report every header and rule in the tree. The router fixture takes
+# the one name the check reads, so its case id travels in the assertion. The backticked spans are fixture content, not
+# shell substitutions -- as at TEST-PC-14.
 # shellcheck disable=SC2016
 altitude='The stop helper is `750 root:root`, so the agent cannot replace it.'
 run_check "$(fixture CLAUDE.md "${altitude}")"
@@ -487,26 +470,26 @@ assert_grep invariant-altitude "${OUT}" "TEST-PC-20-altitude-mode: reports a fil
 run_check "$(fixture TEST-PC-21-domain.rule.md "${altitude}")"
 omits invariant-altitude "TEST-PC-21-domain: the same sentence is not reported in a domain rule"
 
-# The other two marks, each the altitude drift the check exists for: a reference into a source
-# file, and a test path standing in for the assertion a rule cites.
+# The other two marks, each the altitude drift the check exists for: a reference into a source file, and a test path
+# standing in for the assertion a rule cites.
 # shellcheck disable=SC2016
 run_check "$(fixture CLAUDE.md 'The gate is in `providers.lib.sh:123`, which the launch path calls.')"
 assert_grep invariant-altitude "${OUT}" "TEST-PC-22-altitude-file-line: reports a file:line reference"
 run_check "$(fixture CLAUDE.md 'The refusal is asserted in tests/unit/providers.sh, from both ends.')"
 assert_grep invariant-altitude "${OUT}" "TEST-PC-23-altitude-test-path: reports a test path"
 
-# An invariant naming the same components without the mechanism is what the router is FOR, so a
-# mark that widened into ordinary router prose fails here.
+# An invariant naming the same components without the mechanism is what the router is FOR, so a mark that widened
+# into ordinary router prose fails here.
 # shellcheck disable=SC2016
 run_check "$(fixture CLAUDE.md \
     'The control plane is root-owned and not writable by `SANDBOX_USER`.')"
 assert_rc 0 "TEST-PC-24-router-invariant: an invariant carrying no mechanism is not reported"
 
 # ── closed-set-count: a count word standing in for the members it counts (`--all`) ──────────────
-# The pronoun form is the one that goes stale silently: a third config file makes `seeds both`
-# wrong about what it describes while reading as ordinary prose. Pinned from both directions,
-# since the exclusions carry most of the check -- widened, it reports every `both files` and
-# `A and B both hold` in the tree and becomes noise a reader stops reading.
+# The pronoun form is the one that goes stale silently: a third config file makes `seeds both` wrong about what it
+# describes while reading as ordinary prose. Pinned from both directions, since the exclusions carry most of the check
+# -- widened, it reports every `both files` and `A and B both hold` in the tree and becomes noise a reader stops
+# reading.
 run_check --all "$(fixture TEST-PC-25-closed-set.md 'The command seeds both.')"
 assert_grep closed-set-count "${OUT}" "TEST-PC-25-closed-set: reports a count word standing alone"
 
@@ -534,8 +517,8 @@ else
     printf 'The file carries no secrets, and the rule is never a glob.\n' > "${repo}/doc.md"
     git -C "${repo}" add doc.md
     git -C "${repo}" -c commit.gpgsign=false commit -qm base
-    # The worked example from the standard: a rewrite that swaps the SET it quantifies over, and
-    # one that swaps a universal for a single instance. Both read as tidying; both retire a claim.
+    # The worked example from the standard: a rewrite that swaps the SET it quantifies over, and one that swaps
+    # a universal for a single instance. Both read as tidying; both retire a claim.
     printf 'The file contains only settings, and the rule is not a glob.\n' > "${repo}/doc.md"
     git -C "${repo}" add doc.md
 
@@ -553,10 +536,9 @@ else
         fail "TEST-PC-32-kept-preserved: --kept reported a preserved claim: ${kept}"
     fi
 
-    # An access verb names the operation a sentence permits or refuses, so a rewrite that keeps
-    # the vocabulary of access and drops the verb changes which operation the claim is about --
-    # and leaves the set, the number and the modality intact, which is what keeps the other two
-    # kinds silent on it.
+    # An access verb names the operation a sentence permits or refuses, so a rewrite that keeps the vocabulary of access
+    # and drops the verb changes which operation the claim is about -- and leaves the set, the number and the modality
+    # intact, which is what keeps the other two kinds silent on it.
     git -C "${repo}" -c commit.gpgsign=false commit -qm kept
     printf 'The agent may not read other users files.\n' > "${repo}/doc.md"
     git -C "${repo}" add doc.md
@@ -566,8 +548,8 @@ else
     kept="$(cd "${repo}" && python3 "${PC}" --kept 2>&1)" || true
     assert_grep 'dropped \[read\]' "${kept}" "TEST-PC-33-kept-access-verb: reports a dropped verb"
 
-    # An inflection is not a dropped claim: the two sides must reduce to one term, including the
-    # `-es` forms, or every rewrite that changes only a verb's number reports as a lost operation.
+    # An inflection is not a dropped claim: the two sides must reduce to one term, including the `-es` forms, or every
+    # rewrite that changes only a verb's number reports as a lost operation.
     printf 'The helper searches the tree once.\n' > "${repo}/doc.md"
     git -C "${repo}" add doc.md
     git -C "${repo}" -c commit.gpgsign=false commit -qm inflection
@@ -580,8 +562,8 @@ else
         fail "TEST-PC-34-kept-inflection: reported an inflection as a dropped claim: ${kept}"
     fi
 
-    # An RFC 2119 verb fixes how binding a sentence is, so demoting one to a plain present tense
-    # turns a constraint the code was built to satisfy into a report of what it happens to do.
+    # An RFC 2119 verb fixes how binding a sentence is, so demoting one to a plain present tense turns a constraint
+    # the code was built to satisfy into a report of what it happens to do.
     git -C "${repo}" -c commit.gpgsign=false commit -qm rfc-base
     printf 'A preview must not ask to apply.\n' > "${repo}/doc.md"
     git -C "${repo}" add doc.md
@@ -592,16 +574,16 @@ else
     assert_grep 'weakened \[must not\]' "${kept}" \
         "TEST-PC-35-kept-rfc-verb: reports a dropped RFC 2119 verb"
 
-    # `must not` weakened to a bare `must` is the same defect one step smaller, so the negation is
-    # matched before the stem it begins with rather than being absorbed into it.
+    # `must not` weakened to a bare `must` is the same defect one step smaller, so the negation is matched
+    # before the stem it begins with rather than being absorbed into it.
     printf 'A preview must ask before it applies.\n' > "${repo}/doc.md"
     git -C "${repo}" add doc.md
     kept="$(cd "${repo}" && python3 "${PC}" --kept 2>&1)" || true
     assert_grep 'weakened \[must not\]' "${kept}" \
         'TEST-PC-36-kept-negation-first: "must not" weakened to "must" is reported'
 
-    # The guideline is to write the long form, so a contraction carries the same claim and a
-    # rewrite between the two forms is a wording change rather than a weakening.
+    # The guideline is to write the long form, so a contraction carries the same claim and a rewrite between the two
+    # forms is a wording change rather than a weakening.
     printf 'The agent cannot read the file.\n' > "${repo}/doc.md"
     git -C "${repo}" add doc.md
     git -C "${repo}" -c commit.gpgsign=false commit -qm contraction
@@ -621,9 +603,9 @@ else
     assert_grep 'weakened \[cannot\]' "${kept}" \
         "TEST-PC-38-kept-contraction-dropped: a dropped contraction reports as its long form"
 
-    # A special bit is often the mechanism rather than a detail of it, so rendering a mode as
-    # prose drops the bit that does the work. The ten-character rendering, the symbolic mode and
-    # the four-digit octal are terms for that reason.
+    # A special bit is often the mechanism rather than a detail of it, so rendering a mode as prose drops the bit
+    # that does the work. The ten-character rendering, the symbolic mode and the four-digit octal are terms
+    # for that reason.
     git -C "${repo}" -c commit.gpgsign=false commit -qm bits-base
     printf 'The home root is drwxr-s--x at 2751, and the claim runs chmod g+s on it.\n' \
         > "${repo}/doc.md"
@@ -639,9 +621,9 @@ else
     assert_grep 'dropped \[2751\]' "${kept}" \
         "TEST-PC-39-kept-special-octal: a dropped four-digit octal is reported"
 
-    # A permission that CHANGES is the same defect as one that goes: the claim the old mode made
-    # is gone either way, and a mode edited in place is the easier one to read past. The set
-    # difference reports it, so a rewrite cannot move a bit without saying so.
+    # A permission that CHANGES is the same defect as one that goes: the claim the old mode made is gone either way,
+    # and a mode edited in place is the easier one to read past. The set difference reports it, so a rewrite cannot move
+    # a bit without saying so.
     printf 'The dir is 2751 and the file is 640, stripped with g-x.\n' > "${repo}/doc.md"
     git -C "${repo}" add doc.md
     git -C "${repo}" -c commit.gpgsign=false commit -qm modes
@@ -654,9 +636,9 @@ else
         "TEST-PC-39-kept-symbolic-changed: a symbolic mode changed in place is reported"
 
     # ── `--staged`: a document's regions, read from the lines a commit adds ────────────────────
-    # The pre-commit hook runs this mode, and it is the one gate that is not optional.
-    # The frontmatter a rule file opens with must take its own lines out of the report and no
-    # more, or a commit adding a rule passes the gate without being read at all.
+    # The pre-commit hook runs this mode, and it is the one gate that is not optional. The frontmatter a rule file opens
+    # with must take its own lines out of the report and no more, or a commit adding a rule passes the gate without
+    # being read at all.
     printf -- '---\npaths:\n  - src/**\n---\n\nThe launcher takes --full and refuses root.\n' \
         > "${repo}/front.md"
     git -C "${repo}" add front.md
@@ -666,10 +648,9 @@ else
     git -C "${repo}" -c commit.gpgsign=false commit -qm staged-front
 
     # ── `--new`: report only what the working tree ADDS against a revision ───────────────────────
-    # The failure it exists to remove is a false one: an edit renumbers every finding after it,
-    # and a reader comparing two runs by line then reports each shifted finding as new.
-    # The fixture inserts text ahead of two existing figures and appends a third, so a pairing
-    # by position reports three where a pairing by content reports one.
+    # The failure it exists to remove is a false one: an edit renumbers every finding after it, and a reader comparing
+    # two runs by line then reports each shifted finding as new. The fixture inserts text ahead of two existing figures
+    # and appends a third, so a pairing by position reports three where a pairing by content reports one.
     printf 'The account is never an administrator.\nA claim adds nothing here.\n' > "${repo}/new.md"
     git -C "${repo}" add new.md
     git -C "${repo}" -c commit.gpgsign=false commit -qm new-base
@@ -686,8 +667,8 @@ else
     omits 'nothing' \
         "TEST-PC-39c-new-shifted-second: neither is the second one the insert displaced"
 
-    # An edited sentence that still reports counts as NEW, its text no longer matching the one
-    # it replaced: the wording a branch leaves behind is the wording it is answerable for.
+    # An edited sentence that still reports counts as NEW, its text no longer matching the one it replaced: the wording
+    # a branch leaves behind is the wording it is answerable for.
     printf 'An inserted line that is plain.\nAnother inserted line, also plain.\n%s\n%s\n%s\n' \
         'The service account is never an administrator.' \
         'A claim adds nothing here.' \
@@ -716,9 +697,8 @@ run_check --message "${msg}"
 assert_rc 1 "TEST-PC-40-message: --message checks a commit message"
 
 # ── `--config-header`: a config file's header is fixed-width text ────────────────────────────────
-# The width rule is pinned from both directions, and its one exemption with it: a commented
-# default is a setting, so its length is not measured. Where a line BREAKS is the formatter's,
-# so no case here reads a line's last word.
+# The width rule is pinned from both directions, and its one exemption with it: a commented default is a setting, so its
+# length is not measured. Where a line BREAKS is the formatter's, so no case here reads a line's last word.
 long="# $(printf 'x%.0s' $(seq 1 75))"
 run_check --config-header "$(fixture TEST-PC-41-header-width.conf "${long}")"
 assert_grep 'header-width \[77>72\]' "${OUT}" "TEST-PC-41-header-width: a 77-column comment line is reported at the default width"
@@ -732,9 +712,9 @@ run_check --config-header "$(fixture TEST-PC-47-header-clean.conf '# A session s
 assert_rc 0 "TEST-PC-47-header-clean: a wrapped header, a setting and a commented default are silent"
 
 # ── `--print-width`: the column a formatter fills at is the one the checker measures ────────────
-# The formatter does not hold a copy of the width rule; it asks here. So every kind the mode can print is
-# pinned with its column, the two overrides with it, and the one path that fails the run. The
-# tab-separated shape is pinned too: a formatter splits the line on it.
+# The formatter does not hold a copy of the width rule; it asks here. So every kind the mode can print is pinned
+# with its column, the two overrides with it, and the one path that fails the run. The tab-separated shape is pinned
+# too: a formatter splits the line on it.
 tab=$'\t'
 width_line() {  # width_line <case id> <expected "column<TAB>kind"> <argument...>: PASS on the line
     local id="$1" expected="$2"; shift 2
@@ -763,9 +743,9 @@ assert_rc 1 "TEST-PC-156-width-missing: a missing path fails the run"
 assert_grep "79${tab}document" "${OUT}" "TEST-PC-156-width-missing: the other paths are still printed"
 
 # ── `--wrap`: the line checks on source comments, opt-in ───────────────────────────────────────
-# A source comment is read as written, so under `--wrap` it holds to a 120-column wrap. Opt-in,
-# so the default run stays silent on how a line is wrapped: that is pinned first, since a tree
-# whose comments predate the rule would otherwise report every one of them.
+# A source comment is read as written, so under `--wrap` it holds to a 120-column wrap. Opt-in, so the default run stays
+# silent on how a line is wrapped: that is pinned first, since a tree whose comments predate the rule would otherwise
+# report every one of them.
 silent TEST-PC-48a-wrap-off-by-default.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
 wrapped() {  # wrapped <check> <case>.<ext> <line...>: PASS when the check is reported under --wrap
     local check="$1" name="$2"; shift 2
@@ -779,8 +759,8 @@ wrapped_silent() {  # wrapped_silent <case>.<ext> <line...>: PASS when --wrap re
     if [[ "${RC}" -eq 0 && -z "${OUT}" ]]; then pass "${name%%.*}: silent under --wrap (rc 0)"
     else fail "${name%%.*}: expected no finding under --wrap; rc ${RC}, output: ${OUT}"; fi
 }
-# Where a comment line breaks is the Emacs formatter's (`tools/fill-comments.sh`), so a line
-# ending mid-phrase is silent under `--wrap` however it is wrapped.
+# Where a comment line breaks is the Emacs formatter's (`tools/fill-comments.sh`), so a line ending mid-phrase is silent
+# under `--wrap` however it is wrapped.
 wrapped_silent TEST-PC-49-comment-line-end.sh 'KEY=1' '# The helper reads the list from the operator, the' '# one whose allowlist covers the path.'
 wrapped_silent TEST-PC-50-comment-line-end-docstring.py 'def f():' '    """Return the rows of' '    the table."""'
 # A source comment wraps at 120 columns, wider than a config header's 72; `--width` overrides it.
@@ -794,11 +774,10 @@ wrapped_silent TEST-PC-58-comment-directive.sh 'x=1' "# shellcheck disable=SC215
 # A SELinux interface's XML documentation is read by the policy tools; a plain `##` comment is prose.
 wrapped_silent TEST-PC-171-comment-xml-doc.if "## <summary>$(printf 'w%.0s' $(seq 1 125))</summary>"
 wrapped comment-width TEST-PC-172-comment-double-hash.if "## $(printf 'w%.0s' $(seq 1 125))"
-# A Markdown line holds to the column its READER takes: 79 for a page a person reads, 120 for the
-# router, a `*.rule.md` and a skill, which an agent retrieves by grep. Each column is pinned,
-# since one that read the same for every path would be no policy at all. A table row, a
-# fenced block, a URL line, a lone token and a man page are units the rule cannot break, and each
-# is pinned silent.
+# A Markdown line holds to the column its READER takes: 79 for a page a person reads, 120 for the router, a `*.rule.md`
+# and a skill, which an agent retrieves by grep. Each column is pinned, since one that read the same for every path
+# would be no policy at all. A table row, a fenced block, a URL line, a lone token and a man page are units the rule
+# cannot break, and each is pinned silent.
 long_md="$(printf 'word %.0s' $(seq 1 25))"
 wrapped document-width TEST-PC-59-document-width.md '# Title' "${long_md}"
 wrapped_silent TEST-PC-60-document-width-under.md '# Title' "$(printf 'word %.0s' $(seq 1 14))"
@@ -807,19 +786,17 @@ wrapped_silent TEST-PC-62-document-width-fence.md '```' "${long_md}" '```' 'Afte
 wrapped_silent TEST-PC-63-document-width-url.md "See https://example.invalid/$(printf 'p%.0s' $(seq 1 100)) for the reference."
 wrapped_silent TEST-PC-64-document-width-token.md "$(printf 'p%.0s' $(seq 1 110))"
 wrapped_silent TEST-PC-65-document-width-man.1 '.TH X 1' "${long_md}"
-# Each unit a wrap cannot shorten, pinned beside the line that MUST still report: a heading; a
-# line of two tokens (a tie word before a path, which the formatter's own rule leaves there),
-# while three is a line a wrap improves; a table row or a fence inside a blockquote, read past
-# the `>`, with the quoted prose after the fence still reporting; an indented code block, while
-# the same indent under a list item is a continuation paragraph; and a fence nested inside a
-# fence of the other character, which a toggle would read as a close.
+# Each unit a wrap cannot shorten, pinned beside the line that MUST still report: a heading; a line of two tokens (a tie
+# word before a path, which the formatter's own rule leaves there), while three is a line a wrap improves; a table row
+# or a fence inside a blockquote, read past the `>`, with the quoted prose after the fence still reporting; an indented
+# code block, while the same indent under a list item is a continuation paragraph; and a fence nested inside a fence
+# of the other character, which a toggle would read as a close.
 wide_token="$(printf 'p%.0s' $(seq 1 90))"
 wrapped_silent TEST-PC-159-document-width-heading.md "# ${long_md}" 'Body.'
 wrapped_silent TEST-PC-160-document-width-two-tokens.md "at ${wide_token}"
 wrapped document-width TEST-PC-161-document-width-three-tokens.md "read at ${wide_token}"
-# A backticked span is one unit however many words it holds: a formatter keeps the literal
-# whole, so a line of a tie word and a wide span is one no wrap shortens, while a third unit
-# beside them is what a wrap moves.
+# A backticked span is one unit however many words it holds: a formatter keeps the literal whole, so a line of a tie
+# word and a wide span is one no wrap shortens, while a third unit beside them is what a wrap moves.
 wide_span="\`$(printf 'word %.0s' $(seq 1 18))end\`"
 wrapped_silent TEST-PC-173-document-width-span-unit.md "at ${wide_span}"
 wrapped document-width TEST-PC-174-document-width-span-third-unit.md "read at ${wide_span}"
@@ -830,12 +807,12 @@ wrapped_silent TEST-PC-165-document-width-indented-code.md 'A command:' '' "    
 wrapped document-width TEST-PC-166-document-width-list-continuation.md '- An item:' '' "    ${long_md}"
 wrapped_silent TEST-PC-167-document-width-nested-fence.md '~~~markdown' '```bash' "${long_md}" '```' '~~~'
 silent TEST-PC-168-nested-fence-sentence.md '~~~markdown' '```bash' 'There is nothing left to check.' '```' '~~~'
-# An HTML comment's lines are positional (a file-local variables block), so a formatter leaves
-# them and the width rule does not read them; the prose after the close still reports.
+# An HTML comment's lines are positional (a file-local variables block), so a formatter leaves them and the width rule
+# does not read them; the prose after the close still reports.
 wrapped_silent TEST-PC-169-document-width-comment.md "<!-- ${long_md}" "     ${long_md} -->"
 wrapped document-width TEST-PC-170-document-width-after-comment.md '<!-- a note' '     ends -->' "${long_md}"
-# The frontmatter is data: a skill's one-line `description` runs past any column and no formatter
-# may wrap it. Pinned from both sides, since the fence that closes it is where the body begins.
+# The frontmatter is data: a skill's one-line `description` runs past any column and no formatter may wrap it. Pinned
+# from both sides, since the fence that closes it is where the body begins.
 wrapped_silent TEST-PC-157-document-width-frontmatter.md '---' "description: ${long_md}" '---' 'Body.'
 wrapped document-width TEST-PC-158-document-width-after-frontmatter.md '---' 'name: x' '---' "${long_md}"
 # The parenthesised part of a label link is generated, so a line is measured without it.
@@ -844,9 +821,9 @@ wrapped_silent TEST-PC-75-document-width-label-link.md \
 run_check --wrap --width 60 "$(fixture TEST-PC-66-document-width-arg.md '# Title' "$(printf 'word %.0s' $(seq 1 19))")"
 assert_grep 'document-width \[94>60\]' "${OUT}" "TEST-PC-66-document-width-arg: --width lowers the column a document line is measured against"
 
-# The reader decides the column: the same 94-column line is a finding on a page a person reads and
-# is silent in the router, a rule file and a skill. `--width` overrides the column whichever reader
-# a path has, which TEST-PC-66 pins -- a run given one width measures every path against it.
+# The reader decides the column: the same 94-column line is a finding on a page a person reads and is silent
+# in the router, a rule file and a skill. `--width` overrides the column whichever reader a path has, which TEST-PC-66
+# pins -- a run given one width measures every path against it.
 med="$(printf 'word %.0s' $(seq 1 19))"
 wrapped document-width TEST-PC-76-document-width-human.md '# Title' "${med}"
 wrapped_silent TEST-PC-77-document-width-rule.rule.md '# Title' "${med}"

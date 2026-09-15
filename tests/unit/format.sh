@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/format.sh
-# Unit test for tools/format.sh, the front door of the width policy. What it holds is the
-# contract between the checker and the fillers: every file goes to the filler for the kind the
-# checker names, at the column the checker names, and a kind with no filler is reported and left
-# as it was -- the failure this exists to prevent is the comment filler pointed at a Markdown
-# page, which rewraps the commands in its fenced blocks. The scope rule is pinned from both
-# sides, since it is what bounds the diff a run produces: with no file named, only the paragraph
-# a diff touched is filled and an over-width paragraph the commit already held is left, while
-# `--files` fills that one too and an untracked file is filled whole either way. What may be
-# formatted at all is the explicit scope: a unit file, a log and a Makefile in the fixture are
-# outside it, so `--all` counts and leaves them, and one named on the command line is reported
-# and skipped, as is a path outside the repository. The closing report is pinned by its exit
-# status: 0 when no measured line is left over its column, 1 when a line no filler can shorten
-# remains or a filler refused a file. Hermetic: a fixture repository in the testdir, formatted
-# from inside it, with this checkout's tools. The comment-filler cases skip without Emacs. A
-# fixture holds a reftag as text, so the tree-wide reference check does not read this file (the
+# Unit test for tools/format.sh, the front door of the width policy. What it holds is the contract between the checker
+# and the fillers: every file goes to the filler for the kind the checker names, at the column the checker names,
+# and a kind with no filler is reported and left as it was -- the failure this exists to prevent is the comment filler
+# pointed at a Markdown page, which rewraps the commands in its fenced blocks. The scope rule is pinned from both sides,
+# since it is what bounds the diff a run produces: with no file named, only the paragraph a diff touched is filled
+# and an over-width paragraph the commit already held is left, while `--files` fills that one too and an untracked file
+# is filled whole either way. What may be formatted at all is the explicit scope: a unit file, a log and a Makefile
+# in the fixture are outside it, so `--all` counts and leaves them, and one named on the command line is reported
+# and skipped, as is a path outside the repository. The closing report is pinned by its exit status: 0 when no measured
+# line is left over its column, 1 when a line no filler can shorten remains or a filler refused a file. Hermetic:
+# a fixture repository in the testdir, formatted from inside it, with this checkout's tools. The comment-filler cases
+# skip without Emacs. A fixture holds a reftag as text, so the tree-wide reference check does not read this file (the
 # marker on the next line).
 # ref-index: ignore-file
 set -euo pipefail
@@ -61,8 +58,8 @@ git -C "${repo}" config user.name t
 git -C "${repo}" add -A
 git -C "${repo}" -c commit.gpgsign=false commit -qm base
 
-# run_format <argument...>: run the tool from inside the fixture repository, leaving its output
-# in OUT and its status in RC.
+# run_format <argument...>: run the tool from inside the fixture repository, leaving its output in OUT and its status
+# in RC.
 RC=0 OUT=""
 run_format() {
     RC=0
@@ -71,8 +68,8 @@ run_format() {
 restore() { git -C "${repo}" checkout -q -- . ; }
 longest() { awk '{ if (length > n) n = length } END { print n + 0 }' "$1"; }
 
-# (1) A named page goes to the Markdown filler at its reader's column: 79 for the page, 120 for
-# the router, and the reflow is pure by the gate.
+# (1) A named page goes to the Markdown filler at its reader's column: 79 for the page, 120 for the router,
+# and the reflow is pure by the gate.
 run_format page.md notes/CLAUDE.md
 if (( $(longest "${repo}/page.md") <= 79 && $(longest "${repo}/page.md") > 60 )); then
     pass "a page is filled at 79"
@@ -93,9 +90,8 @@ if [[ "${RC}" -eq 0 ]]; then pass "exits 0 when nothing is left over its column"
 else fail "exited ${RC} on a clean run: ${OUT}"; fi
 restore
 
-# (2) A kind with no filler is reported and left as it was: a page carrying the ignore-file
-# marker, which the checker reads as generated. A man page and a binary file never reach the
-# checker, since the scope keeps them out (section 6).
+# (2) A kind with no filler is reported and left as it was: a page carrying the ignore-file marker, which the checker
+# reads as generated. A man page and a binary file never reach the checker, since the scope keeps them out (section 6).
 run_format notes/index.md
 if grep -q 'skipped notes/index.md (generated)' <<<"${OUT}"; then
     pass "a generated page is reported as skipped, with the kind"
@@ -128,10 +124,9 @@ else
     restore
 fi
 
-# (4) The default scope is the paragraphs a diff touched. The commit holds an over-width
-# paragraph; an edit appends another and adds an untracked page. With no file named, the appended
-# paragraph and the untracked page are filled and the committed paragraph is left; `--files`
-# then fills the committed one too.
+# (4) The default scope is the paragraphs a diff touched. The commit holds an over-width paragraph; an edit appends
+# another and adds an untracked page. With no file named, the appended paragraph and the untracked page are filled
+# and the committed paragraph is left; `--files` then fills the committed one too.
 printf '\n%s\n' "${long} appended" >> "${repo}/page.md"
 printf '# New\n\n%s\n' "${long}" > "${repo}/new.md"
 run_format
@@ -149,8 +144,8 @@ else
 fi
 restore; rm -f "${repo}/new.md"
 
-# (5) `--all` warns and reads every tracked file; the report exits 1 while a line no filler can
-# shorten remains -- an anchor line the filler protects and the checker measures.
+# (5) `--all` warns and reads every tracked file; the report exits 1 while a line no filler can shorten remains --
+# an anchor line the filler protects and the checker measures.
 printf '\n<a id="ref-table-x1y2"></a>**A caption line that is long enough to run past the column on its own**\n' >> "${repo}/page.md"
 git -C "${repo}" add -A && git -C "${repo}" -c commit.gpgsign=false commit -qm anchor
 run_format --all
@@ -161,8 +156,8 @@ if [[ "${RC}" -eq 1 ]] && grep -q 'document-width' <<<"${OUT}" && grep -q '1 ove
 else
     fail "expected rc 1 with the anchor line reported; rc ${RC}: ${OUT}"
 fi
-# The scope is an explicit list of what the formatter owns. The man page, the binary, the unit
-# file, the log and the Makefile are outside it: counted, and left as written.
+# The scope is an explicit list of what the formatter owns. The man page, the binary, the unit file, the log
+# and the Makefile are outside it: counted, and left as written.
 if grep -q '5 file(s) outside the scope left as written' <<<"${OUT}" \
         && git -C "${repo}" diff --quiet -- page.1 image.webp unit.service notes.log Makefile; then
     pass "--all counts the files outside the scope and leaves them as written"
@@ -171,9 +166,8 @@ else
 fi
 restore
 
-# (6) A file named on the command line is read from where the command was run and taken to the
-# repository root; one outside the scope, or outside the repository, is reported and skipped
-# rather than formatted.
+# (6) A file named on the command line is read from where the command was run and taken to the repository root; one
+# outside the scope, or outside the repository, is reported and skipped rather than formatted.
 printf '# %s\n' "${long}" > "${TESTDIR}/outside.md"
 run_format unit.service "${TESTDIR}/outside.md"
 if grep -q 'skipped unit.service (outside the scope)' <<<"${OUT}" \
@@ -192,8 +186,8 @@ else
 fi
 restore
 
-# (7) A file a filler refuses is reported with its reason, left as it was, and counted in the
-# exit status; the closing report measures only what was read whole.
+# (7) A file a filler refuses is reported with its reason, left as it was, and counted in the exit status; the closing
+# report measures only what was read whole.
 printf '# Bad\n\n%s \033[31mred\033[0m\n' "${long}" > "${repo}/bad.md"
 run_format bad.md
 if [[ "${RC}" -eq 1 ]] && grep -q 'fill-markdown: refused bad.md: line 3 holds U+001B' <<<"${OUT}" \
@@ -205,12 +199,11 @@ else
 fi
 rm -f "${repo}/bad.md"
 
-# (8) The formatter is among the files it fills. Bash reads a script a command at a time, so one
-# rewritten under a running bash is read on from the old offset, into the middle of a line, and
-# the run dies of a command that is not one; each shell tool is one function called on its last
-# line, which bash parses whole before running. The fixture takes a copy of the tools and the
-# checker at the layout they resolve each other by, with a long comment line put at the top of
-# each shell tool so that the fill changes the file under the bash running it.
+# (8) The formatter is among the files it fills. Bash reads a script a command at a time, so one rewritten
+# under a running bash is read on from the old offset, into the middle of a line, and the run dies of a command that is
+# not one; each shell tool is one function called on its last line, which bash parses whole before running. The fixture
+# takes a copy of the tools and the checker at the layout they resolve each other by, with a long comment line put
+# at the top of each shell tool so that the fill changes the file under the bash running it.
 if ! command -v emacs >/dev/null 2>&1; then
     skip "the formatter among the files it fills" "emacs not installed"
 else

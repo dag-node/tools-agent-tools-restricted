@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/postupgrade.sh
-# Hermetic unit test for `ai-tools-admin system post-upgrade`: the reconciliation of the .rpmnew
-# copies an upgrade leaves beside the %config(noreplace) files this stack owns.
+# Hermetic unit test for `ai-tools-admin system post-upgrade`: the reconciliation of the .rpmnew copies an upgrade
+# leaves beside the %config(noreplace) files this stack owns.
 #
-# Worth pinning because the command edits an operator-owned control-plane file and because its
-# three treatments are what lets an operator predict it. The assertions therefore ask, per file,
-# which treatment it got: the settings JSON is MERGED (each shipped declaration the kept file
-# lacks arrives, the permission rules the file was kept for survive, a dated .bak lands first, and
-# every addition is named), operator.conf is REPORTED and byte-identical afterwards, and the
-# sudoers grant is SHOWN and neither written nor dropped -- its fixture here is a grant of
-# everything to everyone, the one a silent adoption would be worst for. The fourth property belongs
-# to every case: a .rpmnew survives the run, because the copy is the baseline an operator merges
-# from, and each case asserts it is still there and that the run named it as theirs to delete.
+# Worth pinning because the command edits an operator-owned control-plane file and because its three treatments are
+# what lets an operator predict it. The assertions therefore ask, per file, which treatment it got: the settings JSON is
+# MERGED (each shipped declaration the kept file lacks arrives, the permission rules the file was kept for survive,
+# a dated .bak lands first, and every addition is named), operator.conf is REPORTED and byte-identical afterwards,
+# and the sudoers grant is SHOWN and neither written nor dropped -- its fixture here is a grant of everything
+# to everyone, the one a silent adoption would be worst for. The fourth property belongs to every case: a .rpmnew
+# survives the run, because the copy is the baseline an operator merges from, and each case asserts it is still there
+# and that the run named it as theirs to delete.
 #
-# Drives the DEPLOYED helper against fixtures in the testdir through AI_TOOLS_POSTUPGRADE_ROOT,
-# the root-only path hook (like AI_TOOLS_ALLOWLIST): the live control plane is never read, written
-# or listed. Every run is under setsid, so each prompt is answered by its own default -- which is
-# both what an unattended host gets and what makes the run reproducible.
+# Drives the DEPLOYED helper against fixtures in the testdir through AI_TOOLS_POSTUPGRADE_ROOT, the root-only path hook
+# (like AI_TOOLS_ALLOWLIST): the live control plane is never read, written or listed. Every run is under setsid, so each
+# prompt is answered by its own default -- which is both what an unattended host gets and what makes the run
+# reproducible.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -69,8 +68,8 @@ declares() {
 }
 
 # ── (A) Nothing waiting ───────────────────────────────────────────────────────────────────────
-# Doubles as the probe for a deployed helper that predates the command: it dies on an unknown
-# subcommand instead of reporting a reconciled host.
+# Doubles as the probe for a deployed helper that predates the command: it dies on an unknown subcommand instead
+# of reporting a reconciled host.
 reset_root
 cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
 printf 'OPERATORS="root"\n' > "${CONF}"
@@ -131,8 +130,8 @@ else
     fail "dropped a .rpmnew, or did not name it as the file to remove by hand"
 fi
 
-# The command claims to be idempotent, and an operator re-runs it: a second pass does not merge a declaration
-# and does not write a second backup.
+# The command claims to be idempotent, and an operator re-runs it: a second pass does not merge a declaration and does
+# not write a second backup.
 out="$(run_pu)"
 shopt -s nullglob
 baks_again=( "${SETTINGS}".*.bak )

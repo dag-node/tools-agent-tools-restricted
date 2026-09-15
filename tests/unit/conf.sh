@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/conf.sh
-# Unit test for the shared config grammar (conf.lib.sh) -- the one parser behind every key in
-# /etc/ai-tools/operator.conf and every provider manifest. Two contracts are pinned here:
+# Unit test for the shared config grammar (conf.lib.sh) -- the one parser behind every key
+# in /etc/ai-tools/operator.conf and every provider manifest. Two contracts are pinned here:
 #
 #   1. THE GRAMMAR: quotes optional, commas and whitespace both separate list items, inline
 #      comments end a value, a present-but-empty key is distinguishable from an absent one. A
@@ -98,8 +98,8 @@ else
 fi
 
 # --- Splitting: separators, runs, and IFS independence ---------------------------------------
-# split_under_ifs <ifs> <value> : the items, joined by '|', from a SUBSHELL running under <ifs>,
-# so the caller's own IFS cannot mask a dependency.
+# split_under_ifs <ifs> <value> : the items, joined by '|', from a SUBSHELL running under <ifs>, so the caller's own IFS
+# cannot mask a dependency.
 split_under_ifs() {
     local ifs="$1" value="$2"
     ( IFS="${ifs}"; local -a out=(); ai_tools_conf_split out "${value}"
@@ -182,11 +182,10 @@ chmod 0775 "${tdir}"
 check_trust "group-writable directory is refused"    refused "${tdir}"
 
 # --- The refusal names what the predicate read ------------------------------------------------
-# A refusal is investigated from its text, so the text carries the owner uid and the mode the
-# predicate read and the requirement they failed. The failure this exists for is an owner that
-# reads as 65534 inside a user namespace with no mapping for root: the file's modes, labels and
-# ownership on disk are all correct there, and a text asserting a permission problem sends the
-# investigation through every one of them first.
+# A refusal is investigated from its text, so the text carries the owner uid and the mode the predicate read
+# and the requirement they failed. The failure this exists for is an owner that reads as 65534 inside a user namespace
+# with no mapping for root: the file's modes, labels and ownership on disk are all correct there, and a text asserting
+# a permission problem sends the investigation through every one of them first.
 section "conf: a refusal reports the owner and mode it read"
 check_reason() {
     local desc="$1" expected="$2" path="$3" got
@@ -206,9 +205,9 @@ else
     fail "the namespace clause appeared in the initial namespace: $(ai_tools_conf_untrusted_reason "${notroot}")"
 fi
 
-# The map parser, over fixture maps. The kernel writes space-padded columns, and the libraries
-# are sourced into scripts running under IFS=$'\n\t', so the identity case is also driven from a
-# subshell under that IFS -- a parser inheriting it reads the whole line as one field.
+# The map parser, over fixture maps. The kernel writes space-padded columns, and the libraries are sourced into scripts
+# running under IFS=$'\n\t', so the identity case is also driven from a subshell under that IFS -- a parser inheriting
+# it reads the whole line as one field.
 map_verdict() {   # <expect: identity|translated> <desc> <map-content>
     local expect="$1" desc="$2" content="$3" got=translated
     printf '%s' "${content}" > "${TESTDIR}/uid_map"
@@ -242,10 +241,10 @@ else
     else fail "the live map is not the identity line yet read as identity"; fi
 fi
 
-# The namespace clause, driven inside a real user namespace. `unshare -Ur` maps this root process
-# to 0 inside, so a root-owned fixture stays trusted there while the projects-user-owned one
-# reads back as 65534 -- the reading this test exists for -- and its reason has to say so. A host
-# whose seccomp or sysctl refuses an unprivileged user namespace skips rather than fakes it.
+# The namespace clause, driven inside a real user namespace. `unshare -Ur` maps this root process to 0 inside,
+# so a root-owned fixture stays trusted there while the projects-user-owned one reads back as 65534 -- the reading this
+# test exists for -- and its reason has to say so. A host whose seccomp or sysctl refuses an unprivileged user namespace
+# skips rather than fakes it.
 if ! command -v unshare >/dev/null 2>&1 || ! unshare -Ur true 2>/dev/null; then
     skip "the reason names a translating namespace" "unshare -Ur is not permitted on this host"
 else
@@ -267,10 +266,9 @@ else
 fi
 
 # --- Sidecar files: what an upgrade preserves when it rewrites an operator's config ------------
-# Two copies with two jobs -- .bak is what the operator HAD, .shipped is what they were SUPPOSED
-# to get -- and the property that makes .bak worth calling a backup is that a second run in the
-# same day cannot overwrite the first. An operator who ran the installer twice is exactly the one
-# who needs the earlier copy.
+# Two copies with two jobs -- .bak is what the operator HAD, .shipped is what they were SUPPOSED to get --
+# and the property that makes .bak worth calling a backup is that a second run in the same day cannot overwrite
+# the first. An operator who ran the installer twice is exactly the one who needs the earlier copy.
 stamp="$(date +%Y%m%d)"
 cfg="${TESTDIR}/sidecar.conf"
 printf 'ORIGINAL\n' > "${cfg}"; chown root:root "${cfg}"; chmod 640 "${cfg}"
@@ -295,8 +293,8 @@ else
     fail "same-day backup collided: ${second_bak}"
 fi
 
-# The reference copy takes the DEPLOYED file's owner and mode, never the source tree's, so a
-# baseline dropped beside a 0640 control-plane file is not left world-readable.
+# The reference copy takes the DEPLOYED file's owner and mode, never the source tree's, so a baseline dropped beside
+# a 0640 control-plane file is not left world-readable.
 baseline="${TESTDIR}/sidecar.shipped-src"
 printf 'SHIPPED\n' > "${baseline}"; chmod 666 "${baseline}"
 ref="$(ai_tools_conf_reference "${cfg}" "${baseline}")"
@@ -305,16 +303,16 @@ if [[ "${ref}" == "${cfg}.${stamp}.shipped" && "$(perm "${ref}")" == 640 ]]; the
 else
     fail "reference path/mode wrong: ${ref} mode $(perm "${ref}" 2>/dev/null)"
 fi
-# A repeated offer of the SAME baseline resolves to the copy already there, so a host re-running
-# the installer against an unchanged source tree collects one sidecar rather than one per run.
+# A repeated offer of the SAME baseline resolves to the copy already there, so a host re-running the installer
+# against an unchanged source tree collects one sidecar rather than one per run.
 if [[ "$(ai_tools_conf_reference "${cfg}" "${baseline}")" == "${ref}" && "$(cat "${ref}")" == SHIPPED ]]; then
     pass "an unchanged baseline reuses the copy beside the file"
 else
     fail "an unchanged baseline did not resolve to ${ref}"
 fi
 
-# A DIFFERENT baseline is a different answer to "what was I supposed to get?", so it takes its own
-# dated copy and leaves the earlier one readable.
+# A DIFFERENT baseline is a different answer to "what was I supposed to get?", so it takes its own dated copy and leaves
+# the earlier one readable.
 printf 'SHIPPED v2\n' > "${baseline}"
 second_ref="$(ai_tools_conf_reference "${cfg}" "${baseline}")"
 if [[ "${second_ref}" != "${ref}" && "$(cat "${ref}")" == SHIPPED && "$(perm "${second_ref}")" == 640 ]]; then
@@ -343,10 +341,9 @@ else
 fi
 
 # --- New options in a kept KEY=value config ---------------------------------------------------
-# A kept config never gains a key a new version documents, so an install has to SAY which options
-# the operator has not seen. It must not say it twice: a key already set, or deliberately
-# commented out, has been seen, and re-announcing it every upgrade is the noise that makes an
-# operator stop reading the install output.
+# A kept config never gains a key a new version documents, so an install has to SAY which options the operator has not
+# seen. It must not say it twice: a key already set, or deliberately commented out, has been seen, and re-announcing it
+# every upgrade is the noise that makes an operator stop reading the install output.
 shipped_conf="${TESTDIR}/shipped.conf"
 cat > "${shipped_conf}" <<'CONF'
 # A documented option, shipped commented-out as its own default.
@@ -389,8 +386,8 @@ else
     fail "re-announced a commented-out option: ${commented[*]}"
 fi
 
-# A commented-out DEFAULT and an indented EXAMPLE look alike to a naive scan, and the difference
-# decides what an upgrade reports. operator.conf documents its own grammar with lines like
+# A commented-out DEFAULT and an indented EXAMPLE look alike to a naive scan, and the difference decides what an upgrade
+# reports. operator.conf documents its own grammar with lines like
 # `#   KEY=value`, so counting those as mentions makes the minimally seeded file
 # `ai-tools-admin operators add` writes look like it already knows every option there is.
 example_conf="${TESTDIR}/example.conf"
@@ -409,12 +406,11 @@ else
 fi
 
 # --- Allowlist membership: one exact-entry matcher every consumer shares -----------------------
-# The launch wrapper, the CLI (reg/unreg/project_state), and the relabel helper all decide "is
-# this path listed" through these predicates instead of a raw `grep -qxF` against the stored line.
-# The property under test: an entry written in the documented grammar -- an end-of-line comment,
-# quotes, or a spelling reached by a symlink or trailing slash -- MATCHES, where a raw grep would
-# miss it and report the project unlisted (the divergence that duplicated entries on claim, left
-# them on unclaim, and failed the post-claim launch confirm).
+# The launch wrapper, the CLI (reg/unreg/project_state), and the relabel helper all decide "is this path listed"
+# through these predicates instead of a raw `grep -qxF` against the stored line. The property under test: an entry
+# written in the documented grammar -- an end-of-line comment, quotes, or a spelling reached by a symlink or trailing
+# slash -- MATCHES, where a raw grep would miss it and report the project unlisted (the divergence that duplicated
+# entries on claim, left them on unclaim, and failed the post-claim launch confirm).
 al_root="${TESTDIR}/al"; mkdir -p \
     "${al_root}/proj" "${al_root}/commented" "${al_root}/quoted dir" \
     "${al_root}/excluded" "${al_root}/link-target"
@@ -452,9 +448,9 @@ else
     fail "has_exclusion did not isolate the exclusion entry"
 fi
 
-# The line-identifying variant returns the VERBATIM source line (comment and all), which is what
-# an anchored sed deletes -- reconstructing it from the path would miss a commented/quoted entry
-# and leave it behind. Two-ended with the boundary suite: the agent cannot write the allowlist.
+# The line-identifying variant returns the VERBATIM source line (comment and all), which is what an anchored sed deletes
+# -- reconstructing it from the path would miss a commented/quoted entry and leave it behind. Two-ended
+# with the boundary suite: the agent cannot write the allowlist.
 declare -a matched=()
 if ai_tools_conf_allowlist_matching_lines matched "${al}" "${al_root}/commented" \
         && [[ "${#matched[@]}" -eq 1 && "${matched[0]}" == "${al_root}/commented    # main repo" ]]; then
@@ -498,10 +494,9 @@ else
 fi
 
 # --- Path-list entries (allowed-projects) -----------------------------------------------------
-# The launch allowlist shares this grammar, and three components parse that file -- the wrapper,
-# the CLI, and the chown helper. The first block is BACKWARD COMPATIBILITY: every shape an
-# existing allowlist already contains must parse exactly as before, because a line that stops
-# resolving silently removes a project from the gate.
+# The launch allowlist shares this grammar, and three components parse that file -- the wrapper, the CLI, and the chown
+# helper. The first block is BACKWARD COMPATIBILITY: every shape an existing allowlist already contains must parse
+# exactly as before, because a line that stops resolving silently removes a project from the gate.
 check_entry() {
     local desc="$1" want="$2" line="$3" rc=0
     ai_tools_conf_path_entry "${line}" || rc=$?
@@ -521,19 +516,18 @@ check_entry "a blank line yields no entry"         SKIP                     ''
 check_entry "a whole-line comment yields no entry" SKIP                     '# a note'
 check_entry "an indented comment yields no entry"  SKIP                     '   # a note'
 
-# The grammar this file gains: end-of-line comments, and quotes for a path that must carry a
-# space or a literal `#`.
+# The grammar this file gains: end-of-line comments, and quotes for a path that must carry a space or a literal `#`.
 check_entry "an end-of-line comment is removed"    /home/me/project         '/home/me/project  # why'
 check_entry "quotes carry a space"                 '/home/me/my project'    '"/home/me/my project"'
 check_entry "quotes make # literal"                '/home/me/proj #2'       '"/home/me/proj #2"'
 check_entry "single quotes work too"               '/home/me/my project'    "'/home/me/my project'"
 check_entry "an exclusion may be quoted"           '!/home/me/my project'   '!"/home/me/my project"'
 check_entry "a quoted path may be commented"       '/home/me/a b'           '"/home/me/a b"   # note'
-# An interior # with no preceding whitespace is part of the path, matching the KEY=value rule --
-# a directory literally named proj#2 keeps working unquoted.
+# An interior # with no preceding whitespace is part of the path, matching the KEY=value rule -- a directory literally
+# named proj#2 keeps working unquoted.
 check_entry "an interior # needs no quotes"        '/home/me/proj#2'        '/home/me/proj#2'
-# An unmatched quote is taken verbatim rather than truncating the path at some later character,
-# so a typo cannot silently shorten an allowlist entry into a broader one.
+# An unmatched quote is taken verbatim rather than truncating the path at some later character, so a typo cannot
+# silently shorten an allowlist entry into a broader one.
 check_entry "an unmatched quote is taken as-is"    '/home/me/project'       '"/home/me/project'
 
 # --- Allowlist editing: the one implementation of a registry change ---------------------------
@@ -587,8 +581,8 @@ seed_al "# header" "" "${P1}   # a comment" "!${SUB}"
 state_is listed   "${P1}"  "an allow line reads as listed"
 state_is disabled "${SUB}" "an exclusion reads as disabled"
 state_is absent   "${P2}"  "a path with no line reads as absent"
-# An exclusion OUTRANKS an allow line, exactly as it does at the launch gate: with both present
-# no session starts there, so 'disabled' is the only honest answer.
+# An exclusion OUTRANKS an allow line, exactly as it does at the launch gate: with both present no session starts there,
+# so 'disabled' is the only honest answer.
 seed_al "${P1}" "!${P1}"
 state_is disabled "${P1}" "an exclusion outranks an allow line for the same path"
 
@@ -602,9 +596,9 @@ if [[ "$(grep -cxF "${P1}" "${AL}")" == 1 ]]; then
 else
     fail "add duplicated the line ($(grep -cxF "${P1}" "${AL}") copies)"
 fi
-# A hand-edited registry can run to EOF part-way through its last line, and the readers keep that
-# entry, so the append opens a line of its own for the new one. Written straight it would join the
-# two paths into one that is not a project, taking the preceding entry off the launch gate.
+# A hand-edited registry can run to EOF part-way through its last line, and the readers keep that entry, so the append
+# opens a line of its own for the new one. Written straight it would join the two paths into one that is not a project,
+# taking the preceding entry off the launch gate.
 printf '%s\n%s' "# header" "${P2}" > "${AL}"
 rc_is 0 "add opens a line for an entry that runs to EOF" ai_tools_conf_allowlist_add "${AL}" "${P1}"
 state_is listed "${P1}" "the added path reads as listed"
@@ -651,8 +645,8 @@ else
 fi
 rc_is 0 "enable is idempotent"                  ai_tools_conf_allowlist_enable "${AL}" "${P1}"
 
-# Neither verb invents an entry: enabling or disabling a path the file does not name would
-# register a project without claiming it (no secret scan, no ACL, no label).
+# Neither verb invents an entry: enabling or disabling a path the file does not name would register a project without
+# claiming it (no secret scan, no ACL, no label).
 seed_al "# header" "${P2}"
 rc_is 2 "enable refuses an absent path"         ai_tools_conf_allowlist_enable  "${AL}" "${P1}"
 rc_is 2 "disable refuses an absent path"        ai_tools_conf_allowlist_disable "${AL}" "${P1}"
@@ -663,9 +657,8 @@ else
 fi
 
 # --- enable collapses the duplicate pair to ONE live entry ---
-# A '!' line and an allow line for one path, the pair an append over an exclusion would create.
-# Un-parking the '!' line while an allow line already exists would leave two live entries for one
-# path; the earliest position survives.
+# A '!' line and an allow line for one path, the pair an append over an exclusion would create. Un-parking the '!' line
+# while an allow line already exists would leave two live entries for one path; the earliest position survives.
 seed_al "# header" "!${P1}   # parked" "${P2}" "${P1}"
 rc_is 0 "enable collapses a duplicate pair"     ai_tools_conf_allowlist_enable "${AL}" "${P1}"
 state_is listed "${P1}" "the collapsed path reads as listed"
@@ -676,14 +669,13 @@ else
 fi
 
 # --- a write that cannot happen is REPORTED, not fatal ---
-# The rewrite lands its temporary file in the allowlist's own directory, so an unwritable config
-# directory fails even when the file itself is writable. Under `set -e` a bare I/O error would abort
-# the caller; the function must return 1 and leave the file as it was.
+# The rewrite lands its temporary file in the allowlist's own directory, so an unwritable config directory fails even
+# when the file itself is writable. Under `set -e` a bare I/O error would abort the caller; the function must return 1
+# and leave the file as it was.
 #
-# Driven AS THE PROJECTS USER, which is who runs the CLI: this suite runs as root, and root ignores
-# a directory's write bit, so the very write the case is about would succeed and the assertion
-# would pass for the wrong reason. The library is sourced fresh in
-# that shell, since the check is about the caller's own credentials.
+# Driven AS THE PROJECTS USER, which is who runs the CLI: this suite runs as root, and root ignores a directory's write
+# bit, so the very write the case is about would succeed and the assertion would pass for the wrong reason. The library
+# is sourced fresh in that shell, since the check is about the caller's own credentials.
 if ! command -v runuser >/dev/null 2>&1; then
     skip "unwritable config directory" "runuser unavailable"
 else
@@ -710,9 +702,9 @@ else
 fi
 
 # --- the text predicate: a file whose bytes go to a program as prose -------------------------
-# ai_tools_conf_is_text_file is the shared check behind an agent's system prompt: the trust
-# predicate says who wrote the file, this says the bytes are text. Empty counts as text (the
-# shipped inert default), a directory and a NUL-carrying blob do not.
+# ai_tools_conf_is_text_file is the shared check behind an agent's system prompt: the trust predicate says who wrote
+# the file, this says the bytes are text. Empty counts as text (the shipped inert default), a directory
+# and a NUL-carrying blob do not.
 if declare -F ai_tools_conf_is_text_file >/dev/null 2>&1; then
     tf="${TESTDIR}/textfile"
     printf 'You are a sandboxed agent.\n' > "${tf}"

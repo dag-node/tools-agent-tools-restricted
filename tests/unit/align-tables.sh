@@ -1,19 +1,17 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/align-tables.sh
-# Unit test for tools/align-tables.py, the formatter for the tables a comment carries. What it
-# asserts is the property a reader checks by eye and a tool has to check mechanically: after a
-# fix every separator in the block sits at one column, the `+` of the rule line included. The
-# fixture is a truth table whose widest cell overflows its column, the case a majority vote gets
-# wrong: it squeezes that row, where the column has to grow in every row. The three rules over a
-# cell's own alignment are pinned with it -- the heading centred over its column, a column of
-# numbers right, and a column padded wider than its content keeping that padding -- so a clean
-# `check` says a `fix` would leave every line as it is. Two negatives close it: a paragraph whose
-# lines happen to carry a pipe is left as written, and a second run is a no-op. A table inside a
-# heredoc body is the data's and is left, while a here-string, an arithmetic shift and a `<<` in
-# a string open no heredoc, so a table after one is still read. A file that is not plain text is
-# refused through the reader every formatter shares, reported and left as it was.
-# A repo dev tool, not a deployed artifact, so the test runs from the checkout.
+# Unit test for tools/align-tables.py, the formatter for the tables a comment carries. What it asserts is the property
+# a reader checks by eye and a tool has to check mechanically: after a fix every separator in the block sits at one
+# column, the `+` of the rule line included. The fixture is a truth table whose widest cell overflows its column,
+# the case a majority vote gets wrong: it squeezes that row, where the column has to grow in every row. The three rules
+# over a cell's own alignment are pinned with it -- the heading centred over its column, a column of numbers right,
+# and a column padded wider than its content keeping that padding -- so a clean `check` says a `fix` would leave every
+# line as it is. Two negatives close it: a paragraph whose lines happen to carry a pipe is left as written, and a second
+# run is a no-op. A table inside a heredoc body is the data's and is left, while a here-string, an arithmetic shift
+# and a `<<` in a string open no heredoc, so a table after one is still read. A file that is not plain text is refused
+# through the reader every formatter shares, reported and left as it was. A repo dev tool, not a deployed artifact,
+# so the test runs from the checkout.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -30,9 +28,9 @@ fi
 
 mktestdir
 f="${TESTDIR}/sample.sh"
-# The verdict column is one short for `require-not-enforcing`, so that row's separators sit one
-# column right of every other row's. The status column is counts, the mgrdom column is padded
-# three wider than its content, and the last comment paragraph carries a pipe in prose.
+# The verdict column is one short for `require-not-enforcing`, so that row's separators sit one column right of every
+# other row's. The status column is counts, the mgrdom column is padded three wider than its content, and the last
+# comment paragraph carries a pipe in prose.
 cat > "${f}" <<'EOF'
 #!/usr/bin/env bash
 #   enf | mod | mgrdom          | verdict              | status
@@ -83,10 +81,9 @@ else
     fail "the wide row was squeezed: $(sed -n '2,6p' "${f}")"
 fi
 
-# (4) The heading is centred over its column, a column of counts is right, and a column padded
-# wider than its content keeps the padding.
-# The heading's padding is read off the cell rather than written out here. An odd space falls
-# right, so the text sits nearer the left: the left padding is never the larger of the two.
+# (4) The heading is centred over its column, a column of counts is right, and a column padded wider than its content
+# keeps the padding. The heading's padding is read off the cell rather than written out here. An odd space falls right,
+# so the text sits nearer the left: the left padding is never the larger of the two.
 if awk 'NR==2 { n = split($0, cell, /\|/); c = cell[3]
         left = match(c, /[^ ]/) - 1; right = match(reverse(c), /[^ ]/) - 1
         exit !(left > 1 && right > 1 && left <= right && (right - left <= 1)) }
@@ -109,24 +106,23 @@ else
     fail "the padded column was narrowed: $(sed -n '4p' "${f}")"
 fi
 
-# (5) A pipe in prose lands where the line before it has none, so such a paragraph never reaches
-# the formatter.
+# (5) A pipe in prose lands where the line before it has none, so such a paragraph never reaches the formatter.
 if diff <(grep -A1 'load-bearing' "${TESTDIR}/before.sh") <(grep -A1 'load-bearing' "${f}") >/dev/null; then
     pass "a paragraph whose lines carry a pipe is left as written"
 else
     fail "prose with a pipe was read as a table: $(grep -A1 'load-bearing' "${f}")"
 fi
 
-# A table inside a heredoc body is the data's, not the file's: this test's own fixture is written
-# from one, so a tool that read it would rewrite what the suite drives.
+# A table inside a heredoc body is the data's, not the file's: this test's own fixture is written from one, so a tool
+# that read it would rewrite what the suite drives.
 if diff <(grep -A2 'on  | verdict' "${TESTDIR}/before.sh") <(grep -A2 'on  | verdict' "${f}") >/dev/null; then
     pass "a misaligned table inside a heredoc body is left as written"
 else
     fail "a heredoc body's table was rewritten: $(grep -A2 'on  | verdict' "${f}")"
 fi
 
-# (6) Idempotent, and `check` is then silent and exits 0 -- a clean check says a fix would leave
-# every line as it is, which is what lets the two be run in either order.
+# (6) Idempotent, and `check` is then silent and exits 0 -- a clean check says a fix would leave every line as it is,
+# which is what lets the two be run in either order.
 cp "${f}" "${TESTDIR}/once.sh"
 python3 "${TOOL}" fix "${f}" >/dev/null
 if cmp -s "${f}" "${TESTDIR}/once.sh"; then
@@ -140,9 +136,8 @@ else
     fail "check still reports the fixed file: ${out}"
 fi
 
-# (7) A here-string, an arithmetic shift and a `<<` inside a string open no heredoc. A reader that
-# took one for an opener would hand the rest of the file to the data, and leave every table after
-# it as written without a word.
+# (7) A here-string, an arithmetic shift and a `<<` inside a string open no heredoc. A reader that took one
+# for an opener would hand the rest of the file to the data, and leave every table after it as written without a word.
 hs="${TESTDIR}/herestring.sh"
 cat > "${hs}" <<'EOF'
 #!/usr/bin/env bash
@@ -160,10 +155,9 @@ else
     fail "the table after the here-string was left as written: $(tail -3 "${hs}")"
 fi
 
-# (8) A file that is not plain text is refused: reported with the reason, left byte-identical,
-# and the run exits 1 while the file named beside it is still checked. The reader is the one
-# every formatter here shares (`tools/text_file.py`); the full set of shapes it refuses is pinned
-# in `fill-markdown.sh`.
+# (8) A file that is not plain text is refused: reported with the reason, left byte-identical, and the run exits 1 while
+# the file named beside it is still checked. The reader is the one every formatter here shares (`tools/text_file.py`);
+# the full set of shapes it refuses is pinned in `fill-markdown.sh`.
 esc="${TESTDIR}/escape.sh"
 printf '# a | b\n# \033[31mc\033[0m | d\n' > "${esc}"
 cp "${esc}" "${TESTDIR}/escape.before"
