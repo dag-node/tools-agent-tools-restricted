@@ -50,7 +50,7 @@ fi
 
 # (1a) Every verb that WRITES OPERATOR-OWNED STATE must refuse root before the first write. One per family, since
 # the guard keys on the verb: a claim, a clone, and the per-project helper verbs.
-for key in projects.claim projects.unclaim projects.clone projects.lockdown projects.handback; do
+for key in ai-tools.projects.claim ai-tools.projects.unclaim ai-tools.projects.clone ai-tools.projects.lockdown ai-tools.projects.handback; do
     spell "${key}"
     out="$("${CLI}" "${CLI_ARGV[@]}" 2>&1)" && rc=0 || rc=$?
     refused "CLI refuses root on ${key} (would write registries with the wrong owner)" MSG-H6W7
@@ -60,7 +60,7 @@ done
 # root:root), and refusing it left the verb unreachable from BOTH sides on a host whose only operator does not hold
 # a general sudo grant. Asserted on the refusal text rather than the exit status: --audit and --status both exit
 # non-zero to REPORT something, which is not a refusal.
-for key in audit status projects.list providers; do
+for key in ai-tools.audit ai-tools.status ai-tools.projects.list ai-tools.providers; do
     spell "${key}"
     out="$("${CLI}" "${CLI_ARGV[@]}" 2>&1)" || true
     if ! grep -qxF -- MSG-H6W7 <<<"${out}"; then
@@ -75,7 +75,7 @@ done
 # BEFORE the sudo that would reach the root helper. Driving the bare command here would terminate every session
 # on the host -- including the one running this suite -- so the assertion is that root got as far as the option loop,
 # not that a stop ran.
-spell stop
+spell ai-tools.stop
 out="$("${CLI}" "${CLI_ARGV[@]}" --bogus 2>&1)" && rc=0 || rc=$?
 refused "CLI accepts root on --stop (reached the option loop, no session signalled)" MSG-B7K4 2
 
@@ -93,7 +93,7 @@ fi
 # (1c) --for stays refused for root in EITHER argument order: root is not in OPERATORS, so an entry written for it names
 # an owner no ownership helper can resolve. The trailing form is the one a $1-keyed guard would miss, which is
 # why the check runs after --for is separated out.
-spell projects.list
+spell ai-tools.projects.list
 for order in lead trail; do
     if [[ "${order}" == lead ]]; then
         out="$("${CLI}" "$(cli_flag for)" "${PROJECTS_USER}" "${CLI_ARGV[@]}" 2>&1)" && rc=0 || rc=$?
@@ -108,7 +108,7 @@ done
 if ! command -v runuser >/dev/null 2>&1; then
     skip "CLI sandbox-account guard" "runuser unavailable"
 else
-    spell projects.list
+    spell ai-tools.projects.list
     out="$(runuser -u "${SANDBOX_USER}" -- "${CLI}" "${CLI_ARGV[@]}" 2>&1)" && rc=0 || rc=$?
     refused "CLI refuses to run as the sandbox account ${SANDBOX_USER}" MSG-Q6Q8
 
@@ -138,7 +138,7 @@ if command -v runuser >/dev/null 2>&1; then
     # which the next assertion inspects.
     emptyal="${TESTDIR}/empty-allowlist"; : > "${emptyal}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${emptyal}"
 
-    spell projects.claim
+    spell ai-tools.projects.claim
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${tconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
             "${CLI}" "${CLI_ARGV[@]}" "${proj}" 2>&1)" && rc=0 || rc=$?
@@ -150,7 +150,7 @@ if command -v runuser >/dev/null 2>&1; then
     fi
 
     # (5) The informational commands stay open to that same non-operator user.
-    spell help
+    spell ai-tools.help
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${tconf}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" || true
     if grep -qi 'manage the projects a sandboxed coding agent may work in' <<<"${out}"; then
@@ -168,7 +168,7 @@ if command -v runuser >/dev/null 2>&1; then
     oconf="${TESTDIR}/op-self.conf"
     printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${oconf}"; chmod 644 "${oconf}"
     lone="${TESTDIR}/not-a-project"; mkdir -p "${lone}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lone}"
-    spell projects.unclaim
+    spell ai-tools.projects.unclaim
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
             setsid "${CLI}" "${CLI_ARGV[@]}" "${lone}" 2>&1)" && rc=0 || rc=$?
@@ -182,7 +182,7 @@ if command -v runuser >/dev/null 2>&1; then
         : > "${emptyal}"
         foreignproj="${TESTDIR}/foreign-proj"; mkdir -p "${foreignproj}"
         chown nobody:nobody "${foreignproj}"
-        spell projects.claim
+        spell ai-tools.projects.claim
         out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
                 AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
                 setsid "${CLI}" "${CLI_ARGV[@]}" "${foreignproj}" 2>&1)" && rc=0 || rc=$?
@@ -220,7 +220,7 @@ if command -v runuser >/dev/null 2>&1; then
     : > "${emptyal}"
     create_cli() {
         local -a argv
-        cli_cmd projects.create || exit 2
+        cli_cmd ai-tools.projects.create || exit 2
         argv=("${CLI_ARGV[@]}")
         runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
@@ -238,7 +238,7 @@ if command -v runuser >/dev/null 2>&1; then
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${exists}"
     out="$(create_cli "${exists}")" && rc=0 || rc=$?
     assert_msg MSG-T4B9 "${out}" "--project-create refuses an existing directory"
-    if [[ ${rc} -ne 0 ]] && grep -qF -- "$(cli_cmd_text projects.claim)" <<<"${out}"; then
+    if [[ ${rc} -ne 0 ]] && grep -qF -- "$(cli_cmd_text ai-tools.projects.claim)" <<<"${out}"; then
         pass "--project-create refuses an existing directory, naming --project-claim"
     else
         fail "--project-create did not refuse an existing directory (rc=${rc}): $(brief "${out}")"
@@ -365,7 +365,7 @@ if command -v runuser >/dev/null 2>&1; then
     # driven).
     remove_cli() {
         local -a argv
-        cli_cmd projects.remove || exit 2
+        cli_cmd ai-tools.projects.remove.inplace || exit 2
         argv=("${CLI_ARGV[@]}")
         runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${rmal}" \
@@ -411,7 +411,7 @@ if command -v runuser >/dev/null 2>&1; then
     # An ancestor of claimed projects is refused and pointed at --project-unclaim: this verb removes one registered
     # project, never a directory that merely contains some.
     out="$(remove_cli "${rmwork}")" && rc=0 || rc=$?
-    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -qF -- "$(cli_cmd_text projects.unclaim)" <<<"${out}"; then
+    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -qF -- "$(cli_cmd_text ai-tools.projects.unclaim)" <<<"${out}"; then
         pass "--project-remove refuses an ancestor of claimed projects"
     else
         fail "--project-remove did not refuse an ancestor (rc=${rc}): $(brief "${out}")"
@@ -469,7 +469,7 @@ if command -v runuser >/dev/null 2>&1; then
         printf '%s\n' "${rmblocked}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
         out="$(remove_cli -y "${rmblocked}")" && rc=0 || rc=$?
         if [[ ${rc} -ne 0 ]] && [[ -d "${rmblocked}/locked" ]] \
-                && grep -qF -- "$(cli_cmd_text projects.handback) $(cli_flag full)" <<<"${out}" \
+                && grep -qF -- "$(cli_cmd_text ai-tools.projects.handback) $(cli_flag full)" <<<"${out}" \
                 && grep -qF "${rmblocked}" "${rmal}"; then
             pass "--project-remove refuses an undeletable tree up front, intact and still registered"
         else
@@ -486,7 +486,7 @@ if command -v runuser >/dev/null 2>&1; then
     # default-YES questions) and the challenge has no default at all. Asserted with the variable set AND a terminal
     # absent, which is exactly how an unattended run arrives.
     printf '%s\n' "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
-    spell projects.remove
+    spell ai-tools.projects.remove.inplace
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${rmal}" \
             AI_TOOLS_ASSUME_YES=1 \
@@ -553,7 +553,7 @@ if command -v runuser >/dev/null 2>&1; then
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmstuck}"
     stuckal="${TESTDIR}/stuck-allowlist"
     printf '%s\n' "${rmstuck}" > "${stuckal}"; chown "${PROJECTS_USER}" "${stuckal}"
-    spell projects.remove
+    spell ai-tools.projects.remove.inplace
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${stuckal}" \
             setsid "${CLI}" "${CLI_ARGV[@]}" -y "${rmstuck}" 2>&1)" && rc=0 || rc=$?
@@ -619,7 +619,7 @@ EOF
 EOF
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lgc}"
 
-    spell projects.list
+    spell ai-tools.projects.list
     lout="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${lal}" \
             AI_TOOLS_GITCONFIG="${lgc}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" || true
@@ -658,7 +658,7 @@ EOF
 
     # (8) --reclaim and --lockdown refuse a path outside every claimed project, up front (before the sudo prompt / any
     # change) -- covered_by_project. ${lone} is not in the fixture allowlist.
-    for key in projects.handback projects.lockdown; do
+    for key in ai-tools.projects.handback ai-tools.projects.lockdown; do
         spell "${key}"
         out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
                 AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
@@ -676,7 +676,7 @@ EOF
     else
         sroot="${TESTDIR}/sandbox-projects"; mkdir -p "${sroot}"
         chown "${PROJECTS_USER}:${PROJECTS_USER}" "${sroot}"
-        spell sandbox.remove
+        spell ai-tools.projects.remove.clone
         out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
                 AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_SANDBOX_ROOT="${sroot}" \
                 setsid "${CLI}" "${CLI_ARGV[@]}" "${sroot}" 2>&1)" && rc=0 || rc=$?
@@ -706,7 +706,7 @@ fi
 # it.
 if command -v runuser >/dev/null 2>&1; then
     section "CLI --stop (argument grammar)"
-    spell stop
+    spell ai-tools.stop
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
             "${CLI}" "${CLI_ARGV[@]}" --bogus 2>&1)" && rc=0 || rc=$?
     refused "--stop refuses an unknown option with the documented usage code (2)" MSG-B7K4 2
@@ -760,7 +760,7 @@ if command -v runuser >/dev/null 2>&1; then
 
     # (1) An unenrolled target is refused, naming the enrolment command. No entry may be written for a name
     # the ownership helpers cannot later resolve to an owner.
-    out="$(run_for projects.claim --for definitely-not-an-operator "${fproj}")" && rc=0 || rc=$?
+    out="$(run_for ai-tools.projects.claim --for definitely-not-an-operator "${fproj}")" && rc=0 || rc=$?
     # By code: the --for TARGET's enrolment gate (MSG-E3D2), not the invoker's (MSG-X6U2).
     refused "--for refuses an unenrolled target operator" MSG-E3D2
     if [[ -s "${fal}" ]]; then
@@ -770,22 +770,22 @@ if command -v runuser >/dev/null 2>&1; then
     fi
 
     # (2) The sandbox account can never be a --for target: it would be the agent owning projects.
-    out="$(run_for projects.claim --for "${SANDBOX_USER}" "${fproj}")" && rc=0 || rc=$?
+    out="$(run_for ai-tools.projects.claim --for "${SANDBOX_USER}" "${fproj}")" && rc=0 || rc=$?
     refused "--for refuses the sandbox account as the target, naming it" MSG-M3Z3
 
     # (3) Refused, not ignored, on a verb it does not apply to -- a clone that silently ran as the invoker would leave
     # the tree owned by the wrong operator with no output to show.
-    out="$(run_for projects.clone --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
+    out="$(run_for ai-tools.projects.clone --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
     refused "--for is refused on a verb that does not accept it (not silently ignored)" MSG-U7R7
 
     # (4) --force binds an unlisted tree to the INVOKING uid inside ai-tools-unclaim, so honouring --for there would
     # have the CLI name one operator while the helper acted as another.
-    out="$(run_for projects.unclaim --force --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
+    out="$(run_for ai-tools.projects.unclaim --force --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
     # By code: --for's own --force refusal (MSG-B5K3), not --keep-entry's (MSG-R3G9).
     refused "--for refuses to combine with --project-unclaim --force" MSG-B5K3
 
     # (5) A bare --for with no name is a parse error, not an empty operator silently meaning "me".
-    out="$(run_for projects.claim --for)" && rc=0 || rc=$?
+    out="$(run_for ai-tools.projects.claim --for)" && rc=0 || rc=$?
     refused "--for with no operator name is refused, ahead of every gate" MSG-B4G2
 fi
 
@@ -827,7 +827,7 @@ else
     # document gets it back unchanged.
     pd_seed "# projects" "  ${pd_proj}   # payments, dev stage" "${pd_other}"
     pd_before="$(cat "${pd_al}")"
-    out="$(pd_cli projects.disable "${pd_proj}")" && rc=0 || rc=$?
+    out="$(pd_cli ai-tools.projects.disable "${pd_proj}")" && rc=0 || rc=$?
     if [[ ${rc} -eq 0 ]] && [[ "$(sed -n '2p' "${pd_al}")" == "  !${pd_proj}   # payments, dev stage" ]]; then
         pass "--project-disable parks the entry in place, keeping position and comment"
     else
@@ -841,7 +841,7 @@ else
 
     # (2) A parked project is NOT an unlisted one. The claim must not append a second, positive line that the '!' would
     # go on winning over -- it offers the re-enable, which with no terminal takes its default NO, and refuses.
-    out="$(pd_cli projects.claim "${pd_proj}")" && rc=0 || rc=$?
+    out="$(pd_cli ai-tools.projects.claim "${pd_proj}")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'disabled' <<<"${out}"; then
         pass "--project-claim over a parked project refuses instead of claiming"
     else
@@ -854,16 +854,16 @@ else
     fi
 
     # (3) --list calls it what it is, and names the verb that restores it.
-    out="$(pd_cli projects.list)" || true
+    out="$(pd_cli ai-tools.projects.list)" || true
     if grep -qE "disabled[[:space:]]+${pd_proj}" <<<"${out}" \
-            && grep -qF -- "$(cli_cmd_text projects.enable) ${pd_proj}" <<<"${out}"; then
+            && grep -qF -- "$(cli_cmd_text ai-tools.projects.enable) ${pd_proj}" <<<"${out}"; then
         pass "--list reports a parked project as disabled, with the re-enable command"
     else
         fail "--list did not report the parked project: $(brief "${out}" 'disabl|exclude')"
     fi
 
     # (4) Restore it: the file comes back byte-identical to before the park.
-    out="$(pd_cli projects.enable "${pd_proj}")" && rc=0 || rc=$?
+    out="$(pd_cli ai-tools.projects.enable "${pd_proj}")" && rc=0 || rc=$?
     if [[ ${rc} -eq 0 ]] && [[ "$(cat "${pd_al}")" == "${pd_before}" ]]; then
         pass "--project-enable restores the file byte-identically (a lossless round trip)"
     else
@@ -872,10 +872,10 @@ else
 
     # (5) Neither verb invents an entry. Registering a project is a claim -- it scans for secrets before granting access
     # -- so a path the file does not name is refused by both, pointing there.
-    for key in projects.disable projects.enable; do
+    for key in ai-tools.projects.disable ai-tools.projects.enable; do
         out="$(pd_cli "${key}" "${TESTDIR}")" && rc=0 || rc=$?
         assert_msg MSG-T4A8 "${out}" "${key} refuses through the pair's shared no-entry refusal"
-        if [[ ${rc} -ne 0 ]] && grep -qF -- "$(cli_cmd_text projects.claim)" <<<"${out}"; then
+        if [[ ${rc} -ne 0 ]] && grep -qF -- "$(cli_cmd_text ai-tools.projects.claim)" <<<"${out}"; then
             pass "${key} refuses an unregistered path and names the claim"
         else
             fail "${key} did not refuse an unregistered path (rc=${rc}): $(brief "${out}")"
@@ -891,7 +891,7 @@ else
     # reaches -- a subtree its operator withheld from a claimed project. It is refused, and the refusal names
     # the project it belongs to.
     pd_seed "# projects" "${pd_proj}" "!${pd_carve}"
-    out="$(pd_cli projects.enable "${pd_carve}")" && rc=0 || rc=$?
+    out="$(pd_cli ai-tools.projects.enable "${pd_carve}")" && rc=0 || rc=$?
     # By code: the carve-out refusal (MSG-W4S7), not the no-entry one (MSG-T4A8).
     refused "--project-enable refuses a carve-out rather than handing over the subtree" MSG-W4S7
     if grep -qF "!${pd_carve}" "${pd_al}"; then
@@ -903,7 +903,7 @@ else
     # (7) The other half of keeping a '!' unambiguous: parking a NESTED project would write a line no reader could later
     # tell apart from that carve-out, so no verb writes one.
     pd_seed "# projects" "${pd_proj}" "${pd_nested}"
-    out="$(pd_cli projects.disable "${pd_nested}")" && rc=0 || rc=$?
+    out="$(pd_cli ai-tools.projects.disable "${pd_nested}")" && rc=0 || rc=$?
     refused "--project-disable refuses to park a project nested inside another" MSG-D8C8
     if ! grep -qF "!${pd_nested}" "${pd_al}"; then
         pass "the refused park wrote no exclusion"
@@ -916,7 +916,7 @@ else
     # refuse earlier for a missing sudo grant -- that is a different, correct refusal; what must not appear is "not
     # a claimed project".)
     pd_seed "# projects" "!${pd_proj}"
-    for key in projects.handback projects.lockdown projects.unclaim; do
+    for key in ai-tools.projects.handback ai-tools.projects.lockdown ai-tools.projects.unclaim; do
         out="$(pd_cli "${key}" "${pd_proj}")" && rc=0 || rc=$?
         if [[ ${rc} -ne 0 ]] && ! grep -qi 'not a claimed project' <<<"${out}"; then
             pass "${key} over a parked project does not report it as unclaimed"
@@ -930,7 +930,7 @@ else
     # out. So the verb must get past classification -- reaching its own disabled confirm -- rather than refusing
     # as unregistered. It must also delete NO PATH here: with no terminal the confirm and the typed-name challenge both
     # decline, which is the property that keeps a destructive verb out of an unattended run.
-    out="$(pd_cli projects.remove "${pd_proj}")" && rc=0 || rc=$?
+    out="$(pd_cli ai-tools.projects.remove.inplace "${pd_proj}")" && rc=0 || rc=$?
     if grep -qi 'not a claimed project' <<<"${out}"; then
         fail "--project-remove refused a parked project as unregistered: $(brief "${out}")"
     elif grep -qxE 'MSG-R4J2|MSG-Z6Q6' <<<"${out}"; then
@@ -951,7 +951,7 @@ else
     # (10) --keep-entry is about what becomes of an ENTRY, so it is refused where there is none to keep: --force is
     # the mode that reaches a tree the allowlist does not name. Refused rather than ignored, since a flag that silently
     # skips its work is how an operator learns the wrong model.
-    out="$(pd_cli projects.unclaim "$(cli_flag keep-entry)" "$(cli_flag force)" "${pd_proj}")" && rc=0 || rc=$?
+    out="$(pd_cli ai-tools.projects.unclaim "$(cli_flag keep-entry)" "$(cli_flag force)" "${pd_proj}")" && rc=0 || rc=$?
     if grep -qxE 'MSG-R4J2|MSG-Z6Q6' <<<"${out}"; then
         # Either no-sudo-grant refusal: an environment fact, reached before the parse check.
         skip "--keep-entry with --force" "no sudo grant for the unclaim helper here"
@@ -965,7 +965,7 @@ else
     # (10b) --keep-entry belongs to the unclaim ALONE. A removal deletes the tree, so an entry kept for it would park
     # a path that no longer exists -- and the flag reads as though it might spare something, which is the worst thing
     # a flag can suggest on a destructive verb. Refused as an unknown option rather than silently ignored.
-    out="$(pd_cli projects.remove "$(cli_flag keep-entry)" "${pd_proj}")" && rc=0 || rc=$?
+    out="$(pd_cli ai-tools.projects.remove.inplace "$(cli_flag keep-entry)" "${pd_proj}")" && rc=0 || rc=$?
     # By code: the unknown-option refusal (MSG-M3Y5), not a --keep-entry special case.
     refused "--project-remove refuses --keep-entry (it belongs to the unclaim)" MSG-M3Y5
     if [[ -d "${pd_proj}" ]]; then
@@ -978,7 +978,7 @@ else
     # Entry state and reachability are different questions, and reporting the first as though it answered the second
     # sends an operator hunting through their own file for a refusal the CLI already knew about.
     pd_seed "# projects" "${pd_proj}" "!${TESTDIR}"
-    out="$(pd_cli projects.enable "${pd_proj}")" && rc=0 || rc=$?
+    out="$(pd_cli ai-tools.projects.enable "${pd_proj}")" && rc=0 || rc=$?
     if [[ ${rc} -eq 0 ]] && grep -qi 'already enabled' <<<"${out}" \
             && grep -qF "!${TESTDIR}" <<<"${out}"; then
         pass "--project-enable reports the OTHER exclusion that still parks a listed project"
@@ -1097,8 +1097,8 @@ else
         skip "--audit is wired into the CLI" "not installed at ${CLI}"
     elif ! command -v runuser >/dev/null 2>&1; then
         skip "--audit is wired into the CLI" "runuser unavailable to read the help as ${PROJECTS_USER}"
-    elif spell help && runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" "${CLI}" "${CLI_ARGV[@]}" 2>&1 \
-            | grep -qF -- "$(cli_cmd_text audit)"; then
+    elif spell ai-tools.help && runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" "${CLI}" "${CLI_ARGV[@]}" 2>&1 \
+            | grep -qF -- "$(cli_cmd_text ai-tools.audit)"; then
         pass "the deployed ai-tools dispatches --audit"
     else
         skip "--audit is wired into the CLI" "the deployed ${CLI} predates the verb (install this version to cover it)"
