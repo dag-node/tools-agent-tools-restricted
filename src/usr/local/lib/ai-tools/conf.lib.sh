@@ -786,9 +786,9 @@ ai_tools_conf_allowlist_seed() {
         "#   \"/home/op/ai works\"  # note   quote a path containing a space;" \
         "#                                 '#' starts a comment" \
         "#" \
-        "# Managed by the ai-tools CLI: --project-claim, --project-create" \
-        "# and --sandbox-create register a project; --project-disable" \
-        "# and --project-enable park and restore one; --list reviews the file." \
+        "# Managed by the ai-tools CLI: projects claim, projects create and" \
+        "# projects clone register a project; projects disable and projects" \
+        "# enable park and restore one; projects list reviews the file." \
         "# Full reference: man 5 allowed-projects" \
         ""
 }

@@ -193,7 +193,7 @@ The three
 .B release_*
 keys are read together.
 An agent declaring none of them is reported as unverified by
-.BR "ai-tools --status" ,
+.BR "ai-tools status" ,
 which is not a fault unless the operator required verification.
 .SS Integrations
 .TP
@@ -223,7 +223,7 @@ The optional SELinux policy groups this toolchain needs on an enforcing
 host.
 None is enabled automatically; each is an explicit
 .BR "ai-tools-admin selinux groups enable" .
-.B ai-tools --providers
+.B "ai-tools providers"
 and
 .BI "ai-tools-admin " name " status"
 name the ones not loaded, with the command that enables them.

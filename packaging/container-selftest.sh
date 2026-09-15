@@ -159,7 +159,7 @@ as_operator "cd '${PROJECT}' && git init -q" || true
 # one. The claim's own proceed prompt ("Apply the pending steps IN PLACE?") is default-NO, so it needs the CLI's
 # per-invocation `--yes`, the same flag claude.sh passes for its own delegated claim.
 phase "operator claims the project (allowlist + ACL + safedir + label)" \
-    as_operator "AI_TOOLS_ASSUME_YES=1 ai-tools --project-claim --yes '${PROJECT}'"
+    as_operator "AI_TOOLS_ASSUME_YES=1 ai-tools projects claim --yes '${PROJECT}'"
 
 phase "project is in the operator's allowlist" \
     bash -c "grep -q '${PROJECT}' /home/${OPERATOR}/.config/ai-tools/allowed-projects"

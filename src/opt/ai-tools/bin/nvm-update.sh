@@ -113,7 +113,7 @@ write_stamp() {
     [[ -n "${INVOCATION_ID:-}" ]] && trigger=unit
 
     if [[ ! -f "${NVM_UPDATE_STAMP}" || ! -w "${NVM_UPDATE_STAMP}" ]]; then
-        warn "no writable last-run stamp at ${NVM_UPDATE_STAMP} -- 'ai-tools --status' cannot report this unit; reinstall ai-tools-integration-nodejs to restore it"
+        warn "no writable last-run stamp at ${NVM_UPDATE_STAMP} -- 'ai-tools status' cannot report this unit; reinstall ai-tools-integration-nodejs to restore it"
         return 0
     fi
 
@@ -127,7 +127,7 @@ write_stamp() {
     # Composed whole, then written in ONE call: REASON is present only on a skip, and building the text first keeps
     # that conditional line from splitting the write into two -- the single write is what keeps the window
     # in which a reader could see a partial stamp negligible.
-    printf -v text '# nvm-update last-run stamp -- written by %s, read by "ai-tools --status".\nRESULT=%s\nEXIT_CODE=%d\nFINISHED=%s\nTRIGGER=%s\nNODE=%s\n' \
+    printf -v text '# nvm-update last-run stamp -- written by %s, read by "ai-tools status".\nRESULT=%s\nEXIT_CODE=%d\nFINISHED=%s\nTRIGGER=%s\nNODE=%s\n' \
         "${AI_TOOLS_BIN}/nvm-update.sh" "${result}" "${rc}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         "${trigger}" "${node_version}"
     [[ -n "${reason}" ]] && text+="REASON=${reason}"$'\n'

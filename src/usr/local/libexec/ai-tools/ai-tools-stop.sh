@@ -42,9 +42,10 @@
 # (restore_user_manager) rather than exempted.
 #
 # ── Why root, and what this command accepts ──────────────────────────────────────────────────
-# Signalling the sandbox account's cgroups and writing cgroup.kill is root's to do. There is no NOPASSWD grant -- this
-# is reached through `sudo ai-tools --stop` and sudo prompts, like
-# `ai-tools-{lockdown,reclaim,audit}`.
+# Signalling the sandbox account's cgroups and writing cgroup.kill is root's to do. The %ai-ops sudoers rule grants this
+# helper NOPASSWD in its zero-argument form alone (the drop-in's trailing ""), so `ai-tools stop` runs without a prompt,
+# and a flagged form (`ai-tools stop --dry-run`) meets sudo's ordinary password prompt, as a call
+# to `ai-tools-{lockdown,reclaim,audit}` does.
 #
 # IT TAKES NO TARGET AND NO AUTHORIZATION INPUT. What is stopped is decided by one fact a session cannot influence --
 # membership of the account's cgroup slice -- and everything this file reads from the account being stopped (a unit's
@@ -229,17 +230,17 @@ FORCE_KILL=false
 # the code has one thing to find. The code is emitted here and named nowhere else, so this site CITES the message
 # the CLI defines rather than declaring a second one.
 refuse_positional_argument() {
-    printf 'MSG-A3M9\nai-tools-stop: this command takes no path: %s\n' "$1" >&2
+    printf 'MSG-A3M9\nai-tools-stop: stop takes no path: %s\n' "$1" >&2
     printf '%s' '
-  ai-tools --stop TERMINATES every agent session on this host, and has no per-project
+  ai-tools stop TERMINATES every agent session on this host, and has no per-project
   form. It is not the way to end a session you are finished with -- it kills the process
   tree, so the session cannot run its own session-end handback.
   A session is attributed to a project by asking the sandbox account'"'"'s own user manager
   -- the account being stopped -- so that attribution is reported, never trusted to
   decide what a stop reaches.
 
-  Terminate every session:    ai-tools --stop
-  See what is running first:  ai-tools --stop --dry-run
+  Terminate every session:    ai-tools stop
+  See what is running first:  ai-tools stop --dry-run
   End one session cleanly:    /exit inside it, which runs its session-end handback
   Terminate one by hand:      sudo systemctl --user -M @SANDBOX_USER@@.host stop <unit>
 ' >&2
@@ -250,7 +251,7 @@ parse_command_line() {
     while (( $# )); do
         case "$1" in
             # Accepted and inert (the header's usage note says why it exists at all). The documented form is
-            # `ai-tools --stop`.
+            # `ai-tools stop`.
             --all)        shift ;;
             --dry-run) DRY_RUN=true; shift ;;
             -y|--yes)     ASSUME_YES=true; shift ;;
@@ -258,7 +259,7 @@ parse_command_line() {
             # The CLI refuses this too, before its sudo, and for the same reason the path refusal is twinned:
             # an operator meets whichever side answered. One situation, one code, defined at the CLI's arm and cited
             # here.
-            -*) printf 'MSG-B7K4\nai-tools-stop: unknown option: %s\n' "$1" >&2
+            -*) printf 'MSG-B7K4\nai-tools-stop: unknown option for stop: %s\n' "$1" >&2
                 printf '  allowed: --all, --dry-run, --yes/-y, --force\n' >&2
                 exit 2 ;;
             *)  refuse_positional_argument "$1" ;;
@@ -272,7 +273,7 @@ parse_command_line() {
 resolve_run_context() {
     if [[ "$(id -u)" != "0" ]]; then
         say_error MSG-Z5W3 "This command must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
-                  "run it as: sudo ai-tools --stop"
+                  "run it as: sudo ai-tools stop"
         exit 5
     fi
 
@@ -861,7 +862,7 @@ print_reclaim_guidance() {
     printf '\n  %s\n' "A stopped session cannot run its own session-end handback, so the last turn's"
     printf '  %s\n'   "writes may still be ${SANDBOX_USER}-owned. Hand them back with:"
     for directory in "${targets[@]}"; do
-        printf '  %s\n' "    ai-tools --reclaim $(sanitize "${directory}")"
+        printf '  %s\n' "    ai-tools projects handback $(sanitize "${directory}")"
     done
 }
 
