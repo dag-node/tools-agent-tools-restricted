@@ -123,6 +123,10 @@ span wider than the column on a line of its own,
 `sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`, then the tie
 rule beside a span, so that no line ends on the `750 root:root` mode of the pin.
 
+A command key is one word, so a reflow moves it down whole rather than breaking it apart: this
+line has no room left for ai-tools.projects.remove.inplace by the time the sentence has run
+this far.
+
 A span closing at this column stays: `ai-tools projects claim --yes .`
 
 A span closing at this column shifts: `ai-tools projects claim --yes .`
@@ -239,6 +243,15 @@ span_whole() {  # span_whole <literal>: PASS when the reflowed fixture holds the
 }
 span_whole 'ai-tools status'
 span_whole '750 root:root'
+# A test's command key (tests/lib/cli-spelling.sh) carries hyphens and dots and is marked by nothing, so it rests
+# on the same rule from the other side: a break falls between words, never inside one. What it costs if it does not is
+# the suite's own notation, which `git grep` then finds on no line. The fixture leaves the tail of a line too short
+# to hold the key, so a filler that broke on a hyphen or a dot would split it there.
+if [[ "$(grep -c -F -- 'ai-tools.projects.remove.inplace' "${f}")" -eq 1 ]]; then
+    pass "a command key is one word: the reflow moves it down whole rather than breaking it"
+else
+    fail "a command key was broken by the reflow: $(grep -n 'remove' "${f}")"
+fi
 # shellcheck disable=SC2016
 if grep -qxF -- '`sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`,' "${f}"; then
     pass "a span wider than the column runs over on a line of its own"
