@@ -1,29 +1,26 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/admin-operator-add.sh
-# Unit test for report_operator_role -- the lines `ai-tools-admin operators add` prints to say which
-# of the two operator shapes the enrolment just produced: one that can claim projects, or one whose
-# projects another operator claims for it.
+# Unit test for report_operator_role -- the lines `ai-tools-admin operators add` prints to say which of the two operator
+# shapes the enrolment just produced: one that can claim projects, or one whose projects another operator claims for it.
 #
-# Worth pinning because the verdict is read out of sudo, the class that was already wrong once in
-# this stack: `sudo -l` refuses SILENTLY (non-zero, no output), so a reading of it that matched a
-# refusal MESSAGE matched a message sudo never sends. The property under test here is the other
-# half of that lesson -- a sudo which fails for its OWN reasons must read as undetermined, never as
-# a verdict about the account, because an administrator acts on this line at the moment of the
-# decision and a false "no grant" sends them to a `--for` workflow they do not need.
+# Worth pinning because the verdict is read out of sudo, the class that was already wrong once in this stack: `sudo -l`
+# refuses SILENTLY (non-zero, no output), so a reading of it that matched a refusal MESSAGE matched a message sudo never
+# sends. The property under test here is the other half of that lesson -- a sudo which fails for its OWN reasons must
+# read as undetermined, never as a verdict about the account, because an administrator acts on this line at the moment
+# of the decision and a false "no grant" sends them to a `--for` workflow they do not need.
 #
-# Each case runs in its own bash, because the helper and the harness both declare SANDBOX_USER
-# readonly. sudo is stubbed as a shell FUNCTION, which overrides the PATH lookup, so no executable
-# shim is needed (and the test works where /tmp is noexec) and no real sudoers is consulted. The
-# helper is SOURCED, not run: its root check and its dispatch are guarded for exactly this, so one
-# function is driven with no host to administer and no state written anywhere.
+# Each case runs in its own bash, because the helper and the harness both declare SANDBOX_USER readonly. sudo is stubbed
+# as a shell FUNCTION, which overrides the PATH lookup, so no executable shim is needed (and the test works where /tmp
+# is noexec) and no real sudoers is consulted. The helper is SOURCED, not run: its root check and its dispatch are
+# guarded for exactly this, so one function is driven with no host to administer and no state written anywhere.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# Installed copy first, then the source tree. The only substitution the install applies to this
-# file is the sandbox account name, which this function does not read.
+# Installed copy first, then the source tree. The only substitution the install applies to this file is the sandbox
+# account name, which this function does not read.
 HELPER="/usr/local/libexec/ai-tools/ai-tools-admin"
 [[ -r "${HELPER}" ]] || HELPER="${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
 
@@ -34,10 +31,9 @@ if [[ ! -r "${HELPER}" ]]; then
     finish; exit
 fi
 
-# run_report <command-probe-rc> <list-probe-rc> -- source the helper in a fresh shell with sudo
-# stubbed, drive report_operator_role for one account, and echo everything it said. The stub keys
-# on the claim helper's path, which is the operand of the first probe and absent from the second,
-# so the two probes are answered independently.
+# run_report <command-probe-rc> <list-probe-rc> -- source the helper in a fresh shell with sudo stubbed, drive
+# report_operator_role for one account, and echo everything it said. The stub keys on the claim helper's path, which is
+# the operand of the first probe and absent from the second, so the two probes are answered independently.
 run_report() {
     bash -c '
         set -euo pipefail
@@ -106,9 +102,9 @@ else
 fi
 
 # --- wire_init_file: the PATH ordering line reaches the operator's bash init ---
-# The guard line is what ranks /usr/local/bin (the wrapper) ahead of the nvm shims, so a shell that
-# never sources it resolves `claude` to the nvm-managed binary instead. Driven against fixture
-# files in TESTDIR: the function takes the file as an argument, so no real home is touched.
+# The guard line is what ranks /usr/local/bin (the wrapper) ahead of the nvm shims, so a shell that never sources it
+# resolves `claude` to the nvm-managed binary instead. Driven against fixture files in TESTDIR: the function takes
+# the file as an argument, so no real home is touched.
 section "ai-tools-admin operator add: bash init wiring (unit)"
 
 mktestdir
@@ -136,9 +132,9 @@ else
     fail "a created .bashrc has no guard line: $(cat "${TESTDIR}/.bashrc")"
 fi
 
-# A created .bash_profile opens with the .bashrc source EL's skel carries. bash reads
-# .bash_profile ALONE at login, so one holding only the guard line leaves a login shell without
-# the account's own init -- its nvm init among it, which the guard line is placed after.
+# A created .bash_profile opens with the .bashrc source EL's skel carries. bash reads .bash_profile ALONE at login,
+# so one holding only the guard line leaves a login shell without the account's own init -- its nvm init among it,
+# which the guard line is placed after.
 wire_file "${TESTDIR}/.bash_profile" login-chain >/dev/null
 printf 'export AI_TOOLS_TEST_MARKER=from_bashrc\n' >> "${TESTDIR}/.bashrc"
 marker="$(HOME="${TESTDIR}" bash -lc 'printf "%s" "${AI_TOOLS_TEST_MARKER:-unset}"' 2>/dev/null || true)"
@@ -148,8 +144,8 @@ else
     fail "the created .bash_profile left a login shell without .bashrc (marker '${marker}')"
 fi
 
-# An init file the operator already has is appended to, never replaced, and a second run leaves
-# the file as it found it: `operator add` is accumulating and idempotent, and this runs on every re-enrolment.
+# An init file the operator already has is appended to, never replaced, and a second run leaves the file as it found it:
+# `operator add` is accumulating and idempotent, and this runs on every re-enrolment.
 # shellcheck disable=SC2016  # the fixture's ${HOME} is init-file text, expanded by the shell reading it
 printf '# my own bashrc\nexport NVM_DIR="${HOME}/.nvm"\n' > "${TESTDIR}/.bashrc"
 wire_file "${TESTDIR}/.bashrc" >/dev/null
@@ -162,18 +158,17 @@ else
 fi
 
 # --- ensure_config_home: the config home an operator's allowlist is seeded inside ---
-# `operators add` refuses a first enrolment it cannot seed, so whether this function creates
-# ~/.config decides whether an account with no config home can be enrolled at all. Driven against
-# fixture homes in TESTDIR, owned by the caller, so the chown is unprivileged and no real home is
-# touched. Each case runs its own umask, which is what the mode is read from.
+# `operators add` refuses a first enrolment it cannot seed, so whether this function creates ~/.config decides whether
+# an account with no config home can be enrolled at all. Driven against fixture homes in TESTDIR, owned by the caller,
+# so the chown is unprivileged and no real home is touched. Each case runs its own umask, which is what the mode is read
+# from.
 section "ai-tools-admin operators add: the operator's config home (unit)"
 
-# run_ensure <home> <umask> [confirm-rc] : source the helper in a fresh shell, run one umask, and
-# drive ensure_config_home for the calling account. Every case answers the prompt WITHOUT drawing
-# it: AI_TOOLS_ASSUME_YES fast-tracks the default-yes question, and a confirm-rc stubs the shared
-# prompt to that status, which is how the declined case is reached. A case that let the prompt
-# render would read /dev/tty and block the suite on an answer no test can give -- the reason
-# tests/unit/managed-assets.sh drives its own no-terminal case under setsid.
+# run_ensure <home> <umask> [confirm-rc] : source the helper in a fresh shell, run one umask, and drive
+# ensure_config_home for the calling account. Every case answers the prompt WITHOUT drawing it: AI_TOOLS_ASSUME_YES
+# fast-tracks the default-yes question, and a confirm-rc stubs the shared prompt to that status, which is
+# how the declined case is reached. A case that let the prompt render would read /dev/tty and block the suite
+# on an answer no test can give -- the reason tests/unit/managed-assets.sh drives its own no-terminal case under setsid.
 run_ensure() {
     AI_TOOLS_ASSUME_YES=1 bash -c '
         set -euo pipefail

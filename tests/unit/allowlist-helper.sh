@@ -2,18 +2,17 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/allowlist-helper.sh
 # Hermetic unit tests for the deployed ai-tools-allowlist helper: the privileged seam behind
-# `ai-tools ... --for <operator>`, which reads and edits ANOTHER enrolled operator's
-# allowed-projects. Because that file is a LAUNCH GATE, every gate on the way to it is asserted to
-# fire and to leave the registry byte-identical: an absent sudo context, an unenrolled caller, an
-# unenrolled or non-operator target, and a protected system directory as the path.
+# `ai-tools ... --for <operator>`, which reads and edits ANOTHER enrolled operator's allowed-projects. Because that file
+# is a LAUNCH GATE, every gate on the way to it is asserted to fire and to leave the registry byte-identical: an absent
+# sudo context, an unenrolled caller, an unenrolled or non-operator target, and a protected system directory
+# as the path.
 #
-# This is the runtime half of the pair -- that each refusal actually fires. The boundary half, that
-# the sandbox account cannot reach the helper at all, is in tests/boundary/access.sh.
+# This is the runtime half of the pair -- that each refusal actually fires. The boundary half, that the sandbox account
+# cannot reach the helper at all, is in tests/boundary/access.sh.
 #
-# The add/remove/print mechanics are exercised with the target set to the PRIMARY operator, since
-# that is the identity the AI_TOOLS_ALLOWLIST fixture hook models (operator.lib.sh redirects only
-# the primary's path); the cross-operator routing itself is covered in tests/integration/cli.sh.
-# Run against a /tmp testdir as root.
+# The add/remove/print mechanics are exercised with the target set to the PRIMARY operator, since that is the identity
+# the AI_TOOLS_ALLOWLIST fixture hook models (operator.lib.sh redirects only the primary's path); the cross-operator
+# routing itself is covered in tests/integration/cli.sh. Run against a /tmp testdir as root.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -34,18 +33,16 @@ chmod 0755 "${TESTDIR}" "${proj}"
 mk_allowlist "# fixture allowlist"
 mk_operator
 readonly ALLOWFILE="${TESTDIR}/allowed-projects"
-# The harness writes the fixture as root; a real allowlist is the operator's own file, 0600 in a
-# 0700 config dir. Model that, because "the helper leaves the registry as its operator's data
-# rather than taking it over as root" is one of the properties this suite asserts -- against a
-# root-owned fixture it would pass trivially.
+# The harness writes the fixture as root; a real allowlist is the operator's own file, 0600 in a 0700 config dir. Model
+# that, because "the helper leaves the registry as its operator's data rather than taking it over as root" is one
+# of the properties this suite asserts -- against a root-owned fixture it would pass trivially.
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ALLOWFILE}"
 chmod 600 "${ALLOWFILE}"
 OPERATOR_UID="$(id -u "${PROJECTS_USER}")"
 readonly OPERATOR_UID
 
-# run_helper <sudo-uid> <args...>: invoke the helper as root with an explicit SUDO_UID, the
-# kernel-supplied caller identity it authorizes against. An empty <sudo-uid> unsets it, modelling a
-# bare root call with no sudo context.
+# run_helper <sudo-uid> <args...>: invoke the helper as root with an explicit SUDO_UID, the kernel-supplied caller
+# identity it authorizes against. An empty <sudo-uid> unsets it, modelling a bare root call with no sudo context.
 run_helper() {
     local uid="$1"; shift
     if [[ -z "${uid}" ]]; then
@@ -61,11 +58,10 @@ run_helper() {
     fi
 }
 
-# refuses <label> <code> <sudo-uid> <args...>: the helper must exit non-zero, name the situation
-# with <code>, and leave the allowlist unchanged. The unchanged-file assertion is the point: a gate
-# that refuses after a partial write would still have widened a launch gate. The code is what tells
-# two refusals apart -- the caller and the target are both refused as "not a configured ai-tools
-# operator", and a substring cannot say which fired.
+# refuses <label> <code> <sudo-uid> <args...>: the helper must exit non-zero, name the situation with <code>, and leave
+# the allowlist unchanged. The unchanged-file assertion is the point: a gate that refuses after a partial write would
+# still have widened a launch gate. The code is what tells two refusals apart -- the caller and the target are both
+# refused as "not a configured ai-tools operator", and a substring cannot say which fired.
 refuses() {
     local label="$1" code="$2" uid="$3"; shift 3
     local before after out rc
@@ -83,8 +79,8 @@ refuses() {
     fi
 }
 
-# (1) No sudo context. A direct root call does not carry an operator identity, so there is nobody to
-# authorize the edit; defaulting to some operator is exactly the fail-open this refuses.
+# (1) No sudo context. A direct root call does not carry an operator identity, so there is nobody to authorize the edit;
+# defaulting to some operator is exactly the fail-open this refuses.
 refuses "refuses a bare root call (no SUDO_UID)" MSG-T6R6 \
     "" --operator "${PROJECTS_USER}" --add "${proj}"
 
@@ -92,18 +88,17 @@ refuses "refuses a bare root call (no SUDO_UID)" MSG-T6R6 \
 refuses "refuses a caller that is not a configured operator" MSG-J6J3 \
     0 --operator "${PROJECTS_USER}" --add "${proj}"
 
-# (3) The target must be enrolled: ai-tools-setfacl and the handback helpers resolve a path's owner
-# over OPERATORS, so an entry for an unenrolled name is a launch gate no helper can act on.
+# (3) The target must be enrolled: ai-tools-setfacl and the handback helpers resolve a path's owner over OPERATORS,
+# so an entry for an unenrolled name is a launch gate no helper can act on.
 refuses "refuses an unenrolled target operator" MSG-M3R6 \
     "${OPERATOR_UID}" --operator "definitely-not-an-operator" --add "${proj}"
 
-# (4) The sandbox account is not an operator and must never own projects -- it would be the agent
-# holding its own launch gate.
+# (4) The sandbox account is not an operator and must never own projects -- it would be the agent holding its own launch
+# gate.
 refuses "refuses the sandbox account as the target" MSG-Y3B2 \
     "${OPERATOR_UID}" --operator "${SANDBOX_USER}" --add "${proj}"
 
-# (5) Protected-paths backstop: a system directory is refused as a target even for a fully
-# authorized caller and target.
+# (5) Protected-paths backstop: a system directory is refused as a target even for a fully authorized caller and target.
 refuses "refuses a protected system directory as the path" MSG-Q6H3 \
     "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add /etc
 
@@ -122,11 +117,10 @@ refuses "refuses two actions at once" MSG-C5G8 \
     "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --print --add "${proj}"
 refuses "refuses a missing --operator" MSG-X4Z3 "${OPERATOR_UID}" --print
 
-# (9) A target with no config yet. Enrolment is what creates an operator's allowlist, so a
-# missing one means the account reached OPERATORS another way; the helper does not create the
-# file and names the command that does, because seeding here would leave the account with a launch
-# gate and no secret-patterns file beside it. Driven by pointing the fixture hook at a path that does not
-# exist, which is the state a hand-enrolled account is in.
+# (9) A target with no config yet. Enrolment is what creates an operator's allowlist, so a missing one means the account
+# reached OPERATORS another way; the helper does not create the file and names the command that does, because seeding
+# here would leave the account with a launch gate and no secret-patterns file beside it. Driven by pointing the fixture
+# hook at a path that does not exist, which is the state a hand-enrolled account is in.
 before_missing="$(md5sum < "${ALLOWFILE}")"
 out="$(env SUDO_UID="${OPERATOR_UID}" \
     AI_TOOLS_ALLOWLIST="${TESTDIR}/no-config/allowed-projects" \
@@ -192,10 +186,10 @@ else
     fail "--remove failed on an already-removed project (rc=${rc}): ${out}"
 fi
 
-# ── `--disable` / `--enable`: the privileged half of `ai-tools --project-disable`/`--project-enable` ──
-# What separates them from an add/remove pair is that they edit the operator's OWN line in place.
-# A `--for` target's allowlist is as much a curated document as the invoker's, so the position and
-# the comment must survive a park/restore performed by root on someone else's file.
+# ── `--disable` / `--enable`: the privileged half of `ai-tools --project-disable`/`--project-enable` ── What separates
+# them from an add/remove pair is that they edit the operator's OWN line in place. A `--for` target's allowlist is
+# as much a curated document as the invoker's, so the position and the comment must survive a park/restore performed
+# by root on someone else's file.
 printf '%s\n' "# fixture allowlist" "${proj}   # payments, dev stage" > "${ALLOWFILE}"
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ALLOWFILE}"; chmod 600 "${ALLOWFILE}"
 before="$(cat "${ALLOWFILE}")"
@@ -214,8 +208,8 @@ else
     fail "--disable left the allowlist as ${owner} ${mode}, expected ${PROJECTS_USER} 600"
 fi
 
-# A parked project is NOT an unlisted one: adding over it would leave the '!' winning at the
-# launch gate while the caller was told the project was registered.
+# A parked project is NOT an unlisted one: adding over it would leave the '!' winning at the launch gate while
+# the caller was told the project was registered.
 refuses "--add refuses a disabled project" MSG-T7B6 \
     "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${proj}"
 
@@ -233,11 +227,10 @@ else
     fail "--enable failed on an enabled project (rc=${rc}): ${out}"
 fi
 
-# Neither verb may INVENT an entry: registering a project is a claim, which scans for secrets
-# before granting access. `--enable` reports and succeeds (no exclusion to lift); `--disable` refuses,
-# since a caller asking to park an unregistered path has the wrong path or the wrong verb.
-# Compared whole-file, not by substring: every fixture entry lives UNDER ${TESTDIR}, so a
-# substring test matches the line that is legitimately there and inverts the assertion.
+# Neither verb may INVENT an entry: registering a project is a claim, which scans for secrets before granting access.
+# `--enable` reports and succeeds (no exclusion to lift); `--disable` refuses, since a caller asking to park
+# an unregistered path has the wrong path or the wrong verb. Compared whole-file, not by substring: every fixture entry
+# lives UNDER ${TESTDIR}, so a substring test matches the line that is legitimately there and inverts the assertion.
 before="$(cat "${ALLOWFILE}")"
 out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --enable "${TESTDIR}")" && rc=0 || rc=$?
 if (( rc == 0 )) && [[ "$(cat "${ALLOWFILE}")" == "${before}" ]]; then

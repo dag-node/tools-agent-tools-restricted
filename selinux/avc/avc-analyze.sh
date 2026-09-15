@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# selinux/avc/avc-analyze.sh -- collect the ai_tools_t AVCs logged since the last
-# avc-testsuite.sh run and sort them into three buckets: EXPECTED BOUNDARY (accesses
-# ai_tools.te dontaudits and does not grant any allow rule for -- they must stay denied,
-# NOT be added), EXPECTED GROUP-DISABLED (accesses only an optional policy group would
-# allow, so the fix is enable-group, not a core change), and NEW (the candidates to fold
-# into the policy). NEW must be 0 to pass. RUN AS ROOT (it reads the audit log).
+# selinux/avc/avc-analyze.sh -- collect the ai_tools_t AVCs logged since the last avc-testsuite.sh run and sort them
+# into three buckets: EXPECTED BOUNDARY (accesses ai_tools.te dontaudits and does not grant any allow rule for -- they
+# must stay denied, NOT be added), EXPECTED GROUP-DISABLED (accesses only an optional policy group would allow,
+# so the fix is enable-group, not a core change), and NEW (the candidates to fold into the policy). NEW must be 0
+# to pass. RUN AS ROOT (it reads the audit log).
 #
 # Usage:
 #   sudo ./avc-analyze.sh                       # from the marker avc-testsuite.sh wrote
 #   sudo ./avc-analyze.sh -ts "06/01/2026 02:40:00"   # explicit start
 #   sudo ./avc-analyze.sh -ts today
 #
-# The privilege split is deliberate: the agent (ai_tools_t) exercises the surface
-# but cannot read /var/log/audit; <you> (root) does the analysis. So the two halves
-# are two scripts, not one.
+# The privilege split is deliberate: the agent (ai_tools_t) exercises the surface but cannot read /var/log/audit; <you>
+# (root) does the analysis. So the two halves are two scripts, not one.
 
 set -uo pipefail
 IFS=$'\n\t'
@@ -27,8 +25,8 @@ readonly SUBJ="ai_tools_t"
 command -v ausearch    >/dev/null || { echo "avc-analyze: ausearch not found (audit pkg)" >&2; exit 1; }
 command -v audit2allow >/dev/null || { echo "avc-analyze: audit2allow not found (policycoreutils-devel)" >&2; exit 1; }
 
-# Flags: `--suggest` appends the (verbose) `audit2allow -R` policy proposal; off by
-# default so the report stays short. Must precede `-ts` (which consumes the rest).
+# Flags: `--suggest` appends the (verbose) `audit2allow -R` policy proposal; off by default so the report stays short.
+# Must precede `-ts` (which consumes the rest).
 SUGGEST=0
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
@@ -85,18 +83,15 @@ fi
 #   3. Other-domain /proc reads -- dev="proc" with a non-ai_tools tcontext
 #      (domain_dontaudit_read_all_domains_state covers these; they appear as
 #       tcontext=<daemon_t> but are NOT in the named optional-group list)
-# Core boundary types (dontaudit'd -- actively silenced because they are operational
-# noise with no security value in the audit log).
-# Extended boundary types (section 6 in ai_tools.te -- dontaudit rules are COMMENTED so
-# breach attempts ARE logged; listed here so avc-analyze classifies them as EXPECTED
-# BOUNDARY rather than NEW when they appear, giving the operator a clear signal that the
-# policy is working correctly rather than misreporting them as unclassified gaps).
-# This is a CLASSIFICATION regex only -- it tags log lines, never grants/denies anything,
-# so it is safe to carry type names that do not exist on every distro. Several types vary
-# by selinux-policy version, so BOTH spellings are listed: etc_sudoers_t (RHEL 9 full
-# policy; some builds use etc_t, whose reads are already allowed and so never denied) and
-# user_runtime_t|user_tmp_t (/run/user/<uid> -- user_runtime_t on standard RHEL 9,
-# user_tmp_t on this UEK build). See the portability note in ai_tools.te section (6).
+# Core boundary types (dontaudit'd -- actively silenced because they are operational noise with no security value
+# in the audit log). Extended boundary types (section 6 in ai_tools.te -- dontaudit rules are COMMENTED so breach
+# attempts ARE logged; listed here so avc-analyze classifies them as EXPECTED BOUNDARY rather than NEW when they appear,
+# giving the operator a clear signal that the policy is working correctly rather than misreporting them as unclassified
+# gaps). This is a CLASSIFICATION regex only -- it tags log lines, never grants/denies anything, so it is safe to carry
+# type names that do not exist on every distro. Several types vary by selinux-policy version, so BOTH spellings are
+# listed: etc_sudoers_t (RHEL 9 full policy; some builds use etc_t, whose reads are already allowed and so never denied)
+# and user_runtime_t|user_tmp_t (/run/user/<uid> -- user_runtime_t on standard RHEL 9, user_tmp_t on this UEK build).
+# See the portability note in ai_tools.te section (6).
 readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home_t|container_file_t|sendmail_exec_t|ssh_port_t|smtp_port_t|mysqld_port_t|postgresql_port_t|usb_device_t|shadow_t|etc_sudoers_t|admin_home_t|user_runtime_t|user_tmp_t|system_dbusd_var_run_t|syslogd_var_run_t|container_var_run_t|sysctl_t|sysctl_kernel_t|memory_device_t|fixed_disk_device_t|user_cron_spool_t|system_cron_spool_t|systemd_unit_file_t)'
 
 # Target types granted ONLY by an optional policy group (systemd / pkgmgmt /
@@ -109,21 +104,18 @@ readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home
 #   netadmin -> firewalld_t, NetworkManager_t   (firewall-cmd/nmcli D-Bus chat)
 #   podman   -> container_runtime_exec_t        (container_file_t is a BOUNDARY type:
 #                                                core dontaudit's it regardless)
-# tmpmap is handled separately (_g2): its type, ai_tools_tmp_t, is core-granted
-# for read/write, so it is matched on the `map` PERMISSION, not the type alone.
-# apphost is handled separately (_g3): the core does not grant a permission on tmpfs_t:file, so
-# the whole memfd surface the .NET JIT/apphost touches (write to size it, map, and the
-# defining execute) is that group -- matched on the tmpfs_t:file TYPE.
-# localipc and buildexec are handled separately (_g4): the .NET runtime's sockets/FIFOs
-# under tmp/home, getsid, and executing a built binary from the project tree -- matched on
-# those classes/perms, which the base grants nowhere.
+# tmpmap is handled separately (_g2): its type, ai_tools_tmp_t, is core-granted for read/write, so it is matched
+# on the `map` PERMISSION, not the type alone. apphost is handled separately (_g3): the core does not grant a permission
+# on tmpfs_t:file, so the whole memfd surface the .NET JIT/apphost touches (write to size it, map, and the defining
+# execute) is that group -- matched on the tmpfs_t:file TYPE. localipc and buildexec are handled separately (_g4):
+# the .NET runtime's sockets/FIFOs under tmp/home, getsid, and executing a built binary from the project tree -- matched
+# on those classes/perms, which the base grants nowhere.
 readonly GROUP_DISABLED_RE='(systemd_systemctl_exec_t|journalctl_exec_t|systemd_unit_file_t|rpm_exec_t|rpm_var_lib_t|firewalld_t|NetworkManager_t|container_runtime_exec_t)'
 
 # One line per denial, from the raw AVC records.
 LINES="$(printf '%s\n' "${RAW}" | grep -E '^type=AVC|avc:.*denied' || true)"
 
-# Build the boundary set from the three categories, deduplicated.
-# Category 1: known named types.
+# Build the boundary set from the three categories, deduplicated. Category 1: known named types.
 _b1="$(printf '%s\n' "${LINES}" | grep -E "tcontext=[^ ]*:${BOUNDARY_NAMED_RE}:" || true)"
 # Category 2: any *_port_t that is NOT http_port_t.
 _b2="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:[a-z_]+_port_t:' | grep -Ev 'tcontext=[^ ]*:http_port_t:' || true)"
@@ -132,35 +124,30 @@ _b3="$(printf '%s\n' "${LINES}" | grep -E 'dev="proc"' | grep -Ev 'tcontext=[^ ]
 
 boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" | sort -u | grep -v '^$' || true)"
 
-# Group-disabled set: lines hitting a GROUP_DISABLED_RE type, MINUS anything
-# already claimed by boundary (boundary wins, so each line lands in one bucket --
-# e.g. a /proc read of NetworkManager_t stays boundary, its D-Bus chat is group).
+# Group-disabled set: lines hitting a GROUP_DISABLED_RE type, MINUS anything already claimed by boundary (boundary wins,
+# so each line lands in one bucket -- e.g. a /proc read of NetworkManager_t stays boundary, its D-Bus chat is group).
 _g="$(printf '%s\n' "${LINES}" | grep -E "tcontext=[^ ]*:${GROUP_DISABLED_RE}:" || true)"
-# tmpmap group: the `map` permission on the sandbox's own /tmp files. ai_tools_tmp_t
-# is a core-granted type (read/write/create), so match on the permission -- only a
-# `map` denial here is the disabled group. An execute denial on it stays NEW
-# (deliberately never granted; /tmp is noexec regardless).
+# tmpmap group: the `map` permission on the sandbox's own /tmp files. ai_tools_tmp_t is a core-granted type
+# (read/write/create), so match on the permission -- only a `map` denial here is the disabled group. An execute denial
+# on it stays NEW (deliberately never granted; /tmp is noexec regardless).
 _g2="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:ai_tools_tmp_t:' | grep -E 'denied.*\bmap\b' || true)"
-# apphost group: any access to a tmpfs (memfd) file. Unlike ai_tools_tmp_t,
-# tmpfs_t:file is NOT core-granted at all -- so the whole surface .NET's JIT/apphost needs
-# (write to size the memfd, map both mappings, execute the PROT_EXEC one) is denied while
-# the group is off, and all of it is this group. Match on the TYPE, so a core-only run does
-# not misfile the write/map denials as NEW; `execute` is the highest-risk perm and the
-# reason it is gated. (The graduation-to-stable step scopes the grant to a private memfd
-# type, at which point this matches that type instead of the shared tmpfs_t.)
+# apphost group: any access to a tmpfs (memfd) file. Unlike ai_tools_tmp_t, tmpfs_t:file is NOT core-granted at all --
+# so the whole surface .NET's JIT/apphost needs (write to size the memfd, map both mappings, execute the PROT_EXEC one)
+# is denied while the group is off, and all of it is this group. Match on the TYPE, so a core-only run does not misfile
+# the write/map denials as NEW; `execute` is the highest-risk perm and the reason it is gated. (The graduation-to-stable
+# step scopes the grant to a private memfd type, at which point this matches that type instead of the shared tmpfs_t.)
 _g3="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:tmpfs_t:file' || true)"
-# localipc + buildexec: three disjoint signals the base grants nowhere -- the .NET runtime's
-# unix sockets / debug FIFOs (created under tmp_t or ai_tools_home_t) and getsid (process
-# getsession), both localipc; and executing a native binary built in the project tree, buildexec
-# (file execute/execmod/execute_no_trans on ai_tools_project_build_t, the type it grants, and
-# on ai_tools_project_t, which it does not -- output that landed outside the layout module's
-# directories, or a hook, is denied with the group ON too, and still files here rather than as
-# NEW; `map` on either type is core-granted, so it is not a signal).
+# localipc + buildexec: three disjoint signals the base grants nowhere -- the .NET runtime's unix sockets / debug FIFOs
+# (created under tmp_t or ai_tools_home_t) and getsid (process getsession), both localipc; and executing a native binary
+# built in the project tree, buildexec (file execute/execmod/execute_no_trans on ai_tools_project_build_t, the type it
+# grants, and on ai_tools_project_t, which it does not -- output that landed outside the layout module's directories,
+# or a hook, is denied with the group ON too, and still files here rather than as NEW; `map` on either type is
+# core-granted, so it is not a signal).
 _g4a="$(printf '%s\n' "${LINES}" | grep -E 'tclass=(sock_file|fifo_file)' | grep -E 'denied.*\bcreate\b' || true)"
 _g4b="$(printf '%s\n' "${LINES}" | grep -E 'denied[^}]*\bgetsession\b' || true)"
 _g4c="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:ai_tools_project(_build)?_t:' | grep -E 'denied.*\b(execute|execmod|execute_no_trans)\b' || true)"
-# connectto to the domain's own unix stream sockets (the MTP test-host IPC): the base grants
-# create_stream_socket_perms on self but not connectto, so this is localipc too.
+# connectto to the domain's own unix stream sockets (the MTP test-host IPC): the base grants create_stream_socket_perms
+# on self but not connectto, so this is localipc too.
 _g4d="$(printf '%s\n' "${LINES}" | grep -E 'tclass=unix_stream_socket' | grep -E 'denied.*\bconnectto\b' || true)"
 _g4="$(printf '%s\n' "${_g4a}" "${_g4b}" "${_g4c}" "${_g4d}" | grep -v '^$' || true)"
 _g="$(printf '%s\n' "${_g}" "${_g2}" "${_g3}" "${_g4}" | grep -v '^$' || true)"

@@ -1,23 +1,21 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/claude-prompt.lib.sh
-# Resolves the Claude Code launch arguments that carry an operator-configured custom system
-# prompt, from operator.conf's CLAUDE_SYSTEM_PROMPT_FILE / CLAUDE_SYSTEM_PROMPT_MODE keys. Sourced
-# (never executed) by claude.sh just before it execs the session; the pure resolution is split from
-# the wrapper so tests/unit/claude-prompt.sh drives it apart from a real launch. Claude Code-specific
-# (the four --{,append-}system-prompt{,-file} flags are its own), so it ships with the agent
-# wrapper rather than in the agent-agnostic shim, and the keys are prefixed CLAUDE_ for the same
+# Resolves the Claude Code launch arguments that carry an operator-configured custom system prompt, from operator.conf's
+# CLAUDE_SYSTEM_PROMPT_FILE / CLAUDE_SYSTEM_PROMPT_MODE keys. Sourced (never executed) by claude.sh just before it execs
+# the session; the pure resolution is split from the wrapper so tests/unit/claude-prompt.sh drives it apart from a real
+# launch. Claude Code-specific (the four --{,append-}system-prompt{,-file} flags are its own), so it ships
+# with the agent wrapper rather than in the agent-agnostic shim, and the keys are prefixed CLAUDE_ for the same
 # reason.
 #
-# Fail closed WHEN CONFIGURED: an unconfigured host launches with Claude Code's default prompt,
-# and a configured prompt that cannot be honoured makes the resolver return non-zero and claude.sh
-# refuse the launch -- launching with the default instead would be a wrong result, not a safe
-# degradation. A per-invocation --{,append-}system-prompt{,-file} flag steps the standing default
-# aside with no refusal. What a configured prompt must satisfy, and why the base is
-# /etc/ai-tools/prompts/ (the one etc_t place the confined domain reads), are in
-# agent-claude-code.rule.md. The file is resolved here as the operator and read by the confined
-# binary as the sandbox account, so each path component and operator.conf itself pass
-# ai_tools_conf_is_trusted: the sandbox account cannot swap the prompt between resolution and read.
+# Fail closed WHEN CONFIGURED: an unconfigured host launches with Claude Code's default prompt, and a configured prompt
+# that cannot be honoured makes the resolver return non-zero and claude.sh refuse the launch -- launching
+# with the default instead would be a wrong result, not a safe degradation. A per-invocation
+# --{,append-}system-prompt{,-file} flag steps the standing default aside with no refusal. What a configured prompt must
+# satisfy, and why the base is /etc/ai-tools/prompts/ (the one etc_t place the confined domain reads), are
+# in agent-claude-code.rule.md. The file is resolved here as the operator and read by the confined binary as the sandbox
+# account, so each path component and operator.conf itself pass ai_tools_conf_is_trusted: the sandbox account cannot
+# swap the prompt between resolution and read.
 
 # Include-guarded: claude.sh and the unit test may both source this and its dependencies.
 if [[ -n "${_AI_TOOLS_CLAUDE_PROMPT_LIB:-}" ]]; then
@@ -25,23 +23,22 @@ if [[ -n "${_AI_TOOLS_CLAUDE_PROMPT_LIB:-}" ]]; then
 fi
 readonly _AI_TOOLS_CLAUDE_PROMPT_LIB=1
 
-# The shared KEY=value grammar (ai_tools_conf_read) and the trust predicate
-# (ai_tools_conf_is_trusted). Include-guarded, so a re-source in a shell that already has it is a
-# no-op. claude.sh loads and verifies it before this lib, so in production it is already present;
-# sourced here too so the unit test can drive this lib directly.
+# The shared KEY=value grammar (ai_tools_conf_read) and the trust predicate (ai_tools_conf_is_trusted). Include-guarded,
+# so a re-source in a shell that already has it is a no-op. claude.sh loads and verifies it before this lib,
+# so in production it is already present; sourced here too so the unit test can drive this lib directly.
 if [[ -z "${_AI_TOOLS_CONF_LIB:-}" ]]; then
     # shellcheck source=SCRIPTDIR/conf.lib.sh
     source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null || true
 fi
-# Warnings render through msg.lib (ai_tools_msg_warn), best-effort: a missing formatter drops the
-# warning text, never the refusal it accompanies (the caller acts on the return code, not the text).
+# Warnings render through msg.lib (ai_tools_msg_warn), best-effort: a missing formatter drops the warning text, never
+# the refusal it accompanies (the caller acts on the return code, not the text).
 if [[ -z "${_AI_TOOLS_MSG_LIB_LOADED:-}" ]]; then
     # shellcheck source=SCRIPTDIR/msg.lib.sh
     source /usr/local/lib/ai-tools/msg.lib.sh 2>/dev/null || true
 fi
 
-# _ai_tools_claude_warn <line...>: warn through msg.lib when present, else a plain stderr line, so a
-# resolution refusal is visible whether or not the formatter loaded.
+# _ai_tools_claude_warn <line...>: warn through msg.lib when present, else a plain stderr line, so a resolution refusal
+# is visible whether or not the formatter loaded.
 _ai_tools_claude_warn() {
     if declare -F ai_tools_msg_warn >/dev/null 2>&1; then
         ai_tools_msg_warn "$@"
@@ -50,9 +47,9 @@ _ai_tools_claude_warn() {
     fi
 }
 
-# _ai_tools_claude_argv_has_prompt_flag <arg...>: succeed when any argument is one of Claude Code's
-# system-prompt flags, in either the `--flag value` or `--flag=value` form. Presence means the
-# operator is steering this one launch's prompt by hand, so the standing operator.conf default steps
+# _ai_tools_claude_argv_has_prompt_flag <arg...>: succeed when any argument is one of Claude Code's system-prompt flags,
+# in either the `--flag value` or `--flag=value` form. Presence means the operator is steering this one launch's prompt
+# by hand, so the standing operator.conf default steps
 # aside.
 _ai_tools_claude_argv_has_prompt_flag() {
     local arg
@@ -108,9 +105,9 @@ ai_tools_claude_resolve_prompt_args() {
     shift 2
     _ai_tools_claude_prompt_out=()
 
-    # Without the grammar parser this lib cannot tell configured from unconfigured, so it cannot
-    # promise the baseline is safe -- fail closed. In production conf.lib is a hard, verified
-    # dependency of claude.sh loaded before this lib, so this only fires on a broken install.
+    # Without the grammar parser this lib cannot tell configured from unconfigured, so it cannot promise the baseline is
+    # safe -- fail closed. In production conf.lib is a hard, verified dependency of claude.sh loaded before this lib,
+    # so this only fires on a broken install.
     if ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
             || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1; then
         _ai_tools_claude_warn "the config library is unavailable, so a custom system prompt cannot be resolved"
@@ -119,23 +116,23 @@ ai_tools_claude_resolve_prompt_args() {
 
     local base_dir="${AI_TOOLS_PROMPT_BASE_DIR:-/etc/ai-tools/prompts}"
 
-    # A per-invocation flag wins: skip the operator.conf default entirely rather than passing both
-    # and depending on which the binary's parser keeps (two same-kind flags may even be rejected).
+    # A per-invocation flag wins: skip the operator.conf default entirely rather than passing both and depending
+    # on which the binary's parser keeps (two same-kind flags may even be rejected).
     if _ai_tools_claude_argv_has_prompt_flag "$@"; then
         return 0
     fi
 
-    # Is a prompt configured at all? Read it first; an absent or empty key is the baseline, and the
-    # trust of operator.conf only has to be established once a value is in play.
+    # Is a prompt configured at all? Read it first; an absent or empty key is the baseline, and the trust
+    # of operator.conf only has to be established once a value is in play.
     local prompt_file=""
     if ai_tools_conf_read "${operator_conf}" CLAUDE_SYSTEM_PROMPT_FILE 2>/dev/null; then
         prompt_file="${_ai_tools_conf_value}"
     fi
     [[ -n "${prompt_file}" ]] || return 0            # not configured: launch with the default prompt
 
-    # From here a prompt IS configured, so every failure is a refusal (return 1), never a silent
-    # fall-back. The value came FROM operator.conf, so operator.conf must itself be trustworthy
-    # before its value is honoured -- the same predicate providers.lib.sh applies to a manifest.
+    # From here a prompt IS configured, so every failure is a refusal (return 1), never a silent fall-back. The value
+    # came FROM operator.conf, so operator.conf must itself be trustworthy before its value is honoured -- the same
+    # predicate providers.lib.sh applies to a manifest.
     if ! ai_tools_conf_is_trusted "${operator_conf}"; then
         _ai_tools_claude_warn "${operator_conf} is not root-owned or is group/other-writable -- refusing to apply the configured system prompt"
         return 1
@@ -147,15 +144,15 @@ ai_tools_claude_resolve_prompt_args() {
         return 1
     fi
 
-    # Reject a symlink at the configured path outright (before canonicalizing), so a link planted in
-    # a writable directory cannot redirect the read at a file outside the trusted base.
+    # Reject a symlink at the configured path outright (before canonicalizing), so a link planted in a writable
+    # directory cannot redirect the read at a file outside the trusted base.
     if ! ai_tools_conf_is_trusted "${prompt_file}"; then
         _ai_tools_claude_warn "CLAUDE_SYSTEM_PROMPT_FILE (${prompt_file}) is missing, a symlink, not root-owned, or group/other-writable"
         return 1
     fi
 
-    # Canonicalize the base and the file, then require the file to sit under the base. realpath
-    # collapses any '..' so the containment check cannot be smuggled past.
+    # Canonicalize the base and the file, then require the file to sit under the base. realpath collapses any '..'
+    # so the containment check cannot be smuggled past.
     local base_canon file_canon
     base_canon="$(realpath -m -- "${base_dir}" 2>/dev/null)" || {
         _ai_tools_claude_warn "cannot resolve the prompt base ${base_dir}"
@@ -170,8 +167,8 @@ ai_tools_claude_resolve_prompt_args() {
         return 1
     fi
 
-    # The base and the file's own directory must be trusted too: a group-writable directory anywhere
-    # on the way lets a non-root writer replace the root-owned file the trust check approved.
+    # The base and the file's own directory must be trusted too: a group-writable directory anywhere on the way lets
+    # a non-root writer replace the root-owned file the trust check approved.
     if ! ai_tools_conf_is_trusted "${base_canon}"; then
         _ai_tools_claude_warn "the prompt base ${base_dir} is not root-owned or is group/other-writable"
         return 1
@@ -183,17 +180,16 @@ ai_tools_claude_resolve_prompt_args() {
         return 1
     fi
 
-    # A prompt is text the model reads, so refuse a binary blob (an ELF, a compiled artifact) whose
-    # bytes would otherwise land verbatim in the system prompt.
-    # A stat, not a read: this runs as the operator, who cannot read the 0640 file. Whether the
-    # content is text is checked sandbox-side (ai_tools_claude_prompt_content_is_text).
+    # A prompt is text the model reads, so refuse a binary blob (an ELF, a compiled artifact) whose bytes would
+    # otherwise land verbatim in the system prompt. A stat, not a read: this runs as the operator, who cannot read
+    # the 0640 file. Whether the content is text is checked sandbox-side (ai_tools_claude_prompt_content_is_text).
     if [[ ! -f "${file_canon}" ]]; then
         _ai_tools_claude_warn "CLAUDE_SYSTEM_PROMPT_FILE (${prompt_file}) is not a regular file -- a system prompt is one plain file"
         return 1
     fi
 
-    # Mode is an allowlist: append (the default) keeps Claude Code's built-in tool-use/safety
-    # guidance and layers the file after it; replace drops the default entirely.
+    # Mode is an allowlist: append (the default) keeps Claude Code's built-in tool-use/safety guidance and layers
+    # the file after it; replace drops the default entirely.
     local prompt_mode="append"
     if ai_tools_conf_read "${operator_conf}" CLAUDE_SYSTEM_PROMPT_MODE 2>/dev/null; then
         [[ -n "${_ai_tools_conf_value}" ]] && prompt_mode="${_ai_tools_conf_value}"

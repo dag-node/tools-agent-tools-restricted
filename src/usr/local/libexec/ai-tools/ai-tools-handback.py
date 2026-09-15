@@ -3,9 +3,8 @@
 # /usr/local/libexec/ai-tools/ai-tools-handback
 # Socket-activated per-connection privilege bridge for the ai-tools sandbox.
 #
-# Spawned once per connection by ai-tools-handback@.service (Accept=yes socket
-# activation) with the accepted AF_UNIX socket as stdin AND stdout.  Serves one
-# request then exits.
+# Spawned once per connection by ai-tools-handback@.service (Accept=yes socket activation) with the accepted AF_UNIX
+# socket as stdin AND stdout.  Serves one request then exits.
 #
 # Protocol (UTF-8, LF-terminated):
 #   request:   VERB SP ARGUMENT LF
@@ -26,27 +25,23 @@
 #     the allowlist, exclusions, and path constraints -- the helpers are the trust
 #     boundary and this handler does NOT duplicate that logic.
 #
-# stderr relay: the root helpers print NOTICE lines to stderr (e.g. when a
-# secret-named file is detected).  This handler captures helper stderr, echoes
-# each line to its own stderr (-> journal via StandardError=journal), and relays
-# each line as a MSG response line so the client can forward it to its own stderr,
-# which the hooks forward to the agent session -- preserving the NOTICE UX.
+# stderr relay: the root helpers print NOTICE lines to stderr (e.g. when a secret-named file is detected).  This handler
+# captures helper stderr, echoes each line to its own stderr (-> journal via StandardError=journal), and relays each
+# line as a MSG response line so the client can forward it to its own stderr, which the hooks forward to the agent
+# session -- preserving the NOTICE UX.
 #
-# Audit trail (_audit): the daemon records its own events -- rejected peers, malformed or
-# refused requests, helper timeouts/exec failures, and one line per served request -- to
-# journald AND the root-only /var/log/ai-tools/handback.log, the socket-layer counterpart to
-# the helpers' chown.log/setgid.log/symlink.log.  Only the root daemon writes the file; the
-# agent-side client cannot (DAC), so it stays journald-only.
+# Audit trail (_audit): the daemon records its own events -- rejected peers, malformed or refused requests, helper
+# timeouts/exec failures, and one line per served request -- to journald AND the root-only
+# /var/log/ai-tools/handback.log, the socket-layer counterpart to the helpers' chown.log/setgid.log/symlink.log.  Only
+# the root daemon writes the file; the agent-side client cannot (DAC), so it stays journald-only.
 #
-# Each journald record carries native fields beside its MESSAGE (AI_TOOLS_SESSION_UNIT,
-# _VERB, _PATH, _RESULT), written as one datagram to the journal socket.  The session unit
-# is the field only this daemon can supply, since a root helper does not run
-# in the session's unit; the SO_PEERCRED uid authorizes a request and this value labels
-# the record
+# Each journald record carries native fields beside its MESSAGE (AI_TOOLS_SESSION_UNIT, _VERB, _PATH, _RESULT), written
+# as one datagram to the journal socket.  The session unit is the field only this daemon can supply, since a root helper
+# does not run in the session's unit; the SO_PEERCRED uid authorizes a request and this value labels the record
 # afterwards.  See .claude/rules/handback-bridge.rule.md.
 #
-# Installed 750 root:root as ai-tools-handback, with @SANDBOX_USER@ substituted at install.
-# Deploying from a checkout: docs/install-from-source.md.
+# Installed 750 root:root as ai-tools-handback, with @SANDBOX_USER@ substituted at install. Deploying from a checkout:
+# docs/install-from-source.md.
 
 import datetime
 import os
@@ -60,67 +55,61 @@ import unicodedata  # used by the deferred _sanitize_unicode_controlchars detect
 
 _SANDBOX_USER = '@SANDBOX_USER@'
 
-# Durable operation trail, co-located with the root helpers' own logs under the root-only
-# /var/log/ai-tools (dir 0700, files 0600 root:root; labelled ai_tools_log_t, which
-# ai_tools_handback_t may create/append -- see ai_tools.te). The daemon runs as root, so it
-# can write it; the client runs as the agent and cannot (DAC), so the file trail is the
-# daemon's alone, while the client stays journald-only. _audit records the events a reader
-# of chown.log/setgid.log/symlink.log would NOT otherwise see -- rejected peers, malformed
-# or refused requests, helper timeouts/exec failures -- plus one line per served request, so
-# the bridge's own activity is visible rather than inferred from the helpers' logs.
+# Durable operation trail, co-located with the root helpers' own logs under the root-only /var/log/ai-tools (dir 0700,
+# files 0600 root:root; labelled ai_tools_log_t, which ai_tools_handback_t may create/append -- see ai_tools.te).
+# The daemon runs as root, so it can write it; the client runs as the agent and cannot (DAC), so the file trail is
+# the daemon's alone, while the client stays journald-only. _audit records the events a reader
+# of chown.log/setgid.log/symlink.log would NOT otherwise see -- rejected peers, malformed or refused requests, helper
+# timeouts/exec failures -- plus one line per served request, so the bridge's own activity is visible rather than
+# inferred from the helpers' logs.
 _LOG_FILE = '/var/log/ai-tools/handback.log'
 
-# sd-daemon log-level prefixes: systemd's journal stream parses a leading "<N>" as the
-# syslog priority, so `journalctl -t ai-tools-handback -p warning` filters correctly without
-# spawning logger(1) (a subprocess the tight SystemCallFilter is better off not needing).
+# sd-daemon log-level prefixes: systemd's journal stream parses a leading "<N>" as the syslog priority,
+# so `journalctl -t ai-tools-handback -p warning` filters correctly without spawning logger(1) (a subprocess the tight
+# SystemCallFilter is better off not needing).
 _PRIO = {'error': '<3>', 'warning': '<4>', 'notice': '<5>', 'info': '<6>', 'debug': '<7>'}
 
-# The same mapping as the numeric priority the native protocol takes (RFC 5424 severity).
-# _PRIO carries the "<N>" prefix the stream protocol takes instead, so each sink reads
-# the priority in the spelling its own protocol defines.
+# The same mapping as the numeric priority the native protocol takes (RFC 5424 severity). _PRIO carries the "<N>" prefix
+# the stream protocol takes instead, so each sink reads the priority in the spelling its own protocol defines.
 _PRIO_NUMBER = {'error': '3', 'warning': '4', 'notice': '5', 'info': '6', 'debug': '7'}
 
 # The identifier each journald sink files this daemon's lines under: `journalctl -t ai-tools-handback -p warning`
 # selects them whichever sink wrote them.
 _IDENTIFIER = 'ai-tools-handback'
 
-# journald's native datagram socket. AI_TOOLS_JOURNAL_SOCKET moves it for the unit test,
-# with the same standing as AI_TOOLS_LOG_DIR: the daemon's environment comes from its
-# root-owned unit, so neither an operator nor the agent can redirect this trail
+# journald's native datagram socket. AI_TOOLS_JOURNAL_SOCKET moves it for the unit test, with the same standing
+# as AI_TOOLS_LOG_DIR: the daemon's environment comes from its root-owned unit, so neither an operator nor the agent can
+# redirect this trail
 # (tests.rule.md).
 _JOURNAL_SOCKET = os.environ.get('AI_TOOLS_JOURNAL_SOCKET', '/run/systemd/journal/socket')
 
-# The peer's own systemd user unit, resolved once the SO_PEERCRED check has accepted the peer,
-# and stamped on every record from then on. Empty until then, and on a host whose cgroup
-# cannot be read, which leaves the field absent instead of wrong.
+# The peer's own systemd user unit, resolved once the SO_PEERCRED check has accepted the peer, and stamped on every
+# record from then on. Empty until then, and on a host whose cgroup cannot be read, which leaves the field absent
+# instead of wrong.
 _session_unit = ''  # noqa: N816  -- module state, deliberately not a constant
 
 
 def _sanitize(msg):
     # type: (str) -> str
-    # Reduce the message to safe-for-display characters before it reaches either sink. A
-    # default-deny allowlist mirroring log.lib.sh's ai_tools_log_sanitize: keep only printable
-    # ASCII (0x20-0x7E) and replace every other code point -- ASCII controls, and the whole
-    # Unicode control/format/bidi space -- with '?'. Allowing a known-safe set (rather than
-    # blocklisting an open-ended set of dangerous code points) rejects every unknown by
-    # construction. The request-arg pre-filter already rejects a control BYTE, but a bidi
-    # override or zero-width character is a valid path byte that reaches this trail via the
-    # served-request line, so it is reduced here. (A deferred detector that instead flags such
-    # bytes as a malicious-attempt signal is noted in logging.rule.md.)
+    # Reduce the message to safe-for-display characters before it reaches either sink. A default-deny allowlist
+    # mirroring log.lib.sh's ai_tools_log_sanitize: keep only printable ASCII (0x20-0x7E) and replace every other code
+    # point -- ASCII controls, and the whole Unicode control/format/bidi space -- with '?'. Allowing a known-safe set
+    # (rather than blocklisting an open-ended set of dangerous code points) rejects every unknown by construction.
+    # The request-arg pre-filter already rejects a control BYTE, but a bidi override or zero-width character is a valid
+    # path byte that reaches this trail via the served-request line, so it is reduced here. (A deferred detector
+    # that instead flags such bytes as a malicious-attempt signal is noted in logging.rule.md.)
     return ''.join(c if ' ' <= c <= '~' else '?' for c in msg)
 
 
 def _sanitize_unicode_controlchars(msg):
     # type: (str) -> str
-    # DEFERRED -- retained, not yet called. The complement to _sanitize (the allowlist): where
-    # that reduces every non-ASCII code point to '?' for safe display, this targets exactly the
-    # control/format/bidi space -- Unicode general categories Cc, Cf, Cs, Co plus the
-    # line/paragraph separators Zl, Zp (U+2028/2029), and via unicodedata it also catches the
-    # astral tag characters (U+E0000-E007F) -- leaving ordinary text, spaces, and legitimate
-    # multi-byte UTF-8 intact. A sane agent never emits these in a path, so their presence is a
-    # malicious-attempt signal worth quarantine-logging rather than silently reducing. Kept so
-    # the authoritative UCD-backed set is not lost; wire it into a quarantine sink when that
-    # detector is built (see the "## Deferred" section of logging.rule.md).
+    # DEFERRED -- retained, not yet called. The complement to _sanitize (the allowlist): where that reduces every
+    # non-ASCII code point to '?' for safe display, this targets exactly the control/format/bidi space -- Unicode
+    # general categories Cc, Cf, Cs, Co plus the line/paragraph separators Zl, Zp (U+2028/2029), and via unicodedata it
+    # also catches the astral tag characters (U+E0000-E007F) -- leaving ordinary text, spaces, and legitimate multi-byte
+    # UTF-8 intact. A sane agent never emits these in a path, so their presence is a malicious-attempt signal worth
+    # quarantine-logging rather than silently reducing. Kept so the authoritative UCD-backed set is not lost; wire it
+    # into a quarantine sink when that detector is built (see the "## Deferred" section of logging.rule.md).
     return ''.join(
         '?' if unicodedata.category(c) in ('Cc', 'Cf', 'Cs', 'Co', 'Zl', 'Zp') else c
         for c in msg
@@ -129,13 +118,12 @@ def _sanitize_unicode_controlchars(msg):
 
 def _peer_user_unit(pid):
     # type: (int) -> str
-    # The peer's systemd user unit, read from its cgroup the way journald derives
-    # _SYSTEMD_USER_UNIT: the first .service or .scope component after user@<uid>.service/.
-    # Read while the peer is still blocked on the response, which bounds the pid-reuse window;
-    # SO_PEERPIDFD (kernel 6.5+) would close it and is not taken while EL9 is a target.
+    # The peer's systemd user unit, read from its cgroup the way journald derives _SYSTEMD_USER_UNIT: the first .service
+    # or .scope component after user@<uid>.service/. Read while the peer is still blocked on the response, which bounds
+    # the pid-reuse window; SO_PEERPIDFD (kernel 6.5+) would close it and is not taken while EL9 is a target.
     # ProtectControlGroups=yes mounts /sys/fs/cgroup read-only and leaves procfs alone, so this
-    # read is available to the daemon. An unreadable or unmatched cgroup yields '', which leaves
-    # the field ABSENT rather than guessed -- the value is attribution, not authorization.
+    # read is available to the daemon. An unreadable or unmatched cgroup yields '', which leaves the field ABSENT rather
+    # than guessed -- the value is attribution, not authorization.
     try:
         with open('/proc/%d/cgroup' % pid) as handle:
             text = handle.read()
@@ -154,13 +142,12 @@ def _peer_user_unit(pid):
 
 def _journal_entry(level, msg, fields):
     # type: (str, str, tuple) -> bytes
-    # ONE native journald entry, as the newline-delimited bytes the protocol takes. Pure,
-    # so the record's shape is asserted without a socket (tests/unit/handback.sh).
+    # ONE native journald entry, as the newline-delimited bytes the protocol takes. Pure, so the record's shape is
+    # asserted without a socket (tests/unit/handback.sh).
     #
-    # Every value is sanitized, which removes the newline that would otherwise terminate
-    # a field early, and every field NAME is a constant here, so a value cannot forge
-    # a sibling field. An empty value leaves its field out, since an absent field says
-    # "not applicable" where an empty one would read as a value.
+    # Every value is sanitized, which removes the newline that would otherwise terminate a field early, and every field
+    # NAME is a constant here, so a value cannot forge a sibling field. An empty value leaves its field out, since
+    # an absent field says "not applicable" where an empty one would read as a value.
     entry = [
         'MESSAGE=' + msg,
         'PRIORITY=' + _PRIO_NUMBER.get(level, '6'),
@@ -175,12 +162,11 @@ def _journal_entry(level, msg, fields):
 
 def _journal_send(level, msg, fields):
     # type: (str, str, tuple) -> bool
-    # Write one entry to the journal socket and report whether the datagram left. journald's
-    # stream protocol (StandardError=journal) carries a MESSAGE and the "<N>" priority,
-    # and does not carry a custom field, so a field reaches the journal as a datagram
-    # alone, which the stdlib sends in a few lines. The rejected alternatives
-    # (python3-systemd, a `logger --journald` subprocess) and the SELinux grant this send
-    # needs are stated in handback-bridge.rule.md.
+    # Write one entry to the journal socket and report whether the datagram left. journald's stream protocol
+    # (StandardError=journal) carries a MESSAGE and the "<N>" priority, and does not carry a custom field, so a field
+    # reaches the journal as a datagram alone, which the stdlib sends in a few lines. The rejected alternatives
+    # (python3-systemd, a `logger --journald` subprocess) and the SELinux grant this send needs are stated
+    # in handback-bridge.rule.md.
     try:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         try:
@@ -194,15 +180,13 @@ def _journal_send(level, msg, fields):
 
 def _audit(level, msg, verb='', path='', result=''):
     # type: (str, str, str, str, str) -> None
-    # Two sinks, mirroring log.lib.sh: journald ALWAYS -- natively, so the record carries its
-    # fields, and over stderr (StandardError=journal; systemd stamps the timestamp + identifier,
-    # the "<N>" prefix the priority) when the datagram cannot be sent -- and the root-only file
-    # with an explicit "<ts> <LEVEL> [<pid>] <msg>" line matching the helpers' format. Each sink
-    # is wrapped in try/except OSError, so a failed write costs the record its fields and never
-    # aborts, delays or refuses the handback.
-    # The message is reduced to safe-for-display characters once for both sinks; if anything was
-    # replaced it is flagged inline (a non-standard byte where a path is expected is a probe
-    # worth recording). The marker is pure ASCII, so it cannot itself re-trigger a replacement.
+    # Two sinks, mirroring log.lib.sh: journald ALWAYS -- natively, so the record carries its fields, and over stderr
+    # (StandardError=journal; systemd stamps the timestamp + identifier, the "<N>" prefix the priority)
+    # when the datagram cannot be sent -- and the root-only file with an explicit "<ts> <LEVEL> [<pid>] <msg>" line
+    # matching the helpers' format. Each sink is wrapped in try/except OSError, so a failed write costs the record its
+    # fields and never aborts, delays or refuses the handback. The message is reduced to safe-for-display characters
+    # once for both sinks; if anything was replaced it is flagged inline (a non-standard byte where a path is expected
+    # is a probe worth recording). The marker is pure ASCII, so it cannot itself re-trigger a replacement.
     clean = _sanitize(msg)
     if clean != msg:
         clean += '  [!] non-standard characters replaced'
@@ -230,31 +214,27 @@ def _audit(level, msg, verb='', path='', result=''):
     except OSError:
         pass
 
-# Request line is capped at _MAX_LINE bytes (binary read) so a client that omits
-# the trailing newline cannot force the handler to buffer arbitrarily large data.
-# PATH_MAX on Linux is 4096; adding the verb, space, and newline still fits well
-# within 8192 bytes.
+# Request line is capped at _MAX_LINE bytes (binary read) so a client that omits the trailing newline cannot force
+# the handler to buffer arbitrarily large data. PATH_MAX on Linux is 4096; adding the verb, space, and newline still
+# fits well within 8192 bytes.
 _MAX_LINE = 8192
 
-# Seconds to wait for the client to send a request after the SO_PEERCRED check.
-# A client that connects and then idles would otherwise hold a root process
-# forever.  SIGALRM interrupts the blocked read() at the OS level.
+# Seconds to wait for the client to send a request after the SO_PEERCRED check. A client that connects and then idles
+# would otherwise hold a root process forever.  SIGALRM interrupts the blocked read() at the OS level.
 _READ_TIMEOUT = 30
 
-# Wall-clock cap on a single helper invocation.  The SIGALRM only bounds the
-# read phase; without this a helper that stalls (a SETGID walk over a huge tree, or
-# realpath on a hung autofs/NFS mount) would hold a root process indefinitely, and
-# up to MaxConnections of them at once.  120s is far longer than any legitimate handback.
+# Wall-clock cap on a single helper invocation.  The SIGALRM only bounds the read phase; without this a helper
+# that stalls (a SETGID walk over a huge tree, or realpath on a hung autofs/NFS mount) would hold a root process
+# indefinitely, and up to MaxConnections of them at once.  120s is far longer than any legitimate handback.
 _HELPER_TIMEOUT = 120
 
-# Defensive bound on the argument length.  Every verb takes an absolute filesystem
-# path; PATH_MAX is 4096, so anything longer is malformed by construction.  This is
-# a fail-fast pre-filter, NOT a substitute for the helpers' own validation.
+# Defensive bound on the argument length.  Every verb takes an absolute filesystem path; PATH_MAX is 4096, so anything
+# longer is malformed by construction.  This is a fail-fast pre-filter, NOT a substitute for the helpers' own
+# validation.
 _MAX_ARG = 4096
 
-# Cap on how many helper-stderr lines are relayed back as MSG lines, so a helper bug
-# that floods stderr cannot turn into an unbounded write loop on the socket.  The
-# current helpers emit at most a few lines.
+# Cap on how many helper-stderr lines are relayed back as MSG lines, so a helper bug that floods stderr cannot turn
+# into an unbounded write loop on the socket.  The current helpers emit at most a few lines.
 _MAX_MSG_LINES = 50
 
 _HELPERS = {
@@ -266,8 +246,8 @@ _HELPERS = {
 
 def _send(text):
     # type: (str) -> None
-    # BrokenPipeError means the client disconnected before we could respond.
-    # Swallow it: the handler exits cleanly without a spurious traceback in the
+    # BrokenPipeError means the client disconnected before we could respond. Swallow it: the handler exits cleanly
+    # without a spurious traceback in the
     # journal.
     try:
         sys.stdout.write(text + '\n')
@@ -277,8 +257,8 @@ def _send(text):
 
 
 def main():
-    # Resolve the expected sandbox UID at startup.  Without the account there is no uid to
-    # authenticate a peer against, so every request is refused rather than served unchecked.
+    # Resolve the expected sandbox UID at startup.  Without the account there is no uid to authenticate a peer
+    # against, so every request is refused rather than served unchecked.
     try:
         expected_uid = pwd.getpwnam(_SANDBOX_USER).pw_uid
     except KeyError:
@@ -286,9 +266,9 @@ def main():
         _send('ERR internal: unknown sandbox user %s' % _SANDBOX_USER)
         sys.exit(1)
 
-    # stdin (fd 0) is the accepted AF_UNIX socket.  Duplicate it into a socket
-    # object to call getsockopt(SO_PEERCRED), then close the dup so only fd 0 /
-    # sys.stdin remain for I/O.  struct ucred on Linux: { pid_t(i), uid_t(I), gid_t(I) }
+    # stdin (fd 0) is the accepted AF_UNIX socket.  Duplicate it into a socket object to call getsockopt(SO_PEERCRED),
+    # then close the dup so only fd 0 / sys.stdin remain for I/O.  struct ucred on Linux: { pid_t(i), uid_t(I), gid_t(I)
+    # }
     try:
         sock = socket.fromfd(sys.stdin.fileno(), socket.AF_UNIX, socket.SOCK_STREAM)
         cred_raw = sock.getsockopt(
@@ -308,14 +288,13 @@ def main():
         _send('ERR unauthorized uid %d' % peer_uid)
         sys.exit(1)
 
-    # The peer is the sandbox account, so its cgroup names the session whose request this is.
-    # Resolved here, right after the uid check and while the peer is still blocked waiting,
-    # which bounds the pid-reuse window, and stamped on every record from now on.
+    # The peer is the sandbox account, so its cgroup names the session whose request this is. Resolved here, right
+    # after the uid check and while the peer is still blocked waiting, which bounds the pid-reuse window, and stamped
+    # on every record from now on.
     global _session_unit
     _session_unit = _peer_user_unit(peer_pid)
 
-    # Read exactly one request line.  Two independent guards prevent this blocking
-    # forever or exhausting memory:
+    # Read exactly one request line.  Two independent guards prevent this blocking forever or exhausting memory:
     #
     #   1. SIGALRM fires after _READ_TIMEOUT seconds and exits the process.
     #      The signal interrupts the blocked read() at the OS level (the Python
@@ -348,8 +327,8 @@ def main():
         sys.exit(1)
 
     parts = line.split(' ', 1)
-    # .strip() on the verb tolerates a stray CR (CRLF-terminated client) so it does
-    # not turn an otherwise-valid verb into "unknown verb".
+    # .strip() on the verb tolerates a stray CR (CRLF-terminated client) so it does not turn an otherwise-valid verb
+    # into "unknown verb".
     verb = parts[0].strip().upper()
     arg = parts[1].strip() if len(parts) > 1 else ''
 
@@ -363,11 +342,10 @@ def main():
         _send('ERR missing argument for %s' % verb)
         sys.exit(1)
 
-    # Fail-fast pre-filter (defense in depth, NOT a replacement for the helpers'
-    # validation): every verb takes an absolute path, so reject anything that is not
-    # absolute, is longer than PATH_MAX, or carries control characters (including the
-    # embedded NUL that execve(2) rejects).  The refusal exits before the exec, so a
-    # malformed request never reaches a helper; a well-formed one is still re-validated there.
+    # Fail-fast pre-filter (defense in depth, NOT a replacement for the helpers' validation): every verb takes
+    # an absolute path, so reject anything that is not absolute, is longer than PATH_MAX, or carries control characters
+    # (including the embedded NUL that execve(2) rejects).  The refusal exits before the exec, so a malformed request
+    # never reaches a helper; a well-formed one is still re-validated there.
     if not arg.startswith('/') or len(arg) > _MAX_ARG \
             or any(ord(c) < 0x20 or ord(c) == 0x7f for c in arg):
         _audit('warning', 'rejected malformed arg for %s (pid %d)' % (verb, peer_pid),
@@ -375,19 +353,15 @@ def main():
         _send('ERR malformed argument')
         sys.exit(1)
 
-    # Execute the matching root helper.  stdin=/dev/null forces the non-interactive
-    # branch (no TTY prompts) -- same as the previous `sudo ... </dev/null`.
-    # Capture stderr to relay NOTICE lines back to the client; also echo each to our
-    # own stderr so they reach the journal regardless (StandardError=journal in the
-    # service template).
+    # Execute the matching root helper.  stdin=/dev/null forces the non-interactive branch (no TTY prompts) -- same
+    # as the previous `sudo ... </dev/null`. Capture stderr to relay NOTICE lines back to the client; also echo each
+    # to our own stderr so they reach the journal regardless (StandardError=journal in the service template).
     #
-    # ValueError is raised when arg contains an embedded null byte: Python refuses
-    # to pass it to execve(2) because C strings are null-terminated.  The pre-filter
-    # already rejects NUL; catching it here as well keeps the exec guarded when
-    # that filter changes.
-    # TimeoutExpired bounds a stalled helper at _HELPER_TIMEOUT; the
-    # child is killed and the request fails cleanly rather than pinning a root
-    # process.  stderr captured before the timeout is discarded with the child.
+    # ValueError is raised when arg contains an embedded null byte: Python refuses to pass it to execve(2) because C
+    # strings are null-terminated.  The pre-filter already rejects NUL; catching it here as well keeps the exec guarded
+    # when that filter changes. TimeoutExpired bounds a stalled helper at _HELPER_TIMEOUT; the child is killed
+    # and the request fails cleanly rather than pinning a root process.  stderr captured before the timeout is discarded
+    # with the child.
     try:
         result = subprocess.run(
             [_HELPERS[verb], arg],
@@ -411,20 +385,19 @@ def main():
         result.stderr.decode('utf-8', errors='replace') if result.stderr else ''
     )
     for line in stderr_text.splitlines()[:_MAX_MSG_LINES]:
-        # Sanitize before relaying: the helpers already reduce agent-named paths in their
-        # NOTICEs, but the daemon does not trust that -- a relayed line reaches journald AND
-        # the agent session's terminal, so it must not carry a raw control/escape byte here.
+        # Sanitize before relaying: the helpers already reduce agent-named paths in their NOTICEs, but the daemon does
+        # not trust that -- a relayed line reaches journald AND the agent session's terminal, so it must not carry a raw
+        # control/escape byte here.
         msg = _sanitize(line)
         sys.stderr.write(msg + '\n')          # → journal
         safe = msg.strip()[:500]
         if safe:
             _send('MSG ' + safe)              # → client → hook stderr → session
 
-    # One served-request line so the bridge's activity is visible in its own log rather than
-    # inferred from the helpers'. A non-zero helper exit is NOT necessarily an error (e.g.
-    # ai-tools-chown exits 1 for a path outside the allowlist, a routine skip), so the served
-    # line stays INFO and records the code; the daemon-level failures carry the
-    # WARNING/ERROR levels.
+    # One served-request line so the bridge's activity is visible in its own log rather than inferred from the helpers'.
+    # A non-zero helper exit is NOT necessarily an error (e.g. ai-tools-chown exits 1 for a path outside the allowlist,
+    # a routine skip), so the served line stays INFO and records the code; the daemon-level failures carry
+    # the WARNING/ERROR levels.
     if result.returncode == 0:
         _audit('info', 'served %s pid=%d arg=%s -> OK' % (verb, peer_pid, arg),
                verb=verb, path=arg, result='ok')

@@ -2,23 +2,21 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # shellcheck disable=SC2034  # boundary-mode constants, read by install.sh and the perms test
 # /usr/local/lib/ai-tools/control-plane.lib.sh
-# Canonical boundary-mode constants for the /opt/ai-tools control plane. The control plane is
-# owned root:ai-tools permanently -- the RPM ships it that way and no step re-owns it to a person
-# -- so the agent (group ai-tools) reaches its state while root owns the locked control files.
-# This file is *sourced* (never executed) so the installer and the test suite assert the same
-# boundary modes the spec %files declares, from one source. See ownership-and-hooks.rule.md.
+# Canonical boundary-mode constants for the /opt/ai-tools control plane. The control plane is owned root:ai-tools
+# permanently -- the RPM ships it that way and no step re-owns it to a person -- so the agent (group ai-tools) reaches
+# its state while root owns the locked control files. This file is *sourced* (never executed) so the installer
+# and the test suite assert the same boundary modes the spec %files declares, from one source. See
+# ownership-and-hooks.rule.md.
 #
-# It carries the canonical home, its mode, and the per-subdirectory modes -- plus the contract
-# for an AGENT CONFIG DIRECTORY, which is a shape rather than a path: base owns the home root and
-# bin, while each agent package owns a directory under the home whose NAME its manifest declares
-# (config_dir) and whose mode and label this file pins. That is what lets a second agent bring its
-# own control-plane directory without the base layer naming it. The agent's own subtrees
-# (.nvm/.cache/.local/.npm) stay agent-owned and .git is root-private 0700, so they are not
-# described here.
+# It carries the canonical home, its mode, and the per-subdirectory modes -- plus the contract for an AGENT CONFIG
+# DIRECTORY, which is a shape rather than a path: base owns the home root and bin, while each agent package owns
+# a directory under the home whose NAME its manifest declares (config_dir) and whose mode and label this file pins.
+# That is what lets a second agent bring its own control-plane directory without the base layer naming it. The agent's
+# own subtrees (.nvm/.cache/.local/.npm) stay agent-owned and .git is root-private 0700, so they are not described here.
 
-# Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on the
-# second pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset
-# guard and trips the sourcing shell's `set -e`).
+# Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on the second
+# pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing
+# shell's `set -e`).
 if [[ -n "${_AI_TOOLS_CONTROL_PLANE_LIB:-}" ]]; then
     return 0
 fi
@@ -63,9 +61,9 @@ readonly CP_SHARED_SUBAGENTS="${CP_HOME}/subagents"
 readonly CP_SHARED_ORIENTATION="${CP_HOME}/orientation"
 readonly CP_INTEGRATIONS="${CP_HOME}/integrations"
 
-# Which agents are installed and enabled, and what each declares, comes from the provider
-# manifests. Loaded best-effort: without it the agent resolvers yield an empty set, so a caller
-# does not assert any agent config directory rather than guessing a path.
+# Which agents are installed and enabled, and what each declares, comes from the provider manifests. Loaded best-effort:
+# without it the agent resolvers yield an empty set, so a caller does not assert any agent config directory rather than
+# guessing a path.
 # shellcheck source=SCRIPTDIR/providers.lib.sh
 source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null || true
 

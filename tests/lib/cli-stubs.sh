@@ -9,9 +9,9 @@
 # on that user's own PATH runs as that user too -- which is why the CLI does not carry a hook for this, and why this
 # header is its whole description.
 #
-# The shim also answers the two other shapes the CLI sends through sudo: the grant probe `sudo -n -l [-u <user>]
-# <helper>` (answered as "grant present": exit 0, the helper echoed), and the run-as-owner form `sudo -u <user> -H --
-# <cmd>` (run directly, as the invoker).
+# The shim also answers the two other shapes the CLI sends through sudo: the grant probe
+# `sudo -n -l [-u <user>] <helper>` (answered as "grant present": exit 0, the helper echoed), and the run-as-owner form
+# `sudo -u <user> -H -- <cmd>` (run directly, as the invoker).
 #
 # The stubs answer only what the CLI PARSES from a helper:
 #   ai-tools-lockdown   prints the secret-scan count line and one `[file]` line per path listed
@@ -33,8 +33,8 @@
 # cli_called <helper> [ere]  0 when <helper> was called and, with <ere>, some call's args match it.
 # cli_call_count <helper>    the number of calls.
 # cli_log_empty              0 when no helper was called.
-# cli_call_index <helper> [ere]  the 1-based log line of the first matching call, for ordering.
-# cli_stub_secrets <path>... makes the lockdown stub report these paths as secret-matching.
+# cli_call_index <helper> [ere]  the 1-based log line of the first matching call, for ordering. cli_stub_secrets
+# <path>... makes the lockdown stub report these paths as secret-matching.
 
 cli_stubs_install() {
     local root="$1"

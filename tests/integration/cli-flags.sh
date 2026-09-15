@@ -38,11 +38,10 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/cli-spelling.sh"
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/cli-stubs.sh"
 require_root
-# The umask is process state the CLI inherits through runuser (whose PAM stack does not run
-# pam_umask), so this file decides it rather than the host: the rows and the trace run under
-# 022, which makes a trace comparable across hosts, and the umask independence section re-runs the rows a
-# umask could change under the stricter values a hardened host sets. Nothing on the host is
-# changed by it -- a umask is per process and dies with this shell.
+# The umask is process state the CLI inherits through runuser (whose PAM stack does not run pam_umask), so this file
+# decides it rather than the host: the rows and the trace run under 022, which makes a trace comparable across hosts,
+# and the umask independence section re-runs the rows a umask could change under the stricter values a hardened host
+# sets. Nothing on the host is changed by it -- a umask is per process and dies with this shell.
 umask 022
 
 readonly CLI="/usr/local/bin/ai-tools"
@@ -92,10 +91,10 @@ chmod 0755 "${R}"
 FOR_GROUP="$(id -gn "${FOR_USER}")"
 AL="${R}/allowlist"; FOR_AL="${R}/for-allowlist"; GC="${R}/gitconfig"; CONF="${R}/operator.conf"
 SBROOT="${R}/sandbox-projects"
-# Every directory the CLI itself names -- a clone takes its source's basename or `--dir` -- is
-# named by the harness's fixture rule, so a clone that ever lands outside the fixture clone area
-# (an installed CLI ignoring the override) reads as this suite's residue and the sweep finds it.
-# Generated once, so the trace normaliser can replace each with a fixed token.
+# Every directory the CLI itself names -- a clone takes its source's basename or `--dir` -- is named by the harness's
+# fixture rule, so a clone that ever lands outside the fixture clone area (an installed CLI ignoring the override) reads
+# as this suite's residue and the sweep finds it. Generated once, so the trace normaliser can replace each with a fixed
+# token.
 N_SRC="$(ai_test_name src)"; N_C2="$(ai_test_name c2)"; N_C3="$(ai_test_name c3)"
 N_C4="$(ai_test_name c4)"; N_C5="$(ai_test_name c5)"
 declare -A N_CL=([077]="$(ai_test_name clone-077)" [027]="$(ai_test_name clone-027)")
@@ -108,8 +107,8 @@ for d in pa pb pc pd pe pf plain unreg parent/p1 parent/p2 hold/inner for1 for2;
 done
 mkdir -p "${R}/unreg/node_modules/dep"; : > "${R}/unreg/node_modules/dep/index.js"
 
-# A source repository with a bare origin, for the clone rows. Signing is off: a host whose git
-# config signs commits would wait on a pinentry the run cannot answer.
+# A source repository with a bare origin, for the clone rows. Signing is off: a host whose git config signs commits
+# would wait on a pinentry the run cannot answer.
 git_q() { git -c user.name=cli-flags -c user.email=cli-flags@example.invalid -c init.defaultBranch=main -c commit.gpgsign=false "$@" >/dev/null 2>&1; }
 git_q init --bare "${R}/remote.git"
 git_q init "${SRC}"
@@ -125,9 +124,9 @@ git_q -C "${SRC}" remote add origin "${R}/remote.git"
 git_q -C "${SRC}" push origin main base2
 
 cli_stubs_install "${R}"
-# Explicit modes: the suite runs under sudo, and a root umask of 077 would leave every fixture
-# owner-only -- readable by the projects user where it owns them, and closed to it where the
-# `--for` target does, which is where the claim's secret scan then fails to enter the tree.
+# Explicit modes: the suite runs under sudo, and a root umask of 077 would leave every fixture owner-only -- readable
+# by the projects user where it owns them, and closed to it where the `--for` target does, which is where the claim's
+# secret scan then fails to enter the tree.
 chmod -R u+rwX,go+rX "${R}"
 chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}"
 # The `--for` target must own the tree a claim for it acts on (the claim's owner rule).
@@ -570,8 +569,8 @@ expect "--for with --force is refused"                            rc_not0
 expect "that refusal reaches no helper"                           cli_log_empty
 
 # ── H. Clone ──────────────────────────────────────────────────────────────────────
-# The clone rows run only against an installed CLI that honours the clone-area override; an older
-# deployment would put every clone in the real clone area, which the hermeticity contract forbids.
+# The clone rows run only against an installed CLI that honours the clone-area override; an older deployment would put
+# every clone in the real clone area, which the hermeticity contract forbids.
 HAVE_SBROOT=false; grep -q 'AI_TOOLS_SANDBOX_ROOT' "${CLI}" && HAVE_SBROOT=true
 if ! ${HAVE_SBROOT}; then
     section "projects clone / push / sandbox remove"
@@ -679,10 +678,9 @@ cli_stub_reset; drive cli projects.reclaim --bogus "${R}/pa"
 expect "reclaim refuses an unknown option, no helper"             quiet_refusal
 
 # ── L. The operator's umask does not decide what the agent can read ──────────────
-# A create sets its modes outright and a clone is born private and then opened, so neither depends
-# on the umask the operator's shell carries. Both are re-driven under the values a hardened host
-# sets and held to the modes ai-tools(1) states. Restored afterwards, so the coverage check and
-# the teardown run under the pinned 022.
+# A create sets its modes outright and a clone is born private and then opened, so neither depends on the umask
+# the operator's shell carries. Both are re-driven under the values a hardened host sets and held to the modes
+# ai-tools(1) states. Restored afterwards, so the coverage check and the teardown run under the pinned 022.
 section "umask independence"
 has_bits() { (( ( 8#$(stat -c '%a' "$1") & 8#$2 ) == 8#$2 )); }
 for u in 077 027; do

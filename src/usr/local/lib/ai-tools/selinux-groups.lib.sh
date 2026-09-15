@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/selinux-groups.lib.sh
-# Single source for the optional SELinux policy-group registry: each group's name,
-# its operator-facing description, the reason it is off by default, and its stability.
-# Sourced by the source-tree authoring tool (selinux/install-selinux.sh, which COMPILES a
-# group from its .te/.fc), by the installed operator helper (ai-tools-admin selinux, which
-# LOADS a compiled .pp from the package directory), and by selinux/policy/shipped-modules.sh
-# (which derives the set a release ships from the stability field), so none of them drifts
-# on which groups exist or what they mean. Read-only data plus pure predicates -- no I/O and
-# no root operation of its own; the caller owns semodule/make. Include-guarded, so a double
-# source no-ops.
+# Single source for the optional SELinux policy-group registry: each group's name, its operator-facing description,
+# the reason it is off by default, and its stability. Sourced by the source-tree authoring tool
+# (selinux/install-selinux.sh, which COMPILES a group from its .te/.fc), by the installed operator helper
+# (ai-tools-admin selinux, which LOADS a compiled .pp from the package directory),
+# and by selinux/policy/shipped-modules.sh (which derives the set a release ships from the stability field), so none
+# of them drifts on which groups exist or what they mean. Read-only data plus pure predicates -- no I/O and no root
+# operation of its own; the caller owns semodule/make. Include-guarded, so a double source no-ops.
 #
 # Deploy:
 #   ```bash
@@ -20,10 +18,9 @@
 [[ -n "${_AI_TOOLS_SELINUX_GROUPS_LIB_LOADED:-}" ]] && return 0
 readonly _AI_TOOLS_SELINUX_GROUPS_LIB_LOADED=1
 
-# Installed location of the compiled policy modules (the core ai_tools.pp, one
-# ai_tools_<group>.pp per stable group, each layout module), populated by the RPM %install
-# and by `selinux/install-selinux.sh build`. ai-tools-admin loads a group's .pp from here;
-# the source-tree authoring tool compiles into its own policy/ dir first.
+# Installed location of the compiled policy modules (the core ai_tools.pp, one ai_tools_<group>.pp per stable group,
+# each layout module), populated by the RPM %install and by `selinux/install-selinux.sh build`. ai-tools-admin loads
+# a group's .pp from here; the source-tree authoring tool compiles into its own policy/ dir first.
 # shellcheck disable=SC2034  # read by ai-tools-admin
 readonly AI_TOOLS_SELINUX_PACKAGE_DIR="/usr/share/selinux/packages/ai-tools"
 
@@ -53,14 +50,12 @@ readonly AI_TOOLS_SELINUX_GROUPS=(
     "buildexec|Executing a project's build output (the directories each integration's layout module types -- and any script written there)|Running a native host built in the tree (a .NET apphost, a test host, a ReadyToRun image) needs execute on a project file, which the base grants nowhere. This grants it on ai_tools_project_build_t alone, the type carried by the directories an integration's manifest names as its build output (build_output_dirs, ai-tools-providers(5)), so a built binary runs while a git hook or a project script stays non-executable; the type follows the directory name, so a script written under such a directory runs too, which is why the module is off by default. See .claude/rules/dotnet.rule.md.|stable"
 )
 
-# A group's FORMER module name, where a group has been renamed or split out of an older one:
-# `name|old-module`. A host that loaded the old module through either front door keeps it
-# loaded across a package upgrade (no scriptlet unloads a module the registry no longer names),
-# still carrying the old module's rule set. Each front door reads this list to replace such a
-# module with EVERY current group that names it, in a single semodule transaction, so an
-# upgrade neither breaks the workload the old group served nor leaves the old grant in place
-# once the operator runs anything that loads policy. An entry is dropped once no supported host
-# can still carry the old module.
+# A group's FORMER module name, where a group has been renamed or split out of an older one: `name|old-module`. A host
+# that loaded the old module through either front door keeps it loaded across a package upgrade (no scriptlet unloads
+# a module the registry no longer names), still carrying the old module's rule set. Each front door reads this list
+# to replace such a module with EVERY current group that names it, in a single semodule transaction, so an upgrade
+# neither breaks the workload the old group served nor leaves the old grant in place once the operator runs anything
+# that loads policy. An entry is dropped once no supported host can still carry the old module.
 # shellcheck disable=SC2034  # iterated through this library's accessors
 readonly AI_TOOLS_SELINUX_GROUP_FORMER_MODULES=(
     "localipc|ai_tools_netcore"
@@ -73,9 +68,9 @@ ai_tools_selinux_group_desc()      { local s="${1#*|}"; printf '%s' "${s%%|*}"; 
 ai_tools_selinux_group_reason()    { local s="${1#*|}"; s="${s#*|}"; printf '%s' "${s%%|*}"; }
 ai_tools_selinux_group_stability() { printf '%s' "${1##*|}"; }
 
-# ai_tools_selinux_group_is_experimental <name>: succeed when <name> is a known group
-# whose stability is not 'stable' (unknown/absent stability is treated as experimental --
-# fail safe toward warning). A caller gates its confirmation prompt on this.
+# ai_tools_selinux_group_is_experimental <name>: succeed when <name> is a known group whose stability is not 'stable'
+# (unknown/absent stability is treated as experimental -- fail safe toward warning). A caller gates its confirmation
+# prompt on this.
 ai_tools_selinux_group_is_experimental() {
     local name="$1" entry
     for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
@@ -96,32 +91,30 @@ ai_tools_selinux_group_valid() {
     return 1
 }
 
-# ai_tools_selinux_group_loaded <name>: succeed when module ai_tools_<name> is
-# currently loaded in the kernel. `semodule -l` prints one module NAME per line with
-# no version column (selinux-policy on RHEL/Rocky 9/10 and UEK R8), so match the whole
-# line exactly -- the same form tests/integration/selinux.sh uses for the core.
+# ai_tools_selinux_group_loaded <name>: succeed when module ai_tools_<name> is currently loaded in the kernel.
+# `semodule -l` prints one module NAME per line with no version column (selinux-policy on RHEL/Rocky 9/10 and UEK R8),
+# so match the whole line exactly -- the same form tests/integration/selinux.sh uses for the core.
 #
-# The listing is captured first and matched from a here-string, NOT piped into `grep -q`.
-# This is the canonical note for every `semodule -l` probe in the tree; the others point
-# here. `grep -q` exits on its first match, and an ai_tools* name sorts early in a listing
-# of some 400 modules, so the match lands in the first buffer while semodule is still
-# writing -- it then dies of SIGPIPE, and under the `set -o pipefail` every consumer of this
-# library runs with, the pipeline reports 141 for a probe that SUCCEEDED. The module reads as
-# absent at random, and each caller acts on that: no label registered, no group reported
-# loaded. A here-string is fully written before grep starts, so no reader can exit early on it.
+# The listing is captured first and matched from a here-string, NOT piped into `grep -q`. This is the canonical note
+# for every `semodule -l` probe in the tree; the others point here. `grep -q` exits on its first match, and an ai_tools*
+# name sorts early in a listing of some 400 modules, so the match lands in the first buffer while semodule is still
+# writing -- it then dies of SIGPIPE, and under the `set -o pipefail` every consumer of this library runs
+# with, the pipeline reports 141 for a probe that SUCCEEDED. The module reads as absent at random, and each caller acts
+# on that: no label registered, no group reported loaded. A here-string is fully written before grep starts, so no
+# reader can exit early on it.
 ai_tools_selinux_group_loaded() { ai_tools_selinux_module_loaded "ai_tools_${1}"; }
 
-# ai_tools_selinux_module_loaded <module>: succeed when the named policy module is in the store.
-# The probe behind ai_tools_selinux_group_loaded, taking a full module name so a group's former
-# module can be asked about too. Same capture-then-match shape, for the same SIGPIPE reason.
+# ai_tools_selinux_module_loaded <module>: succeed when the named policy module is in the store. The probe behind
+# ai_tools_selinux_group_loaded, taking a full module name so a group's former module can be asked about too. Same
+# capture-then-match shape, for the same SIGPIPE reason.
 ai_tools_selinux_module_loaded() {
     local modules
     modules="$(semodule -l 2>/dev/null || true)"
     grep -qx "$1" <<<"${modules}"
 }
 
-# ai_tools_selinux_group_former_module <name>: print the module name a group's rules were loaded
-# under before; empty and non-zero for a group without a former module.
+# ai_tools_selinux_group_former_module <name>: print the module name a group's rules were loaded under before; empty
+# and non-zero for a group without a former module.
 ai_tools_selinux_group_former_module() {
     local entry
     for entry in "${AI_TOOLS_SELINUX_GROUP_FORMER_MODULES[@]}"; do
@@ -133,8 +126,8 @@ ai_tools_selinux_group_former_module() {
     return 1
 }
 
-# ai_tools_selinux_groups_from_former_module <module>: print every current group name whose rules
-# the former module carried, one per line -- the set a swap loads in the old module's place.
+# ai_tools_selinux_groups_from_former_module <module>: print every current group name whose rules the former module
+# carried, one per line -- the set a swap loads in the old module's place.
 ai_tools_selinux_groups_from_former_module() {
     local entry
     for entry in "${AI_TOOLS_SELINUX_GROUP_FORMER_MODULES[@]}"; do

@@ -1,46 +1,42 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/managed-assets.lib.sh
-# Seeds the ai-tools-managed shared assets into their shared roots and links them into each agent
-# that reads them. The kinds are AI_TOOLS_ASSET_KINDS. Each is seeded ONCE into
-# /opt/ai-tools/<kind>, and every agent whose manifest names a directory for that kind gets a
-# SYMLINK per asset (ai_tools_link_shared_assets); the orientation text is linked under the
-# filename the agent's manifest names (ai_tools_link_agent_memory). One file to author and update,
-# however many agents read it. A managed asset is one whose name matches the kind's glob AND whose
-# frontmatter carries `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the
-# operator authored is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP (files
-# 640, dirs 750): the agent reads and invokes them and cannot rewrite one. `x-ai-tools-version` is a
-# monotonic integer bumped once per release, and a newer shipped version is what drives the update
-# offer. Sourced (never executed) by install.sh, ai-tools-bootstrap and base's %post, all root,
-# after msg.lib.sh and conf.lib.sh. The placement chain, the versioning scheme, and withdrawal are
+# Seeds the ai-tools-managed shared assets into their shared roots and links them into each agent that reads them.
+# The kinds are AI_TOOLS_ASSET_KINDS. Each is seeded ONCE into /opt/ai-tools/<kind>, and every agent whose manifest
+# names a directory for that kind gets a SYMLINK per asset (ai_tools_link_shared_assets); the orientation text is linked
+# under the filename the agent's manifest names (ai_tools_link_agent_memory). One file to author and update, however
+# many agents read it. A managed asset is one whose name matches the kind's glob AND whose frontmatter carries
+# `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the operator authored is never claimed
+# or overwritten. Seeded copies are root:SANDBOX_GROUP (files 640, dirs 750): the agent reads and invokes them
+# and cannot rewrite one. `x-ai-tools-version` is a monotonic integer bumped once per release, and a newer shipped
+# version is what drives the update offer. Sourced (never executed) by install.sh, ai-tools-bootstrap and base's %post,
+# all root, after msg.lib.sh and conf.lib.sh. The placement chain, the versioning scheme, and withdrawal are
 # in shipped-assets.rule.md.
 
-# Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are
-# not rpm-owned, so a name this project stops shipping stays live on an upgraded host until it is
-# named here. `ai_tools_remove_retired_assets` reads this list; the linker then drops each agent's
-# now-dangling symlink on its next run.
+# Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are not rpm-owned,
+# so a name this project stops shipping stays live on an upgraded host until it is named here.
+# `ai_tools_remove_retired_assets` reads this list; the linker then drops each agent's now-dangling symlink on its next
+# run.
 #
-# Sourced more than once in a single shell: return early so the second pass is a no-op (an
-# if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips `set -e`).
+# Sourced more than once in a single shell: return early so the second pass is a no-op (an if-statement, not
+# `[[ ]] && return`, which returns 1 for an unset guard and trips `set -e`).
 if [[ -n "${_AI_TOOLS_MANAGED_ASSETS_LIB:-}" ]]; then
     return 0
 fi
 readonly _AI_TOOLS_MANAGED_ASSETS_LIB=1
 
-# One plain progress line (captured into the install log / bootstrap output); the box is reserved
-# for attention messages, so routine seed progress stays unframed.
-# Per-asset status, printed under the directory heading its caller emitted: indented one level
-# further and naming the asset alone, so the listing reads as entries of that directory rather
-# than as a flat list that repeats the directory on every line.
+# One plain progress line (captured into the install log / bootstrap output); the box is reserved for attention
+# messages, so routine seed progress stays unframed. Per-asset status, printed under the directory heading its caller
+# emitted: indented one level further and naming the asset alone, so the listing reads as entries of that directory
+# rather than as a flat list that repeats the directory on every line.
 _ai_tools_ma_say() { printf '      %s\n' "$*"; }
 
-# The asset kinds this project ships: one directory of that name under the pristine root
-# (/usr/share/ai-tools/<kind>) and under the live root (/opt/ai-tools/<kind>). This list is the
-# single declaration of the set. The seeder and the withdrawal pass refuse a kind that is not in
-# it, and refuse an empty list, so a caller spelling a stale name fails with a reason instead of
-# seeding less than it asked for; a kind added here without a source glob in the seeder fails the
-# same way. control-plane.lib.sh's CP_DIR_MODES carries a mode per kind under these names, and
-# tests/integration/perms.sh asserts each shared root.
+# The asset kinds this project ships: one directory of that name under the pristine root (/usr/share/ai-tools/<kind>)
+# and under the live root (/opt/ai-tools/<kind>). This list is the single declaration of the set. The seeder
+# and the withdrawal pass refuse a kind that is not in it, and refuse an empty list, so a caller spelling a stale name
+# fails with a reason instead of seeding less than it asked for; a kind added here without a source glob in the seeder
+# fails the same way. control-plane.lib.sh's CP_DIR_MODES carries a mode per kind under these names,
+# and tests/integration/perms.sh asserts each shared root.
 readonly AI_TOOLS_ASSET_KINDS=( skills subagents orientation )
 
 # ai_tools_asset_kind_valid <kind>: succeed when <kind> is one this project ships.
@@ -52,8 +48,8 @@ ai_tools_asset_kind_valid() {
     return 1
 }
 
-# _ai_tools_require_kinds <caller> <kind>...: succeed when every <kind> is shipped and at least one
-# is named; otherwise print the reason on stderr and fail, naming the caller and the list.
+# _ai_tools_require_kinds <caller> <kind>...: succeed when every <kind> is shipped and at least one is named; otherwise
+# print the reason on stderr and fail, naming the caller and the list.
 _ai_tools_require_kinds() {
     local caller="$1"; shift
     if (( $# == 0 )); then
@@ -70,8 +66,8 @@ _ai_tools_require_kinds() {
     return 0
 }
 
-# Assets this project has withdrawn, as `<kind>/<name>` entries. An entry stays listed for as long
-# as a host may still carry it from an older package.
+# Assets this project has withdrawn, as `<kind>/<name>` entries. An entry stays listed for as long as a host may still
+# carry it from an older package.
 readonly AI_TOOLS_RETIRED_ASSETS=(
     "skills/ai-tools-docs-reference"
     "skills/ai-tools-docs-usage"
@@ -79,12 +75,11 @@ readonly AI_TOOLS_RETIRED_ASSETS=(
     "skills/ai-tools-docs-changelog"
 )
 
-# True when <kind>/<name> is withdrawn. Read by BOTH passes, which is what keeps the two from
-# depending on the order they run in: the source root is not guaranteed to be final when seeding
-# runs. In base's %post it is not -- rpm installs the new package's files first and removes the old
-# package's only at the end of the transaction, so the seeder sees the previous version's copy of
-# an asset this version withdrew, and without this would report it against a file rpm is about to
-# delete (and seed it, on a host whose live root lacks it) for the withdrawal pass to undo moments
+# True when <kind>/<name> is withdrawn. Read by BOTH passes, which is what keeps the two from depending on the order
+# they run in: the source root is not guaranteed to be final when seeding runs. In base's %post it is not -- rpm
+# installs the new package's files first and removes the old package's only at the end of the transaction, so the seeder
+# sees the previous version's copy of an asset this version withdrew, and without this would report it against a file
+# rpm is about to delete (and seed it, on a host whose live root lacks it) for the withdrawal pass to undo moments
 # later.
 _ai_tools_asset_is_retired() {
     local wanted="$1/$2" entry
@@ -94,14 +89,13 @@ _ai_tools_asset_is_retired() {
     return 1
 }
 
-# An UPDATE replaces the live copy outright without keeping a sidecar, which is not an oversight: there
-# is no baseline to detect an edit against. The live copy is the previous version, so it differs
-# from the incoming one by definition, and the pristine datadir carries only the current version
-# (rpm has already replaced it by the time this runs). A copy-on-every-update would therefore fire
-# on every upgrade and bury the withdrawal copies that matter. An update is also announced and
-# declinable, and the supported ways to override a shipped asset live elsewhere -- an asset without
-# the marker is never touched, and a real file in an agent's own directory shadows the link. A
-# WITHDRAWAL has neither property, which is why that path preserves and this one does not.
+# An UPDATE replaces the live copy outright without keeping a sidecar, which is not an oversight: there is no baseline
+# to detect an edit against. The live copy is the previous version, so it differs from the incoming one by definition,
+# and the pristine datadir carries only the current version (rpm has already replaced it by the time this runs).
+# A copy-on-every-update would therefore fire on every upgrade and bury the withdrawal copies that matter. An update is
+# also announced and declinable, and the supported ways to override a shipped asset live elsewhere -- an asset without
+# the marker is never touched, and a real file in an agent's own directory shadows the link. A WITHDRAWAL has neither
+# property, which is why that path preserves and this one does not.
 
 # Print the integer x-ai-tools-version from a managed asset's marker file; empty if absent.
 ai_tools_asset_version() {
@@ -113,8 +107,8 @@ ai_tools_asset_is_managed() {
     grep -qE '^x-ai-tools-managed:[[:space:]]*true[[:space:]]*$' "$1" 2>/dev/null
 }
 
-# Copy one asset from source to live, owned root:<group>, files 640 / dirs 750. A file (agent)
-# installs directly; a directory (skill) is replaced whole so a removed source file cannot linger.
+# Copy one asset from source to live, owned root:<group>, files 640 / dirs 750. A file (agent) installs directly;
+# a directory (skill) is replaced whole so a removed source file cannot linger.
 # $1 src (file|dir)  $2 dst (file|dir)  $3 group
 _ai_tools_place_asset() {
     local src="$1" dst="$2" group="$3"
@@ -130,16 +124,14 @@ _ai_tools_place_asset() {
     restorecon -R "${dst}" >/dev/null 2>&1 || :
 }
 
-# Seed every managed asset of the named kinds from a pristine source root into a live root. The
-# source root holds one directory per kind -- `skills/ai-tools-*/` (a directory per asset),
-# `subagents/ai-tools-*.md` (a file per asset); the live root is the caller's.
-# Absent live asset -> seeded. Present + managed + a newer shipped version -> an update confirm
-# defaulting to UPDATE, so Enter and any non-interactive run take the new version (a scriptlet has
-# no tty, and a host that answered "keep" by default stayed on its first-seeded version forever).
-# Present + unmanaged (no marker) -> left untouched and logged: it is the operator's own file.
-# Present + same-or-older version -> no-op.
-# A WITHDRAWN name -> skipped outright, whatever the source root holds; ai_tools_remove_retired_assets
-# is the only pass that acts on one.
+# Seed every managed asset of the named kinds from a pristine source root into a live root. The source root holds one
+# directory per kind -- `skills/ai-tools-*/` (a directory per asset), `subagents/ai-tools-*.md` (a file per asset);
+# the live root is the caller's. Absent live asset -> seeded. Present + managed + a newer shipped version -> an update
+# confirm defaulting to UPDATE, so Enter and any non-interactive run take the new version (a scriptlet has no tty,
+# and a host that answered "keep" by default stayed on its first-seeded version forever). Present + unmanaged (no
+# marker) -> left untouched and logged: it is the operator's own file. Present + same-or-older version -> no-op.
+# A WITHDRAWN name -> skipped outright, whatever the source root holds; ai_tools_remove_retired_assets is the only pass
+# that acts on one.
 # $1 src_root  $2 live_root (resolved by the caller)  $3 group  $4.. kinds, each one of
 # AI_TOOLS_ASSET_KINDS; an empty list or an unknown kind is refused with a reason.
 ai_tools_seed_managed_assets() {
@@ -150,15 +142,13 @@ ai_tools_seed_managed_assets() {
     for kind in "${kinds[@]}"; do
         [[ -d "${src_root}/${kind}" ]] || continue
         install -d -o root -g "${group}" -m 750 "${live_root}/${kind}"
-        # A kind is carried either as one FILE per asset or as one DIRECTORY per asset, and the
-        # glob has to match: subagents are files (ai-tools-*.md), skills are directories
-        # (ai-tools-*/). README.md and any non-ai-tools- entry fall outside both globs, so they
-        # are never seeded.
-        # Orientation is the one kind whose asset has a FIXED name rather than an ai-tools-*
-        # one: it is placed under the filename each agent's product reads as its user-scope
-        # instructions (ai_tools_link_agent_memory), so a namespace prefix would only appear in
-        # the shared root. The x-ai-tools-managed marker still decides what may be claimed, so
-        # an operator's own file at that name is kept exactly as for any other kind.
+        # A kind is carried either as one FILE per asset or as one DIRECTORY per asset, and the glob has to match:
+        # subagents are files (ai-tools-*.md), skills are directories (ai-tools-*/). README.md and any non-ai-tools-
+        # entry fall outside both globs, so they are never seeded. Orientation is the one kind whose asset has a FIXED
+        # name rather than an ai-tools-* one: it is placed under the filename each agent's product reads as its
+        # user-scope instructions (ai_tools_link_agent_memory), so a namespace prefix would only appear in the shared
+        # root. The x-ai-tools-managed marker still decides what may be claimed, so an operator's own file at that name
+        # is kept exactly as for any other kind.
         case "${kind}" in
             skills)      src_glob="${src_root}/${kind}/ai-tools-*/"   ;;
             subagents)   src_glob="${src_root}/${kind}/ai-tools-*.md" ;;
@@ -171,8 +161,8 @@ ai_tools_seed_managed_assets() {
         for src in ${src_glob}; do
             [[ -e "${src}" ]] || continue                    # no matches -> literal pattern, skip
             name="$(basename "${src}")"
-            # A withdrawn name is never seeded, whatever the source root happens to hold: only the
-            # withdrawal pass acts on it, and it reports what it did.
+            # A withdrawn name is never seeded, whatever the source root happens to hold: only the withdrawal pass acts
+            # on it, and it reports what it did.
             _ai_tools_asset_is_retired "${kind}" "${name}" && continue
             # marker file carries the frontmatter: the agent file itself, or a skill's SKILL.md
             if [[ -d "${src}" ]]; then marker="${src%/}/SKILL.md"; else marker="${src}"; fi
@@ -182,9 +172,9 @@ ai_tools_seed_managed_assets() {
             fi
             dst="${live_root}/${kind}/${name}"
             if [[ -d "${src}" ]]; then dst_marker="${dst}/SKILL.md"; else dst_marker="${dst}"; fi
-            # Read the shipped version HERE, not inside the update branch: both branches report it,
-            # and a loop variable set only on one path carries the previous asset's value into the
-            # other -- which reads as a correct version exactly often enough to look fine.
+            # Read the shipped version HERE, not inside the update branch: both branches report it, and a loop variable
+            # set only on one path carries the previous asset's value into the other -- which reads as a correct version
+            # exactly often enough to look fine.
             new="$(ai_tools_asset_version "${marker}")"
             if [[ -e "${dst}" ]]; then
                 if ! ai_tools_asset_is_managed "${dst_marker}"; then
@@ -210,33 +200,29 @@ ai_tools_seed_managed_assets() {
     done
 }
 
-# ai_tools_remove_retired_assets <live_root> [kinds...]
-# Withdraw the assets in AI_TOOLS_RETIRED_ASSETS from a live shared root, so a host upgraded from a
-# package that still shipped them stops offering them. Restricted to the named kinds when given.
+# ai_tools_remove_retired_assets <live_root> [kinds...] Withdraw the assets in AI_TOOLS_RETIRED_ASSETS from a live
+# shared root, so a host upgraded from a package that still shipped them stops offering them. Restricted to the named
+# kinds when given.
 #
-# Withdrawal requires the x-ai-tools-managed marker, so an asset the operator authored under the
-# same name is kept and reported -- the same predicate the seeder uses to decide what it may claim.
-# Each agent's symlink is left to `ai_tools_link_shared_assets`, which drops a link into the shared
-# root once its target is gone.
+# Withdrawal requires the x-ai-tools-managed marker, so an asset the operator authored under the same name is kept
+# and reported -- the same predicate the seeder uses to decide what it may claim. Each agent's symlink is left
+# to `ai_tools_link_shared_assets`, which drops a link into the shared root once its target is gone.
 #
-# The asset is MOVED, not deleted: a withdrawn asset has no shipped counterpart left to compare
-# against, so there is no way to tell a copy an operator edited from an untouched one, and the
-# unrecoverable direction is the one to avoid. It lands in `<live_root>/retired/` as
-# `<name>.<YYYYMMDD>.retired`, through the same stamping helper conf.lib.sh uses for a replaced
-# config -- one home for the `<name>.<YYYYMMDD>[-N].<kind>` shape, and a kind token that says which
-# event produced the copy. A subagent keeps its `.md`, so one flat directory holds both kinds
-# without collision.
+# The asset is MOVED, not deleted: a withdrawn asset has no shipped counterpart left to compare against, so there is no
+# way to tell a copy an operator edited from an untouched one, and the unrecoverable direction is the one to avoid. It
+# lands in `<live_root>/retired/` as `<name>.<YYYYMMDD>.retired`, through the same stamping helper conf.lib.sh uses
+# for a replaced config -- one home for the `<name>.<YYYYMMDD>[-N].<kind>` shape, and a kind token that says which event
+# produced the copy. A subagent keeps its `.md`, so one flat directory holds both kinds without collision.
 #
-# That directory sits BESIDE the shared roots rather than inside one, which is what keeps it out of
-# circulation: the linker iterates a shared root and would otherwise create a symlink for the
-# sidecar, and an agent scanning its own directory reads whatever a link points at. Renaming the
-# asset inside the skills root would leave both of those depending on how a given agent product
-# decides what is a skill -- a rule this project does not set. Out of the tree is the version that
-# does not need the assumption. It is 0700 root:root: recovery material an operator retrieves with
-# sudo, invisible to the sandbox account.
+# That directory sits BESIDE the shared roots rather than inside one, which is what keeps it out of circulation:
+# the linker iterates a shared root and would otherwise create a symlink for the sidecar, and an agent scanning its own
+# directory reads whatever a link points at. Renaming the asset inside the skills root would leave both of those
+# depending on how a given agent product decides what is a skill -- a rule this project does not set. Out of the tree is
+# the version that does not need the assumption. It is 0700 root:root: recovery material an operator retrieves
+# with sudo, invisible to the sandbox account.
 #
-# Fails toward keeping: an asset whose copy cannot be made is left in place and reported, so a
-# withdrawal never destroys what it could not first preserve.
+# Fails toward keeping: an asset whose copy cannot be made is left in place and reported, so a withdrawal never destroys
+# what it could not first preserve.
 # $1 live_root  $2.. kinds (default: every kind named in the list); a named kind must be one of
 # AI_TOOLS_ASSET_KINDS, and so must the kind of every retired entry, or the pass refuses.
 ai_tools_remove_retired_assets() {
@@ -276,11 +262,10 @@ ai_tools_remove_retired_assets() {
     done
 }
 
-# _ai_tools_asset_is_stale_copy <shared> <live> : true when <live> is a copy this project placed
-# under the pre-shared layout and is byte-identical to <shared> -- i.e. replacing it with a link
-# does not discard content. Requires BOTH the ai-tools-managed marker (so an operator's own asset is never
-# touched) and identical content (so an edited or drifted copy is never discarded). Without the
-# comparison tools it answers false, keeping the copy.
+# _ai_tools_asset_is_stale_copy <shared> <live> : true when <live> is a copy this project placed under the pre-shared
+# layout and is byte-identical to <shared> -- i.e. replacing it with a link does not discard content. Requires BOTH
+# the ai-tools-managed marker (so an operator's own asset is never touched) and identical content (so an edited
+# or drifted copy is never discarded). Without the comparison tools it answers false, keeping the copy.
 _ai_tools_asset_is_stale_copy() {
     local shared="$1" live="$2" marker="$2"
     [[ -d "${live}" ]] && marker="${live}/SKILL.md"
@@ -295,25 +280,24 @@ _ai_tools_asset_is_stale_copy() {
     fi
 }
 
-# ai_tools_link_shared_assets <shared_root> <agent_dir> <group> [readme_source]
-# Point an agent at a shared asset kind (skills, subagents): one symlink per entry under
-# <shared_root>, so every agent reads the same file and an asset is updated in one place.
-# Best-effort and idempotent, and it never displaces anything real:
+# ai_tools_link_shared_assets <shared_root> <agent_dir> <group> [readme_source] Point an agent at a shared asset kind
+# (skills, subagents): one symlink per entry under <shared_root>, so every agent reads the same file and an asset is
+# updated in one place. Best-effort and idempotent, and it never displaces anything real:
 #   * a name that does not exist in the agent's dir      -> symlink created
 #   * a symlink already pointing at the shared asset      -> left alone
 #   * a symlink into the shared root whose asset is gone  -> removed (a dropped shipped asset)
 #   * anything else (a real directory or file)            -> KEPT and reported: it is either an
 #                                                            agent-specific asset or the
 #                                                            operator's own, and it wins
-# The links are root-owned inside the agent's setgid+sticky config directory, so the agent reads
-# and invokes them but cannot repoint one at a file of its choosing.
+# The links are root-owned inside the agent's setgid+sticky config directory, so the agent reads and invokes them
+# but cannot repoint one at a file of its choosing.
 ai_tools_link_shared_assets() {
     local shared_root="$1" agent_dir="$2" group="$3" readme_source="${4:-}"
     [[ -d "${shared_root}" ]] || return 0
     install -d -o root -g "${group}" -m 750 "${agent_dir}"
 
-    # Every entry, whatever shape the kind uses: a skill is a directory, a subagent is a file.
-    # The kind's README is linked separately (ai_tools_link_asset_readme), so it is not treated as an asset.
+    # Every entry, whatever shape the kind uses: a skill is a directory, a subagent is a file. The kind's README is
+    # linked separately (ai_tools_link_asset_readme), so it is not treated as an asset.
     local src name dst linked=0
     for src in "${shared_root}"/*; do
         [[ -e "${src}" ]] || continue                    # no matches -> literal pattern, skip
@@ -325,13 +309,12 @@ ai_tools_link_shared_assets() {
             ln -sfn "${src}" "${dst}"
             _ai_tools_ma_say "${name} link repointed at ${src}"
         elif [[ -e "${dst}" ]]; then
-            # Something real sits here. It is either the operator's own (or agent-specific)
-            # asset, which always wins -- or OUR copy from the layout before these assets were
-            # shared, which should become a link so the shared file is the only one to maintain.
-            # Convert only when it is BOTH ai-tools-managed and byte-identical to the shared
-            # copy: same provenance, no content to lose. A managed copy that differs is left alone
-            # and reported, because the difference is either an operator edit or version drift,
-            # and this is not the place to resolve either.
+            # Something real sits here. It is either the operator's own (or agent-specific) asset, which always wins --
+            # or OUR copy from the layout before these assets were shared, which should become a link so the shared file
+            # is the only one to maintain. Convert only when it is BOTH ai-tools-managed and byte-identical
+            # to the shared copy: same provenance, no content to lose. A managed copy that differs is left alone
+            # and reported, because the difference is either an operator edit or version drift, and this is not
+            # the place to resolve either.
             if _ai_tools_asset_is_stale_copy "${src}" "${dst}"; then
                 rm -rf "${dst}"
                 ln -s "${src}" "${dst}"
@@ -348,9 +331,8 @@ ai_tools_link_shared_assets() {
         linked=$(( linked + 1 ))
     done
 
-    # Drop links into the shared root whose skill no longer ships, so a removed skill does not
-    # leave a dangling entry the agent would try to read. A link pointing anywhere else is not
-    # ours and is left alone.
+    # Drop links into the shared root whose skill no longer ships, so a removed skill does not leave a dangling entry
+    # the agent would try to read. A link pointing anywhere else is not ours and is left alone.
     for dst in "${agent_dir}"/*; do
         [[ -L "${dst}" ]] || continue
         src="$(readlink -- "${dst}")"
@@ -364,18 +346,16 @@ ai_tools_link_shared_assets() {
     return 0
 }
 
-# ai_tools_link_agent_memory <shared_file> <agent_dir> <memory_file> <group>
-# Point an agent at the shared orientation text under the filename its own product reads as
-# user-scope instructions -- CLAUDE.md for Claude Code, AGENTS.md for a product that follows that
-# spelling -- so one file is authored and every agent loads it in every session, whatever the
-# project. The name comes from the agent manifest (memory_file), which is why this links under a
-# name that differs from the source's; ai_tools_link_shared_assets preserves names and cannot.
+# ai_tools_link_agent_memory <shared_file> <agent_dir> <memory_file> <group> Point an agent at the shared orientation
+# text under the filename its own product reads as user-scope instructions -- CLAUDE.md for Claude Code, AGENTS.md
+# for a product that follows that spelling -- so one file is authored and every agent loads it in every session,
+# whatever the project. The name comes from the agent manifest (memory_file), which is why this links under a name
+# that differs from the source's; ai_tools_link_shared_assets preserves names and cannot.
 #
-# Non-displacing on the same rule as the asset linker: a link already pointing at the shared file
-# is left alone, a stale one is repointed, and anything REAL is kept and reported -- an operator
-# who writes their own instructions at that path keeps them, and the shared text is then not
-# loaded. Root-owned inside the agent's setgid+sticky config directory, so the session reads it
-# and cannot repoint it at a file of its own choosing.
+# Non-displacing on the same rule as the asset linker: a link already pointing at the shared file is left alone, a stale
+# one is repointed, and anything REAL is kept and reported -- an operator who writes their own instructions at that path
+# keeps them, and the shared text is then not loaded. Root-owned inside the agent's setgid+sticky config directory,
+# so the session reads it and cannot repoint it at a file of its own choosing.
 ai_tools_link_agent_memory() {
     local shared_file="$1" agent_dir="$2" memory_file="$3" group="$4"
     [[ -f "${shared_file}" && -d "${agent_dir}" && -n "${memory_file}" ]] || return 0
@@ -398,10 +378,9 @@ ai_tools_link_agent_memory() {
     return 0
 }
 
-# ai_tools_link_asset_readme <readme_source> <target_dir> <group>
-# Point <target_dir>/README.md at the shipped guide for that asset kind, so the documentation is
-# found where the assets are rather than only in the datadir. A link, never a copy, so there is
-# one file to keep current. Silent no-op when either end is absent.
+# ai_tools_link_asset_readme <readme_source> <target_dir> <group> Point <target_dir>/README.md at the shipped guide
+# for that asset kind, so the documentation is found where the assets are rather than only in the datadir. A link, never
+# a copy, so there is one file to keep current. Silent no-op when either end is absent.
 ai_tools_link_asset_readme() {
     local readme_source="$1" target_dir="$2" group="$3"
     [[ -n "${readme_source}" && -e "${readme_source}" && -d "${target_dir}" ]] || return 0

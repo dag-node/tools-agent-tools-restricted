@@ -42,14 +42,14 @@ from typing import Iterator
 
 import text_file
 
-# The comment marker, then the indent inside it: the indent belongs to the table rather than to
-# the prefix, since a row may sit deeper than the row before it and the block keeps one prefix.
+# The comment marker, then the indent inside it: the indent belongs to the table rather than to the prefix, since a row
+# may sit deeper than the row before it and the block keeps one prefix.
 COMMENT = re.compile(r"^(\s*(?:#+|//+|;;+))( *)(.*)$")
 RULE = re.compile(r"^[-=+\s]+$")
 NUMBER = re.compile(r"[-+]?\d+(?:\.\d+)?%?$")
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
-# A heredoc operator with its delimiter: `<<` or `<<-`, not the `<<<` of a here-string and not
-# the `<<` inside one, then an optional quote around a word.
+# A heredoc operator with its delimiter: `<<` or `<<-`, not the `<<<` of a here-string and not the `<<` inside one, then
+# an optional quote around a word.
 HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 

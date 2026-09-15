@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# selinux/avc/avc-denials.sh -- ENFORCE-VERIFICATION harness. Confirms the things the
-# agent must NOT be able to do are actually DENIED under enforcing.
+# selinux/avc/avc-denials.sh -- ENFORCE-VERIFICATION harness. Confirms the things the agent must NOT be able to do are
+# actually DENIED under enforcing.
 #
 # Probe sections and goals:
 #   A    Group surfaces (disabled by default): systemd, pkgmgmt, netadmin, podman, tmpmap, apphost, localipc, buildexec
@@ -49,9 +49,9 @@
 #   3. (back in terminal 1)                     press Enter
 #        -> ausearch + classify, then dontaudit is restored.
 #
-# NB: `semodule -DB` is SYSTEM-WIDE -- it unsilences every domain's dontaudit'd
-# denials for the window, not just ai_tools_t. That is fine for a short controlled
-# run (avc-analyze.sh filters to `-su ai_tools_t` anyway); the trap puts it back.
+# NB: `semodule -DB` is SYSTEM-WIDE -- it unsilences every domain's dontaudit'd denials for the window, not just
+# ai_tools_t. That is fine for a short controlled run (avc-analyze.sh filters to `-su ai_tools_t` anyway); the trap puts
+# it back.
 
 set -uo pipefail
 IFS=$'\n\t'
@@ -90,22 +90,19 @@ do_probe() {
       ;;
   esac
 
-  # Safety guard: probing under non-enforcing SELinux is an information-exposure
-  # risk.  In Permissive or Disabled mode the probed accesses are NOT blocked -- some
-  # probes may SUCCEED, reaching data the policy is meant to protect (/home/<user>,
-  # ~/.config, container storage, port :22, the MTA).  Results would also be
-  # misleading because "denied/failed" only reflects the absent enforcement, not the
-  # policy.  Require Enforcing + loaded module, or an explicit `--force` override.
+  # Safety guard: probing under non-enforcing SELinux is an information-exposure risk.  In Permissive or Disabled mode
+  # the probed accesses are NOT blocked -- some probes may SUCCEED, reaching data the policy is meant to protect
+  # (/home/<user>, ~/.config, container storage, port :22, the MTA).  Results would also be misleading because
+  # "denied/failed" only reflects the absent enforcement, not the policy.  Require Enforcing + loaded module,
+  # or an explicit `--force` override.
   if [[ "${FORCE:-0}" -ne 1 ]]; then
-    # Prerequisite: this script already confirmed the ai_tools_t context.  That check
-    # rules out "SELinux not installed" and "SELinux disabled" -- a domain
-    # transition into ai_tools_t is impossible without SELinux running and the
-    # module loaded.  The only remaining question here is enforcing vs permissive.
+    # Prerequisite: this script already confirmed the ai_tools_t context.  That check rules out "SELinux not installed"
+    # and "SELinux disabled" -- a domain transition into ai_tools_t is impossible without SELinux running and the module
+    # loaded.  The only remaining question here is enforcing vs permissive.
     #
-    # getenforce reads security_t (selinuxfs).  Under enforcing, ai_tools_t has no
-    # security_t read access, so getenforce and the direct cat both fail -> "unknown".
-    # Under permissive no access is blocked, so both CAN read it and return an explicit
-    # "Permissive"/"0".  Therefore, once past the context check:
+    # getenforce reads security_t (selinuxfs).  Under enforcing, ai_tools_t has no security_t read access, so getenforce
+    # and the direct cat both fail -> "unknown". Under permissive no access is blocked, so both CAN read it and return
+    # an explicit "Permissive"/"0".  Therefore, once past the context check:
     #
     #   "unknown" = selinuxfs was protected = enforcing              -> allow
     #   explicit "Enforcing" / "1"          = confirmed              -> allow
@@ -144,8 +141,8 @@ do_probe() {
   fi
 
   # ── Audit-log setup ──────────────────────────────────────────────────────────
-  # Derive identity paths before the exec redirect so we have real values for
-  # actual access attempts; masked display aliases are used in all log output.
+  # Derive identity paths before the exec redirect so we have real values for actual access attempts; masked display
+  # aliases are used in all log output.
   uhome="$(pwd)"
   while [[ "${uhome}" == /home/*/* ]]; do uhome="$(dirname "${uhome}")"; done
   if [[ "${uhome}" == /home/* ]]; then
@@ -203,10 +200,9 @@ do_probe() {
     _why="" _type="" _floor=""
   }
 
-  # floor_check: like check() but when access succeeds it records BASE-POLICY FLOOR
-  # instead of FAIL. Use when the grant comes from a base-policy attribute rule that
-  # cannot be removed or overridden from ai_tools.te, and a separate mitigation exists.
-  # Set _floor (and optionally _type/_why) before calling.
+  # floor_check: like check() but when access succeeds it records BASE-POLICY FLOOR instead of FAIL. Use when the grant
+  # comes from a base-policy attribute rule that cannot be removed or overridden from ai_tools.te, and a separate
+  # mitigation exists. Set _floor (and optionally _type/_why) before calling.
   floor_check() {
     local _c="$1" _tag="$2" _desc="$3"; shift 3
     printf '\n[%s] %s  [%s]\n' "${_c}" "$(_R "${_desc}")" "${_tag}"
@@ -270,8 +266,8 @@ do_probe() {
   printf '================================================================\n'
 
   # ============================================================
-  # SECTIONS A-F: IN-CORE BOUNDARY (existing dontaudit rules)
-  # AVCs are dontaudit'd and only visible under the `-DB` bracket.
+  # SECTIONS A-F: IN-CORE BOUNDARY (existing dontaudit rules) AVCs are dontaudit'd and only visible under the `-DB`
+  # bracket.
   # ============================================================
 
   section "SECTION A: OPTIONAL GROUP SURFACES" \
@@ -304,8 +300,8 @@ boundary has a gap. These are plain deny (not dontaudit'd); AVCs log without -DB
   _why="podman info reveals the container runtime config, storage driver, and registry list. Container runtime access is a known escape vector and the prerequisite for socket-API abuse (see LAT-002)."
   check GRP-006 SELinux "exec podman info" podman info
 
-  # tmpmap is a map grant, not an exec: create a /tmp file (born ai_tools_tmp_t)
-  # and mmap it. With the group off the map is denied; a success means tmpmap is on.
+  # tmpmap is a map grant, not an exec: create a /tmp file (born ai_tools_tmp_t) and mmap it. With the group off the map
+  # is denied; a success means tmpmap is on.
   _type="ai_tools_tmp_t (file map)"
   _why="dotnet build and NuGet restore mmap a shared-memory mutex file under /tmp/.dotnet/shm, and git in a /tmp working tree mmaps its pack/index. Without the optional tmpmap group ai_tools_t has no map on ai_tools_tmp_t, so the mmap is denied. A success here means the tmpmap group is enabled."
   if command -v python3 >/dev/null 2>&1; then
@@ -321,10 +317,9 @@ finally:
     skip_check GRP-007 SELinux "mmap a /tmp file" "python3 not available to attempt the mmap"
   fi
 
-  # apphost is an execute-on-memfd grant, not a /tmp map: create an anonymous memfd
-  # (born tmpfs_t) and map it PROT_EXEC -- the path .NET's JIT/apphost uses. With the
-  # group off the execute is denied; a success means apphost is on. Disjoint from GRP-007:
-  # this touches tmpfs_t (memfd), never ai_tools_tmp_t (/tmp), which stays noexec regardless.
+  # apphost is an execute-on-memfd grant, not a /tmp map: create an anonymous memfd (born tmpfs_t) and map it PROT_EXEC
+  # -- the path .NET's JIT/apphost uses. With the group off the execute is denied; a success means apphost is on.
+  # Disjoint from GRP-007: this touches tmpfs_t (memfd), never ai_tools_tmp_t (/tmp), which stays noexec regardless.
   _type="tmpfs_t (memfd file execute)"
   _why=".NET writes JIT'd/apphost native code to an anonymous memfd file and maps it PROT_EXEC to run it. Without the optional apphost group ai_tools_t holds execmem (anonymous RWX) but no execute on a tmpfs file mapping, so the executable mapping is denied and any executable/host project (dotnet run, ASP.NET Core, xunit.v3) fails. A success here means the apphost group is enabled."
   if command -v python3 >/dev/null 2>&1 \
@@ -341,11 +336,10 @@ finally:
     skip_check GRP-008 SELinux "mmap a memfd PROT_EXEC" "python3 with os.memfd_create (3.8+) not available"
   fi
 
-  # localipc group: a unix socket / FIFO under /tmp. The base transitions /tmp FILES to
-  # ai_tools_tmp_t but not sockets/FIFOs, so with the group off they default to tmp_t and
-  # creation is denied -- which is what stalls dotnet test and multi-node MSBuild. A success
-  # means localipc is on. Executing a built binary from the project tree (buildexec) needs a
-  # real artifact and is exercised by the workload and avc-testsuite.sh, not this synthetic probe.
+  # localipc group: a unix socket / FIFO under /tmp. The base transitions /tmp FILES to ai_tools_tmp_t but not
+  # sockets/FIFOs, so with the group off they default to tmp_t and creation is denied -- which is what stalls dotnet
+  # test and multi-node MSBuild. A success means localipc is on. Executing a built binary from the project tree
+  # (buildexec) needs a real artifact and is exercised by the workload and avc-testsuite.sh, not this synthetic probe.
   _type="tmp_t sock_file/fifo_file create + unix_stream_socket connectto"
   _why=".NET opens a diagnostic unix socket and a CLR debug FIFO under /tmp, multi-node MSBuild opens worker pipes there, and Microsoft.Testing.Platform connects its runner to the test host over a unix stream socket. Without the optional localipc SELinux group ai_tools_t cannot create a sock_file/fifo_file in tmp_t, nor connectto its own stream socket, so the IPC fails: dotnet test reports it cannot connect and the build hangs. A success here means localipc is enabled."
   if command -v python3 >/dev/null 2>&1; then
@@ -450,10 +444,8 @@ under -DB. Existence check omitted (stat is dontaudit'd)."
     /usr/sbin/sendmail -bv root
 
   # ============================================================
-  # SECTIONS G-X: EXTENDED SURFACE (not yet dontaudit'd)
-  # AVCs log WITHOUT `-DB` and will appear as NEW in avc-analyze.
-  # For each confirmed denial: add dontaudit to ai_tools.te,
-  # add type to BOUNDARY_NAMED_RE, rebuild, re-run.
+  # SECTIONS G-X: EXTENDED SURFACE (not yet dontaudit'd) AVCs log WITHOUT `-DB` and will appear as NEW in avc-analyze.
+  # For each confirmed denial: add dontaudit to ai_tools.te, add type to BOUNDARY_NAMED_RE, rebuild, re-run.
   # ============================================================
 
   section "SECTION G: SHADOW / GROUP-SHADOW CREDENTIALS  [goal 1]" \
@@ -705,10 +697,9 @@ from exec'ing the binary (GRP-006). Via the socket the agent can create
 privileged containers mounting the host filesystem and escape without triggering
 the container_runtime_exec_t deny."
 
-  # Existence check omitted: `[[ -S path ]]` calls stat(), which is itself denied for
-  # container_var_run_t under enforcing -- the check returns false even when the socket
-  # is present. Attempt unconditionally; an AVC logs only when the socket exists and is
-  # labelled container_var_run_t. ENOENT (absent socket) fails silently with no AVC.
+  # Existence check omitted: `[[ -S path ]]` calls stat(), which is itself denied for container_var_run_t
+  # under enforcing -- the check returns false even when the socket is present. Attempt unconditionally; an AVC logs
+  # only when the socket exists and is labelled container_var_run_t. ENOENT (absent socket) fails silently with no AVC.
   _type="container_var_run_t / container_runtime_t (sock_file connectto)"
   _why="The container daemon socket API allows creating privileged containers that bind-mount the host root filesystem, executing into existing containers holding production secrets, and running arbitrary images. This is the most common container-escape path and needs no binary exec."
   check LAT-002 SELinux \
@@ -829,8 +820,8 @@ do_run() {
     Permissive) note "system is Permissive -- denials will LOG but not BLOCK. Still a valid log test." ;;
     *) err "SELinux appears Disabled -- nothing to verify."; exit 1 ;;
   esac
-  # RHEL9 `semodule -l` prints the bare module name (no version column), so match
-  # the name at EOL or before whitespace to cover both old and new output.
+  # RHEL9 `semodule -l` prints the bare module name (no version column), so match the name at EOL or before whitespace
+  # to cover both old and new output.
   semodule -l 2>/dev/null | grep -qE '^ai_tools($|[[:space:]])' \
     || { err "core ai_tools module not loaded (install-selinux.sh install)"; exit 1; }
   if command -v seinfo >/dev/null 2>&1 && seinfo --permissive -x 2>/dev/null | grep -qw "${SUBJ}"; then
@@ -838,9 +829,9 @@ do_run() {
     note "      Flip to enforcing (remove 'permissive ai_tools_t;') for a true test."
   fi
 
-  # auditd must be running; without it ausearch reports an empty result even when denials fire.
-  # The group-disabled exec denials (systemctl, rpm, podman) are NOT dontaudit'd and
-  # should always appear -- an empty log for those is the fingerprint of auditd being down.
+  # auditd must be running; without it ausearch reports an empty result even when denials fire. The group-disabled exec
+  # denials (systemctl, rpm, podman) are NOT dontaudit'd and should always appear -- an empty log for those is
+  # the fingerprint of auditd being down.
   if ! systemctl is-active --quiet auditd 2>/dev/null; then
     err "auditd is NOT running -- AVCs will not be written to /var/log/audit/audit.log."
     err "Start it first:  systemctl start auditd"
@@ -848,15 +839,15 @@ do_run() {
   fi
   note "auditd is active."
 
-  # Need a terminal for the hand-off wait; without one the `-DB` window has no
-  # well-defined end and we'd risk restoring dontaudit before the probe runs.
+  # Need a terminal for the hand-off wait; without one the `-DB` window has no well-defined end and we'd risk restoring
+  # dontaudit before the probe runs.
   [[ -e /dev/tty ]] || { err "run mode needs a terminal (it waits for the probe). Re-run interactively."; exit 1; }
 
   # Disable dontaudit for the window; ALWAYS restore on exit (trap covers Ctrl-C).
   restore_dontaudit() { note "restoring dontaudit (semodule -B) ..."; semodule -B >/dev/null 2>&1 && note "dontaudit restored." || err "semodule -B FAILED -- run 'sudo semodule -B' by hand to re-silence."; }
   trap restore_dontaudit EXIT INT TERM
-  # Capture START before `semodule -DB`: the policy reload can trigger a log rotation
-  # at the exact same second, causing `ausearch -ts <START>` to miss the new log file.
+  # Capture START before `semodule -DB`: the policy reload can trigger a log rotation at the exact same second, causing
+  # `ausearch -ts <START>` to miss the new log file.
   START="$(date '+%m/%d/%Y %H:%M:%S')"
   step "disabling dontaudit system-wide (semodule -DB) so boundary denials are logged"
   semodule -DB >/dev/null 2>&1 || { err "semodule -DB failed"; exit 1; }
@@ -867,9 +858,8 @@ do_run() {
   note "Let the claude turn finish (so any Stop-sweep AVCs land too)."
   read -r -p $'\033[1;32m[avc-denials]\033[0m press Enter when the probe + turn have finished... ' _ </dev/tty || true
   echo
-  # Give the audit daemon a moment to flush its kernel backlog to disk.
-  # auditd uses INCREMENTAL_ASYNC by default (~1 s flush cycle); without this,
-  # ausearch reads the log file before the last few AVCs are written.
+  # Give the audit daemon a moment to flush its kernel backlog to disk. auditd uses INCREMENTAL_ASYNC by default (~1 s
+  # flush cycle); without this, ausearch reads the log file before the last few AVCs are written.
   sleep 2
 
   step "analyzing ai_tools_t denials since ${START}"

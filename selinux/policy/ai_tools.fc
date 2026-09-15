@@ -1,112 +1,98 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # File contexts shipped with the ai_tools module (fixed paths only).
 #
-# NO AGENT ENTRYPOINT IS LISTED HERE. The binary whose exec drives the
-# unconfined_t/init_t -> ai_tools_t transition must carry ai_tools_exec_t, but which binary
-# that is belongs to the agent, not to this base module: each ai-tools-agents-* package
-# declares its own path pattern (entrypoint_fcontext in its manifest under
-# /usr/local/lib/ai-tools/agents.d), and ai-tools-relabel-agent applies it as a LOCAL
-# semanage fcontext rule mapping it to the ai_tools_exec_t this module defines. A second agent
-# therefore labels its entrypoint into this domain without a base-policy change. The type is
-# pinned by relabel.lib.sh and the pattern is accepted only under the sandbox toolchain root,
-# so a manifest chooses which file is its entrypoint, never what type a file gets.
+# NO AGENT ENTRYPOINT IS LISTED HERE. The binary whose exec drives the unconfined_t/init_t -> ai_tools_t transition must
+# carry ai_tools_exec_t, but which binary that is belongs to the agent, not to this base module: each ai-tools-agents-*
+# package declares its own path pattern (entrypoint_fcontext in its manifest under /usr/local/lib/ai-tools/agents.d),
+# and ai-tools-relabel-agent applies it as a LOCAL semanage fcontext rule mapping it to the ai_tools_exec_t this module
+# defines. A second agent therefore labels its entrypoint into this domain without a base-policy change. The type is
+# pinned by relabel.lib.sh and the pattern is accepted only under the sandbox toolchain root, so a manifest chooses
+# which file is its entrypoint, never what type a file gets.
 #
-# The relabel runs at provision time (ai-tools-bootstrap), on the ai-tools-relabel.path watcher
-# after a Node upgrade reinstalls the binary mislabelled, and on demand via `ai-tools-admin system entrypoints relabel`.
-# Until it lands, ai-tools-run fail-closes (refuses to launch) rather than run unconfined.
+# The relabel runs at provision time (ai-tools-bootstrap), on the ai-tools-relabel.path watcher after a Node upgrade
+# reinstalls the binary mislabelled, and on demand via `ai-tools-admin system entrypoints relabel`. Until it lands,
+# ai-tools-run fail-closes (refuses to launch) rather than run unconfined.
 #
-# The rest of the nvm node tree is left to its default usr_t/bin_t/lib_t -- READ-ONLY
-# to an interactive ai_tools_t session (files_read_usr_files / libs_read_lib_files /
-# corecmd_exec_bin), so the agent cannot modify its own toolchain mid-session: the agent's
-# in-session `npm install -g`/`update -g` is denied by design. Node/npm self-management is
-# done out-of-band by the scheduled nvm-update.service in the sandbox account's own
-# `--user instance`, which writes this tree.
-# (An entrypoint can be HARD-LINKED into this tree -- claude.exe shares its inode with the
-# platform package's ELF under node_modules/@anthropic-ai/claude-code-<arch>/ -- so the two
-# names carry one label. install-selinux.sh relabels the entrypoints LAST, after the bulk
-# sweep, so the shared inode ends on ai_tools_exec_t whatever order the sweep took. Relabel
-# via `install-selinux.sh rebuild`/`relabel`, never a bare restorecon of the tree, which
-# could leave the inode lib_t and trip the fail-closed launch preflight.)
+# The rest of the nvm node tree is left to its default usr_t/bin_t/lib_t -- READ-ONLY to an interactive ai_tools_t
+# session (files_read_usr_files / libs_read_lib_files / corecmd_exec_bin), so the agent cannot modify its own toolchain
+# mid-session: the agent's in-session `npm install -g`/`update -g` is denied by design. Node/npm self-management is done
+# out-of-band by the scheduled nvm-update.service in the sandbox account's own `--user instance`, which writes this
+# tree. (An entrypoint can be HARD-LINKED into this tree -- claude.exe shares its inode with the platform package's ELF
+# under node_modules/@anthropic-ai/claude-code-<arch>/ -- so the two names carry one label. install-selinux.sh relabels
+# the entrypoints LAST, after the bulk sweep, so the shared inode ends on ai_tools_exec_t whatever order the sweep took.
+# Relabel via `install-selinux.sh rebuild`/`relabel`, never a bare restorecon of the tree, which could leave the inode
+# lib_t and trip the fail-closed launch preflight.)
 
-# The root helpers grouped under one dir (chown, setgid, launcher-symlink, lockdown).
-# They run IN ai_tools_handback_t (bin_t, execute_no_trans -- no separate domain).
-# Stated explicitly so restorecon labels the dir and all contents consistently.
+# The root helpers grouped under one dir (chown, setgid, launcher-symlink, lockdown). They run IN ai_tools_handback_t
+# (bin_t, execute_no_trans -- no separate domain). Stated explicitly so restorecon labels the dir and all contents
+# consistently.
 /usr/local/libexec/ai-tools(/.*)?  gen_context(system_u:object_r:bin_t,s0)
-# The handback daemon gets its own entrypoint label so init_t transitions into
-# ai_tools_handback_t on exec (more specific than the /opt/ai-tools/bin wildcard).
+# The handback daemon gets its own entrypoint label so init_t transitions into ai_tools_handback_t on exec (more
+# specific than the /opt/ai-tools/bin wildcard).
 /usr/local/libexec/ai-tools/ai-tools-handback  --  gen_context(system_u:object_r:ai_tools_handback_exec_t,s0)
 
-# The handback socket client (called by the agent hooks and nvm-update.sh).
-# Lives in /usr/local/bin -- the default bin_t for that path -- no special label.
+# The handback socket client (called by the agent hooks and nvm-update.sh). Lives in /usr/local/bin -- the default bin_t
+# for that path -- no special label.
 
-# The handback socket runtime directory and socket file.  Created by systemd when
-# ai-tools-handback.socket activates (RuntimeDirectory=ai-tools, mode 0750
-# root:ai-tools).  ai_tools_t needs search on the dir and read/write on the
-# sock_file; restorecon here keeps labels consistent after a socket restart.
+# The handback socket runtime directory and socket file.  Created by systemd when ai-tools-handback.socket activates
+# (RuntimeDirectory=ai-tools, mode 0750 root:ai-tools).  ai_tools_t needs search on the dir and read/write
+# on the sock_file; restorecon here keeps labels consistent after a socket restart.
 /run/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_run_t,s0)
-# Twin of the /run entry for the legacy path: file_contexts.subs_dist rewrites every
-# /run/* lookup to /var/run/* before matching (the /run<-/var/run compat shim),
-# so matchpathcon/restorecon/RuntimeDirectory= labelling never reaches the entry
-# it -- only this one. cockpit and mount declare both forms for the same reason.
+# Twin of the /run entry for the legacy path: file_contexts.subs_dist rewrites every /run/* lookup to /var/run/*
+# before matching (the /run<-/var/run compat shim), so matchpathcon/restorecon/RuntimeDirectory= labelling never reaches
+# the entry it -- only this one. cockpit and mount declare both forms for the same reason.
 /var/run/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_run_t,s0)
 
-# The root-helper operation logs. `ai-tools-{chown,setgid,launcher-symlink}` run IN
-# ai_tools_handback_t and append here; the domain is granted append/create on
-# ai_tools_log_t in ai_tools.te. DAC keeps it root-only (dir 700, files 600).
+# The root-helper operation logs. `ai-tools-{chown,setgid,launcher-symlink}` run IN ai_tools_handback_t and append here;
+# the domain is granted append/create on ai_tools_log_t in ai_tools.te. DAC keeps it root-only (dir 700, files 600).
 /var/log/ai-tools(/.*)?  gen_context(system_u:object_r:ai_tools_log_t,s0)
 
-# NO AGENT CONFIG DIRECTORY IS LISTED HERE either. Each agent has a private writable
-# config/state dir under the home -- what keeps the policy from having to grant write on the
-# whole nvm tree (usr_t) -- but which directory that is belongs to the agent: its manifest
-# declares config_dir, and ai-tools-relabel-agent maps it to ai_tools_home_t as a
-# LOCAL semanage rule, exactly as it does for the entrypoint. The root-owned control files
-# inside it (settings.json, the hooks) remain protected by DAC regardless of label.
+# NO AGENT CONFIG DIRECTORY IS LISTED HERE either. Each agent has a private writable config/state dir under the home --
+# what keeps the policy from having to grant write on the whole nvm tree (usr_t) -- but which directory that is belongs
+# to the agent: its manifest declares config_dir, and ai-tools-relabel-agent maps it to ai_tools_home_t as a LOCAL
+# semanage rule, exactly as it does for the entrypoint. The root-owned control files inside it (settings.json,
+# the hooks) remain protected by DAC regardless of label.
 
-# The SHARED asset roots: agent-agnostic skills, subagent definitions, and the orientation text
-# the base owns, which every agent's config directory symlinks into. Base-owned and at fixed
-# paths, so unlike an agent's own config directory they are declared statically here. The domain
-# reads them (and follows the symlinks into them); DAC keeps them root-owned and
+# The SHARED asset roots: agent-agnostic skills, subagent definitions, and the orientation text the base owns,
+# which every agent's config directory symlinks into. Base-owned and at fixed paths, so unlike an agent's own config
+# directory they are declared statically here. The domain reads them (and follows the symlinks into them); DAC keeps
+# them root-owned and
 # non-agent-writable.
 /opt/ai-tools/skills(/.*)?       gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/subagents(/.*)?    gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/orientation(/.*)?  gen_context(system_u:object_r:ai_tools_home_t,s0)
 
-# The INTEGRATION state root: one directory per integration (integrations/<name>/...), holding
-# the sandbox-side state a host toolchain needs -- a package cache the agent writes, shared tools
-# it only executes. ONE rule covers every integration present or future, so a new toolchain
-# does not need policy of its own: ai_tools_home_t grants the domain the access, and the DAC modes each integration
-# sets inside its own directory are the enforced read/write boundary.
+# The INTEGRATION state root: one directory per integration (integrations/<name>/...), holding the sandbox-side state
+# a host toolchain needs -- a package cache the agent writes, shared tools it only executes. ONE rule covers every
+# integration present or future, so a new toolchain does not need policy of its own: ai_tools_home_t grants the domain
+# the access, and the DAC modes each integration sets inside its own directory are the enforced read/write boundary.
 /opt/ai-tools/integrations(/.*)?  gen_context(system_u:object_r:ai_tools_home_t,s0)
 
 # The rest of the agent's HOME state, which is base-owned and fixed. HOME is /opt/ai-tools, whose base is usr_t,
-# so without these the agent's own writes to .npm / .cache / .local / .config land
-# on usr_t -- and granting the domain usr_t write would also hand it the read-only
-# node/program tree. Labelling just these paths ai_tools_home_t keeps the writes
-# on a type the domain already manages, and leaves .nvm (usr_t, read-only) and bin
-# (bin_t, the locked control-plane) untouched.
+# so without these the agent's own writes to .npm / .cache / .local / .config land on usr_t -- and granting the domain
+# usr_t write would also hand it the read-only node/program tree. Labelling just these paths ai_tools_home_t keeps
+# the writes on a type the domain already manages, and leaves .nvm (usr_t, read-only) and bin (bin_t, the locked
+# control-plane) untouched.
 /opt/ai-tools/\.npm(/.*)?         gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.cache(/.*)?       gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.local(/.*)?       gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.config(/.*)?      gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.gitconfig     --  gen_context(system_u:object_r:ai_tools_home_t,s0)
 
-# Approved PROJECT dirs under /home are NOT listed here -- their paths are dynamic.
-# They are labelled ai_tools_project_t per-project with `semanage fcontext` by
-# install-selinux.sh (reading ~/.config/ai-tools/allowed-projects).
+# Approved PROJECT dirs under /home are NOT listed here -- their paths are dynamic. They are labelled ai_tools_project_t
+# per-project with `semanage fcontext` by install-selinux.sh (reading ~/.config/ai-tools/allowed-projects).
 #
-# SANDBOX project clones are the exception: they all live under one fixed parent,
-# so every directory directly under sandbox-projects/ is a project and is labelled
-# statically here. This is what lets `ai-tools --sandbox-create` self-label a fresh
-# clone with a plain restorecon -- no per-project semanage and no root, since
-# unconfined_t is granted relabel to ai_tools_project_t in ai_tools.te.
+# SANDBOX project clones are the exception: they all live under one fixed parent, so every directory directly
+# under sandbox-projects/ is a project and is labelled statically here. This is what lets `ai-tools --sandbox-create`
+# self-label a fresh clone with a plain restorecon -- no per-project semanage and no root, since unconfined_t is granted
+# relabel to ai_tools_project_t in ai_tools.te.
 #
-# The pattern is written under /opt, NOT /var/opt, even though the clones live on disk at
-# /var/opt/ai-tools/sandbox-projects. EL (and Fedora) ship a base path alias in
-# file_contexts.subs_dist -- `/var/opt /opt` -- so libselinux canonicalizes every /var/opt/*
-# lookup to /opt/* BEFORE matching file_contexts. A rule keyed on /var/opt/... is therefore
-# unreachable: no path is ever presented to the matcher in that form. restorecon of a clone at
-# /var/opt/ai-tools/sandbox-projects/<clone> resolves against /opt/ai-tools/sandbox-projects/<clone>,
-# which this rule matches. (The alias also makes the parent dirs /var/opt/ai-tools and
-# sandbox-projects/ resolve as /opt/ai-tools -> usr_t, not var_t; the agent traverses them via the
-# files_read_usr_files grant, and reaches /var itself via files_search_var -- see ai_tools.te.)
+# The pattern is written under /opt, NOT /var/opt, even though the clones live on disk
+# at /var/opt/ai-tools/sandbox-projects. EL (and Fedora) ship a base path alias in file_contexts.subs_dist --
+# `/var/opt /opt` -- so libselinux canonicalizes every /var/opt/* lookup to /opt/* BEFORE matching file_contexts. A rule
+# keyed on /var/opt/... is therefore unreachable: no path is ever presented to the matcher in that form. restorecon
+# of a clone at /var/opt/ai-tools/sandbox-projects/<clone> resolves against /opt/ai-tools/sandbox-projects/<clone>,
+# which this rule matches. (The alias also makes the parent dirs /var/opt/ai-tools and sandbox-projects/ resolve
+# as /opt/ai-tools -> usr_t, not var_t; the agent traverses them via the files_read_usr_files grant, and reaches /var
+# itself via files_search_var -- see ai_tools.te.)
 /opt/ai-tools/sandbox-projects/[^/]+(/.*)?  gen_context(system_u:object_r:ai_tools_project_t,s0)

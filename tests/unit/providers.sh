@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/providers.sh
-# Unit test for the provider resolver (providers.lib.sh). Drives the PURE verdict
-# ai_tools_provider_is_enabled over its enablement truth table, then ai_tools_enabled_agents and
-# ai_tools_enabled_integrations over /tmp fixture manifest dirs + operator.conf via the root-only
-# AI_TOOLS_{AGENTS,INTEGRATIONS}_DIR / AI_TOOLS_OPERATOR_CONF hooks (the same hermetic-override
-# pattern skip-dirs.lib.sh uses). This is the FAIL-CLOSED enablement contract the toolchain layer
-# (ai-tools-bootstrap, nvm-update) and the launcher (ai-tools-run) provision from, so a regression --
-# a surface-widening provider enabled without an explicit opt-in, an absent/unreadable config read
-# as "enable all", a requested-but-uninstalled name silently guessed instead of skipped -- fails
+# Unit test for the provider resolver (providers.lib.sh). Drives the PURE verdict ai_tools_provider_is_enabled over its
+# enablement truth table, then ai_tools_enabled_agents and ai_tools_enabled_integrations over /tmp fixture manifest dirs
+# + operator.conf via the root-only AI_TOOLS_{AGENTS,INTEGRATIONS}_DIR / AI_TOOLS_OPERATOR_CONF hooks (the same
+# hermetic-override pattern skip-dirs.lib.sh uses). This is the FAIL-CLOSED enablement contract the toolchain layer
+# (ai-tools-bootstrap, nvm-update) and the launcher (ai-tools-run) provision from, so a regression -- a surface-widening
+# provider enabled without an explicit opt-in, an absent/unreadable config read as "enable all",
+# a requested-but-uninstalled name silently guessed instead of skipped -- fails
 # here.
 #
 # Two properties get their own sections because a break in either is silent in production:
@@ -62,9 +61,9 @@ verdict "comma-separated allowlist names it"       0 claude-code no  yes "claude
 verdict "mixed separators name it"                 0 other       no  yes "claude-code, other  third"
 
 # --- Pure verdict: ai_tools_agent_sweeps_at_exit <handback-declaration> -----------------------
-# Which side converges ownership. Only the exact literal "hooks" may switch the launcher's
-# session-end sweep OFF, so an unknown or absent declaration errs toward sweeping -- the safe
-# direction (a redundant walk, never a project tree left sandbox-owned).
+# Which side converges ownership. Only the exact literal "hooks" may switch the launcher's session-end sweep
+# OFF, so an unknown or absent declaration errs toward sweeping -- the safe direction (a redundant walk, never a project
+# tree left sandbox-owned).
 sweeps() {
     local desc="$1" exp_rc="$2" declared="${3-}"
     local rc=0; ai_tools_agent_sweeps_at_exit "${declared}" || rc=$?
@@ -76,8 +75,8 @@ sweeps "absent handback -> sweeps (no declaration, no driver)"      0
 sweeps "unrecognized value -> sweeps (allowlist, not blocklist)"    0 Hooks
 
 # --- Resolver over a /tmp fixture tree (name<TAB>npm_package<TAB>launcher per enabled agent) ---
-# The fixtures are created by this root-run suite, so they are root-owned and non-group-writable:
-# the trusted state. The tamper section deliberately breaks that per case and restores it.
+# The fixtures are created by this root-run suite, so they are root-owned and non-group-writable: the trusted state.
+# The tamper section deliberately breaks that per case and restores it.
 mktestdir
 agents_dir="${TESTDIR}/agents.d"; mkdir -p "${agents_dir}"
 printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndefault_enable=yes\n' > "${agents_dir}/claude-code.conf"
@@ -85,8 +84,8 @@ printf 'npm_package=@acme/experimental\nlauncher=acme\ndefault_enable=no\n'     
 export AI_TOOLS_AGENTS_DIR="${agents_dir}"
 conf="${TESTDIR}/operator.conf"
 
-# resolve <conf-path> : enabled agents' stdout. The prefix assignment is visible to the function
-# and reverts after the call, so each case runs against its own operator.conf with no leak.
+# resolve <conf-path> : enabled agents' stdout. The prefix assignment is visible to the function and reverts
+# after the call, so each case runs against its own operator.conf with no leak.
 resolve() { AI_TOOLS_OPERATOR_CONF="$1" ai_tools_enabled_agents 2>/dev/null; }
 assert_names() {
     local desc="$1" expected="$2" conf_path="$3" got
@@ -103,8 +102,8 @@ assert_names "allowlist both -> both provisioned"        "claude-code experiment
 printf 'AI_TOOLS_AGENTS=""\n' > "${conf}"
 assert_names "explicit empty allowlist -> no agents"     "" "${conf}"
 
-# The shared grammar applies to the gating keys too: quotes optional, commas or whitespace
-# between names, an inline comment ending the value.
+# The shared grammar applies to the gating keys too: quotes optional, commas or whitespace between names, an inline
+# comment ending the value.
 printf 'AI_TOOLS_AGENTS=claude-code, experimental\n' > "${conf}"
 assert_names "unquoted, comma-separated allowlist"       "claude-code experimental " "${conf}"
 printf 'AI_TOOLS_AGENTS = claude-code  experimental   # both agents\n' > "${conf}"
@@ -122,8 +121,8 @@ fi
 assert_msg MSG-X8P4 "${warn_out}" "the uninstalled agent is reported on stderr, never guessed"
 
 # --- Manifest field accessor: what ai-tools-run reads once it has resolved an agent -----------
-# The name becomes a path, so it is allowlisted to plain identifiers: anything else must resolve
-# an empty result rather than address a file outside the manifest directory.
+# The name becomes a path, so it is allowlisted to plain identifiers: anything else must resolve an empty result rather
+# than address a file outside the manifest directory.
 printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Claude Code\ndefault_enable=yes\n' \
     > "${agents_dir}/claude-code.conf"
 if [[ "$(ai_tools_agent_manifest_field claude-code display_name || true)" == "Claude Code" ]]; then
@@ -149,9 +148,9 @@ chmod 0644 "${agents_dir}/claude-code.conf"
 # --- IFS independence: the resolver runs inside scripts that set the strict-mode IFS ----------
 section "providers: resolution is independent of the caller's IFS"
 printf 'AI_TOOLS_AGENTS="claude-code experimental"\n' > "${conf}"
-# A SUBSHELL with IFS=$'\n\t' -- exactly what nvm-update.sh sets -- so the assertion cannot be
-# masked by this file's own IFS. Without a locally-pinned IFS in the splitter the whole value
-# reads as one name and BOTH agents drop out with only a stderr warning.
+# A SUBSHELL with IFS=$'\n\t' -- exactly what nvm-update.sh sets -- so the assertion cannot be masked by this file's own
+# IFS. Without a locally-pinned IFS in the splitter the whole value reads as one name and BOTH agents drop out with only
+# a stderr warning.
 ifs_names="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>/dev/null \
               | cut -f1 | sort | tr '\n' ' ' )"
 if [[ "${ifs_names}" == "claude-code experimental " ]]; then
@@ -169,12 +168,12 @@ else
 fi
 
 # --- Tamper refusal: the sandbox must not be able to widen its own surface --------------------
-# Each case makes ONE input untrusted (the states a non-root writer can create) and asserts the
-# resolver moves to LESS access, never more. Restored after each case so the next starts trusted.
+# Each case makes ONE input untrusted (the states a non-root writer can create) and asserts the resolver moves to LESS
+# access, never more. Restored after each case so the next starts trusted.
 section "providers: untrusted inputs fail closed"
 
-# An operator.conf the agent could have written must not be able to opt a default_enable=no
-# provider in: it is ignored entirely, falling back to the baseline.
+# An operator.conf the agent could have written must not be able to opt a default_enable=no provider in: it is ignored
+# entirely, falling back to the baseline.
 printf 'AI_TOOLS_AGENTS="claude-code experimental"\n' > "${conf}"
 chown "${PROJECTS_USER}" "${conf}"
 assert_names "non-root-owned operator.conf ignored -> baseline only" "claude-code " "${conf}"
@@ -184,16 +183,16 @@ assert_names "group-writable operator.conf ignored -> baseline only" "claude-cod
 chmod 0644 "${conf}"
 assert_names "restored operator.conf honored again"                  "claude-code experimental " "${conf}"
 
-# A manifest the agent could have written cannot introduce or enable a provider: that ONE
-# provider drops out, the trusted sibling survives, and the refusal is reported.
+# A manifest the agent could have written cannot introduce or enable a provider: that ONE provider drops
+# out, the trusted sibling survives, and the refusal is reported.
 chmod 0666 "${agents_dir}/experimental.conf"
 tamper_warn="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
 assert_names "world-writable manifest skipped, sibling survives" "claude-code " "${conf}"
 assert_msg MSG-M3A5 "${tamper_warn}" "untrusted manifest refusal is reported, not silent"
 chmod 0644 "${agents_dir}/experimental.conf"
 
-# A manifest DIRECTORY a non-root writer can modify lets them unlink and replace any manifest in
-# it, so the whole kind is refused -- no agent is resolved at all.
+# A manifest DIRECTORY a non-root writer can modify lets them unlink and replace any manifest in it, so the whole kind
+# is refused -- no agent is resolved at all.
 chmod 0777 "${agents_dir}"
 dir_warn="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
 assert_names "world-writable manifest dir -> no agents at all" "" "${conf}"
@@ -202,11 +201,10 @@ chmod 0755 "${agents_dir}"
 assert_names "restored manifest dir honored again" "claude-code experimental " "${conf}"
 
 # --- Empty-set classification: what nvm-update asks once the resolver returned an empty set ----
-# The resolver reports a refused input on stderr and does not print a line for it, so a caller
-# reading stdout sees an empty set for a tampered manifest directory and for a host with no agent
-# package alike. nvm-update.sh ends the first as a fault (exit 1, RESULT=failed) and logs the second, so
-# the verdict is driven over both classes and over the shape its caller parses: one line, a TAB
-# between verdict and reason, every refused path named.
+# The resolver reports a refused input on stderr and does not print a line for it, so a caller reading stdout sees
+# an empty set for a tampered manifest directory and for a host with no agent package alike. nvm-update.sh ends
+# the first as a fault (exit 1, RESULT=failed) and logs the second, so the verdict is driven over both classes
+# and over the shape its caller parses: one line, a TAB between verdict and reason, every refused path named.
 section "providers: an empty agent set is classified as fault or none"
 assert_empty() {   # <desc> <expected verdict> <reason substring> <conf path>
     local desc="$1" want="$2" needle="$3" conf_path="$4" line verdict reason
@@ -233,8 +231,8 @@ printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Cla
 printf 'AI_TOOLS_AGENTS="missing other"\n' > "${conf}"
 assert_empty "an allowlist that resolved nothing is a fault" fault "names missing other but no agent resolved" "${conf}"
 
-# A refused input is a fault whatever the configuration says, and the reason names the path and
-# what the predicate read -- the line an operator investigates from.
+# A refused input is a fault whatever the configuration says, and the reason names the path and what the predicate read
+# -- the line an operator investigates from.
 chmod 0777 "${agents_dir}"
 assert_empty "an untrusted manifest dir is a fault"       fault "${agents_dir}: owner=0 mode=777" /nonexistent
 chmod 0666 "${agents_dir}/claude-code.conf"
@@ -273,17 +271,17 @@ assert_ints "integrations explicit empty -> none"             ""          "${con
 printf 'AI_TOOLS_INTEGRATIONS=dotnet, baseline  # both\n' > "${conf}"
 assert_ints "integrations comma list with a comment"          "baseline dotnet " "${conf}"
 
-# The surface-widening case that matters most: an untrusted operator.conf must not be able to
-# turn dotnet (default_enable=no) on.
+# The surface-widening case that matters most: an untrusted operator.conf must not be able to turn dotnet
+# (default_enable=no) on.
 printf 'AI_TOOLS_INTEGRATIONS="dotnet"\n' > "${conf}"; chmod 0666 "${conf}"
 assert_ints "untrusted conf cannot enable a default=no integration" "baseline " "${conf}"
 chmod 0644 "${conf}"
 
 # --- The installed-manifest reader (enabled or not) ---------------------------------------------
-# relabel.lib.sh reads build_output_dirs from every INSTALLED integration, because a project's
-# label is applied at claim time and must not depend on which integrations a later session
-# enables. The read keeps the resolver's trust rules: an untrusted manifest is skipped and an
-# untrusted directory yields an empty set, never a name from a file the sandbox could write.
+# relabel.lib.sh reads build_output_dirs from every INSTALLED integration, because a project's label is applied at claim
+# time and must not depend on which integrations a later session enables. The read keeps the resolver's trust rules:
+# an untrusted manifest is skipped and an untrusted directory yields an empty set, never a name from a file the sandbox
+# could write.
 section "providers: the installed-manifest field reader"
 if declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1; then
     printf 'default_enable=no\nbuild_output_dirs=bin obj artifacts\n' > "${integrations_dir}/dotnet.conf"

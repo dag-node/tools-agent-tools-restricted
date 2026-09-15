@@ -1,19 +1,17 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/bin/claude
-# Sandboxed claude wrapper. Ships system-wide (root:root 0755, rpm-owned) and runs as the
-# invoking operator. Refuses a non-operator (not in the ai-ops group) up front with a framed
-# refusal, then resolves the current versioned claude binary under /opt/ai-tools via a stable
-# symlink maintained by nvm-update.sh, exports the resolved path as AI_TOOLS_AGENT_EXEC, and
-# re-executes the shared confinement shim /opt/ai-tools/bin/ai-tools-run as the sandbox account
-# (SANDBOX_USER) via sudo. ai-tools-run resolves this agent from its manifest, re-validates the
-# path, and wraps the session in a systemd transient service before exec'ing the versioned binary.
-# path-order.sh (wired into operator dotfiles by ai-tools-admin) ranks /usr/local/bin
-# (Tier 1) ahead of the nvm shims, so this shadows any nvm-managed claude on an operator's PATH.
-# When operator.conf configures a custom system prompt, this also prepends the resolved
-# `--append-system-prompt-file` / `--system-prompt-file` arguments (claude-prompt.lib.sh) ahead of the
-# operator's own; a configured-but-unhonourable prompt refuses the launch (fail closed). The gate
-# order, and what each refusal distinguishes, are in agent-claude-code.rule.md.
+# Sandboxed claude wrapper. Ships system-wide (root:root 0755, rpm-owned) and runs as the invoking operator. Refuses
+# a non-operator (not in the ai-ops group) up front with a framed refusal, then resolves the current versioned claude
+# binary under /opt/ai-tools via a stable symlink maintained by nvm-update.sh, exports the resolved path
+# as AI_TOOLS_AGENT_EXEC, and re-executes the shared confinement shim /opt/ai-tools/bin/ai-tools-run as the sandbox
+# account (SANDBOX_USER) via sudo. ai-tools-run resolves this agent from its manifest, re-validates the path, and wraps
+# the session in a systemd transient service before exec'ing the versioned binary. path-order.sh (wired into operator
+# dotfiles by ai-tools-admin) ranks /usr/local/bin (Tier 1) ahead of the nvm shims, so this shadows any nvm-managed
+# claude on an operator's PATH. When operator.conf configures a custom system prompt, this also prepends the resolved
+# `--append-system-prompt-file` / `--system-prompt-file` arguments (claude-prompt.lib.sh) ahead of the operator's own;
+# a configured-but-unhonourable prompt refuses the launch (fail closed). The gate order, and what each refusal
+# distinguishes, are in agent-claude-code.rule.md.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -22,11 +20,10 @@ readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
 readonly CLAUDE_LINK="/opt/ai-tools/bin/claude"
 readonly AI_TOOLS_CLI="/usr/local/bin/ai-tools"
 
-# Shared message formatter: frames refusals in the paste-safe '#' box (wrapped within
-# 80 columns) on a real terminal, plain text otherwise; ai_tools_msg_pick and
-# ai_tools_msg_confirm carry the launch path's questions. REQUIRED, like
-# safe-paths.lib.sh: the prompts gate real decisions, so a missing lib fails the
-# launch closed instead of running through a private fallback (see messaging.rule.md).
+# Shared message formatter: frames refusals in the paste-safe '#' box (wrapped within 80 columns) on a real terminal,
+# plain text otherwise; ai_tools_msg_pick and ai_tools_msg_confirm carry the launch path's questions. REQUIRED, like
+# safe-paths.lib.sh: the prompts gate real decisions, so a missing lib fails the launch closed instead of running
+# through a private fallback (see messaging.rule.md).
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/msg.lib.sh
 if ! source "${MSG_LIB}" 2>/dev/null; then
@@ -38,27 +35,25 @@ if ! source "${MSG_LIB}" 2>/dev/null; then
     printf '  refusing to launch (fail closed) -- reinstall ai-tools, then retry.\n' >&2
     exit 1
 fi
-# One fixed 80-column frame for every box the wrapper shows, so the guidance screens
-# and refusals of a launch align instead of each sizing to its own text.
+# One fixed 80-column frame for every box the wrapper shows, so the guidance screens and refusals of a launch align
+# instead of each sizing to its own text.
 export AI_TOOLS_MSG_FULLWIDTH=1
 
-# Protected-paths backstop (safe-paths.lib.sh): refuse to LAUNCH in a system directory even
-# when the allowlist includes it. This is the launch path's front-line security guard, so it
-# is REQUIRED -- loaded and VERIFIED once die() is defined, and the wrapper
-# FAILS CLOSED if it cannot load. A broken or mis-permissioned install is not a state to
-# launch through with the guard disabled. Every safe-paths consumer fails closed the same way
-# (no fail-open stub anywhere); see safe-paths.rule.md.
+# Protected-paths backstop (safe-paths.lib.sh): refuse to LAUNCH in a system directory even when the allowlist includes
+# it. This is the launch path's front-line security guard, so it is REQUIRED -- loaded and VERIFIED once die() is
+# defined, and the wrapper FAILS CLOSED if it cannot load. A broken or mis-permissioned install is not a state to launch
+# through with the guard disabled. Every safe-paths consumer fails closed the same way (no fail-open stub anywhere); see
+# safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 
-# How the ai-tools CLI is named in the guidance screens: the bare command where PATH
-# resolves it (both binaries are on an operator's PATH, so the absolute path reads as a
-# second, unrelated tool), the absolute path on a host whose PATH does not.
+# How the ai-tools CLI is named in the guidance screens: the bare command where PATH resolves it (both binaries are
+# on an operator's PATH, so the absolute path reads as a second, unrelated tool), the absolute path on a host whose PATH
+# does not.
 CLI_CMD="$(ai_tools_cmd_display "${AI_TOOLS_CLI}")"
 readonly CLI_CMD
 
-# Pause for Enter when stdin is a tty, so a refusal is read before the window closes.
-# A bare terminal: user reads the error and presses Enter to dismiss.
-# An IDE console (Rider, etc.) that closes on exit: the pause keeps it open.
+# Pause for Enter when stdin is a tty, so a refusal is read before the window closes. A bare terminal: user reads
+# the error and presses Enter to dismiss. An IDE console (Rider, etc.) that closes on exit: the pause keeps it open.
 # A script/pipe: stdin is not a tty, so the read is skipped.
 pause_if_tty() {
     if [[ -t 0 ]]; then
@@ -73,14 +68,12 @@ die() {
     exit 1
 }
 
-# Load the launch safety library and FAIL CLOSED if it is unreachable. A silent no-op stub
-# would start the wrapper with the protected-path guard OFF -- the quiet degradation that
-# lets a broken or mis-permissioned install (e.g. a lib dir an operator cannot traverse) pass
-# unnoticed. Source it, then require its guard functions to exist; refuse to launch otherwise,
-# naming the likely cause. Logs to journald (via logger, since the wrapper does not source
-# log.lib and it may share the broken dir) for the audit trail, then die()s to warn the user
-# (die needs only ai_tools_msg_error, already set with a plain fallback, so the refusal still
-# renders even if msg.lib was the missing piece).
+# Load the launch safety library and FAIL CLOSED if it is unreachable. A silent no-op stub would start the wrapper
+# with the protected-path guard OFF -- the quiet degradation that lets a broken or mis-permissioned install (e.g. a lib
+# dir an operator cannot traverse) pass unnoticed. Source it, then require its guard functions to exist; refuse
+# to launch otherwise, naming the likely cause. Logs to journald (via logger, since the wrapper does not source log.lib
+# and it may share the broken dir) for the audit trail, then die()s to warn the user (die needs only ai_tools_msg_error,
+# already set with a plain fallback, so the refusal still renders even if msg.lib was the missing piece).
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/safe-paths.lib.sh
 if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
         || ! declare -F ai_tools_assert_safe_target  >/dev/null 2>&1 \
@@ -95,10 +88,10 @@ if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
         "       libraries are present, then reinstall the package if needed."
 fi
 
-# The shared config grammar (conf.lib.sh), which reads the allowlist this wrapper gates on.
-# REQUIRED and verified like safe-paths.lib.sh: without ai_tools_conf_path_entry every
-# line of allowed-projects parses as no entry, which refuses every launch -- fail-closed, but
-# indistinguishable from "you have no projects". Refusing here says which component is missing.
+# The shared config grammar (conf.lib.sh), which reads the allowlist this wrapper gates on. REQUIRED and verified like
+# safe-paths.lib.sh: without ai_tools_conf_path_entry every line of allowed-projects parses as no entry, which refuses
+# every launch -- fail-closed, but indistinguishable from "you have no projects". Refusing here says which component is
+# missing.
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/conf.lib.sh
 if ! source "${CONF_LIB}" 2>/dev/null \
@@ -113,14 +106,13 @@ if ! source "${CONF_LIB}" 2>/dev/null \
         "       libraries are present, then reinstall the package if needed."
 fi
 
-# Custom system prompt resolver (claude-prompt.lib.sh). Resolves the operator-configured
-# `--append-system-prompt-file` / `--system-prompt-file` launch arguments from operator.conf. Loaded
-# here; APPLIED just before the final exec. This input is not confinement, so a host that
-# configures NO custom prompt launches normally even if this lib is missing -- but a host that HAS
-# one configured must not silently fall back to Claude Code's default prompt, so a missing lib fails
-# the launch CLOSED only in that case (handled at the resolution block, which detects a
-# configured prompt via the already-required conf.lib). The load itself is therefore best-effort and
-# only logged; the fail-closed decision is made where the configuration is known.
+# Custom system prompt resolver (claude-prompt.lib.sh). Resolves the operator-configured `--append-system-prompt-file` /
+# `--system-prompt-file` launch arguments from operator.conf. Loaded here; APPLIED just before the final exec. This
+# input is not confinement, so a host that configures NO custom prompt launches normally even if this lib is missing --
+# but a host that HAS one configured must not silently fall back to Claude Code's default prompt, so a missing lib fails
+# the launch CLOSED only in that case (handled at the resolution block, which detects a configured prompt
+# via the already-required conf.lib). The load itself is therefore best-effort and only logged; the fail-closed decision
+# is made where the configuration is known.
 readonly CLAUDE_PROMPT_LIB="/usr/local/lib/ai-tools/claude-prompt.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/claude-prompt.lib.sh
 if ! source "${CLAUDE_PROMPT_LIB}" 2>/dev/null \
@@ -130,39 +122,35 @@ if ! source "${CLAUDE_PROMPT_LIB}" 2>/dev/null \
             "custom-system-prompt library ${CLAUDE_PROMPT_LIB} unavailable for $(id -un 2>/dev/null)"
 fi
 
-# have_tty: true only when a controlling terminal can be opened. `[[ -r /dev/tty ]]`
-# is NOT a controlling-tty test -- the /dev/tty node is mode crw-rw-rw-, so the permission
-# bits read true even with no controlling terminal (e.g. under setsid). Opening it is the
-# only honest probe: with no controlling tty the open fails ENXIO and this returns non-zero,
-# so the prompt guards skip cleanly instead of writing to /dev/tty and aborting.
+# have_tty: true only when a controlling terminal can be opened. `[[ -r /dev/tty ]]` is NOT a controlling-tty test --
+# the /dev/tty node is mode crw-rw-rw-, so the permission bits read true even with no controlling terminal (e.g.
+# under setsid). Opening it is the only honest probe: with no controlling tty the open fails ENXIO and this returns
+# non-zero, so the prompt guards skip cleanly instead of writing to /dev/tty and aborting.
 have_tty() { { : > /dev/tty; } 2>/dev/null; }
 
-# Operator gate: only a member of the ai-ops operators group may launch a session. The
-# sudoers grant is a %ai-ops group rule, so a non-operator fails at sudo regardless --
-# this gate turns that raw denial into a framed refusal that names the right next step.
-# `id -nG` (no user argument) lists THIS shell's live credential set, the same set sudo
-# enforces against; the space-padding makes the match exact so a group whose name merely
-# contains "ai-ops" cannot satisfy it. When the live check fails the refusal distinguishes
-# three cases, because the fix differs in each: the sandbox account (which must never be an
-# operator), an operator whose shell predates the grant (a stale session -- re-login), and a
-# genuine non-operator.
+# Operator gate: only a member of the ai-ops operators group may launch a session. The sudoers grant is a %ai-ops group
+# rule, so a non-operator fails at sudo regardless -- this gate turns that raw denial into a framed refusal that names
+# the right next step. `id -nG` (no user argument) lists THIS shell's live credential set, the same set sudo enforces
+# against; the space-padding makes the match exact so a group whose name merely contains "ai-ops" cannot satisfy it.
+# When the live check fails the refusal distinguishes three cases, because the fix differs in each: the sandbox account
+# (which must never be an operator), an operator whose shell predates the grant (a stale session -- re-login),
+# and a genuine non-operator.
 readonly OPERATORS_GROUP="ai-ops"
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 _user="$(id -un)"
 if [[ " $(id -nG 2>/dev/null) " != *" ${OPERATORS_GROUP} "* ]]; then
     if [[ "${_user}" == "${SANDBOX_USER}" ]]; then
-        # The sandbox account itself (e.g. `sudo -u ai-tools claude`). It is deliberately kept
-        # out of ai-ops -- a member could drive a session as an operator -- so "add it to the
-        # group" is the wrong advice. An operator launches the wrapper from their own login and
-        # the wrapper drops to the sandbox account on its own.
+        # The sandbox account itself (e.g. `sudo -u ai-tools claude`). It is deliberately kept out of ai-ops -- a member
+        # could drive a session as an operator -- so "add it to the group" is the wrong advice. An operator launches
+        # the wrapper from their own login and the wrapper drops to the sandbox account on its own.
         die MSG-N8Q4 "claude: this is the sandbox account ${SANDBOX_USER}, which is not an ai-tools operator" \
             "       the sandbox account must never be one -- launch claude from your operator login;" \
             "       the wrapper drops to ${SANDBOX_USER} for you"
     elif id -nG "${_user}" 2>/dev/null | tr ' ' '\n' | grep -qx "${OPERATORS_GROUP}"; then
-        # In ai-ops per the group database (`id -nG <user>` reads it) but absent from this shell's
-        # live credentials -- a session started before the grant took effect. A fresh login
-        # rebuilds the credential set; newgrp adopts the group in the current shell.
+        # In ai-ops per the group database (`id -nG <user>` reads it) but absent from this shell's live credentials --
+        # a session started before the grant took effect. A fresh login rebuilds the credential set; newgrp adopts
+        # the group in the current shell.
         die MSG-R7Z3 "claude: ${_user} is an ai-tools operator, but this shell started before the grant" \
             "       start a fresh login session to pick up the ${OPERATORS_GROUP} group --" \
             "       log out and back in, or adopt it in this shell with:" \
@@ -174,35 +162,31 @@ if [[ " $(id -nG 2>/dev/null) " != *" ${OPERATORS_GROUP} "* ]]; then
     fi
 fi
 
-# Test the symlink itself with `-L`, NOT `-e`: `-e` dereferences the full chain
-# (bin/claude -> versioned bin/claude -> .../claude-code/bin/claude.exe), and the
-# package dir claude-code/ is mode 700 owned ai-tools. The invoking user cannot
-# stat the final target (EACCES), so `-e` would report "not found" on a perfectly
-# valid link. `-L` checks link existence without traversing past the first hop;
-# the readlink + string validation handle correctness, and the binary is
-# only ever reached via sudo as ai-tools.
+# Test the symlink itself with `-L`, NOT `-e`: `-e` dereferences the full chain (bin/claude -> versioned bin/claude ->
+# .../claude-code/bin/claude.exe), and the package dir claude-code/ is mode 700 owned ai-tools. The invoking user cannot
+# stat the final target (EACCES), so `-e` would report "not found" on a perfectly valid link. `-L` checks link existence
+# without traversing past the first hop; the readlink + string validation handle correctness, and the binary is only
+# ever reached via sudo as ai-tools.
 if [[ ! -L "${CLAUDE_LINK}" ]]; then
     die MSG-S4B3 "ERROR: claude symlink not found at ${CLAUDE_LINK}" \
         "       the sandbox toolchain is not provisioned yet -- provision it with:" \
         "         sudo ai-tools-admin system bootstrap"
 fi
 
-# Resolve the stable symlink ONE hop -- it points directly at the versioned
-# .../node/<ver>/bin/claude, which is exactly the path the sudoers rule matches.
+# Resolve the stable symlink ONE hop -- it points directly at the versioned .../node/<ver>/bin/claude, which is exactly
+# the path the sudoers rule matches.
 #
-# Do NOT use realpath (or `readlink -f`): the versioned bin/claude is itself an
-# npm symlink into the package (-> .../claude-code/bin/claude.exe). Following
-# it fully would (a) yield a path the sudoers NOPASSWD rule cannot match, so
-# sudo would deny/prompt, and (b) require traversing the package directory
-# (mode 700, owned by the sandbox account), which the invoking user cannot enter -- realpath
-# would fail with EACCES and, under `set -e`, abort the wrapper with no message.
+# Do NOT use realpath (or `readlink -f`): the versioned bin/claude is itself an npm symlink into the package (->
+# .../claude-code/bin/claude.exe). Following it fully would (a) yield a path the sudoers NOPASSWD rule cannot match,
+# so sudo would deny/prompt, and (b) require traversing the package directory (mode 700, owned by the sandbox account),
+# which the invoking user cannot enter -- realpath would fail with EACCES and, under `set -e`, abort the wrapper with no
+# message.
 CLAUDE_REAL="$(readlink -- "${CLAUDE_LINK}")" \
     || die "ERROR: ${CLAUDE_LINK} is not a symlink -- reinstall or run nvm-update.sh"
 
-# Safety: the target must be an absolute, ..-free path under the ai-tools nvm
-# tree matching the versioned binary the sudoers rule allows. This blocks
-# path-injection if the symlink is tampered with, using only string checks so
-# no filesystem traversal beyond the symlink itself is required.
+# Safety: the target must be an absolute, ..-free path under the ai-tools nvm tree matching the versioned binary
+# the sudoers rule allows. This blocks path-injection if the symlink is tampered with, using only string checks so no
+# filesystem traversal beyond the symlink itself is required.
 case "${CLAUDE_REAL}" in
     "${AI_TOOLS_NVM_DIR}/versions/node/"*/bin/claude) ;;
     *) die "ERROR: resolved claude path '${CLAUDE_REAL}' is not an approved ai-tools binary" ;;
@@ -211,11 +195,10 @@ if [[ "${CLAUDE_REAL}" == *"/../"* ]]; then
     die "ERROR: resolved claude path '${CLAUDE_REAL}' contains parent-directory references"
 fi
 
-# Print-and-exit invocations (`--version`/`--help` as the sole argument) carry no project
-# surface: the binary prints and exits without touching a working tree, so no allowlist,
-# backstop, or claim gate applies to the CWD. The session still runs confined as the
-# sandbox account -- the same validated binary under the same unit properties -- with the
-# sandbox home as its WorkingDirectory (always present, no project grant implied).
+# Print-and-exit invocations (`--version`/`--help` as the sole argument) carry no project surface: the binary prints
+# and exits without touching a working tree, so no allowlist, backstop, or claim gate applies to the CWD. The session
+# still runs confined as the sandbox account -- the same validated binary under the same unit properties --
+# with the sandbox home as its WorkingDirectory (always present, no project grant implied).
 if [[ $# -eq 1 ]]; then
     case "$1" in
         --version|-v|--help|-h)
@@ -226,12 +209,10 @@ if [[ $# -eq 1 ]]; then
     esac
 fi
 
-# Allowlist guard: Claude Code only runs in explicitly approved directories.
-# Create ~/.config/ai-tools/allowed-projects (one path per line) before use.
-# Lines beginning with ! are exclusions. They override allows -- exactly as in
-# ai-tools-chown -- so ! means the same thing in the launch gate as it does in
-# the ownership hand-back: a subdirectory under an approved parent can be carved
-# back out, and Claude Code will refuse to start there.
+# Allowlist guard: Claude Code only runs in explicitly approved directories. Create ~/.config/ai-tools/allowed-projects
+# (one path per line) before use. Lines beginning with ! are exclusions. They override allows -- exactly
+# as in ai-tools-chown -- so ! means the same thing in the launch gate as it does in the ownership hand-back:
+# a subdirectory under an approved parent can be carved back out, and Claude Code will refuse to start there.
 ALLOWLIST="${HOME}/.config/ai-tools/allowed-projects"
 if [[ ! -f "${ALLOWLIST}" ]]; then
     die MSG-C9S6 "claude: approved-projects allowlist not found" \
@@ -240,16 +221,15 @@ fi
 cwd="$(realpath -e "${PWD}" 2>/dev/null)" \
     || die "claude: cannot resolve working directory"
 
-# Refuse to launch in a protected system directory before consulting the allowlist, so a
-# mis-entered allowlist cannot start a session where the ownership handback would then act.
+# Refuse to launch in a protected system directory before consulting the allowlist, so a mis-entered allowlist cannot
+# start a session where the ownership handback would then act.
 ai_tools_assert_safe_target "${cwd}" "launch" || exit 1
 
 declare -a allowed=()
 declare -a excluded=()
 while IFS= read -r entry || [[ -n "${entry}" ]]; do
-    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a
-    # path carrying a space or a literal `#`. A line that does not yield an entry (blank, or a
-    # comment) is skipped.
+    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a path carrying a space
+    # or a literal `#`. A line that does not yield an entry (blank, or a comment) is skipped.
     ai_tools_conf_path_entry "${entry}" || continue
     entry="${_ai_tools_conf_value}"
     if [[ "${entry}" == '!'* ]]; then
@@ -270,14 +250,12 @@ if [[ "${#excluded[@]}" -gt 0 ]]; then
     for pat in "${excluded[@]}"; do
         pat="${pat%/}"                         # normalise: strip trailing slash
         if [[ "${cwd}" == ${pat} ]]; then
-            # A line naming this very directory is one of two things, and the same test the CLI
-            # applies separates them: an approved project STRICTLY ENCLOSING makes this a subtree
-            # withheld from it, while none makes it a project that was parked. Exact-match alone
-            # cannot tell them apart -- a carve-out names its own path too.
-            # Guarded on the count, not written as "${allowed[@]:-}": an EMPTY array expands
-            # that way to one empty element, and "${dir}/"* is then the pattern /* -- which
-            # matches every absolute path, so a parked project with no approved entries at all
-            # would report as carved out of an empty set.
+            # A line naming this very directory is one of two things, and the same test the CLI applies separates them:
+            # an approved project STRICTLY ENCLOSING makes this a subtree withheld from it, while none makes it
+            # a project that was parked. Exact-match alone cannot tell them apart -- a carve-out names its own path too.
+            # Guarded on the count, not written as "${allowed[@]:-}": an EMPTY array expands that way to one empty
+            # element, and "${dir}/"* is then the pattern /* -- which matches every absolute path, so a parked project
+            # with no approved entries at all would report as carved out of an empty set.
             if [[ "${#allowed[@]}" -gt 0 ]]; then
                 for dir in "${allowed[@]}"; do
                     [[ "${cwd}" == "${dir}/"* ]] || continue
@@ -307,13 +285,13 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
     done
 fi
 if [[ "${approved}" != true ]]; then
-    # The block says what the screen is about; the MENU states the options, once (each with
-    # the consequence that distinguishes it -- option 1 does not start a session here).
+    # The block says what the screen is about; the MENU states the options, once (each with the consequence
+    # that distinguishes it -- option 1 does not start a session here).
     ai_tools_msg_block "Set up this project for the sandboxed agent" \
         "The agent has no access here yet. Choose how it should work on this project."
-    # No terminal: take Cancel and refuse to launch, without asking. The menu itself has
-    # no default (it re-asks, then gives up), so the safe outcome of an unattended or piped
-    # run is decided HERE, by the have_tty branch, rather than by a default index.
+    # No terminal: take Cancel and refuse to launch, without asking. The menu itself has no default (it re-asks, then
+    # gives up), so the safe outcome of an unattended or piped run is decided HERE, by the have_tty branch, rather than
+    # by a default index.
     sel=3
     if have_tty; then
         sel="$(ai_tools_msg_pick none \
@@ -323,9 +301,8 @@ if [[ "${approved}" != true ]]; then
     fi
     case "${sel}" in
         1)
-            # Create sandbox -- an isolated shallow clone under the sandbox-projects area. The
-            # agent runs IN the clone, so the wrapper points the user there and stops; it does
-            # not launch in this directory.
+            # Create sandbox -- an isolated shallow clone under the sandbox-projects area. The agent runs IN the clone,
+            # so the wrapper points the user there and stops; it does not launch in this directory.
             if "${AI_TOOLS_CLI}" --sandbox-create "${cwd}"; then
                 ai_tools_msg_notice "claude: sandbox ready -- cd into the clone path shown above, then start your agent there"
                 pause_if_tty
@@ -334,22 +311,20 @@ if [[ "${approved}" != true ]]; then
             die "claude: sandbox creation did not complete -- see the output above"
             ;;
         2)
-            # Claim in place. `--yes` pre-answers only the CLI's proceed prompt (you chose
-            # claiming here); the secret-lockdown prompt, the .git history grant, and the
-            # traverse grant stay explicit. `--project-claim` is idempotent and registers a
-            # brand-new path from scratch.
+            # Claim in place. `--yes` pre-answers only the CLI's proceed prompt (you chose claiming here);
+            # the secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit.
+            # `--project-claim` is idempotent and registers a brand-new path from scratch.
             "${AI_TOOLS_CLI}" --project-claim --yes "${cwd}" || true
-            # Confirm the claim registered the path before falling through to the claim guard,
-            # which re-verifies ownership/label (both just applied) and then launches. Match
-            # through the shared grammar so an entry the claim wrote with a comment or quotes is
-            # not read as "claim did not complete" (conf.lib.sh).
+            # Confirm the claim registered the path before falling through to the claim guard, which re-verifies
+            # ownership/label (both just applied) and then launches. Match through the shared grammar so an entry
+            # the claim wrote with a comment or quotes is not read as "claim did not complete" (conf.lib.sh).
             ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${cwd}" 2>/dev/null \
                 || die "claude: ${cwd}: still not accessible -- the claim did not complete"
             ;;
         *)
-            # Cancel -- also the no-terminal path and an unanswered menu. The menu screen does
-            # not carry the commands, so the cancel path names them itself: PLAIN and under the
-            # frame, since a wrapping emitter would break a command across lines
+            # Cancel -- also the no-terminal path and an unanswered menu. The menu screen does not carry the commands,
+            # so the cancel path names them itself: PLAIN and under the frame, since a wrapping emitter would break
+            # a command across lines
             # (messaging.rule.md).
             ai_tools_msg_error MSG-N2Z7 "claude: no session started -- ${cwd} is not set up for the agent."
             printf '\n' >&2
@@ -381,14 +356,14 @@ fi
 #   safe.dir   -- cwd absent from ai-tools' git safe.directory. git refuses to operate
 #                 ("dubious ownership"). Non-fatal; only git, no ownership/label change.
 readonly GITCONFIG="/opt/ai-tools/.gitconfig"
-# Root helper that writes the safe.directory entry. .gitconfig is root-owned 644 (readable here
-# for the gap check, writable only by root), so the operator registers through sudo -- the same
-# helper the CLI's reg_safedir uses. See ai-tools-safedir's header for the model.
+# Root helper that writes the safe.directory entry. .gitconfig is root-owned 644 (readable here for the gap check,
+# writable only by root), so the operator registers through sudo -- the same helper the CLI's reg_safedir uses. See
+# ai-tools-safedir's header for the model.
 readonly SAFEDIR_BIN="/usr/local/libexec/ai-tools/ai-tools-safedir"
 
-# project_labelled <dir>  -- 0 when SELinux is NOT enforcing (no label needed) or <dir>
-# already carries ai_tools_project_t. Read-only, no privilege; the authoritative relabel
-# lives in `ai-tools --project-claim` (-> ai-tools-relabel), never duplicated here.
+# project_labelled <dir>  -- 0 when SELinux is NOT enforcing (no label needed) or <dir> already carries
+# ai_tools_project_t. Read-only, no privilege; the authoritative relabel lives in `ai-tools --project-claim` (->
+# ai-tools-relabel), never duplicated here.
 project_labelled() {
     command -v getenforce >/dev/null 2>&1 || return 0
     [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]] || return 0
@@ -410,9 +385,8 @@ if ! git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
 fi
 
 if ${own_gap} || ${label_gap}; then
-    # Severity-based default: the in-place ownership grant is heavy (recursive chgrp), so
-    # it defaults NO and recommends the clone; a label-only gap is cheap and required, so
-    # it defaults YES.
+    # Severity-based default: the in-place ownership grant is heavy (recursive chgrp), so it defaults NO and recommends
+    # the clone; a label-only gap is cheap and required, so it defaults YES.
     claim_default='n'
     ${own_gap} || claim_default='y'
     declare -a blk2=()
@@ -438,10 +412,9 @@ if ${own_gap} || ${label_gap}; then
     claim_ok=false
     ai_tools_msg_confirm "Claim it in place now?" "${claim_default}" && claim_ok=true
     if ${claim_ok}; then
-        # Delegate the claim. `--yes` pre-answers only the CLI's proceed prompt (you
-        # answered it here); its secret-lockdown prompt, the .git history grant, and the
-        # traverse grant stay explicit. `--project-claim` is idempotent and closes
-        # whichever gaps apply.
+        # Delegate the claim. `--yes` pre-answers only the CLI's proceed prompt (you answered it here); its
+        # secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit. `--project-claim` is
+        # idempotent and closes whichever gaps apply.
         "${AI_TOOLS_CLI}" --project-claim --yes "${cwd}" || true
         # Re-verify the FATAL gaps closed before launching.
         cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
@@ -450,9 +423,9 @@ if ${own_gap} || ${label_gap}; then
             die "claude: ${cwd}: still not accessible -- the claim did not complete"
         fi
         if ! project_labelled "${cwd}"; then
-            # The relabel is the one claim step that needs root; the CLI runs it as
-            # `sudo ai-tools-relabel` and prompts for your password. Re-running the claim
-            # (NOT `sudo ai-tools` -- the CLI refuses to run as root) re-attempts it.
+            # The relabel is the one claim step that needs root; the CLI runs it as `sudo ai-tools-relabel` and prompts
+            # for your password. Re-running the claim (NOT `sudo ai-tools` -- the CLI refuses to run as root)
+            # re-attempts it.
             die "claude: ${cwd}: SELinux label still missing -- the claim did not complete" \
                 "       re-run: ${CLI_CMD} --project-claim ${cwd}" \
                 "       (enter your password when it prompts for the SELinux relabel)"
@@ -462,11 +435,10 @@ if ${own_gap} || ${label_gap}; then
             "       run one of the commands above, then start your agent again"
     fi
 elif ${safe_gap}; then
-    # Ownership and label hold; the git safe.directory entry is the one piece missing. Offer to
-    # register it via the SAFEDIR_BIN sudo helper -- the path reg_safedir uses (see
-    # ai-tools-safedir for the 644/sudo model). Defaults YES (an additive change -- one entry in
-    # git's trust list -- on a tree already approved to launch in); a non-interactive launch prints
-    # the command instead.
+    # Ownership and label hold; the git safe.directory entry is the one piece missing. Offer to register it
+    # via the SAFEDIR_BIN sudo helper -- the path reg_safedir uses (see ai-tools-safedir for the 644/sudo model).
+    # Defaults YES (an additive change -- one entry in git's trust list -- on a tree already approved to launch
+    # in); a non-interactive launch prints the command instead.
     ai_tools_msg_notice \
         "claude: ${cwd} is not in git safe.directory; git will report \"dubious ownership\" here until it is registered."
     if have_tty; then
@@ -483,14 +455,14 @@ elif ${safe_gap}; then
     fi
 fi
 
-# The launch banner is emitted by ai-tools-run, not here: it runs as the sandbox account and
-# can read the toolchain the operator cannot (the 700 package tree), so it reports the
-# agent / Node / ai-tools versions under the umbrella logo.
+# The launch banner is emitted by ai-tools-run, not here: it runs as the sandbox account and can read the toolchain
+# the operator cannot (the 700 package tree), so it reports the agent / Node / ai-tools versions under the umbrella
+# logo.
 
-# Resolve any operator-configured custom system prompt into launch arguments (empty when none is
-# configured or when the operator passed a system-prompt flag for this invocation). This is not
-# confinement, so an UNCONFIGURED host proceeds untouched -- but a CONFIGURED prompt that cannot be
-# honoured refuses the launch (fail closed) rather than run with a prompt the operator did not set.
+# Resolve any operator-configured custom system prompt into launch arguments (empty when none is configured
+# or when the operator passed a system-prompt flag for this invocation). This is not confinement, so an UNCONFIGURED
+# host proceeds untouched -- but a CONFIGURED prompt that cannot be honoured refuses the launch (fail closed) rather
+# than run with a prompt the operator did not set.
 readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 declare -a prompt_args=()
 if declare -F ai_tools_claude_resolve_prompt_args >/dev/null 2>&1; then
@@ -500,8 +472,8 @@ if declare -F ai_tools_claude_resolve_prompt_args >/dev/null 2>&1; then
             "       in ${OPERATOR_CONF}, or comment the keys out to use Claude Code's default prompt"
     fi
 else
-    # The resolver lib did not load. An unconfigured host launches normally; a configured one must
-    # not silently drop its prompt, so refuse when CLAUDE_SYSTEM_PROMPT_FILE is set and non-empty.
+    # The resolver lib did not load. An unconfigured host launches normally; a configured one must not silently drop its
+    # prompt, so refuse when CLAUDE_SYSTEM_PROMPT_FILE is set and non-empty.
     if ai_tools_conf_read "${OPERATOR_CONF}" CLAUDE_SYSTEM_PROMPT_FILE 2>/dev/null \
             && [[ -n "${_ai_tools_conf_value}" ]]; then
         die "claude: a custom system prompt is configured but its resolver library is unavailable" \
@@ -510,14 +482,13 @@ else
     fi
 fi
 
-# Pre-launch service health (informational, best-effort). Warn the operator about a down system
-# service the wrapper owns -- currently the relabel watcher. The handback socket has its own
-# dedicated NOTICE in ai-tools-run (services.lib marks it preflight=shim), so it is NOT repeated
-# here. Unlike the safe-paths load, a health warning is NOT a security gate, so it must never
-# fail the launch closed: a missing lib skips the warning. The print-and-exit path exec'd earlier,
-# so this reaches only a real project launch, and it stays silent on a healthy host. Each down
-# service names its consequence (framed) and its exact remedy (plain, under the box so the command
-# stays copy-pasteable -- see messaging.rule.md).
+# Pre-launch service health (informational, best-effort). Warn the operator about a down system service the wrapper owns
+# -- currently the relabel watcher. The handback socket has its own dedicated NOTICE in ai-tools-run (services.lib marks
+# it preflight=shim), so it is NOT repeated here. Unlike the safe-paths load, a health warning is NOT a security gate,
+# so it must never fail the launch closed: a missing lib skips the warning. The print-and-exit path exec'd earlier,
+# so this reaches only a real project launch, and it stays silent on a healthy host. Each down service names its
+# consequence (framed) and its exact remedy (plain, under the box so the command stays copy-pasteable -- see
+# messaging.rule.md).
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/services.lib.sh
 if source /usr/local/lib/ai-tools/services.lib.sh 2>/dev/null \
         && declare -F ai_tools_services_scan >/dev/null 2>&1 \
@@ -529,44 +500,39 @@ if source /usr/local/lib/ai-tools/services.lib.sh 2>/dev/null \
     done
 fi
 
-# Secret-pattern drift, journald only (informational, best-effort). The operator's own file
-# REPLACES the shipped baseline rather than extending it, so a copy written once keeps this host on
-# that set and silently drops every pattern added upstream since. Nobody is placed to notice: the
-# agent cannot read the file, and the log records the quarantines that happened rather than the
-# patterns that would have caused one. This is the one
-# point per session where the file is both readable (the wrapper runs as the operator, before the
-# drop) and attributable to a launch, so the difference is recorded here -- to the journal, never to
-# the terminal, since it is not a launch decision and the operator did not ask a question.
-# Best-effort throughout: a missing lib, an unreadable file, or an absent `logger` skips it. An
-# empty or missing file means the baseline is in force, which is no difference and stays silent.
+# Secret-pattern drift, journald only (informational, best-effort). The operator's own file REPLACES the shipped
+# baseline rather than extending it, so a copy written once keeps this host on that set and silently drops every pattern
+# added upstream since. Nobody is placed to notice: the agent cannot read the file, and the log records the quarantines
+# that happened rather than the patterns that would have caused one. This is the one point per session where the file is
+# both readable (the wrapper runs as the operator, before the drop) and attributable to a launch, so the difference is
+# recorded here -- to the journal, never to the terminal, since it is not a launch decision and the operator did not ask
+# a question. Best-effort throughout: a missing lib, an unreadable file, or an absent `logger` skips it. An empty
+# or missing file means the baseline is in force, which is no difference and stays silent.
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/secret-patterns.lib.sh
 if command -v logger >/dev/null 2>&1 \
         && source /usr/local/lib/ai-tools/secret-patterns.lib.sh 2>/dev/null \
         && declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
-    # The loader resolves the config under PROJECTS_HOME; the wrapper runs as the operator, so
-    # their own ${HOME} is the operator whose set this launch will be classified against.
+    # The loader resolves the config under PROJECTS_HOME; the wrapper runs as the operator, so their own ${HOME} is
+    # the operator whose set this launch will be classified against.
     PROJECTS_HOME="${HOME}"
     _drift="$(ai_tools_secret_patterns_drift 2>/dev/null)" || _drift=""
-    # A plain `[[ ]] && cmd` as the block's last command would exit the wrapper under `set -e`
-    # whenever the test is false -- which is the healthy host, every launch.
+    # A plain `[[ ]] && cmd` as the block's last command would exit the wrapper under `set -e` whenever the test is
+    # false -- which is the healthy host, every launch.
     if [[ -n "${_drift}" ]]; then
         logger -t claude -p user.notice -- "${_drift}"
     fi
 fi
 
-# Pass the validated versioned path through sudo's env_keep. ai-tools-run re-validates it, and
-# derives WHICH agent this is from the launcher name in the path, so no agent identity crosses
-# sudo as a separate variable.
+# Pass the validated versioned path through sudo's env_keep. ai-tools-run re-validates it, and derives WHICH agent this
+# is from the launcher name in the path, so no agent identity crosses sudo as a separate variable.
 export AI_TOOLS_AGENT_EXEC="${CLAUDE_REAL}"
-# Pass the project directory the session should run IN. ${cwd} is the realpath'd PWD
-# that already cleared the allowlist + claim gates, so it is the trustworthy
-# value -- a systemd transient unit does NOT inherit the caller's cwd (it defaults to
-# /), so ai-tools-run hands this to systemd-run as the unit's WorkingDirectory. Carried
-# through sudo via env_keep (sudoers.d/ai-tools); ai-tools-run re-validates it.
+# Pass the project directory the session should run IN. ${cwd} is the realpath'd PWD that already cleared the allowlist
+# + claim gates, so it is the trustworthy value -- a systemd transient unit does NOT inherit the caller's cwd (it
+# defaults to /), so ai-tools-run hands this to systemd-run as the unit's WorkingDirectory. Carried through sudo
+# via env_keep (sudoers.d/ai-tools); ai-tools-run re-validates it.
 export AI_TOOLS_PROJECT_DIR="${cwd}"
-# prompt_args (if any) precede "$@": the operator.conf-sourced flag sits before the operator's own
-# arguments. A per-invocation system-prompt flag is detected earlier and suppresses prompt_args, so
-# the two never collide here. The ${arr[@]+"..."} form expands to no word at all (not an empty word) when
-# prompt_args is empty, safe under `set -u`.
+# prompt_args (if any) precede "$@": the operator.conf-sourced flag sits before the operator's own arguments.
+# A per-invocation system-prompt flag is detected earlier and suppresses prompt_args, so the two never collide here.
+# The ${arr[@]+"..."} form expands to no word at all (not an empty word) when prompt_args is empty, safe under `set -u`.
 exec sudo -u "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -- /opt/ai-tools/bin/ai-tools-run \
     ${prompt_args[@]+"${prompt_args[@]}"} "$@"

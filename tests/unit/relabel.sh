@@ -1,22 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/relabel.sh
-# Unit test for the file-context predicates (relabel.lib.sh): the pure
-# ai_tools_entrypoint_fcontext_valid that gates every pattern an agent manifest declares before
-# it becomes a `semanage fcontext` rule mapping files to ai_tools_exec_t -- the exec entrypoint of
-# the confined domain -- and ai_tools_operator_conf_valid, which gates the path that becomes an
-# ai_tools_conf_t rule for one operator's config subtree.
+# Unit test for the file-context predicates (relabel.lib.sh): the pure ai_tools_entrypoint_fcontext_valid that gates
+# every pattern an agent manifest declares before it becomes a `semanage fcontext` rule mapping files to ai_tools_exec_t
+# -- the exec entrypoint of the confined domain -- and ai_tools_operator_conf_valid, which gates the path that becomes
+# an ai_tools_conf_t rule for one operator's config subtree.
 #
-# The property under test is containment: a declared pattern may only ever match inside the
-# sandbox's own Node toolchain, and a config rule may only ever name one account's
-# ~/.config/ai-tools. Both inputs are root-owned or read from a passwd entry, so this is defense in
-# depth rather than the only guard, but the failure it prevents is severe and silent -- a pattern
-# with an alternation, a traversal, or a foreign prefix would hand ai_tools_exec_t to a file
-# outside the toolchain, making it an entrypoint into the agent's domain. The entrypoint type is
-# never manifest-supplied and the config type never caller-supplied, which this file also pins.
+# The property under test is containment: a declared pattern may only ever match inside the sandbox's own Node
+# toolchain, and a config rule may only ever name one account's ~/.config/ai-tools. Both inputs are root-owned or read
+# from a passwd entry, so this is defense in depth rather than the only guard, but the failure it prevents is severe
+# and silent -- a pattern with an alternation, a traversal, or a foreign prefix would hand ai_tools_exec_t to a file
+# outside the toolchain, making it an entrypoint into the agent's domain. The entrypoint type is never manifest-supplied
+# and the config type never caller-supplied, which this file also pins.
 #
-# Sources the deployed library; no SELinux host, no privilege of its own. Run as root via sudo
-# (suite contract).
+# Sources the deployed library; no SELinux host, no privilege of its own. Run as root via sudo (suite contract).
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -59,9 +56,9 @@ rejects '.*'                                            "a match-anything patter
 rejects '/opt/ai-tools/.nvm/versions/node/$(id)/bin/x'  "a shell-substitution character"
 rejects '/opt/ai-tools/.nvm/versions/node/a b/bin/x'    "whitespace in the pattern"
 
-# The entrypoint TYPE is the library's, never a manifest's: an agent declares which file is its
-# entrypoint, not what label a file gets. A manifest that could name the type could name any
-# type -- the reason this constant lives here.
+# The entrypoint TYPE is the library's, never a manifest's: an agent declares which file is its entrypoint, not
+# what label a file gets. A manifest that could name the type could name any type -- the reason this constant lives
+# here.
 if [[ "${AI_TOOLS_ENTRYPOINT_TYPE:-}" == "ai_tools_exec_t" ]]; then
     pass "the entrypoint type is pinned by the library (ai_tools_exec_t)"
 else
@@ -69,12 +66,11 @@ else
 fi
 
 # ── Reconciling the declared rule against the INSTALLED entrypoint ────────────────────────────
-# The label is applied from the manifest's declared pattern, but the SELinux transition fires on
-# the inode the launcher symlink resolves to -- so the two can disagree, and this file covered neither side of it
-# the relabel would report success while every launch fail-closed on an unlabelled entrypoint.
-# ai_tools_entrypoint_reconcile_verdict is the pure decision that closes that: `stale` is the
-# verdict that must make a relabel FAIL, because it is the one cause a rerun cannot clear. Pinned
-# here over the whole truth table; the resolution it consumes needs a provisioned host and lives
+# The label is applied from the manifest's declared pattern, but the SELinux transition fires on the inode the launcher
+# symlink resolves to -- so the two can disagree, and this file covered neither side of it the relabel would report
+# success while every launch fail-closed on an unlabelled entrypoint. ai_tools_entrypoint_reconcile_verdict is the pure
+# decision that closes that: `stale` is the verdict that must make a relabel FAIL, because it is the one cause a rerun
+# cannot clear. Pinned here over the whole truth table; the resolution it consumes needs a provisioned host and lives
 # in integration/selinux.sh.
 section "relabel: declared-vs-installed entrypoint reconciliation (unit)"
 
@@ -94,8 +90,8 @@ if declare -F ai_tools_entrypoint_reconcile_verdict >/dev/null 2>&1; then
     verdict_is stale "${INSTALLED}" no  yes "the rule matched some OTHER file, not the installed one"
     verdict_is none  ""            no  no  "no entrypoint installed and no match (not provisioned)"
     verdict_is ok    ""            no  yes "no launcher resolves but the rule matched a copy"
-    # Unknown flags must not read as "covered": an input this function cannot interpret errs
-    # toward reporting a divergence, which fails a relabel loudly rather than blessing one.
+    # Unknown flags must not read as "covered": an input this function cannot interpret errs toward reporting
+    # a divergence, which fails a relabel loudly rather than blessing one.
     verdict_is stale "${INSTALLED}" ""      "" "an empty covered flag"
     verdict_is stale "${INSTALLED}" YES     no "a flag that is not the exact literal yes"
     verdict_is none  ""             yes     "" "covered claimed with nothing installed"
@@ -104,10 +100,10 @@ else
 fi
 
 # ── Reporting an agent-influenced path ────────────────────────────────────────────────────────
-# The resolved entrypoint is reached through an npm symlink the SANDBOX account owns, and it is
-# printed into a status line that a root helper splits on whitespace and renders to an operator's
-# terminal. So the name is carried only while it is drawn from the same character set a declared
-# pattern is -- an allowlist, matching ai_tools_entrypoint_fcontext_valid's posture.
+# The resolved entrypoint is reached through an npm symlink the SANDBOX account owns, and it is printed into a status
+# line that a root helper splits on whitespace and renders to an operator's terminal. So the name is carried only while
+# it is drawn from the same character set a declared pattern is -- an allowlist, matching
+# ai_tools_entrypoint_fcontext_valid's posture.
 section "relabel: reportability of an agent-influenced entrypoint path (unit)"
 
 # reportable/unreportable <path> [why]
@@ -136,14 +132,13 @@ else
 fi
 
 # ── The project-label verification predicate (relabel.lib.sh) ─────────────────────────────────
-# ai_tools_label_project trusts the ACHIEVED label, not restorecon's exit status: after the
-# relabel it calls ai_tools_project_labelled to confirm the tree actually carries
-# ai_tools_project_t, so a silent mislabel -- an fcontext rule made unreachable by a path alias
-# (file_contexts.subs_dist `/var/opt /opt`), or a module not loaded -- is a hard failure instead
-# of a false success. This pins the predicate that gate rests on. A genuinely-labelled path needs
-# an enforcing SELinux host, so the positive case (label applies AND verifies) lives in
-# integration/selinux.sh; here the negative is hermetic -- a plain /tmp dir does not carry a project
-# type on any host, SELinux or not, so the predicate must report false for it.
+# ai_tools_label_project trusts the ACHIEVED label, not restorecon's exit status: after the relabel it calls
+# ai_tools_project_labelled to confirm the tree actually carries ai_tools_project_t, so a silent mislabel -- an fcontext
+# rule made unreachable by a path alias (file_contexts.subs_dist `/var/opt /opt`), or a module not loaded -- is a hard
+# failure instead of a false success. This pins the predicate that gate rests on. A genuinely-labelled path needs
+# an enforcing SELinux host, so the positive case (label applies AND verifies) lives in integration/selinux.sh; here
+# the negative is hermetic -- a plain /tmp dir does not carry a project type on any host, SELinux or not,
+# so the predicate must report false for it.
 section "relabel: project-label verification predicate (unit)"
 if declare -F ai_tools_project_labelled >/dev/null 2>&1; then
     mktestdir
@@ -163,16 +158,14 @@ else
 fi
 
 # ── The build-output rule beside the project rule ─────────────────────────────────────────────
-# A claim labels a project's build-output directories ai_tools_project_build_t, the type the
-# buildexec policy group may grant execute on, from the names each installed integration manifest
-# declares (build_output_dirs). Three properties carry the weight. The NAMES come from the
-# manifests and are validated to one plain component each, since they are spliced into a
-# file-context regex and a `/`, `|` or `(` would let a manifest widen the rule past the
-# directories it names. The label writes the project rule FIRST and the build rule second, in
-# that order, because among rules sharing a stem the later one is the match. And the unlabel
-# drops the build rule by LISTING the local rules under the project rule, so a rule written under
-# an earlier name set is removed with the claim rather than left on a subtree the confined domain
-# manages. semanage, restorecon and the availability probe are stubbed; no policy store is touched.
+# A claim labels a project's build-output directories ai_tools_project_build_t, the type the buildexec policy group may
+# grant execute on, from the names each installed integration manifest declares (build_output_dirs). Three properties
+# carry the weight. The NAMES come from the manifests and are validated to one plain component each, since they are
+# spliced into a file-context regex and a `/`, `|` or `(` would let a manifest widen the rule past the directories it
+# names. The label writes the project rule FIRST and the build rule second, in that order, because among rules sharing
+# a stem the later one is the match. And the unlabel drops the build rule by LISTING the local rules under the project
+# rule, so a rule written under an earlier name set is removed with the claim rather than left on a subtree the confined
+# domain manages. semanage, restorecon and the availability probe are stubbed; no policy store is touched.
 section "relabel: the build-output rule (unit)"
 if declare -F ai_tools_project_build_pattern >/dev/null 2>&1 \
         && declare -F ai_tools_label_project >/dev/null 2>&1; then
@@ -209,8 +202,8 @@ if declare -F ai_tools_project_build_pattern >/dev/null 2>&1 \
     else
         fail "label calls: ${CALLS//$'\n'/ | }"
     fi
-    # A build rule the store refuses (a policy older than the library) fails the label, so the
-    # claim reports it rather than leaving output on a type the group cannot run.
+    # A build rule the store refuses (a policy older than the library) fails the label, so the claim reports it rather
+    # than leaving output on a type the group cannot run.
     semanage() { [[ "$*" == *ai_tools_project_build_t* ]] && return 1; return 0; }
     if ai_tools_label_project /home/op/proj; then
         fail "a refused build rule did not fail the label"
@@ -226,8 +219,8 @@ if declare -F ai_tools_project_build_pattern >/dev/null 2>&1 \
         fail "a sandbox clone registered rules: ${CALLS//$'\n'/ | }"
     fi
 
-    # The unlabel finds the build rule by listing, whatever name set wrote it, and parses the
-    # row format semanage prints (pattern, file-type words, context).
+    # The unlabel finds the build rule by listing, whatever name set wrote it, and parses the row format semanage prints
+    # (pattern, file-type words, context).
     semanage() {
         case "$*" in
             "fcontext -l -C -n")
@@ -260,13 +253,12 @@ else
 fi
 
 # ── Reporting WHY a file-context rule was refused ─────────────────────────────────────────────
-# semanage's stderr is the only account of why a rule did not land, and "could not register its
-# entrypoint file-context rule" does not name a cause on its own -- an operator reading it has no next step to
-# act on, and the condition (a policy store another transaction holds, a type the loaded policy
-# does not define) needs different remedies. So the reason is collected for the caller to log.
-# The stream split is the load-bearing part: the caller parses this library's STDOUT as verdict
-# lines, so semanage's own stdout must never reach it while its stderr must survive. semanage is
-# stubbed as a shell function -- no policy store is touched.
+# semanage's stderr is the only account of why a rule did not land, and "could not register its entrypoint file-context
+# rule" does not name a cause on its own -- an operator reading it has no next step to act on, and the condition (a
+# policy store another transaction holds, a type the loaded policy does not define) needs different remedies.
+# So the reason is collected for the caller to log. The stream split is the load-bearing part: the caller parses this
+# library's STDOUT as verdict lines, so semanage's own stdout must never reach it while its stderr must survive.
+# semanage is stubbed as a shell function -- no policy store is touched.
 section "relabel: a refused file-context rule reports semanage's reason (unit)"
 if declare -F _ai_tools_fcontext >/dev/null 2>&1 \
         && declare -F _ai_tools_label_agent_entrypoint >/dev/null 2>&1; then
@@ -280,21 +272,20 @@ if declare -F _ai_tools_fcontext >/dev/null 2>&1 \
     _ai_tools_fcontext add f ai_tools_exec_t '/opt/ai-tools/x' >/dev/null && fcontext_rc=0 || fcontext_rc=$?
     if [[ "${fcontext_rc}" -ne 0 ]]; then pass "a refused rule returns non-zero"
     else fail "a refused rule returned 0"; fi
-    # The ADD's message names the cause; the modify's reports the consequence ("not defined"), so
-    # reporting the modify's would send an operator after the wrong condition.
+    # The ADD's message names the cause; the modify's reports the consequence ("not defined"), so reporting the modify's
+    # would send an operator after the wrong condition.
     if [[ "${AI_TOOLS_FCONTEXT_ERROR:-}" == *"Could not get direct lock"* ]]; then
         pass "the reason carries the add's stderr"
     else fail "the reason does not carry the add's stderr: ${AI_TOOLS_FCONTEXT_ERROR:-<none>}"; fi
-    # The reason lands on a status line whose reader splits the report per line, so a multi-line
-    # semanage message must not read as extra verdicts.
+    # The reason lands on a status line whose reader splits the report per line, so a multi-line semanage message must
+    # not read as extra verdicts.
     if [[ "${AI_TOOLS_FCONTEXT_ERROR:-}" != *$'\n'* ]]; then
         pass "the reason is collapsed to a single line"
     else fail "the reason spans lines: ${AI_TOOLS_FCONTEXT_ERROR:-<none>}"; fi
 
-    # The reason has to reach the caller through the REPORT, not through the variable:
-    # ai-tools-relabel-agent runs the labelling inside a `$(...)`, and a variable set in that
-    # subshell is gone by the time the renderer reads it. So the capture is the production
-    # call shape, and the assertion is that the status line itself carries the cause.
+    # The reason has to reach the caller through the REPORT, not through the variable: ai-tools-relabel-agent runs
+    # the labelling inside a `$(...)`, and a variable set in that subshell is gone by the time the renderer reads it.
+    # So the capture is the production call shape, and the assertion is that the status line itself carries the cause.
     ai_tools_agent_manifest_field() {
         if [[ "$2" == entrypoint_fcontext ]]; then
             printf '/opt/ai-tools/\\.nvm/versions/node/[^/]+/bin/some-agent'
@@ -311,8 +302,8 @@ if declare -F _ai_tools_fcontext >/dev/null 2>&1 \
         pass "the refusal stays one status line"
     else fail "the refusal spans several report lines: ${skip_line}"; fi
 
-    # semanage announces "already defined, modifying instead" on STDOUT, which the caller reads as
-    # a verdict line -- so a rule that registers must leave that stream empty.
+    # semanage announces "already defined, modifying instead" on STDOUT, which the caller reads as a verdict line --
+    # so a rule that registers must leave that stream empty.
     semanage() { echo "File context already defined, modifying instead"; return 0; }
     fcontext_stdout="$(_ai_tools_fcontext add a ai_tools_home_t '/opt/ai-tools/\.claude(/.*)?')" \
         && fcontext_rc=0 || fcontext_rc=$?
@@ -327,12 +318,11 @@ else
 fi
 
 # ── Serializing writes to the policy store ────────────────────────────────────────────────────
-# semanage reports an error to whichever process finds the policy store held, rather than waiting,
-# so two root helpers that overlap -- an agent package's %post relabel and the
-# ai-tools-relabel.path watcher triggered by the same upgrade -- both fail on a store neither of
-# them broke. ai_tools_relabel_lock makes the second wait. Each case runs in its own process
-# (the lock is an open file descriptor, so it cannot be exercised in one shell), against a lock
-# file in this test's own directory via the root-only AI_TOOLS_RELABEL_LOCK hook.
+# semanage reports an error to whichever process finds the policy store held, rather than waiting, so two root helpers
+# that overlap -- an agent package's %post relabel and the ai-tools-relabel.path watcher triggered by the same upgrade
+# -- both fail on a store neither of them broke. ai_tools_relabel_lock makes the second wait. Each case runs in its own
+# process (the lock is an open file descriptor, so it cannot be exercised in one shell), against a lock file in this
+# test's own directory via the root-only AI_TOOLS_RELABEL_LOCK hook.
 section "relabel: relabels serialize on the policy store (unit)"
 if ! declare -F ai_tools_relabel_lock >/dev/null 2>&1; then
     skip "relabel serialization" "ai_tools_relabel_lock not defined by ${LIB}"
@@ -360,8 +350,8 @@ else
         pass "a concurrent relabel reports the store as held"
     else fail "expected a held-store note while another process held the lock, got '${contended:-<empty>}'"; fi
 
-    # And it proceeds anyway: labelling is idempotent and every refusal is reported, so a lock
-    # this helper cannot take costs a repeat run rather than a wrong label.
+    # And it proceeds anyway: labelling is idempotent and every refusal is reported, so a lock this helper cannot take
+    # costs a repeat run rather than a wrong label.
     if take_lock 1 0 >/dev/null; then pass "a contended relabel proceeds rather than aborting"
     else fail "ai_tools_relabel_lock returned non-zero under contention"; fi
 
@@ -370,8 +360,7 @@ else
     if [[ -z "${uncontended}" ]]; then pass "the lock is released when the holder exits"
     else fail "the lock was still held after its holder exited: ${uncontended}"; fi
 
-    # A lock file that cannot be created is reported, not fatal: a host where /run/lock is
-    # unwritable still relabels.
+    # A lock file that cannot be created is reported, not fatal: a host where /run/lock is unwritable still relabels.
     # shellcheck disable=SC2016  # the child shell expands these, not this one
     unwritable="$(env AI_TOOLS_RELABEL_LOCK="${TESTDIR}/no-such-dir/relabel.lock" \
         bash -c 'source "$1"; ai_tools_relabel_lock || echo RETURNED-NONZERO; printf "%s" "${AI_TOOLS_RELABEL_LOCK_NOTE}"' \
@@ -380,9 +369,9 @@ else
         pass "an uncreatable lock file is reported and the relabel proceeds"
     else fail "expected a single cannot-write note, got '${unwritable}'"; fi
 
-    # install-selinux.sh writes the store in sections with prompts between them, so it releases
-    # the lock between sections through ai_tools_relabel_unlock rather than at exit. The holder
-    # signals its release with a marker file so the contender does not race the unlock itself.
+    # install-selinux.sh writes the store in sections with prompts between them, so it releases the lock
+    # between sections through ai_tools_relabel_unlock rather than at exit. The holder signals its release with a marker
+    # file so the contender does not race the unlock itself.
     if declare -F ai_tools_relabel_unlock >/dev/null 2>&1; then
         RELEASED="${TESTDIR}/released"
         # shellcheck disable=SC2016  # the child shell expands these, not this one
@@ -397,10 +386,9 @@ else
         else fail "the lock was still held after ai_tools_relabel_unlock: '${after_unlock:-<no note>}' (released marker: $([[ -e "${RELEASED}" ]] && echo yes || echo no))"; fi
         wait "${holder}" 2>/dev/null || true
 
-        # A section wrapper that locks around a helper that already holds the lock must not wait
-        # on itself: flock serializes open file descriptions, and a second descriptor on the same
-        # file would block for the whole wait. The wait here is shorter than the hold, so a
-        # self-wait would show as the held-store note.
+        # A section wrapper that locks around a helper that already holds the lock must not wait on itself: flock
+        # serializes open file descriptions, and a second descriptor on the same file would block for the whole wait.
+        # The wait here is shorter than the hold, so a self-wait would show as the held-store note.
         # shellcheck disable=SC2016  # the child shell expands these, not this one
         relock="$(env AI_TOOLS_RELABEL_LOCK="${LOCK}" AI_TOOLS_RELABEL_LOCK_WAIT=1 \
             bash -c 'source "$1"; ai_tools_relabel_lock; ai_tools_relabel_lock; printf "%s" "${AI_TOOLS_RELABEL_LOCK_NOTE}"' \
@@ -412,9 +400,9 @@ else
         skip "lock release between sections" "ai_tools_relabel_unlock not defined by ${LIB}"
     fi
 
-    # The ai-tools-selinux %post cannot source the library, so it open-codes flock on the same
-    # path. Two writers serialize only on one file, so the literal in the spec is pinned to the
-    # library's default here rather than trusted to stay in step by hand.
+    # The ai-tools-selinux %post cannot source the library, so it open-codes flock on the same path. Two writers
+    # serialize only on one file, so the literal in the spec is pinned to the library's default here rather than trusted
+    # to stay in step by hand.
     SPEC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/packaging/ai-tools.spec"
     # shellcheck disable=SC2016  # the child shell expands these, not this one
     default_lock="$(env -u AI_TOOLS_RELABEL_LOCK bash -c 'source "$1"; printf "%s" "${AI_TOOLS_RELABEL_LOCK}"' _ "${LIB}")"
@@ -423,8 +411,8 @@ else
     elif [[ "${default_lock}" != /run/lock/* ]]; then
         fail "the library's default lock is not under /run/lock: '${default_lock}'"
     else
-        # The section is captured before the grep: under pipefail a `sed | grep -q` reports the
-        # SIGPIPE grep hands sed on its first match as a failed pipeline.
+        # The section is captured before the grep: under pipefail a `sed | grep -q` reports the SIGPIPE grep hands sed
+        # on its first match as a failed pipeline.
         selinux_post="$(sed -n '/^%post -n ai-tools-selinux$/,/^%postun -n ai-tools-selinux$/p' "${SPEC}")"
         if grep -qF -- "=${default_lock}" <<<"${selinux_post}"; then
             pass "the ai-tools-selinux %post locks the library's own path: ${default_lock}"
@@ -433,13 +421,12 @@ else
 fi
 
 # ── The per-agent outcome the report closes with ──────────────────────────────────────────────
-# ai-tools-relabel-agent records this per agent so `ai-tools --status` can report the labelling
-# half of a reconciliation; the operator cannot inspect the labels themselves, the entrypoint
-# living in a toolchain they cannot traverse. Two properties matter beyond the mapping. A path that
-# is not installed YET (rc 3 -- the ordinary pre-bootstrap state) must not read as labels applied,
-# or a host that has never provisioned reports green for work that did not happen; and it must not
-# fail the relabel either, which would make every fresh install exit non-zero. Both halves are
-# stubbed, so this drives the decision without a policy store.
+# ai-tools-relabel-agent records this per agent so `ai-tools --status` can report the labelling half
+# of a reconciliation; the operator cannot inspect the labels themselves, the entrypoint living in a toolchain they
+# cannot traverse. Two properties matter beyond the mapping. A path that is not installed YET (rc 3 -- the ordinary
+# pre-bootstrap state) must not read as labels applied, or a host that has never provisioned reports green for work
+# that did not happen; and it must not fail the relabel either, which would make every fresh install exit non-zero. Both
+# halves are stubbed, so this drives the decision without a policy store.
 section "relabel: the per-agent outcome closing the report (unit)"
 if declare -F ai_tools_label_agent_paths >/dev/null 2>&1; then
     _ai_tools_entrypoint_policy_active() { return 0; }
@@ -475,30 +462,29 @@ else
 fi
 
 # ── The read-only live-label report ──────────────────────────────────────────────────────────
-# `ai-tools-admin status` reports the type each agent path carries RIGHT NOW, which is a different
-# claim from the one the relabel records: that says what the last run achieved, an event that may be
-# hours old, while this says what is true at the moment it is asked. Two properties carry the
-# weight. It must be READ-ONLY -- a status command that relabelled the host it is reporting on would
-# change the state it is describing, and would need a policy-store lock to do it -- so both writers
-# are stubbed to fail the test loudly if they are ever reached. And its FIELD ORDER is a contract:
-# the consumer reads each line with a plain `read`, so a path arriving one field out would be
-# rendered as a type and a type as a path, in a report whose whole job is to be believed.
+# `ai-tools-admin status` reports the type each agent path carries RIGHT NOW, which is a different claim from the one
+# the relabel records: that says what the last run achieved, an event that may be hours old, while this says what is
+# true at the moment it is asked. Two properties carry the weight. It must be READ-ONLY -- a status command
+# that relabelled the host it is reporting on would change the state it is describing, and would need a policy-store
+# lock to do it -- so both writers are stubbed to fail the test loudly if they are ever reached. And its FIELD ORDER is
+# a contract: the consumer reads each line with a plain `read`, so a path arriving one field out would be rendered
+# as a type and a type as a path, in a report whose whole job is to be believed.
 section "relabel: the read-only live-label report (unit)"
 if ! declare -F ai_tools_agent_label_report >/dev/null 2>&1; then
     skip "live-label report" "ai_tools_agent_label_report not defined by ${LIB}"
 else
     mktestdir
-    # CP_HOME is a readonly constant, so the config directory cannot be moved into the testdir.
-    # `.some-agent` is a name no package ships, so `${CP_HOME}/.some-agent` is absent on every host
-    # and that half reports deterministically as not installed -- which is a case worth asserting
-    # anyway, and leaves the entrypoint half to carry the type comparisons.
+    # CP_HOME is a readonly constant, so the config directory cannot be moved into the testdir. `.some-agent` is a name
+    # no package ships, so `${CP_HOME}/.some-agent` is absent on every host and that half reports deterministically
+    # as not installed -- which is a case worth asserting anyway, and leaves the entrypoint half to carry the type
+    # comparisons.
     _ai_tools_entrypoint_policy_active() { return 0; }
     ai_tools_enabled_agents() { printf 'some-agent\t\t\n'; }
     ai_tools_agent_manifest_field() { [[ "$2" == config_dir ]] && printf '.some-agent'; return 0; }
     ai_tools_agent_config_dir_valid() { return 0; }
-    # A write is what this report must never make, and both writers run in a `$(...)` subshell
-    # where a failed assertion would not survive -- so each leaves a marker on disk instead, and
-    # the whole section is judged on the markers still being absent at the end.
+    # A write is what this report must never make, and both writers run in a `$(...)` subshell where a failed assertion
+    # would not survive -- so each leaves a marker on disk instead, and the whole section is judged on the markers still
+    # being absent at the end.
     WROTE="${TESTDIR}/a-writer-ran"
     restorecon() { printf 'restorecon %s\n' "$*" >> "${WROTE}"; }
     semanage()   { printf 'semanage %s\n'   "$*" >> "${WROTE}"; }
@@ -532,10 +518,9 @@ else
         fail "a mislabelled entrypoint was not reported (rc=${rc}): ${out//$'\n'/ | }"
     fi
 
-    # A label the read does not resolve prints as 'unknown', keeping the field count: an empty
-    # field would shift every later field left in a line the consumer splits on whitespace.
-    # Captured before matching, never piped: the report exits non-zero on a mislabelled path and
-    # `pipefail` would fail the whole pipeline whatever grep found.
+    # A label the read does not resolve prints as 'unknown', keeping the field count: an empty field would shift every
+    # later field left in a line the consumer splits on whitespace. Captured before matching, never piped: the report
+    # exits non-zero on a mislabelled path and `pipefail` would fail the whole pipeline whatever grep found.
     _ai_tools_live_type() { return 0; }
     out="$(ai_tools_agent_label_report || true)"
     if grep -qx 'bad some-agent entrypoint /opt/toolchain/claude unknown ai_tools_exec_t' <<<"${out}"; then
@@ -544,9 +529,9 @@ else
         fail "an unreadable label did not keep the field count: ${out//$'\n'/ | }"
     fi
 
-    # Not provisioned: ai_tools_agent_entrypoint_path returns non-zero because the launcher symlink
-    # does not resolve. It is the ordinary pre-bootstrap state and must not read as a fault, or
-    # every host reports a problem before it is set up.
+    # Not provisioned: ai_tools_agent_entrypoint_path returns non-zero because the launcher symlink does not resolve. It
+    # is the ordinary pre-bootstrap state and must not read as a fault, or every host reports a problem before it is set
+    # up.
     ai_tools_agent_entrypoint_path() { return 1; }
     _ai_tools_live_type() { printf 'ai_tools_home_t'; }
     rc=0; out="$(ai_tools_agent_label_report)" || rc=$?
@@ -576,13 +561,12 @@ else
 fi
 
 # ── The deployed helper's allowlist gate ─────────────────────────────────────────────────────
-# ai-tools-relabel grants a project the type the confined domain may work in, so the gate deciding
-# WHICH paths get it is the one thing here worth driving through the real helper. Only the REFUSAL
-# is: the accepting branch registers a semanage fcontext rule, and this suite does not mutate the
-# host's policy store to test a helper (the same line integration/selinux.sh draws). The accepting
-# branch on a MULTI-OPERATOR host -- the case that matters, since the entry authorizing a label may
-# live in any operator's registry -- is covered live in tests/manual/verify-live-flows.sh, which
-# has a second enrolled operator to act for.
+# ai-tools-relabel grants a project the type the confined domain may work in, so the gate deciding WHICH paths get it is
+# the one thing here worth driving through the real helper. Only the REFUSAL is: the accepting branch registers
+# a semanage fcontext rule, and this suite does not mutate the host's policy store to test a helper (the same line
+# integration/selinux.sh draws). The accepting branch on a MULTI-OPERATOR host -- the case that matters, since the entry
+# authorizing a label may live in any operator's registry -- is covered live in tests/manual/verify-live-flows.sh,
+# which has a second enrolled operator to act for.
 section "relabel: the deployed helper refuses a path no allowlist covers (unit)"
 RELABEL_BIN=/usr/local/libexec/ai-tools/ai-tools-relabel
 if [[ ! -x "${RELABEL_BIN}" ]]; then
@@ -590,8 +574,8 @@ if [[ ! -x "${RELABEL_BIN}" ]]; then
 elif [[ "${EUID}" -ne 0 ]]; then
     skip "relabel allowlist gate" "needs root (the helper refuses a non-root caller first)"
 elif ! command -v getenforce >/dev/null 2>&1 || [[ "$(getenforce 2>/dev/null)" == Disabled ]]; then
-    # The helper reports "SELinux inactive" and exits 0 BEFORE the gate, so there is no state to
-    # assert here on a DAC-only host.
+    # The helper reports "SELinux inactive" and exits 0 BEFORE the gate, so there is no state to assert here
+    # on a DAC-only host.
     skip "relabel allowlist gate" "SELinux inactive -- the helper exits before the gate"
 else
     mktestdir
@@ -607,14 +591,12 @@ else
 fi
 
 # ── The operator config subtree predicate ────────────────────────────────────────────────────
-# ai_tools_operator_conf_valid gates what becomes a `semanage fcontext` rule for ai_tools_conf_t,
-# the type the root helpers read an operator's allowlist through. Its input is a home path from a
-# passwd entry, so the property under test is the containment
-# ai_tools_entrypoint_fcontext_valid holds for a toolchain path: the rule may name one account's
-# ~/.config/ai-tools and no other path. A regex metacharacter reaching the pattern would widen it
-# to homes nobody enrolled, and refusing costs that one operator's label, which the caller
-# reports -- so every ambiguous shape must be refused.
-# Pure: no filesystem, no privilege, no SELinux host.
+# ai_tools_operator_conf_valid gates what becomes a `semanage fcontext` rule for ai_tools_conf_t, the type the root
+# helpers read an operator's allowlist through. Its input is a home path from a passwd entry, so the property under test
+# is the containment ai_tools_entrypoint_fcontext_valid holds for a toolchain path: the rule may name one account's
+# ~/.config/ai-tools and no other path. A regex metacharacter reaching the pattern would widen it to homes nobody
+# enrolled, and refusing costs that one operator's label, which the caller reports -- so every ambiguous shape must be
+# refused. Pure: no filesystem, no privilege, no SELinux host.
 section "relabel: the operator config subtree predicate (unit)"
 
 if ! declare -F ai_tools_operator_conf_valid >/dev/null 2>&1; then

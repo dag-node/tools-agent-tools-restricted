@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/filters.sh
 # Unit test for the token-saving command filters (filters.lib.sh). Drives the PURE verdicts --
-# ai_tools_filter_command_is_simple and ai_tools_filter_apply_rule -- over their tables, then the
-# loader and ai_tools_filter_rewrite over a /tmp fixture filters.d + operator.conf via the
-# root-only AI_TOOLS_FILTERS_DIR / AI_TOOLS_OPERATOR_CONF hooks (the hermetic-override pattern
-# providers.sh and skip-dirs.sh use).
+# ai_tools_filter_command_is_simple and ai_tools_filter_apply_rule -- over their tables, then the loader
+# and ai_tools_filter_rewrite over a /tmp fixture filters.d + operator.conf via the root-only AI_TOOLS_FILTERS_DIR /
+# AI_TOOLS_OPERATOR_CONF hooks (the hermetic-override pattern providers.sh and skip-dirs.sh use).
 #
 # Filtering is token economy, not a boundary, so what this file pins is that every way a rule can
 # fail to fit lands on PASS-THROUGH -- the command the agent wrote, unchanged. Three properties
@@ -107,8 +106,8 @@ applies "an action this engine does not implement is refused" \
     PASSTHROUGH                       'git log'             'git log' pipe "${LOG_BLOCK}" 'rtk'
 
 # --- Loader + rewrite over a /tmp fixture tree -------------------------------------------------
-# Created by this root-run suite, so the fixtures are root-owned and non-group-writable: the
-# trusted state. The tamper section breaks that per case and restores it.
+# Created by this root-run suite, so the fixtures are root-owned and non-group-writable: the trusted state. The tamper
+# section breaks that per case and restores it.
 mktestdir
 filters_dir="${TESTDIR}/filters.d"; mkdir -p "${filters_dir}"
 export AI_TOOLS_FILTERS_DIR="${filters_dir}"
@@ -174,9 +173,9 @@ ai_tools_filter_rules_load
 rewrites "a named set with no installed file is skipped, not guessed" 'git log --date=short' 'git log'
 
 # --- ai_tools_filter_enabled: the verdict the adapter's noise strip gates on -------------------
-# The kill switch must turn off EVERY transform, so the adapter needs the switch as a callable
-# verdict, not only as "no rules loaded". Every fallback direction reads enabled -- filtering is
-# never more than a token cost, and the switch an untrusted conf carries is not honoured.
+# The kill switch must turn off EVERY transform, so the adapter needs the switch as a callable verdict, not only as "no
+# rules loaded". Every fallback direction reads enabled -- filtering is never more than a token cost, and the switch
+# an untrusted conf carries is not honoured.
 enabled_is() {
     local desc="$1" exp_rc="$2"
     local rc=0; ai_tools_filter_enabled || rc=$?
@@ -195,9 +194,9 @@ enabled_is "an untrusted operator.conf leaves filtering on" 0
 chmod 644 "${AI_TOOLS_OPERATOR_CONF}"
 
 # --- Tamper refusal ----------------------------------------------------------------------------
-# Each case breaks one input's trust, asserts the verdict moves to LESS filtering (never more or
-# other), and restores it. This is the half that catches a host someone has already broken;
-# tests/boundary/filters.sh is the half that catches the agent trying to break it.
+# Each case breaks one input's trust, asserts the verdict moves to LESS filtering (never more or other), and restores
+# it. This is the half that catches a host someone has already broken; tests/boundary/filters.sh is the half
+# that catches the agent trying to break it.
 mk_operator     # back to the no-AI_TOOLS_FILTERS baseline
 untrusted() {
     local desc="$1" path="$2" mode="$3" owner="$4" restore_mode="$5" restore_owner="$6"
@@ -216,8 +215,8 @@ untrusted "a group-writable filters.d is refused whole" \
 untrusted "a non-root-owned filters.d is refused whole" \
     "${filters_dir}" 755 "${PROJECTS_USER}:${PROJECTS_USER}" 755 root:root
 
-# A symlinked rules file is refused rather than followed: a link planted in a writable directory
-# would otherwise redirect the read at a file its planter chose.
+# A symlinked rules file is refused rather than followed: a link planted in a writable directory would otherwise
+# redirect the read at a file its planter chose.
 mv "${filters_dir}/core.rules" "${TESTDIR}/real.rules"
 ln -s "${TESTDIR}/real.rules" "${filters_dir}/core.rules"
 ai_tools_filter_rules_load
@@ -225,8 +224,8 @@ rc=0; ai_tools_filter_rewrite 'git log' >/dev/null || rc=$?
 if [[ "${rc}" -ne 0 ]]; then pass "a symlinked rules file is refused, not followed"; else fail "followed a symlinked rules file"; fi
 rm -f "${filters_dir}/core.rules"; mv "${TESTDIR}/real.rules" "${filters_dir}/core.rules"
 
-# An untrusted operator.conf falls back to the installed sets -- the baseline, which can only
-# ever be root-owned rules -- rather than honouring a switch the sandbox could have written.
+# An untrusted operator.conf falls back to the installed sets -- the baseline, which can only ever be root-owned rules
+# -- rather than honouring a switch the sandbox could have written.
 chmod 666 "${AI_TOOLS_OPERATOR_CONF}"
 ai_tools_filter_rules_load
 rewrites "an untrusted operator.conf falls back to the installed sets" 'git log --date=short' 'git log'

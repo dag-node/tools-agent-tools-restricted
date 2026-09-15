@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/claude-endpoint.lib.sh
-# Resolves the ANTHROPIC_* session environment that routes a Claude Code session at a custom API
-# endpoint, from a dedicated endpoint file that operator.conf's CLAUDE_BASE_URL_FILE points at.
-# Sourced (never executed) by the claude-code session-env fragment, which runs inside ai-tools-run
-# as the sandbox account; the pure resolution is split out so tests/unit/claude-endpoint.sh drives
-# it apart from a real launch, the same split claude-prompt.lib.sh makes.
+# Resolves the ANTHROPIC_* session environment that routes a Claude Code session at a custom API endpoint,
+# from a dedicated endpoint file that operator.conf's CLAUDE_BASE_URL_FILE points at. Sourced (never executed)
+# by the claude-code session-env fragment, which runs inside ai-tools-run as the sandbox account; the pure resolution is
+# split out so tests/unit/claude-endpoint.sh drives it apart from a real launch, the same split claude-prompt.lib.sh
+# makes.
 #
-# A dedicated file, not operator.conf, because one of the recognised values is a bearer token
-# (ANTHROPIC_AUTH_TOKEN): operator.conf is 644 and must never hold a secret, so the token sits in a
-# 640 root:@SANDBOX_GROUP@ file under /etc/ai-tools/endpoints/ that root and the sandbox account
-# read and the operator (not in @SANDBOX_GROUP@) cannot -- which is why validation happens HERE,
-# sandbox-side, and not in the operator-side wrapper. operator.conf holds only the pointer
-# (CLAUDE_BASE_URL_FILE). Fail closed on a CONFIGURED option that is invalid, and inert on an
-# unconfigured host: the keys the resolver recognises (an arbitrary key never becomes session
-# environment), what makes each invalid, the name-only token import that keeps the value off every
-# command line, and the precedence against a settings `env` block are in agent-claude-code.rule.md.
+# A dedicated file, not operator.conf, because one of the recognised values is a bearer token (ANTHROPIC_AUTH_TOKEN):
+# operator.conf is 644 and must never hold a secret, so the token sits in a 640 root:@SANDBOX_GROUP@ file
+# under /etc/ai-tools/endpoints/ that root and the sandbox account read and the operator (not in @SANDBOX_GROUP@) cannot
+# -- which is why validation happens HERE, sandbox-side, and not in the operator-side wrapper. operator.conf holds only
+# the pointer (CLAUDE_BASE_URL_FILE). Fail closed on a CONFIGURED option that is invalid, and inert on an unconfigured
+# host: the keys the resolver recognises (an arbitrary key never becomes session environment), what makes each invalid,
+# the name-only token import that keeps the value off every command line, and the precedence against a settings `env`
+# block are in agent-claude-code.rule.md.
 
 # Include-guarded: the fragment and the unit test may both source this and its dependencies.
 if [[ -n "${_AI_TOOLS_CLAUDE_ENDPOINT_LIB:-}" ]]; then
@@ -23,8 +22,8 @@ if [[ -n "${_AI_TOOLS_CLAUDE_ENDPOINT_LIB:-}" ]]; then
 fi
 readonly _AI_TOOLS_CLAUDE_ENDPOINT_LIB=1
 
-# conf.lib (grammar + trust) and msg.lib (warnings). Include-guarded; ai-tools-run loads both before
-# any fragment, so in production they are already present. Sourced here too for the unit test.
+# conf.lib (grammar + trust) and msg.lib (warnings). Include-guarded; ai-tools-run loads both before any fragment,
+# so in production they are already present. Sourced here too for the unit test.
 if [[ -z "${_AI_TOOLS_CONF_LIB:-}" ]]; then
     # shellcheck source=SCRIPTDIR/conf.lib.sh
     source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null || true
@@ -42,8 +41,8 @@ _ai_tools_endpoint_warn() {
     fi
 }
 
-# _ai_tools_endpoint_is_local <url>: succeed when <url>'s host is a loopback name, so a token may be
-# omitted without warning (a local proxy commonly needs none).
+# _ai_tools_endpoint_is_local <url>: succeed when <url>'s host is a loopback name, so a token may be omitted without
+# warning (a local proxy commonly needs none).
 _ai_tools_endpoint_is_local() {
     local host="${1#*://}"       # strip scheme
     host="${host%%/*}"           # strip path
@@ -72,9 +71,9 @@ ai_tools_claude_resolve_endpoint_setenv() {
     local -n _ai_tools_endpoint_out="$1"
     local operator_conf="$2"
 
-    # Without the parser this cannot tell configured from unconfigured, so it cannot promise the
-    # default is what the operator wants -- fail closed. In production conf.lib is loaded by
-    # ai-tools-run before any fragment, so this only fires on a broken install.
+    # Without the parser this cannot tell configured from unconfigured, so it cannot promise the default is
+    # what the operator wants -- fail closed. In production conf.lib is loaded by ai-tools-run before any fragment,
+    # so this only fires on a broken install.
     if ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
             || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1; then
         _ai_tools_endpoint_warn "custom endpoint: the config library is unavailable -- cannot resolve the endpoint"
@@ -83,9 +82,9 @@ ai_tools_claude_resolve_endpoint_setenv() {
 
     local base_dir="${AI_TOOLS_ENDPOINT_BASE_DIR:-/etc/ai-tools/endpoints}"
 
-    # The pointer comes from operator.conf, so operator.conf must be trustworthy before it is read.
-    # An untrusted operator.conf is treated as "not configured" (the baseline), matching how the
-    # provider gating downgrades an untrusted operator.conf rather than failing a launch on it.
+    # The pointer comes from operator.conf, so operator.conf must be trustworthy before it is read. An untrusted
+    # operator.conf is treated as "not configured" (the baseline), matching how the provider gating downgrades
+    # an untrusted operator.conf rather than failing a launch on it.
     ai_tools_conf_is_trusted "${operator_conf}" || return 0
 
     local endpoint_file=""
@@ -126,8 +125,8 @@ ai_tools_claude_resolve_endpoint_setenv() {
         return 0
     fi
 
-    # ANTHROPIC_BASE_URL anchors the endpoint: options set without it would only mis-route the
-    # default Anthropic connection, so their presence with no base URL is a refusal.
+    # ANTHROPIC_BASE_URL anchors the endpoint: options set without it would only mis-route the default Anthropic
+    # connection, so their presence with no base URL is a refusal.
     if [[ -z "${base_url}" ]]; then
         _ai_tools_endpoint_warn "custom endpoint: ${endpoint_file} sets ANTHROPIC_* options but no ANTHROPIC_BASE_URL to anchor them"
         return 1
@@ -137,8 +136,8 @@ ai_tools_claude_resolve_endpoint_setenv() {
         return 1
     fi
 
-    # Model labels are opaque single tokens the endpoint resolves; a present-but-malformed one is a
-    # refusal, so whitespace or control bytes do not reach systemd-run; an omitted one is skipped.
+    # Model labels are opaque single tokens the endpoint resolves; a present-but-malformed one is a refusal,
+    # so whitespace or control bytes do not reach systemd-run; an omitted one is skipped.
     if [[ -n "${model}" && ! "${model}" =~ ^[[:graph:]]+$ ]]; then
         _ai_tools_endpoint_warn "custom endpoint: ANTHROPIC_MODEL is not a single printable token"
         return 1
@@ -157,9 +156,8 @@ ai_tools_claude_resolve_endpoint_setenv() {
     [[ -n "${model}" ]] && _ai_tools_endpoint_out+=( "--setenv=ANTHROPIC_MODEL=${model}" )
     [[ -n "${haiku}" ]] && _ai_tools_endpoint_out+=( "--setenv=ANTHROPIC_DEFAULT_HAIKU_MODEL=${haiku}" )
     if [[ -n "${auth_token}" ]]; then
-        # Imported by name: export it so the paired name-only `--setenv` picks it up from the
-        # environment (ai-tools-run sources this fragment in its own shell) without the value ever
-        # reaching a command line.
+        # Imported by name: export it so the paired name-only `--setenv` picks it up from the environment (ai-tools-run
+        # sources this fragment in its own shell) without the value ever reaching a command line.
         export ANTHROPIC_AUTH_TOKEN="${auth_token}"
         _ai_tools_endpoint_out+=( "--setenv=ANTHROPIC_AUTH_TOKEN" )
     elif ! _ai_tools_endpoint_is_local "${base_url}"; then

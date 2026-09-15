@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/claude-prompt.sh
-# Unit test for the custom-system-prompt resolver (claude-prompt.lib.sh), the wrapper-side logic
-# claude.sh applies before it execs a session. The guarantee under test is one instance of "the
-# sandbox cannot widen its own surface": a prompt file the sandbox account could influence, or a
-# configured prompt that cannot be honoured, must NOT be silently passed to Claude Code -- it either
-# leaves the prompt empty (unconfigured) or REFUSES the launch (configured-but-invalid), never a
-# fall-back to a prompt the operator did not set. This drives the resolver into each bad state and
-# asserts it moves to no-injection or a refusal, never to injecting an untrusted or wrong prompt.
+# Unit test for the custom-system-prompt resolver (claude-prompt.lib.sh), the wrapper-side logic claude.sh applies
+# before it execs a session. The guarantee under test is one instance of "the sandbox cannot widen its own surface":
+# a prompt file the sandbox account could influence, or a configured prompt that cannot be honoured, must NOT be
+# silently passed to Claude Code -- it either leaves the prompt empty (unconfigured) or REFUSES the launch
+# (configured-but-invalid), never a fall-back to a prompt the operator did not set. This drives the resolver into each
+# bad state and asserts it moves to no-injection or a refusal, never to injecting an untrusted or wrong prompt.
 # The agent-side half (the files are not agent-writable) lives in tests/boundary/access.sh.
 #
-# Hermetic: /tmp fixtures with known content and a root-only AI_TOOLS_PROMPT_BASE_DIR override, no
-# host config read. Run as root (needed to create root-owned fixtures the trust predicate accepts).
+# Hermetic: /tmp fixtures with known content and a root-only AI_TOOLS_PROMPT_BASE_DIR override, no host config read. Run
+# as root (needed to create root-owned fixtures the trust predicate accepts).
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -35,9 +34,9 @@ conf="${TESTDIR}/operator.conf"
 prompt="${base}/claude-system-prompt.md"
 export AI_TOOLS_PROMPT_BASE_DIR="${base}"
 
-# _resolve <argv...> : run the resolver, leaving $RET (0/1), $ARGS (space-joined result), and $ERR
-# (captured stderr) for assertions. The array is populated in THIS shell (no subshell), so stderr is
-# captured to a file rather than via $(...), which would discard the array.
+# _resolve <argv...> : run the resolver, leaving $RET (0/1), $ARGS (space-joined result), and $ERR (captured stderr)
+# for assertions. The array is populated in THIS shell (no subshell), so stderr is captured to a file rather than
+# via $(...), which would discard the array.
 _resolve() {
     RESULT=()
     if ai_tools_claude_resolve_prompt_args RESULT "${conf}" "$@" 2>"${TESTDIR}/err"; then RET=0; else RET=1; fi

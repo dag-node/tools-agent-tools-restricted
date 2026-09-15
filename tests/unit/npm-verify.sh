@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/npm-verify.sh
-# Unit test for the npm signature verifier (npm-verify.lib.sh). Drives the PURE decision
-# ai_tools_npm_verdict over a truth table of `npm audit signatures --json` shapes -- the
-# fail-closed contract nvm-update.sh and ai-tools-bootstrap gate the stable-launcher repoint
-# on. The pure verdict touches neither npm nor the filesystem, and does not need privilege, so this runs with no
-# registry, no network, and no root risk: a regression in the verdict (a tamper read as
-# "unable to verify", an inverted gate, a format change read as a false OK) fails here.
+# Unit test for the npm signature verifier (npm-verify.lib.sh). Drives the PURE decision ai_tools_npm_verdict
+# over a truth table of `npm audit signatures --json` shapes -- the fail-closed contract nvm-update.sh
+# and ai-tools-bootstrap gate the stable-launcher repoint on. The pure verdict touches neither npm nor the filesystem,
+# and does not need privilege, so this runs with no registry, no network, and no root risk: a regression in the verdict
+# (a tamper read as "unable to verify", an inverted gate, a format change read as a false OK) fails here.
 #
-# It deliberately does NOT exercise the impure ai_tools_verify_npm_signatures over a real tree:
-# that function operates on the SANDBOX-owned (agent-writable) global npm tree and must run as
-# the sandbox account, never root -- and this suite runs as root. Instead it asserts the
-# function's fail-closed root-refusal backstop (as root it returns "unable to verify" and
-# does not touch a path). The real end-to-end audit is covered as the sandbox account, out of this
-# root-run unit suite. `node` (the pure verdict's JSON parser) is real, resolved from the sandbox
-# toolchain rather than from PATH -- see toolchain_node. Run as root via sudo.
+# It deliberately does NOT exercise the impure ai_tools_verify_npm_signatures over a real tree: that function operates
+# on the SANDBOX-owned (agent-writable) global npm tree and must run as the sandbox account, never root -- and this
+# suite runs as root. Instead it asserts the function's fail-closed root-refusal backstop (as root it returns "unable
+# to verify" and does not touch a path). The real end-to-end audit is covered as the sandbox account, out of this
+# root-run unit suite. `node` (the pure verdict's JSON parser) is real, resolved from the sandbox toolchain rather than
+# from PATH -- see toolchain_node. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -22,13 +20,12 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 readonly LIB="/usr/local/lib/ai-tools/npm-verify.lib.sh"
 section "npm-verify: signature-verification verdict truth table (unit)"
 
-# toolchain_node: PRINT the path to the sandbox toolchain's node, or an empty string. node is the pure
-# verdict's JSON parser but it lives ONLY in the sandbox account's nvm tree, never on root's PATH --
-# and this suite runs as root, so resolving it from PATH alone skips the whole file on a fully
-# provisioned host and strict mode then flags it as no coverage. Resolve it the way the launch
-# wrapper resolves the agent binary: one readlink hop through a stable launcher symlink, whose
-# target's bin directory belongs to the ACTIVE Node version. Falls back to the highest installed
-# version (the same `sort -V | tail -1` selection nvm-update.sh makes), then to PATH.
+# toolchain_node: PRINT the path to the sandbox toolchain's node, or an empty string. node is the pure verdict's JSON
+# parser but it lives ONLY in the sandbox account's nvm tree, never on root's PATH -- and this suite runs as root,
+# so resolving it from PATH alone skips the whole file on a fully provisioned host and strict mode then flags it as no
+# coverage. Resolve it the way the launch wrapper resolves the agent binary: one readlink hop through a stable launcher
+# symlink, whose target's bin directory belongs to the ACTIVE Node version. Falls back to the highest installed version
+# (the same `sort -V | tail -1` selection nvm-update.sh makes), then to PATH.
 toolchain_node() {
     local link target cand
     for link in /opt/ai-tools/bin/*; do
@@ -49,10 +46,10 @@ NODE_BIN="$(toolchain_node)"
 if [[ -z "${NODE_BIN}" ]]; then
     skip "npm-verify" "node not available (the pure verdict's JSON parser)"; finish; exit
 fi
-# Expose that ONE binary under the name the library calls, rather than putting the whole toolchain
-# bin directory on root's PATH: the nvm tree is sandbox-account-owned, so prepending it would make
-# every name in it (npm, npx, each agent launcher) resolvable as root for the rest of the run. A
-# symlink is enough even where /tmp is noexec -- the exec check applies to the resolved target.
+# Expose that ONE binary under the name the library calls, rather than putting the whole toolchain bin directory
+# on root's PATH: the nvm tree is sandbox-account-owned, so prepending it would make every name in it (npm, npx, each
+# agent launcher) resolvable as root for the rest of the run. A symlink is enough even where /tmp is noexec -- the exec
+# check applies to the resolved target.
 mktestdir
 mkdir -p "${TESTDIR}/bin"
 ln -s "${NODE_BIN}" "${TESTDIR}/bin/node"
@@ -64,9 +61,8 @@ if ! source "${LIB}" \
     fail "could not source ${LIB} or it does not define the verify functions"; finish; exit
 fi
 
-# expect <desc> <exp_tok> <exp_rc> <audit-json>: drive the pure verdict and assert BOTH the
-# echoed token and the 0=verified / 1=tamper / 2=unable return. '|| rc=$?' keeps a non-zero
-# return non-fatal under `set -e`.
+# expect <desc> <exp_tok> <exp_rc> <audit-json>: drive the pure verdict and assert BOTH the echoed token
+# and the 0=verified / 1=tamper / 2=unable return. '|| rc=$?' keeps a non-zero return non-fatal under `set -e`.
 expect() {
     local desc="$1" exp_tok="$2" exp_rc="$3" json="$4" tok rc
     tok="$(ai_tools_npm_verdict "${json}" 2>/dev/null)" && rc=0 || rc=$?
@@ -92,8 +88,8 @@ expect "audit no output (offline)"    EMPTY   2 ''
 # Unparseable output -> unable to verify; never a false OK on a format change.
 expect "unparseable audit output"     UNKNOWN 2 'this is not json'
 
-# Fail-closed backstop: the impure verifier refuses to run as root (this suite is root), so it
-# returns "unable to verify" (2) without discovering or touching the tree.
+# Fail-closed backstop: the impure verifier refuses to run as root (this suite is root), so it returns "unable
+# to verify" (2) without discovering or touching the tree.
 if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
     rc=0; ai_tools_verify_npm_signatures >/dev/null 2>&1 || rc=$?
     if [[ "${rc}" -eq 2 ]]; then

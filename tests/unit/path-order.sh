@@ -4,17 +4,16 @@
 # with, `ai-tools --status` re-checks with, and `ai-tools-admin system bootstrap` reports from.
 #
 # What makes it worth pinning is the direction each answer sends an operator. A launcher resolving outside
-# /usr/local/bin means typing its name starts an UNCONFINED agent, so a verdict that read that state as fine would
-# turn the one question standing between an operator and an unsandboxed session into a formality -- while a verdict
-# that cried shadow on an unreadable probe would teach them to ignore it. So the truth table is driven whole,
-# in both directions, and the two inputs that reach a shell or a terminal -- the launcher name interpolated
-# into a command run as another account, and the path that command prints back -- are driven through the shapes
-# they must refuse.
+# /usr/local/bin means typing its name starts an UNCONFINED agent, so a verdict that read that state as fine would turn
+# the one question standing between an operator and an unsandboxed session into a formality -- while a verdict
+# that cried shadow on an unreadable probe would teach them to ignore it. So the truth table is driven whole, in both
+# directions, and the two inputs that reach a shell or a terminal -- the launcher name interpolated into a command run
+# as another account, and the path that command prints back -- are driven through the shapes they must refuse.
 #
-# Pure: the decision takes its inputs as arguments and the probing is separate (the split confinement.lib.sh
-# makes), so this file drives the table with no account to probe and without root. The two impure readers are
-# driven with their own dependencies stubbed as shell functions, which is also how the publishing contract is
-# asserted from a real caller under `set -u`.
+# Pure: the decision takes its inputs as arguments and the probing is separate (the split confinement.lib.sh makes),
+# so this file drives the table with no account to probe and without root. The two impure readers are driven with their
+# own dependencies stubbed as shell functions, which is also how the publishing contract is asserted from a real caller
+# under `set -u`.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -54,16 +53,16 @@ verdict wired 0 "the same reading with the line wired reads as wired" \
     yes "claude=${WRAPPER}/claude"
 verdict shadowed 1 "a launcher resolving elsewhere is shadowed" \
     no "claude=/home/op/.nvm/versions/node/v22.0.0/bin/claude"
-# The one case a grep of the init files would get wrong, and the reason the reading is taken from a shell: the line
-# is present AND something after it prepends to PATH. Appending the line again would edit the file and leave
-# the ordering as it was, so this must not read as wired.
+# The one case a grep of the init files would get wrong, and the reason the reading is taken from a shell: the line is
+# present AND something after it prepends to PATH. Appending the line again would edit the file and leave the ordering
+# as it was, so this must not read as wired.
 verdict shadowed 1 "a wired account whose launcher still resolves elsewhere is shadowed, not wired" \
     yes "claude=/home/op/.nvm/versions/node/v22.0.0/bin/claude"
 # A directory whose name merely begins with the wrapper's holds a different binary, so it does not pass.
 verdict shadowed 1 "a sibling directory sharing the wrapper's name prefix does not pass" \
     no "claude=${WRAPPER}-local/claude"
-# The wrapper path is matched per launcher, so the right binary under the right directory is what passes -- not any
-# path under it.
+# The wrapper path is matched per launcher, so the right binary under the right directory is what passes -- not any path
+# under it.
 verdict shadowed 1 "the wrapper directory with another binary's name does not pass" \
     no "claude=${WRAPPER}/claude-old"
 verdict unknown 2 "an unreadable reading is unknown, never a shadow and never a clean bill" \
@@ -78,9 +77,8 @@ verdict unknown 2 "with no shadow, one unreadable reading carries the verdict" \
     yes "claude=${WRAPPER}/claude" "codex=?"
 
 # ── (B) The two inputs that reach a shell or a terminal ───────────────────────────────────────
-# The launcher name
-# is interpolated into a command run as another account, so anything outside a launcher's own charset must not be
-# probed at all.
+# The launcher name is interpolated into a command run as another account, so anything outside a launcher's own charset
+# must not be probed at all.
 admitted=""
 for bad in 'cl;id' 'cl$(id)' 'cl aude' 'cl`id`' 'cl|id' '../claude' '' 'cl&id' 'cl>x'; do
     ai_tools_path_order_launcher_valid "${bad}" && { admitted="${bad}"; break; }
@@ -113,8 +111,8 @@ fi
 mktestdir
 printf '# nothing here\n' > "${TESTDIR}/bashrc.plain"
 printf 'export NVM_DIR="$HOME/.nvm"\n%s\n' "${AI_TOOLS_PATH_ORDER_GUARD}" > "${TESTDIR}/bashrc.wired"
-# An operator who wrote the line themselves, in their own spelling: matched on the fragment path, so their file
-# counts as wired and the enrolment does not append a second copy.
+# An operator who wrote the line themselves, in their own spelling: matched on the fragment path, so their file counts
+# as wired and the enrolment does not append a second copy.
 printf 'source %s\n' "${AI_TOOLS_PATH_ORDER_FRAGMENT}" > "${TESTDIR}/bashrc.byhand"
 
 if [[ "$(ai_tools_path_order_guard_present "${TESTDIR}/bashrc.plain")" == no \
@@ -128,10 +126,9 @@ else
 fi
 
 # ── (C2) The repoint an upgrade owes a host wired to the former fragment name ──────────────────
-# The guard line
-# succeeds when the file is absent, so a rename that left it naming the old path would stop the ordering applying
-# with no message on screen -- the silent state the rest of this library exists to catch. The bound on the edit is
-# asserted with it: one path token inside a line this project wrote, and the rest of the file byte-identical.
+# The guard line succeeds when the file is absent, so a rename that left it naming the old path would stop the ordering
+# applying with no message on screen -- the silent state the rest of this library exists to catch. The bound on the edit
+# is asserted with it: one path token inside a line this project wrote, and the rest of the file byte-identical.
 printf 'export NVM_DIR="$HOME/.nvm"\n%s\n# a line of the operator own\n' \
     "[[ -f ${AI_TOOLS_PATH_ORDER_FRAGMENT_FORMER} ]] && source ${AI_TOOLS_PATH_ORDER_FRAGMENT_FORMER} || true" \
     > "${TESTDIR}/.bashrc.former"
@@ -166,8 +163,8 @@ if [[ "$(perm "${TESTDIR}/.bashrc.former")" == 600 ]]; then
 else
     fail "the repoint changed the file's mode ($(perm "${TESTDIR}/.bashrc.former"))"
 fi
-# No sidecar: the rename does not change what the line does, so the repointed line behaves as the
-# old one did and a backup would only preserve a path resolving to a file that is gone.
+# No sidecar: the rename does not change what the line does, so the repointed line behaves as the old one did
+# and a backup would only preserve a path resolving to a file that is gone.
 shopt -s nullglob
 sidecars=( "${TESTDIR}/.bashrc.former".* )
 shopt -u nullglob
@@ -183,9 +180,9 @@ else
 fi
 
 # ── (D) The reading this shell can take of itself ──────────────────────────────────────────── `ai-tools --status`
-# resolves the launcher on its own PATH, which is the operator's. Only the answers that do not depend on this
-# host's PATH are asserted: a name outside the charset, and a launcher whose wrapper is not installed -- both
-# of which must resolve to no probe at all.
+# resolves the launcher on its own PATH, which is the operator's. Only the answers that do not depend on this host's
+# PATH are asserted: a name outside the charset, and a launcher whose wrapper is not installed -- both of which must
+# resolve to no probe at all.
 if [[ "$(ai_tools_path_order_winner_here 'cl;id')" == '?' ]]; then
     pass "a launcher name that cannot be probed reads as unreadable, not as resolved"
 else
@@ -201,9 +198,8 @@ else
 fi
 
 # ── (E) What a caller is handed ──────────────────────────────────────────────────────────────
-# The read publishes
-# four names in its caller's shell rather than printing them, so the assertion is made from a real caller
-# under `set -u`: a name it fails to publish aborts this file the same way it would abort an enrolment. The two
+# The read publishes four names in its caller's shell rather than printing them, so the assertion is made from a real
+# caller under `set -u`: a name it fails to publish aborts this file the same way it would abort an enrolment. The two
 # dependencies are stubbed, so no account is probed.
 ai_tools_path_order_launchers() { printf 'claude\ncodex\n'; }
 ai_tools_path_order_winner_here() {
@@ -222,8 +218,8 @@ else
     fail "the read did not publish what its callers report from"
 fi
 
-# The shadowing binary is what a message names, so the pair it came from decides which launcher the message is
-# about -- not whichever launcher happened to be read first.
+# The shadowing binary is what a message names, so the pair it came from decides which launcher the message is about --
+# not whichever launcher happened to be read first.
 ai_tools_path_order_read_user() {
     AI_TOOLS_PATH_ORDER_STATE=shadowed
     AI_TOOLS_PATH_ORDER_SHADOW="/home/$1/.nvm/versions/node/v22.0.0/bin/codex"
@@ -237,8 +233,8 @@ else
     fail "the per-operator report named the wrong launcher or the wrong binary (${out})"
 fi
 
-# Every other state is silence: a report that named an account it could not read would nag a host whose ordering
-# is fine.
+# Every other state is silence: a report that named an account it could not read would nag a host whose ordering is
+# fine.
 for state in wired clear unknown; do
     eval "ai_tools_path_order_read_user() {
         AI_TOOLS_PATH_ORDER_STATE=${state}

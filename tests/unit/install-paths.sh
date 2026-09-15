@@ -3,20 +3,19 @@
 # tests/unit/install-paths.sh
 # Hermetic check that every source path the installers read actually exists in the checkout.
 #
-# The gap this closes: a file moved inside src/ is caught for the RPM by rpmbuild (an unpackaged
-# or missing source fails the build) and for the shell by shellcheck -- but install.sh and
-# selinux/install-selinux.sh only *reference* their sources as strings, so a stale path is
-# invisible until an operator runs the installer and it dies halfway through, having already
-# written part of the system. That is the worst place to find out, so it is asserted here.
+# The gap this closes: a file moved inside src/ is caught for the RPM by rpmbuild (an unpackaged or missing source fails
+# the build) and for the shell by shellcheck -- but install.sh and selinux/install-selinux.sh only *reference* their
+# sources as strings, so a stale path is invisible until an operator runs the installer and it dies halfway
+# through, having already written part of the system. That is the worst place to find out, so it is asserted here.
 #
 # Two shapes are checked, because both appear:
 #   ${SCRIPT_DIR}/src/...      install.sh
 #   ${DIR}/../src/...          selinux/install-selinux.sh
-# A path carrying a shell variable (a loop over asset kinds) cannot be resolved statically; its
-# longest literal prefix directory is checked instead, which still catches a whole tree moving.
+# A path carrying a shell variable (a loop over asset kinds) cannot be resolved statically; its longest literal prefix
+# directory is checked instead, which still catches a whole tree moving.
 #
-# Pure text + filesystem: no root, no install, no command executed. Validates the repo sources; it
-# skips outside a checkout, where there is no src/ to compare against.
+# Pure text + filesystem: no root, no install, no command executed. Validates the repo sources; it skips outside
+# a checkout, where there is no src/ to compare against.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

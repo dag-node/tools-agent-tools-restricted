@@ -1,34 +1,31 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/admin-commands.sh
-# Hermetic unit test for the contributed-command seam: the domains a provider package adds to
-# ai-tools-admin, discovered under admin-commands.d rather than enumerated in the dispatch.
+# Hermetic unit test for the contributed-command seam: the domains a provider package adds to ai-tools-admin, discovered
+# under admin-commands.d rather than enumerated in the dispatch.
 #
-# What is driven here is a dispatch that execs a file AS ROOT, so every assertion is about a way
-# that discovery could go wrong in the widening direction. A fragment is honored only while it and
-# its directory are root-owned and writable by neither group nor other; a fragment claiming a name
-# base owns is refused rather than merged; one entry that is not root's alone refuses the whole
-# set; and a file that does not declare itself a command of this seam is not run as one. This file
-# drives each of those states and asserts the command surface comes out SMALLER and the refusal is
-# reported. The positive cases are the other half of the same contract: a trusted, declared
-# fragment is exec'd with the remaining arguments, and it is listed in `--help` with the summary its
-# manifest declares, since a help that named something the dispatch would not run (or the reverse)
-# is the failure the one discovery function exists to prevent.
+# What is driven here is a dispatch that execs a file AS ROOT, so every assertion is about a way that discovery could go
+# wrong in the widening direction. A fragment is honored only while it and its directory are root-owned and writable
+# by neither group nor other; a fragment claiming a name base owns is refused rather than merged; one entry that is not
+# root's alone refuses the whole set; and a file that does not declare itself a command of this seam is not run as one.
+# This file drives each of those states and asserts the command surface comes out SMALLER and the refusal is reported.
+# The positive cases are the other half of the same contract: a trusted, declared fragment is exec'd with the remaining
+# arguments, and it is listed in `--help` with the summary its manifest declares, since a help that named something
+# the dispatch would not run (or the reverse) is the failure the one discovery function exists to prevent.
 #
-# Drives the DEPLOYED helper against fixtures through AI_TOOLS_ADMIN_COMMANDS_DIR and
-# AI_TOOLS_INTEGRATIONS_DIR, both root-only path hooks (like AI_TOOLS_POSTUPGRADE_ROOT): the host's
-# own admin-commands.d is never read, and every file written is inside a directory this run
-# created. Run as root -- the fixtures must be root-owned to be trusted at all, which is the point.
+# Drives the DEPLOYED helper against fixtures through AI_TOOLS_ADMIN_COMMANDS_DIR and AI_TOOLS_INTEGRATIONS_DIR, both
+# root-only path hooks (like AI_TOOLS_POSTUPGRADE_ROOT): the host's own admin-commands.d is never read, and every file
+# written is inside a directory this run created. Run as root -- the fixtures must be root-owned to be trusted at all,
+# which is the point.
 #
-# The fixtures must also be EXECUTABLE, which is why they are not unconditionally in the harness's
-# /tmp testdir: /tmp is mounted noexec on a hardened host, where a fragment created there passes
-# every ownership check and then cannot be exec'd -- failing the positive cases for a property of
-# the mount rather than of the code. The testdir is used when it can execute and a directory beside
-# the operator's home otherwise, the same reason integration/hooks.sh keeps its fixtures out of
-# /tmp; either way the tree is removed on exit.
+# The fixtures must also be EXECUTABLE, which is why they are not unconditionally in the harness's /tmp testdir: /tmp is
+# mounted noexec on a hardened host, where a fragment created there passes every ownership check and then cannot be
+# exec'd -- failing the positive cases for a property of the mount rather than of the code. The testdir is used when it
+# can execute and a directory beside the operator's home otherwise, the same reason integration/hooks.sh keeps its
+# fixtures out of /tmp; either way the tree is removed on exit.
 #
-# The boundary half of this pair is in tests/boundary/providers.sh: the agent cannot write the
-# deployed directory or any fragment in it, so it cannot reach the states driven here.
+# The boundary half of this pair is in tests/boundary/providers.sh: the agent cannot write the deployed directory or any
+# fragment in it, so it cannot reach the states driven here.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -43,9 +40,8 @@ if [[ ! -x "${HELPER}" ]]; then
     skip "contributed commands" "not installed at ${HELPER}"; finish; exit
 fi
 
-# exec_capable <dir>: succeed when a file created in <dir> can be run from it. Probes
-# rather than reading mount options, so it answers for whatever combination of noexec, SELinux
-# label and filesystem applies here.
+# exec_capable <dir>: succeed when a file created in <dir> can be run from it. Probes rather than reading mount options,
+# so it answers for whatever combination of noexec, SELinux label and filesystem applies here.
 exec_capable() {
     local probe="$1/.exec-probe.$$" ok=1
     printf '#!/bin/sh\nexit 0\n' > "${probe}" 2>/dev/null || return 1
@@ -76,11 +72,10 @@ reset_fixtures() {
     install -d -o root -g root -m 755 "${CMD_DIR}" "${MANIFEST_DIR}"
 }
 
-# write_fragment <name> [mode] [declared-name] : a fragment that records the arguments it was
-# exec'd with, so a test can tell "dispatched" from "listed" and read back what reached it. It
-# carries a complete, conforming interface declaration -- the state a correctly packaged command is
-# in; a case that drives one malformed field rewrites that line afterwards with sed, so what it
-# asserts is the one field it changed.
+# write_fragment <name> [mode] [declared-name] : a fragment that records the arguments it was exec'd with, so a test can
+# tell "dispatched" from "listed" and read back what reached it. It carries a complete, conforming interface declaration
+# -- the state a correctly packaged command is in; a case that drives one malformed field rewrites that line afterwards
+# with sed, so what it asserts is the one field it changed.
 write_fragment() {
     local name="$1" mode="${2:-750}" declared="${3:-$1}"
     printf '%s\n' \
@@ -111,11 +106,10 @@ write_manifest() {
     chmod 644 "${MANIFEST_DIR}/$1.conf"
 }
 
-# run_admin <args...> : the deployed helper against the fixture directories. Publishes `out` and
-# `STATUS` as globals rather than printing, so both survive -- a $(...) capture would run the whole
-# call in a subshell and leave the exit status behind in it. stdout and stderr are merged
-# deliberately: a refusal belongs in what the administrator sees, and every assertion reads
-# the run as one transcript.
+# run_admin <args...> : the deployed helper against the fixture directories. Publishes `out` and `STATUS` as globals
+# rather than printing, so both survive -- a $(...) capture would run the whole call in a subshell and leave the exit
+# status behind in it. stdout and stderr are merged deliberately: a refusal belongs in what the administrator sees,
+# and every assertion reads the run as one transcript.
 STATUS=0
 out=""
 run_admin() {
@@ -126,12 +120,10 @@ run_admin() {
     out="$(cat "${FIXTURE_ROOT}/out")"
 }
 
-# refused <label> <code> <expected-status>: the run_admin this call follows must have exec'd
-# no fragment (the marker is absent), exited <expected-status>, and named the situation
-# with <code>. The status is asserted beside the code because a refusal at exit 0 is one
-# the caller reads as a command done. The label comes FIRST so the code sits in a later
-# argument, which the reference index reads as a citation rather than as a second definition
-# of it (messaging.rule.md).
+# refused <label> <code> <expected-status>: the run_admin this call follows must have exec'd no fragment (the marker is
+# absent), exited <expected-status>, and named the situation with <code>. The status is asserted beside the code because
+# a refusal at exit 0 is one the caller reads as a command done. The label comes FIRST so the code sits in a later
+# argument, which the reference index reads as a citation rather than as a second definition of it (messaging.rule.md).
 refused() {
     local label="$1" code="$2" want="$3"
     if [[ -f "${MARKER}" ]]; then
@@ -168,8 +160,8 @@ else
     fail "--help did not list the domain and its summary: ${out}"
 fi
 
-# A domain whose manifest omits the summary is still listed: the fragment's presence is what
-# creates the command, and a missing description must not hide one that dispatches.
+# A domain whose manifest omits the summary is still listed: the fragment's presence is what creates the command,
+# and a missing description must not hide one that dispatches.
 reset_fixtures
 write_fragment nosummary
 run_admin --help
@@ -180,8 +172,8 @@ else
 fi
 
 # ── an untrusted fragment is skipped and reported ───────────────────────────────────────────
-# Group-writable is the state that matters: the file is still root-owned, so only the mode
-# separates it from the preceding case, and it must be enough on its own.
+# Group-writable is the state that matters: the file is still root-owned, so only the mode separates it
+# from the preceding case, and it must be enough on its own.
 reset_fixtures
 write_fragment tampered 770
 run_admin tampered
@@ -209,9 +201,9 @@ else
 fi
 
 # ── one untrusted fragment refuses the whole set ────────────────────────────────────────────
-# The set-wide gate, and the assertion that carries it: a fragment nobody tampered with, in a
-# directory that also holds one that is not root's alone, does NOT run. Per-file skipping alone
-# would run this one and leave the other in place, with no finding obliging the administrator to act.
+# The set-wide gate, and the assertion that carries it: a fragment nobody tampered with, in a directory that also holds
+# one that is not root's alone, does NOT run. Per-file skipping alone would run this one and leave the other in place,
+# with no finding obliging the administrator to act.
 reset_fixtures
 write_fragment good
 write_fragment weak 766
@@ -235,8 +227,7 @@ else
     fail "--help listed domains it would refuse to run: ${out}"
 fi
 
-# A file whose NAME is not a domain is a different finding: it is not a command, and the set
-# around it still runs.
+# A file whose NAME is not a domain is a different finding: it is not a command, and the set around it still runs.
 reset_fixtures
 write_fragment demo
 printf 'notes\n' > "${CMD_DIR}/README.md"
@@ -249,8 +240,8 @@ else
 fi
 
 # ── an untrusted DIRECTORY refuses every contributed command ────────────────────────────────
-# A group-writable directory lets a non-root writer unlink a root-owned fragment and put its own
-# in that name, so the whole set goes -- not just the file that was replaced.
+# A group-writable directory lets a non-root writer unlink a root-owned fragment and put its own in that name,
+# so the whole set goes -- not just the file that was replaced.
 reset_fixtures
 write_fragment demo
 chmod 775 "${CMD_DIR}"
@@ -264,16 +255,16 @@ assert_msg MSG-V5S5 "${out}" "the untrusted directory is reported"
 chmod 755 "${CMD_DIR}"
 
 # ── a fragment must declare itself a command of this seam ───────────────────────────────────
-# The declaration is what makes a fragment self-identifying, so a root-owned executable that
-# merely ends up in this directory is not run as a command.
+# The declaration is what makes a fragment self-identifying, so a root-owned executable that merely ends up in this
+# directory is not run as a command.
 reset_fixtures
 printf '#!/usr/bin/env bash\ntouch "%s"\n' "${MARKER}" > "${CMD_DIR}/undeclared"
 chown root:root "${CMD_DIR}/undeclared"; chmod 750 "${CMD_DIR}/undeclared"
 run_admin undeclared
 refused "an undeclared executable in the directory is not run as a command" MSG-H5F8 1
 
-# One provider's command copied under another provider's name declares the name it was written
-# for, not the one it is installed as, so it is refused.
+# One provider's command copied under another provider's name declares the name it was written for, not the one it is
+# installed as, so it is refused.
 reset_fixtures
 write_fragment impostor 750 demo
 run_admin impostor
@@ -287,9 +278,8 @@ run_admin binary
 refused "a file with no shebang is not run as a command" MSG-D9F7 1
 
 # ── the interface floor a fragment declares ─────────────────────────────────────────────────
-# The declared version is what the fragment NEEDS, so the direction of every case here is what
-# makes an old third-party command keep working: a floor at or under what this tool implements
-# runs, and only a floor past it is refused.
+# The declared version is what the fragment NEEDS, so the direction of every case here is what makes an old third-party
+# command keep working: a floor at or under what this tool implements runs, and only a floor past it is refused.
 reset_fixtures
 write_fragment old
 declare_line old api-min-version "1.0"
@@ -351,10 +341,10 @@ assert_msg MSG-C7S7 "${out}" "'system' still reaches base's own dispatch"
 run_admin --help
 assert_msg MSG-U6P9 "${out}" "the reserved-name refusal is reported"
 
-# `status` was reserved before it was implemented, and now that base answers it the reservation is
-# what makes the shadowing attempt land on BASE's command rather than the fragment's. The exit
-# status is not asserted: the real report exits non-zero on a host with something broken, and this
-# is a check about which code ran, not about this host's health.
+# `status` was reserved before it was implemented, and now that base answers it the reservation is what makes
+# the shadowing attempt land on BASE's command rather than the fragment's. The exit status is not asserted: the real
+# report exits non-zero on a host with something broken, and this is a check about which code ran, not about this host's
+# health.
 reset_fixtures
 write_fragment status
 run_admin status
@@ -364,13 +354,13 @@ else
     fail "a fragment reached the dispatch for 'status' (exit ${STATUS}): ${out}"
 fi
 
-# The base command does not take an argument, and refuses one rather than ignoring it: a report
-# that dropped what it was asked about would read as an answer to the question.
+# The base command does not take an argument, and refuses one rather than ignoring it: a report that dropped what it was
+# asked about would read as an answer to the question.
 run_admin status --everything
 refused "status refuses an argument with exit 2 rather than reporting on the whole host" MSG-T6S6 2
 
-# Every name the top-level dispatch answers must be reserved, or a provider could contribute a
-# domain that `--help` lists and the dispatch silently shadows.
+# Every name the top-level dispatch answers must be reserved, or a provider could contribute a domain that `--help`
+# lists and the dispatch silently shadows.
 arms="$(awk '/^case "\$1" in/{f=1} f' "${HELPER}" | grep -oE '^    [a-z][a-z0-9-]*\)' | tr -d ' )')"
 reserved="$(grep -oE '^readonly -a BASE_COMMANDS=\(.*\)' "${HELPER}" | sed -e 's/.*(//' -e 's/).*//')"
 unreserved=()
@@ -402,9 +392,9 @@ run_admin ../../../bin/sh
 refused "a path-shaped command name is an unknown command, never a path" MSG-N2A5 2
 
 # ── a trusted fragment that is not executable is listed, and says so when run ────────────────
-# The two are separate questions: the listing is what `--help` can see as any caller, and the exec
-# bit is what the dispatch needs. A fragment that cannot run is a broken install, not an unknown
-# command, so it exits 1 naming the package rather than 2 naming the surface.
+# The two are separate questions: the listing is what `--help` can see as any caller, and the exec bit is
+# what the dispatch needs. A fragment that cannot run is a broken install, not an unknown command, so it exits 1 naming
+# the package rather than 2 naming the surface.
 reset_fixtures
 write_fragment inert 640
 run_admin --help
@@ -427,9 +417,9 @@ else
 fi
 
 # ── system bootstrap: only the scopes it defines ────────────────────────────────────────────
-# Every case here is REJECTED before the provisioning helper is reached, which is what makes them
-# drivable: a scope this parser mis-read would otherwise provision the host mid-test. The default
-# and `--scope full` are not driven for that reason -- they install software over the network.
+# Every case here is REJECTED before the provisioning helper is reached, which is what makes them drivable: a scope this
+# parser mis-read would otherwise provision the host mid-test. The default and `--scope full` are not driven
+# for that reason -- they install software over the network.
 reset_fixtures
 run_admin system bootstrap --scope full-ish
 refused "an unknown --scope value is rejected before anything is provisioned" MSG-A8G5 2
@@ -439,15 +429,14 @@ run_admin system bootstrap full
 refused "a bare positional scope is rejected, so the switch spelling is the only one" MSG-H5Z4 2
 
 # ── `system bootstrap --scope full`: the loop that runs contributed commands unattended ───────
-# Driven by SOURCING the helper and calling the loop with the enabled-integration resolver stubbed
-# -- the shape tests/unit/admin-operator-add.sh uses, and possible because the helper's root check
-# and dispatch are both guarded for it. Reaching this loop through the command would first run the
-# real provisioning helper, which installs software over the network.
+# Driven by SOURCING the helper and calling the loop with the enabled-integration resolver stubbed -- the shape
+# tests/unit/admin-operator-add.sh uses, and possible because the helper's root check and dispatch are both guarded
+# for it. Reaching this loop through the command would first run the real provisioning helper, which installs software
+# over the network.
 #
-# The contract asserted is that every enabled integration is ATTEMPTED and each outcome named
-# before the run fails: an administrator provisioning a host wants every result, not the first
-# thing that went wrong. `failing` is listed first, so a loop that stopped at it would leave the
-# two after it unreported.
+# The contract asserted is that every enabled integration is ATTEMPTED and each outcome named before the run fails:
+# an administrator provisioning a host wants every result, not the first thing that went wrong. `failing` is listed
+# first, so a loop that stopped at it would leave the two after it unreported.
 reset_fixtures
 write_fragment failing
 printf 'exit 1\n' >> "${CMD_DIR}/failing"
@@ -485,8 +474,8 @@ else
 fi
 
 # ── every fragment this repo ships declares itself ──────────────────────────────────────────
-# The packaging half: a shipped command that lost its declaration would be refused on the host
-# rather than here, and only after an administrator typed it.
+# The packaging half: a shipped command that lost its declaration would be refused on the host rather than here,
+# and only after an administrator typed it.
 shipped_dir="${ROOT}/src/usr/local/lib/ai-tools/admin-commands.d"
 if [[ ! -d "${shipped_dir}" ]]; then
     skip "shipped fragments declare themselves" "not a source checkout"

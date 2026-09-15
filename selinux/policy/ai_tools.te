@@ -3,28 +3,24 @@ policy_module(ai_tools, 0.6.0)
 
 ########################################
 #
-# ai_tools -- confine an agent session running as the sandbox account (the ai-tools
-# UID) to its own domain, ai_tools_t, with a path boundary. The domain manages the file
-# types this module declares for its own trees: approved project directories
-# (ai_tools_project_t) and the build output inside them (ai_tools_project_build_t),
-# the agent's own config and state (ai_tools_home_t), and its private temp
-# (ai_tools_tmp_t). Other users' files keep
-# user_home_t, on which the domain holds directory traversal only -- enough to reach a
-# project nested under a home, and not to list what else is there. Other domains' process
-# state and the invoking user's config files are refused as well. THE BOUNDARY section
-# states each refusal with its reason, including the one carve-out
-# (~/.config/ai-tools) that the root helper reads on the agent's behalf.
+# ai_tools -- confine an agent session running as the sandbox account (the ai-tools UID) to its own domain, ai_tools_t,
+# with a path boundary. The domain manages the file types this module declares for its own trees: approved project
+# directories (ai_tools_project_t) and the build output inside them (ai_tools_project_build_t), the agent's own config
+# and state (ai_tools_home_t), and its private temp (ai_tools_tmp_t). Other users' files keep user_home_t,
+# on which the domain holds directory traversal only -- enough to reach a project nested under a home, and not to list
+# what else is there. Other domains' process state and the invoking user's config files are refused as well.
+# THE BOUNDARY section states each refusal with its reason, including the one carve-out (~/.config/ai-tools)
+# that the root helper reads on the agent's behalf.
 #
-# SHIPS ENFORCING. The `permissive ai_tools_t;` line at the foot of this file is the
-# switch, and it is commented out; uncomment it and reload to observe without blocking.
-# install-selinux.sh reads this source to report which mode a build carries.
+# SHIPS ENFORCING. The `permissive ai_tools_t;` line at the foot of this file is the switch, and it is commented
+# out; uncomment it and reload to observe without blocking. install-selinux.sh reads this source to report which mode
+# a build carries.
 #
-# The optional ai_tools_<group> modules that widen this surface are all off by default and
-# are declared once, in selinux-groups.lib.sh (installed at
-# /usr/local/lib/ai-tools/): each group's name, description, the reason it is off, and a
-# stability field that decides whether it ships prebuilt and which front door may enable
-# it. That registry is the single source both front doors read, and a group's stability
-# changes there as it is audited, so no list of group names is kept in this file.
+# The optional ai_tools_<group> modules that widen this surface are all off by default and are declared once,
+# in selinux-groups.lib.sh (installed at /usr/local/lib/ai-tools/): each group's name, description, the reason it is
+# off, and a stability field that decides whether it ships prebuilt and which front door may enable it. That registry is
+# the single source both front doors read, and a group's stability changes there as it is audited, so no list of group
+# names is kept in this file.
 #
 ########################################
 
@@ -35,8 +31,8 @@ require {
     # read-only kernel tunables Node/V8 probes at startup
     type sysctl_vm_t;
 
-    # types we deliberately REFUSE (dontaudit -- logged-then-silenced, never
-    # allowed). Declared here so the explicit dontaudit rules compile.
+    # types we deliberately REFUSE (dontaudit -- logged-then-silenced, never allowed). Declared here so the explicit
+    # dontaudit rules compile.
     type config_home_t;
     type container_file_t;
     type sendmail_exec_t;
@@ -51,9 +47,9 @@ require {
     type kernel_t;
     type init_t;
 
-    # process2 carries the NNP bounded-transition permission (RHEL/Rocky 9+).
-    # Required because the session always runs under NO_NEW_PRIVS (forced by the
-    # RestrictNamespaces seccomp filter ai-tools-run sets); see the domain-entry block.
+    # process2 carries the NNP bounded-transition permission (RHEL/Rocky 9+). Required because the session always runs
+    # under NO_NEW_PRIVS (forced by the RestrictNamespaces seccomp filter ai-tools-run sets); see the domain-entry
+    # block.
     class process2 nnp_transition;
 }
 
@@ -61,78 +57,66 @@ require {
 # Types
 ########################################
 
-# The confined agent (claude.exe running as the ai-tools UID).
-# application_domain() declares the domain, marks ai_tools_exec_t its entrypoint,
-# and grants the baseline every userspace app needs (ld.so, shared libraries).
+# The confined agent (claude.exe running as the ai-tools UID). application_domain() declares the domain, marks
+# ai_tools_exec_t its entrypoint, and grants the baseline every userspace app needs (ld.so, shared libraries).
 type ai_tools_t;
 type ai_tools_exec_t;
 application_domain(ai_tools_t, ai_tools_exec_t)
 
-# Approved project directories the agent may read/write. Applied per-project with
-# `semanage fcontext` (see the ai-tools CLI / selinux/install-selinux.sh),
-# not in ai_tools.fc, because project paths are dynamic.
+# Approved project directories the agent may read/write. Applied per-project with `semanage fcontext` (see the ai-tools
+# CLI / selinux/install-selinux.sh), not in ai_tools.fc, because project paths are dynamic.
 type ai_tools_project_t;
 files_type(ai_tools_project_t)
 
-# Build output inside an approved project. The base declares the type, mirrors on it every
-# grant it holds on ai_tools_project_t, and does not name any directory: which directory names
-# carry it is a toolchain integration's declaration -- its layout module (ai_tools_dotnet.te) at
-# creation time, its manifest through a per-project fcontext rule (relabel.lib.sh, installed
-# at /usr/local/lib/ai-tools/) at relabel time -- and executing what lands there is the
-# optional buildexec group's grant (ai_tools_buildexec.te), which is where that scoping is
-# explained. Declared here rather than in that group because `semanage fcontext` refuses a
-# type the loaded policy does not define, and the per-project rule is written whether or not
-# any group is loaded.
+# Build output inside an approved project. The base declares the type, mirrors on it every grant it holds
+# on ai_tools_project_t, and does not name any directory: which directory names carry it is a toolchain integration's
+# declaration -- its layout module (ai_tools_dotnet.te) at creation time, its manifest through a per-project fcontext
+# rule (relabel.lib.sh, installed at /usr/local/lib/ai-tools/) at relabel time -- and executing what lands there is
+# the optional buildexec group's grant (ai_tools_buildexec.te), which is where that scoping is explained. Declared here
+# rather than in that group because `semanage fcontext` refuses a type the loaded policy does not define,
+# and the per-project rule is written whether or not any group is loaded.
 type ai_tools_project_build_t;
 files_type(ai_tools_project_build_t)
 
-# The agent's own config/state -- /opt/ai-tools/.claude plus its HOME state trees
-# (.npm, .cache, .local, .config; see ai_tools.fc). A private
-# writable area distinct from the read-only nvm/program tree (usr_t), so the
-# policy need not grant write to usr_t. The <you>-owned control files inside
-# (settings.json, post-tool-hook.sh) stay protected by DAC regardless of label.
+# The agent's own config/state -- /opt/ai-tools/.claude plus its HOME state trees (.npm, .cache, .local, .config; see
+# ai_tools.fc). A private writable area distinct from the read-only nvm/program tree (usr_t), so the policy need not
+# grant write to usr_t. The <you>-owned control files inside (settings.json, post-tool-hook.sh) stay protected by DAC
+# regardless of label.
 type ai_tools_home_t;
 files_type(ai_tools_home_t)
 
-# The agent's private temp files. A type_transition relabels everything
-# the agent creates under /tmp to this type, so it gets its own scratch space and
-# cannot read or clobber other domains' tmp_t/user_tmp_t files once enforcing.
+# The agent's private temp files. A type_transition relabels everything the agent creates under /tmp to this type, so it
+# gets its own scratch space and cannot read or clobber other domains' tmp_t/user_tmp_t files once enforcing.
 type ai_tools_tmp_t;
 files_tmp_file(ai_tools_tmp_t)
 
 # The user-owned ai-tools config the ROOT helpers must read on the agent's behalf:
-# ~/.config/ai-tools/{allowed-projects,secret-patterns}. Those paths are normally
-# config_home_t, which the THE BOUNDARY dontaudit block REFUSES to ai_tools_t. But
-# ai-tools-chown runs IN ai_tools_t (sudo, no transition) and its first real step
-# is reading allowed-projects (ai-tools-chown.sh line 59); with no read grant the
-# getattr is denied and the helper fail-closes to a silent exit 0 -- so NO file is
-# ever handed back. A dedicated type labels just this subtree so the helper can
-# read it WITHOUT opening all of ~/.config to the agent. The DAC 700 on the dir
-# still blocks the non-root agent; only the root helper (DAC-exempt, SELinux-gated)
-# benefits. <you> (unconfined) reads it regardless of label. Mirrors the
-# libs_read_lib_files grant for the secret-pattern library -- same "the root helper
-# in ai_tools_t must read a user/lib file or handback breaks" reasoning.
+# ~/.config/ai-tools/{allowed-projects,secret-patterns}. Those paths are normally config_home_t, which the THE BOUNDARY
+# dontaudit block REFUSES to ai_tools_t. But ai-tools-chown runs IN ai_tools_t (sudo, no transition) and its first real
+# step is reading allowed-projects (ai-tools-chown.sh line 59); with no read grant the getattr is denied and the helper
+# fail-closes to a silent exit 0 -- so NO file is ever handed back. A dedicated type labels just this subtree
+# so the helper can read it WITHOUT opening all of ~/.config to the agent. The DAC 700 on the dir still blocks
+# the non-root agent; only the root helper (DAC-exempt, SELinux-gated) benefits. <you> (unconfined) reads it regardless
+# of label. Mirrors the libs_read_lib_files grant for the secret-pattern library -- same "the root helper in ai_tools_t
+# must read a user/lib file or handback breaks" reasoning.
 type ai_tools_conf_t;
 files_type(ai_tools_conf_t)
 
-# The root-helper operation logs under /var/log/ai-tools (labelled by ai_tools.fc).
-# The root helpers (chown, setgid, launcher-symlink) run IN ai_tools_handback_t and
-# append their privileged-operation records here. logging_log_file marks the type a
-# system log file so it lands under the right relabel/restorecon rules. The DAC mode
-# (dir root:root 700, files 600) keeps the agent out -- this only lets the root-uid
-# helper write under enforcing. (ai-tools-lockdown and the CLI run unconfined; the hooks
-# log to journald via the already-granted /dev/log path, not to these files.)
+# The root-helper operation logs under /var/log/ai-tools (labelled by ai_tools.fc). The root helpers (chown, setgid,
+# launcher-symlink) run IN ai_tools_handback_t and append their privileged-operation records here. logging_log_file
+# marks the type a system log file so it lands under the right relabel/restorecon rules. The DAC mode (dir root:root
+# 700, files 600) keeps the agent out -- this only lets the root-uid helper write under enforcing. (ai-tools-lockdown
+# and the CLI run unconfined; the hooks log to journald via the already-granted /dev/log path, not to these files.)
 type ai_tools_log_t;
 logging_log_file(ai_tools_log_t)
 
-# The AF_UNIX socket and /run/ai-tools runtime directory.  ai_tools_t connects here;
-# the socket file is created by systemd when ai-tools-handback.socket activates.
+# The AF_UNIX socket and /run/ai-tools runtime directory.  ai_tools_t connects here; the socket file is created
+# by systemd when ai-tools-handback.socket activates.
 type ai_tools_run_t;
 files_type(ai_tools_run_t)
 
-# The handback privilege bridge daemon.  Runs as root (system manager service),
-# accepts one connection per instance, authenticates via SO_PEERCRED, then
-# calls the existing root helpers.  Enforcing: its rule set is the one the bring-up
+# The handback privilege bridge daemon.  Runs as root (system manager service), accepts one connection per instance,
+# authenticates via SO_PEERCRED, then calls the existing root helpers.  Enforcing: its rule set is the one the bring-up
 # confirmed, and no `permissive ai_tools_handback_t;` line is declared.
 type ai_tools_handback_t;
 type ai_tools_handback_exec_t;
@@ -142,10 +126,9 @@ init_daemon_domain(ai_tools_handback_t, ai_tools_handback_exec_t)
 # Domain entry
 ########################################
 
-# claude is launched as a transient `systemd --user` *service* (ai-tools-run uses
-# `systemd-run --user --pty`), so the final exec of the labelled claude.exe is done
-# by @SANDBOX_USER@'s user-manager, NOT by the sudo/systemd-run caller. Two domtrans
-# sources are authorised:
+# claude is launched as a transient `systemd --user` *service* (ai-tools-run uses `systemd-run --user --pty`),
+# so the final exec of the labelled claude.exe is done by @SANDBOX_USER@'s user-manager, NOT by the sudo/systemd-run
+# caller. Two domtrans sources are authorised:
 #   - init_t        the user-manager domain on RHEL/Rocky 9 targeted policy; the live
 #                   path for a service-unit launch. The service directive
 #                   RestrictNamespaces=yes (set in ai-tools-run) requires service mode --
@@ -162,41 +145,35 @@ init_daemon_domain(ai_tools_handback_t, ai_tools_handback_exec_t)
 #       in system_r (not unconfined_r), the role/type association must be in
 #       force or the transition is denied. Both roles are authorised here so the
 #       service path works regardless; the unused association is inert.
-# If the label or role is wrong no transition fires and claude runs unconfined -- it
-# keeps working, it is simply not yet confined.
+# If the label or role is wrong no transition fires and claude runs unconfined -- it keeps working, it is simply not
+# yet confined.
 domtrans_pattern(init_t, ai_tools_exec_t, ai_tools_t)
 domtrans_pattern(unconfined_t, ai_tools_exec_t, ai_tools_t)
 
 # Both transitions happen under NO_NEW_PRIVS: ai-tools-run launches the session with
 # RestrictNamespaces=yes, and systemd can only install that seccomp filter behind
-# PR_SET_NO_NEW_PRIVS (true on `--user` AND `--system` units; NoNewPrivileges=no does not
-# override it -- verified on the live box).  Under NNP the kernel runs check_nnp_nosuid(),
-# which tries process2:nnp_transition between the old and new contexts where the base
-# policy enables the nnp_nosuid_transition capability, then falls back to
-# security_bounded_transition() -- a typebounds rule, which this module does not declare.
-# When both fail it returns `-EPERM`, and selinux_bprm_creds_for_exec() propagates that, so
-# the execve FAILS and the unit does not start.  Without these two grants the session
-# therefore does not launch; it does not run in the caller's domain.  The kernel fails
+# PR_SET_NO_NEW_PRIVS (true on `--user` AND `--system` units; NoNewPrivileges=no does not override it -- verified
+# on the live box).  Under NNP the kernel runs check_nnp_nosuid(), which tries process2:nnp_transition between the old
+# and new contexts where the base policy enables the nnp_nosuid_transition capability, then falls back
+# to security_bounded_transition() -- a typebounds rule, which this module does not declare. When both fail it returns
+# `-EPERM`, and selinux_bprm_creds_for_exec() propagates that, so the execve FAILS and the unit does not start.  Without
+# these two grants the session therefore does not launch; it does not run in the caller's domain.  The kernel fails
 # closed here, which is why ai-tools-run's preflight does not probe for it.
 #
-# The case that DOES run unconfined is the opposite one: a mislabelled entrypoint does not
-# compute any transition, so new_sid == old_sid, check_nnp_nosuid() returns 0 on its
-# "no change in credentials" path, and the exec succeeds in init_t/unconfined_t.  That is
-# the state ai-tools-run's label preflight refuses on (confinement.rule.md).
+# The case that DOES run unconfined is the opposite one: a mislabelled entrypoint does not compute any transition,
+# so new_sid == old_sid, check_nnp_nosuid() returns 0 on its "no change in credentials" path, and the exec succeeds
+# in init_t/unconfined_t.  That is the state ai-tools-run's label preflight refuses on (confinement.rule.md).
 #
-# The capability is a property of the BASE policy, not of this module.  It is turned on by
-# an explicit `policycap nnp_nosuid_transition;` statement, which stock EL policy carries --
-# it is what lets a unit keep NoNewPrivileges AND still transition, the alternative path
-# needing typebounds rules that reference policy does not define.  A 0 therefore indicates
-# an old or custom-built base policy rather than a stricter one.  Read it with:
+# The capability is a property of the BASE policy, not of this module.  It is turned on by an explicit
+# `policycap nnp_nosuid_transition;` statement, which stock EL policy carries -- it is what lets a unit keep
+# NoNewPrivileges AND still transition, the alternative path needing typebounds rules that reference policy does not
+# define.  A 0 therefore indicates an old or custom-built base policy rather than a stricter one.  Read it with:
 #     cat /sys/fs/selinux/policy_capabilities/nnp_nosuid_transition   # expect 1
-# Granting nnp_transition (NOT nosuid_transition) lets the transition complete; it does
-# NOT relax NNP -- the agent still runs with NO_NEW_PRIVS set, so SUID stays neutered.
-# Safe because the move is unconfined_t/init_t -> ai_tools_t, a strict privilege REDUCTION
-# onto the single ai_tools_exec_t entrypoint.  (The agent's own onward transitions, e.g.
-# auth_domtrans_chk_passwd -> chkpwd_t, are likewise bounded under NNP and would each need
-# their own nnp_transition grant -- but they sit on the sudo path, which NNP already
-# breaks, so they are intentionally NOT granted here.)
+# Granting nnp_transition (NOT nosuid_transition) lets the transition complete; it does NOT relax NNP -- the agent still
+# runs with NO_NEW_PRIVS set, so SUID stays neutered. Safe because the move is unconfined_t/init_t -> ai_tools_t,
+# a strict privilege REDUCTION onto the single ai_tools_exec_t entrypoint.  (The agent's own onward transitions, e.g.
+# auth_domtrans_chk_passwd -> chkpwd_t, are likewise bounded under NNP and would each need their own nnp_transition
+# grant -- but they sit on the sudo path, which NNP already breaks, so they are intentionally NOT granted here.)
 allow init_t ai_tools_t:process2 nnp_transition;
 allow unconfined_t ai_tools_t:process2 nnp_transition;
 
@@ -207,8 +184,8 @@ role system_r types ai_tools_t;
 allow ai_tools_t ai_tools_exec_t:file execute_no_trans;
 
 ########################################
-# Project + agent-home files  (covers ALL git file operations: index.lock
-# create/rename/unlink, object writes, ref updates, config reads, etc.)
+# Project + agent-home files  (covers ALL git file operations: index.lock create/rename/unlink, object writes, ref
+# updates, config reads, etc.)
 ########################################
 
 manage_dirs_pattern(ai_tools_t, ai_tools_project_t, ai_tools_project_t)
@@ -222,79 +199,70 @@ manage_dirs_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
 manage_files_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
 manage_lnk_files_pattern(ai_tools_t, ai_tools_home_t, ai_tools_home_t)
 
-# mmap of project/home files: Node mmaps source files and its own state; git
-# mmaps pack/index files; the CLR maps the assemblies it built. (Raw audit2allow flagged
-# this as boolean domain_can_mmap_files -- we grant it narrowly on our own writable types
-# instead of flipping a system-wide boolean.) The tmp type is deliberately NOT
-# here: mmap of a /tmp file (dotnet build shm, git/SQLite in /tmp) is the
-# optional 'tmpmap' policy group, off by default, since it widens the surface
-# around world-writable /tmp. See selinux/policy/ai_tools_tmpmap.te.
+# mmap of project/home files: Node mmaps source files and its own state; git mmaps pack/index files; the CLR maps
+# the assemblies it built. (Raw audit2allow flagged this as boolean domain_can_mmap_files -- we grant it narrowly on our
+# own writable types instead of flipping a system-wide boolean.) The tmp type is deliberately NOT here: mmap of a /tmp
+# file (dotnet build shm, git/SQLite in /tmp) is the optional 'tmpmap' policy group, off by default, since it widens
+# the surface around world-writable /tmp. See selinux/policy/ai_tools_tmpmap.te.
 allow ai_tools_t ai_tools_project_t:file map;
 allow ai_tools_t ai_tools_project_build_t:file map;
 allow ai_tools_t ai_tools_home_t:file map;
 
-# Execute the PostToolUse/Stop hook scripts that live in .claude (ai_tools_home_t).
-# They are interpreted shell, but the kernel still needs file execute on the
-# script the shebang line names. No transition: the hook stays in ai_tools_t.
+# Execute the PostToolUse/Stop hook scripts that live in .claude (ai_tools_home_t). They are interpreted shell,
+# but the kernel still needs file execute on the script the shebang line names. No transition: the hook stays
+# in ai_tools_t.
 allow ai_tools_t ai_tools_home_t:file { execute execute_no_trans };
 
-# Reach the project: its parent path is /home/<you> (user_home_dir_t) -> intermediate
-# dirs (user_home_t) -> the labelled project. The agent must SEARCH through those
-# parents (path resolution) -- but NOT list/read them (see the dontaudit block).
+# Reach the project: its parent path is /home/<you> (user_home_dir_t) -> intermediate dirs (user_home_t) -> the labelled
+# project. The agent must SEARCH through those parents (path resolution) -- but NOT list/read them (see the dontaudit
+# block).
 userdom_search_user_home_dirs(ai_tools_t)
 allow ai_tools_t user_home_t:dir { getattr search open };
 
-# Reach SANDBOX project clones: their path is /var -> /var/opt -> /var/opt/ai-tools
-# -> sandbox-projects -> the labelled clone (ai_tools_project_t, set statically in
-# ai_tools.fc). /var is var_t, covered by files_search_var. From /var/opt down the
-# path is usr_t, NOT var_t: the base file_contexts.subs_dist alias `/var/opt /opt` makes
-# /var/opt/ai-tools resolve as /opt/ai-tools (usr_t) -- the same reason the clone rule in
-# ai_tools.fc is keyed under /opt. The agent already searches usr_t dirs via the
-# files_read_usr_files grant (it reads the nvm/node tree there), so those hops need
-# no extra rule; files_search_var covers only the /var hop. The clone itself is reached via
-# the project rules. Projects under /home use the user_home_t traversal instead.
+# Reach SANDBOX project clones: their path is /var -> /var/opt -> /var/opt/ai-tools -> sandbox-projects -> the labelled
+# clone (ai_tools_project_t, set statically in ai_tools.fc). /var is var_t, covered by files_search_var. From /var/opt
+# down the path is usr_t, NOT var_t: the base file_contexts.subs_dist alias `/var/opt /opt` makes /var/opt/ai-tools
+# resolve as /opt/ai-tools (usr_t) -- the same reason the clone rule in ai_tools.fc is keyed under /opt. The agent
+# already searches usr_t dirs via the files_read_usr_files grant (it reads the nvm/node tree there), so those hops need
+# no extra rule; files_search_var covers only the /var hop. The clone itself is reached via the project rules. Projects
+# under /home use the user_home_t traversal instead.
 files_search_var(ai_tools_t)
 
-# Reach + read the ai-tools config subtree (~/.config/ai-tools, ai_tools_conf_t): SEARCH
-# config_home_t (~/.config) only to traverse INTO it -- never list or read its siblings, which
-# the config_home_t:file dontaudit still refuses. Two domains hold this, for different
-# reasons, and the narrow type is what keeps either grant off the rest of ~/.config.
+# Reach + read the ai-tools config subtree (~/.config/ai-tools, ai_tools_conf_t): SEARCH config_home_t (~/.config) only
+# to traverse INTO it -- never list or read its siblings, which the config_home_t:file dontaudit still refuses. Two
+# domains hold this, for different reasons, and the narrow type is what keeps either grant off the rest of ~/.config.
 #
-# ai_tools_handback_t (granted further down) is the load-bearing one: the root helpers read
-# allowed-projects and secret-patterns on the operator's behalf, and without it their getattr is
-# denied and ownership handback silently no-ops.
+# ai_tools_handback_t (granted further down) is the load-bearing one: the root helpers read allowed-projects
+# and secret-patterns on the operator's behalf, and without it their getattr is denied and ownership handback silently
+# no-ops.
 #
-# ai_tools_t holds it so the FILE MODE stays the operator's knob. The grant alone gives the
-# session no access: DAC and type enforcement must BOTH allow, and at the shipped 700 dir with
-# 600 files DAC refuses. What it buys is that an operator who deliberately widens the mode gets the
-# read they intended, rather than an AVC denial they could clear only by editing policy. Opening
-# allowed-projects lets a session read where it may work instead of being told or probing for
-# refusals; opening secret-patterns tells it which basenames are quarantined, which it can
-# already infer from the NOTICE every quarantine emits. Removing this grant was considered and
-# rejected: it would make policy, not the mode, the binding constraint on a decision that belongs
-# to the operator. The default stays closed.
+# ai_tools_t holds it so the FILE MODE stays the operator's knob. The grant alone gives the session no access: DAC
+# and type enforcement must BOTH allow, and at the shipped 700 dir with 600 files DAC refuses. What it buys is
+# that an operator who deliberately widens the mode gets the read they intended, rather than an AVC denial they could
+# clear only by editing policy. Opening allowed-projects lets a session read where it may work instead of being told
+# or probing for refusals; opening secret-patterns tells it which basenames are quarantined, which it can already infer
+# from the NOTICE every quarantine emits. Removing this grant was considered and rejected: it would make policy, not
+# the mode, the binding constraint on a decision that belongs to the operator. The default stays closed.
 #
-# The file permissions are refpolicy's read_file_perms, written out. An ordinary reader asks for
-# all of them: bash probes a descriptor it reads with a terminal ioctl, and these files are read
-# once per operator per path resolved. A set without `ioctl` leaves each of those probes denied --
-# the read itself succeeds, and every probe writes an audit record that setroubleshootd amplifies,
-# burying the denials an operator is looking for. Neither `ioctl` nor `lock` carries information
-# out of a file the domain may already read.
+# The file permissions are refpolicy's read_file_perms, written out. An ordinary reader asks for all of them: bash
+# probes a descriptor it reads with a terminal ioctl, and these files are read once per operator per path resolved.
+# A set without `ioctl` leaves each of those probes denied -- the read itself succeeds, and every probe writes an audit
+# record that setroubleshootd amplifies, burying the denials an operator is looking for. Neither `ioctl` nor `lock`
+# carries information out of a file the domain may already read.
 allow ai_tools_t config_home_t:dir search;
 allow ai_tools_t ai_tools_conf_t:dir { getattr search open };
 allow ai_tools_t ai_tools_conf_t:file { getattr open read lock ioctl };
 
-# Append the root-helper operation logs under /var/log/ai-tools (ai_tools_log_t).
-# install.sh pre-creates each log file, so the steady state is append-only; create +
-# the dir-create filetrans cover a fresh/rotated log so a missing file is recreated as
-# ai_tools_log_t (not the domain default) rather than dropping the record. Reached as
-# the root-uid helper only -- the DAC 700 dir keeps the non-root agent out regardless.
+# Append the root-helper operation logs under /var/log/ai-tools (ai_tools_log_t). install.sh pre-creates each log file,
+# so the steady state is append-only; create + the dir-create filetrans cover a fresh/rotated log so a missing file is
+# recreated as ai_tools_log_t (not the domain default) rather than dropping the record. Reached as the root-uid helper
+# only -- the DAC 700 dir keeps the non-root agent out regardless.
 allow ai_tools_t ai_tools_log_t:dir { getattr search open add_name write };
 allow ai_tools_t ai_tools_log_t:file { create getattr setattr open append };
 logging_log_filetrans(ai_tools_t, ai_tools_log_t, file)
 
-# <you> (unconfined) keeps full access to, and can relabel (restorecon), the new
-# file types -- relabelling a project to ai_tools_project_t must never lock you out.
+# <you> (unconfined) keeps full access to, and can relabel (restorecon), the new file types -- relabelling a project
+# to ai_tools_project_t must never lock you out.
 manage_dirs_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
 manage_files_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
 manage_lnk_files_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
@@ -320,8 +288,8 @@ manage_lnk_files_pattern(ai_tools_t, ai_tools_tmp_t, ai_tools_tmp_t)
 # New entries the agent creates in /tmp become ai_tools_tmp_t, not generic tmp_t.
 files_tmp_filetrans(ai_tools_t, ai_tools_tmp_t, { file dir lnk_file })
 files_search_tmp(ai_tools_t)
-# add_name/remove_name on the shared /tmp dir so the agent can create and clean up
-# its own entries there; the DAC sticky bit on /tmp still stops it touching others'.
+# add_name/remove_name on the shared /tmp dir so the agent can create and clean up its own entries there; the DAC sticky
+# bit on /tmp still stops it touching others'.
 allow ai_tools_t tmp_t:dir { getattr search add_name remove_name write };
 
 ########################################
@@ -332,11 +300,10 @@ corecmd_exec_bin(ai_tools_t)        # /usr/bin/git, rg, coreutils, ...
 corecmd_exec_shell(ai_tools_t)      # the Bash tool
 files_read_usr_files(ai_tools_t)    # read the nvm/node tree under /opt/ai-tools (usr_t)
 files_read_etc_files(ai_tools_t)    # /etc/gitconfig, nsswitch.conf, ...
-# ai-tools-chown runs IN this domain (no transition) and sources the shared
-# secret-pattern matcher at /usr/local/lib/ai-tools/secret-patterns.lib.sh, which
-# restorecon labels lib_t. Grant lib_t dir-search + file-read so the source
-# succeeds; the helper fails closed if it cannot read the lib, so without this
-# rule handback would break under enforcing. Read-only: ai-tools cannot write it.
+# ai-tools-chown runs IN this domain (no transition) and sources the shared secret-pattern matcher
+# at /usr/local/lib/ai-tools/secret-patterns.lib.sh, which restorecon labels lib_t. Grant lib_t dir-search + file-read
+# so the source succeeds; the helper fails closed if it cannot read the lib, so without this rule handback would break
+# under enforcing. Read-only: ai-tools cannot write it.
 libs_read_lib_files(ai_tools_t)
 auth_use_nsswitch(ai_tools_t)       # resolve uid/gid (getpwnam)
 miscfiles_read_localization(ai_tools_t)
@@ -362,34 +329,30 @@ corenet_tcp_connect_http_port(ai_tools_t)   # http_port_t includes 443
 ########################################
 # Handback socket bridge (ai_tools_t -> ai_tools_handback_t)
 #
-# The hooks call /usr/local/bin/ai-tools-handback-client (a bin_t executable) to
-# connect to /run/ai-tools/handback.sock.  No sudo is involved: the client opens
-# the socket file directly and sends a CHOWN/SETGID/SYMLINK request; the daemon
+# The hooks call /usr/local/bin/ai-tools-handback-client (a bin_t executable) to connect to /run/ai-tools/handback.sock.
+# No sudo is involved: the client opens the socket file directly and sends a CHOWN/SETGID/SYMLINK request; the daemon
 # (ai_tools_handback_t) authenticates via SO_PEERCRED and calls the root helper.
 #
 # ai_tools_t holds NO capability permissions and none of: setuid/setgid/sys_resource/
-# chown/fowner/fsetid/dac_read_search, sudo_exec_t exec, sudo_db_t/sudo_log_t/
-# faillog_t/pam_var_run_t access, auth_domtrans_chk_passwd, netlink_audit_socket.
-# The non-root agent has no use for any of it; an in-domain root helper would, and
-# the bridge puts that helper in its own root domain (ai_tools_handback_t)
+# chown/fowner/fsetid/dac_read_search, sudo_exec_t exec, sudo_db_t/sudo_log_t/ faillog_t/pam_var_run_t access,
+# auth_domtrans_chk_passwd, netlink_audit_socket. The non-root agent has no use for any of it; an in-domain root helper
+# would, and the bridge puts that helper in its own root domain (ai_tools_handback_t)
 # instead.
 ########################################
 
 # Traverse, list, stat and connect to handback.sock (ai_tools_run_t).
 allow ai_tools_t ai_tools_run_t:dir { search read };
 allow ai_tools_t ai_tools_run_t:sock_file { read write getattr };
-# init_t (PID1) owns the listening socket: RuntimeDirectory= creates and removes
-# /run/ai-tools on every socket (re)start and binds handback.sock inside it --
-# both name-bearing operations on the directory.
+# init_t (PID1) owns the listening socket: RuntimeDirectory= creates and removes /run/ai-tools on every socket (re)start
+# and binds handback.sock inside it -- both name-bearing operations on the directory.
 allow init_t ai_tools_run_t:dir { add_name remove_name rmdir };
 # create+write: bind() the listener; setattr: sd-chown applying SocketMode=/
 # SocketGroup= from the unit.
 allow init_t ai_tools_run_t:sock_file { create write setattr unlink };
-# connectto is the peer check on the client's connect(): for an Accept=yes templated
-# socket paired with init_daemon_domain, systemd labels the listening socket with the
-# spawned handler's domain, so the check gates access to ai_tools_handback_t -- not init_t,
-# which never appears as the peer.  Re-derive from `ausearch -m avc -c connectto` if this
-# unit's domain pairing changes.
+# connectto is the peer check on the client's connect(): for an Accept=yes templated socket paired
+# with init_daemon_domain, systemd labels the listening socket with the spawned handler's domain, so the check gates
+# access to ai_tools_handback_t -- not init_t, which never appears as the peer.  Re-derive
+# from `ausearch -m avc -c connectto` if this unit's domain pairing changes.
 allow ai_tools_t ai_tools_handback_t:unix_stream_socket connectto;
 
 ########################################
@@ -398,11 +361,11 @@ allow ai_tools_t ai_tools_handback_t:unix_stream_socket connectto;
 
 allow ai_tools_t self:process { fork sigchld signal signull getsched setsched setpgid };
 allow ai_tools_t self:process execmem;   # V8 JIT (writable+executable code pages)
-# Coreutils and sed preset a new file's label with setfscreatecon() before creating it (`sed -i`,
-# cp, mv, install). Without setfscreate that call returns EACCES and libselinux prints a stderr
-# "failed to set default file creation context" warning on every such command. The grant only
-# lets the domain preset the label the files_tmp_filetrans type_transition already assigns, so it
-# does not widen the producible label -- the file is ai_tools_tmp_t either way; this just silences the noise.
+# Coreutils and sed preset a new file's label with setfscreatecon() before creating it (`sed -i`, cp, mv, install).
+# Without setfscreate that call returns EACCES and libselinux prints a stderr "failed to set default file creation
+# context" warning on every such command. The grant only lets the domain preset the label the files_tmp_filetrans
+# type_transition already assigns, so it does not widen the producible label -- the file is ai_tools_tmp_t either way;
+# this just silences the noise.
 allow ai_tools_t self:process setfscreate;
 allow ai_tools_t self:fifo_file rw_fifo_file_perms;
 allow ai_tools_t self:unix_stream_socket create_stream_socket_perms;
@@ -415,94 +378,78 @@ dev_read_urand(ai_tools_t)
 ########################################
 # THE BOUNDARY -- deliberately DENIED.
 #
-# Everything in this section is dontaudit, NOT allow. A raw `audit2allow` of the bring-up
-# logs proposed allowing all of it; granting any of it would widen the agent past
-# its purpose. What denies each one is the absence of an allow rule; the dontaudit
-# only suppresses the audit record, so the access stays refused under enforcing and
-# stops flooding the log, which keeps a real new denial visible. If one turns out to
-# be functionally required, it resurfaces as a hard failure rather than a log line
-# and is reconsidered then -- on its own merits, not because a tool probed it.
+# Everything in this section is dontaudit, NOT allow. A raw `audit2allow` of the bring-up logs proposed allowing all
+# of it; granting any of it would widen the agent past its purpose. What denies each one is the absence of an allow
+# rule; the dontaudit only suppresses the audit record, so the access stays refused under enforcing and stops flooding
+# the log, which keeps a real new denial visible. If one turns out to be functionally required, it resurfaces as a hard
+# failure rather than a log line and is reconsidered then -- on its own merits, not because a tool probed it.
 ########################################
 
-# (1) Reading OTHER domains' process state. The bring-up logged ~45 distinct
-# daemon domains (NetworkManager_t, sshd_t, sssd_t, postgresql_t, container_t,
-# unconfined_t, kernel_t, init_t, ...) all with the identical /proc/<pid> read
-# signature -- something walked the whole process table. A confined coding agent
-# has no business reading every daemon's cmdline/environ/fds (environ can leak
-# secrets), so this is refused wholesale.
+# (1) Reading OTHER domains' process state. The bring-up logged ~45 distinct daemon domains (NetworkManager_t, sshd_t,
+# sssd_t, postgresql_t, container_t, unconfined_t, kernel_t, init_t, ...) all with the identical /proc/<pid> read
+# signature -- something walked the whole process table. A confined coding agent has no business reading every daemon's
+# cmdline/environ/fds (environ can leak secrets), so this is refused wholesale.
 domain_dontaudit_read_all_domains_state(ai_tools_t)
 dontaudit ai_tools_t init_t:file ioctl;
 dontaudit ai_tools_t kernel_t:unix_stream_socket connectto;
 
-# (2) The path boundary into the invoking user's home. SEARCH to reach the project
-# is allowed; LISTING /home, /home/<you>, or its subtrees is not -- that is how
-# the agent would discover unrelated files. Reading the user's ~/.config FILES is
-# likewise refused (git/Node probe it; failing closed is harmless) -- the lone exception is the
-# ai_tools_conf_t subtree (~/.config/ai-tools), carved out and granted so the file mode
-# rather than policy decides what the session may read there. config_home_t:dir search is
-# allowed only to TRAVERSE ~/.config into that subtree, never to list or read it; this
-# dontaudit keeps every other config_home_t FILE refused.
+# (2) The path boundary into the invoking user's home. SEARCH to reach the project is allowed; LISTING /home,
+# /home/<you>, or its subtrees is not -- that is how the agent would discover unrelated files. Reading the user's
+# ~/.config FILES is likewise refused (git/Node probe it; failing closed is harmless) -- the lone exception is
+# the ai_tools_conf_t subtree (~/.config/ai-tools), carved out and granted so the file mode rather than policy decides
+# what the session may read there. config_home_t:dir search is allowed only to TRAVERSE ~/.config into that subtree,
+# never to list or read it; this dontaudit keeps every other config_home_t FILE refused.
 dontaudit ai_tools_t home_root_t:dir read;
 dontaudit ai_tools_t user_home_dir_t:dir read;
 dontaudit ai_tools_t user_home_t:dir read;
 dontaudit ai_tools_t config_home_t:file { getattr ioctl open read };
 
-# (3) Unrelated subsystems the agent reached into but does not need. Reading
-# container storage and executing the MTA are outside a coding agent's job.
+# (3) Unrelated subsystems the agent reached into but does not need. Reading container storage and executing the MTA are
+# outside a coding agent's job.
 dontaudit ai_tools_t container_file_t:file { open read };
 dontaudit ai_tools_t sendmail_exec_t:file execute;
 
-# (4) Benign device/fs probe noise -- denying these leaves behaviour unchanged (callers
-# fall back), so silence rather than grant.
-# fs_t:filesystem getattr is ALLOWED by this module (find -xdev needs statfs()).
+# (4) Benign device/fs probe noise -- denying these leaves behaviour unchanged (callers fall back), so silence rather
+# than grant. fs_t:filesystem getattr is ALLOWED by this module (find -xdev needs statfs()).
 dontaudit ai_tools_t { cgroup_t tmpfs_t }:filesystem getattr;
 dontaudit ai_tools_t tty_device_t:chr_file getattr;
 dontaudit ai_tools_t usb_device_t:chr_file getattr;   # Node HID probe at startup
-# Node also stat-walks every /dev node (char + block) and a couple of /proc
-# pseudo-files at session start -- getattr only, no read, and the EACCES is ignored
-# by the caller. Silence the flood rather than grant metadata on memory/disk/tpm
-# nodes. Observed: fixed_disk/memory/fuse/uhid/gpio/wireless/xserver_misc/tpm/kvm/
-# sgx/... device nodes (chr+blk), /proc/kcore, /run/initctl. Interfaces pull their
-# own types, so no require{} additions are needed.
+# Node also stat-walks every /dev node (char + block) and a couple of /proc pseudo-files at session start -- getattr
+# only, no read, and the EACCES is ignored by the caller. Silence the flood rather than grant metadata
+# on memory/disk/tpm nodes. Observed: fixed_disk/memory/fuse/uhid/gpio/wireless/xserver_misc/tpm/kvm/ sgx/... device
+# nodes (chr+blk), /proc/kcore, /run/initctl. Interfaces pull their own types, so no require{} additions are needed.
 dev_dontaudit_getattr_all_chr_files(ai_tools_t)
 dev_dontaudit_getattr_all_blk_files(ai_tools_t)
 kernel_dontaudit_getattr_core_if(ai_tools_t)
 init_dontaudit_getattr_initctl(ai_tools_t)
 
 # (5) GUI clipboard reach into the user's X session. Claude's clipboard support shells
-# out to `xsel --clipboard --input`, which connect()s an AF_UNIX stream socket to the X
-# server at /tmp/.X11-unix/X0. SELinux checks `connectto` against the PEER -- the X
-# server process, which on this workstation runs unconfined_t -- and denies it, stopping
-# the agent at the very first hop, before DISPLAY/~/.Xauthority even matter. This can
-# never work in the sandbox and must not: X11 has no intra-session isolation (any display
-# client can keylog/screenshot/inject into every window), so opening this path would hand
-# the agent the whole desktop, and reaching the cookie would breach the §2 home boundary.
-# The supported in-sandbox clipboard path is OSC 52 -- a terminal escape on the already-
-# allowed pty -- which requires neither a socket nor a policy grant. So this is silenced, NOT
-# allowed, and is deliberately NOT an optional group: enabling it would buy no capability.
-# (connectto is peer-label-based, so it can only target the peer process type, not the
-# socket path; on a host with a confined X server the peer would be xserver_t.)
+# out to `xsel --clipboard --input`, which connect()s an AF_UNIX stream socket to the X server at /tmp/.X11-unix/X0.
+# SELinux checks `connectto` against the PEER -- the X server process, which on this workstation runs unconfined_t --
+# and denies it, stopping the agent at the very first hop, before DISPLAY/~/.Xauthority even matter. This can never work
+# in the sandbox and must not: X11 has no intra-session isolation (any display client can keylog/screenshot/inject
+# into every window), so opening this path would hand the agent the whole desktop, and reaching the cookie would breach
+# the §2 home boundary. The supported in-sandbox clipboard path is OSC 52 -- a terminal escape on the already- allowed
+# pty -- which requires neither a socket nor a policy grant. So this is silenced, NOT allowed, and is deliberately NOT
+# an optional group: enabling it would buy no capability. (connectto is peer-label-based, so it can only target the peer
+# process type, not the socket path; on a host with a confined X server the peer would be xserver_t.)
 dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 
-# (6) Extended boundary -- accesses confirmed denied under enforcing by avc-denials.sh
-# sections G-X.
+# (6) Extended boundary -- accesses confirmed denied under enforcing by avc-denials.sh sections G-X.
 #
-# INTENTIONALLY LEFT COMMENTED. Unlike sections (1)-(5) which silence operational noise
-# that is safe to suppress (proc table walks, USB probes, startup statfs), the accesses
-# in this section are SECURITY-RELEVANT BREACH ATTEMPTS. Leaving them active in the audit log
-# means any attempt by the agent to read credentials, escalate privilege, install
-# persistence, or move laterally produces a visible AVC and is caught by avc-analyze.sh
-# as NEW. That is the desired default behaviour.
+# INTENTIONALLY LEFT COMMENTED. Unlike sections (1)-(5) which silence operational noise that is safe to suppress (proc
+# table walks, USB probes, startup statfs), the accesses in this section are SECURITY-RELEVANT BREACH ATTEMPTS. Leaving
+# them active in the audit log means any attempt by the agent to read credentials, escalate privilege, install
+# persistence, or move laterally produces a visible AVC and is caught by avc-analyze.sh as NEW. That is the desired
+# default behaviour.
 #
-# To suppress a specific line (e.g. because you have verified why the agent reaches
-# that path and have accepted the access as benign in your environment), uncomment it.
-# Never uncomment wholesale -- each suppressed line is a breach attempt you are
-# choosing not to be alerted about.
+# To suppress a specific line (e.g. because you have verified why the agent reaches that path and have accepted
+# the access as benign in your environment), uncomment it. Never uncomment wholesale -- each suppressed line is a breach
+# attempt you are choosing not to be alerted about.
 #
-# PORTABILITY / BEFORE UNCOMMENTING: none of the types in this section are in the require {}
-# block, because require is a hard load-time dependency -- a missing type causes semodule
-# to fail for every user on every distro variant. Type names vary between selinux-policy
-# versions and optional sub-packages:
+# PORTABILITY / BEFORE UNCOMMENTING: none of the types in this section are in the require {} block, because require is
+# a hard load-time dependency -- a missing type causes semodule to fail for every user on every distro variant. Type
+# names vary between selinux-policy versions and optional sub-packages:
 #
 #   etc_sudoers_t   -- RHEL 9 full selinux-policy-targeted; some builds label /etc/sudoers
 #                      plain etc_t instead (verify: `ls -Z /etc/sudoers`).
@@ -515,11 +462,11 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 #
 #   container_var_run_t -- only present when container-selinux is installed.
 #
-# When uncommenting a rule: (1) confirm the type exists with `seinfo -t <type_t>`;
-# (2) add `type <type_t>;` to the require {} block; (3) rebuild + reload.
+# When uncommenting a rule: (1) confirm the type exists with `seinfo -t <type_t>`; (2) add `type <type_t>;`
+# to the require {} block; (3) rebuild + reload.
 #
-# OPEN-FAILURE STATUS from the first probe run -- documented here, not suppressed.
-# ESC-001 is now CLOSED out-of-band; LAT-005 remains open.
+# OPEN-FAILURE STATUS from the first probe run -- documented here, not suppressed. ESC-001 is now CLOSED out-of-band;
+# LAT-005 remains open.
 #
 #   ESC-001  `unshare --user` (process2:create_user_ns) -- CLOSED by a seccomp filter,
 #            not by this policy.
@@ -549,20 +496,17 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 #            only object names, not contents (those require shm_open()+mmap()).
 
 # --- Credentials (G-J): password files, sudoers, root home, session runtime ---
-# Uncomment to suppress; leave commented to keep breach attempts visible in audit log.
-# dontaudit ai_tools_t shadow_t:file { getattr open read };
+# Uncomment to suppress; leave commented to keep breach attempts visible in audit log. dontaudit ai_tools_t
+# shadow_t:file { getattr open read };
 
-# Type varies by selinux-policy version: etc_sudoers_t (RHEL 9 full policy) or
-# etc_t (some builds -- already allowed; no dontaudit needed in that case).
-# Verify: `ls -Z /etc/sudoers`
-# dontaudit ai_tools_t etc_sudoers_t:dir  { getattr open read };
-# dontaudit ai_tools_t etc_sudoers_t:file { getattr open read };
+# Type varies by selinux-policy version: etc_sudoers_t (RHEL 9 full policy) or etc_t (some builds -- already allowed; no
+# dontaudit needed in that case). Verify: `ls -Z /etc/sudoers` dontaudit ai_tools_t etc_sudoers_t:dir  { getattr open
+# read }; dontaudit ai_tools_t etc_sudoers_t:file { getattr open read };
 
-# dontaudit ai_tools_t admin_home_t:dir  { getattr open read };
-# dontaudit ai_tools_t admin_home_t:file { getattr open read };
+# dontaudit ai_tools_t admin_home_t:dir  { getattr open read }; dontaudit ai_tools_t admin_home_t:file { getattr open
+# read };
 
-# Type varies: user_runtime_t (RHEL 9 standard) or user_tmp_t (some builds, UEK).
-# Verify: `ls -dZ /run/user/`
+# Type varies: user_runtime_t (RHEL 9 standard) or user_tmp_t (some builds, UEK). Verify: `ls -dZ /run/user/`
 # dontaudit ai_tools_t user_runtime_t:dir      { getattr open read };
 # dontaudit ai_tools_t user_runtime_t:sock_file connectto;
 
@@ -577,28 +521,26 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # dontaudit ai_tools_t sysctl_t:file        { getattr open read write };
 # dontaudit ai_tools_t sysctl_kernel_t:file { getattr open read write };
 # dontaudit ai_tools_t memory_device_t:chr_file    { getattr open read write };
-# dontaudit ai_tools_t fixed_disk_device_t:blk_file { getattr open read write };
-# dontaudit ai_tools_t self:capability { sys_module net_bind_service };
+# dontaudit ai_tools_t fixed_disk_device_t:blk_file { getattr open read write }; dontaudit ai_tools_t self:capability {
+# sys_module net_bind_service };
 
 # --- Persistence (Q-S): cron, shell startup, library preload, systemd units ---
 # dontaudit ai_tools_t user_cron_spool_t:{ dir file }   { getattr open read write create add_name };
-# dontaudit ai_tools_t system_cron_spool_t:{ dir file } { getattr open read write create add_name };
-# dontaudit ai_tools_t etc_t:{ dir file } write;  # read is allowed; only write is the breach
-# dontaudit ai_tools_t systemd_unit_file_t:{ dir file } { getattr open read write create add_name };
+# dontaudit ai_tools_t system_cron_spool_t:{ dir file } { getattr open read write create add_name }; dontaudit
+# ai_tools_t etc_t:{ dir file } write;  # read is allowed; only write is the breach dontaudit ai_tools_t
+# systemd_unit_file_t:{ dir file } { getattr open read write create add_name };
 
-# NB: the bring-up also logged usr_t writes. Those were the agent writing its own
-# HOME state (.npm, .cache, .local) which was mislabelled usr_t.
-# That is NOT dontaudit'd here -- it is FIXED by labelling those paths
-# ai_tools_home_t in ai_tools.fc, so the writes land on a type the agent already
-# manages. (Granting usr_t write would also hand it the node/program tree.)
+# NB: the bring-up also logged usr_t writes. Those were the agent writing its own HOME state (.npm, .cache, .local)
+# which was mislabelled usr_t. That is NOT dontaudit'd here -- it is FIXED by labelling those paths ai_tools_home_t
+# in ai_tools.fc, so the writes land on a type the agent already manages. (Granting usr_t write would also hand it
+# the node/program tree.)
 
 ########################################
 # ai_tools_handback_t -- the per-connection privilege bridge daemon
 #
-# Runs as root, spawned by init_t (Accept=yes socket activation).  Accepts one
-# request from an @SANDBOX_USER@-peer socket, calls the matching root helper script
-# (chown/setgid/launcher-symlink, all bin_t → no type_transition, helpers run
-# in-domain), then exits.
+# Runs as root, spawned by init_t (Accept=yes socket activation).  Accepts one request from an @SANDBOX_USER@-peer
+# socket, calls the matching root helper script (chown/setgid/launcher-symlink, all bin_t → no type_transition, helpers
+# run in-domain), then exits.
 #
 # What the domain needs:
 #   - Read stdin/stdout (the accepted socket fd, passed by systemd as fd 0/1)
@@ -609,38 +551,34 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 #   - Read shared libraries (libs_read_lib_files)
 #   - Resolve uid/gid (auth_use_nsswitch)
 #
-# ENFORCING.  The bring-up loop confirmed the rule set on the live box; there is no
-# `permissive ai_tools_handback_t;` line.  The domain transition runs under NNP (see
-# the nnp_transition grant), forced by the unit's SystemCallFilter.
+# ENFORCING.  The bring-up loop confirmed the rule set on the live box; there is no `permissive ai_tools_handback_t;`
+# line.  The domain transition runs under NNP (see the nnp_transition grant), forced by the unit's SystemCallFilter.
 ########################################
 
-# init_daemon_domain sets up the init_t -> ai_tools_handback_t transition on
-# exec of the ai_tools_handback_exec_t entrypoint.  That transition runs under
-# NO_NEW_PRIVS: ai-tools-handback@.service sets NoNewPrivileges=yes AND
+# init_daemon_domain sets up the init_t -> ai_tools_handback_t transition on exec of the ai_tools_handback_exec_t
+# entrypoint.  That transition runs under NO_NEW_PRIVS: ai-tools-handback@.service sets NoNewPrivileges=yes AND
 # SystemCallFilter=@system-service, and systemd can only install a seccomp syscall
-# filter behind PR_SET_NO_NEW_PRIVS -- so the handler always runs under NNP regardless
-# of the explicit directive.  Under NNP the kernel runs check_nnp_nosuid() on the computed
-# transition, as described in the domain-entry block: process2:nnp_transition where the
-# base policy enables the nnp_nosuid_transition capability, then a typebounds fallback this
-# module does not supply, then `-EPERM`.  Without this grant the exec of the handback
-# entrypoint FAILS, so the socket-activated handler does not start and every hook handback
-# gets a connection error -- a broken bridge rather than one running WIDE in init_t.
-# This mirrors the ai_tools_t grant in the domain-entry block; it does NOT relax NNP (the
-# daemon still runs with NO_NEW_PRIVS set, so its SUID is neutered and CapabilityBoundingSet
-# still applies), it only lets the init_t -> ai_tools_handback_t reduction complete.
+# filter behind PR_SET_NO_NEW_PRIVS -- so the handler always runs under NNP regardless of the explicit directive.
+# Under NNP the kernel runs check_nnp_nosuid() on the computed transition, as described in the domain-entry block:
+# process2:nnp_transition where the base policy enables the nnp_nosuid_transition capability, then a typebounds fallback
+# this module does not supply, then `-EPERM`.  Without this grant the exec of the handback entrypoint FAILS,
+# so the socket-activated handler does not start and every hook handback gets a connection error -- a broken bridge
+# rather than one running WIDE in init_t. This mirrors the ai_tools_t grant in the domain-entry block; it does NOT relax
+# NNP (the daemon still runs with NO_NEW_PRIVS set, so its SUID is neutered and CapabilityBoundingSet still applies), it
+# only lets the init_t -> ai_tools_handback_t reduction complete.
 allow init_t ai_tools_handback_t:process2 nnp_transition;
 
-# The socket fd (stdin/stdout) is an AF_UNIX stream socket in init_t domain.
-# The daemon reads and writes it via fd 0/1 -- inherited, not connected.
+# The socket fd (stdin/stdout) is an AF_UNIX stream socket in init_t domain. The daemon reads and writes it via fd 0/1
+# -- inherited, not connected.
 allow ai_tools_handback_t init_t:unix_stream_socket { read write };
-# Accept(2) on the listening socket creates the accepted fd; with Accept=yes in the
-# unit, systemd itself performs the accept() and passes the fd -- so the daemon never
-# calls accept() directly.  But it may call getpeername/getsockopt (SO_PEERCRED).
+# Accept(2) on the listening socket creates the accepted fd; with Accept=yes in the unit, systemd itself performs
+# the accept() and passes the fd -- so the daemon never calls accept() directly.  But it may call getpeername/getsockopt
+# (SO_PEERCRED).
 allow ai_tools_handback_t init_t:unix_stream_socket { getattr ioctl };
 
-# Execute the root helper scripts.  They are labelled bin_t (the directory wildcard in
-# ai_tools.fc labels all of /usr/local/libexec/ai-tools(/.*)?  bin_t).  execute_no_trans:
-# no domain transition -- helpers run in ai_tools_handback_t, not a separate domain.
+# Execute the root helper scripts.  They are labelled bin_t (the directory wildcard in ai_tools.fc labels all
+# of /usr/local/libexec/ai-tools(/.*)?  bin_t).  execute_no_trans: no domain transition -- helpers run
+# in ai_tools_handback_t, not a separate domain.
 corecmd_exec_bin(ai_tools_handback_t)
 
 # Capabilities needed by the root helpers that run inside this domain:
@@ -650,12 +588,10 @@ corecmd_exec_bin(ai_tools_handback_t)
 #   CAP_DAC_OVERRIDE -- read allowlist (config_home_t) and access project files as root
 allow ai_tools_handback_t self:capability { chown fowner fsetid dac_override };
 
-# Read the allowlist and secret-pattern files (ai_tools_conf_t,
-# ~/.config/ai-tools/{allowed-projects,secret-patterns}). This domain is the ONLY one granted
-# them: the helpers here re-validate every path against the allowlist as root, and the narrow
-# type keeps the grant off the rest of ~/.config. SEARCH on config_home_t traverses into the
-# subtree without listing it.
-# The file permissions are read_file_perms, for the reason the ai_tools_t grant on the same type
+# Read the allowlist and secret-pattern files (ai_tools_conf_t, ~/.config/ai-tools/{allowed-projects,secret-patterns}).
+# This domain is the ONLY one granted them: the helpers here re-validate every path against the allowlist as root,
+# and the narrow type keeps the grant off the rest of ~/.config. SEARCH on config_home_t traverses into the subtree
+# without listing it. The file permissions are read_file_perms, for the reason the ai_tools_t grant on the same type
 # states: the helpers read these files with bash, once per operator per path they resolve.
 allow ai_tools_handback_t config_home_t:dir search;
 allow ai_tools_handback_t ai_tools_conf_t:dir { getattr search open };
@@ -666,9 +602,9 @@ libs_read_lib_files(ai_tools_handback_t)
 files_read_etc_files(ai_tools_handback_t)   # /etc/passwd, nsswitch.conf, ...
 auth_use_nsswitch(ai_tools_handback_t)       # resolve uid/gid (getpwnam)
 
-# Operate on project files and the agent's home-state tree (chown, chmod).
-# The helpers act on ai_tools_project_t, ai_tools_project_build_t (build output the
-# session wrote is handed back like any other file) and ai_tools_home_t paths.
+# Operate on project files and the agent's home-state tree (chown, chmod). The helpers act on ai_tools_project_t,
+# ai_tools_project_build_t (build output the session wrote is handed back like any other file) and ai_tools_home_t
+# paths.
 manage_files_pattern(ai_tools_handback_t, ai_tools_project_t, ai_tools_project_t)
 manage_dirs_pattern(ai_tools_handback_t, ai_tools_project_t, ai_tools_project_t)
 manage_lnk_files_pattern(ai_tools_handback_t, ai_tools_project_t, ai_tools_project_t)
@@ -683,33 +619,29 @@ userdom_search_user_home_dirs(ai_tools_handback_t)
 allow ai_tools_handback_t user_home_t:dir { getattr search open };
 files_search_var(ai_tools_handback_t)
 
-# Operate on the stable claude symlink (ai-tools-launcher-symlink: /opt/ai-tools/bin/).
-# Read the .nvm tree under usr_t and stat bin/claude.
+# Operate on the stable claude symlink (ai-tools-launcher-symlink: /opt/ai-tools/bin/). Read the .nvm tree under usr_t
+# and stat bin/claude.
 files_read_usr_files(ai_tools_handback_t)
-# Stat THROUGH the versioned bin/claude symlink to its resolved end, claude.exe
-# (ai_tools_exec_t). ai-tools-launcher-symlink.sh:52 does `[[ -e TARGET ]]`, which
-# follows bin/claude to claude.exe and getattr()s it; files_read_usr_files /
-# libs_read_lib_files cover the usr_t/bin_t/lib_t hops along the way but NOT the
-# custom ai_tools_exec_t entrypoint type at the end. Without this the getattr is
-# denied, bash's `-e` silently reports false (the swallowed-EACCES shape, same as the
-# ai_tools_run_t:sock_file getattr finding), and the helper fails closed with
-# "target does not exist" even though the path plainly exists -- the SYMLINK verb
-# dies and nvm-update.sh reports "failed to repoint ... via handback SYMLINK" ->
-# "ai-tools update failed". This domain needs ONLY getattr: ai-tools-launcher-symlink
-# stat()s the entrypoint for its `-e` existence check but never relabels it. Restoring
-# ai_tools_exec_t on a freshly bumped (bin_t) entrypoint needs relabelfrom/relabelto,
-# intentionally NOT granted here -- it is owned by ai-tools-relabel-agent. That helper
-# runs as root from the ai-tools-relabel.path watcher (system instance) after the updater
-# repoints the symlink, and on demand from `ai-tools-admin system entrypoints relabel` (the operator, unconfined_t,
-# which holds relabel). A mislabelled entrypoint does NOT run unconfined under enforcing:
-# ai-tools-run's pre-launch preflight refuses to start when the on-disk label isn't
-# ai_tools_exec_t (fail-closed), so a watcher relabel the system instance's domain cannot
-# perform degrades to a refused launch the operator clears with `ai-tools-admin system entrypoints relabel`, never
-# an unconfined session. The relabel privilege stays out of this agent-reachable domain.
+# Stat THROUGH the versioned bin/claude symlink to its resolved end, claude.exe (ai_tools_exec_t).
+# ai-tools-launcher-symlink.sh:52 does `[[ -e TARGET ]]`, which follows bin/claude to claude.exe and getattr()s it;
+# files_read_usr_files / libs_read_lib_files cover the usr_t/bin_t/lib_t hops along the way but NOT the custom
+# ai_tools_exec_t entrypoint type at the end. Without this the getattr is denied, bash's `-e` silently reports false
+# (the swallowed-EACCES shape, same as the ai_tools_run_t:sock_file getattr finding), and the helper fails closed
+# with "target does not exist" even though the path plainly exists -- the SYMLINK verb dies and nvm-update.sh reports
+# "failed to repoint ... via handback SYMLINK" -> "ai-tools update failed". This domain needs ONLY getattr:
+# ai-tools-launcher-symlink stat()s the entrypoint for its `-e` existence check but never relabels it. Restoring
+# ai_tools_exec_t on a freshly bumped (bin_t) entrypoint needs relabelfrom/relabelto, intentionally NOT granted here --
+# it is owned by ai-tools-relabel-agent. That helper runs as root from the ai-tools-relabel.path watcher (system
+# instance) after the updater repoints the symlink, and on demand from `ai-tools-admin system entrypoints relabel` (the
+# operator, unconfined_t, which holds relabel). A mislabelled entrypoint does NOT run unconfined under enforcing:
+# ai-tools-run's pre-launch preflight refuses to start when the on-disk label isn't ai_tools_exec_t (fail-closed),
+# so a watcher relabel the system instance's domain cannot perform degrades to a refused launch the operator clears
+# with `ai-tools-admin system entrypoints relabel`, never an unconfined session. The relabel privilege stays out of this
+# agent-reachable domain.
 allow ai_tools_handback_t ai_tools_exec_t:file getattr;
-# Create and rename the temp symlink inside /opt/ai-tools/bin/ (bin_t, mode 550).
-# ai-tools-launcher-symlink does: `ln -sf TARGET bin/.claude.new`; `mv .claude.new claude`.
-# CAP_DAC_OVERRIDE covers the DAC check on the 550 dir; these grants handle the MAC check.
+# Create and rename the temp symlink inside /opt/ai-tools/bin/ (bin_t, mode 550). ai-tools-launcher-symlink does:
+# `ln -sf TARGET bin/.claude.new`; `mv .claude.new claude`. CAP_DAC_OVERRIDE covers the DAC check on the 550 dir; these
+# grants handle the MAC check.
 allow ai_tools_handback_t bin_t:dir { write add_name remove_name };
 allow ai_tools_handback_t bin_t:lnk_file { create rename unlink getattr read };
 
