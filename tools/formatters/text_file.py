@@ -3,11 +3,11 @@
 """Read and write the files a formatter rewrites, refusing what is not plain text.
 
 ```bash
-python3 tools/text_file.py [--] <file>...
+python3 tools/formatters/text_file.py [--] <file>...
 ```
 
-The one reader and writer of `tools/fill-markdown.py`, `tools/align-tables.py` and
-`tools/verify-reflow.py`, and the vetting `tools/fill-comments.sh` runs over each file before
+The one reader and writer of `tools/formatters/fill-markdown.py`, `tools/formatters/align-tables.py` and
+`tools/formatters/verify-reflow.py`, and the vetting `tools/formatters/fill-comments.sh` runs over each file before
 Emacs sees it, so every formatter refuses the same file for the same reason and rewrites only
 what it read whole. The command line vets each path and exits 1 when one is refused, naming it
 on stderr; a formatter runs the same check through `read()`.

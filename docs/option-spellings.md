@@ -1,5 +1,5 @@
-<!-- GENERATED from src/usr/local/bin/ai-tools.sh (OPTION_SPELLINGS) by tools/option-spellings.sh; do not edit this
-     file. Change a row in the table and run `bash tools/option-spellings.sh generate`; tests/unit/cli-verbs.sh
+<!-- GENERATED from src/usr/local/bin/ai-tools.sh (OPTION_SPELLINGS) by tools/generators/option-spellings.sh; do not edit this
+     file. Change a row in the table and run `bash tools/generators/option-spellings.sh generate`; tests/unit/cli-verbs.sh
      regenerates the page and fails on a difference. -->
 <!-- prose-check: ignore-file -->
 # Option spellings and the commands they run

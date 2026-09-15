@@ -10,8 +10,8 @@
 #
 # The first section holds the tree to its committed index: the index is regenerated and diffed
 # against .claude/references.md, and `check` runs over every tracked file. Both read the checkout
-# through tools/ref-index.sh, which names the file list once, so they skip outside a git checkout. An empty tree is
-# a valid index, so the section is green before the first reftag.
+# through tools/generators/ref-index.sh, which names the file list once, so they skip outside a git checkout. An empty
+# tree is a valid index, so the section is green before the first reftag.
 #
 # Hermetic: fixtures are written in the test's own /tmp testdir and the tool is run on those paths only, from inside
 # the testdir so its `file:line` reports carry the fixture's relative path. Pure text analysis, so it does not need
@@ -88,7 +88,7 @@ assert_grep() {  # assert_grep <pattern> <text> <description>
 }
 
 # ── The tree is held to its committed index, through the repository wrapper ───────────────────
-WRAPPER="${ROOT}/tools/ref-index.sh"
+WRAPPER="${ROOT}/tools/generators/ref-index.sh"
 if [[ -r "${WRAPPER}" ]] && git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     if out="$(bash "${WRAPPER}" stale 2>&1)"; then
         pass "TEST-RI-01-index-current: .claude/references.md matches a fresh generation"
@@ -101,7 +101,7 @@ if [[ -r "${WRAPPER}" ]] && git -C "${ROOT}" rev-parse --is-inside-work-tree >/d
         fail "TEST-RI-02-tree-clean: ${out}"
     fi
 else
-    skip "TEST-RI-01..02-tree" "not a git checkout with tools/ref-index.sh"
+    skip "TEST-RI-01..02-tree" "not a git checkout with tools/generators/ref-index.sh"
 fi
 
 # ── A section target and a caption target, cited from another file with the generated destination ───
@@ -361,7 +361,7 @@ if [[ -r "${WRAPPER}" ]] && git -C "${ROOT}" rev-parse --is-inside-work-tree >/d
     assert_grep "src/links.sh:2: message-link" "${LINKS_OUT}" \
         "TEST-RI-18-message-line: the finding names the line the code is emitted on"
 else
-    skip "TEST-RI-18-messages" "not a git checkout with tools/ref-index.sh"
+    skip "TEST-RI-18-messages" "not a git checkout with tools/generators/ref-index.sh"
 fi
 
 finish

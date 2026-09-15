@@ -160,8 +160,9 @@ readonly COLLECTIONS=(projects providers)
 # for. Every key is kept for compatibility, since the typed command surface is the one interface an operator's own
 # scripts bind to, and the collection form is the preferred one: rewrite_option_spelling applies the table ahead
 # of every gate, so every verb table and the dispatch see the command path alone and no key sits in a dispatch arm
-# or in usage(), and note_option_spellings names the preferred form. One row per line: tools/option-spellings.sh reads
-# the rows by text to generate docs/option-spellings.md, and tests/unit/cli-verbs.sh holds every value to a dispatched
+# or in usage(), and note_option_spellings names the preferred form. One row per line:
+# tools/generators/option-spellings.sh reads the rows by text to generate docs/option-spellings.md,
+# and tests/unit/cli-verbs.sh holds every value to a dispatched
 # path.
 declare -rA OPTION_SPELLINGS=(
     [--list]="projects list"

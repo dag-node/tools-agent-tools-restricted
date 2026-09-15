@@ -3,13 +3,13 @@
 """Align the cells of a pipe-separated table written inside comments.
 
 ```bash
-python3 tools/align-tables.py check [--] <file>...
-python3 tools/align-tables.py fix [--] <file>...
+python3 tools/formatters/align-tables.py check [--] <file>...
+python3 tools/formatters/align-tables.py fix [--] <file>...
 ```
 
 `check` names each table whose cells do not line up and exits 1; `fix` rewrites them in place.
 A clean `check` is the statement that a `fix` would leave every line as it is. A file is read
-and written through `tools/text_file.py`, which refuses what is not plain text -- a symlink, a
+and written through `tools/formatters/text_file.py`, which refuses what is not plain text -- a symlink, a
 binary, a control or a bidi character -- and such a file is reported, left as it is, and the run
 exits 1 after the others are done.
 
@@ -30,7 +30,7 @@ table needs a leading `|`. Hence this.
 Left alone: a Markdown table (GFM renders it, and this tree writes it compact), a line inside a
 fenced block or a shell heredoc body, and a run of one table line, since one row has no second to
 line up with.
-`tools/emacs/ai-tools-fill.el` leaves a comment table as written, so the filler and this tool do
+`tools/formatters/emacs/ai-tools-fill.el` leaves a comment table as written, so the filler and this tool do
 not fight over one.
 """
 from __future__ import annotations
@@ -119,7 +119,7 @@ def heredoc_body(lines: list[str]) -> set[int]:
 
     Such a line is data the file writes -- a seeded config header, a fixture -- so a comment
     marker in it belongs to that data, and a table in it is the data's own.
-    `tools/emacs/ai-tools-fill.el` reads the same lines as data, through the mode's syntax.
+    `tools/formatters/emacs/ai-tools-fill.el` reads the same lines as data, through the mode's syntax.
     An operator on a comment line, and one whose delimiter no later line closes, open no body:
     the second is a `<<` in a string or an arithmetic shift, and reading it as a heredoc would
     hand the rest of the file to the data.
@@ -149,7 +149,7 @@ def is_table(rows: list[str]) -> bool:
     """Whether `rows` are a table: two lines in a row sharing a separator column.
 
     A pipe in prose -- a pipeline in an example, a sed address, an alternation -- lands where the
-    line before it has none, which is the reading `tools/emacs/ai-tools-fill.el` protects a table
+    line before it has none, which is the reading `tools/formatters/emacs/ai-tools-fill.el` protects a table
     by and the one that keeps a paragraph out of this tool.
     """
     columns = [separator_columns(row) for row in rows]

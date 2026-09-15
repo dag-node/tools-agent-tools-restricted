@@ -107,8 +107,8 @@ or deleting a labelled target or a reference, regenerate the index and check
 the tree:
 
 ```bash
-bash tools/ref-index.sh generate
-bash tools/ref-index.sh check
+bash tools/generators/ref-index.sh generate
+bash tools/generators/ref-index.sh check
 ```
 
 The pre-commit hook reports a stale index and any reference finding,

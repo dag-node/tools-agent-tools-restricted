@@ -83,9 +83,9 @@ code is one per screen, in the title; the body stays uncoded.
 
 A code is a reftag, so it resolves through the reference index; runtime output carries a reftag and never a URL,
 a Markdown link, or an HTML anchor — a link is unresolvable in `journalctl` and ages faster than the code,
-and a document cites it once as a `URI-` reftag instead. `bash tools/ref-index.sh messages` reports a message string
-that carries one, and `check` runs it over the tree, so the rule is held from the repository side rather than by review:
-the shipped prose checker skips a quoted span by design and never reads the string this is about (see
+and a document cites it once as a `URI-` reftag instead. `bash tools/generators/ref-index.sh messages` reports a message
+string that carries one, and `check` runs it over the tree, so the rule is held from the repository side rather than
+by review: the shipped prose checker skips a quoted span by design and never reads the string this is about (see
 [tests](tests.rule.md)). `ai_tools_msg_is_code` is the one predicate a leading code is detected with, so a component's
 local `die()`/`warn()` that routes to the emitters (`claude.sh`, `ai-tools.sh`, `ai-tools-run`, `ai-tools-stop`)
 recognises a code exactly as the library does.
@@ -110,9 +110,9 @@ that raised it, and each is stated once.
 
 ### The catalog: `ai-tools-messages(7)`
 
-`tools/man-messages.sh` generates `ai-tools-messages(7)` from `.claude/references.md`. An entry carries the code, its
-severity, the message as the emitting call writes it, and the component that emits it, each read off a column
-of the index, so the message text keeps its single home in the source that emits it.
+`tools/generators/man-messages.sh` generates `ai-tools-messages(7)` from `.claude/references.md`. An entry carries
+the code, its severity, the message as the emitting call writes it, and the component that emits it, each read
+off a column of the index, so the message text keeps its single home in the source that emits it.
 
 Severity comes from the emitting function through a map in the generator, which exits non-zero when the index names
 an emitter that map does not, so a new emitter is classified where the map is written.

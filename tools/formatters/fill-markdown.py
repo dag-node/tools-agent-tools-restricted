@@ -3,20 +3,20 @@
 """Reflow the paragraphs of a Markdown page at a column, leaving every other block as written.
 
 ```bash
-python3 tools/fill-markdown.py --width N [--lines A-B,C-D] [--] <file>...
+python3 tools/formatters/fill-markdown.py --width N [--lines A-B,C-D] [--] <file>...
 ```
 
-The Markdown half of the formatter `tools/format.sh` fronts, beside `tools/fill-comments.sh` for a
+The Markdown half of the formatter `tools/formatters/format.sh` fronts, beside `tools/formatters/fill-comments.sh` for a
 source comment. It rewrites each file in place and prints one line per file. `--lines` names
 1-based inclusive line ranges and confines the reflow to the blocks meeting one, which is how the
-front door fills only what a diff touched. A file is read and written through `tools/text_file.py`,
+front door fills only what a diff touched. A file is read and written through `tools/formatters/text_file.py`,
 which refuses what is not plain text -- a symlink, a binary, a control or a bidi character -- and
 the file is then reported, left as it is, and the run exits 1 after the others are filled.
 
 Filled, with its structure kept: a paragraph under its own leading indent, a list item and its
 continuation lines under a hanging indent the width of the marker, and a blockquote paragraph
 under its `> ` prefix. Three rules decide where a break falls. Two are shared with the comment
-filler: no line ends on a tie word (the list is read from `tools/emacs/ai-tools-fill.el`, its one
+filler: no line ends on a tie word (the list is read from `tools/formatters/emacs/ai-tools-fill.el`, its one
 home), and no line begins with a token that opens a block, since a wrap that moves a fence, a
 pipe, a heading mark or a list marker to a line start invents the block. The third is shared with
 the checker: no break falls inside an inline code span (the span is the checker's
@@ -48,7 +48,7 @@ import text_file
 
 TOOLS = pathlib.Path(__file__).resolve().parent
 TIE_LIST = TOOLS / "emacs" / "ai-tools-fill.el"
-CHECKER = TOOLS.parent / "src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
+CHECKER = TOOLS.parent.parent / "src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
 IGNORE_MARKER = "prose-check: ignore"
 CODE_INDENT = 4
 RANGES = re.compile(r"^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$")

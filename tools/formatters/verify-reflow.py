@@ -3,8 +3,8 @@
 """Prove that a reflow changed line breaks and left the text alone.
 
 ```bash
-python3 tools/verify-reflow.py --base <revision> [--repo P] [--] <path>...
-python3 tools/verify-reflow.py --against <dir> [--] <path>...
+python3 tools/formatters/verify-reflow.py --base <revision> [--repo P] [--] <path>...
+python3 tools/formatters/verify-reflow.py --against <dir> [--] <path>...
 ```
 
 Reads each path at the base (a git revision, or the same relative path under `--against`) and in
@@ -31,7 +31,7 @@ of hunk by hunk:
 
 Exits 0 when every path passes and 1 otherwise, printing the path, the check that failed, and the
 position. A path the base does not hold is reported as skipped rather than as a pass. Both copies
-are read through `tools/text_file.py`, so a copy that is not plain text is reported as a failure
+are read through `tools/formatters/text_file.py`, so a copy that is not plain text is reported as a failure
 with its reason and no token of it reaches the terminal; a path that resolves outside the tree or
 the base directory is refused the same way. This is the mechanical half of the reflow gate;
 `prose-check.py --kept` is the other half and judges a REWRITE, which a reflow that passes here
@@ -88,7 +88,8 @@ def partition(text: str) -> Partition:
     blocks: list[list] = []
     fence, in_comment, block = None, False, None
     # An indented code block is protected whole: four spaces after a blank line, outside a list, where the same indent
-    # is a continuation paragraph the filler may fill (the reading `prose-check.py` and `tools/fill-markdown.py` share).
+    # is a continuation paragraph the filler may fill (the reading `prose-check.py`
+    # and `tools/formatters/fill-markdown.py` share).
     listed, in_code = False, False
     lines = text.split("\n")
     front = 0

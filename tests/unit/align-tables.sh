@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/align-tables.sh
-# Unit test for tools/align-tables.py, the formatter for the tables a comment carries. What it asserts is the property
-# a reader checks by eye and a tool has to check mechanically: after a fix every separator in the block sits at one
-# column, the `+` of the rule line included. The fixture is a truth table whose widest cell overflows its column,
-# the case a majority vote gets wrong: it squeezes that row, where the column has to grow in every row. The three rules
-# over a cell's own alignment are pinned with it -- the heading centred over its column, a column of numbers right,
-# and a column padded wider than its content keeping that padding -- so a clean `check` says a `fix` would leave every
-# line as it is. Two negatives close it: a paragraph whose lines happen to carry a pipe is left as written, and a second
-# run is a no-op. A table inside a heredoc body is the data's and is left, while a here-string, an arithmetic shift
-# and a `<<` in a string open no heredoc, so a table after one is still read. A file that is not plain text is refused
-# through the reader every formatter shares, reported and left as it was. A repo dev tool, not a deployed artifact,
-# so the test runs from the checkout.
+# Unit test for tools/formatters/align-tables.py, the formatter for the tables a comment carries. What it asserts is
+# the property a reader checks by eye and a tool has to check mechanically: after a fix every separator in the block
+# sits at one column, the `+` of the rule line included. The fixture is a truth table whose widest cell overflows its
+# column, the case a majority vote gets wrong: it squeezes that row, where the column has to grow in every row.
+# The three rules over a cell's own alignment are pinned with it -- the heading centred over its column, a column
+# of numbers right, and a column padded wider than its content keeping that padding -- so a clean `check` says a `fix`
+# would leave every line as it is. Two negatives close it: a paragraph whose lines happen to carry a pipe is left
+# as written, and a second run is a no-op. A table inside a heredoc body is the data's and is left, while a here-string,
+# an arithmetic shift and a `<<` in a string open no heredoc, so a table after one is still read. A file that is not
+# plain text is refused through the reader every formatter shares, reported and left as it was. A repo dev tool, not
+# a deployed artifact, so the test runs from the checkout.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TOOL="${ROOT}/tools/align-tables.py"
+TOOL="${ROOT}/tools/formatters/align-tables.py"
 section "align-tables: the comment table formatter (unit)"
 
 if [[ ! -r "${TOOL}" ]]; then
@@ -156,8 +156,8 @@ else
 fi
 
 # (8) A file that is not plain text is refused: reported with the reason, left byte-identical, and the run exits 1 while
-# the file named beside it is still checked. The reader is the one every formatter here shares (`tools/text_file.py`);
-# the full set of shapes it refuses is pinned in `fill-markdown.sh`.
+# the file named beside it is still checked. The reader is the one every formatter here shares
+# (`tools/formatters/text_file.py`); the full set of shapes it refuses is pinned in `fill-markdown.sh`.
 esc="${TESTDIR}/escape.sh"
 printf '# a | b\n# \033[31mc\033[0m | d\n' > "${esc}"
 cp "${esc}" "${TESTDIR}/escape.before"

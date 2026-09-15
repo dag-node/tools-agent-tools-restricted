@@ -186,10 +186,11 @@ fi
 # dispatches one and the help does not list one, which is asserted from the other side here, since a key that is also
 # an arm or a help line is a command with two live spellings that the rewrite answers first. What goes stale
 # on the value side is worse: a value naming a path the dispatcher no longer has turns a spelling that ran
-# into a refused command. tools/option-spellings.sh reads the table for the page it generates, so the rows are read
-# through it here too and the committed page is held to the table. The tool is a checkout's, so an installed-only run
+# into a refused command. tools/generators/option-spellings.sh reads the table for the page it generates, so the rows
+# are read through it here too and the committed page is held to the table. The tool is a checkout's,
+# so an installed-only run
 # skips.
-GEN="${ROOT}/tools/option-spellings.sh"
+GEN="${ROOT}/tools/generators/option-spellings.sh"
 check_option_spellings() {
     if [[ ! -r "${GEN}" ]]; then
         skip "option spellings" "not a checkout (no ${GEN})"; return

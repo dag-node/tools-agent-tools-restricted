@@ -994,12 +994,12 @@ in an operator's file. `--config-header` reports an over-width line (`--width` o
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --config-header <file>...
 ```
 
-**Where a line breaks is the formatter's, not the writer's.** Write the prose and let `tools/format.sh` wrap it; these
-checks hold the width alone.
+**Where a line breaks is the formatter's, not the writer's.** Write the prose and let a formatter wrap it at the column
+`--print-width` reports; these checks hold the width alone.
 
-**Table cells must line up.** After editing a table inside a comment, run `python3 tools/align-tables.py fix <file>`;
-`check` reports any table whose cells are misaligned. Alignment decisions — column widths, number right-alignment,
-heading centering, rule-line placement — are owned by the tool.
+**Table cells must line up.** After editing a table inside a comment, align its cells: a column is as wide as its widest
+cell, so a cell too wide for its column widens every row. Where a project ships a table formatter, those decisions —
+column widths, number right-alignment, heading centering, rule-line placement — belong to it.
 
 **A file's extension decides how it is read, and `--prose` / `--source` override that.** A `.md` page or a man page
 contributes every line; anything else contributes its comments and docstrings. A path the extension rule does not

@@ -1612,7 +1612,7 @@ do_install() {
     # ai-tools-messages(7). Every message code the tree emits, with its severity and the component that emits it,
     # so `journalctl AI_TOOLS_MSG=<code>` and a code read off a terminal both resolve to a message. Section 7 because it
     # documents a convention rather than a command, and the man7 dir is created here: unlike man1, no EL package owns it
-    # under /usr/local. Generated from the cross-reference index by tools/man-messages.sh, never edited.
+    # under /usr/local. Generated from the cross-reference index by tools/generators/man-messages.sh, never edited.
     log "/usr/local/share/man/man7/ai-tools-messages.7"
     install -d -o root -g root -m 755 /usr/local/share/man/man7
     install_subst 644 root root \
