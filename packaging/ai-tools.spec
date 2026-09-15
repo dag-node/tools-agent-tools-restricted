@@ -1153,6 +1153,29 @@ fi
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
 %changelog
+* Tue Sep 15 2026 dagnode <tools@dagnode.com> - 0.18.0-1
+- CHANGE: 'ai-tools' spells a command as a bare word -- a collection and its verb ('ai-tools
+  projects claim DIRECTORY'), or one word for the host ('status', 'audit', 'stop') -- leaving
+  '--' for options. The option spelling each command had is still accepted, rewritten ahead of
+  every check and reported once with the preferred form, so your scripts run unchanged; update
+  them at your convenience. docs/option-spellings.md maps every one onto its command.
+- CHANGE: 'ai-tools --relabel' prints the root command to run and exits 2. The entrypoint
+  reconcile is 'sudo ai-tools-admin system entrypoints relabel', which this CLI has never run.
+- CHANGE: The shipped ai-tools-technical-docs skill sets 79 columns for a page a person reads
+  and keeps 120 for the pages an agent retrieves, and its checker now reports the column a given
+  file is measured at ('prose-check.py --print-width'), so a project can wrap prose to the
+  standard without copying the widths into its own tooling.
+- FIX: Resuming 'ai-tools projects clone' over a clone you had already opened no longer reopens
+  a directory you had sealed inside it by hand. The clone is normalized while its root is still
+  owner-only, and a later resume leaves the tree as it is.
+- FIX: A clone whose tip commit holds a secret is no longer left with the agent refused at the
+  clone root. The seal pass skips the clone's own directory, so the setgid bit and group it was
+  given survive, and a clone reported ready is usable.
+- FIX: The shipped writing standard and its checker do not name any path of this repository's,
+  so every reference in them resolves on a host that installed the skill from the package. The
+  checker also stops reporting a SELinux interface's XML documentation, a link reference
+  definition, and a section-7 page's macros as prose it can measure.
+
 * Sun Sep 13 2026 dagnode <tools@dagnode.com> - 0.17.1-1
 - SECURITY: On a host that merges /usr/sbin into /usr/bin, a distribution-packaged agent in
   /usr/bin resolved ahead of the sandbox wrapper, so typing the launcher started a session outside
