@@ -833,7 +833,7 @@ Create the file or set APP_CONFIG_PATH.
 Off style: `Configuration integrity requirements were not satisfied.`
 
 A refusal names the condition and the path forward:
-`<path> is not in allowed projects for the current operator. Claim it with: ai-tools --project-claim <path>`.
+`<path> is not in allowed projects for the current operator. Claim it with: ai-tools projects claim <path>`.
 
 ## Log messages
 

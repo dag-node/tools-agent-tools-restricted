@@ -2104,10 +2104,10 @@ do_install() {
         say ""
     fi
     say "  check the install (run as ${PROJECTS_USER}, no sudo):"
-    say "    ${C_BOLD}ai-tools --status${C_RST}                             ${C_DIM}# every managed unit, and what to run for a broken one${C_RST}"
+    say "    ${C_BOLD}ai-tools status${C_RST}                               ${C_DIM}# every managed unit, and what to run for a broken one${C_RST}"
     say ""
     say "  register projects with the ai-tools CLI (run as ${PROJECTS_USER}, no sudo):"
-    say "    ${C_BOLD}ai-tools --project-claim /path/to/project${C_RST}     ${C_DIM}# claim a project in place${C_RST}"
+    say "    ${C_BOLD}ai-tools projects claim /path/to/project${C_RST}      ${C_DIM}# claim a project in place${C_RST}"
     say "    ${C_BOLD}ai-tools --help${C_RST}                               ${C_DIM}# all commands${C_RST}"
     say "  configure and read up:"
     say "    ${C_BOLD}/etc/ai-tools/operator.conf${C_RST}                  ${C_DIM}# host options, each documented inline${C_RST}"

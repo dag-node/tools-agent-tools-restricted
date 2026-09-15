@@ -861,7 +861,7 @@ report_operator_role() {
         return 0
     fi
     log "${user} holds no general sudo grant: it can launch agent sessions and read the reports, and cannot claim a project"
-    log "${user}: claim on its behalf from an operator that holds one -- ai-tools --project-claim --for ${user} <path>"
+    log "${user}: claim on its behalf from an operator that holds one -- ai-tools projects claim --for ${user} <path>"
 }
 
 op_add() {
@@ -1595,8 +1595,8 @@ status() {
     # Pointers, not duplication: the reports that own the detail this one deliberately does not.
     heading "More"
     printf '    %s\n' \
-        "ai-tools --status        the same host, read from an operator's vantage" \
-        "ai-tools --providers     installed agents and integrations, and which are enabled" \
+        "ai-tools status          the same host, read from an operator's vantage" \
+        "ai-tools providers       installed agents and integrations, and which are enabled" \
         "sudo ai-tools-admin selinux groups   the core module and the optional groups" \
         "sudo ai-tools-admin --help           every command this host has"
     printf '\n'

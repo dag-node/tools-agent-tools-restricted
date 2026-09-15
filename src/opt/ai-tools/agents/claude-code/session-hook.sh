@@ -240,7 +240,7 @@ swept=0
 if [[ ! -S "${HANDBACK_SOCKET}" ]]; then
     # Socket down: every CHOWN would fail, so skip the walk and record it once. Counting the failed calls would also
     # mis-fire the large-batch skip-list hint.
-    ai_tools_log_warn "${MODE} sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools --reclaim ${dir})"
+    ai_tools_log_warn "${MODE} sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools projects handback ${dir})"
 else
     # Count CONFIRMED handbacks (client exit 0), not attempts.
     while IFS= read -r -d '' path; do
@@ -319,10 +319,10 @@ if [[ "${unbounded}" -eq 1 ]]; then
         stranded=$(( stranded + $(count_git_agent_owned "${prev_cwd}") ))
     fi
     if [[ "${stranded}" -gt 0 ]]; then
-        ai_tools_log_warn "handback socket ${HANDBACK_SOCKET} is down -- ${stranded} agent-owned .git path(s) under ${dir} not reclaimed; run: ai-tools --reclaim ${dir}"
+        ai_tools_log_warn "handback socket ${HANDBACK_SOCKET} is down -- ${stranded} agent-owned .git path(s) under ${dir} not reclaimed; run: ai-tools projects handback ${dir}"
         prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 \
             "The ownership handback socket is down, so ${stranded} file(s) the agent wrote to git stay ai-tools-owned and git may report \"dubious ownership\". Bring the socket up, then reclaim the tree:")"
-        reconcile="  sudo systemctl enable --now ai-tools-handback.socket"$'\n'"  ai-tools --reclaim \"${dir}\""
+        reconcile="  sudo systemctl enable --now ai-tools-handback.socket"$'\n'"  ai-tools projects handback \"${dir}\""
         jq -cn --arg ctx "${prose}"$'\n'"${reconcile}" \
             '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' \
             2>/dev/null || true

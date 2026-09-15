@@ -146,6 +146,11 @@ upgrading *without* confinement until you add it once:
 rpm -q ai-tools-selinux || sudo dnf install ai-tools-selinux
 ```
 
+An `ai-tools` command spelled as an option in an earlier release
+(`--project-claim`) still runs and prints a notice naming the preferred
+collection form; [docs/option-spellings.md](docs/option-spellings.md) lists
+each one.
+
 Installing offline from a release archive, and exactly what an upgrade
 preserves, are in [ref-section-f5q2](docs/rpm-packaging.md#ref-section-f5q2).
 The [Upgrade behaviour](#upgrade-behaviour) section is about the Node/Claude

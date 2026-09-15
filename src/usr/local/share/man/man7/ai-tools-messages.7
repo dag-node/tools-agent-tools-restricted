@@ -52,11 +52,11 @@ manual for the component that emits it.
 .TP
 .B MSG-A3M9
 ERROR.
-\-\-stop takes no path: ${argument}. It TERMINATES every agent session on this host \-\- killing the process tree, so no session\-end handback runs \-\- and has no per\-project form, because a session is attributed to a project by the sandbox account's own user manager \-\- the account being stopped \-\- so that attribution is reported, never trusted to decide what a stop reaches.
+stop takes no path: ${argument}. It TERMINATES every agent session on this host \-\- killing the process tree, so no session\-end handback runs \-\- and has no per\-project form, because a session is attributed to a project by the sandbox account's own user manager \-\- the account being stopped \-\- so that attribution is reported, never trusted to decide what a stop reaches.
 .TP
 .B MSG-A7D3
 ERROR.
-\-\-project\-create needs a path: it creates a NEW project directory.
+projects create needs a path: it creates a NEW project directory.
 .TP
 .B MSG-B4G2
 ERROR.
@@ -68,7 +68,7 @@ ERROR.
 .TP
 .B MSG-B7K4
 ERROR.
-unknown \-\-stop option: ${argument}
+unknown option for stop: ${argument}
 .TP
 .B MSG-C4Y4
 ERROR.
@@ -112,7 +112,7 @@ this path is inside a claimed project, not a project itself: ${d}
 .TP
 .B MSG-K7D9
 ERROR.
-\-\-project\-remove \-y needs a path.
+projects remove \-y needs a path.
 .TP
 .B MSG-K8S2
 ERROR.
@@ -120,7 +120,7 @@ allowed\-projects not updated \-\- ${dir} is still registered
 .TP
 .B MSG-M3Y5
 ERROR.
-unknown \-\-project\-remove option: ${a}
+unknown projects remove option: ${a}
 .TP
 .B MSG-M3Z3
 ERROR.
@@ -152,7 +152,7 @@ this run needs root: ${what} goes through ${bin##*/}, and ${INVOKING_USER} holds
 .TP
 .B MSG-S6Q5
 ERROR.
-\-\-project\-remove has no \-\-force: a registry entry is what authorizes a deletion here.
+projects remove has no \-\-force: a registry entry is what authorizes a deletion here.
 .TP
 .B MSG-S6V2
 WARNING.
@@ -176,7 +176,7 @@ this path is inside a claimed project, not a project itself: ${d}
 .TP
 .B MSG-U7R7
 ERROR.
-\-\-for is not accepted on ${verb}
+\-\-for is not accepted on ${COMMAND}
 .TP
 .B MSG-U8G4
 ERROR.
@@ -190,6 +190,12 @@ not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d}
 ERROR.
 this project is disabled: ${d}
 .TP
+.B MSG-W3W8
+NOTICE.
+option spelling ${used%%$'\et'*} is kept for compatibility \-\- the preferred form is:
+Documented in
+.I docs/option-spellings.md.
+.TP
 .B MSG-W4S7
 ERROR.
 this is an excluded path inside a claimed project, not a disabled project: ${d}
@@ -200,7 +206,7 @@ you (${INVOKING_USER}) are not a configured ai\-tools operator \-\- add your nam
 .TP
 .B MSG-Z6Q6
 ERROR.
-a \-\-for run acts on the filesystem AS the target: ${verb} \-\-for ${FOR_OPERATOR} runs ${blocked##*/} as ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to do that.
+a \-\-for run acts on the filesystem AS the target: ${COMMAND} \-\-for ${FOR_OPERATOR} runs ${blocked##*/} as ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to do that.
 .SS ai-tools-admin
 .TP
 .B MSG-A3P2
@@ -983,7 +989,7 @@ relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL_LOCK_NOTE}
 .TP
 .B MSG-G5H9
 WARNING.
-could not record ${1}'s labelling outcome for ai\-tools \-\-status
+could not record ${1}'s labelling outcome for ai\-tools status
 .TP
 .B MSG-G7C7
 WARNING.

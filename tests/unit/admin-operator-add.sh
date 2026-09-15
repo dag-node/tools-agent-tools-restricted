@@ -17,6 +17,7 @@
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/cli-spelling.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # Installed copy first, then the source tree. The only substitution the install applies to this file is the sandbox
@@ -69,7 +70,7 @@ fi
 #    shape, so the line names the command another operator claims with rather than refusing.
 out="$(run_report 1 0)"
 if [[ "${out}" == *"holds no general sudo grant"* \
-        && "${out}" == *"ai-tools --project-claim --for svc-op"* ]]; then
+        && "${out}" == *"$(cli_cmd_text projects.claim) --for svc-op"* ]]; then
     pass "a refused claim helper reports no grant and names the --for command"
 else
     fail "refusal should report no grant plus the --for command, got: ${out}"

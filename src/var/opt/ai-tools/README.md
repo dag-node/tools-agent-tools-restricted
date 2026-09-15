@@ -9,15 +9,15 @@ of either, see `docs/project-lifecycle.md` in the source repository.)
 ```bash
 # everything runs as the operator — no sudo needed
 cd /path/to/original/repo          # a normal checkout with a remote
-ai-tools --sandbox-create          # clone it into sandbox-projects/, push a branch
+ai-tools projects clone            # clone it into sandbox-projects/, push a branch
 
 cd /var/opt/ai-tools/sandbox-projects/<name>
 claude                             # agent edits and commits here
 
-ai-tools --sandbox-push            # send the agent's commits to the remote branch
+ai-tools projects push             # send the agent's commits to the remote branch
 ```
 
-`ai-tools --sandbox-create` does three things: creates a branch (default
+`ai-tools projects clone` does three things: creates a branch (default
 `sandbox/<leaf>`, where `<leaf>` is the fork point — e.g. `sandbox/main`)
 from the chosen base and pushes it to the repo's remote, shallow-clones
 that branch into `/var/opt/ai-tools/sandbox-projects/<name>` (depth 1 — no
@@ -26,7 +26,7 @@ historical objects), and registers the clone so Claude Code may run there.
 Every input has a default and an optional flag, so the command is scriptable:
 
 ```
-ai-tools --sandbox-create [path] \
+ai-tools projects clone [path] \
     --from <ref>      # branch/ref to fork from   (default: current branch)
     --branch <name>   # full sandbox branch name   (default: sandbox/<leaf of --from>)
     --dir <name>      # clone directory name       (default: repo basename)
@@ -35,10 +35,10 @@ ai-tools --sandbox-create [path] \
 
 `--branch` takes any valid git ref, so the `sandbox/<leaf>` default is only
 a convention — use `--branch hotfix/urgent`, a flat `--branch mywork`, or any
-other shape. Nothing downstream depends on the name (`--sandbox-push` tracks
-the clone's upstream, not a naming pattern). The default deliberately omits
-host and operator identity; on a shared remote, pass `--branch` to disambiguate
-concurrent sandboxes.
+other shape. Nothing downstream depends on the name (`ai-tools projects push`
+tracks the clone's upstream, not a naming pattern). The default deliberately
+omits host and operator identity; on a shared remote, pass `--branch`
+to disambiguate concurrent sandboxes.
 
 ## Why this is the boundary
 
@@ -49,10 +49,10 @@ stay outside the sandbox entirely.
 
 ## Treat the clone as push-only — avoid `git pull`/`fetch`
 
-The clone is intentionally **shallow**; that is the isolation. The workflow
-never pulls: the agent commits locally and `ai-tools --sandbox-push` sends
+The clone is intentionally **shallow**; that is the isolation. The workflow is
+push-only: the agent commits locally and `ai-tools projects push` sends
 the work up, and to pick up upstream changes the operator removes the sandbox
-and re-creates it (`ai-tools --sandbox-create` reuses the same branch).
+and re-creates it (`ai-tools projects clone` reuses the same branch).
 
 Any fetch or pull here stays safe **only** while `.git/shallow` is intact — git
 honours that boundary and fetches shallow changes only. Two things break it,
@@ -80,19 +80,19 @@ in depth:
 - `!`-exclude live secret paths for this clone
   in `~/.config/ai-tools/allowed-projects`, so their ownership is never handed
   back to the agent group; and
-- run `ai-tools --lockdown <clone>` (or `cd <clone> && sudo ai-tools-lockdown`)
-  to lock existing secret-named files (`.env`, `*.key`, …)
-  to `<operator>:<operator> 600` before the agent runs. Either form prompts
-  for the operator's sudo password.
+- run `ai-tools projects lockdown <clone>` (or
+  `cd <clone> && sudo ai-tools-lockdown`) to lock existing secret-named files
+  (`.env`, `*.key`, …) to `<operator>:<operator> 600` before the agent runs.
+  Either form prompts for the operator's sudo password.
 
-`ai-tools --sandbox-create` runs this lockdown on the fresh clone **before**
+`ai-tools projects clone` runs this lockdown on the fresh clone **before**
 granting the agent any access: the clone is born owner-only, and only
 after the lockdown gate passes is it opened to the agent group and registered.
 When the operator declines, or lockdown fails, the create stops fail-closed —
 the clone stays private and unregistered, with a guard `CLAUDE.md` written
 into it (any existing `CLAUDE.md` is preserved as `CLAUDE.md.bak`); re-running
-`ai-tools --sandbox-create <clone>` resumes securing and registering it,
-removing the guard and restoring the original.
+`ai-tools projects clone <clone>` resumes securing and registering it, removing
+the guard and restoring the original.
 
 A shallow clone is not a substitute for keeping the agent away from live
 secrets — it only keeps *past* ones out.
@@ -101,7 +101,7 @@ secrets — it only keeps *past* ones out.
 
 Only the **operator** can push. The sandbox account (`ai-tools`) has no SSH key
 or git credential, so it physically cannot reach the remote —
-`ai-tools --sandbox-push` runs as the operator and uses the operator's
+`ai-tools projects push` runs as the operator and uses the operator's
 credentials.
 
 The operator supplies only the **transport** (network) credentials. The commits
@@ -119,7 +119,7 @@ a per-repository branch:
 sandbox/<leaf>          # e.g. sandbox/main
 ```
 
-`--branch` overrides it with any name (`ai-tools --sandbox-push` just tracks
+`--branch` overrides it with any name (`ai-tools projects push` just tracks
 the clone's upstream, whatever it is). Each repository has its own remote,
 so the same branch name across projects never collides.
 
@@ -139,7 +139,7 @@ collapses them into one — do that only to drop the per-commit history.
 ## Tearing down
 
 ```
-ai-tools --sandbox-remove /var/opt/ai-tools/sandbox-projects/<name>
+ai-tools projects remove /var/opt/ai-tools/sandbox-projects/<name>
 ```
 
 Removes the local clone and unregisters it. The remote branch is left in place
@@ -148,7 +148,7 @@ so it can still be merged.
 ## How permissions work here
 
 `sandbox-projects/` is setgid to group `ai-tools`, so each clone is born
-in that group; `ai-tools --sandbox-create` adds group-write and the setgid bit
+in that group; `ai-tools projects clone` adds group-write and the setgid bit
 so the agent can read and write the tree. The clone is owned by the operator,
 not by the sandbox account, and the operator is **not** a member
 of the `ai-tools` group — the shared group on the project files is what lets

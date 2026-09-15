@@ -312,7 +312,7 @@ if [[ -n "${session_working_directory}" && ! -S "${HANDBACK_SOCKET}" ]]; then
     ai_tools_msg_notice \
         "ai-tools-run: the ownership handback socket is down (${HANDBACK_SOCKET}), so files this session writes stay ai-tools-owned until it is restored -- git may then report \"dubious ownership\".  Bring it up, then reclaim the tree:"
     printf '  sudo systemctl enable --now ai-tools-handback.socket\n' >&2
-    printf '  ai-tools --reclaim %s\n' "${session_working_directory}" >&2
+    printf '  ai-tools projects handback %s\n' "${session_working_directory}" >&2
 fi
 
 # ── Session environment ──────────────────────────────────────────────────────────────────────
@@ -405,7 +405,7 @@ sweep_project_ownership() {
     # A down socket fails every CHOWN, so skip the walk and record that once, rather than logging a reassuring count
     # of calls that changed no ownership (the failure mode this whole change fixes).
     if [[ ! -S "${HANDBACK_SOCKET}" ]]; then
-        audit warning "session-end sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- files under ${session_working_directory} stay @SANDBOX_USER@-owned (reclaim with: ai-tools --reclaim ${session_working_directory})"
+        audit warning "session-end sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- files under ${session_working_directory} stay @SANDBOX_USER@-owned (reclaim with: ai-tools projects handback ${session_working_directory})"
         return 0
     fi
     # The "reclaim" consumer omits the heavy dependency/build trees but WALKS .git -- the tree the per-turn hooks skip,
@@ -424,7 +424,7 @@ sweep_project_ownership() {
     done < <(find "${session_working_directory}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -user '@SANDBOX_USER@' '(' -type f -o -type d ')' -print0 ')' 2>/dev/null)
     if (( failed > 0 )); then
-        audit warning "session-end sweep: handed back ${confirmed} path(s), ${failed} not handed back under ${session_working_directory} (agent=${agent_name}); reclaim with: ai-tools --reclaim ${session_working_directory}"
+        audit warning "session-end sweep: handed back ${confirmed} path(s), ${failed} not handed back under ${session_working_directory} (agent=${agent_name}); reclaim with: ai-tools projects handback ${session_working_directory}"
     elif (( confirmed > 0 )); then
         audit info "session-end sweep: handed back ${confirmed} path(s) under ${session_working_directory} (agent=${agent_name})"
     fi
@@ -483,7 +483,7 @@ if [[ -t 1 ]]; then
 fi
 
 # An EXIT trap rather than a call after the run, so an interrupted shim (Ctrl-C, SIGTERM) still converges the tree;
-# a SIGKILL leaves it to the next session's sweep or `ai-tools --reclaim`.
+# a SIGKILL leaves it to the next session's sweep or `ai-tools projects handback`.
 if ai_tools_agent_sweeps_at_exit "${agent_handback}"; then
     trap 'sweep_project_ownership || true' EXIT
 fi

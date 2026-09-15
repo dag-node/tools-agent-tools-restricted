@@ -629,7 +629,7 @@ verify_agent_labels() {
         if [[ -z "${report}" ]]; then
             warn MSG-Q8W8 "no agent resolved from the manifests, so no entrypoint was labelled."
             warn "  Nothing here grants ai_tools_exec_t, so a session refuses to launch until it is."
-            warn "  Check which agents are enabled:  ai-tools --providers"
+            warn "  Check which agents are enabled:  ai-tools providers"
             warn "  and that a manifest is installed: ls -l /usr/local/lib/ai-tools/agents.d/"
             warn "  Re-apply once one resolves:      sudo ai-tools-admin system entrypoints relabel"
         else
@@ -871,7 +871,7 @@ case "${ACTION}" in
         log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to cover"
         log "the expanded surface before removing 'permissive ai_tools_t;'"
     fi
-    log "verify:  semodule -l | grep ai_tools;  ai-tools --providers"
+    log "verify:  semodule -l | grep ai_tools;  ai-tools providers"
     log "after launching claude:  ps -eo label,cmd | grep -m1 claude  (expect ai_tools_t)"
     ;;
 

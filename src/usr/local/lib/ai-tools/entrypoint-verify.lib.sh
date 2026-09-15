@@ -224,7 +224,7 @@ ai_tools_entrypoint_label_write() {
     case "${result}" in ok|failed|skipped) ;; *) return 1 ;; esac
     [[ -z "${reason}" || "${reason}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || reason=""
     {
-        printf '# ai-tools entrypoint label record -- written as root, read by ai-tools --status.\n'
+        printf '# ai-tools entrypoint label record -- written as root, read by ai-tools status.\n'
         printf 'AGENT=%s\nRESULT=%s\nLABELLED=%s\n' \
             "${agent}" "${result}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         # See the pin write: the last command's status is the group's, and most records carry no reason -- so an `ok`

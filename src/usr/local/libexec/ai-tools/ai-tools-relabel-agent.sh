@@ -234,7 +234,7 @@ report="$(ai_tools_label_agent_paths)" || status=$?
 #   changes the outcome of the relabel it describes.
 record_label_outcome() {
     ai_tools_entrypoint_label_write "$1" "$2" "${3:-}" && return 0
-    warn MSG-G5H9 "could not record ${1}'s labelling outcome for ai-tools --status"
+    warn MSG-G5H9 "could not record ${1}'s labelling outcome for ai-tools status"
     ai_tools_log_warn "could not write the label record for $1"
     return 0
 }

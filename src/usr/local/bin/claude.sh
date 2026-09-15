@@ -265,7 +265,7 @@ if [[ "${#excluded[@]}" -gt 0 ]]; then
             fi
             die MSG-R2V6 "claude: $(pwd): this project is disabled in your approved projects list" \
                 "claude: no session starts here until it is re-enabled -- its files, group and label are untouched" \
-                "claude: re-enable it with:  ${CLI_CMD} --project-enable"
+                "claude: re-enable it with:  ${CLI_CMD} projects enable"
         fi
         # For plain paths (no glob), also exclude directory contents
         if [[ "${pat}" != *'*'* && "${cwd}" == "${pat}/"* ]]; then
@@ -303,7 +303,7 @@ if [[ "${approved}" != true ]]; then
         1)
             # Create sandbox -- an isolated shallow clone under the sandbox-projects area. The agent runs IN the clone,
             # so the wrapper points the user there and stops; it does not launch in this directory.
-            if "${AI_TOOLS_CLI}" --sandbox-create "${cwd}"; then
+            if "${AI_TOOLS_CLI}" projects clone "${cwd}"; then
                 ai_tools_msg_notice "claude: sandbox ready -- cd into the clone path shown above, then start your agent there"
                 pause_if_tty
                 exit 0
@@ -313,8 +313,8 @@ if [[ "${approved}" != true ]]; then
         2)
             # Claim in place. `--yes` pre-answers only the CLI's proceed prompt (you chose claiming here);
             # the secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit.
-            # `--project-claim` is idempotent and registers a brand-new path from scratch.
-            "${AI_TOOLS_CLI}" --project-claim --yes "${cwd}" || true
+            # `ai-tools projects claim` is idempotent and registers a brand-new path from scratch.
+            "${AI_TOOLS_CLI}" projects claim --yes "${cwd}" || true
             # Confirm the claim registered the path before falling through to the claim guard, which re-verifies
             # ownership/label (both just applied) and then launches. Match through the shared grammar so an entry
             # the claim wrote with a comment or quotes is not read as "claim did not complete" (conf.lib.sh).
@@ -329,8 +329,8 @@ if [[ "${approved}" != true ]]; then
             ai_tools_msg_error MSG-N2Z7 "claude: no session started -- ${cwd} is not set up for the agent."
             printf '\n' >&2
             printf '  %-30s %s\n' \
-                "${CLI_CMD} --sandbox-create" "isolated copy under the sandbox area" \
-                "${CLI_CMD} --project-claim"  "claim this directory in place" >&2
+                "${CLI_CMD} projects clone" "isolated copy under the sandbox area" \
+                "${CLI_CMD} projects claim"  "claim this directory in place" >&2
             printf '\nRun one of these, then start your agent again.\n' >&2
             pause_if_tty
             exit 1
@@ -397,14 +397,14 @@ if ${own_gap} || ${label_gap}; then
     if ${own_gap}; then
         blk2+=(
             "Recommended -- an isolated shallow branch copy in sandbox-projects:"
-            "       ${CLI_CMD} --sandbox-create"
+            "       ${CLI_CMD} projects clone"
             "Allow access -- claim this directory in place (give access to ${SANDBOX_USER}; needs sudo):"
-            "       ${CLI_CMD} --project-claim"
+            "       ${CLI_CMD} projects claim"
         )
     else
         blk2+=(
             "Claim it -- applies the SELinux label; needs sudo for the relabel:"
-            "       ${CLI_CMD} --project-claim"
+            "       ${CLI_CMD} projects claim"
         )
     fi
     blk2+=( "" "Both default to the current directory. See '${CLI_CMD} --help' for what each does." )
@@ -413,9 +413,9 @@ if ${own_gap} || ${label_gap}; then
     ai_tools_msg_confirm "Claim it in place now?" "${claim_default}" && claim_ok=true
     if ${claim_ok}; then
         # Delegate the claim. `--yes` pre-answers only the CLI's proceed prompt (you answered it here); its
-        # secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit. `--project-claim` is
-        # idempotent and closes whichever gaps apply.
-        "${AI_TOOLS_CLI}" --project-claim --yes "${cwd}" || true
+        # secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit.
+        # `ai-tools projects claim` is idempotent and closes whichever gaps apply.
+        "${AI_TOOLS_CLI}" projects claim --yes "${cwd}" || true
         # Re-verify the FATAL gaps closed before launching.
         cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
         cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
@@ -427,7 +427,7 @@ if ${own_gap} || ${label_gap}; then
             # for your password. Re-running the claim (NOT `sudo ai-tools` -- the CLI refuses to run as root)
             # re-attempts it.
             die "claude: ${cwd}: SELinux label still missing -- the claim did not complete" \
-                "       re-run: ${CLI_CMD} --project-claim ${cwd}" \
+                "       re-run: ${CLI_CMD} projects claim ${cwd}" \
                 "       (enter your password when it prompts for the SELinux relabel)"
         fi
     else
