@@ -96,6 +96,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q6q8 | [MSG-Q6Q8](../src/usr/local/bin/ai-tools.sh) | ai-tools: refusing to run as the sandbox account ${SANDBOX_USER} | src/usr/local/bin/ai-tools.sh | tests/boundary/access.sh, tests/integration/cli.sh | refuse_early |
 | b4g2 | [MSG-B4G2](../src/usr/local/bin/ai-tools.sh) | ai-tools: --for needs an operator name | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | refuse_early |
 | h6w7 | [MSG-H6W7](../src/usr/local/bin/ai-tools.sh) | ai-tools: do not run as root -- run as the projects user, without sudo | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | refuse_early |
+| w3w8 | [MSG-W3W8](../src/usr/local/bin/ai-tools.sh) | option spelling ${used%%$'\t'*} is kept for compatibility -- the preferred form is: | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | note |
 | t4z6 | [MSG-T4Z6](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | w3h3 | [MSG-W3H3](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d} | src/usr/local/bin/ai-tools.sh |  | die |
 | k8s2 | [MSG-K8S2](../src/usr/local/bin/ai-tools.sh) | allowed-projects not updated -- ${dir} is still registered | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |

@@ -12,7 +12,9 @@
 # A command is a bare word in the resource grammar (cli-grammar.rule.md): `projects <verb> [DIRECTORY]` for the project
 # lifecycle, `status`, `providers`, `audit` and `stop` for the host, and `--` introduces an option. The command path is
 # read once from the arguments, ahead of every gate, into COMMAND (the rule is at verb_in), and each gate
-# and the dispatch key on that one string.
+# and the dispatch key on that one string. The option spelling of a command (`--project-claim`) is kept
+# for compatibility: it is rewritten to its path before that read and a notice names the preferred form once the message
+# library is loaded (OPTION_SPELLINGS).
 #
 # The preflight gates run before dispatch, in this order: require_bootstrap (provisioned install);
 # for the operator-acting commands (OPERATOR_VERBS), require_operator -- the invoking user must be in OPERATORS
@@ -153,6 +155,34 @@ readonly FOR_ALLOWED_VERBS=("projects claim" "projects create" "projects unclaim
                             "projects list")
 # COLLECTIONS -- the plural nouns a verb follows. A bare one is its `list`, the grammar's zero-argument default.
 readonly COLLECTIONS=(projects providers)
+# OPTION_SPELLINGS -- the option spelling of each command, from the releases before the resource grammar, and the two
+# short options that went with them, each mapped to what it runs: a command path, or for `-g` the long option it stands
+# for. Every key is kept for compatibility, since the typed command surface is the one interface an operator's own
+# scripts bind to, and the collection form is the preferred one: rewrite_option_spelling applies the table ahead
+# of every gate, so the tables above and the dispatch see the command path alone and no key sits in a dispatch arm
+# or in usage(), and note_option_spellings names the preferred form. One row per line: tools/option-spellings.sh reads
+# the rows by text to generate docs/option-spellings.md, and tests/unit/cli-verbs.sh holds every value to a dispatched
+# path.
+declare -rA OPTION_SPELLINGS=(
+    [--list]="projects list"
+    [--project-create]="projects create"
+    [--project-claim]="projects claim"
+    [--project-unclaim]="projects unclaim"
+    [--project-remove]="projects remove"
+    [--project-enable]="projects enable"
+    [--project-disable]="projects disable"
+    [--sandbox-create]="projects clone"
+    [--sandbox-push]="projects push"
+    [--sandbox-remove]="projects remove"
+    [--lockdown]="projects lockdown"
+    [--reclaim]="projects handback"
+    [--providers]="providers list"
+    [--status]="status"
+    [--audit]="audit"
+    [--stop]="stop"
+    [-V]="--version"
+    [-g]="--group"
+)
 
 # verb_in <command> <path>... -- true when <command> is one of the named command paths.
 #
@@ -265,9 +295,42 @@ if [[ "${1:-}" == "--relabel" ]]; then
     exit 2
 fi
 
+# ── Option spellings ─────────────────────────────────────────────────────────────
+# rewrite_option_spelling <arg>... -- set REWRITTEN_ARGS to the arguments with each OPTION_SPELLINGS key replaced by its
+# value: the leading argument where it is a key, since an option-spelled command leads the command line, and `-g`
+# wherever it stands, since it is an option of `projects unclaim`. Each rewrite is appended to OPTION_SPELLINGS_USED
+# as the token typed, a tab, and the preferred form -- `ai-tools` and the command path, or the long option alone --
+# for note_option_spellings, which prints once msg.lib.sh is loaded. It runs here, after --for is separated
+# out and ahead of read_command, so every gate and the dispatch read the command path alone; --relabel is not a key,
+# since it names a root command this CLI refuses to run, and stays the pointer above.
+OPTION_SPELLINGS_USED=()
+REWRITTEN_ARGS=()
+rewrite_option_spelling() {
+    local argument
+    REWRITTEN_ARGS=()
+    # An empty subscript is a bash error, so the leading argument is tested before it is looked up.
+    if [[ -n "${1:-}" && "$1" != -g && -n "${OPTION_SPELLINGS[$1]+set}" ]]; then
+        OPTION_SPELLINGS_USED+=("$1"$'\t'"ai-tools ${OPTION_SPELLINGS[$1]}")
+        # The value is a space-joined command path; this CLI's IFS has no space, so the split pins its own.
+        local IFS=' '
+        read -ra REWRITTEN_ARGS <<<"${OPTION_SPELLINGS[$1]}"
+        shift
+    fi
+    for argument in "$@"; do
+        if [[ "${argument}" == -g ]]; then
+            OPTION_SPELLINGS_USED+=("-g"$'\t'"${OPTION_SPELLINGS[-g]}")
+            argument="${OPTION_SPELLINGS[-g]}"
+        fi
+        REWRITTEN_ARGS+=("${argument}")
+    done
+}
+rewrite_option_spelling "$@"
+set -- "${REWRITTEN_ARGS[@]}"
+unset REWRITTEN_ARGS
+
 # ── The command path ─────────────────────────────────────────────────────────────
-# Read once, after --for is separated out and before the first gate, so every gate and the dispatch key on one string.
-# The arguments left are the command's own.
+# Read once, after --for is separated out and the option spellings are rewritten, before the first gate, so every gate
+# and the dispatch key on one string. The arguments left are the command's own.
 read_command "$@"
 readonly COMMAND COMMAND_TOKENS
 set -- "${@:COMMAND_TOKENS+1}"
@@ -343,6 +406,7 @@ say()     { printf '%s\n' "$1"; }
 section() { printf '\n%s%s%s\n' "${C_BOLD}" "$1" "${C_RST}"; }
 ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$1"; }
 warn()    { ai_tools_msg_warn "$@"; }
+note()    { ai_tools_msg_notice "$@"; }
 # die takes the library's optional leading code and carries it into the log line -- as the leading token of the text
 # and as the AI_TOOLS_MSG field, which ai_tools_log_coded writes
 # (logging.rule.md).
@@ -391,6 +455,19 @@ fi
 # One fixed 80-column frame for every box this CLI shows: a claim/reclaim run emits a SEQUENCE of boxes, which aligns
 # instead of each sizing to its own text.
 export AI_TOOLS_MSG_FULLWIDTH=1
+
+# note_option_spellings -- one notice per token rewrite_option_spelling recorded, ahead of every gate and the dispatch,
+# so a refusal that follows still names the spelling that led to it. The command then runs with its exit status
+# unchanged: the spelling is kept, and the notice says which form is preferred. The preferred form stands on a line
+# of its own, since the alert wraps its text and a command must not break across lines (messaging.rule.md).
+note_option_spellings() {
+    local used
+    for used in "${OPTION_SPELLINGS_USED[@]}"; do
+        note MSG-W3W8 "option spelling ${used%%$'\t'*} is kept for compatibility -- the preferred form is:" \
+            "${used#*$'\t'}"
+    done
+}
+note_option_spellings
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to claim a system directory, and vet ancestors
 # for the reachability grant (reg_reach -> grantable_ancestor). It is REQUIRED: FAIL CLOSED if it cannot be sourced

@@ -181,4 +181,58 @@ else
     fail "verb(s) that describe the CLI but sit behind the provisioning gate: $(tr '\n' ' ' <<<"${ungated}") -- add each to BOOTSTRAP_EXEMPT_VERBS"
 fi
 
+# ── (6) The option spellings map onto the dispatcher, and only onto it ──────────
+# OPTION_SPELLINGS is data the CLI rewrites ahead of every gate, so no other reader in this file meets a key: no arm
+# dispatches one and the help does not list one, which is asserted from the other side here, since a key that is also
+# an arm or a help line is a command with two live spellings that the rewrite answers first. What goes stale
+# on the value side is worse: a value naming a path the dispatcher no longer has turns a spelling that ran
+# into a refused command. tools/option-spellings.sh reads the table for the page it generates, so the rows are read
+# through it here too and the committed page is held to the table. The tool is a checkout's, so an installed-only run
+# skips.
+GEN="${ROOT}/tools/option-spellings.sh"
+check_option_spellings() {
+    if [[ ! -r "${GEN}" ]]; then
+        skip "option spellings" "not a checkout (no ${GEN})"; return
+    fi
+    local rows keys values accepted stale collide listed key out rc=0
+    rows="$(bash "${GEN}" rows 2>/dev/null)" || rows=""
+    if [[ -z "${rows}" ]]; then
+        fail "could not extract OPTION_SPELLINGS from the CLI source"; return
+    fi
+    keys="$(cut -f1 <<<"${rows}" | sort -u)"
+    values="$(cut -f2 <<<"${rows}" | sort -u)"
+    # A value is a dispatched command path, or a long option some CLI parser accepts (`--group`, which `-g` stands
+    # for); the option read is man.sh's, an option token in a case-arm position.
+    accepted="$( { printf '%s\n' "${DISPATCH}"; grep -oE -- '--[a-z][a-z-]+[)|=]' "${CLI}" | sed 's/.$//'; } | sort -u)"
+    stale="$(comm -23 <(printf '%s\n' "${values}") <(printf '%s\n' "${accepted}"))"
+    if [[ -z "${stale}" ]]; then
+        pass "every option spelling maps onto a dispatched command or a parsed option ($(wc -l <<<"${rows}") rows)"
+    else
+        fail "OPTION_SPELLINGS value(s) the CLI neither dispatches nor parses: $(tr '\n' '/' <<<"${stale}")"
+    fi
+    collide="$(comm -12 <(printf '%s\n' "${keys}") <(printf '%s\n' "${DISPATCH}"))"
+    if [[ -z "${collide}" ]]; then
+        pass "no option spelling is also a dispatched command"
+    else
+        fail "OPTION_SPELLINGS key(s) the dispatcher also accepts, so the rewrite answers first: $(tr '\n' '/' <<<"${collide}")"
+    fi
+    listed=""
+    while read -r key; do
+        grep -qE -- "(^|[^[:alnum:]-])${key}([^[:alnum:]-]|$)" <<<"$(sed -n '/^usage() {/,/^EOF$/p' "${CLI}")" \
+            && listed="${listed}${key} "
+    done <<<"${keys}"
+    if [[ -z "${listed}" ]]; then
+        pass "the CLI help lists no option spelling"
+    else
+        fail "option spelling(s) the CLI help lists beside the command form: ${listed}"
+    fi
+    out="$(bash "${GEN}" stale 2>&1)" || rc=$?
+    if (( rc == 0 )); then
+        pass "docs/option-spellings.md is what the table generates"
+    else
+        fail "docs/option-spellings.md is stale:"$'\n'"${out}"
+    fi
+}
+check_option_spellings
+
 finish
