@@ -702,6 +702,11 @@ FRONTMATTER_TAG = re.compile(r"^\s*(?:[\w.-]+:\s*\S*|-\s*\S+)\s*$")
 # option, path and variable inside the commands a document exists to show.
 INDENTED_CODE = re.compile(r"^ {4,}\S")
 LIST_MARKER = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
+# A link reference definition (`[label]: destination`), which is link syntax rather than the author's prose:
+# the destination is an address a renderer resolves, and no wrap shortens it. The shape is CommonMark's,
+# and `tools/fill-markdown.py` reads it the same way -- a checker that measured one would report a line that filler
+# leaves as written.
+LINK_DEFINITION = re.compile(r"^ {0,3}\[[^\]]+\]:\s*\S")
 
 
 def document_state():
@@ -712,8 +717,9 @@ def document_state():
 def document_prose(number, line, state):
     """The prose a document line carries, holding the block state in `state`.
 
-    A document contributes every line except the three regions that are not its author's prose:
-    the frontmatter it may open with, a fenced code block, and an indented one.
+    A document contributes every line except the four that are not its author's prose: the
+    frontmatter it may open with, a fenced code block, an indented one, and a link reference
+    definition.
     """
     if number == 1 and FRONTMATTER_FENCE.match(line):
         state["front"] = True
@@ -740,6 +746,8 @@ def document_prose(number, line, state):
         state.update(indented=True, blank=False)
         return None
     state.update(indented=False, blank=False)
+    if LINK_DEFINITION.match(line):
+        return None
     if LIST_MARKER.match(line):
         state["listed"] = True
     elif len(line) - len(line.lstrip()) < 2:
@@ -1184,7 +1192,8 @@ PATH_CHECKS = [
 #                      set of tools serve both: a one-sentence edit stays a one-line diff, and a
 #                      reader of a tool that does not soft-wrap sees the paragraph. The
 #                      frontmatter, a fenced or indented code block, an HTML comment, a table
-#                      row, a heading, a line holding a URL or fewer than three units (a
+#                      row, a heading, a link reference definition, a line holding a URL or fewer
+#                      than three units (a
 #                      backticked span is one unit), and a man page are not measured: each is a
 #                      unit no wrap shortens (a comment's lines are positional), and a line is
 #                      measured without

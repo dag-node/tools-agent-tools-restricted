@@ -811,6 +811,17 @@ silent TEST-PC-168-nested-fence-sentence.md '~~~markdown' '```bash' 'There is no
 # does not read them; the prose after the close still reports.
 wrapped_silent TEST-PC-169-document-width-comment.md "<!-- ${long_md}" "     ${long_md} -->"
 wrapped document-width TEST-PC-170-document-width-after-comment.md '<!-- a note' '     ends -->' "${long_md}"
+# A link reference definition is link syntax rather than prose: the destination is an address a renderer resolves,
+# which no wrap shortens and the filler leaves, so neither the width rule nor the markup checks read one. A BLOCK
+# of them is what pins it -- a single definition was already silent while the second and every later one was read
+# as prose, which reported the destination of each as a bare path. The prose around the block still reports, from both
+# sides.
+wrapped_silent TEST-PC-175-document-width-link-definition.md '[a]: docs/a.md' '[b]: docs/b.md' "[c]: ${long_md// /-}"
+silent TEST-PC-176-link-definition-block.md 'Prose naming [the guide][a] and [the other][b].' '' \
+    '[a]: docs/project-lifecycle.md' '[b]: docs/naming-conventions.md' '[c]: /opt/ai-tools/bin/ai-tools-run'
+reports bare-path TEST-PC-177-prose-after-link-definition.md '[a]: docs/a.md' '[b]: docs/b.md' '' \
+    'The helper reads docs/project-lifecycle.md as prose.'
+wrapped document-width TEST-PC-178-document-width-after-link-definition.md '[a]: docs/a.md' '' "${long_md}"
 # The frontmatter is data: a skill's one-line `description` runs past any column and no formatter may wrap it. Pinned
 # from both sides, since the fence that closes it is where the body begins.
 wrapped_silent TEST-PC-157-document-width-frontmatter.md '---' "description: ${long_md}" '---' 'Body.'
