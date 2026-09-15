@@ -7,11 +7,13 @@
 # tests/integration/cli-flags.sh then re-asserts every effect against the new spelling, which is what makes that file
 # the retention proof for the conversion.
 #
-# cli_cmd <key>   fills CLI_ARGV with the command's tokens (one today; two once a command is
-#                 a noun and a verb), and returns 1 for an unknown key so a typo in a row fails
-#                 the row rather than running the bare binary.
-# cli_flag <key>  prints one option token. A `.short` key is the one-letter form a verb accepts
-#                 beside the long one; `--dry-run` has none, so `-n` stays free for a `--no`.
+# cli_cmd <key>       fills CLI_ARGV with the command's tokens (one today; two once a command is
+#                     a noun and a verb), and returns 1 for an unknown key so a typo in a row fails
+#                     the row rather than running the bare binary.
+# cli_cmd_text <key>  prints the same tokens joined by one space, for a grep over output that names
+#                     the command as a remedy.
+# cli_flag <key>      prints one option token. A `.short` key is the one-letter form a verb accepts
+#                     beside the long one; `--dry-run` has none, so `-n` stays free for a `--no`.
 
 # shellcheck disable=SC2034  # CLI_ARGV is the output, read by the caller's shell
 cli_cmd() {
@@ -31,13 +33,21 @@ cli_cmd() {
         # that drives it keeps this key so the fold is one edit here.
         sandbox.remove)   CLI_ARGV=(--sandbox-remove) ;;
         projects.lockdown) CLI_ARGV=(--lockdown) ;;
-        projects.reclaim) CLI_ARGV=(--reclaim) ;;
+        projects.handback) CLI_ARGV=(--reclaim) ;;
         status)           CLI_ARGV=(--status) ;;
         providers)        CLI_ARGV=(--providers) ;;
         audit)            CLI_ARGV=(--audit) ;;
         stop)             CLI_ARGV=(--stop) ;;
         *) printf 'cli-spelling: unknown command key: %s\n' "$1" >&2; return 1 ;;
     esac
+}
+
+cli_cmd_text() {
+    local -a argv
+    cli_cmd "$1" || return 1
+    argv=("${CLI_ARGV[@]}")
+    local IFS=' '
+    printf '%s' "${argv[*]}"
 }
 
 cli_flag() {

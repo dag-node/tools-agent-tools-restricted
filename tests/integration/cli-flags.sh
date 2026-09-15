@@ -671,16 +671,16 @@ expect "that refusal reaches no helper"                           cli_log_empty
 cli_stub_reset; drive cli projects.lockdown --bogus "${R}/pa"
 expect "lockdown refuses an unknown option, no helper"            quiet_refusal
 
-cli_stub_reset; drive cli projects.reclaim "${R}/pa"
+cli_stub_reset; drive cli projects.handback "${R}/pa"
 expect "reclaim hands the project to the reclaim helper"          cli_called ai-tools-reclaim "^${R}/pa$"
-cli_stub_reset; drive cli projects.reclaim "$(f full)" "${R}/pa"
+cli_stub_reset; drive cli projects.handback "$(f full)" "${R}/pa"
 expect "reclaim --full asks the helper for the skipped trees"     cli_called ai-tools-reclaim "^$(f full)${T}${R}/pa$"
-cli_stub_reset; drive cli_in "${R}/pa" projects.reclaim
+cli_stub_reset; drive cli_in "${R}/pa" projects.handback
 expect "reclaim defaults to the current directory"                cli_called ai-tools-reclaim "^${R}/pa$"
-cli_stub_reset; drive cli projects.reclaim "${R}/plain"
+cli_stub_reset; drive cli projects.handback "${R}/plain"
 expect "reclaim refuses a path outside every project"             rc_not0
 expect "that refusal reaches no helper"                           cli_log_empty
-cli_stub_reset; drive cli projects.reclaim --bogus "${R}/pa"
+cli_stub_reset; drive cli projects.handback --bogus "${R}/pa"
 expect "reclaim refuses an unknown option, no helper"             quiet_refusal
 
 # ── L. The operator's umask does not decide what the agent can read ──────────────
