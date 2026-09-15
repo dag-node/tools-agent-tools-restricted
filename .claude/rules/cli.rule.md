@@ -890,7 +890,10 @@ the clone up: `normalize_clone` adds group `rwX` + setgid dirs while **pruning e
 one would undo the lockdown), then relabels and registers. A declined or failed gate **fails closed**: the clone stays
 on disk but private — not group-accessible, not relabelled, not registered — with a guard `CLAUDE.md` dropped
 and the resume command printed. Re-running `--sandbox-create` **on the existing clone path** (any path
-under `SANDBOX_ROOT`) resumes `sandbox_finalize` on it.
+under `SANDBOX_ROOT`) resumes `sandbox_finalize` on it. A resume is idempotent: `normalize_clone` runs while the clone
+root is still owner-only — the state the pinned `umask 077` and a declined gate each leave it in — so a resume over
+a clone already opened re-runs the gate and leaves the tree's modes as they are, and a directory the operator sealed
+inside it since keeps its mode; the `SessionStart` setgid pass honours that seal and keeps the rest normalized.
 
 The shared sandbox area carries a `g:ai-ops:rwX` ACL (traverse on `/var/opt/ai-tools`, rwX + default
 on `sandbox-projects`, applied by `install.sh`), so an operator creates and works in clones without `SANDBOX_GROUP`

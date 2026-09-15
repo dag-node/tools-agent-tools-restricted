@@ -116,7 +116,12 @@ the current directory and, for every path matching the shared secret patterns, s
 private group is the target, the same one `ai-tools-chown` gives an agent-written secret, so a secret ends
 up identically owned whether it was locked down proactively or quarantined on write; leaving the group
 as `SANDBOX_GROUP` would re-expose it the moment the mode was widened. Each locked path also has its sandbox residue
-stripped. It runs only when the CWD is an allowed project and skips `!`-excluded paths, and applies each change
+stripped. The seal pass that follows covers the owner-only paths **under** the target and leaves the target directory
+itself as it is, still pruning the subtree of an owner-only root the way the claim walkers do. `ai-tools
+--sandbox-create` runs its `git clone` under a pinned `umask 077`, so a clone reaches the gate owner-only throughout,
+and a root on the seal list would lose the setgid bit and the sandbox group the clone area gave it before
+`normalize_clone` opens the tree, which restores the mode bits and not the group. It runs
+only when the CWD is an allowed project and skips `!`-excluded paths, and applies each change
 through a pinned fd (re-verifying inode and type) so a `SANDBOX_USER` path swap cannot redirect root's chmod/chown.
 `--yes` skips the TTY confirmation.
 

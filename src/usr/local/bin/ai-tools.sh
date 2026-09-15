@@ -1086,13 +1086,24 @@ reg_reach() {
 # group-readable until this step. Add group rwX and the setgid bit on every directory (owner stays the projects user);
 # the SessionStart ai-tools-setgid pass keeps it normalized thereafter. Every <locked-path> (the secret gate's finds,
 # locked to owner-only by ai-tools-lockdown) is PRUNED from both walks -- re-opening one here would undo the lockdown
-# this step is sequenced after.
+# this step is sequenced after. It prunes only what THIS run's gate reported, which is why sandbox_finalize runs it
+# once, while the root is still owner-only (clone_is_private), and not on a resume over a clone already opened.
 normalize_clone() {
     local d="$1"; shift
     local -a prune=() p
     for p in "$@"; do prune+=( -path "${p}" -prune -o ); done
     find "${d}" "${prune[@]}" -exec chmod g+rwX {} +
     find "${d}" "${prune[@]}" -type d -exec chmod g+s {} +
+}
+
+# clone_is_private <dir>  -- 0 while the clone root is owner-only: the state cmd_sandbox_create's pinned umask leaves
+# a clone in, and a declined gate leaves it in (owner-only.lib.sh states the predicate the root helpers apply). A mode
+# that cannot be read counts as opened, so a resume does not widen a tree it could not read.
+clone_is_private() {
+    local mode
+    mode="$(stat -c '%a' "$1" 2>/dev/null)" || return 1
+    [[ "${mode}" =~ ^[0-7]+$ ]] || return 1
+    (( ( 8#${mode} & 077 ) == 0 ))
 }
 
 # relabel_clone <dir>  -- apply the SELinux project label so the agent (ai_tools_t) can read/write the clone. A static
@@ -2843,7 +2854,10 @@ cmd_project_remove() {
 # gate, then -- strictly past the gate -- normalize (pruning the locked paths), relabel, and register. FAIL CLOSED:
 # a declined or failed gate leaves the clone on disk but private to the operator -- cloned under umask 077, so no file
 # in it is group-readable -- not normalized, not relabelled, not registered, with a guard CLAUDE.md dropped
-# and the resume command printed. Re-running --sandbox-create on the existing clone path resumes here.
+# and the resume command printed. Re-running `ai-tools --sandbox-create` on the existing clone path resumes here, and
+# a resume is idempotent: the normalize runs while the clone root is still owner-only (the state the pinned umask
+# leaves a clone in, and a declined gate leaves it in), and a resume over a clone already opened leaves the tree as it
+# is.
 sandbox_finalize() {
     local dst="$1"
     reg_allow "${dst}"
@@ -2857,8 +2871,14 @@ sandbox_finalize() {
         die "sandbox create stopped -- secrets not locked down"
     fi
     clear_lockdown_guard "${dst}"
-    normalize_clone "${dst}" "${SECRET_GATE_LOCKED[@]}"
-    say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
+    # Once per clone, while the root is still owner-only (normalize_clone's header states why). A later resume leaves
+    # the tree as it is, and the SessionStart setgid pass, which honours a seal, keeps the rest normalized.
+    if clone_is_private "${dst}"; then
+        normalize_clone "${dst}" "${SECRET_GATE_LOCKED[@]}"
+        say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
+    else
+        say "    access: already granted; the tree is left as it is"
+    fi
     relabel_clone "${dst}"
     # A clone exists to run git in, so a missing safe.directory is not cosmetic here: the agent's git refuses to operate
     # in a tree it sees as someone else's ("dubious ownership"), and the clone would be ready for everything except its

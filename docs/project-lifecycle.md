@@ -233,8 +233,10 @@ ai-tools --sandbox-create /var/opt/ai-tools/sandbox-projects/<name>   # resume
 
 Pointing `--sandbox-create` at the existing clone path resumes where it
 stopped: gate, then normalize, label and register, removing the guard
-on success. The day-to-day cycle — the per-repo branch, pushing it, merging it
-back — is documented on the host in `/var/opt/ai-tools/README.md`.
+on success. On a clone that is already open, the resume re-runs the gate
+and leaves the tree's modes as they are, so a directory you sealed inside
+it keeps its mode. The day-to-day cycle — the per-repo branch, pushing it,
+merging it back — is documented on the host in `/var/opt/ai-tools/README.md`.
 
 ## Take a project out of service
 

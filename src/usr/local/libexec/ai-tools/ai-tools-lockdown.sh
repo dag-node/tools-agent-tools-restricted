@@ -10,9 +10,10 @@
 # the file the moment its mode is widened. Each locked path also has its sandbox residue stripped (owner-only.lib.sh),
 # for the same reason -- the mode alone does not hold.
 #
-# A second pass then seals the paths the operator sealed by MODE rather than by name: every path already owner-only gets
-# the same residue stripped, so a directory or file sealed after the claim does not wait for the next claim to be
-# cleaned up. That pass only ever removes the sandbox's reach, so unlike the lock it runs without a confirmation.
+# A second pass then seals the paths the operator sealed by MODE: every path already owner-only under the target,
+# whatever its name, gets the same residue stripped, so a directory or file sealed after the claim does not wait for
+# the next claim to be cleaned up. The target directory itself is not sealed (the enumeration states why). That pass
+# only ever removes the sandbox's reach, so unlike the lock it runs without a confirmation.
 #
 # Unlike ai-tools-chown (reactive: fires per agent-written path and acts only on ai-tools-owned paths), this is
 # a USER-run pre-flight sweep -- it also locks down pre-existing, user-owned secrets the agent could otherwise read
@@ -244,8 +245,20 @@ done < <(find "${expr[@]}" 2>/dev/null)
 # avoids a stat per path. A sealed DIRECTORY is printed and then pruned, taking its subtree with it exactly
 # as `ai-tools-{setgid,setfacl}` do: the sandbox account cannot enter it, so no path inside is reachable through it.
 # Secret-named paths are left to the lock pass, which seals them itself.
+#
+# The target itself is left out of the list. The seal exists for a private path inside a shared tree, and the walk's
+# root is the registered project directory, whose reachability is the claim's own question. `ai-tools --sandbox-create`
+# runs its `git clone` under a pinned `umask 077`, so a clone reaches the secret gate owner-only throughout and grouped
+# to the sandbox account by the setgid clone area; with the root on the list, a first run on a tip commit holding
+# a secret would seal the root alone -- clearing its setgid bit and moving its group to the operator's own -- and
+# normalize_clone, which restores the mode bits and not the group, would leave the agent refused at the root of a clone
+# reported ready. An owner-only root is still pruned, so the paths under it are sealed on a later run once the root is
+# open. `-mindepth 1` is not this: it would stop the prune at the root and descend into such a clone, where every
+# depth-one entry is owner-only for the same reason and in the sandbox group by setgid inheritance, and the pass would
+# move all of them to the operator's group.
 declare -a sealed=()
 while IFS= read -r -d '' path; do
+    [[ "${path}" == "${target}" ]] && continue
     _is_excluded "${path}" && continue
     ai_tools_is_secret_basename "$(basename "${path}")" && continue
     sealed+=("${path}")
