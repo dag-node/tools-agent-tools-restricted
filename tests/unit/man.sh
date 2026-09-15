@@ -178,7 +178,7 @@ check_cli_page() {
 
     # ── (3) Every option the help names is documented somewhere in the page ─────────
     # This is what keeps the cross-verb flag lines (`-y`/`--yes`, `--dry-run`, `--for`) honest: the help may name fewer
-    # options than the page, never more.
+    # options than the page, and this check fails on one the page lacks.
     local help_opts man_opts missing parsed_opts stale
     help_opts="$(usage_text "${CLI}" | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
     man_opts="$(read_man "${MAN}" | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
