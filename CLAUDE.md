@@ -314,7 +314,9 @@ not gaps, so a reader tells bounded design from an oversight:
 
 **Every artifact in this repo is written to the shipped `ai-tools-technical-docs` skill — invoke it before writing
 or editing prose of any kind.** One standard covers all of them; the artifact sections inside it carry the differences
-in structure, altitude, and reader:
+in structure, altitude, and reader. The skill holds the width and states that where a line breaks is the formatter's;
+this repository's formatter is `bash tools/formatters/format.sh`, and `tools/README.md` states the rest. A shipped asset
+does not name any tool of this repository's, so the skill does not name that command:
 
 - `CLAUDE.md`, `.claude/rules/*.rule.md`, file/module headers, design notes → reference prose (present-tense spec; state
   current behavior, not history).
