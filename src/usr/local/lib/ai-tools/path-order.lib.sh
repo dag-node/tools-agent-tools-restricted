@@ -2,20 +2,20 @@
 # SPDX-License-Identifier: AGPL-3.0-only /usr/local/lib/ai-tools/path-order.lib.sh Where an operator's shell finds
 # an agent launcher. Every wrapper this project ships lives in /usr/local/bin and is the only route into the sandbox,
 # so a launcher of the same name earlier on that operator's PATH -- an agent they installed under their own nvm --
-# starts an UNCONFINED session as them, holding their credentials and their home and outside the allowlist,
-# the SELinux domain and the ownership handback. path-order.sh ranks /usr/local/bin first and is what settles it; this
-# library reads which of the two an account gets, so the question can be asked with the stake named and re-checked
-# afterwards. What each state means is launch.rule.md's PATH ordering section.
+# starts an UNCONFINED session as them, holding their credentials and their home and outside the allowlist, the SELinux
+# domain and the ownership handback. path-order.sh ranks /usr/local/bin first and is what settles it; this library reads
+# which of the two an account gets, so the question can be asked with the stake named and re-checked afterwards.
+# What each state means is launch.rule.md's PATH ordering section.
 #
 # The decision is pure (ai_tools_path_order_verdict) and the probing is separate, the split confinement.lib.sh makes
-# for the launch decision, so the truth table is driven in tests/unit/path-order.sh against no account at all. The
-# callers: `ai-tools-admin operators add` (asks, then wires), `ai-tools --status` (re-checks, from the operator's own
-# shell), `ai-tools-admin system bootstrap` (names each operator whose shell reaches an agent elsewhere), and the base
-# package's %post (repoints an init file that still sources the fragment's former path, and names the operators it
-# could not write for).
+# for the launch decision, so the truth table is driven in tests/unit/path-order.sh against no account at all.
+# The callers: `ai-tools-admin operators add` (asks, then wires), `ai-tools --status` (re-checks, from the operator's
+# own shell), `ai-tools-admin system bootstrap` (names each operator whose shell reaches an agent elsewhere),
+# and the base package's %post (repoints an init file that still sources the fragment's former path, and names
+# the operators it could not write for).
 #
-# It reports where a name resolves and does not decide any access question, so a reading it cannot take yields
-# `unknown` and the caller asks or reports rather than refusing.
+# It reports where a name resolves and does not decide any access question, so a reading it cannot take yields `unknown`
+# and the caller asks or reports rather than refusing.
 #
 # Sourced, not executed. Deployed 644 root:root -- no secrets; sourced by root (the admin helper, the scriptlet)
 # and by the operator (the CLI).
@@ -36,17 +36,16 @@ _AI_TOOLS_PATH_ORDER_LIB_LOADED=1
 readonly AI_TOOLS_PATH_ORDER_WRAPPER_DIR="/usr/local/bin"
 readonly AI_TOOLS_PATH_ORDER_FRAGMENT="/usr/local/lib/ai-tools/path-order.sh"
 # The name the fragment shipped under before it was renamed to match this library. The guard line sources the fragment
-# only while the file is present, so an upgraded host carrying the old path keeps a line that succeeds without
-# applying the ordering. ai_tools_path_order_repoint is what follows the file, and the former name is recorded here
-# for the same reason the SELinux registry records a group's former module name: a rename answers for the hosts
-# already running the old name.
+# only while the file is present, so an upgraded host carrying the old path keeps a line that succeeds without applying
+# the ordering. ai_tools_path_order_repoint is what follows the file, and the former name is recorded here for the same
+# reason the SELinux registry records a group's former module name: a rename answers for the hosts already running
+# the old name.
 readonly AI_TOOLS_PATH_ORDER_FRAGMENT_FORMER="/usr/local/lib/ai-tools/path-dedup.sh"
 # shellcheck disable=SC2034  # read by ai-tools-admin, which appends this line, and by `ai-tools --status`
 readonly AI_TOOLS_PATH_ORDER_GUARD='[[ -f /usr/local/lib/ai-tools/path-order.sh ]] && source /usr/local/lib/ai-tools/path-order.sh || true'
 
-# ai_tools_path_order_verdict <wired> <winner>...
-# Echo a verdict token and return 0 (the ordering is right), 1 (a launcher is shadowed) or 2 (the reading could not be
-# taken) from the account's wiring and one winner per launcher:
+# ai_tools_path_order_verdict <wired> <winner>... Echo a verdict token and return 0 (the ordering is right), 1 (a
+# launcher is shadowed) or 2 (the reading could not be taken) from the account's wiring and one winner per launcher:
 #   wired   "yes" when an init file already sources the fragment, else "no"
 #   winner  "<launcher>=<path>" -- where that launcher resolves for the account. The path is empty when this host
 #           does not install a wrapper of that name, and "?" when the reading could not be taken.
@@ -83,24 +82,23 @@ ai_tools_path_order_verdict() {
     return 0
 }
 
-# ai_tools_path_order_launcher_valid <name>
-# The launcher name is interpolated into a shell command run as another account, so it is admitted only in the shape
-# a launcher has: letters, digits, dot, underscore and dash. A manifest is root-owned and trust-checked before it is
-# read, so this is the second fence rather than the first, and it fails closed -- a name outside that set is not
+# ai_tools_path_order_launcher_valid <name> The launcher name is interpolated into a shell command run as another
+# account, so it is admitted only in the shape a launcher has: letters, digits, dot, underscore and dash. A manifest is
+# root-owned and trust-checked before it is read, so this is the second fence rather than the first, and it fails closed
+# -- a name outside that set is not
 # probed.
 ai_tools_path_order_launcher_valid() { [[ "${1-}" =~ ^[A-Za-z0-9._-]+$ ]]; }
 
-# ai_tools_path_order_readable <path>
-# Admit a probe result only as an absolute path that does not hold whitespace or a control byte. The value comes
-# from a login shell whose dotfiles the account writes, and it is rendered to a terminal and compared
-# against the wrapper path, so any other shape reads as unreadable rather than as an answer.
+# ai_tools_path_order_readable <path> Admit a probe result only as an absolute path that does not hold whitespace
+# or a control byte. The value comes from a login shell whose dotfiles the account writes, and it is rendered
+# to a terminal and compared against the wrapper path, so any other shape reads as unreadable rather than as an answer.
 ai_tools_path_order_readable() {
     [[ "${1-}" == /* && "${1}" != *[[:space:][:cntrl:]]* ]]
 }
 
-# ai_tools_path_order_guard_present <file>...
-# Echo "yes" when one of the named init files already sources the fragment, else "no". Matched on the fragment's path
-# rather than on the whole guard line, so a line an operator reformatted or wrote themselves counts as wired.
+# ai_tools_path_order_guard_present <file>... Echo "yes" when one of the named init files already sources the fragment,
+# else "no". Matched on the fragment's path rather than on the whole guard line, so a line an operator reformatted
+# or wrote themselves counts as wired.
 ai_tools_path_order_guard_present() {
     local f
     for f in "$@"; do
@@ -112,10 +110,9 @@ ai_tools_path_order_guard_present() {
     printf 'no\n'
 }
 
-# ai_tools_path_order_winner_here <launcher>
-# Where <launcher> resolves on THIS process's PATH -- the operator's own, when the CLI runs from their shell. Prints
-# the path, an empty line when this host does not install a wrapper of that name, or "?" when the name or the answer
-# fails its admission check.
+# ai_tools_path_order_winner_here <launcher> Where <launcher> resolves on THIS process's PATH -- the operator's own,
+# when the CLI runs from their shell. Prints the path, an empty line when this host does not install a wrapper
+# of that name, or "?" when the name or the answer fails its admission check.
 ai_tools_path_order_winner_here() {
     local launcher="$1" winner
     ai_tools_path_order_launcher_valid "${launcher}" || { printf '?\n'; return 0; }
@@ -126,11 +123,11 @@ ai_tools_path_order_winner_here() {
     printf '%s\n' "${winner}"
 }
 
-# ai_tools_path_order_winner_for_user <user> <launcher>
-# The same reading for ANOTHER account, taken from a login shell of its own: that account's init files are what decide
-# its sessions, and grepping them answers for the guard line instead of for the ordering. Requires root (runuser),
-# and is bounded by a timeout because the dotfiles it runs belong to the account. Prints the path, an empty line
-# when this host does not install a wrapper of that name, or "?" when the reading could not be taken.
+# ai_tools_path_order_winner_for_user <user> <launcher> The same reading for ANOTHER account, taken from a login shell
+# of its own: that account's init files are what decide its sessions, and grepping them answers for the guard line
+# instead of for the ordering. Requires root (runuser), and is bounded by a timeout because the dotfiles it runs belong
+# to the account. Prints the path, an empty line when this host does not install a wrapper of that name, or "?"
+# when the reading could not be taken.
 #
 # The command runs AS the operator, so it carries only the access that account already has, and its output is admitted
 # only in the shape a path has: a login shell prints its own banner, so the last line is taken and then validated.
@@ -149,9 +146,9 @@ ai_tools_path_order_winner_for_user() {
 }
 
 # ai_tools_path_order_launchers
-# One launcher name per line, for the agents operator.conf enables -- the wrappers whose ordering matters on this
-# host. Prints no line when the provider resolver is not loaded, which the verdict reads as `unknown`: a set this host
-# could not resolve is reported apart from one that resolved to no agent.
+# One launcher name per line, for the agents operator.conf enables -- the wrappers whose ordering matters on this host.
+# Prints no line when the provider resolver is not loaded, which the verdict reads as `unknown`: a set this host could
+# not resolve is reported apart from one that resolved to no agent.
 ai_tools_path_order_launchers() {
     declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0
     local launcher
@@ -161,8 +158,8 @@ ai_tools_path_order_launchers() {
 }
 
 # ai_tools_path_order_read_user <user>  -- read that account's ordering, as root ai_tools_path_order_read_here        --
-# read this process's own, whatever account it runs as Two named entry points rather than one optional argument,
-# because the two readings answer for different accounts and an omitted argument would silently choose the other one.
+# read this process's own, whatever account it runs as Two named entry points rather than one optional argument, because
+# the two readings answer for different accounts and an omitted argument would silently choose the other one.
 #
 # Each takes the whole reading in one call and publishes it in four variables, since a caller needs the verdict
 # AND what to say about it:
@@ -209,19 +206,18 @@ _ai_tools_path_order_read() {
     return "${status}"
 }
 
-# ai_tools_path_order_repoint <file>...
-# Point a guard line that names the FORMER fragment at the current one, in place, and print each file rewritten.
-# Returns 0 whichever files it rewrote; a file it cannot read or write is skipped without a message, since the caller
-# reports the ordering itself and the file belongs to the account.
+# ai_tools_path_order_repoint <file>... Point a guard line that names the FORMER fragment at the current one, in place,
+# and print each file rewritten. Returns 0 whichever files it rewrote; a file it cannot read or write is skipped without
+# a message, since the caller reports the ordering itself and the file belongs to the account.
 #
-# This is the one edit this project makes to an operator's shell init without asking, and the bound on it is that it
-# is neither a merge nor an addition: it replaces one path token, inside a line this package wrote, that names a file
-# this package moved. It does not add a line or remove one, and it leaves a file naming neither path byte-identical,
+# This is the one edit this project makes to an operator's shell init without asking, and the bound on it is that it is
+# neither a merge nor an addition: it replaces one path token, inside a line this package wrote, that names a file this
+# package moved. It does not add a line or remove one, and it leaves a file naming neither path byte-identical,
 # so an operator who never had the line does not acquire one and one who wrote their own keeps its spelling. Leaving
 # the line as it stands would instead stop the ordering applying at an upgrade, where no terminal exists to ask at.
 #
-# It does not write a sidecar. The fragment ships root-owned and the package replaces it, and the deduplication and
-# ordering it performs are unchanged, so the repointed line behaves as the old one did and a backup would preserve
+# It does not write a sidecar. The fragment ships root-owned and the package replaces it, and the deduplication
+# and ordering it performs are unchanged, so the repointed line behaves as the old one did and a backup would preserve
 # a path resolving to a file that is gone.
 ai_tools_path_order_repoint() {
     local f content rewritten
@@ -237,22 +233,21 @@ ai_tools_path_order_repoint() {
     done
 }
 
-# ai_tools_path_order_repoint_user <user>
-# The same for an account, resolved through its passwd entry: the init files bash reads.
+# ai_tools_path_order_repoint_user <user> The same for an account, resolved through its passwd entry: the init files
+# bash reads.
 ai_tools_path_order_repoint_user() {
     local home; home="$(getent passwd "${1}" | cut -d: -f6)"
     [[ -n "${home}" && -d "${home}" ]] || return 0
     ai_tools_path_order_repoint "${home}/.bashrc" "${home}/.bash_profile"
 }
 
-# ai_tools_path_order_shadowed_operators <user>...
-# Print "<user><TAB><launcher><TAB><winner>" for each named account whose shell reaches an agent somewhere other than
-# /usr/local/bin, and no line for an account in any other state. Root only, since each reading is taken from a login
-# shell of the account.
+# ai_tools_path_order_shadowed_operators <user>... Print "<user><TAB><launcher><TAB><winner>" for each named account
+# whose shell reaches an agent somewhere other than /usr/local/bin, and no line for an account in any other state. Root
+# only, since each reading is taken from a login shell of the account.
 #
-# It exists for `ai-tools-admin system bootstrap`, which reports what a freshly provisioned host still owes and does
-# not hold a loop of its own. An account this reading could not be taken for is left unnamed, because a report that
-# guessed would name a host it could not read, and the operator's own `ai-tools --status` answers precisely.
+# It exists for `ai-tools-admin system bootstrap`, which reports what a freshly provisioned host still owes and does not
+# hold a loop of its own. An account this reading could not be taken for is left unnamed, because a report that guessed
+# would name a host it could not read, and the operator's own `ai-tools --status` answers precisely.
 ai_tools_path_order_shadowed_operators() {
     local user pair launcher
     for user in "$@"; do
@@ -267,13 +262,11 @@ ai_tools_path_order_shadowed_operators() {
     done
 }
 
-# ai_tools_path_order_stale_operators <user>...
-# Print each named account whose bash init still names the FORMER fragment. A READ: the base
-# package's %post repoints first and calls this after, so what it prints is the accounts the
-# repoint could not write -- an unreadable home, a read-only mount -- for which
-# `ai-tools-admin operators add` rewrites the line with its confirm. It does not start a login
-# shell: the accurate reading executes the account's own init, which is a person's command to give
-# rather than a transaction's.
+# ai_tools_path_order_stale_operators <user>... Print each named account whose bash init still names the FORMER
+# fragment. A READ: the base package's %post repoints first and calls this after, so what it prints is the accounts
+# the repoint could not write -- an unreadable home, a read-only mount -- for which `ai-tools-admin operators add`
+# rewrites the line with its confirm. It does not start a login shell: the accurate reading executes the account's own
+# init, which is a person's command to give rather than a transaction's.
 ai_tools_path_order_stale_operators() {
     local user home f
     for user in "$@"; do

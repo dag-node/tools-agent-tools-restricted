@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/agent-installs.lib.sh
-# Which agents this host carries outside the sandbox: an executable of a launcher's name in a
-# system directory, and the package that owns it. Such a binary runs unconfined, so `install.sh`
-# and the ai-tools-base %post report it once the wrapper is installed beside it.
+# Which agents this host carries outside the sandbox: an executable of a launcher's name in a system directory,
+# and the package that owns it. Such a binary runs unconfined, so `install.sh` and the ai-tools-base %post report it
+# once the wrapper is installed beside it.
 #
-# It reads the filesystem alone: where an account's shell resolves a launcher is
-# path-order.lib.sh's reading, and ordering a PATH is path-order.sh's.
+# It reads the filesystem alone: where an account's shell resolves a launcher is path-order.lib.sh's reading,
+# and ordering a PATH is path-order.sh's.
 #
-# Sourced, not executed. Deployed 644 root:root -- it reads directory entries every account can
-# already list.
+# Sourced, not executed. Deployed 644 root:root -- it reads directory entries every account can already list.
 #
 # Deploy:
 #   ```bash
@@ -21,18 +20,17 @@
 # shellcheck disable=SC2034  # include guard, read on the next source of this lib
 _AI_TOOLS_AGENT_INSTALLS_LIB_LOADED=1
 
-# The directories searched, in the order a report names them. /usr/local/bin is absent: it is the
-# wrappers' own. /bin leads because the agent's other distribution channel -- its own package rather
-# than the npm one this stack installs -- puts it there.
+# The directories searched, in the order a report names them. /usr/local/bin is absent: it is the wrappers' own. /bin
+# leads because the agent's other distribution channel -- its own package rather than the npm one this stack installs --
+# puts it there.
 readonly AI_TOOLS_AGENT_INSTALL_DIRS=(/bin /usr/bin /usr/sbin /sbin /usr/local/sbin /opt/bin)
 
-# ai_tools_agent_installs <launcher> [<dir>...]
-# Print "<path>\t<other spellings of the same file>" per distinct executable of that name in
-# <dir>... (default: AI_TOOLS_AGENT_INSTALL_DIRS). `-ef` is what makes a usr-merged host's
+# ai_tools_agent_installs <launcher> [<dir>...] Print "<path>\t<other spellings of the same file>" per distinct
+# executable of that name in <dir>... (default: AI_TOOLS_AGENT_INSTALL_DIRS). `-ef` is what makes a usr-merged host's
 # /bin/claude and /usr/bin/claude one install rather than two.
 #
-# The launcher name becomes a path, so it is admitted only in a launcher's own charset; a name
-# outside it does not produce any line.
+# The launcher name becomes a path, so it is admitted only in a launcher's own charset; a name outside it does not
+# produce any line.
 ai_tools_agent_installs() {
     local launcher="${1:-}"; shift || true
     [[ "${launcher}" =~ ^[A-Za-z0-9._-]+$ ]] || return 0
@@ -58,9 +56,8 @@ ai_tools_agent_installs() {
     done
 }
 
-# ai_tools_agent_install_owner <path>
-# Print the name of the package owning <path>; prints nothing where rpm does not own that file, or
-# is not installed. The value is rendered into a `dnf remove` command a person is invited to run, so it is
+# ai_tools_agent_install_owner <path> Print the name of the package owning <path>; prints nothing where rpm does not own
+# that file, or is not installed. The value is rendered into a `dnf remove` command a person is invited to run, so it is
 # admitted only in a package name's charset.
 ai_tools_agent_install_owner() {
     local path="${1:-}" package

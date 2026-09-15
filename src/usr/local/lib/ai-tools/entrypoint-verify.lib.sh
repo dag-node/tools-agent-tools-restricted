@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/entrypoint-verify.lib.sh
-# Verify that an agent's entrypoint is the binary its vendor published, and carry that verdict to
-# the launch in a record the sandbox account cannot write.
+# Verify that an agent's entrypoint is the binary its vendor published, and carry that verdict to the launch in a record
+# the sandbox account cannot write.
 #
-# It is agent-agnostic: the release manifest, the signing key, and its fingerprint are optional fields
-# on the agent's own manifest (providers.rule.md). Why the check exists, which caller runs which
-# half, what each outcome means, and where the pin lives are in updater.rule.md; this header covers
-# only what a reader of this file needs.
+# It is agent-agnostic: the release manifest, the signing key, and its fingerprint are optional fields on the agent's
+# own manifest (providers.rule.md). Why the check exists, which caller runs which half, what each outcome means,
+# and where the pin lives are in updater.rule.md; this header covers only what a reader of this file needs.
 #
 # Two entry points, split by principal -- which is what keeps the network off the launch path:
 #   ai_tools_entrypoint_release_verify  ROOT. Fetch the vendor's signed release manifest, verify it
@@ -24,30 +23,28 @@
 # The pure decisions take no I/O and are unit-tested over their truth tables
 # (tests/unit/entrypoint-verify.sh).
 
-# Include guard: an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and
-# trips the sourcing shell's `set -e`.
+# Include guard: an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing
+# shell's `set -e`.
 if [[ -n "${_AI_TOOLS_ENTRYPOINT_VERIFY_LIB_LOADED:-}" ]]; then
     return 0
 fi
 _AI_TOOLS_ENTRYPOINT_VERIFY_LIB_LOADED=1
 
-# The shared KEY=value grammar, for the strictness switch and the fingerprint list. Best-effort,
-# NOT required: the launch-side check (the hot path) needs neither, and every consumer that does
-# has already loaded conf.lib.sh through providers.lib.sh -- so a failure here degrades the two
-# functions that use it in their permissive/refusing directions rather than leaving them undefined. Both
-# guard on `declare -F` before calling into it.
+# The shared KEY=value grammar, for the strictness switch and the fingerprint list. Best-effort, NOT required:
+# the launch-side check (the hot path) needs neither, and every consumer that does has already loaded conf.lib.sh
+# through providers.lib.sh -- so a failure here degrades the two functions that use it in their permissive/refusing
+# directions rather than leaving them undefined. Both guard on `declare -F` before calling into it.
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null || true
 
-# Deployed paths, overridable as root-only test hooks (the same posture as providers.lib.sh's
-# manifest directories: every consumer runs under sudo, which scrubs the environment, and no
-# sudoers rule keeps these names).
+# Deployed paths, overridable as root-only test hooks (the same posture as providers.lib.sh's manifest directories:
+# every consumer runs under sudo, which scrubs the environment, and no sudoers rule keeps these names).
 : "${AI_TOOLS_ENTRYPOINT_PIN_DIR:=/var/opt/ai-tools/state/entrypoint-pin.d}"
-# The labelling half of the same reconciliation records its outcome beside the pin, in the same
-# grammar and with the same ownership. It lives HERE, next to the pin, rather than in
-# relabel.lib.sh which performs the labelling: `ai-tools --status` reads both, and it runs as the
-# operator, who can read this library (644) but not that one (640 root:root). One record the
-# report can read is worth more than a record filed next to the code that writes it.
+# The labelling half of the same reconciliation records its outcome beside the pin, in the same grammar
+# and with the same ownership. It lives HERE, next to the pin, rather than in relabel.lib.sh which performs
+# the labelling: `ai-tools --status` reads both, and it runs as the operator, who can read this library (644) but not
+# that one (640 root:root). One record the report can read is worth more than a record filed next to the code
+# that writes it.
 : "${AI_TOOLS_ENTRYPOINT_LABEL_DIR:=/var/opt/ai-tools/state/entrypoint-label.d}"
 
 # _ai_tools_ev_warn <message...> : report to stderr and, when log.lib.sh is loaded by the caller,
@@ -79,9 +76,9 @@ ai_tools_entrypoint_platform_key() {
 #   HTTPS only, and a character set that cannot carry a shell metacharacter, whitespace, or a
 #   traversal into a URL that reaches curl. Allowlist, not blocklist.
 ai_tools_release_url_valid() {
-    # Held in a variable: a bracket expression carrying `&` and braces cannot be written inline in
-    # `[[ =~ ]]` -- bash parses those as operators before the regex is ever assembled. `-` closes
-    # the set, the POSIX way to include it literally.
+    # Held in a variable: a bracket expression carrying `&` and braces cannot be written inline in `[[ =~ ]]` -- bash
+    # parses those as operators before the regex is ever assembled. `-` closes the set, the POSIX way to include it
+    # literally.
     local allowed='^[A-Za-z0-9:/._~%?=&{}-]+$'
     local url="${1:-}"
     [[ "${url}" == https://* ]] || return 1
@@ -230,8 +227,8 @@ ai_tools_entrypoint_label_write() {
         printf '# ai-tools entrypoint label record -- written as root, read by ai-tools --status.\n'
         printf 'AGENT=%s\nRESULT=%s\nLABELLED=%s\n' \
             "${agent}" "${result}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        # See the pin write: the last command's status is the group's, and most records carry no
-        # reason -- so an `ok` outcome would report itself as unrecordable.
+        # See the pin write: the last command's status is the group's, and most records carry no reason -- so an `ok`
+        # outcome would report itself as unrecordable.
         if [[ -n "${reason}" ]]; then printf 'REASON=%s\n' "${reason}"; fi
     } | _ai_tools_ev_write_record "${record}" "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}"
 }
@@ -272,8 +269,8 @@ ai_tools_entrypoint_pin_write() {
         printf 'AGENT=%s\nVERSION=%s\nSHA256=%s\nVERIFIED=%s\n' \
             "${agent}" "${version:-unknown}" "${checksum}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         if [[ "${inputs}" =~ ^[0-9a-f]{64}$ ]]; then printf 'INPUTS=%s\n' "${inputs}"; fi
-        # An `if`, not `[[ ]] && printf`: this is the group's LAST command, so its status is the
-        # group's, and a pin written without a source URL would fail the pipeline that writes it.
+        # An `if`, not `[[ ]] && printf`: this is the group's LAST command, so its status is the group's, and a pin
+        # written without a source URL would fail the pipeline that writes it.
         if [[ -n "${source_url}" ]]; then printf 'SOURCE=%s\n' "${source_url}"; fi
     } | _ai_tools_ev_write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
 }
@@ -334,9 +331,9 @@ ai_tools_entrypoint_release_verify() {
     command -v gpgv >/dev/null 2>&1 || { _ai_tools_ev_warn "gpgv not found -- cannot verify the release manifest signature; install gnupg2"; return 2; }
     [[ -r "${key_file}" ]] || { _ai_tools_ev_warn "release signing key unreadable: ${key_file}"; return 2; }
 
-    # A LIST, in the shared KEY=value grammar -- the rotation overlap it exists for is in
-    # providers.rule.md. Every entry must be a 40-hex fingerprint or the whole declaration is
-    # unusable: a partially-parsed pin is one that might accept a key nobody meant to trust.
+    # A LIST, in the shared KEY=value grammar -- the rotation overlap it exists for is in providers.rule.md. Every entry
+    # must be a 40-hex fingerprint or the whole declaration is unusable: a partially-parsed pin is one that might accept
+    # a key nobody meant to trust.
     local -a accepted_fingerprints=()
     if declare -F ai_tools_conf_split >/dev/null 2>&1; then
         ai_tools_conf_split accepted_fingerprints "${fingerprint}"
@@ -365,9 +362,9 @@ ai_tools_entrypoint_release_verify() {
     # shellcheck disable=SC2064
     trap "rm -rf -- '${workdir}'" RETURN
 
-    # Both objects before the comparison, so an unpublished manifest is "unable to verify" and
-    # never reaches it. `--connect-timeout` is what keeps an air-gapped host from waiting out a
-    # blackholed route: this runs inside an rpm %post that must succeed offline.
+    # Both objects before the comparison, so an unpublished manifest is "unable to verify" and never reaches it.
+    # `--connect-timeout` is what keeps an air-gapped host from waiting out a blackholed route: this runs inside an rpm
+    # %post that must succeed offline.
     curl -fsSL --connect-timeout 5 --max-time 30 -o "${workdir}/manifest.json" -- "${url}" 2>/dev/null \
         || { _ai_tools_ev_warn "no release manifest published at ${url} (or the host is offline)"; return 2; }
     curl -fsSL --connect-timeout 5 --max-time 30 -o "${workdir}/manifest.sig" -- "${url}.sig" 2>/dev/null \
@@ -375,10 +372,10 @@ ai_tools_entrypoint_release_verify() {
     _ai_tools_ev_dearmor "${key_file}" "${workdir}/key.gpg" \
         || { _ai_tools_ev_warn "could not read the release signing key at ${key_file}"; return 2; }
 
-    # gpgv's exit status already separates the two failures that must not collapse, and separates
-    # them exactly as the status contract does: 1 = a signature it rejects (tamper), 2 = a key it
-    # does not hold (a vendor key rotation, not evidence about the binary). Anything else is
-    # likewise unable-to-verify -- only a signature gpgv positively rejects earns verdict 1.
+    # gpgv's exit status already separates the two failures that must not collapse, and separates them exactly
+    # as the status contract does: 1 = a signature it rejects (tamper), 2 = a key it does not hold (a vendor key
+    # rotation, not evidence about the binary). Anything else is likewise unable-to-verify -- only a signature gpgv
+    # positively rejects earns verdict 1.
     local gpgv_output gpgv_status=0
     gpgv_output="$(gpgv --keyring "${workdir}/key.gpg" "${workdir}/manifest.sig" \
                         "${workdir}/manifest.json" 2>&1)" || gpgv_status=$?
@@ -391,9 +388,9 @@ ai_tools_entrypoint_release_verify() {
         return 2
     fi
 
-    # The signature verified against SOME key in the keyring; assert it was a declared one. This
-    # only bites once the keyring holds more than one key (a rotation overlap), which is exactly
-    # when an un-asserted keyring would silently widen what may sign a release.
+    # The signature verified against SOME key in the keyring; assert it was a declared one. This only bites once
+    # the keyring holds more than one key (a rotation overlap), which is exactly when an un-asserted keyring would
+    # silently widen what may sign a release.
     local squeezed_output="${gpgv_output//[[:space:]]/}" matched=no
     for declared in "${accepted_fingerprints[@]}"; do
         [[ "${squeezed_output}" == *"${declared^^}"* ]] && { matched=yes; break; }
