@@ -741,7 +741,7 @@ width_line() {  # width_line <case id> <expected "column<TAB>kind"> <argument...
     run_check --print-width "$@"
     assert_grep "${tab}${expected}\$" "${OUT}" "${id}: prints ${expected//${tab}/ }"
 }
-width_line TEST-PC-145-width-document "80${tab}document" "$(fixture TEST-PC-145-width-document.md 'A page.')"
+width_line TEST-PC-145-width-document "79${tab}document" "$(fixture TEST-PC-145-width-document.md 'A page.')"
 width_line TEST-PC-146-width-rule "120${tab}document" "$(fixture TEST-PC-146-width-rule.rule.md 'A rule.')"
 width_router="${TESTDIR}/width-router"; mkdir -p "${width_router}"; printf 'A router.\n' > "${width_router}/CLAUDE.md"
 width_line TEST-PC-147-width-router "120${tab}document" "${width_router}/CLAUDE.md"
@@ -756,11 +756,11 @@ width_line TEST-PC-153-width-override-document "60${tab}document" --width 60 \
     "${TESTDIR}/TEST-PC-145-width-document.md"
 width_line TEST-PC-154-width-override-source "60${tab}source" --width 60 \
     "${TESTDIR}/TEST-PC-148-width-source.sh"
-width_line TEST-PC-155-width-prose "80${tab}document" --prose "${TESTDIR}/TEST-PC-149-width-header.conf"
+width_line TEST-PC-155-width-prose "79${tab}document" --prose "${TESTDIR}/TEST-PC-149-width-header.conf"
 run_check --print-width "${TESTDIR}/TEST-PC-156-absent.md" "${TESTDIR}/TEST-PC-145-width-document.md"
 assert_grep "TEST-PC-156-absent.md${tab}-${tab}missing" "${OUT}" "TEST-PC-156-width-missing: names a path it cannot read"
 assert_rc 1 "TEST-PC-156-width-missing: a missing path fails the run"
-assert_grep "80${tab}document" "${OUT}" "TEST-PC-156-width-missing: the other paths are still printed"
+assert_grep "79${tab}document" "${OUT}" "TEST-PC-156-width-missing: the other paths are still printed"
 
 # ── `--wrap`: the line checks on source comments, opt-in ───────────────────────────────────────
 # A source comment is read as written, so under `--wrap` it holds to a 120-column wrap. Opt-in,
@@ -794,7 +794,7 @@ wrapped_silent TEST-PC-58-comment-directive.sh 'x=1' "# shellcheck disable=SC215
 # A SELinux interface's XML documentation is read by the policy tools; a plain `##` comment is prose.
 wrapped_silent TEST-PC-171-comment-xml-doc.if "## <summary>$(printf 'w%.0s' $(seq 1 125))</summary>"
 wrapped comment-width TEST-PC-172-comment-double-hash.if "## $(printf 'w%.0s' $(seq 1 125))"
-# A Markdown line holds to the column its READER takes: 80 for a page a person reads, 120 for the
+# A Markdown line holds to the column its READER takes: 79 for a page a person reads, 120 for the
 # router, a `*.rule.md` and a skill, which an agent retrieves by grep. Each column is pinned,
 # since one that read the same for every path would be no policy at all. A table row, a
 # fenced block, a URL line, a lone token and a man page are units the rule cannot break, and each

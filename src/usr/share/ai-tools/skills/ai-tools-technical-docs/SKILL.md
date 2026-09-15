@@ -978,9 +978,9 @@ and a terminal do not reflow them — so `--wrap` enforces:
 
 - **comment-width** — a source comment or docstring over **120** columns, this stack's code column. Override
   with `--width` where the language sets another (Black 88, PEP 8 79).
-- **document-width** — a Markdown line over the reader's column: **80** for pages people read (README, `docs/`, guides),
-  which keeps diffs small and side-by-side review readable; **120** for pages agents retrieve (`CLAUDE.md`, `AGENTS.md`,
-  `*.rule.md`, skills), which returns more of the claim per `grep` hit.
+- **document-width** — a Markdown line over the reader's column: **79** for pages people read (README, `docs/`, guides),
+  the column classic prose is set at, since such a page is read whole rather than grepped; **120** for pages agents
+  retrieve (`CLAUDE.md`, `AGENTS.md`, `*.rule.md`, skills), which returns more of the claim per `grep` hit.
 
 Only prose is measured: a code line, a table row, a fenced block, a single-token or URL line, and a man page are
 skipped. These checks are opt-in, since a tree whose prose predates them reports every line.

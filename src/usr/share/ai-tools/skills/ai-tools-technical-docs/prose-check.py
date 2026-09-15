@@ -1210,8 +1210,8 @@ PATH_CHECKS = [
 #
 #   comment-width      a comment or docstring line over SOURCE_WIDTH columns (120, the column
 #                      a code file wraps at; `--width` overrides it).
-#   document-width     a Markdown line over the column its READER takes -- 80 for a page a
-#                      person reads, AGENT_DOCUMENT_WIDTH (120) for the router, a `*.rule.md`
+#   document-width     a Markdown line over the column its READER takes -- DOCUMENT_WIDTH (79)
+#                      for a page a person reads, AGENT_DOCUMENT_WIDTH (120) for the router, a `*.rule.md`
 #                      and a skill, which an agent retrieves by `grep`; `--width` overrides it.
 #                      A document reflows when it is
 #                      rendered and is read unrendered as well -- in an editor, a diff, a review
@@ -1278,12 +1278,13 @@ def comment_line_findings(source, width):
 
 
 # A Markdown line's column follows its READER, which is the axis that decides everything else in
-# this file. A page an operator reads is reviewed as text -- one edited sentence stays a small
-# diff, a side-by-side review fits, and a tool that does not soft-wrap shows the paragraph -- so it
-# holds to the column code wraps at. A page an AGENT reads is retrieved by `grep`, which returns
+# this file. A page a person reads is read WHOLE -- as a document, in an editor, in a diff, in a
+# side-by-side review -- so it holds to the column classic prose is set at, where a paragraph is
+# scanned rather than searched and a one-sentence edit stays a small diff. A page an AGENT reads
+# is retrieved by `grep`, which returns
 # the matching line, so a wider column returns more of the claim per hit and splits fewer phrases
 # across a break. `--width` overrides the column whichever reader a path has.
-DOCUMENT_WIDTH = 80
+DOCUMENT_WIDTH = 79
 AGENT_DOCUMENT_WIDTH = 120
 # The agent-facing set: the router, the path-scoped rules, and the skills an agent loads. A
 # document outside it is read by a person and takes DOCUMENT_WIDTH.

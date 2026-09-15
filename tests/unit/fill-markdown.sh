@@ -266,7 +266,7 @@ else
     fail "a span closing one column past it was split or left: $(grep -n 'project-claim' "${f}")"
 fi
 
-# (7) The tree's own pages: every agent-facing page at 120 and every human-facing page at 80
+# (7) The tree's own pages: every agent-facing page at 120 and every human-facing page at 79
 # reflows to a state the gate passes, the checker finds complete, and a second run leaves alone.
 if ! git -C "${ROOT}" rev-parse --show-toplevel >/dev/null 2>&1; then
     skip "real pages" "not a git checkout"
@@ -302,7 +302,7 @@ else
         fi
     }
     real_pages agent 120 'CLAUDE.md' '*.rule.md' '*/skills/*.md' '*/orientation/*.md'
-    real_pages human 80 'README.md' 'CONTRIBUTING.md' 'SECURITY.md' 'CODE_OF_CONDUCT.md' 'CHANGELOG.md' \
+    real_pages human 79 'README.md' 'CONTRIBUTING.md' 'SECURITY.md' 'CODE_OF_CONDUCT.md' 'CHANGELOG.md' \
         'docs/*.md' 'selinux/*.md' 'packaging/*.md' 'tests/*.md' 'src/usr/share/ai-tools/subagents/*.md'
 fi
 

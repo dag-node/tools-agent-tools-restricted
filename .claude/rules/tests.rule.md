@@ -275,7 +275,7 @@ moves every line the later range names. Refused before Emacs sees it, through th
 was while the clean file beside it is filled. Two more pin the Emacs side: a file named like one of its options (`-Q`)
 is filled rather than obeyed, since the files are handed over after `--`, and a file-local `eval:` form is not run.
 Skipped without Emacs. `format.sh` pins the front door over both fillers (`tools/format.sh`): every file in a fixture
-repository goes to the filler for the kind the checker names, at the column it names — a page at 80, a router at 120,
+repository goes to the filler for the kind the checker names, at the column it names — a page at 79, a router at 120,
 a source comment at 120, a header under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker)
 is reported as skipped with its kind and left as it was, since the failure it exists to prevent is the comment filler
 pointed at a page. What may be formatted at all is the explicit scope `FORMAT_SCOPE` names: a unit file, a log
@@ -299,7 +299,7 @@ defect class, injected by hand, must be reported by the gate. The one class the 
 span leaves the token stream unchanged — is asserted on the filler's output instead: each span whole on one line, a span
 wider than the column run over on its own. It asserts a second run is a no-op and that `--lines` confines a reflow
 to the blocks it names, then reflows every page of the tree into its testdir, agent-facing at 120 and human-facing
-at 80, and holds them to the same three properties. It is also where the reader every formatter shares
+at 79, and holds them to the same three properties. It is also where the reader every formatter shares
 (`tools/text_file.py`) is pinned whole: each shape it refuses — a control or a bidi character, a NUL, a carriage return,
 a byte that is not UTF-8, a byte-order mark, a symlink, a FIFO — is reported with its reason and left byte-identical
 while the clean file beside it is filled, a column or a range that is not one is a usage error that writes nothing,

@@ -71,11 +71,11 @@ run_format() {
 restore() { git -C "${repo}" checkout -q -- . ; }
 longest() { awk '{ if (length > n) n = length } END { print n + 0 }' "$1"; }
 
-# (1) A named page goes to the Markdown filler at its reader's column: 80 for the page, 120 for
+# (1) A named page goes to the Markdown filler at its reader's column: 79 for the page, 120 for
 # the router, and the reflow is pure by the gate.
 run_format page.md notes/CLAUDE.md
-if (( $(longest "${repo}/page.md") <= 80 && $(longest "${repo}/page.md") > 60 )); then
-    pass "a page is filled at 80"
+if (( $(longest "${repo}/page.md") <= 79 && $(longest "${repo}/page.md") > 60 )); then
+    pass "a page is filled at 79"
 else
     fail "page.md longest line is $(longest "${repo}/page.md"): ${OUT}"
 fi
@@ -136,13 +136,13 @@ printf '\n%s\n' "${long} appended" >> "${repo}/page.md"
 printf '# New\n\n%s\n' "${long}" > "${repo}/new.md"
 run_format
 if grep -qF "${long}" "${repo}/page.md" && ! grep -qF "${long} appended" "${repo}/page.md" \
-        && (( $(longest "${repo}/new.md") <= 80 )); then
+        && (( $(longest "${repo}/new.md") <= 79 )); then
     pass "no file named: the touched paragraph and the untracked page are filled, the committed paragraph is left"
 else
     fail "the default scope did not hold: $(git -C "${repo}" diff --stat; head -8 "${repo}/page.md")"
 fi
 run_format --files
-if ! grep -qF "${long}" "${repo}/page.md" && (( $(longest "${repo}/page.md") <= 80 )); then
+if ! grep -qF "${long}" "${repo}/page.md" && (( $(longest "${repo}/page.md") <= 79 )); then
     pass "--files fills the whole of a changed file"
 else
     fail "--files left the committed paragraph: $(head -6 "${repo}/page.md")"
@@ -151,7 +151,7 @@ restore; rm -f "${repo}/new.md"
 
 # (5) `--all` warns and reads every tracked file; the report exits 1 while a line no filler can
 # shorten remains -- an anchor line the filler protects and the checker measures.
-printf '\n<a id="ref-table-x1y2"></a>**A caption line that is long enough to run past eighty columns on its own**\n' >> "${repo}/page.md"
+printf '\n<a id="ref-table-x1y2"></a>**A caption line that is long enough to run past the column on its own**\n' >> "${repo}/page.md"
 git -C "${repo}" add -A && git -C "${repo}" -c commit.gpgsign=false commit -qm anchor
 run_format --all
 if grep -q 'every tracked file' <<<"${OUT}"; then pass "--all warns before reading the tree"
@@ -179,7 +179,7 @@ run_format unit.service "${TESTDIR}/outside.md"
 if grep -q 'skipped unit.service (outside the scope)' <<<"${OUT}" \
         && grep -qF "skipped ${TESTDIR}/outside.md (outside the repository)" <<<"${OUT}" \
         && git -C "${repo}" diff --quiet -- unit.service \
-        && (( $(longest "${TESTDIR}/outside.md") > 80 )); then
+        && (( $(longest "${TESTDIR}/outside.md") > 79 )); then
     pass "a named file outside the scope or the repository is reported and skipped"
 else
     fail "a named file was formatted or not reported: ${OUT}"
