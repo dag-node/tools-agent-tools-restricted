@@ -601,6 +601,12 @@ expect "clone on an existing clone path resumes its finalization" cli_called ai-
 expect "the resume runs inside that clone"                        test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_C4}"
 expect "the resume makes no second clone"                         test "$(find "${SBROOT}" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 4
 expect "the resumed clone stays registered"                       st_is "${SBROOT}/${N_C4}" listed
+# A resume on a clone already opened leaves the tree as it is: a directory the operator sealed inside it since keeps
+# its mode, where a normalize re-run over the tree would open it to the group.
+sealed="${SBROOT}/${N_C4}/private"
+mkdir -m 700 "${sealed}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${sealed}"
+cli_stub_reset; drive cli projects.clone "${SBROOT}/${N_C4}"
+expect "a resume on an opened clone keeps a directory sealed inside it at 700" test "$(perm "${sealed}")" = 700
 
 cli_stub_reset; drive cli projects.clone "${SRC}" "$(f from)"
 expect "clone --from without a value is refused"                  rc_not0
