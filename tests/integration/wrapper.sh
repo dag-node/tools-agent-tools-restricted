@@ -124,7 +124,7 @@ fi
 out_excl="$(run_wrapper "${excluded}")"
 assert_msg MSG-K8K2 "${out_excl}" "wrapper refuses a '!'-excluded subdir of an approved project"
 
-# (2c) The two halves of `projects disable` meet HERE, and nowhere else: the verb's whole promise
+# (2c) The two halves of ai-tools.projects.disable meet HERE, and nowhere else: the verb's whole promise
 #      is that a parked project cannot be launched in, and that is this gate's decision, not the
 #      CLI's. Both sides are covered apart -- the CLI writes the line (tests/integration/cli.sh),
 #      the wrapper honours a '!' CWD (case 2b) -- so what this asserts is that they agree about

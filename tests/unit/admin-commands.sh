@@ -341,9 +341,10 @@ assert_msg MSG-C7S7 "${out}" "'system' still reaches base's own dispatch"
 run_admin --help
 assert_msg MSG-U6P9 "${out}" "the reserved-name refusal is reported"
 
-# `status` was reserved before it was implemented, and now that base answers it the reservation is what makes
-# the shadowing attempt land on BASE's command rather than the fragment's. The exit status is not asserted: the real
-# report exits non-zero on a host with something broken, and this is a check about which code ran, not about this host's
+# `ai-tools-admin status` was reserved before it was implemented, and now that base answers it the reservation is
+# what makes the shadowing attempt land on BASE's command rather than the fragment's. The exit status is not asserted:
+# the real report exits non-zero on a host with something broken, and this is a check about which code ran, not
+# about this host's
 # health.
 reset_fixtures
 write_fragment status

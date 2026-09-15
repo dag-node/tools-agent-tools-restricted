@@ -146,13 +146,13 @@ fi
 # `semanage fcontext` entry and has none to remove. ai_tools_label_project still verifies the achieved label rather than
 # trusting restorecon's exit status, so a mislabel is a hard failure -- the regression that let a usr_t clone report
 # success. After an unlabel a clone is still labelled, which is what keeps it reachable by the confined agent: the way
-# to un-label a clone is to delete it (`ai-tools projects remove`).
+# to un-label a clone is to delete it (ai-tools.projects.remove.clone).
 #
 # The other branch -- a claimed project, where the helper adds and then removes a per-path fcontext rule -- is
 # deliberately NOT exercised. Driving it would mutate the host's local SELinux policy to test a helper, which no test
 # here does, and a teardown that can leave a policy entry behind is worse than the coverage it buys. That leaves
-# ai_tools_unlabel_project's revert path (the one `projects unclaim` drives) uncovered: a known gap, recorded rather
-# than papered over.
+# ai_tools_unlabel_project's revert path (the one ai-tools.projects.unclaim drives) uncovered: a known gap, recorded
+# rather than papered over.
 RELABEL_LIB=/usr/local/lib/ai-tools/relabel.lib.sh
 if [[ ! -d "${SANDBOX_ROOT}" ]]; then
     skip "sandbox clone label" "sandbox area ${SANDBOX_ROOT} not present"

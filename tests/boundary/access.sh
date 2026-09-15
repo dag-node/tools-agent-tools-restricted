@@ -368,7 +368,7 @@ else
 fi
 
 # The labelling record, for a different reason from the pin: it does not gate a launch, it is REPORTED. An agent
-# that could write it could tell `ai-tools status` its labels were applied on a host where the relabel had failed --
+# that could write it could tell ai-tools.status its labels were applied on a host where the relabel had failed --
 # turning the operator's one window onto the labelling half into something the sandbox account writes.
 _ev_label=/var/opt/ai-tools/state/entrypoint-label.d/claude-code
 if [[ ! -e "${_ev_label}" ]]; then
@@ -415,10 +415,10 @@ else
 fi
 
 # ── the audit reader and the trail it reports are out of reach ───────────────────────────────
-# `ai-tools audit` presents the root-only file sink as EVIDENCE, and that claim rests on this vantage: the sandbox
-# account can neither read the trail (so it cannot know what an operator is about to be shown) nor write it (so it
-# cannot plant or erase a finding), and cannot run or alter the reader itself. Asserted from the agent's side, because
-# that is the side the claim is
+# ai-tools.audit presents the root-only file sink as EVIDENCE, and that claim rests on this vantage: the sandbox account
+# can neither read the trail (so it cannot know what an operator is about to be shown) nor write it (so it cannot plant
+# or erase a finding), and cannot run or alter the reader itself. Asserted from the agent's side, because that is
+# the side the claim is
 # about.
 _audit_bin=/usr/local/libexec/ai-tools/ai-tools-audit
 if [[ ! -x "${_audit_bin}" ]]; then
@@ -439,12 +439,12 @@ else
 fi
 
 # ── the stop path is out of reach from inside a session ──────────────────────────────────────
-# `ai-tools stop` is the incident ladder's stop rung: the one control that acts on a session already running.
-# A control the monitored system can disarm is not a control, so the claim rests on this vantage -- the account
-# a session runs as can neither run the helper (which would let a session terminate every operator's work, or exhaust
-# the trail with noise) nor alter it. There is no authorization input for it to aim at either: the command accepts
-# neither a target nor an allowlist, so what it terminates is decided by cgroup-slice membership alone. What the agent
-# CAN do is be stopped: the kill is delivered by root to a cgroup, and no process inside the cgroup takes part.
+# ai-tools.stop is the incident ladder's stop rung: the one control that acts on a session already running. A control
+# the monitored system can disarm is not a control, so the claim rests on this vantage -- the account a session runs
+# as can neither run the helper (which would let a session terminate every operator's work, or exhaust the trail
+# with noise) nor alter it. There is no authorization input for it to aim at either: the command accepts neither
+# a target nor an allowlist, so what it terminates is decided by cgroup-slice membership alone. What the agent CAN do is
+# be stopped: the kill is delivered by root to a cgroup, and no process inside the cgroup takes part.
 _stop_bin=/usr/local/libexec/ai-tools/ai-tools-stop
 if [[ ! -e "${_stop_bin}" ]]; then
     skip "stop helper not agent-reachable" "not installed at ${_stop_bin}"
@@ -503,9 +503,10 @@ else
 fi
 
 # ── The two project verbs that write the filesystem as an owner ─────────────────
-# The boundary half of the pair for `projects create` and `projects remove`. Their runtime refusals are asserted
-# in integration/cli.sh; what makes those meaningful is that the agent cannot reach the verbs at all. `projects remove`
-# matters most: it deletes a whole project tree, and an agent that could invoke it could destroy the operator's work.
+# The boundary half of the pair for ai-tools.projects.create and ai-tools.projects.remove.inplace. Their runtime
+# refusals are asserted in integration/cli.sh; what makes those meaningful is that the agent cannot reach the verbs
+# at all. The removal matters most: it deletes a whole project tree, and an agent that could invoke it could destroy
+# the operator's work.
 #
 # Both are driven with NO path argument, so a regression that let one through would still have no path to act on --
 # the create refuses a missing path outright, and the remove would resolve the agent's own cwd, which is not a claimed

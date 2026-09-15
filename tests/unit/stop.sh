@@ -491,8 +491,8 @@ FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/proj/alpha/sub/
 
 # A WORKING DIRECTORY THAT IS NOT AN ABSOLUTE PATH YIELDS AN EMPTY VALUE. systemd renders the "missing is ok" flag
 # as a `!` prefix over d-bus (`WorkingDirectory=!/opt/ai-tools`), and an unstripped one reached the operator inside
-# a `projects handback` command that will not run -- and that, pasted into an interactive bash, is not even inert. Driven
-# through the real function, with the systemctl calls it makes stubbed out.
+# an ai-tools.projects.handback command that will not run -- and that, pasted into an interactive bash, is not even
+# inert. Driven through the real function, with the systemctl calls it makes stubbed out.
 systemctl() { printf 'WorkingDirectory=%s\n' "${STUB_WORKING_DIR}"; }
 timeout()   { shift; "$@"; }
 for stub_case in "!/srv/p:/srv/p" "-/srv/p:/srv/p" "/srv/p:/srv/p" "~:" "!~:" "relative/p:" ":"; do

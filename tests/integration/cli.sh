@@ -5,12 +5,12 @@
 # safe.directory through the ai-tools-safedir root helper); it must refuse to run as the sandbox account for every verb
 # (the agent must not manage its own allowlist), and as root for every verb that WRITES OPERATOR-OWNED STATE (it would
 # write the registries with the wrong owner) while accepting the ones that write none -- the four reports, which root
-# reaches because `audit`'s trail is 700 root:root, and `stop`, whose helper requires root. Asserts that split in both
-# directions, that the projects user passes the guard, the operator preflight and the per-verb "not a claimed project"
-# refusals, and -- over a FIXTURE allowlist + gitconfig (the AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG root-only test
-# hooks, so it never reads the operator's real registry) -- the full `projects list` reconciliation render: every entry
-# class, every Suggested-cleanup class, and that the loop reaches its Maintenance footer past an early stale/protected
-# entry. Run as root via sudo.
+# reaches because ai-tools.audit's trail is 700 root:root, and ai-tools.stop, whose helper requires root. Asserts
+# that split in both directions, that the projects user passes the guard, the operator preflight and the per-verb "not
+# a claimed project" refusals, and -- over a FIXTURE allowlist + gitconfig (the AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG
+# root-only test hooks, so it never reads the operator's real registry) -- the full ai-tools.projects.list
+# reconciliation render: every entry class, every Suggested-cleanup class, and that the loop reaches its Maintenance
+# footer past an early stale/protected entry. Run as root via sudo.
 #
 # No case spells a command: each names a key that tests/lib/cli-spelling.sh turns into the tokens the deployed CLI
 # accepts, so a respelling of the command surface edits that table alone (the same rule cli-flags.sh follows). A result
@@ -58,10 +58,10 @@ for key in ai-tools.projects.claim ai-tools.projects.unclaim ai-tools.projects.c
     refused "CLI refuses root on ${key} (would write registries with the wrong owner)" MSG-H6W7
 done
 
-# (1b) The verbs that write no operator state are the carve-out: `audit` needs root by construction (its trail is 700
-# root:root), and refusing it left the verb unreachable from BOTH sides on a host whose only operator does not hold
-# a general sudo grant. Asserted on the refusal text rather than the exit status: `audit` and `status` both exit
-# non-zero to REPORT something, which is not a refusal.
+# (1b) The verbs that write no operator state are the carve-out: ai-tools.audit needs root by construction (its trail is
+# 700 root:root), and refusing it left the verb unreachable from BOTH sides on a host whose only operator does not hold
+# a general sudo grant. Asserted on the refusal text rather than the exit status: ai-tools.audit and ai-tools.status
+# both exit non-zero to REPORT something, which is not a refusal.
 for key in ai-tools.audit ai-tools.status ai-tools.projects.list ai-tools.providers; do
     spell "${key}"
     out="$("${CLI}" "${CLI_ARGV[@]}" 2>&1)" || true
@@ -72,8 +72,8 @@ for key in ai-tools.audit ai-tools.status ai-tools.projects.list ai-tools.provid
     fi
 done
 
-# `stop` is in that set too and is the one member that ACTS, so it is asserted through a REFUSAL it reaches only past
-# the principal guard: an unknown option, which cmd_stop's argument loop rejects with the documented usage code
+# ai-tools.stop is in that set too and is the one member that ACTS, so it is asserted through a REFUSAL it reaches only
+# past the principal guard: an unknown option, which cmd_stop's argument loop rejects with the documented usage code
 # BEFORE the sudo that would reach the root helper. Driving the bare command here would terminate every session
 # on the host -- including the one running this suite -- so the assertion is that root got as far as the option loop,
 # not that a stop ran.
@@ -126,7 +126,7 @@ else
 fi
 
 # (4) Operator preflight: a user NOT in OPERATORS is refused on an operator-acting command, BEFORE any registry write.
-# Point the CLI at a temp operator.conf listing a bogus operator (not the projects user) and run `projects claim`
+# Point the CLI at a temp operator.conf listing a bogus operator (not the projects user) and run ai-tools.projects.claim
 # as the projects user -- require_operator must refuse.
 if command -v runuser >/dev/null 2>&1; then
     section "CLI operator preflight (OPERATORS membership)"
@@ -161,7 +161,7 @@ if command -v runuser >/dev/null 2>&1; then
         fail "--help was blocked for a non-operator: ${out}"
     fi
 
-    # (6) `projects unclaim` classifies its target against allowed-projects: a directory that no entry covers
+    # (6) ai-tools.projects.unclaim classifies its target against allowed-projects: a directory that no entry covers
     # AND that has no ai-tools ownership or group is REFUSED, before any registry/filesystem change. The testdir path is
     # not in the (real) allowlist and is freshly created, so it classifies as unrelated-and-clean -- the one outcome
     # with no remedy to offer (a tree carrying the fingerprint is instead pointed at --force). Runs as an OPERATOR (conf
@@ -216,9 +216,9 @@ if command -v runuser >/dev/null 2>&1; then
         awk '{printf "%s%s", sep, $0; sep=" ~ "}' <<<"${sel}"
     }
 
-    # (6c) `projects create` is a real verb, not an alias, so its refusals are asserted where the old alias had none.
-    # Every one of them must leave NO RESIDUE behind -- no directory, no registry entry -- which is what makes "recover
-    # with `projects claim`" the only recovery path it needs.
+    # (6c) ai-tools.projects.create is a real verb, not an alias, so its refusals are asserted where the old alias had
+    # none. Every one of them must leave NO RESIDUE behind -- no directory, no registry entry -- which is what makes
+    # "recover with ai-tools.projects.claim" the only recovery path it needs.
     : > "${emptyal}"
     create_cli() {
         local -a argv
@@ -361,8 +361,8 @@ if command -v runuser >/dev/null 2>&1; then
         fail "the created project was claimed as owner-only: $(brief "${out}" 'owner-only')"
     fi
 
-    # (6d) `projects remove` deletes, so every assertion here is that it did NOT. Its authorization is an exact
-    # allowlist entry alone: there is no --force, and an unattended run never reaches the deletion because both
+    # (6d) ai-tools.projects.remove.inplace deletes, so every assertion here is that it did NOT. Its authorization is
+    # an exact allowlist entry alone: there is no --force, and an unattended run never reaches the deletion because both
     # the default-NO confirm and the typed-name challenge decline with no terminal (these run under setsid, so that is
     # the path being
     # driven).
@@ -411,8 +411,8 @@ if command -v runuser >/dev/null 2>&1; then
     fi
     assert_msg MSG-K5Y4 "${out}" "the refusal is the inside-a-project one"
 
-    # An ancestor of claimed projects is refused and pointed at `projects unclaim`: this verb removes one registered
-    # project, never a directory that merely contains some.
+    # An ancestor of claimed projects is refused and pointed at ai-tools.projects.unclaim: this verb removes one
+    # registered project, never a directory that merely contains some.
     out="$(remove_cli "${rmwork}")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]] && grep -qF -- "$(cli_cmd_text ai-tools.projects.unclaim)" <<<"${out}"; then
         pass "ai-tools.projects.remove.inplace refuses an ancestor of claimed projects"
@@ -591,7 +591,7 @@ if command -v runuser >/dev/null 2>&1; then
         pass "the removal reserves its success mark for a run with no failures"
     fi
 
-    # (7) `projects list` renders the reconciliation view deterministically over a FIXTURE allowlist + gitconfig
+    # (7) ai-tools.projects.list renders the reconciliation view deterministically over a FIXTURE allowlist + gitconfig
     # (AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG), so it never reads the operator's real registry. Every entry class
     # and every Suggested-cleanup class is asserted. The stale and protected entries sit EARLY, so a passing
     # Maintenance/orphan assertion also proves the reconcile loop no longer aborts mid-list under set -e when a trailing
@@ -659,8 +659,8 @@ EOF
         fail "orphaned-safedir count is ${n_orphan}, expected 1"
     fi
 
-    # (8) `projects handback` and `projects lockdown` refuse a path outside every claimed project, up front (before
-    # the sudo prompt / any change) -- covered_by_project. ${lone} is not in the fixture allowlist.
+    # (8) ai-tools.projects.handback and ai-tools.projects.lockdown refuse a path outside every claimed project,
+    # up front (before the sudo prompt / any change) -- covered_by_project. ${lone} is not in the fixture allowlist.
     for key in ai-tools.projects.handback ai-tools.projects.lockdown; do
         spell "${key}"
         out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
@@ -669,7 +669,7 @@ EOF
         refused "${key} refuses a path outside every claimed project" MSG-J3K5
     done
 
-    # (9) `projects remove` decides its kind from the path, so the clone-area root itself and a path outside the clone
+    # (9) One removal verb decides its kind from the path, so the clone-area root itself and a path outside the clone
     # area are the in-place kind and meet the registry gate (not a claimed project) BEFORE any `rm -rf`; a clone is
     # a direct child of the area, which neither is. A destructive verb is never aimed at the REAL clone area, even
     # to assert a refusal: the rows run against a fixture clone area through the AI_TOOLS_SANDBOX_ROOT override,
@@ -697,7 +697,7 @@ EOF
     fi
 fi
 
-# `stop`: the CLI half only -- the option grammar and the two forms not being combinable. Both refusals land
+# ai-tools.stop: the CLI half only -- the option grammar and the two forms not being combinable. Both refusals land
 # in the argument loop, BEFORE the sudo that reaches the root helper, so neither reaches a password prompt or signals
 # anything. The helper's own enumeration and kill are covered in tests/unit/stop.sh and tests/integration/stop.sh;
 # what this asserts is that the verb is dispatched at all and that a mistyped one is refused rather than passed through.
@@ -708,7 +708,7 @@ fi
 # the CLI refused through its own die (1) against a documented 2, and only the live drill, which pins the code, caught
 # it.
 if command -v runuser >/dev/null 2>&1; then
-    section "ai-tools stop (argument grammar)"
+    section "ai-tools.stop (argument grammar)"
     spell ai-tools.stop
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" setsid \
             "${CLI}" "${CLI_ARGV[@]}" --bogus 2>&1)" && rc=0 || rc=$?
@@ -792,13 +792,13 @@ if command -v runuser >/dev/null 2>&1; then
     refused "--for with no operator name is refused, ahead of every gate" MSG-B4G2
 fi
 
-# ── `projects disable` / `projects enable`: parking a project in place ───────────────────────
+# ── ai-tools.projects.disable / ai-tools.projects.enable: parking a project in place ─────────
 # The pair edits ONE line of the operator's own allowlist and does not reach a root helper, so the whole lifecycle is
 # drivable here as the projects user over the fixture registry. What is asserted is what the flat-file model rests
 # on (the three entry states, in cli.rule.md): the line is edited IN PLACE, a parked project is not an unlisted one,
 # and neither verb ever invents or lifts a line it cannot attribute -- since lifting the wrong '!' hands the agent
 # a subtree its operator withheld.
-section "ai-tools projects disable / projects enable"
+section "ai-tools.projects.disable / ai-tools.projects.enable"
 
 if ! command -v runuser >/dev/null 2>&1; then
     skip "ai-tools.projects.disable / ai-tools.projects.enable" "runuser unavailable"
@@ -856,7 +856,7 @@ else
         fail "the refused claim duplicated the entry:"$'\n'"$(cat "${pd_al}")"
     fi
 
-    # (3) `projects list` calls it what it is, and names the verb that restores it.
+    # (3) ai-tools.projects.list calls it what it is, and names the verb that restores it.
     out="$(pd_cli ai-tools.projects.list)" || true
     if grep -qE "disabled[[:space:]]+${pd_proj}" <<<"${out}" \
             && grep -qF -- "$(cli_cmd_text ai-tools.projects.enable) ${pd_proj}" <<<"${out}"; then
@@ -928,10 +928,10 @@ else
         fi
     done
 
-    # (9) `projects remove`'s AUTHORIZATION is the exact entry, and a parked one counts: the '!' records "not right
-    # now", not "not mine", and making the operator re-enable a tree they mean to delete would make it launchable
-    # on the way out. So the verb must get past classification -- reaching its own disabled confirm -- rather than
-    # refusing as unregistered. It must also delete NO PATH here: with no terminal the confirm and the typed-name
+    # (9) ai-tools.projects.remove.inplace's AUTHORIZATION is the exact entry, and a parked one counts: the '!' records
+    # "not right now", not "not mine", and making the operator re-enable a tree they mean to delete would make it
+    # launchable on the way out. So the verb must get past classification -- reaching its own disabled confirm -- rather
+    # than refusing as unregistered. It must also delete NO PATH here: with no terminal the confirm and the typed-name
     # challenge both decline, which is the property that keeps a destructive verb out of an unattended run.
     out="$(pd_cli ai-tools.projects.remove.inplace "${pd_proj}")" && rc=0 || rc=$?
     if grep -qi 'not a claimed project' <<<"${out}"; then
@@ -990,13 +990,13 @@ else
     fi
 fi
 
-# ── `audit`: the reader for the refusal trails ───────────────────────────────────────────────
-# Driven against the deployed helper directly rather than through `ai-tools audit`, because the CLI reaches it via sudo
+# ── ai-tools.audit: the reader for the refusal trails ────────────────────────────────────────
+# Driven against the deployed helper directly rather than through ai-tools.audit, because the CLI reaches it via sudo
 # with no NOPASSWD rule and would prompt for a password. The helper is where every decision lives (the CLI is
 # a pass-through that propagates its exit status), and AI_TOOLS_LOG_DIR -- the same root-only hook the harness already
 # uses -- points it at a seeded throwaway trail instead of the production one. Root-only, so this needs the suite's
 # root.
-section "ai-tools audit reads the refusal trails"
+section "ai-tools.audit reads the refusal trails"
 audit_bin=/usr/local/libexec/ai-tools/ai-tools-audit
 if [[ ! -x "${audit_bin}" ]]; then
     skip "ai-tools.audit" "${audit_bin} not installed"

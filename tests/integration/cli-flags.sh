@@ -22,8 +22,9 @@
 # Prompts: every run is under `setsid -w`, so each prompt takes its non-interactive default. A default-NO prompt
 # therefore declines, which is what makes `--yes` observable -- the row without it does not record a helper call,
 # the row with it records the call. A default-YES prompt proceeds, so a `--yes` on such a command (the clone's create
-# confirm) is asserted as accepted, its effect being unobservable without a terminal. `projects remove` decides its kind
-# from the path, so its rows drive a project in place and a clone, each under the key naming the kind it removes.
+# confirm) is asserted as accepted, its effect being unobservable without a terminal. One removal verb decides its kind
+# from the path, so its rows drive a project in place under ai-tools.projects.remove.inplace and a clone under
+# ai-tools.projects.remove.clone.
 #
 # Trace mode: with AI_TOOLS_CLI_FLAGS_TRACE=<file> the run also RECORDS every outcome, so a diff of two traces reports
 # every difference between two builds, including one no row names.  The file opens with a surface digest read
@@ -334,7 +335,7 @@ drive_rows() {
     trace_surface
 
     # ── A. Reads, help, and the incident rung ─────────────────────────────────────────
-    section "reports, help, version, stop, audit"
+    section "reports, ai-tools.help, ai-tools.version, ai-tools.stop, ai-tools.audit"
     seed "${R}/pa"
     drive cli help;               expect "help exits 0 with no helper call"            rc_is 0
     expect "help reaches no helper" cli_log_empty
@@ -376,7 +377,7 @@ drive_rows() {
     expect "audit passes --since and its value through verbatim"      cli_called ai-tools-audit "^$(f since)${T}2 days ago$"
 
     # ── B. Claim ─────────────────────────────────────────────────────────────────────
-    section "projects claim"
+    section "ai-tools.projects.claim"
     seed "${R}/pb"
     drive cli ai-tools.projects.claim "${R}/pa"
     expect "claim without --yes declines at the proceed prompt"       rc_not0
@@ -410,7 +411,7 @@ drive_rows() {
     expect "the refused claim reaches no helper"                      cli_log_empty
 
     # ── C. Create ─────────────────────────────────────────────────────────────────────
-    section "projects create"
+    section "ai-tools.projects.create"
     seed "${R}/pa"
     drive cli ai-tools.projects.create
     expect "create without a path is refused"                         rc_not0
@@ -436,7 +437,7 @@ drive_rows() {
     expect "the refused create makes nothing"                         test ! -e "${R}/new2"
 
     # ── D. Unclaim ────────────────────────────────────────────────────────────────────
-    section "projects unclaim"
+    section "ai-tools.projects.unclaim"
     seed "${R}/pa" "${R}/pb" "${R}/pc" "${R}/pd" "${R}/pg" "${R}/parent/p1" "${R}/parent/p2"
     seed_gc "${R}/pa" "${R}/pb" "${R}/pc" "${R}/pd" "${R}/pg"
     drive cli ai-tools.projects.unclaim "${R}/pa"
@@ -505,7 +506,7 @@ drive_rows() {
     expect "the enclosing entry is untouched"                         st_is "${R}/hold" listed
 
     # ── E. Remove ─────────────────────────────────────────────────────────────────────
-    section "projects remove"
+    section "ai-tools.projects.remove.inplace"
     mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp/nested"; chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp"
     seed "${R}/rm1" "!${R}/rm2" "${R}/rm3" "${R}/rmp" "${R}/rmp/nested"
     seed_gc "${R}/rm1" "${R}/rm2"
@@ -537,7 +538,7 @@ drive_rows() {
     expect "that refusal reaches no helper"                           cli_log_empty
 
     # ── F. Enable and disable ─────────────────────────────────────────────────────────
-    section "projects disable / enable"
+    section "ai-tools.projects.disable / ai-tools.projects.enable"
     seed "${R}/pa" "${R}/hold" "${R}/hold/inner"
     drive cli ai-tools.projects.disable "${R}/pa"
     expect "disable parks the entry"                                  st_is "${R}/pa" disabled
@@ -604,10 +605,10 @@ drive_rows() {
     # put every clone in the real clone area, which the hermeticity contract forbids.
     HAVE_SBROOT=false; grep -q 'AI_TOOLS_SANDBOX_ROOT' "${CLI}" && HAVE_SBROOT=true
     if ! ${HAVE_SBROOT}; then
-        section "projects clone / push / sandbox remove"
+        section "ai-tools.projects.clone / .push / .remove.clone"
         skip "clone, push and clone-removal rows" "the installed ${CLI} predates the AI_TOOLS_SANDBOX_ROOT override; deploy the checkout first"
     else
-    section "projects clone"
+    section "ai-tools.projects.clone"
     seed
     cli_stub_reset; drive cli ai-tools.projects.clone "${SRC}"
     expect "clone exits 0"                                            rc_is 0
@@ -653,7 +654,7 @@ drive_rows() {
     expect "the refused clone makes no directory"                     test ! -e "${SBROOT}/${N_C5}"
 
     # ── I. Push, and the clone kind's removal ─────────────────────────────────────────
-    section "projects push / sandbox remove"
+    section "ai-tools.projects.push / ai-tools.projects.remove.clone"
     runuser -u "${PROJECTS_USER}" -- git -C "${SBROOT}/${N_SRC}" -c user.name=cli-flags -c user.email=cli-flags@example.invalid \
         -c commit.gpgsign=false commit --allow-empty -m "sandbox work" >/dev/null 2>&1
     cli_stub_reset; drive cli ai-tools.projects.push "${SBROOT}/${N_SRC}"
@@ -685,7 +686,7 @@ drive_rows() {
     fi
 
     # ── J. Lockdown and reclaim ───────────────────────────────────────────────────────
-    section "projects lockdown / reclaim"
+    section "ai-tools.projects.lockdown / ai-tools.projects.handback"
     seed "${R}/pa"
     cli_stub_reset; drive cli ai-tools.projects.lockdown "${R}/pa"
     expect "lockdown runs the helper inside the project"              test "$(cwd_of ai-tools-lockdown)" = "${R}/pa"

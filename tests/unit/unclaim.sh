@@ -280,7 +280,7 @@ fi
 # sourced as root or the sandbox account, and under setsid so the no-terminal path takes its default instead
 # of prompting. `set -u` is on inside, so a result the function failed to publish to its caller is an abort here --
 # exactly the failure being pinned, and one no stdout-capturing test can see.
-section "ai-tools projects unclaim: hand-back group resolution (unit)"
+section "ai-tools.projects.unclaim: hand-back group resolution (unit)"
 readonly CLI="/usr/local/bin/ai-tools"
 if [[ ! -x "${CLI}" ]]; then
     skip "resolve_handback_group" "CLI not installed at ${CLI}"

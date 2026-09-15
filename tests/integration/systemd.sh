@@ -170,13 +170,13 @@ else
     fi
 fi
 
-# `ai-tools status` reports these same units end to end (it sources services.lib.sh, iterates the registry,
-# and queries systemctl). Run as the projects user (the CLI refuses root); `status` bypasses the provisioning gate,
-# so it works regardless of bootstrap state. The command is named by the key tests/lib/cli-spelling.sh turns into
-# today's tokens, so a respelling of the surface edits that table alone.
+# ai-tools.status reports these same units end to end (it sources services.lib.sh, iterates the registry, and queries
+# systemctl). Run as the projects user (the CLI refuses root); ai-tools.status bypasses the provisioning gate, so it
+# works regardless of bootstrap state. The command is named by the key tests/lib/cli-spelling.sh turns into today's
+# tokens, so a respelling of the surface edits that table alone.
 #
 # What is asserted is that the REPORT ran and named the handback socket -- the same registry the launch-time warning
-# shares -- not that this host is healthy. `status` exits 1 when it reports something broken (see cli.rule.md),
+# shares -- not that this host is healthy. ai-tools.status exits 1 when it reports something broken (see cli.rule.md),
 # which is a successful report on an unhealthy host and must not fail the suite: a test host legitimately has a unit
 # down. So 0 and 1 both pass provided the output is there, while any other status (or missing output) means the command
 # itself broke.
