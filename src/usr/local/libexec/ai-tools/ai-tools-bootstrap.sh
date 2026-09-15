@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-bootstrap
-# Provision the sandbox account's Node toolchain: create the @SANDBOX_USER@ system account
-# and its /opt/ai-tools home (if absent), then install nvm, Node, and the enabled agents' npm
-# packages AS @SANDBOX_USER@, and point /opt/ai-tools/bin/<launcher> at each freshly installed
-# binary. This is the one step that reaches the network (nvm from GitHub, packages from npm),
-# so it is a command run once by the operator -- never an RPM scriptlet, which must succeed
-# offline and inside build chroots. The scheduled nvm-update timer maintains the tree afterwards.
+# Provision the sandbox account's Node toolchain: create the @SANDBOX_USER@ system account and its /opt/ai-tools home
+# (if absent), then install nvm, Node, and the enabled agents' npm packages AS @SANDBOX_USER@, and point
+# /opt/ai-tools/bin/<launcher> at each freshly installed binary. This is the one step that reaches the network (nvm
+# from GitHub, packages from npm), so it is a command run once by the operator -- never an RPM scriptlet, which must
+# succeed offline and inside build chroots. The scheduled nvm-update timer maintains the tree afterwards.
 #
-# Agent-agnostic: it does not install a hardcoded agent. Which agents to provision -- their npm package
-# and launcher name -- comes from the per-package manifests under
-# /usr/local/lib/ai-tools/agents.d, gated by operator.conf AI_TOOLS_AGENTS (providers.lib.sh).
-# With no manifests deployed yet it provisions Node alone; a re-run after an ai-tools-agents-*
-# package is installed provisions that agent.
+# Agent-agnostic: it does not install a hardcoded agent. Which agents to provision -- their npm package and launcher
+# name -- comes from the per-package manifests under /usr/local/lib/ai-tools/agents.d, gated by operator.conf
+# AI_TOOLS_AGENTS (providers.lib.sh). With no manifests deployed yet it provisions Node alone; a re-run
+# after an ai-tools-agents-* package is installed provisions that agent.
 #
 # Idempotent: an existing account, nvm install, or Node version is reused, not rebuilt.
 #
@@ -35,41 +33,41 @@ readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 readonly SANDBOX_HOME="/opt/ai-tools"
 readonly NVM_DIR="${SANDBOX_HOME}/.nvm"
-# nvm version is resolved at run time (latest release, unless pinned); see resolve_nvm_version.
-# The fallback is used only when the GitHub API cannot be reached and no pin is set.
+# nvm version is resolved at run time (latest release, unless pinned); see resolve_nvm_version. The fallback is used
+# only when the GitHub API cannot be reached and no pin is set.
 readonly NVM_FALLBACK_VERSION="v0.40.3"
 readonly NODE_MAJOR="${AI_TOOLS_NODE_MAJOR:-22}"
 
-# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
-# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline: this helper reports
-# before the control plane, and so the library, exists.
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
+# tests/lib/harness.sh's assert_msg reads. Matched inline: this helper reports before the control plane,
+# and so the library, exists.
 die() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-bootstrap: error: %s\n' "$*" >&2; exit 1
 }
 log() { printf 'ai-tools-bootstrap: %s\n' "$*"; }
-# warn carries the severity itself, so no message text spells one out, and it writes to stderr
-# like every other helper's -- a provisioning step that did not complete is not part of the
-# progress narrative log() prints, and nothing reads this helper's stdout.
+# warn carries the severity itself, so no message text spells one out, and it writes to stderr like every other helper's
+# -- a provisioning step that did not complete is not part of the progress narrative log() prints, and nothing reads
+# this helper's stdout.
 warn() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-bootstrap: warn: %s\n' "$*" >&2
 }
-# err reports a fault in the HOST that this command found and does not own: the provisioning it was
-# asked for completed, so it says so at the severity the state deserves and leaves the exit status
-# to the steps that provision. die is the other direction -- a fault that ends this run.
+# err reports a fault in the HOST that this command found and does not own: the provisioning it was asked for completed,
+# so it says so at the severity the state deserves and leaves the exit status to the steps that provision. die is
+# the other direction -- a fault that ends this run.
 err() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-bootstrap: error: %s\n' "$*" >&2
 }
 
-# resolve_nvm_version: echo the nvm release tag to install. An explicit AI_TOOLS_NVM_VERSION
-# pin wins; otherwise query the GitHub API for the latest release tag, falling back to the
-# pinned default on any failure (offline, rate-limited, unparseable) so bootstrap stays robust
-# without carrying a version that rots. The caller validates the result before it is used.
+# resolve_nvm_version: echo the nvm release tag to install. An explicit AI_TOOLS_NVM_VERSION pin wins; otherwise query
+# the GitHub API for the latest release tag, falling back to the pinned default on any failure (offline, rate-limited,
+# unparseable) so bootstrap stays robust without carrying a version that rots. The caller validates the result before it
+# is used.
 resolve_nvm_version() {
     if [[ -n "${AI_TOOLS_NVM_VERSION:-}" ]]; then
         printf '%s' "${AI_TOOLS_NVM_VERSION}"
@@ -86,15 +84,13 @@ resolve_nvm_version() {
     fi
 }
 
-# configure_git_identity: offer to set the sandbox git identity -- the name/email the agent
-# authors commits with -- in the shared control-plane gitconfig. install.sh / the RPM %post
-# seed a safe default (ai-tools@<domain-or-hostname>); this is the one interactive point both
-# install flows share (an RPM %post cannot prompt), so the operator can adopt their own git
-# identity, keep the default, or edit the file by hand. Runs only when the control plane is
-# present (the gitconfig exists) -- a bootstrap that precedes install.sh has no gitconfig to
-# configure and skips. Past that gate msg.lib is deployed, so it is REQUIRED like every other
-# prompting consumer (a missing lib is a broken install and dies, not a silent skip); an
-# unattended run keeps the default via msg.lib's no-tty path.
+# configure_git_identity: offer to set the sandbox git identity -- the name/email the agent authors commits with --
+# in the shared control-plane gitconfig. install.sh / the RPM %post seed a safe default (ai-tools@<domain-or-hostname>);
+# this is the one interactive point both install flows share (an RPM %post cannot prompt), so the operator can adopt
+# their own git identity, keep the default, or edit the file by hand. Runs only when the control plane is present (the
+# gitconfig exists) -- a bootstrap that precedes install.sh has no gitconfig to configure and skips. Past that gate
+# msg.lib is deployed, so it is REQUIRED like every other prompting consumer (a missing lib is a broken install
+# and dies, not a silent skip); an unattended run keeps the default via msg.lib's no-tty path.
 configure_git_identity() {
     local gc="${SANDBOX_HOME}/.gitconfig"
     command -v git >/dev/null 2>&1 \
@@ -102,8 +98,8 @@ configure_git_identity() {
     [[ -f "${gc}" ]] \
         || { log "git identity: ${gc} not present yet -- install the control plane, then re-run to set it"; return 0; }
 
-    # The control plane is present (the gitconfig check), so its msg.lib is deployed too; require it
-    # like every other prompting consumer -- a missing lib is a broken install, not a skip.
+    # The control plane is present (the gitconfig check), so its msg.lib is deployed too; require it like every other
+    # prompting consumer -- a missing lib is a broken install, not a skip.
     local msglib=/usr/local/lib/ai-tools/msg.lib.sh
     [[ -r "${msglib}" ]] || die MSG-H3H3 "control plane present but ${msglib} missing -- reinstall ai-tools"
     # shellcheck source=/dev/null
@@ -151,21 +147,20 @@ configure_git_identity() {
     log "verify the result in ${gc}"
 }
 
-# seed_managed_assets_step: (re)seed the ai-tools-managed shared assets from the pristine datadir
-# copies into the config directory of each agent that uses that asset format. The directories come
-# from the manifests (control-plane.lib.sh), so this helper does not hardcode a path itself. Runs only when the
-# control plane is present (a config dir and the /usr/share/ai-tools pristine copies exist) and
-# the seeder lib is deployed; a bootstrap that precedes install.sh has no source to seed and skips.
-# Past that gate msg.lib is deployed, so the update confirm requires it like every other prompting
-# consumer. Same non-overwrite and version rules as install.sh -- only ai-tools-* assets carrying
+# seed_managed_assets_step: (re)seed the ai-tools-managed shared assets from the pristine datadir copies into the config
+# directory of each agent that uses that asset format. The directories come from the manifests (control-plane.lib.sh),
+# so this helper does not hardcode a path itself. Runs only when the control plane is present (a config dir
+# and the /usr/share/ai-tools pristine copies exist) and the seeder lib is deployed; a bootstrap that precedes
+# install.sh has no source to seed and skips. Past that gate msg.lib is deployed, so the update confirm requires it like
+# every other prompting consumer. Same non-overwrite and version rules as install.sh -- only ai-tools-* assets carrying
 # x-ai-tools-managed are touched, and an existing one updates only on confirm (default keep). See
 # managed-assets.lib.sh.
 seed_managed_assets_step() {
     local pristine=/usr/share/ai-tools
     local lib=/usr/local/lib/ai-tools/managed-assets.lib.sh msglib=/usr/local/lib/ai-tools/msg.lib.sh
     local cplib=/usr/local/lib/ai-tools/control-plane.lib.sh
-    # conf.lib.sh owns the dated-sidecar stamp the seeder uses to preserve a replaced or withdrawn
-    # asset, so it is required here rather than optional: without it those steps decline to act.
+    # conf.lib.sh owns the dated-sidecar stamp the seeder uses to preserve a replaced or withdrawn asset, so it is
+    # required here rather than optional: without it those steps decline to act.
     local conflib=/usr/local/lib/ai-tools/conf.lib.sh
     [[ -d "${pristine}/agents" && -r "${cplib}" ]] \
         || { log "managed assets: control plane not present yet -- install it, then re-run to seed agents/skills"; return 0; }
@@ -181,9 +176,9 @@ seed_managed_assets_step() {
     source "${cplib}"
     declare -F ai_tools_agent_config_dirs >/dev/null 2>&1 \
         || die MSG-H9S6 "control plane present but ${cplib} does not resolve the agents' config dirs"
-    # The SHARED kinds first, into their own roots: skills and subagent definitions are
-    # agent-agnostic, so they live in one place and each agent gets symlinks to them. The pairs
-    # are <shared kind>:<the manifest field naming where that agent keeps it>.
+    # The SHARED kinds first, into their own roots: skills and subagent definitions are agent-agnostic, so they live
+    # in one place and each agent gets symlinks to them. The pairs are <shared kind>:<the manifest field naming
+    # where that agent keeps it>.
     local spec kind shared asset_dir seeded=0
     for spec in skills:skills_dir subagents:subagents_dir; do
         kind="${spec%%:*}"; shared="${CP_HOME}/${kind}"
@@ -199,9 +194,9 @@ seed_managed_assets_step() {
             seeded=1
         done < <(ai_tools_agent_asset_dirs "${spec#*:}")
     done
-    # The orientation text is a single file rather than a directory of assets, and each agent
-    # reads it under its own filename (the manifest's memory_file), so it is seeded like the
-    # other kinds and linked by name instead of by iterating the shared root.
+    # The orientation text is a single file rather than a directory of assets, and each agent reads it under its own
+    # filename (the manifest's memory_file), so it is seeded like the other kinds and linked by name instead
+    # of by iterating the shared root.
     local memory_target
     shared="${CP_SHARED_ORIENTATION}"
     install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[orientation]}" "${shared}"
@@ -216,14 +211,13 @@ seed_managed_assets_step() {
     (( seeded )) || log "managed assets: no agent config directory to seed yet"
 }
 
-# report_shadowed_operators -- name each enrolled operator whose shell reaches an agent outside
-# /usr/local/bin, so a host is not called ready while typing the launcher name starts an UNCONFINED
-# session as that operator (path-order.lib.sh).
+# report_shadowed_operators -- name each enrolled operator whose shell reaches an agent outside /usr/local/bin,
+# so a host is not called ready while typing the launcher name starts an UNCONFINED session as that operator
+# (path-order.lib.sh).
 #
-# It belongs to this command because the reading is taken from a login shell of that account, which
-# needs the root this command already holds; `ai-tools --status` re-reads it afterwards from the
-# operator's own shell. It reads those init files and does not rewrite any of them:
-# `ai-tools-admin operators add` is this project's one writer of that line.
+# It belongs to this command because the reading is taken from a login shell of that account, which needs the root this
+# command already holds; `ai-tools --status` re-reads it afterwards from the operator's own shell. It reads those init
+# files and does not rewrite any of them: `ai-tools-admin operators add` is this project's one writer of that line.
 report_shadowed_operators() {
     local polib=/usr/local/lib/ai-tools/path-order.lib.sh
     local oplib=/usr/local/lib/ai-tools/operator.lib.sh
@@ -246,10 +240,9 @@ report_shadowed_operators() {
         "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}")
 }
 
-# Executed, this provisions a host and needs root. Sourced -- by tests/unit/bootstrap.sh, which
-# drives report_shadowed_operators with its readings stubbed -- it defines its functions and stops
-# here: every statement from the root check on provisions. The executed path is unchanged, that
-# check being the next statement.
+# Executed, this provisions a host and needs root. Sourced -- by tests/unit/bootstrap.sh, which drives
+# report_shadowed_operators with its readings stubbed -- it defines its functions and stops here: every statement
+# from the root check on provisions. The executed path is unchanged, that check being the next statement.
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 0
 fi
@@ -257,15 +250,14 @@ fi
 [[ "${EUID}" -eq 0 ]] || die MSG-X7Z2 "run as root (sudo)"
 command -v curl >/dev/null 2>&1 || die MSG-T7H8 "curl is required to fetch nvm"
 
-# Run from a neutral, world-traversable directory. The `sudo -u ${SANDBOX_USER}` steps
-# inherit this process's CWD; invoked from an operator's private dir (e.g. ~/Downloads, mode
-# 0700) the sandbox account cannot traverse back into it, so nvm/npm's internal `find` warns
-# "Failed to restore initial working directory". No step here depends on CWD (every path is
-# absolute), and / is always reachable, so move off the caller's directory up front.
+# Run from a neutral, world-traversable directory. The `sudo -u ${SANDBOX_USER}` steps inherit this process's CWD;
+# invoked from an operator's private dir (e.g. ~/Downloads, mode 0700) the sandbox account cannot traverse back into it,
+# so nvm/npm's internal `find` warns "Failed to restore initial working directory". No step here depends on CWD (every
+# path is absolute), and / is always reachable, so move off the caller's directory up front.
 cd /
 
-# Concrete tag (latest, pinned, or fallback). Constrained to v + digits/dots before it reaches
-# the download URL piped to bash, so a resolved value can never inject shell or URL.
+# Concrete tag (latest, pinned, or fallback). Constrained to v + digits/dots before it reaches the download URL piped
+# to bash, so a resolved value can never inject shell or URL.
 NVM_VERSION="$(resolve_nvm_version)"
 [[ "${NVM_VERSION}" =~ ^v[0-9][0-9.]*$ ]] \
     || die MSG-W8X8 "invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)"
@@ -280,11 +272,10 @@ if ! id "${SANDBOX_USER}" &>/dev/null; then
         --no-create-home --comment "AI tools sandbox user" "${SANDBOX_USER}"
     passwd -l "${SANDBOX_USER}" >/dev/null 2>&1 || true
 fi
-# Home root owned root:ai-tools, mode 2751: root owns the control plane and the agent reaches it
-# through group ai-tools; the o+x search bit lets an operator readlink the launcher. The agent
-# cannot create entries in this dir, so the agent-owned subtrees it must write are pre-created
-# here, as root, and chowned to the account: .nvm holds the toolchain, .cache the
-# NODE_COMPILE_CACHE, .npm the npm cache, .local XDG state. nvm/npm then write only within
+# Home root owned root:ai-tools, mode 2751: root owns the control plane and the agent reaches it through group ai-tools;
+# the o+x search bit lets an operator readlink the launcher. The agent cannot create entries in this dir,
+# so the agent-owned subtrees it must write are pre-created here, as root, and chowned to the account: .nvm holds
+# the toolchain, .cache the NODE_COMPILE_CACHE, .npm the npm cache, .local XDG state. nvm/npm then write only within
 # these, never the home root.
 install -d "${SANDBOX_HOME}"
 chown "root:${SANDBOX_GROUP}" "${SANDBOX_HOME}"
@@ -293,18 +284,16 @@ for _sub in .nvm .cache .npm .local; do
     install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${SANDBOX_HOME}/${_sub}"
 done
 
-# Resolve which agents to provision from the installed manifests (agents.d) gated by
-# operator.conf AI_TOOLS_AGENTS -- providers.lib.sh, the seam that keeps this toolchain step
-# agent-agnostic. Each enabled line is "name<TAB>npm_package<TAB>launcher"; collect the packages
-# (installed in step 2) and launchers (symlinked in step 3). The lib is control-plane, so a
-# bootstrap that PRECEDES control-plane install has none yet: Node is provisioned bare and a
-# re-run picks up the agents. Its stderr warns of an enabled-but-uninstalled agent.
+# Resolve which agents to provision from the installed manifests (agents.d) gated by operator.conf AI_TOOLS_AGENTS --
+# providers.lib.sh, the seam that keeps this toolchain step agent-agnostic. Each enabled line is
+# "name<TAB>npm_package<TAB>launcher"; collect the packages (installed in step 2) and launchers (symlinked in step 3).
+# The lib is control-plane, so a bootstrap that PRECEDES control-plane install has none yet: Node is provisioned bare
+# and a re-run picks up the agents. Its stderr warns of an enabled-but-uninstalled agent.
 _providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
 _agent_packages=(); _agent_launchers=()
-# Guarded load: providers.lib.sh returns non-zero without defining a resolver when its own dependency
-# (conf.lib.sh, the shared KEY=value grammar) is missing, so probe the resolver rather than assume
-# the source succeeded -- a bare `source` under `set -e` would abort the provision instead of falling
-# back to Node-only.
+# Guarded load: providers.lib.sh returns non-zero without defining a resolver when its own dependency (conf.lib.sh,
+# the shared KEY=value grammar) is missing, so probe the resolver rather than assume the source succeeded -- a bare
+# `source` under `set -e` would abort the provision instead of falling back to Node-only.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
 if source "${_providers_lib}" 2>/dev/null \
         && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
@@ -459,35 +448,33 @@ install -d -o root -g "${SANDBOX_GROUP}" -m 2750 \
 ln -sfn /usr/lib/systemd/user/nvm-update.timer \
     "${SANDBOX_HOME}/.config/systemd/user/timers.target.wants/nvm-update.timer"
 
-# Pre-seed the timer's Persistent run-stamp so starting it begins on the next scheduled window
-# rather than an immediate catch-up run. nvm-update.timer is Persistent=true with a daily
-# OnCalendar; started (or reached via timers.target) after that time has passed with no prior
-# stamp, systemd runs nvm-update.service at once. That run reinstalls the agent package -- reminting claude.exe at lib_t (a freshly
-# written entrypoint is born the default type; only restorecon applies ai_tools_exec_t) -- and
-# its async repoint -> relabel chain races the operator's first launch, so the first `claude`
-# refuses on a mislabelled entrypoint. Bootstrap has just installed the latest toolchain, so
-# "last run = now" is truthful: record it (mtime is all systemd reads), and the next run is the
-# next scheduled window. Written AS the sandbox account into its XDG_DATA_HOME, the path the
-# `--user manager` reads and later updates itself. See .claude/rules/updater.rule.md.
+# Pre-seed the timer's Persistent run-stamp so starting it begins on the next scheduled window rather than an immediate
+# catch-up run. nvm-update.timer is Persistent=true with a daily OnCalendar; started (or reached via timers.target)
+# after that time has passed with no prior stamp, systemd runs nvm-update.service at once. That run reinstalls the agent
+# package -- reminting claude.exe at lib_t (a freshly written entrypoint is born the default type; only restorecon
+# applies ai_tools_exec_t) -- and its async repoint -> relabel chain races the operator's first launch, so the first
+# `claude` refuses on a mislabelled entrypoint. Bootstrap has just installed the latest toolchain, so "last run = now"
+# is truthful: record it (mtime is all systemd reads), and the next run is the next scheduled window. Written
+# AS the sandbox account into its XDG_DATA_HOME, the path the `--user manager` reads and later updates itself. See
+# .claude/rules/updater.rule.md.
 _stampdir="${SANDBOX_HOME}/.local/share/systemd/timers"
 sudo -u "${SANDBOX_USER}" mkdir -p "${_stampdir}"
 sudo -u "${SANDBOX_USER}" touch "${_stampdir}/stamp-nvm-update.timer"
 
-# Linger keeps the `--user manager` running without an interactive login, so the timer it holds
-# stays active. Surface a failure so an instance that does not engage linger is visible.
+# Linger keeps the `--user manager` running without an interactive login, so the timer it holds stays active. Surface
+# a failure so an instance that does not engage linger is visible.
 if command -v loginctl >/dev/null 2>&1; then
     _linger_out="$(loginctl enable-linger "${SANDBOX_USER}" 2>&1)" \
         || warn MSG-V4D9 "could not enable linger for ${SANDBOX_USER} (${_linger_out:-no output})"
 fi
-# Wait for the manager to come up before driving it; XDG_RUNTIME_DIR alone lets `systemctl --user`
-# reach the user manager over its bus, so DBUS_SESSION_BUS_ADDRESS need not be pinned.
+# Wait for the manager to come up before driving it; XDG_RUNTIME_DIR alone lets `systemctl --user` reach the user
+# manager over its bus, so DBUS_SESSION_BUS_ADDRESS need not be pinned.
 for _i in $(seq 1 30); do
     systemctl is-active "user@${_uid}.service" >/dev/null 2>&1 && break
     sleep 0.5
 done
-# Start the timer now to cover a manager that was already running: the wants symlink alone
-# starts it when the manager next reaches timers.target. Capture the output so the warn on a
-# failed start carries systemctl's own error text.
+# Start the timer now to cover a manager that was already running: the wants symlink alone starts it when the manager
+# next reaches timers.target. Capture the output so the warn on a failed start carries systemctl's own error text.
 if _start_out="$(sudo -u "${SANDBOX_USER}" \
         XDG_RUNTIME_DIR="/run/user/${_uid}" \
         bash -c 'systemctl --user daemon-reload && systemctl --user start nvm-update.timer' 2>&1)"; then
@@ -498,21 +485,21 @@ fi
 
 log "toolchain ready under ${SANDBOX_HOME}"
 
-# Managed agents/skills (control-plane .claude). Seeded/updated here from the pristine datadir
-# copies; skipped cleanly when the control plane is not yet in place.
+# Managed agents/skills (control-plane .claude). Seeded/updated here from the pristine datadir copies; skipped cleanly
+# when the control plane is not yet in place.
 seed_managed_assets_step
 
-# Sandbox git commit identity (control-plane gitconfig). Offered here as the shared interactive
-# step; skipped cleanly when the control plane is not yet in place.
+# Sandbox git commit identity (control-plane gitconfig). Offered here as the shared interactive step; skipped cleanly
+# when the control plane is not yet in place.
 configure_git_identity
 
 # 6. Say which enrolled operators a `claude` typed in their shell does not reach the sandbox
 #    through. Last, so the reading covers the wrapper and the agents this run has just installed.
 report_shadowed_operators
 
-# Bootstrap runs in either order relative to the control plane: after a package/install.sh
-# deploy (the common flow -- the wrapper is already present), or before it on a from-source
-# host. Name the step that is actually still outstanding rather than assuming one order.
+# Bootstrap runs in either order relative to the control plane: after a package/install.sh deploy (the common flow --
+# the wrapper is already present), or before it on a from-source host. Name the step that is actually still outstanding
+# rather than assuming one order.
 if [[ -x /usr/local/bin/claude ]]; then
     log "next: enrol an operator -- sudo ai-tools-admin operators add <user>"
 else

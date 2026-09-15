@@ -1,30 +1,26 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-audit
-# Answers one question: what was refused, rejected, stranded or flagged BETWEEN two points in
-# time? It reports EVENTS, never current state -- a condition recorded here may have been
-# resolved since, and confirming that is `ai-tools --status`'s job, not this one's. Conflating the
-# two invites acting on a finding that is already fixed.
-# The detections already exist and are already recorded -- what they lacked was a
-# reader, and a detection nobody reads is decoration.
+# Answers one question: what was refused, rejected, stranded or flagged BETWEEN two points in time? It reports EVENTS,
+# never current state -- a condition recorded here may have been resolved since, and confirming that is
+# `ai-tools --status`'s job, not this one's. Conflating the two invites acting on a finding that is already fixed.
+# The detections already exist and are already recorded -- what they lacked was a reader, and a detection nobody reads
+# is decoration.
 #
-# It does not invent a detection, nor parse per-case wording. The root-only file sink already
-# encodes severity in its line format (`<ts> <LEVEL> [<pid>] <msg>`, written by log.lib.sh and,
-# in the same format, by the handback daemon), so a finding is simply a line at NOTICE or higher.
-# That is what keeps this from drifting: a helper that adds a new warning is reported here the
-# day it ships, with no pattern to update.
+# It does not invent a detection, nor parse per-case wording. The root-only file sink already encodes severity in its
+# line format (`<ts> <LEVEL> [<pid>] <msg>`, written by log.lib.sh and, in the same format, by the handback daemon),
+# so a finding is simply a line at NOTICE or higher. That is what keeps this from drifting: a helper that adds a new
+# warning is reported here the day it ships, with no pattern to update.
 #
-# TWO SOURCES, NOT EQUAL, AND SAID SO. /var/log/ai-tools/*.log is 700 root:root, root writers
-# only, so the sandbox account can neither read nor append to it: those lines are EVIDENCE and
-# are what this command reports as authoritative. A launch refusal is the exception -- it is
-# written by ai-tools-run, which runs AS the sandbox account and therefore reaches journald
-# only, under a tag whose legitimate writer is that same account. Those lines are the session's
-# own account of itself, reportable but not proof, and are shown in a separately titled section
-# rather than mixed into the first (see .claude/rules/logging.rule.md).
+# TWO SOURCES, NOT EQUAL, AND SAID SO. /var/log/ai-tools/*.log is 700 root:root, root writers only, so the sandbox
+# account can neither read nor append to it: those lines are EVIDENCE and are what this command reports
+# as authoritative. A launch refusal is the exception -- it is written by ai-tools-run, which runs AS the sandbox
+# account and therefore reaches journald only, under a tag whose legitimate writer is that same account. Those lines are
+# the session's own account of itself, reportable but not proof, and are shown in a separately titled section rather
+# than mixed into the first (see .claude/rules/logging.rule.md).
 #
-# Root-only: the file sink is unreadable to anyone else, so there is no trail for a non-root
-# caller to do here. Reached through `sudo ai-tools --audit` with no NOPASSWD grant, like
-# ai-tools-lockdown and ai-tools-reclaim.
+# Root-only: the file sink is unreadable to anyone else, so there is no trail for a non-root caller to do here. Reached
+# through `sudo ai-tools --audit` with no NOPASSWD grant, like ai-tools-lockdown and ai-tools-reclaim.
 #
 # Usage:  ai-tools-audit [--since <when>]        <when> is anything date(1) parses
 #
@@ -36,32 +32,30 @@
 
 set -euo pipefail
 
-# The severity floor for a finding. NOTICE is included deliberately: ai-tools-chown records a
-# breached secret at that level, and a leaked credential is the single most actionable thing
-# this command can surface.
+# The severity floor for a finding. NOTICE is included deliberately: ai-tools-chown records a breached secret
+# at that level, and a leaked credential is the single most actionable thing this command can surface.
 readonly FINDING_LEVELS='NOTICE|WARNING|ERROR'
 
-# Default window. Long enough to cover a weekend and a missed morning, short enough that the
-# first run on a long-lived host is not a wall of history the operator stops reading.
+# Default window. Long enough to cover a weekend and a missed morning, short enough that the first run on a long-lived
+# host is not a wall of history the operator stops reading.
 readonly DEFAULT_SINCE='7 days ago'
 
 readonly SANDBOX_USER='@SANDBOX_USER@'
 
-# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
-# message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline: these refusals
-# answer before the renderer is loaded, and each keeps its own exit status at the call site.
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
+# tests/lib/harness.sh's assert_msg reads. Matched inline: these refusals answer before the renderer is loaded, and each
+# keeps its own exit status at the call site.
 warn() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-audit: %s\n' "$*" >&2
 }
 
-# Shared leveled logger. This helper does not write an audit line of its own -- reading a trail is not
-# an event worth adding to it -- but it uses the sanitizer, which reduces a log line to
-# safe-for-display characters before it reaches the operator's terminal. That is load-bearing
-# here, not decorative: every line this command prints came from a file recording
-# agent-influenced paths, so it is required fail-closed for the same reason ai-tools-chown and
-# ai-tools-lockdown require it (see .claude/rules/logging.rule.md).
+# Shared leveled logger. This helper does not write an audit line of its own -- reading a trail is not an event worth
+# adding to it -- but it uses the sanitizer, which reduces a log line to safe-for-display characters before it reaches
+# the operator's terminal. That is load-bearing here, not decorative: every line this command prints came from a file
+# recording agent-influenced paths, so it is required fail-closed for the same reason ai-tools-chown
+# and ai-tools-lockdown require it (see .claude/rules/logging.rule.md).
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 source "${LOG_LIB}" 2>/dev/null || {
@@ -93,8 +87,8 @@ readonly SINCE
     exit 1
 }
 
-# Normalize the window once. A value date(1) cannot parse is refused rather than silently
-# treated as "everything", which would turn a typo into a reassuring wall of old findings.
+# Normalize the window once. A value date(1) cannot parse is refused rather than silently treated as "everything",
+# which would turn a typo into a reassuring wall of old findings.
 CUTOFF_EPOCH="$(date -d "${SINCE}" +%s 2>/dev/null)" || {
     ai_tools_msg_error MSG-Y3M7 "ai-tools-audit: --since value not understood: ${SINCE}" \
         "give it anything date(1) parses, e.g. '2 days ago', 'yesterday', '2026-08-01'"
@@ -105,17 +99,17 @@ SINCE_DISPLAY="$(date -d "@${CUTOFF_EPOCH}" '+%Y-%m-%d %H:%M:%S %Z' 2>/dev/null 
 readonly SINCE_DISPLAY
 
 # ── The authoritative source: the root-only file sink ────────────────────────────────────────
-# collect_file_findings -- PRINT one `<component>|<timestamp>|<level>|<message>` per finding.
-# Two passes by design: a cheap severity grep over the whole file, then a date comparison only
-# on the lines that survived it. Findings are rare, so the expensive half runs on almost no line.
+# collect_file_findings -- PRINT one `<component>|<timestamp>|<level>|<message>` per finding. Two passes by design:
+# a cheap severity grep over the whole file, then a date comparison only on the lines that survived it. Findings are
+# rare, so the expensive half runs on almost no line.
 collect_file_findings() {
     local log_file component line entry_timestamp entry_level entry_epoch entry_message
     for log_file in "${AI_TOOLS_LOG_DIR}"/*.log; do
         [[ -f "${log_file}" && -r "${log_file}" ]] || continue
         component="$(basename -- "${log_file}" .log)"
         while IFS= read -r line; do
-            # `<ts> <LEVEL> [<pid>] <message>` -- anything else is not a record this format
-            # produced and is left alone rather than guessed at.
+            # `<ts> <LEVEL> [<pid>] <message>` -- anything else is not a record this format produced and is left alone
+            # rather than guessed at.
             [[ "${line}" =~ ^([^[:space:]]+)[[:space:]]+(${FINDING_LEVELS})[[:space:]]+\[[0-9]+\][[:space:]]+(.*)$ ]] || continue
             entry_timestamp="${BASH_REMATCH[1]}"
             entry_level="${BASH_REMATCH[2]}"
@@ -129,12 +123,11 @@ collect_file_findings() {
 }
 
 # ── The secondary source: launch refusals, which only journald can hold ──────────────────────
-# collect_launch_refusals -- PRINT one `launch|<timestamp>|WARNING|<message>` per REFUSED line
-# ai-tools-run recorded, in the same shape as a file finding so it collapses through the same
-# renderer: a refusal that recurs on every launch attempt would otherwise flood the report
-# exactly as the handback lines did. Filtered by the sandbox account's uid as every documented query is: the tag alone
-# does not establish identity, and here the legitimate writer IS the account under scrutiny -- which is
-# exactly why these are reported apart from the file sink's evidence.
+# collect_launch_refusals -- PRINT one `launch|<timestamp>|WARNING|<message>` per REFUSED line ai-tools-run recorded,
+# in the same shape as a file finding so it collapses through the same renderer: a refusal that recurs on every launch
+# attempt would otherwise flood the report exactly as the handback lines did. Filtered by the sandbox account's uid
+# as every documented query is: the tag alone does not establish identity, and here the legitimate writer IS the account
+# under scrutiny -- which is exactly why these are reported apart from the file sink's evidence.
 collect_launch_refusals() {
     local sandbox_uid line entry_timestamp entry_message
     command -v journalctl >/dev/null 2>&1 || return 0
@@ -152,22 +145,20 @@ collect_launch_refusals() {
 }
 
 # ── Report ───────────────────────────────────────────────────────────────────────────────────
-# render_findings -- read `<component>|<ts>|<level>|<message>` on stdin and print one line per
-# DISTINCT finding, most serious and most recent first.
+# render_findings -- read `<component>|<ts>|<level>|<message>` on stdin and print one line per DISTINCT finding, most
+# serious and most recent first.
 #
-# Collapsing is not cosmetic, it is what makes the command usable. A recurring condition writes
-# one line per occurrence -- the handback daemon's refusals alone run to hundreds over a week on
-# a host that exercises them -- and a report that lists each one buries the single ERROR that
-# needs acting on under a wall of a condition already understood. That is the same reason INFO
-# is out of scope entirely: an audit nobody finishes reading is one nobody acts on.
+# Collapsing is not cosmetic, it is what makes the command usable. A recurring condition writes one line per occurrence
+# -- the handback daemon's refusals alone run to hundreds over a week on a host that exercises them -- and a report
+# that lists each one buries the single ERROR that needs acting on under a wall of a condition already understood.
+# That is the same reason INFO is out of scope entirely: an audit nobody finishes reading is one nobody acts on.
 #
-# Findings are grouped by their message with digit runs replaced by `#`, so occurrences that
-# differ only in a pid, a count, or a timestamp collapse into one line carrying the number of
-# times it happened and the most recent example in full. No occurrence is hidden -- the count states
-# what was folded, and the underlying files are named with it.
+# Findings are grouped by their message with digit runs replaced by `#`, so occurrences that differ only in a pid,
+# a count, or a timestamp collapse into one line carrying the number of times it happened and the most recent example
+# in full. No occurrence is hidden -- the count states what was folded, and the underlying files are named with it.
 #
-# Ordering is by severity first and recency second, because those are the two questions actually
-# being asked: what is worst, and is it still happening.
+# Ordering is by severity first and recency second, because those are the two questions actually being asked: what is
+# worst, and is it still happening.
 render_findings() {
     awk -F'|' '
         {

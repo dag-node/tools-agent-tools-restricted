@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-stop
-# Stops running agent sessions and everything they spawned. This is the stop rung of the incident
-# ladder: the one control that acts on a session ALREADY RUNNING, where every other operator
-# control (unclaim, disable a provider, revoke an operator) only changes what the NEXT launch gets.
+# Stops running agent sessions and everything they spawned. This is the stop rung of the incident ladder: the one
+# control that acts on a session ALREADY RUNNING, where every other operator control (unclaim, disable a provider,
+# revoke an operator) only changes what the NEXT launch gets.
 #
-# THE PROPERTY THIS FILE EXISTS TO HOLD: a stop that is asked for and reported as done HAS
-# HAPPENED. The design that follows from it -- why sessions are found by CGROUP rather than by
-# process tree, why it does not take a target, where containment ends, and the residual failure
-# modes -- is documented once, in docs/session-stop.md. This header states only what a reader of
-# THIS FILE needs; each function carries its own local mechanism.
+# THE PROPERTY THIS FILE EXISTS TO HOLD: a stop that is asked for and reported as done HAS HAPPENED. The design
+# that follows from it -- why sessions are found by CGROUP rather than by process tree, why it does not take a target,
+# where containment ends, and the residual failure modes -- is documented once, in docs/session-stop.md. This header
+# states only what a reader of THIS FILE needs; each function carries its own local mechanism.
 #
 # ── Two inverted conventions, stated here so they are not "fixed" back ───────────────────────
-# For every other component in this project the safe direction is DON'T ACT. For this one it is
-# ACT, and two project-wide conventions invert for that single reason (the "Degradation policy"
-# section of docs/session-stop.md):
+# For every other component in this project the safe direction is DON'T ACT. For this one it is ACT, and two
+# project-wide conventions invert for that single reason (the "Degradation policy" section of docs/session-stop.md):
 #
 #   1. NO REQUIRED DEPENDENCIES, and deliberately NO `set -e`. A missing library that aborted the
 #      run, or an unexpected non-zero that abandoned a half-finished kill, would be a stop that did
@@ -33,42 +31,39 @@
 #      is how this command is looked at without acting.
 #
 # ── The mechanism, in one paragraph ──────────────────────────────────────────────────────────
-# Sessions are enumerated by walking the sandbox account's per-user cgroup slice: a cgroup is the
-# one container a spawned process cannot fall out of (inherited across fork(), surviving setsid(2)
-# and the double fork). A systemd UNIT cgroup is the unit of work. The graceful pass is SIGTERM,
-# deepest-first, re-collected each second; the kill pass writes `cgroup.kill` (atomic, 5.14+) with
-# a start-time-validated per-pid loop as the older-kernel fallback. Liveness is read from the
-# kernel -- `cgroup.events`, `cgroup.procs`, /proc -- and never from systemd, which is used for
-# exactly one thing: reading a unit's WorkingDirectory to attribute a session to a project, which
-# is best-effort, is REPORTED rather than acted on, and never decides whether something is running
-# or whether it is stopped. Every liveness read fails CLOSED. Nothing is spared -- the account's own
-# user manager included -- and it is put back afterwards (restore_user_manager) rather than exempted.
+# Sessions are enumerated by walking the sandbox account's per-user cgroup slice: a cgroup is the one container
+# a spawned process cannot fall out of (inherited across fork(), surviving setsid(2) and the double fork). A systemd
+# UNIT cgroup is the unit of work. The graceful pass is SIGTERM, deepest-first, re-collected each second; the kill pass
+# writes `cgroup.kill` (atomic, 5.14+) with a start-time-validated per-pid loop as the older-kernel fallback. Liveness
+# is read from the kernel -- `cgroup.events`, `cgroup.procs`, /proc -- and never from systemd, which is used for exactly
+# one thing: reading a unit's WorkingDirectory to attribute a session to a project, which is best-effort, is REPORTED
+# rather than acted on, and never decides whether something is running or whether it is stopped. Every liveness read
+# fails CLOSED. Nothing is spared -- the account's own user manager included -- and it is put back afterwards
+# (restore_user_manager) rather than exempted.
 #
 # ── Why root, and what this command accepts ──────────────────────────────────────────────────
-# Signalling the sandbox account's cgroups and writing cgroup.kill is root's to do. There is no
-# NOPASSWD grant -- this is reached through `sudo ai-tools --stop` and sudo prompts, like
+# Signalling the sandbox account's cgroups and writing cgroup.kill is root's to do. There is no NOPASSWD grant -- this
+# is reached through `sudo ai-tools --stop` and sudo prompts, like
 # `ai-tools-{lockdown,reclaim,audit}`.
 #
-# IT TAKES NO TARGET AND NO AUTHORIZATION INPUT. What is stopped is decided by one fact a session
-# cannot influence -- membership of the account's cgroup slice -- and everything this file reads
-# from the account being stopped (a unit's WorkingDirectory, its name) is kept away from that
-# decision and used only to label a row. Why a per-project form cannot be built on either of them
-# is in docs/session-stop.md §2.
+# IT TAKES NO TARGET AND NO AUTHORIZATION INPUT. What is stopped is decided by one fact a session cannot influence --
+# membership of the account's cgroup slice -- and everything this file reads from the account being stopped (a unit's
+# WorkingDirectory, its name) is kept away from that decision and used only to label a row. Why a per-project form
+# cannot be built on either of them is in docs/session-stop.md §2.
 #
-# The routine way to FINISH a session is `/exit` inside it, which lets it run its own session-end
-# handback. This command TERMINATES instead: it kills the process tree, so no handback runs and the
-# last turn's writes may still be sandbox-owned (which is why a run names the reclaim per project).
+# The routine way to FINISH a session is `/exit` inside it, which lets it run its own session-end handback. This command
+# TERMINATES instead: it kills the process tree, so no handback runs and the last turn's writes may still be
+# sandbox-owned (which is why a run names the reclaim per project).
 #
 # Usage:  ai-tools-stop [--dry-run] [-y|--yes] [--force] [--all]
 #
 # `--all` is accepted and inert. A PATH is refused (exit 2) rather than ignored -- see
 # refuse_positional_argument.
 #
-# WHAT A SUCCESSFUL EXIT MEANS, stated exactly rather than generously. Exit 0 means: every session
-# that existed at ENUMERATION was stopped, and a final re-enumeration found no process still live. It
-# does NOT mean no session can exist afterwards -- the launch/stop window is a stated residual. It
-# does not describe the user manager, whose restoration is reported separately and never folded
-# into this status.
+# WHAT A SUCCESSFUL EXIT MEANS, stated exactly rather than generously. Exit 0 means: every session that existed
+# at ENUMERATION was stopped, and a final re-enumeration found no process still live. It does NOT mean no session can
+# exist afterwards -- the launch/stop window is a stated residual. It does not describe the user manager,
+# whose restoration is reported separately and never folded into this status.
 #
 # Exit:   0 stopped and verified gone (or no session was running)
 #         1 something survived SIGKILL -- the only outcome that is not a stop
@@ -83,43 +78,38 @@
 #       src/usr/local/libexec/ai-tools/ai-tools-stop.sh /usr/local/libexec/ai-tools/ai-tools-stop
 #   ```
 
-# NOT `set -e`: see inverted convention 1. An unexpected non-zero must never abandon a
-# half-finished kill.
+# NOT `set -e`: see inverted convention 1. An unexpected non-zero must never abandon a half-finished kill.
 set -uo pipefail
 
-# A fixed PATH, set before anything is resolved. This helper runs as root and is reachable directly
-# as well as through the CLI, so it must not resolve `sleep`, `id` or `realpath` through a PATH an
-# invoker chose. sudoers `secure_path` normally covers the sudo route; this covers the direct one
-# too, at no cost.
+# A fixed PATH, set before anything is resolved. This helper runs as root and is reachable directly as well
+# as through the CLI, so it must not resolve `sleep`, `id` or `realpath` through a PATH an invoker chose. sudoers
+# `secure_path` normally covers the sudo route; this covers the direct one too, at no cost.
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-# The cgroup walk must see EVERY child directory, and `*/` alone does not: a name beginning with a
-# dot is skipped by default globbing. Every name inside the delegated subtree is the DELEGATEE's to
-# choose (see the delegation note), so without `dotglob` a session could place itself in a
-# cgroup called `.hidden` and drop out of the enumeration -- including under `--all`, the form that
-# must hold against a hostile session. `nullglob` makes a childless cgroup expand to an empty list rather than
-# the unexpanded pattern. Set once, at file scope: every walk here depends on it.
+# The cgroup walk must see EVERY child directory, and `*/` alone does not: a name beginning with a dot is skipped
+# by default globbing. Every name inside the delegated subtree is the DELEGATEE's to choose (see the delegation note),
+# so without `dotglob` a session could place itself in a cgroup called `.hidden` and drop out of the enumeration --
+# including under `--all`, the form that must hold against a hostile session. `nullglob` makes a childless cgroup expand
+# to an empty list rather than the unexpanded pattern. Set once, at file scope: every walk here depends on it.
 shopt -s dotglob nullglob
 
 readonly SANDBOX_USER='@SANDBOX_USER@'
 
-# How long the graceful pass gets before the kill. Short and owned here rather than left to a
-# unit's TimeoutStopSec (90s by default): an operator waiting that long per session will reach for
-# kill -9 by hand and lose the record of having done so.
+# How long the graceful pass gets before the kill. Short and owned here rather than left to a unit's TimeoutStopSec (90s
+# by default): an operator waiting that long per session will reach for kill -9 by hand and lose the record of having
+# done so.
 readonly GRACE_SECONDS=10
-# How long the kernel gets to reap after SIGKILL before a process is called unkillable. A task only
-# outlives SIGKILL while blocked in an uninterruptible syscall, which resolves well inside this or
-# not at all.
+# How long the kernel gets to reap after SIGKILL before a process is called unkillable. A task only outlives SIGKILL
+# while blocked in an uninterruptible syscall, which resolves well inside this or not at all.
 readonly REAP_SECONDS=5
 
 STOP_EXIT_REACHED=false
 
 # ── Optional libraries, every one behind a fallback ──────────────────────────────────────────
-# Loaded for quality of output ONLY -- a logger and a message renderer. Neither gates anything, and
-# neither is allowed to prevent a stop. safe-paths.lib.sh and operator.lib.sh were loaded to vet and
-# authorize a caller-supplied target; with no target to take, this helper has no input for them to
-# decide and does not load them at all.
+# Loaded for quality of output ONLY -- a logger and a message renderer. Neither gates anything, and neither is allowed
+# to prevent a stop. safe-paths.lib.sh and operator.lib.sh were loaded to vet and authorize a caller-supplied target;
+# with no target to take, this helper has no input for them to decide and does not load them at all.
 AI_TOOLS_LOG_TAG="ai-tools-stop"
 AI_TOOLS_LOG_FILE="stop.log"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
@@ -127,9 +117,9 @@ source /usr/local/lib/ai-tools/log.lib.sh 2>/dev/null || true
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
 source /usr/local/lib/ai-tools/msg.lib.sh 2>/dev/null || true
 
-# sanitize <text> -- reduce to printable ASCII before anything agent-influenced reaches a terminal
-# or the trail. Prefers the shared reducer; the fallback is the same allowlist of bytes, inline,
-# because a missing logger must not mean an unsanitized path.
+# sanitize <text> -- reduce to printable ASCII before anything agent-influenced reaches a terminal or the trail. Prefers
+# the shared reducer; the fallback is the same allowlist of bytes, inline, because a missing logger must not mean
+# an unsanitized path.
 sanitize() {
     if declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
         ai_tools_log_sanitize "$1"; return 0
@@ -138,9 +128,9 @@ sanitize() {
     printf '%s' "${1//[^[:print:]]/?}"
 }
 
-# log_event <level> <message> [FIELD=value ...] -- record to journald and, as root, to the file
-# sink. Prefers the shared structured logger; falls back to logger(1) and a direct append, and to
-# silence if even those are unavailable. Logging never changes what happens.
+# log_event <level> <message> [FIELD=value ...] -- record to journald and, as root, to the file sink. Prefers the shared
+# structured logger; falls back to logger(1) and a direct append, and to silence if even those are unavailable. Logging
+# never changes what happens.
 log_event() {
     local level="$1" message="$2"; shift 2
     if declare -F ai_tools_log_structured >/dev/null 2>&1; then
@@ -155,26 +145,23 @@ log_event() {
     ) 2>/dev/null || true
 }
 
-# say_error / say_warn / say_notice [<message code>] <line...> -- framed through msg.lib.sh when it
-# loaded, plain otherwise. Output formatting is the most expendable thing here.
+# say_error / say_warn / say_notice [<message code>] <line...> -- framed through msg.lib.sh when it loaded, plain
+# otherwise. Output formatting is the most expendable thing here.
 #
-# THE EMITTERS TAKE LINES ONLY, NOT A LEADING FD -- unlike ai_tools_msg_headline, whose
-# signature IS <title> <fd> <line...>. The two shapes sit next to each other, so passing the
-# headline's fd to an emitter reads as consistent and is not: ai_tools_msg_error bakes in fd 2
-# already, so a leading `2` becomes the message's FIRST LINE and every refusal prints a stray
-# digit ahead of itself. It is invisible in the boxed path and obvious only when captured.
+# THE EMITTERS TAKE LINES ONLY, NOT A LEADING FD -- unlike ai_tools_msg_headline, whose signature IS <title> <fd>
+# <line...>. The two shapes sit next to each other, so passing the headline's fd to an emitter reads as consistent
+# and is not: ai_tools_msg_error bakes in fd 2 already, so a leading `2` becomes the message's FIRST LINE and every
+# refusal prints a stray digit ahead of itself. It is invisible in the boxed path and obvious only when captured.
 #
-# THE MESSAGE CODE IS SPLIT OFF HERE RATHER THAN PASSED STRAIGHT THROUGH, because these emitters
-# are the only two-branch ones in the project: the library renders a code itself, while the
-# fallback has to render it the way plain mode does -- on its own leading line, ahead of the
-# prefixed message -- or the one path a reader most needs a searchable token on is the one path
-# that drops it. The form is matched inline, against the same anchored expression msg.lib.sh
-# pins (tests/unit/msg.sh holds every inline copy to it), since the branch that needs the match
-# is the branch where that library is absent.
+# THE MESSAGE CODE IS SPLIT OFF HERE RATHER THAN PASSED STRAIGHT THROUGH, because these emitters are the only two-branch
+# ones in the project: the library renders a code itself, while the fallback has to render it the way plain mode does --
+# on its own leading line, ahead of the prefixed message -- or the one path a reader most needs a searchable token on is
+# the one path that drops it. The form is matched inline, against the same anchored expression msg.lib.sh pins
+# (tests/unit/msg.sh holds every inline copy to it), since the branch that needs the match is the branch
+# where that library is absent.
 #
-# THE `ai-tools-stop: ` PREFIX IS THE EMITTER'S, so no message text carries one of its own: the
-# code is the identity of the situation and the prefix names the component that raised it, and
-# neither is stated twice.
+# THE `ai-tools-stop: ` PREFIX IS THE EMITTER'S, so no message text carries one of its own: the code is the identity
+# of the situation and the prefix names the component that raised it, and neither is stated twice.
 say_error() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
@@ -218,32 +205,29 @@ FORCE_KILL=false
 
 # refuse_positional_argument <argument> -- refuse anything that is not an option, and exit 2.
 #
-# WHY THIS IS AN ERROR RATHER THAN AN IGNORED ARGUMENT. Someone typing a path after `--stop` believes
-# they are NARROWING the command. Proceeding would do the opposite of that belief -- end every
-# session on the host -- and the confirmation defaults YES, so a reflexive Enter completes it. A
-# refusal costs one corrected command; the alternative costs every running session.
+# WHY THIS IS AN ERROR RATHER THAN AN IGNORED ARGUMENT. Someone typing a path after `--stop` believes they are NARROWING
+# the command. Proceeding would do the opposite of that belief -- end every session on the host -- and the confirmation
+# defaults YES, so a reflexive Enter completes it. A refusal costs one corrected command; the alternative costs every
+# running session.
 #
-# This is not inverted convention 1 being violated. That convention says to act where the
-# operator's intent is KNOWN and something environmental is in the way -- no terminal, a missing
-# library, a wedged manager. An unexpected argument is ambiguity about what was ASKED FOR, and
-# guessing the most destructive reading of it is not degrading toward stopping. Nothing is left
-# running either: the operator is one keystroke away, and the refusal says which.
+# This is not inverted convention 1 being violated. That convention says to act where the operator's intent is KNOWN
+# and something environmental is in the way -- no terminal, a missing library, a wedged manager. An unexpected argument
+# is ambiguity about what was ASKED FOR, and guessing the most destructive reading of it is not degrading toward
+# stopping. Nothing is left running either: the operator is one keystroke away, and the refusal says which.
 #
-# AND IT KEEPS A LATER EXTENSION NON-BREAKING. If per-target stopping is ever built -- which needs
-# a session-to-project mapping the session cannot influence, i.e. something root records at launch,
-# NOT the user manager's WorkingDirectory -- then `--stop <path>` moves from an error to an
-# accepted, narrower request. That is a pure widening and no existing command line changes meaning.
-# Had it meant "stop everything, ignoring your path", the identical line would silently begin doing
-# something different, which is the one outcome that cannot be rolled out safely.
+# AND IT KEEPS A LATER EXTENSION NON-BREAKING. If per-target stopping is ever built -- which needs a session-to-project
+# mapping the session cannot influence, i.e. something root records at launch, NOT the user manager's WorkingDirectory
+# -- then `--stop <path>` moves from an error to an accepted, narrower request. That is a pure widening and no existing
+# command line changes meaning. Had it meant "stop everything, ignoring your path", the identical line would silently
+# begin doing something different, which is the one outcome that cannot be rolled out safely.
 #
-# THE TEXT HERE IS A DELIBERATE TWIN of the CLI's refusal in cmd_stop, which is the copy an
-# operator normally meets -- this one is the last line, reached by a direct root call. They cannot
-# be single-sourced: different processes, and this file is 750 root:root. They must say the same
-# thing and offer the same four commands -- change one, change both.
+# THE TEXT HERE IS A DELIBERATE TWIN of the CLI's refusal in cmd_stop, which is the copy an operator normally meets --
+# this one is the last line, reached by a direct root call. They cannot be single-sourced: different processes, and this
+# file is 750 root:root. They must say the same thing and offer the same four commands -- change one, change both.
 #
-# SO THE TWO SHARE ONE CODE. It is the same situation reported by whichever process met it first,
-# and a reader searching the code has one thing to find. The code is emitted here and named
-# nowhere else, so this site CITES the message the CLI defines rather than declaring a second one.
+# SO THE TWO SHARE ONE CODE. It is the same situation reported by whichever process met it first, and a reader searching
+# the code has one thing to find. The code is emitted here and named nowhere else, so this site CITES the message
+# the CLI defines rather than declaring a second one.
 refuse_positional_argument() {
     printf 'MSG-A3M9\nai-tools-stop: this command takes no path: %s\n' "$1" >&2
     printf '%s' '
@@ -265,15 +249,15 @@ refuse_positional_argument() {
 parse_command_line() {
     while (( $# )); do
         case "$1" in
-            # Accepted and inert (the header's usage note says why it exists at all). The
-            # documented form is `ai-tools --stop`.
+            # Accepted and inert (the header's usage note says why it exists at all). The documented form is
+            # `ai-tools --stop`.
             --all)        shift ;;
             --dry-run) DRY_RUN=true; shift ;;
             -y|--yes)     ASSUME_YES=true; shift ;;
             --force)      FORCE_KILL=true; shift ;;
-            # The CLI refuses this too, before its sudo, and for the same reason the path
-            # refusal is twinned: an operator meets whichever side answered. One situation,
-            # one code, defined at the CLI's arm and cited here.
+            # The CLI refuses this too, before its sudo, and for the same reason the path refusal is twinned:
+            # an operator meets whichever side answered. One situation, one code, defined at the CLI's arm and cited
+            # here.
             -*) printf 'MSG-B7K4\nai-tools-stop: unknown option: %s\n' "$1" >&2
                 printf '  allowed: --all, --dry-run, --yes/-y, --force\n' >&2
                 exit 2 ;;
@@ -283,8 +267,8 @@ parse_command_line() {
     readonly DRY_RUN ASSUME_YES FORCE_KILL
 }
 
-# resolve_run_context -- establish who is asking and what account is being stopped, and arm the
-# trail's traps. Everything here either succeeds or exits; no later step runs on a guess.
+# resolve_run_context -- establish who is asking and what account is being stopped, and arm the trail's traps.
+# Everything here either succeeds or exits; no later step runs on a guess.
 resolve_run_context() {
     if [[ "$(id -u)" != "0" ]]; then
         say_error MSG-Z5W3 "This command must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
@@ -292,18 +276,17 @@ resolve_run_context() {
         exit 5
     fi
 
-    # Who sudo says invoked this -- written by a root process, unreachable by the sandbox account.
-    # This is recorded for the TRAIL only: the command does not take an authorization
-    # input, so a caller identity has no bearing on what is terminated. It is still cross-checked
-    # rather than taken at face value, because "who asked for this" is the line an operator reads
-    # first after an incident and a wrong name there is worse than no name.
+    # Who sudo says invoked this -- written by a root process, unreachable by the sandbox account. This is recorded
+    # for the TRAIL only: the command does not take an authorization input, so a caller identity has no bearing
+    # on what is terminated. It is still cross-checked rather than taken at face value, because "who asked for this" is
+    # the line an operator reads first after an incident and a wrong name there is worse than no name.
     #
-    # SUDO_USER ALONE IS NOT PROOF OF A SUDO TRANSACTION. A root shell entered with `sudo -i` keeps
-    # SUDO_USER set, so its presence does not establish that *this* invocation came through sudo on
-    # behalf of that user -- it may be inherited state from an earlier one. SUDO_UID is cross-checked
-    # against it: the two are set together by the same sudo run, so a pair that disagrees is inherited
-    # or forged environment and is refused rather than trusted. Both, plus the real uid, are recorded
-    # separately, so the trail carries what was observed rather than one derived conclusion.
+    # SUDO_USER ALONE IS NOT PROOF OF A SUDO TRANSACTION. A root shell entered with `sudo -i` keeps SUDO_USER set,
+    # so its presence does not establish that *this* invocation came through sudo on behalf of that user -- it may be
+    # inherited state from an earlier one. SUDO_UID is cross-checked against it: the two are set together by the same
+    # sudo run, so a pair that disagrees is inherited or forged environment and is refused rather than trusted. Both,
+    # plus the real uid, are recorded separately, so the trail carries what was observed rather than one derived
+    # conclusion.
     CALLER="${SUDO_USER:-root}"
     if [[ -n "${SUDO_USER:-}" ]]; then
         local caller_uid_from_name
@@ -328,13 +311,13 @@ resolve_run_context() {
     fi
     readonly SANDBOX_UID
 
-    # An incomplete run must be visible in the trail. The trap covers every exit including a signal
-    # that bash can handle; only SIGKILL of this helper escapes it, which is a documented residual.
+    # An incomplete run must be visible in the trail. The trap covers every exit including a signal that bash can
+    # handle; only SIGKILL of this helper escapes it, which is a documented residual.
     trap record_incomplete_run EXIT
-    # A signal during a stop is its own event, not merely an incomplete run: an operator who
-    # interrupts one mid-way needs the trail to say a kill was in flight when it happened, because
-    # the tree is then in whatever state that pass left it. Named separately from the EXIT trap so
-    # the two causes are distinguishable. SIGKILL of this helper remains untrappable and is a stated
+    # A signal during a stop is its own event, not merely an incomplete run: an operator who interrupts one mid-way
+    # needs the trail to say a kill was in flight when it happened, because the tree is then in whatever state that pass
+    # left it. Named separately from the EXIT trap so the two causes are distinguishable. SIGKILL of this helper remains
+    # untrappable and is a stated
     # residual.
     trap 'log_event error "stop run by ${CALLER} interrupted by a signal -- some sessions may be partially stopped" "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_RESULT=interrupted"; STOP_EXIT_REACHED=true; exit 130' INT TERM HUP
 }
@@ -346,9 +329,9 @@ record_incomplete_run() {
 }
 
 # ── Locating the sandbox account's cgroups ───────────────────────────────────────────────────
-# cgroup2_mount -- PRINT the cgroup v2 hierarchy's mount point. Unified hosts mount it at
-# /sys/fs/cgroup; a hybrid host puts v1 controllers there and v2 at /sys/fs/cgroup/unified. Read
-# from /proc/mounts rather than assumed, and with no external command.
+# cgroup2_mount -- PRINT the cgroup v2 hierarchy's mount point. Unified hosts mount it at /sys/fs/cgroup; a hybrid host
+# puts v1 controllers there and v2 at /sys/fs/cgroup/unified. Read from /proc/mounts rather than assumed, and with no
+# external command.
 cgroup2_mount() {
     local mount_point fstype
     while read -r _ mount_point fstype _; do
@@ -357,8 +340,8 @@ cgroup2_mount() {
     return 1
 }
 
-# resolve_cgroup_layout -- fix the three paths the whole enumeration is expressed against, or
-# refuse. Every one is derived from the host, never assumed.
+# resolve_cgroup_layout -- fix the three paths the whole enumeration is expressed against, or refuse. Every one is
+# derived from the host, never assumed.
 resolve_cgroup_layout() {
     CGROUP2_MOUNT="$(cgroup2_mount)"
     if [[ -z "${CGROUP2_MOUNT}" ]]; then
@@ -368,36 +351,34 @@ resolve_cgroup_layout() {
         exit 5
     fi
     readonly CGROUP2_MOUNT
-    # The account's own manager slice. A process the operator's sudo spawned under that account
-    # lives in the INVOKING session's slice, not this one, so scoping to this path is also what
-    # keeps this helper from selecting its own children.
+    # The account's own manager slice. A process the operator's sudo spawned under that account lives in the INVOKING
+    # session's slice, not this one, so scoping to this path is also what keeps this helper from selecting its own
+    # children.
     #
-    # The root is the account's WHOLE per-user slice, not just its `user@<uid>.service` manager
-    # subtree. systemd places login session scopes (`session-N.scope`) as SIBLINGS of the manager
-    # service, under the same per-user slice -- so a scan rooted at the manager alone has a blind
-    # spot for anything not started by that manager. The sandbox account has no login shell and no
-    # password, so no process should ever appear there; scanning the wider root costs one directory
-    # level and removes the need for that to be true.
+    # The root is the account's WHOLE per-user slice, not just its `user@<uid>.service` manager subtree. systemd places
+    # login session scopes (`session-N.scope`) as SIBLINGS of the manager service, under the same per-user slice --
+    # so a scan rooted at the manager alone has a blind spot for anything not started by that manager. The sandbox
+    # account has no login shell and no password, so no process should ever appear there; scanning the wider root costs
+    # one directory level and removes the need for that to be true.
     #
-    # It stays scoped to the ACCOUNT's slice rather than widening to uid alone, which is what keeps
-    # the scan off this helper's own `sudo -u` children: those share the account's uid but live in
-    # the INVOKING user's slice.
+    # It stays scoped to the ACCOUNT's slice rather than widening to uid alone, which is what keeps the scan off this
+    # helper's own `sudo -u` children: those share the account's uid but live in the INVOKING user's slice.
     readonly SANDBOX_SLICE="${CGROUP2_MOUNT}/user.slice/user-${SANDBOX_UID}.slice"
-    # The manager unit, named exactly rather than by basename. It is descended into but never
-    # emitted as a session; every cgroup in the slice is swept. See find_session_cgroups.
+    # The manager unit, named exactly rather than by basename. It is descended into but never emitted as a session;
+    # every cgroup in the slice is swept. See find_session_cgroups.
     readonly MANAGER_SERVICE="${SANDBOX_SLICE}/user@${SANDBOX_UID}.service"
 }
 
-# find_session_cgroups -- PRINT one absolute cgroup directory per live session, deepest first.
-# Every directory under the account's manager slice is a candidate except init.scope, which holds
-# `systemd --user` and its (sd-pam) helper. Recursion is a bash glob walk, so no `find` is needed
-# and a sandbox that forbids external binaries cannot disarm this.
+# find_session_cgroups -- PRINT one absolute cgroup directory per live session, deepest first. Every directory
+# under the account's manager slice is a candidate except init.scope, which holds `systemd --user` and its (sd-pam)
+# helper. Recursion is a bash glob walk, so no `find` is needed and a sandbox that forbids external binaries cannot
+# disarm this.
 find_session_cgroups() {
     [[ -d "${SANDBOX_SLICE}" ]] || return 0
     local -a stack=("${SANDBOX_SLICE}")
     local current child leaf
-    # Tasks placed directly in the manager slice belong to no unit at all. systemd does not put
-    # them there, so this is the "something else entirely" case -- reported rather than skipped.
+    # Tasks placed directly in the manager slice belong to no unit at all. systemd does not put them there, so this is
+    # the "something else entirely" case -- reported rather than skipped.
     has_own_tasks "${SANDBOX_SLICE}" && printf '%s\n' "${SANDBOX_SLICE}"
     while (( ${#stack[@]} )); do
         current="${stack[-1]}"; unset 'stack[-1]'
@@ -407,19 +388,16 @@ find_session_cgroups() {
             leaf="${child##*/}"
             # NOTHING IS EXEMPT -- and that is the guarantee, not an oversight.
             #
-            # An exemption is a place to hide. Every name inside the delegated subtree is the
-            # DELEGATEE's to choose, and on a DAC-only host a session can reach its own user
-            # manager and ask for a unit by any name it likes, so an exemption expressed as a name
-            # is one the monitored system can claim for itself. Expressed as an exact path it is
-            # still a destination: moving tasks into a spared cgroup is the other DAC-only escape.
-            # Sweeping every cgroup closes both at once, without distro-specific knowledge -- no
-            # unit name appears in this file, so there is no name here to differ between EL9,
-            # EL10 and Fedora.
+            # An exemption is a place to hide. Every name inside the delegated subtree is the DELEGATEE's to choose,
+            # and on a DAC-only host a session can reach its own user manager and ask for a unit by any name it likes,
+            # so an exemption expressed as a name is one the monitored system can claim for itself. Expressed
+            # as an exact path it is still a destination: moving tasks into a spared cgroup is the other DAC-only
+            # escape. Sweeping every cgroup closes both at once, without distro-specific knowledge -- no unit name
+            # appears in this file, so there is no name here to differ between EL9, EL10 and Fedora.
             #
-            # `init.scope` is therefore enumerated and stopped like anything else, the account's
-            # own `systemd --user` and its (sd-pam) helper included. What that would otherwise
-            # break -- the next launch finding no `--user instance` -- is repaired afterwards by
-            # restore_user_manager rather than bought with an exemption.
+            # `init.scope` is therefore enumerated and stopped like anything else, the account's own `systemd --user`
+            # and its (sd-pam) helper included. What that would otherwise break -- the next launch finding no
+            # `--user instance` -- is repaired afterwards by restore_user_manager rather than bought with an exemption.
             #
             # ONE cgroup is still special-cased, and it is not an exemption:
             #   user@<uid>.service -- the manager unit. DESCENDED INTO but never emitted, because
@@ -435,11 +413,10 @@ find_session_cgroups() {
                 continue
             fi
             if [[ "${leaf}" == *.service || "${leaf}" == *.scope ]]; then
-                # A unit is ONE session. Its nested cgroups are part of it -- cgroup_pids counts
-                # them and cgroup.kill kills them -- so descending further would list the same
-                # processes again under a second heading, double the count the operator confirms
-                # against, and (worse) offer a parent SLICE as a stoppable thing, which would take
-                # every sibling unit with it.
+                # A unit is ONE session. Its nested cgroups are part of it -- cgroup_pids counts them and cgroup.kill
+                # kills them -- so descending further would list the same processes again under a second heading, double
+                # the count the operator confirms against, and (worse) offer a parent SLICE as a stoppable thing,
+                # which would take every sibling unit with it.
                 printf '%s\n' "${child}"
             else
                 has_own_tasks "${child}" && printf '%s\n' "${child}"
@@ -449,19 +426,18 @@ find_session_cgroups() {
     done
 }
 
-# has_own_tasks <cgroup-dir> -- succeed when tasks sit in THIS cgroup's own cgroup.procs, ignoring
-# descendants. This is what separates "a slice, whose tasks all live in the units under it" from
-# "a cgroup holding processes directly", and it is why enumerating units does not lose anything:
-# the only place a task can hide from a unit walk is a slice, and a slice with its own tasks is
-# emitted in its own right.
+# has_own_tasks <cgroup-dir> -- succeed when tasks sit in THIS cgroup's own cgroup.procs, ignoring descendants. This is
+# what separates "a slice, whose tasks all live in the units under it" from "a cgroup holding processes directly",
+# and it is why enumerating units does not lose anything: the only place a task can hide from a unit walk is a slice,
+# and a slice with its own tasks is emitted in its own right.
 #
-# FAIL-CLOSED WHERE A READ ERROR IS DISTINGUISHABLE, which is the whole point. "I could not read
-# cgroup.procs" and "there are no tasks" are different facts, and collapsing them is a fail-open on
-# the predicate the guarantee rests on. Only one failure means empty -- the file not existing, i.e.
-# the cgroup was removed, which is the successful outcome.
+# FAIL-CLOSED WHERE A READ ERROR IS DISTINGUISHABLE, which is the whole point. "I could not read cgroup.procs"
+# and "there are no tasks" are different facts, and collapsing them is a fail-open on the predicate the guarantee rests
+# on. Only one failure means empty -- the file not existing, i.e. the cgroup was removed, which is the successful
+# outcome.
 #
-# Bash cannot tell a failed read(2) from a clean EOF: `read` returns 1 for both, and so does
-# `x="$(< file)"`. Verified, not assumed. So each cause is separated by a fact that IS observable:
+# Bash cannot tell a failed read(2) from a clean EOF: `read` returns 1 for both, and so does `x="$(< file)"`. Verified,
+# not assumed. So each cause is separated by a fact that IS observable:
 #
 #   permission-unreadable -- `-r` answers it directly, and answers LIVE.
 #   THREADED cgroup       -- the kernel's documented case, and the one that matters here: in a
@@ -473,8 +449,8 @@ find_session_cgroups() {
 #                            always agree (a member process' threads are in its own cgroup), so
 #                            consulting it costs an ordinary empty cgroup one extra failed open.
 #
-# What remains indistinguishable -- a cgroup.procs that is present, permission-readable, and errors
-# for some third reason with no cgroup.threads beside it -- is not a shape cgroupfs produces.
+# What remains indistinguishable -- a cgroup.procs that is present, permission-readable, and errors for some third
+# reason with no cgroup.threads beside it -- is not a shape cgroupfs produces.
 has_own_tasks() {
     local first_task=""
     [[ -e "$1/cgroup.procs" ]] || return 1          # cgroup gone == no tasks, the good outcome
@@ -493,47 +469,44 @@ cgroup_unit_name() {
 }
 
 # ── Classification (advisory, exactly like attribution) ──────────────────────────────────────
-# The account's slice holds more than agent sessions: its own `systemd --user` and `init.scope`, a
-# dbus broker, and a login session scope for every `sudo -u` that crossed pam_systemd. All of them
-# are terminated -- no cgroup is exempt -- but calling four such cgroups "4 agent sessions" in the
-# table an operator confirms against, and in the line they read first after an incident, is untrue,
-# and untrue in the direction that inflates how much agent work was running.
+# The account's slice holds more than agent sessions: its own `systemd --user` and `init.scope`, a dbus broker,
+# and a login session scope for every `sudo -u` that crossed pam_systemd. All of them are terminated -- no cgroup is
+# exempt -- but calling four such cgroups "4 agent sessions" in the table an operator confirms against, and in the line
+# they read first after an incident, is untrue, and untrue in the direction that inflates how much agent work was
+# running.
 #
-# THIS CHANGES A LABEL AND A COUNT, NEVER A TARGET. It has the same standing as
-# unit_working_directory and carries the same caveat: a unit name inside the delegated subtree is
-# the delegatee's to choose, so a session can name itself out of the agent class, and does
-# not gain an exemption by it, because both classes are enumerated, listed and killed identically. Nothing here
-# is consulted to decide what a stop reaches; that remains cgroup-slice membership alone.
+# THIS CHANGES A LABEL AND A COUNT, NEVER A TARGET. It has the same standing as unit_working_directory and carries
+# the same caveat: a unit name inside the delegated subtree is the delegatee's to choose, so a session can name itself
+# out of the agent class, and does not gain an exemption by it, because both classes are enumerated, listed and killed
+# identically. Nothing here is consulted to decide what a stop reaches; that remains cgroup-slice membership alone.
 
 # session_is_agent <unit-name> -- succeed for a unit ai-tools-run started. It names every session
-# `<SANDBOX_USER>-<agent>-<pid>.service`, so this matches THIS PROJECT's own prefix rather than any
-# distro's unit names -- the file still does not hold a unit name that differs between EL9, EL10 and Fedora.
+# `<SANDBOX_USER>-<agent>-<pid>.service`, so this matches THIS PROJECT's own prefix rather than any distro's unit names
+# -- the file still does not hold a unit name that differs between EL9, EL10 and Fedora.
 session_is_agent() {
     [[ "$1" == "${SANDBOX_USER}-"*.service ]]
 }
 
-# session_class_note <unit-name> -- PRINT the parenthetical a non-agent row is marked with, or
-# empty for an agent session.
+# session_class_note <unit-name> -- PRINT the parenthetical a non-agent row is marked with, or empty for an agent
+# session.
 #
-# ONE MARKER, deliberately, rather than naming the user manager separately. Distinguishing it would
-# take either a path test against MANAGER_SERVICE -- which is wrong, since every unit that manager
-# starts is inside its subtree, agent sessions included, so the account's dbus broker came out
-# labelled "user manager" -- or an `init.scope` literal, which would put a systemd unit name back
-# in a file that deliberately holds none. The headline already states that the manager is among
-# these and is restarted afterwards, which is the part an operator acts on.
+# ONE MARKER, deliberately, rather than naming the user manager separately. Distinguishing it would take either a path
+# test against MANAGER_SERVICE -- which is wrong, since every unit that manager starts is inside its subtree, agent
+# sessions included, so the account's dbus broker came out labelled "user manager" -- or an `init.scope` literal,
+# which would put a systemd unit name back in a file that deliberately holds none. The headline already states
+# that the manager is among these and is restarted afterwards, which is the part an operator acts on.
 session_class_note() {
     session_is_agent "$1" && return 0
     printf '(account plumbing)'
 }
 
-# cgroup_pids <cgroup-dir> -- PRINT every pid in this cgroup AND its descendants. cgroup.procs is
-# per-cgroup, so a nested cgroup's members are not listed by its parent and the subtree is walked.
-# This is the liveness source of truth: a task cannot remove itself from a cgroup, so it cannot
-# hide from this by forking, calling setsid(2), or being re-parented to PID 1.
-# Emission is DEEPEST FIRST, so a caller signalling in order reaches children before their parents
-# and a parent is never left waiting on a child it can still see. The walk is breadth-first, which
-# yields the directories in non-decreasing depth, and they are then read in reverse -- rather than
-# a depth-ordered sort, which would need an external command in the middle of the kill path.
+# cgroup_pids <cgroup-dir> -- PRINT every pid in this cgroup AND its descendants. cgroup.procs is per-cgroup,
+# so a nested cgroup's members are not listed by its parent and the subtree is walked. This is the liveness source
+# of truth: a task cannot remove itself from a cgroup, so it cannot hide from this by forking, calling setsid(2),
+# or being re-parented to PID 1. Emission is DEEPEST FIRST, so a caller signalling in order reaches children
+# before their parents and a parent is never left waiting on a child it can still see. The walk is breadth-first,
+# which yields the directories in non-decreasing depth, and they are then read in reverse -- rather than a depth-ordered
+# sort, which would need an external command in the middle of the kill path.
 cgroup_pids() {
     local -a directories=("$1")
     local index=0 current child pid
@@ -545,35 +518,30 @@ cgroup_pids() {
         done
     done
     for (( index = ${#directories[@]} - 1; index >= 0; index-- )); do
-        # `2>/dev/null` PRECEDES the input redirect deliberately: redirections are applied left to
-        # right, so with the order reversed a cgroup that disappeared mid-walk (the normal outcome
-        # of a successful kill) writes its failure to the real stderr before the suppression is
-        # installed. Verified, not assumed.
+        # `2>/dev/null` PRECEDES the input redirect deliberately: redirections are applied left to right,
+        # so with the order reversed a cgroup that disappeared mid-walk (the normal outcome of a successful kill) writes
+        # its failure to the real stderr before the suppression is installed. Verified, not assumed.
         while read -r pid; do
             [[ -n "${pid}" ]] && printf '%s\n' "${pid}"
         done 2>/dev/null < "${directories[index]}/cgroup.procs"
     done
 }
 
-# cgroup_is_live <cgroup-dir> -- succeed while any task remains in the subtree. Deliberately not
-# `systemctl is-active`: that asks the manager, and the manager is one of the things that can be
-# broken. A cgroup with no tasks is stopped whatever any daemon believes.
-# It walks rather than reusing cgroup_pids because this is the VERIFICATION predicate and the one
-# place a missing external command would be catastrophic: `cgroup_pids | head -n1` yields an empty
-# string when `head` is absent, which reads as "no tasks" and would report a stop as complete while
-# the session is still running -- a fail-open on the single check the guarantee rests on. Walking
-# in-shell also exits at the first task found, so it is cheaper than collecting every pid to ask a
-# yes/no question.
+# cgroup_is_live <cgroup-dir> -- succeed while any task remains in the subtree. Deliberately not `systemctl is-active`:
+# that asks the manager, and the manager is one of the things that can be broken. A cgroup with no tasks is stopped
+# whatever any daemon believes. It walks rather than reusing cgroup_pids because this is the VERIFICATION predicate
+# and the one place a missing external command would be catastrophic: `cgroup_pids | head -n1` yields an empty string
+# when `head` is absent, which reads as "no tasks" and would report a stop as complete while the session is still
+# running -- a fail-open on the single check the guarantee rests on. Walking in-shell also exits at the first task
+# found, so it is cheaper than collecting every pid to ask a yes/no question.
 #
-# `cgroup.events` is consulted FIRST, because it is the kernel's own answer to exactly this
-# question: its `populated` field is 1 while the cgroup OR ANY DESCENDANT holds a live process, so
-# one read replaces the whole walk and cannot disagree with the kernel's view. It is absent on the
-# root cgroup only, and every target here is a non-root cgroup. The walk remains as the fallback
-# for a kernel or layout that does not present it.
+# `cgroup.events` is consulted FIRST, because it is the kernel's own answer to exactly this question: its `populated`
+# field is 1 while the cgroup OR ANY DESCENDANT holds a live process, so one read replaces the whole walk and cannot
+# disagree with the kernel's view. It is absent on the root cgroup only, and every target here is a non-root cgroup.
+# The walk remains as the fallback for a kernel or layout that does not present it.
 #
-# Both paths fail closed: an unreadable or unparseable answer reports LIVE. A cgroup directory that
-# no longer exists is the one failure that reports empty, because that is what a completed kill
-# looks like.
+# Both paths fail closed: an unreadable or unparseable answer reports LIVE. A cgroup directory that no longer exists is
+# the one failure that reports empty, because that is what a completed kill looks like.
 cgroup_is_live() {
     [[ -d "$1" ]] || return 1                        # removed: the successful outcome
     local field value
@@ -602,17 +570,16 @@ cgroup_is_live() {
 }
 
 # ── Signalling ───────────────────────────────────────────────────────────────────────────────
-# pid_start_time <pid> -- PRINT /proc/<pid>/stat field 22, the process' start time in clock ticks.
-# It is unique per pid for that process' lifetime, which makes it the portable guard against
-# signalling a RECYCLED pid: capture it when the pid is collected, re-check it immediately before
-# the kill. comm (field 2) may contain spaces and parentheses, so the fields are read after the
-# LAST ')' -- field 22 is then index 19.
+# pid_start_time <pid> -- PRINT /proc/<pid>/stat field 22, the process' start time in clock ticks. It is unique per pid
+# for that process' lifetime, which makes it the portable guard against signalling a RECYCLED pid: capture it
+# when the pid is collected, re-check it immediately before the kill. comm (field 2) may contain spaces and parentheses,
+# so the fields are read after the LAST ')' -- field 22 is then index 19.
 #
-# Failing to read it means the process is GONE: this runs as root, the pid came from a cgroup being
-# torn down, and root's only reason to fail on /proc/<pid>/stat is that the entry no longer exists.
-# So a read failure skips the pid, which is correct rather than fail-open -- there is no process left
-# to signal. The readability test comes first purely to keep the common vanished-pid case off
-# stderr; the read is still checked, because the pid can exit between the two.
+# Failing to read it means the process is GONE: this runs as root, the pid came from a cgroup being torn
+# down, and root's only reason to fail on /proc/<pid>/stat is that the entry no longer exists. So a read failure skips
+# the pid, which is correct rather than fail-open -- there is no process left to signal. The readability test comes
+# first purely to keep the common vanished-pid case off stderr; the read is still checked, because the pid can exit
+# between the two.
 pid_start_time() {
     local stat_line fields_after_comm
     [[ -r "/proc/$1/stat" ]] || return 1
@@ -625,10 +592,9 @@ pid_start_time() {
     printf '%s' "${fields[19]}"
 }
 
-# signal_pids_validated <signal> <pid>... -- signal each pid only if its start time still matches
-# what it had when it was collected, so a pid recycled in between is skipped rather than signalled
-# blind. `kill` is a bash builtin, so this runs without an external binary. A pid that has already exited
-# is not an error -- that is the outcome being aimed at.
+# signal_pids_validated <signal> <pid>... -- signal each pid only if its start time still matches what it had when it
+# was collected, so a pid recycled in between is skipped rather than signalled blind. `kill` is a bash builtin, so this
+# runs without an external binary. A pid that has already exited is not an error -- that is the outcome being aimed at.
 signal_pids_validated() {
     local signal="$1"; shift
     local entry pid expected_start current_start
@@ -641,8 +607,8 @@ signal_pids_validated() {
 }
 
 # collect_pids_with_start_time <cgroup-dir> -- PRINT `<pid>:<start-time>` per live task, which is
-# what signal_pids_validated consumes. Collected fresh on every pass: a set read once and signalled
-# twice would miss whatever was forked in between.
+# what signal_pids_validated consumes. Collected fresh on every pass: a set read once and signalled twice would miss
+# whatever was forked in between.
 collect_pids_with_start_time() {
     local pid start
     while read -r pid; do
@@ -651,9 +617,9 @@ collect_pids_with_start_time() {
     done < <(cgroup_pids "$1")
 }
 
-# terminate_gracefully <cgroup-dir> -- the SIGTERM pass. Succeeds when the subtree empties within
-# the grace. Re-collects each second so a child forked after the previous pass is signalled too,
-# and cgroup_pids returns deepest-first, so children are reached before their parents.
+# terminate_gracefully <cgroup-dir> -- the SIGTERM pass. Succeeds when the subtree empties within the grace. Re-collects
+# each second so a child forked after the previous pass is signalled too, and cgroup_pids returns deepest-first,
+# so children are reached before their parents.
 terminate_gracefully() {
     local cgroup_directory="$1" waited=0
     local -a pids
@@ -669,27 +635,26 @@ terminate_gracefully() {
 
 # kill_outright <cgroup-dir> -- the unrefusable pass. Succeeds when the subtree is empty.
 #
-# cgroup.kill is the mechanism that makes the guarantee: one write freezes the cgroup and SIGKILLs
-# every member INCLUDING descendants, atomically, so there is no window in which a fork can outrun
-# the signal. Where the kernel predates it (< 5.14), the fallback re-collects and re-signals in a
-# loop, which narrows that window to one iteration but does not close it -- which is exactly why
-# cgroup.kill is preferred rather than treated as an optimisation.
+# cgroup.kill is the mechanism that makes the guarantee: one write freezes the cgroup and SIGKILLs every member
+# INCLUDING descendants, atomically, so there is no window in which a fork can outrun the signal. Where the kernel
+# predates it (< 5.14), the fallback re-collects and re-signals in a loop, which narrows that window to one iteration
+# but does not close it -- which is exactly why cgroup.kill is preferred rather than treated as an optimisation.
 kill_outright() {
     local cgroup_directory="$1" waited=0
     local cgroup_kill_reported=false
     local -a pids
     while (( waited < REAP_SECONDS )); do
         cgroup_is_live "${cgroup_directory}" || return 0
-        # Re-asserted every pass, not written once before the loop. The write is idempotent and
-        # costs one write, and doing it once would make the whole guarantee rest on a single
-        # syscall whose failure is invisible. Re-asserting also covers a nested cgroup created
-        # between passes, which the one-shot form would leave to the pid fallback alone.
+        # Re-asserted every pass, not written once before the loop. The write is idempotent and costs one write,
+        # and doing it once would make the whole guarantee rest on a single syscall whose failure is invisible.
+        # Re-asserting also covers a nested cgroup created between passes, which the one-shot form would leave
+        # to the pid fallback alone.
         #
-        # A failure is REPORTED, once per session, and the two reasons are not the same event: an
-        # absent file is an old kernel and expected, while a present file that will not take the
-        # write means the atomic mechanism is unavailable on a host that should have it, and the
-        # run has silently dropped to the racier pid loop. That distinction is exactly what an
-        # operator needs after a stop that did not converge, so it must not be swallowed.
+        # A failure is REPORTED, once per session, and the two reasons are not the same event: an absent file is an old
+        # kernel and expected, while a present file that will not take the write means the atomic mechanism is
+        # unavailable on a host that should have it, and the run has silently dropped to the racier pid loop.
+        # That distinction is exactly what an operator needs after a stop that did not converge, so it must not be
+        # swallowed.
         if [[ -e "${cgroup_directory}/cgroup.kill" ]]; then
             if ! printf '1' > "${cgroup_directory}/cgroup.kill" 2>/dev/null; then
                 ${cgroup_kill_reported} || log_event warning \
@@ -711,9 +676,8 @@ kill_outright() {
     ! cgroup_is_live "${cgroup_directory}"
 }
 
-# end_session <cgroup-dir> -- PRINT which pass ended it: `terminated`, `killed`, or `alive`.
-# The kill pass runs whether or not the graceful pass reported success, because its own verification
-# is the only thing trusted.
+# end_session <cgroup-dir> -- PRINT which pass ended it: `terminated`, `killed`, or `alive`. The kill pass runs whether
+# or not the graceful pass reported success, because its own verification is the only thing trusted.
 end_session() {
     local cgroup_directory="$1"
     if ! ${FORCE_KILL}; then
@@ -724,19 +688,17 @@ end_session() {
 }
 
 # ── Attribution (best-effort, and never decides liveness) ────────────────────────────────────
-# unit_working_directory <unit> -- PRINT the unit's WorkingDirectory, or empty when the user
-# manager cannot be reached. The machine transport is preferred: this runs as root, where the
-# system bus already authorizes it, whereas `sudo -u` needs that account's own bus to accept the
-# connection, which a host can refuse while the manager is healthy. A failure here costs
-# attribution alone.
+# unit_working_directory <unit> -- PRINT the unit's WorkingDirectory, or empty when the user manager cannot be reached.
+# The machine transport is preferred: this runs as root, where the system bus already authorizes it, whereas `sudo -u`
+# needs that account's own bus to accept the connection, which a host can refuse while the manager is healthy. A failure
+# here costs attribution alone.
 #
-# BOUNDED IN TIME, because "the user manager is wedged" is not a hypothetical here -- it is one of
-# the states an operator reaches for this command IN. A d-bus call to a hung manager blocks
-# indefinitely, and a stop that hangs while attributing sessions is a stop that did not happen,
-# which is the one outcome this file exists to prevent. Both calls therefore run under a short
-# `timeout`, and every way that can fail -- the manager not answering, `timeout` itself absent --
-# returns an empty WorkingDirectory, which refuses the SCOPED form and sends the operator to
-# `--all`. `--all` does not read one at all, so the undeclinable form cannot be delayed by this.
+# BOUNDED IN TIME, because "the user manager is wedged" is not a hypothetical here -- it is one of the states
+# an operator reaches for this command IN. A d-bus call to a hung manager blocks indefinitely, and a stop that hangs
+# while attributing sessions is a stop that did not happen, which is the one outcome this file exists to prevent. Both
+# calls therefore run under a short `timeout`, and every way that can fail -- the manager not answering, `timeout`
+# itself absent -- returns an empty WorkingDirectory, which refuses the SCOPED form and sends the operator to `--all`.
+# `--all` does not read one at all, so the undeclinable form cannot be delayed by this.
 unit_working_directory() {
     local raw
     raw="$(timeout 5 systemctl --user -M "${SANDBOX_USER}@.host" show --property=WorkingDirectory "$1" 2>/dev/null)"
@@ -745,21 +707,21 @@ unit_working_directory() {
                    systemctl --user show --property=WorkingDirectory "$1" 2>/dev/null)"
     fi
     raw="${raw#WorkingDirectory=}"
-    # Strip systemd's "missing is ok" marker. THE D-BUS PROPERTY RENDERS IT `!`, which is what
-    # `show` returns and therefore the only spelling this function actually meets; `-` is the
-    # unit-file spelling of the same flag and is stripped too, so neither rendering reaches the
-    # comparison. (Observed: dbus-broker.service reports `WorkingDirectory=!/home/<user>`.)
+    # Strip systemd's "missing is ok" marker. THE D-BUS PROPERTY RENDERS IT `!`, which is what `show` returns
+    # and therefore the only spelling this function actually meets; `-` is the unit-file spelling of the same flag
+    # and is stripped too, so neither rendering reaches the comparison. (Observed: dbus-broker.service reports
+    # `WorkingDirectory=!/home/<user>`.)
     if [[ "${raw}" == '!'* || "${raw}" == '-'* ]]; then raw="${raw:1}"; fi
-    # ONLY AN ABSOLUTE PATH IS A RESULT; anything else yields an empty value and the session reads as
-    # `unknown`. Attribution does not decide any part of the sweep here, so this is not a gate -- it is what keeps a value
-    # this helper cannot interpret from being printed as though it could be used. The concrete case
-    # is print_reclaim_guidance, which turns each attributed directory into a command the operator
-    # is invited to run: an unstripped marker emitted `ai-tools --reclaim !/opt/ai-tools`, which is
-    # not a runnable command and, pasted into an interactive bash, is not even an inert one.
+    # ONLY AN ABSOLUTE PATH IS A RESULT; anything else yields an empty value and the session reads as `unknown`.
+    # Attribution does not decide any part of the sweep here, so this is not a gate -- it is what keeps a value this
+    # helper cannot interpret from being printed as though it could be used. The concrete case is
+    # print_reclaim_guidance, which turns each attributed directory into a command the operator is invited to run:
+    # an unstripped marker emitted `ai-tools --reclaim !/opt/ai-tools`, which is not a runnable command and, pasted
+    # into an interactive bash, is not even an inert one.
     #
-    # The shape is ALLOWLISTED rather than the markers enumerated, so a rendering systemd adds later
-    # degrades to `unknown` instead of reaching the operator as a broken command. `~`
-    # (WorkingDirectory=~, the account's home) does not carry a path and is correctly refused here.
+    # The shape is ALLOWLISTED rather than the markers enumerated, so a rendering systemd adds later degrades
+    # to `unknown` instead of reaching the operator as a broken command. `~` (WorkingDirectory=~, the account's home)
+    # does not carry a path and is correctly refused here.
     [[ "${raw}" == /* ]] || raw=""
     printf '%s' "${raw}"
 }
@@ -767,22 +729,20 @@ unit_working_directory() {
 # ── Restoring the user manager ───────────────────────────────────────────────────────────────
 # restore_user_manager -- put `user@<uid>.service` back after a stop that necessarily took it down.
 #
-# WHY IT HAS TO EXIST. The enumeration covers every cgroup, the account's own `systemd --user` included
-# (see find_session_cgroups): an exemption is a destination a session can move into, and on a
-# DAC-only host it can also ask that manager for a unit outside any subtree we chose to sweep.
-# Covering every cgroup closes both. The price is that the manager is gone afterwards -- and SIGKILL
-# leaves `user@<uid>.service` FAILED rather than restarting it, so the next launch would find no
-# `--user instance`. This pays that price back instead of buying it with an exemption.
+# WHY IT HAS TO EXIST. The enumeration covers every cgroup, the account's own `systemd --user` included (see
+# find_session_cgroups): an exemption is a destination a session can move into, and on a DAC-only host it can also ask
+# that manager for a unit outside any subtree we chose to sweep. Covering every cgroup closes both. The price is
+# that the manager is gone afterwards -- and SIGKILL leaves `user@<uid>.service` FAILED rather than restarting it,
+# so the next launch would find no `--user instance`. This pays that price back instead of buying it with an exemption.
 #
-# IT RUNS AFTER THE KILL AND AFTER THE VERIFICATION, and cannot affect either. The invariant is
-# that a stop reported as done HAS happened; a manager that did not come back is a different and
-# lesser problem -- the host cannot start a NEW session until it is fixed, which is nearer to the
-# point of this command than against it. So every failure here warns, names the command, and
-# leaves the exit status alone.
+# IT RUNS AFTER THE KILL AND AFTER THE VERIFICATION, and cannot affect either. The invariant is that a stop reported
+# as done HAS happened; a manager that did not come back is a different and lesser problem -- the host cannot start
+# a NEW session until it is fixed, which is nearer to the point of this command than against it. So every failure here
+# warns, names the command, and leaves the exit status alone.
 restore_user_manager() {
     local unit="user@${SANDBOX_UID}.service"
-    # reset-failed first: the manager was SIGKILLed, so the unit is in `failed`, and `start` on a
-    # failed unit is not uniformly a reset-and-start across systemd versions.
+    # reset-failed first: the manager was SIGKILLed, so the unit is in `failed`, and `start` on a failed unit is not
+    # uniformly a reset-and-start across systemd versions.
     timeout 10 systemctl reset-failed "${unit}" >/dev/null 2>&1
     if timeout 30 systemctl start "${unit}" >/dev/null 2>&1; then
         log_event notice "restarted ${unit} after the stop -- the next launch has a --user instance" \
@@ -797,31 +757,28 @@ restore_user_manager() {
 }
 
 # ── Confirmation ─────────────────────────────────────────────────────────────────────────────
-# confirm_stop <agent-count> <plumbing-count> -- succeed unless the operator deliberately declines.
-# Inverted convention 2 in the header: the default is YES, so no terminal, no msg.lib.sh, a pipe, or
-# a bare Enter all proceed, and only an explicit `n` stops the stop.
+# confirm_stop <agent-count> <plumbing-count> -- succeed unless the operator deliberately declines. Inverted convention
+# 2 in the header: the default is YES, so no terminal, no msg.lib.sh, a pipe, or a bare Enter all proceed, and only
+# an explicit `n` stops the stop.
 #
-# THE QUESTION NAMES BOTH CLASSES, for the reason the table separates them: consent given to "4
-# sessions" that were one session and three units of the account's own plumbing was not informed
-# consent about either number.
+# THE QUESTION NAMES BOTH CLASSES, for the reason the table separates them: consent given to "4 sessions" that were one
+# session and three units of the account's own plumbing was not informed consent about either number.
 #
-# THE ARITY IS DEFAULTED, and that is inverted convention 1 rather than defensive habit. This file
-# runs under `set -u`, where reading an argument a caller did not pass aborts the shell outright --
-# here, mid-question, after the table has been printed and before anything has been signalled: a
-# stop that was asked for and did not happen, which is the one outcome this file exists to prevent.
-# main() always passes both counts, so the default is not an expected path; it is the guarantee that
-# a caller's slip costs the wording of a question and never the answer to it.
+# THE ARITY IS DEFAULTED, and that is inverted convention 1 rather than defensive habit. This file runs under `set -u`,
+# where reading an argument a caller did not pass aborts the shell outright -- here, mid-question, after the table has
+# been printed and before anything has been signalled: a stop that was asked for and did not happen, which is the one
+# outcome this file exists to prevent. main() always passes both counts, so the default is not an expected path; it is
+# the guarantee that a caller's slip costs the wording of a question and never the answer to it.
 #
-# WHICH PATH GAVE CONSENT IS RECORDED, because the paths are not equally strong and a reader of
-# the trail must not have to guess. `--yes` is an operator decision; the library prompt is a real
-# answered question; the raw /dev/tty prompt is the same question asked without the shared
-# renderer; and `no-tty` means nobody was asked at all and the default carried the run. The last
-# is legitimate -- it is the whole point of defaulting YES -- but it is the one an operator would
-# want to see when asking why a cron job stopped a session at 4am.
+# WHICH PATH GAVE CONSENT IS RECORDED, because the paths are not equally strong and a reader of the trail must not have
+# to guess. `--yes` is an operator decision; the library prompt is a real answered question; the raw /dev/tty prompt is
+# the same question asked without the shared renderer; and `no-tty` means nobody was asked at all and the default
+# carried the run. The last is legitimate -- it is the whole point of defaulting YES -- but it is the one an operator
+# would want to see when asking why a cron job stopped a session at 4am.
 confirm_stop() {
     local agent_count="${1:-0}" plumbing_count="${2:-0}"
-    # Three shapes, none of which names a class that is not there. main() reaches this only with at
-    # least one cgroup selected, so "no sessions and no plumbing" cannot occur.
+    # Three shapes, none of which names a class that is not there. main() reaches this only with at least one cgroup
+    # selected, so "no sessions and no plumbing" cannot occur.
     local question
     if   (( agent_count == 0 )); then question="Terminate the ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing listed above?"
     elif (( plumbing_count ));   then question="Terminate the ${agent_count} agent session(s) listed above, and ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
@@ -852,18 +809,16 @@ confirm_stop() {
 }
 
 # ── Reporting ────────────────────────────────────────────────────────────────────────────────
-# print_session_table <verb> -- the detail the confirmation is answered against. An operator
-# agreeing to stop "3 sessions" without seeing which projects they are in is not consenting to
+# print_session_table <verb> -- the detail the confirmation is answered against. An operator agreeing to stop "3
+# sessions" without seeing which projects they are in is not consenting to
 # anything.
 #
-# Reads the parallel selection arrays directly rather than taking packed records. Nothing in this
-# file joins fields into a delimited string any more: a WorkingDirectory is an arbitrary pathname
-# and may contain the delimiter, which would split one session into two garbled rows -- in the very
-# table whose job is to be exact.
-# Agent sessions are listed FIRST, ahead of the account's plumbing, because the table is read under
-# time pressure and the rows that answer "what was running" must not be interleaved with rows that
-# are always there. Order is presentation only; every selected cgroup is ended by the loop in main()
-# in its own order, and no cgroup is dropped from either pass.
+# Reads the parallel selection arrays directly rather than taking packed records. Nothing in this file joins fields
+# into a delimited string any more: a WorkingDirectory is an arbitrary pathname and may contain the delimiter,
+# which would split one session into two garbled rows -- in the very table whose job is to be exact. Agent sessions are
+# listed FIRST, ahead of the account's plumbing, because the table is read under time pressure and the rows that answer
+# "what was running" must not be interleaved with rows that are always there. Order is presentation only; every selected
+# cgroup is ended by the loop in main() in its own order, and no cgroup is dropped from either pass.
 print_session_table() {
     local verb="$1" index note
     printf '  %-11s %-40s %6s  %s\n' "" "SESSION" "PROCS" "PROJECT"
@@ -884,15 +839,14 @@ print_session_table() {
     done
 }
 
-# print_reclaim_guidance <dir>... -- name the reclaim per project actually stopped. A stop cannot
-# run the agent's SessionEnd hook, so the in-flight turn's writes may still be sandbox-owned;
-# naming the project beats a pointer the operator must translate mid-incident.
+# print_reclaim_guidance <dir>... -- name the reclaim per project actually stopped. A stop cannot run the agent's
+# SessionEnd hook, so the in-flight turn's writes may still be sandbox-owned; naming the project beats a pointer
+# the operator must translate mid-incident.
 #
-# CALLED WITH AGENT SESSIONS' DIRECTORIES ONLY. The account's plumbing has no project to hand back,
-# and its WorkingDirectory is routinely a path `ai-tools --reclaim` would refuse outright: the
-# account's dbus broker reports `/opt/ai-tools`, the control plane, which the safe-paths backstop
-# protects. Emitting it produced a remedy that cannot run, offered to an operator mid-incident with
-# no marker to distinguish it from the one that can.
+# CALLED WITH AGENT SESSIONS' DIRECTORIES ONLY. The account's plumbing has no project to hand back, and its
+# WorkingDirectory is routinely a path `ai-tools --reclaim` would refuse outright: the account's dbus broker reports
+# `/opt/ai-tools`, the control plane, which the safe-paths backstop protects. Emitting it produced a remedy that cannot
+# run, offered to an operator mid-incident with no marker to distinguish it from the one that can.
 print_reclaim_guidance() {
     local directory
     local -A seen=()
@@ -913,13 +867,13 @@ print_reclaim_guidance() {
 
 # ── Run ──────────────────────────────────────────────────────────────────────────────────────
 main() {
-    # There is one scope and no way to ask for another, so it is a constant rather than a decision:
-    # every live cgroup in the account's slice. Kept as a named value because it is what the
-    # headline, the trail and the no-sessions message all read.
+    # There is one scope and no way to ask for another, so it is a constant rather than a decision: every live cgroup
+    # in the account's slice. Kept as a named value because it is what the headline, the trail and the no-sessions
+    # message all read.
     local scope="every agent session"
 
-    # Recorded before anything is selected, so a run interrupted part-way still left a record of
-    # what was asked for and by whom.
+    # Recorded before anything is selected, so a run interrupted part-way still left a record of what was asked
+    # for and by whom.
     log_event notice \
         "${CALLER} requested stop (scope=${scope}, force=${FORCE_KILL}, dry-run=${DRY_RUN})" \
         "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" \
@@ -932,19 +886,18 @@ main() {
     local -a session_pids
     while read -r cgroup_directory; do
         [[ -n "${cgroup_directory}" ]] || continue
-        # Counted in the shell rather than through `wc -l`: the pid list is already being read, so
-        # a pipe to an external command does not buy accuracy and puts one more binary on the path.
+        # Counted in the shell rather than through `wc -l`: the pid list is already being read, so a pipe to an external
+        # command does not buy accuracy and puts one more binary on the path.
         mapfile -t session_pids < <(cgroup_pids "${cgroup_directory}")
         pid_count=${#session_pids[@]}
         (( pid_count )) || continue
         unit="$(cgroup_unit_name "${cgroup_directory}")"
         working_directory=""
         [[ -n "${unit}" ]] && working_directory="$(unit_working_directory "${unit}")"
-        # NOTHING IS FILTERED. Attribution is read for the table and the reclaim guidance only --
-        # it does not select a target, so a session whose working directory cannot be read is stopped
-        # exactly like one whose can, and simply shows as `unknown`. That is what makes the
-        # attribution safe to take from the account being stopped: a unit that misreports its
-        # project misleads a reader, and cannot buy itself survival.
+        # NOTHING IS FILTERED. Attribution is read for the table and the reclaim guidance only -- it does not select
+        # a target, so a session whose working directory cannot be read is stopped exactly like one whose can,
+        # and simply shows as `unknown`. That is what makes the attribution safe to take from the account being stopped:
+        # a unit that misreports its project misleads a reader, and cannot buy itself survival.
         selected_cgroups+=("${cgroup_directory}")
         selected_units+=("${unit}")
         selected_dirs+=("${working_directory}")
@@ -962,11 +915,11 @@ main() {
         return 0
     fi
 
-    # The two counts are reported separately everywhere, never summed into one "session" figure.
-    # See the classification block for why, and for why the split is advisory.
+    # The two counts are reported separately everywhere, never summed into one "session" figure. See the classification
+    # block for why, and for why the split is advisory.
     #
-    # Two wordings, because "go with them" has no antecedent when no agent session was found -- the
-    # shape a RERUN always takes, the manager having been restarted by the run before it.
+    # Two wordings, because "go with them" has no antecedent when no agent session was found -- the shape a RERUN always
+    # takes, the manager having been restarted by the run before it.
     local plumbing_clause=""
     if (( plumbing_count && agent_count )); then
         plumbing_clause=" ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing (marked below) go with them -- nothing in the account's slice is exempt -- and its user manager is restarted afterwards."
@@ -1012,8 +965,8 @@ main() {
         cgroup_directory="${selected_cgroups[index]}"
         unit="${selected_units[index]}"
         working_directory="${selected_dirs[index]}"
-        # Carried onto the result lines too, not just the table: in a run with several sessions the
-        # table has scrolled off by the time these appear, and these are what the operator watches.
+        # Carried onto the result lines too, not just the table: in a run with several sessions the table has scrolled
+        # off by the time these appear, and these are what the operator watches.
         class_note="$(session_class_note "${unit}")"
         [[ -n "${class_note}" ]] && class_note="  ${class_note}"
         outcome="$(end_session "${cgroup_directory}")"
@@ -1047,40 +1000,38 @@ main() {
         esac
     done
 
-    # ONE FINAL SWEEP OF THE WHOLE SLICE, after every session has been dealt with individually.
-    # Each cgroup was verified empty on its own, which leaves one theoretical gap: a process
-    # that moved between two selected cgroups during the run would be verified gone from the one it
-    # left and never looked for in the one it joined. Migration needs write access to the
-    # destination's cgroup.procs, which the confined session does not have -- so this closes a gap
-    # that should be unreachable, and its value is exactly that: if it ever fires, a confinement
-    # invariant has broken and that is far more important than the stop it just caught.
+    # ONE FINAL SWEEP OF THE WHOLE SLICE, after every session has been dealt with individually. Each cgroup was verified
+    # empty on its own, which leaves one theoretical gap: a process that moved between two selected cgroups
+    # during the run would be verified gone from the one it left and never looked for in the one it joined. Migration
+    # needs write access to the destination's cgroup.procs, which the confined session does not have -- so this closes
+    # a gap that should be unreachable, and its value is exactly that: if it ever fires, a confinement invariant has
+    # broken and that is far more important than the stop it just caught.
     #
-    # RE-ENUMERATED, not merely re-checking what was selected: a session that started while this
-    # ran sits in a cgroup that was never selected, so a selection-only recheck would report success
-    # with a live session on the host. Re-walking catches it. It does not make the command atomic --
-    # a session starting after this sweep is still missed, and closing that needs a launch/stop gate
-    # shared with ai-tools-run -- but it converts a silent miss into a reported one, which is the
-    # honest bound. See the exit contract at the top of this file for what a success means.
+    # RE-ENUMERATED, not merely re-checking what was selected: a session that started while this ran sits in a cgroup
+    # that was never selected, so a selection-only recheck would report success with a live session on the host.
+    # Re-walking catches it. It does not make the command atomic -- a session starting after this sweep is still missed,
+    # and closing that needs a launch/stop gate shared with ai-tools-run -- but it converts a silent miss
+    # into a reported one, which is the honest bound. See the exit contract at the top of this file for what a success
+    # means.
     #
-    # The assertion is the simple one, because the sweep covers every cgroup: the account's slice
-    # does not hold any live cgroup at all.
+    # The assertion is the simple one, because the sweep covers every cgroup: the account's slice does not hold any live
+    # cgroup at all.
     local -a remaining=()
     while read -r cgroup_directory; do
         [[ -n "${cgroup_directory}" ]] && cgroup_is_live "${cgroup_directory}" \
             && remaining+=("${cgroup_directory}")
     done < <(find_session_cgroups)
-    # The sweep's verdict is SET-BASED, not a count comparison. `survivors` counts SESSIONS that
-    # reported alive; `remaining` counts LIVE CGROUPS afterwards. Those are different units -- one
-    # session cgroup holds many tasks, and a cgroup that appeared after the loop was never in
-    # `survivors` at all -- so comparing the two numbers does not detect any case reliably: it misses a new
-    # cgroup whenever `survivors` was already non-zero, and can fire on a healthy host.
+    # The sweep's verdict is SET-BASED, not a count comparison. `survivors` counts SESSIONS that reported alive;
+    # `remaining` counts LIVE CGROUPS afterwards. Those are different units -- one session cgroup holds many tasks,
+    # and a cgroup that appeared after the loop was never in `survivors` at all -- so comparing the two numbers does not
+    # detect any case reliably: it misses a new cgroup whenever `survivors` was already non-zero, and can fire
+    # on a healthy host.
     #
-    # So: ANY live cgroup after a run is a failure, full stop. And separately, a live cgroup that is
-    # not one the loop already reported alive is the interesting case -- something appeared in, or
-    # moved into, a cgroup after it was verified empty. Within a DELEGATED subtree that move is
-    # permitted (see the header), so this is a reachable event and not a broken invariant; it is
-    # reported because it means a session started while the command was running, or that something
-    # re-entered a cgroup after it was verified empty.
+    # So: ANY live cgroup after a run is a failure, full stop. And separately, a live cgroup that is not one the loop
+    # already reported alive is the interesting case -- something appeared in, or moved into, a cgroup after it was
+    # verified empty. Within a DELEGATED subtree that move is permitted (see the header), so this is a reachable event
+    # and not a broken invariant; it is reported because it means a session started while the command was running,
+    # or that something re-entered a cgroup after it was verified empty.
     local -a unexpected=()
     local swept known was_known
     for swept in "${remaining[@]}"; do
@@ -1103,22 +1054,21 @@ main() {
                 "AI_TOOLS_CGROUP=${swept}" "AI_TOOLS_RESULT=reappeared"
         done
     fi
-    # Whatever the cause, a non-empty sweep means the stop did not complete. Take the sweep's count
-    # as authoritative over the loop's, since it is the later and broader observation.
+    # Whatever the cause, a non-empty sweep means the stop did not complete. Take the sweep's count as authoritative
+    # over the loop's, since it is the later and broader observation.
     (( ${#remaining[@]} )) && survivors=${#remaining[@]}
 
-    # Unconditional, and deliberately placed after every verification and before the exit-status
-    # decision: the manager has to come back whether or not something survived SIGKILL, and it must
-    # not be able to influence what this command reports about the stop itself.
+    # Unconditional, and deliberately placed after every verification and before the exit-status decision: the manager
+    # has to come back whether or not something survived SIGKILL, and it must not be able to influence what this command
+    # reports about the stop itself.
     restore_user_manager
 
     if (( survivors )); then
         log_event error \
             "stop finished with ${survivors} of ${#selected_cgroups[@]} cgroup(s) still present for ${CALLER}" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=survived"
-        # The counts follow the literal rather than opening the line: a coded message is read from
-        # its first quoted word, so one beginning with an expansion carries a code the index
-        # cannot resolve to any message.
+        # The counts follow the literal rather than opening the line: a coded message is read from its first quoted
+        # word, so one beginning with an expansion carries a code the index cannot resolve to any message.
         say_error MSG-W7D3 "Some cgroups survived SIGKILL: ${survivors} of ${#selected_cgroups[@]}. A task only outlives SIGKILL while blocked in an uninterruptible kernel call: it holds no CPU, runs no code and can start nothing new, but only the I/O completing or a reboot clears it. Inspect it with:" \
                   "sudo ps -o pid,stat,wchan:20,cmd -u ${SANDBOX_USER}"
         return 1
@@ -1137,13 +1087,12 @@ main() {
 }
 
 # ── Entry point ──────────────────────────────────────────────────────────────────────────────
-# SOURCING THIS FILE IS INERT: it defines the functions and returns here, having parsed no
-# argument, resolved no host state, armed no trap and signalled no process. That is what lets the unit
-# suite drive the enumeration and liveness predicates -- the two things a reading review has
-# repeatedly failed to get right -- against a FIXTURE cgroup tree, on any host, with no session
-# running and no privilege. It is not a mode and not a hook: there is no environment variable to
-# set, no branch inside any function, and no input an invoker can reach that changes what a real run
-# does. Running the file is unchanged.
+# SOURCING THIS FILE IS INERT: it defines the functions and returns here, having parsed no argument, resolved no host
+# state, armed no trap and signalled no process. That is what lets the unit suite drive the enumeration and liveness
+# predicates -- the two things a reading review has repeatedly failed to get right -- against a FIXTURE cgroup tree,
+# on any host, with no session running and no privilege. It is not a mode and not a hook: there is no environment
+# variable to set, no branch inside any function, and no input an invoker can reach that changes what a real run does.
+# Running the file is unchanged.
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 0
 fi

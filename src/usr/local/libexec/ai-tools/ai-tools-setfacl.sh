@@ -1,43 +1,38 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-setfacl
-# Applies the per-project POSIX ACL that lets the owning operator and the sandbox agent co-write
-# an approved tree regardless of either party's umask -- the permission companion to
-# ai-tools-setgid's group-ownership inheritance. An access + inherited-default ACL grants rwX to
-# the @SANDBOX_GROUP@ group (the agent's access to operator-written files) and to the resolved
-# operator (the operator's access to agent-written files), others denied. The operator grant is
-# what lets the operator co-write the tree -- work tree, and .git under `--with-git` -- without
-# joining @SANDBOX_GROUP@ and without waiting on the ownership handback.
+# Applies the per-project POSIX ACL that lets the owning operator and the sandbox agent co-write an approved tree
+# regardless of either party's umask -- the permission companion to ai-tools-setgid's group-ownership inheritance.
+# An access + inherited-default ACL grants rwX to the @SANDBOX_GROUP@ group (the agent's access to operator-written
+# files) and to the resolved operator (the operator's access to agent-written files), others denied. The operator grant
+# is what lets the operator co-write the tree -- work tree, and .git under `--with-git` -- without joining
+# @SANDBOX_GROUP@ and without waiting on the ownership handback.
 #
-# Owner-only paths are never granted. When a path's mode grants neither group nor other bits
-# (0600, 0700), the walk does not apply either grant to it -- group:@SANDBOX_GROUP@:rwX (the
-# agent's) or user:<operator>:rwX (the operator's) -- does not set a default ACL on a directory,
-# does not recalculate the mask, and leaves the mode bits untouched. That mode is the operator's standing decision to
-# keep the path out of the sandbox account's reach, and a claim does not overrule it. What the
-# walk does instead is STRIP the sandbox residue such a path still carries (owner-only.lib.sh),
-# so the seal does not rest on the mode alone staying put.
-# It holds on the main walk and in the `--with-git` pass alike; a skipped directory takes its
-# subtree with it, since the sandbox account cannot enter the directory to use a grant inside it.
-# To opt a path in, widen its mode and re-claim -- a manual step rather than a prompt, because a
-# standing denial should not fall to a single keypress.
+# Owner-only paths are never granted. When a path's mode grants neither group nor other bits (0600, 0700), the walk does
+# not apply either grant to it -- group:@SANDBOX_GROUP@:rwX (the agent's) or user:<operator>:rwX (the operator's) --
+# does not set a default ACL on a directory, does not recalculate the mask, and leaves the mode bits untouched.
+# That mode is the operator's standing decision to keep the path out of the sandbox account's reach, and a claim does
+# not overrule it. What the walk does instead is STRIP the sandbox residue such a path still carries
+# (owner-only.lib.sh), so the seal does not rest on the mode alone staying put. It holds on the main walk
+# and in the `--with-git` pass alike; a skipped directory takes its subtree with it, since the sandbox account cannot
+# enter the directory to use a grant inside it. To opt a path in, widen its mode and re-claim -- a manual step rather
+# than a prompt, because a standing denial should not fall to a single keypress.
 #
-# Every skip is counted and reported. On a project ROOT it means the sandbox account cannot enter
-# the tree at all; under `--with-git` it means the git history the operator asked to share was not
-# shared. Both are outcomes the operator has to be told, not left to infer from later behaviour.
+# Every skip is counted and reported. On a project ROOT it means the sandbox account cannot enter the tree at all;
+# under `--with-git` it means the git history the operator asked to share was not shared. Both are outcomes the operator
+# has to be told, not left to infer from later behaviour.
 #
-# What this prevents: `setfacl -m` recalculates the mask to cover the entries it adds, so granting
-# an owner-only path returns a 0600 file as 0660 with @SANDBOX_GROUP@ holding effective rw, and a
-# 0700 directory as 0770 -- write on the directory, hence the power to unlink what it holds.
-# secret-handling.rule.md's "keep it in a 700 <you>:<you> dir" advice rests on that directory
-# case. `setfacl -n` (add the entry, leave the mask alone) is not used either: it would leave a
-# dormant grant that any later chmod widening the group bits activates.
+# What this prevents: `setfacl -m` recalculates the mask to cover the entries it adds, so granting an owner-only path
+# returns a 0600 file as 0660 with @SANDBOX_GROUP@ holding effective rw, and a 0700 directory as 0770 -- write
+# on the directory, hence the power to unlink what it holds. secret-handling.rule.md's "keep it in a 700 <you>:<you>
+# dir" advice rests on that directory case. `setfacl -n` (add the entry, leave the mask alone) is not used either: it
+# would leave a dormant grant that any later chmod widening the group bits activates.
 #
-# Runs as root via sudo under `ai-tools --project-claim` (no-NOPASSWD, like ai-tools-lockdown);
-# CAP_FOWNER lets it ACL files the operator does not own. The walk skips secret-named,
-# '!'-excluded, skip-list, and foreign-owned paths. Alongside the ACL, the walk normalizes
-# the primary group of a DRIFTED path -- group-accessible yet not group @SANDBOX_GROUP@
-# (it arrived by rename, inheriting neither the setgid group nor the default ACL) -- so a
-# re-claim's drift scan (acl_drift_scan in the CLI) finds the tree settled.
+# Runs as root via sudo under `ai-tools --project-claim` (no-NOPASSWD, like ai-tools-lockdown); CAP_FOWNER lets it ACL
+# files the operator does not own. The walk skips secret-named, '!'-excluded, skip-list, and foreign-owned paths.
+# Alongside the ACL, the walk normalizes the primary group of a DRIFTED path -- group-accessible yet not group
+# @SANDBOX_GROUP@ (it arrived by rename, inheriting neither the setgid group nor the default ACL) -- so a re-claim's
+# drift scan (acl_drift_scan in the CLI) finds the tree settled.
 #
 # Deploy:
 #   ```bash
@@ -47,15 +42,14 @@
 
 set -euo pipefail
 
-# Every refusal and every disclosure this helper prints goes through warn, so the component
-# prefix is stated once here instead of at each site. A leading message code (msg.lib.sh states
-# the form) is printed on its own line ahead of the message, the shape tests/lib/harness.sh's
-# assert_msg reads. Matched inline, since this helper reports before msg.lib.sh is loaded. Each
-# refusal exits at its own site: this helper's statuses are 2 (usage), 3 (an unusable library)
-# and 0 (nothing to apply), so there is no one status for a die() to carry. The printed text is
-# left in _warn_text, and the code it printed in _warn_code, for a site that also records
-# the situation through log.lib.sh: the log call passes the variable, so the code literal
-# stays at the emit call the reference index reads as its definition (messaging.rule.md).
+# Every refusal and every disclosure this helper prints goes through warn, so the component prefix is stated once here
+# instead of at each site. A leading message code (msg.lib.sh states the form) is printed on its own line ahead
+# of the message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since this helper reports
+# before msg.lib.sh is loaded. Each refusal exits at its own site: this helper's statuses are 2 (usage), 3 (an unusable
+# library) and 0 (nothing to apply), so there is no one status for a die() to carry. The printed text is left
+# in _warn_text, and the code it printed in _warn_code, for a site that also records the situation through log.lib.sh:
+# the log call passes the variable, so the code literal stays at the emit call the reference index reads as its
+# definition (messaging.rule.md).
 _warn_text="" _warn_code=""
 warn() {
     local IFS=' ' code=""
@@ -83,8 +77,8 @@ done
     || { printf 'usage: ai-tools-setfacl [--with-git] <absolute-project-path>\n' >&2; exit 2; }
 readonly TARGET WITH_GIT
 
-# Operator-identity resolver (operator.lib.sh): resolves the operator that owns the project. A
-# missing lib leaves ai_tools_resolve_owner a fail-closed stub, so the tree is left untouched.
+# Operator-identity resolver (operator.lib.sh): resolves the operator that owns the project. A missing lib leaves
+# ai_tools_resolve_owner a fail-closed stub, so the tree is left untouched.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
@@ -92,17 +86,16 @@ readonly GROUP="@SANDBOX_GROUP@"
 # Operator-independent half of the ACL (see the header for the two-grant model); ACL_SPEC prepends
 # user:<operator> after resolve_owner. rwX executes only on dirs/already-exec files; other::--- denies world.
 readonly ACL_BASE="group:${GROUP}:rwX,other::---"
-# Two identities may legitimately hold a project tree's files: the resolved operator and the
-# sandbox account. A file belonging to a third party (root, another developer) is left untouched --
-# claim must not pull a foreign file into the agent's group, even one the operator placed in the
-# tree -- and COUNTED, so a walk that skipped every path is reported rather than silent; the project
-# root hitting the guard is called out on its own, since it means the claim granted no access at
-# all. Matched by numeric UID; PROJECTS_UID is the resolved operator (set by the owner resolution).
+# Two identities may legitimately hold a project tree's files: the resolved operator and the sandbox account. A file
+# belonging to a third party (root, another developer) is left untouched -- claim must not pull a foreign file
+# into the agent's group, even one the operator placed in the tree -- and COUNTED, so a walk that skipped every path is
+# reported rather than silent; the project root hitting the guard is called out on its own, since it means the claim
+# granted no access at all. Matched by numeric UID; PROJECTS_UID is the resolved operator (set by the owner resolution).
 SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
 readonly SANDBOX_UID
 
-# Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/setfacl.log.
-# Best-effort -- a no-op fallback keeps the helper working if the lib is missing.
+# Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/setfacl.log. Best-effort -- a no-op
+# fallback keeps the helper working if the lib is missing.
 AI_TOOLS_LOG_TAG="ai-tools-setfacl"
 AI_TOOLS_LOG_FILE="setfacl.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
@@ -113,19 +106,18 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
 fi
 
-# Directory-skip selector from the shared library (single source of truth, also used by
-# session-hook.sh and ai-tools-setgid). A missing lib (broken install) leaves a stub that
-# descends everywhere -- a slower but correct walk.
+# Directory-skip selector from the shared library (single source of truth, also used by session-hook.sh
+# and ai-tools-setgid). A missing lib (broken install) leaves a stub that descends everywhere -- a slower but correct
+# walk.
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
-# Secret-name matcher (defense in depth): never apply the group ACL to a path whose
-# basename looks like a secret (e.g. .env), so a private file is not re-exposed to the
-# agent group even if the operator forgot to '!'-exclude it. We run as root, so we can
-# read the 640 root:root lib. Best-effort -- the '!' allowlist exclusions remain the
-# authoritative control; if the matcher cannot load, fall back to them.
+# Secret-name matcher (defense in depth): never apply the group ACL to a path whose basename looks like a secret (e.g.
+# .env), so a private file is not re-exposed to the agent group even if the operator forgot to '!'-exclude it. We run
+# as root, so we can read the 640 root:root lib. Best-effort -- the '!' allowlist exclusions remain the authoritative
+# control; if the matcher cannot load, fall back to them.
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 _secret_loaded=false
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
@@ -137,31 +129,30 @@ _is_secret_name() {
     ai_tools_is_secret_basename "$(basename -- "$1")"
 }
 
-# Without setfacl (or on a filesystem without ACL support) there is no ACL to apply --
-# warn once and exit cleanly (best-effort, mirrors the other helpers' fail-soft). The claim
-# reports the step as applied either way, so the operator is told on stderr as well as in the
-# log: a tree with no ACL is one the agent reaches only through the group it was chgrp'd to.
+# Without setfacl (or on a filesystem without ACL support) there is no ACL to apply -- warn once and exit cleanly
+# (best-effort, mirrors the other helpers' fail-soft). The claim reports the step as applied either way, so the operator
+# is told on stderr as well as in the log: a tree with no ACL is one the agent reaches only through the group it was
+# chgrp'd to.
 command -v setfacl >/dev/null 2>&1 \
     || { warn MSG-V3W8 "setfacl not found -- skipping ACL normalization for ${TARGET}"
          ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"
          exit 0; }
 
-# Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the
-# reference for both). Required and fail-closed like safe-paths.lib.sh: an unusable library must
-# not leave this walk unable to recognize a sealed path.
+# Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the reference for both).
+# Required and fail-closed like safe-paths.lib.sh: an unusable library must not leave this walk unable to recognize
+# a sealed path.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
 source /usr/local/lib/ai-tools/owner-only.lib.sh
 if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
         || ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
-    # One library, one defect, one remedy, so the three helpers that make this check share one
-    # code (messaging.rule.md's twin rule): it is DEFINED here and cited from a printf format
-    # string in ai-tools-setgid and ai-tools-lockdown.
+    # One library, one defect, one remedy, so the three helpers that make this check share one code (messaging.rule.md's
+    # twin rule): it is DEFINED here and cited from a printf format string in ai-tools-setgid and ai-tools-lockdown.
     warn MSG-G4P4 "FATAL: owner-only.lib.sh defines no owner-only guard"
     exit 3
 fi
 
-# Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even
-# when the allowlist includes it. See safe-paths.rule.md.
+# Protected-paths backstop (safe-paths.lib.sh): refuse to act on a system directory even when the allowlist includes it.
+# See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
@@ -172,33 +163,32 @@ canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 # Refuse the whole pass if the project root is a protected system directory.
 ai_tools_assert_safe_target "${canonical}" "ACL grant" || exit 3
 
-# Resolve the operator that owns this project (operator.lib.sh); no owner -> exit without acting. The guard
-# then acts only on paths the resolved operator or the sandbox account hold.
+# Resolve the operator that owns this project (operator.lib.sh); no owner -> exit without acting. The guard then acts
+# only on paths the resolved operator or the sandbox account hold.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
 
-# This run grants one project for one operator, so the operator and the project
-# ride as per-run log context (logging.rule.md).
+# This run grants one project for one operator, so the operator and the project ride as per-run log context
+# (logging.rule.md).
 AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
 AI_TOOLS_LOG_PROJECT="${canonical}"
 
 # Prepend the resolved operator's named grant (its access to agent-written files).
 readonly ACL_SPEC="user:${PROJECTS_USER}:rwX,${ACL_BASE}"
 
-# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser
-# the allowlist is read with -- end-of-line comments, and quotes for a path carrying a space
-# or a literal '#'. REQUIRED like safe-paths.lib.sh: the bare source under `set -e` aborts when it is
-# missing. A bare filter in its place reads a commented exclusion as a pattern no path matches,
-# and would grant the agent an ACL on a subtree the operator carved out and the launch wrapper
-# refuses. Include-guarded.
+# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the allowlist is read with --
+# end-of-line comments, and quotes for a path carrying a space or a literal '#'. REQUIRED like safe-paths.lib.sh:
+# the bare source under `set -e` aborts when it is missing. A bare filter in its place reads a commented exclusion
+# as a pattern no path matches, and would grant the agent an ACL on a subtree the operator carved out and the launch
+# wrapper refuses. Include-guarded.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source /usr/local/lib/ai-tools/conf.lib.sh
 
 declare -a allowed=()
 declare -a excluded=()
 while IFS= read -r entry || [[ -n "${entry}" ]]; do
-    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes
-    # for a path carrying a space or a literal '#'. A line that does not denote an entry is skipped.
+    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a path carrying a space
+    # or a literal '#'. A line that does not denote an entry is skipped.
     ai_tools_conf_path_entry "${entry}" || continue
     entry="${_ai_tools_conf_value}"
     if [[ "${entry}" == '!'* ]]; then
@@ -209,9 +199,8 @@ while IFS= read -r entry || [[ -n "${entry}" ]]; do
     fi
 done < "${ALLOWLIST}"
 
-# _is_excluded <abs-path>: 0 if covered by a '!' rule. A plain path also covers its
-# contents; a glob matches as-is. Same semantics as ai-tools-setgid / ai-tools-chown,
-# which read the allowlist through the same conf.lib.sh grammar.
+# _is_excluded <abs-path>: 0 if covered by a '!' rule. A plain path also covers its contents; a glob matches as-is. Same
+# semantics as ai-tools-setgid / ai-tools-chown, which read the allowlist through the same conf.lib.sh grammar.
 _is_excluded() {
     local path="$1" pat
     [[ "${#excluded[@]}" -gt 0 ]] || return 1
@@ -237,14 +226,12 @@ _is_allowed() {
 _is_excluded "${canonical}" && exit 0
 _is_allowed  "${canonical}" || exit 0
 
-# _safe_setfacl <path>: apply the ACL to <path>, TOCTOU-safe. The agent is a group-
-# writer on project dirs and could swap an entry for a symlink between the find that
-# enumerates it and the setfacl that acts on it; setfacl would then follow the symlink
-# and ACL an arbitrary target (e.g. /etc) as root. Pin the inode with an open fd and
-# operate through /proc/self/fd, re-checking it is still the same inode -- a swap to a
-# symlink reopens a different inode and fails the identity check. Directories get the
-# access AND default ACL; regular files the access ACL only. Mirrors ai-tools-setgid's
-# pinned-fd apply. Returns 0 on apply, 1 when skipped or on error.
+# _safe_setfacl <path>: apply the ACL to <path>, TOCTOU-safe. The agent is a group- writer on project dirs and could
+# swap an entry for a symlink between the find that enumerates it and the setfacl that acts on it; setfacl would then
+# follow the symlink and ACL an arbitrary target (e.g. /etc) as root. Pin the inode with an open fd and operate
+# through /proc/self/fd, re-checking it is still the same inode -- a swap to a symlink reopens a different inode
+# and fails the identity check. Directories get the access AND default ACL; regular files the access ACL only. Mirrors
+# ai-tools-setgid's pinned-fd apply. Returns 0 on apply, 1 when skipped or on error.
 _safe_setfacl() {
     local path="$1" normalize="${2:-}" expect_ident fd got_ident got_uid got_grp got_mode got_ftype
     expect_ident="$(stat -c '%d:%i' "${path}" 2>/dev/null)" || return 1
@@ -257,22 +244,20 @@ _safe_setfacl() {
         exec {fd}<&-
         return 1
     fi
-    # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's
-    # or the sandbox account's own files are eligible; anything else is left untouched.
-    # Returns 3, not 1, so the walk can tell a third-party owner from a stat failure and
-    # report it. Without that split, a claim whose every path was foreign-owned closes with the
-    # same clean report as one that had no path to grant.
+    # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's or the sandbox account's own
+    # files are eligible; anything else is left untouched. Returns 3, not 1, so the walk can tell a third-party owner
+    # from a stat failure and report it. Without that split, a claim whose every path was foreign-owned closes
+    # with the same clean report as one that had no path to grant.
     if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
         exec {fd}<&-
         return 3
     fi
-    # Owner-only guard: the operator sealed this path and the claim honours it. Granting it would
-    # be worse than a no-op -- `setfacl -m` RECALCULATES the mask, so the grant on a 0600 file
+    # Owner-only guard: the operator sealed this path and the claim honours it. Granting it would be worse than a no-op
+    # -- `setfacl -m` RECALCULATES the mask, so the grant on a 0600 file
     # raises its mask from --- to rw- and hands the agent EFFECTIVE read/write while `ls -l` still
     # shows `-rw-------` and only the trailing `+` hints anything changed. Strip the residue the
-    # path carries instead (owner-only.lib.sh), and report it: an owner-only .git under
-    # `--with-git` is a deliberate no-op the operator has to be told about, not a share that
-    # quietly skipped.
+    # path carries instead (owner-only.lib.sh), and report it: an owner-only .git under `--with-git` is a deliberate
+    # no-op the operator has to be told about, not a share that quietly skipped.
     if ai_tools_is_owner_only "${got_mode}"; then
         ai_tools_strip_sandbox_residue "${fd}" "${got_ftype}" "${got_grp}" "${got_mode}" \
             "${PROJECTS_GROUP:-}" || true
@@ -280,14 +265,12 @@ _safe_setfacl() {
         return 2
     fi
     local rc=0
-    # Group ownership (plus setgid on dirs) so future entries inherit group GROUP -- the
-    # ownership inheritance ai-tools-setgid gives the work tree's directories. Applied
-    # unconditionally under 'normalize' (the .git pass), and on the main walk to a DRIFTED
-    # path: group-accessible (any group/other bit) yet not group GROUP -- it arrived by
-    # rename, inheriting neither the setgid group nor the default ACL; the same predicate
-    # the CLI's acl_drift_scan reports. The chgrp is what settles the drift report: an ACL
-    # entry alone grants access but leaves the primary group foreign, so the scan would
-    # re-flag the path on every claim. Operates on the pinned fd, TOCTOU-safe like the ACL.
+    # Group ownership (plus setgid on dirs) so future entries inherit group GROUP -- the ownership inheritance
+    # ai-tools-setgid gives the work tree's directories. Applied unconditionally under 'normalize' (the .git pass),
+    # and on the main walk to a DRIFTED path: group-accessible (any group/other bit) yet not group GROUP -- it arrived
+    # by rename, inheriting neither the setgid group nor the default ACL; the same predicate the CLI's acl_drift_scan
+    # reports. The chgrp is what settles the drift report: an ACL entry alone grants access but leaves the primary group
+    # foreign, so the scan would re-flag the path on every claim. Operates on the pinned fd, TOCTOU-safe like the ACL.
     local fix_group=false
     if [[ "${normalize}" == "normalize" ]]; then
         fix_group=true
@@ -316,10 +299,9 @@ _safe_setfacl() {
     return "${rc}"
 }
 
-# Walk the project's directories and files (skipping heavy trees, one filesystem) and
-# ACL each. find emits a dir before its contents (pre-order), so when a dir is
-# '!'-excluded or secret-named we record it as a skip-prefix and skip its whole
-# subtree; an excluded/secret regular file is skipped on its own.
+# Walk the project's directories and files (skipping heavy trees, one filesystem) and ACL each. find emits a dir
+# before its contents (pre-order), so when a dir is '!'-excluded or secret-named we record it as a skip-prefix and skip
+# its whole subtree; an excluded/secret regular file is skipped on its own.
 ai_tools_skip_find_expr setfacl '' "${canonical}"
 declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -type d -o -type f ')' -print0 )
@@ -341,13 +323,13 @@ find "${expr[@]}" 2>/dev/null \
             case "${rc}" in
                 0) applied=$(( applied + 1 )) ;;
                 2) owneronly=$(( owneronly + 1 ))
-                   # A skipped DIRECTORY keeps its whole subtree out of the walk: an
-                   # unreachable directory's contents cannot be granted through it, and
-                   # descending would grant paths the operator sealed off at the parent.
+                   # A skipped DIRECTORY keeps its whole subtree out of the walk: an unreachable directory's contents
+                   # cannot be granted through it, and descending would grant paths the operator sealed
+                   # off at the parent.
                    [[ -d "${p}" ]] && skip+=("${p}") ;;
                 3) thirdparty=$(( thirdparty + 1 ))
-                   # The project root decides whether the ACL grant happened at all -- see
-                   # the same split in ai-tools-setgid.
+                   # The project root decides whether the ACL grant happened at all -- see the same split
+                   # in ai-tools-setgid.
                    [[ "${p}" == "${canonical}" ]] && root_thirdparty=true ;;
             esac
         done
@@ -359,8 +341,8 @@ find "${expr[@]}" 2>/dev/null \
             ai_tools_log_coded info "${_warn_code}" \
                 "left ${owneronly} owner-only path(s) under ${canonical} out of the agent's reach"
         fi
-        # Surfaced for the same reason as the setgid walk's: the owner guard is the one skip
-        # that can leave a claim reporting success having granted no access.
+        # Surfaced for the same reason as the setgid walk's: the owner guard is the one skip that can leave a claim
+        # reporting success having granted no access.
         if (( thirdparty )); then
             if ${root_thirdparty}; then
                 warn MSG-M6H3 "the project directory itself is owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ -- no ACL was applied, and the agent gets no access to this tree"
@@ -372,13 +354,12 @@ find "${expr[@]}" 2>/dev/null \
         fi
       } || true
 
-# .git normalization (opt-in via `--with-git`): the main walk skips .git, but when the
-# operator intends the agent to share git history, normalize it here in one pass -- group
-# GROUP + setgid on its dirs and the same default+access group ACL, so commits the operator
-# makes stay agent-accessible. Secret-named and '!'-excluded entries are still skipped (a
-# stray credential committed into .git stays private). A `.git` FILE (submodule/worktree
-# pointer) is not a tree to normalize, so the `-d` guard skips it. Idempotent. The loop runs
-# in this shell (process substitution, not a pipe), so the counter survives.
+# .git normalization (opt-in via `--with-git`): the main walk skips .git, but when the operator intends the agent
+# to share git history, normalize it here in one pass -- group GROUP + setgid on its dirs and the same default+access
+# group ACL, so commits the operator makes stay agent-accessible. Secret-named and '!'-excluded entries are still
+# skipped (a stray credential committed into .git stays private). A `.git` FILE (submodule/worktree pointer) is not
+# a tree to normalize, so the `-d` guard skips it. Idempotent. The loop runs in this shell (process substitution, not
+# a pipe), so the counter survives.
 gitdir="${canonical}/.git"
 if ${WITH_GIT} && [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
     declare -i git_applied=0
@@ -403,16 +384,16 @@ if ${WITH_GIT} && [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
     ai_tools_log_structured info \
         "normalized ${git_applied} path(s) under ${gitdir} (group ${GROUP}, setgid dirs, ACL)" \
         "AI_TOOLS_PATH=${gitdir}" "AI_TOOLS_RESULT=ok"
-    # `--with-git` is an explicit opt-in, so a .git the owner-only guard seals off is a share
-    # that did NOT happen. Silence here would leave the operator believing history is shared.
+    # `--with-git` is an explicit opt-in, so a .git the owner-only guard seals off is a share that did NOT happen.
+    # Silence here would leave the operator believing history is shared.
     if (( git_owneronly )); then
         warn MSG-J8R8 "under .git, ${git_owneronly} owner-only path(s) were NOT shared (0600/0700) -- git history stays out of the sandbox account's reach"
         ai_tools_log_coded info "${_warn_code}" \
             "left ${git_owneronly} owner-only path(s) under ${gitdir} out of the agent's reach" \
             "AI_TOOLS_PATH=${gitdir}"
     fi
-    # Same disclosure as the main walk, for the same reason the owner-only count is disclosed
-    # here: `--with-git` is an explicit opt-in, so a share that did not happen must be said.
+    # Same disclosure as the main walk, for the same reason the owner-only count is disclosed here: `--with-git` is
+    # an explicit opt-in, so a share that did not happen must be said.
     if (( git_thirdparty )); then
         warn MSG-D8D7 "under .git, ${git_thirdparty} path(s) were NOT shared -- owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
         ai_tools_log_coded warning "${_warn_code}" \

@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-relabel
-# Apply (or revert) the ai_tools_project_t SELinux label on ONE approved project
-# directory, so the confined agent (ai_tools_t) can read and write it. This is the
-# privileged half of project claiming: `semanage fcontext` needs root, which the
-# unprivileged `ai-tools` CLI does not have, so `--project-claim` / `--project-create`
-# invoke this via sudo. There is NO sudoers NOPASSWD grant for it (by design): sudo
-# prompts for the projects user's password, the same pattern as ai-tools-lockdown.
+# Apply (or revert) the ai_tools_project_t SELinux label on ONE approved project directory, so the confined agent
+# (ai_tools_t) can read and write it. This is the privileged half of project claiming: `semanage fcontext` needs root,
+# which the unprivileged `ai-tools` CLI does not have, so `--project-claim` / `--project-create` invoke this via sudo.
+# There is NO sudoers NOPASSWD grant for it (by design): sudo prompts for the projects user's password, the same pattern
+# as ai-tools-lockdown.
 #
-# The labelling body lives in the shared relabel.lib.sh (single source of truth,
-# also used by selinux/install-selinux.sh's allowlist sweep). This helper only
-# validates the target and dispatches.
+# The labelling body lives in the shared relabel.lib.sh (single source of truth, also used
+# by selinux/install-selinux.sh's allowlist sweep). This helper only validates the target and dispatches.
 #
-# Labelling a path requires it to be in the operator's allowed-projects allowlist:
-# only approved projects may carry the agent-accessible type. Reverting (`--remove`)
-# is lenient -- it cleans up a path that may already have been unregistered, and
-# restorecon only ever restores the system default context.
+# Labelling a path requires it to be in the operator's allowed-projects allowlist: only approved projects may carry
+# the agent-accessible type. Reverting (`--remove`) is lenient -- it cleans up a path that may already have been
+# unregistered, and restorecon only ever restores the system default context.
 #
 # Runs as root via sudo, invoked by YOU (the projects user) -- not ai-tools:
 #       ```bash
@@ -33,25 +30,22 @@ set -euo pipefail
 
 readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 
-# Owner resolution from /etc/ai-tools/operator.conf via the shared resolver.
-# AI_TOOLS_OPERATOR_CONF / AI_TOOLS_ALLOWLIST override the paths -- root-only test hooks: sudo
-# strips them (env_reset, not in env_keep), so neither the operator nor the agent can inject them
-# in production (relabel is only ever reached as root via sudo).
+# Owner resolution from /etc/ai-tools/operator.conf via the shared resolver. AI_TOOLS_OPERATOR_CONF / AI_TOOLS_ALLOWLIST
+# override the paths -- root-only test hooks: sudo strips them (env_reset, not in env_keep), so neither the operator
+# nor the agent can inject them in production (relabel is only ever reached as root via sudo).
 #
-# The owner is resolved PER PATH (ai_tools_resolve_owner), the way every other per-project helper
-# does it, rather than by loading one operator up front. On a multi-operator host the entry that
-# authorizes a label lives in whichever operator's registry holds the project, and reading a single
-# operator's file refuses every project registered to any of the others -- a secondary operator's
-# own claim, and every `--project-claim --for <op>`, would leave the tree unlabelled while the rest
-# of the claim reported success. A load failure leaves the resolver undefined, which allowlisted()
-# treats as "no owner" and refuses on: no label is granted from a half-parsed identity.
+# The owner is resolved PER PATH (ai_tools_resolve_owner), the way every other per-project helper does it, rather than
+# by loading one operator up front. On a multi-operator host the entry that authorizes a label lives in whichever
+# operator's registry holds the project, and reading a single operator's file refuses every project registered to any
+# of the others -- a secondary operator's own claim, and every `--project-claim --for <op>`, would leave the tree
+# unlabelled while the rest of the claim reported success. A load failure leaves the resolver undefined,
+# which allowlisted() treats as "no owner" and refuses on: no label is granted from a half-parsed identity.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || true
 
-# Shared leveled logger: journald (always) + the root-only file
-# /var/log/ai-tools/relabel.log. Best-effort -- a no-op fallback keeps the helper
-# working if the lib is missing.
+# Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/relabel.log. Best-effort -- a no-op
+# fallback keeps the helper working if the lib is missing.
 AI_TOOLS_LOG_TAG="ai-tools-relabel"
 AI_TOOLS_LOG_FILE="relabel.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
@@ -61,9 +55,9 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
 fi
 
-# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the
-# message, the shape tests/lib/harness.sh's assert_msg reads, and carried into the log line.
-# Matched inline: this helper does not load the library.
+# A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
+# tests/lib/harness.sh's assert_msg reads, and carried into the log line. Matched inline: this helper does not load
+# the library.
 die() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
@@ -72,33 +66,30 @@ die() {
     printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit 1
 }
 
-# Protected-paths backstop (safe-paths.lib.sh): refuse to relabel a system directory even
-# when the allowlist includes it. See safe-paths.rule.md.
+# Protected-paths backstop (safe-paths.lib.sh): refuse to relabel a system directory even when the allowlist includes
+# it. See safe-paths.rule.md.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
 
-# Shared allowlist grammar + membership predicate (conf.lib.sh): allowlisted() reads the file
-# through the same parser as the launch wrapper and the CLI, so an entry written with an
-# end-of-line comment or quotes is honored here too. Required, bare-sourced under `set -e`: a
-# missing lib aborts the helper (no label granted -- fail closed), never a raw-line fallback that
-# would silently refuse to (un)label a validly-listed project.
+# Shared allowlist grammar + membership predicate (conf.lib.sh): allowlisted() reads the file through the same parser
+# as the launch wrapper and the CLI, so an entry written with an end-of-line comment or quotes is honored here too.
+# Required, bare-sourced under `set -e`: a missing lib aborts the helper (no label granted -- fail closed), never
+# a raw-line fallback that would silently refuse to (un)label a validly-listed project.
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source "${CONF_LIB}"
 
 [[ "${EUID}" -eq 0 ]] || die MSG-D6R4 "must run as root (via sudo)"
 
-# allowlisted <dir>: 0 when <dir> is an exact, non-excluded entry in the allowlist of the operator
-# who OWNS it. Reads through the shared grammar (conf.lib.sh), realpath-normalized, so a listed
-# project with a comment or quotes -- or reached by a symlink -- is recognized; an explicit
-# `!<dir>` exclusion still wins, at both stages.
+# allowlisted <dir>: 0 when <dir> is an exact, non-excluded entry in the allowlist of the operator who OWNS it. Reads
+# through the shared grammar (conf.lib.sh), realpath-normalized, so a listed project with a comment or quotes --
+# or reached by a symlink -- is recognized; an explicit `!<dir>` exclusion still wins, at both stages.
 #
-# Two stages, because they answer different questions: the resolver says WHICH operator's registry
-# covers this path (honouring exclusions and covering subtrees, the same matcher the launch gate
-# uses), and the exact-entry check then requires the path to be a registered project ROOT in that
-# registry rather than something merely underneath one -- a label is applied to a project, not to
-# an arbitrary directory inside it.
+# Two stages, because they answer different questions: the resolver says WHICH operator's registry covers this path
+# (honouring exclusions and covering subtrees, the same matcher the launch gate uses), and the exact-entry check then
+# requires the path to be a registered project ROOT in that registry rather than something merely underneath one --
+# a label is applied to a project, not to an arbitrary directory inside it.
 allowlisted() {
     local dir="$1" file="${AI_TOOLS_ALLOWLIST:-}"
     if [[ -z "${file}" ]]; then
@@ -128,16 +119,16 @@ dir="$(realpath -e "${target}" 2>/dev/null)" || die MSG-N3A5 "path not found: ${
 # Refuse to (un)label a protected system directory.
 ai_tools_assert_safe_target "${dir}" "relabel" || exit 3
 
-# Every record past this point is about one project, so it rides as per-run log context
-# (logging.rule.md) instead of being named at each site.
+# Every record past this point is about one project, so it rides as per-run log context (logging.rule.md) instead
+# of being named at each site.
 AI_TOOLS_LOG_PROJECT="${dir}"
 
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
 source "${RELABEL_LIB}" 2>/dev/null || die MSG-U2G7 "missing label library: ${RELABEL_LIB}"
 
-# Serialize against the agent relabel (ai-tools-relabel-agent), which writes the same policy
-# store: a claim can land while the ai-tools-relabel.path watcher is running one. Proceeding
-# unserialized is reported, not fatal (see relabel.lib.sh).
+# Serialize against the agent relabel (ai-tools-relabel-agent), which writes the same policy store: a claim can land
+# while the ai-tools-relabel.path watcher is running one. Proceeding unserialized is reported, not fatal (see
+# relabel.lib.sh).
 ai_tools_relabel_lock
 [[ -z "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]] \
     || { echo "ai-tools-relabel: NOTE: relabels are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
@@ -145,8 +136,8 @@ ai_tools_relabel_lock
              "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
 
 if ai_tools_relabel_available; then :; else
-    # SELinux off or restorecon absent -- no work to do, and not an error: the
-    # confinement layer simply is not in play on this host.
+    # SELinux off or restorecon absent -- no work to do, and not an error: the confinement layer simply is not in play
+    # on this host.
     echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}"
     exit 0
 fi
