@@ -1,7 +1,7 @@
 .\" ai-tools(1) -- project-lifecycle CLI of Agent Tools Restricted.
 .\" Kept in sync with the CLI's usage() text by tests/unit/man.sh, which
-.\" compares the long-option sets of both; @AI_TOOLS_VERSION@ is substituted
-.\" at deploy time (install.sh install_subst / the RPM %prep), like the CLI.
+.\" compares the command paths and the option sets of both; @AI_TOOLS_VERSION@ is
+.\" substituted at deploy time (install.sh install_subst / the RPM %prep), like the CLI.
 .TH AI-TOOLS 1 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
 .SH NAME
 ai-tools \- manage the projects a sandboxed coding agent may work in
@@ -23,23 +23,34 @@ sandbox account, which the CLI refuses for every command. Steps that need root
 .B sudo
 themselves and prompt for your password.
 .PP
+A command is a collection followed by its verb, or one bare word:
+.B "projects claim"
+acts on a project, and
+.B status
+reads the host. A bare
+.B projects
+or
+.B providers
+lists the collection. An option begins with
+.BR \-\- .
+.PP
 Root may run the commands that write no operator-owned state \(em
-.BR \-\-audit ,
-.BR \-\-status ,
-.BR \-\-list ,
-.BR \-\-providers ,
-.BR \-\-stop .
+.BR audit ,
+.BR status ,
+.BR "projects list" ,
+.BR "providers list" ,
+.BR stop .
 Every other command writes registries that belong to an operator and refuses
 root, as does
 .B \-\-for
 in any combination.
-.B \-\-audit
+.B audit
 needs root either way, since the trail it reads is
 .BR "700 root:root" ,
 and
-.B \-\-list
+.B "projects list"
 run by root reports root's own registry, which is empty on a normal host.
-.B \-\-stop
+.B stop
 is the one member of that set that acts rather than reports: its helper needs root either
 way, and root is what an unattended detector usually runs as.
 .PP
@@ -72,36 +83,32 @@ grant is neither of them \(em the host's own sudoers decides it, and no file in
 this package writes or records it.
 .PP
 An operator holding only the two launches agent sessions and reads the reports.
-The commands that reach a root helper need the grant as well: every project
-command except
-.B \-\-project\-enable
+The commands that reach a root helper need the grant as well: every
+.B projects
+command other than
+.B "projects push"
+and the plain form of
+.B "projects enable"
 and
-.B \-\-project\-disable
-in their plain form,
-.BR \-\-sandbox\-create ,
-.BR \-\-lockdown ,
-.B \-\-reclaim
+.BR "projects disable" ,
 and
-.BR \-\-audit .
+.BR audit .
 An operator who holds the grant performs the project commands, the lockdown
-and the reclaim on another's behalf with
+and the handback on another's behalf with
 .BR \-\-for .
 A host needs at least one operator holding the grant, since root is refused
 every command that writes.
 .SH COMMANDS
 .TP
-.B \-\-project\-claim \fR[\fB\-y\fR] [\fIDIRECTORY\fR]
-Claim a real project in place so the agent works your actual tree: register it
-(allowlist and git safe.directory), scan for and lock down secret-named files
-.I before
-any access is granted, set the shared group and ACL, and apply the SELinux
-project label. Idempotent \(em a re-claim runs only the missing steps and
-repairs interior permission drift behind the same confirm. Access to the
-repository's git history
-.RB ( .git )
-is a separate opt-in prompt.
+.B projects
+List the registered projects, in place and sandbox clones, with the git
+safe.directory status of each, then a
+.I Suggested cleanup
+section naming each inconsistent entry with the command that reconciles it.
+.B "projects list"
+is the same command.
 .TP
-.B \-\-project\-create \fIDIRECTORY\fR
+.B projects create \fIDIRECTORY\fR
 Create a
 .I new
 project directory and claim it: one
@@ -114,7 +121,7 @@ The
 is required and must
 .I not
 exist \(em claiming a directory that already exists is
-.BR \-\-project\-claim ,
+.BR "projects claim" ,
 and keeping the two apart is what stops the operation that grants an agent access
 to an existing tree from being reachable by a typo. Its parent
 .I must
@@ -124,7 +131,7 @@ a create under
 .B \-\-for
 produces a tree that operator owns. Every refusal fires before the directory
 is made; a step that fails after it leaves the directory in place, and
-.B \-\-project\-claim
+.B "projects claim"
 on it finishes the claim.
 .IP
 It does not take options, and asks for no confirmation of its own: the tree it makes is empty,
@@ -134,7 +141,18 @@ brand-new directory for, and no git history to expose in a repository with no co
 The one question that can still appear is the traverse grant on a parent directory,
 which widens access on the project's ancestors and is answered only by a person at a terminal.
 .TP
-.B \-\-project\-unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI GROUP\fR] [\fIDIRECTORY\fR]
+.B projects claim \fR[\fB\-y\fR] [\fIDIRECTORY\fR]
+Claim a real project in place so the agent works your actual tree: register it
+(allowlist and git safe.directory), scan for and lock down secret-named files
+.I before
+any access is granted, set the shared group and ACL, and apply the SELinux
+project label. Idempotent \(em a re-claim runs only the missing steps and
+repairs interior permission drift behind the same confirm. Access to the
+repository's git history
+.RB ( .git )
+is a separate opt-in prompt.
+.TP
+.B projects unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI GROUP\fR] [\fIDIRECTORY\fR]
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
 its own confirm \(em revoke the agent's access, handing the tree back to your own
 group (or a named user's group) with the agent's write removed. The directory
@@ -168,30 +186,30 @@ line instead of deleting it: the files are handed back exactly as they otherwise
 the entry is left in place with a
 .B !
 in front of it, as
-.B \-\-project\-disable
+.B "projects disable"
 writes it. For an operator whose allowed-projects is an ordered, commented document and who
 unclaims between development stages \(em to hand a tree back with clean permissions before a
 release, then claim it again for the next one \(em this keeps the project's line where it was,
 comment and all, so the later
-.B \-\-project\-claim
+.B "projects claim"
 restores it in place rather than appending a new line at the end.
 .IP
 Refused with
 .BR \-\-force ,
 which unclaims a tree the allowlist does not name, so there is no line to keep. Refused also for a
 project nested inside another claimed project, for the reason
-.B \-\-project\-disable
+.B "projects disable"
 gives.
 .RE
 .TP
-.B \-\-project\-remove \fR[\fB\-y\fR] [\fIDIRECTORY\fR]
+.B projects remove \fR[\fB\-y\fR] [\fIDIRECTORY\fR]
 Release a project
 .I and
 delete its directory (default: the current directory). Use
-.B \-\-project\-unclaim
+.B "projects unclaim"
 to release one and keep the files.
 .IP
-The authorization is an
+The path decides the kind. A project claimed in place is authorized by an
 .I exact
 .B allowed\-projects
 entry alone: there is no
@@ -210,8 +228,14 @@ without
 .BR \-y ,
 which additionally requires an explicit
 .IR DIRECTORY .
+.IP
+A sandbox clone \(em a direct child of the sandbox area that is a git worktree \(em
+is deleted and unregistered behind one default-NO confirm, after a warning about
+any commit not yet pushed. The remote branch stays for others to merge, and
+.B \-y
+answers that confirm on the same terms.
 .TP
-.B \-\-project\-disable \fR[\fIDIRECTORY\fR]
+.B projects disable \fR[\fIDIRECTORY\fR]
 Park a claimed project (default: the current directory): its
 .B allowed\-projects
 line is prefixed with
@@ -229,11 +253,11 @@ along with the launches is every root helper that resolves a path's owner throug
 the allowlist \(em so while a project is disabled the ownership handback does
 .I not
 restore files written under it, and
-.BR \-\-lockdown ", " \-\-reclaim " and " \-\-project\-unclaim
+.BR "projects lockdown" ", " "projects handback" " and " "projects unclaim"
 decline to act on it. Disabling a project a session is still writing to therefore
 leaves that session's files owned by the sandbox account; stop the session first, or
 re-enable and
-.B \-\-reclaim
+.B "projects handback"
 afterwards.
 .IP
 A path the allowlist does not name is refused rather than parked: there is no entry
@@ -250,7 +274,7 @@ could only be a guess, on an edit that widens what the agent reaches. The refusa
 ways to get the intended effect: unclaim the nested project, or park the one enclosing it. Editing the
 line by hand is unaffected; the tool simply will not write that one for you.
 .TP
-.B \-\-project\-enable \fR[\fIDIRECTORY\fR]
+.B projects enable \fR[\fIDIRECTORY\fR]
 Restore a project disabled earlier (default: the current directory): the
 .B !
 is deleted from its line, in place. Sessions may start there again.
@@ -258,7 +282,7 @@ is deleted from its line, in place. Sessions may start there again.
 It does not grant any access that was not already granted \(em the tree's permissions never
 changed \(em so it does not run a secret scan and does not prompt. A path the allowlist does
 not name is refused and points at
-.BR \-\-project\-claim :
+.BR "projects claim" :
 claiming scans for secrets before granting an agent access to a tree, which is a
 different decision from lifting a
 .B !
@@ -269,19 +293,19 @@ An exclusion
 a claimed project is a carve-out \(em a subtree its operator withheld from the agent \(em not a
 disabled project, and is refused for that reason: lifting it would hand that subtree over. No verb
 writes such a line (see
-.BR \-\-project\-disable ),
+.BR "projects disable" ),
 so one in the file was written by hand and is edited by hand.
 .IP
 Where the project's own entry is clean but something else still parks it \(em an exclusion on an
 ancestor, or a glob that matches \(em the command says so and shows the line responsible, rather
 than reporting a project enabled that no session can enter.
 .IP
-.B \-\-project\-claim
+.B "projects claim"
 on a disabled project neither claims over it nor duplicates its entry: it reports
 the exclusion, shows the line, and offers this same re-enable behind a default-NO
 confirm.
 .TP
-.B \-\-sandbox\-create \fR[\fIDIRECTORY\fR] [\fB\-\-from\fR \fIREF\fR] [\fB\-\-branch\fR \fINAME\fR] [\fB\-\-dir\fR \fINAME\fR] [\fB\-y\fR|\fB\-\-yes\fR]
+.B projects clone \fR[\fIDIRECTORY\fR] [\fB\-\-from\fR \fIREF\fR] [\fB\-\-branch\fR \fINAME\fR] [\fB\-\-dir\fR \fINAME\fR] [\fB\-y\fR|\fB\-\-yes\fR]
 Shallow-clone the repository at
 .I DIRECTORY
 into the sandbox area so the agent never reads the origin's full git history.
@@ -319,9 +343,8 @@ The default does not carry any host, machine, or operator identity.
 Directory name for the clone under the sandbox area (default: the repository's base name).
 .TP
 .BR \-y ", " \-\-yes
-Skip the final \(lqCreate the sandbox clone?\(rq confirmation. The secret-lockdown and
-.I .git
-gates still apply.
+Skip the final \(lqCreate the sandbox clone?\(rq confirmation. The secret gate still
+applies.
 .RE
 .IP
 The clone is born owner-only; tip-commit secrets are locked down first, and only past
@@ -329,22 +352,18 @@ that gate is the clone opened to the agent and registered. A declined or failed 
 stops fail-closed \(em the clone stays private and unregistered; re-run this command on
 the clone path to resume securing it.
 .TP
-.B \-\-sandbox\-push \fR[\fIDIRECTORY\fR]
+.B projects push \fR[\fIDIRECTORY\fR]
 Push the sandbox clone's commits to the remote branch it tracks
 .RI ( sandbox/LEAF
 by default; see
 .BR \-\-branch ).
 .TP
-.B \-\-sandbox\-remove \fR[\fIDIRECTORY\fR]
-Delete a sandbox clone and unregister it, warning about unpushed commits
-first. The remote branch stays for others to merge.
-.TP
-.B \-\-lockdown \fR[\fIDIRECTORY\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR]
+.B projects lockdown \fR[\fIDIRECTORY\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR]
 Lock secret-named files under the project (\fB.env\fR, \fB*.key\fR, ...) to
 owner-only, revoking the agent's read access. Runs via
 .BR sudo .
 .TP
-.B \-\-reclaim \fR[\fB\-\-full\fR] [\fIDIRECTORY\fR]
+.B projects handback \fR[\fB\-\-full\fR] [\fIDIRECTORY\fR]
 Take back ownership of the files the agent wrote under the project \(em including
 the
 .B .git
@@ -354,7 +373,7 @@ ownership handback (run it before an ACL-unaware backup, so ownership \(em not t
 ACL alone \(em carries your access into the copy). Runs via
 .BR sudo .
 .TP
-.B \-\-stop
+.B stop
 Terminate every running agent session and everything it spawned. This is the one control
 that acts on a session
 .BR "already running" :
@@ -383,7 +402,7 @@ the way to finish a session you have done with. Use
 inside the session for that, which lets it run its own session-end handback. This command
 kills the process tree, so no handback runs and the last turn's writes may still be
 sandbox-owned: it names the
-.B \-\-reclaim
+.B "projects handback"
 to run for each project it terminated.
 .IP
 It takes
@@ -423,7 +442,7 @@ dbus broker, and a login session scope per
 that crossed pam_systemd. All are terminated; the plumbing is listed after the sessions and marked
 .IR "(account plumbing)" ,
 so the headline does not report four units of scaffolding as four agent sessions. The split is
-presentational \(em it labels and orders rows and decides which get a reclaim command, without
+presentational \(em it labels and orders rows and decides which get a handback command, without
 selecting any target. Because the restarted manager is itself inside the swept slice, running the command twice
 in a row is not silent: the second run reports zero agent sessions, then terminates and restarts the
 manager again. It is idempotent in end state, not in what it prints.
@@ -454,7 +473,7 @@ Skip the grace period and kill immediately. The current turn's unsaved work is l
 the trail records that no process was given the chance to flush anything.
 .RE
 .TP
-.B \-\-providers
+.B providers
 List the installed agents and toolchain integrations, which of them a session
 gets, and why: an exact allowlist named in
 .IR /etc/ai-tools/operator.conf ,
@@ -470,8 +489,10 @@ in its manifest, see
 with the
 .B ai-tools-admin selinux groups enable
 command that loads the stable ones.
+.B "providers list"
+is the same command.
 .TP
-.B \-\-audit \fR[\fB\-\-since\fI WHEN\fR]
+.B audit \fR[\fB\-\-since\fI WHEN\fR]
 Report what has refused, been rejected, been stranded, or been flagged since a given
 time \(em the detections the sandbox already records but that no command reads
 back. Needs
@@ -488,7 +509,7 @@ account of itself, to reconcile against the file trail rather than to rely on al
 Exits non-zero when anything is reported, so it can be run unattended from a cron job
 or a login banner without parsing its output.
 .TP
-.B \-\-status
+.B status
 Report ai-tools health: the installed version, whether the toolchain is provisioned,
 where this shell finds each enabled agent's launcher, each managed systemd unit
 \(em the handback socket, the relabel watcher, and the
@@ -512,44 +533,44 @@ is not broken: it reports a run that correctly declined to act, such as an
 update that could not reach the package registry, and turns STALE if the
 condition persists.
 .RE
+.SH OPTIONS
 .TP
-.B \-\-list
-List registered projects, real and sandbox.
+.BR \-h ", " \-\-help
+Print the command summary. Answered ahead of every gate, so it prints on a host
+whose toolchain is not provisioned yet.
 .TP
 .B \-\-version
-Print the installed version.
-.TP
-.B \-\-help
-Print the command summary.
-.SH OPTIONS
+Print the installed version. Answered ahead of every gate, like
+.BR \-\-help .
 .TP
 .BR \-y ", " \-\-yes
 For
-.BR \-\-project\-claim :
+.BR "projects claim" :
 pre-answer only the proceed prompt; the secret-lockdown, git-history, and
 ancestor-traversal questions still ask. For
-.BR \-\-lockdown :
+.BR "projects lockdown" :
 skip the confirmation.
 For
-.BR \-\-project\-unclaim :
+.BR "projects unclaim" :
 pre-answer the confirm. It never answers the hand-back or skip-listed questions.
 For
-.BR \-\-project\-remove :
+.BR "projects remove" :
 pre-answer
 .I both
 the confirmation and the typed-name challenge \(em the only thing that does, since
 .B AI_TOOLS_ASSUME_YES
 never answers a default-NO question and the challenge has no default at all. It
 then requires an explicit
-.IR path ,
-so an unattended removal cannot inherit the current directory.
+.IR DIRECTORY ,
+so an unattended removal cannot inherit the current directory. For a sandbox
+clone it pre-answers the one confirm the clone kind asks, on the same terms.
 .TP
 .B \-\-dry\-run
 For
-.BR \-\-lockdown :
+.BR "projects lockdown" :
 report what would be locked, and what would be stripped from the paths you have
 already sealed by mode, without changing anything. For
-.BR "\-\-project\-unclaim \-\-force" :
+.BR "projects unclaim \-\-force" :
 list every path that would change, with ownership and mode, and apply none of them.
 A registered project's unclaim previews itself, so this pairs with
 .B \-\-force
@@ -557,7 +578,7 @@ only.
 .TP
 .B \-\-since \fIWHEN\fR
 For
-.BR \-\-audit :
+.BR audit :
 the start of the reporting window \(em anything
 .BR date (1)
 parses, such as
@@ -572,19 +593,19 @@ silently become a reassuring wall of old findings.
 .TP
 .B \-\-full
 For
-.BR \-\-reclaim :
+.BR "projects handback" :
 also reclaim the heavy skipped trees
 .RB ( node_modules ", " .venv ,
 \&...), not just the work tree and
 .BR .git .
 For
-.BR \-\-project\-unclaim :
+.BR "projects unclaim" :
 the same trees, where ai-tools ownership survives a copy exactly as it does
 elsewhere. The pass reports what it finds there and confirms before including it.
 .TP
 .B \-\-force
 For
-.BR \-\-project\-unclaim :
+.BR "projects unclaim" :
 act on a tree the allowlist does
 .B not
 cover \(em a claimed project copied or moved elsewhere and never unclaimed. It
@@ -597,7 +618,7 @@ secret and exclusion skips, and it is refused on a registered project.
 .TP
 .BI \-\-group " GROUP"
 For
-.BR \-\-project\-unclaim :
+.BR "projects unclaim" :
 hand the tree to
 .I GROUP
 without prompting, in both the normal and
@@ -631,9 +652,9 @@ since the ownership helpers resolve a project's owner from the
 .B OPERATORS
 list.
 .IP
-.B \-\-project\-create
+.B "projects create"
 and
-.B \-\-project\-remove
+.B "projects remove"
 write the filesystem
 .I as
 .IR OPERATOR ,
@@ -644,10 +665,11 @@ grants, and one a host can answer differently. It is checked before the run
 starts rather than partway through.
 .IP
 Accepted on
-.BR \-\-project\-claim ", " \-\-project\-create ", " \-\-project\-unclaim ,
-.BR \-\-project\-remove ", " \-\-lockdown ", " \-\-reclaim ", and " \-\-list ;
+.BR "projects claim" ", " "projects create" ", " "projects unclaim" ,
+.BR "projects remove" ", " "projects enable" ", " "projects disable" ,
+.BR "projects lockdown" ", " "projects handback" ", and " "projects list" ;
 refused elsewhere rather than ignored. It cannot be combined with
-.BR "\-\-project\-unclaim \-\-force" ,
+.BR "projects unclaim \-\-force" ,
 whose tree has no allowlist entry naming an owner and is therefore bound to
 the invoking operator.
 .SH EXIT STATUS
@@ -660,17 +682,17 @@ to do, both land here.
 .B 1
 The operation failed.
 For
-.B \-\-stop
+.B stop
 this is the specific case that a process was still running after the kill:
 re-run it. For
-.B \-\-project\-remove
+.B "projects remove"
 it also covers a removal that left paths behind: the project is already
 unregistered by then, so what remains is out of the agent's reach and can be
 deleted by hand.
 .TP
 .B 2
 The command line was rejected.
-.B \-\-stop
+.B stop
 returns this for a
 .I DIRECTORY
 argument, which it refuses rather than accepts and ignores.
@@ -680,13 +702,13 @@ The target is a protected path \(em a system directory or a home root \(em and
 every elevated helper refuses it, whatever the allowlist says.
 .TP
 .B 5
-.B \-\-stop
+.B stop
 could not run at all: it was not invoked as root, the sandbox account has no
 uid, or the host has no cgroup v2 hierarchy.
 No session was signalled.
 .TP
 .B 130
-.B \-\-stop
+.B stop
 was interrupted by a signal.
 Some sessions may be partially stopped; re-run it.
 .SH ENVIRONMENT
@@ -732,7 +754,7 @@ Claim the project in the current directory, answering each prompt:
 .PP
 .RS 4
 .EX
-ai\-tools \-\-project\-claim
+ai\-tools projects claim
 .EE
 .RE
 .PP
@@ -740,7 +762,7 @@ Claim a specific tree, taking every default:
 .PP
 .RS 4
 .EX
-ai\-tools \-\-project\-claim \-y ~/src/myproject
+ai\-tools projects claim \-y ~/src/myproject
 .EE
 .RE
 .PP
@@ -749,7 +771,7 @@ must already exist, and the directory must not:
 .PP
 .RS 4
 .EX
-ai\-tools \-\-project\-create ~/src/newproject
+ai\-tools projects create ~/src/newproject
 .EE
 .RE
 .PP
@@ -758,7 +780,7 @@ project's name; the files are not recoverable afterwards:
 .PP
 .RS 4
 .EX
-ai\-tools \-\-project\-remove ~/src/oldproject
+ai\-tools projects remove ~/src/oldproject
 .EE
 .RE
 .PP
@@ -766,8 +788,8 @@ List what is registered, and what the sandbox account resolves for a session:
 .PP
 .RS 4
 .EX
-ai\-tools \-\-list
-ai\-tools \-\-providers
+ai\-tools projects
+ai\-tools providers
 .EE
 .RE
 .PP
@@ -775,7 +797,7 @@ End every running agent session on the host (no password; run it as yourself):
 .PP
 .RS 4
 .EX
-ai\-tools \-\-stop
+ai\-tools stop
 .EE
 .RE
 .PP
@@ -783,7 +805,7 @@ Give a project back and leave the directory on disk:
 .PP
 .RS 4
 .EX
-ai\-tools \-\-project\-unclaim ~/src/myproject
+ai\-tools projects unclaim ~/src/myproject
 .EE
 .RE
 .SH SEE ALSO

@@ -12,23 +12,20 @@
 # are not copies of each other -- usage() is orientation while the page is the reference -- so equality of their whole
 # option sets is the wrong contract and is what made slimming the help impossible.
 #
-# ai-tools(1), four checks:
-#   (1) the VERB sets match in both directions;
-#   (2) every long option usage() names anywhere is documented in the page;
-#   (3) every long option the page's OPTIONS section documents is one a CLI parser
-#       accepts -- the direction that catches an option outliving its parser;
-#   (4) the .TH version field is present -- @AI_TOOLS_VERSION@ in the repo source, a version
-#       number on an RPM install, `dev` on a source install of an unstamped tree.
-#
-# ai-tools-admin(8), the same three relations over a surface spelled in bare words rather than
-# long options (.claude/rules/cli-grammar.rule.md), so what is compared is the COMMAND PATH --
-# `selinux groups enable`, three tokens -- rather than a single flag:
+# Both commands spell a command in bare words (.claude/rules/cli-grammar.rule.md), so what is compared is
+# the COMMAND PATH -- `projects claim`, `selinux groups enable` -- rather than a single flag. ai-tools(1), five checks:
 #   (1) the command sets match in both directions;
 #   (2) every token of every documented command is one a dispatch `case` arm accepts, which is
-#       what catches a page still naming a command after the dispatch renamed it. The admin
-#       helper dispatches through nested `case` statements rather than one flat parser, so the
-#       arms are collected across all of them and matched per token;
-#   (3) the same .TH version field.
+#       what catches a page still naming a command after the dispatch renamed it. Both commands
+#       dispatch through nested `case` statements rather than one flat parser, so the arms are
+#       collected across all of them and matched per token;
+#   (3) every long option usage() names anywhere is documented in the page;
+#   (4) every long option the page documents is one a CLI parser accepts -- the direction that
+#       catches an option outliving its parser;
+#   (5) the .TH version field is present -- @AI_TOOLS_VERSION@ in the repo source, a version
+#       number on an RPM install, `dev` on a source install of an unstamped tree.
+#
+# ai-tools-admin(8) takes checks (1), (2) and (5).
 #
 # Pure text comparison of the source files -- no root, no install dependency, and neither command is executed (the CLI's
 # bootstrap gate fail-closes on an unprovisioned host and the admin helper refuses a non-root caller, so neither can be
@@ -55,6 +52,82 @@ usage_text() { sed -n '/^usage() {/,/^EOF$/p' "$1" 2>/dev/null; }
 
 # man_section <page> <NAME>: the body of one .SH section, bounded by the next .SH.
 man_section() { read_man "$1" | awk -v s=".SH $2" '$0==s{f=1;next} /^\.SH /{f=0} f'; }
+
+# help_commands <script>: the command paths the script's usage() lists, one per line. usage() lists one command
+# per line, indented four spaces, as `<path><padding><description>`: the path is everything before the first run of two
+# or more spaces, minus its argument placeholder -- `operators add [user]` and `projects create DIRECTORY` are
+# the commands `operators add` and `projects create`. The option lines (`--help`, `--version`) share that indent and are
+# excluded by the leading letter, since a command in this grammar is a bare word.
+help_commands() {
+    usage_text "$1" \
+        | sed -n 's/^    \([a-z][^ ].*\)  \+[^ ].*/\1/p' \
+        | sed -E -e 's/[[:space:]]*[[<].*$//' -e 's/[[:space:]]*$//' -e 's/ [A-Z][A-Z_]*(\.\.\.)?$//' | sort -u
+}
+
+# man_commands <page>: the command paths the page's COMMANDS section documents, one per line. A command is the .B line
+# opening each TOP-LEVEL .TP entry, up to its first argument placeholder (`\fR[\fIuser\fR]`), which the same .B line
+# carries so the tag renders as one unit. Three things must not be read as commands: the rest of that opening line (the
+# command's own options), the prose under it (which names other commands), and the nested .TP entries inside an .RS/.RE
+# block, which are that command's per-option reference and are where a per-command option belongs -- under the command
+# it applies to, not in a flat list that separates it from the only command it means anything for. Hence the depth
+# counter.
+man_commands() {
+    man_section "$1" COMMANDS \
+        | awk '/^\.RS/{d++; next} /^\.RE/{if (d>0) d--; next}
+               /^\.TP/{if (d==0) want=1; next}
+               want && /^\.(B|BR|BI) /{ sub(/^\.(B|BR|BI) /, ""); sub(/\\f.*$/, "");
+                 gsub(/"/, ""); sub(/[[:space:]]+$/, ""); if ($0 != "") print; want=0 }' \
+        | sort -u
+}
+
+# dispatch_arms <script>: every bare-word `case` arm in the script, one per line. Both commands split their dispatch
+# across nested `case` statements -- one per domain and collection -- so a whole path never appears in a single arm,
+# and each token of a documented path is matched against this set.
+dispatch_arms() { grep -oE '^[[:space:]]+[a-z][a-z0-9-]*\)' "$1" | tr -d ' )' | sort -u; }
+
+# check_command_sets <what> <script> <page>: checks (1) and (2) for one command page -- the command sets match in both
+# directions, and every token of every documented command is a dispatch arm.
+check_command_sets() {
+    local what="$1" src="$2" page="$3"
+    local help_cmds man_cmds undocumented unlisted arms cmd token
+    local -a unknown=()
+    help_cmds="$(help_commands "${src}")"
+    man_cmds="$(man_commands "${page}")"
+    if [[ -z "${help_cmds}" || -z "${man_cmds}" ]]; then
+        fail "could not extract a command set (help='${help_cmds//$'\n'/, }' man='${man_cmds//$'\n'/, }')"
+        return 0
+    fi
+    undocumented="$(comm -23 <(printf '%s\n' "${help_cmds}") <(printf '%s\n' "${man_cmds}"))"
+    if [[ -z "${undocumented}" ]]; then
+        pass "every command in the ${what} help has a COMMANDS entry in the page"
+    else
+        fail "command(s) in the ${what} help with no man COMMANDS entry: $(tr '\n' '/' <<<"${undocumented}")"
+    fi
+    unlisted="$(comm -13 <(printf '%s\n' "${help_cmds}") <(printf '%s\n' "${man_cmds}"))"
+    if [[ -z "${unlisted}" ]]; then
+        pass "the ${what} page documents no command the help omits"
+    else
+        fail "command(s) in the ${what} page's COMMANDS but not the help: $(tr '\n' '/' <<<"${unlisted}")"
+    fi
+
+    # The direction with teeth: what goes stale is a command the page still documents after the dispatch renamed it.
+    arms="$(dispatch_arms "${src}")"
+    if [[ -z "${arms}" ]]; then
+        fail "could not extract the ${what} dispatch arms"
+        return 0
+    fi
+    while read -r cmd; do
+        [[ -n "${cmd}" ]] || continue
+        for token in ${cmd}; do
+            grep -qx -- "${token}" <<<"${arms}" || unknown+=("${cmd} (${token})")
+        done
+    done <<<"${man_cmds}"
+    if [[ "${#unknown[@]}" -eq 0 ]]; then
+        pass "every command the ${what} page documents is accepted by a dispatch arm"
+    else
+        fail "the ${what} page documents command(s) the dispatch does not accept: ${unknown[*]}"
+    fi
+}
 
 # th_version <page> <NAME>: PASS when the .TH line still carries a version field. The contract is that the field is
 # PRESENT, not that it looks like a release. Three values are all correct: the repo source carries
@@ -100,43 +173,13 @@ check_cli_page() {
         return 0
     fi
 
-    # ── (1) The verb sets, both directions ──────────────────────────────────────────
-    # usage() lists one verb per line, indented four spaces and starting with its long option (the flag block under it
-    # is indented two, so it is excluded by that indent alone).
-    local help_verbs man_verbs undocumented unlisted help_opts man_opts missing parsed_opts stale
-    help_verbs="$(usage_text "${CLI}" | grep -E '^    --[a-z]' | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
-    # In the page a verb is the FIRST long option on the .B/.BR line opening each TOP-LEVEL .TP entry under COMMANDS.
-    # Three things must not be read as verbs: the rest of that opening line (the verb's own flags), the prose under it
-    # (which names other verbs), and the nested .TP entries inside an .RS/.RE block, which are that verb's per-flag
-    # reference and are where a per-verb option belongs -- under the verb it applies to, not in a flat list
-    # that separates it from the only command it means anything for. Hence the depth counter.
-    man_verbs="$(man_section "${MAN}" COMMANDS \
-        | awk '/^\.RS/{d++; next} /^\.RE/{if (d>0) d--; next}
-               /^\.TP/{if (d==0) want=1; next}
-               want && /^\.(B|BR|BI) /{
-                 if (match($0, /--[a-z][a-z-]+/)) print substr($0, RSTART, RLENGTH); want=0 }' \
-        | sort -u)"
+    # ── (1) and (2) The command sets, both directions, and the dispatch arms ────────
+    check_command_sets ai-tools "${CLI}" "${MAN}"
 
-    if [[ -z "${help_verbs}" || -z "${man_verbs}" ]]; then
-        fail "could not extract a verb set (help='${help_verbs//$'\n'/ }' man='${man_verbs//$'\n'/ }')"
-    else
-        undocumented="$(comm -23 <(printf '%s\n' "${help_verbs}") <(printf '%s\n' "${man_verbs}"))"
-        if [[ -z "${undocumented}" ]]; then
-            pass "every verb in the CLI help has a COMMANDS entry in ai-tools(1)"
-        else
-            fail "verb(s) in the help with no man COMMANDS entry: $(tr '\n' ' ' <<<"${undocumented}")"
-        fi
-        unlisted="$(comm -13 <(printf '%s\n' "${help_verbs}") <(printf '%s\n' "${man_verbs}"))"
-        if [[ -z "${unlisted}" ]]; then
-            pass "ai-tools(1) documents no verb the CLI help omits"
-        else
-            fail "verb(s) in man COMMANDS but not the help: $(tr '\n' ' ' <<<"${unlisted}")"
-        fi
-    fi
-
-    # ── (2) Every option the help names is documented somewhere in the page ─────────
+    # ── (3) Every option the help names is documented somewhere in the page ─────────
     # This is what keeps the cross-verb flag lines (`-y`/`--yes`, `--dry-run`, `--for`) honest: the help may name fewer
     # options than the page, never more.
+    local help_opts man_opts missing parsed_opts stale
     help_opts="$(usage_text "${CLI}" | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
     man_opts="$(read_man "${MAN}" | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
     missing="$(comm -23 <(printf '%s\n' "${help_opts}") <(printf '%s\n' "${man_opts}"))"
@@ -146,7 +189,7 @@ check_cli_page() {
         fail "option(s) in the CLI help but not the man page: $(tr '\n' ' ' <<<"${missing}")"
     fi
 
-    # ── (3) Every documented option is one a parser accepts ─────────────────────────
+    # ── (4) Every documented option is one a parser accepts ─────────────────────────
     # The direction that replaces the old "the help must name it too", which is what made moving an option
     # out of the help fail as a stale man entry. What actually goes stale is an option the page still documents
     # after its parser stopped accepting it, so the page is checked against the parsers instead. It covers every option
@@ -165,7 +208,7 @@ check_cli_page() {
         fi
     fi
 
-    # ── (4) The version slot the deploys substitute ─────────────────────────────────
+    # ── (5) The version slot the deploys substitute ─────────────────────────────────
     th_version "${MAN}" AI-TOOLS
 }
 check_cli_page
@@ -190,65 +233,10 @@ check_admin_page() {
         return 0
     fi
 
-    # ── (1) The command sets, both directions ───────────────────────────────────────
-    # usage() lists one command per line, indented four spaces, as `<path><padding><description>`. The path is
-    # everything before the first run of two or more spaces, minus any argument placeholder -- `operators add [user]` is
-    # the command `operators add`. The option lines (`--help`, `--version`) share that indent and are excluded
-    # by the leading letter, since a command in this grammar is a bare word.
-    local help_cmds man_cmds undocumented unlisted arms cmd token unknown=()
-    help_cmds="$(usage_text "${ADMIN}" \
-        | sed -n 's/^    \([a-z][^ ].*\)  \+[^ ].*/\1/p' \
-        | sed -e 's/[[:space:]]*[[<].*$//' -e 's/[[:space:]]*$//' | sort -u)"
-    # In the page a command is the .B line opening each TOP-LEVEL .TP entry under COMMANDS, up to its first argument
-    # placeholder (`\fR[\fIuser\fR]`), which the same .B line carries so the tag renders as one unit.
-    man_cmds="$(man_section "${ADMIN_MAN}" COMMANDS \
-        | awk '/^\.RS/{d++; next} /^\.RE/{if (d>0) d--; next}
-               /^\.TP/{if (d==0) want=1; next}
-               want && /^\.(B|BR|BI) /{ sub(/^\.(B|BR|BI) /, ""); sub(/\\f.*$/, "");
-                 gsub(/"/, ""); sub(/[[:space:]]+$/, ""); if ($0 != "") print; want=0 }' \
-        | sort -u)"
+    # ── (1) and (2) The command sets, both directions, and the dispatch arms ────────
+    check_command_sets ai-tools-admin "${ADMIN}" "${ADMIN_MAN}"
 
-    if [[ -z "${help_cmds}" || -z "${man_cmds}" ]]; then
-        fail "could not extract a command set (help='${help_cmds//$'\n'/, }' man='${man_cmds//$'\n'/, }')"
-    else
-        undocumented="$(comm -23 <(printf '%s\n' "${help_cmds}") <(printf '%s\n' "${man_cmds}"))"
-        if [[ -z "${undocumented}" ]]; then
-            pass "every command in the admin help has a COMMANDS entry in ai-tools-admin(8)"
-        else
-            fail "command(s) in the help with no man COMMANDS entry: $(tr '\n' '/' <<<"${undocumented}")"
-        fi
-        unlisted="$(comm -13 <(printf '%s\n' "${help_cmds}") <(printf '%s\n' "${man_cmds}"))"
-        if [[ -z "${unlisted}" ]]; then
-            pass "ai-tools-admin(8) documents no command the admin help omits"
-        else
-            fail "command(s) in man COMMANDS but not the help: $(tr '\n' '/' <<<"${unlisted}")"
-        fi
-    fi
-
-    # ── (2) Every documented command is one the dispatch accepts ────────────────────
-    # The direction with teeth, and the admin counterpart of the CLI's stale-option check: what goes stale is a command
-    # the page still documents after the dispatch renamed it. The helper splits its dispatch across nested `case`
-    # statements -- one per domain and collection -- so a whole path never appears in a single arm. Each TOKEN
-    # of a documented path must therefore be an arm somewhere in the helper, which catches the rename (`postupgrade` ->
-    # `post-upgrade` leaves the old token matching no heading) without asserting where in the nesting it sits.
-    arms="$(grep -oE '^[[:space:]]+[a-z][a-z0-9-]*\)' "${ADMIN}" | tr -d ' )' | sort -u)"
-    if [[ -z "${arms}" || -z "${man_cmds}" ]]; then
-        fail "could not extract the dispatch arms or the man command set"
-    else
-        while read -r cmd; do
-            [[ -n "${cmd}" ]] || continue
-            for token in ${cmd}; do
-                grep -qx -- "${token}" <<<"${arms}" || unknown+=("${cmd} (${token})")
-            done
-        done <<<"${man_cmds}"
-        if [[ "${#unknown[@]}" -eq 0 ]]; then
-            pass "every command ai-tools-admin(8) documents is accepted by a dispatch arm"
-        else
-            fail "ai-tools-admin(8) documents command(s) the dispatch does not accept: ${unknown[*]}"
-        fi
-    fi
-
-    # ── (3) The version slot the deploys substitute ─────────────────────────────────
+    # ── (5) The version slot the deploys substitute ─────────────────────────────────
     th_version "${ADMIN_MAN}" AI-TOOLS-ADMIN
 }
 check_admin_page
@@ -773,7 +761,7 @@ check_arg_shapes() {
     fi
 }
 section "man pages: the positional argument's shape matches the command's help (unit)"
-check_arg_shapes "${CLI}"   "${MAN}"       COMMANDS '^    --[a-z]'
+check_arg_shapes "${CLI}"   "${MAN}"       COMMANDS '^    [a-z]'
 check_arg_shapes "${ADMIN}" "${ADMIN_MAN}" COMMANDS '^    [a-z]'
 
 finish

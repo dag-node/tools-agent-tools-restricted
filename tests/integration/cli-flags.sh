@@ -16,8 +16,8 @@
 # Prompts: every run is under `setsid -w`, so each prompt takes its non-interactive default. A default-NO prompt
 # therefore declines, which is what makes `--yes` observable -- the row without it does not record a helper call,
 # the row with it records the call. A default-YES prompt proceeds, so a `--yes` on such a command (the clone's create
-# confirm) is asserted as accepted, its effect being unobservable without a terminal. The clone kind's removal does not
-# take a `--yes`, so only its declined path is drivable here; the positive path lands with the conversion.
+# confirm) is asserted as accepted, its effect being unobservable without a terminal. `projects remove` decides its kind
+# from the path, so its rows drive a project in place and a clone, and the clone rows keep the `sandbox.remove` key.
 #
 # Trace mode: with AI_TOOLS_CLI_FLAGS_TRACE=<file> the run also RECORDS every outcome, so a diff of two traces reports
 # every difference between two builds, including one no row names.  The file opens with a surface digest read
@@ -322,7 +322,7 @@ seed "${R}/pa"
 drive cli help;               expect "help exits 0 with no helper call"            rc_is 0
 expect "help reaches no helper" cli_log_empty
 drive run_in "${R}";          expect "the bare invocation exits 0"                  rc_is 0
-drive cli version;            expect "version exits 0 and prints one line"         test "${rc}" -eq 0 -a "$(wc -l <<<"${out}")" -eq 1
+drive cli version;            expect "version exits 0 and prints the version line" test "${rc}" -eq 0 -a "$(grep -cE '^ai-tools [0-9a-z.]+$' <<<"${out}")" -eq 1
 expect "version reaches no helper" cli_log_empty
 drive cli projects.list;      expect "the project listing exits 0"                 rc_is 0
 expect "the listing reaches no helper" cli_log_empty
@@ -640,8 +640,16 @@ cli_stub_reset; drive cli sandbox.remove "${SBROOT}/${N_C2}"
 expect "the clone removal declines with no terminal"              rc_not0
 expect "the declined removal leaves the clone"                    test -d "${SBROOT}/${N_C2}"
 expect "the declined removal leaves the entry"                    st_is "${SBROOT}/${N_C2}" listed
-drive cli sandbox.remove "${R}/pa"
-expect "the clone removal refuses a path that is not a clone"     rc_not0
+cli_stub_reset; drive cli_in "${SBROOT}/${N_C2}" sandbox.remove "$(f yes)"
+expect "the clone removal --yes without a path is refused"        rc_not0
+expect "the refused removal leaves the clone"                     test -d "${SBROOT}/${N_C2}"
+cli_stub_reset; drive cli sandbox.remove "$(f yes)" "${SBROOT}/${N_C2}"
+expect "the clone removal --yes <path> deletes the clone"         test ! -e "${SBROOT}/${N_C2}"
+expect "the clone removal --yes drops the entry"                  st_is "${SBROOT}/${N_C2}" absent
+expect "the clone removal --yes drops safe.directory"             cli_called ai-tools-safedir "^--remove${T}${SBROOT}/${N_C2}$"
+expect "the clone removal runs no typed-name challenge and no hand-back" not_called ai-tools-unclaim
+cli_stub_reset; drive cli sandbox.remove "$(f yes)" "${R}/pa"
+expect "the clone kind is decided by the path: a project in place takes the registry gate" rc_not0
 expect "that refusal leaves the tree"                             test -d "${R}/pa"
 fi
 
@@ -717,17 +725,16 @@ if [[ ! -r "${MAN}" ]]; then
 else
     read_man() { case "$1" in *.gz) zcat "$1" ;; *) cat "$1" ;; esac | sed 's/\\-/-/g'; }
     man_section() { read_man "$1" | awk -v s=".SH $2" '$0==s{f=1;next} /^\.SH /{f=0} f'; }
-    # Options are the long tokens on the OPTIONS headings plus the ones on COMMANDS headings at any depth, less
-    # the first token of a top-level entry (the verb) and the verbs the help lists.
-    verbs="$(sed -n '/^usage() {/,/^EOF$/p' "${CLI_SRC}" | grep -E '^    --[a-z]' | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
+    # Options are the long tokens on the OPTIONS headings plus the ones on COMMANDS headings at any depth, less the two
+    # options answered as commands, which the command keys `help` and `version` drive.
     documented="$( { man_section "${MAN}" OPTIONS | grep -E '^\.(B|BR|BI) ' | grep -oE -- '--[a-z][a-z-]+';
                      man_section "${MAN}" COMMANDS | awk '
                         /^\.RS/{d++; next} /^\.RE/{if (d>0) d--; next} /^\.TP/{want=1; next}
-                        want && /^\.(B|BR|BI) /{ line=$0; first=1
+                        want && /^\.(B|BR|BI) /{ line=$0
                             while (match(line, /--[a-z][a-z-]+/)) {
-                                tok=substr(line, RSTART, RLENGTH); if (!(d==0 && first)) print tok
-                                first=0; line=substr(line, RSTART+RLENGTH) }
-                            want=0 }'; } | sort -u | comm -23 - <(printf '%s\n' "${verbs}"))"
+                                print substr(line, RSTART, RLENGTH); line=substr(line, RSTART+RLENGTH) }
+                            want=0 }'; } | sort -u \
+                   | comm -23 - <(printf '%s\n' "$(cli_cmd_text help)" "$(cli_cmd_text version)" | sort -u))"
     # The keys this file drives: every literal `$(f <key>)`, plus the keys of each `for k in ...` loop over flags. A key
     # reaches the table through cli_flag, so a typo does not yield a token.
     used="$( { grep -oE '\$\(f [a-z.-]+\)' "${BASH_SOURCE[0]}" | awk '{print $2}' | tr -d ')';
