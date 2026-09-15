@@ -105,26 +105,26 @@ sudo ai-tools-admin system bootstrap
 #    ai-ops membership (the sudo rules and ownership hand-back).
 sudo ai-tools-admin operators add "$(id -un)"   # every host command: man ai-tools-admin
 
-# 3. Make a project and launch in it. --project-create makes the directory, initializes a
-#    git repository, and claims it -- one command, no prompts, no pre-existing content to
-#    review. `ai-tools --help` lists every command.
-ai-tools --project-create ~/src/demo
+# 3. Make a project and launch in it. `ai-tools projects create` makes the directory,
+#    initializes a git repository, and claims it -- one command, no prompts,
+#    no pre-existing content to review. `ai-tools --help` lists every command.
+ai-tools projects create ~/src/demo
 cd ~/src/demo && claude
 ```
 
-To use a tree you already have, `ai-tools --project-claim <path>` claims it
+To use a tree you already have, `ai-tools projects claim <path>` claims it
 in place. That one reviews what it is about to open: it walks the tree, scans
 for secret-named files before granting anything, and asks before exposing git
 history — so it prompts where the create does not. Running `claude` inside
 an unclaimed directory offers the same choice interactively, and both refuse
 system paths and home roots.
 
-Reversing is `ai-tools --project-unclaim` (hands the files back, keeps
-the directory) or `ai-tools --project-remove` (deletes it too, behind
+Reversing is `ai-tools projects unclaim` (hands the files back, keeps
+the directory) or `ai-tools projects remove` (deletes it too, behind
 a typed-name confirmation). To take a project out of service without releasing
 it — no session starts there, while its permissions and label stay as they are
-— `ai-tools --project-disable`, and `--project-enable` to put it back. All
-of it is in [docs/project-lifecycle.md](docs/project-lifecycle.md).
+— `ai-tools projects disable`, and `projects enable` to put it back. All of it
+is in [docs/project-lifecycle.md](docs/project-lifecycle.md).
 
 ### Upgrading
 
@@ -194,8 +194,8 @@ and credentials out of what it can ever send:
   through the wrapper at `/usr/local/bin/claude` ([Architecture
   at a glance](#architecture-at-a-glance)). An agent **you** installed answers
   to the same name, so what `claude` resolves to is the one thing to get right
-  — `ai-tools --status` reads which binary your shell runs, and the PATH
-  ordering this project ships for it is
+  — `ai-tools status` reads which binary your shell runs, and the PATH ordering
+  this project ships for it is
   [ref-section-y2t3](docs/install-from-source.md#ref-section-y2t3).
 - **Launches only in approved projects** — a wrapper refuses to start Claude
   unless the working directory is listed
@@ -218,9 +218,9 @@ and credentials out of what it can ever send:
   `*.key`, `*.pem`, SSH keys, `kubeconfig`, …) is instead chowned
   to `${PROJECTS_USER}:${PROJECTS_GROUP} 600`, removing `${SANDBOX_USER}`'s
   read access entirely; a `NOTICE` lands in the session and the operation log.
-  `ai-tools --lockdown` applies the same over an existing tree. See [secret
-  handling](.claude/rules/secret-handling.rule.md).
-- **Git history stays behind** — `ai-tools --sandbox-create` hands the agent
+  `ai-tools projects lockdown` applies the same over an existing tree. See
+  [secret handling](.claude/rules/secret-handling.rule.md).
+- **Git history stays behind** — `ai-tools projects clone` hands the agent
   a shallow clone (`--depth=1`) of a dedicated branch, so credentials buried
   in past commits are never on disk within its reach, and secret-named files
   in the tip commit are locked down before the clone is opened to the agent
@@ -231,7 +231,7 @@ and credentials out of what it can ever send:
   `${SANDBOX_GROUP}`: `g:${SANDBOX_GROUP}:rwX` grants Claude access to your
   files and `user:${PROJECTS_USER}:rwX` grants you access to Claude's, both
   umask-independent; world access stays closed. Applied
-  at `ai-tools --project-claim`, which skips owner-only paths (`600`/`700`)
+  at `ai-tools projects claim`, which skips owner-only paths (`600`/`700`)
   so a private file or directory is never opened to the agent — see
   [docs/project-lifecycle.md](docs/project-lifecycle.md).
 - **Shared skills, one copy** — the documentation and engineering-judgment
@@ -252,7 +252,7 @@ and credentials out of what it can ever send:
   (always, leveled and tagged: `journalctl -t ai-tools-chown _UID=0`)
   and, for the root writers only, to root-only files
   under **`/var/log/ai-tools/`**.
-- **A working stop** — `ai-tools --stop` terminates every agent session
+- **A working stop** — `ai-tools stop` terminates every agent session
   on the host and everything it spawned, with no password to answer,
   so an unattended detector can reach it too. (To finish a session you are done
   with, use `/exit` inside it, which lets it run its own ownership handback.)
@@ -477,7 +477,7 @@ to the version it launched with for its whole lifetime by design.
 ## Health checks
 
 ```bash
-ai-tools --status            # as yourself
+ai-tools status              # as yourself
 sudo ai-tools-admin status   # as root, the same host with the readings you cannot make
 ```
 
@@ -497,8 +497,8 @@ Details and exit codes: `man ai-tools` and `man ai-tools-admin`.
 Start here — one command answers "has anything gone wrong lately?":
 
 ```bash
-sudo ai-tools --audit                      # findings in the last 7 days
-sudo ai-tools --audit --since '2 days ago' # any window date(1) understands
+sudo ai-tools audit                      # findings in the last 7 days
+sudo ai-tools audit --since '2 days ago' # any window date(1) understands
 ```
 
 It reads the two trails and reports what refused, was rejected, was stranded,
