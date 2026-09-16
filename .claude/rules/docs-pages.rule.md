@@ -116,6 +116,8 @@ with the current page in bold and not a link:
 A category's own `index.md` carries the same line without the self-reference, leading with the category name in bold.
 `docs/index.md` carries none, since it is what the line points back to. This is the only navigation furniture a page
 carries: a `## See also` tail is removed where the breadcrumb and the inline links already reach the destinations.
+`docs/index.md` ends with a feedback footer pointing at the issue tracker, which stays as written and which a leaf page
+does not repeat.
 
 The three link forms are not interchangeable:
 
