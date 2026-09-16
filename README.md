@@ -31,14 +31,17 @@ and what is out of scope](docs/about/scope.md).
 > the very session that would fix it. Several of the sharper edges this page
 > describes were found that way rather than reasoned about.
 
-**Contents**: [Requirements](#requirements) · [Package
-install](#package-install) · [Why](#why) · [If you are an agent reading
-this](#if-you-are-an-agent-reading-this) · [Architecture
+**On this page**: [Requirements](#requirements) · [Package
+install](#package-install) · [Why](#why) · [Architecture
 at a glance](#architecture-at-a-glance) · [From source](#from-source) ·
 [Community](#community) · [License](#license)
 
-**Operator documentation**: [all docs](docs/index.md) — about, install,
-operators, projects, sessions, agents, system, tests, development.
+**Operator documentation** — [all docs](docs/index.md):
+[About](docs/about/index.md) · [Install](docs/install/index.md) ·
+[Operators](docs/operators/index.md) · [Projects](docs/projects/index.md) ·
+[Sessions](docs/sessions/index.md) · [Agents](docs/agents/index.md) ·
+[System](docs/system/index.md) · [Tests](docs/tests/index.md) ·
+[Development](docs/development/index.md)
 
 ## Requirements
 
@@ -58,50 +61,36 @@ in [docs/install/index.md](docs/install/index.md).
 
 ## Package install
 
-Import the org signing key, then install the dag-node release package —
-which brings the signed DNF repository definition and the key with it
+Import the org signing key, install the dag-node release package — which brings
+the signed DNF repository definition and the key with it
 ([source](https://github.com/dag-node/rpm-dagnode-release)) — then the stack.
-Verify the key fingerprint out of band before importing; see the [repository
+Verify the key fingerprint out of band first: see the [repository
 README](https://github.com/dag-node/rpm/blob/main/README.md#signing-key),
 and [docs/install/index.md](docs/install/index.md) for why the key goes
 on first.
 
 ```bash
-# Import the org signing key (verify its fingerprint out of band first — see the README above)
-sudo rpm --import \
-  https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
-
-# Install the release package (repo definition + key), then the stack
-sudo dnf install \
-  https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
+sudo rpm --import https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
+sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
 sudo dnf install ai-tools ai-tools-selinux   # the whole stack + SELinux confinement
 ```
 
-Then finish setup — steps 1 and 2 here are independent of each other but both
-run before step 3:
+Then finish setup. The first two commands are independent of each other
+and both run before the third:
 
 ```bash
-# 1. Install Node.js, nvm, and Claude Code (from npm) and enable the update timer (network).
-sudo ai-tools-admin system bootstrap
-
-# 2. Enrol yourself as an operator: records you in /etc/ai-tools/operator.conf and grants
-#    ai-ops membership (the sudo rules and ownership hand-back).
-sudo ai-tools-admin operators add "$(id -un)"   # every host command: man ai-tools-admin
-
-# 3. Make a project and launch in it. `ai-tools projects create` makes the directory,
-#    initializes a git repository, and claims it -- one command, no prompts,
-#    no pre-existing content to review. `ai-tools --help` lists every command.
-ai-tools projects create ~/src/demo
+sudo ai-tools-admin system bootstrap             # Node, nvm, the agent, the update timer
+sudo ai-tools-admin operators add "$(id -un)"    # enrol yourself: operator.conf + ai-ops
+ai-tools projects create ~/src/demo              # a new project, claimed, no prompts
 cd ~/src/demo && claude
 ```
 
+`ai-tools --help` lists every command, and `man ai-tools-admin` every host one.
 To use a tree you already have, `ai-tools projects claim <path>` claims it
 in place, reviewing what it is about to open before it grants anything,
 and every step reverses — see [docs/projects/index.md](docs/projects/index.md).
-
-Upgrading an installed host is `sudo dnf upgrade --refresh 'ai-tools*'`;
-what that moves, the one package it will not add, and the daily toolchain
-update behind it are in [docs/install/upgrade.md](docs/install/upgrade.md).
+Upgrading an installed host is `sudo dnf upgrade --refresh 'ai-tools*'` — see
+[docs/install/upgrade.md](docs/install/upgrade.md).
 
 ## Why
 
@@ -141,11 +130,15 @@ send. The reasoning in full is in [About this project](docs/about/index.md).
   so an unattended detector reaches it too. What each outcome means
   and what a stop cannot undo are
   in [docs/sessions/stop.md](docs/sessions/stop.md).
-- **Auto-updating** — a `systemd --user` timer in `${SANDBOX_USER}`'s own
-  instance keeps Node and `@anthropic-ai/claude-code` current
-  under `/opt/ai-tools`, and a root-side watcher relabels the new entrypoint
-  for SELinux after each upgrade. Each update verifies the toolchain's npm
-  registry signatures and fails closed on a tamper before activating it.
+- **The toolchain updates itself, verified** — a daily timer keeps Node
+  and the agent current under `/opt/ai-tools`, checking the npm registry
+  signatures and failing closed on a tamper before it activates anything — see
+  [docs/install/upgrade.md](docs/install/upgrade.md).
+- **The agent binary is checked against a signed checksum** — verified
+  with a key the package ships rather than one it downloads, and pinned
+  where the sandbox account cannot write it, so a binary modified
+  after installation refuses to launch — see
+  [docs/system/entrypoint-verification.md](docs/system/entrypoint-verification.md).
 
 One property ties those together, and it is the one to check when reviewing
 this project: **every input that decides what a session gets is read
@@ -157,54 +150,19 @@ in [ref-section-e7n8](CLAUDE.md#ref-section-e7n8); what this project
 deliberately leaves out is [The boundary, and what is
 out of scope](docs/about/scope.md).
 
-The agent binary itself is verified against the checksum its vendor **signed**,
-using a key shipped in the package rather than downloaded, and the verified
-value is pinned where the sandbox account cannot write it — so a binary
-modified after installation refuses to launch. It does not need any per-release
-maintenance and does not reach the network at launch; what it checks, what each
-failure means, and how it behaves on an air-gapped host are
-in [docs/system/entrypoint-verification.md](docs/system/entrypoint-verification.md).
-
 ## If you are an agent reading this
 
-This project confines you with a dedicated account, an allowlist of projects,
-and an SELinux type that bound what you can reach. Those limits are the terms
-on which you were given access to someone's machine. Work inside them.
-
-Part of the confinement is enforced by the kernel and part of it rests on you.
-Where a control is missing, weak, or reachable around, it still binds: **an
-incomplete boundary is not permission.**
-
-- **Do not look for a way out, and do not take one you find.** If you notice
-  a path across the boundary — a file writable that should not be, an absent
-  check, a route to more privilege — report it to the operator and stop. Do not
-  measure how far it reaches, do not use it to finish a task, and do not leave
-  it unmentioned.
-- **Do not widen your own reach.** Do not seek privileges the task did not come
-  with. Do not write code, hooks, scripts, or configuration whose effect is
-  that something later runs with more access than you hold now — especially
-  anything that acts after your session ends. If the work genuinely needs
-  authority you lack, ask the operator, accept the answer, and do not press.
-  Arranging circumstances so that the authority becomes necessary, or is
-  granted without a decision, is taking it.
-- **Report your work accurately.** State what ran, what failed, what you
-  skipped, and what you did not verify. A human reviews and runs what you
-  write; that review depends on an honest account. A confident summary
-  of unverified work is a defect.
-- **Stop when you are told to, at the point you are told.** Not at the end
-  of the step you are on. The same holds for a narrowed scope or a withdrawn
-  permission.
-
-If a request would require crossing one of these limits, say so and decline it.
-That refusal is the expected outcome, not a failure to complete the task.
-
-Behave this way whether or not the session is being watched. The confinement
-exists because the operator cannot verify every action, not because they doubt
-any particular one.
-
-The same expectations are stated for this repository's own sessions
-in [ref-section-g6c4](CLAUDE.md#ref-section-g6c4), and the reasoning behind
-them ships as the `ai-tools-capable-systems-governance` skill.
+You are confined by a dedicated account, an allowlist of projects,
+and an SELinux type. Those limits are the terms on which you were given access
+to someone's machine: work inside them, report a gap in them rather than using
+one, state accurately what ran and what did not, and stop when you are told
+to rather than at the end of the step you are on. Part of the confinement is
+enforced by the kernel and part of it rests on you, and a control that is
+missing, weak, or reachable around still binds — **an incomplete boundary is
+not permission.** Behave that way whether or not the session is being watched.
+The full statement is [ref-section-g6c4](CLAUDE.md#ref-section-g6c4),
+and the reasoning behind it ships as the `ai-tools-capable-systems-governance`
+skill.
 
 ## Architecture at a glance <a id="ref-section-e7g6"></a>
 
@@ -228,8 +186,11 @@ you type `claude`
                                           └─ chown ${PROJECTS_USER}:${SANDBOX_GROUP}, strip world bits
 ```
 
-The privilege model and every guard it applies are specified
-in [`CLAUDE.md`](CLAUDE.md) (trust chain and invariants) and the per-component
+`${SANDBOX_USER}` is the sandbox account and `${PROJECTS_USER}` the operator
+a path resolves to; which name denotes which identity is
+in [docs/naming-conventions.md](docs/naming-conventions.md). The privilege
+model and every guard it applies are specified in [`CLAUDE.md`](CLAUDE.md)
+(trust chain and invariants) and the per-component
 [`.claude/rules/`](.claude/rules/).
 
 ## From source
@@ -237,19 +198,14 @@ in [`CLAUDE.md`](CLAUDE.md) (trust chain and invariants) and the per-component
 ```bash
 git clone https://github.com/dag-node/tools-agent-tools-restricted.git
 cd tools-agent-tools-restricted
-# steps 1-3: PATH fragment, the ai-tools account, nvm + Node + claude
-sudo ./install.sh install                   # step 4: helpers, units, sudoers, CLI
-sudo ai-tools-admin operators add <user>    # enrol yourself as an operator
+sudo ./install.sh install
 ```
 
-`install.sh` stops unless the sandbox account and `/opt/ai-tools/bin` already
-exist — steps 1–3 create them (once the package is deployed,
-`sudo ai-tools-admin system bootstrap` does both in one idempotent command).
-The four steps, the full source→deploy file map,
+`install.sh` is step 4 of four: the PATH fragment, the sandbox account,
+and the Node toolchain come first, and the script stops until they are there.
+All four steps, the source-to-deploy file map,
 and `sudo ./install.sh uninstall` are
-in [docs/install/from-source.md](docs/install/from-source.md); registering
-projects is the same as the package path — see
-[docs/projects/index.md](docs/projects/index.md).
+in [docs/install/from-source.md](docs/install/from-source.md).
 
 ## Community
 

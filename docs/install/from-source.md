@@ -8,6 +8,11 @@ install (see the README) automates all of it;
 `sudo ai-tools-admin system bootstrap` automates steps 2–3 once `install.sh`
 has deployed it, and `install.sh` automates everything from step 4 on.
 
+```bash
+git clone https://github.com/dag-node/tools-agent-tools-restricted.git
+cd tools-agent-tools-restricted
+```
+
 Set the recurring identities once, in the shell you run these steps
 in, so every command pastes verbatim (the full naming spec is
 in [Naming conventions](../naming-conventions.md)):
