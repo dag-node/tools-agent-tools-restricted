@@ -1,6 +1,7 @@
 # Install from source
 
-[Install](index.md) · **From source** — [all docs](../index.md)
+[Install](index.md) · **From source** · [Upgrade](upgrade.md) — [all
+docs](../index.md)
 
 The manual path — four root steps a checkout installs with, no RPM. The package
 install (see the README) automates all of it;

@@ -1,17 +1,22 @@
 # Install
 
-**Install** · [From source](from-source.md) — [all docs](../index.md)
+**Install** · [From source](from-source.md) · [Upgrade](upgrade.md) — [all
+docs](../index.md)
 
 What a host needs before the stack goes on it, what `dnf install ai-tools` puts
 there, and how to reach the same result from a checkout.
 
-The target is Enterprise Linux 9 or 10 — RHEL and its rebuilds — with systemd,
-`sudo`, and a filesystem carrying POSIX ACLs on the projects you claim. SELinux
-in enforcing mode with the targeted policy is where the session's own domain
-applies; a host without it runs in a DAC-only posture instead. The install
-itself needs the network once, for `sudo ai-tools-admin system bootstrap`,
-which fetches the Node toolchain and the agent; after that a systemd timer
-keeps both current.
+The target is Enterprise Linux 9 or 10 — RHEL and its rebuilds (Rocky,
+AlmaLinux, Oracle Linux/UEK) — with systemd, `sudo`, and a filesystem carrying
+POSIX ACLs on the projects you claim. Other distributions are untested:
+the design assumes systemd user instances with lingering, `sudo`, and EL
+filesystem conventions. SELinux in enforcing mode with the targeted policy is
+where the session's own domain applies; a host without it runs in a DAC-only
+posture instead. The install itself needs the network once,
+for `sudo ai-tools-admin system bootstrap`, which fetches the Node toolchain
+and the agent; after that a systemd timer keeps both current
+([Upgrade](upgrade.md)). `podman` is the one optional requirement, and only
+to run the container test harness ([Tests](../tests/index.md)).
 
 Two properties hold across every install:
 
@@ -31,7 +36,36 @@ policy are all `Recommends`. Naming `ai-tools-selinux` on the `dnf` command
 line is what guarantees confinement on a minimal image, which installs without
 weak dependencies.
 
-The package install, the setup steps that follow it, and upgrades are
-on the [front page](../../README.md). [From source](from-source.md) is
-the manual path: the four root steps a checkout installs with, for a host
-that builds rather than consumes the RPM.
+## Why the signing key is imported first
+
+The packages come from a signed repository, and the release package carrying
+that repository's definition is itself signed by the org key. `dnf` verifies
+that signature at install time, so the key has to be on the host
+before the release package is installed — the package that would otherwise
+install the key has not run yet. Importing it by hand first satisfies
+the check. One repository serves EL 9 and EL 10, and both the packages
+and the repository metadata are signature-verified. Verify the key's
+fingerprint out of band before you import it.
+
+`ai-tools` is a metapackage pulling the full stack — the agents,
+the integrations, and the toolchain. Name `ai-tools-selinux` on the same `dnf`
+line: it is a `Recommends`, so a minimal image installing without weak
+dependencies would otherwise come up unconfined. Drop it only for a deliberate
+DAC-only deployment.
+
+## After the packages are on
+
+Two root commands finish the setup, and they are independent of each other:
+`sudo ai-tools-admin system bootstrap` installs the toolchain and enables
+the update timer, and `sudo ai-tools-admin operators add <account>` enrols
+an account as an operator ([Operators](../operators/index.md)). Only then does
+a project get claimed for that operator ([Projects](../projects/index.md)) —
+`ai-tools projects create` for a new tree, which does not ask any questions
+because a tree that did not exist has no permissions, secrets or history
+to review, and `ai-tools projects claim` for one you already have,
+which reviews all three before granting anything. The front page carries both
+commands as a quick start.
+
+[From source](from-source.md) is the manual path: the four root steps
+a checkout installs with, for a host that builds rather than consumes the RPM.
+[Upgrade](upgrade.md) covers moving an installed host to a new release.

@@ -36,28 +36,19 @@ install](#package-install) · [Why](#why) · [If you are an agent reading
 this](#if-you-are-an-agent-reading-this) · [Identities
 and naming](#identities-and-naming) · [Architecture
 at a glance](#architecture-at-a-glance) · [From source](#from-source) ·
-[Upgrade behaviour](#upgrade-behaviour) · [Operation
-logging](#operation-logging) · [SELinux](#selinux) · [Community](#community) ·
-[License](#license)
+[Operation logging](#operation-logging) · [SELinux](#selinux) ·
+[Community](#community) · [License](#license)
 
 **Operator documentation**: [all docs](docs/index.md) — about, install,
 operators, projects, sessions, agents, system, tests, development.
 
 ## Requirements
 
-- **Enterprise Linux 9 or 10** — RHEL and its rebuilds (Rocky, AlmaLinux,
-  Oracle Linux/UEK). Other distributions are untested; the design assumes
-  systemd, sudo, and EL filesystem conventions.
-- **systemd** (system instance plus user instances with lingering) and **POSIX
-  ACL** support on the filesystem holding your projects.
-- **SELinux targeted policy, enforcing** — recommended; the session is confined
-  in `ai_tools_t`. With SELinux disabled the system runs in a documented
-  DAC-only posture.
-- **Network access once** for `ai-tools-admin system bootstrap` (fetches nvm,
-  Node, and the agent npm package); day-to-day operation and updates run
-  from a systemd timer.
-- Optional: **podman** to run the container test harness
-  (`packaging/README.md`).
+**Enterprise Linux 9 or 10** — RHEL and its rebuilds — with systemd, `sudo`,
+and POSIX ACL support on the filesystem holding your projects. SELinux
+in enforcing mode confines the session; without it the stack runs in a DAC-only
+posture. The full list, and what the install needs the network for, are
+in [docs/install/index.md](docs/install/index.md).
 
 > [!WARNING]
 > **Pre-1.0 and fast moving.** Ahead of 1.0, interfaces, package layout, CLI
@@ -69,16 +60,13 @@ operators, projects, sessions, agents, system, tests, development.
 
 ## Package install
 
-Import the org signing key, then install the dag-node release package
-and the stack. The release package is signed by the org key, so `dnf` verifies
-its signature at install time — importing the key first satisfies that check,
-since the package that would otherwise install the key has not run yet.
-The release package brings the signed DNF repository definition and the key
-with it ([source](https://github.com/dag-node/rpm-dagnode-release)); the last
-command pulls the stack. One repository serves EL 9 and EL 10, and both
-the packages and the repository metadata are signature-verified. Verify the key
-fingerprint out of band before importing — see the [repository
-README](https://github.com/dag-node/rpm/blob/main/README.md#signing-key).
+Import the org signing key, then install the dag-node release package —
+which brings the signed DNF repository definition and the key with it
+([source](https://github.com/dag-node/rpm-dagnode-release)) — then the stack.
+Verify the key fingerprint out of band before importing; see the [repository
+README](https://github.com/dag-node/rpm/blob/main/README.md#signing-key),
+and [docs/install/index.md](docs/install/index.md) for why the key goes
+on first.
 
 ```bash
 # Import the org signing key (verify its fingerprint out of band first — see the README above)
@@ -90,12 +78,6 @@ sudo dnf install \
   https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
 sudo dnf install ai-tools ai-tools-selinux   # the whole stack + SELinux confinement
 ```
-
-`ai-tools` is a metapackage that pulls the full stack (agents, integrations,
-toolchain). `ai-tools-selinux` — the SELinux confinement policy — is only
-*recommended*, so it is named explicitly to guarantee confinement on every
-host, including minimal images that install without weak dependencies. Drop it
-only for a deliberate DAC-only deployment.
 
 Then finish setup — steps 1 and 2 here are independent of each other but both
 run before step 3:
@@ -116,59 +98,12 @@ cd ~/src/demo && claude
 ```
 
 To use a tree you already have, `ai-tools projects claim <path>` claims it
-in place. That one reviews what it is about to open: it walks the tree, scans
-for secret-named files before granting anything, and asks before exposing git
-history — so it prompts where the create does not. Running `claude` inside
-an unclaimed directory offers the same choice interactively, and both refuse
-system paths and home roots.
+in place, reviewing what it is about to open before it grants anything,
+and every step reverses — see [docs/projects/index.md](docs/projects/index.md).
 
-Reversing is `ai-tools projects unclaim` (hands the files back, keeps
-the directory) or `ai-tools projects remove` (deletes it too, behind
-a typed-name confirmation). To take a project out of service without releasing
-it — no session starts there, while its permissions and label stay as they are
-— `ai-tools projects disable`, and `projects enable` to put it back. All of it
-is in [docs/projects/index.md](docs/projects/index.md).
-
-### Upgrading
-
-Upgrade in place with ordinary DNF, without a `dnf remove` first:
-`sudo dnf upgrade --refresh 'ai-tools*'`.
-
-`--refresh` forces a metadata refresh: root's DNF cache is separate from your
-user's and can predate a just-published release, so a plain `dnf upgrade` may
-report "Nothing to do" on a stale cache even when `dnf list` (a newer cache)
-already shows the new version. This moves every **installed** ai-tools package
-to the new version, and a host running `dnf-automatic` does the same unattended
-once its cache refreshes on schedule. What it does **not** do is add a package
-you don't already have, because DNF leaves a new weak dependency
-off an existing install. So a host first installed before 0.10.0 —
-when the SELinux policy split into its own `ai-tools-selinux` package — keeps
-upgrading *without* confinement until you add it once:
-
-```bash
-rpm -q ai-tools-selinux || sudo dnf install ai-tools-selinux
-```
-
-An `ai-tools` command spelled as an option in an earlier release
-(`--project-claim`) still runs and prints a notice naming the preferred
-collection form; [docs/option-spellings.md](docs/option-spellings.md) lists
-each one.
-
-Installing offline from a release archive, and exactly what an upgrade
-preserves, are in [ref-section-f5q2](docs/rpm-packaging.md#ref-section-f5q2).
-The [Upgrade behaviour](#upgrade-behaviour) section is about the Node/Claude
-**toolchain** auto-update, a separate mechanism from these DNF package
-upgrades.
-
-`claude` resolves to the system wrapper `/usr/local/bin/claude`, which runs
-as you, checks your `ai-ops` membership and the project allowlist, then drops
-to `${SANDBOX_USER}` via `sudo` and wraps the session in a confined
-`systemd --user service`. Launched in an unclaimed project it prompts you
-to claim it first; the claim and every elevated helper refuse system
-directories and home roots (the [safe-paths
-backstop](.claude/rules/safe-paths.rule.md)). [From source](#from-source) is
-the manual equivalent of the package install plus
-`ai-tools-admin system bootstrap`.
+Upgrading an installed host is `sudo dnf upgrade --refresh 'ai-tools*'`;
+what that moves, the one package it will not add, and the daily toolchain
+update behind it are in [docs/install/upgrade.md](docs/install/upgrade.md).
 
 ## Why
 
@@ -379,44 +314,6 @@ and `sudo ./install.sh uninstall` are
 in [docs/install/from-source.md](docs/install/from-source.md); registering
 projects is the same as the package path — see
 [docs/projects/index.md](docs/projects/index.md).
-
-## Upgrade behaviour
-
-`nvm-update.timer` fires daily in `${SANDBOX_USER}`'s `--user instance`
-and runs `/opt/ai-tools/bin/nvm-update.sh`, which resolves the latest LTS
-in the `NVM_NODE_MAJOR` series, installs it under `/opt/ai-tools/.nvm`,
-refreshes the global tools, prunes, and:
-
-- repoints each enabled agent's `/opt/ai-tools/bin/<launcher>` symlink
-  at the new versioned binary via the handback socket bridge (`SYMLINK` verb →
-  `ai-tools-launcher-symlink`). `bin` is locked `0551`,
-  so the `${SANDBOX_USER}` updater cannot write it directly; the helper
-  validates the versioned path, accepts only a launcher an enabled agent
-  manifest claims, and is the only writer of that dir.
-- prunes old Node versions (any not referenced by a named alias) — **except**
-  a version a live process still runs from. The prune scans `/proc/<pid>/exe`
-  and defers such a version to the next cycle, so an update never deletes
-  the toolchain out from under a running Claude session.
-
-The `ai-tools-relabel.path` watcher sees the repoint (it watches the `bin`
-directory, so one watch covers every agent) and runs `ai-tools-relabel-agent`
-(root) to restore `ai_tools_exec_t` on each enabled agent's new entrypoint,
-so the SELinux domain transition keeps firing. Until the entrypoint is
-relabelled, `ai-tools-run` fail-closes (refuses to launch rather than run
-unconfined); `sudo ai-tools-admin system entrypoints relabel` is the manual
-fallback.
-
-On launch the wrapper resolves the symlink one hop via `readlink`, exports it
-as `AI_TOOLS_AGENT_EXEC`, and `ai-tools-run` re-validates it against the nvm
-versioned-binary pattern before exec; the only sudoers rule dropping
-to `${SANDBOX_USER}` targets the fixed path `/opt/ai-tools/bin/ai-tools-run`,
-never the versioned binary. Why one hop, and what the mode-700 package dir does
-and does not guarantee, is specified in [launch](.claude/rules/launch.rule.md)
-and [updater](.claude/rules/updater.rule.md).
-
-After an update, **new** Claude sessions resolve the repointed `bin/claude`
-symlink and use the new Node version. A **running** session stays pinned
-to the version it launched with for its whole lifetime by design.
 
 ## Health checks
 

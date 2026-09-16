@@ -21,7 +21,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | docs/about/scope.md, docs/operators/service-accounts.md |  |
 | e7g6 | [ref-section-e7g6](../README.md#ref-section-e7g6) | Architecture at a glance | README.md | docs/install/from-source.md |  |
 | y2t3 | [ref-section-y2t3](../docs/install/from-source.md#ref-section-y2t3) | 1. Install the PATH ordering fragment (root, once) | docs/install/from-source.md | docs/about/index.md |  |
-| f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | README.md |  |
+| f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | docs/install/upgrade.md |  |
 | a6s8 | [ref-section-a6s8](../docs/rpm-packaging.md#ref-section-a6s8) | Signing and distribution | docs/rpm-packaging.md | docs/development/release.md |  |
 | u5e6 | [MSG-U5E6](../install.sh) | error: --operator needs an account name | install.sh | tests/unit/install-guards.sh | refuse_early |
 | k4w7 | [MSG-K4W7](../install.sh) | error: run with sudo | install.sh | selinux/install-selinux.sh | refuse_early |
