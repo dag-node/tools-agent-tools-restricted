@@ -23,7 +23,12 @@ That is why every flow granting the agent access locks secret-named files
 down first, and why declining a lockdown stops the claim
 ([Lockdown](../projects/lockdown.md)). A per-session `bubblewrap` mount
 namespace, which would make the allowlist a read boundary too, is proposed
-rather than built.
+rather than built: a session is launched under a filter that blocks namespace
+creation for its whole process tree — the lighter control that closes
+the escape route an agent-reachable user namespace opens — and an unprivileged
+`bubblewrap` works by creating exactly those namespaces. Relaxing the filter
+would reopen that route, so the mount boundary waits on resolving the conflict
+([confinement](../../.claude/rules/confinement.rule.md)).
 
 ## Code the agent wrote runs as you
 
@@ -31,7 +36,8 @@ The confinement bounds the agent while it runs. It does not make what the agent
 left behind safe to execute: a build script, a git hook, a test fixture
 or a built artifact in a claimed project runs as you, unconfined, the moment
 you build or run that project. Review a change before you run it, as you would
-a patch from anyone else.
+a patch from anyone else (or from a particularly persuasive raccoon
+that somehow got root).
 
 Restricting one path does not help here, because the set of files you
 eventually execute is the project itself — so the control is review rather than
