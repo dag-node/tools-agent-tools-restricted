@@ -572,10 +572,8 @@ unclaim say so before asking.
 ## Where the security boundary actually is
 
 The allowlist (`~/.config/ai-tools/allowed-projects`) gates where sessions
-*launch* and which written files get ownership handed back. It is not a read
-boundary: once a session runs, ordinary file permissions plus the SELinux
-`ai_tools_project_t` label are what confine it, which is why every flow on this
-page locks secrets down *before* granting group access, and why declining
-a lockdown fails closed. The invariants are
-in [ref-section-e7n8](../../CLAUDE.md#ref-section-e7n8); the per-component
-mechanism is in [`.claude/rules/`](../../.claude/rules/).
+*launch* and which written files get ownership handed back; once a session
+runs, file permissions and the SELinux label on the tree are what confine it.
+That is why every flow on this page locks secrets down *before* granting group
+access, and why declining a lockdown fails closed. [The boundary, and what is
+out of scope](../about/scope.md) states it in full.

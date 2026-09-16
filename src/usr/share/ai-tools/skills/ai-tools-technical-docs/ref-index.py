@@ -769,8 +769,18 @@ def command_relink(args):
             # A bare `[reftag]` is given its destination; a `[reftag](...)` has it rewritten.
             # The bare form is matched only where no `(` follows, so a link is not rewritten
             # twice.
-            new = LINK_SITE.sub(rewrite, line)
-            new = re.sub(BARE_SITE.pattern + r"(?!\()", rewrite, new)
+            def rewrite_text(text):
+                text = LINK_SITE.sub(rewrite, text)
+                return re.sub(BARE_SITE.pattern + r"(?!\()", rewrite, text)
+
+            # A backticked span is not read as a reference, so it is not rewritten as one
+            # either: a span showing the citation form is an example, whose destination is
+            # relative to the page it illustrates rather than to the page holding it.
+            new, last = "", 0
+            for quoted in BACKTICK_SPAN.finditer(line):
+                new += rewrite_text(line[last:quoted.start()]) + quoted.group(0)
+                last = quoted.end()
+            new += rewrite_text(line[last:])
             changed = changed or new != line
             out.append(new)
         if changed:

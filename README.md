@@ -21,8 +21,8 @@ ownership-handback, and toolchain machinery are deliberately agent-agnostic.
 
 **Scope.** The model defends the host from the agent *while it runs*. It does
 not make agent-written code safe for you to execute afterwards, and reviewing
-a diff before running from the tree is the control — see [On running
-what sandboxed agents wrote](#why).
+a diff before running from the tree is the control — see [The boundary,
+and what is out of scope](docs/about/scope.md).
 
 > **Fun fact.** This project is written inside its own sandbox. The agent
 > that edits these files runs as `ai-tools` under the confinement described
@@ -174,44 +174,18 @@ the manual equivalent of the package install plus
 
 A coding agent like Claude Code reads, writes, and runs commands autonomously.
 Run as your own user it inherits everything you can touch — SSH keys, browser
-profiles, every project, your full sudo rights. And what it reads does not stay
-local: an agent sends file contents to a third-party model service as a matter
-of course, so a secret the agent can open is a secret you may already have
-disclosed. Repositories onboarding agentic tools carry a particular blind spot
-here: credentials committed years ago and since "removed" survive in git
-history — invisible in the working tree, one `git show` away for anything
-that can read `.git`.
+profiles, every project, your full sudo rights — and what it reads does not
+stay local, since an agent sends file contents to a third-party model service
+as a matter of course. This project restricts the agent's scope on the host
+instead of trusting it: a dedicated UID with a tightly scoped set
+of privileges, per-project consent for what it may touch, and shallow clones
+plus secret lockdown to keep history and credentials out of what it can ever
+send. The reasoning in full is in [About this project](docs/about/index.md).
 
-This project restricts the agent's scope on the host instead of trusting it:
-a dedicated UID with a tightly scoped set of privileges, per-project consent
-for what it may touch, and shallow clones plus secret lockdown to keep history
-and credentials out of what it can ever send:
-
-- **Separate identity** — `${SANDBOX_USER}` is a system account with no login
-  shell and no password. Claude executes under that UID via `sudo`, not as you.
-- **The agent binary sits inside the sandbox** —
-  `sudo ai-tools-admin system bootstrap` installs the [npm
-  package](https://code.claude.com/docs/en/setup#install-with-npm)
-  into the Node toolchain `${SANDBOX_USER}` owns under `/opt/ai-tools`
-  at `0750`, which your account cannot traverse: you reach the agent
-  through the wrapper at `/usr/local/bin/claude` ([Architecture
-  at a glance](#architecture-at-a-glance)). An agent **you** installed answers
-  to the same name, so what `claude` resolves to is the one thing to get right
-  — `ai-tools status` reads which binary your shell runs, and the PATH ordering
-  this project ships for it is
-  [ref-section-y2t3](docs/install/from-source.md#ref-section-y2t3).
 - **Launches only in approved projects** — a wrapper refuses to start Claude
   unless the working directory is listed
   in `~/.config/ai-tools/allowed-projects` (with `!` exclusions to carve
   out subdirectories or secrets).
-- **Minimal sudo surface** — `${SANDBOX_USER}` has **no** sudo rights. Root
-  operations (ownership handback, setgid normalisation, symlink repoint) go
-  through a dedicated socket daemon (`ai-tools-handback`) that verifies
-  the caller's identity with a kernel credential the caller cannot forge.
-  The one `%ai-ops` rule that drops to `${SANDBOX_USER}` runs only
-  `ai-tools-run` — a fixed-path sudo target, not a glob, which wraps
-  the session in a confined systemd `--user --pty` service. Nothing else. See
-  the [handback bridge](.claude/rules/handback-bridge.rule.md).
 - **Ownership hand-back** — files Claude writes are chowned back
   to `${PROJECTS_USER}:${SANDBOX_GROUP}` (group-readable, world-closed) inside
   approved paths only, along with any directories Claude created on the way
@@ -277,45 +251,12 @@ and credentials out of what it can ever send:
 One property ties those together, and it is the one to check when reviewing
 this project: **every input that decides what a session gets is read
 through the same trust predicate, and every way it can fail gives the agent
-*less*.** A config it cannot read, a manifest someone made writable,
-an entrypoint whose SELinux label will not verify, a toolchain whose npm
-signatures do not check out — each one costs a capability and is reported; none
-of them grants one. So there is no state the agent can arrange that improves
-its own position, only states that shut it down.
-
-Each of those refusals is tested from both ends: once that the refusal fires,
-and once — running *as* the sandbox account — that the agent cannot create
-the state the refusal exists to catch (`tests/unit/providers.sh`
-and `tests/boundary/providers.sh` are the worked pair).
-
-> **On the boundary.** The allowlist gates where the agent *launches*
-> and which files get ownership restored — it is not a kernel-enforced read
-> boundary. The CWD is canonicalized before it is checked, so a symlink cannot
-> slip a path past it. Once running as `${SANDBOX_USER}`, ordinary Unix
-> permissions plus the `ai_tools_t` SELinux type govern access; that is
-> the boundary isolating the agent from other users' files. A per-session
-> `bubblewrap` mount namespace to make the allowlist a true access boundary is
-> proposed but not yet implemented.
-
-> **On running what sandboxed agents wrote.** The confinement bounds the agent
-> *while it runs*. It does not make the code left behind safe for you
-> to execute afterwards: a build script, a git hook, a test fixture or a built
-> artifact in a claimed project runs as you, unconfined, the moment you build
-> or run that project. Review a change before you run it, as you would a patch
-> from anyone else (or from a particularly persuasive raccoon that somehow got
-> root). Restricting one path does not help here — the set of files you
-> eventually execute is the project itself — so the control is review, not
-> permissions. Note also that the trees the sweeps skip (`.git`,
-> `node_modules`, `.venv`) carry no ownership signal worth trusting: regenerate
-> them rather than adopt them.
-
-The enforced isolation boundary is DAC plus the `ai_tools_t` SELinux type.
-A few things are **out of scope by design**, not oversights: all operators
-share one `${SANDBOX_USER}` account (sessions are not kernel-isolated from each
-other), and `ai-ops` operators are trusted — the model defends the host
-from the *agent*, not from an operator. The full trust model, the non-goals,
-and the deferred hardening (per-operator isolation, registry-key pinning) are
-in [ref-section-x6a9](CLAUDE.md#ref-section-x6a9).
+*less*.** Each refusal is tested from both ends — that it fires, and, running
+*as* the sandbox account, that the agent cannot create the state it exists
+to catch. The predicate and what each failure yields are
+in [ref-section-e7n8](CLAUDE.md#ref-section-e7n8); what this project
+deliberately leaves out is [The boundary, and what is
+out of scope](docs/about/scope.md).
 
 The agent binary itself is verified against the checksum its vendor **signed**,
 using a key shipped in the package rather than downloaded, and the verified
