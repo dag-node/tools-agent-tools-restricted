@@ -116,65 +116,31 @@ of privileges, per-project consent for what it may touch, and shallow clones
 plus secret lockdown to keep history and credentials out of what it can ever
 send. The reasoning in full is in [About this project](docs/about/index.md).
 
-- **Launches only in approved projects** — a wrapper refuses to start Claude
-  unless the working directory is listed
-  in `~/.config/ai-tools/allowed-projects` (with `!` exclusions to carve
-  out subdirectories or secrets).
-- **Ownership hand-back** — files Claude writes are chowned back
-  to `${PROJECTS_USER}:${SANDBOX_GROUP}` (group-readable, world-closed) inside
-  approved paths only, along with any directories Claude created on the way
-  (world bits stripped, group `rwx` kept; only dirs the agent itself made are
-  touched).
-- **Secrets stay out of reach** — a secret-named file Claude writes (`.env`,
-  `*.key`, `*.pem`, SSH keys, `kubeconfig`, …) is instead chowned
-  to `${PROJECTS_USER}:${PROJECTS_GROUP} 600`, removing `${SANDBOX_USER}`'s
-  read access entirely; a `NOTICE` lands in the session and the operation log.
-  `ai-tools projects lockdown` applies the same over an existing tree. See
-  [secret handling](.claude/rules/secret-handling.rule.md).
-- **Git history stays behind** — `ai-tools projects clone` hands the agent
-  a shallow clone (`--depth=1`) of a dedicated branch, so credentials buried
-  in past commits are never on disk within its reach, and secret-named files
-  in the tip commit are locked down before the clone is opened to the agent
-  at all. An in-place claim keeps `.git` access an explicit opt-in prompt. See
-  [docs/projects/index.md](docs/projects/index.md).
-- **Collaborative access** — a POSIX default ACL on each approved tree makes
-  you and Claude co-writers without `${PROJECTS_USER}` joining
-  `${SANDBOX_GROUP}`: `g:${SANDBOX_GROUP}:rwX` grants Claude access to your
-  files and `user:${PROJECTS_USER}:rwX` grants you access to Claude's, both
-  umask-independent; world access stays closed. Applied
-  at `ai-tools projects claim`, which skips owner-only paths (`600`/`700`)
-  so a private file or directory is never opened to the agent — see
-  [docs/projects/index.md](docs/projects/index.md).
-- **Shared skills, one copy** — the documentation and engineering-judgment
-  skills the project ships live once in `/opt/ai-tools/skills`; each agent's
-  config directory holds a symlink per skill, so a skill is authored
-  and updated in one place however many agents read it, and an agent-specific
-  skill is a real directory, which the linker keeps in place. See
-  `/usr/share/ai-tools/skills/README.md`.
-- **Every session starts oriented** — `/opt/ai-tools/orientation/AGENTS.md`
-  states what the sandbox refuses (which commands, why a `chmod` fails
-  on a handed-back file, which paths do not list), and is linked into each
-  agent's config directory under the filename that agent reads as user-scope
-  instructions. So a session working in any project knows its boundaries
-  instead of finding them one failed command at a time. It is root-owned,
-  and your own file at that path is kept instead.
+- **Launches only in approved projects** — the wrapper refuses to start
+  the agent unless the working directory is one your allowlist names, and a `!`
+  line carves a subdirectory back out — see
+  [docs/sessions/index.md](docs/sessions/index.md).
+- **Ownership hand-back and shared access** — files the agent writes come back
+  to you as the session goes, and a pair of ACL entries lets you both write one
+  tree without joining each other's groups — see
+  [docs/projects/permissions.md](docs/projects/permissions.md).
+- **Secrets and git history stay out of reach** — a secret-named file is locked
+  to you alone rather than shared, the scan for them runs before a claim grants
+  anything, and a shallow clone keeps past commits off disk — see
+  [docs/projects/lockdown.md](docs/projects/lockdown.md).
+- **Every session starts oriented, from one shipped copy** — the orientation
+  text states what the sandbox refuses, and the shipped skills live in one
+  place and are linked into each agent's config directory — see
+  [docs/sessions/index.md](docs/sessions/index.md).
 - **Operation logging** — every component logs to journald, and the root
   helpers additionally to files only root can read, so a session's own account
   of itself is reconciled against a trail it cannot write.
   `sudo ai-tools audit` reads both — see
   [docs/system/logs.md](docs/system/logs.md).
 - **A working stop** — `ai-tools stop` terminates every agent session
-  on the host and everything it spawned, with no password to answer,
-  so an unattended detector can reach it too. (To finish a session you are done
-  with, use `/exit` inside it, which lets it run its own ownership handback.)
-  Sessions are found and killed by **cgroup**, so a child that called
-  `setsid(2)` or double-forked goes with them, and success means the kernel
-  reports the processes gone, not systemd. It does not take a path
-  or an authorization input, and sweeps every cgroup under the sandbox account,
-  so the account's own user manager is terminated too and restarted afterwards
-  — a session cannot put itself outside the sweep. The session does not take
-  part in any of it: the account it runs as can neither invoke, read nor alter
-  the helper. What each outcome means and what a stop cannot undo are
+  on the host and everything it spawned, by cgroup and without a password,
+  so an unattended detector reaches it too. What each outcome means
+  and what a stop cannot undo are
   in [docs/sessions/stop.md](docs/sessions/stop.md).
 - **Auto-updating** — a `systemd --user` timer in `${SANDBOX_USER}`'s own
   instance keeps Node and `@anthropic-ai/claude-code` current

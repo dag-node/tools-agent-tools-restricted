@@ -49,7 +49,7 @@ about it:
   ([Permissions](../projects/permissions.md)).
 - Secret-named files are locked away before a claim grants the agent anything,
   a claim asks before exposing git history, and a sandbox clone keeps history
-  out of reach altogether ([Secrets](../projects/secrets.md)).
+  out of reach altogether ([Lockdown](../projects/lockdown.md)).
 
 One property ties those together, and it is the one to check when reviewing
 this project: **every input that decides what a session gets is read

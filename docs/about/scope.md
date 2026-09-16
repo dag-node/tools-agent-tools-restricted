@@ -21,7 +21,7 @@ and cannot slip a path past the gate; past the gate, file permissions govern.
 
 That is why every flow granting the agent access locks secret-named files
 down first, and why declining a lockdown stops the claim
-([Secrets](../projects/secrets.md)). A per-session `bubblewrap` mount
+([Lockdown](../projects/lockdown.md)). A per-session `bubblewrap` mount
 namespace, which would make the allowlist a read boundary too, is proposed
 rather than built.
 

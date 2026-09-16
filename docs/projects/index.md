@@ -1,10 +1,15 @@
 # Project lifecycle
 
-**Projects** — [all docs](../index.md)
+**Projects** · [Permissions](permissions.md) · [Lockdown](lockdown.md) — [all
+docs](../index.md)
 
 How a project enters the agent's reach, what each prompt grants, and how every
 step reverses. Run every command as your own user: the `ai-tools` CLI calls
 `sudo` itself for the steps that need root and prompts for your password there.
+Two properties of a claimed tree have pages of their own:
+[Permissions](permissions.md), for what owns a file the agent wrote and how you
+both keep write access, and [Lockdown](lockdown.md), for what a claim locks
+away before it grants anything.
 
 ```bash
 ai-tools projects create ~/src/newproject    # make a new project and claim it
