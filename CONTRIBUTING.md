@@ -1,5 +1,8 @@
 # Contributing
 
+Setting up a checkout, running the checks a pull request is expected to pass,
+and the conventions for commits, documentation, and branches.
+
 ## Before you start
 
 This is a security-sensitive project — it runs an autonomous coding agent
@@ -9,27 +12,18 @@ the handback socket, ownership handoff, secret detection) get read more
 carefully than everything else; explain the security reasoning in the PR
 description, not just the mechanism.
 
-## License
-
-All contributions are made under the project's license, AGPL-3.0-only (see
-`LICENSE`). By submitting a change, you agree it may be distributed under those
-terms.
-
-The one exception is the SELinux policy under `selinux/policy/`, which is
-`GPL-2.0-or-later` because it is built against the SELinux reference policy.
-Each file carries an `SPDX-License-Identifier` stating which applies.
-
 ## Development setup
 
 From a source checkout:
 
 ```bash
-sudo ./install.sh install        # deploys the wrapper, helpers, systemd units
-sudo ai-tools-admin system bootstrap          # provisions the sandbox account's Node toolchain
+sudo ./install.sh install              # the wrapper, helpers, systemd units
+sudo ai-tools-admin system bootstrap   # the sandbox account's Node toolchain
 ```
 
-See the root `README.md`'s manual install steps if you're working without
-the RPM.
+`install.sh` is the last of four steps, and it stops until the first three have
+run. [`docs/install/from-source.md`](docs/install/from-source.md) has all four,
+for a host without the RPM.
 
 Optional, recommended for regular contributors:
 
@@ -51,19 +45,19 @@ the spec, and the compiled policy.
 sudo tests/run.sh [unit|integration|boundary|all]
 ```
 
-Run via `sudo`, not as `root` directly — the harness checks `SUDO_USER`.
-The three categories (see `.claude/rules/tests.rule.md`): `unit` (hermetic, no
-live daemon), `integration` (deployed perms/sudoers/wrapper/handback/systemd),
-`boundary` (confinement checks run as the sandbox account). `all` runs every
-category.
+Run via `sudo`, not as `root` directly — the harness derives the unprivileged
+project user from `SUDO_USER`. What each category proves and what a host needs
+before it runs are in [`docs/tests/index.md`](docs/tests/index.md); how a test
+is written is in `.claude/rules/tests.rule.md`.
 
-For a full package-build + install + confined-launch smoke test in a throwaway
-container: `make -C packaging rpmtest-rocky9` (or `rpmtest-rocky10`).
+For a full package-build, install, and confined-launch smoke test
+in a throwaway container: `make -C packaging rpmtest-rocky9` (or
+`rpmtest-rocky10`).
 
 ## Linting
 
-Shell sources lint under ShellCheck 0.10 (the version the baseline
-in `.claude/rules/shellcheck.rule.md` is defined against) with the repo's
+Shell sources lint under ShellCheck 0.10 — the version the baseline
+in `.claude/rules/shellcheck.rule.md` is defined against — with the repo's
 `.shellcheckrc`. The baseline covers `src/**/*.sh` plus `install.sh`:
 
 ```bash
@@ -73,10 +67,8 @@ shellcheck install.sh
 
 Extending lint coverage to `tests/`, `selinux/`, or `packaging/` means
 verifying the directory lints clean and updating the rule file
-and `.github/workflows/ci.yml` together.
-
-`.github/workflows/ci.yml` runs both the lint and the container smoke test
-on every push and pull request.
+and `.github/workflows/ci.yml` together. That workflow runs both the lint
+and the container smoke test on every push and pull request.
 
 ## Commit style
 
@@ -98,7 +90,9 @@ off by a human contributor, whose CLA covers the contribution in full.
 component works; a rule file's `paths:` frontmatter scopes it to the source it
 describes. If a change alters behavior a rule file documents, update the rule
 file in the same PR — the two are meant to stay in sync, and a mismatch is
-treated as a bug in whichever one didn't get updated.
+treated as a bug in whichever one didn't get updated. The pages
+under [`docs/`](docs/index.md) are the operator's tier instead, and change
+when a command, a configuration key, or a guarantee does.
 
 A reference into another file names a reftag rather than a position;
 the grammar is in the `ai-tools-technical-docs` skill,
@@ -120,3 +114,15 @@ Branch from `develop`, not `main`, using `feature/<ticket-num>-<feature-name>`
 (e.g. `feature/260625-rpm-package`) — and target `develop` when opening the PR.
 The full branch model, tag grammar, and release process (RCs, channels,
 rehearsal) are in [`docs/development/release.md`](docs/development/release.md).
+
+## License
+
+All contributions are made under the project's license, `AGPL-3.0-only` (see
+`LICENSE`). By submitting a change, you agree it may be distributed under those
+terms, and a Contributor License Agreement — handled by [CLA
+Assistant](https://cla-assistant.io/) when you open a pull request — covers it.
+
+Some files in the tree are under other licenses. Each one states
+which in an `SPDX-License-Identifier` header, and `REUSE.toml` supplies
+the license and copyright for every file that does not. Add the header when you
+add a file.
