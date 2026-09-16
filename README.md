@@ -225,9 +225,7 @@ in [docs/install/from-source.md](docs/install/from-source.md).
 ## License
 
 Licensed under the **GNU Affero General Public License v3.0 only**
-(`AGPL-3.0-only`). See [`LICENSE`](LICENSE) for the full text. Releases
-through 0.9.x were published as `AGPL-3.0-or-later`; from 0.10.0 the project is
-`AGPL-3.0-only`.
+(`AGPL-3.0-only`). See [`LICENSE`](LICENSE) for the full text.
 
 **Claude Code is separate.** This license covers this repository's own source —
 the sandboxing, install, and CLI machinery. `ai-tools-admin system bootstrap`
@@ -236,13 +234,9 @@ bootstrap step; it is a separate Anthropic product under its own terms,
 which this repository neither vendors nor redistributes. See [Anthropic's
 Claude Code](https://github.com/anthropics/claude-code).
 
-The SELinux policy sources and their build scripts
-under [`selinux/policy/`](selinux/policy) are `GPL-2.0-or-later`, because
-the modules compiled from them embed the SELinux reference policy, and those
-modules ship as their own `ai-tools-selinux` subpackage. Everything else
-under `selinux/` — the installer and the denial-analysis tooling — is
-`AGPL-3.0-only` like the rest of the project. Each file states which applies
-in an `SPDX-License-Identifier` header; `REUSE.toml` covers the rest.
+Some files in the tree are under other licenses. Each one states
+which in an `SPDX-License-Identifier` header, and [`REUSE.toml`](REUSE.toml)
+supplies the license and copyright for every file that does not.
 
 Contributions require a Contributor License Agreement, handled by [CLA
 Assistant](https://cla-assistant.io/) when you open a pull request. See
