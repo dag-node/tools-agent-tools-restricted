@@ -33,8 +33,7 @@ and what is out of scope](docs/about/scope.md).
 
 **Contents**: [Requirements](#requirements) · [Package
 install](#package-install) · [Why](#why) · [If you are an agent reading
-this](#if-you-are-an-agent-reading-this) · [Identities
-and naming](#identities-and-naming) · [Architecture
+this](#if-you-are-an-agent-reading-this) · [Architecture
 at a glance](#architecture-at-a-glance) · [From source](#from-source) ·
 [Community](#community) · [License](#license)
 
@@ -206,34 +205,6 @@ any particular one.
 The same expectations are stated for this repository's own sessions
 in [ref-section-g6c4](CLAUDE.md#ref-section-g6c4), and the reasoning behind
 them ships as the `ai-tools-capable-systems-governance` skill.
-
-## Identities and naming
-
-Three identities recur throughout this README, the scripts, and the templates.
-They are referred to by fixed names so each reference is unambiguous; the full
-spec is in [`docs/naming-conventions.md`](docs/naming-conventions.md).
-
-| Identity | Variable / token | Default | Meaning |
-|---|---|---|---|
-| Projects user | `PROJECTS_USER` / `@PROJECTS_USER@` | your login (`$SUDO_USER`) | the account that owns the projects, installs the sandbox, and launches `claude` |
-| …its group | `PROJECTS_GROUP` / `@PROJECTS_GROUP@` | your primary group | the projects user's private group |
-| …its home | `PROJECTS_HOME` / `@PROJECTS_HOME@` | `$HOME` | the projects user's home directory |
-| Sandbox user | `SANDBOX_USER` / `@SANDBOX_USER@` | `ai-tools` | the unprivileged service account Claude Code runs as |
-| …its group | `SANDBOX_GROUP` / `@SANDBOX_GROUP@` | `ai-tools` | the sandbox user's group |
-
-The package and `install.sh` resolve these automatically — you do not type
-them. The `@…@` token form is what the shipped templates carry; the RPM `%prep`
-and `install.sh` substitute it to `ai-tools` at build/deploy time, and the RPM
-creates the account from a `sysusers.d` entry (`u ai-tools …`) with no prompt,
-so the name is **not** an install-time choice today.
-`SANDBOX_USER`/`SANDBOX_GROUP` name the account (`ai-tools`); the literal
-`ai-tools` is also kept in paths (`/opt/ai-tools`), SELinux types
-(`ai_tools_t`), the `ai-tools` CLI, and helper names (`ai-tools-chown`) — those
-are fixed and do not track the account name.
-
-Setting the variables by hand matters only on the manual from-source path —
-the export block and every step that uses it are
-in [docs/install/from-source.md](docs/install/from-source.md).
 
 ## Architecture at a glance <a id="ref-section-e7g6"></a>
 

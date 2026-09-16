@@ -98,8 +98,8 @@ is idempotent — sourcing it again in the same shell produces the same PATH.
 ## 2. Create the `SANDBOX_USER` OS account at `/opt` (root, once)
 
 ```bash
-# The sandbox account name is fixed at ai-tools (see "Identities and naming" in the
-# README). Set it here so this block works even pasted on its own -- an unset
+# The sandbox account name is fixed at ai-tools (see the naming conventions page).
+# Set it here so this block works even pasted on its own -- an unset
 # SANDBOX_USER makes useradd fail with "invalid user name ''".
 SANDBOX_USER=ai-tools
 SANDBOX_GROUP=ai-tools
