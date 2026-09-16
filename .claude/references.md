@@ -16,12 +16,12 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | w4z6 | [ref-section-w4z6](rules/confinement.rule.md#ref-section-w4z6) | The toolchain is read-only to the confined domain | .claude/rules/confinement.rule.md | .claude/rules/agent-claude-code.rule.md, .claude/rules/launch.rule.md |  |
 | p3k8 | [ref-section-p3k8](rules/launch.rule.md#ref-section-p3k8) | The ordering is read, not assumed | .claude/rules/launch.rule.md | .claude/rules/cli.rule.md |  |
 | f6z3 | MSG-F6Z3 | example | .claude/rules/messaging.rule.md |  |  |
-| e7n8 | [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8) | Security model — what `SANDBOX_USER` can and cannot do | CLAUDE.md | docs/projects/index.md |  |
+| e7n8 | [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8) | Security model — what `SANDBOX_USER` can and cannot do | CLAUDE.md | README.md, docs/about/index.md |  |
 | g6c4 | [ref-section-g6c4](../CLAUDE.md#ref-section-g6c4) | What is expected of the agent where a control leaves a choice | CLAUDE.md | README.md |  |
-| x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | README.md, docs/about/index.md, docs/operators/service-accounts.md |  |
+| x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | docs/about/scope.md, docs/operators/service-accounts.md |  |
 | e7g6 | [ref-section-e7g6](../README.md#ref-section-e7g6) | Architecture at a glance | README.md | docs/install/from-source.md |  |
-| y2t3 | [ref-section-y2t3](../docs/install/from-source.md#ref-section-y2t3) | 1. Install the PATH ordering fragment (root, once) | docs/install/from-source.md | README.md |  |
-| f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | README.md |  |
+| y2t3 | [ref-section-y2t3](../docs/install/from-source.md#ref-section-y2t3) | 1. Install the PATH ordering fragment (root, once) | docs/install/from-source.md | docs/about/index.md |  |
+| f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | docs/install/upgrade.md |  |
 | a6s8 | [ref-section-a6s8](../docs/rpm-packaging.md#ref-section-a6s8) | Signing and distribution | docs/rpm-packaging.md | docs/development/release.md |  |
 | u5e6 | [MSG-U5E6](../install.sh) | error: --operator needs an account name | install.sh | tests/unit/install-guards.sh | refuse_early |
 | k4w7 | [MSG-K4W7](../install.sh) | error: run with sudo | install.sh | selinux/install-selinux.sh | refuse_early |

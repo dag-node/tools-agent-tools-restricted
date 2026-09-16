@@ -207,6 +207,15 @@ selects the highest semver, not "first match" or "currently active"); an explici
 Prune logic collects all versions referenced by any named alias into an associative array before removing anything,
 so a version another alias points to is retained, as is any version a live session still runs from.
 
+A version counts as in use when some live process's `/proc/<pid>/exe` resolves into that version's tree
+(`version_in_use`). The scan runs as `SANDBOX_USER`, which may `readlink` that link only for its **own** processes —
+exactly the set that decides the question, since a session and every `node`/`npm`/`npx` subprocess it spawns run
+as that account — and an exited or unreadable PID is skipped, so the scan is best-effort in the direction of keeping.
+A version found in use is **deferred to the next prune cycle** rather than removed: uninstalling the tree a running
+session executes from would break it at the next lazy `require()` or `node`/`npm`/`npx` spawn, which resolves
+against the removed tree and fails `ENOENT`. The prune is housekeeping, so it also skips rather than aborts
+when the alias it is given resolves to no version, and each outcome is logged.
+
 ## Launcher symlink repoint root helper (`ai-tools-launcher-symlink`)
 
 `/opt/ai-tools/bin` is `0551` and not group-writable (see [ownership-and-hooks](ownership-and-hooks.rule.md)),

@@ -11,6 +11,11 @@ which identity, so a reader can tell from the name alone which one is meant.
 Every functional identifier and every reference in prose MUST use exactly one
 of these.
 
+An operator does not type any of them: the package and `install.sh` resolve
+each name at install time. Setting them by hand matters on the manual
+from-source path alone, where the export block that does it is in [Install
+from source](install/from-source.md).
+
 ## The identities
 
 ### Operators — the login accounts that drive the sandbox
@@ -82,6 +87,13 @@ The owner's private group is always written `PROJECTS_USER:PROJECTS_GROUP`. Do
 not spell it `PROJECTS_USER:PROJECTS_USER` even though RHEL User-Private-Groups
 make the two coincide.
 
+Three of these have an install-time token form as well — `@PROJECTS_USER@`,
+`@PROJECTS_GROUP@`, `@PROJECTS_HOME@` — which `install.sh` substitutes
+into the templates it deploys, defaulting to the invoking `SUDO_USER`
+and that account's group and home. They are the from-source path's spelling
+of the same identities: at runtime a root helper resolves the `PROJECTS_*`
+globals per path instead.
+
 ### The invoker and the acting operator — who ran a command, and for whom
 
 `ai-tools --for <operator>` separates two identities the other components never
@@ -121,9 +133,11 @@ in `ai-ops`.
 
 `@SANDBOX_USER@`/`@SANDBOX_GROUP@` substitute to `ai-tools` at install time,
 so the account name is a config knob in owner strings (`OWNER`,
-`EXPECTED_OWNER`, `sudo -u`, etc.). The literal `ai-tools` is **retained**
-in identifiers that are not the account itself and are coupled to other
-contracts:
+`EXPECTED_OWNER`, `sudo -u`, etc.). It is **not an install-time choice**
+on a packaged host: the RPM creates the account from a `sysusers.d` entry
+(`u ai-tools …`) without a prompt, so the substitution has one value there.
+The literal `ai-tools` is **retained** in identifiers that are not the account
+itself and are coupled to other contracts:
 
 - filesystem paths — `/opt/ai-tools`, `~/.config/ai-tools`
 - SELinux types and modules — `ai_tools_t`, `ai_tools_conf_t`, `ai_tools.te`, …

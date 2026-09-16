@@ -8,8 +8,8 @@ the account that drives the sandbox, claim a project for it, and start
 a session inside that project. Every other page here is reference for a host
 that already runs.
 
-- [About](about/index.md) — why an agent runs under its own account,
-  and what this project does not do.
+- [About](about/index.md) — why an agent runs under its own account, and [what
+  this project does not do](about/scope.md).
 - [Install](install/index.md) — requirements, the `dnf` install, and what each
   package puts on a host.
 - [Operators](operators/index.md) — enrolling the accounts that may launch

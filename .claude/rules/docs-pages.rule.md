@@ -91,6 +91,12 @@ Naming follows the command surface, so a reader who knows `ai-tools projects cla
   `stopping.md`. The path is what a search engine prints.
 - **Under `projects/`, a page is named for the command it documents**, so `/docs/projects/remove` maps
   onto `ai-tools projects remove`. A new verb is a new page rather than a new heading in a long one.
+- **A page name may not match a secret pattern.** `ai-tools-chown` quarantines a secret-named file the agent writes (see
+  [secret-handling](secret-handling.rule.md)), and a page named for the topic matches the same globs a credential does:
+  `secrets.md` matches `secrets.*` and is chowned to `<you>:<you> 600` the moment a session writes it, which leaves
+  the page unreadable to every later session. The verb name is the one to reach for — `lockdown.md` documents
+  `ai-tools projects lockdown` and does not match any pattern — and the same stems [authoring](authoring.rule.md) names
+  for rule files are the ones to steer clear of here.
 
 **An `index.md` carries prose, not a link list.** It opens with what the category covers and when a reader wants it,
 states the facts that hold across every page under it, then links each child with a phrase saying what it answers.

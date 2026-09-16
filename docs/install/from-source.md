@@ -1,11 +1,17 @@
 # Install from source
 
-[Install](index.md) · **From source** — [all docs](../index.md)
+[Install](index.md) · **From source** · [Upgrade](upgrade.md) — [all
+docs](../index.md)
 
 The manual path — four root steps a checkout installs with, no RPM. The package
 install (see the README) automates all of it;
 `sudo ai-tools-admin system bootstrap` automates steps 2–3 once `install.sh`
 has deployed it, and `install.sh` automates everything from step 4 on.
+
+```bash
+git clone https://github.com/dag-node/tools-agent-tools-restricted.git
+cd tools-agent-tools-restricted
+```
 
 Set the recurring identities once, in the shell you run these steps
 in, so every command pastes verbatim (the full naming spec is
@@ -97,8 +103,8 @@ is idempotent — sourcing it again in the same shell produces the same PATH.
 ## 2. Create the `SANDBOX_USER` OS account at `/opt` (root, once)
 
 ```bash
-# The sandbox account name is fixed at ai-tools (see "Identities and naming" in the
-# README). Set it here so this block works even pasted on its own -- an unset
+# The sandbox account name is fixed at ai-tools (see the naming conventions page).
+# Set it here so this block works even pasted on its own -- an unset
 # SANDBOX_USER makes useradd fail with "invalid user name ''".
 SANDBOX_USER=ai-tools
 SANDBOX_GROUP=ai-tools
