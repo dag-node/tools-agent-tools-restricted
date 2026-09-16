@@ -32,3 +32,11 @@ Three pages sit at this level, because more than one category reaches each:
 an operator, the sandbox account, and an allowlist; [Option
 spellings](option-spellings.md) maps every option onto the command it belongs
 to; and [RPM packaging](rpm-packaging.md) covers the package set itself.
+
+---
+
+*Something missing or wrong on these pages? [Open
+an issue](https://github.com/dag-node/tools-agent-tools-restricted/issues/new/choose)
+— reports and suggestions need no CLA. Security issues go to [private
+reporting](https://github.com/dag-node/tools-agent-tools-restricted/security/policy)
+only.*
