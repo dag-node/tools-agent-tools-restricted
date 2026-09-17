@@ -180,9 +180,12 @@ package adds no runtime and is inert until enabled on a host that has dotnet ins
 %package -n ai-tools-agents
 Summary:        Umbrella for the sandboxed AI coding agents (metapackage)
 Recommends:     ai-tools-agents-claude-code-restricted = %{version}-%{release}
-# Codex ships default_enable=no, so it is only suggested: an operator installs it by name and
-# enables it in operator.conf, and the toolchain does not provision it until then.
-Suggests:       ai-tools-agents-codex-restricted = %{version}-%{release}
+# Weakly pulled like every other member, though codex ships default_enable=no: installation and
+# enablement are separate axes, and enablement is the gate. Installed and unnamed in
+# AI_TOOLS_AGENTS, codex is provisioned by no toolchain run and launched by no wrapper; what the
+# package puts on the host is its own control plane. ai-tools-integration-dotnet is pulled the same
+# way for the same reason.
+Recommends:     ai-tools-agents-codex-restricted = %{version}-%{release}
 
 %description -n ai-tools-agents
 Metapackage grouping the ai-tools-agents-* provider layers -- the AI coding agents that run
