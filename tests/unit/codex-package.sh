@@ -402,6 +402,9 @@ patch_text='*** Begin Patch\n*** Update File: src/a.txt\n@@\n-x\n+y\n*** Add Fil
 patch_event='{"cwd":"'"${PROJECT}"'","hook_event_name":"PostToolUse","model":"gpt-5","permission_mode":"bypassPermissions","session_id":"s1","tool_input":{"input":"'"${patch_text}"'"},"tool_name":"apply_patch","tool_response":{},"tool_use_id":"t2","transcript_path":"/x","turn_id":"u1"}'
 patch_event_alt='{"cwd":"'"${PROJECT}"'","hook_event_name":"PostToolUse","tool_input":{"patch":"*** Begin Patch\n*** Add File: only.txt\n+1\n*** End Patch"},"tool_name":"apply_patch","session_id":"s1","permission_mode":"bypassPermissions","transcript_path":"/x","turn_id":"u1"}'
 other_event='{"cwd":"'"${PROJECT}"'","hook_event_name":"PostToolUse","tool_input":{"query":"x"},"tool_name":"web_search","session_id":"s1","permission_mode":"bypassPermissions","transcript_path":"/x","turn_id":"u1"}'
+# The shape codex 0.154 sends under code mode, captured live: the patch text arrives under `command`, the key `Bash`
+# uses for a shell command, with an absolute path in the `*** Update File:` line.
+patch_event_cmd='{"cwd":"'"${PROJECT}"'","hook_event_name":"PostToolUse","model":"gpt-6-astra","permission_mode":"bypassPermissions","session_id":"s1","tool_input":{"command":"*** Begin Patch\n*** Update File: '"${PROJECT}"'/i27.txt\n@@\n first\n+second\n*** End Patch"},"tool_name":"apply_patch","tool_response":{},"tool_use_id":"t3","transcript_path":"/x","turn_id":"u1"}'
 
 # Source the adapter to reach its parsers (the guard at its end stops it before main). Its readonly constants land
 # in this shell once, which is why this section runs last.
@@ -434,6 +437,10 @@ got="$(record "${patch_event_alt}")"
 grep -qxF "AI_TOOLS_PATH=only.txt" <<<"${got}" && ! grep -q 'files=' <<<"${got}" \
     && pass "the patch text is read under the tool_input.patch spelling too, and one file carries no count" \
     || fail "the tool_input.patch spelling is not read: $(tr '\n' '|' <<<"${got}")"
+got="$(record "${patch_event_cmd}")"
+grep -qxF "AI_TOOLS_PATH=${PROJECT}/i27.txt" <<<"${got}" \
+    && pass "the patch text is read under the tool_input.command spelling, the one codex 0.154 sends" \
+    || fail "the tool_input.command spelling is not read: $(tr '\n' '|' <<<"${got}")"
 got="$(record "${other_event}")"
 grep -qxF "tool=web_search cwd=${PROJECT} path=-" <<<"${got}" \
     && pass "a tool that writes no file records path=-" \
@@ -451,6 +458,11 @@ if [[ "${paths[*]}" == "${want_paths[*]}" ]]; then
 else
     fail "patch_written_paths printed: $(printf '%s|' "${paths[@]}")"
 fi
+[[ "$(patch_written_paths "${patch_event_cmd}")" == "${PROJECT}/i27.txt" ]] \
+    && pass "patch_written_paths reads the tool_input.command spelling, so the handback acts on the file" \
+    || fail "patch_written_paths missed the command spelling: $(patch_written_paths "${patch_event_cmd}")"
+# The same key carries a Bash call's shell command, which is why this pair is the guard on reading it: the tool name
+# selects the branch, so a Bash event does not produce a path.
 [[ -z "$(patch_written_paths "${bash_event}")" && -z "$(patch_written_paths "${other_event}")" ]] \
     && pass "patch_written_paths prints nothing for a tool that is not apply_patch" \
     || fail "patch_written_paths printed paths for a non-patch event"
