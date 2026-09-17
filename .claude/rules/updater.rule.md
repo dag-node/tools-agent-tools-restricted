@@ -26,13 +26,15 @@ and the new entrypoint is relabelled for the SELinux transition.
 helper `ai-tools-bootstrap`, which keeps its name and its `/usr/local/libexec/ai-tools` path; what follows is
 that helper's work. It creates the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, installs nvm, Node
 (`AI_TOOLS_NODE_MAJOR`, default 22), and each enabled agent's npm package as `SANDBOX_USER` (the enabled set resolved
-via [providers](providers.rule.md)), points `/opt/ai-tools/bin/<launcher>` at each versioned binary, relabels
-the freshly installed entrypoint (`ai-tools-relabel-agent`, gated on that helper being deployed, so the first launch
-after a fresh provision is confined without a manual `ai-tools-admin system entrypoints relabel`), and captures
-the initial control plane in a root-private git repo. It is the one network step, so it is an operator command rather
-than an RPM scriptlet (which must succeed offline). It is idempotent: an existing account, nvm install, or Node version
-is reused. It enables `SANDBOX_USER` linger and the `nvm-update.timer` in that instance (best-effort),
-so the maintenance schedule is live once the toolchain exists.
+via [providers](providers.rule.md)), re-links each versioned launcher at the target its manifest declares (see [The
+versioned launcher and its declared target](#the-versioned-launcher-and-its-declared-target)), points
+`/opt/ai-tools/bin/<launcher>` at each versioned binary, relabels the freshly installed entrypoint
+(`ai-tools-relabel-agent`, gated on that helper being deployed, so the first launch after a fresh provision is confined
+without a manual `ai-tools-admin system entrypoints relabel`), and captures the initial control plane in a root-private
+git repo. It is the one network step, so it is an operator command rather than an RPM scriptlet (which must succeed
+offline). It is idempotent: an existing account, nvm install, or Node version is reused. It enables `SANDBOX_USER`
+linger and the `nvm-update.timer` in that instance (best-effort), so the maintenance schedule is live once the toolchain
+exists.
 
 Starting the timer **pre-seeds its `Persistent=` run-stamp** (`$XDG_DATA_HOME/systemd/timers/ stamp-nvm-update.timer`
 under `/opt/ai-tools`, written as `SANDBOX_USER`) so it begins on its next scheduled window rather than an **immediate
@@ -215,6 +217,26 @@ A version found in use is **deferred to the next prune cycle** rather than remov
 session executes from would break it at the next lazy `require()` or `node`/`npm`/`npx` spawn, which resolves
 against the removed tree and fails `ENOENT`. The prune is housekeeping, so it also skips rather than aborts
 when the alias it is given resolves to no version, and each outcome is logged.
+
+## The versioned launcher and its declared target
+
+`<version-dir>/bin/<launcher>` is npm's symlink into the package, and for an agent whose manifest declares
+`launcher_target` (see [providers](providers.rule.md) for the key, its checks, and the refusal directions) it is
+re-linked at the executable that key names — by `nvm-update` (`relink_agent_launchers`) right after `install_packages`,
+and by `ai-tools-bootstrap` as `SANDBOX_USER` right after its npm install step. The position is load-bearing in each
+caller: npm rewrites the link on every install, so the re-link follows every install; the entrypoint verifier hashes
+what the versioned launcher resolves to, so it runs before that gate; and the stable-symlink repoint is what fires
+`ai-tools-relabel.path`, so the chain has its final shape before the watcher reads it. The write is the same
+temporary-name-then-`mv -T` shape `ai-tools-launcher-symlink` takes, and it does not take a lock of its own: the updater
+is one `--user` unit, so two of its runs do not overlap, and a bootstrap overlapping the timer races npm's own unlocked
+write into the version directory in the same way, so the step does not add an exposure that install does not already
+have. A refusal — the target invalid, outside the version directory, not executable, not covered by the declared
+pattern, or the launcher path not a symlink — is reported by the library under its code, the caller logs
+the consequence, and the run continues with npm's link in place: the stable repoint still lands, and that agent's launch
+fails closed at the label preflight until its manifest and its package agree. That half state — the versioned launcher
+on npm's entry file, which no file-context rule labels — is the one a package whose layout changed under an unchanged
+manifest leaves, so a refused re-link does not add a failure shape the preflight and the relabel reconciliation
+(`stale`) do not already report.
 
 ## Launcher symlink repoint root helper (`ai-tools-launcher-symlink`)
 

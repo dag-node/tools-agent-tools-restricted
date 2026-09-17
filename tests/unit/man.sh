@@ -244,18 +244,23 @@ check_admin_page
 # ── ai-tools-providers(5) ───────────────────────────────────────────────────────
 # The provider manifests carry a pointer to this page and no key documentation of their own, so the page is the only
 # statement of what a key means. Two directions keep it honest: every key a shipped manifest sets is documented
-# under KEYS, and every key documented there is one some shipped manifest sets -- a documented key no manifest uses is
-# a stale entry or a typo, and a used key the page lacks is an operator reading a file the manual does not explain. Keys
-# are read with the same parser the tooling uses (ai_tools_conf_keys), so a commented default counts the way it counts
-# everywhere else.
+# under KEYS, and every key documented there is one some shipped manifest sets or some shipped reader reads --
+# a documented key neither uses is a stale entry or a typo, and a used key the page lacks is an operator reading a file
+# the manual does not explain. Keys are read with the same parser the tooling uses (ai_tools_conf_keys), so a commented
+# default counts the way it counts everywhere else. A reader is a `src/` line asking a manifest for a key by name
+# (`ai_tools_agent_manifest_field "<agent>" <key>`, `ai_tools_conf_get "${manifest_file}" <key>`), so a key
+# the toolchain honours before any shipped manifest sets it -- `launcher_target`, read by the updater and the bootstrap
+# for a second agent's package -- is documented ahead of that package; outside a checkout the manifests alone decide.
 PROVIDERS_MAN="${ROOT}/src/usr/local/share/man/man5/ai-tools-providers.5"
 MANIFEST_DIRS=( "${ROOT}/src/usr/local/lib/ai-tools/agents.d" "${ROOT}/src/usr/local/lib/ai-tools/integrations.d" )
 CONF_LIB="${ROOT}/src/usr/local/lib/ai-tools/conf.lib.sh"
+READER_SRC="${ROOT}/src"
 if [[ ! -r "${PROVIDERS_MAN}" ]]; then
     PROVIDERS_MAN="/usr/local/share/man/man5/ai-tools-providers.5"
     [[ -r "${PROVIDERS_MAN}" ]] || PROVIDERS_MAN="/usr/local/share/man/man5/ai-tools-providers.5.gz"
     MANIFEST_DIRS=( /usr/local/lib/ai-tools/agents.d /usr/local/lib/ai-tools/integrations.d )
     CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+    READER_SRC=""
 fi
 section "man page: ai-tools-providers(5) in sync with the shipped manifests (unit)"
 
@@ -283,6 +288,13 @@ check_providers_page() {
     done
     mapfile -t used < <(printf '%s\n' "${used[@]}" | sort -u)
     (( ${#used[@]} > 0 )) || { skip "providers page key sync" "no shipped manifest found"; return; }
+    # Read keys: the manifest fields the shipped code asks for by name.
+    local -a read_keys=()
+    if [[ -n "${READER_SRC}" ]]; then
+        mapfile -t read_keys < <(grep -rhoE \
+            'ai_tools_(agent|provider)_manifest_field "[^"]*" [a-z_]+|ai_tools_conf_get "\$\{manifest_file\}" [a-z_]+' \
+            "${READER_SRC}" 2>/dev/null | awk '{print $NF}' | sort -u)
+    fi
 
     local missing=0
     for key in "${used[@]}"; do
@@ -292,10 +304,10 @@ check_providers_page() {
     (( missing )) || pass "every key a shipped manifest sets is documented under KEYS (${#used[@]} keys)"
     local stale=0
     for key in "${documented[@]}"; do
-        if printf '%s\n' "${used[@]}" | grep -qx "${key}"; then :
-        else fail "KEYS documents '${key}', which no shipped manifest sets"; stale=1; fi
+        if printf '%s\n' "${used[@]}" "${read_keys[@]}" | grep -qx "${key}"; then :
+        else fail "KEYS documents '${key}', which no shipped manifest sets and no shipped reader reads"; stale=1; fi
     done
-    (( stale )) || pass "every key documented under KEYS is set by a shipped manifest"
+    (( stale )) || pass "every key documented under KEYS is set by a shipped manifest or read by shipped code"
 
     th_version "${PROVIDERS_MAN}" AI-TOOLS-PROVIDERS
 }

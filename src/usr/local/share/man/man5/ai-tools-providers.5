@@ -119,6 +119,24 @@ The command name, installed as
 and the only name an executable may carry to start a session as this agent.
 Required.
 .TP
+.B launcher_target
+The executable the versioned launcher resolves to, as a path relative to
+the Node version directory.
+Set when the package's own launcher is a shim that starts the real
+binary: after every install the toolchain re-links
+.IB version /bin/ launcher
+at it, before the stable symlink is repointed, so the session runs the
+file
+.B entrypoint_fcontext
+labels.
+The value must be relative, without
+.BR .. ,
+and resolve to an executable regular file inside the version directory
+that the pattern covers; any other value is refused and npm's own link is
+left in place, which on an enforcing host refuses the launch at the
+entrypoint label check.
+Unset for an agent whose npm launcher is the executable itself.
+.TP
 .B display_name
 What the launch banner and the session unit call the agent.
 .TP

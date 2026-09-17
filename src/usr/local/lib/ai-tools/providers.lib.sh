@@ -15,7 +15,8 @@
 # (ai_tools_provider_is_enabled, ai_tools_agent_sweeps_at_exit, ai_tools_provider_gate) take no input but their
 # arguments, so tests/unit/providers.sh drives them over the truth table; the resolvers around them read the files
 # and print data-only stdout, with every refusal on stderr and in journald, naming the owner and mode the predicate
-# read.
+# read. The one write this file makes is the versioned launcher re-link an agent's `launcher_target` asks for (the
+# launcher target section), driven by the toolchain provisioning and the updater.
 
 # Include guard: consumers may source this alongside libs that also pull it in. An if-statement, not `[[ ]] && return`,
 # which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
@@ -338,4 +339,85 @@ ai_tools_installed_integrations_declaring() {
         printf '%s\t%s\n' "${integration_name}" "${value}"
     done
     return 0
+}
+
+# ── The launcher target: where an agent's versioned launcher points ──────────────────────────
+# npm links <version-dir>/bin/<launcher> at the package's own entry file. For an agent whose package starts from a shim
+# -- a JavaScript file that spawns the vendor's binary -- that file is not the executable the session runs,
+# so the manifest declares `launcher_target`, the path of that executable relative to the version directory,
+# and the toolchain provisioning (ai-tools-bootstrap) and the updater (nvm-update) re-link the versioned launcher at it
+# after every install and before the stable symlink is repointed. The chain a launch resolves --
+# /opt/ai-tools/bin/<launcher> -> <version-dir>/bin/<launcher> -> the target -- then ends at the file the manifest's
+# entrypoint_fcontext labels. ai_tools_relink_launcher refuses, leaving npm's own link in place, on every input it
+# cannot honour; the launch then fails closed at the label preflight, since no rule labels the file npm's link resolves
+# to. The callers read the key as any other field (ai_tools_agent_manifest_field); the two functions here take
+# the values as arguments, so tests/unit/launcher-target.sh drives the write against fixtures with no manifest.
+
+# ai_tools_launcher_target_valid <value> : pure check, no I/O -- succeed when <value> is a path
+#   that can only name a file inside the version directory it is joined to: relative, free of
+#   `..`, and drawn from the path characters a declared entrypoint pattern is allowed (letters,
+#   digits, `_ . / @ + -`). ai_tools_relink_launcher checks what the join resolves to, symlinks
+#   followed.
+ai_tools_launcher_target_valid() {
+    local value="${1:-}"
+    [[ -n "${value}" ]] || return 1
+    [[ "${value}" != /* ]] || return 1
+    [[ "${value}" =~ ^[A-Za-z0-9_./@+-]+$ ]] || return 1
+    [[ "${value}" != *..* ]]
+}
+
+# ai_tools_relink_launcher <version-dir> <launcher> <target> <entrypoint-fcontext> : point
+#   <version-dir>/bin/<launcher> at <version-dir>/<target> -- a symlink written under a temporary
+#   name and renamed over the link, so the launcher is never absent -- and print one word:
+#   `linked` when the link was written, `current` when it already pointed there. Refuses, printing
+#   nothing, returning 1, and reporting the reason on stderr under its code, when <target> fails
+#   ai_tools_launcher_target_valid, when it does not resolve (symlinks followed) to a regular
+#   executable file inside <version-dir>, when <entrypoint-fcontext> is empty or does not match the
+#   resolved path (the file would carry no ai_tools_exec_t, and the launch would refuse it), when
+#   the launcher path exists and is not a symlink, or when the write fails. A refusal leaves
+#   whatever is at the launcher path as it was. The link is relative (`../<target>`), the form npm
+#   writes its own in.
+ai_tools_relink_launcher() {
+    local version_dir="${1:-}" launcher="${2:-}" target="${3:-}" fcontext="${4:-}"
+    local link="${version_dir}/bin/${launcher}" root="" resolved="" pattern reason tmp
+    if ! ai_tools_launcher_target_valid "${target}"; then
+        _ai_tools_provider_warn MSG-J5C3 "refusing the launcher target for ${launcher}: $(printf '%q' "${target}") is not a relative path inside the version directory -- leaving ${link} as it is"
+        return 1
+    fi
+    if root="$(realpath -e -- "${version_dir}" 2>/dev/null)"; then
+        resolved="$(realpath -e -- "${version_dir}/${target}" 2>/dev/null)" || resolved=""
+    fi
+    if [[ -z "${resolved}" || "${resolved}" != "${root}/"* || ! -f "${resolved}" || ! -x "${resolved}" ]]; then
+        _ai_tools_provider_warn MSG-C4F6 "refusing the launcher target for ${launcher}: ${target} does not resolve to an executable file inside ${version_dir}${resolved:+ (it resolves to ${resolved})} -- leaving ${link} as it is"
+        return 1
+    fi
+    # The pattern is the manifest's own regex, matched whole. An invalid regex makes `=~` return 2, which the `!` reads
+    # as no match, and no match is a refusal.
+    pattern="^${fcontext}\$"
+    if [[ -z "${fcontext}" ]]; then
+        reason="the manifest declares no entrypoint_fcontext to cover ${resolved}"
+    elif ! [[ "${resolved}" =~ ${pattern} ]]; then
+        reason="the manifest's entrypoint_fcontext ${fcontext} does not cover ${resolved}"
+    else
+        reason=""
+    fi
+    if [[ -n "${reason}" ]]; then
+        _ai_tools_provider_warn MSG-F5U2 "refusing the launcher target for ${launcher}: ${reason}, so the file would carry no entrypoint label -- leaving ${link} as it is"
+        return 1
+    fi
+    if [[ -e "${link}" && ! -L "${link}" ]]; then
+        _ai_tools_provider_warn MSG-W4H3 "refusing to re-link ${link}: it is not a symlink -- leaving it as it is"
+        return 1
+    fi
+    if [[ "$(readlink -- "${link}" 2>/dev/null)" == "../${target}" ]]; then
+        printf 'current'
+        return 0
+    fi
+    tmp="$(mktemp -u "${version_dir}/bin/.${launcher}.XXXXXX" 2>/dev/null)" || tmp=""
+    if [[ -z "${tmp}" ]] || ! ln -s "../${target}" "${tmp}" 2>/dev/null || ! mv -Tf "${tmp}" "${link}" 2>/dev/null; then
+        [[ -n "${tmp}" ]] && rm -f -- "${tmp}" 2>/dev/null
+        _ai_tools_provider_warn MSG-A3S3 "could not write ${link} -> ../${target} -- leaving the launcher as it was"
+        return 1
+    fi
+    printf 'linked'
 }
