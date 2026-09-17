@@ -355,7 +355,7 @@ def main():
 
     # Execute the matching root helper.  stdin=/dev/null forces the non-interactive branch (no TTY prompts) -- same
     # as the previous `sudo ... </dev/null`. Capture stderr to relay NOTICE lines back to the client; also echo each
-    # to our own stderr so they reach the journal regardless (StandardError=journal in the service template).
+    # to this daemon's stderr so they reach the journal regardless (StandardError=journal in the service template).
     #
     # ValueError is raised when arg contains an embedded null byte: Python refuses to pass it to execve(2) because C
     # strings are null-terminated.  The pre-filter already rejects NUL; catching it here as well keeps the exec guarded

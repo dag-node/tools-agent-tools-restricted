@@ -42,8 +42,26 @@ project, and the files it writes come back to you. Codex does not add a sandbox
 of its own. The package pins it to the mode Codex calls `danger-full-access`,
 and that name describes Codex's own sandbox, which is off: Codex's sandbox is
 bubblewrap, which needs a user namespace the session refuses, so leaving it
-off is what keeps the host's confinement closed. A session that asks
+off is what keeps the host's confinement closed. Codex's own banner prints
+that mode as `YOLO mode`: the name is Codex's, it describes Codex's layer,
+and a session running under it is confined by the sandbox account, the SELinux
+domain and the session unit exactly as any other. A session that asks
 for another mode on its command line lands on the managed default.
+
+Asking for another mode does not tighten a session, because the sandbox
+account, the SELinux domain and the session unit are what decide its reach; it
+can break one, though. Codex's sandbox needs a user namespace the session unit
+refuses, so a session that ends up on a bubblewrap-bound profile keeps every
+host control and loses its tool calls, which fail with:
+
+```text
+bwrap: No permissions to create a new namespace
+```
+
+That line means the session selected a mode this host does not run, not
+that something is misconfigured: the pin turns off a layer that could not run
+here anyway. See [SELinux confinement](../system/selinux.md) and [The boundary,
+and what is out of scope](../about/scope.md).
 
 Turned off by the package, and stated so you know what to expect: Codex's
 sub-agents, MCP servers, plugins and marketplaces, image generation,

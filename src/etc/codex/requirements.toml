@@ -5,20 +5,16 @@
 # kept across an upgrade; a newer copy lands beside it as
 # requirements.toml.rpmnew.
 #
-# The keys were measured against codex-cli 0.154.0. A release that takes
-# other keys refuses to start (every subcommand exits 1 naming the key),
-# which is the intended loud failure: the remedy is editing this file
-# to that release's keys, never a change to the host's boundary. Nothing
-# here holds a guarantee -- the session runs as the sandbox account
-# in the confined domain whatever codex reads.
+# Nothing here holds a guarantee: the session runs as the sandbox
+# account in the confined domain whatever codex reads. The pinned mode
+# names CODEX's own sandbox -- bubblewrap, which needs a user namespace
+# the session unit refuses -- so pinning full access turns that layer
+# off and leaves the host's boundary standing, and read-only stays
+# listed because codex refuses the list without it.
 #
-# danger-full-access is what keeps the host's sandbox closed: codex's
-# own sandbox is bubblewrap, which needs a user namespace the session
-# unit refuses. The pin means codex does not add a sandbox of its own,
-# and the host's DAC plus ai_tools_t is the boundary, as for claude.
-# read-only stays listed because codex refuses the list without it; the
-# profile table names full access alone, so a session that selects
-# another mode lands on the managed default.
+# What each key does, what an operator may change, and what a release
+# that renames one costs: the Codex page in the shipped documentation
+# and ai-tools-providers(5).
 #
 # Bare keys stay AHEAD OF the first table header: a bare key after one
 # is that table's key and is ignored.
