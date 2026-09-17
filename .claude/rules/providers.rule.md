@@ -34,7 +34,11 @@ so a malformed or tampered manifest cannot execute code in the privileged script
   (the two paths it declares to SELinux), `skills_dir` / `subagents_dir` (where inside its config directory it reads
   each shared asset kind, so the shared copies can be symlinked in — see [shipped-assets](shipped-assets.rule.md)),
   `memory_file` (the filename that agent's product reads as user-scope instructions, where the shared orientation text
-  is linked), `default_enable`, and — optionally — the three release-verification fields.
+  is linked), `managed_files` (the kept-across-upgrade files its product reads from a fixed path outside the control
+  plane, each shipped with a pristine copy under `/usr/share/ai-tools/<name>/` that the two status reports compare
+  the live file against — reported, never enforced, since no such file holds a guarantee; codex's `/etc/codex` pair is
+  the instance, [agent-codex](agent-codex.rule.md)), `default_enable`, and — optionally — the three release-verification
+  fields.
 - integrations: `default_enable`, and optionally the three keys the SELinux layer reads — `build_output_dirs` (the
   directory names that hold the toolchain's build output, which `relabel.lib.sh` reads from every installed manifest
   through `ai_tools_installed_integrations_declaring` and maps to the build-output type), `selinux_layout_module` (the
@@ -388,6 +392,12 @@ surface **as the agent** and asserts none of it is agent-writable (catching the 
   makes, the versioned launcher re-link (see
   [`launcher_target`](#launcher_target--where-the-versioned-launcher-points)). Both take their inputs as arguments;
   the callers read the two fields through `ai_tools_agent_manifest_field`.
+- `ai_tools_agent_managed_files <name>` — one `<live>\t<reference>` pair per path a trusted manifest names
+  in `managed_files`, the reference composed from the basename under `AI_TOOLS_MANAGED_REFERENCE_DIR/<name>/`; a path
+  that is not absolute or carries `..` is refused on stderr, since the reference is composed from it.
+  `ai_tools_managed_file_state <live> <reference>` is the pure verdict beside it — `shipped`, `edited`, `missing`,
+  or `unknown` wherever the comparison cannot be made (an unreadable reference, a symlink on either side), so a report
+  never guesses "shipped" over a file it could not read. `tests/unit/providers.sh` drives the verdict and the reader.
 - `ai_tools_provider_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` / `baseline` /
   `untrusted`), read-only and side-effect free. The resolvers read it, and so does `ai-tools providers` (see
   [cli](cli.rule.md)), so an operator asking what is enabled and a session being launched consult one implementation.

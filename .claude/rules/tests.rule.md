@@ -488,7 +488,11 @@ and an untrusted manifest or directory does not yield any value, under the same 
 drives the empty-set verdict the updater reads once the resolver printed an empty set: each refused input,
 and an allowlist none of whose names resolved, reads `fault` with the path and the owner and mode named on one line,
 while an empty allowlist, an empty manifest directory, and a set of `default_enable=no` manifests read `none` —
-the split that decides whether the updater exits `1` or maintains `npm` and exits `0`.
+the split that decides whether the updater exits `1` or maintains `npm` and exits `0`. Its last section pins
+the managed-file reading the two status reports share: the pure verdict over a byte-identical, an edited, an absent
+and a symlinked file (each way the comparison cannot be made reads `unknown`, never either answer), and the manifest
+reader that turns `managed_files` into (live, reference) pairs and refuses a path that is not absolute, since
+the reference is composed from its basename.
 
 `claude-prompt.sh` and `claude-endpoint.sh` are the runtime half of the custom system prompt and custom API endpoint
 (see [launch](launch.rule.md) and [providers](providers.rule.md)). Each drives its resolver over a root-only base-dir
@@ -644,7 +648,10 @@ the shape two harness runs measured a pin as "accepted" with — fails here, wit
 the package ships and the commented operator keys placed ahead of the first table; and the two hook adapters
 on the payload key sets the harness captured, the `apply_patch` parser included. It reads the checkout, builds its
 fixtures, and runs without root; the session hook is driven only in the modes that reach no root helper, since
-a `session-start` on a fresh process would call the live handback daemon.
+a `session-start` on a fresh process would call the live handback daemon. Its enablement section is the one part
+that needs root: it drives the real resolver over a copy of the manifest — disabled with `AI_TOOLS_AGENTS` unset,
+enabled when named, skipped with its refusal reported once the copy is group-writable — and the resolver trusts
+root-owned inputs alone, so unprivileged it skips and says so.
 
 `shared-root.sh` pins the shared-root link and its reverse (`ai_tools_link_shared_root`, see
 [shipped-assets](shipped-assets.rule.md)), the step that points codex's admin-scope skills path at the live shared root.
@@ -833,9 +840,13 @@ in the sandbox account's own `--user instance`, the relabel watcher and handback
 The handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers with its own
 environment, so the helper reads the **real** allowlist — and the automated suite may not write that allowlist,
 so `hooks.sh` asserts only what the deployed `settings.json` **declares** (the hook entries and the deny rules)
-and the hooks themselves run in the manual script, inside the project it claims. The wrapper test stays hermetic
-by pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`) and runs the wrapper
-under `setsid`, so it never touches the real allowlist or fires a claim prompt. Run as root.
+and the hooks themselves run in the manual script, inside the project it claims. The same file reads codex's
+`requirements.toml` as codex parses it (a TOML parser, so a bare key that landed inside a table is not read as set)
+and pins the sandbox-mode pin, managed hooks only from the root-owned directory, and the four hook declarations
+against the installed bodies; `wrapper.sh` closes with the codex wrapper in whichever enablement state the host is
+in, holding the launcher symlink and the resolver's enabled set to agreement ([agent-codex](agent-codex.rule.md)).
+The wrapper test stays hermetic by pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`)
+and runs the wrapper under `setsid`, so it never touches the real allowlist or fires a claim prompt. Run as root.
 
 `cli-flags.sh` holds every `ai-tools` command and every option `ai-tools(1)` documents to what it **achieves**, and its
 rows do not read message text, so the command surface can be respelled with the file unchanged
@@ -887,21 +898,22 @@ under the sandbox uid and not under `_UID=0`. That is the boundary half of the d
 [logging](logging.rule.md)) — the forgery is reachable, and what makes it separable is the uid the sender cannot set,
 not the tag. A host with no journald skips: an absent line is not evidence. `providers.sh` asserts the deployed half
 of "the sandbox cannot widen its own surface": none of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four
-provider directories, the manifests, fragments and contributed commands in them, or the `ai-tools-run` shim
-and the `bin` directory holding it is agent-writable, while the NuGet restore cache the dotnet integration needs **is**
-— both directions matter, since a read-only cache breaks the integration as surely as a writable tools dir breaks
-the boundary. `admin-commands.d` and the `dotnet` command in it are the highest-privilege pair in that list:
-what a writable one would buy is not a wider session but a command `ai-tools-admin` runs as root. It is the counterpart
-to `unit/providers.sh` and `unit/admin-commands.sh`, which assert the runtime refusals; this one asserts the agent
-cannot reach the state those refusals exist to catch. `filters.sh` is the same pair for the command filters: the engine,
-`filters.d` and the rule sets in it, `operator.conf`, and the agent-side hook body are all asserted non-agent-writable —
-the engine because it is sourced as the agent on every Bash call, the rule sets because they decide what every command
-in a session becomes. These probe **DAC and account state** from the sandbox account's vantage — they run as the sandbox
-*user*, not inside the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
-boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`. A property the **type layout
-alone** enforces is therefore not assertable here, and reads as its DAC answer: the agent's inability to write its own
-entrypoint is one (DAC permits it — the account owns that tree), so it is asserted in `integration/selinux.sh`
-as the layout the policy rests on, one check per swap vector.
+provider directories, the manifests, fragments and contributed commands in them, codex's `/etc/codex` and the two
+managed files in it, or the `ai-tools-run` shim and the `bin` directory holding it is agent-writable, while the NuGet
+restore cache the dotnet integration needs **is** — both directions matter, since a read-only cache breaks
+the integration as surely as a writable tools dir breaks the boundary. `admin-commands.d` and the `dotnet` command in it
+are the highest-privilege pair in that list: what a writable one would buy is not a wider session but a command
+`ai-tools-admin` runs as root. It is the counterpart to `unit/providers.sh` and `unit/admin-commands.sh`, which assert
+the runtime refusals; this one asserts the agent cannot reach the state those refusals exist to catch. `filters.sh` is
+the same pair for the command filters: the engine, `filters.d` and the rule sets in it, `operator.conf`,
+and the agent-side hook body are all asserted non-agent-writable — the engine because it is sourced as the agent
+on every Bash call, the rule sets because they decide what every command in a session becomes. These probe **DAC
+and account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside the `ai_tools_t`
+SELinux domain (a launched session), so they assert the filesystem/credential boundary; the SELinux enforcing posture is
+asserted separately in `integration/selinux.sh`. A property the **type layout alone** enforces is therefore not
+assertable here, and reads as its DAC answer: the agent's inability to write its own entrypoint is one (DAC permits it —
+the account owns that tree), so it is asserted in `integration/selinux.sh` as the layout the policy rests on, one check
+per swap vector.
 
 ## Quirks
 

@@ -3910,7 +3910,7 @@ status_entrypoint_label() {
 # counted: an unfinished install is what this section exists to say, not a fault in a finished one. Returns non-zero
 # only when the enabled agents cannot be read at all, which is a broken install, like a missing service registry.
 status_provisioning() {
-    local rec agent_name launcher reason
+    local rec agent_name launcher reason faults=0
     section "Provisioning"
     if ! resolve_enabled_agents; then
         say "  ${C_YEL}cannot read the enabled agents${C_RST} -- ${ENABLED_AGENTS_ERROR}"
@@ -3928,8 +3928,34 @@ status_provisioning() {
         else
             say "  ${C_YEL}${agent_name} not provisioned${C_RST} -- run: ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"
         fi
+        status_managed_files "${agent_name}" || faults=$(( faults + 1 ))
     done
-    return 0
+    (( faults == 0 ))
+}
+
+# status_managed_files <agent> -- one line per managed file the agent's manifest names (managed_files,
+# ai-tools-providers(5)) whose live copy is not the shipped one. The package never overwrites such a file, so the report
+# is where an operator learns the live file differs: the agent reads it alone, a key this release adds is not in it,
+# and what it declares is the host's rather than the package's. A file matching the shipped copy is not reported,
+# and an edited one is not counted -- it is a supported state -- while a missing one is, since the package is then
+# broken and a reinstall is the remedy. Returns non-zero for a missing file.
+status_managed_files() {
+    local agent="$1" live reference state rc=0
+    declare -F ai_tools_agent_managed_files >/dev/null 2>&1 || return 0
+    while IFS=$'\t' read -r live reference; do
+        [[ -n "${live}" ]] || continue
+        state="$(ai_tools_managed_file_state "${live}" "${reference}")"
+        case "${state}" in
+            shipped) ;;
+            edited)  say "  ${C_YEL}${agent}: ${live} differs from the shipped copy${C_RST}"
+                     say "      ${agent} reads the live file alone: a key this release adds is not in it, and what it declares is the host's"
+                     say "      shipped copy: ${reference}" ;;
+            missing) say "  ${C_RED}${agent}: ${live} is missing${C_RST} -- reinstall the ${agent} package"
+                     rc=1 ;;
+            *)       say "  ${C_DIM}${agent}: ${live} -- cannot compare with the shipped copy ${reference}${C_RST}" ;;
+        esac
+    done < <(ai_tools_agent_managed_files "${agent}")
+    return "${rc}"
 }
 
 cmd_status() {

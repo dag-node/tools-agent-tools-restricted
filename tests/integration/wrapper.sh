@@ -294,4 +294,53 @@ else
         "wrapper refuses to launch in an allowlisted-but-protected system directory (/etc)"
 fi
 
+# ── The codex wrapper: enablement fails closed ───────────────────────────────────
+# The second agent's wrapper runs the same gate library, so its gates are proven by this file's claude cases; what is
+# its own is ENABLEMENT. An agent gets a launcher symlink under /opt/ai-tools/bin only while it is enabled
+# and provisioned, and the wrapper resolves that link before the CWD gate -- so a disabled codex refuses every launch
+# at the launcher gate, whichever directory it is typed in, and an enabled one reaches the allowlist gate exactly
+# as claude does. Which of the two this host is in is read from the same resolver the toolchain provisions
+# from, and the link and the enabled set must agree: a link for an agent the resolver does not enable is a launcher no
+# enabled manifest claims, which ai-tools-run refuses (integration/ai-tools-run.sh) -- reported here so the two gates
+# are never seen
+# disagreeing.
+section "codex wrapper: enablement fails closed (integration)"
+codex_wrapper=/usr/local/bin/codex
+if [[ ! -x "${codex_wrapper}" ]]; then
+    skip "codex wrapper" "not installed at ${codex_wrapper} (the codex package is absent)"
+else
+    printf '%s\n' "${approved}" "!${excluded}" > "${home}/.config/ai-tools/allowed-projects"
+    codex_enabled=0
+    # shellcheck source=/dev/null
+    if source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null \
+            && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+        while IFS=$'\t' read -r _agent _ _; do
+            [[ "${_agent}" == codex ]] && codex_enabled=1
+        done < <(ai_tools_enabled_agents 2>/dev/null)
+    else
+        fail "cannot source providers.lib.sh to read the enabled agents"
+    fi
+    codex_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
+        "${codex_wrapper}" --version --gate-probe < /dev/null 2>&1 || true )"
+    if [[ -L /opt/ai-tools/bin/codex ]]; then
+        if (( codex_enabled )); then
+            pass "codex is enabled and its launcher symlink is present -- the wrapper resolves it"
+            assert_msg MSG-N2Z7 "${codex_out}" "codex wrapper reaches the allowlist gate and refuses an unapproved directory"
+        else
+            fail "/opt/ai-tools/bin/codex exists while codex is not enabled -- a launcher no enabled manifest claims (ai-tools-run refuses it; remove the link or enable the agent)"
+        fi
+    else
+        if (( codex_enabled )); then
+            skip "codex launch through the wrapper" "codex is enabled but not provisioned -- run: sudo ai-tools-admin system bootstrap"
+        else
+            assert_msg MSG-S4B3 "${codex_out}" "codex wrapper refuses to launch while codex is disabled (no launcher symlink to resolve)"
+            if gate_refused "${codex_out}"; then
+                fail "codex wrapper reached the allowlist gate for a disabled agent -- the launcher gate must refuse first"
+            else
+                pass "disabled codex is refused at the launcher gate, before the allowlist is read"
+            fi
+        fi
+    fi
+fi
+
 finish

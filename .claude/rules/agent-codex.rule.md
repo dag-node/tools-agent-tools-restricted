@@ -17,10 +17,14 @@ launch contract is [launch](launch.rule.md); the ownership handback and the swee
 [ownership-and-hooks](ownership-and-hooks.rule.md). The claude-code counterpart of every item here is
 [agent-claude-code](agent-claude-code.rule.md), and where the two differ the difference is stated in this rule.
 
-`ai-tools-agents-codex-restricted` ships the wrapper, the manifest, the session-env fragment, the two managed files,
-the two hooks, and the agent's config directory. It ships **disabled** (`default_enable=no`): an operator names `codex`
-in `AI_TOOLS_AGENTS` to provision and launch it. It does not add a sudoers rule: it inherits the single `%ai-ops` grant
-on the shared shim.
+`ai-tools-agents-codex-restricted` ships the wrapper, the manifest, the session-env fragment, the two managed files
+with a pristine copy of each, the two hooks, and the agent's config directory. It ships **disabled**
+(`default_enable=no`): an operator names `codex` in `AI_TOOLS_AGENTS` to provision and launch it. It does not add
+a sudoers rule: it inherits the single `%ai-ops` grant on the shared shim. `install.sh` lays down the same files
+from the source tree, beside the claude-code ones, and runs what the package's `%post` runs — the `3770` mode
+of the config directory, the skills link, the orientation link — so a from-source host carries the package whole; its
+`uninstall` removes the wrapper, the hooks, the managed files and the pristine copies, and the skills link where it is
+ours, leaving the agent's state under `.codex` as it leaves claude's.
 
 ## The boundary is the host's; codex's configuration is not a security control
 
@@ -53,6 +57,7 @@ is the vendor's; the containment is the host's.
 | `handback` | `none` | `ai-tools-run` — the shim sweeps the project at session end (see [Handback](#handback-the-shims-sweep-is-the-guarantee-the-hooks-are-the-cadence)) |
 | `config_dir` | `.codex` | the control-plane mode/label set, and `→ ai_tools_home_t`; the fragment pins `CODEX_HOME` there |
 | `memory_file` | `AGENTS.md` | where the shared orientation text is linked — the global-scope instructions codex reads first ([shipped-assets](shipped-assets.rule.md)) |
+| `managed_files` | `/etc/codex/requirements.toml`, `/etc/codex/managed_config.toml` | `ai-tools status` and `ai-tools-admin status` — which live files to compare against the pristine copies under `/usr/share/ai-tools/codex/` ([providers](providers.rule.md)) |
 | `entrypoint_fcontext` | a regex ending on the same vendor path `launcher_target` names | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
 | `default_enable` | `no` | the baseline set when `operator.conf` names none: codex is not in it |
 
@@ -139,6 +144,15 @@ under `/etc/ai-tools/prompts`, the one root the confined domain reads) and `open
 What neither file can do is enlarge what the account may reach, since codex runs as that account in that domain.
 An unreadable `requirements.toml` refuses the start: the loud direction.
 
+**A kept file is reported, never overwritten.** The package ships a pristine copy of each managed file
+under `/usr/share/ai-tools/codex/`, the manifest names both in `managed_files`, and the two status reports compare
+the live file against its copy through `ai_tools_managed_file_state` ([providers](providers.rule.md)): a file
+that differs prints the two consequences — codex reads the live file alone, so a key this release adds is not in it,
+and what it declares is the host's — with the copy's path, and is not counted toward the exit status, since an edited
+managed file is a supported state; a missing one is counted, since the package is then broken and a reinstall is
+the remedy. `install.sh` says the same at install time, on the kept file's own line. The report is where an operator
+learns a `.rpmnew` was parked, or a from-source install kept an edit, after the install output has scrolled by.
+
 ## Handback: the shim's sweep is the guarantee, the hooks are the cadence
 
 The manifest declares `handback=none`, **and** the package ships hooks. That is the hybrid, and `none` is the stronger
@@ -204,7 +218,26 @@ escalation ([CLAUDE.md](../../CLAUDE.md), Boundaries and non-goals).
 `ai_tools_agent_config_dirs` walks **enabled** agents, so base re-asserts the `3770` mode of an enabled agent's config
 directory only, and codex ships disabled. The package's `%post` and `%posttrans` therefore `chmod 3770` `.codex`
 themselves — rpm on EL10 drops setgid from an `%attr` directory mode — so the sticky bit holds from the first install
-whether or not the operator has enabled the agent yet.
+whether or not the operator has enabled the agent yet. `install.sh` asserts the directory by name after the same walk,
+and `tests/integration/perms.sh` checks it by name whenever the walk did not list it, so the assertion holds on a host
+in either state.
+
+## What the suite proves on an installed host
+
+The package's files are held to the seams before any host installs them (`tests/unit/codex-package.sh`, which also
+drives enablement through the real resolver over this manifest: disabled with `AI_TOOLS_AGENTS` unset, enabled
+when named, and skipped when the manifest is group-writable however `operator.conf` reads). On the host,
+`tests/integration/perms.sh` pins the owner and mode of every file this rule names and the shape of `/etc/codex/skills`
+in each state the linker leaves; `tests/boundary/providers.sh` and `tests/boundary/access.sh` assert, as the agent,
+that the manifest, the fragment, `/etc/codex` and both managed files are not writable and that both hooks are executable
+and not writable; `tests/integration/hooks.sh` reads `requirements.toml` as codex does and pins the pin, managed hooks
+only, and the four hook declarations against the installed bodies; and `tests/integration/wrapper.sh` drives
+`/usr/local/bin/codex` in whichever state the host is in — refused at the launcher gate while codex is disabled, since
+a disabled agent has no launcher symlink, and refused at the allowlist gate once it is enabled and provisioned — while
+holding the launcher symlink and the enabled set to agreement. The rows that need a codex session — a turn
+under the pin, a hook-written file handed back, the sweep-only path, a skill listed through `/etc/codex/skills` — run
+through the package's own path on a host whose operator enabled codex, the way the claude chain runs
+in `tests/manual/verify-live-flows.sh`.
 
 ## The reduced set
 

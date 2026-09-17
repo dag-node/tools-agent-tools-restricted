@@ -179,6 +179,24 @@ The shared orientation text under
 is linked under that name.
 Unset for an agent that reads none.
 .TP
+.B managed_files
+The configuration files the agent's own product reads from a fixed path
+outside
+.BR /opt/ai-tools ,
+as absolute paths.
+Each is kept across an upgrade, and the package ships a pristine copy of it
+under
+.BI /usr/share/ai-tools/ agent /
+so that
+.B ai-tools status
+and
+.B ai-tools-admin status
+report a live file that differs from the shipped one.
+Reported, not enforced: the agent reads the live file alone, and a file
+there does not carry a guarantee.
+Unset for an agent whose configuration lives inside
+.BR config_dir .
+.TP
 .B entrypoint_fcontext
 A file-context pattern for the binary that starts a session, which the
 SELinux confinement keys on.

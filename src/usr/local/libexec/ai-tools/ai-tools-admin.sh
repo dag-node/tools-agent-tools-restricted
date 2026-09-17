@@ -1454,6 +1454,34 @@ status_services() {
     return 0
 }
 
+# status_managed_files: per enabled agent, each managed file its manifest names (managed_files, ai-tools-providers(5))
+# whose live copy is not the shipped one -- the same reading `ai-tools status` makes, rendered in this tool's table.
+# The package never overwrites such a file, so this line is where an operator learns it differs. An edited file is
+# a supported state and is not counted; a missing one is, since the package is then broken. Prints no line for a file
+# matching the shipped copy.
+status_managed_files() {
+    declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0
+    declare -F ai_tools_agent_managed_files >/dev/null 2>&1 || return 0
+    local agent live reference state
+    while IFS=$'\t' read -r agent _ _; do
+        [[ -n "${agent}" ]] || continue
+        while IFS=$'\t' read -r live reference; do
+            [[ -n "${live}" ]] || continue
+            state="$(ai_tools_managed_file_state "${live}" "${reference}")"
+            case "${state}" in
+                shipped) ;;
+                edited)  st edited "${agent}  ${live} differs from the shipped copy"
+                         detail "${agent} reads the live file alone: a key this release adds is not in it, and what it declares is the host's"
+                         detail "shipped copy: ${reference}" ;;
+                missing) st MISSING "${agent}  ${live} is missing -- reinstall the ${agent} package"
+                         STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+                *)       st "?" "${agent}  ${live} cannot be compared with the shipped copy ${reference}" ;;
+            esac
+        done < <(ai_tools_agent_managed_files "${agent}")
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    return 0
+}
+
 # status_entrypoints: per enabled agent, the two halves of the entrypoint reconciliation -- the pin
 # ai_tools_entrypoint_pin_write leaves, and the type its paths carry now. Reported together because they fail
 # independently: verification can succeed while labelling does not, leaving a green pin written by the very run
@@ -1588,6 +1616,7 @@ status() {
         detail "sudo ai-tools-admin system bootstrap"
         STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
     fi
+    status_managed_files
 
     status_services
     status_entrypoints

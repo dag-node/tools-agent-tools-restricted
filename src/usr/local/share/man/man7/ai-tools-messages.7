@@ -1587,6 +1587,10 @@ refusing the launcher target for ${launcher}: $(printf '%q' "${target}") is not 
 WARNING.
 skipping agent ${agent_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")
 .TP
+.B MSG-N4W6
+WARNING.
+skipping the managed file $(printf '%q' "${path}") of ${agent}: not an absolute path without parent\-directory components
+.TP
 .B MSG-N9X8
 WARNING.
 skipping integration $1: $2 $(ai_tools_conf_untrusted_reason "$2")
