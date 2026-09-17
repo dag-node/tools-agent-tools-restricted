@@ -287,19 +287,30 @@ if [[ ! -x "${CLI}" ]]; then
 elif ! command -v runuser >/dev/null 2>&1; then
     skip "resolve_handback_group" "runuser unavailable"
 else
-    # resolve_hb <group-opt> : echo "<group>|<hint>" as the caller sees them, or fail non-zero.
+    # resolve_hb <group-opt> : echo "<group>|<hint>" as the caller sees them. It exits 99 where the CLI does not source
+    # and 98 where it does not define the function -- the two partial-install states -- so every other non-zero is
+    # the function failing to publish a result, which is the defect this section exists to catch.
+    #
+    # The inner shell copies its arguments aside and CLEARS the positionals before the source, the shape unit/sandbox.sh
+    # and unit/cli-agent-set.sh take: the CLI reads its command off "$@" and then shifts that command's own tokens away,
+    # so a probe leaving them in place has the CLI consume the group argument, and reading it back under `set -u` aborts
+    # the inner shell on an unbound "$2" -- a non-zero this section would otherwise report as a partial install.
     resolve_hb() {
         # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell
         setsid runuser -u "${PROJECTS_USER}" -- bash -c '
             set -euo pipefail
-            source "$1" >/dev/null 2>&1 || exit 99
+            cli="$1"; group_opt="$2"; set --
+            source "${cli}" >/dev/null 2>&1 || exit 99
             declare -F resolve_handback_group >/dev/null 2>&1 || exit 98
-            resolve_handback_group "$2" >/dev/null 2>&1
+            resolve_handback_group "${group_opt}" >/dev/null 2>&1
             printf "%s|%s\n" "${HANDBACK_GROUP}" "${HANDBACK_HINT}"
         ' _ "${CLI}" "$1" < /dev/null 2>/dev/null
     }
-    if ! out="$(resolve_hb "${PROJECTS_GROUP}")"; then
+    hb_rc=0; out="$(resolve_hb "${PROJECTS_GROUP}")" || hb_rc=$?
+    if (( hb_rc == 99 || hb_rc == 98 )); then
         skip "resolve_handback_group" "CLI not sourceable or helper absent (partial install?)"
+    elif (( hb_rc != 0 )); then
+        fail "resolve_handback_group '${PROJECTS_GROUP}' aborted its caller (exit ${hb_rc}) -- no result reached it"
     else
         # `--group` names the group outright: it is published as-is, with no hint (the state is correct).
         if [[ "${out}" == "${PROJECTS_GROUP}|" ]]; then
@@ -309,7 +320,8 @@ else
         fi
         # No `--group` and no terminal: both prompts take their defaults (hand back: yes; to the invoking user's group),
         # so the caller still gets a usable group and no hint.
-        out="$(resolve_hb "")" || out="<abort>"
+        hb_rc=0; out="$(resolve_hb "")" || hb_rc=$?
+        (( hb_rc == 0 )) || out="<caller aborted, exit ${hb_rc}>"
         if [[ "${out}" == "${PROJECTS_GROUP}|" ]]; then
             pass "with no --group and no terminal the defaults resolve to the invoker's own group"
         else

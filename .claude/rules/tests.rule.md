@@ -612,6 +612,16 @@ its directories as arguments, so the fixtures are a tree the file builds; it nee
 there, which a noexec mount and a label that withholds execute each hide, so it probes the directory the fixtures live
 in and falls back to one beside the operator's home.
 
+**A test that sources the CLI copies its arguments aside and clears the positionals first.** `ai-tools` carries
+a sourced-guard, so `unit/sandbox.sh`, `unit/cli-agent-set.sh` and `unit/unclaim.sh` load it to reach its pure helpers
+without running the gates or the dispatch — and the top level it does run reads the command off `"$@"` and then shifts
+that command's own tokens away. A probe that leaves its arguments there has the CLI parse the first as a command
+and consume the rest, so the helper's own argument is gone by the time the probe reads it; one that clears them
+before resolving the path it sources loses the path the same way. Both abort the inner shell under `set -u`, and a probe
+reading that as "not sourceable" **skips**, which `run.sh` reports as no coverage rather than as a failure. So the shape
+is `cli="$1"; <args>="$2"…; set --`, then `source "${cli}"`, and the skip is reserved for the statuses the inner shell
+raises for a partial install — every other non-zero fails, naming it.
+
 `launcher-target.sh` pins the versioned launcher re-link (`ai_tools_relink_launcher`, see
 [providers](providers.rule.md)), the write that points `<version-dir>/bin/<launcher>` at the executable an agent's
 `launcher_target` names. The file the chain ends on is the one `execve` transitions on, so every way a target could take
