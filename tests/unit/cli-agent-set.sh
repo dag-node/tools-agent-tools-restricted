@@ -24,9 +24,11 @@ section "cli: the provisioning gate reads the enabled agents (unit)"
 
 if [[ ! -x "${CLI}" ]]; then skip "cli agent set" "CLI not installed at ${CLI}"; finish; exit; fi
 if ! command -v runuser >/dev/null 2>&1; then skip "cli agent set" "runuser unavailable"; finish; exit; fi
+# The CLI reads its command from the positional parameters, so the inner shell copies its arguments aside and clears
+# them before the source -- cleared first, `$1` is gone before it is read.
 # shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
 if ! runuser -u "${PROJECTS_USER}" -- bash -c \
-        'set --; source "$1" >/dev/null 2>&1; declare -F require_bootstrap >/dev/null 2>&1 \
+        'cli="$1"; set --; source "${cli}" >/dev/null 2>&1; declare -F require_bootstrap >/dev/null 2>&1 \
             && declare -F status_provisioning >/dev/null 2>&1' _ "${CLI}"; then
     skip "cli agent set" "CLI not sourceable or the gate absent (partial install?)"; finish; exit
 fi
@@ -57,7 +59,7 @@ call() {
     runuser -u "${PROJECTS_USER}" -- env \
         AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
         AI_TOOLS_MSG_PLAIN=1 \
-        bash -c 'set --; source "$1" >/dev/null 2>&1 || exit 99; "$2"' _ "${CLI}" "$1" 2>&1
+        bash -c 'cli="$1"; fn="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99; "${fn}"' _ "${CLI}" "$1" 2>&1
 }
 # refused <what> <code> <rc> <output> : a refusal is its code AND a non-zero status -- a refusal printed at exit 0 is
 # one the dispatch would read as a pass.
