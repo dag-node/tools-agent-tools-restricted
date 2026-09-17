@@ -71,6 +71,8 @@ check_file /usr/local/lib/ai-tools/managed-assets.lib.sh     root              r
 # Protected-paths backstop: 644 root:root. Sourced by the wrapper, the CLI, and the root helpers to refuse a system
 # directory as a target; world-readable, no secrets.
 check_file /usr/local/lib/ai-tools/safe-paths.lib.sh         root              root              644
+# Launch gates: 644 root:root. Sourced by every agent's launch wrapper as the operator; world-readable, no secrets.
+check_file /usr/local/lib/ai-tools/launch-wrapper.lib.sh     root              root              644
 check_file /usr/local/lib/ai-tools/confinement.lib.sh        root              root              644
 check_file /usr/local/lib/ai-tools/npm-verify.lib.sh         root              root              644
 check_file /usr/local/lib/ai-tools/entrypoint-verify.lib.sh  root              root              644

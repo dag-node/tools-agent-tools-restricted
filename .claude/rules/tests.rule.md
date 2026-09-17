@@ -215,14 +215,17 @@ verdict: no other part of that run is invalid, so driving it would start a real 
 the record is reported without gating a launch — so `unit/entrypoint-verify.sh` redirects it at its testdir and writes
 real records through the library.
 
-`AI_TOOLS_LAUNCHER_DIR` is the sixth, read by two consumers for the one directory the stable launcher symlinks live in.
+`AI_TOOLS_LAUNCHER_DIR` is the sixth, read by each consumer of the one directory the stable launcher symlinks live in.
 In `ai-tools.sh` it is where the bootstrap gate and `status` read the enabled agents' links, operator-settable there
 like `AI_TOOLS_GITCONFIG` since it moves a report and an early refusal and no access decision; `unit/cli-agent-set.sh`
-drives the gate through it against fixture manifests and links. In `relabel.lib.sh` it redirects where the entrypoint
-reconciliation looks for an agent's stable launcher symlink — a use no automated test consumes — which is what lets
-the `stale` verdict be driven **end to end on a live host** — point it at a directory whose `claude` link resolves
-to a real file the declared pattern does not cover, and `ai-tools-relabel-agent` must print the stale warning and exit
-non-zero:
+drives the gate through it against fixture manifests and links. In `launch-wrapper.lib.sh` it is where every wrapper's
+launcher resolution reads the stable symlink, and `unit/launch-wrapper.sh` drives that resolution and the CWD gates
+through it against fixture links; a value there moves which link is read and not what it may resolve to, since
+the versioned-shape check and `ai-tools-run`'s re-validation both stand. In `relabel.lib.sh` it redirects
+where the entrypoint reconciliation looks for an agent's stable launcher symlink — a use no automated test consumes —
+which is what lets the `stale` verdict be driven **end to end on a live host** — point it at a directory whose `claude`
+link resolves to a real file the declared pattern does not cover, and `ai-tools-relabel-agent` must print the stale
+warning and exit non-zero:
 
 ```
 sudo bash -c 'n=$(find /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/node_modules -name claude -type f | head -1); d=$(mktemp -d); ln -s "$n" "$d/claude"; env AI_TOOLS_LAUNCHER_DIR="$d" /usr/local/libexec/ai-tools/ai-tools-relabel-agent; echo "exit=$?"; rm -rf "$d"'
@@ -386,6 +389,20 @@ and `AI_TOOLS_LAUNCHER_DIR` pointed at fixtures, and every read is asserted in i
 link passes, an enabled set with no link refuses naming the bootstrap command, an empty allowlist, an allowlisted name
 with no manifest, and a group-writable manifest directory each refuse with the resolver's reason (a link present
 for the agent that directory names notwithstanding), and the report names each agent as the gate decided it.
+
+`launch-wrapper.sh` drives the gate library every agent's wrapper runs (`launch-wrapper.lib.sh`, see
+[launch](launch.rule.md)), one gate at a time and each in its fail direction, as the account the case is
+about through `runuser` and under `setsid`, so a menu or a confirm takes its no-terminal outcome: a copy of the library
+with one load path broken refuses at init; the sandbox account and a non-operator are refused at the operator gate, each
+with its own code; a missing launcher symlink, a target outside the versioned shape, one naming another launcher,
+and one carrying a parent-directory component are each refused, while the versioned shape resolves one hop
+with the target left unresolved; the CWD gate refuses a missing allowlist, an unapproved directory, a sibling sharing
+a name prefix, a carved-out subdirectory and a path under it, a parked project, and an allowlisted protected directory,
+and passes an approved directory reached directly or through a symlink with the canonical path published; the claim
+guard refuses an approved directory the sandbox group does not own when no terminal can answer its confirm; the session
+exec refuses without the gates' results; and the gate runner answers the sandbox account before it reads the allowlist.
+The installed wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper reaches those gates
+in that order.
 
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
@@ -744,21 +761,21 @@ the listing before matching it.
 **`integration`** — checks that need a completed install and the running system (`perms.sh`, `wrapper.sh`, `hooks.sh`,
 `symlink-helper.sh`, `handback.sh`, `cli.sh`, `cli-flags.sh`, `ai-tools-run.sh`, `systemd.sh`, `selinux.sh`):
 installed-artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end (its allowlist gate, `!`-exclusion
-refusal, fail-closed load of `safe-paths.lib.sh`, and consultation of the protected-paths backstop on the launch CWD),
-the handback `socket → daemon → helper` chain (including its negative paths — unknown verb,
-wrong/empty/non-absolute/control-character args, and an out-of-allowlist CHOWN all refused), the CLI principal guard
-(refuses root and the sandbox account), `ai-tools-run`'s `AI_TOOLS_AGENT_EXEC` / `AI_TOOLS_PROJECT_DIR` re-validation
-and its entrypoint gates (a bad value — or an entrypoint that does not match its pin — is refused before any session
-launches — including a real sibling binary in the same versioned `bin` directory, which is refused because no enabled
-agent manifest claims that launcher, and a non-semver version directory) plus its pinned session-confinement properties
-(`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the claude-code session-env pins (`DISABLE_AUTOUPDATER`,
-`CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE` — asserted by **sourcing** the fragment into the two arrays it is contracted
-to append to, so a fragment that stops appending or appends to a renamed array fails rather than silently costing
-the session its environment), the `settings.json` hook + deny-rule declarations, and SELinux labels (the `claude.exe`
-entrypoint and the handback daemon binary). Every assertion about the shim lives in `ai-tools-run.sh` beside it — its
-input validation, the unit properties it pins, and the session env it sources — so a change to the shim has one file
-to answer to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh` asserts the confinement layer is
-enforcing: when the `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t`
+refusal, fail-closed load of the gate library and, through it, of `safe-paths.lib.sh`, and consultation
+of the protected-paths backstop on the launch CWD), the handback `socket → daemon → helper` chain (including its
+negative paths — unknown verb, wrong/empty/non-absolute/control-character args, and an out-of-allowlist CHOWN all
+refused), the CLI principal guard (refuses root and the sandbox account), `ai-tools-run`'s `AI_TOOLS_AGENT_EXEC` /
+`AI_TOOLS_PROJECT_DIR` re-validation and its entrypoint gates (a bad value — or an entrypoint that does not match its
+pin — is refused before any session launches — including a real sibling binary in the same versioned `bin` directory,
+which is refused because no enabled agent manifest claims that launcher, and a non-semver version directory) plus its
+pinned session-confinement properties (`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the claude-code session-env pins
+(`DISABLE_AUTOUPDATER`, `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE` — asserted by **sourcing** the fragment into the two
+arrays it is contracted to append to, so a fragment that stops appending or appends to a renamed array fails rather than
+silently costing the session its environment), the `settings.json` hook + deny-rule declarations, and SELinux labels
+(the `claude.exe` entrypoint and the handback daemon binary). Every assertion about the shim lives in `ai-tools-run.sh`
+beside it — its input validation, the unit properties it pins, and the session env it sources — so a change to the shim
+has one file to answer to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh` asserts the confinement
+layer is enforcing: when the `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t`
 nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is optional). It also
 holds the two entrypoint assertions that need a labelled host — that each agent's declared file-context rule still
 covers what its package installed, and that no link in the exec chain carries a type the confined domain may manage —

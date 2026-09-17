@@ -28,7 +28,8 @@ cd "${ROOT}"
 # a condition the operator acts on while the component continues, NOTICE progress. Read the live set off the index's
 # emitter column with `awk -F'|' '/MSG-/ {print $7}' .claude/references.md | sort -u`.
 SEVERITY_MAP='
-die=ERROR reject=ERROR refuse=ERROR refuse_early=ERROR err=ERROR say_error=ERROR
+die=ERROR reject=ERROR refuse=ERROR refuse_early=ERROR err=ERROR say_error=ERROR ai_tools_launch_die=ERROR
+_ai_tools_launch_error=ERROR
 ai_tools_msg_error=ERROR die_stop_usage=ERROR reject_with_usage=ERROR coded_refusal=ERROR
 warn=WARNING _ai_tools_provider_warn=WARNING _ai_tools_conf_warn=WARNING say_warn=WARNING
 ai_tools_msg_warn=WARNING

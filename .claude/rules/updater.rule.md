@@ -318,8 +318,8 @@ provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run 
   it — the twin of `ai-tools-base`'s `%posttrans` starting the handback socket — making the watcher live on a fresh
   install without a reboot; it is also restarted across upgrades (`%postun_with_restart`), so it runs without a manual
   bootstrap. Should it be down anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch
-  on a mislabelled entrypoint: proactively at launch (`claude.sh` warns, warn-not-block, from the same registry)
-  and in `ai-tools status` (see [cli](cli.rule.md)).
+  on a mislabelled entrypoint: proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block, from the same
+  registry) and in `ai-tools status` (see [cli](cli.rule.md)).
 - **On demand**, through `sudo ai-tools-admin system entrypoints relabel`, which runs the same helper as root. It is
   an administrator command rather than an operator one: it carries no `%ai-ops` NOPASSWD rule and is reached
   through the host's own general sudo grant, the axis [CLAUDE.md](../../CLAUDE.md) names (see

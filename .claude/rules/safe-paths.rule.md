@@ -75,22 +75,23 @@ by `AI_TOOLS_ASSUME_YES` or by a verb's `-y`, and a run with no terminal decline
 
 Two layers, both fail-closed:
 
-- **Front line** — `claude.sh` refuses to *launch* a session in a protected CWD, and `ai-tools projects claim`
-  (`cmd_project_claim`), `projects create` (`cmd_project_create`), `projects remove` (`cmd_project_remove`)
-  and `projects unclaim` (`cmd_project_unclaim`) each refuse a protected directory as their target, so a mis-entered
-  allowlist neither starts a session nor claims/unclaims a system tree where the handback would act. Unclaim guards each
-  *modification target* (in ancestor mode the search root may be a protected path such as `/home` while the projects
-  nested under it are not). Its `--force` flag does **not** reach this guard: `--force` overrides *allowlist membership
-  only*, and is itself gated on the target carrying the on-disk ai-tools fingerprint, so a protected system directory is
-  refused in both modes. A protected path can never legitimately be a claimed project, so the only cleanup a stray
-  hand-edited entry needs is a registry/label edit, which `ai-tools projects list` reports. `projects create` asserts
-  on the directory it would make, which is the whole surface there since only the final component is ever created: it
-  refuses a create that would *manufacture* a protected directory (`/efi` or `/lost+found` on a host without one). It
-  does not refuse a project nested *inside* a protected tree — descendants pass by design, exactly as for a claim, or no
-  project under a home would work. The clone verbs — `projects push`, and `projects remove` pointed at a clone — add
-  a second front-line for the destructive `rm -rf`: `require_sandbox_clone` calls the backstop **and** requires
-  a direct-child clone of `SANDBOX_ROOT` that is a git worktree, so the shared clone-area root — a *descendant*
-  of the protected `/var`, hence not caught by the backstop alone — is never a removal target.
+- **Front line** — the launch gates every agent's wrapper runs (`launch-wrapper.lib.sh`) refuse to *launch* a session
+  in a protected CWD, and `ai-tools projects claim` (`cmd_project_claim`), `projects create` (`cmd_project_create`),
+  `projects remove` (`cmd_project_remove`) and `projects unclaim` (`cmd_project_unclaim`) each refuse a protected
+  directory as their target, so a mis-entered allowlist neither starts a session nor claims/unclaims a system tree
+  where the handback would act. Unclaim guards each *modification target* (in ancestor mode the search root may be
+  a protected path such as `/home` while the projects nested under it are not). Its `--force` flag does **not** reach
+  this guard: `--force` overrides *allowlist membership only*, and is itself gated on the target carrying the on-disk
+  ai-tools fingerprint, so a protected system directory is refused in both modes. A protected path can never
+  legitimately be a claimed project, so the only cleanup a stray hand-edited entry needs is a registry/label edit,
+  which `ai-tools projects list` reports. `projects create` asserts on the directory it would make, which is the whole
+  surface there since only the final component is ever created: it refuses a create that would *manufacture* a protected
+  directory (`/efi` or `/lost+found` on a host without one). It does not refuse a project nested *inside* a protected
+  tree — descendants pass by design, exactly as for a claim, or no project under a home would work. The clone verbs —
+  `projects push`, and `projects remove` pointed at a clone — add a second front-line for the destructive `rm -rf`:
+  `require_sandbox_clone` calls the backstop **and** requires a direct-child clone of `SANDBOX_ROOT` that is a git
+  worktree, so the shared clone-area root — a *descendant* of the protected `/var`, hence not caught by the backstop
+  alone — is never a removal target.
 - **Last line** — `ai-tools-{chown,reclaim,setgid,setfacl,unclaim,lockdown,relabel}` each call the guard right
   after resolving their canonical target, before any mutation. The walkers (`reclaim`, `setgid`, `setfacl`, `unclaim`)
   refuse the whole pass at the project root, before descending.
@@ -112,10 +113,12 @@ so the protected-path check is in force whenever a consumer runs. Such a consume
 rather than continue with the check absent — a broken or mis-permissioned install yields a refusal, not an unguarded
 operation. Two forms:
 
-- **User-facing entry points (`claude.sh`, `ai-tools`)** source the library and verify its guard functions are defined;
-  on failure they log to journald and print a framed notice naming the likely cause (an untraversable lib dir, a missing
-  or unreadable lib), then exit (`1` for the wrapper's `die`, `3` for the CLI), so an operator reads why the launch
-  or claim stopped.
+- **User-facing entry points (`launch-wrapper.lib.sh` for every agent's wrapper, `ai-tools`)** source the library
+  and verify its guard functions are defined; on failure they log to journald and print a framed notice naming
+  the likely cause (an untraversable lib dir, a missing or unreadable lib), then exit (`1` for the wrapper's `die`, `3`
+  for the CLI), so an operator reads why the launch or claim stopped. A wrapper's own inline check is for the gate
+  library that carries this one: it refuses the same way when that library will not load or lacks the functions it calls
+  ([launch](launch.rule.md)), so the chain fails closed at whichever link is missing.
 - **Root helpers** bare-`source` the library under `set -e`: an unreadable lib aborts the helper, with bash writing
   the path and reason to stderr (journald captures it for a daemon-invoked helper), and a lib that loads without
   defining the guard is refused at the call site (`ai_tools_assert_safe_target … || exit 3`).
