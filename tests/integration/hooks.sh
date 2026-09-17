@@ -177,6 +177,9 @@ print("managed_dir\t%s" % hooks.get("managed_dir", ""))
 for event in ("SessionStart", "PostToolUse", "Stop", "SessionEnd"):
     cmds = [h.get("command", "") for e in hooks.get(event, []) for h in e.get("hooks", [])]
     print("%s\t%s" % (event, "|".join(cmds)))
+for r in doc.get("rules", {}).get("prefix_rules", []):
+    tokens = [e.get("token") or "|".join(e.get("any_of", [])) for e in r.get("pattern", [])]
+    print("rule\t%s => %s" % (" ".join(tokens), r.get("decision", "")))
 PY
 )" || { fail "${codex_requirements} does not parse as TOML -- codex refuses to start on it: ${codex_decl}"; codex_decl=""; }
     if [[ -n "${codex_decl}" ]]; then
@@ -212,7 +215,23 @@ PY
             fi
         done
         ${codex_hooks_ok} && pass "requirements.toml declares SessionStart/PostToolUse/Stop/SessionEnd -> installed codex hook bodies"
-        # (c3) Every declared hook body is installed and executable by the agent: codex skips a hook it cannot run
+        # (c3) The per-command refusals, codex's counterpart to settings.json's irreversible-VCS deny group: the git
+        # verbs that destroy with no undo, which no host control refuses since they run unprivileged in the operator's
+        # own tree. The live file is kept across an upgrade, so what this catches is an edit that dropped a row.
+        codex_rules="$(decl rule)"
+        codex_rules_ok=true
+        for verb in "git push" "git reset --hard" "git clean"; do
+            if ! grep -q "^${verb} " <<<"${codex_rules}"; then
+                fail "requirements.toml [rules] refuses no '${verb}' -- a codex session runs it unprompted"
+                codex_rules_ok=false
+            fi
+        done
+        if grep -q '=> allow$' <<<"${codex_rules}"; then
+            fail "requirements.toml [rules] carries an allow decision, which a requirements rule may not: codex refuses the file"
+            codex_rules_ok=false
+        fi
+        ${codex_rules_ok} && pass "requirements.toml [rules] refuses the git verbs that destroy with no undo"
+        # (c4) Every declared hook body is installed and executable by the agent: codex skips a hook it cannot run
         # without reporting it, so a declaration alone is not the mechanism.
         for hb in "${codex_hook}" "${codex_sweep}"; do
             if [[ -x "${hb}" ]]; then

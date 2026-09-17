@@ -309,6 +309,32 @@ PY
     req 'allowed_permission_profiles.:danger-full-access' 'true' "the profile table lists full access alone"
     req marketplaces.restrict_to_allowed_sources 'true' "marketplaces restricted with no allowed source"
     req hooks.managed_dir "\"${HOOK_LIVE_DIR}\"" "hooks.managed_dir is the agent's config directory"
+    # The per-command refusals. A pattern is an exact argv prefix, so what a row is read as is the tokens in order;
+    # a decision outside prompt/forbidden is what codex refuses, and the direction this file holds is that no row
+    # in the shipped table widens.
+    rule_rows() {
+        toml_get "${REQUIREMENTS}" rules.prefix_rules | python3 -c '
+import json, sys
+for r in json.load(sys.stdin):
+    tokens = [e.get("token") or "|".join(e.get("any_of", [])) for e in r["pattern"]]
+    print(" ".join(tokens), "=>", r["decision"], "=>", "justified" if r.get("justification") else "bare")
+'
+    }
+    rows="$(rule_rows 2>/dev/null || true)"
+    for want in "git push -f|--force|--force-with-lease|--force-if-includes => forbidden => justified" \
+                "git reset --hard => forbidden => justified" \
+                "git clean => forbidden => justified"; do
+        if grep -qxF "${want}" <<< "${rows}"; then
+            pass "requirements.toml: [rules] refuses '${want%% =>*}'"
+        else
+            fail "requirements.toml: [rules] has no row '${want}' -- it holds: $(tr '\n' ';' <<< "${rows}")"
+        fi
+    done
+    if [[ -n "${rows}" ]] && ! grep -q '=> allow =>' <<< "${rows}"; then
+        pass "requirements.toml: every [rules] decision narrows -- prompt or forbidden, never allow"
+    else
+        fail "requirements.toml: a [rules] decision reads allow, which a requirements rule may not carry"
+    fi
     # Each declared event runs the shipped script it names, with the argument the script dispatches on.
     hook_cmd() { toml_get "${REQUIREMENTS}" "hooks.$1" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("\n".join(h["command"] for e in d for h in e.get("hooks", [])))'; }
     hook_timeout() { toml_get "${REQUIREMENTS}" "hooks.$1" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("\n".join(str(h.get("timeout","")) for e in d for h in e.get("hooks", [])))'; }

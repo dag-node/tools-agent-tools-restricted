@@ -63,6 +63,17 @@ that something is misconfigured: the pin turns off a layer that could not run
 here anyway. See [SELinux confinement](../system/selinux.md) and [The boundary,
 and what is out of scope](../about/scope.md).
 
+Three git commands are refused outright, the same ones a Claude Code session is
+refused: `git push --force` (and `-f`, `--force-with-lease`),
+`git reset --hard`, and `git clean`. Each one deletes work that a commit does
+not hold and a reflog does not return, and each runs unprivileged in your own
+tree, where no host control stops it. A refused command is raised
+in the session instead, for you to run where the consequence lands. They are
+the `[rules]` table in `/etc/codex/requirements.toml`, so relaxing a row is
+an edit you own — and a rule there can only narrow what a session may run,
+never widen it. The match is on the command as typed, so a spelling the rows do
+not name (`git push origin main --force`) is not refused.
+
 Turned off by the package, and stated so you know what to expect: Codex's
 sub-agents, MCP servers, plugins and marketplaces, image generation,
 and telemetry. The vendored `rg`, `zsh` and `bwrap` beside the binary are not
@@ -77,7 +88,7 @@ with `sudo`:
 
 | File | Holds |
 |---|---|
-| `/etc/codex/requirements.toml` | what Codex holds every session to, whatever the session sets: the sandbox-mode pin, the approval policy, the login method, and the hooks that hand files back per turn |
+| `/etc/codex/requirements.toml` | what Codex holds every session to, whatever the session sets: the sandbox-mode pin, the approval policy, the login method, the hooks that hand files back per turn, and the git commands refused outright |
 | `/etc/codex/managed_config.toml` | the defaults applied ahead of any user config: telemetry off, the update check off, and two commented keys for a custom instructions file and a custom API endpoint |
 
 An edit survives an upgrade, which leaves the live file in place: a newer copy
