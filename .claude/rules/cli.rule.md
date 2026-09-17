@@ -47,20 +47,29 @@ instead.
 
 ## Bootstrap preflight
 
-A single `require_bootstrap` gate runs **before dispatch**: it keys on a launcher symlink under `/opt/ai-tools/bin` —
-bootstrap's last load-bearing artifact, written after the account, Node, and the agent package all succeed — so its
-presence means provisioning finished, and its absence fails the CLI fast with the provisioning hint rather than
-mid-operation in a root helper. It is the same symlink the launch wrapper gates on, so both entry points share one
-definition of "provisioned". Every command that acts on the toolchain is behind the gate. `BOOTSTRAP_EXEMPT_VERBS` names
-what bypasses it, in two groups.
+A single `require_bootstrap` gate runs **before dispatch**: it keys on the enabled agents' launcher symlinks
+under `/opt/ai-tools/bin` — bootstrap's last load-bearing artifact per agent, written after the account, Node,
+and that agent's package all succeed — so one existing for any enabled agent means provisioning finished, and none fails
+the CLI fast with the provisioning hint rather than mid-operation in a root helper. The enabled set comes
+from `ai_tools_enabled_agents` ([providers](providers.rule.md)), the resolver the toolchain and `ai-tools-run` provision
+from, so the CLI does not name an agent of its own and a host that enables one agent, or several, is read the same way;
+each launch wrapper gates on its own agent's link, so the two entry points share one definition of "provisioned". Every
+way the read can fail **refuses rather than passes**: a resolver library that will not load (`MSG-V3N7`), an enabled set
+none of whose links exist (`MSG-X9H7`, naming each agent and the bootstrap command), and an empty enabled set
+(`MSG-K7A6`, carrying `ai_tools_agents_empty_verdict`'s reason — an input the trust predicate refused, an allowlisted
+name with no manifest, or a configuration that asks for no agent). The set is resolved once per run and read again
+by `status` and by the clone verb's next-step hint, which prints one launch command per enabled agent.
+`AI_TOOLS_LAUNCHER_DIR` moves the directory the links are read from — the operator-settable hook of the family the CLI's
+header states, since what it moves is a report and an early refusal and never an access decision;
+`tests/unit/cli-agent-set.sh` drives the gate through it. Every command that acts on the toolchain is behind the gate.
+`BOOTSTRAP_EXEMPT_VERBS` names what bypasses it, in two groups.
 
 The **diagnostics** are exempt because each is meant for a host that may be broken: `status` reports the unprovisioned
 state itself, since a health check must run precisely when provisioning may have failed; `audit` reads a record
 of what already happened, which an install that never finished does not invalidate — a failed provisioning is
 when that record is most worth reading; and `stop` ends sessions **already running**, which it does without reading
-the toolchain. That last one matters because of the gate's own coupling: keying on one agent's launcher symlink would
-otherwise put the incident ladder's last rung out of reach on a host that enables a different agent, or that lost
-the symlink while sessions were live.
+the toolchain. That last one matters because of what the gate reads: a host that lost its launcher symlinks while
+sessions were live must still reach the incident ladder's last rung.
 
 `--help`, `--version` and the bare invocation are exempt because they describe **the CLI** rather than the toolchain:
 `usage()` and `AI_TOOLS_VERSION` read no installed state. The gate's own refusal names
@@ -71,10 +80,11 @@ far from the table it reads and the failure appears only on an unprovisioned hos
 The set stays narrower than `ROOT_ALLOWED_VERBS`: `projects list` and `providers` describe a toolchain that has to exist
 first, so they stay behind the gate.
 
-**The gate names one agent.** `CLAUDE_LINK` is the literal `/opt/ai-tools/bin/claude`, so a host that enables
-a different agent and disables `claude-code` has a provisioned toolchain the CLI refuses to act on. This is the one
-place the otherwise agent-agnostic CLI is coupled to a specific provider; the sentinel it needs is a launcher symlink
-for *any* enabled agent, which `ai_tools_enabled_agents` already resolves ([providers](providers.rule.md)).
+**`status` reports the same read, per agent.** Its Provisioning section prints one line per enabled agent, provisioned
+or not, from the same resolver and the same link the gate keys on, so the gate's refusal and the diagnostic cannot
+disagree about which agent lacks its link; an unprovisioned agent and an empty enabled set are reported and not counted
+toward the exit status, since an unfinished install is what the section exists to say, while a resolver that cannot be
+read is a broken install and is counted.
 
 ## Operator preflight
 
@@ -335,17 +345,18 @@ an ordinary account read it — a partial view, the file sink being the authorit
   stop ends every operator's sessions — a stated consequence, not an oversight, since `--all` does not take
   an authorization input either. Everything is recorded to `stop.log` and journald, including which path gave consent
   and which pass ended each session. Exit codes are in `ai-tools(1)`.
-- `status` — read-only health report: the installed `ai-tools` version, whether the toolchain is provisioned, **where
-  this shell finds each enabled agent's launcher**, then each managed systemd unit (`ai-tools-handback.socket`,
-  `ai-tools-relabel.path` and the `ai-tools-relabel.service` it triggers, and the sandbox account's `nvm-update.timer`
-  and `nvm-update.service`) as OK / SKIPPED / STALE / DOWN / FAILED / not-installed, with the consequence and the exact
-  remedy for anything broken, and a closing **More** block that points at the sibling reports (`providers`,
-  `projects list`, `--help`) without repeating their detail — so it reads as a hub. It resolves
-  through `services.lib.sh` — the **same registry** the launch wrapper's pre-launch health warning reads (`claude.sh`,
-  see [launch](launch.rule.md)) — so the status view and the launch warning never disagree on which units matter
-  or how to fix one. `status` is the one command that **bypasses the bootstrap gate** (see [Bootstrap
-  preflight](#bootstrap-preflight)): a diagnostic must run when things may be broken, so it reports the unprovisioned
-  state rather than being blocked by it.
+- `status` — read-only health report: the installed `ai-tools` version, a version pointer per enabled agent
+  whose wrapper is installed, which enabled agents are provisioned (one line each, from the read the bootstrap gate
+  makes — see [Bootstrap preflight](#bootstrap-preflight)), **where this shell finds each enabled agent's launcher**,
+  then each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path` and the `ai-tools-relabel.service`
+  it triggers, and the sandbox account's `nvm-update.timer` and `nvm-update.service`) as OK / SKIPPED / STALE / DOWN /
+  FAILED / not-installed, with the consequence and the exact remedy for anything broken, and a closing **More** block
+  that points at the sibling reports (`providers`, `projects list`, `--help`) without repeating their detail — so it
+  reads as a hub. It resolves through `services.lib.sh` — the **same registry** the launch wrapper's pre-launch health
+  warning reads (`claude.sh`, see [launch](launch.rule.md)) — so the status view and the launch warning never disagree
+  on which units matter or how to fix one. `status` is the one command that **bypasses the bootstrap gate** (see
+  [Bootstrap preflight](#bootstrap-preflight)): a diagnostic must run when things may be broken, so it reports
+  the unprovisioned state rather than being blocked by it.
 
   The PATH-ordering line is the one reading this report makes that needs **no** privilege and that no other vantage can
   make at all: the CLI runs in the operator's own login shell, so `command -v` there resolves exactly what typing

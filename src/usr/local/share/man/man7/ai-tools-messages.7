@@ -110,6 +110,10 @@ the parent directory does not exist: ${parent}
 ERROR.
 this path is inside a claimed project, not a project itself: ${d}
 .TP
+.B MSG-K7A6
+ERROR.
+no agent is enabled or resolved, so there is no agent to provision a project for \-\- ${reason}
+.TP
 .B MSG-K7D9
 ERROR.
 projects remove \-y needs a path.
@@ -182,6 +186,10 @@ ERROR.
 ERROR.
 this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}.
 .TP
+.B MSG-V3N7
+ERROR.
+the provider resolver is unavailable: ${ENABLED_AGENTS_ERROR}
+.TP
 .B MSG-W3H3
 ERROR.
 not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d}
@@ -203,6 +211,10 @@ this is an excluded path inside a claimed project, not a disabled project: ${d}
 .B MSG-X6U2
 ERROR.
 you (${INVOKING_USER}) are not a configured ai\-tools operator \-\- add your name to OPERATORS in ${conf} with:
+.TP
+.B MSG-X9H7
+ERROR.
+the sandbox is not provisioned for any enabled agent: ${joined%, } \-\- provision it with:
 .TP
 .B MSG-Z6Q6
 ERROR.

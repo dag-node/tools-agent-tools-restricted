@@ -65,9 +65,12 @@ readonly AI_TOOLS_VERSION
 # directory that is, and the protected-paths backstop still refuses a system directory there.
 readonly GITCONFIG="${AI_TOOLS_GITCONFIG:-/opt/ai-tools/.gitconfig}"
 readonly SANDBOX_ROOT="${AI_TOOLS_SANDBOX_ROOT:-/var/opt/ai-tools/sandbox-projects}"
-# Bootstrap's last load-bearing artifact -- the require_bootstrap gate keys on it. Same symlink the launch wrapper
-# resolves; kept identical to claude.sh's CLAUDE_LINK.
-readonly CLAUDE_LINK="/opt/ai-tools/bin/claude"
+# Where bootstrap writes each enabled agent's stable launcher symlink, its last load-bearing artifact per agent:
+# the require_bootstrap gate and `status` key on those links, and each launch wrapper resolves its own.
+# AI_TOOLS_LAUNCHER_DIR is the hook relabel.lib.sh reads for the same directory, operator-settable here like
+# AI_TOOLS_GITCONFIG, AI_TOOLS_ALLOWLIST and AI_TOOLS_SANDBOX_ROOT: what it moves is a report and an early refusal, no
+# access decision reads it, and the sandbox account is refused before it is read.
+readonly LAUNCHER_DIR="${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
 # Root-only secret lockdown helper. Invoked via sudo (NO NOPASSWD grant exists for it -- by design), so sudo prompts
 # for the projects user's password.
 readonly LOCKDOWN_BIN="/usr/local/libexec/ai-tools/ai-tools-lockdown"
@@ -131,12 +134,12 @@ readonly ROOT_ALLOWED_VERBS=("audit" "status" "projects list" "providers list" "
 # BOOTSTRAP_EXEMPT_VERBS -- what runs on an unprovisioned host. Deliberately NOT ROOT_ALLOWED_VERBS: each of these is
 # meant for a host that may be broken (`status` reports the unprovisioned state itself; `audit` reads a historical
 # trail, which an install that never finished does not invalidate; `stop` ends sessions already running, and does not
-# read toolchain state to do it -- the gate keys on ONE agent's launcher symlink, so leaving `stop` behind it would put
-# the incident ladder's last rung out of reach on a host that enables a different agent, or that lost that symlink while
-# sessions were running). `--help`, `--version` and the bare invocation describe the CLI rather than the toolchain --
-# usage() and AI_TOOLS_VERSION read no installed state -- and gating them leaves a caller who cannot print the usage
-# with only the gate's own message to find the provisioning command by. `projects list` and `providers list` describe
-# a toolchain that has to exist first and stay behind the gate.
+# read toolchain state to do it -- the gate keys on the enabled agents' launcher symlinks, so leaving `stop` behind it
+# would put the incident ladder's last rung out of reach on a host that lost them while sessions were running).
+# `--help`, `--version` and the bare invocation describe the CLI rather than the toolchain -- usage()
+# and AI_TOOLS_VERSION read no installed state -- and gating them leaves a caller who cannot print the usage with only
+# the gate's own message to find the provisioning command by. `projects list` and `providers list` describe a toolchain
+# that has to exist first and stay behind the gate.
 readonly BOOTSTRAP_EXEMPT_VERBS=("status" "audit" "stop" "--help" "--version")
 # OPERATOR_VERBS -- what only an enrolled operator may run. The criterion is ACTS AS AN OPERATOR: the verb resolves
 # the caller's identity out of OPERATORS somewhere in its call chain (the root helpers do, via operator.lib.sh),
@@ -3033,7 +3036,12 @@ sandbox_finalize() {
         "AI_TOOLS_PROJECT=${dst}" "AI_TOOLS_RESULT=ok"
 
     section "Next"
-    say "  run the agent  : ${C_BOLD}cd ${dst} && claude${C_RST}"
+    # One line per enabled agent: the gate resolved the set before dispatch, so it is read, never re-resolved, here.
+    local agent_launcher
+    resolve_enabled_agents || true
+    while IFS= read -r agent_launcher; do
+        say "  run the agent  : ${C_BOLD}cd ${dst} && ${agent_launcher}${C_RST}"
+    done < <(enabled_agent_launchers)
     say "  push its work  : ${C_BOLD}ai-tools projects push ${dst}${C_RST}"
     say "  ${C_YEL}shallow${C_RST}        : push-only -- never git pull/fetch here, or you pull the full history"
 }
@@ -3896,6 +3904,34 @@ status_entrypoint_label() {
     return 0
 }
 
+# status_provisioning -- the Provisioning section: one line per enabled agent, provisioned or not, keyed on the same
+# launcher symlink the bootstrap gate reads (bootstrap's last artifact per agent), so the gate's refusal and this report
+# cannot disagree about which agent lacks its link. An unprovisioned agent and an empty enabled set are reported and not
+# counted: an unfinished install is what this section exists to say, not a fault in a finished one. Returns non-zero
+# only when the enabled agents cannot be read at all, which is a broken install, like a missing service registry.
+status_provisioning() {
+    local rec agent_name launcher reason
+    section "Provisioning"
+    if ! resolve_enabled_agents; then
+        say "  ${C_YEL}cannot read the enabled agents${C_RST} -- ${ENABLED_AGENTS_ERROR}"
+        return 1
+    fi
+    if (( ${#ENABLED_AGENTS[@]} == 0 )); then
+        IFS=$'\t' read -r _ reason <<<"$(ai_tools_agents_empty_verdict)"
+        say "  ${C_YEL}no agent enabled${C_RST} -- ${reason}"
+        return 0
+    fi
+    for rec in "${ENABLED_AGENTS[@]}"; do
+        IFS=$'\t' read -r agent_name _ launcher <<<"${rec}"
+        if agent_provisioned "${launcher}"; then
+            ok "${agent_name} provisioned (${launcher})"
+        else
+            say "  ${C_YEL}${agent_name} not provisioned${C_RST} -- run: ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"
+        fi
+    done
+    return 0
+}
+
 cmd_status() {
     local problems=0
 
@@ -3913,20 +3949,22 @@ cmd_status() {
         done < <(ai_tools_service_records)
     fi
     [[ -n "${node_ver}" ]] && say "  node ${node_ver} ${C_DIM}(as of the last toolchain update)${C_RST}"
-    # Through ai_tools_cmd_display, so the command printed here is the one that reaches the sandbox: it renders the bare
-    # name only while this shell resolves it to the wrapper, and the absolute path otherwise. On a shadowed account
-    # the bare name resolves to the binary the PATH ordering section reports, so this line prints the wrapper's own path
-    # instead of sending them there.
-    say "  ${C_DIM}agent version: run '$(ai_tools_cmd_display /usr/local/bin/claude) --version'${C_RST}"
-
-    section "Provisioning"
-    # CLAUDE_LINK is bootstrap's last artifact (the gate require_bootstrap keys on), so its presence means the toolchain
-    # is installed.
-    if [[ -L "${CLAUDE_LINK}" ]]; then
-        ok "toolchain provisioned"
-    else
-        say "  ${C_YEL}not provisioned${C_RST} -- run: ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"
+    # One pointer per enabled agent whose wrapper this host installs (an agent without one is the PATH ordering
+    # section's to report). Through ai_tools_cmd_display, so the command printed here is the one that reaches
+    # the sandbox: it renders the bare name only while this shell resolves it to the wrapper, and the absolute path
+    # otherwise. On a shadowed account the bare name resolves to the binary the PATH ordering section reports, so this
+    # line prints the wrapper's own path instead of sending them there.
+    local rec agent_name launcher agents_read=1
+    resolve_enabled_agents || agents_read=0
+    if (( agents_read )); then
+        for rec in "${ENABLED_AGENTS[@]+"${ENABLED_AGENTS[@]}"}"; do
+            IFS=$'\t' read -r agent_name _ launcher <<<"${rec}"
+            [[ -x "/usr/local/bin/${launcher}" ]] || continue
+            say "  ${C_DIM}${agent_name} version: run '$(ai_tools_cmd_display "/usr/local/bin/${launcher}") --version'${C_RST}"
+        done
     fi
+
+    status_provisioning || problems=$(( problems + 1 ))
 
     section "Services"
     # A missing registry is a broken install, not an unknowable state, so this is one of the conditions `status` exits
@@ -4230,14 +4268,71 @@ ai-tools -- manage the projects a sandboxed coding agent may work in
 EOF
 }
 
-# Refuse early on an unprovisioned install. CLAUDE_LINK is bootstrap's last load-bearing artifact -- written
-# after the account, Node, and the agent package all succeed -- so its presence means provisioning finished. Gate
-# before dispatch so a broken install stops here, not mid-operation in a root helper. -L avoids dereferencing the 700
-# package dir the operator cannot traverse. See cli.rule.md (Bootstrap preflight).
+# ── The enabled agents: what the provisioning gate, `status` and the clone hint resolve from ──────────────────────
+# resolve_enabled_agents -- fill ENABLED_AGENTS with one "name<TAB>npm_package<TAB>launcher" line per enabled installed
+# agent, from providers.lib.sh: the resolver ai-tools-run and the toolchain layer provision from, so this CLI does not
+# name an agent of its own and a host that enables one agent, or several, is read the same way. Cached, since the gate,
+# `status` and the clone hint each read it once per run. Returns non-zero when the library will not load,
+# with ENABLED_AGENTS_ERROR naming it, so the gate refuses and the diagnostic says so; neither reads an empty set as "no
+# agent" on that failure.
+ENABLED_AGENTS=(); ENABLED_AGENTS_ERROR=""
+resolve_enabled_agents() {
+    if [[ -n "${_ENABLED_AGENTS_RESOLVED:-}" ]]; then [[ -z "${ENABLED_AGENTS_ERROR}" ]]; return; fi
+    _ENABLED_AGENTS_RESOLVED=1
+    local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/providers.lib.sh
+    if ! source "${providers_lib}" 2>/dev/null \
+            || ! declare -F ai_tools_enabled_agents      >/dev/null 2>&1 \
+            || ! declare -F ai_tools_agents_empty_verdict >/dev/null 2>&1; then
+        ENABLED_AGENTS_ERROR="cannot load ${providers_lib} -- reinstall the ai-tools package"
+        return 1
+    fi
+    mapfile -t ENABLED_AGENTS < <(ai_tools_enabled_agents)
+    return 0
+}
+
+# enabled_agent_launchers -- one launcher name per enabled agent, in manifest order, on stdout.
+enabled_agent_launchers() {
+    local rec launcher
+    for rec in "${ENABLED_AGENTS[@]+"${ENABLED_AGENTS[@]}"}"; do
+        IFS=$'\t' read -r _ _ launcher <<<"${rec}"
+        [[ -n "${launcher}" ]] && printf '%s\n' "${launcher}"
+    done
+    return 0
+}
+
+# agent_provisioned <launcher> -- succeed when that agent's stable launcher symlink exists. `-L`, not `-e`: `-e`
+# dereferences into the 0750 toolchain, where the operator's stat fails with EACCES, and reports a valid link
+# as missing.
+agent_provisioned() { [[ -L "${LAUNCHER_DIR}/$1" ]]; }
+
+# Refuse early on an unprovisioned install. A launcher symlink is bootstrap's last load-bearing artifact per agent --
+# written after the account, Node and that agent's package all succeed -- so one existing for any enabled agent means
+# provisioning finished. Gate before dispatch so a broken install stops here, not mid-operation in a root helper. Each
+# way the read can fail refuses rather than passes: an unloadable resolver, an enabled set none of whose links exist,
+# and an empty enabled set, whose reason the resolver's verdict names (an input it refused, or a configuration that asks
+# for no agent). See cli.rule.md (Bootstrap preflight).
 require_bootstrap() {
-    [[ -L "${CLAUDE_LINK}" ]] && return 0
-    die "the sandbox is not provisioned (no ${CLAUDE_LINK}) -- provision it with:" \
-        "       sudo ai-tools-admin system bootstrap"
+    resolve_enabled_agents || die MSG-V3N7 "the provider resolver is unavailable: ${ENABLED_AGENTS_ERROR}"
+    local rec name launcher verdict reason remedy joined
+    local -a unlinked=()
+    for rec in "${ENABLED_AGENTS[@]+"${ENABLED_AGENTS[@]}"}"; do
+        IFS=$'\t' read -r name _ launcher <<<"${rec}"
+        agent_provisioned "${launcher}" && return 0
+        unlinked+=("${name} (no ${LAUNCHER_DIR}/${launcher})")
+    done
+    if (( ${#unlinked[@]} > 0 )); then
+        printf -v joined '%s, ' "${unlinked[@]}"
+        die MSG-X9H7 "the sandbox is not provisioned for any enabled agent: ${joined%, } -- provision it with:" \
+            "       sudo ai-tools-admin system bootstrap"
+    fi
+    IFS=$'\t' read -r verdict reason <<<"$(ai_tools_agents_empty_verdict)"
+    case "${verdict}" in
+        none) remedy="       enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), or install an ai-tools-agents package" ;;
+        *)    remedy="       repair the input named there, then rerun" ;;
+    esac
+    die MSG-K7A6 "no agent is enabled or resolved, so there is no agent to provision a project for -- ${reason}" \
+        "${remedy}"
 }
 
 # When this file is SOURCED rather than executed (tests/unit/sandbox.sh loads it to exercise the pure sandbox_*
