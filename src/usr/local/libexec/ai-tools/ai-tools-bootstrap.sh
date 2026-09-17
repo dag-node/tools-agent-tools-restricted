@@ -522,9 +522,10 @@ configure_git_identity
 report_shadowed_operators
 
 # Bootstrap runs in either order relative to the control plane: after a package/install.sh deploy (the common flow --
-# the wrapper is already present), or before it on a from-source host. Name the step that is actually still outstanding
-# rather than assuming one order.
-if [[ -x /usr/local/bin/claude ]]; then
+# the CLI is already present), or before it on a from-source host. Name the step that is actually still outstanding
+# rather than assuming one order. The CLI is the sentinel because base ships it whichever agents a host installs;
+# an agent's wrapper would read a host that enabled another agent as undeployed.
+if [[ -x /usr/local/bin/ai-tools ]]; then
     log "next: enrol an operator -- sudo ai-tools-admin operators add <user>"
 else
     log "next: deploy the control plane -- sudo ./install.sh install   (or install the RPM)"
