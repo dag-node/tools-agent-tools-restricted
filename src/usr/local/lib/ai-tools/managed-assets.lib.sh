@@ -334,7 +334,7 @@ ai_tools_link_shared_assets() {
     done
 
     # Drop links into the shared root whose skill no longer ships, so a removed skill does not leave a dangling entry
-    # the agent would try to read. A link pointing anywhere else is not ours and is left alone.
+    # the agent would try to read. A link pointing anywhere else is the host's and is left alone.
     for dst in "${agent_dir}"/*; do
         [[ -L "${dst}" ]] || continue
         src="$(readlink -- "${dst}")"
@@ -396,7 +396,7 @@ ai_tools_link_asset_readme() {
 # at the shared root, without displacing what the host holds there. The path's state decides, and every state
 # but the first leaves what the host placed exactly as it was:
 #   * absent                                  -> a symlink to the shared root, reported as created
-#   * a symlink to the shared root            -> ours; current, left alone
+#   * a symlink to the shared root            -> managed; current, left alone
 #   * a symlink anywhere else                 -> the host's; left alone and reported, no link placed
 #   * a real directory                        -> the host's own assets; kept as it is (owner, mode and entries
 #                                                untouched), and the shared assets linked INTO it one per free name.
@@ -405,10 +405,10 @@ ai_tools_link_asset_readme() {
 #                                                root whose asset no longer ships is removed, as the per-agent linker
 #                                                removes it. The kind's README is linked only under a free name.
 #   * a regular file                          -> kept and reported; no link placed
-# The predicate for "ours" is the link target: the shared root itself, or a path under it. Idempotent; a refresh reports
-# a current link as current. The links are root-owned, so a session reads what the operator installed and cannot repoint
-# one; the directory's own owner and mode are never rewritten, which is what lets an unprivileged caller drive every
-# state (the unit test) and what keeps a host-owned directory the host's.
+# The predicate for a managed link is its target: the shared root itself, or a path under it. Idempotent; a refresh
+# reports a current link as current. The links are root-owned, so a session reads what the operator installed and cannot
+# repoint one; the directory's own owner and mode are never rewritten, which is what lets an unprivileged caller drive
+# every state (the unit test) and what keeps a host-owned directory the host's.
 ai_tools_link_shared_root() {
     local shared_root="$1" path="$2" group="$3" readme_source="${4:-}"
     local name="${path##*/}" target src entry dst
@@ -443,8 +443,8 @@ ai_tools_link_shared_root() {
                 _ai_tools_ma_say "${entry} linked -> ${src}"
             fi
         done
-        # A link into the shared root whose asset no longer ships is ours and dangling: drop it, as the per-agent linker
-        # does. A link anywhere else is the host's and is left alone whatever it points at.
+        # A link into the shared root whose asset no longer ships is managed and dangling: drop it, as the per-agent
+        # linker does. A link anywhere else is the host's and is left alone whatever it points at.
         for dst in "${path}"/*; do
             [[ -L "${dst}" ]] || continue
             target="$(readlink -- "${dst}")"
@@ -475,7 +475,7 @@ ai_tools_link_shared_root() {
 }
 
 # ai_tools_unlink_shared_root <shared_root> <path> [readme_source] Reverse ai_tools_link_shared_root for a package being
-# erased: remove the path when it is our link to the shared root, and remove our links INTO the shared root (and
+# erased: remove the path when it is the managed link to the shared root, and remove the managed links INTO it (and
 # the README link at the source given) from a host-owned directory there, leaving the directory and everything else
 # in it. A link elsewhere, a real entry, and the directory itself are the host's and are not touched. Reports each
 # removal.

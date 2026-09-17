@@ -341,7 +341,7 @@ install_packages() {
     # top-level package still unreviewed (advisory today, blocking in a future npm). approve-scripts cannot persist this
     # for us (it errors EGLOBAL on global installs), so we approve per invocation with `--allow-scripts`, passing
     # the FULL managed set on EVERY call: covering only the package being installed leaves its siblings (e.g.
-    # claude-code's required postinstall) flagged. Scoped to our named tools by the caller's list, never a blanket
+    # claude-code's required postinstall) flagged. Scoped to the named tools by the caller's list, never a blanket
     # `--dangerously-allow-all-scripts`.
     for pkg in "$@"; do
         if npm list -g --depth=0 "${pkg}" &>/dev/null; then

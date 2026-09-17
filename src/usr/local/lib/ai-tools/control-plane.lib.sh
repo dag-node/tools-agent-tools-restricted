@@ -92,7 +92,7 @@ ai_tools_agent_config_dir_valid() {
 # ai_tools_agent_asset_dirs <manifest-field> : print "agent<TAB>absolute-path" for the directory
 #   every ENABLED agent declares in <manifest-field> (skills_dir, subagents_dir) -- a single
 #   component inside that agent's config directory, so the agent names WHERE its own product
-#   expects a kind of asset while the layout under the home stays ours. An agent that declares
+#   expects a kind of asset while the layout under the home stays the base package's. An agent that declares
 #   none is given no links of that kind: the shared assets are in the Claude Code format, which
 #   an agent that cannot read it leaves unset.
 ai_tools_agent_asset_dirs() {

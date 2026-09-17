@@ -333,7 +333,7 @@ nvm alias default "${NODE_MAJOR}"
 # @anthropic-ai/claude-code fetches and wires its platform-native binary there (node
 # install.cjs); blocked, the JS launcher installs but exits "native binary not installed" at
 # every launch. npm re-scans the WHOLE global tree on each install, so the allowlist must cover
-# the full set on every call (mirrors nvm-update.sh's install_packages) -- scoped to our named
+# the full set on every call (mirrors nvm-update.sh's install_packages) -- scoped to the named
 # agents, never `--dangerously-allow-all-scripts`. With no agents enabled, Node is provisioned bare.
 read -ra agent_packages <<< "${AGENT_PACKAGES}"
 if [ "${#agent_packages[@]}" -gt 0 ]; then

@@ -56,8 +56,8 @@ def main():
                 for line in sf:
                     line = line.rstrip('\n')
                     if line.startswith('MSG '):
-                        # Relay helper stderr (NOTICEs, warnings) to our stderr so the calling hook surfaces them
-                        # in the agent's session.
+                        # Relay helper stderr (NOTICEs, warnings) to this client's stderr so the calling hook surfaces
+                        # them in the agent's session.
                         sys.stderr.write(line[4:] + '\n')
                     elif line == 'OK':
                         sys.exit(0)

@@ -202,11 +202,11 @@ the vocabulary:
   so it lives in `/opt/ai-tools/subagents` beside `skills`.
 
 Claude Code calls the second one "agents" and reads them
-from `<config dir>/agents/`. That is the vendor's layout, not our vocabulary:
-the manifest maps between them (`subagents_dir=agents`), so our name is
-unambiguous and the product still finds its files where it expects. Use
-"subagent" in prose, in path names, and in identifiers everywhere this project
-controls the name.
+from `<config dir>/agents/`. That is the vendor's layout, not this project's
+vocabulary: the manifest maps between them (`subagents_dir=agents`),
+so the project's name is unambiguous and the product still finds its files
+where it expects. Use "subagent" in prose, in path names, and in identifiers
+everywhere this project controls the name.
 
 ## Orientation vs memory
 

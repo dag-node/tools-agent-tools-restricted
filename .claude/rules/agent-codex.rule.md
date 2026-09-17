@@ -24,7 +24,7 @@ a sudoers rule: it inherits the single `%ai-ops` grant on the shared shim. `inst
 from the source tree, beside the claude-code ones, and runs what the package's `%post` runs — the `3770` mode
 of the config directory, the skills link, the orientation link — so a from-source host carries the package whole; its
 `uninstall` removes the wrapper, the hooks, the managed files and the pristine copies, and the skills link where it is
-ours, leaving the agent's state under `.codex` as it leaves claude's.
+managed, leaving the agent's state under `.codex` as it leaves claude's.
 
 ## The boundary is the host's; codex's configuration is not a security control
 
@@ -191,7 +191,7 @@ the host's own skills, kept as they are, with the shared assets linked into it o
 to the host. Nothing under `/etc/codex` carries a guarantee, so a host-owned entry there can only reduce what a session
 loads, never widen access. Codex lists a skill placed there to the model whether the path is a symlink to the shared
 root, a directory of per-asset symlinks, or a copy — measured, which is why the lightest link ships. Erasing the package
-removes the link to the shared root, or our links inside a host-owned directory, and no other entry. The link is
+removes the link to the shared root, or the managed links inside a host-owned directory, and no other entry. The link is
 deliberately not in the package's file list: a listed path would be written over whatever a host holds there.
 
 The orientation text is linked as `/opt/ai-tools/.codex/AGENTS.md`, the global-scope instructions codex reads

@@ -133,12 +133,12 @@ a path at the shared root without displacing anything, on the state the path is 
 root; **a symlink to the shared root** → current; **a symlink elsewhere** → the host's, left alone and reported; **a
 real directory** → the host's own assets, kept exactly as they are (owner, mode and entries untouched), with the shared
 assets linked into it one per free name and a name the host holds left to the host and reported — the per-asset rule
-of `ai_tools_link_shared_assets`, minus the repointing of a link, which inside a host-owned directory is not ours to do;
-**a regular file** → kept and reported. A link into the shared root whose asset no longer ships is removed,
+of `ai_tools_link_shared_assets`, minus the repointing of a link, which inside a host-owned directory the linker leaves
+to the host; **a regular file** → kept and reported. A link into the shared root whose asset no longer ships is removed,
 as the per-agent linker removes it; the kind's README is linked only under a free name. The reverse for a package being
-erased, `ai_tools_unlink_shared_root`, removes the link to the shared root or our links inside the host's directory
-and no other entry. Neither function re-owns or re-modes what it finds, so `tests/unit/shared-root.sh` drives every
-state without root. Which agent takes this shape, and why the path is not in that package's file list, is
+erased, `ai_tools_unlink_shared_root`, removes the link to the shared root or the managed links inside the host's
+directory and no other entry. Neither function re-owns or re-modes what it finds, so `tests/unit/shared-root.sh` drives
+every state without root. Which agent takes this shape, and why the path is not in that package's file list, is
 in [agent-codex](agent-codex.rule.md).
 
 ## Namespace

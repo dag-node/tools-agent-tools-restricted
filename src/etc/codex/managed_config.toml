@@ -1,16 +1,18 @@
 # /etc/codex/managed_config.toml -- the defaults codex applies on every
-# start, ahead of a user's own config.toml: the sandbox mode and the
-# approval policy the requirements file pins, the update check off (the
-# nvm-update timer maintains the toolchain), sub-agents off, and the
-# telemetry opt-outs. Shipped by ai-tools-agents-codex-restricted as
-# 0644 root:root and kept across an upgrade; a newer copy lands beside
-# it as managed_config.toml.rpmnew.
+# start, ahead of a user's own config.toml. Shipped by
+# ai-tools-agents-codex-restricted as 0644 root:root and kept across an
+# upgrade; a newer copy lands beside it as managed_config.toml.rpmnew.
 #
-# The keys were measured against codex-cli 0.154.0, and a release that
-# takes other keys refuses to start: the remedy is editing this file,
-# never a change to the host's boundary (see requirements.toml). The
-# opt-outs are dispositional -- a release that reads other keys posts
-# again -- and the session's confinement does not depend on them.
+# sandbox_mode names CODEX's own sandbox, not the host's. That sandbox
+# is bubblewrap, which needs a user namespace the session unit refuses,
+# so the mode codex labels YOLO in its banner turns codex's layer off
+# and leaves the session confined the way a claude session is: by DAC,
+# the ai_tools_t domain, and the unit's properties. requirements.toml
+# beside this file is where the mode is pinned.
+#
+# What each key does, what an operator may change, and what a release
+# that renames one costs: the Codex page in the shipped documentation
+# and ai-tools-providers(5).
 #
 # Bare keys stay AHEAD OF the first table header: a bare key after one
 # is that table's key and is ignored.
