@@ -535,13 +535,15 @@ out="$(bash "${HOOKS}/session-hook.sh" <<<'{"hook_event_name":"Stop"}' 2>&1)" &&
 [[ "${src_rc}" -eq 0 && -z "${out}" ]] \
     && pass "session-hook.sh with no cwd exits 0 silently" \
     || fail "session-hook.sh with no cwd exited ${src_rc}: ${out}"
-# The SessionStart reply carries the context under both spellings a codex release may read. The session hook is sourced
-# in a shell of its own: its readonly constants share names with the adapter already sourced here.
+# The SessionStart reply carries the context in the envelope and in no other key: codex 0.154 rejects the whole reply
+# over a top-level `additionalContext`, so the extra spelling costs the relay rather than buying a release's reading.
+# The session hook is sourced in a shell of its own: its readonly constants share names with the adapter already sourced
+# here.
 reply="$(bash -c 'source "$1"; emit_session_context hello' _ "${HOOKS}/session-hook.sh" 2>/dev/null)"
-[[ "$(jq -r '.additionalContext' <<<"${reply}")" == "hello" \
-        && "$(jq -r '.hookSpecificOutput.additionalContext' <<<"${reply}")" == "hello" \
-        && "$(jq -r '.hookSpecificOutput.hookEventName' <<<"${reply}")" == "SessionStart" ]] 2>/dev/null \
-    && pass "emit_session_context carries the text as additionalContext at the top level and in hookSpecificOutput" \
+[[ "$(jq -r '.hookSpecificOutput.additionalContext' <<<"${reply}")" == "hello" \
+        && "$(jq -r '.hookSpecificOutput.hookEventName' <<<"${reply}")" == "SessionStart" \
+        && "$(jq -r 'keys == ["hookSpecificOutput"]' <<<"${reply}")" == true ]] 2>/dev/null \
+    && pass "emit_session_context carries the text as hookSpecificOutput.additionalContext, and carries no other key" \
     || fail "emit_session_context's reply is wrong: ${reply}"
 
 finish
