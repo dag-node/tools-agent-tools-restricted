@@ -634,6 +634,25 @@ and asserted idempotent on a second run and re-linked after npm's link is put ba
 install. It is pure — the version directory, launcher, target and pattern are arguments — and runs without root; its
 fixtures need the executable bit visible, so it takes `agent-installs.sh`'s probe and fallback.
 
+`codex-package.sh` pins the files `ai-tools-agents-codex-restricted` ships to the seams they plug into, before any host
+installs them ([agent-codex](agent-codex.rule.md)): the manifest through the readers that parse it, with its
+`launcher_target` and `entrypoint_fcontext` asserted to agree by pattern and, where the executable bit is visible,
+through the real re-link on a fixture version directory; the fragment's one pin under the session-env contract;
+the wrapper's three library calls in order and its fail-closed load, driven on a copy whose library path points
+at an absent file; the two managed TOML files as a TOML parser reads them, so a bare key that landed inside a table —
+the shape two harness runs measured a pin as "accepted" with — fails here, with every declared hook naming a script
+the package ships and the commented operator keys placed ahead of the first table; and the two hook adapters
+on the payload key sets the harness captured, the `apply_patch` parser included. It reads the checkout, builds its
+fixtures, and runs without root; the session hook is driven only in the modes that reach no root helper, since
+a `session-start` on a fresh process would call the live handback daemon.
+
+`shared-root.sh` pins the shared-root link and its reverse (`ai_tools_link_shared_root`, see
+[shipped-assets](shipped-assets.rule.md)), the step that points codex's admin-scope skills path at the live shared root.
+The path is one a host may already hold, so each state it can be in is driven and every state but "absent" is asserted
+to leave what the host placed exactly as it was — the entry, its target, the directory's own mode and entries —
+with the shared assets linked in under free names alone, and the reverse asserted to remove our links and no other
+entry. Pure and unprivileged: the function never re-owns or re-modes what it finds.
+
 `bootstrap.sh` pins the report `ai-tools-admin system bootstrap` closes with: which enrolled operators a launcher would
 not reach the wrapper for. It is the last thing said before a host is treated as ready, so both directions are driven —
 a shadowed account named with its launcher and the binary that wins, every other state named by no line —

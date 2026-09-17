@@ -79,7 +79,9 @@ it has one, so the manifest declares it:
 
 `ai_tools_agent_sweeps_at_exit <declaration>` is the pure verdict, and it is an **allowlist**: only the exact literal
 `hooks` switches the sweep off, so an agent that declares any other value gets the sweep — a redundant walk is
-the recoverable error, an operator tree left sandbox-owned is not.
+the recoverable error, an operator tree left sandbox-owned is not. An agent that has hooks and declares `none` anyway
+gets both, the hooks as cadence and the sweep as the guarantee behind them; that is the declaration codex ships
+([agent-codex](agent-codex.rule.md)).
 
 The sweep only chooses which paths to **offer**; each one still passes `ai-tools-chown`'s allowlist, exclusion, secret,
 and born-owner re-validation as root, so it cannot reach a path the hooks could not. It runs from an `EXIT` trap,

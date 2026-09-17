@@ -1,0 +1,67 @@
+# /etc/codex/requirements.toml -- what codex enforces on every session
+# the sandbox launches: the sandbox-mode pin, the approval policy, the
+# login method, and the hooks in its [hooks] table as the only hooks.
+# Shipped by ai-tools-agents-codex-restricted as 0644 root:root and
+# kept across an upgrade; a newer copy lands beside it as
+# requirements.toml.rpmnew.
+#
+# The keys were measured against codex-cli 0.154.0. A release that takes
+# other keys refuses to start (every subcommand exits 1 naming the key),
+# which is the intended loud failure: the remedy is editing this file
+# to that release's keys, never a change to the host's boundary. Nothing
+# here holds a guarantee -- the session runs as the sandbox account
+# in the confined domain whatever codex reads.
+#
+# danger-full-access is what keeps the host's sandbox closed: codex's
+# own sandbox is bubblewrap, which needs a user namespace the session
+# unit refuses. The pin means codex does not add a sandbox of its own,
+# and the host's DAC plus ai_tools_t is the boundary, as for claude.
+# read-only stays listed because codex refuses the list without it; the
+# profile table names full access alone, so a session that selects
+# another mode lands on the managed default.
+#
+# Bare keys stay AHEAD OF the first table header: a bare key after one
+# is that table's key and is ignored.
+allowed_sandbox_modes = ["read-only", "danger-full-access"]
+allowed_approval_policies = ["never"]
+allowed_login_methods = ["chatgpt"]
+allow_managed_hooks_only = true
+default_permissions = ":danger-full-access"
+
+[allowed_permission_profiles]
+":danger-full-access" = true
+
+[marketplaces]
+restrict_to_allowed_sources = true
+
+# The ownership handback's cadence. The shim's session-end sweep hands
+# back whatever these miss; Stop is where the per-turn sweep runs, since
+# SessionEnd is capped at 3 s whatever timeout is declared.
+[hooks]
+managed_dir = "/opt/ai-tools/.codex"
+
+[[hooks.SessionStart]]
+matcher = "startup|resume"
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "/opt/ai-tools/.codex/session-hook.sh session-start"
+timeout = 60
+
+[[hooks.PostToolUse]]
+matcher = ".*"
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "/opt/ai-tools/.codex/post-tool-hook.sh"
+timeout = 30
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "/opt/ai-tools/.codex/session-hook.sh"
+timeout = 600
+
+[[hooks.SessionEnd]]
+[[hooks.SessionEnd.hooks]]
+type = "command"
+command = "/opt/ai-tools/.codex/session-hook.sh session-end"
+timeout = 3

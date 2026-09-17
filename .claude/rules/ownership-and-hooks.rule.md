@@ -14,11 +14,13 @@ Files the agent writes are born `SANDBOX_USER`-owned. The hooks restore `<you>:S
 through `ai-tools-chown` (via the [handback bridge](handback-bridge.rule.md)) so the operator and agent stay co-writers.
 
 The hooks this rule states are **Claude Code's** driver for that handback, declared by its manifest as `handback=hooks`.
-An agent that declares otherwise has none, and `ai-tools-run` sweeps the project at session end in their place — same
-`ai-tools-chown` boundary, per session instead of per turn (see [providers](providers.rule.md)). `<you>` is the operator
-that **owns** the path — the one whose allowlist covers it, which `ai-tools-chown` resolves per path
-via `operator.lib.sh` (`ai_tools_resolve_owner`), so on a host with several operators each project's files return
-to that project's operator. Secret-named files take a different path (see [secrets](secret-handling.rule.md)).
+An agent that declares otherwise gets `ai-tools-run`'s sweep of the project at session end — same `ai-tools-chown`
+boundary, per session instead of per turn (see [providers](providers.rule.md)) — and may still ship hooks of its own
+beside it as the per-turn cadence, which is what codex does with adapters of these two scripts
+([agent-codex](agent-codex.rule.md)). `<you>` is the operator that **owns** the path — the one whose allowlist covers
+it, which `ai-tools-chown` resolves per path via `operator.lib.sh` (`ai_tools_resolve_owner`), so on a host with several
+operators each project's files return to that project's operator. Secret-named files take a different path (see
+[secrets](secret-handling.rule.md)).
 
 ## `ai-tools-chown` acts only on agent-written paths
 

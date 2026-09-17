@@ -135,7 +135,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | m3z3 | [MSG-M3Z3](../src/usr/local/bin/ai-tools.sh) | the sandbox account is not an operator and must not own projects | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | c4y4 | [MSG-C4Y4](../src/usr/local/bin/ai-tools.sh) | root is not an operator | src/usr/local/bin/ai-tools.sh |  | die |
 | e3d2 | [MSG-E3D2](../src/usr/local/bin/ai-tools.sh) | not a configured ai-tools operator: ${FOR_OPERATOR} -- enrol it first with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
-| r3q4 | [MSG-R3Q4](../src/usr/local/bin/claude.sh) | claude: cannot load the launch gate library -- refusing to start | src/usr/local/bin/claude.sh | tests/integration/wrapper.sh | refuse_early |
+| r3q4 | [MSG-R3Q4](../src/usr/local/bin/claude.sh) | claude: cannot load the launch gate library -- refusing to start | src/usr/local/bin/claude.sh | src/usr/local/bin/codex.sh, tests/integration/wrapper.sh, tests/unit/codex-package.sh | refuse_early |
 | c4t6 | [MSG-C4T6](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | run as root (sudo) | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
 | j4c7 | [MSG-J4C7](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | could not relabel ${path} (restorecon failed) | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
 | y4u5 | [MSG-Y4U5](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | manifest names a layout module that is not ai_tools_<name>: ${module} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | warn |
