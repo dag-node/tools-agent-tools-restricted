@@ -1,0 +1,234 @@
+---
+paths:
+  - "src/usr/local/bin/codex.sh"
+  - "src/usr/local/lib/ai-tools/agents.d/codex.conf"
+  - "src/usr/local/lib/ai-tools/session-env.d/codex.env.sh"
+  - "src/etc/codex/**"
+  - "src/opt/ai-tools/agents/codex/**"
+---
+
+# The codex agent
+
+Everything specific to Codex as a provider: what its manifest declares, how its launcher chain ends on the vendor
+binary, its launch wrapper, the two managed files codex reads from `/etc/codex`, its hooks, and where the shared skills
+and the orientation text reach it. The **provider seam** these plug into — manifests, fail-closed enablement,
+the `session-env.d` contract, the `launcher_target` re-link — is [providers](providers.rule.md); the **agent-agnostic**
+launch contract is [launch](launch.rule.md); the ownership handback and the sweep are
+[ownership-and-hooks](ownership-and-hooks.rule.md). The claude-code counterpart of every item here is
+[agent-claude-code](agent-claude-code.rule.md), and where the two differ the difference is stated in this rule.
+
+`ai-tools-agents-codex-restricted` ships the wrapper, the manifest, the session-env fragment, the two managed files,
+the two hooks, and the agent's config directory. It ships **disabled** (`default_enable=no`): an operator names `codex`
+in `AI_TOOLS_AGENTS` to provision and launch it. It does not add a sudoers rule: it inherits the single `%ai-ops` grant
+on the shared shim.
+
+## The boundary is the host's; codex's configuration is not a security control
+
+Every guarantee this project states for a codex session rests on the host — DAC, the `ai_tools_t` domain, the session
+unit's properties, the launch chain, the handback — exactly as it does for claude. Which files codex reads, which keys
+it takes, and what a refused flag falls back to are the vendor's to change between releases; the package ships
+that configuration so a session works and does not break its own tool calls. A codex release that takes other keys
+refuses to start (every subcommand exits 1 naming the key) or starts with tool calls that fail: a loud functional
+failure, and a documentation change, never a change of access. The two managed files are edited by an operator holding
+sudo to that release's keys, and the host's boundary stays where it is.
+
+**The pin that reads as "no sandbox" is what keeps the host's sandbox closed.** The package pins codex
+to `danger-full-access`. Codex's own sandbox is bubblewrap, which needs an unprivileged user namespace; the session unit
+refuses namespaces (`RestrictNamespaces=yes`, [confinement](confinement.rule.md)), and that refusal is a load-bearing
+invariant of the host's confinement. Letting codex sandbox itself would mean opening that refusal — the real widening.
+`danger-full-access` therefore means "codex adds no sandbox of its own, and the host's DAC plus `ai_tools_t` is
+the boundary", as for claude, and it is the vendor's own documented recipe for running inside an outer sandbox. The name
+is the vendor's; the containment is the host's.
+
+## What the manifest declares
+
+`/usr/local/lib/ai-tools/agents.d/codex.conf`, `644 root:root`, parsed by `providers.lib.sh`:
+
+| field | value | read by |
+|---|---|---|
+| `npm_package` | `@openai/codex` | `ai-tools-bootstrap`, `nvm-update` — what to install |
+| `launcher` | `codex` | `ai-tools-launcher-symlink` (which link it may write), `ai-tools-run` (which executables may start a session) |
+| `launcher_target` | the vendor binary's path inside the version directory, under `…/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex` | `ai-tools-bootstrap`, `nvm-update` — where `<version-dir>/bin/codex` is re-linked after each install ([providers](providers.rule.md)) |
+| `display_name` | `Codex` | the launch banner, the unit description |
+| `handback` | `none` | `ai-tools-run` — the shim sweeps the project at session end (see [Handback](#handback-the-shims-sweep-is-the-guarantee-the-hooks-are-the-cadence)) |
+| `config_dir` | `.codex` | the control-plane mode/label set, and `→ ai_tools_home_t`; the fragment pins `CODEX_HOME` there |
+| `memory_file` | `AGENTS.md` | where the shared orientation text is linked — the global-scope instructions codex reads first ([shipped-assets](shipped-assets.rule.md)) |
+| `entrypoint_fcontext` | a regex ending on the same vendor path `launcher_target` names | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
+| `default_enable` | `no` | the baseline set when `operator.conf` names none: codex is not in it |
+
+Not declared, and why: `skills_dir` and `subagents_dir`, because codex reads skills from its admin scope
+(`/etc/codex/skills`, not a directory inside `CODEX_HOME`) and its sub-agent roles are a different shape from the shared
+subagent definitions; and the three release-verification fields, because the npm channel does not publish a signed
+per-release checksum manifest. The launch is therefore `unpinned`, and a host that sets
+`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` does not launch codex ([updater](updater.rule.md)). `tests/unit/codex-package.sh`
+asserts each of these.
+
+## The resolution chain ends on the vendor binary, by the re-link
+
+npm nests the platform package under the meta-package and links `<version-dir>/bin/codex` at `bin/codex.js`,
+a JavaScript shim that spawns the binary. That shim is not the file the session runs and not the file
+`entrypoint_fcontext` names, so the toolchain re-links the versioned launcher at `launcher_target` after every install
+and before the stable symlink is repointed:
+
+```
+/opt/ai-tools/bin/codex                                          [1] stable launcher symlink
+  └─ readlink, one hop ────────────────────────────────────────────────────────────────────────
+/opt/ai-tools/.nvm/versions/node/vX.Y.Z/bin/codex                [2] versioned launcher, RE-LINKED by the toolchain
+  └─ ../lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex
+…/vendor/x86_64-unknown-linux-musl/bin/codex                     [3] the vendor binary: static, the one inode
+```
+
+The three consumers take the same links they take for claude ([agent-claude-code](agent-claude-code.rule.md)):
+the wrapper reads **[1]** one hop to **[2]**, `ai-tools-run` re-validates **[2]** and requires its target to stay inside
+the same version directory, the SELinux transition fires on **[3]**. What the re-link buys is that **[3]** is the file
+the manifest's pattern covers, so the relabel reconciliation reads `ok` and the launch preflight finds `ai_tools_exec_t`
+on the inode it executes. A host where the re-link was refused — a target escaping the version directory,
+a non-executable, a pattern that does not cover it — keeps npm's link to `codex.js`, which carries the default `lib_t`,
+and the launch fails closed at the label preflight: the same state a host with no such key is
+in ([providers](providers.rule.md), [updater](updater.rule.md)).
+
+The binary's vendored helpers (`bwrap`, `rg`, `zsh`, `codex-code-mode-host`) sit beside it and stay `lib_t`: readable,
+not executable, by `ai_tools_t`. The manifest names the one binary, so a helper a later release adds beside it is not
+an entrypoint until a manifest names it. The system `rg` on the session `PATH` serves search.
+
+## The wrapper (`codex.sh`)
+
+`/usr/local/bin/codex`, `root:root 0755`, rpm-owned, running as the invoking operator. It is the shared gate library
+alone: it sources `launch-wrapper.lib.sh` fail-closed, calls `ai_tools_launch_init codex`, runs
+`ai_tools_launch_gates "$@"`, and ends in `ai_tools_launch_session "$@"`. The gate order — required libraries,
+the operator gate, binary resolution, the print-and-exit short-circuit, the protected-paths backstop and the allowlist,
+the claim guard, the service-health warning, the `exec` — is the library's and is stated once
+in [launch](launch.rule.md). Codex has no launch input of its own: a custom system prompt and a custom endpoint are keys
+of `managed_config.toml`, read by codex itself, so no resolver sits between the gates and the session and the operator's
+arguments go through as typed.
+
+The one refusal the wrapper carries itself — the gate library will not load — cites `MSG-R3Q4`, the code claude's
+wrapper defines for the same situation: one situation, two wrappers, one token to search
+([messaging](messaging.rule.md)). `path-order.lib.sh` reads every enabled agent's launcher, so an operator's shell
+that would find another `codex` ahead of `/usr/local/bin` is reported for this launcher exactly as for `claude`
+([launch](launch.rule.md)).
+
+## The two managed files (`/etc/codex`)
+
+Codex reads two root-owned files from a fixed path, and the package ships both as `0644 root:root`,
+`%config(noreplace)`: an operator's edit survives an upgrade, and a newer copy lands beside it as `.rpmnew`,
+which the package's `%post` names. Each carries a header stating the codex release its keys were measured
+against and the contract in [The boundary is
+the host's](#the-boundary-is-the-hosts-codexs-configuration-is-not-a-security-control). Both hold to the config-header
+form ([providers](providers.rule.md)): 72 columns, and every bare key **ahead of the first table header** — a bare key
+written after one is that table's key and is silently ignored, which is how two harness runs measured a pin
+as "accepted" that codex never read.
+
+**`requirements.toml`** is what a session cannot override. `allowed_sandbox_modes` lists `read-only`
+and `danger-full-access` (codex refuses the list without `read-only`); `default_permissions`
+and the `[allowed_permission_profiles]` table name full access alone, so a session that selects another mode —
+a `--sandbox` flag, a `-c` override, a profile, a relocated `CODEX_HOME` — lands on the managed default with no notice;
+`allowed_approval_policies = ["never"]`; `allowed_login_methods = ["chatgpt"]` bounds the account type
+to the subscription login (an API key through a root-placed `auth.json` is the optional path); `[marketplaces]` is
+restricted with no allowed source; and `allow_managed_hooks_only = true` with the `[hooks]` table makes the package's
+hooks the only hooks — a user `hooks.json` does not run.
+
+**`managed_config.toml`** is the defaults codex applies ahead of any user config: the mode and the approval policy
+the requirements pin, `check_for_update_on_startup = false` (the `nvm-update` timer maintains the toolchain,
+and the Node tree is read-only to the session), `[agents] enabled = false`, and the `[analytics]`, `[feedback]`
+and `[otel]` opt-outs. The opt-outs are **dispositional**: a release that reads other keys posts again, and the residual
+is on the API's own domain. Two operator keys ship commented, each the codex counterpart of a claude-code
+`operator.conf` key: `model_instructions_file` (replaces the built-in instructions; the file sits
+under `/etc/ai-tools/prompts`, the one root the confined domain reads) and `openai_base_url` (the API-key path only).
+
+What neither file can do is enlarge what the account may reach, since codex runs as that account in that domain.
+An unreadable `requirements.toml` refuses the start: the loud direction.
+
+## Handback: the shim's sweep is the guarantee, the hooks are the cadence
+
+The manifest declares `handback=none`, **and** the package ships hooks. That is the hybrid, and `none` is the stronger
+declaration here: `ai-tools-run` traps `EXIT` and sweeps the project for every declaration but the literal `hooks`
+([providers](providers.rule.md)), so a session converges at exit whether or not codex ran a hook, and the managed
+`PostToolUse` and `Stop` hooks converge the tree per call and per turn on top of it. `handback=hooks` would switch
+the shim's sweep **off** and leave convergence to a driver codex enforces — a release that stopped running managed hooks
+would then leave the tree sandbox-owned with no sweep behind it. The cost is one sweep per session over the project
+tree, redundant on a session whose hooks all ran. What neither covers is the same as for claude: a `SIGKILL`
+or `ai-tools stop` leaves in-flight writes to the next session's `SessionStart` pass, the next shim sweep,
+or `ai-tools projects handback`.
+
+The hooks live in the config directory, `750 root:SANDBOX_GROUP` under the sticky `.codex`, and are declared
+in `requirements.toml` with the argument each dispatches on. They are adapters of claude's to codex's payload shapes,
+which differ in the write tool and in none of the keys the sweep reads (`cwd` and `source` arrive under the same keys):
+
+| event | matcher | runs | what differs from claude |
+|---|---|---|---|
+| `PostToolUse` | `.*` | `post-tool-hook.sh` | one entry for every tool: records the call (a `Bash` call carries `tool_input.command`, as claude's does), and for an `apply_patch` call hands back each file the patch names. Codex has no `Write`/`Edit` carrying a `file_path`; a write is an `apply_patch` whose `tool_input` carries the patch text (read under either spelling the vendor has used, `input` or `patch`), so the paths come from its `*** Add File:` / `*** Update File:` / `*** Delete File:` / `*** Move to:` lines, a relative one joined to the event's `cwd`. The record carries the first path and, past one, the count |
+| `Stop` | — | `session-hook.sh`, `timeout = 600` | the per-turn sweep, sized to the timeout: codex holds a `Stop` hook to its declared timeout and kills it hard past it, with no grace |
+| `SessionStart` | `startup\|resume` | `session-hook.sh session-start`, `timeout = 60` | the unbounded pass, the setgid normalization, the `.git` reclaim; the matcher selects the two sources the pass acts on, and the script holds the same line |
+| `SessionEnd` | — | `session-hook.sh session-end`, `timeout = 3` | codex caps `SessionEnd` at 3 s whatever is declared, so the clean-exit marker is cleared **first** and the `.git` reclaim is best-effort; the next `session-start` pass and the shim's sweep catch what the cap cut short |
+
+The interrupted-session NOTICE is emitted as `additionalContext` under both spellings a hook reply may carry it —
+the top-level key codex's hook contract names and Claude Code's `hookSpecificOutput` envelope, which codex's format
+follows — so one duplicated string holds whichever a release reads. `tests/unit/codex-package.sh` drives both scripts
+on the payload key sets the harness captured; the live chain runs through the package's own path on an installed host.
+
+## Skills at the admin scope, and the orientation text
+
+Codex reads skills from four scopes, and the one a host administers is `/etc/codex/skills`. The package's `%post` points
+it at the live shared root `/opt/ai-tools/skills` **without displacing what the host holds there**
+(`ai_tools_link_shared_root`, [shipped-assets](shipped-assets.rule.md)): absent → a symlink to the shared root;
+a symlink to the shared root → current; a symlink elsewhere → the host's, left and reported; a real directory →
+the host's own skills, kept as they are, with the shared assets linked into it one per free name and a taken name left
+to the host. Nothing under `/etc/codex` carries a guarantee, so a host-owned entry there can only reduce what a session
+loads, never widen access. Codex lists a skill placed there to the model whether the path is a symlink to the shared
+root, a directory of per-asset symlinks, or a copy — measured, which is why the lightest link ships. Erasing the package
+removes the link to the shared root, or our links inside a host-owned directory, and no other entry. The link is
+deliberately not in the package's file list: a listed path would be written over whatever a host holds there.
+
+The orientation text is linked as `/opt/ai-tools/.codex/AGENTS.md`, the global-scope instructions codex reads
+before a project's own `AGENTS.md` files (`ai_tools_link_agent_memory`, the same non-displacing rule).
+
+## Session environment pins
+
+`session-env.d/codex.env.sh` is sourced **last**, after every enabled integration, and pins one variable:
+**`CODEX_HOME=/opt/ai-tools/.codex`** — the directory codex writes its login (`auth.json`), its session logs
+and memories, its shell snapshots, and a `tmp/` tree of symlinks to its own binary that it appends to a tool's `PATH`.
+Unpinned it resolves under the `2751` home root, where the directory cannot be created; the `3770` config directory
+grants that write, and its sticky bit keeps the root-placed hooks, and a root-placed `auth.json`, undeletable
+by the session. The fragment does not carry a `CODEX_MANAGED_*` variable (the binary behaves the same without
+the shim's) or a credential: the API-key path is a root-placed `auth.json`, so there is no token to import by name. No
+Node runs in the chain, so there is no compile cache to relocate.
+
+`auth.json` is codex's own state in its own home, the standing claude's `.claude.json` has: sandbox-owned and writable
+on the default login path, root-placed `0640 root:SANDBOX_GROUP` on the API-key path, and in neither case confidential
+against a same-UID peer — two agents under one account read each other's state, which is misdirection rather than
+escalation ([CLAUDE.md](../../CLAUDE.md), Boundaries and non-goals).
+
+## The config directory's mode is the package's own to pin
+
+`ai_tools_agent_config_dirs` walks **enabled** agents, so base re-asserts the `3770` mode of an enabled agent's config
+directory only, and codex ships disabled. The package's `%post` and `%posttrans` therefore `chmod 3770` `.codex`
+themselves — rpm on EL10 drops setgid from an `%attr` directory mode — so the sticky bit holds from the first install
+whether or not the operator has enabled the agent yet.
+
+## The reduced set
+
+What a codex session does not get, stated as the posture the operator buys: no codex-side sandbox and no unprivileged
+user namespace (the host's confinement is the only one); no MCP servers, no sub-agents, no plugins or marketplaces, no
+image generation; the browser-callback login unavailable (device code and an API key are); telemetry off by disposition;
+the vendored `rg`, `zsh` and `bwrap` not executable; and no entrypoint provenance on the npm channel. Egress is not
+controlled by this package; one identity per host, since `auth.json` lives in the shared `CODEX_HOME`.
+
+## Quirks
+
+- **A `.rpmnew` for either managed file leaves a newly shipped key unread.** Codex reads the live file alone;
+  the `%post` names the parked copy, and the operator carries the keys over by hand. No merge tool exists for these two
+  files (they are TOML, not the JSON `ai-tools-admin system post-upgrade` merges).
+- **A mode flag is ignored, not refused.** `--sandbox workspace-write` under the shipped requirements lands
+  on `danger-full-access` with no notice, since the profile table lists full access alone. Under a requirements file
+  without the `default_permissions` pair, the same flag falls back to a read-only managed profile whose tool calls fail
+  on bubblewrap — the shape that ships is the one that does not.
+- **`codex features list` loads the whole configuration without a credential and does not open a socket**, so it is
+  the credential-free check that a managed file parses on this release.
+
+## Deferred
+
+A token-saving filter adapter on `PreToolUse` (codex's `updatedInput`), entrypoint provenance through the vendor's
+standalone sigstore-signed tarball, an egress boundary, and root-owned integrity tracking over the agents' shared state
+are each their own ticket. The two session hooks share most of their body with claude's; factoring that body into a base
+library is deferred until the codex hooks have run on a host.
