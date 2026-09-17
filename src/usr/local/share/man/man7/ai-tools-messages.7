@@ -1234,45 +1234,9 @@ WARNING.
 left ${hardlinked} hardlinked file(s) untouched \-\- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with
 .SS claude
 .TP
-.B MSG-C7C9
+.B MSG-R3Q4
 ERROR.
-claude: ${_user} is not an ai\-tools operator \-\- not a member of the ${OPERATORS_GROUP} group
-.TP
-.B MSG-C9S6
-ERROR.
-claude: approved\-projects allowlist not found
-.TP
-.B MSG-K8K2
-ERROR.
-claude: $(pwd): excluded by '!' rule in approved projects list
-.TP
-.B MSG-N2Z7
-ERROR.
-claude: no session started \-\- ${cwd} is not set up for the agent.
-.TP
-.B MSG-N8Q4
-ERROR.
-claude: this is the sandbox account ${SANDBOX_USER}, which is not an ai\-tools operator
-.TP
-.B MSG-R2V6
-ERROR.
-claude: $(pwd): this project is disabled in your approved projects list
-.TP
-.B MSG-R7Z3
-ERROR.
-claude: ${_user} is an ai\-tools operator, but this shell started before the grant
-.TP
-.B MSG-S4B3
-ERROR.
-ERROR: claude symlink not found at ${CLAUDE_LINK}
-.TP
-.B MSG-U6A9
-ERROR.
-claude: cannot load the launch safety library \-\- refusing to start
-.TP
-.B MSG-W2P3
-ERROR.
-claude: $(pwd): excluded by '!' rule in approved projects list
+claude: cannot load the launch gate library \-\- refusing to start
 .SS conf.lib.sh
 .TP
 .B MSG-F9W4
@@ -1528,6 +1492,75 @@ test suite reported failures \-\- review the output above
 .B MSG-Z3H8
 WARNING.
 could not remove ${SCRIPT_DIR} from ${allowlist} \-\- it is still registered
+.SS launch-wrapper.lib.sh
+.TP
+.B MSG-B6G2
+ERROR.
+the launch gates did not run \-\- refusing to start
+.TP
+.B MSG-C2M7
+ERROR.
+cannot load the config library \-\- refusing to start
+.TP
+.B MSG-C7C9
+ERROR.
+not an ai\-tools operator \-\- ${user} is not a member of the ${OPERATORS_GROUP} group
+.TP
+.B MSG-C9S6
+ERROR.
+approved\-projects allowlist not found
+.TP
+.B MSG-G8R4
+ERROR.
+resolved path '${AI_TOOLS_LAUNCH_EXEC}' contains parent\-directory references
+.TP
+.B MSG-K8K2
+ERROR.
+excluded by '!' rule in approved projects list: $(pwd)
+.TP
+.B MSG-N2Z7
+ERROR.
+no session started \-\- ${cwd} is not set up for the agent.
+.TP
+.B MSG-N8Q4
+ERROR.
+this is the sandbox account ${SANDBOX_USER}, which is not an ai\-tools operator
+.TP
+.B MSG-R2V6
+ERROR.
+this project is disabled in your approved projects list: $(pwd)
+.TP
+.B MSG-R7Z3
+ERROR.
+this shell started before the grant \-\- ${user} is an ai\-tools operator per the group database
+.TP
+.B MSG-S3K2
+ERROR.
+resolved path '${AI_TOOLS_LAUNCH_EXEC}' is not an approved ai\-tools binary
+.TP
+.B MSG-S4B3
+ERROR.
+launcher symlink not found at ${launcher_link}
+.TP
+.B MSG-S5Y9
+ERROR.
+cannot read the launcher symlink ${launcher_link} \-\- reinstall or run nvm\-update.sh
+.TP
+.B MSG-S8D9
+ERROR.
+cannot resolve working directory
+.TP
+.B MSG-U6A9
+ERROR.
+cannot load the launch safety library \-\- refusing to start
+.TP
+.B MSG-W2P3
+ERROR.
+excluded by '!' rule in approved projects list: $(pwd)
+.TP
+.B MSG-W4X4
+ERROR.
+refusing to launch \-\- ${cwd} is not fully claimed for the sandbox
 .SS providers.lib.sh
 .TP
 .B MSG-C4F9

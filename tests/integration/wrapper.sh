@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/wrapper.sh
-# Integration: the deployed launch wrapper (/usr/local/bin/claude). Exercises the ai-ops operator gate, the allowlist
-# gate, and the symlink-existence guard against the REAL installed wrapper, hermetically: the wrapper keys its allowlist
-# off ${HOME}, so the test points HOME at a /tmp testdir with a controlled allowed-projects (no dependency
+# Integration: the deployed launch wrapper (/usr/local/bin/claude). The boundary test of this wrapper: it proves
+# the installed wrapper reaches the shared gates (launch-wrapper.lib.sh) in their order -- the ai-ops operator gate,
+# the allowlist gate, and the symlink-existence guard -- against the REAL installed files, hermetically: the gates key
+# the allowlist off ${HOME}, so the test points HOME at a /tmp testdir with a controlled allowed-projects (no dependency
 # on the operator's real allowlist, and no dependency on whether the install dir is a project). Every wrapper run is
-# detached via setsid so the wrapper's /dev/tty claim prompt can never fire -- the test never claims a project as a side
-# effect. Run as root via sudo.
+# detached via setsid so the /dev/tty claim prompt can never fire -- the test never claims a project as a side effect.
+# Each gate's own refusal set is driven in tests/unit/launch-wrapper.sh. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -230,32 +231,50 @@ else
     skip "hazard demo" "final target is readable to ${PROJECTS_USER}; EACCES path not exercised"
 fi
 
-# (B) Pin the deployed wrapper to `-L`: a revert to `-e` reintroduces the bug.
-if grep -Eq '!\s*-L\s+"\$\{CLAUDE_LINK\}"' "${wrapper}"; then
-    pass "wrapper guards CLAUDE_LINK with -L"
-elif grep -Eq '!\s*-e\s+"\$\{CLAUDE_LINK\}"' "${wrapper}"; then
-    fail "wrapper uses -e on CLAUDE_LINK -- reintroduces false 'symlink not found' bug"
+# (B) Pin the deployed gate library to `-L`: a revert to `-e` reintroduces the bug. The resolution is the library's
+#     (launch-wrapper.lib.sh), one implementation for every agent's wrapper.
+launch_lib=/usr/local/lib/ai-tools/launch-wrapper.lib.sh
+if [[ ! -r "${launch_lib}" ]]; then
+    fail "launch gate library not installed at ${launch_lib}"
+elif grep -Eq '!\s*-L\s+"\$\{launcher_link\}"' "${launch_lib}"; then
+    pass "the gate library guards the launcher symlink with -L"
+elif grep -Eq '!\s*-e\s+"\$\{launcher_link\}"' "${launch_lib}"; then
+    fail "the gate library uses -e on the launcher symlink -- reintroduces false 'symlink not found' bug"
 else
-    fail "wrapper has no recognisable CLAUDE_LINK existence guard"
+    fail "the gate library has no recognisable launcher symlink existence guard"
 fi
 
-# ── Fail-closed on a missing safety library ──────────────────────────────────────
+# ── Fail-closed on a missing library ────────────────────────────────────────────
 #
-# The wrapper sources safe-paths.lib.sh and MUST refuse to start if it (or its guard functions) cannot load --
-# a fail-open no-op stub would launch with the protected-path guard off (the exact fail-open the project removed,
-# [[fail-closed-everywhere]]). Prove it on the real wrapper body: copy it, repoint SAFE_PATHS_LIB at a nonexistent file,
-# and confirm the copy refuses before doing anything. The check runs before the operator/allowlist gates, so it fires
-# regardless of who runs it or from where.
-section "Wrapper fails closed when the safety library is unloadable"
-brk="${TESTDIR}/claude-broken"
-sed 's#^readonly SAFE_PATHS_LIB=.*#readonly SAFE_PATHS_LIB="/nonexistent/ai-tools/safe-paths.lib.sh"#' \
-    "${wrapper}" > "${brk}"
-# Run the copy via `bash <file>`, not by executing it: TESTDIR is under /tmp, which a hardened host mounts noexec (and
-# the tmp label blocks execve under confinement), so a direct exec fails with EACCES before the wrapper's own logic
-# runs. `bash <file>` reads it as a script, exercising the fail-closed branch regardless of the mount options
-# or the file's SELinux type.
-fc_out="$(setsid bash "${brk}" --version < /dev/null 2>&1 || true)"
-assert_msg MSG-U6A9 "${fc_out}" "wrapper refuses to start when safe-paths.lib.sh cannot load (fail closed)"
+# The wrapper sources launch-wrapper.lib.sh, which sources safe-paths.lib.sh, and each link MUST refuse to start
+# when the next cannot load -- a fail-open no-op stub would launch with the protected-path guard off (the exact
+# fail-open the project removed, [[fail-closed-everywhere]]). Both links are proven on the real deployed bodies: a copy
+# of the library with SAFE_PATHS_LIB repointed at a nonexistent file, reached from a copy of the wrapper with LAUNCH_LIB
+# repointed at that copy, must refuse at the library's init; a copy of the wrapper with LAUNCH_LIB repointed
+# at a nonexistent file must refuse before any gate. Both checks run before the operator/allowlist gates, so they fire
+# regardless of who runs them or from where.
+section "Wrapper fails closed when a required library is unloadable"
+if [[ ! -r "${launch_lib}" ]]; then
+    skip "wrapper fail-closed chain" "launch gate library not installed at ${launch_lib}"
+else
+    brk_lib="${TESTDIR}/launch-wrapper-broken.lib.sh"
+    sed 's#^readonly SAFE_PATHS_LIB=.*#readonly SAFE_PATHS_LIB="/nonexistent/ai-tools/safe-paths.lib.sh"#' \
+        "${launch_lib}" > "${brk_lib}"
+    brk="${TESTDIR}/claude-broken"
+    sed "s#^readonly LAUNCH_LIB=.*#readonly LAUNCH_LIB=\"${brk_lib}\"#" "${wrapper}" > "${brk}"
+    # Run the copy via `bash <file>`, not by executing it: TESTDIR is under /tmp, which a hardened host mounts noexec
+    # (and the tmp label blocks execve under confinement), so a direct exec fails with EACCES before the wrapper's own
+    # logic runs. `bash <file>` reads it as a script, exercising the fail-closed branch regardless of the mount options
+    # or the file's SELinux type.
+    fc_out="$(setsid bash "${brk}" --version < /dev/null 2>&1 || true)"
+    assert_msg MSG-U6A9 "${fc_out}" "the wrapper refuses to start when safe-paths.lib.sh cannot load (fail closed)"
+
+    brk_nolib="${TESTDIR}/claude-nolib"
+    sed 's#^readonly LAUNCH_LIB=.*#readonly LAUNCH_LIB="/nonexistent/ai-tools/launch-wrapper.lib.sh"#' \
+        "${wrapper}" > "${brk_nolib}"
+    nl_out="$(setsid bash "${brk_nolib}" --version < /dev/null 2>&1 || true)"
+    assert_msg MSG-R3Q4 "${nl_out}" "the wrapper refuses to start when the gate library cannot load (fail closed)"
+fi
 
 # ── The wrapper actually CONSULTS the protected-paths backstop ───────────────────
 #

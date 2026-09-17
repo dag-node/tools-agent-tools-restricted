@@ -133,7 +133,11 @@ split the line or reach the operator's terminal).
 `/usr/local/bin` (Tier 1) ahead of the nvm shims in operator dotfiles, so this shadows any nvm-managed `claude`
 on an operator's PATH ([launch](launch.rule.md)).
 
-It gates in this order, each step refusing before the next can matter:
+It is the shared gate library plus this agent's one launch input: it sources `launch-wrapper.lib.sh` fail-closed
+(`MSG-R3Q4` when it will not load), calls `ai_tools_launch_init claude`, loads `claude-prompt.lib.sh` best-effort, runs
+`ai_tools_launch_gates`, resolves the custom system prompt, and ends in `ai_tools_launch_session`. A launch therefore
+passes these steps in this order, each refusing before the next can matter — every step but 7's prompt resolution is
+the library's:
 
 1. **Required libraries**, fail-closed: `msg.lib.sh` (it carries the yes/no decisions), `safe-paths.lib.sh` (the
    protected-path guard), and `conf.lib.sh` (without it every allowlist line parses as no entry, which refuses every
@@ -152,11 +156,12 @@ It gates in this order, each step refusing before the next can matter:
 5. **Protected-paths backstop**, then the **allowlist** (exclusions first, since `!` overrides allows), both
    on the `realpath`-canonicalized CWD.
 6. **Claim guard** — three gaps detected read-only: group/mode (fatal — the session starts but `posix_spawn` fails
-   `EACCES` on every child), SELinux label (fatal under enforcing), and git `safe.directory` (non-fatal). The wrapper
-   never performs a `chgrp` or a relabel itself; it detects, offers, and delegates to `ai-tools projects claim`
+   `EACCES` on every child), SELinux label (fatal under enforcing), and git `safe.directory` (non-fatal). The library
+   never performs a `chgrp` or a relabel; it detects, offers, and delegates to `ai-tools projects claim`
    ([cli](cli.rule.md)).
-7. **Prompt resolution** and a **best-effort service-health warning** (the relabel watcher; the handback socket is
-   the shim's to report — see [launch](launch.rule.md)).
+7. **Prompt resolution** (this file's), then the library's **best-effort service-health warning** (the relabel watcher;
+   the handback socket is the shim's to report — see [launch](launch.rule.md)) and its secret-pattern drift line
+   to journald ([secret-handling](secret-handling.rule.md)).
 8. `exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/ai-tools-run`, carrying exactly `AI_TOOLS_AGENT_EXEC`
    and `AI_TOOLS_PROJECT_DIR` through `env_keep`. **No agent identity crosses sudo**; the shim derives it
    from the launcher name in the path.
@@ -261,8 +266,8 @@ Two properties of the current channel shape the design:
 - **A `.rpmnew` for `settings.json` leaves a newly shipped hook installed but uninvoked.** It is `%config(noreplace)`
   for the same reason `operator.conf` is — a dormant option is recoverable, a silently reverted setting is not (see
   [providers](providers.rule.md), [claude-settings](claude-settings.rule.md)).
-- **The wrapper's `-L` test is not interchangeable with `-e`.** `-e` dereferences the whole chain into the `700` package
-  directory, so a perfectly valid link reports "not found" to the operator.
+- **The gate library's `-L` test is not interchangeable with `-e`.** `-e` dereferences the whole chain into the `700`
+  package directory, so a perfectly valid link reports "not found" to the operator.
 
 ## Deferred
 

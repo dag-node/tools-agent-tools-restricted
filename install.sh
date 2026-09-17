@@ -845,6 +845,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/msg.lib.sh
     _chk /usr/local/lib/ai-tools/operator.lib.sh
     _chk /usr/local/lib/ai-tools/safe-paths.lib.sh
+    _chk /usr/local/lib/ai-tools/launch-wrapper.lib.sh
     _chk /usr/local/lib/ai-tools/confinement.lib.sh
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
     _chk /usr/local/lib/ai-tools/entrypoint-verify.lib.sh
@@ -1361,6 +1362,14 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/safe-paths.lib.sh" \
         /usr/local/lib/ai-tools/safe-paths.lib.sh
+
+    # Launch gates: 644 root:root -- world-readable. Sourced by every agent's launch wrapper as the invoking operator,
+    # so the operator gate, the launcher resolution, the allowlist and the claim guard are one implementation for every
+    # agent; it does not carry any secrets. Substituted: the exec drops to the sandbox account by name.
+    log "/usr/local/lib/ai-tools/launch-wrapper.lib.sh"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/launch-wrapper.lib.sh" \
+        /usr/local/lib/ai-tools/launch-wrapper.lib.sh
 
     # SELinux launch-gate decision: 644 root:root -- world-readable, no secrets. Sourced by ai-tools-run (fail-closed)
     # and the confinement unit test.

@@ -54,6 +54,12 @@ not_writable /usr/local/lib/ai-tools/conf.lib.sh \
 not_writable /usr/local/lib/ai-tools/providers.lib.sh \
     "rewrite which providers resolve as enabled"
 
+# The library every agent's launch wrapper sources as the operator for the gates a launch passes: the operator gate,
+# the launcher resolution, the allowlist and the claim guard. Writable, the agent rewrites what the wrapper accepts
+# before the drop -- ai-tools-run re-validates the executable, but the allowlist and the claim guard are decided here.
+not_writable /usr/local/lib/ai-tools/launch-wrapper.lib.sh \
+    "rewrite the gates every launch wrapper runs before dropping to the sandbox account"
+
 # The library that turns a manifest's declared entrypoint pattern into a `semanage fcontext` rule. It pins the type
 # (ai_tools_exec_t) and the containment check on the pattern, so writable it would let the agent label a file of its
 # choosing as an entrypoint of the confined domain -- or as anything else.
