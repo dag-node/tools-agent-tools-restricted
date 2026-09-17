@@ -1,6 +1,7 @@
 # Agents
 
-**Agents** · [Claude Code](claude-code.md) — [all docs](../index.md)
+**Agents** · [Claude Code](claude-code.md) · [Codex](codex.md) — [all
+docs](../index.md)
 
 What an agent package adds to a host, how an operator turns one
 on, and where one agent's own settings and environment variables are listed.
@@ -24,3 +25,8 @@ exposes stays off until an operator edits it.
 and environment variables that shape a session, what the sandbox sets for you,
 and what an operator may add — a custom system prompt or a custom API endpoint
 among them.
+
+[Codex](codex.md) is the second agent package. It ships off: the page states
+the two lines that turn it on, the device-code login a session needs, the two
+files under `/etc/codex` an operator may edit, and what a Codex session does
+not get.

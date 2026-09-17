@@ -289,6 +289,50 @@ ai_tools_provider_manifest_field() {
     _ai_tools_manifest_field "${AI_TOOLS_AGENTS_DIR}" "$@"
 }
 
+# Managed files: the configuration an agent's own product reads from a fixed path outside the control plane (codex's
+# /etc/codex/*.toml), shipped kept-across-upgrade so a host's edit survives. A manifest names them in `managed_files`,
+# and the package ships a pristine copy of each under <reference dir>/<agent>/<basename>, so the two status reports can
+# say whether the live file is the shipped one. Reported and never enforced: no such file holds a guarantee, so a host
+# copy can only reduce what a session does. The reference directory is overridable for the unit test alone; a caller
+# who could set it may already read every file it names.
+: "${AI_TOOLS_MANAGED_REFERENCE_DIR:=/usr/share/ai-tools}"
+
+# ai_tools_managed_file_state <live> <reference> : print one word for how a managed file relates to
+#   the pristine copy its package ships: `shipped` (byte-identical), `edited` (both readable and
+#   they differ), `missing` (the live file is absent), `unknown` (the reference cannot be read, or
+#   either path is a symlink -- a report that cannot compare says so rather than guessing). Pure:
+#   two paths in, one token out.
+ai_tools_managed_file_state() {
+    local live="$1" reference="$2"
+    [[ -e "${live}" ]] || { printf 'missing'; return 0; }
+    if [[ -L "${live}" || -L "${reference}" || ! -r "${live}" || ! -r "${reference}" ]]; then
+        printf 'unknown'; return 0
+    fi
+    if cmp -s -- "${live}" "${reference}"; then printf 'shipped'; else printf 'edited'; fi
+    return 0
+}
+
+# ai_tools_agent_managed_files <agent> : print "<live>\t<reference>" per file the agent's trusted
+#   manifest names in managed_files, the reference being the pristine copy under
+#   AI_TOOLS_MANAGED_REFERENCE_DIR/<agent>/<basename>. A path that is not absolute, or carries a
+#   parent-directory component, is skipped with a refusal on stderr; empty output for an agent
+#   declaring none.
+ai_tools_agent_managed_files() {
+    local agent="$1" value path
+    local -a paths=()
+    value="$(ai_tools_agent_manifest_field "${agent}" managed_files 2>/dev/null || true)"
+    [[ -n "${value}" ]] || return 0
+    ai_tools_conf_split paths "${value}"
+    for path in "${paths[@]}"; do
+        if [[ "${path}" != /* || "${path}" == *..* ]]; then
+            _ai_tools_provider_warn MSG-N4W6 "skipping the managed file $(printf '%q' "${path}") of ${agent}: not an absolute path without parent-directory components"
+            continue
+        fi
+        printf '%s\t%s/%s/%s\n' "${path}" "${AI_TOOLS_MANAGED_REFERENCE_DIR}" "${agent}" "${path##*/}"
+    done
+    return 0
+}
+
 # ai_tools_enabled_integrations : print one enabled AND installed integration name per line, in
 #   manifest-filename order. An integration carries only default_enable; its session env lives in
 #   session-env.d/<name>.env.sh, which ai-tools-run sources by name -- after applying the same trust

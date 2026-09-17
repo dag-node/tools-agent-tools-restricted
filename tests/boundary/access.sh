@@ -194,6 +194,26 @@ else
     fail "cannot execute ${shook} -- stop-sweep / session-start silently skipped"
 fi
 
+# The codex agent's two hook adapters carry the same pair of properties: not agent-writable, since an emptied hook skips
+# the per-turn handback for the rest of the session, and agent-executable, since codex runs them as the sandbox account
+# and skips a hook it cannot execute without an error. Absent where the codex package is not installed.
+for _codex_hook in /opt/ai-tools/.codex/post-tool-hook.sh /opt/ai-tools/.codex/session-hook.sh; do
+    if [[ ! -e "${_codex_hook}" ]]; then
+        skip "${_codex_hook}" "not deployed on this host"
+        continue
+    fi
+    if ! runuser -u "${SANDBOX_USER}" -- test -w "${_codex_hook}" 2>/dev/null; then
+        pass "cannot write ${_codex_hook} (750 no group-write): codex's handback cadence protected"
+    else
+        fail "can write ${_codex_hook} -- agent could empty the hook and drop codex's per-turn handback"
+    fi
+    if runuser -u "${SANDBOX_USER}" -- test -x "${_codex_hook}" 2>/dev/null; then
+        pass "can execute ${_codex_hook} (750 group-exec): the declared codex hook will fire"
+    else
+        fail "cannot execute ${_codex_hook} -- codex skips the hook and only the session-end sweep hands back"
+    fi
+done
+
 # The control-plane home root is root:${SANDBOX_GROUP} at CP_HOME_MODE (control-plane.lib.sh, asserted
 # in integration/perms.sh). Three parts of that mode matter here: SETGID, so an entry born under it stays in the sandbox
 # group; group r-x, so the agent traverses and reads but must NOT create new top-level entries, or it could drop files

@@ -99,6 +99,23 @@ not_writable /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh \
     "inject environment and PATH into its own session"
 not_writable /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh \
     "repoint its own config directory or re-enable the in-session updater"
+# The codex package's manifest and fragment, the same two decisions for the second agent. The manifest ships
+# default_enable=no, so writable it would be the file the agent flips to enable itself.
+not_writable /usr/local/lib/ai-tools/agents.d/codex.conf \
+    "enable itself by default, or repoint the codex package the toolchain installs"
+not_writable /usr/local/lib/ai-tools/session-env.d/codex.env.sh \
+    "repoint CODEX_HOME at a directory it controls"
+
+# Codex's managed files, read by codex at every start from a fixed path. No file under /etc/codex holds a guarantee --
+# the session runs as the sandbox account in the confined domain whatever codex reads -- so what a writer there changes
+# is what the package OWNS: the hook declarations that hand files back per turn and the pin that keeps codex from adding
+# a sandbox of its own. Root-owned control-plane data stays root-written, like settings.json.
+not_writable /etc/codex \
+    "replace the managed files codex reads at every start"
+not_writable /etc/codex/requirements.toml \
+    "rewrite the pin and the hook declarations codex enforces on its own session"
+not_writable /etc/codex/managed_config.toml \
+    "rewrite the defaults codex reapplies at every start"
 
 # The shared asset roots. Every agent symlinks into these two places, so a writable root here would let one session
 # rewrite the standing instructions -- or the delegate definitions -- that every agent and every later session reads.

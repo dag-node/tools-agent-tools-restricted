@@ -113,6 +113,50 @@ for key in skills_dir subagents_dir release_manifest_url release_key release_fin
     fi
 done
 
+# The two managed files are declared, so the status reports compare the live copies against the shipped ones. Each
+# declared path is a file the package ships under src/etc, read by basename -- a declared path with no shipped source is
+# a status line that can only ever read `unknown`.
+declare -a managed_declared=()
+ai_tools_conf_split managed_declared "$(field managed_files)"
+if [[ "${managed_declared[*]}" == "/etc/codex/requirements.toml /etc/codex/managed_config.toml" ]]; then
+    pass "managed_files names the two files under /etc/codex, in the shipped order"
+else
+    fail "managed_files is '${managed_declared[*]}', expected the two /etc/codex files"
+fi
+for path in "${managed_declared[@]}"; do
+    [[ -f "${SRC}/etc/codex/${path##*/}" ]] \
+        && pass "managed file ${path} has its shipped source ${SRC}/etc/codex/${path##*/}" \
+        || fail "managed file ${path} has no shipped source under ${SRC}/etc/codex"
+done
+
+# Enablement, through the real resolver over this manifest: the package ships disabled, an operator names it to enable
+# it, and a manifest the trust predicate refuses stays disabled however operator.conf reads. The resolver trusts
+# root-owned inputs only, so the fixtures are built where this file runs as root; unprivileged, the section skips.
+section "codex.conf: enablement through the resolver (fails closed)"
+if [[ "${EUID}" -ne 0 ]]; then
+    skip "enablement rows" "the resolver trusts root-owned inputs only; run under sudo"
+else
+    en_dir="${TESTDIR}/agents.d"; mkdir -p "${en_dir}"; chmod 0755 "${en_dir}"
+    install -m 0644 "${MANIFEST}" "${en_dir}/codex.conf"
+    en_conf="${TESTDIR}/operator.conf"
+    enabled_names() { AI_TOOLS_AGENTS_DIR="${en_dir}" AI_TOOLS_OPERATOR_CONF="$1" ai_tools_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' '; }
+    printf 'OPERATORS="x"\n' > "${en_conf}"; chmod 0644 "${en_conf}"
+    [[ "$(enabled_names "${en_conf}")" == "" ]] \
+        && pass "AI_TOOLS_AGENTS unset: codex stays disabled (default_enable=no)" \
+        || fail "codex resolved as enabled with AI_TOOLS_AGENTS unset: '$(enabled_names "${en_conf}")'"
+    printf 'AI_TOOLS_AGENTS="codex"\n' > "${en_conf}"
+    [[ "$(enabled_names "${en_conf}")" == "codex " ]] \
+        && pass "AI_TOOLS_AGENTS=codex: codex resolves as enabled" \
+        || fail "codex did not resolve as enabled when named: '$(enabled_names "${en_conf}")'"
+    chmod 0664 "${en_dir}/codex.conf"
+    en_warn="$(AI_TOOLS_AGENTS_DIR="${en_dir}" AI_TOOLS_OPERATOR_CONF="${en_conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
+    [[ "$(enabled_names "${en_conf}")" == "" ]] \
+        && pass "a group-writable codex.conf is skipped even when named: less access, never more" \
+        || fail "an untrusted codex.conf still resolved as enabled"
+    assert_msg MSG-M3A5 "${en_warn}" "the untrusted manifest is refused on stderr, not silently"
+    chmod 0644 "${en_dir}/codex.conf"
+fi
+
 target="$(field launcher_target)"
 pattern="$(field entrypoint_fcontext)"
 if ai_tools_launcher_target_valid "${target}"; then

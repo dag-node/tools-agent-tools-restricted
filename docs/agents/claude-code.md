@@ -1,6 +1,7 @@
 # Claude Code options
 
-[Agents](index.md) · **Claude Code** — [all docs](../index.md)
+[Agents](index.md) · **Claude Code** · [Codex](codex.md) — [all
+docs](../index.md)
 
 Catalog of the Claude Code settings and environment variables that shape
 an agent session, what the sandbox sets by default, and what an operator MAY

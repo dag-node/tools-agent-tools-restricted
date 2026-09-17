@@ -145,6 +145,85 @@ else
     fi
 fi
 
+# ── requirements.toml declares codex's hooks + the pin ───────────────────────────
+# The codex package's counterpart to settings.json: codex reads /etc/codex/requirements.toml at every start,
+# and with allow_managed_hooks_only it is the ONLY source of hooks a session runs, so a stale or emptied file would drop
+# the per-turn handback (the shim's session-end sweep still hands back -- the manifest declares handback=none)
+# and, without the pin, send codex after a bubblewrap sandbox the session unit refuses. Pinned here as codex parses it,
+# since a bare key that landed after a table header belongs to that table and reads as accepted while codex ignores it.
+# Needs python3's tomllib (3.11+); skips the content check without it. Absent where the codex package is not installed.
+readonly codex_requirements="/etc/codex/requirements.toml"
+readonly codex_hook="/opt/ai-tools/.codex/post-tool-hook.sh"
+readonly codex_sweep="/opt/ai-tools/.codex/session-hook.sh"
+section "requirements.toml declares codex's hooks + the pin (integration)"
+if [[ ! -e "${codex_requirements}" ]]; then
+    skip "${codex_requirements}" "not deployed on this host (the codex package is absent)"
+elif [[ ! -r "${codex_requirements}" ]]; then
+    fail "${codex_requirements} is unreadable -- codex refuses to start on it"
+elif ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import tomllib' 2>/dev/null; then
+    skip "requirements.toml content" "python3 with tomllib (3.11+) not available to parse ${codex_requirements}"
+else
+    # One parse, printed as KEY<TAB>value lines; a hook event's value is its commands joined by '|'. A file codex would
+    # refuse (a parse error) fails here with the parser's message.
+    codex_decl="$(python3 - "${codex_requirements}" <<'PY' 2>&1
+import sys, tomllib
+with open(sys.argv[1], "rb") as f:
+    doc = tomllib.load(f)
+print("managed_only\t%s" % str(doc.get("allow_managed_hooks_only", "")).lower())
+print("modes\t%s" % "|".join(doc.get("allowed_sandbox_modes", [])))
+print("default_permissions\t%s" % doc.get("default_permissions", ""))
+hooks = doc.get("hooks", {})
+print("managed_dir\t%s" % hooks.get("managed_dir", ""))
+for event in ("SessionStart", "PostToolUse", "Stop", "SessionEnd"):
+    cmds = [h.get("command", "") for e in hooks.get(event, []) for h in e.get("hooks", [])]
+    print("%s\t%s" % (event, "|".join(cmds)))
+PY
+)" || { fail "${codex_requirements} does not parse as TOML -- codex refuses to start on it: ${codex_decl}"; codex_decl=""; }
+    if [[ -n "${codex_decl}" ]]; then
+        decl() { awk -F'\t' -v k="$1" '$1==k {print $2}' <<<"${codex_decl}"; }
+        # (c0) The pin. danger-full-access is what keeps the host's confinement closed: codex's own sandbox needs a user
+        # namespace the session unit refuses, so the managed default says codex does not add a sandbox of its own.
+        if [[ "$(decl default_permissions)" == ":danger-full-access" ]] \
+                && grep -q 'danger-full-access' <<<"$(decl modes)"; then
+            pass "requirements.toml pins the session on the host's confinement (default_permissions :danger-full-access)"
+        else
+            fail "requirements.toml does not pin danger-full-access (modes '$(decl modes)', default '$(decl default_permissions)') -- codex would reach for bubblewrap and fail every tool call"
+        fi
+        # (c1) Managed hooks are the only hooks, and they live in the root-owned config directory.
+        if [[ "$(decl managed_only)" == true && "$(decl managed_dir)" == /opt/ai-tools/.codex ]]; then
+            pass "requirements.toml admits managed hooks only, from /opt/ai-tools/.codex"
+        else
+            fail "requirements.toml: allow_managed_hooks_only='$(decl managed_only)', managed_dir='$(decl managed_dir)' -- a user hooks file could run in the session"
+        fi
+        # (c2) Each event names the installed hook body with its argument, the same four events settings.json declares
+        # for claude-code; a dropped or repointed event silently disables that handback path.
+        declare -A want_codex_hook=(
+            [SessionStart]="${codex_sweep} session-start"
+            [PostToolUse]="${codex_hook}"
+            [Stop]="${codex_sweep}"
+            [SessionEnd]="${codex_sweep} session-end"
+        )
+        codex_hooks_ok=true
+        for ev in SessionStart PostToolUse Stop SessionEnd; do
+            got="$(decl "${ev}")"
+            if [[ "${got}" != "${want_codex_hook[$ev]}" ]]; then
+                fail "requirements.toml ${ev} hook is '${got:-<none>}', expected '${want_codex_hook[$ev]}'"
+                codex_hooks_ok=false
+            fi
+        done
+        ${codex_hooks_ok} && pass "requirements.toml declares SessionStart/PostToolUse/Stop/SessionEnd -> installed codex hook bodies"
+        # (c3) Every declared hook body is installed and executable by the agent: codex skips a hook it cannot run
+        # without reporting it, so a declaration alone is not the mechanism.
+        for hb in "${codex_hook}" "${codex_sweep}"; do
+            if [[ -x "${hb}" ]]; then
+                pass "${hb} is installed and executable"
+            else
+                fail "${hb} is declared in requirements.toml and not executable -- codex skips it silently"
+            fi
+        done
+    fi
+fi
+
 # ── /tmp isolation (pam_namespace, optional) ─────────────────────────────────────
 # pam_namespace polyinstantiation of /tmp + /var/tmp gives each session a private /tmp instance (a confinement property,
 # and the reason the live hook chain is driven against a fixture under the operator's home rather than /tmp). It is

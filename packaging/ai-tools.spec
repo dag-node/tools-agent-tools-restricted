@@ -555,6 +555,11 @@ install -m 0644 src%{ai_libdir}/session-env.d/codex.env.sh %{buildroot}%{ai_libd
 install -d -m 0755 %{buildroot}%{_sysconfdir}/codex
 install -m 0644 src%{_sysconfdir}/codex/requirements.toml   %{buildroot}%{_sysconfdir}/codex/requirements.toml
 install -m 0644 src%{_sysconfdir}/codex/managed_config.toml %{buildroot}%{_sysconfdir}/codex/managed_config.toml
+# A pristine copy of each managed file, the reference the two status reports compare the live
+# %config(noreplace) file against (the manifest's managed_files key, ai-tools-providers(5)).
+install -d -m 0755 %{buildroot}%{_datadir}/ai-tools/codex
+install -m 0644 src%{_sysconfdir}/codex/requirements.toml   %{buildroot}%{_datadir}/ai-tools/codex/requirements.toml
+install -m 0644 src%{_sysconfdir}/codex/managed_config.toml %{buildroot}%{_datadir}/ai-tools/codex/managed_config.toml
 
 # ── base: ghost the operation logs so the package owns them with the right context ──
 for f in chown setgid setfacl symlink lockdown relabel handback install; do
@@ -1272,6 +1277,10 @@ fi
 %dir %attr(0755, root, root) %{_sysconfdir}/codex
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/codex/requirements.toml
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/codex/managed_config.toml
+# The pristine copies the status reports compare those two against.
+%dir %attr(0755, root, root) %{_datadir}/ai-tools/codex
+%attr(0644, root, root) %{_datadir}/ai-tools/codex/requirements.toml
+%attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
 * Tue Sep 15 2026 dagnode <tools@dagnode.com> - 0.18.0-1
