@@ -1,6 +1,7 @@
 # /etc/codex/requirements.toml -- what codex enforces on every session
 # the sandbox launches: the sandbox-mode pin, the approval policy, the
-# login method, and the hooks in its [hooks] table as the only hooks.
+# login method, the hooks in its [hooks] table as the only hooks, and
+# the destructive git verbs its [rules] table refuses.
 # Shipped by ai-tools-agents-codex-restricted as 0644 root:root and
 # kept across an upgrade; a newer copy lands beside it as
 # requirements.toml.rpmnew.
@@ -29,6 +30,45 @@ default_permissions = ":danger-full-access"
 
 [marketplaces]
 restrict_to_allowed_sources = true
+
+# The per-command refusals, and a gate rather than a boundary: what
+# the session may reach is DAC and ai_tools_t. A requirements rule can
+# only narrow -- its decision is "prompt" or "forbidden", never
+# "allow", and the most restrictive rule that matches wins -- so the
+# table holds the rows the host does not otherwise refuse: the git
+# verbs that destroy with no undo, unprivileged, in the operator's own
+# tree. The root-only commands the claude-code package also denies
+# (sudo, systemctl, dnf, ...) are left out, since NoNewPrivileges and
+# the confined domain refuse them already.
+#
+# A pattern is an exact prefix of the command's arguments, matched
+# token by token, so `git push origin main --force` does not match the
+# push rule. That is the reach claude-code's `git push --force*` has
+# too: what the layer buys is that the habitual spelling reaches the
+# operator rather than the shell.
+#
+# `git clean` is refused as a whole verb rather than by flag, the one
+# row wider than claude-code's: its destructive spellings are one token
+# each, and an enumeration leaks the one it misses. A dry run is what
+# that costs, and `git status --porcelain` lists untracked files.
+[[rules.prefix_rules]]
+pattern = [
+  { token = "git" },
+  { token = "push" },
+  { any_of = ["-f", "--force", "--force-with-lease", "--force-if-includes"] },
+]
+decision = "forbidden"
+justification = "A force push overwrites the branch for every other clone: raise it, and the operator runs it"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "git" }, { token = "reset" }, { token = "--hard" }]
+decision = "forbidden"
+justification = "A hard reset deletes uncommitted work: commit it, or `git stash`, or `git restore` one path"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "git" }, { token = "clean" }]
+decision = "forbidden"
+justification = "git clean deletes untracked files no commit and no reflog can return: remove a path by name"
 
 # The ownership handback's cadence. The shim's session-end sweep hands
 # back whatever these miss; Stop is where the per-turn sweep runs, since

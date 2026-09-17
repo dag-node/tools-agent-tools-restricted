@@ -133,6 +133,23 @@ to the subscription login (an API key through a root-placed `auth.json` is the o
 restricted with no allowed source; and `allow_managed_hooks_only = true` with the `[hooks]` table makes the package's
 hooks the only hooks — a user `hooks.json` does not run.
 
+Its `[rules]` table is the **per-command deny layer**, codex's counterpart to `settings.json`'s irreversible-VCS group
+([claude-settings](claude-settings.rule.md)) and held to the same criterion: destruction with no undo, unprivileged,
+in the operator's own tree, where no host control refuses. Three rows, each `decision = "forbidden"`
+with a justification codex surfaces in the refusal — `git push`
+with `-f`/`--force`/`--force-with-lease`/`--force-if-includes`, `git reset --hard`, and `git clean`. A requirements rule
+takes `prompt` or `forbidden` and never `allow`, and the most restrictive match wins, so the table narrows a session
+and cannot widen one. The root-only commands claude-code also denies (`sudo`, `systemctl`, `dnf`, …) are left
+out: `NoNewPrivileges` and the confined domain refuse them already.
+
+A pattern is an **exact prefix** of the command's arguments, matched token by token, so `git push origin main --force`
+does not match — the reach `Bash(git push --force*)` has too, and the same bargain: what the layer buys is
+that the habitual spelling cannot be taken silently. `git clean` is refused as a whole verb rather than by flag, the one
+row wider than claude-code's, since its destructive spellings (`-f`, `-fd`, `-ffd`, `-xf`, …) are one token each
+and an enumeration leaks the one it misses. `unit/codex-package.sh` pins the three rows and that no decision reads
+`allow`; `integration/hooks.sh` pins them in the deployed file, which is where an operator's edit is kept
+across an upgrade.
+
 **`managed_config.toml`** is the defaults codex applies ahead of any user config: the mode and the approval policy
 the requirements pin, `check_for_update_on_startup = false` (the `nvm-update` timer maintains the toolchain,
 and the Node tree is read-only to the session), `[agents] enabled = false`, and the `[analytics]`, `[feedback]`
@@ -231,13 +248,13 @@ when named, and skipped when the manifest is group-writable however `operator.co
 in each state the linker leaves; `tests/boundary/providers.sh` and `tests/boundary/access.sh` assert, as the agent,
 that the manifest, the fragment, `/etc/codex` and both managed files are not writable and that both hooks are executable
 and not writable; `tests/integration/hooks.sh` reads `requirements.toml` as codex does and pins the pin, managed hooks
-only, and the four hook declarations against the installed bodies; and `tests/integration/wrapper.sh` drives
-`/usr/local/bin/codex` in whichever state the host is in — refused at the launcher gate while codex is disabled, since
-a disabled agent has no launcher symlink, and refused at the allowlist gate once it is enabled and provisioned — while
-holding the launcher symlink and the enabled set to agreement. The rows that need a codex session — a turn
-under the pin, a hook-written file handed back, the sweep-only path, a skill listed through `/etc/codex/skills` — run
-through the package's own path on a host whose operator enabled codex, the way the claude chain runs
-in `tests/manual/verify-live-flows.sh`.
+only, the four hook declarations against the installed bodies, and the refused git verbs;
+and `tests/integration/wrapper.sh` drives `/usr/local/bin/codex` in whichever state the host is in — refused
+at the launcher gate while codex is disabled, since a disabled agent has no launcher symlink, and refused
+at the allowlist gate once it is enabled and provisioned — while holding the launcher symlink and the enabled set
+to agreement. The rows that need a codex session — a turn under the pin, a hook-written file handed back, the sweep-only
+path, a skill listed through `/etc/codex/skills` — run through the package's own path on a host whose operator enabled
+codex, the way the claude chain runs in `tests/manual/verify-live-flows.sh`.
 
 ## The reduced set
 
