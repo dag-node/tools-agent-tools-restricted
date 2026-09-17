@@ -344,6 +344,32 @@ if [ "${#agent_packages[@]}" -gt 0 ]; then
 fi
 EOSU
 
+# 2a. Point each enabled agent's versioned launcher at the executable its manifest declares
+#     (launcher_target, ai-tools-providers(5)): npm links bin/<launcher> at the package's entry
+#     file, which for a shim-started agent is not the binary the session runs. Runs as
+#     ${SANDBOX_USER}, the owner of that tree, through the library the resolver came from, and
+#     before the verification (2b) and the stable symlink (3), so each reads the chain in its
+#     final shape. The library reports a refusal and leaves npm's link in place: that agent's
+#     launch then fails closed at the label preflight until its manifest and its package agree.
+#     The active Node version is read once here and reused by step 3.
+_node_version="$(sudo -u "${SANDBOX_USER}" env NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" \
+        bash -c '. "${NVM_DIR}/nvm.sh"; nvm version default' 2>/dev/null || true)"
+if [[ -n "${_node_version}" ]] && declare -F ai_tools_relink_launcher >/dev/null 2>&1; then
+    while IFS=$'\t' read -r _agent _ _launcher; do
+        [[ -n "${_agent}" && -n "${_launcher}" ]] || continue
+        _launcher_target="$(ai_tools_agent_manifest_field "${_agent}" launcher_target || true)"
+        [[ -n "${_launcher_target}" ]] || continue
+        _fcontext="$(ai_tools_agent_manifest_field "${_agent}" entrypoint_fcontext || true)"
+        if _verdict="$(sudo -u "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" PROVIDERS_LIB="${_providers_lib}" \
+                bash -c 'set -euo pipefail; . "${PROVIDERS_LIB}"; ai_tools_relink_launcher "$@"' _ \
+                "${NVM_DIR}/versions/node/${_node_version}" "${_launcher}" "${_launcher_target}" "${_fcontext}")"; then
+            log "${_agent}: ${_launcher} ${_verdict/linked/re-linked} at ${_launcher_target}"
+        else
+            warn "${_agent}: ${_launcher} was not re-linked at its declared target (see above) -- npm's own link stays, and a launch fails closed at the label preflight until the manifest and the installed package agree"
+        fi
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+fi
+
 # 2b. Verify the installed toolchain's npm registry signatures BEFORE wiring the launcher, so a
 #     compromised registry serving a tampered package is caught before the first launch can use
 #     it. Runs as ${SANDBOX_USER} (the verifier refuses root: it audits the sandbox-owned global
@@ -381,8 +407,6 @@ fi
 #    group-writable .claude dir, where claude creates its own state files (.claude.json
 #    included).
 if [[ ${#_agent_launchers[@]} -gt 0 ]]; then
-    _node_version="$(sudo -u "${SANDBOX_USER}" env NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" \
-            bash -c '. "${NVM_DIR}/nvm.sh"; nvm version default' 2>/dev/null || true)"
     if [[ -n "${_node_version}" ]]; then
         install -d -o root -g "${SANDBOX_GROUP}" -m 0551 "${SANDBOX_HOME}/bin"
         for _launcher in "${_agent_launchers[@]}"; do

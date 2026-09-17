@@ -612,6 +612,18 @@ its directories as arguments, so the fixtures are a tree the file builds; it nee
 there, which a noexec mount and a label that withholds execute each hide, so it probes the directory the fixtures live
 in and falls back to one beside the operator's home.
 
+`launcher-target.sh` pins the versioned launcher re-link (`ai_tools_relink_launcher`, see
+[providers](providers.rule.md)), the write that points `<version-dir>/bin/<launcher>` at the executable an agent's
+`launcher_target` names. The file the chain ends on is the one `execve` transitions on, so every way a target could take
+the chain somewhere else is driven and asserted to leave npm's own link as it was, with an empty stdout and the code
+on stderr: a parent-directory component, a symlink resolving outside the version directory, a missing target, one
+without the executable bit, a directory, a target the declared pattern does not cover, a manifest that does not declare
+a pattern, a pattern `=~` refuses to parse, a regular file at the launcher path, and an unwritable `bin` directory
+(skipped as root, which writes it anyway). The accepted case is read through `realpath`, the chain a launch reads,
+and asserted idempotent on a second run and re-linked after npm's link is put back, since the step runs after every
+install. It is pure — the version directory, launcher, target and pattern are arguments — and runs without root; its
+fixtures need the executable bit visible, so it takes `agent-installs.sh`'s probe and fallback.
+
 `bootstrap.sh` pins the report `ai-tools-admin system bootstrap` closes with: which enrolled operators a launcher would
 not reach the wrapper for. It is the last thing said before a host is treated as ready, so both directions are driven —
 a shadowed account named with its launcher and the binary that wins, every other state named by no line —

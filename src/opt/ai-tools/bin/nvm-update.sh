@@ -227,6 +227,33 @@ verify_agent_entrypoints() {
     return 0
 }
 
+# relink_agent_launchers <target-version>: point each enabled agent's versioned launcher at the executable its manifest
+# declares (launcher_target; the check and the refusals are providers.lib.sh's). npm rewrites bin/<launcher> on every
+# install, so this runs after every install_packages and BEFORE the entrypoint verifier and the stable repoint:
+# the verifier hashes what the versioned launcher resolves to, and the repoint is what fires the relabel watcher,
+# so each must read the chain in its final shape. A refusal is reported by the library and leaves npm's link in place;
+# the run continues, and that agent's launch fails closed at the label preflight until its manifest and its package
+# agree.
+relink_agent_launchers() {
+    local target="$1" agent launcher launcher_target fcontext verdict
+    declare -F ai_tools_relink_launcher >/dev/null 2>&1 || return 0
+    while IFS=$'\t' read -r agent _ launcher; do
+        [[ -n "${agent}" && -n "${launcher}" ]] || continue
+        launcher_target="$(ai_tools_agent_manifest_field "${agent}" launcher_target || true)"
+        [[ -n "${launcher_target}" ]] || continue      # npm's own link is the launcher
+        fcontext="$(ai_tools_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
+        if verdict="$(ai_tools_relink_launcher "${HOME}/.nvm/versions/node/${target}" "${launcher}" "${launcher_target}" "${fcontext}")"; then
+            case "${verdict}" in
+                linked) log "${agent}: ${launcher} in ${target} re-linked at ${launcher_target}" ;;
+                *)      log "${agent}: ${launcher} in ${target} already links ${launcher_target}" ;;
+            esac
+        else
+            warn "${agent}: ${launcher} in ${target} was not re-linked at its declared target (see above) -- npm's own link stays, and a launch fails closed at the label preflight until the manifest and the installed package agree"
+        fi
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    return 0
+}
+
 # agent_package_version <entrypoint>: print the MAJOR.MINOR.PATCH the package beside the entrypoint declares, walking
 # up to the nearest package.json. Bounded read; anything not semver yields an empty string, so a crafted value cannot
 # become part of a URL.
@@ -328,8 +355,9 @@ install_packages() {
 }
 
 # main: resolve the latest LTS in the vMAJOR series (or take it from $1), install it under /opt/ai-tools if not already
-# active, refresh the sandbox global tools, prune superseded versions, and repoint each enabled agent's stable
-# /opt/ai-tools/bin/<launcher> symlink at the versioned binary.
+# active, refresh the sandbox global tools, re-link each versioned launcher at the target its manifest declares, prune
+# superseded versions, and repoint each enabled agent's stable /opt/ai-tools/bin/<launcher> symlink at the versioned
+# binary.
 # args:  optional target Node version override (e.g. v22.15.0)
 main() {
     local target_version="${1:-}"
@@ -427,6 +455,9 @@ main() {
     local allow_csv; allow_csv="$(IFS=,; printf '%s' "${tools[*]}")"
     log "Packages: ${tools[*]}"
     install_packages "${allow_csv}" "${tools[@]}"
+
+    # The versioned launcher chain takes its final shape here, ahead of every gate that reads it (see the function).
+    relink_agent_launchers "${target_version}"
 
     # Fail-closed signature gate BEFORE prune and repoint: a detected tamper (die) leaves the previous version un-pruned
     # and the launcher symlink un-repointed, so the trusted toolchain stays active. Runs against the just-installed

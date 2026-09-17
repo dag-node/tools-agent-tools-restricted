@@ -1563,9 +1563,25 @@ ERROR.
 refusing to launch \-\- ${cwd} is not fully claimed for the sandbox
 .SS providers.lib.sh
 .TP
+.B MSG-A3S3
+WARNING.
+could not write ${link} \-> ../${target} \-\- leaving the launcher as it was
+.TP
+.B MSG-C4F6
+WARNING.
+refusing the launcher target for ${launcher}: ${target} does not resolve to an executable file inside ${version_dir}${resolved:+ (it resolves to ${resolved})} \-\- leaving ${link} as it is
+.TP
 .B MSG-C4F9
 WARNING.
 ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") \-\- using the default\-enabled providers only
+.TP
+.B MSG-F5U2
+WARNING.
+refusing the launcher target for ${launcher}: ${reason}, so the file would carry no entrypoint label \-\- leaving ${link} as it is
+.TP
+.B MSG-J5C3
+WARNING.
+refusing the launcher target for ${launcher}: $(printf '%q' "${target}") is not a relative path inside the version directory \-\- leaving ${link} as it is
 .TP
 .B MSG-M3A5
 WARNING.
@@ -1582,6 +1598,10 @@ providers.lib.sh: conf.lib.sh missing or incomplete \-\- no providers resolved
 .B MSG-W3Q3
 WARNING.
 refusing every ${conf_key} provider: ${dir} $(ai_tools_conf_untrusted_reason "${dir}")
+.TP
+.B MSG-W4H3
+WARNING.
+refusing to re\-link ${link}: it is not a symlink \-\- leaving it as it is
 .TP
 .B MSG-X8P4
 WARNING.
