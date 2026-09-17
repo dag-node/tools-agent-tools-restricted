@@ -646,12 +646,13 @@ the wrapper's three library calls in order and its fail-closed load, driven on a
 at an absent file; the two managed TOML files as a TOML parser reads them, so a bare key that landed inside a table —
 the shape two harness runs measured a pin as "accepted" with — fails here, with every declared hook naming a script
 the package ships and the commented operator keys placed ahead of the first table; and the two hook adapters
-on the payload key sets the harness captured, the `apply_patch` parser included. It reads the checkout, builds its
-fixtures, and runs without root; the session hook is driven only in the modes that reach no root helper, since
-a `session-start` on a fresh process would call the live handback daemon. Its enablement section is the one part
-that needs root: it drives the real resolver over a copy of the manifest — disabled with `AI_TOOLS_AGENTS` unset,
-enabled when named, skipped with its refusal reported once the copy is group-writable — and the resolver trusts
-root-owned inputs alone, so unprivileged it skips and says so.
+on the measured payload key sets, the `apply_patch` parser included — over each of the three keys the patch text has
+arrived under, since the parser reads them in turn and only the tool name keeps `command` off the `Bash` branch. It
+reads the checkout, builds its fixtures, and runs without root; the session hook is driven only in the modes that reach
+no root helper, since a `session-start` on a fresh process would call the live handback daemon. Its enablement section
+is the one part that needs root: it drives the real resolver over a copy of the manifest — disabled
+with `AI_TOOLS_AGENTS` unset, enabled when named, skipped with its refusal reported once the copy is group-writable —
+and the resolver trusts root-owned inputs alone, so unprivileged it skips and says so.
 
 `shared-root.sh` pins the shared-root link and its reverse (`ai_tools_link_shared_root`, see
 [shipped-assets](shipped-assets.rule.md)), the step that points codex's admin-scope skills path at the live shared root.
