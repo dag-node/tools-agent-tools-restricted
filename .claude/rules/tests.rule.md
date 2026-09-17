@@ -215,10 +215,14 @@ verdict: no other part of that run is invalid, so driving it would start a real 
 the record is reported without gating a launch — so `unit/entrypoint-verify.sh` redirects it at its testdir and writes
 real records through the library.
 
-`AI_TOOLS_LAUNCHER_DIR` (`relabel.lib.sh`) is the sixth, and the one hook no automated test consumes. It redirects
-where the entrypoint reconciliation looks for an agent's stable launcher symlink, which is what lets the `stale` verdict
-be driven **end to end on a live host** — point it at a directory whose `claude` link resolves to a real file
-the declared pattern does not cover, and `ai-tools-relabel-agent` must print the stale warning and exit non-zero:
+`AI_TOOLS_LAUNCHER_DIR` is the sixth, read by two consumers for the one directory the stable launcher symlinks live in.
+In `ai-tools.sh` it is where the bootstrap gate and `status` read the enabled agents' links, operator-settable there
+like `AI_TOOLS_GITCONFIG` since it moves a report and an early refusal and no access decision; `unit/cli-agent-set.sh`
+drives the gate through it against fixture manifests and links. In `relabel.lib.sh` it redirects where the entrypoint
+reconciliation looks for an agent's stable launcher symlink — a use no automated test consumes — which is what lets
+the `stale` verdict be driven **end to end on a live host** — point it at a directory whose `claude` link resolves
+to a real file the declared pattern does not cover, and `ai-tools-relabel-agent` must print the stale warning and exit
+non-zero:
 
 ```
 sudo bash -c 'n=$(find /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/node_modules -name claude -type f | head -1); d=$(mktemp -d); ln -s "$n" "$d/claude"; env AI_TOOLS_LAUNCHER_DIR="$d" /usr/local/libexec/ai-tools/ai-tools-relabel-agent; echo "exit=$?"; rm -rf "$d"'
@@ -376,7 +380,12 @@ be both operator-acting and root-allowed, no table may name a verb the dispatche
 exactly what the dispatcher accepts. Its last check asserts required **content** rather than consistency: `--help`
 and `--version` must be in `BOOTSTRAP_EXEMPT_VERBS`, because a CLI that cannot print its own usage on an unprovisioned
 host leaves the gate's refusal as the only route to the provisioning command — a regression visible only on the host
-nobody develops against.
+nobody develops against. `cli-agent-set.sh` drives the gate those tables surround, `require_bootstrap`, and the `status`
+section that reports the same read: the CLI is sourced as the projects user with the resolver's two hooks
+and `AI_TOOLS_LAUNCHER_DIR` pointed at fixtures, and every read is asserted in its fail direction — any enabled agent's
+link passes, an enabled set with no link refuses naming the bootstrap command, an empty allowlist, an allowlisted name
+with no manifest, and a group-writable manifest directory each refuse with the resolver's reason (a link present
+for the agent that directory names notwithstanding), and the report names each agent as the gate decided it.
 
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
