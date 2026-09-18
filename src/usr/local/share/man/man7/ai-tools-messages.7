@@ -847,9 +847,17 @@ WARNING.
 FATAL: owner\-only.lib.sh defines no residue strip
 .SS ai-tools-launcher-symlink
 .TP
+.B MSG-D4X6
+ERROR.
+the ${agent_name} manifest ${fcontext_refusal}, so ${resolved} would carry no entrypoint label \-\- refusing to repoint ${LINK}
+.TP
 .B MSG-G4F4
 ERROR.
 no enabled agent provides the launcher \e"${LAUNCHER}\e" \-\- refusing to repoint ${LINK}
+.TP
+.B MSG-P2R8
+ERROR.
+target does not resolve to an executable file inside ${version_dir} (it resolves to ${resolved}) \-\- refusing to repoint ${LINK}
 .TP
 .B MSG-Q9M3
 ERROR.
@@ -1011,6 +1019,10 @@ wrong type on ${subject}: it is '${detail}', NOT ${wanted}
 WARNING.
 entrypoint verifier unavailable (${ENTRYPOINT_VERIFY_LIB}) \-\- entrypoints will not be pinned
 .TP
+.B MSG-K4D7
+WARNING.
+could not record ${agent}'s stale pin for ai\-tools status \-\- the reports will render its pin as current
+.TP
 .B MSG-M2M5
 ERROR.
 a stale declaration stops this relabel: ${stale} agent(s) install their entrypoint where their manifest no longer says, so it cannot be labelled; update the agent package (dnf update 'ai\-tools\-agents\-*'), then rerun
@@ -1045,7 +1057,7 @@ the ${agent} entrypoint changed under an unchanged version ${version} \-\- leavi
 .TP
 .B MSG-W6V4
 ERROR.
-treat the toolchain as tampered: ${pin_failures} agent entrypoint(s) do NOT match the checksum their vendor signed for the installed version; reprovision it (sudo ai\-tools\-admin system bootstrap) and, if it recurs, investigate before launching a session
+treat the toolchain as tampered: ${pin_failures} agent entrypoint(s) no longer match the checksum recorded for the installed version; the pin is left as it was, so their sessions refuse to start \-\- replace each binary with the two commands printed above, and investigate before launching a session
 .TP
 .B MSG-W8N5
 WARNING.
@@ -1082,7 +1094,7 @@ AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR}
 .TP
 .B MSG-H7S2
 ERROR.
-the agent entrypoint does not match the checksum its vendor signed for the installed version \-\- refusing to start the session
+the agent entrypoint does not match its recorded checksum \-\- refusing to start the session
 .TP
 .B MSG-N4P3
 ERROR.

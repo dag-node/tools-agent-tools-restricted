@@ -46,6 +46,10 @@ source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null || true
 # that one (640 root:root). One record the report can read is worth more than a record filed next to the code
 # that writes it.
 : "${AI_TOOLS_ENTRYPOINT_LABEL_DIR:=/var/opt/ai-tools/state/entrypoint-label.d}"
+# The third record, and the only one written by a REFUSAL: a reconciliation that would not re-record an entrypoint
+# leaves the pin as it was, which is exactly what makes the next launch refuse -- and a pin left standing still reads
+# green in both status reports. The mark is what turns that silent state into a reported one.
+: "${AI_TOOLS_ENTRYPOINT_STALE_DIR:=/var/opt/ai-tools/state/entrypoint-stale.d}"
 
 # _ai_tools_ev_warn <message...> : report to stderr and, when log.lib.sh is loaded by the caller,
 #   to journald. Never alters a verdict.
@@ -206,6 +210,13 @@ ai_tools_entrypoint_label_path() {
     _ai_tools_ev_record_path "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}" "${1:-}"
 }
 
+# ai_tools_entrypoint_stale_path <agent> : print the path of the record saying that the last
+#   reconciliation REFUSED to re-record this agent's pin, so the pin standing beside it describes
+#   a binary that is no longer installed. Public for the same reason the other two are.
+ai_tools_entrypoint_stale_path() {
+    _ai_tools_ev_record_path "${AI_TOOLS_ENTRYPOINT_STALE_DIR}" "${1:-}"
+}
+
 # _ai_tools_ev_record_path <dir> <agent> : print <dir>/<agent> for an agent name that is one plain
 #   identifier -- the same guard ai_tools_agent_manifest_field applies -- so no declaration can
 #   address a file outside the record directory. One implementation, because a name allowlist that
@@ -256,6 +267,40 @@ ai_tools_entrypoint_label_write() {
         # outcome would report itself as unrecordable.
         if [[ -n "${reason}" ]]; then printf 'REASON=%s\n' "${reason}"; fi
     } | _ai_tools_ev_write_record "${record}" "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}"
+}
+
+# ai_tools_entrypoint_stale_write <agent> <version> <reason-token> : record that this run refused to
+#   re-record <agent>'s pin, so the pin left standing no longer describes the installed binary and
+#   the next launch will refuse. ROOT ONLY, same record and same atomic write as the other two.
+#
+#   It exists because a refusal is otherwise the one outcome that does not leave a trace a report can read:
+#   the pin is deliberately left as it was -- that staleness IS the gate -- and both status reports
+#   then renders it green from its own VERSION and VERIFIED. The mark carries `STATE=stale`
+#   and `DETECTED` in the label record's grammar, so the reports read it through the same stamp
+#   accessors, and `VERSION` names the installed version the refusal was about (which the pin, by
+#   construction, does not hold).
+ai_tools_entrypoint_stale_write() {
+    local agent="${1:-}" version="${2:-}" reason="${3:-}" record
+    record="$(ai_tools_entrypoint_stale_path "${agent}")" || return 1
+    _ai_tools_ev_field_ok "${version}" || version=unknown
+    [[ "${reason}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || reason=unknown
+    {
+        printf '# ai-tools entrypoint stale-pin mark -- written as root, read by ai-tools status.\n'
+        printf 'AGENT=%s\nSTATE=stale\nVERSION=%s\nREASON=%s\nDETECTED=%s\n' \
+            "${agent}" "${version}" "${reason}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } | _ai_tools_ev_write_record "${record}" "${AI_TOOLS_ENTRYPOINT_STALE_DIR}"
+}
+
+# ai_tools_entrypoint_stale_clear <agent> : drop the mark, for a run whose reconciliation of <agent>
+#   came out clean. ROOT ONLY and best-effort -- a mark `rm` does not remove leaves a report saying
+#   the entrypoint needs attention, which is the direction that costs an operator a look rather than
+#   a refusal they never hear about. Succeeds when there is no mark to clear.
+ai_tools_entrypoint_stale_clear() {
+    local record
+    record="$(ai_tools_entrypoint_stale_path "${1:-}")" || return 1
+    [[ -e "${record}" ]] || return 0
+    [[ "${EUID:-$(id -u)}" -eq 0 ]] || { _ai_tools_ev_warn "refusing to clear ${record} as non-root"; return 1; }
+    rm -f -- "${record}" 2>/dev/null
 }
 
 # _ai_tools_ev_pin_field <pin-file> <key> : read one field defensively. A symlink is refused (the
@@ -345,6 +390,28 @@ ai_tools_entrypoint_installed_version() {
     return 0
 }
 
+# ai_tools_entrypoint_package_dir <entrypoint> <npm-package> : print the installed package directory
+#   a forced reinstall of <npm-package> has to remove first, or return non-zero when the entrypoint
+#   does not sit inside one.
+#
+#   It exists because the remedy for a changed binary is not the provisioning command: `npm install -g`
+#   is a no-op at an already-installed version, so reprovisioning leaves the modified file exactly where it is
+#   and the host goes on refusing with no explanation. Removing this directory is what makes the next
+#   `ai-tools-admin system bootstrap` fetch the package again. One reader, so the launch refusal and the relabel
+#   helper name the same path.
+#
+#   The entrypoint path and the package name reach a terminal inside a command carrying `rm -rf`, so each is
+#   clamped: the version directory must be absolute and `..`-free, and the package name only to the shape npm gives one.
+ai_tools_entrypoint_package_dir() {
+    local entrypoint="${1:-}" package="${2:-}" version_dir
+    [[ -n "${entrypoint}" && -n "${package}" ]] || return 1
+    [[ "${entrypoint}" == */lib/node_modules/* ]] || return 1
+    version_dir="${entrypoint%%/lib/node_modules/*}"
+    [[ "${version_dir}" == /* && "${version_dir}" != *..* ]] || return 1
+    [[ "${package}" =~ ^(@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+$ ]] || return 1
+    printf '%s/lib/node_modules/%s' "${version_dir}" "${package}"
+}
+
 # ai_tools_entrypoint_pin_write_observed <agent> <version> <sha256> : record what is installed, for an agent whose
 #   vendor publishes no signed release manifest to check it against. ROOT ONLY, same record and same atomic write as
 #   the verified pin, and distinguished from it by `KIND=observed` -- so every reader can say which of the two a host
@@ -366,17 +433,22 @@ ai_tools_entrypoint_pin_write_observed() {
     } | _ai_tools_ev_write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
 }
 
-# ai_tools_entrypoint_pin_kind <agent> : print `verified` or `observed` for the pin this host holds, or an empty
-#   string when there is no pin. A record carrying no KIND reads as `verified`: the field was added with the observed
-#   tier, and every pin written before it came from the signed-manifest path.
+# ai_tools_entrypoint_pin_kind <agent> : print `verified`, `observed`, or `unknown` for the pin this host holds,
+#   or an empty string when there is no pin.
+#
+#   A record carrying NO KIND reads as `verified`: the field was added with the observed tier, and every pin written
+#   before it came from the signed-manifest path. A record carrying a KIND this library does not define reads
+#   as `unknown` -- rendering it as either tier would state a claim about the binary's origin that no writer here made.
+#   The two cases are told apart by the field reader's own status, so an absent field and an unreadable one do not
+#   collapse into the same answer.
 ai_tools_entrypoint_pin_kind() {
     local pin kind
     pin="$(ai_tools_entrypoint_pin_path "${1:-}")" || return 1
     [[ -f "${pin}" ]] || return 1
-    kind="$(_ai_tools_ev_pin_field "${pin}" KIND 2>/dev/null || true)"
+    kind="$(_ai_tools_ev_pin_field "${pin}" KIND 2>/dev/null)" || { printf 'verified'; return 0; }
     case "${kind}" in
         observed|verified) printf '%s' "${kind}" ;;
-        *)                 printf 'verified' ;;
+        *)                 printf 'unknown'    ;;
     esac
 }
 

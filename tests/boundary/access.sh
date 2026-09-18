@@ -362,6 +362,7 @@ fi
 # fails.
 for _ev_path in /var/opt/ai-tools/state/entrypoint-pin.d \
                 /var/opt/ai-tools/state/entrypoint-label.d \
+                /var/opt/ai-tools/state/entrypoint-stale.d \
                 /usr/local/lib/ai-tools/keys \
                 /usr/local/lib/ai-tools/keys/claude-code.asc \
                 /usr/local/lib/ai-tools/entrypoint-verify.lib.sh; do
@@ -400,6 +401,47 @@ elif runuser -u "${SANDBOX_USER}" -- test -w "${_ev_label}" 2>/dev/null; then
 else
     pass "the agent cannot write the record that reports its labelling"
 fi
+
+# ── What the account CAN write, and why each is stated rather than fixed ─────────────────────
+# Two positive readings, recorded here because their value is that they are deliberate. This vantage is the sandbox
+# ACCOUNT, not a session in ai_tools_t (tests.rule.md), so what it reads is DAC -- which is exactly the layer these two
+# facts live on.
+#
+# The toolchain first. The account owns it, so DAC permits it to rewrite the binary it runs and the package.json
+# that declares that binary's version. That is why the observed pin tier states a LIMIT rather than a guarantee:
+# a rewrite arriving with an edited version reads as an update and is re-recorded (updater.rule.md). What closes it is
+# the type layout -- no link in the exec chain carries a type ai_tools_t may manage -- which only a session
+# in that domain can be held to, and integration/selinux.sh asserts it there. So this probe is the standing record
+# of what the DAC layer alone leaves open, and it FAILS if the toolchain ever stops being account-writable, because
+# that would mean the pin's stated limit had quietly changed shape.
+_pkg_json=""
+while IFS= read -r _candidate; do
+    [[ -n "${_candidate}" ]] && { _pkg_json="${_candidate}"; break; }
+done < <(find /opt/ai-tools/.nvm/versions/node -maxdepth 5 -name package.json -path '*/lib/node_modules/*' \
+              2>/dev/null | head -1)
+if [[ -z "${_pkg_json}" ]]; then
+    skip "the declared version is not a trust input" "no agent package.json found under the toolchain"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${_pkg_json}" 2>/dev/null; then
+    pass "the agent can write ${_pkg_json} under DAC -- which is why the declared version is not a trust input and the observed tier states its limit"
+else
+    fail "${_pkg_json} is no longer account-writable -- the observed pin tier's stated limit rests on this reading; re-read updater.rule.md before changing it"
+fi
+
+# The two hook state files next. The sweep marker and the clean-exit marker are agent-written by design -- the hooks
+# that write them run AS the agent -- and what they carry is CADENCE, never a guarantee: the sweep marker bounds
+# a turn-end walk, and the clean-exit marker selects which project a session-start reclaim widens to. A change that made
+# either root-owned would break the hook silently, so the reading is asserted rather than left to be discovered.
+_hook_dirs=0
+for _hook_dir in /opt/ai-tools/.claude /opt/ai-tools/.codex; do
+    [[ -d "${_hook_dir}" ]] || continue
+    _hook_dirs=$(( _hook_dirs + 1 ))
+    if runuser -u "${SANDBOX_USER}" -- test -w "${_hook_dir}" 2>/dev/null; then
+        pass "the agent can write ${_hook_dir}, where .sweep-marker and .session-active live -- documented cadence state, not a guarantee"
+    else
+        fail "the agent cannot write ${_hook_dir} -- its hooks cannot rotate .sweep-marker or clear .session-active, so every sweep runs unbounded or not at all"
+    fi
+done
+(( _hook_dirs > 0 )) || skip "hook state stays agent-writable" "no agent config directory installed"
 
 # ── journald attribution: a tag is not an attribution, _UID is ───────────────────────────────
 # Every documented journal query pairs a syslog tag with the uid of that tag's legitimate writer
@@ -531,8 +573,8 @@ fi
 # Both are driven with NO path argument, so a regression that let one through would still have no path to act on --
 # the create refuses a missing path outright, and the remove would resolve the agent's own cwd, which is not a claimed
 # project of the agent's. The assertion is on the principal guard's own message CODE, not merely on a non-zero exit,
-# since every one of these commands has other reasons to fail. Each is named by the key tests/lib/cli-spelling.sh
-# turns into today's tokens, so a respelling of the surface edits that table alone.
+# since every one of these commands has other reasons to fail. Each is named by the key tests/lib/cli-spelling.sh turns
+# into today's tokens, so a respelling of the surface edits that table alone.
 for _key in ai-tools.projects.create ai-tools.projects.remove.inplace; do
     cli_cmd "${_key}" || exit 2
     _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_CLI:-/usr/local/bin/ai-tools}" "${CLI_ARGV[@]}" 2>&1)" \

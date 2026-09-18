@@ -423,6 +423,13 @@ an ordinary account read it — a partial view, the file sink being the authorit
   a legitimate state — an air-gapped host, a release the vendor published no manifest for — and must not alarm, the same
   rule the unqueryable units follow.
 
+  **A pin a reconciliation refused to re-record is reported in place of that line**, from the mark the refusal writes
+  beside the pin ([ref-section-b3k5](updater.rule.md#ref-section-b3k5)). It replaces that agent's tier line instead
+  of joining it: the pin a refusal left standing is a valid record of a verification that once succeeded, so printing it
+  too would pair a green verification with the red line saying it no longer describes the installed binary. It counts
+  toward the exit status, being the state in which every launch of that agent is already refused, and it names
+  the reconcile command, which re-reads the entrypoint and prints how to replace it.
+
   The **labelling** is reported beneath it, from a second record the same helper writes
   (`state/entrypoint-label.d/<agent>`, see [updater](updater.rule.md)): `labelled` with its age, `NOT LABELLED`
   with the class of failure, `not labelled` for a host with no entrypoint to label (the SELinux layer inactive,
@@ -507,6 +514,7 @@ reports the same host and adds the three readings the operator's prints as `?`:
 |---|---|---|
 | a sandbox-user unit's state | that account's bus needs the machine transport, which is authorized for root alone | `systemctl --user -M <account>@.host`, through the shared registry |
 | an entrypoint pin | the state directory is root-owned, without a traverse bit for a non-operator | reads it, through the same stamp accessors |
+| whether the installed entrypoint still matches that pin | the toolchain is `0750` and sandbox-owned, so the file cannot be hashed | hashes it and compares, the same comparison the launch shim makes |
 | an agent path's SELinux type | the entrypoint sits in a `0750` toolchain owned by the sandbox account | `stat`s the label itself |
 
 **What keeps them one resource is where the privilege is tested.** `services.lib.sh` offers a live reading to whichever
@@ -516,6 +524,11 @@ commands exist because the binary is the privilege boundary ([cli-grammar](cli-g
 two sets of facts. The **rendering** does differ — this CLI's coloured report against the admin tool's plain
 bracket-token table — which is the registry's own contract: it emits records and leaves every consumer to format them,
 the same way the launch wrapper's pre-launch warning does.
+
+The pin comparison is the reading that answers *now* rather than *then*: `status` reports what the last reconciliation
+recorded, so a binary changed since — by an out-of-band `npm install`, or by anything else writing that tree — is named
+here without running the reconcile, and it is named even where no reconciliation has run over that agent at all.
+The verdict is `ai_tools_entrypoint_check`'s, so this report and the launch cannot disagree about what a mismatch is.
 
 The third reading is the one no other command gives. `status` reports what the last reconciliation *achieved*, an event
 that may be hours old; `ai_tools_agent_label_report` reports the type each path carries **now**, so a label that drifted

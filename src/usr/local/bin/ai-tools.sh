@@ -3817,12 +3817,12 @@ status_entrypoint_pins() {
     declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
         && ai_tools_entrypoint_verify_required && strict=yes
 
-    local agent pin version verified age kind seen=0 blocking=0 mislabelled=0
+    local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
-        # An agent whose package declares no release manifest has no published checksum to verify against. Root
-        # records what is installed for it instead, so it is reported once that pin exists and left out while there
-        # is nothing yet to report.
+        # An agent whose package declares no release manifest has no published checksum to verify against. Root records
+        # what is installed for it instead, so it is reported once that pin exists and left out while there is nothing
+        # yet to report.
         pin="$(ai_tools_entrypoint_pin_path "${agent}" 2>/dev/null || true)"
         if [[ -z "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
               && ! -e "${pin}" ]]; then
@@ -3830,15 +3830,21 @@ status_entrypoint_pins() {
         fi
         (( seen++ == 0 )) && section "Entrypoint verification"
         version="$(ai_tools_service_stamp_field "${pin}" VERSION)"
-        if [[ -n "${version}" ]]; then
+        # Read BEFORE the pin's own fields, and reported in place of them. A reconciliation that refused to re-record
+        # leaves the pin exactly as it was -- that staleness is what makes the next launch refuse -- so the pin still
+        # carries a version and a date and would otherwise render as a fresh, successful verification beside the line
+        # saying it no longer describes the installed binary.
+        if status_entrypoint_stale "${agent}"; then
+            stale=$(( stale + 1 ))
+        elif [[ -n "${version}" ]]; then
             verified="$(ai_tools_service_stamp_age "${pin}" VERIFIED)"
             age="$(status_fmt_age "${verified}")"
             kind="$(ai_tools_entrypoint_pin_kind "${agent}" 2>/dev/null || true)"
             if [[ "${kind}" == observed ]]; then
-                # The weaker tier states what the comparison proves -- the binary is the one root recorded -- and
-                # not VERIFIED, which claims a vendor signature this agent's channel does not publish, nor any word
-                # asserting the binary was sound when it was first recorded, which no pin can say. It is a pin, so
-                # it satisfies the strictness switch and blocks no launch; what it does not carry is the origin.
+                # The weaker tier states what the comparison proves -- the binary is the one root recorded -- and not
+                # VERIFIED, which claims a vendor signature this agent's channel does not publish, nor any word
+                # asserting the binary was sound when it was first recorded, which no pin can say. It is a pin, so it
+                # satisfies the strictness switch and blocks no launch; what it does not carry is the origin.
                 printf '  %-28s %sUNCHANGED%s %s(%s%s, as installed)%s\n' "${agent}" "${C_GRN}" "${C_RST}" \
                     "${C_DIM}" "${version}" "${age:+, ${age}}" "${C_RST}"
             else
@@ -3870,8 +3876,36 @@ status_entrypoint_pins() {
         status_entrypoint_label "${agent}" || mislabelled=$(( mislabelled + 1 ))
     done < <(ai_tools_enabled_agents 2>/dev/null)
 
+    [[ "${stale}" -gt 0 ]] && return 1
     [[ "${mislabelled}" -gt 0 ]] && return 1
     [[ "${strict}" == yes && "${blocking}" -gt 0 ]] && return 1
+    return 0
+}
+
+# status_entrypoint_stale <agent>  -- report, and return 0, when the last reconciliation REFUSED to re-record this
+# agent's pin: the entrypoint changed in a way no update explains, so the pin was deliberately left standing
+# and the next launch refuses. Returns non-zero when there is no such mark, which is the ordinary state.
+#
+# This is the one line in the section that reports a REFUSAL: the pin a refusal leaves behind is a valid record
+# of a verification that once succeeded, so without the mark each status report renders it green while every status
+# reports render it green while every launch of that agent is already refused. The remedy is the reconcile command,
+# which re-reads the installed binary -- and the commands that replace it are the relabel helper's to print, since only
+# root can name the package directory.
+status_entrypoint_stale() {
+    local agent="$1" record state version reason detected age
+    declare -F ai_tools_entrypoint_stale_path >/dev/null 2>&1 || return 1
+    record="$(ai_tools_entrypoint_stale_path "${agent}" 2>/dev/null || true)"
+    [[ -n "${record}" && -r "${record}" ]] || return 1
+    state="$(ai_tools_service_stamp_field "${record}" STATE)"
+    [[ "${state}" == stale ]] || return 1
+    version="$(ai_tools_service_stamp_field "${record}" VERSION)"
+    reason="$(ai_tools_service_stamp_field "${record}" REASON)"
+    detected="$(ai_tools_service_stamp_age "${record}" DETECTED)"
+    age="$(status_fmt_age "${detected}")"
+    printf '  %-28s %sPIN STALE%s %s(%s%s)%s\n' "${agent}" "${C_RED}" "${C_RST}" \
+        "${C_DIM}" "${reason:-refused}" "${age:+, ${age}}" "${C_RST}"
+    say "      the pinned binary${version:+ (${version})} is not the one installed, so this agent's sessions refuse to start"
+    say "      ${C_BOLD}sudo ai-tools-admin system entrypoints relabel${C_RST} ${C_DIM}(re-reads the entrypoint and prints how to replace it)${C_RST}"
     return 0
 }
 

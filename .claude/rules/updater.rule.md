@@ -242,12 +242,24 @@ manifest leaves, so a refused re-link does not add a failure shape the preflight
 
 `/opt/ai-tools/bin` is `0551` and not group-writable (see [ownership-and-hooks](ownership-and-hooks.rule.md)),
 so `SANDBOX_USER` reaches a stable launcher symlink only through a root helper. `ai-tools-launcher-symlink` takes one
-argument and **is agent-agnostic**. It validates the path is exactly `…/node/v<MAJOR>.<MINOR>.<PATCH>/bin/<launcher>`
-and exists, takes `<launcher>` from that path's own basename, and accepts it only when an **enabled agent manifest
-claims that launcher** — the same allowlist `ai-tools-run` matches an executable against (see
-[providers](providers.rule.md)). Two properties follow: the link it writes is always `/opt/ai-tools/bin/<launcher>`
-for the binary of that same name, so the two can never diverge; and the set of links it can write is exactly the set
-of enabled agents. An allowlist it cannot resolve **refuses** rather than admitting anything.
+argument and **is agent-agnostic**. It validates the path is exactly `…/node/v<MAJOR>.<MINOR>.<PATCH>/bin/<launcher>`,
+takes `<launcher>` from that path's own basename, and accepts it only when an **enabled agent manifest claims
+that launcher** — the same allowlist `ai-tools-run` matches an executable against (see [providers](providers.rule.md)).
+Two properties follow: the link it writes is always `/opt/ai-tools/bin/<launcher>` for the binary of that same name,
+so the two can never diverge; and the set of links it can write is exactly the set of enabled agents. An allowlist it
+cannot resolve **refuses** rather than admitting anything.
+
+The path's shape says where the link sits; what a session executes is what it **resolves to**, so the helper resolves
+the target once and requires three things of the result — a **regular executable file**, **inside that same version
+directory**, **covered by that agent's `entrypoint_fcontext`** — which is `ai_tools_relink_launcher`'s own predicate
+([providers](providers.rule.md)), so the two writers of this chain accept the same set of targets. Every read the helper
+makes of that file is a `stat`, the execute bit included: the handback domain holds `getattr` on an entrypoint and no
+other permission (the grant is in `ai_tools.te`), and an `access(2)` test there is an `execute` check the domain
+refuses. A file no entrypoint rule covers does not take `ai_tools_exec_t`, so a link written to it fails closed
+at the next launch's label preflight; the resolution is the one the idempotency guard then reads, so the file
+whose label is checked is the file that was validated. This is defence in depth rather than a closed gap: the sandbox
+account owns the version directory the link points into, so the containment narrows what a compromised caller can name
+and does not decide the observed pin tier's limit (see [Two tiers](#two-tiers-and-what-each-one-claims)).
 
 The updater (one call per enabled agent) and `install.sh` are the only callers; the updater reaches it
 through the [handback bridge](handback-bridge.rule.md) `SYMLINK` verb. The helper repoints the symlink but does not
@@ -285,6 +297,26 @@ so an untaken lock costs a repeat run rather than a wrong label.
 `semanage`'s own stderr is what a refusal reports, carried on the status line the helper renders and logs
 (`relabel.log`, journald, and so `ai-tools audit`) — the store being held and a type the loaded policy does not define
 need different remedies, and the message is the only thing that tells them apart.
+
+### A refusal leaves a mark too <a id="ref-section-b3k5"></a>
+
+A reconciliation that refuses to re-record a pin leaves the pin exactly as it was, which is what makes the next launch
+read `mismatch` — and leaves a record that still carries its own `VERSION` and `VERIFIED`, so both status reports render
+it green while every launch of that agent is already refused. `ai-tools-relabel-agent` closes that by writing
+`/var/opt/ai-tools/state/entrypoint-stale.d/<agent>` on either tier's refusal: the same `KEY=value` grammar, directory
+ownership and defensive reader as the pin and the label record beside it, carrying `STATE=stale`, `VERSION` (the version
+installed when the refusal happened, which the pin by construction does not hold), `REASON`
+(`changed-under-same-version` or `signature-mismatch`) and `DETECTED`.
+
+The mark is **cleared** by any run that records a pin for that agent — a fresh pin, a re-pin, a `keep`, or a reused
+verdict — so a host that has been repaired stops reporting. Writing and clearing are best-effort and never change
+the outcome of the reconciliation they describe; a write that fails is reported under its own code, since the report
+then reads as current.
+
+`ai-tools status` renders it in place of that agent's verification line and counts it toward the exit status,
+and `ai-tools-admin status` renders it under the reading only root can make — hashing the installed entrypoint
+and comparing it against the pin, which names a changed binary even where no reconciliation has run over it yet (see
+[cli](cli.rule.md)).
 
 ### The labelling half leaves a record too
 
@@ -434,8 +466,10 @@ an input to reason about for no availability gained.
 | `observed` | the agent's manifest declares no `release_manifest_url`, so there is no signature to check | this is the binary root recorded at reconcile, and it has not changed since |
 
 A record carrying no `KIND` reads as `verified`: the field arrived with the second tier, and every pin written before it
-came from the signed-manifest path. An `observed` pin is a **tightening** of the state it replaces — an agent with no
-provenance was previously unpinned, so the launch had nothing to compare and any change to the binary went unseen.
+came from the signed-manifest path. A record carrying a `KIND` this library does not define reads as **`unknown`** —
+neither tier is claimed for it, since rendering it as `verified` would put a vendor's signature behind a value no writer
+here produced. An `observed` pin is a **tightening** of the state it replaces — an agent with no provenance was
+previously unpinned, so the launch had nothing to compare and any change to the binary went unseen.
 
 **The version both sides compare is read once.** `ai_tools_entrypoint_installed_version` walks up from the entrypoint
 to the nearest `package.json`, bounded, and admits `MAJOR.MINOR.PATCH` with an optional `-`/`+` suffix of alphanumerics,
@@ -456,20 +490,28 @@ was.** Re-recording there would bless the one change no update explains, and the
 what makes the next launch read `mismatch`. A pin whose recorded version the reader cannot return is decided by its
 bytes alone, so a changed binary under it is `tamper` too; the writers clamp the version to the field shape the reader
 admits (`_ai_tools_ev_field_ok`), so that case arises only from a record edited by hand. `observe_agent_entrypoint`
-in `ai-tools-relabel-agent.sh` performs the I/O around that decision and reports the tamper case with the reprovision
-command.
+in `ai-tools-relabel-agent.sh` performs the I/O around that decision, files the [stale
+mark](#a-refusal-leaves-a-mark-too) and prints the remedy.
+
+**The remedy is a forced reinstall, not the provisioning command.** `system bootstrap` installs each enabled agent's npm
+package, and `npm install -g` is a no-op at a version already installed, so reprovisioning leaves a changed binary
+exactly where it is and the host goes on refusing without naming the cause. Both refusals — the relabel helper's
+and the launch shim's — therefore print the package directory to remove first and the provisioning command after it,
+composed by `ai_tools_entrypoint_package_dir` from the entrypoint's own version directory and the manifest's
+`npm_package`, so the operator reads the paths this host has. Where the entrypoint does not sit inside a package
+directory, the refusal names the provisioning command alone rather than guessing a path.
 
 **What the weaker tier does not decide.** The version on both sides of that decision comes from `package.json`
 in the toolchain, which the sandbox account owns and the updater writes, and the version directory the stable launcher
-link names is chosen by the same account (`ai-tools-launcher-symlink` checks the path's shape and that an enabled
-manifest claims the launcher, not which version directory the updater installed). A binary that changes together
-with the declared version, or that arrives through a version directory the sandbox account created, therefore reads
-as an update and is recorded again. On an enforcing host the session cannot write the toolchain
-([ref-section-w4z6](confinement.rule.md#ref-section-w4z6)), so the writer that can produce that state is the updater
-alone, whose inputs the npm signature gate covers; on a host without the policy the observed tier holds
-against a rewrite that leaves the declared version and the launcher path alone, and does not hold against one
-that changes either. A pin that holds against a rewrite arriving with a new version rests on the vendor's signature,
-which is the verified tier.
+link names is chosen by the same account (`ai-tools-launcher-symlink` contains the link's target to the version
+directory named in the path and to what that agent's `entrypoint_fcontext` covers, and does not check which version
+directory the updater installed). A binary that changes together with the declared version, or that arrives
+through a version directory the sandbox account created, therefore reads as an update and is recorded again.
+On an enforcing host the session cannot write the toolchain ([ref-section-w4z6](confinement.rule.md#ref-section-w4z6)),
+so the writer that can produce that state is the updater alone, whose inputs the npm signature gate covers; on a host
+without the policy the observed tier holds against a rewrite that leaves the declared version and the launcher path
+alone, and does not hold against one that changes either. A pin that holds against a rewrite arriving with a new version
+rests on the vendor's signature, which is the verified tier.
 
 **The launch gate reads checksums alone**, so `mismatch` refuses at every setting for either tier — that is
 what an observed pin buys. The tier does not enter the launch decision at all: `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`

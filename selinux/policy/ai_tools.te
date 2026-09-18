@@ -623,19 +623,22 @@ files_search_var(ai_tools_handback_t)
 # and stat bin/claude.
 files_read_usr_files(ai_tools_handback_t)
 # Stat THROUGH the versioned bin/claude symlink to its resolved end, claude.exe (ai_tools_exec_t).
-# ai-tools-launcher-symlink.sh:52 does `[[ -e TARGET ]]`, which follows bin/claude to claude.exe and getattr()s it;
-# files_read_usr_files / libs_read_lib_files cover the usr_t/bin_t/lib_t hops along the way but NOT the custom
-# ai_tools_exec_t entrypoint type at the end. Without this the getattr is denied, bash's `-e` silently reports false
-# (the swallowed-EACCES shape, same as the ai_tools_run_t:sock_file getattr finding), and the helper fails closed
-# with "target does not exist" even though the path plainly exists -- the SYMLINK verb dies and nvm-update.sh reports
-# "failed to repoint ... via handback SYMLINK" -> "ai-tools update failed". This domain needs ONLY getattr:
-# ai-tools-launcher-symlink stat()s the entrypoint for its `-e` existence check but never relabels it. Restoring
-# ai_tools_exec_t on a freshly bumped (bin_t) entrypoint needs relabelfrom/relabelto, intentionally NOT granted here --
-# it is owned by ai-tools-relabel-agent. That helper runs as root from the ai-tools-relabel.path watcher (system
-# instance) after the updater repoints the symlink, and on demand from `ai-tools-admin system entrypoints relabel` (the
-# operator, unconfined_t, which holds relabel). A mislabelled entrypoint does NOT run unconfined under enforcing:
-# ai-tools-run's pre-launch preflight refuses to start when the on-disk label isn't ai_tools_exec_t (fail-closed),
-# so a watcher relabel the system instance's domain cannot perform degrades to a refused launch the operator clears
+# ai-tools-launcher-symlink resolves the target with `realpath -e` and reads the resolved file's type and mode
+# with stat(2) to require a regular executable; files_read_usr_files / libs_read_lib_files cover the usr_t/bin_t/lib_t
+# hops along the way but NOT the custom ai_tools_exec_t entrypoint type at the end. Without this the getattr is denied,
+# the resolution silently does not report a file (the swallowed-EACCES shape, same as the ai_tools_run_t:sock_file
+# getattr finding), and the helper fails closed with "target does not exist" even though the path plainly exists --
+# the SYMLINK verb dies and nvm-update.sh reports "failed to repoint ... via handback SYMLINK" -> "ai-tools update
+# failed". This domain needs ONLY getattr, and the helper is written to need only that: it reads the execute bit
+# off the mode with stat. `-x` is access(2), which the kernel answers with a `file execute` check this domain does not
+# hold, so under enforcing that test read false for a 0755 entrypoint and refused every repoint. It never relabels
+# the entrypoint: this domain does not hold relabelfrom/relabelto on it. Restoring ai_tools_exec_t on a freshly bumped
+# (bin_t) entrypoint needs relabelfrom/relabelto, intentionally NOT granted here -- it is owned
+# by ai-tools-relabel-agent. That helper runs as root from the ai-tools-relabel.path watcher (system instance)
+# after the updater repoints the symlink, and on demand from `ai-tools-admin system entrypoints relabel` (the operator,
+# unconfined_t, which holds relabel). A mislabelled entrypoint does NOT run unconfined under enforcing: ai-tools-run's
+# pre-launch preflight refuses to start when the on-disk label isn't ai_tools_exec_t (fail-closed), so a watcher relabel
+# the system instance's domain cannot perform degrades to a refused launch the operator clears
 # with `ai-tools-admin system entrypoints relabel`, never an unconfined session. The relabel privilege stays out of this
 # agent-reachable domain.
 allow ai_tools_handback_t ai_tools_exec_t:file getattr;

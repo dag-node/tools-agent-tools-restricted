@@ -133,6 +133,26 @@ not_writable /opt/ai-tools/bin/ai-tools-run \
 not_writable /opt/ai-tools/bin \
     "replace the confinement shim or the launcher symlink the wrapper resolves"
 
+# The launch WRAPPERS, and they are the one cross-principal escalation in this chain: each runs AS THE OPERATOR
+# who typed the launcher name, before any drop to the sandbox account. A writable wrapper is the agent's code executed
+# with that operator's identity, credentials and home -- everything the confinement exists to keep it away from --
+# so the modes in integration/perms.sh are not the only place this is asserted; here it is probed from the vantage
+# of the account that would have to write one.
+not_writable /usr/local/bin/claude \
+    "run its own code as the operator, before any session is confined"
+not_writable /usr/local/bin/codex \
+    "run its own code as the operator, before any session is confined"
+
+# The two libraries every wrapper loads fail-closed, sourced in that same operator-owned process. safe-paths carries
+# the protected-paths backstop and msg carries the yes/no decisions, so either one writable is both a refusal the agent
+# can remove and code it can place in the operator's shell.
+not_writable /usr/local/lib/ai-tools/launch-wrapper.lib.sh \
+    "rewrite the gates every wrapper runs, in a process owned by the operator"
+not_writable /usr/local/lib/ai-tools/safe-paths.lib.sh \
+    "remove the protected-paths backstop from every caller that loads it"
+not_writable /usr/local/lib/ai-tools/msg.lib.sh \
+    "answer the confirmations an operator is asked, in their own process"
+
 # The integration state root itself: base-owned, one directory per integration inside it. A writable root would let
 # the agent create or replace an integration's whole state tree.
 not_writable /opt/ai-tools/integrations \

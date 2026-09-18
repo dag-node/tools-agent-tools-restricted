@@ -156,12 +156,13 @@ while one is live sweeps the first run's fixtures. The manual script names its `
 under the same rule (group `manual`), so a tree its removal did not complete is cleared by the sweep, which holds
 the root that script never takes.
 
-One fixture cannot carry the rule and is listed by its fixed path instead: `integration/ai-tools-run.sh` probes
-entrypoint containment in `/opt/ai-tools/.nvm/versions/node/v0.0.1`, because the shim accepts an entrypoint only
-at a bare semver version directory. No Node release carries that version, so only that test creates it, and the test
-**fails** when it already exists: a skip would let residue silently cost the coverage. The teardown is the harness
-`EXIT` trap, which also fires on the `SIGTERM` the per-file timeout sends, so only a `SIGKILL` or a failed `rm` leaves
-residue for the sweep.
+Two fixtures cannot carry the rule and are listed by their fixed paths instead: `integration/ai-tools-run.sh` probes
+entrypoint containment in `/opt/ai-tools/.nvm/versions/node/v0.0.1` and `integration/symlink-helper.sh` probes
+the repoint helper's own containment in `v0.0.2`, because each accepts an entrypoint only at a bare semver version
+directory. No Node release carries either version, so only those tests create them, and each test **fails** when its
+directory already exists: a skip would let residue silently cost the coverage. The teardown is the harness `EXIT` trap,
+which also fires on the `SIGTERM` the per-file timeout sends, so only a `SIGKILL` or a failed `rm` leaves residue
+for the sweep.
 
 No automated file writes live runtime state. The one place a real hook runs is the manual script, where the Stop sweep
 advances the shared sweep marker under `.claude` as a session's would; the automated suite never moves that marker,
@@ -808,9 +809,9 @@ at random on the EL container runners for exactly this reason), so each remainin
 the listing before matching it.
 
 **`integration`** — checks that need a completed install and the running system (`perms.sh`, `wrapper.sh`, `hooks.sh`,
-`symlink-helper.sh`, `handback.sh`, `cli.sh`, `cli-flags.sh`, `ai-tools-run.sh`, `systemd.sh`, `selinux.sh`):
-installed-artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end (its allowlist gate, `!`-exclusion
-refusal, fail-closed load of the gate library and, through it, of `safe-paths.lib.sh`, and consultation
+`symlink-helper.sh`, `entrypoint-pin.sh`, `handback.sh`, `cli.sh`, `cli-flags.sh`, `ai-tools-run.sh`, `systemd.sh`,
+`selinux.sh`): installed-artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end (its allowlist gate,
+`!`-exclusion refusal, fail-closed load of the gate library and, through it, of `safe-paths.lib.sh`, and consultation
 of the protected-paths backstop on the launch CWD), the handback `socket → daemon → helper` chain (including its
 negative paths — unknown verb, wrong/empty/non-absolute/control-character args, and an out-of-allowlist CHOWN all
 refused), the CLI principal guard (refuses root and the sandbox account), `ai-tools-run`'s `AI_TOOLS_AGENT_EXEC` /
@@ -881,6 +882,20 @@ under 077 and 027 and held to the modes `ai-tools(1)` states, so the guarantee t
 decide what the agent can read is asserted rather than assumed, and on one host. The pass does not read or write
 the host's umask configuration: it sets the builtin in the test's shell, which dies with it.
 
+`entrypoint-pin.sh` drives the observed tier's reconciliation through the deployed `ai-tools-relabel-agent`, which is
+the I/O the pure decision in `unit/entrypoint-verify.sh` has none of: three runs over one fixture agent assert the pin
+a fresh host records, the refusal a same-version rewrite earns (the pin left byte-identical, the stale mark filed,
+the forced-reinstall commands named), and the re-pin a version change produces — the observed tier's stated limit,
+asserted so that changing it is a decision rather than a drift. Every input is a fixture through the root-only hooks,
+since a wrong checksum written into the real pin refuses every launch on the host until the next reconcile,
+and the helper's second half is switched off at the probe the labelling library reads (a `getenforce` stub answering
+`Disabled`) with a `semanage` stub beside it as the assertion that no policy-store write was attempted — the same line
+the rest of the suite draws around the host's SELinux policy. The stubs are placed where a 0755 file is visible
+as executable, since bash's `PATH` search asks `access(2)` and a `noexec` mount answers false, so a stub under such
+a `/tmp` is passed over and the real command runs — a fixture rule left in the host's policy store. The file therefore
+asserts before its first run that `command -v` under the helper's `PATH` resolves to the stubs and stops when it does
+not, and reads the switch back from the helper's own inactive line after the run.
+
 `perms.sh` is the **single source** for the deployed-artifact permission assertions (every installed file
 and directory's owner/group/mode): `install.sh` does not carry a parallel checker — `sudo ./install.sh check-perms`
 execs `perms.sh`, and the install's verification phase reaches it through `tests/run.sh all`. Adding or repermissioning
@@ -897,10 +912,17 @@ root-owned files, so they are DAC facts and this vantage sees them. Its one asse
 the journald one: it *writes* a line as the agent under a root helper's syslog tag and asserts journald files it
 under the sandbox uid and not under `_UID=0`. That is the boundary half of the documented query form (see
 [logging](logging.rule.md)) — the forgery is reachable, and what makes it separable is the uid the sender cannot set,
-not the tag. A host with no journald skips: an absent line is not evidence. `providers.sh` asserts the deployed half
-of "the sandbox cannot widen its own surface": none of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four
-provider directories, the manifests, fragments and contributed commands in them, codex's `/etc/codex` and the two
-managed files in it, or the `ai-tools-run` shim and the `bin` directory holding it is agent-writable, while the NuGet
+not the tag. A host with no journald skips: an absent line is not evidence. Two readings there are **positive** and are
+asserted as such, because each records a decision: the agent package's `package.json` under the toolchain **is**
+account-writable, which is why the declared version is not a trust input and the observed pin tier states a limit rather
+than a guarantee (the type layout is what closes it, asserted in `integration/selinux.sh`), and each agent's config
+directory **is** agent-writable, since the hooks that write `.sweep-marker` and `.session-active` run as the agent
+and those files carry cadence rather than a guarantee. `providers.sh` asserts the deployed half of "the sandbox cannot
+widen its own surface": none of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four provider directories,
+the manifests, fragments and contributed commands in them, codex's `/etc/codex` and the two managed files in it,
+or the `ai-tools-run` shim and the `bin` directory holding it is agent-writable — nor either launch wrapper
+and the libraries every wrapper loads (`launch-wrapper`, `safe-paths`, `msg`), which is the one cross-principal
+escalation in the chain, a wrapper running **as the operator** before any drop to the sandbox account — while the NuGet
 restore cache the dotnet integration needs **is** — both directions matter, since a read-only cache breaks
 the integration as surely as a writable tools dir breaks the boundary. `admin-commands.d` and the `dotnet` command in it
 are the highest-privilege pair in that list: what a writable one would buy is not a wider session but a command

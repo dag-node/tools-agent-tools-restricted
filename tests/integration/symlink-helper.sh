@@ -67,6 +67,58 @@ else
     fi
 fi
 
+# (E) Containment across the symlink, and the declared-entrypoint match. The path's SHAPE says where the link sits;
+# what a session executes is what that path RESOLVES to, and a string match cannot follow a link. Each case here is
+# correctly shaped and claimed by an enabled manifest, so shape and allowlist alone would accept them and put a stable
+# control-plane link on a file the toolchain never installed.
+#
+# Probed in a THROWAWAY version directory (v0.0.2), never the live one -- the helper only needs the path to be
+# semver-shaped. Like integration/ai-tools-run.sh's v0.0.1, this fixture cannot carry the harness's name rule,
+# so the residue sweep lists it by name and one already present is a FAILURE rather than a skip: skipping would let
+# residue silently cost the coverage.
+#
+# The target deliberately does NOT sit where claude-code's entrypoint_fcontext would match ([^/]+ spans the version
+# directory, so a fixture under `lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe` would be ACCEPTED and would
+# repoint the live link at it).
+fake_version_dir="/opt/ai-tools/.nvm/versions/node/v0.0.2"
+before="$(readlink "${bin_dir}/claude" 2>/dev/null || true)"
+if [[ -e "${fake_version_dir}" ]]; then
+    fail "${fake_version_dir} already exists -- residue of an earlier run; run \`tests/run.sh residue\` and rerun"
+else
+    _cleanup+=("${fake_version_dir}")
+    mkdir -p "${fake_version_dir}/bin" "${fake_version_dir}/opt"
+    printf '#!/bin/sh\nexit 0\n' > "${fake_version_dir}/opt/claude.exe"
+    chmod 0755 "${fake_version_dir}/opt/claude.exe"
+
+    # (E1) Inside the version directory, so containment holds -- but at a path no declared entrypoint rule covers. Such
+    # a file does not take ai_tools_exec_t, so a link to it fails every launch closed at the label preflight.
+    ln -sfn "${fake_version_dir}/opt/claude.exe" "${fake_version_dir}/bin/claude"
+    if out="$("${helper}" "${fake_version_dir}/bin/claude" 2>&1)"; then
+        fail "helper accepted a target the declared entrypoint_fcontext does not cover"
+    else
+        assert_msg MSG-D4X6 "${out}" \
+            "helper refuses a target no enabled manifest's entrypoint_fcontext covers"
+    fi
+
+    # (E2) Escapes the version directory: a real, executable target in a version directory the toolchain did not
+    # installed is what a repointed link would look like.
+    ln -sfn /bin/sh "${fake_version_dir}/bin/claude"
+    if out="$("${helper}" "${fake_version_dir}/bin/claude" 2>&1)"; then
+        fail "helper accepted a target resolving outside its own version directory"
+    else
+        assert_msg MSG-P2R8 "${out}" \
+            "helper refuses a target resolving outside its own version directory"
+    fi
+
+    # Neither refusal may have touched the locked directory -- not the live link, and not a link of its own.
+    if [[ "$(readlink "${bin_dir}/claude" 2>/dev/null || true)" == "${before}" ]]; then
+        pass "the refusals left ${bin_dir}/claude exactly as it was"
+    else
+        fail "${bin_dir}/claude changed across two refused repoints"
+    fi
+    rm -rf -- "${fake_version_dir}"
+fi
+
 # (D) Idempotent happy path: target the link's current versioned target. The end state is invariant -- exit 0, link
 # unchanged -- whether the helper repoints (relabel pending) or skips (entrypoint already labelled).
 if [[ "${cur}" =~ ^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/claude$ && -e "${cur}" ]]; then

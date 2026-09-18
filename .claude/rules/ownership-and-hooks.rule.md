@@ -123,20 +123,33 @@ config directory): the `session-start` pass writes it (recording `.cwd`), and a 
 with the `session-end` argument) removes it on graceful exit and runs the [`.git` reclaim](#git-reclaim) for `.cwd`.
 A marker that survives into the next `session-start` means the previous session was killed before its `SessionEnd` ran.
 That signal **widens** the `.git` reclaim to also cover the killed session's recorded `.cwd` — which may be a different
-project than the new session's — and selects the interrupted-session NOTICE wording. A gracefully-exited session clears
-its marker and reclaims its `.git` at `session-end`; the cross-project pointer is needed only for a kill. Every reclaim
-is logged to journald (the audit trail), but only the **interrupted** case is also surfaced as a `SessionStart`
-`additionalContext` NOTICE — the only actionable one, since a killed prior session can leave cross-project mixed
-ownership the agent should relay, with the manual `sudo chown -R --from=SANDBOX_USER <you>:SANDBOX_GROUP <project>`
-reconcile for anything the helper could not reach (the command is kept on its own line, outside the frame, so it stays
-copy-pasteable). The routine post-git-activity reclaim runs on nearly every `session-start` and has already repaired
-ownership, so it stays journald-only: injecting it would force a TUI re-render that clobbers claude's startup banner
-with a line the user cannot act on. The surfaced NOTICE is framed through `msg.lib.sh` (see
-[messaging](messaging.rule.md)).
+project than the new session's — and selects the interrupted-session NOTICE wording.
+
+**The line in that marker is agent-written, and it is read through one predicate.** The file sits in the agent's
+group-writable config directory, so its contents are the session's to choose; `read_prior_cwd` accepts the line only
+as an existing directory named by an absolute path, and a line failing that is logged and costs the cross-project
+reclaim rather than aiming a walk at something that is not a project (`ai-tools-chown` re-validates every path it is
+offered regardless). What the NOTICE relays is narrower still: it names *a prior session's project* without printing
+that path, since under one shared config directory the project may be another operator's, and the path an operator needs
+is in journald already. The path it does carry — this session's own project, from the hook payload — goes
+through `ai_tools_log_sanitize`, so a crafted directory name cannot put an escape sequence into the model's context
+or onto the terminal. A gracefully-exited session clears its marker and reclaims its `.git` at `session-end`;
+the cross-project pointer is needed only for a kill. Every reclaim is logged to journald (the audit trail), but only
+the **interrupted** case is also surfaced as a `SessionStart` `additionalContext` NOTICE — the only actionable one,
+since a killed prior session can leave cross-project mixed ownership the agent should relay, with the manual
+`sudo chown -R --from=SANDBOX_USER <you>:SANDBOX_GROUP <project>` reconcile for anything the helper could not reach (the
+command is kept on its own line, outside the frame, so it stays copy-pasteable). The routine post-git-activity reclaim
+runs on nearly every `session-start` and has already repaired ownership, so it stays journald-only: injecting it would
+force a TUI re-render that clobbers claude's startup banner with a line the user cannot act on. The surfaced NOTICE is
+framed through `msg.lib.sh` (see [messaging](messaging.rule.md)).
 
 Every pass checks the handback socket before acting, since a socket that is down fails every `CHOWN` and a count
 of attempts would then report work that did not happen. So the sweeps and the reclaim count **confirmed** handbacks
-(client exit 0), not attempts; a down socket makes each pass skip its walk and record the stranded count,
+(client exit 0), not attempts; `ai-tools-run`'s session-end sweep counts one step further in, by **owner change**,
+because `ai-tools-chown` exits 0 both for a path it handed back and for one it deliberately left alone (an excluded
+path, a hardlinked file, a secret-named one it quarantined elsewhere) — the walk selected `SANDBOX_USER`-owned paths,
+so a path no longer owned by that account is one the call changed, and the paths left as they were are reported beside
+the handbacks rather than folded into them; a down socket makes each pass skip its walk and record the stranded count,
 and the `session-start` pass — the one the operator reads — surfaces a distinct `SessionStart` NOTICE naming the fix
 (`systemctl enable --now ai-tools-handback.socket`, then `ai-tools projects handback <project>`) whenever agent-owned
 `.git` paths are stranded, instead of the "reclaimed N" wording. `ai-tools-run`'s launch-time preflight is

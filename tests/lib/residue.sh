@@ -10,7 +10,8 @@
 # `.ai-tools-test-<group>-<thing>-XXXXXX`, so one pattern over the directories fixtures are born
 # in (AI_TEST_RESIDUE_SITES, scanned one level deep, never recursively) is the whole search. The one path that cannot
 # carry the rule is listed by name: ai-tools-run accepts an entrypoint only at a bare semver version directory,
-# so integration/ai-tools-run.sh probes it in `v0.0.1` inside the live toolchain tree (a version Node never shipped).
+# so integration/ai-tools-run.sh probes it in `v0.0.1` and integration/symlink-helper.sh in `v0.0.2`, inside the live
+# toolchain tree (versions Node never shipped).
 #
 # Removal is `rm -rf` for a file or directory, and for a fixture cgroup (integration/stop.sh makes one at the cgroup v2
 # root) a cgroup.kill over the subtree and then rmdir, deepest first. A path that survives removal is reported and fails
@@ -18,7 +19,8 @@
 # at a time: a second run started while one is live would sweep the first run's fixtures.
 
 readonly AI_TEST_RESIDUE_GLOB='.ai-tools-test-*'
-readonly AI_TEST_RESIDUE_FIXED=(/opt/ai-tools/.nvm/versions/node/v0.0.1)
+readonly AI_TEST_RESIDUE_FIXED=(/opt/ai-tools/.nvm/versions/node/v0.0.1
+                                /opt/ai-tools/.nvm/versions/node/v0.0.2)
 
 # ai_test_residue_sites <projects-home>: PRINT the directories fixtures are born in, one per line, existing ones only.
 # The operator's home holds the noexec-/tmp fallback dirs and the manual suite's workspace fixtures; the clone area
