@@ -321,9 +321,22 @@ for r in json.load(sys.stdin):
 '
     }
     rows="$(rule_rows 2>/dev/null || true)"
+    # The shipped file carries both groups whole: the irreversible git verbs, and the host-survey commands that run
+    # as the sandbox account and disclose the machine. A survey row is ONE token, since an argv prefix of one token
+    # matches the bare command and every argument form -- the pair claude-code's glob layer needs.
     for want in "git push -f|--force|--force-with-lease|--force-if-includes => forbidden => justified" \
                 "git reset --hard => forbidden => justified" \
-                "git clean => forbidden => justified"; do
+                "git clean => forbidden => justified" \
+                "id => forbidden => justified" \
+                "getent => forbidden => justified" \
+                "rpm => forbidden => justified" \
+                "ps => forbidden => justified" \
+                "df => forbidden => justified" \
+                "du => forbidden => justified" \
+                "mount => forbidden => justified" \
+                "readlink => forbidden => justified" \
+                "getenforce => forbidden => justified" \
+                "matchpathcon => forbidden => justified"; do
         if grep -qxF "${want}" <<< "${rows}"; then
             pass "requirements.toml: [rules] refuses '${want%% =>*}'"
         else

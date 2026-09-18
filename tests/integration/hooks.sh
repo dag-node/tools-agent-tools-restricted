@@ -215,22 +215,41 @@ PY
             fi
         done
         ${codex_hooks_ok} && pass "requirements.toml declares SessionStart/PostToolUse/Stop/SessionEnd -> installed codex hook bodies"
-        # (c3) The per-command refusals, codex's counterpart to settings.json's irreversible-VCS deny group: the git
-        # verbs that destroy with no undo, which no host control refuses since they run unprivileged in the operator's
-        # own tree. The live file is kept across an upgrade, so what this catches is an edit that dropped a row.
+        # (c3) The per-command refusals, codex's counterpart to settings.json's deny groups, and held to the same
+        # treatment each group gets there. The live file is kept across an upgrade, so what this catches is an edit
+        # that dropped a row -- or a file predating the group entirely.
         codex_rules="$(decl rule)"
         codex_rules_ok=true
+        # The irreversible git verbs are pinned STRICTLY: they destroy with no undo, no host control refuses them since
+        # they run unprivileged in the operator's own tree, and the paths that preserve a host's tuning are also
+        # the paths by which a file predating the rows silently loses the gate.
         for verb in "git push" "git reset --hard" "git clean"; do
             if ! grep -q "^${verb} " <<<"${codex_rules}"; then
                 fail "requirements.toml [rules] refuses no '${verb}' -- a codex session runs it unprompted"
                 codex_rules_ok=false
             fi
         done
+        # The host-survey group is REPORTED, not pinned, the treatment its claude-code twin gets: these disclose rather
+        # than destroy, the file is %config(noreplace) and the page says relaxing a row is the operator's edit to own.
+        # A file carrying NONE of them is the different case -- one that predates the group rather than one an operator
+        # tuned -- and fails, since it leaves every survey command unmediated under approval_policy = "never".
+        codex_survey_present=0
+        for verb in id getent rpm ps df du mount readlink getenforce matchpathcon; do
+            if grep -q "^${verb} " <<<"${codex_rules}"; then
+                codex_survey_present=$((codex_survey_present + 1))
+            else
+                note "requirements.toml [rules] does not refuse '${verb}' -- relaxed on this host"
+            fi
+        done
+        if (( codex_survey_present == 0 )); then
+            fail "requirements.toml [rules] carries no host-survey row at all -- a file predating the group, not a relaxed one: reinstall or copy the rows from /usr/share/ai-tools/codex/requirements.toml"
+            codex_rules_ok=false
+        fi
         if grep -q '=> allow$' <<<"${codex_rules}"; then
             fail "requirements.toml [rules] carries an allow decision, which a requirements rule may not: codex refuses the file"
             codex_rules_ok=false
         fi
-        ${codex_rules_ok} && pass "requirements.toml [rules] refuses the git verbs that destroy with no undo"
+        ${codex_rules_ok} && pass "requirements.toml [rules] refuses the destructive git verbs and ${codex_survey_present}/10 host-survey commands"
         # (c4) Every declared hook body is installed and executable by the agent: codex skips a hook it cannot run
         # without reporting it, so a declaration alone is not the mechanism.
         for hb in "${codex_hook}" "${codex_sweep}"; do

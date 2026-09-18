@@ -70,16 +70,26 @@ widened for it. Enable Codex deliberately, and read a refused tool call
 against [SELinux confinement](../system/selinux.md) before treating it
 as a defect.
 
-Three git commands are refused outright, the same ones a Claude Code session is
-refused: `git push --force` (and `-f`, `--force-with-lease`),
-`git reset --hard`, and `git clean`. Each one deletes work that a commit does
-not hold and a reflog does not return, and each runs unprivileged in your own
-tree, where no host control stops it. A refused command is raised
-in the session instead, for you to run where the consequence lands. They are
-the `[rules]` table in `/etc/codex/requirements.toml`, so relaxing a row is
-an edit you own — and a rule there can only narrow what a session may run,
-never widen it. The match is on the command as typed, so a spelling the rows do
-not name (`git push origin main --force`) is not refused.
+Two groups of commands are refused outright, the same ones a Claude Code
+session is refused: the git verbs that destroy work no commit and no reflog
+returns (`git push --force`, `git reset --hard`, `git clean`), and the commands
+that report on the host itself (`ps`, `df`, `id`, `rpm`, and the like). Nothing
+else on the host stops either group, which is why each command has a row.
+
+A refused command is raised in the session with its reason, for you to run
+where the consequence lands; an unattended `codex exec` reports it and finishes
+rather than waiting for anyone.
+
+The rows are the `[rules]` table of `/etc/codex/requirements.toml`, each
+carrying the reason it is there — read the file for the set this release ships.
+Relaxing a row is an edit you own, and a rule there can only narrow
+what a session may run, never widen it.
+
+A row matches the command from its first word forward, word by word,
+so where a flag sits decides whether the row catches it: `git push --force` is
+refused and `git push origin main --force` is not. This layer is a gate
+on the habitual spelling, not a boundary — what bounds a session is the sandbox
+account's own access.
 
 Turned off by the package, and stated so you know what to expect: Codex's
 sub-agents, MCP servers, plugins and marketplaces, image generation,
@@ -100,7 +110,7 @@ with `sudo`:
 
 | File | Holds |
 |---|---|
-| `/etc/codex/requirements.toml` | what Codex holds every session to, whatever the session sets: the sandbox-mode pin, the approval policy, the login method, the hooks that hand files back per turn, and the git commands refused outright |
+| `/etc/codex/requirements.toml` | what Codex holds every session to, whatever the session sets: the sandbox-mode pin, the approval policy, the login method, the hooks that hand files back per turn, and the commands refused outright |
 | `/etc/codex/managed_config.toml` | the defaults applied ahead of any user config: telemetry off, the update check off, a quiet TUI (no animation, no desktop notification), and two commented keys for a custom instructions file and a custom API endpoint |
 
 An edit survives an upgrade, which leaves the live file in place: a newer copy
