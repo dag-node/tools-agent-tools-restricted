@@ -63,6 +63,13 @@ that something is misconfigured: the pin turns off a layer that could not run
 here anyway. See [SELinux confinement](../system/selinux.md) and [The boundary,
 and what is out of scope](../about/scope.md).
 
+The SELinux denials a Codex session raises on an enforcing host are not swept
+the way a Claude Code session's are: an access the policy does not grant is
+refused in the session and logged in the audit log, and the policy is not
+widened for it. Enable Codex deliberately, and read a refused tool call
+against [SELinux confinement](../system/selinux.md) before treating it
+as a defect.
+
 Three git commands are refused outright, the same ones a Claude Code session is
 refused: `git push --force` (and `-f`, `--force-with-lease`),
 `git reset --hard`, and `git clean`. Each one deletes work that a commit does
