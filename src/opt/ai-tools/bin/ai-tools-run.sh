@@ -433,25 +433,22 @@ sweep_project_ownership() {
 
 # ── Launch ───────────────────────────────────────────────────────────────────────────────────
 # Three versions are reported and logged: Node from the validated executable path, the agent from its npm package.json,
-# and ai-tools from the value stamped at install (@*@ means an unsubstituted source tree). The agent version is read
-# from a file the sandbox account OWNS, so it is accepted only in MAJOR.MINOR.PATCH shape -- untrusted input reaching
-# the operator's terminal and journal, where a crafted value could otherwise inject terminal escapes.
+# and ai-tools from the value stamped at install (@*@ means an unsubstituted source tree). Both the node read here
+# and the agent read below clamp what they admit, because each comes from a file the sandbox account OWNS and lands
+# on the operator's terminal and in the journal, where a crafted value could otherwise inject terminal escapes.
 readonly VERSION_PATTERN='^v?[0-9]+\.[0-9]+\.[0-9]+$'
 ai_tools_version="@AI_TOOLS_VERSION@"; [[ "${ai_tools_version}" == @*@ ]] && ai_tools_version="dev"
 [[ "${node_version}" =~ ${VERSION_PATTERN} ]] || node_version="n/a"
 
+# The reader, the walk and the clamp are entrypoint-verify.lib.sh's, which the pin is written through as well, so
+# the banner and the pin cannot report different versions for one binary. The library is optional here -- a banner
+# is display, not a gate -- so a load that does not happen costs the version line and nothing else.
 agent_version="n/a"
-package_directory="${session_exec_path}"
-for _ in 1 2 3; do
-    package_directory="${package_directory%/*}"
-    [[ -n "${package_directory}" && -f "${package_directory}/package.json" ]] && break
-done
-if [[ -n "${package_directory}" && -r "${package_directory}/package.json" ]]; then
-    # Bounded read of a regular file: the version sits in the first bytes, and a fifo swapped in must never block
-    # the launch.
-    declared_version="$(head -c 65536 -- "${package_directory}/package.json" 2>/dev/null \
-        | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-    [[ "${declared_version}" =~ ${VERSION_PATTERN} ]] && agent_version="${declared_version}"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+if source "${AI_TOOLS_LIB_DIR}/entrypoint-verify.lib.sh" 2>/dev/null \
+        && declare -F ai_tools_entrypoint_installed_version >/dev/null 2>&1; then
+    declared_version="$(ai_tools_entrypoint_installed_version "${session_exec_path}" || true)"
+    [[ -n "${declared_version}" ]] && agent_version="${declared_version}"
 fi
 audit info "versions: ${agent_name}=${agent_version} node=${node_version} ai-tools=${ai_tools_version}"
 

@@ -442,4 +442,65 @@ else
     fi
 fi
 
+# ── The installed version, read from the package around the entrypoint ─────────────────────────────
+# Two agents lay their packages out differently, and the pin, the launch banner and the tamper decision all read
+# the version through this one function -- so the fixtures are both real layouts, not one.
+if ! declare -F ai_tools_entrypoint_installed_version >/dev/null 2>&1; then
+    skip "installed version" "the installed ${LIB} carries no version reader -- reinstall to cover it"
+else
+    mk_pkg() {  # mk_pkg <relative entrypoint path> <version> ; prints the entrypoint path
+        local rel="$1" version="$2" root="${TESTDIR}/pkg/${3:-p}" pkgdir
+        pkgdir="${root}/$(dirname "${rel}")"
+        mkdir -p "${pkgdir}"
+        : > "${root}/${rel}"
+        printf '{"name":"x","version":"%s"}\n' "${version}" > "${root}/package.json"
+        printf '%s' "${root}/${rel}"
+    }
+
+    # Claude Code's shape: the entrypoint one directory inside its package.
+    ep="$(mk_pkg bin/claude.exe 2.1.274 claude)"
+    if [[ "$(ai_tools_entrypoint_installed_version "${ep}" || true)" == 2.1.274 ]]; then
+        pass "the version is read one directory up (<pkg>/bin/<entrypoint>)"
+    else
+        fail "the version was not read from <pkg>/bin/<entrypoint>"
+    fi
+
+    # Codex's shape: a vendored binary three directories inside the platform package, whose version carries
+    # a platform suffix. Both halves broke the first implementation, which walked three levels and took plain
+    # MAJOR.MINOR.PATCH alone.
+    ep="$(mk_pkg vendor/x86_64-unknown-linux-musl/bin/codex 0.154.0-linux-x64 codex)"
+    if [[ "$(ai_tools_entrypoint_installed_version "${ep}" || true)" == 0.154.0-linux-x64 ]]; then
+        pass "a vendored entrypoint three directories in, with a suffixed version, reads"
+    else
+        fail "a vendored entrypoint with a suffixed version did not read: '$(ai_tools_entrypoint_installed_version "${ep}" || true)'"
+    fi
+
+    # The clamp: this value reaches a terminal, a journal line, a pin record and a release-manifest URL.
+    while IFS='|' read -r version what; do
+        [[ -n "${version// }" ]] || continue
+        ep="$(mk_pkg bin/x "${version}" "clamp$(printf '%s' "${what}" | tr -cd '[:lower:]')")"
+        if [[ -z "$(ai_tools_entrypoint_installed_version "${ep}" || true)" ]]; then
+            pass "the version clamp rejects ${what}"
+        else
+            fail "the version clamp admitted ${what}: '${version}'"
+        fi
+    done <<ROWS
+1.2.3-../../etc|a path traversal in the suffix
+1.2|an incomplete version
+1.2.3 nice try|an embedded space
+ROWS
+
+    # A package.json the walk never reaches yields an empty string, which the caller turns into `unknown` rather
+    # than comparing an empty value against a recorded one.
+    deep="${TESTDIR}/pkg/deep/a/b/c/d/e/f/g"
+    mkdir -p "${deep}"
+    : > "${deep}/entry"
+    printf '{"version":"9.9.9"}\n' > "${TESTDIR}/pkg/deep/package.json"
+    if [[ -z "$(ai_tools_entrypoint_installed_version "${deep}/entry" || true)" ]]; then
+        pass "a package.json beyond the bounded walk yields no version"
+    else
+        fail "the walk ran past its bound"
+    fi
+fi
+
 finish

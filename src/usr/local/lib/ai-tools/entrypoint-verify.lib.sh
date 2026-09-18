@@ -295,6 +295,42 @@ ai_tools_entrypoint_pin_write() {
     } | _ai_tools_ev_write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
 }
 
+# ai_tools_entrypoint_installed_version <entrypoint> : print the version the package around <entrypoint> declares,
+#   or an empty string. Walks up from the entrypoint's own directory to the nearest `package.json` and reads
+#   the `version` field out of a bounded read of it.
+#
+#   The value comes from a file the SANDBOX account owns and reaches the operator's terminal, the journal and a pin
+#   record, so it is admitted only in a clamped shape: `MAJOR.MINOR.PATCH`, optionally with a `-`/`+` suffix
+#   of alphanumerics, dots and hyphens, and never containing `..`. That admits a platform package's own spelling
+#   (`0.154.0-linux-x64`) while excluding every character an escape sequence or a path traversal needs -- the suffix
+#   matters because the version also fills the `{version}` slot of a release-manifest URL.
+#
+#   The walk is bounded and deeper than the package layout of a single agent, because an entrypoint can sit several
+#   directories inside its package: Claude Code's is `<pkg>/bin/claude.exe`, while codex's vendored binary is
+#   `<pkg>/vendor/<target-triple>/bin/codex`. One reader serves both, so the two callers -- the pin and the launch
+#   banner -- cannot disagree about what version an entrypoint is.
+ai_tools_entrypoint_installed_version() {
+    local dir="${1:-}" declared
+    [[ -n "${dir}" ]] || return 0
+    dir="${dir%/*}"
+    local _hop
+    for _hop in 1 2 3 4 5 6; do
+        [[ -n "${dir}" ]] || break
+        if [[ -f "${dir}/package.json" && -r "${dir}/package.json" ]]; then
+            # Bounded read of a regular file: the version sits in the first bytes, and a fifo swapped into the path
+            # must never block a launch.
+            declared="$(head -c 65536 -- "${dir}/package.json" 2>/dev/null \
+                | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+            if [[ "${declared}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ && "${declared}" != *..* ]]; then
+                printf '%s' "${declared}"
+                return 0
+            fi
+        fi
+        dir="${dir%/*}"
+    done
+    return 0
+}
+
 # ai_tools_entrypoint_pin_write_observed <agent> <version> <sha256> : record what is installed, for an agent whose
 #   vendor publishes no signed release manifest to check it against. ROOT ONLY, same record and same atomic write as
 #   the verified pin, and distinguished from it by `KIND=observed` -- so every reader can say which of the two a host

@@ -141,7 +141,12 @@ observe_agent_entrypoint() {
         return 0
     fi
     observed="$(ai_tools_entrypoint_sha256 "${entrypoint}" 2>/dev/null || true)"
+    # An unreadable version becomes the same token the pin records, so the two sides of the decision compare
+    # like for like. Left empty here it would never equal the pinned `unknown`, every run would read as a new
+    # version, and a changed binary would be re-recorded instead of refused -- the one outcome this tier exists
+    # to prevent.
     version="$(_installed_agent_version "${entrypoint}")"
+    version="${version:-unknown}"
     pinned_version="$(ai_tools_entrypoint_pin_version "${agent}" 2>/dev/null || true)"
     pinned_sha="$(ai_tools_entrypoint_pin_read "${agent}" 2>/dev/null || true)"
     decision="$(ai_tools_entrypoint_observe_decision \
@@ -229,21 +234,12 @@ pin_agent_entrypoint() {
     return 0
 }
 
-# _installed_agent_version <entrypoint> : print the MAJOR.MINOR.PATCH the package beside the
-#   entrypoint declares, walking up to the nearest package.json the way ai-tools-run does for the
-#   launch banner. Bounded read; anything not semver-shaped yields an empty string.
+# _installed_agent_version <entrypoint> : print the version the package around the entrypoint declares,
+#   or an empty string. The walk, the bounded read and the clamp are the library's
+#   (ai_tools_entrypoint_installed_version), which the launch banner reads through as well, so the pin
+#   and the banner cannot report different versions for one binary.
 _installed_agent_version() {
-    local dir="${1%/*}" declared
-    for _ in 1 2 3; do
-        if [[ -f "${dir}/package.json" ]]; then
-            declared="$(head -c 65536 -- "${dir}/package.json" 2>/dev/null \
-                | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-            [[ "${declared}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && { printf '%s' "${declared}"; return 0; }
-        fi
-        dir="${dir%/*}"
-        [[ -n "${dir}" ]] || break
-    done
-    return 0
+    ai_tools_entrypoint_installed_version "${1:-}"
 }
 
 pin_failures=0
