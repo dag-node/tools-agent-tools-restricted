@@ -152,11 +152,14 @@ across an upgrade.
 
 **`managed_config.toml`** is the defaults codex applies ahead of any user config: the mode and the approval policy
 the requirements pin, `check_for_update_on_startup = false` (the `nvm-update` timer maintains the toolchain,
-and the Node tree is read-only to the session), `[agents] enabled = false`, and the `[analytics]`, `[feedback]`
-and `[otel]` opt-outs. The opt-outs are **dispositional**: a release that reads other keys posts again, and the residual
-is on the API's own domain. Two operator keys ship commented, each the codex counterpart of a claude-code
-`operator.conf` key: `model_instructions_file` (replaces the built-in instructions; the file sits
-under `/etc/ai-tools/prompts`, the one root the confined domain reads) and `openai_base_url` (the API-key path only).
+and the Node tree is read-only to the session), `[agents] enabled = false`, `[tui] animations = false`
+and `notifications = false` (a session runs under a service account on a terminal an operator may be reading over ssh:
+an animation redraws a line that reports nothing new, and a notification reaches the desktop of someone who did not
+start the session), and the `[analytics]`, `[feedback]` and `[otel]` opt-outs. The opt-outs are **dispositional**:
+a release that reads other keys posts again, and the residual is on the API's own domain. Two operator keys ship
+commented, each the codex counterpart of a claude-code `operator.conf` key: `model_instructions_file` (replaces
+the built-in instructions; the file sits under `/etc/ai-tools/prompts`, the one root the confined domain reads)
+and `openai_base_url` (the API-key path only).
 
 What neither file can do is enlarge what the account may reach, since codex runs as that account in that domain.
 An unreadable `requirements.toml` refuses the start: the loud direction.
@@ -193,10 +196,13 @@ which differ in the write tool and in none of the keys the sweep reads (`cwd` an
 | `SessionStart` | `startup\|resume` | `session-hook.sh session-start`, `timeout = 60` | the unbounded pass, the setgid normalization, the `.git` reclaim; the matcher selects the two sources the pass acts on, and the script holds the same line |
 | `SessionEnd` | — | `session-hook.sh session-end`, `timeout = 3` | codex caps `SessionEnd` at 3 s whatever is declared, so the clean-exit marker is cleared **first** and the `.git` reclaim is best-effort; the next `session-start` pass and the shim's sweep catch what the cap cut short |
 
-The interrupted-session NOTICE is emitted as `additionalContext` under both spellings a hook reply may carry it —
-the top-level key codex's hook contract names and Claude Code's `hookSpecificOutput` envelope, which codex's format
-follows — so one duplicated string holds whichever a release reads. `tests/unit/codex-package.sh` drives both scripts
-on the payload key sets the harness captured; the live chain runs through the package's own path on an installed host.
+The interrupted-session NOTICE is emitted as `additionalContext` inside the `hookSpecificOutput` envelope, **and in no
+other key**. Codex 0.154 rejects a reply carrying the top-level `additionalContext` its own hook contract names:
+measured one shape per session, the envelope alone reads `SessionStart Completed` while the top-level key — by itself,
+or beside the envelope — reads `SessionStart Failed`, which costs the whole reply rather than the key it did not know.
+So a second spelling does not hold whichever a release reads; it loses the relay, and the shape is re-measured
+when a release moves it. `tests/unit/codex-package.sh` pins the single-key reply and drives both scripts on the payload
+key sets the harness captured; the live chain runs through the package's own path on an installed host.
 
 ## Skills at the admin scope, and the orientation text
 

@@ -30,6 +30,17 @@ check_for_update_on_startup = false
 [agents]
 enabled = false
 
+# A session runs under a service account, on a terminal an operator may
+# be reading over ssh or through a multiplexer. Motion and a bell are
+# the two things that cost there rather than inform: animations redraw
+# a line that carries no new state, and a notification reaches the
+# operator's desktop from a session they did not start. Neither is
+# a control -- an operator who wants them back sets either key in their
+# own config.toml, and the managed file decides only the default.
+[tui]
+animations = false
+notifications = false
+
 [analytics]
 enabled = false
 

@@ -89,7 +89,7 @@ with `sudo`:
 | File | Holds |
 |---|---|
 | `/etc/codex/requirements.toml` | what Codex holds every session to, whatever the session sets: the sandbox-mode pin, the approval policy, the login method, the hooks that hand files back per turn, and the git commands refused outright |
-| `/etc/codex/managed_config.toml` | the defaults applied ahead of any user config: telemetry off, the update check off, and two commented keys for a custom instructions file and a custom API endpoint |
+| `/etc/codex/managed_config.toml` | the defaults applied ahead of any user config: telemetry off, the update check off, a quiet TUI (no animation, no desktop notification), and two commented keys for a custom instructions file and a custom API endpoint |
 
 An edit survives an upgrade, which leaves the live file in place: a newer copy
 lands beside it as `.rpmnew` on a package upgrade, and a from-source install

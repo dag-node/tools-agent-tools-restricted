@@ -133,14 +133,16 @@ else
     PROJECTS_USER=''
 fi
 
-# emit_session_context <text> -- hand <text> to codex as the session's additional context, in both spellings a hook
-# reply may carry it: the top-level `additionalContext` key codex's hook contract names, and Claude Code's
-# `hookSpecificOutput` envelope, which codex's hook format follows. Emitting both costs one duplicated string and holds
-# whichever a release reads. Best-effort: a jq failure emits nothing rather than half a reply.
+# emit_session_context <text> -- hand <text> to codex as the session's additional context, in the `hookSpecificOutput`
+# envelope and in that spelling alone. Codex 0.154 rejects a reply carrying the top-level `additionalContext` key its
+# own hook contract names: measured one shape per session, the envelope read `SessionStart Completed` while
+# the top-level key and the two keys together each read `SessionStart Failed`, which loses the whole reply rather than
+# the unknown key. A release that moves the key is a failed hook line in every session that has something to report,
+# so the shape is re-measured rather than carried in two spellings. Best-effort: a jq failure emits nothing rather than
+# half a reply.
 emit_session_context() {
     jq -cn --arg ctx "$1" \
-        '{additionalContext:$ctx,
-          hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' \
+        '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' \
         2>/dev/null || true
 }
 
