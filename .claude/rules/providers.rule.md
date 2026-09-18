@@ -112,14 +112,19 @@ the hooks), while the base pins its mode (`CP_AGENT_CONFIG_MODE`, setgid+sticky)
 and the permission test. The agent's session-env fragment pins the same directory as its config variable
 (`CLAUDE_CONFIG_DIR`), so the manifest and the fragment must agree.
 
-Two constraints keep that from being a label-anything primitive, and both live in `relabel.lib.sh`, not in the manifest:
+Two constraints keep that from being a label-anything primitive, and neither lives in the manifest:
 
-- **The types are pinned there**, never in a manifest. An agent declares *which path* is which, never *what label*
-  a path gets.
-- **Each declaration must be containable**: the entrypoint pattern to an anchored literal head
-  under `/opt/ai-tools/.nvm/versions/node/`, with no `..` and none of the regex constructs (`|`, groups) that could make
-  it match elsewhere; the config directory to one plain component under the sandbox home. `tests/unit/relabel.sh` drives
-  both predicates.
+- **The types are pinned in `relabel.lib.sh`** as `readonly` constants, and no manifest key names one: an agent declares
+  *which path* is which, and the label a path gets is not an input it holds.
+- **Each declaration must be containable**: the entrypoint pattern to an anchored literal head under the Node versions
+  root `relabel.lib.sh` pins (`AI_TOOLS_NODE_VERSIONS_ROOT`, `/opt/ai-tools/.nvm/versions/node`), with no `..` and none
+  of the regex constructs (`|`, groups) that could make it match elsewhere; the config directory to one plain component
+  under the sandbox home. The entrypoint predicate is `ai_tools_entrypoint_fcontext_valid` in `providers.lib.sh`, taking
+  the root it checks against as an argument, so the two writers of the launcher chain hold a pattern to the same
+  containment before they write a link to what it covers (see
+  [`launcher_target`](#launcher_target--where-the-versioned-launcher-points)); `tests/unit/launcher-target.sh` drives
+  its truth table, and `tests/unit/relabel.sh` pins the root the relabel passes it. The config-directory predicate is
+  `ai_tools_agent_config_dir_valid` in `control-plane.lib.sh`.
 
 The rule's lifecycle follows the package: applied by the agent package's `%post` (and by `install.sh`,
 `ai-tools-bootstrap`, the relabel watcher, and `ai-tools-admin system entrypoints relabel`), dropped by its `%preun`
@@ -144,6 +149,7 @@ in place — a launch then fails closed at the preflight, the state a host with 
 |---|---|
 | a value that is absolute, carries `..`, or leaves the path charset `[A-Za-z0-9_./@+-]` (`ai_tools_launcher_target_valid`, pure) | the join could name a file outside the version directory |
 | a join that does not resolve, symlinks followed, to a regular executable file inside the version directory | the chain would leave the toolchain, or end on a file without the executable bit |
+| an `entrypoint_fcontext` the relabel's containment refuses — an alternation, a group, a traversal, a literal head that is not the directory the resolved version directory sits in (`ai_tools_entrypoint_fcontext_valid`, pure) | the relabel does not register a rule from such a pattern, so no file it covers takes `ai_tools_exec_t`; refusing here reports it at the write instead of at the label preflight |
 | a resolved path the manifest's `entrypoint_fcontext` does not match, or a manifest declaring none | the file would carry no `ai_tools_exec_t`, and the relabel reconciliation would report the manifest `stale` |
 | a launcher path that exists and is not a symlink | a hand-edited tree; a `mv -T` would replace a file npm did not write |
 | a write that fails | the temporary link is removed and the launcher left as it was |
@@ -387,11 +393,14 @@ surface **as the agent** and asserts none of it is agent-writable (catching the 
 - `ai_tools_provider_manifest_field <name> <key>` — the same read across both manifest kinds, for a caller holding
   a provider name without knowing which kind carries it (`ai-tools-admin` reads `admin_summary` this way). The namespace
   is flat, so at most one kind holds the name; integrations are tried first.
-- `ai_tools_launcher_target_valid <value>` — the pure shape check on a declared `launcher_target`,
-  and `ai_tools_relink_launcher <version-dir> <launcher> <target> <entrypoint-fcontext>` — the one write this library
-  makes, the versioned launcher re-link (see
-  [`launcher_target`](#launcher_target--where-the-versioned-launcher-points)). Both take their inputs as arguments;
-  the callers read the two fields through `ai_tools_agent_manifest_field`.
+- `ai_tools_launcher_target_valid <value>` — the pure shape check on a declared `launcher_target`;
+  `ai_tools_entrypoint_fcontext_valid <pattern> <containment-root>` — the pure containment check on a declared
+  `entrypoint_fcontext`, which `relabel.lib.sh` calls with the Node versions root it pins and the two writers
+  of the launcher chain call with the directory the resolved version directory sits
+  in; and `ai_tools_relink_launcher <version-dir> <launcher> <target> <entrypoint-fcontext>` — the one write this
+  library makes, the versioned launcher re-link (see
+  [`launcher_target`](#launcher_target--where-the-versioned-launcher-points)). Each takes its inputs as arguments;
+  the callers read the fields through `ai_tools_agent_manifest_field`.
 - `ai_tools_agent_managed_files <name>` — one `<live>\t<reference>` pair per path a trusted manifest names
   in `managed_files`, the reference composed from the basename under `AI_TOOLS_MANAGED_REFERENCE_DIR/<name>/`; a path
   that is not absolute or carries `..` is refused on stderr, since the reference is composed from it.

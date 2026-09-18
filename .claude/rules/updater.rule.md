@@ -251,7 +251,8 @@ cannot resolve **refuses** rather than admitting anything.
 
 The path's shape says where the link sits; what a session executes is what it **resolves to**, so the helper resolves
 the target once and requires three things of the result — a **regular executable file**, **inside that same version
-directory**, **covered by that agent's `entrypoint_fcontext`** — which is `ai_tools_relink_launcher`'s own predicate
+directory**, **covered by that agent's `entrypoint_fcontext`**, that pattern first held to the relabel's containment
+(`ai_tools_entrypoint_fcontext_valid`) — each being `ai_tools_relink_launcher`'s own predicate
 ([providers](providers.rule.md)), so the two writers of this chain accept the same set of targets. Every read the helper
 makes of that file is a `stat`, the execute bit included: the handback domain holds `getattr` on an entrypoint and no
 other permission (the grant is in `ai_tools.te`), and an `access(2)` test there is an `execute` check the domain
@@ -275,10 +276,11 @@ that agent's manifest declares (`entrypoint_fcontext`, see [providers](providers
 the type. It runs as root (a domain that holds relabel), is idempotent, and no-ops when SELinux is off or the `ai_tools`
 module is not installed — there is then no `ai_tools_exec_t` to assign, the same condition `ai-tools-run` keys on.
 
-The type is pinned in `relabel.lib.sh` and a declared pattern is accepted only when it can match no path outside
-the sandbox toolchain root (no traversal, no alternation, an anchored literal head), so a manifest chooses **which**
-file is its entrypoint, never what label a file gets. The whole body lives in `relabel.lib.sh`, shared
-with `install-selinux.sh`'s verify pass.
+The type and the Node versions root are pinned in `relabel.lib.sh`, and a declared pattern is accepted only when it can
+match no path outside that root (no traversal, no alternation, an anchored literal head —
+`ai_tools_entrypoint_fcontext_valid`, the predicate `providers.lib.sh` holds so the launcher re-link applies it too),
+so a manifest chooses **which** file is its entrypoint, never what label a file gets. The labelling body lives
+in `relabel.lib.sh`, shared with `install-selinux.sh`'s verify pass.
 
 **Every writer of the policy store serializes on one lock, and a refusal names its cause.** An install or upgrade drives
 writers at once: the base package's rewrite of `/opt/ai-tools/bin` fires the `ai-tools-relabel.path` watcher while

@@ -392,9 +392,12 @@ ai_tools_installed_integrations_declaring() {
 # and the toolchain provisioning (ai-tools-bootstrap) and the updater (nvm-update) re-link the versioned launcher at it
 # after every install and before the stable symlink is repointed. The chain a launch resolves --
 # /opt/ai-tools/bin/<launcher> -> <version-dir>/bin/<launcher> -> the target -- then ends at the file the manifest's
-# entrypoint_fcontext labels. ai_tools_relink_launcher refuses, leaving npm's own link in place, on every input it
-# cannot honour; the launch then fails closed at the label preflight, since no rule labels the file npm's link resolves
-# to. The callers read the key as any other field (ai_tools_agent_manifest_field); the two functions here take
+# entrypoint_fcontext labels. The pattern is held to the containment the relabel holds it to before it is matched
+# (ai_tools_entrypoint_fcontext_valid, defined here because the relabel library sources this one and the confined shim
+# sources this one alone), so a manifest the relabel would refuse is refused at the write, with the reason, and not one
+# step later at the launch preflight. ai_tools_relink_launcher refuses, leaving npm's own link in place, on every input
+# it cannot honour; the launch then fails closed at the label preflight, since no rule labels the file npm's link
+# resolves to. The callers read the key as any other field (ai_tools_agent_manifest_field); the functions here take
 # the values as arguments, so tests/unit/launcher-target.sh drives the write against fixtures with no manifest.
 
 # ai_tools_launcher_target_valid <value> : pure check, no I/O -- succeed when <value> is a path
@@ -410,36 +413,64 @@ ai_tools_launcher_target_valid() {
     [[ "${value}" != *..* ]]
 }
 
+# ai_tools_entrypoint_fcontext_valid <pattern> <containment-root> : pure check, no I/O -- succeed
+#   when <pattern> is a file-context regex that can only ever match inside <containment-root>. Two
+#   conditions, both required, because the type the relabel gives what it matches is an exec
+#   entrypoint of the confined domain: with its backslash escapes removed the pattern must start
+#   with <containment-root> (so the literal head is anchored there), and it must contain no `|`,
+#   `(`, or other metacharacter that could match a path outside that head. Character classes, `*`,
+#   `+`, `.`, and escapes are what a path pattern needs and all it gets. An empty pattern or an empty
+#   root is refused. relabel.lib.sh passes the Node versions root it pins
+#   (AI_TOOLS_NODE_VERSIONS_ROOT); the two writers of the launcher chain pass the directory
+#   the resolved version directory sits in, which on the toolchain is that same root and on a test
+#   fixture is the fixture's.
+ai_tools_entrypoint_fcontext_valid() {
+    # Path characters, character classes, `*`, `+`, `.` and escapes -- no `|`, no `(`, no `$`, no whitespace. `]` leads
+    # the set and `-` closes it, the POSIX way to include both.
+    local allowed='^[]A-Za-z0-9_./@+*^[\-]+$'
+    local pattern="${1:-}" containment_root="${2:-}" plain="${1//\\/}"
+    [[ -n "${pattern}" && -n "${containment_root}" ]] || return 1
+    [[ "${pattern}" =~ ${allowed} ]] || return 1
+    [[ "${pattern}" != *..* ]] || return 1
+    [[ "${plain}" == "${containment_root}/"* ]]
+}
+
 # ai_tools_relink_launcher <version-dir> <launcher> <target> <entrypoint-fcontext> : point
 #   <version-dir>/bin/<launcher> at <version-dir>/<target> -- a symlink written under a temporary
 #   name and renamed over the link, so the launcher is never absent -- and print one word:
 #   `linked` when the link was written, `current` when it already pointed there. Refuses, printing
 #   nothing, returning 1, and reporting the reason on stderr under its code, when <target> fails
 #   ai_tools_launcher_target_valid, when it does not resolve (symlinks followed) to a regular
-#   executable file inside <version-dir>, when <entrypoint-fcontext> is empty or does not match the
-#   resolved path (the file would carry no ai_tools_exec_t, and the launch would refuse it), when
-#   the launcher path exists and is not a symlink, or when the write fails. A refusal leaves
-#   whatever is at the launcher path as it was. The link is relative (`../<target>`), the form npm
-#   writes its own in.
+#   executable file inside <version-dir>, when <entrypoint-fcontext> is empty, is not a plain path
+#   pattern anchored under the directory the resolved <version-dir> sits in
+#   (ai_tools_entrypoint_fcontext_valid), or does not match the resolved path (the file would carry
+#   no ai_tools_exec_t, and the launch would refuse it), when the launcher path exists and is not
+#   a symlink, or when the write fails. A refusal leaves whatever is at the launcher path as it
+#   was. The link is relative (`../<target>`), the form npm writes its own in.
 ai_tools_relink_launcher() {
     local version_dir="${1:-}" launcher="${2:-}" target="${3:-}" fcontext="${4:-}"
-    local link="${version_dir}/bin/${launcher}" root="" resolved="" pattern reason tmp
+    local link="${version_dir}/bin/${launcher}" real_version_dir="" resolved="" containment_root pattern reason tmp
     if ! ai_tools_launcher_target_valid "${target}"; then
         _ai_tools_provider_warn MSG-J5C3 "refusing the launcher target for ${launcher}: $(printf '%q' "${target}") is not a relative path inside the version directory -- leaving ${link} as it is"
         return 1
     fi
-    if root="$(realpath -e -- "${version_dir}" 2>/dev/null)"; then
+    if real_version_dir="$(realpath -e -- "${version_dir}" 2>/dev/null)"; then
         resolved="$(realpath -e -- "${version_dir}/${target}" 2>/dev/null)" || resolved=""
     fi
-    if [[ -z "${resolved}" || "${resolved}" != "${root}/"* || ! -f "${resolved}" || ! -x "${resolved}" ]]; then
+    if [[ -z "${resolved}" || "${resolved}" != "${real_version_dir}/"* || ! -f "${resolved}" || ! -x "${resolved}" ]]; then
         _ai_tools_provider_warn MSG-C4F6 "refusing the launcher target for ${launcher}: ${target} does not resolve to an executable file inside ${version_dir}${resolved:+ (it resolves to ${resolved})} -- leaving ${link} as it is"
         return 1
     fi
-    # The pattern is the manifest's own regex, matched whole. An invalid regex makes `=~` return 2, which the `!` reads
-    # as no match, and no match is a refusal.
+    # The pattern is held to the relabel's containment first -- a plain path pattern anchored under the directory
+    # the resolved version directory sits in -- and then matched whole, as the manifest's own regex,
+    # against the resolved path. An invalid regex that passes the containment's charset (an unclosed bracket) makes `=~`
+    # return 2, which the `!` reads as no match, and no match is a refusal.
     pattern="^${fcontext}\$"
+    containment_root="${real_version_dir%/*}"
     if [[ -z "${fcontext}" ]]; then
         reason="the manifest declares no entrypoint_fcontext to cover ${resolved}"
+    elif ! ai_tools_entrypoint_fcontext_valid "${fcontext}" "${containment_root}"; then
+        reason="the manifest's entrypoint_fcontext ${fcontext} is not a plain path pattern under ${containment_root}"
     elif ! [[ "${resolved}" =~ ${pattern} ]]; then
         reason="the manifest's entrypoint_fcontext ${fcontext} does not cover ${resolved}"
     else

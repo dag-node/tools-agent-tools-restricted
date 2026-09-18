@@ -640,11 +640,16 @@ raises for a partial install — every other non-zero fails, naming it.
 the chain somewhere else is driven and asserted to leave npm's own link as it was, with an empty stdout and the code
 on stderr: a parent-directory component, a symlink resolving outside the version directory, a missing target, one
 without the executable bit, a directory, a target the declared pattern does not cover, a manifest that does not declare
-a pattern, a pattern `=~` refuses to parse, a regular file at the launcher path, and an unwritable `bin` directory
-(skipped as root, which writes it anyway). The accepted case is read through `realpath`, the chain a launch reads,
-and asserted idempotent on a second run and re-linked after npm's link is put back, since the step runs after every
-install. It is pure — the version directory, launcher, target and pattern are arguments — and runs without root; its
-fixtures need the executable bit visible, so it takes `agent-installs.sh`'s probe and fallback.
+a pattern, a pattern `=~` refuses to parse, a pattern the relabel's containment refuses although it covers the target
+as a raw regex (an alternation, a group, no literal head, a head that is a class), a regular file at the launcher path,
+and an unwritable `bin` directory (skipped as root, which writes it anyway). The accepted case is read
+through `realpath`, the chain a launch reads, and asserted idempotent on a second run and re-linked after npm's link is
+put back, since the step runs after every install; a version directory that is itself a symlink and a symlink inside
+the version directory resolving to a file inside it are pinned as accepted. The containment predicate the re-link shares
+with the relabel (`ai_tools_entrypoint_fcontext_valid`) is driven here over its truth table, against the shipped Node
+versions root, and in both directions of its root argument. It is pure — the version directory, launcher, target,
+pattern and root are arguments — and runs without root; its fixtures need the executable bit visible, so it takes
+`agent-installs.sh`'s probe and fallback.
 
 `codex-package.sh` pins the files `ai-tools-agents-codex-restricted` ships to the seams they plug into, before any host
 installs them ([agent-codex](agent-codex.rule.md)): the manifest through the readers that parse it, with its
@@ -710,14 +715,15 @@ survives it. The probe's own gate is asserted from the side that matters: with n
 run) for a non-root caller, it is not offered at all — while the **system** scope stays readable by any caller, since
 reading that one as privileged would silently stop the launch wrapper's pre-launch warning from checking anything.
 
-`relabel.sh` pins the other manifest-supplied decision with a security consequence: the entrypoint file-context
-predicate (`relabel.lib.sh`). A declared pattern becomes a `semanage` rule granting `ai_tools_exec_t`, the confined
-domain's exec entrypoint, so the test drives every way a pattern could name something outside the sandbox toolchain
-(traversal, alternation, a foreign prefix) and asserts each is refused — plus that the type is the library's constant,
-never manifest-supplied. `ai_tools_operator_conf_valid` is driven the same way, over the path that becomes
-an `ai_tools_conf_t` rule: its input is a home read from a passwd entry, so a wildcard, an alternation, or a bracket
-expression there must be refused rather than widening the rule to homes nobody enrolled, and the pattern it builds must
-escape every dot. It then pins the two pure decisions behind the declared-vs-installed reconciliation:
+`relabel.sh` pins the other manifest-supplied decision with a security consequence: what `relabel.lib.sh` holds
+a declared entrypoint pattern to. A declared pattern becomes a `semanage` rule granting `ai_tools_exec_t`, the confined
+domain's exec entrypoint, and the containment predicate it passes is the launcher re-link's, whose truth table
+`launcher-target.sh` drives, so this file pins what the relabel supplies it: the Node versions root, by value
+and as readonly, with the shipped shape accepted under it and a host binary refused — plus that the type is
+the library's constant, never manifest-supplied. `ai_tools_operator_conf_valid` is driven the same way, over the path
+that becomes an `ai_tools_conf_t` rule: its input is a home read from a passwd entry, so a wildcard, an alternation,
+or a bracket expression there must be refused rather than widening the rule to homes nobody enrolled, and the pattern it
+builds must escape every dot. It then pins the two pure decisions behind the declared-vs-installed reconciliation:
 `ai_tools_entrypoint_reconcile_verdict` over its whole truth table — where `stale` is the verdict that must fail
 a relabel, being the one cause a rerun cannot clear, and an uninterpretable flag must err toward it rather than toward
 blessing a divergence — and `_ai_tools_entrypoint_path_reportable`, the allowlist that keeps an agent-influenced path

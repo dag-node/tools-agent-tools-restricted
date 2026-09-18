@@ -11,9 +11,12 @@
 # or, on a DAC-only host, an executable the manifest never named. Each refusal is therefore driven and asserted to leave
 # npm's own link exactly as it was, printing nothing on stdout and its code on stderr; the accepted case is asserted
 # through the same chain a launch reads (realpath), and a reinstall -- npm rewriting its link -- is asserted to be
-# re-linked on the next run, so the step is idempotent across installs rather than once.
+# re-linked on the next run, so the step is idempotent across installs rather than once. The declared pattern is held
+# to the containment the relabel holds it to before it is matched, so a pattern the relabel would refuse --
+# an alternation, a group, no literal head -- is refused at the write rather than one launch later; that predicate lives
+# beside the re-link, and its truth table is driven here against the shipped toolchain root.
 #
-# Pure: the two functions take the version directory, the launcher, the target and the pattern as arguments,
+# Pure: the three functions take the version directory, the launcher, the target, the pattern and the root as arguments,
 # so the fixtures are a tree this file builds and no manifest is read. Run without root. The fixtures carry
 # the executable bit, which the resolver asks about with `-x`, so they need a directory where that bit is VISIBLE:
 # a noexec mount answers false whatever the mode says, so the testdir is used when it qualifies and a directory beside
@@ -53,6 +56,51 @@ valid "a shell metacharacter -> refused"          1 "lib/x;rm"
 valid "whitespace -> refused"                     1 "lib/x y"
 valid "a glob character -> refused"               1 "lib/*/codex"
 valid "a regex bracket -> refused"                1 "lib/[a]/codex"
+
+# ── The containment predicate the re-link shares with the relabel ─────────────────────────────
+# A declared entrypoint_fcontext becomes a `semanage fcontext` rule granting ai_tools_exec_t, the confined domain's exec
+# entrypoint, so every way a pattern could name something outside the root it is checked against -- a traversal,
+# an alternation, a group, a foreign or absent literal head -- must be refused. The root is an argument: relabel.lib.sh
+# passes the toolchain root it pins, the re-link passes the directory the version directory sits in, and the table is
+# driven here against the shipped root, so the fixture root this file's re-link cases use is not what containment is
+# asserted on.
+readonly TOOLCHAIN_ROOT=/opt/ai-tools/.nvm/versions/node
+# accepts/rejects <pattern> [why]
+accepts() {
+    if ai_tools_entrypoint_fcontext_valid "$1" "${TOOLCHAIN_ROOT}"; then pass "accepts ${1:-<empty>}"
+    else fail "rejected a valid entrypoint pattern: $1"; fi
+}
+rejects() {
+    if ai_tools_entrypoint_fcontext_valid "$1" "${TOOLCHAIN_ROOT}"; then fail "ACCEPTED ${2}: ${1:-<empty>}"
+    else pass "rejects ${2}"; fi
+}
+
+# The shipped shape, and the same path written without the SELinux backslash escapes.
+accepts '/opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@anthropic-ai/claude-code/bin/claude\.exe'
+accepts '/opt/ai-tools/.nvm/versions/node/[^/]+/bin/some-agent'
+
+# Containment: every way a pattern could name something outside the root.
+rejects ''                                              "an empty pattern"
+rejects '/etc/shadow'                                   "a path outside the toolchain root"
+rejects '/usr/bin/sudo'                                 "a host binary"
+rejects '/opt/ai-tools/.nvm/versions/node/../../../usr/bin/sudo' "a parent-directory traversal"
+rejects '/opt/ai-tools/.nvm/versions/node/x|/usr/bin/sudo'       "an alternation escaping the root"
+rejects '(/usr/bin/sudo|/opt/ai-tools/.nvm/versions/node/x)'     "a group whose first branch is foreign"
+rejects '(/opt/ai-tools/.nvm/versions/node/[^/]+/bin/x)'         "a group around a contained pattern"
+rejects '.*'                                            "a match-anything pattern"
+rejects '.*/bin/some-agent'                             "a pattern with no literal head"
+# shellcheck disable=SC2016  # the literal $(...) is the input under test, not an expansion
+rejects '/opt/ai-tools/.nvm/versions/node/$(id)/bin/x'  "a shell-substitution character"
+rejects '/opt/ai-tools/.nvm/versions/node/a b/bin/x'    "whitespace in the pattern"
+
+# The root is what the head is held to: a pattern contained under one root is refused under another, and an empty root
+# refuses every pattern rather than anchoring the head at `/`.
+if ai_tools_entrypoint_fcontext_valid '/opt/ai-tools/.nvm/versions/node/[^/]+/bin/x' /opt/other; then
+    fail "ACCEPTED a pattern whose head is not the root it was checked against"
+else pass "rejects a pattern whose head is another root"; fi
+if ai_tools_entrypoint_fcontext_valid '/opt/ai-tools/.nvm/versions/node/[^/]+/bin/x' ''; then
+    fail "ACCEPTED a pattern under an empty root"
+else pass "rejects every pattern under an empty root"; fi
 
 # ── Fixtures: a version directory shaped like npm leaves it ───────────────────────────────────
 x_bit_visible() {
@@ -171,8 +219,36 @@ refused "a target the declared entrypoint pattern does not cover" MSG-F5U2
 relink "${ELF_TARGET}" ""
 refused "a manifest declaring no entrypoint pattern" MSG-F5U2
 
-relink "${ELF_TARGET}" "${VERSIONS_RE}/[^/]+/lib/node_modules/@x/codex/("
-refused "a pattern bash cannot parse" MSG-F5U2
+relink "${ELF_TARGET}" "${VERSIONS_RE}/[^/]+/lib/[codex"
+refused "a pattern bash cannot parse (an unclosed bracket, which the containment's charset admits)" MSG-F5U2
+
+# The containment the relabel applies, applied at the write: each of these covers the resolved path as a raw regex,
+# so a match alone would write the link and leave the refusal to the label preflight, one launch later.
+relink "${ELF_TARGET}" "${FCONTEXT}|/nowhere/[^/]+/bin/codex"
+refused "a pattern carrying an alternation whose first branch covers the target" MSG-F5U2
+relink "${ELF_TARGET}" "(${FCONTEXT})"
+refused "a pattern carrying a group around the covering pattern" MSG-F5U2
+relink "${ELF_TARGET}" ".*/bin/codex"
+refused "a pattern with no literal head" MSG-F5U2
+relink "${ELF_TARGET}" "[^/]*${FCONTEXT}"
+refused "a pattern whose head is a class, not the directory the version directory sits in" MSG-F5U2
+
+# Two shapes the resolution already handles, pinned so a change to it is a decision rather than a drift: a version
+# directory that is itself a symlink is resolved before the target is contained in it, and a symlink inside the version
+# directory that resolves to another file inside it is followed and linked.
+ln -sfn "${VERSION_DIR}" "${FIXTURE_ROOT}/versions/node/current"
+RC=0; OUT="$(ai_tools_relink_launcher "${FIXTURE_ROOT}/versions/node/current" "${LAUNCHER}" "${ELF_TARGET}" "${FCONTEXT}" 2>"${TESTDIR}/err")" || RC=$?
+ERR="$(<"${TESTDIR}/err")"
+if [[ "${RC}" -eq 0 && "${OUT}" == linked && "$(realpath -e "${LINK}")" == "$(realpath -e "${ELF}")" ]]; then
+    pass "a version directory that is itself a symlink: resolved, and the target linked inside the real one"
+else fail "a symlinked version directory: rc ${RC}, stdout '${OUT}', stderr '${ERR}'"; fi
+rm -f "${FIXTURE_ROOT}/versions/node/current"; reset_npm_link
+ln -sfn codex "${VERSION_DIR}/${ELF_TARGET%/*}/codex-alias"
+relink "${ELF_TARGET%/*}/codex-alias" "${FCONTEXT}"
+if [[ "${RC}" -eq 0 && "${OUT}" == linked && "$(realpath -e "${LINK}")" == "$(realpath -e "${ELF}")" ]]; then
+    pass "a symlink inside the version directory resolving to a file inside it: followed and linked"
+else fail "an internal symlink target: rc ${RC}, stdout '${OUT}', stderr '${ERR}'"; fi
+rm -f "${VERSION_DIR}/${ELF_TARGET%/*}/codex-alias"; reset_npm_link
 
 # A regular file where the launcher belongs is a hand-edited tree, and the write stops ahead of the rename.
 rm -f "${LINK}"; printf 'kept\n' > "${LINK}"

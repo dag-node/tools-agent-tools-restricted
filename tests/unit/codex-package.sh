@@ -164,12 +164,12 @@ if ai_tools_launcher_target_valid "${target}"; then
 else
     fail "launcher_target '${target}' is refused by ai_tools_launcher_target_valid"
 fi
-if ai_tools_entrypoint_fcontext_valid "${pattern}"; then
-    pass "entrypoint_fcontext passes the containment check (anchored under ${AI_TOOLS_ENTRYPOINT_ROOT})"
+if ai_tools_entrypoint_fcontext_valid "${pattern}" "${AI_TOOLS_NODE_VERSIONS_ROOT}"; then
+    pass "entrypoint_fcontext passes the containment check (anchored under ${AI_TOOLS_NODE_VERSIONS_ROOT})"
 else
     fail "entrypoint_fcontext '${pattern}' is refused by ai_tools_entrypoint_fcontext_valid"
 fi
-resolved_shape="${AI_TOOLS_ENTRYPOINT_ROOT}/v1.2.3/${target}"
+resolved_shape="${AI_TOOLS_NODE_VERSIONS_ROOT}/v1.2.3/${target}"
 if [[ "${resolved_shape}" =~ ${pattern} ]]; then
     pass "entrypoint_fcontext covers the file launcher_target names (the two keys agree)"
 else
