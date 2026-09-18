@@ -1283,6 +1283,42 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Fri Sep 18 2026 dagnode <tools@dagnode.com> - 0.19.0-1
+- NEW: Codex runs sandboxed, as the second supported agent. Install
+  'ai-tools-agents-codex-restricted' (the umbrella pulls it), add it to AI_TOOLS_AGENTS in
+  /etc/ai-tools/operator.conf and run 'sudo ai-tools-admin system bootstrap': typing 'codex' then
+  starts a confined session with the same project allowlist, SELinux domain and ownership handback
+  a Claude Code session gets, and with the skills and orientation text both agents share. Two files
+  under /etc/codex are yours to edit with sudo -- what every session is held to, and the defaults
+  applied ahead of any user config. Enable it deliberately: its confinement is exercised but its
+  denial set has not been swept on an enforcing host yet. docs/agents/codex.md covers what it
+  reaches, what the package turns off, and what a pinned sandbox mode costs a session.
+- SECURITY: Codex refuses 'git push --force', 'git reset --hard' and 'git clean', the same three a
+  Claude Code session is refused. Each deletes work no commit holds and no reflog returns, and each
+  runs unprivileged in your own tree where no host control stops it; a refused command is raised in
+  the session for you to run where the consequence lands.
+- SECURITY: An agent whose vendor publishes no signed per-release checksum now gets an entrypoint
+  pin too. Root records the checksum of the binary as installed, so a binary rewritten between
+  sessions -- the case a delivery-side signature cannot see, since it attests to what was delivered
+  and not to what is on disk now -- refuses the next launch. 'ai-tools status' names which of the
+  two pins each agent holds, VERIFIED against UNCHANGED, and a reconcile that meets the same
+  version hashing differently leaves the pin alone and says so rather than adopting the new value.
+- CHANGE: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY asks for a pin of either kind, which is what
+  operator.conf(5) has always said it governs -- an entrypoint carrying no pin. A host that sets it
+  now also launches an agent pinned as installed, and the status report is where the tier is named.
+  The key's comment in /etc/ai-tools/operator.conf is reworded to match, so an edited file gets an
+  .rpmnew beside it on upgrade.
+- CHANGE: An agent package declares the executable its versioned launcher must resolve to
+  ('launcher_target'), and the updater re-links it before the stable symlink is repointed. An agent
+  whose npm package ships a launcher that spawns a vendored binary is therefore verified, labelled
+  and executed as the one file that actually runs.
+- FIX: 'sudo ai-tools-admin system bootstrap' closes by naming the CLI rather than one agent's
+  wrapper, so the next step it prints is right on a host running any agent.
+- DOCS: The operator documentation is a tree of nine categories under docs/, each with its own
+  index, and the front page is a map to it rather than the manual itself. Every page states what
+  you can do and what happens when you do it; the mechanisms moved to the contributor rules, so a
+  page stays accurate across a refactor.
+
 * Tue Sep 15 2026 dagnode <tools@dagnode.com> - 0.18.0-1
 - CHANGE: 'ai-tools' spells a command as a bare word -- a collection and its verb ('ai-tools
   projects claim DIRECTORY'), or one word for the host ('status', 'audit', 'stop') -- leaving
