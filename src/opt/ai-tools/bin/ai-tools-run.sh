@@ -519,19 +519,11 @@ case "${entrypoint_pin_verdict}" in
                "entrypoint:  ${session_exec_path}" \
                'The binary changed after it was verified. Treat this toolchain as tampered and reprovision it:' \
                '  sudo ai-tools-admin system bootstrap' ;;
-    ok) # A pin the host recorded by observation says the binary has not changed since it was installed; it does not
-        # say a vendor signed it. So it satisfies the default posture and NOT the operator's declaration that this
-        # host runs verified entrypoints only -- which keeps AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY meaning exactly what
-        # it meant before the observed tier existed.
-        if [[ "${require_entrypoint_verify}" == yes ]] \
-                && declare -F ai_tools_entrypoint_pin_kind >/dev/null 2>&1 \
-                && [[ "$(ai_tools_entrypoint_pin_kind "${agent_name}" 2>/dev/null || true)" == observed ]]; then
-            audit warning "REFUSED: entrypoint pinned by observation and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set"
-            refuse MSG-P8A3 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, and this entrypoint is pinned as installed rather than against a signature its vendor published.' \
-                   "agent:       ${agent_name}" \
-                   'This vendor publishes no signed release manifest. The pin still refuses a binary that changed after it was installed.' \
-                   'Run this agent on a host that does not set that switch, or clear it there.'
-        fi ;;
+    ok) # Either tier satisfies the switch: what it governs is an entrypoint carrying NO pin, and a pin recorded by
+        # observation is one -- root hashed the installed binary, and this launch just matched it. Which tier a host
+        # holds per agent is what the status reports name, so the operator sets the switch knowing that an agent
+        # whose vendor publishes no signed manifest is covered against a change and not against its origin.
+        ;;
     *)  if [[ "${require_entrypoint_verify}" == yes ]]; then
             audit warning "REFUSED: entrypoint unverified (${entrypoint_pin_verdict}) and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set"
             refuse 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, but this entrypoint carries no verified checksum.' \

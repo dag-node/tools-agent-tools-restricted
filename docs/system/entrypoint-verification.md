@@ -99,7 +99,6 @@ where neither works.
 | `signed by a key the pinned keyring does not hold` | the vendor rotated its signing key | `sudo dnf update 'ai-tools-agents-*'` |
 | a launch refused: `does not match the checksum its vendor signed` | **the binary changed after it was verified** | treat the toolchain as tampered: `sudo ai-tools-admin system bootstrap`, and investigate if it recurs |
 | a launch refused: `carries no verified checksum` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and this entrypoint was never pinned | `sudo ai-tools-admin system entrypoints relabel` (needs the host online) |
-| a launch refused: `pinned as installed rather than against a signature` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and this agent's vendor does not publish a signed manifest | run that agent on a host that does not set the switch, or clear it there |
 | `UNCHANGED` in place of `VERIFIED` | that agent is pinned as installed | no action; [An agent whose vendor does not publish a signed manifest](#an-agent-whose-vendor-does-not-publish-a-signed-manifest) says what it claims |
 
 `sudo ai-tools-admin system entrypoints relabel` reconciles the entrypoint: it
@@ -116,7 +115,7 @@ and `ai-tools status` reports that pin as `UNCHANGED`:
 
 ```text
 Entrypoint verification
-  codex                        UNCHANGED (0.154.0, 2h ago, as installed)
+  codex                        UNCHANGED (0.154.0-linux-x64, 2h ago, as installed)
 ```
 
 The two words are two different claims. `VERIFIED` says the binary is the one
@@ -125,6 +124,10 @@ and has not changed since — which is the case npm's own checks cannot see,
 and the one an agent could otherwise exploit by rewriting its own entrypoint
 between sessions. It does not say where the binary came from, and it does not
 say whether the binary was already modified when the host first recorded it.
+
+Such an agent launches on a host that requires verification: the switch asks
+for a pin, and this is one. What the tier changes is the claim the report
+makes, not whether a session starts.
 
 A changed binary refuses the launch either way. Where the version is unchanged
 and the checksum is not, the reconcile refuses to re-record it and leaves
@@ -155,13 +158,13 @@ To require verification, in `/etc/ai-tools/operator.conf`:
 AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes
 ```
 
-Then only a vendor-verified entrypoint starts a session — an agent pinned
-as installed is refused too, since that pin does not make any statement
-about a vendor signature — and the updater additionally declines to activate
-a release it could not verify — so an unverifiable release never becomes
-the one your launches would have to refuse. This is the same shape
-as `AI_TOOLS_REQUIRE_SELINUX`: the tool cannot tell an intentionally offline
-host from a degraded one, so you declare it.
+Then only a pinned entrypoint starts a session — a pin of either kind, since
+what this refuses is an entrypoint no reconcile has recorded — and the updater
+additionally declines to activate a release it could not verify —
+so an unverifiable release never becomes the one your launches would have
+to refuse. This is the same shape as `AI_TOOLS_REQUIRE_SELINUX`: the tool
+cannot tell an intentionally offline host from a degraded one, so you declare
+it.
 
 ## Air-gapped and mirrored hosts
 

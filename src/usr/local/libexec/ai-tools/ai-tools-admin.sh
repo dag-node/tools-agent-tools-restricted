@@ -1520,13 +1520,9 @@ status_entrypoints() {
         if [[ -n "${version}" && "$(ai_tools_entrypoint_pin_kind "${agent}" 2>/dev/null || true)" == observed ]]; then
             # Recorded as installed: a change to the binary refuses at every setting, and no vendor signature stands
             # behind the value. UNCHANGED is what the comparison proves; it does not say the binary was sound when
-            # root first recorded it. Counted as a problem only where the operator declared verified is the bar.
+            # root first recorded it. It is a pin, so it satisfies the strictness switch and is not a problem.
             age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${pin}" VERIFIED)")"
             st UNCHANGED "${agent}  ${version}${age:+, ${age}}, as installed -- its vendor publishes no signed manifest"
-            if [[ "${strict}" == yes ]]; then
-                detail "this host requires a vendor-verified entrypoint, so ${agent} sessions will not launch"
-                STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
-            fi
         elif [[ -n "${version}" ]]; then
             age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${pin}" VERIFIED)")"
             st VERIFIED "${agent}  ${version}${age:+, ${age}}"

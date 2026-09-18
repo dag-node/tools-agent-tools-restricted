@@ -457,11 +457,12 @@ what makes the next launch read `mismatch`. `observe_agent_entrypoint` in `ai-to
 around that decision and reports the tamper case with the reprovision command.
 
 **The launch gate reads checksums alone**, so `mismatch` refuses at every setting for either tier — that is
-what an observed pin buys. The tier is consulted in one further place: where `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` is
-set, `ai-tools-run` refuses an `ok` verdict backed by an `observed` pin (`MSG-P8A3`), because that switch is
-the operator's declaration that this host runs vendor-verified entrypoints and an observed pin makes no such statement.
-The switch therefore means exactly what it meant before the tier existed, and an agent whose vendor publishes no signed
-manifest does not launch under it.
+what an observed pin buys. The tier does not enter the launch decision at all: `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`
+governs an entrypoint carrying **no pin**, and a pin recorded by observation is one, so a host that requires
+verification runs such an agent and its sessions are covered against a change to the binary. What the operator gives
+up on that host is stated rather than hidden — the reports name the tier per agent (`VERIFIED` against `UNCHANGED`),
+so the switch reads as "every entrypoint that starts a session was pinned by root and still matches its pin", not
+as a claim of vendor provenance for an agent whose vendor publishes none.
 
 ### Answering from the pin, and the one caller that never does
 

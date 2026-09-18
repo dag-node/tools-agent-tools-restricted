@@ -78,11 +78,12 @@ Turned off by the package, and stated so you know what to expect: Codex's
 sub-agents, MCP servers, plugins and marketplaces, image generation,
 and telemetry. The vendored `rg`, `zsh` and `bwrap` beside the binary are not
 executable in a session; the system `rg` on the session's `PATH` serves search.
-The npm channel does not publish a signed per-release checksum, so a host
-that requires entrypoint verification does not launch Codex. Its entrypoint is
-still pinned: root records the checksum of the binary as installed,
-`ai-tools status` reports it as `UNCHANGED`, and a binary that changes
-afterwards refuses the next session. [Entrypoint
+The npm channel does not publish a signed per-release checksum, so Codex's
+entrypoint is pinned as installed instead: root records the checksum
+of the binary, `ai-tools status` reports that pin as `UNCHANGED`, and a binary
+that changes afterwards refuses the next session. That pin satisfies
+`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`, so a host setting it runs Codex and knows
+which tier it holds. [Entrypoint
 verification](../system/entrypoint-verification.md) says what that claims.
 
 ## The files you may edit

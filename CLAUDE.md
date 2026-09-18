@@ -169,7 +169,7 @@ shape of guarantee: it deletes only after that confirmation, and a failure leave
 | which providers it gets | `ai_tools_conf_is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, never "enable all" |
 | which paths handback may touch | born-`SANDBOX_USER` ownership, re-checked race-safely as root | the path is left alone |
 | which toolchain may be activated | npm registry signature verification | the previous, trusted version stays |
-| which agent binary may start a session | its checksum against a root-owned pin, recorded either from the vendor's signed release manifest or, for a vendor publishing none, from the binary as installed ([ref-section-q7v4](.claude/rules/updater.rule.md#ref-section-q7v4)) | a mismatch refuses the launch at either tier; where the operator required verification, an unverifiable release stays inactive and a pin taken by observation does not satisfy the requirement |
+| which agent binary may start a session | its checksum against a root-owned pin, recorded either from the vendor's signed release manifest or, for a vendor publishing none, from the binary as installed ([ref-section-q7v4](.claude/rules/updater.rule.md#ref-section-q7v4)) | a mismatch refuses the launch at either tier; where the operator required verification, an entrypoint that no reconcile has pinned does not launch and an unverifiable release stays inactive |
 
 The invariants the agent operates under:
 

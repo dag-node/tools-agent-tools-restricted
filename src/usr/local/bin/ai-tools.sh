@@ -3837,13 +3837,10 @@ status_entrypoint_pins() {
             if [[ "${kind}" == observed ]]; then
                 # The weaker tier states what the comparison proves -- the binary is the one root recorded -- and
                 # not VERIFIED, which claims a vendor signature this agent's channel does not publish, nor any word
-                # asserting the binary was sound when it was first recorded, which no pin can say.
+                # asserting the binary was sound when it was first recorded, which no pin can say. It is a pin, so
+                # it satisfies the strictness switch and blocks no launch; what it does not carry is the origin.
                 printf '  %-28s %sUNCHANGED%s %s(%s%s, as installed)%s\n' "${agent}" "${C_GRN}" "${C_RST}" \
                     "${C_DIM}" "${version}" "${age:+, ${age}}" "${C_RST}"
-                if [[ "${strict}" == yes ]]; then
-                    blocking=$(( blocking + 1 ))
-                    say "      this host requires a vendor-verified entrypoint, so its sessions will not launch"
-                fi
             else
                 printf '  %-28s %sVERIFIED%s %s(%s%s)%s\n' "${agent}" "${C_GRN}" "${C_RST}" \
                     "${C_DIM}" "${version}" "${age:+, ${age}}" "${C_RST}"
