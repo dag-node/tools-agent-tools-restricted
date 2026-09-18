@@ -1,7 +1,7 @@
 # Agents
 
-**Agents** · [Claude Code](claude-code.md) · [Codex](codex.md) — [all
-docs](../index.md)
+**Agents** · [Claude Code](claude-code.md) · [Codex](codex.md) · [Setting
+names](setting-names.md) — [all docs](../index.md)
 
 What an agent package adds to a host, how an operator turns one
 on, and where one agent's own settings and environment variables are listed.
@@ -61,3 +61,10 @@ among them.
 the two lines that turn it on, the device-code login a session needs, the two
 files under `/etc/codex` an operator may edit, and what a Codex session does
 not get.
+
+[Setting names](setting-names.md) decodes the six settings across both agents
+whose names read as the opposite of what they do — `danger-full-access`,
+which is the setting that keeps this host's confinement closed,
+and `approval: never`, which says who the agent asks rather than what it
+permits, among them. Read it before deciding a banner line is
+a misconfiguration.

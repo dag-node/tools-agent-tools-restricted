@@ -1,7 +1,7 @@
 # Codex
 
-[Agents](index.md) · [Claude Code](claude-code.md) · **Codex** — [all
-docs](../index.md)
+[Agents](index.md) · [Claude Code](claude-code.md) · **Codex** · [Setting
+names](setting-names.md) — [all docs](../index.md)
 
 What the Codex package adds to a host, how you turn it on, and which of its
 files you may edit. The package ships off; two lines turn it on.
@@ -39,13 +39,12 @@ covers each login.
 A Codex session is confined exactly as a Claude Code session: it runs
 as the sandbox account, in the confined SELinux domain, inside a claimed
 project, and the files it writes come back to you. Codex does not add a sandbox
-of its own. The package pins it to the mode Codex calls `danger-full-access`,
-and that name describes Codex's own sandbox, which is off: Codex's sandbox is
-bubblewrap, which needs a user namespace the session refuses, so leaving it
-off is what keeps the host's confinement closed. Codex's own banner prints
-that mode as `YOLO mode`: the name is Codex's, it describes Codex's layer,
-and a session running under it is confined by the sandbox account, the SELinux
-domain and the session unit exactly as any other. A session that asks
+of its own: the package pins it to the mode Codex calls `danger-full-access`,
+and its banner prints that as `YOLO mode`. Both names describe Codex's own
+layer, which is off, and neither describes what confines the session — leaving
+that layer off is what keeps the host's confinement closed. [Setting
+names](setting-names.md) explains why, and warns what the same option means
+on a Codex install that has none of this around it. A session that asks
 for another mode on its command line lands on the managed default.
 
 Asking for another mode does not tighten a session, because the sandbox
@@ -83,7 +82,8 @@ rather than waiting for anyone.
 The rows are the `[rules]` table of `/etc/codex/requirements.toml`, each
 carrying the reason it is there — read the file for the set this release ships.
 Relaxing a row is an edit you own, and a rule there can only narrow
-what a session may run, never widen it.
+what a session may run, never widen it; [Setting names](setting-names.md)
+covers the keys in that file whose names read as the opposite of their effect.
 
 A row matches the command from its first word forward, word by word,
 so where a flag sits decides whether the row catches it: `git push --force` is
@@ -149,3 +149,9 @@ one, because `ai-tools-admin operators add` orders your shell's `PATH`
 root-owned-first. `ai-tools status` reports a shell where another `codex` would
 win, since typing the name there starts an unconfined one as you. See
 [Sessions](../sessions/index.md).
+
+That copy is configured by your own files, not by `/etc/codex`, and none
+of this project's confinement is around it. Do not carry the settings this
+package pins into it — `danger-full-access` in particular means, on a plain
+install, exactly what its name says. [Setting names](setting-names.md) states
+what each one is doing here and what it would do there.
