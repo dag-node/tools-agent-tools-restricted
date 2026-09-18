@@ -419,6 +419,7 @@ check_file_optional /var/opt/ai-tools/state/nvm-update.status "${SANDBOX_USER}" 
 # able to write it.
 check_file /var/opt/ai-tools/state/entrypoint-pin.d           root              root              755
 check_file /var/opt/ai-tools/state/entrypoint-label.d         root              root              755
+check_file /var/opt/ai-tools/state/entrypoint-stale.d         root              root              755
 # Sandbox-area operator ACL: ai-ops reaches the area without SANDBOX_GROUP membership -- traverse on the outer dir, rwX
 # + default on sandbox-projects. The agent (not in ai-ops) does not gain access.
 if ! command -v getfacl >/dev/null 2>&1; then

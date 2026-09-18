@@ -223,6 +223,23 @@ else
     out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
     refused "ai-tools-run refuses an entrypoint that does not match its pin" MSG-H7S2 "${rc}" "${out}"
 
+    # The same refusal against an OBSERVED pin. The tier decides what the pin CLAIMS, never whether a mismatch refuses:
+    # a host whose agent has no vendor manifest is covered against a change to its binary, which is the whole reason
+    # the weaker tier is worth writing. The pin this case starts from carries no KIND (the shape every pin had
+    # before the tier existed), so this case is the one that would regress if the launch gate ever started reading
+    # the tier.
+    printf 'AGENT=claude-code\nVERSION=0.0.0\nSHA256=%064d\nKIND=observed\nVERIFIED=1970-01-01T00:00:00Z\n' 0 \
+        > "${pin_dir}/claude-code"
+    out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
+    refused "ai-tools-run refuses a mismatch against an observed pin too" MSG-H7S2 "${rc}" "${out}"
+    # And the refusal names the tier it read, so an operator is not sent looking for a vendor signature behind a pin
+    # root recorded by hashing what was installed.
+    if grep -q 'root recorded' <<<"${out}"; then
+        pass "the refusal names the observed tier's claim rather than a vendor signature"
+    else
+        fail "the refusal over an observed pin still claims a vendor signed the checksum: ${out}"
+    fi
+
     # The complementary property -- an UNPINNED entrypoint must NOT be refused, or an air-gapped host would stop
     # launching -- is deliberately NOT driven here. No other part of that run is invalid, so the shim would go
     # on to start a real session, which this file's design forbids. It is covered where it does not cost a session:

@@ -97,14 +97,33 @@ where neither works.
 | `entrypoint verified … and pinned` after an update | working as intended | no action |
 | `could not verify … pin unchanged` | the host could not reach the vendor, or no manifest exists for that release | no action; it re-verifies on the next update. If it persists, check egress to `downloads.claude.ai` |
 | `signed by a key the pinned keyring does not hold` | the vendor rotated its signing key | `sudo dnf update 'ai-tools-agents-*'` |
-| a launch refused: `does not match the checksum its vendor signed` | **the binary changed after it was verified** | treat the toolchain as tampered: `sudo ai-tools-admin system bootstrap`, and investigate if it recurs |
-| a launch refused: `carries no verified checksum` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and this entrypoint was never pinned | `sudo ai-tools-admin system entrypoints relabel` (needs the host online) |
+| a launch refused: `does not match its recorded checksum` | **the binary changed after it was recorded** | treat the toolchain as tampered and replace the binary — see [Replacing a changed binary](#replacing-a-changed-binary) |
+| a launch refused: `carries no pin` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and no reconcile has pinned this entrypoint | `sudo ai-tools-admin system entrypoints relabel` (needs the host online for an agent whose vendor publishes a manifest) |
+| `PIN STALE` in `ai-tools status` | a reconciliation refused to re-record that pin, so it describes a binary that is no longer installed | the same: [Replacing a changed binary](#replacing-a-changed-binary) |
 | `UNCHANGED` in place of `VERIFIED` | that agent is pinned as installed | no action; [An agent whose vendor does not publish a signed manifest](#an-agent-whose-vendor-does-not-publish-a-signed-manifest) says what it claims |
 
 `sudo ai-tools-admin system entrypoints relabel` reconciles the entrypoint: it
 verifies and pins it, then fixes its SELinux label. Both are answers to "the
 toolchain changed"; it is the same command you already run when a Node upgrade
 leaves the entrypoint mislabelled.
+
+### Replacing a changed binary
+
+Reprovisioning on its own does **not** replace it. `system bootstrap` installs
+each agent's npm package, and `npm install -g` is a no-op at a version that is
+already installed — so the modified file stays where it is and every launch
+goes on refusing. Remove the installed package first:
+
+```bash
+sudo rm -rf /opt/ai-tools/.nvm/versions/node/v22.20.0/lib/node_modules/@openai/codex
+sudo ai-tools-admin system bootstrap
+```
+
+Both the refused launch and `sudo ai-tools-admin system entrypoints relabel`
+print those two commands with the paths this host has, so the version directory
+and the package name do not have to be looked up. Investigate before launching
+a session if it recurs: a binary that changes under an unchanged version is
+the one thing no update explains.
 
 ## An agent whose vendor does not publish a signed manifest
 

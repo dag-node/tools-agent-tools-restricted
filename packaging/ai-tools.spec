@@ -422,6 +422,9 @@ install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-pin.d
 # ownership for the same reason: it reports on the sandbox account, which must not be able to
 # rewrite it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-label.d
+# The mark a reconciliation leaves when it REFUSED to re-record a pin: the pin beside it is then
+# stale by design, and both status reports read this to say so instead of rendering that pin green.
+install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-stale.d
 install -m 0640 src/var/opt/ai-tools/README.md %{buildroot}/var/opt/ai-tools/README.md
 install -d -m 0700 %{buildroot}/var/log/ai-tools
 
@@ -1172,6 +1175,7 @@ fi
 %dir %attr(0750, root, ai-tools) /var/opt/ai-tools/state
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-pin.d
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-label.d
+%dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-stale.d
 %dir %attr(0700, root, root) /var/log/ai-tools
 %ghost %attr(0600, root, root) /var/log/ai-tools/chown.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/setgid.log

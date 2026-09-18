@@ -519,10 +519,30 @@ audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} requir
 case "${entrypoint_pin_verdict}" in
     mismatch)
         audit warning "REFUSED: entrypoint does not match its pin (${session_exec_path})"
-        refuse MSG-H7S2 'the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session' \
+        # What the pin CLAIMS differs by tier, so the refusal names the tier this host holds: telling an operator
+        # that a vendor signed a checksum, for an agent whose vendor publishes none, sends them looking for a signature
+        # that does not exist. The reader defaults to the stronger claim, which is what a record with no KIND carries.
+        entrypoint_pin_claim='the checksum its vendor signed for the installed version'
+        if declare -F ai_tools_entrypoint_pin_kind >/dev/null 2>&1 \
+                && [[ "$(ai_tools_entrypoint_pin_kind "${agent_name}" 2>/dev/null || true)" == observed ]]; then
+            entrypoint_pin_claim='the checksum root recorded for the binary as installed'
+        fi
+        # The remedy is NOT the provisioning command on its own: its npm step is a no-op at an already-installed
+        # version, so the modified binary would survive it and every launch would go on refusing. The package directory
+        # goes first; the library composes it, and prints nothing where the entrypoint does not sit inside one.
+        entrypoint_package_dir=""
+        declare -F ai_tools_entrypoint_package_dir >/dev/null 2>&1 \
+            && entrypoint_package_dir="$(ai_tools_entrypoint_package_dir "${session_exec_path}" \
+                   "$(ai_tools_agent_manifest_field "${agent_name}" npm_package || true)" 2>/dev/null || true)"
+        declare -a entrypoint_remedy=( '  sudo ai-tools-admin system bootstrap' )
+        [[ -n "${entrypoint_package_dir}" ]] \
+            && entrypoint_remedy=( "  sudo rm -rf ${entrypoint_package_dir}" "${entrypoint_remedy[@]}" )
+        refuse MSG-H7S2 'the agent entrypoint does not match its recorded checksum -- refusing to start the session' \
                "entrypoint:  ${session_exec_path}" \
-               'The binary changed after it was verified. Treat this toolchain as tampered and reprovision it:' \
-               '  sudo ai-tools-admin system bootstrap' ;;
+               "The pin holds ${entrypoint_pin_claim}, and the binary has changed since it was recorded." \
+               'Treat this toolchain as tampered and replace the binary -- reprovisioning alone' \
+               'reinstalls nothing at an unchanged version:' \
+               "${entrypoint_remedy[@]}" ;;
     ok) # Either tier satisfies the switch: what it governs is an entrypoint carrying NO pin, and a pin recorded by
         # observation is one -- root hashed the installed binary, and this launch just matched it. Which tier a host
         # holds per agent is what the status reports name, so the operator sets the switch knowing that an agent
@@ -530,8 +550,16 @@ case "${entrypoint_pin_verdict}" in
         ;;
     *)  if [[ "${require_entrypoint_verify}" == yes ]]; then
             audit warning "REFUSED: entrypoint unverified (${entrypoint_pin_verdict}) and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set"
-            refuse 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, but this entrypoint carries no verified checksum.' \
-                   'Pin it (this fetches the vendor'"'"'s signed release manifest, so the host must be online):' \
+            # The reconcile reaches the network only for an agent whose manifest declares a release manifest; for one
+            # that declares none it hashes what is installed, so naming an online host as a precondition would send
+            # the operator hunting connectivity a local step never needed.
+            if [[ -n "$(ai_tools_agent_manifest_field "${agent_name}" release_manifest_url 2>/dev/null || true)" ]]; then
+                entrypoint_pin_step='Pin it (this fetches the vendor'"'"'s signed release manifest, so the host must be online):'
+            else
+                entrypoint_pin_step='Pin it (this agent publishes no signed manifest, so root records the binary as installed):'
+            fi
+            refuse 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, but this entrypoint carries no pin' \
+                   "${entrypoint_pin_step}" \
                    '  sudo ai-tools-admin system entrypoints relabel'
         fi ;;
 esac

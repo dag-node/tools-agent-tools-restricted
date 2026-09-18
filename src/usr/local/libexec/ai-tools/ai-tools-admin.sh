@@ -1501,7 +1501,7 @@ status_entrypoints() {
         return 0
     fi
 
-    local agent pin version age strict=no seen=0
+    local agent pin version age live strict=no seen=0
     declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
         && ai_tools_entrypoint_verify_required && strict=yes
     while IFS=$'\t' read -r agent _ _; do
@@ -1517,10 +1517,21 @@ status_entrypoints() {
             continue
         fi
         version="$(ai_tools_service_stamp_field "${pin}" VERSION)"
-        if [[ -n "${version}" && "$(ai_tools_entrypoint_pin_kind "${agent}" 2>/dev/null || true)" == observed ]]; then
+        # The reading this vantage adds: root can traverse the toolchain, so it hashes the entrypoint and compares it
+        # against the pin instead of reporting what the last reconciliation recorded. A binary that changed since is
+        # therefore named here even where no reconciliation has run over it yet -- the pin's own fields cannot say
+        # so, and the operator's report can only read them.
+        live="$(entrypoint_live_verdict "${agent}")"
+        if [[ "${live}" == mismatch ]]; then
+            st MISMATCH "${agent}  the installed entrypoint does not match its pin${version:+ (${version})} -- its sessions refuse to start"
+            detail "sudo ai-tools-admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        elif entrypoint_stale_mark "${agent}"; then
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        elif [[ -n "${version}" && "$(ai_tools_entrypoint_pin_kind "${agent}" 2>/dev/null || true)" == observed ]]; then
             # Recorded as installed: a change to the binary refuses at every setting, and no vendor signature stands
-            # behind the value. UNCHANGED is what the comparison proves; it does not say the binary was sound when
-            # root first recorded it. It is a pin, so it satisfies the strictness switch and is not a problem.
+            # behind the value. UNCHANGED is what the comparison proves; it does not say the binary was sound when root
+            # first recorded it. It is a pin, so it satisfies the strictness switch and is not a problem.
             age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${pin}" VERIFIED)")"
             st UNCHANGED "${agent}  ${version}${age:+, ${age}}, as installed -- its vendor publishes no signed manifest"
         elif [[ -n "${version}" ]]; then
@@ -1539,6 +1550,38 @@ status_entrypoints() {
     done < <(ai_tools_enabled_agents 2>/dev/null)
     [[ "${seen}" -eq 1 ]] || st "n/a" "no agent is enabled in ${OPERATOR_CONF}"
     status_labels
+}
+
+# entrypoint_live_verdict <agent>: print what the agent's installed entrypoint hashes to against its pin RIGHT NOW --
+# `ok`, `mismatch`, `unpinned`, `unreadable` -- or an empty string where the reading cannot be made. The third root-only
+# reading of this report, beside the live SELinux type: the toolchain is 0750 and sandbox-owned, so no operator-side
+# command can hash that file, and a pin records only what the last reconciliation found. Read-only, and it does not
+# reach the network: it is the comparison the launch shim makes on every launch.
+entrypoint_live_verdict() {
+    local agent="$1" entrypoint
+    declare -F ai_tools_entrypoint_check      >/dev/null 2>&1 || return 0
+    declare -F ai_tools_agent_entrypoint_path >/dev/null 2>&1 || return 0
+    entrypoint="$(ai_tools_agent_entrypoint_path "${agent}" 2>/dev/null || true)"
+    [[ -n "${entrypoint}" ]] || return 0
+    ai_tools_entrypoint_check "${agent}" "${entrypoint}" 2>/dev/null || true
+}
+
+# entrypoint_stale_mark <agent>: report, and return 0, when the last reconciliation REFUSED to re-record this agent's
+# pin. The refusal leaves the pin standing -- that staleness is what makes the next launch refuse -- so without this
+# the pin's own fields render as a verification that succeeded. Returns non-zero when there is no mark, which is
+# the ordinary state.
+entrypoint_stale_mark() {
+    local agent="$1" record reason version age
+    declare -F ai_tools_entrypoint_stale_path >/dev/null 2>&1 || return 1
+    record="$(ai_tools_entrypoint_stale_path "${agent}" 2>/dev/null || true)"
+    [[ -n "${record}" && -e "${record}" ]] || return 1
+    [[ "$(ai_tools_service_stamp_field "${record}" STATE)" == stale ]] || return 1
+    reason="$(ai_tools_service_stamp_field "${record}" REASON)"
+    version="$(ai_tools_service_stamp_field "${record}" VERSION)"
+    age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${record}" DETECTED)")"
+    st "PIN STALE" "${agent}  a reconciliation refused to re-record this pin (${reason:-refused}${version:+, ${version}})${age:+, ${age}} -- its sessions refuse to start"
+    detail "sudo ai-tools-admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
+    return 0
 }
 
 # status_labels: render ai_tools_agent_label_report -- the live SELinux type of each enabled agent's own paths,
