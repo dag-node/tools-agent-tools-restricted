@@ -252,12 +252,14 @@ cannot resolve **refuses** rather than admitting anything.
 The path's shape says where the link sits; what a session executes is what it **resolves to**, so the helper resolves
 the target once and requires three things of the result — a **regular executable file**, **inside that same version
 directory**, **covered by that agent's `entrypoint_fcontext`** — which is `ai_tools_relink_launcher`'s own predicate
-([providers](providers.rule.md)), so the two writers of this chain accept the same set of targets. A file no entrypoint
-rule covers does not take `ai_tools_exec_t`, so a link written to it fails closed at the next launch's label preflight;
-the resolution is the one the idempotency guard then reads, so the file whose label is checked is the file that was
-validated. This is defence in depth rather than a closed gap: the sandbox account owns the version directory the link
-points into, so the containment narrows what a compromised caller can name and does not decide the observed pin tier's
-limit (see [Two tiers](#two-tiers-and-what-each-one-claims)).
+([providers](providers.rule.md)), so the two writers of this chain accept the same set of targets. Every read the helper
+makes of that file is a `stat`, the execute bit included: the handback domain holds `getattr` on an entrypoint and no
+other permission (the grant is in `ai_tools.te`), and an `access(2)` test there is an `execute` check the domain
+refuses. A file no entrypoint rule covers does not take `ai_tools_exec_t`, so a link written to it fails closed
+at the next launch's label preflight; the resolution is the one the idempotency guard then reads, so the file
+whose label is checked is the file that was validated. This is defence in depth rather than a closed gap: the sandbox
+account owns the version directory the link points into, so the containment narrows what a compromised caller can name
+and does not decide the observed pin tier's limit (see [Two tiers](#two-tiers-and-what-each-one-claims)).
 
 The updater (one call per enabled agent) and `install.sh` are the only callers; the updater reaches it
 through the [handback bridge](handback-bridge.rule.md) `SYMLINK` verb. The helper repoints the symlink but does not

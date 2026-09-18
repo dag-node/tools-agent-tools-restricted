@@ -89,13 +89,25 @@ done < <(ai_tools_enabled_agents 2>/dev/null)
 # It does not close the observed tier's limit on its own -- the same account owns the current version directory
 # (updater.rule.md) -- and it is not what confines the session either: an enforcing host labels the resolved file alone,
 # and ai-tools-run re-validates the whole chain at launch. It keeps this helper from being the step that widens it.
+#
+# Every read here is a getattr, which is all ai_tools_handback_t holds on the entrypoint (ai_tools.te): realpath
+# and `-f` are stat(2), and the execute bit is read off the mode with stat as well. `-x` is access(2), which the kernel
+# answers with a `file execute` check this domain does not hold, so under enforcing it read false for a 0755 entrypoint
+# and refused every repoint the updater asked for. Any execute bit is what `-x` means to root, so the set accepted is
+# unchanged.
+executable_bits() {
+    local mode
+    mode="$(stat -c '%a' -- "$1" 2>/dev/null)" || return 1
+    [[ "${mode}" =~ ^[0-7]+$ ]] && (( 8#${mode} & 8#111 ))
+}
 version_dir="${TARGET%/bin/*}"
 resolved="$(realpath -e -- "${TARGET}" 2>/dev/null || true)"
 real_version_dir="$(realpath -e -- "${version_dir}" 2>/dev/null || true)"
 [[ -n "${resolved}" && -n "${real_version_dir}" ]] \
     || err MSG-T8B9 "target does not exist: ${TARGET}"
-[[ "${resolved}" == "${real_version_dir}/"* && -f "${resolved}" && -x "${resolved}" ]] \
-    || err MSG-P2R8 "target does not resolve to an executable file inside ${version_dir} (it resolves to ${resolved}) -- refusing to repoint ${LINK}"
+if [[ "${resolved}" != "${real_version_dir}/"* || ! -f "${resolved}" ]] || ! executable_bits "${resolved}"; then
+    err MSG-P2R8 "target does not resolve to an executable file inside ${version_dir} (it resolves to ${resolved}) -- refusing to repoint ${LINK}"
+fi
 
 # The manifest's own regex, matched whole against the resolved path, exactly as the re-link matches it. A file no
 # entrypoint rule covers does not take ai_tools_exec_t, so a link written to it fails every launch closed at the label
