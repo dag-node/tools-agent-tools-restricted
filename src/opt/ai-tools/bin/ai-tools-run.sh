@@ -398,9 +398,13 @@ source "${AI_TOOLS_LIB_DIR}/skip-dirs.lib.sh" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
 # sweep_project_ownership : hand every @SANDBOX_USER@-owned path under the session's project directory to ai-tools-chown
-# through the handback socket. No project directory (a diagnostic run outside a wrapper) or no client leaves it a no-op.
+# through the handback socket. No project directory (a diagnostic run outside a wrapper), the sandbox home
+# as the working directory (a print-and-exit run), or no client leaves it a no-op.
 sweep_project_ownership() {
     [[ -n "${session_working_directory}" && -d "${session_working_directory}" ]] || return 0
+    # A sole `--version`/`--help` runs with the sandbox home as its working directory. No session writes a project
+    # there, and a walk of it would offer every toolchain file to the root helper for it to leave alone.
+    [[ "${session_working_directory}" != "${SANDBOX_HOME}" ]] || return 0
     [[ -x "${HANDBACK_CLIENT}" ]] || return 0
     # A down socket fails every CHOWN, so skip the walk and record that once, rather than logging a reassuring count
     # of calls that changed no ownership (the failure mode this whole change fixes).
@@ -440,9 +444,9 @@ readonly VERSION_PATTERN='^v?[0-9]+\.[0-9]+\.[0-9]+$'
 ai_tools_version="@AI_TOOLS_VERSION@"; [[ "${ai_tools_version}" == @*@ ]] && ai_tools_version="dev"
 [[ "${node_version}" =~ ${VERSION_PATTERN} ]] || node_version="n/a"
 
-# The reader, the walk and the clamp are entrypoint-verify.lib.sh's, which the pin is written through as well, so
-# the banner and the pin cannot report different versions for one binary. The library is optional here -- a banner
-# is display, not a gate -- so a load that does not happen costs the version line and nothing else.
+# The reader, the walk and the clamp are entrypoint-verify.lib.sh's, which the pin is written through as well,
+# so the banner and the pin cannot report different versions for one binary. The library is optional here -- a banner is
+# display, not a gate -- so a load that does not happen costs the version line and nothing else.
 agent_version="n/a"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
 if source "${AI_TOOLS_LIB_DIR}/entrypoint-verify.lib.sh" 2>/dev/null \

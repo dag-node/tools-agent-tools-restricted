@@ -326,6 +326,22 @@ else
         if (( codex_enabled )); then
             pass "codex is enabled and its launcher symlink is present -- the wrapper resolves it"
             assert_msg MSG-N2Z7 "${codex_out}" "codex wrapper reaches the allowlist gate and refuses an unapproved directory"
+            # A sole `--version` runs with the sandbox home as the working directory. Codex declares handback=none,
+            # so the shim installs its session-end sweep -- which must not walk the sandbox home: that would offer every
+            # toolchain file to the root helper, one socket round trip each, for it to leave alone.
+            codex_version_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
+                "${codex_wrapper}" --version < /dev/null 2>&1 || true )"
+            if printf '%s' "${codex_version_out}" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
+                pass "codex: sole --version passes through from an unapproved cwd and prints the version"
+            else
+                fail "codex: sole --version did not yield a version string (output: ${codex_version_out})"
+            fi
+            if journalctl -t ai-tools-run --since '-2 min' -o cat 2>/dev/null \
+                    | grep -q 'session-end sweep: handed back .* under /opt/ai-tools ('; then
+                fail "codex: the session-end sweep walked the sandbox home after a sole --version"
+            else
+                pass "codex: the session-end sweep did not walk the sandbox home after a sole --version"
+            fi
         else
             fail "/opt/ai-tools/bin/codex exists while codex is not enabled -- a launcher no enabled manifest claims (ai-tools-run refuses it; remove the link or enable the agent)"
         fi
