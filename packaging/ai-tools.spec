@@ -1299,10 +1299,14 @@ fi
   the session for you to run where the consequence lands.
 - SECURITY: An agent whose vendor publishes no signed per-release checksum now gets an entrypoint
   pin too. Root records the checksum of the binary as installed, so a binary rewritten between
-  sessions -- the case a delivery-side signature cannot see, since it attests to what was delivered
-  and not to what is on disk now -- refuses the next launch. 'ai-tools status' names which of the
-  two pins each agent holds, VERIFIED against UNCHANGED, and a reconcile that meets the same
-  version hashing differently leaves the pin alone and says so rather than adopting the new value.
+  sessions under the version it was recorded at -- the case a delivery-side signature cannot see,
+  since it attests to what was delivered and not to what is on disk now -- refuses the next launch.
+  'ai-tools status' names which of the two pins each agent holds, VERIFIED against UNCHANGED, and a
+  reconcile that meets the same version hashing differently leaves the pin alone and says so
+  rather than adopting the new value. A change that arrives with a new declared version reads as
+  an update and is recorded again: the version is read from the toolchain, which the sandbox
+  account writes, so on a host without SELinux this pin holds against the same-version rewrite
+  alone. docs/system/entrypoint-verification.md states what each tier claims.
 - CHANGE: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY asks for a pin of either kind, which is what
   operator.conf(5) has always said it governs -- an entrypoint carrying no pin. A host that sets it
   now also launches an agent pinned as installed, and the status report is where the tier is named.

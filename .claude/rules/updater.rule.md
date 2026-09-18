@@ -453,8 +453,23 @@ and unit-tested over its table: no pin, or a different installed version, yields
 brings its own version, so a new checksum under a new version is an update); the same version with the same bytes yields
 `keep`; and **the same version hashing differently yields `tamper`, at status 1, which leaves the pin exactly as it
 was.** Re-recording there would bless the one change no update explains, and the stale pin it keeps instead is
-what makes the next launch read `mismatch`. `observe_agent_entrypoint` in `ai-tools-relabel-agent.sh` performs the I/O
-around that decision and reports the tamper case with the reprovision command.
+what makes the next launch read `mismatch`. A pin whose recorded version the reader cannot return is decided by its
+bytes alone, so a changed binary under it is `tamper` too; the writers clamp the version to the field shape the reader
+admits (`_ai_tools_ev_field_ok`), so that case arises only from a record edited by hand. `observe_agent_entrypoint`
+in `ai-tools-relabel-agent.sh` performs the I/O around that decision and reports the tamper case with the reprovision
+command.
+
+**What the weaker tier does not decide.** The version on both sides of that decision comes from `package.json`
+in the toolchain, which the sandbox account owns and the updater writes, and the version directory the stable launcher
+link names is chosen by the same account (`ai-tools-launcher-symlink` checks the path's shape and that an enabled
+manifest claims the launcher, not which version directory the updater installed). A binary that changes together
+with the declared version, or that arrives through a version directory the sandbox account created, therefore reads
+as an update and is recorded again. On an enforcing host the session cannot write the toolchain
+([ref-section-w4z6](confinement.rule.md#ref-section-w4z6)), so the writer that can produce that state is the updater
+alone, whose inputs the npm signature gate covers; on a host without the policy the observed tier holds
+against a rewrite that leaves the declared version and the launcher path alone, and does not hold against one
+that changes either. A pin that holds against a rewrite arriving with a new version rests on the vendor's signature,
+which is the verified tier.
 
 **The launch gate reads checksums alone**, so `mismatch` refuses at every setting for either tier — that is
 what an observed pin buys. The tier does not enter the launch decision at all: `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`
