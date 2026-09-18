@@ -99,11 +99,47 @@ where neither works.
 | `signed by a key the pinned keyring does not hold` | the vendor rotated its signing key | `sudo dnf update 'ai-tools-agents-*'` |
 | a launch refused: `does not match the checksum its vendor signed` | **the binary changed after it was verified** | treat the toolchain as tampered: `sudo ai-tools-admin system bootstrap`, and investigate if it recurs |
 | a launch refused: `carries no verified checksum` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and this entrypoint was never pinned | `sudo ai-tools-admin system entrypoints relabel` (needs the host online) |
+| a launch refused: `pinned as installed rather than against a signature` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and this agent's vendor does not publish a signed manifest | run that agent on a host that does not set the switch, or clear it there |
+| `UNCHANGED` in place of `VERIFIED` | that agent is pinned as installed | no action; [An agent whose vendor does not publish a signed manifest](#an-agent-whose-vendor-does-not-publish-a-signed-manifest) says what it claims |
 
 `sudo ai-tools-admin system entrypoints relabel` reconciles the entrypoint: it
 verifies and pins it, then fixes its SELinux label. Both are answers to "the
 toolchain changed"; it is the same command you already run when a Node upgrade
 leaves the entrypoint mislabelled.
+
+## An agent whose vendor does not publish a signed manifest
+
+Not every vendor publishes one. Codex does not: its npm channel does not ship
+a signed per-release checksum, so `gpgv` has no signature to check. Such
+an agent is still pinned. Root records the checksum of the binary as installed,
+and `ai-tools status` reports that pin as `UNCHANGED`:
+
+```text
+Entrypoint verification
+  codex                        UNCHANGED (0.154.0, 2h ago, as installed)
+```
+
+The two words are two different claims. `VERIFIED` says the binary is the one
+the vendor signed. `UNCHANGED` says the binary is the one this host recorded
+and has not changed since — which is the case npm's own checks cannot see,
+and the one an agent could otherwise exploit by rewriting its own entrypoint
+between sessions. It does not say where the binary came from, and it does not
+say whether the binary was already modified when the host first recorded it.
+
+A changed binary refuses the launch either way. Where the version is unchanged
+and the checksum is not, the reconcile refuses to re-record it and leaves
+the old pin in place, so the next session refuses rather than adopting the new
+value:
+
+```text
+ai-tools-relabel-agent: warn: the codex entrypoint changed under an unchanged
+version 0.154.0 -- leaving the pin as it is, so the next session refuses to start
+```
+
+Verifying such a vendor's signature is possible — Codex signs each release
+binary through Sigstore — but checking one needs a verifier this project does
+not ship and no distribution repository carries, so it stays a dependency
+the project has not taken.
 
 ## Strictness
 
@@ -119,11 +155,13 @@ To require verification, in `/etc/ai-tools/operator.conf`:
 AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes
 ```
 
-Then only a verified entrypoint starts a session, and the updater additionally
-declines to activate a release it could not verify — so an unverifiable release
-never becomes the one your launches would have to refuse. This is the same
-shape as `AI_TOOLS_REQUIRE_SELINUX`: the tool cannot tell an intentionally
-offline host from a degraded one, so you declare it.
+Then only a vendor-verified entrypoint starts a session — an agent pinned
+as installed is refused too, since that pin does not make any statement
+about a vendor signature — and the updater additionally declines to activate
+a release it could not verify — so an unverifiable release never becomes
+the one your launches would have to refuse. This is the same shape
+as `AI_TOOLS_REQUIRE_SELINUX`: the tool cannot tell an intentionally offline
+host from a degraded one, so you declare it.
 
 ## Air-gapped and mirrored hosts
 

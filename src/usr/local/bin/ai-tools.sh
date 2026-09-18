@@ -3817,20 +3817,37 @@ status_entrypoint_pins() {
     declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
         && ai_tools_entrypoint_verify_required && strict=yes
 
-    local agent pin version verified age seen=0 unpinned=0 mislabelled=0
+    local agent pin version verified age kind seen=0 blocking=0 mislabelled=0
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
-        # An agent whose package does not declare a release manifest has no published checksum to verify against, so it
-        # is left out entirely rather than reported as perpetually unpinned.
-        [[ -n "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" ]] || continue
-        (( seen++ == 0 )) && section "Entrypoint verification"
+        # An agent whose package declares no release manifest has no published checksum to verify against. Root
+        # records what is installed for it instead, so it is reported once that pin exists and left out while there
+        # is nothing yet to report.
         pin="$(ai_tools_entrypoint_pin_path "${agent}" 2>/dev/null || true)"
+        if [[ -z "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
+              && ! -e "${pin}" ]]; then
+            continue
+        fi
+        (( seen++ == 0 )) && section "Entrypoint verification"
         version="$(ai_tools_service_stamp_field "${pin}" VERSION)"
         if [[ -n "${version}" ]]; then
             verified="$(ai_tools_service_stamp_age "${pin}" VERIFIED)"
             age="$(status_fmt_age "${verified}")"
-            printf '  %-28s %sVERIFIED%s %s(%s%s)%s\n' "${agent}" "${C_GRN}" "${C_RST}" \
-                "${C_DIM}" "${version}" "${age:+, ${age}}" "${C_RST}"
+            kind="$(ai_tools_entrypoint_pin_kind "${agent}" 2>/dev/null || true)"
+            if [[ "${kind}" == observed ]]; then
+                # The weaker tier states what the comparison proves -- the binary is the one root recorded -- and
+                # not VERIFIED, which claims a vendor signature this agent's channel does not publish, nor any word
+                # asserting the binary was sound when it was first recorded, which no pin can say.
+                printf '  %-28s %sUNCHANGED%s %s(%s%s, as installed)%s\n' "${agent}" "${C_GRN}" "${C_RST}" \
+                    "${C_DIM}" "${version}" "${age:+, ${age}}" "${C_RST}"
+                if [[ "${strict}" == yes ]]; then
+                    blocking=$(( blocking + 1 ))
+                    say "      this host requires a vendor-verified entrypoint, so its sessions will not launch"
+                fi
+            else
+                printf '  %-28s %sVERIFIED%s %s(%s%s)%s\n' "${agent}" "${C_GRN}" "${C_RST}" \
+                    "${C_DIM}" "${version}" "${age:+, ${age}}" "${C_RST}"
+            fi
         elif [[ -e "${pin}" && ! -r "${pin}" ]]; then
             # Not a fault: `status` stays open to a non-operator, whom the state directory's mode keeps out. It says
             # only that this vantage has no reading to give.
@@ -3843,7 +3860,7 @@ status_entrypoint_pins() {
                 "${agent}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${C_RST}"
             say "      ${C_BOLD}sudo ai-tools-admin system entrypoints relabel${C_RST} ${C_DIM}(rewrites the pin)${C_RST}"
         else
-            unpinned=$(( unpinned + 1 ))
+            blocking=$(( blocking + 1 ))
             if [[ "${strict}" == yes ]]; then
                 printf '  %-28s %sUNVERIFIED%s\n' "${agent}" "${C_YEL}" "${C_RST}"
                 say "      this host requires verification, so its sessions will not launch"
@@ -3857,7 +3874,7 @@ status_entrypoint_pins() {
     done < <(ai_tools_enabled_agents 2>/dev/null)
 
     [[ "${mislabelled}" -gt 0 ]] && return 1
-    [[ "${strict}" == yes && "${unpinned}" -gt 0 ]] && return 1
+    [[ "${strict}" == yes && "${blocking}" -gt 0 ]] && return 1
     return 0
 }
 

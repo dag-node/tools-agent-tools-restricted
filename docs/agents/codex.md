@@ -79,7 +79,11 @@ sub-agents, MCP servers, plugins and marketplaces, image generation,
 and telemetry. The vendored `rg`, `zsh` and `bwrap` beside the binary are not
 executable in a session; the system `rg` on the session's `PATH` serves search.
 The npm channel does not publish a signed per-release checksum, so a host
-that requires entrypoint verification does not launch Codex.
+that requires entrypoint verification does not launch Codex. Its entrypoint is
+still pinned: root records the checksum of the binary as installed,
+`ai-tools status` reports it as `UNCHANGED`, and a binary that changes
+afterwards refuses the next session. [Entrypoint
+verification](../system/entrypoint-verification.md) says what that claims.
 
 ## The files you may edit
 

@@ -132,6 +132,26 @@ ai_tools_entrypoint_pin_verdict() {
     printf 'mismatch'; return 1
 }
 
+# ai_tools_entrypoint_observe_decision <pinned-version> <pinned-sha> <installed-version> <installed-sha> :
+#   whether root may record an OBSERVED pin for an agent whose vendor publishes no signed manifest.
+#   Echoes a token and returns the status contract:
+#     pin     no usable pin yet, or a different version is installed -- record what is there, status 0
+#     keep    the pin already describes this file, status 0
+#     tamper  the SAME version now hashes differently -- status 1, and the pin is LEFT AS IT IS
+#
+#   The last row is what makes an observed pin worth having. A release the updater installed brings a
+#   new version with it, so a changed binary under an unchanged version is the one thing no update
+#   explains; re-recording it would bless exactly what the pin exists to catch. The launch gate needs
+#   no part of this: the stale pin it keeps is what makes the next launch read `mismatch`.
+ai_tools_entrypoint_observe_decision() {
+    local pinned_version="${1:-}" pinned_sha="${2:-}" installed_version="${3:-}" installed_sha="${4:-}"
+    [[ "${installed_sha}" =~ ^[0-9a-f]{64}$ ]] || { printf 'unreadable'; return 2; }
+    [[ "${pinned_sha}" =~ ^[0-9a-f]{64}$ ]]    || { printf 'pin';        return 0; }
+    [[ -n "${pinned_version}" && "${pinned_version}" == "${installed_version}" ]] || { printf 'pin'; return 0; }
+    [[ "${pinned_sha}" == "${installed_sha}" ]] && { printf 'keep';      return 0; }
+    printf 'tamper'; return 1
+}
+
 # ── Impure: hashing, the pin, and the signed-manifest probe ──────────────────────────────────
 
 # ai_tools_entrypoint_sha256 <path> : print the file's SHA-256, or an empty string. Bounded to a regular
@@ -266,13 +286,55 @@ ai_tools_entrypoint_pin_write() {
     [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] || return 1
     {
         printf '# ai-tools entrypoint pin -- written as root, read by the launch shim.\n'
-        printf 'AGENT=%s\nVERSION=%s\nSHA256=%s\nVERIFIED=%s\n' \
+        printf 'AGENT=%s\nVERSION=%s\nSHA256=%s\nKIND=verified\nVERIFIED=%s\n' \
             "${agent}" "${version:-unknown}" "${checksum}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         if [[ "${inputs}" =~ ^[0-9a-f]{64}$ ]]; then printf 'INPUTS=%s\n' "${inputs}"; fi
         # An `if`, not `[[ ]] && printf`: this is the group's LAST command, so its status is the group's, and a pin
         # written without a source URL would fail the pipeline that writes it.
         if [[ -n "${source_url}" ]]; then printf 'SOURCE=%s\n' "${source_url}"; fi
     } | _ai_tools_ev_write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
+}
+
+# ai_tools_entrypoint_pin_write_observed <agent> <version> <sha256> : record what is installed, for an agent whose
+#   vendor publishes no signed release manifest to check it against. ROOT ONLY, same record and same atomic write as
+#   the verified pin, and distinguished from it by `KIND=observed` -- so every reader can say which of the two a host
+#   holds, and none of them has to infer it from an absent SOURCE. What the two tiers claim is in updater.rule.md;
+#   the short of it is that this one detects a later change to the file and makes no statement about its origin.
+#
+#   The caller decides WHETHER to write: ai_tools_entrypoint_observe_decision holds that rule, so the guard against
+#   re-recording a tampered binary is one testable function rather than a condition at each call site.
+ai_tools_entrypoint_pin_write_observed() {
+    local agent="${1:-}" version="${2:-}" checksum="${3:-}" pin
+    pin="$(ai_tools_entrypoint_pin_path "${agent}")" || return 1
+    [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] || return 1
+    {
+        printf '# ai-tools entrypoint pin -- written as root, read by the launch shim.\n'
+        printf '# KIND=observed: the checksum of the binary as installed, not one verified against a vendor signature.\n'
+        printf 'AGENT=%s\nVERSION=%s\nSHA256=%s\nKIND=observed\nVERIFIED=%s\n' \
+            "${agent}" "${version:-unknown}" "${checksum}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } | _ai_tools_ev_write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
+}
+
+# ai_tools_entrypoint_pin_kind <agent> : print `verified` or `observed` for the pin this host holds, or an empty
+#   string when there is no pin. A record carrying no KIND reads as `verified`: the field was added with the observed
+#   tier, and every pin written before it came from the signed-manifest path.
+ai_tools_entrypoint_pin_kind() {
+    local pin kind
+    pin="$(ai_tools_entrypoint_pin_path "${1:-}")" || return 1
+    [[ -f "${pin}" ]] || return 1
+    kind="$(_ai_tools_ev_pin_field "${pin}" KIND 2>/dev/null || true)"
+    case "${kind}" in
+        observed|verified) printf '%s' "${kind}" ;;
+        *)                 printf 'verified' ;;
+    esac
+}
+
+# ai_tools_entrypoint_pin_version <agent> : print the version the pin records, or an empty string. The observing
+#   caller compares it with what is installed, which is how a new release is told from a changed binary.
+ai_tools_entrypoint_pin_version() {
+    local pin
+    pin="$(ai_tools_entrypoint_pin_path "${1:-}")" || return 1
+    _ai_tools_ev_pin_field "${pin}" VERSION
 }
 
 # ai_tools_entrypoint_pin_reusable <agent> <version> <inputs-digest> <observed-sha256> : succeed
