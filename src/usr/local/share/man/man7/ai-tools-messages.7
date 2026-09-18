@@ -1019,6 +1019,10 @@ a stale declaration stops this relabel: ${stale} agent(s) install their entrypoi
 ERROR.
 must run as root (via sudo)
 .TP
+.B MSG-M6C3
+WARNING.
+could not write the observed pin for ${agent} at ${version}
+.TP
 .B MSG-N9B9
 ERROR.
 an agent's file\-context rule could not be applied (see above)
@@ -1034,6 +1038,10 @@ relabel.lib.sh is incomplete \-\- reinstall ai\-tools\-base
 .B MSG-T2W3
 ERROR.
 usage: ai\-tools\-relabel\-agent [\-\-remove <agent\-name>]
+.TP
+.B MSG-U6H8
+WARNING.
+the ${agent} entrypoint changed under an unchanged version ${version} \-\- leaving the pin as it is, so the next session refuses to start
 .TP
 .B MSG-W6V4
 ERROR.
@@ -1079,6 +1087,10 @@ the agent entrypoint does not match the checksum its vendor signed for the insta
 .B MSG-N4P3
 ERROR.
 AI_TOOLS_AGENT_EXEC contains parent\-directory references
+.TP
+.B MSG-P8A3
+ERROR.
+refusing to launch \-\- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, and this entrypoint is pinned as installed rather than against a signature its vendor published.
 .TP
 .B MSG-Z2J9
 ERROR.

@@ -127,6 +127,43 @@ if ! source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null \
     ai_tools_entrypoint_sha256() { return 1; }
 fi
 
+# observe_agent_entrypoint <agent> : record the checksum of the installed entrypoint for an agent that declares no
+#   signed release manifest, so the launch gate has a value to compare against. Returns 1 when the same version now
+#   hashes differently -- the one state an update does not explain, where the pin is deliberately left stale so the
+#   next launch refuses. ai_tools_entrypoint_observe_decision holds that rule and is unit-tested over its table.
+observe_agent_entrypoint() {
+    local agent="$1" entrypoint version observed pinned_version pinned_sha decision
+    declare -F ai_tools_entrypoint_pin_write_observed >/dev/null 2>&1 || return 0
+
+    entrypoint="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
+    if [[ -z "${entrypoint}" ]]; then
+        say "${agent}: not provisioned -- nothing to pin"
+        return 0
+    fi
+    observed="$(ai_tools_entrypoint_sha256 "${entrypoint}" 2>/dev/null || true)"
+    version="$(_installed_agent_version "${entrypoint}")"
+    pinned_version="$(ai_tools_entrypoint_pin_version "${agent}" 2>/dev/null || true)"
+    pinned_sha="$(ai_tools_entrypoint_pin_read "${agent}" 2>/dev/null || true)"
+    decision="$(ai_tools_entrypoint_observe_decision \
+                    "${pinned_version}" "${pinned_sha}" "${version}" "${observed}" || true)"
+    case "${decision}" in
+        keep)   say "${agent}: entrypoint unchanged since its pin for ${version} -- no signature to check" ;;
+        pin)    if ai_tools_entrypoint_pin_write_observed "${agent}" "${version}" "${observed}"; then
+                    say "${agent}: entrypoint pinned as installed at ${version} -- no vendor signature to verify it against"
+                    ai_tools_log_info "${agent}: entrypoint pinned by observation at ${version} (${observed})"
+                else
+                    warn MSG-M6C3 "could not write the observed pin for ${agent} at ${version}"
+                    ai_tools_log_warn "${agent}: observed pin write failed at ${version}"
+                fi ;;
+        tamper) warn MSG-U6H8 "the ${agent} entrypoint changed under an unchanged version ${version} -- leaving the pin as it is, so the next session refuses to start"
+                say "reprovision the toolchain and investigate if it repeats: sudo ai-tools-admin system bootstrap"
+                ai_tools_log_error "${agent}: entrypoint changed under an unchanged version ${version} -- pin left stale"
+                return 1 ;;
+        *)      say "${agent}: entrypoint could not be hashed -- pin unchanged" ;;
+    esac
+    return 0
+}
+
 # pin_agent_entrypoint <agent> : verify one agent's installed entrypoint against its vendor's
 #   signed release manifest and record the result. Returns 1 only on a mismatch.
 #
@@ -142,7 +179,9 @@ pin_agent_entrypoint() {
     local observed inputs
 
     url_template="$(ai_tools_agent_manifest_field "${agent}" release_manifest_url || true)"
-    [[ -n "${url_template}" ]] || return 0          # declares no provenance: nothing to verify
+    # An agent whose vendor publishes no signed release manifest gets the weaker of the two pins rather than none:
+    # root records the checksum of what is installed, so a later change to that file is refused at the next launch.
+    [[ -n "${url_template}" ]] || { observe_agent_entrypoint "${agent}"; return $?; }
     key_file="$(ai_tools_agent_manifest_field "${agent}" release_key || true)"
     fingerprints="$(ai_tools_agent_manifest_field "${agent}" release_fingerprint || true)"
 

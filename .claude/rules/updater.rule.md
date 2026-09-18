@@ -407,7 +407,7 @@ agent-agnostic.
 The work splits by principal, which is what keeps the network off the launch path. The operator cannot read
 the entrypoint at all (the toolchain is `0750` sandbox-owned), so the verification runs as **root**, and its result
 travels to the launch as a **pin**: `/var/opt/ai-tools/state/entrypoint-pin.d/<agent>`, in the shared `KEY=value`
-grammar (`AGENT`, `VERSION`, `SHA256`, `VERIFIED`, `INPUTS`, `SOURCE`). Its directory is root-owned and not
+grammar (`AGENT`, `VERSION`, `SHA256`, `KIND`, `VERIFIED`, `INPUTS`, `SOURCE`). Its directory is root-owned and not
 group-writable inside the `0750 root:SANDBOX_GROUP` state root — the same two independent layers (DAC, plus `usr_t`
 under enforcing) that bound the last-run stamp — so the account the pin constrains can read it and cannot write it. It
 is read back defensively: symlink refused, bounded read, and a value admitted only in exact 64-hex shape, so a corrupt
@@ -423,6 +423,34 @@ pin reads as *unpinned* rather than as a wrong verdict.
 There is deliberately **no manifest cache**. Every fetch happens at a moment the host is already online (immediately
 after an update downloaded the package), and the pin is what makes the launch offline-safe, so a cache would add
 an input to reason about for no availability gained.
+
+### Two tiers, and what each one claims <a id="ref-section-q7v4"></a>
+
+`KIND` names which of two checks produced the pin, so no reader has to infer it from an absent `SOURCE`:
+
+| `KIND` | Written when | The claim it carries |
+|---|---|---|
+| `verified` | the entrypoint matched the checksum its vendor signed for the installed release | this is the binary the vendor published, and it has not changed since |
+| `observed` | the agent's manifest declares no `release_manifest_url`, so there is no signature to check | this is the binary root recorded at reconcile, and it has not changed since |
+
+A record carrying no `KIND` reads as `verified`: the field arrived with the second tier, and every pin written before it
+came from the signed-manifest path. An `observed` pin is a **tightening** of the state it replaces — an agent with no
+provenance was previously unpinned, so the launch had nothing to compare and any change to the binary went unseen.
+
+**What guards the weaker tier is the refusal to re-record.** `ai_tools_entrypoint_observe_decision` is pure
+and unit-tested over its table: no pin, or a different installed version, yields `pin` (a release the updater installed
+brings its own version, so a new checksum under a new version is an update); the same version with the same bytes yields
+`keep`; and **the same version hashing differently yields `tamper`, at status 1, which leaves the pin exactly as it
+was.** Re-recording there would bless the one change no update explains, and the stale pin it keeps instead is
+what makes the next launch read `mismatch`. `observe_agent_entrypoint` in `ai-tools-relabel-agent.sh` performs the I/O
+around that decision and reports the tamper case with the reprovision command.
+
+**The launch gate reads checksums alone**, so `mismatch` refuses at every setting for either tier — that is
+what an observed pin buys. The tier is consulted in one further place: where `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` is
+set, `ai-tools-run` refuses an `ok` verdict backed by an `observed` pin (`MSG-P8A3`), because that switch is
+the operator's declaration that this host runs vendor-verified entrypoints and an observed pin makes no such statement.
+The switch therefore means exactly what it meant before the tier existed, and an agent whose vendor publishes no signed
+manifest does not launch under it.
 
 ### Answering from the pin, and the one caller that never does
 

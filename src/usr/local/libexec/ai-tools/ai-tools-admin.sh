@@ -1510,13 +1510,24 @@ status_entrypoints() {
         # Verification compares the binary against the checksum in the vendor's signed release manifest,
         # which an agent's package names in release_manifest_url. An agent whose package omits that key is reported
         # as such rather than as perpetually unverified.
-        if [[ -z "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" ]]; then
-            st "n/a" "${agent}  its package declares no signed release manifest to verify against"
+        pin="$(ai_tools_entrypoint_pin_path "${agent}" 2>/dev/null || true)"
+        if [[ -z "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
+              && ! -e "${pin}" ]]; then
+            st "n/a" "${agent}  its package declares no signed release manifest, and root has recorded no pin yet"
             continue
         fi
-        pin="$(ai_tools_entrypoint_pin_path "${agent}" 2>/dev/null || true)"
         version="$(ai_tools_service_stamp_field "${pin}" VERSION)"
-        if [[ -n "${version}" ]]; then
+        if [[ -n "${version}" && "$(ai_tools_entrypoint_pin_kind "${agent}" 2>/dev/null || true)" == observed ]]; then
+            # Recorded as installed: a change to the binary refuses at every setting, and no vendor signature stands
+            # behind the value. UNCHANGED is what the comparison proves; it does not say the binary was sound when
+            # root first recorded it. Counted as a problem only where the operator declared verified is the bar.
+            age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${pin}" VERIFIED)")"
+            st UNCHANGED "${agent}  ${version}${age:+, ${age}}, as installed -- its vendor publishes no signed manifest"
+            if [[ "${strict}" == yes ]]; then
+                detail "this host requires a vendor-verified entrypoint, so ${agent} sessions will not launch"
+                STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+            fi
+        elif [[ -n "${version}" ]]; then
             age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${pin}" VERIFIED)")"
             st VERIFIED "${agent}  ${version}${age:+, ${age}}"
         elif [[ -e "${pin}" ]]; then

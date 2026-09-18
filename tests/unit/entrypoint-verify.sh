@@ -371,4 +371,75 @@ else
     fi
 fi
 
+# ── The observed tier: the decision that guards it, and how a pin reports which tier it holds ──────
+# An agent whose vendor publishes no signed manifest is pinned to what is installed, so the one thing that must not
+# happen is re-recording a binary that changed under an unchanged version -- that would bless what the pin exists to
+# catch. The decision is pure, so its table drives without root.
+if ! declare -F ai_tools_entrypoint_observe_decision >/dev/null 2>&1; then
+    skip "observed pin decision" "the installed ${LIB} carries no observe decision -- reinstall to cover it"
+else
+    # <pinned-version> <pinned-sha> <installed-version> <installed-sha> | expected token | what the row is
+    while IFS='|' read -r args expect what; do
+        [[ -n "${args// }" ]] || continue
+        # The row's four fields are the positional arguments under test, so the split is deliberate.
+        # shellcheck disable=SC2086
+        got="$(ai_tools_entrypoint_observe_decision ${args} || true)"
+        if [[ "${got}" == "${expect}" ]]; then
+            pass "observe decision: ${what} -> ${expect}"
+        else
+            fail "observe decision: ${what} read '${got}', expected '${expect}'"
+        fi
+    done <<ROWS
+'' '' 1.2.3 ${SHA_A}|pin|no pin yet
+1.2.3 ${SHA_A} 1.2.3 ${SHA_A}|keep|the same version, the same bytes
+1.2.3 ${SHA_A} 1.2.4 ${SHA_B}|pin|a new version brought a new binary
+1.2.3 ${SHA_A} 1.2.4 ${SHA_A}|pin|a new version carrying the same binary
+1.2.3 ${SHA_A} 1.2.3 ${SHA_B}|tamper|the SAME version now hashes differently
+1.2.3 ${SHA_A} 1.2.3 |unreadable|the installed entrypoint could not be hashed
+'' '' 1.2.3 not-a-sha|unreadable|a malformed observation is never recorded
+ROWS
+
+    # The tamper row is the one whose STATUS the caller branches on, so it is asserted as well as its token.
+    if ai_tools_entrypoint_observe_decision 1.2.3 "${SHA_A}" 1.2.3 "${SHA_B}" >/dev/null 2>&1; then
+        fail "the tamper decision returned success, so a caller would re-pin over it"
+    else
+        pass "the tamper decision returns non-zero, so the caller leaves the pin stale"
+    fi
+fi
+
+# A reader must be able to say which tier a host holds, and a pin written before the tier existed must not read as
+# the weaker one -- every pin written then came from the signed-manifest path.
+if ! declare -F ai_tools_entrypoint_pin_kind >/dev/null 2>&1; then
+    skip "pin kind" "the installed ${LIB} carries no pin-kind reader -- reinstall to cover it"
+else
+    rm -f "${AI_TOOLS_ENTRYPOINT_PIN_DIR}/claude-code"
+    write_pin claude-code 1.2.3 "${SHA_A}" ""
+    if [[ "$(ai_tools_entrypoint_pin_kind claude-code || true)" == verified ]]; then
+        pass "a pin carrying no KIND reads as verified"
+    else
+        fail "a pin carrying no KIND did not read as verified"
+    fi
+
+    printf 'AGENT=codex\nVERSION=0.154.0\nSHA256=%s\nKIND=observed\nVERIFIED=2026-01-01T00:00:00Z\n' "${SHA_A}" \
+        > "${AI_TOOLS_ENTRYPOINT_PIN_DIR}/codex"
+    if [[ "$(ai_tools_entrypoint_pin_kind codex || true)" == observed ]]; then
+        pass "an observed pin reads as observed"
+    else
+        fail "an observed pin did not read as observed"
+    fi
+
+    if [[ -z "$(ai_tools_entrypoint_pin_kind no-such-agent 2>/dev/null || true)" ]]; then
+        pass "an agent with no pin has no kind"
+    else
+        fail "an agent with no pin reported a kind"
+    fi
+
+    # The launch gate compares checksums alone, so an observed pin must still produce the tamper verdict.
+    if [[ "$(ai_tools_entrypoint_pin_verdict "${SHA_A}" "${SHA_B}" || true)" == mismatch ]]; then
+        pass "a changed binary under an observed pin is a mismatch, which refuses at every setting"
+    else
+        fail "a changed binary under an observed pin did not read as a mismatch"
+    fi
+fi
+
 finish
