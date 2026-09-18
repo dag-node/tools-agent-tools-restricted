@@ -191,13 +191,29 @@ else fail "a dangling launcher link: rc ${RC}, stdout '${OUT}'"; fi
 reset_npm_link
 
 # A bin directory this account has no write permission on refuses at the write, reporting it, with the link as it was.
-# Root writes anywhere, so the case is driven only where the mode holds.
+#
+# Driven AS THE PROJECTS USER when this suite runs as root, which it does for a full install: root ignores a directory's
+# write bit, so the very write the case is about would succeed and the case would assert none of what it exists for.
+# That is a vantage, not a state the host is in, so it is a `runuser` and not a skip (tests.rule.md). Unprivileged, this
+# process is already the vantage the assertion is about and drives the library directly. The library is sourced fresh
+# in the inner shell, since what is under test is the caller's own credentials against the directory mode.
 chmod 0555 "${VERSION_DIR}/bin"
-if touch "${VERSION_DIR}/bin/.probe" 2>/dev/null; then
-    rm -f "${VERSION_DIR}/bin/.probe"; chmod 0755 "${VERSION_DIR}/bin"
-    skip "an unwritable bin directory" "this account writes a 0555 directory (root)"
-else
+if [[ "${EUID}" -ne 0 ]]; then
     relink "${ELF_TARGET}" "${FCONTEXT}"
+    chmod 0755 "${VERSION_DIR}/bin"
+    refused "an unwritable bin directory" MSG-A3S3
+elif ! command -v runuser >/dev/null 2>&1; then
+    chmod 0755 "${VERSION_DIR}/bin"
+    skip "an unwritable bin directory" "runuser unavailable"
+else
+    UNWRITABLE_ERR="${TESTDIR}/relink-unwritable.err"
+    RC=0
+    # shellcheck disable=SC2016  # $1..$5 are the inner shell's positionals, passed after `_`
+    OUT="$(runuser -u "${PROJECTS_USER}" -- bash -c '
+        source "$1" || exit 9
+        ai_tools_relink_launcher "$2" "$3" "$4" "$5"' _ \
+        "${LIB}" "${VERSION_DIR}" "${LAUNCHER}" "${ELF_TARGET}" "${FCONTEXT}" 2>"${UNWRITABLE_ERR}")" || RC=$?
+    ERR="$(<"${UNWRITABLE_ERR}")"
     chmod 0755 "${VERSION_DIR}/bin"
     refused "an unwritable bin directory" MSG-A3S3
 fi

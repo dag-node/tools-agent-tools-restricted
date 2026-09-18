@@ -150,7 +150,12 @@ cases = [
     (under_manager("with space.service"), "", "a space in the component"),
     (under_manager(LONG + ".service"), "", "a component over UNIT_NAME_MAX"),
 ]
+# _audit is stubbed for the length of this section: what it asserts is the VALUE the reader returns, and a rejected
+# row would otherwise write a real audit line to stderr on the way past. That the rejection is recorded at all is
+# TEST-HB-08's claim, driven there with a recorder in place.
 failures = []
+quiet_audit = namespace["_audit"]
+namespace["_audit"] = (lambda level, msg, **kwargs: None)
 for text, want, label in cases:
     with real_open(fixture, "w") as handle:
         handle.write(text)
@@ -163,6 +168,7 @@ for text, want, label in cases:
         builtins.open = real_open
     if got != want:
         failures.append("%s: got %r want %r" % (label, got, want))
+namespace["_audit"] = quiet_audit
 report("TEST-HB-05-cgroup", not failures, "; ".join(failures))
 
 # The fail direction, which does not need any socket: an absent journal socket is reported
@@ -249,20 +255,34 @@ report("TEST-HB-09-rejection-sanitized",
        and "PRIORITY=4" in crafted,
        repr(crafted))
 PY
+# The driver's stderr is captured APART from its stdout, and only stdout carries results. The daemon under test writes
+# its own audit lines to stderr whenever the journal datagram fails to send -- which is every run here, since the socket
+# override points at a path no listener holds for most of the file -- so a merged stream would feed those lines
+# to the result parser, where the first word reads as a case id and the second as a verdict. The stderr is kept
+# for the one thing it is evidence of: a driver that did not finish.
 RC=0
-OUT="$(python3 "${DRIVER}" "${DAEMON}" "${TESTDIR}" 2>&1)" || RC=$?
+ERR="${TESTDIR}/driver.err"
+OUT="$(python3 "${DRIVER}" "${DAEMON}" "${TESTDIR}" 2>"${ERR}")" || RC=$?
 
 case "${RC}" in
-    0) while read -r case verdict detail; do
+    0) stray=""
+       while read -r case verdict detail; do
            [[ -n "${case}" ]] || continue
+           # Only a line the driver's own reporter wrote is a result. Anything else on stdout is collected and reported
+           # once, rather than silently dropped or read as a failing case with a nonsense name.
+           if [[ "${case}" != TEST-* ]]; then
+               stray+="${case} ${verdict} ${detail}"$'\n'
+               continue
+           fi
            case "${verdict}" in
                PASS) pass "${case}" ;;
                SKIP) skip "${case}" "${detail}" ;;
                *)    fail "${case}: ${detail}" ;;
            esac
-       done <<<"${OUT}" ;;
+       done <<<"${OUT}"
+       [[ -z "${stray}" ]] || fail "the driver wrote $(grep -c . <<<"${stray}") non-result line(s) to stdout: $(tr '\n' ' ' <<<"${stray}")" ;;
     2) skip "handback record" "installed daemon predates the journal fields" ;;
-    *) fail "handback record: the driver did not run (rc ${RC}): ${OUT}" ;;
+    *) fail "handback record: the driver did not run (rc ${RC}): ${OUT} $(<"${ERR}")" ;;
 esac
 
 finish
