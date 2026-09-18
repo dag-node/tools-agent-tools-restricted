@@ -102,6 +102,11 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    # The sanitizer is not one of the emitters, so its fallback is not a no-op: this hook puts a path into a NOTICE
+    # the model reads, and that path comes from an agent-written marker. The allowlist is the library's
+    # (ai_tools_log_sanitize) -- printable ASCII, every other byte replaced -- kept working rather than degraded,
+    # because a hook that only emits must not fail closed and must not emit a raw escape sequence either.
+    ai_tools_log_sanitize() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
 fi
 
 # Shared message formatter -- frames the SessionStart NOTICE in the paste-safe '#' box, wrapped within 80 columns.
@@ -176,6 +181,24 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
+# read_prior_cwd <marker> -- PRINT the project a prior session recorded, or an empty string. The marker sits
+# in the group-writable config directory, so its first line is AGENT-WRITTEN, and it decides which tree
+# the cross-project .git reclaim walks. It is accepted only as an existing directory named by an absolute path,
+# so a crafted line costs that one reclaim and cannot aim a walk at something that is not a project; the root helper
+# re-validates every path either way. The path does not reach the model: the interrupted-session NOTICE names a prior
+# project without printing its path, since under one shared config directory that project may be another operator's.
+read_prior_cwd() {
+    local marker="${1:-}" recorded
+    [[ -f "${marker}" ]] || return 0
+    recorded="$(head -n1 "${marker}" 2>/dev/null || true)"
+    [[ -n "${recorded}" ]] || return 0
+    if [[ "${recorded}" != /* || ! -d "${recorded}" ]]; then
+        ai_tools_log_warn "session-start: the clean-exit marker does not name a directory -- no cross-project reclaim (${recorded})"
+        return 0
+    fi
+    printf '%s' "${recorded}"
+}
+
 # Capture the hook JSON once (stdin is a pipe, readable only once), then parse both .cwd and -- in session-start mode --
 # .source from the captured payload.
 payload="$(cat 2>/dev/null)" || exit 0
@@ -183,6 +206,10 @@ payload="$(cat 2>/dev/null)" || exit 0
 # The session's working dir (allowlisted project root). No cwd -> exit without acting.
 dir="$(jq -r '.cwd // empty' <<<"${payload}" 2>/dev/null)" || exit 0
 [[ -n "${dir}" && -d "${dir}" ]] || exit 0
+# The same path as it is PRINTED -- into the NOTICE the model reads, and into the command that notice carries. It
+# arrives in the hook payload, so it is reduced to the characters the log sanitizer admits before it is displayed; every
+# use that acts on the tree keeps the real path.
+display_dir="$(ai_tools_log_sanitize "${dir}")"
 
 # Decide whether this pass ignores the marker. Only session-start mode sets it, and only for a freshly started process,
 # so a Stop pass stays bounded by the marker.
@@ -203,7 +230,7 @@ prev_cwd=""
 if [[ "${unbounded}" -eq 1 ]]; then
     if [[ -f "${ACTIVE_MARKER}" ]]; then
         interrupted=1
-        prev_cwd="$(head -n1 "${ACTIVE_MARKER}" 2>/dev/null || true)"
+        prev_cwd="$(read_prior_cwd "${ACTIVE_MARKER}")"
     fi
     printf '%s\n' "${dir}" > "${ACTIVE_MARKER}" 2>/dev/null || true
 fi
@@ -297,14 +324,22 @@ if [[ "${unbounded}" -eq 1 ]]; then
     if [[ "${total_found}" -gt 0 ]]; then
         ai_tools_log_info "reclaimed ${total_found} agent-owned .git path(s) under ${dir}$([[ "${prev_found}" -gt 0 ]] && echo " and ${prev_cwd}")$([[ "${interrupted}" -eq 1 ]] && echo ' (prior session interrupted)')"
         if [[ "${interrupted}" -eq 1 ]]; then
-            scope="${dir}/.git"
-            [[ "${prev_found}" -gt 0 ]] && scope="${scope} and ${prev_cwd}/.git"
+            # What reaches the model is sanitized and does not NAME the prior project. The path is the sandbox account's
+            # to write, and the prior session may be another operator's, so relaying it would disclose a project this
+            # session has no business knowing about; the reclaim already happened, and journald holds the path
+            # for the operator who does. This session's own project is named -- it is the one the agent is working in --
+            # through the log sanitizer, since it arrives in the hook payload.
+            scope="${display_dir}/.git"
+            [[ "${prev_found}" -gt 0 ]] && scope="${scope} and a prior session's project"
             # Frame the explanation in the '#' box (wrapped within 80 cols); keep the reconcile command on its own line
             # UNDER the box so it stays copy-pasteable. The wrap never splits a single token (paths survive intact),
             # but a multi-word command would break across lines, so it is left outside the box.
             prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 \
                 "The previous session ended without cleanup (interrupted). Reclaimed ${total_found} agent-owned path(s) under ${scope} to repair the mixed ownership that makes git report \"dubious ownership\".")"
-            reconcile="If git still complains, ask the user to run:"$'\n'"  sudo chown -R --from=@SANDBOX_USER@ ${PROJECTS_USER}:@SANDBOX_GROUP@ \"${prev_cwd:-${dir}}\""
+            # The command names THIS session's project for the same reason the prose does: it is the one the user asking
+            # is working in, and a command naming a path from the marker would be a command typed against a tree nobody
+            # in this session chose.
+            reconcile="If git still complains, ask the user to run:"$'\n'"  sudo chown -R --from=@SANDBOX_USER@ ${PROJECTS_USER}:@SANDBOX_GROUP@ \"${display_dir}\""
             jq -cn --arg ctx "${prose}"$'\n'"${reconcile}" \
                 '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' \
                 2>/dev/null || true
@@ -322,7 +357,7 @@ if [[ "${unbounded}" -eq 1 ]]; then
         ai_tools_log_warn "handback socket ${HANDBACK_SOCKET} is down -- ${stranded} agent-owned .git path(s) under ${dir} not reclaimed; run: ai-tools projects handback ${dir}"
         prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 \
             "The ownership handback socket is down, so ${stranded} file(s) the agent wrote to git stay ai-tools-owned and git may report \"dubious ownership\". Bring the socket up, then reclaim the tree:")"
-        reconcile="  sudo systemctl enable --now ai-tools-handback.socket"$'\n'"  ai-tools projects handback \"${dir}\""
+        reconcile="  sudo systemctl enable --now ai-tools-handback.socket"$'\n'"  ai-tools projects handback \"${display_dir}\""
         jq -cn --arg ctx "${prose}"$'\n'"${reconcile}" \
             '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' \
             2>/dev/null || true

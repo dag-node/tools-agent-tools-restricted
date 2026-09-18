@@ -80,9 +80,10 @@ readonly PATCH_TOOL_NAME="apply_patch"
 #
 # Two things local to this implementation. `clamp` spells the MESSAGE's narrower allowlist as the ranges that survive
 # it: `!` (0x21), `#`-`<` (0x23-0x3C, excluding space 0x20 and `"` 0x22), and `>`-`~` (0x3E-0x7E, excluding `=` 0x3D).
-# And extraction runs inside jq rather than the shell, so an unbounded patch body is never assigned to a shell variable
-# on its way to being discarded. An apply_patch record carries the FIRST path the patch names and, past one, the count,
-# so the line stays one path wide whatever the patch touched.
+# And extraction runs inside jq rather than the shell: the event arrives in one shell variable (main's read of stdin)
+# and every value derived from it -- the path list, the count, the clamped message -- is produced by jq from that one
+# copy, so an unbounded patch body is never re-split, re-joined, or copied per path it names. An apply_patch record
+# carries the FIRST path and, past one, the count, so the line stays one path wide whatever the patch touched.
 format_tool_call_record() {
     local hook_event_json="$1"
     # shellcheck disable=SC2016  # a jq program: every $name in it is a jq variable, not shell

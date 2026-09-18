@@ -68,8 +68,9 @@ readonly RECORD_FIELD_SEPARATOR=$'\037'
 #
 # Two things local to this implementation. `clamp` spells the MESSAGE's narrower allowlist as the ranges that survive
 # it: `!` (0x21), `#`-`<` (0x23-0x3C, excluding space 0x20 and `"` 0x22), and `>`-`~` (0x3E-0x7E, excluding `=` 0x3D).
-# And extraction runs inside jq rather than the shell, so an unbounded here-doc body is never assigned to a shell
-# variable on its way to being discarded.
+# And extraction runs inside jq rather than the shell: the event arrives in one shell variable (main's read of stdin)
+# and every value derived from it -- the command, the clamp, the fields -- is produced by jq from that one copy,
+# so an unbounded here-doc body is never re-split, re-joined, or copied again on its way to a one-line record.
 format_tool_call_record() {
     local hook_event_json="$1"
     # shellcheck disable=SC2016  # a jq program: every $name in it is a jq variable, not shell

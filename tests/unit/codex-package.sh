@@ -504,12 +504,59 @@ if hand_back_patch_paths "${patch_event}"; then
 else
     fail "hand_back_patch_paths failed over operator-owned fixtures"
 fi
+# A crafted patch, asserted to come out UNCHANGED. The hook does not filter the paths by design: it prints
+# what the patch names and hands each path to ai-tools-chown, which re-derives every decision as root (the allowlist,
+# the exclusions, the born-owner guard, the symlink and hardlink refusals). A filter added here later would be a second,
+# weaker copy of that gate in the agent's own process -- so what this pins is the absence of one. Each line is a shape
+# a patch can carry: a traversal out of the project, an absolute system path, a path with a space, one that begins like
+# an option, and a `Move to:` with no `Update File:` before it.
+crafted_patch='*** Update File: ../../etc/shadow
+*** Add File: /etc/passwd
+*** Add File: a file with spaces.txt
+*** Add File: -rf
+*** Move to: orphan.txt
+'
+crafted_event="$(jq -cn --arg cwd "${PROJECT}" --arg p "${crafted_patch}" \
+    '{cwd:$cwd,tool_name:"apply_patch",tool_input:{input:$p}}')"
+mapfile -t crafted_paths < <(patch_written_paths "${crafted_event}")
+want_crafted=( "${PROJECT}/../../etc/shadow" "/etc/passwd" "${PROJECT}/a file with spaces.txt" "${PROJECT}/-rf" \
+               "${PROJECT}/orphan.txt" )
+if [[ "${crafted_paths[*]}" == "${want_crafted[*]}" ]]; then
+    pass "patch_written_paths prints a crafted patch's paths unchanged -- the hook filters nothing, the root helper decides"
+else
+    fail "patch_written_paths altered a crafted patch's paths: $(printf '%s|' "${crafted_paths[@]}")"
+fi
+
 # The whole script: an empty stdin is a no-op exit 0.
 if bash "${HOOKS}/post-tool-hook.sh" </dev/null >/dev/null 2>&1; then
     pass "post-tool-hook.sh with no event on stdin exits 0"
 else
     fail "post-tool-hook.sh with no event on stdin did not exit 0"
 fi
+
+# A hook runs on every tool call, so what it must never do is END one. Two inputs the parser rejects: a stdin that is
+# not JSON at all, and an event whose command is larger than any record could carry. Each must exit 0 -- a non-zero
+# PostToolUse is a failed tool call in the session -- and the unparsable one must SAY so, since an empty trail is
+# indistinguishable from a session that made no calls (logging.rule.md). The gap each records goes to journald rather
+# than to this stream (the hook runs as the agent and does not reach the file sink), so what is asserted here is
+# the exit status; that the gap IS recorded is logging.rule.md's contract and the journal's to show.
+out="$(printf 'not json' | bash "${HOOKS}/post-tool-hook.sh" 2>&1)" && rc=0 || rc=$?
+if (( rc == 0 )); then
+    pass "post-tool-hook.sh exits 0 on an unparsable event"
+else
+    fail "post-tool-hook.sh exited ${rc} on an unparsable event (output: ${out})"
+fi
+# Assembled on disk rather than through an argument: 10 MB does not fit in one.
+{ printf '{"cwd":"%s","tool_name":"Bash","tool_input":{"command":"' "${PROJECT}"
+  head -c 10485760 /dev/zero | tr '\0' 'x'
+  printf '"}}\n'
+} > "${TESTDIR}/big-event.json"
+if bash "${HOOKS}/post-tool-hook.sh" record < "${TESTDIR}/big-event.json" >/dev/null 2>&1; then
+    pass "post-tool-hook.sh exits 0 on a 10 MB command"
+else
+    fail "a 10 MB command made post-tool-hook.sh exit non-zero -- every tool call carrying one would fail"
+fi
+rm -f "${TESTDIR}/big-event.json"
 
 # The session hook, in the modes that touch no root helper: a Stop sweep over an operator-owned tree does not find
 # a path to hand back and advances its marker; session-end clears the clean-exit marker; a session-start whose source is
@@ -541,6 +588,26 @@ out="$(bash "${HOOKS}/session-hook.sh" <<<'{"hook_event_name":"Stop"}' 2>&1)" &&
 # over a top-level `additionalContext`, so the extra spelling costs the relay rather than buying a release's reading.
 # The session hook is sourced in a shell of its own: its readonly constants share names with the adapter already sourced
 # here.
+# What a prior session recorded is read through one predicate, and this is its runtime half. The marker is written
+# by the hook AS THE AGENT into the group-writable config directory, its first line selects the tree the cross-project
+# .git reclaim walks, and (before this predicate) it was echoed into the reply the model reads. Two shapes must yield
+# an empty string: a path that is not a directory, and one carrying a terminal escape.
+for marker_line in '/nonexistent-prior-project' "/nonexistent$(printf '\033')[31m" '' 'relative/path'; do
+    printf '%s\n' "${marker_line}" > "${HOOKS}/.session-active"
+    got="$(bash -c 'source "$1"; read_prior_cwd "$2"' _ "${HOOKS}/session-hook.sh" "${HOOKS}/.session-active" 2>/dev/null)"
+    if [[ -z "${got}" ]]; then
+        pass "read_prior_cwd yields nothing for a marker naming $(printf '%q' "${marker_line}")"
+    else
+        fail "read_prior_cwd returned '$(printf '%q' "${got}")' for a marker naming $(printf '%q' "${marker_line}")"
+    fi
+done
+printf '%s\n' "${PROJECT}" > "${HOOKS}/.session-active"
+got="$(bash -c 'source "$1"; read_prior_cwd "$2"' _ "${HOOKS}/session-hook.sh" "${HOOKS}/.session-active" 2>/dev/null)"
+[[ "${got}" == "${PROJECT}" ]] \
+    && pass "read_prior_cwd returns a marker naming a real directory, so the cross-project reclaim still runs" \
+    || fail "read_prior_cwd dropped a valid prior project: '${got}'"
+rm -f "${HOOKS}/.session-active"
+
 reply="$(bash -c 'source "$1"; emit_session_context hello' _ "${HOOKS}/session-hook.sh" 2>/dev/null)"
 [[ "$(jq -r '.hookSpecificOutput.additionalContext' <<<"${reply}")" == "hello" \
         && "$(jq -r '.hookSpecificOutput.hookEventName' <<<"${reply}")" == "SessionStart" \
