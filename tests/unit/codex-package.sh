@@ -371,6 +371,8 @@ for r in json.load(sys.stdin):
     cfg approval_policy '"never"' "approval_policy = never"
     cfg check_for_update_on_startup 'false' "the in-session update check is off (nvm-update maintains the toolchain)"
     cfg agents.enabled 'false' "sub-agents off"
+    cfg tui.animations 'false' "the TUI does not animate"
+    cfg tui.notifications 'false' "a session raises no desktop notification"
     cfg analytics.enabled 'false' "analytics off"
     cfg feedback.enabled 'false' "feedback off"
     cfg otel.exporter '"none"' "otel exporter none"

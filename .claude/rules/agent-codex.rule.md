@@ -152,11 +152,14 @@ across an upgrade.
 
 **`managed_config.toml`** is the defaults codex applies ahead of any user config: the mode and the approval policy
 the requirements pin, `check_for_update_on_startup = false` (the `nvm-update` timer maintains the toolchain,
-and the Node tree is read-only to the session), `[agents] enabled = false`, and the `[analytics]`, `[feedback]`
-and `[otel]` opt-outs. The opt-outs are **dispositional**: a release that reads other keys posts again, and the residual
-is on the API's own domain. Two operator keys ship commented, each the codex counterpart of a claude-code
-`operator.conf` key: `model_instructions_file` (replaces the built-in instructions; the file sits
-under `/etc/ai-tools/prompts`, the one root the confined domain reads) and `openai_base_url` (the API-key path only).
+and the Node tree is read-only to the session), `[agents] enabled = false`, `[tui] animations = false`
+and `notifications = false` (a session runs under a service account on a terminal an operator may be reading over ssh:
+an animation redraws a line that reports nothing new, and a notification reaches the desktop of someone who did not
+start the session), and the `[analytics]`, `[feedback]` and `[otel]` opt-outs. The opt-outs are **dispositional**:
+a release that reads other keys posts again, and the residual is on the API's own domain. Two operator keys ship
+commented, each the codex counterpart of a claude-code `operator.conf` key: `model_instructions_file` (replaces
+the built-in instructions; the file sits under `/etc/ai-tools/prompts`, the one root the confined domain reads)
+and `openai_base_url` (the API-key path only).
 
 What neither file can do is enlarge what the account may reach, since codex runs as that account in that domain.
 An unreadable `requirements.toml` refuses the start: the loud direction.
