@@ -129,20 +129,46 @@ Such an agent launches on a host that requires verification: the switch asks
 for a pin, and this is one. What the tier changes is the claim the report
 makes, not whether a session starts.
 
-A changed binary refuses the launch either way. Where the version is unchanged
-and the checksum is not, the reconcile refuses to re-record it and leaves
-the old pin in place, so the next session refuses rather than adopting the new
-value:
+A binary that changes under the version it was recorded at refuses the launch
+either way: the reconcile refuses to re-record it and leaves the old pin
+in place, so the next session refuses rather than adopting the new value:
 
 ```text
 ai-tools-relabel-agent: warn: the codex entrypoint changed under an unchanged
 version 0.154.0 -- leaving the pin as it is, so the next session refuses to start
 ```
 
+A change that arrives with a new declared version reads as an update and is
+recorded again. The version is read from the package as installed
+in the toolchain, and the toolchain is written by the sandbox account, since
+the nightly update runs as it. With SELinux enforcing, a session cannot write
+the toolchain, so the only writer that can bring a new version is the update
+itself. Without SELinux, the session's own account owns the toolchain,
+and `UNCHANGED` then holds against a rewrite that leaves the declared version
+alone, and does not hold against one that changes it. What closes the rest is
+the vendor's signature, which is the `VERIFIED` tier.
+
 Verifying such a vendor's signature is possible — Codex signs each release
 binary through Sigstore — but checking one needs a verifier this project does
 not ship and no distribution repository carries, so it stays a dependency
 the project has not taken.
+
+### Verifying the Codex binary yourself with cosign
+
+```bash
+cosign verify-blob --bundle codex-x86_64-unknown-linux-musl.sigstore --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity https://github.com/openai/codex/.github/workflows/rust-release.yml@refs/tags/rust-v<version> <entrypoint>
+```
+
+Each Codex release `rust-v<version>` on GitHub publishes
+`codex-x86_64-unknown-linux-musl.sigstore`, a Sigstore bundle signed
+by OpenAI's release workflow over the same binary the npm package installs. Run
+against the entrypoint `sudo ai-tools-admin status` names under `labelled`,
+with `<version>` the number `ai-tools status` reports for Codex, the command
+confirms that binary was produced by that workflow. It is a check you run
+by hand, once per release: this project does not record its result,
+and `UNCHANGED` stays what the pin claims. It also costs maintenance
+the project does not take on for you — `cosign` installed and current, and its
+Sigstore trust root kept fresh, since the certificate chain it checks rotates.
 
 ## Strictness
 

@@ -147,7 +147,12 @@ ai_tools_entrypoint_observe_decision() {
     local pinned_version="${1:-}" pinned_sha="${2:-}" installed_version="${3:-}" installed_sha="${4:-}"
     [[ "${installed_sha}" =~ ^[0-9a-f]{64}$ ]] || { printf 'unreadable'; return 2; }
     [[ "${pinned_sha}" =~ ^[0-9a-f]{64}$ ]]    || { printf 'pin';        return 0; }
-    [[ -n "${pinned_version}" && "${pinned_version}" == "${installed_version}" ]] || { printf 'pin'; return 0; }
+    # A pin whose version the reader does not return (an empty first argument) is decided by its bytes alone: with no
+    # version to tell a release from a rewrite, a different checksum is refused. Reading it as a new version would
+    # re-record any change.
+    if [[ -n "${pinned_version}" && "${pinned_version}" != "${installed_version}" ]]; then
+        printf 'pin'; return 0
+    fi
     [[ "${pinned_sha}" == "${installed_sha}" ]] && { printf 'keep';      return 0; }
     printf 'tamper'; return 1
 }
@@ -261,10 +266,16 @@ ai_tools_entrypoint_label_write() {
 _ai_tools_ev_pin_field() {
     local pin="${1:-}" key="${2:-}" line
     [[ -n "${pin}" && ! -L "${pin}" && -f "${pin}" && -r "${pin}" ]] || return 1
-    line="$(head -c 4096 -- "${pin}" 2>/dev/null \
-                | grep -m1 -E "^${key}=[A-Za-z0-9:+._-]{1,64}$" 2>/dev/null)" || return 1
+    line="$(head -c 4096 -- "${pin}" 2>/dev/null | grep -m1 -E "^${key}=" 2>/dev/null)" || return 1
+    _ai_tools_ev_field_ok "${line#*=}" || return 1
     printf '%s' "${line#*=}"
 }
+
+# _ai_tools_ev_field_ok <value> : succeed when <value> has the shape one pin field admits -- alphanumerics and
+#   `:+._-`, 1 to 64 characters. The writers clamp to this same shape (a version outside it is recorded as
+#   `unknown`), so every value a pin holds is one its readers return: a recorded version the reader could not return
+#   would compare as absent and turn every later reconcile into a re-pin.
+_ai_tools_ev_field_ok() { [[ "${1:-}" =~ ^[A-Za-z0-9:+._-]{1,64}$ ]]; }
 
 # ai_tools_entrypoint_pin_read <agent> : print the SHA-256 recorded for that agent, or an empty string.
 ai_tools_entrypoint_pin_read() {
@@ -284,10 +295,11 @@ ai_tools_entrypoint_pin_write() {
     local agent="${1:-}" version="${2:-}" checksum="${3:-}" source_url="${4:-}" inputs="${5:-}" pin
     pin="$(ai_tools_entrypoint_pin_path "${agent}")" || return 1
     [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] || return 1
+    _ai_tools_ev_field_ok "${version}" || version=unknown
     {
         printf '# ai-tools entrypoint pin -- written as root, read by the launch shim.\n'
         printf 'AGENT=%s\nVERSION=%s\nSHA256=%s\nKIND=verified\nVERIFIED=%s\n' \
-            "${agent}" "${version:-unknown}" "${checksum}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            "${agent}" "${version}" "${checksum}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         if [[ "${inputs}" =~ ^[0-9a-f]{64}$ ]]; then printf 'INPUTS=%s\n' "${inputs}"; fi
         # An `if`, not `[[ ]] && printf`: this is the group's LAST command, so its status is the group's, and a pin
         # written without a source URL would fail the pipeline that writes it.
@@ -301,7 +313,8 @@ ai_tools_entrypoint_pin_write() {
 #
 #   The value comes from a file the SANDBOX account owns and reaches the operator's terminal, the journal and a pin
 #   record, so it is admitted only in a clamped shape: `MAJOR.MINOR.PATCH`, optionally with a `-`/`+` suffix
-#   of alphanumerics, dots and hyphens, and never containing `..`. That admits a platform package's own spelling
+#   of alphanumerics, dots and hyphens, never containing `..`, and within the length a pin field admits
+#   (_ai_tools_ev_field_ok). That admits a platform package's own spelling
 #   (`0.154.0-linux-x64`) while excluding every character an escape sequence or a path traversal needs -- the suffix
 #   matters because the version also fills the `{version}` slot of a release-manifest URL.
 #
@@ -317,11 +330,12 @@ ai_tools_entrypoint_installed_version() {
     for _hop in 1 2 3 4 5 6; do
         [[ -n "${dir}" ]] || break
         if [[ -f "${dir}/package.json" && -r "${dir}/package.json" ]]; then
-            # Bounded read of a regular file: the version sits in the first bytes, and a fifo swapped into the path
-            # must never block a launch.
+            # Bounded read of a regular file: the version sits in the first bytes, and a fifo swapped into the path must
+            # never block a launch.
             declared="$(head -c 65536 -- "${dir}/package.json" 2>/dev/null \
                 | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-            if [[ "${declared}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ && "${declared}" != *..* ]]; then
+            if [[ "${declared}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ && "${declared}" != *..* ]] \
+                    && _ai_tools_ev_field_ok "${declared}"; then
                 printf '%s' "${declared}"
                 return 0
             fi
@@ -343,11 +357,12 @@ ai_tools_entrypoint_pin_write_observed() {
     local agent="${1:-}" version="${2:-}" checksum="${3:-}" pin
     pin="$(ai_tools_entrypoint_pin_path "${agent}")" || return 1
     [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] || return 1
+    _ai_tools_ev_field_ok "${version}" || version=unknown
     {
         printf '# ai-tools entrypoint pin -- written as root, read by the launch shim.\n'
         printf '# KIND=observed: the checksum of the binary as installed, not one verified against a vendor signature.\n'
         printf 'AGENT=%s\nVERSION=%s\nSHA256=%s\nKIND=observed\nVERIFIED=%s\n' \
-            "${agent}" "${version:-unknown}" "${checksum}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            "${agent}" "${version}" "${checksum}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     } | _ai_tools_ev_write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
 }
 

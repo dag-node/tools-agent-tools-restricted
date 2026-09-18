@@ -373,8 +373,8 @@ fi
 
 # ── The observed tier: the decision that guards it, and how a pin reports which tier it holds ──────
 # An agent whose vendor publishes no signed manifest is pinned to what is installed, so the one thing that must not
-# happen is re-recording a binary that changed under an unchanged version -- that would bless what the pin exists to
-# catch. The decision is pure, so its table drives without root.
+# happen is re-recording a binary that changed under an unchanged version -- that would bless what the pin exists
+# to catch. The decision is pure, so its table drives without root.
 if ! declare -F ai_tools_entrypoint_observe_decision >/dev/null 2>&1; then
     skip "observed pin decision" "the installed ${LIB} carries no observe decision -- reinstall to cover it"
 else
@@ -405,10 +405,24 @@ ROWS
     else
         pass "the tamper decision returns non-zero, so the caller leaves the pin stale"
     fi
+
+    # A pin whose VERSION the reader does not return: an empty first argument, which the ROWS table does not express
+    # (its rows are word-split, so '' arrives as two apostrophes). Such a pin is decided by its bytes alone -- reading
+    # the absent version as "a different version" would re-record every change.
+    if [[ "$(ai_tools_entrypoint_observe_decision '' "${SHA_A}" 1.2.3 "${SHA_B}" || true)" == tamper ]]; then
+        pass "observe decision: a pin with no readable version, hashing differently -> tamper"
+    else
+        fail "observe decision: a pin with no readable version and a changed binary was not refused"
+    fi
+    if [[ "$(ai_tools_entrypoint_observe_decision '' "${SHA_A}" 1.2.3 "${SHA_A}" || true)" == keep ]]; then
+        pass "observe decision: a pin with no readable version, the same bytes -> keep"
+    else
+        fail "observe decision: a pin with no readable version and the same bytes was not kept"
+    fi
 fi
 
-# A reader must be able to say which tier a host holds, and a pin written before the tier existed must not read as
-# the weaker one -- every pin written then came from the signed-manifest path.
+# A reader must be able to say which tier a host holds, and a pin written before the tier existed must not read
+# as the weaker one -- every pin written then came from the signed-manifest path.
 if ! declare -F ai_tools_entrypoint_pin_kind >/dev/null 2>&1; then
     skip "pin kind" "the installed ${LIB} carries no pin-kind reader -- reinstall to cover it"
 else
@@ -465,9 +479,9 @@ else
         fail "the version was not read from <pkg>/bin/<entrypoint>"
     fi
 
-    # Codex's shape: a vendored binary three directories inside the platform package, whose version carries
-    # a platform suffix. Both halves broke the first implementation, which walked three levels and took plain
-    # MAJOR.MINOR.PATCH alone.
+    # Codex's shape: a vendored binary three directories inside the platform package, whose version carries a platform
+    # suffix. Both halves broke the first implementation, which walked three levels and took plain MAJOR.MINOR.PATCH
+    # alone.
     ep="$(mk_pkg vendor/x86_64-unknown-linux-musl/bin/codex 0.154.0-linux-x64 codex)"
     if [[ "$(ai_tools_entrypoint_installed_version "${ep}" || true)" == 0.154.0-linux-x64 ]]; then
         pass "a vendored entrypoint three directories in, with a suffixed version, reads"
@@ -488,10 +502,22 @@ else
 1.2.3-../../etc|a path traversal in the suffix
 1.2|an incomplete version
 1.2.3 nice try|an embedded space
+1.2.3-$(printf 'a%.0s' {1..60})|a version longer than a pin field holds
 ROWS
+    # The writer and the reader hold one field shape: a version the reader admits round-trips through a pin, and one it
+    # does not is written as `unknown` -- never recorded in a shape that reads back as absent.
+    if declare -F _ai_tools_ev_field_ok >/dev/null 2>&1; then
+        if _ai_tools_ev_field_ok 0.154.0-linux-x64 && ! _ai_tools_ev_field_ok "1.2.3-$(printf 'a%.0s' {1..60})"; then
+            pass "the pin field shape admits a platform version and refuses one over 64 characters"
+        else
+            fail "the pin field shape does not bound the version the way the reader does"
+        fi
+    else
+        skip "pin field shape" "the installed ${LIB} carries no field-shape predicate -- reinstall to cover it"
+    fi
 
-    # A package.json the walk never reaches yields an empty string, which the caller turns into `unknown` rather
-    # than comparing an empty value against a recorded one.
+    # A package.json the walk never reaches yields an empty string, which the caller turns into `unknown` rather than
+    # comparing an empty value against a recorded one.
     deep="${TESTDIR}/pkg/deep/a/b/c/d/e/f/g"
     mkdir -p "${deep}"
     : > "${deep}/entry"
