@@ -145,7 +145,11 @@ framed through `msg.lib.sh` (see [messaging](messaging.rule.md)).
 
 Every pass checks the handback socket before acting, since a socket that is down fails every `CHOWN` and a count
 of attempts would then report work that did not happen. So the sweeps and the reclaim count **confirmed** handbacks
-(client exit 0), not attempts; a down socket makes each pass skip its walk and record the stranded count,
+(client exit 0), not attempts; `ai-tools-run`'s session-end sweep counts one step further in, by **owner change**,
+because `ai-tools-chown` exits 0 both for a path it handed back and for one it deliberately left alone (an excluded
+path, a hardlinked file, a secret-named one it quarantined elsewhere) — the walk selected `SANDBOX_USER`-owned paths,
+so a path no longer owned by that account is one the call changed, and the paths left as they were are reported beside
+the handbacks rather than folded into them; a down socket makes each pass skip its walk and record the stranded count,
 and the `session-start` pass — the one the operator reads — surfaces a distinct `SessionStart` NOTICE naming the fix
 (`systemctl enable --now ai-tools-handback.socket`, then `ai-tools projects handback <project>`) whenever agent-owned
 `.git` paths are stranded, instead of the "reclaimed N" wording. `ai-tools-run`'s launch-time preflight is

@@ -415,22 +415,33 @@ sweep_project_ownership() {
     # The "reclaim" consumer omits the heavy dependency/build trees but WALKS .git -- the tree the per-turn hooks skip,
     # and which no other pass on this path would reach.
     ai_tools_skip_find_expr reclaim '' "${session_working_directory}"
-    # Count CONFIRMED handbacks (client exit 0), not attempts, so the audit line reflects what actually changed owner;
-    # a non-zero exit is either a routine skip (a path the root helper refused) or a mid-sweep socket loss, both
-    # surfaced as a failed tally rather than success.
-    local confirmed=0 failed=0 path
+    # Count OWNER CHANGES, not helper exits. `ai-tools-chown` exits 0 both for a path it handed back and for one it
+    # deliberately LEFT ALONE -- a `!`-excluded path, a hardlinked file, a secret-named one it quarantined elsewhere --
+    # so a tally of exits reports work that did not happen, which is the failure mode this line exists to rule out.
+    # The walk selected @SANDBOX_USER@-owned paths, so a path no longer owned by that account is one this call changed;
+    # an unreadable path (deleted mid-sweep) reads the same way and is not counted as left alone. A non-zero exit is
+    # a refusal the helper reports or a mid-sweep socket loss, both surfaced as a failed tally.
+    local confirmed=0 untouched=0 failed=0 path
     while IFS= read -r -d '' path; do
         if "${HANDBACK_CLIENT}" CHOWN "${path}" >/dev/null 2>&1; then
-            confirmed=$(( confirmed + 1 ))
+            if [[ "$(stat -c '%U' -- "${path}" 2>/dev/null || true)" == '@SANDBOX_USER@' ]]; then
+                untouched=$(( untouched + 1 ))
+            else
+                confirmed=$(( confirmed + 1 ))
+            fi
         else
             failed=$(( failed + 1 ))
         fi
     done < <(find "${session_working_directory}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -user '@SANDBOX_USER@' '(' -type f -o -type d ')' -print0 ')' 2>/dev/null)
+    # Reported alongside the handbacks rather than folded into them: a sweep that left every path as it was is a project
+    # whose paths the helper declines, which reads very differently from one it converged.
+    local left_alone_note=""
+    (( untouched > 0 )) && left_alone_note=", ${untouched} left as they were by the root helper"
     if (( failed > 0 )); then
-        audit warning "session-end sweep: handed back ${confirmed} path(s), ${failed} not handed back under ${session_working_directory} (agent=${agent_name}); reclaim with: ai-tools projects handback ${session_working_directory}"
-    elif (( confirmed > 0 )); then
-        audit info "session-end sweep: handed back ${confirmed} path(s) under ${session_working_directory} (agent=${agent_name})"
+        audit warning "session-end sweep: handed back ${confirmed} path(s)${left_alone_note}, ${failed} not handed back under ${session_working_directory} (agent=${agent_name}); reclaim with: ai-tools projects handback ${session_working_directory}"
+    elif (( confirmed > 0 || untouched > 0 )); then
+        audit info "session-end sweep: handed back ${confirmed} path(s)${left_alone_note} under ${session_working_directory} (agent=${agent_name})"
     fi
     return 0
 }
