@@ -133,22 +133,59 @@ to the subscription login (an API key through a root-placed `auth.json` is the o
 restricted with no allowed source; and `allow_managed_hooks_only = true` with the `[hooks]` table makes the package's
 hooks the only hooks — a user `hooks.json` does not run.
 
-Its `[rules]` table is the **per-command deny layer**, codex's counterpart to `settings.json`'s irreversible-VCS group
-([claude-settings](claude-settings.rule.md)) and held to the same criterion: destruction with no undo, unprivileged,
-in the operator's own tree, where no host control refuses. Three rows, each `decision = "forbidden"`
-with a justification codex surfaces in the refusal — `git push`
-with `-f`/`--force`/`--force-with-lease`/`--force-if-includes`, `git reset --hard`, and `git clean`. A requirements rule
+Its `[rules]` table is the **per-command deny layer**, codex's counterpart to `settings.json`'s deny groups
+([claude-settings](claude-settings.rule.md)), and it carries **two** of that layer's three groups, held to the same
+criteria. The **irreversible VCS** rows are destruction with no undo, unprivileged, in the operator's own tree, where no
+host control refuses: `git push` with `-f`/`--force`/`--force-with-lease`/`--force-if-includes`, `git reset --hard`,
+and `git clean`. The **host-survey** rows are commands that run as the sandbox account and disclose host state beyond
+the file-read baseline: `id`, `getent`, `rpm`, `ps`, `df`, `du`, `mount`, `readlink`, `getenforce`, `matchpathcon`.
+Thirteen rows, each `decision = "forbidden"` with a justification codex surfaces in the refusal. A requirements rule
 takes `prompt` or `forbidden` and never `allow`, and the most restrictive match wins, so the table narrows a session
-and cannot widen one. The root-only commands claude-code also denies (`sudo`, `systemctl`, `dnf`, …) are left
-out: `NoNewPrivileges` and the confined domain refuse them already.
+and cannot widen one.
+
+The third group, the **categorical dead-ends** (`sudo`, `systemctl`, `dnf`, …), is left out: `NoNewPrivileges`
+and the confined domain refuse those already, so a row would buy a message and no mediation. The survey group is the one
+that does **not** divide that way — each of its commands succeeds — so a row is the only thing standing
+between the session and the command. **The two agents arrive there from opposite defaults, as this project configures
+each**, and the comparison is worth stating in those terms rather than as attended against unattended. claude-code ships
+with auto mode off (`disableAutoMode`, [claude-settings](claude-settings.rule.md)), so it asks before a command it is
+not configured to allow; its deny entry is needed because the harness auto-approves a **safe read** without asking,
+and a host-survey command reads as one. Codex is pinned to `allowed_approval_policies = ["never"]`, so it asks in no
+session at all — interactive or `codex exec` alike — and the table is the whole of its per-command mediation. An agent
+that needs one of these raises it in the session with its reasoning, and the operator runs it.
+
+**The table is a narrower instrument than claude-code's, not a stronger one.** A row that matches refuses, on either
+agent; what differs is how much a row matches, and the exact-prefix grammar this section describes next catches **less**
+than a glob does. So the layer's worth is the bargain the VCS rows are held to — it takes the habitual spelling
+out of the shell and puts it in front of the operator — and neither agent's table is a boundary. What bounds a session
+is the sandbox account, the domain and the unit.
 
 A pattern is an **exact prefix** of the command's arguments, matched token by token, so `git push origin main --force`
 does not match — the reach `Bash(git push --force*)` has too, and the same bargain: what the layer buys is
-that the habitual spelling cannot be taken silently. `git clean` is refused as a whole verb rather than by flag, the one
+that the habitual spelling cannot be taken silently. One spelling is **narrower** here than claude-code's, since a token
+is matched whole: `--force-with-lease=main` is a single token equal to none of the four in the `any_of` list,
+where the glob `--force*` covers it. A row per `=`-suffixed form would enumerate what a later git release may extend,
+so the bargain is what the row claims rather than coverage of every spelling. The prefix grammar is also why each survey
+command is **one** row where claude-code needs a pair (`Bash(ps)` and `Bash(ps *)`): a single-token pattern is a prefix
+of both the bare command and every argument form. `git clean` is refused as a whole verb rather than by flag, the one
 row wider than claude-code's, since its destructive spellings (`-f`, `-fd`, `-ffd`, `-xf`, …) are one token each
-and an enumeration leaks the one it misses. `unit/codex-package.sh` pins the three rows and that no decision reads
-`allow`; `integration/hooks.sh` pins them in the deployed file, which is where an operator's edit is kept
-across an upgrade.
+and an enumeration leaks the one it misses. `unit/codex-package.sh` pins the rows and that no decision reads `allow`;
+`integration/hooks.sh` pins them in the deployed file, which is where an operator's edit is kept across an upgrade.
+
+**A refusal reaches the model and does not wait for anyone.** Since codex asks in no session, the open question was
+what a refusal does where there is nobody to ask — `codex exec`, the shape a scheduled or scripted run takes, is
+where a decision wanting an answer would block until its timeout. Measured on codex 0.155, one `codex exec` turn
+per group: asked to run `git clean -fd`, and asked to run `ps aux`. Each completed at exit 0 with the command not run,
+and the model reported the refusal quoting that row's own `justification` back. So `forbidden` is the decision both
+groups take. The only other decision a requirements rule offers is `prompt`, which puts the command to the operator
+for approval — and in a session pinned never to ask, run by a schedule or a script, there is nobody present to answer
+it. `forbidden` is therefore the one of the two that resolves without a person in the room.
+
+Three properties of the matcher are read off those two runs, and each is why a row is written the way it is. The refusal
+names `/usr/bin/bash -lc '<command>'`, so codex matches the **inner** command rather than the shell invocation carrying
+it. A **one-token** pattern matched `ps aux`, which is what lets one row stand where claude-code's glob layer needs
+a pair. And the `justification` is the text the model receives, so it is written as the reason an operator would give,
+not as a policy label.
 
 **`managed_config.toml`** is the defaults codex applies ahead of any user config: the mode and the approval policy
 the requirements pin, `check_for_update_on_startup = false` (the `nvm-update` timer maintains the toolchain,

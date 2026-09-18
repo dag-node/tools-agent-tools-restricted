@@ -81,9 +81,15 @@ CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_FSETID CAP_DAC_OVERRIDE
 #   PYTHONFAULTHANDLER      -- dump a C-level traceback to stderr (journal) on a fatal signal,
 #     written only when one arrives: crash diagnostics for a root daemon holding
 #     CAP_DAC_OVERRIDE.
+#   PYTHONNOUSERSITE        -- skip the per-user site directory. The daemon imports only stdlib,
+#     so it does not load any module from ~/.local/lib/python3.N/site-packages; leaving that directory on
+#     the import path means site.py stats it at every start (one denied search of /root/.local per
+#     served request under enforcing, audited on a host that serves thousands) and would let
+#     a module dropped there load into a root daemon. Unsetting it removes the probe instead of
+#     silencing it, which is why no dontaudit covers that denial.
 # PYTHONOPTIMIZE is deliberately NOT set: it strips asserts and would alter runtime semantics
 # for no meaningful gain on a per-connection script.
-Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1 PYTHONNOUSERSITE=1
 RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any
 ProtectKernelTunables=yes

@@ -653,6 +653,25 @@ allow ai_tools_handback_t ai_tools_log_t:dir { getattr search open add_name writ
 allow ai_tools_handback_t ai_tools_log_t:file { create getattr setattr open append };
 logging_log_filetrans(ai_tools_handback_t, ai_tools_log_t, file)
 
+# Read the peer session's cgroup, which is where the AI_TOOLS_SESSION_UNIT attribution field on this daemon's journald
+# records comes from (_peer_user_unit, see handback-bridge.rule.md). The daemon opens /proc/<peer_pid>/cgroup, and every
+# file under a process's own /proc entry carries that process's domain, so reaching it needs search on the session
+# domain's dir and read on its file -- granted here against ai_tools_t alone, the domain a confined session runs in.
+# Without these the open is denied on every served request, the function's OSError branch yields '', and the field is
+# absent from every record on an enforcing host while a DAC-only host carries it: attribution that disagrees with itself
+# between two supported hosts.
+#
+# The rule is TYPE-wide, not peer-specific: type enforcement cannot say "the process on the other end of this socket",
+# so it permits this daemon to read the /proc entry of ANY process labelled ai_tools_t -- every concurrent session
+# on the host, not only the peer that connected. What holds the read to the peer is the code: one open
+# of /proc/<peer_pid>/cgroup, of the pid SO_PEERCRED reported. That is a read of process state a root daemon holding
+# CAP_DAC_OVERRIDE can already perform under DAC, and it does not feed any decision -- the SO_PEERCRED uid is
+# what authorizes a request, and this value labels the record afterwards. A peer running outside ai_tools_t --
+# the updater's user-manager unit, which does not exec any entrypoint and so does not compute a transition -- is not
+# covered, and its records keep the field absent.
+allow ai_tools_handback_t ai_tools_t:dir search;
+allow ai_tools_handback_t ai_tools_t:file { getattr open read };
+
 # Process baseline for a short-lived forking subprocess (Python subprocess.run).
 allow ai_tools_handback_t self:process { fork sigchld signal signull };
 allow ai_tools_handback_t self:fifo_file rw_fifo_file_perms;

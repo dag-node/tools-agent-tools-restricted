@@ -88,6 +88,17 @@ _JOURNAL_SOCKET = os.environ.get('AI_TOOLS_JOURNAL_SOCKET', '/run/systemd/journa
 # instead of wrong.
 _session_unit = ''  # noqa: N816  -- module state, deliberately not a constant
 
+# What a cgroup component must satisfy to be recorded as a unit name: systemd's own valid-unit-name set (alphanumerics
+# and ":-_.\@") and its UNIT_NAME_MAX. A cgroup DIRECTORY name is not held to that set -- the kernel takes any byte
+# but NUL and '/', newlines and control characters included -- and the session's manager delegates a subtree the sandbox
+# account may mkdir in, so the string this field is read from is agent-influenceable. Validating it here is
+# the allowlist at the source: a component outside the set is not a unit name, so it is reported as no unit at all
+# rather than recorded with its bytes replaced.
+_UNIT_NAME_CHARS = frozenset(
+    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:-_.\\@'
+)
+_UNIT_NAME_MAX = 256
+
 
 def _sanitize(msg):
     # type: (str) -> str
@@ -120,10 +131,12 @@ def _peer_user_unit(pid):
     # type: (int) -> str
     # The peer's systemd user unit, read from its cgroup the way journald derives _SYSTEMD_USER_UNIT: the first .service
     # or .scope component after user@<uid>.service/. Read while the peer is still blocked on the response, which bounds
-    # the pid-reuse window; SO_PEERPIDFD (kernel 6.5+) would close it and is not taken while EL9 is a target.
-    # ProtectControlGroups=yes mounts /sys/fs/cgroup read-only and leaves procfs alone, so this
-    # read is available to the daemon. An unreadable or unmatched cgroup yields '', which leaves the field ABSENT rather
-    # than guessed -- the value is attribution, not authorization.
+    # the pid-reuse window; SO_PEERPIDFD (kernel 6.5+) would close it and is not taken while EL9 is a target. Two layers
+    # have to permit it: ProtectControlGroups=yes mounts /sys/fs/cgroup read-only and leaves procfs alone,
+    # and under enforcing ai_tools_handback_t holds search+read on ai_tools_t, the domain whose process entry this is
+    # (ai_tools.te). A peer outside that domain -- the updater's user-manager unit -- is not covered and yields ''.
+    # An unreadable or unmatched cgroup yields '' too, which leaves the field ABSENT rather than guessed -- the value is
+    # attribution, not authorization.
     try:
         with open('/proc/%d/cgroup' % pid) as handle:
             text = handle.read()
@@ -136,7 +149,34 @@ def _peer_user_unit(pid):
                 continue
             for later in components[index + 1:]:
                 if later.endswith('.service') or later.endswith('.scope'):
-                    return later
+                    return _unit_name_or_empty(later, pid)
+    return ''
+
+
+def _unit_name_or_empty(name, pid):
+    # type: (str, int) -> str
+    # The component as a unit name, or '' where it is not one. Length first, then the character allowlist, so a long
+    # crafted component is rejected without scanning it. _sanitize already stops a newline from forging a sibling field
+    # in the journald datagram (see _journal_entry); this check sits in front of that one, and decides the difference
+    # between a record the field labels and a record it does not: a value that is not a valid unit name is not
+    # attribution, and an absent field is what this daemon reports when it does not know.
+    #
+    # A rejection is RECORDED, at the level malformed peer input takes here (rejected peers and malformed requests are
+    # warnings; error is this daemon's own failures). systemd cannot name a unit outside this set, so a host produces
+    # one only by writing the delegated cgroup subtree directly, which is the sandbox account's reach; a silent '' would
+    # leave the only trace of that as a field that happens to be missing -- indistinguishable from the routine absent
+    # case. The offending value rides in the message, where _audit sanitizes it and flags the replacement inline, and is
+    # truncated because its length is the peer's to choose. The routine case -- a cgroup with no user@<uid>.service
+    # component at all, which is every peer outside a user manager -- returns before reaching here and stays silent.
+    if not name:
+        return ''
+    if len(name) > _UNIT_NAME_MAX:
+        reason = 'over %d characters' % _UNIT_NAME_MAX
+    elif not set(name) <= _UNIT_NAME_CHARS:
+        reason = 'characters outside the unit-name set'
+    else:
+        return name
+    _audit('warning', 'rejected malformed cgroup unit name (pid %d, %s): %.64s' % (pid, reason, name))
     return ''
 
 
@@ -145,11 +185,14 @@ def _journal_entry(level, msg, fields):
     # ONE native journald entry, as the newline-delimited bytes the protocol takes. Pure, so the record's shape is
     # asserted without a socket (tests/unit/handback.sh).
     #
-    # Every value is sanitized, which removes the newline that would otherwise terminate a field early, and every field
-    # NAME is a constant here, so a value cannot forge a sibling field. An empty value leaves its field out, since
-    # an absent field says "not applicable" where an empty one would read as a value.
+    # Every value is sanitized HERE, the MESSAGE included, which removes the newline that would otherwise terminate
+    # a field early; every field NAME is a constant, so a caller's value cannot forge a sibling field. _audit already
+    # sanitizes the message before it arrives (it flags a replacement inline, which this cannot do), and the reduction
+    # is idempotent, so the second pass leaves that path byte-identical -- it is here so the property belongs
+    # to the function that assembles the protocol bytes rather than to the discipline of every caller. An empty value
+    # leaves its field out, since an absent field says "not applicable" where an empty one would read as a value.
     entry = [
-        'MESSAGE=' + msg,
+        'MESSAGE=' + _sanitize(msg),
         'PRIORITY=' + _PRIO_NUMBER.get(level, '6'),
         'SYSLOG_IDENTIFIER=' + _IDENTIFIER,
         'SYSLOG_FACILITY=3',

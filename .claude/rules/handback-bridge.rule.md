@@ -75,14 +75,35 @@ sudo journalctl _SYSTEMD_USER_UNIT=<unit> + AI_TOOLS_SESSION_UNIT=<unit>
 ```
 
 `_peer_user_unit` reads the value from `/proc/<peer_pid>/cgroup` immediately after the `SO_PEERCRED` check, while
-the peer is still blocked on the response, which bounds the pid-reuse window; the unit's `ProtectControlGroups=yes`
-mounts `/sys/fs/cgroup` read-only and leaves procfs alone, so that read is available to the daemon. The header
-on the function states how the unit is taken out of the cgroup line and which kernel interface would close the reuse
-window.
+the peer is still blocked on the response, which bounds the pid-reuse window. The header on the function states
+how the unit is taken out of the cgroup line and which kernel interface would close the reuse window.
+
+**Two layers permit that read, and the SELinux one is type-wide.** The unit's `ProtectControlGroups=yes` mounts
+`/sys/fs/cgroup` read-only and leaves procfs alone; under enforcing, a file under a process's own `/proc` entry carries
+that process's domain, so `ai_tools.te` grants `ai_tools_handback_t` `search` on `ai_tools_t:dir` and `read`
+on `ai_tools_t:file`. Type enforcement cannot express "the process on the other end of this socket", so that grant
+covers **every** process in the domain; what holds the read to the peer is the code, which opens the one pid
+`SO_PEERCRED` reported. A peer outside the domain — the updater's `--user` unit, which does not exec any entrypoint
+and so does not compute a transition — leaves the field absent on its records. Neither layer decides anything: the uid
+is what authorizes.
 
 **The value is attribution: the `SO_PEERCRED` uid decides what is served, and this field labels the record afterwards.**
-It passes the same sanitizer as every other logged string, and an unreadable or unmatched cgroup leaves the field
-**absent** rather than guessed.
+An unreadable or unmatched cgroup leaves the field **absent** rather than guessed.
+
+**The string is agent-influenceable, so it is validated at the reader.** A cgroup *directory* name is held to no systemd
+rule — the kernel takes any byte but NUL and `/` — and the session's manager delegates a subtree the sandbox account may
+`mkdir` in, so the component this field is read from can carry control characters, a forged unit name, or 255 bytes
+of noise. `_unit_name_or_empty` admits only systemd's own valid-unit-name set (alphanumerics and `:-_.\@`) within
+`UNIT_NAME_MAX`, and anything else yields the absent field rather than a recorded value: a string that is not a unit
+name is not attribution. Field injection into the journald datagram is closed in `_journal_entry`, which sanitizes every
+value and so cannot emit the newline that would terminate a field early; the reader's allowlist is what keeps a rejected
+value from being *recorded* as a `?`-substituted one.
+
+A rejection is logged at `WARNING` with the peer pid and the truncated value — the level malformed peer input takes
+here. Nothing a host does in the ordinary way produces one (systemd cannot name a unit outside that set), so the record
+is the only trace that something wrote the delegated cgroup subtree directly; a silent `''` would be indistinguishable
+from the routine absent case. The routine case itself — a peer with no `user@<uid>.service` component in its cgroup
+at all — returns earlier and stays silent.
 
 journald's stream protocol reads a `MESSAGE` and the `<N>` priority and stamps its own `_` fields, so a custom field
 does not reach the journal over stderr. The daemon sends **one datagram** to `/run/systemd/journal/socket`
