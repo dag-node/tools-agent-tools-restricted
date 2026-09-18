@@ -777,8 +777,17 @@ the pin, the pin directory, the shipped key, nor the library is agent-writable) 
 
 `handback.sh` covers the handback daemon's own record, and what it asserts of the session unit is the fail direction:
 an unreadable cgroup leaves the field **absent**, and a newline in an agent-named path is replaced by the sanitizer,
-so it does not open a second session-unit field in the newline-delimited protocol. The transport case skips
-where an `AF_UNIX` datagram send is refused, since a datagram that never left is not evidence about the daemon.
+so it does not open a second session-unit field in the newline-delimited protocol. The value's own reader is driven
+with it, because the cgroup component it reads is a directory name the kernel lets the sandbox account choose: each
+character class systemd itself may put in a unit name must be **accepted** (or the allowlist rejects a real host)
+and each shape systemd would never produce — an escape sequence, a control character, a space, a component shaped like
+a field assignment, one over `UNIT_NAME_MAX` — must read as no unit **and** be recorded at `WARNING` with the peer pid,
+while the routine absent case stays silent, or the record stops marking anything out on a host with peers outside a user
+manager. The sanitizer is asserted over the **message** too, driven through the pure builder, so the property belongs
+to the function assembling the protocol bytes and not to the discipline of its callers. The transport case skips
+where an `AF_UNIX` **bind or** datagram send is refused — a confined session is such a host — and the skip covers
+the bind rather than sitting beside it, since a raise there would cost every later case its result and read
+to the harness as a driver that never ran.
 
 `selinux-groups.sh` pins the optional-group registry (`selinux-groups.lib.sh`, shared by `ai-tools-admin selinux`
 and `install-selinux.sh`): the four-field accessors (including the `stability` field, guarding the regression

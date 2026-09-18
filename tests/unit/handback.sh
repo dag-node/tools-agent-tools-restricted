@@ -51,7 +51,7 @@ namespace = {"__name__": "ai_tools_handback_probe"}
 with open(daemon_path) as handle:
     exec(compile(handle.read(), daemon_path, "exec"), namespace)
 
-for name in ("_audit", "_journal_entry", "_journal_send", "_peer_user_unit"):
+for name in ("_audit", "_journal_entry", "_journal_send", "_peer_user_unit", "_unit_name_or_empty"):
     if name not in namespace:
         sys.exit(2)  # installed daemon predates the fields -> report as skip
 
@@ -117,6 +117,18 @@ report("TEST-HB-04-no-forgery",
 # absent: the value is attribution, and the uid check is what authorizes a request.
 real_open = builtins.open
 fixture = os.path.join(testdir, "cgroup")
+
+# A cgroup DIRECTORY name is held to no systemd rule -- the kernel takes any byte but NUL and '/' -- and the session's
+# manager delegates a subtree the sandbox account may mkdir in, so this component is agent-influenceable. What the
+# reader admits is systemd's own valid-unit-name set within UNIT_NAME_MAX; each crafted row in the cases list is a way
+# a forged component could reach the operator's terminal or the record's own field, and each must read as NO unit.
+LONG = "a" * 300
+
+
+def under_manager(component):
+    return "0::/user.slice/user-995.slice/user@995.service/app.slice/%s\n" % component
+
+
 cases = [
     ("0::/user.slice/user-1000.slice/user@1000.service/app.slice/claude-x.service\n",
      "claude-x.service", "a session service under the user manager"),
@@ -127,6 +139,16 @@ cases = [
     ("0::/user.slice/user-995.slice/user@995.service/session.slice/dbus.socket\n",
      "", "a unit that is neither a service nor a scope"),
     ("", "", "an empty cgroup file"),
+    # Accepted: every character systemd itself may put in a unit name, so the allowlist does not reject a real host.
+    (under_manager("ai-tools-codex-65490.service"), "ai-tools-codex-65490.service", "a real session unit name"),
+    (under_manager("getty@tty1.service"), "getty@tty1.service", "a template instance"),
+    (under_manager("dev-disk-by\\x2duuid-0f3.service"), "dev-disk-by\\x2duuid-0f3.service", "an escaped unit name"),
+    # Refused: each is a directory name the kernel accepts and systemd's own unit-name validator rejects.
+    (under_manager("evil\x1b[31m.service"), "", "an escape sequence in the component"),
+    (under_manager("a\tb.service"), "", "a control character in the component"),
+    (under_manager("AI_TOOLS_SESSION_UNIT=x.service"), "", "a component shaped like a field assignment"),
+    (under_manager("with space.service"), "", "a space in the component"),
+    (under_manager(LONG + ".service"), "", "a component over UNIT_NAME_MAX"),
 ]
 failures = []
 for text, want, label in cases:
@@ -150,25 +172,82 @@ report("TEST-HB-06-fallback",
 
 # The transport itself. Bind the socket the override names and assert the bytes arrive; a host
 # that refuses an AF_UNIX datagram send reports a skip, since an absent datagram is not evidence
-# about the daemon.
+# about the daemon. The BIND is refused on the same hosts as the send (a confined session is one),
+# so it is inside the skip rather than outside it: raising there would abort the driver and cost
+# every case after this one its result, which the harness reads as the driver never having run.
 listener = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-listener.bind(socket_path)
-listener.settimeout(5)
 try:
-    sent = namespace["_journal_send"]("notice", "a datagram", (("AI_TOOLS_VERB", "SETGID"),))
-    if not sent:
-        print("TEST-HB-07-transport SKIP the AF_UNIX datagram send is refused here")
-    else:
-        arrived = listener.recv(65536).decode("utf-8", "replace").splitlines()
-        report("TEST-HB-07-transport",
-               "MESSAGE=a datagram" in arrived
-               and "PRIORITY=5" in arrived
-               and "AI_TOOLS_VERB=SETGID" in arrived,
-               repr(arrived))
-except socket.timeout:
-    report("TEST-HB-07-transport", False, "the send reported success and nothing arrived")
-finally:
+    listener.bind(socket_path)
+except OSError as exc:
+    print("TEST-HB-07-transport SKIP the AF_UNIX bind is refused here (%s)" % exc.strerror)
     listener.close()
+    listener = None
+if listener is not None:
+    listener.settimeout(5)
+    try:
+        sent = namespace["_journal_send"]("notice", "a datagram", (("AI_TOOLS_VERB", "SETGID"),))
+        if not sent:
+            print("TEST-HB-07-transport SKIP the AF_UNIX datagram send is refused here")
+        else:
+            arrived = listener.recv(65536).decode("utf-8", "replace").splitlines()
+            report("TEST-HB-07-transport",
+                   "MESSAGE=a datagram" in arrived
+                   and "PRIORITY=5" in arrived
+                   and "AI_TOOLS_VERB=SETGID" in arrived,
+                   repr(arrived))
+    except socket.timeout:
+        report("TEST-HB-07-transport", False, "the send reported success and nothing arrived")
+    finally:
+        listener.close()
+
+# A rejected component is the only trace that something wrote the delegated cgroup subtree directly, so it is RECORDED
+# rather than silently absent -- at warning, the level malformed peer input takes here, naming the peer pid. The routine
+# absent case (no user@<uid>.service component at all) must stay silent, or a host with any peer outside a user
+# manager warns on every served request and the record stops marking anything out.
+recorded = []
+real_audit = namespace["_audit"]
+namespace["_audit"] = (lambda level, msg, **kwargs: recorded.append((level, msg)))
+audit_cases = [
+    (under_manager("evil\x1b[31m.service"), True, "a forged component"),
+    (under_manager(LONG + ".service"), True, "an over-long component"),
+    ("0::/user.slice/user-1000.slice/session-3.scope\n", False, "a peer outside any user manager"),
+    (under_manager("claude-x.service"), False, "a well-formed unit name"),
+]
+audit_failures = []
+for text, want_record, label in audit_cases:
+    del recorded[:]
+    with real_open(fixture, "w") as handle:
+        handle.write(text)
+    builtins.open = (lambda name, *args, **kwargs:
+                     real_open(fixture) if str(name).startswith("/proc/")
+                     else real_open(name, *args, **kwargs))
+    try:
+        unit_of(4743)
+    finally:
+        builtins.open = real_open
+    if want_record:
+        if len(recorded) != 1:
+            audit_failures.append("%s: recorded %r" % (label, recorded))
+            continue
+        level, msg = recorded[0]
+        if level != "warning" or "4743" not in msg:
+            audit_failures.append("%s: got %r" % (label, (level, msg)))
+    elif recorded:
+        audit_failures.append("%s: recorded %r and should not have" % (label, recorded))
+namespace["_audit"] = real_audit
+report("TEST-HB-08-rejection-recorded", not audit_failures, "; ".join(audit_failures))
+
+# The rejected value reaches the record through _audit's own sanitizer, so the forged bytes cannot survive into
+# the journald datagram as a field of their own. Driven through the real _audit path, with the builder as the oracle.
+crafted = lines_of("warning",
+                   "rejected malformed cgroup unit name (pid 4743, characters outside the unit-name set): "
+                   "x\nAI_TOOLS_SESSION_UNIT=forged.service",
+                   (("AI_TOOLS_RESULT", ""),))
+report("TEST-HB-09-rejection-sanitized",
+       "AI_TOOLS_SESSION_UNIT=forged.service" not in crafted
+       and not any(line.startswith("AI_TOOLS_SESSION_UNIT=") for line in crafted)
+       and "PRIORITY=4" in crafted,
+       repr(crafted))
 PY
 RC=0
 OUT="$(python3 "${DRIVER}" "${DAEMON}" "${TESTDIR}" 2>&1)" || RC=$?
