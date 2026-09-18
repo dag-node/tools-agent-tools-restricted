@@ -227,16 +227,12 @@ in [docs/install/from-source.md](docs/install/from-source.md).
 Licensed under the **GNU Affero General Public License v3.0 only**
 (`AGPL-3.0-only`). See [`LICENSE`](LICENSE) for the full text.
 
-**Claude Code is separate.** This license covers this repository's own source —
+**The agents are separate.** This license covers this repository's own source —
 the sandboxing, install, and CLI machinery. `ai-tools-admin system bootstrap`
-installs Claude Code (`@anthropic-ai/claude-code`) from npm at your own
-bootstrap step; it is a separate Anthropic product under its own terms,
-which this repository neither vendors nor redistributes. See [Anthropic's
-Claude Code](https://github.com/anthropics/claude-code).
-
-Some files in the tree are under other licenses. Each one states
-which in an `SPDX-License-Identifier` header, and [`REUSE.toml`](REUSE.toml)
-supplies the license and copyright for every file that does not.
+installs each enabled agent's package from npm at your own bootstrap step;
+each agent is its vendor's product under its own terms, which this repository
+neither vendors nor redistributes. [Agents](docs/agents/index.md) names each
+package.
 
 Contributions require a Contributor License Agreement, handled by [CLA
 Assistant](https://cla-assistant.io/) when you open a pull request. See
