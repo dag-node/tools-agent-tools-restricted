@@ -197,25 +197,40 @@ reset_npm_link
 # That is a vantage, not a state the host is in, so it is a `runuser` and not a skip (tests.rule.md). Unprivileged, this
 # process is already the vantage the assertion is about and drives the library directly. The library is sourced fresh
 # in the inner shell, since what is under test is the caller's own credentials against the directory mode.
-chmod 0555 "${VERSION_DIR}/bin"
 if [[ "${EUID}" -ne 0 ]]; then
+    chmod 0555 "${VERSION_DIR}/bin"
     relink "${ELF_TARGET}" "${FCONTEXT}"
     chmod 0755 "${VERSION_DIR}/bin"
     refused "an unwritable bin directory" MSG-A3S3
 elif ! command -v runuser >/dev/null 2>&1; then
-    chmod 0755 "${VERSION_DIR}/bin"
     skip "an unwritable bin directory" "runuser unavailable"
 else
-    UNWRITABLE_ERR="${TESTDIR}/relink-unwritable.err"
-    RC=0
-    # shellcheck disable=SC2016  # $1..$5 are the inner shell's positionals, passed after `_`
-    OUT="$(runuser -u "${PROJECTS_USER}" -- bash -c '
-        source "$1" || exit 9
-        ai_tools_relink_launcher "$2" "$3" "$4" "$5"' _ \
-        "${LIB}" "${VERSION_DIR}" "${LAUNCHER}" "${ELF_TARGET}" "${FCONTEXT}" 2>"${UNWRITABLE_ERR}")" || RC=$?
-    ERR="$(<"${UNWRITABLE_ERR}")"
-    chmod 0755 "${VERSION_DIR}/bin"
-    refused "an unwritable bin directory" MSG-A3S3
+    # The fixture is built by root, so its directories carry root's umask and `mktemp -d` gives the fixture root 0700 --
+    # neither of which the projects user can traverse. Every other case in this file is driven by root, which traverses
+    # regardless, so the tree is opened for reading HERE, immediately before the one case that reads it as somebody
+    # else. `a+rX` adds execute on directories alone, so the vendor binary keeps the mode the resolver asks about and no
+    # plain file gains one.
+    chmod -R a+rX "${FIXTURE_ROOT}"
+    chmod 0555 "${VERSION_DIR}/bin"
+    # The precondition, asserted rather than assumed: the resolver refuses a target it cannot resolve with the SAME code
+    # it uses for one that is not executable, so a tree this account cannot read would report a refusal that looks like
+    # the case passing for the wrong reason (MSG-C4F6 where MSG-A3S3 is the claim).
+    if ! runuser -u "${PROJECTS_USER}" -- test -x "${VERSION_DIR}/${ELF_TARGET}"; then
+        chmod 0755 "${VERSION_DIR}/bin"
+        skip "an unwritable bin directory" \
+             "${PROJECTS_USER} cannot read the fixture as executable, so the write is not what would refuse"
+    else
+        UNWRITABLE_ERR="${TESTDIR}/relink-unwritable.err"
+        RC=0
+        # shellcheck disable=SC2016  # $1..$5 are the inner shell's positionals, passed after `_`
+        OUT="$(runuser -u "${PROJECTS_USER}" -- bash -c '
+            source "$1" || exit 9
+            ai_tools_relink_launcher "$2" "$3" "$4" "$5"' _ \
+            "${LIB}" "${VERSION_DIR}" "${LAUNCHER}" "${ELF_TARGET}" "${FCONTEXT}" 2>"${UNWRITABLE_ERR}")" || RC=$?
+        ERR="$(<"${UNWRITABLE_ERR}")"
+        chmod 0755 "${VERSION_DIR}/bin"
+        refused "an unwritable bin directory" MSG-A3S3
+    fi
 fi
 
 finish
