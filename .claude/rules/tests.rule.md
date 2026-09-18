@@ -888,9 +888,13 @@ a fresh host records, the refusal a same-version rewrite earns (the pin left byt
 the forced-reinstall commands named), and the re-pin a version change produces — the observed tier's stated limit,
 asserted so that changing it is a decision rather than a drift. Every input is a fixture through the root-only hooks,
 since a wrong checksum written into the real pin refuses every launch on the host until the next reconcile,
-and the helper's second half is switched off at its own probe (a `selinuxenabled` stub exiting non-zero)
-with a `semanage` stub beside it as the assertion that no policy-store write was attempted — the same line the rest
-of the suite draws around the host's SELinux policy.
+and the helper's second half is switched off at the probe the labelling library reads (a `getenforce` stub answering
+`Disabled`) with a `semanage` stub beside it as the assertion that no policy-store write was attempted — the same line
+the rest of the suite draws around the host's SELinux policy. The stubs are placed where a 0755 file is visible
+as executable, since bash's `PATH` search asks `access(2)` and a `noexec` mount answers false, so a stub under such
+a `/tmp` is passed over and the real command runs — a fixture rule left in the host's policy store. The file therefore
+asserts before its first run that `command -v` under the helper's `PATH` resolves to the stubs and stops when it does
+not, and reads the switch back from the helper's own inactive line after the run.
 
 `perms.sh` is the **single source** for the deployed-artifact permission assertions (every installed file
 and directory's owner/group/mode): `install.sh` does not carry a parallel checker — `sudo ./install.sh check-perms`

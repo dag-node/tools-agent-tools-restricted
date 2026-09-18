@@ -21,9 +21,13 @@
 # Everything is a fixture: the manifest directory, the operator config, the launcher directory, and all three record
 # directories are redirected through the root-only test hooks, so the host's own pins are never read or written --
 # which matters more here than in most files, since corrupting a real pin refuses every launch on this host until
-# the next reconcile. The SELinux half is switched off at its own probe (a `selinuxenabled` stub that exits non-zero),
-# so the labelling this helper would otherwise perform cannot reach the policy store; the semanage stub beside it is
-# the assertion that it did not. Run as root via sudo.
+# the next reconcile. The SELinux half is switched off at the probe the labelling library reads (a `getenforce` stub
+# answering `Disabled`), so the labelling this helper would otherwise perform cannot reach the policy store;
+# the semanage stub beside it is the assertion that it did not. The stubs need a directory where a 0755 file is VISIBLE
+# as executable: bash's PATH search asks access(2), which a noexec mount answers false, so a stub under such a /tmp is
+# passed over and the real command runs in its place -- a fixture rule in the host's policy store. The testdir is used
+# when it qualifies and a directory beside the operator's home otherwise, and the switch is asserted to have taken
+# before the first run and read back from the helper's own line after it. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -52,11 +56,29 @@ launcher_dir="${TESTDIR}/bin"
 pin_dir="${TESTDIR}/pins"
 label_dir="${TESTDIR}/labels"
 stale_dir="${TESTDIR}/stale"
-stub_bin="${TESTDIR}/stub-bin"
 package_dir="${TESTDIR}/toolchain/lib/node_modules/@test/pinprobe"
-mkdir -p "${agents_dir}" "${launcher_dir}" "${pin_dir}" "${label_dir}" "${stale_dir}" \
-         "${stub_bin}" "${package_dir}/bin"
+mkdir -p "${agents_dir}" "${launcher_dir}" "${pin_dir}" "${label_dir}" "${stale_dir}" "${package_dir}/bin"
 chmod 0755 "${agents_dir}" "${launcher_dir}" "${pin_dir}" "${label_dir}" "${stale_dir}"
+
+# x_bit_visible <dir> : succeed when a 0755 file created in <dir> answers `-x`, which is what bash's PATH search asks.
+x_bit_visible() {
+    local probe="$1/.x-probe.$$" ok=1
+    printf '' > "${probe}" 2>/dev/null || return 1
+    chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
+    [[ -x "${probe}" ]] && ok=0
+    rm -f "${probe}"
+    return "${ok}"
+}
+stub_bin="${TESTDIR}/stub-bin"
+mkdir -p "${stub_bin}"
+if ! x_bit_visible "${stub_bin}"; then
+    mk_fixture_dir stub_bin "${PROJECTS_HOME}" pinstubs 2>/dev/null || stub_bin=""
+fi
+if [[ -z "${stub_bin}" ]] || ! x_bit_visible "${stub_bin}"; then
+    skip "observed-pin reconciliation" "no directory here reports a 0755 file as executable (a noexec mount), so the SELinux half cannot be stubbed off"
+    finish; exit
+fi
+chmod 0755 "${stub_bin}"
 
 # The agent: no release_manifest_url, so the reconciliation takes the observed tier. Laid
 # out under `lib/node_modules/<package>` because that is what the refusal's remedy is composed from -- the directory
@@ -76,12 +98,13 @@ EOF
 printf 'AI_TOOLS_AGENTS=pinprobe\n' > "${TESTDIR}/operator.conf"
 chmod 0644 "${agents_dir}/pinprobe.conf" "${TESTDIR}/operator.conf"
 
-# The SELinux half, switched off at the one probe that decides it, so the labelling cannot reach the policy store
-# on an enforcing host. `semanage` is stubbed beside it as the assertion rather than the mechanism: a run that reaches
-# it records a line, and the file fails.
-printf '#!/bin/sh\nexit 1\n' > "${stub_bin}/selinuxenabled"
+# The SELinux half, switched off at the probe that decides it: relabel.lib.sh reads `getenforce`, and `Disabled` is
+# the answer that returns the library before its first `semanage` call, so the labelling cannot reach the policy store.
+# `semanage` is stubbed beside it as the assertion rather than the mechanism: a run that reaches it records a line,
+# and the file fails.
+printf '#!/bin/sh\necho Disabled\n' > "${stub_bin}/getenforce"
 printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/semanage.log"\nexit 0\n' "${TESTDIR}" > "${stub_bin}/semanage"
-chmod 0755 "${stub_bin}/selinuxenabled" "${stub_bin}/semanage"
+chmod 0755 "${stub_bin}/getenforce" "${stub_bin}/semanage"
 
 # run_reconcile : run the deployed helper over the fixture host, printing its combined output. Its exit status is
 # the caller's to read.
@@ -97,6 +120,15 @@ run_reconcile() {
         "${HELPER}" 2>&1
 }
 
+# The switch is asserted BEFORE the first run, and the file stops here when it did not take: a run whose PATH search
+# passes over the stubs registers the fixture's rule in the host's policy store, which no teardown here removes.
+resolved_stubs="$(env PATH="${stub_bin}:${PATH}" bash -c 'command -v getenforce semanage' 2>/dev/null || true)"
+if [[ "${resolved_stubs}" != "${stub_bin}/getenforce"$'\n'"${stub_bin}/semanage" \
+   || "$("${stub_bin}/getenforce" 2>/dev/null)" != Disabled ]]; then
+    fail "the stubs are not what the helper's PATH resolves (got: ${resolved_stubs}) -- no reconciliation run"
+    finish; exit
+fi
+
 # ── (1) A fresh host records what is installed ───────────────────────────────────────────────
 out="$(run_reconcile)" && rc=0 || rc=$?
 if (( rc != 0 )); then
@@ -105,6 +137,13 @@ elif [[ ! -f "${pin_dir}/pinprobe" ]]; then
     fail "the first reconciliation wrote no pin"
 else
     pass "a fresh entrypoint is pinned"
+fi
+# Read back from the helper's own report: the line it prints when the labelling library found no type to assign.
+if grep -qF 'SELinux confinement inactive' <<<"${out}"; then
+    pass "the labelling half read the stubbed probe and did not run"
+else
+    fail "the labelling half ran despite the stubbed probe -- inspect the host's policy store for a pinprobe rule: ${out}"
+    finish; exit
 fi
 if grep -q '^KIND=observed$' "${pin_dir}/pinprobe" 2>/dev/null \
    && grep -q '^VERSION=1\.2\.3$' "${pin_dir}/pinprobe" 2>/dev/null; then
@@ -173,7 +212,7 @@ else
     pass "re-recording the pin clears the stale mark"
 fi
 
-# ── The policy store was never touched ───────────────────────────────────────────────────────
+# ── No write reached the policy store ────────────────────────────────────────────────────────
 # The point of the stubs: this file drives a helper whose second half writes SELinux file-context rules, and a suite
 # that registered one against a fixture path could strand it in the host's policy on a failed run.
 if [[ -s "${TESTDIR}/semanage.log" ]]; then
