@@ -760,6 +760,14 @@ ERROR.
 no operators configured \-\- run: sudo ai\-tools\-admin operators add <user>
 .SS ai-tools-audit
 .TP
+.B MSG-C6E6
+NOTICE.
+no audit daemon on this host, so an agent started from inside a session leaves no kernel record
+.TP
+.B MSG-H2B5
+WARNING.
+an agent entrypoint was started from inside a running session, which no launch gate saw
+.TP
 .B MSG-K9C5
 ERROR.
 ai\-tools\-audit must run as root: the trail it reads is 700 root:root
@@ -775,6 +783,10 @@ unknown option: $1
 .B MSG-T3T7
 WARNING.
 cannot load ${LOG_LIB} \-\- refusing to print log text unsanitized
+.TP
+.B MSG-V8Z9
+NOTICE.
+the SELinux rule that records an agent started from inside a session is not in force, so no such start is recorded
 .TP
 .B MSG-Y3M7
 ERROR.

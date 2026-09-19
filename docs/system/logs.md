@@ -12,13 +12,39 @@ sudo ai-tools audit                      # findings in the last 7 days
 sudo ai-tools audit --since '2 days ago' # any window date(1) understands
 ```
 
-It reads both trails and reports what refused, was rejected, was stranded,
+It reads all three trails and reports what refused, was rejected, was stranded,
 or was flagged — a breached secret, a rejected socket peer, a helper timeout,
-a refused launch. It exits non-zero when anything is reported, so it works
-from `cron` or a login banner without its output being parsed. Findings
-from the root-only files and refusals from the session's own journald tag are
-reported **separately**, because only the first is a trail the agent cannot
-write.
+a refused launch, an agent started from inside another session. It exits
+non-zero when anything is reported, so it works from `cron` or a login banner
+without its output being parsed. Findings from the root-only files and refusals
+from the session's own journald tag are reported **separately**, because only
+the first is a trail the agent cannot write.
+
+## An agent started from inside a session
+
+A session can start an agent's binary directly, at its path in the sandbox
+toolchain, and that child runs inside the session it was started from: same
+unit, same confinement, same account. So the launch line and every ownership
+hand-back carry the *parent's* identity, and neither of those two trails tells
+the child apart. The kernel does:
+
+```bash
+sudo ai-tools audit                         # the records, classified
+sudo ausearch -m AVC -ts today | grep -A8 'granted.*execute_no_trans'   # raw
+```
+
+The SELinux policy writes the record: the confinement module audits the one
+access such a start takes, so the kernel logs it and your own launches are not
+in it. No audit rule file is installed. `ai-tools audit` names the agent
+for each record and lists them; it also says plainly when it could not make
+the reading — no audit daemon running, the policy not loaded, or a policy older
+than the rule — rather than showing an empty window.
+
+Both agents also re-run their own binary to reach a tool they bundle — codex
+to apply an edit, Claude Code to search files — and those records are counted
+in one line rather than listed individually. That split reads the name
+the caller passed, so treat the count as noise reduction and the records
+as the evidence.
 
 ## What the agent ran
 

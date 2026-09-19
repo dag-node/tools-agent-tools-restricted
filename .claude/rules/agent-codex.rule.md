@@ -107,6 +107,13 @@ through one of them, which `ai_tools_t`'s `execute_no_trans` on `ai_tools_exec_t
 the real path as `argv[0]` and `exe`, and a shell command is a direct `bash` child of it. That exec is why the grant
 stays in the core module; what else a session may start through it is in [launch](launch.rule.md).
 
+Each such exec passes a **bare** `argv0`, which is what `ai-tools audit` counts rather than reports in the kernel's
+record of it: a dispatch names a tool, where starting an entrypoint from inside a session names a path
+([cli](cli.rule.md)). A release that stages a fifth name is counted on the same rule, with no manifest edit to owe —
+claude-code dispatches `rg`, `ugrep` and `bfs` through its own entrypoint the same way
+([agent-claude-code](agent-claude-code.rule.md)), so this is one shape both agents have rather than a property either
+declares.
+
 ## The wrapper (`codex.sh`)
 
 `/usr/local/bin/codex`, `root:root 0755`, rpm-owned, running as the invoking operator. It is the shared gate library

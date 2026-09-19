@@ -159,6 +159,9 @@ and `ai_tools.te` grants `manage_*_pattern` only for the types it declares for t
 `ai_tools_home_t`, `ai_tools_tmp_t`. None of them appears in the exec chain: the versioned launcher symlink is `bin_t`,
 the agent's package directory `lib_t`, and the entrypoint `ai_tools_exec_t`, on which `ai_tools_t` holds
 `execute_no_trans` plus what `application_domain` gives (entrypoint/read/getattr), and no other permission.
+The `execute_no_trans` grant is the one access the module also audits (`auditallow`, beside the grant in `ai_tools.te`):
+an exec through it is an entrypoint started from inside a session, the kernel writes an AVC `granted` record for each,
+and `ai-tools audit` reads those back ([launch](launch.rule.md), [cli](cli.rule.md)).
 
 A vendored helper a package ships beside its entrypoint keeps `lib_t`, which the domain may **execute** — codex's `rg`,
 `zsh` and `bwrap` all start inside a session, as does every `bin_t` file under `corecmd_exec_bin` — so what the entry

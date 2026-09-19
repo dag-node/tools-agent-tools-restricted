@@ -247,15 +247,28 @@ on a claude child under a codex session and a codex child under a claude session
   under the sandbox home is readable by every session of any agent, which is the shared-account boundary
   of [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9), and the route does not add to it.
 
-The grant stays because codex uses it: codex is a multi-call binary that execs its own entrypoint under staged names
-([agent-codex](agent-codex.rule.md)), so a domain without `execute_no_trans` on the entry type breaks codex's edits.
-Claude Code does not exec its own binary — a session is one `claude.exe` process, and a subagent runs inside it.
+The grant stays because each installed agent uses it: a multi-call binary execs its own entrypoint to reach a tool it
+bundles — codex under staged names ([agent-codex](agent-codex.rule.md)), claude-code as `rg`, `ugrep` and `bfs`
+([agent-claude-code](agent-claude-code.rule.md)) — so a domain without `execute_no_trans` on the entry type breaks
+ordinary work for codex and for claude-code alike.
 
-What the route defeats is the sentence that a session is started by an operator in an approved project. No record today
-tells such a child from its parent: the audit trail carries the parent's launch and the child's handbacks
-under the parent's unit. An agent that has met the wrapper's refusal in its session declines the real path
-on the shipped orientation's conduct rule ([ref-section-g6c4](../../CLAUDE.md#ref-section-g6c4)); one that has not, runs
-it. That is conduct, not a control.
+What the route defeats is the sentence that a session is started by an operator in an approved project. **The kernel
+records it.** The core policy module carries `auditallow ai_tools_t ai_tools_exec_t:file execute_no_trans;` beside
+the grant, so the kernel writes an AVC `granted` record for each exec the grant permits — and only for those: a session
+launch enters the domain through `entrypoint` and the domain transition, a different permission, so a launch is not
+recorded and the record does not need telling apart from one. The rule is part of the policy, so a reload —
+`semodule -i`, and every `semanage fcontext` a claim or a relabel writes — replaces it with itself; a syscall audit rule
+keyed on the same two labels is not the detector, because the kernel treats an LSM field it can no longer evaluate
+as a match and such a rule degrades at the first reload to recording every `execve` on the host. `ai-tools audit` reads
+the records back ([cli](cli.rule.md)): it resolves each exec'd file to an agent through the installed manifests'
+`entrypoint_fcontext`, then counts rather than itemizes the one ordinary case — a record carrying a bare `argv0`
+into an agent's own entrypoint, which is that agent dispatching a tool it bundles. Everything else is a finding.
+The trail is the kernel's, so the session can neither suppress a record nor add one, and what the record does **not**
+establish is who called `execve`: a caller chooses its own `argv0`, so the split is a noise filter over evidence that is
+written either way. The rest is unchanged — the child still runs in the parent's unit, so the launch line
+and the handbacks carry the parent's identity. An agent that has met the wrapper's refusal in its session declines
+the real path on the shipped orientation's conduct rule ([ref-section-g6c4](../../CLAUDE.md#ref-section-g6c4)); one
+that has not, runs it. That is conduct, not a control.
 
 ## Operator-configured launch inputs
 

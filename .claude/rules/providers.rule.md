@@ -165,6 +165,16 @@ what label a file gets or which paths may start a session — `ai-tools-run` sti
 at `<version-dir>/bin/<launcher>` and requires the resolved target to stay inside that version directory (see
 [launch](launch.rule.md)).
 
+## `entrypoint_fcontext` is what the audit reader resolves a record to
+
+The kernel records an exec of an agent entrypoint made from inside a session — the SELinux core module audits that one
+access — and `ai-tools audit` resolves each record's exec'd file to an agent by matching it against every installed
+manifest's `entrypoint_fcontext`, anchored, as the relabel matches it ([launch](launch.rule.md), [cli](cli.rule.md)).
+The manifest decides how a record is **labelled**, never whether one is reported: an `exe` no installed manifest claims
+is a finding naming the file, so a manifest the reader cannot read yields more findings rather than fewer. Which records
+that reader folds into a count is its own business, read from the record rather than declared per agent — a multi-call
+binary's dispatch of a tool it bundles is one of them, and no manifest key enumerates those names.
+
 ## `release_manifest_url` / `release_key` / `release_fingerprint` — the agent declares its own provenance
 
 An agent whose vendor publishes signed per-release checksums declares three optional fields,

@@ -494,11 +494,12 @@ else
     fi
 fi
 
-# ── the audit reader and the trail it reports are out of reach ───────────────────────────────
-# ai-tools.audit presents the root-only file sink as EVIDENCE, and that claim rests on this vantage: the sandbox account
-# can neither read the trail (so it cannot know what an operator is about to be shown) nor write it (so it cannot plant
-# or erase a finding), and cannot run or alter the reader itself. Asserted from the agent's side, because that is
-# the side the claim is
+# ── the audit reader and the trails it reports are out of reach ──────────────────────────────
+# ai-tools.audit presents the root-only file sink and the kernel's audit log as EVIDENCE, and that claim rests on this
+# vantage: the sandbox account can neither read either trail (so it cannot know what an operator is about to be shown)
+# nor write it (so it cannot plant or erase a finding), and cannot run or alter the reader itself. The kernel-record
+# section's predicate is a rule in the loaded SELinux policy, so the policy store is asserted beside the log: an account
+# that could write it could retire the rule. Asserted from the agent's side, because that is the side the claim is
 # about.
 _audit_bin=/usr/local/libexec/ai-tools/ai-tools-audit
 if [[ ! -x "${_audit_bin}" ]]; then
@@ -516,6 +517,21 @@ else
     else
         pass "the agent can neither read the audit trail nor run or alter its reader"
     fi
+    # The kernel's trail and the policy store that holds the rule, each asserted where the host keeps it (the audit log
+    # directory is 700 root:root, and so is the active policy store).
+    for _kernel_path in /var/log/audit /var/lib/selinux/targeted/active; do
+        [[ -e "${_kernel_path}" ]] || continue
+        _kernel_breach=""
+        runuser -u "${SANDBOX_USER}" -- test -r "${_kernel_path}" 2>/dev/null \
+            && _kernel_breach="the agent can read ${_kernel_path}"
+        runuser -u "${SANDBOX_USER}" -- test -w "${_kernel_path}" 2>/dev/null \
+            && _kernel_breach="the agent can write ${_kernel_path}"
+        if [[ -n "${_kernel_breach}" ]]; then
+            fail "the kernel record is not out of the agent's reach: ${_kernel_breach}"
+        else
+            pass "the agent can neither read nor write ${_kernel_path}"
+        fi
+    done
 fi
 
 # ── the stop path is out of reach from inside a session ──────────────────────────────────────

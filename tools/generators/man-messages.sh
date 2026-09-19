@@ -34,6 +34,7 @@ ai_tools_msg_error=ERROR die_stop_usage=ERROR reject_with_usage=ERROR coded_refu
 warn=WARNING _ai_tools_provider_warn=WARNING _ai_tools_conf_warn=WARNING say_warn=WARNING
 ai_tools_msg_warn=WARNING _ai_tools_toolchain_warn=WARNING
 note=NOTICE say_notice=NOTICE notice=NOTICE _ai_tools_toolchain_notice=NOTICE
+ai_tools_msg_notice=NOTICE
 '
 
 # Source file to the component an operator names it by: the four commands that are spelled differently from their file,
