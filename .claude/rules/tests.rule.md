@@ -396,7 +396,12 @@ section that reports the same read: the CLI is sourced as the projects user with
 and `AI_TOOLS_LAUNCHER_DIR` pointed at fixtures, and every read is asserted in its fail direction — any enabled agent's
 link passes, an enabled set with no link refuses naming the bootstrap command, an empty allowlist, an allowlisted name
 with no manifest, and a group-writable manifest directory each refuse with the resolver's reason (a link present
-for the agent that directory names notwithstanding), and the report names each agent as the gate decided it.
+for the agent that directory names notwithstanding), and the report names each agent as the gate decided it. Its last
+section drives the entrypoint half of that report through two further fixture hooks, the pin and stale-mark directories,
+where what must not happen is the opposite of a refusal: a pin a reconciliation declined to re-record is left standing
+and reads, on its own, as a verification that succeeded. So the tier line is asserted as a control, then the mark
+replacing it and counting toward the exit status, then a mark saying anything but `stale` leaving the line as it was —
+the record grammar deciding, rather than the file's presence.
 
 `launch-wrapper.sh` drives the gate library every agent's wrapper runs (`launch-wrapper.lib.sh`, see
 [launch](launch.rule.md)), one gate at a time and each in its fail direction, as the account the case is

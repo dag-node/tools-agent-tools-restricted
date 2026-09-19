@@ -9,11 +9,18 @@
 # refused -- with a link present, since the gate reads the set before the link; and the report says per agent
 # what the gate decided.
 #
+# Its last section drives the entrypoint half of the same report, where the failure is silent in the other direction:
+# a reconciliation that REFUSED to re-record a pin leaves that pin exactly as it was, so it reads on its own
+# as a verification that succeeded, beside an agent whose every launch is already refused. The mark the refusal writes
+# is what tells the report otherwise, and the cases are the control (a pin alone renders its tier line), the mark
+# replacing that line and counting toward the exit status, and a mark saying anything but `stale` leaving it alone.
+#
 # The CLI carries a sourced-guard, so this loads it as the projects user (it refuses root and the sandbox account)
-# with three hooks pointed at fixtures in the testdir: AI_TOOLS_AGENTS_DIR and AI_TOOLS_OPERATOR_CONF (the resolver's,
-# the pattern unit/providers.sh uses) and AI_TOOLS_LAUNCHER_DIR (the link directory, the hook relabel.lib.sh reads
-# for the same directory). Fixtures are root-owned, 0644 and 0755 -- anything else the trust predicate refuses,
-# which one case drives on purpose. Run as root via sudo (suite contract); no agent package needs to be installed.
+# with five hooks pointed at fixtures in the testdir: AI_TOOLS_AGENTS_DIR and AI_TOOLS_OPERATOR_CONF (the resolver's,
+# the pattern unit/providers.sh uses), AI_TOOLS_LAUNCHER_DIR (the link directory, the hook relabel.lib.sh reads
+# for the same directory), and the pin and stale-mark directories, so no case reads or writes the host's own records.
+# Fixtures are root-owned, 0644 and 0755 -- anything else the trust predicate refuses, which one case drives on purpose.
+# Run as root via sudo (suite contract); no agent package needs to be installed.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
@@ -35,7 +42,8 @@ fi
 
 mktestdir
 AGENTS_DIR="${TESTDIR}/agents.d"; CONF="${TESTDIR}/operator.conf"; LINKS="${TESTDIR}/bin"
-mkdir -m 0755 "${AGENTS_DIR}" "${LINKS}"
+PINS="${TESTDIR}/entrypoint-pin.d"; STALES="${TESTDIR}/entrypoint-stale.d"
+mkdir -m 0755 "${AGENTS_DIR}" "${LINKS}" "${PINS}" "${STALES}"
 
 # manifest <name> <launcher> <default_enable> : one agent manifest, root-owned 0644, so the trust predicate admits it.
 manifest() {
@@ -58,6 +66,7 @@ reset_fixtures() { rm -f "${AGENTS_DIR}"/*.conf "${LINKS}"/*; chmod 0755 "${AGEN
 call() {
     runuser -u "${PROJECTS_USER}" -- env \
         AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
+        AI_TOOLS_ENTRYPOINT_PIN_DIR="${PINS}" AI_TOOLS_ENTRYPOINT_STALE_DIR="${STALES}" \
         AI_TOOLS_MSG_PLAIN=1 \
         bash -c 'cli="$1"; fn="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99; "${fn}"' _ "${CLI}" "$1" 2>&1
 }
@@ -133,6 +142,61 @@ if [[ "${rc}" -eq 0 ]] && grep -q 'no agent enabled' <<<"${out}"; then
     pass "status reports an empty enabled set as such, without counting it as a fault"
 else
     fail "status on an empty enabled set (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+
+# ── (5) A pin a reconciliation refused to re-record is never rendered as a good one ── The refusal leaves the pin
+# exactly as it was -- that staleness is what makes the next launch refuse -- so the pin still carries a VERSION
+# and a VERIFIED date and reads, on its own, as a verification that succeeded. What tells the reports otherwise is
+# the mark written beside it, and the failure this section exists for is silent: a green UNCHANGED beside an agent every
+# launch of which is already refused. Both records are fixtures here, written in the grammar the root writer uses,
+# and read through the deployed library's own hooks.
+#
+# `status_entrypoints` is what renders both, so it is what is driven: the pin alone first, as the control that the tier
+# line is reached at all, then the same pin with the mark.
+pin_record() {
+    printf '# fixture pin\nAGENT=%s\nVERSION=%s\nSHA256=%s\nKIND=%s\nVERIFIED=%s\n' \
+        "$1" "$2" "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" "$3" \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${PINS}/$1"
+    chmod 0644 "${PINS}/$1"
+}
+# stale_record <agent> <version> <reason> [state] : the mark a refused re-record leaves. <state> defaults to `stale`,
+# the one value that means a refusal.
+stale_record() {
+    printf '# fixture stale mark\nAGENT=%s\nSTATE=%s\nVERSION=%s\nREASON=%s\nDETECTED=%s\n' \
+        "$1" "${4:-stale}" "$2" "$3" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${STALES}/$1"
+    chmod 0644 "${STALES}/$1"
+}
+
+reset_fixtures; rm -f "${PINS}"/* "${STALES}"/*
+manifest alpha la yes; link la; pin_record alpha 1.2.3 observed
+rc=0; out="$(call status_entrypoints)" || rc=$?
+if [[ "${rc}" -eq 0 ]] && grep -q 'UNCHANGED' <<<"${out}"; then
+    pass "an observed pin with no mark renders its tier line (the control for the case below)"
+else
+    fail "an observed pin did not render UNCHANGED (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+
+stale_record alpha 1.2.4 tamper
+rc=0; out="$(call status_entrypoints)" || rc=$?
+if grep -q 'PIN STALE' <<<"${out}" && ! grep -q 'UNCHANGED' <<<"${out}"; then
+    pass "a stale mark replaces the tier line: the refused pin is never rendered as UNCHANGED"
+else
+    fail "a stale observed pin still rendered its tier line: $(head -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+[[ "${rc}" -ne 0 ]] \
+    && pass "a stale pin counts toward the report's exit status, the state in which every launch is refused" \
+    || fail "status_entrypoints exited 0 over a stale pin"
+says "the stale line names the installed version the refusal was about" '1\.2\.4' "${out}"
+says "the stale line names the reconcile command" 'entrypoints relabel' "${out}"
+
+# A mark whose STATE is anything else is not a refusal, and must not turn the tier line red: the reader is a record
+# grammar, so an unrecognised value reads as "no mark" rather than as one.
+stale_record alpha 1.2.4 tamper cleared
+rc=0; out="$(call status_entrypoints)" || rc=$?
+if [[ "${rc}" -eq 0 ]] && grep -q 'UNCHANGED' <<<"${out}" && ! grep -q 'PIN STALE' <<<"${out}"; then
+    pass "a mark that does not say stale leaves the tier line as it was"
+else
+    fail "a non-stale mark changed the rendering (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
 fi
 
 finish
