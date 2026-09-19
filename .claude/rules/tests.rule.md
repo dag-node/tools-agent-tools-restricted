@@ -497,10 +497,14 @@ drives the empty-set verdict the updater reads once the resolver printed an empt
 and an allowlist none of whose names resolved, reads `fault` with the path and the owner and mode named on one line,
 while an empty allowlist, an empty manifest directory, and a set of `default_enable=no` manifests read `none` —
 the split that decides whether the updater exits `1` or maintains `npm` and exits `0`. Its last section pins
-the managed-file reading the two status reports share: the pure verdict over a byte-identical, an edited, an absent
-and a symlinked file (each way the comparison cannot be made reads `unknown`, never either answer), and the manifest
-reader that turns `managed_files` into (live, reference) pairs and refuses a path that is not absolute, since
-the reference is composed from its basename.
+the managed-file reading the two status reports share: the pure verdict over a byte-identical, an edited, an absent,
+a symlinked and a directory-shaped file (each way the comparison cannot be made reads `unknown`, never either answer),
+and the manifest reader that turns `managed_files` into (live, reference) pairs, refusing an entry that is not a plain
+name under `/etc/<agent>/` and a name already paired, since the reference is composed from that name. The write beside
+them is driven the same way, and every case there is about which file is destroyed: only one proven byte-identical
+to its reference is removed, an edit and an uncomparable file are moved aside under the dated `.retired` name,
+and a move that cannot be made leaves the file where it is — that last case as the **projects user**, since root ignores
+the directory mode the refusal turns on.
 
 `claude-prompt.sh` and `claude-endpoint.sh` are the runtime half of the custom system prompt and custom API endpoint
 (see [launch](launch.rule.md) and [providers](providers.rule.md)). Each drives its resolver over a root-only base-dir

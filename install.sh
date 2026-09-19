@@ -2255,6 +2255,39 @@ do_install() {
 
 # ── uninstall ──────────────────────────────────────────────────────────────────
 
+# retire_managed_files -- retire every installed agent's managed files (the configuration its product reads
+# from /etc/<agent>/, ai-tools-providers(5)) before the manifests that name them and the pristine copies they are
+# compared against are removed. A file that still matches the copy this package shipped is deleted; a file the host
+# edited, or one that cannot be compared, is moved aside as a dated `.bak` sidecar -- the treatment rpm gives an edited
+# %config(noreplace) file, and here the only copy of what the host configured. The decision and the write are
+# ai_tools_managed_file_retire's, so the suite drives them against fixtures; this reports what it did.
+#
+# Best-effort by the same rule as the rest of this seam: providers.lib.sh is sourced from the deployed tree,
+# and an install too broken to carry it retires nothing rather than guessing which files those are.
+retire_managed_files() {
+    local prlib=/usr/local/lib/ai-tools/providers.lib.sh
+    local agents_dir=/usr/local/lib/ai-tools/agents.d
+    [[ -r "${prlib}" && -d "${agents_dir}" ]] || return 0
+    # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/providers.lib.sh
+    source "${prlib}" 2>/dev/null || return 0
+    declare -F ai_tools_agent_managed_files >/dev/null 2>&1 || return 0
+    declare -F ai_tools_managed_file_retire >/dev/null 2>&1 || return 0
+    local manifest agent live reference outcome
+    for manifest in "${agents_dir}"/*.conf; do
+        [[ -e "${manifest}" ]] || continue
+        agent="${manifest##*/}"; agent="${agent%.conf}"
+        while IFS=$'\t' read -r live reference; do
+            [[ -n "${live}" ]] || continue
+            outcome="$(ai_tools_managed_file_retire "${live}" "${reference}")" || continue
+            case "${outcome%% *}" in
+                removed) log "${live} removed (the copy the ${agent} package shipped)" ;;
+                kept)    log "${live} kept as ${outcome#* } (it is not the copy the ${agent} package shipped)" ;;
+            esac
+        done < <(ai_tools_agent_managed_files "${agent}" 2>/dev/null)
+    done
+    return 0
+}
+
 # Disable the nvm-update timer and remove every deployed system and control-plane file. Preserves operator and agent
 # state so a reinstall keeps working: the .nvm toolchain and the bin/claude entrypoint into it,
 # /etc/ai-tools/operator.conf, ~/.config/ai-tools, the ai-tools account, and each agent's own state under its config
@@ -2276,6 +2309,11 @@ do_uninstall() {
     systemctl daemon-reload 2>/dev/null || true
 
     section "Removing files"
+    # First, while the manifests naming each agent's managed files and the pristine copies they are compared against are
+    # both still installed: a file the host edited is kept as a sidecar rather than deleted.
+    log "agent managed files"
+    retire_managed_files
+
     log "system files"
     # Remove the helper and library trees whole: they hold only deployed files, never operator or agent state,
     # so a dir-level removal does not leave a file behind and never drifts out of sync with the install list the way
@@ -2297,11 +2335,10 @@ do_uninstall() {
     rm -f /usr/local/share/man/man5/custom-claude-endpoint.conf.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude /usr/local/bin/codex
-    # Codex's managed files and the skills link, before the library tree that holds the linker goes. The link is removed
-    # only where it is ours (the reverse of the install's four-state check); a host's own /etc/codex/skills,
-    # and a /etc/codex holding anything else, stay.
+    # Codex's skills link (its managed files are already retired, above). The link is removed only where it is ours (the
+    # reverse of the install's four-state check); a host's own /etc/codex/skills, and a /etc/codex holding anything else
+    # -- a host's file, or a sidecar this uninstall wrote -- stay, since the rmdir takes only an empty directory.
     ai_tools_unlink_shared_root /opt/ai-tools/skills /etc/codex/skills /usr/share/ai-tools/skills/README.md
-    rm -f /etc/codex/requirements.toml /etc/codex/managed_config.toml
     rmdir /etc/codex 2>/dev/null || true
     rm -rf /usr/share/ai-tools/codex
     # Units, after the stop/disable. Globs cover the handback socket+service and the relabel path+service in one sweep,

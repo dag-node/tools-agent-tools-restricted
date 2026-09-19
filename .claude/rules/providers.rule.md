@@ -415,7 +415,12 @@ surface **as the agent** and asserts none of it is agent-writable (catching the 
   `ai_tools_managed_file_state <live> <reference>` is the pure verdict beside it — `shipped`, `edited`, `missing`,
   or `unknown` wherever the comparison cannot be made (an unreadable reference, a symlink or a directory on either
   side), so a report never guesses "shipped" over a file it could not read, nor `edited` over a path holding no content.
-  `tests/unit/providers.sh` drives the verdict and the reader.
+  `ai_tools_managed_file_retire <live> <reference>` is the write beside them, the step a from-source uninstall takes
+  over each pair: a file still byte-identical to its reference is removed, and every other state — an edit,
+  or a comparison that cannot be made — is moved aside as `<live>.<YYYYMMDD>.retired` and reported, so the only copy
+  of what a host configured survives the uninstall that no longer ships it. That is `rpm -e`'s treatment of an edited
+  `%config(noreplace)` file, and moving rather than leaving is what keeps a live managed file from naming hook scripts
+  the same uninstall removed. `tests/unit/providers.sh` drives the verdict, the reader and the write.
 - `ai_tools_provider_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` / `baseline` /
   `untrusted`), read-only and side-effect free. The resolvers read it, and so does `ai-tools providers` (see
   [cli](cli.rule.md)), so an operator asking what is enabled and a session being launched consult one implementation.

@@ -317,6 +317,35 @@ ai_tools_managed_file_state() {
     return 0
 }
 
+# ai_tools_managed_file_retire <live> <reference> : remove a managed file whose package is being
+#   uninstalled, keeping what the host made of it. Prints one word, and the sidecar path with it
+#   where one was written: `absent` (nothing is there), `removed` (the live file is byte-identical
+#   to <reference>, so nothing of the host's is lost), `kept <sidecar>` (every other state -- an
+#   edit, or a comparison that cannot be made -- moved aside as <live>.<YYYYMMDD>.retired, the
+#   token this tree gives a file moved rather than deleted, and the treatment rpm gives an edited
+#   %config(noreplace) file on erase). Moving rather than leaving is what keeps a live managed file
+#   from naming hooks this uninstall removed. Returns 1 under MSG-X7C4, printing
+#   nothing and leaving the file where it is, when the move or the removal fails. Only a file
+#   proven to be the shipped one is deleted, so the fail direction is keeping.
+ai_tools_managed_file_retire() {
+    local live="$1" reference="$2" sidecar
+    [[ -e "${live}" || -L "${live}" ]] || { printf 'absent'; return 0; }
+    # The remover's and the mover's own stderr is dropped: either failure is the one refusal below, and an uninstall's
+    # transcript carries one line for it rather than two saying the same thing in two voices.
+    if [[ "$(ai_tools_managed_file_state "${live}" "${reference}")" == shipped ]]; then
+        if rm -f -- "${live}" 2>/dev/null; then
+            printf 'removed'
+            return 0
+        fi
+    elif sidecar="$(ai_tools_conf_sidecar_path "${live}" retired)" && [[ -n "${sidecar}" ]] \
+            && mv -f -- "${live}" "${sidecar}" 2>/dev/null; then
+        printf 'kept %s' "${sidecar}"
+        return 0
+    fi
+    _ai_tools_provider_warn MSG-X7C4 "could not retire the managed file ${live} -- leaving it as it is"
+    return 1
+}
+
 # ai_tools_agent_managed_files <agent> : print "<live>\t<reference>" per file the agent's trusted
 #   manifest names in managed_files -- the live path directly under /etc/<agent>/, the reference
 #   the pristine copy at AI_TOOLS_MANAGED_REFERENCE_DIR/<agent>/ under the same name, so the two

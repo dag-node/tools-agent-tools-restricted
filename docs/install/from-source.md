@@ -268,6 +268,14 @@ the traverse-only parent grant a home-nested project needs), and every
 recovery/reversal path.
 
 To remove everything installed by this script: `sudo ./install.sh uninstall`.
+It keeps what you configured. An agent's managed file you edited — codex's
+`/etc/codex/requirements.toml`, for one — is moved aside
+as `<file>.<YYYYMMDD>.retired` rather than deleted, and the run names each
+sidecar it wrote; a file still matching the copy the package shipped is
+removed. That is what `rpm -e` does with an edited `%config(noreplace)` file,
+and it matters here for a second reason: such a file points at hook scripts
+under `/opt/ai-tools`, which the same uninstall removes, so leaving it live
+would hand a codex you keep a configuration naming scripts that are gone.
 
 ## Files
 

@@ -372,6 +372,72 @@ else
         && pass "an agent declaring no managed_files yields empty output" \
         || fail "claude-code's fixture manifest yielded managed files"
     rm -f "${agents_dir}/managed.conf"
+
+    # Retiring one, the step an uninstall takes over each pair. The live file may be the only copy of what the host
+    # configured, so what every case here is about is which file is destroyed: one proven byte-identical to its
+    # reference, and no other. Everything else -- an edit, a comparison that cannot be made -- is moved aside
+    # under the dated sidecar name, which is the treatment rpm gives an edited %config(noreplace) file on erase.
+    if ! declare -F ai_tools_managed_file_retire >/dev/null 2>&1; then
+        skip "retiring a managed file" "ai_tools_managed_file_retire not defined"
+    else
+        rt="${mf}/retire"; mkdir -p "${rt}"
+        printf 'a = 1\n' > "${rt}/ref.toml"
+
+        printf 'a = 1\n' > "${rt}/shipped.toml"
+        mf_out="$(ai_tools_managed_file_retire "${rt}/shipped.toml" "${rt}/ref.toml")"
+        [[ "${mf_out}" == removed && ! -e "${rt}/shipped.toml" ]] \
+            && pass "retire: a file matching the shipped copy is removed" \
+            || fail "retire: a shipped file read '${mf_out}' and is $([[ -e "${rt}/shipped.toml" ]] && echo present || echo gone)"
+
+        printf 'a = 99  # the host\n' > "${rt}/edited.toml"
+        mf_out="$(ai_tools_managed_file_retire "${rt}/edited.toml" "${rt}/ref.toml")"
+        mf_sidecar="${mf_out#* }"
+        if [[ "${mf_out}" == "kept "* && ! -e "${rt}/edited.toml" ]] \
+                && [[ -f "${mf_sidecar}" ]] && grep -q 'the host' "${mf_sidecar}"; then
+            pass "retire: an edited file is moved aside, the sidecar carrying what the host wrote"
+        else
+            fail "retire: an edited file read '${mf_out}', ${rt} holds $(ls "${rt}" | tr '\n' ' ')"
+        fi
+        [[ "${mf_sidecar}" == "${rt}/edited.toml."*.retired ]] \
+            && pass "retire: the sidecar is the dated .retired name beside the file it moved" \
+            || fail "retire: the sidecar is named '${mf_sidecar}'"
+
+        mf_out="$(ai_tools_managed_file_retire "${rt}/absent.toml" "${rt}/ref.toml")"
+        [[ "${mf_out}" == absent && ! -e "${rt}/absent.toml" ]] \
+            && pass "retire: nothing at the live path reads absent and writes nothing" \
+            || fail "retire: an absent file read '${mf_out}'"
+
+        printf 'a = 1\n' > "${rt}/noref.toml"
+        mf_out="$(ai_tools_managed_file_retire "${rt}/noref.toml" "${rt}/no-such-reference.toml")"
+        [[ "${mf_out}" == "kept "* && ! -e "${rt}/noref.toml" ]] \
+            && pass "retire: a file that cannot be compared is kept, never removed" \
+            || fail "retire: an uncomparable file read '${mf_out}'"
+
+        # The write refusal, driven AS THE PROJECTS USER: root ignores a directory's write bit, so root would complete
+        # the very move this case is about. That is a vantage rather than a state the host is in, so it is a `runuser`
+        # and not a skip. The fixture is opened for reading first, since it was built by root under a 0700 testdir.
+        if ! command -v runuser >/dev/null 2>&1; then
+            skip "retire: an unwritable directory" "runuser unavailable"
+        else
+            mkdir -p "${rt}/locked"
+            printf 'a = 2\n' > "${rt}/locked/f.toml"
+            chmod a+rx "${TESTDIR}" "${mf}"
+            chmod -R a+rX "${rt}"
+            chmod 0555 "${rt}/locked"
+            mf_rc=0
+            mf_out="$(runuser -u "${PROJECTS_USER}" -- bash -c '
+                source "$1" || exit 9
+                ai_tools_managed_file_retire "$2" "$3"' _ \
+                "${LIB}" "${rt}/locked/f.toml" "${rt}/ref.toml" 2>"${rt}/err")" || mf_rc=$?
+            chmod 0755 "${rt}/locked"
+            if [[ "${mf_rc}" -ne 0 && "${mf_rc}" -ne 9 && -z "${mf_out}" && -f "${rt}/locked/f.toml" ]]; then
+                pass "retire: a move that cannot be made leaves the file where it is, printing nothing"
+            else
+                fail "retire: an unwritable directory gave rc ${mf_rc}, stdout '${mf_out}', file $([[ -e "${rt}/locked/f.toml" ]] && echo present || echo GONE)"
+            fi
+            assert_msg MSG-X7C4 "$(cat "${rt}/err")" "the refusal to move a managed file aside is reported"
+        fi
+    fi
 fi
 
 finish
