@@ -189,9 +189,20 @@ cleanup() {
     fi
     # Drop the registry entries first (while the paths still exist, which the helper requires), then remove what we
     # created. Best-effort throughout: cleanup must not turn a reported failure into a crash, and a half-built fixture
-    # must still be removable.
-    "${CLI}" projects unclaim -y --group "${MY_GROUP}" "${PROJ}" >/dev/null 2>&1 || true
-    "${CLI}" projects unclaim -y --group "${MY_GROUP}" "${COPY}" >/dev/null 2>&1 || true
+    # must still be removable. Only a registered path is unclaimed, and an unclaim that fails is reported with its
+    # output and the command that repeats it: what it leaves behind -- the allowlist entry and the project's local
+    # fcontext rule -- is outside the workspace, where no later step removes it, and the copy is never registered
+    # (section 4 runs `ai-tools projects unclaim --force` on it), so a silent attempt on it would hide the one
+    # on the project.
+    local allowlist="${HOME}/.config/ai-tools/allowed-projects" path out line
+    for path in "${PROJ}" "${COPY}"; do
+        grep -qsxF -e "${path}" -e "!${path}" "${allowlist}" || continue
+        if ! out="$("${CLI}" projects unclaim -y --group "${MY_GROUP}" "${path}" 2>&1)"; then
+            note "cleanup: the unclaim of ${path} failed, so its allowlist entry and its SELinux file-context rule stay registered"
+            while IFS= read -r line; do note "  ${line}"; done <<<"${out}"
+            note "cleanup: re-run it by hand: ai-tools projects unclaim -y --group ${MY_GROUP} ${path}"
+        fi
+    done
     safe_rm "${PROJ}"; safe_rm "${COPY}"; safe_rm "${OUTSIDE}"
     # rmdir, not rm -r: it removes the workspace only if the per-project removals emptied it, so anything unexpected
     # still in there is preserved for the operator to look at.
