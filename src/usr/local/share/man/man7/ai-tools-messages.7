@@ -883,6 +883,10 @@ FATAL: owner\-only.lib.sh defines no residue strip
 ERROR.
 the ${agent_name} manifest ${fcontext_refusal}, so ${resolved} would carry no entrypoint label \-\- refusing to repoint ${LINK}
 .TP
+.B MSG-D9K2
+ERROR.
+not a stable launcher path under ${BIN_DIR}: ${TARGET}
+.TP
 .B MSG-G4F4
 ERROR.
 no enabled agent provides the launcher \e"${LAUNCHER}\e" \-\- refusing to repoint ${LINK}
@@ -897,11 +901,15 @@ the launcher directory is missing: ${BIN_DIR}
 .TP
 .B MSG-R6K3
 ERROR.
-cannot resolve the enabled agents (${PROVIDERS_LIB}) \-\- refusing to repoint ${LINK}
+cannot resolve the enabled agents (${PROVIDERS_LIB}) \-\- refusing to change ${LINK}
 .TP
 .B MSG-T8B9
 ERROR.
 target does not exist: ${TARGET}
+.TP
+.B MSG-U2A7
+ERROR.
+refusing to remove ${LINK}: ${remove_refusal}
 .TP
 .B MSG-W5K8
 ERROR.
@@ -1566,6 +1574,10 @@ approved\-projects allowlist not found
 ERROR.
 resolved path '${AI_TOOLS_LAUNCH_EXEC}' contains parent\-directory references
 .TP
+.B MSG-H4E2
+ERROR.
+no session starts while a disabled agent's package is still in the sandbox toolchain: ${joined%, }
+.TP
 .B MSG-K8K2
 ERROR.
 excluded by '!' rule in approved projects list: $(pwd)
@@ -1606,6 +1618,10 @@ cannot resolve working directory
 ERROR.
 cannot load the launch safety library \-\- refusing to start
 .TP
+.B MSG-U9K8
+ERROR.
+cannot load the toolchain library \-\- refusing to start
+.TP
 .B MSG-W2P3
 ERROR.
 excluded by '!' rule in approved projects list: $(pwd)
@@ -1613,6 +1629,11 @@ excluded by '!' rule in approved projects list: $(pwd)
 .B MSG-W4X4
 ERROR.
 refusing to launch \-\- ${cwd} is not fully claimed for the sandbox
+.SS nvm-update
+.TP
+.B MSG-G4Q2
+WARNING.
+could not remove ${AI_TOOLS_BIN}/${launcher} via handback SYMLINK_REMOVE \-\- the ${agent} package is gone and every launch stays refused until the link is; remove it as root: rm \-f ${AI_TOOLS_BIN}/${launcher}
 .SS providers.lib.sh
 .TP
 .B MSG-A3S3
@@ -1671,6 +1692,27 @@ enabled with nothing installed: $(printf '%q' "${requested_name}") is enabled in
 .B MSG-Q6H3
 ERROR.
 Refusing the ${operation}: the target is a protected system directory.
+.SS toolchain.lib.sh
+.TP
+.B MSG-G4M8
+NOTICE.
+removed the ${agent} package from the sandbox toolchain, and left its state directory ${config_dir:+/opt/ai\-tools/${config_dir} }in place \-\- a login or token it stored and the history it kept are readable by every session of every enabled agent until you move that directory out of the sandbox account's reach
+.TP
+.B MSG-J5W4
+WARNING.
+cannot remove $(printf '%q' "${npm_package}") from $(printf '%q' "${version_dir}"): not an npm package name in a version directory \-\- leaving the toolchain as it is
+.TP
+.B MSG-X2B7
+WARNING.
+deferring the removal of ${npm_package} from ${version_dir##*/}: a live session executes from it \-\- it is removed on the next provisioning or update run, and no session starts until then
+.TP
+.B MSG-X7Z9
+WARNING.
+refusing to remove ${npm_package} from ${version_dir##*/}: ${name} is enabled in AI_TOOLS_AGENTS \-\- leaving it as it is
+.TP
+.B MSG-X8F9
+WARNING.
+could not remove ${package_dir} (npm uninstall left it in place) \-\- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re\-run: sudo ai\-tools\-admin system bootstrap
 .SH SEE ALSO
 .BR ai-tools (1),
 .BR ai-tools-admin (8),

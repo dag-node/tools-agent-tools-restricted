@@ -55,12 +55,13 @@ from an oversight:
   under that one account are not kernel-isolated from each other. The scratch
   state a session keeps outside the project is shared between them.
 - **Every agent in the toolchain shares that account too.** A session can start
-  another agent's binary at its path inside the sandbox toolchain, whether
-  or not that agent is still enabled, since taking an agent
-  off `AI_TOOLS_AGENTS` stops it from starting a session and leaves its package
-  in place until the next Node release replaces the toolchain. The child runs
-  inside the parent's session with the parent's confinement, and the files it
-  writes come back to you. What the sandbox holds for one agent, its login
+  another enabled agent's binary at its path inside the sandbox toolchain.
+  Taking an agent off `AI_TOOLS_AGENTS` stops it from starting a session,
+  and the next provisioning run — the nightly update,
+  or `sudo ai-tools-admin system bootstrap` — removes its package; until then
+  no session of any agent starts, and the launch says so. The child runs inside
+  the parent's session with the parent's confinement, and the files it writes
+  come back to you. What the sandbox holds for one agent, its login
   and a custom endpoint token where one is configured, every session of every
   enabled agent can read. A host running more than one agent runs them on one
   trust footing, and a login you give one you have given the others, which is

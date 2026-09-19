@@ -350,6 +350,13 @@ and a key naming more than one agent is answered with a notice, since every agen
 ([ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9)). `tests/unit/providers.sh` holds every shipped agent manifest
 to `default_enable=no` and the shipped set under an absent key to the empty set with verdict `none`.
 
+**The toolchain holds exactly the enabled agents' packages.** A package of an agent whose manifest is installed
+and whose name the enabled set does not carry is *residue*: every path that writes the toolchain removes it, and both
+launch tiers refuse every agent's launch while one is present. The readers, the writer and the callers are
+`toolchain.lib.sh`'s ([updater](updater.rule.md)); what this rule contributes is the set they iterate,
+`ai_tools_installed_agents` minus `ai_tools_enabled_agents`, so a manifest the trust predicate refuses is skipped
+by both readers as it is by the enabled-set reader, and its launcher is refused on its own.
+
 ## The sandbox cannot widen its own surface
 
 The inputs this rule states decide which agents get installed and what environment a session is handed, and the code

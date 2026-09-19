@@ -19,10 +19,11 @@ and the nightly toolchain update maintains it from then on. Without `--agents`
 the bootstrap asks, offering every installed agent. To run Codex beside another
 agent, add its name to the line by hand and re-run the bootstrap; every agent
 named there shares one sandbox account, and [Scope](../about/scope.md) states
-what that shares between them. An agent's package stays in the toolchain
-after you take it off the key, until the next Node release replaces
-the toolchain. Start a session in a claimed project by typing `codex`, as you
-type `claude`.
+what that shares between them. Once you take an agent off the key, the next
+provisioning run — the nightly update,
+or `sudo ai-tools-admin system bootstrap` — removes its package
+from the toolchain, and no session starts until it has. Start a session
+in a claimed project by typing `codex`, as you type `claude`.
 
 Codex needs a login before its first turn. The sandbox has no browser, so use
 the device-code login from inside a session:

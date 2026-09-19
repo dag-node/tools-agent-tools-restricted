@@ -83,6 +83,9 @@ check_file /usr/local/lib/ai-tools/conf.lib.sh               root              r
 # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and nvm-update (both run
 # as the sandbox account) to read the agent manifests; does not carry secrets.
 check_file /usr/local/lib/ai-tools/providers.lib.sh          root              root              644
+# The residue readers and the package removal: 644 root:root, sourced by the wrapper (as the operator), the shim,
+# the updater and the bootstrap's sandbox-account step; reads manifests, edits a tree its caller owns.
+check_file /usr/local/lib/ai-tools/toolchain.lib.sh          root              root              644
 # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by ai-tools-admin
 # and selinux/install-selinux.sh (both root); read-only data, does not carry secrets.
 check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              root              644

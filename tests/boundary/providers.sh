@@ -54,6 +54,12 @@ not_writable /usr/local/lib/ai-tools/conf.lib.sh \
 not_writable /usr/local/lib/ai-tools/providers.lib.sh \
     "rewrite which providers resolve as enabled"
 
+# The library that reads the toolchain for a disabled agent's package and refuses every launch on it, sourced
+# by the wrapper as the operator and by ai-tools-run as the sandbox account. Writable, the agent rewrites the reader
+# to pass residue as clean -- or the writer to remove an enabled agent's package.
+not_writable /usr/local/lib/ai-tools/toolchain.lib.sh \
+    "pass a disabled agent's package as clean, or remove an enabled agent's"
+
 # The library every agent's launch wrapper sources as the operator for the gates a launch passes: the operator gate,
 # the launcher resolution, the allowlist and the claim guard. Writable, the agent rewrites what the wrapper accepts
 # before the drop -- ai-tools-run re-validates the executable, but the allowlist and the claim guard are decided here.

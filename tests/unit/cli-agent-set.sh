@@ -6,8 +6,9 @@
 # not name an agent of its own. Each read is asserted in its fail direction: any enabled agent's link passes the gate;
 # an enabled set with no link refuses, naming the bootstrap command; an empty enabled set refuses with the resolver's
 # reason -- a configuration asking for no agent, an allowlisted name with no manifest, an input the trust predicate
-# refused -- with a link present, since the gate reads the set before the link; and the report says per agent
-# what the gate decided.
+# refused -- with a link present, since the gate reads the set before the link; the report says per agent what the gate
+# decided; and a link left for an agent that is installed and not enabled is reported as residue and counted, being
+# the state every launch is refused in.
 #
 # Its last section drives the entrypoint half of the same report, where the failure is silent in the other direction:
 # a reconciliation that REFUSED to re-record a pin leaves that pin exactly as it was, so it reads on its own
@@ -144,6 +145,26 @@ if [[ "${rc}" -eq 0 ]] && grep -q 'no agent enabled' <<<"${out}"; then
     pass "status reports an empty enabled set as such, without counting it as a fault"
 else
     fail "status on an empty enabled set (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+
+# ── (4b) An installed, not enabled agent whose link exists is residue: reported and counted ── The link is
+# the operator-side read of a package still in the toolchain, the state every launch is refused in (the wrapper reads
+# the same link, the shim the tree), so the line is counted and names the provisioning run. The control: the same set
+# with that agent's link gone is not reported.
+reset_fixtures; manifest alpha la yes; manifest beta lb no; link la; link lb
+rc=0; out="$(call status_provisioning)" || rc=$?
+if [[ "${rc}" -ne 0 ]] && grep -q 'beta is installed but not enabled' <<<"${out}"; then
+    pass "status reports a disabled agent's remaining link as residue and counts it"
+else
+    fail "status residue line (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+says "the residue line names the provisioning run" 'system bootstrap' "${out}"
+reset_fixtures; manifest alpha la yes; manifest beta lb no; link la
+rc=0; out="$(call status_provisioning)" || rc=$?
+if [[ "${rc}" -eq 0 ]] && ! grep -q 'not enabled' <<<"${out}"; then
+    pass "a disabled agent with no link is not residue"
+else
+    fail "status without residue (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
 fi
 
 # ── (5) A pin a reconciliation refused to re-record is never rendered as a good one ── The refusal leaves the pin

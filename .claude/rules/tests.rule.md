@@ -157,12 +157,13 @@ under the same rule (group `manual`), so a tree its removal did not complete is 
 the root that script never takes.
 
 Two fixtures cannot carry the rule and are listed by their fixed paths instead: `integration/ai-tools-run.sh` probes
-entrypoint containment in `/opt/ai-tools/.nvm/versions/node/v0.0.1` and `integration/symlink-helper.sh` probes
-the repoint helper's own containment in `v0.0.2`, because each accepts an entrypoint only at a bare semver version
-directory. No Node release carries either version, so only those tests create them, and each test **fails** when its
-directory already exists: a skip would let residue silently cost the coverage. The teardown is the harness `EXIT` trap,
-which also fires on the `SIGTERM` the per-file timeout sends, so only a `SIGKILL` or a failed `rm` leaves residue
-for the sweep.
+entrypoint containment, and then a disabled agent's package, in `/opt/ai-tools/.nvm/versions/node/v0.0.1`
+and `integration/symlink-helper.sh` probes the repoint helper's own containment in `v0.0.2`, because each accepts
+an entrypoint only at a bare semver version directory. No Node release carries either version, so only those tests
+create them, and each test **fails** when its directory already exists: a skip would let residue silently cost
+the coverage. The teardown is the harness `EXIT` trap, which also fires on the `SIGTERM` the per-file timeout sends,
+so only a `SIGKILL` or a failed `rm` leaves residue for the sweep. The stable launcher directory is a sweep site too:
+`integration/symlink-helper.sh` gives a fixture launcher a link there under the name rule to drive the removal form.
 
 No automated file writes live runtime state. The one place a real hook runs is the manual script, where the Stop sweep
 advances the shared sweep marker under `.claude` as a session's would; the automated suite never moves that marker,
@@ -668,6 +669,23 @@ package and a live handback socket, each half being covered already (`integratio
 cases and their skip. An anchor the read no longer finds **fails**: a refactor that moved either call is
 when the invariant most needs re-asserting.
 
+`toolchain.sh` pins the residue readers and the package removal (`toolchain.lib.sh`, see [updater](updater.rule.md)),
+in each one's fail direction: residue is asserted to be exactly the installed-not-enabled-present set over a synthetic
+manifest pair and a fixture tree — an enabled agent's package does not appear in it, a manifest the trust predicate
+refuses does not, a version directory outside the semver shape is not read — and the link reader the same
+from the operator's vantage. The writer is driven with `npm` stubbed in the fixture version's own `bin`,
+where the library puts it first on `PATH`: it refuses an enabled agent's package with no npm call, defers a package
+a live process executes from (the `/proc` collector stubbed to say so, the pure predicate driven over its table
+and against this shell's own executable as the live control), issues exactly one uninstall with the version directory
+as the prefix for a removal and names the state directory it leaves, and reports an uninstall that left the directory.
+Like `launcher-target.sh` it needs the executable bit visible and takes the same fallback, and it reads one order
+as source: the updater's removal precedes `install_packages`. `bootstrap.sh` reads the bootstrap's the same way —
+the removal after the agent choice and before the version resolve, the first network step. The two launch tiers are
+driven where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent the fixture manifests install
+and the fixture `operator.conf` does not enable, before the executable resolves and fail-closed on a missing library,
+and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside copies
+of the deployed ones, with the package gone as the control. `cli-agent-set.sh` reports and counts the same link.
+
 `codex-package.sh` pins the files `ai-tools-agents-codex-restricted` ships to the seams they plug into, before any host
 installs them ([agent-codex](agent-codex.rule.md)): the manifest through the readers that parse it, with its
 `launcher_target` and `entrypoint_fcontext` asserted to agree by pattern and, where the executable bit is visible,
@@ -854,19 +872,22 @@ the listing before matching it.
 `selinux.sh`): installed-artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end (its allowlist gate,
 `!`-exclusion refusal, fail-closed load of the gate library and, through it, of `safe-paths.lib.sh`, and consultation
 of the protected-paths backstop on the launch CWD), the handback `socket → daemon → helper` chain (including its
-negative paths — unknown verb, wrong/empty/non-absolute/control-character args, and an out-of-allowlist CHOWN all
-refused), the CLI principal guard (refuses root and the sandbox account), `ai-tools-run`'s `AI_TOOLS_AGENT_EXEC` /
-`AI_TOOLS_PROJECT_DIR` re-validation and its entrypoint gates (a bad value — or an entrypoint that does not match its
-pin — is refused before any session launches — including a real sibling binary in the same versioned `bin` directory,
-which is refused because no enabled agent manifest claims that launcher, and a non-semver version directory) plus its
-pinned session-confinement properties (`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the claude-code session-env pins
-(`DISABLE_AUTOUPDATER`, `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE` — asserted by **sourcing** the fragment into the two
-arrays it is contracted to append to, so a fragment that stops appending or appends to a renamed array fails rather than
-silently costing the session its environment), the `settings.json` hook + deny-rule declarations, and SELinux labels
-(the `claude.exe` entrypoint and the handback daemon binary). Every assertion about the shim lives in `ai-tools-run.sh`
-beside it — its input validation, the unit properties it pins, and the session env it sources — so a change to the shim
-has one file to answer to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh` asserts the confinement
-layer is enforcing: when the `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t`
+negative paths — unknown verb, wrong/empty/non-absolute/control-character args, an out-of-allowlist CHOWN,
+and a `SYMLINK_REMOVE` of an enabled agent's link all refused), the launcher symlink helper's repoint and removal forms
+(`symlink-helper.sh`: the removal accepts only a launcher an installed, not enabled manifest claims, driven on a fixture
+launcher's link in the live launcher directory), the CLI principal guard (refuses root and the sandbox account),
+`ai-tools-run`'s `AI_TOOLS_AGENT_EXEC` / `AI_TOOLS_PROJECT_DIR` re-validation and its entrypoint gates (a bad value —
+or an entrypoint that does not match its pin — is refused before any session launches — including a real sibling binary
+in the same versioned `bin` directory, which is refused because no enabled agent manifest claims that launcher,
+and a non-semver version directory) plus its pinned session-confinement properties
+(`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the claude-code session-env pins (`DISABLE_AUTOUPDATER`,
+`CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE` — asserted by **sourcing** the fragment into the two arrays it is contracted
+to append to, so a fragment that stops appending or appends to a renamed array fails rather than silently costing
+the session its environment), the `settings.json` hook + deny-rule declarations, and SELinux labels (the `claude.exe`
+entrypoint and the handback daemon binary). Every assertion about the shim lives in `ai-tools-run.sh` beside it — its
+input validation, the unit properties it pins, and the session env it sources — so a change to the shim has one file
+to answer to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh` asserts the confinement layer is
+enforcing: when the `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t`
 nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is optional). It also
 holds the two entrypoint assertions that need a labelled host — that each agent's declared file-context rule still
 covers what its package installed, and that no link in the exec chain carries a type the confined domain may manage —

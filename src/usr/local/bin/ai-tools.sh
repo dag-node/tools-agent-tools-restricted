@@ -3956,7 +3956,9 @@ status_entrypoint_label() {
 # launcher symlink the bootstrap gate reads (bootstrap's last artifact per agent), so the gate's refusal and this report
 # cannot disagree about which agent lacks its link. An unprovisioned agent and an empty enabled set are reported and not
 # counted: an unfinished install is what this section exists to say, not a fault in a finished one. Returns non-zero
-# only when the enabled agents cannot be read at all, which is a broken install, like a missing service registry.
+# when the enabled agents cannot be read at all, which is a broken install, like a missing service registry,
+# and when an installed agent that is not enabled still has its link (status_residue), the state every launch is refused
+# in.
 status_provisioning() {
     local rec agent_name launcher reason faults=0
     section "Provisioning"
@@ -3967,9 +3969,8 @@ status_provisioning() {
     if (( ${#ENABLED_AGENTS[@]} == 0 )); then
         IFS=$'\t' read -r _ reason <<<"$(ai_tools_agents_empty_verdict)"
         say "  ${C_YEL}no agent enabled${C_RST} -- ${reason}"
-        return 0
     fi
-    for rec in "${ENABLED_AGENTS[@]}"; do
+    for rec in "${ENABLED_AGENTS[@]+"${ENABLED_AGENTS[@]}"}"; do
         IFS=$'\t' read -r agent_name _ launcher <<<"${rec}"
         if agent_provisioned "${launcher}"; then
             ok "${agent_name} provisioned (${launcher})"
@@ -3978,7 +3979,30 @@ status_provisioning() {
         fi
         status_managed_files "${agent_name}" || faults=$(( faults + 1 ))
     done
+    status_residue || faults=$(( faults + 1 ))
     (( faults == 0 ))
+}
+
+# status_residue -- one line per agent this host installed, did not enable, and still holds the stable launcher link
+# of: the operator-side read of a package left in the sandbox toolchain (ai_tools_agent_residue_links,
+# toolchain.lib.sh), which the launch wrapper refuses every launch on from the same link and the shim from the tree.
+# Counted, since the host is in the state where no session starts, and the line names the run that clears it. Returns
+# non-zero for a residue line, and for a library that will not load: the report then has no reading of whether a launch
+# is refused, which is a broken install like a missing registry.
+status_residue() {
+    local toolchain_lib=/usr/local/lib/ai-tools/toolchain.lib.sh agent launcher rc=0
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/toolchain.lib.sh
+    if ! source "${toolchain_lib}" 2>/dev/null || ! declare -F ai_tools_agent_residue_links >/dev/null 2>&1; then
+        say "  ${C_YEL}cannot check the toolchain for a disabled agent's package${C_RST} -- cannot load ${toolchain_lib}; reinstall the ai-tools package"
+        return 1
+    fi
+    while IFS=$'\t' read -r agent launcher; do
+        [[ -n "${agent}" ]] || continue
+        say "  ${C_RED}${agent} is installed but not enabled, and its package is still in the toolchain${C_RST} (${LAUNCHER_DIR}/${launcher})"
+        say "      every launch is refused until it is removed -- run: ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"
+        rc=1
+    done < <(ai_tools_agent_residue_links "${LAUNCHER_DIR}" 2>/dev/null)
+    return "${rc}"
 }
 
 # status_managed_files <agent> -- one line per managed file the agent's manifest names (managed_files,

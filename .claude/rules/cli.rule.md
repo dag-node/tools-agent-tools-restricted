@@ -84,7 +84,10 @@ first, so they stay behind the gate.
 or not, from the same resolver and the same link the gate keys on, so the gate's refusal and the diagnostic cannot
 disagree about which agent lacks its link; an unprovisioned agent and an empty enabled set are reported and not counted
 toward the exit status, since an unfinished install is what the section exists to say, while a resolver that cannot be
-read is a broken install and is counted.
+read is a broken install and is counted. The section closes with the other thing that link says: an agent that is
+installed, **not** enabled, and still has its link is residue (`ai_tools_agent_residue_links`,
+[updater](updater.rule.md)), the state in which every launch is refused, so each such agent is reported
+with the provisioning run that removes its package and is counted, as is a toolchain library that will not load.
 
 ## Operator preflight
 
@@ -349,17 +352,18 @@ an ordinary account read it — a partial view, the file sink being the authorit
   whose wrapper is installed, which enabled agents are provisioned (one line each, from the read the bootstrap gate
   makes — see [Bootstrap preflight](#bootstrap-preflight)) and, under each, every managed file its manifest names
   whose live copy is not the shipped one (`managed_files`, [providers](providers.rule.md): an edited file is reported
-  with its two consequences and not counted, a missing one is counted, since the package is then broken), **where this
-  shell finds each enabled agent's launcher**, then each managed systemd unit (`ai-tools-handback.socket`,
-  `ai-tools-relabel.path` and the `ai-tools-relabel.service` it triggers, and the sandbox account's `nvm-update.timer`
-  and `nvm-update.service`) as OK / SKIPPED / STALE / DOWN / FAILED / not-installed, with the consequence and the exact
-  remedy for anything broken, and a closing **More** block that points at the sibling reports (`providers`,
-  `projects list`, `--help`) without repeating their detail — so it reads as a hub. It resolves
-  through `services.lib.sh` — the **same registry** the launch wrapper's pre-launch health warning reads (`claude.sh`,
-  see [launch](launch.rule.md)) — so the status view and the launch warning never disagree on which units matter
-  or how to fix one. `status` is the one command that **bypasses the bootstrap gate** (see [Bootstrap
-  preflight](#bootstrap-preflight)): a diagnostic must run when things may be broken, so it reports the unprovisioned
-  state rather than being blocked by it.
+  with its two consequences and not counted, a missing one is counted, since the package is then broken), then each
+  installed agent that is not enabled and still has its launcher link (residue, counted: no launch starts until
+  the provisioning run it names removes the package), **where this shell finds each enabled agent's launcher**, then
+  each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path` and the `ai-tools-relabel.service` it
+  triggers, and the sandbox account's `nvm-update.timer` and `nvm-update.service`) as OK / SKIPPED / STALE / DOWN /
+  FAILED / not-installed, with the consequence and the exact remedy for anything broken, and a closing **More** block
+  that points at the sibling reports (`providers`, `projects list`, `--help`) without repeating their detail — so it
+  reads as a hub. It resolves through `services.lib.sh` — the **same registry** the launch wrapper's pre-launch health
+  warning reads (`claude.sh`, see [launch](launch.rule.md)) — so the status view and the launch warning never disagree
+  on which units matter or how to fix one. `status` is the one command that **bypasses the bootstrap gate** (see
+  [Bootstrap preflight](#bootstrap-preflight)): a diagnostic must run when things may be broken, so it reports
+  the unprovisioned state rather than being blocked by it.
 
   The PATH-ordering line is the one reading this report makes that needs **no** privilege and that no other vantage can
   make at all: the CLI runs in the operator's own login shell, so `command -v` there resolves exactly what typing

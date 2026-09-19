@@ -46,9 +46,15 @@ relabels the daemon (`_relabel_helpers`) before any socket restart (`_relabel_ru
 - `CHOWN ARG` → `ai-tools-chown ARG`
 - `SETGID ARG` → `ai-tools-setgid ARG`
 - `SYMLINK ARG` → `ai-tools-launcher-symlink ARG`
+- `SYMLINK_REMOVE ARG` → `ai-tools-launcher-symlink --remove ARG` — the removal of an installed, not enabled agent's
+  stable launcher link, the updater's route once it has removed that agent's package as residue
+  ([updater](updater.rule.md)); the helper refuses an enabled agent's link, so the enabled set cannot be narrowed
+  from the sandbox side through this verb.
 
-Each root helper re-validates the path against the allowlist and the `SANDBOX_USER`-owned guard independently,
-so the daemon dispatches without adding trust of its own.
+Each verb is the argv of one root helper, a helper's form fixed as an option in that argv, so the peer chooses a verb
+and never an option; every verb's argument is an absolute path, which the daemon's pre-filter holds it to. Each root
+helper re-validates the path against the allowlist and the `SANDBOX_USER`-owned guard independently, so the daemon
+dispatches without adding trust of its own.
 
 ## Logging
 

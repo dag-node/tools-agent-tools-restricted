@@ -12,9 +12,11 @@
 #              then:  "OK" LF   |   "ERR" SP REASON LF
 #
 # Verbs:
-#   CHOWN  <abs-path>        -- ownership handback (ai-tools-chown)
-#   SETGID <abs-path>        -- setgid normalisation (ai-tools-setgid)
-#   SYMLINK <versioned-path> -- launcher symlink repoint (ai-tools-launcher-symlink)
+#   CHOWN  <abs-path>            -- ownership handback (ai-tools-chown)
+#   SETGID <abs-path>            -- setgid normalisation (ai-tools-setgid)
+#   SYMLINK <versioned-path>     -- launcher symlink repoint (ai-tools-launcher-symlink)
+#   SYMLINK_REMOVE <stable-path> -- launcher symlink removal, for an installed agent that is not
+#                                   enabled (`ai-tools-launcher-symlink --remove`)
 #
 # Security model:
 #   DAC: socket is 0660 SocketGroup=@SANDBOX_GROUP@ -- only root and @SANDBOX_USER@
@@ -280,10 +282,13 @@ _MAX_ARG = 4096
 # into an unbounded write loop on the socket.  The current helpers emit at most a few lines.
 _MAX_MSG_LINES = 50
 
+# Each verb is the argv of the root helper it dispatches to, the request's argument appended last. A helper with two
+# forms takes its form as a fixed option here, so the peer chooses a verb and never an option.
 _HELPERS = {
-    'CHOWN':   '/usr/local/libexec/ai-tools/ai-tools-chown',
-    'SETGID':  '/usr/local/libexec/ai-tools/ai-tools-setgid',
-    'SYMLINK': '/usr/local/libexec/ai-tools/ai-tools-launcher-symlink',
+    'CHOWN':          ['/usr/local/libexec/ai-tools/ai-tools-chown'],
+    'SETGID':         ['/usr/local/libexec/ai-tools/ai-tools-setgid'],
+    'SYMLINK':        ['/usr/local/libexec/ai-tools/ai-tools-launcher-symlink'],
+    'SYMLINK_REMOVE': ['/usr/local/libexec/ai-tools/ai-tools-launcher-symlink', '--remove'],
 }
 
 
@@ -407,7 +412,7 @@ def main():
     # with the child.
     try:
         result = subprocess.run(
-            [_HELPERS[verb], arg],
+            _HELPERS[verb] + [arg],
             stdin=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             timeout=_HELPER_TIMEOUT,
@@ -419,7 +424,7 @@ def main():
         _send('ERR helper timed out')
         sys.exit(1)
     except (OSError, ValueError) as exc:
-        _audit('error', 'exec %r failed: %s' % (_HELPERS[verb], exc),
+        _audit('error', 'exec %r failed: %s' % (_HELPERS[verb][0], exc),
                verb=verb, path=arg, result='failed')
         _send('ERR exec failed: %s' % exc)
         sys.exit(1)

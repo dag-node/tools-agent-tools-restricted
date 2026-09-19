@@ -13,9 +13,14 @@
 # the version directory the path names, at a path that agent's entrypoint_fcontext covers -- the predicate
 # ai_tools_relink_launcher applies to the same chain (providers.lib.sh).
 #
+# `--remove <stable-launcher-path>` is the second form: it removes /opt/ai-tools/bin/<launcher>, and only for a launcher
+# an INSTALLED manifest claims whose agent is NOT enabled -- the link of a package the updater has just removed
+# as residue (toolchain.lib.sh). The enabled set cannot be narrowed from the sandbox side by this route, and an unknown
+# name is refused, so the links it can remove are exactly those the launch already refuses on.
+#
 # /opt/ai-tools/bin is locked (0551 root:ai-tools), so this root helper is the ONLY way the sandbox updater can move
-# a launcher symlink; it validates its argument strictly, because the caller is the agent-reachable handback socket
-# (SYMLINK verb) or install.sh, never sudo.
+# or remove a launcher symlink; it validates its argument strictly, because the caller is the agent-reachable handback
+# socket (SYMLINK and SYMLINK_REMOVE verbs) or install.sh, never sudo.
 #
 # Deploy:
 #   ```bash
@@ -27,7 +32,10 @@
 set -euo pipefail
 
 readonly BIN_DIR="/opt/ai-tools/bin"
-readonly TARGET="${1:?usage: ai-tools-launcher-symlink <versioned-launcher-path>}"
+MODE=repoint
+if [[ "${1:-}" == --remove ]]; then MODE=remove; shift; fi
+readonly MODE
+readonly TARGET="${1:?usage: ai-tools-launcher-symlink <versioned-launcher-path> | --remove <stable-launcher-path>}"
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/symlink.log. Best-effort -- a no-op
 # fallback keeps the helper working if the lib is missing.
@@ -51,12 +59,19 @@ err() {
     printf 'ai-tools-launcher-symlink: %s\n' "$*" >&2; exit 1
 }
 
-# Authoritative validation of the caller-supplied path: EXACTLY the shape a wrapper resolves -- a single
+# Authoritative validation of the caller-supplied path. A repoint takes EXACTLY the shape a wrapper resolves -- a single
 # vMAJOR.MINOR.PATCH component under the sandbox toolchain, then bin/, then ONE path component, the launcher name.
-# The anchored regex admits no '..' and no extra slashes.
+# A removal takes the stable link's own path: the locked directory, then ONE path component. Each anchored regex admits
+# no '..' and no extra slashes.
 readonly RE='^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/([A-Za-z0-9._-]+)$'
-[[ "${TARGET}" =~ $RE ]] \
-    || err MSG-W5K8 "target is not a versioned launcher path: ${TARGET}"
+readonly REMOVE_RE='^/opt/ai-tools/bin/([A-Za-z0-9._-]+)$'
+if [[ "${MODE}" == remove ]]; then
+    [[ "${TARGET}" =~ $REMOVE_RE ]] \
+        || err MSG-D9K2 "not a stable launcher path under ${BIN_DIR}: ${TARGET}"
+else
+    [[ "${TARGET}" =~ $RE ]] \
+        || err MSG-W5K8 "target is not a versioned launcher path: ${TARGET}"
+fi
 readonly LAUNCHER="${BASH_REMATCH[1]}"
 # The link is NAMED from the target's own basename, so the two can never diverge: this helper cannot be made to point
 # one agent's stable link at another binary.
@@ -69,13 +84,48 @@ readonly LINK="${BIN_DIR}/${LAUNCHER}"
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
 if ! source "${PROVIDERS_LIB}" 2>/dev/null \
-        || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
-    err MSG-R6K3 "cannot resolve the enabled agents (${PROVIDERS_LIB}) -- refusing to repoint ${LINK}"
+        || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_installed_agents >/dev/null 2>&1; then
+    err MSG-R6K3 "cannot resolve the enabled agents (${PROVIDERS_LIB}) -- refusing to change ${LINK}"
 fi
 agent_name=""
 while IFS=$'\t' read -r manifest_agent _ manifest_launcher; do
     [[ "${manifest_launcher}" == "${LAUNCHER}" ]] && agent_name="${manifest_agent}"
 done < <(ai_tools_enabled_agents 2>/dev/null)
+
+# The removal form. The link may go only for a launcher an installed manifest claims whose agent the enabled set does
+# not carry: an enabled agent's link is what its every launch resolves through, and a name no manifest claims is not
+# this helper's to reason about. The removal is what makes the operator's read (the link) agree with the sandbox's (the
+# tree) once the updater has removed the package; a link already absent is the wanted state, and a path that is not
+# a symlink is not something this helper wrote.
+if [[ "${MODE}" == remove ]]; then
+    installed_agent=""
+    while IFS=$'\t' read -r manifest_agent _ manifest_launcher; do
+        [[ "${manifest_launcher}" == "${LAUNCHER}" ]] && installed_agent="${manifest_agent}"
+    done < <(ai_tools_installed_agents 2>/dev/null)
+    remove_refusal=""
+    if [[ -n "${agent_name}" ]]; then
+        remove_refusal="${agent_name} is enabled, so its launcher link stays"
+    elif [[ -z "${installed_agent}" ]]; then
+        remove_refusal="no installed agent manifest claims the launcher \"${LAUNCHER}\""
+    elif [[ -e "${LINK}" && ! -L "${LINK}" ]]; then
+        remove_refusal="it is not a symlink"
+    fi
+    [[ -z "${remove_refusal}" ]] \
+        || err MSG-U2A7 "refusing to remove ${LINK}: ${remove_refusal}"
+    if [[ ! -L "${LINK}" ]]; then
+        ai_tools_log_debug "already absent: ${LINK} (${installed_agent} is installed and not enabled)"
+        printf 'ai-tools-launcher-symlink: already absent: %s\n' "${LINK}"
+        exit 0
+    fi
+    rm -f -- "${LINK}"
+    ai_tools_log_info "removed ${LINK} (${installed_agent} is installed and not enabled)"
+    printf 'ai-tools-launcher-symlink: removed %s\n' "${LINK}"
+    # The unlink lands as a change in the watched bin directory like a repoint does, so the relabel watcher's reconcile
+    # runs and reports that agent's entrypoint as none -- the state it is in.
+    exit 0
+fi
+
 [[ -n "${agent_name}" ]] \
     || err MSG-G4F4 "no enabled agent provides the launcher \"${LAUNCHER}\" -- refusing to repoint ${LINK}"
 

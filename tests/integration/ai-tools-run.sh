@@ -247,6 +247,53 @@ else
     # reaches the refusal.
 fi
 
+section "ai-tools-run: a disabled agent's package in the toolchain refuses every launch"
+
+# The shim reads the tree itself (toolchain.lib.sh) for the package of an agent that is installed and not enabled,
+# and refuses before it validates the executable, under the code the wrapper defines for the same situation. Driven
+# with a fixture manifest directory -- the deployed manifests copied beside one synthetic agent no operator.conf names,
+# read through the root-only AI_TOOLS_AGENTS_DIR hook -- and that agent's package planted in the throwaway v0.0.1
+# version directory the containment case (7) uses and removes (the residue sweep lists it by name). The control runs
+# the same command with the package gone and asserts the NEXT refusal, so a refusal that never read the tree cannot pass
+# as this one.
+if [[ -e "${fake_version_dir:-/opt/ai-tools/.nvm/versions/node/v0.0.1}" ]]; then
+    fail "/opt/ai-tools/.nvm/versions/node/v0.0.1 already exists -- residue of an earlier case; run \`tests/run.sh residue\` and rerun"
+else
+    mktestdir
+    residue_agents="${TESTDIR}/agents.d"
+    mkdir -m 0755 "${residue_agents}"
+    cp /usr/local/lib/ai-tools/agents.d/*.conf "${residue_agents}/" 2>/dev/null || true
+    # A plain basename, not the harness's fixture name: the manifest lives in the testdir, and the resolver's `*.conf`
+    # glob does not match a dotfile.
+    residue_agent="residue-agent"
+    residue_package="@ai-tools-test/${residue_agent}"
+    printf 'npm_package=%s\nlauncher=%s\ndefault_enable=no\n' "${residue_package}" "${residue_agent}" \
+        > "${residue_agents}/${residue_agent}.conf"
+    chmod 0644 "${residue_agents}"/*.conf
+    residue_version_dir="/opt/ai-tools/.nvm/versions/node/v0.0.1"
+    _cleanup+=("${residue_version_dir}")
+    mkdir -p "${residue_version_dir}/lib/node_modules/${residue_package}"
+    chown -R "${SANDBOX_USER}" "${residue_version_dir}" 2>/dev/null || true
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    read_back="$(env AI_TOOLS_AGENTS_DIR="${residue_agents}" bash -c \
+        'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_installed_agents' 2>/dev/null | cut -f1 | grep -cx "${residue_agent}" || true)"
+    if [[ "${read_back}" != 1 ]]; then
+        fail "the fixture manifest does not read back through the resolver, so the residue case cannot be driven"
+    else
+        out="$(run_crun AI_TOOLS_AGENTS_DIR="${residue_agents}" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
+        refused "ai-tools-run refuses every launch while a disabled agent's package is in the toolchain" MSG-H4E2 "${rc}" "${out}"
+        if grep -q "${residue_agent}" <<<"${out}" && grep -q 'system bootstrap' <<<"${out}"; then
+            pass "the refusal names the agent and the provisioning run that removes its package"
+        else
+            fail "the refusal does not name the agent and the bootstrap command: $(head -c 300 <<<"${out}" | tr '\n' '|')"
+        fi
+        rm -rf "${residue_version_dir}"
+        out="$(run_crun AI_TOOLS_AGENTS_DIR="${residue_agents}" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
+        refused "with the package gone the same launch reaches the executable check instead" MSG-Z2J9 "${rc}" "${out}"
+    fi
+    rm -rf "${residue_version_dir}"
+fi
+
 section "ai-tools-run: the verified entrypoint is the one exec'd"
 
 # The shim checks the RESOLVED entrypoint (label preflight, and the identity re-check) and must hand systemd that same

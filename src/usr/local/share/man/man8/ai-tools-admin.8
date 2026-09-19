@@ -308,6 +308,13 @@ for the answer, and provisions what it wrote; a menu left unanswered, or
 answered with none, installs Node alone and names the line to set, at exit 0.
 A line already present is not asked about; one naming more than one agent is
 answered with a notice stating what those agents share.
+Next, still before the network is reached, removes from the toolchain the
+package of every installed agent that line does not name, and its launcher
+with it: no session of any agent starts while such a package is present, and
+this command is what the refusal names.
+The agent's own state under
+.I /opt/ai-tools
+stays, and the run says so.
 Then creates the
 .B ai-tools
 account and its
