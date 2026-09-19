@@ -140,7 +140,11 @@ and `ai-tools-bootstrap` and `nvm-update` re-link the versioned launcher at it a
 link on each one) and before the stable symlink is repointed, so the chain a launch resolves ends at the labelled file
 and the entrypoint verifier hashes that same file (see [updater](updater.rule.md)). The write is
 `ai_tools_relink_launcher`: a relative symlink (`../<target>`, npm's own form) created under a temporary name
-and renamed over the link, so the launcher path is never absent. `tests/unit/launcher-target.sh` drives it.
+and renamed over the link, so the launcher path is never absent. What reserves that temporary name is the `ln -s`, not
+the `mktemp -u` that composed it: `-u` prints a name and creates nothing, while `ln -s` fails on a name that already
+exists rather than following or truncating what is there, so a collision — with an earlier run's leftover,
+or with a file placed in that directory — is the refusal `MSG-A3S3` reports and never a write to something else.
+`tests/unit/launcher-target.sh` drives it.
 
 `ai_tools_relink_launcher` refuses each input the table lists, reports it under its own code, and leaves npm's link
 in place — a launch then fails closed at the preflight, the state a host with no such key is in:
