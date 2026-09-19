@@ -61,11 +61,12 @@ from an oversight:
   in place until the next Node release replaces the toolchain. The child runs
   inside the parent's session with the parent's confinement, and the files it
   writes come back to you. What the sandbox holds for one agent, its login
-  and a custom endpoint token where one is configured, every session of either
-  agent can read. A host running both agents runs them on one trust footing,
-  and a login you give one you have given the other. Keeping a credential
-  out of the account altogether needs a broker outside it, which is proposed
-  rather than built.
+  and a custom endpoint token where one is configured, every session of every
+  enabled agent can read. A host running more than one agent runs them on one
+  trust footing, and a login you give one you have given the others, which is
+  why the bootstrap enables one agent and a second is a line you write yourself
+  ([Agents](../agents/index.md)). Keeping a credential out of the account
+  altogether needs a broker outside it, which is proposed rather than built.
 - **Operators are trusted.** The model defends the host and its other users
   from the *agent*, not from an operator, who already holds the launch grant.
   `ai-tools projects claim --for <operator>` rests on that: one operator writes

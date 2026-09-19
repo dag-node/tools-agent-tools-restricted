@@ -34,7 +34,7 @@ on the shared shim.
 | `skills_dir` / `subagents_dir` | `skills` / `agents` | where shared assets are symlinked in ([shipped-assets](shipped-assets.rule.md)) |
 | `memory_file` | `CLAUDE.md` | where the shared orientation text is symlinked in — the one filename this product reads as user-scope instructions ([shipped-assets](shipped-assets.rule.md)) |
 | `entrypoint_fcontext` | a regex ending `…/@anthropic-ai/claude-code/bin/claude\.exe` | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
-| `default_enable` | `yes` | the baseline set when `operator.conf` names none |
+| `default_enable` | `no` | the agents' baseline is empty: `ai-tools-bootstrap` writes the enabled set, so this agent runs where the operator chose it ([providers](providers.rule.md)) |
 | `release_manifest_url` / `release_key` / `release_fingerprint` | the vendor's per-release `manifest.json` template under `downloads.claude.ai`, the key file `keys/claude-code.asc` this package ships, and that key's fingerprint | `entrypoint-verify.lib.sh` — proves the installed `claude.exe` is the binary Anthropic published; the fields and the pin they feed are in [providers](providers.rule.md) and [updater](updater.rule.md) |
 
 What `handback=hooks` switches off, and why `config_dir` must match the directory the fragment pins

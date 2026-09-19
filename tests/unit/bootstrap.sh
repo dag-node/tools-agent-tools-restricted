@@ -181,4 +181,204 @@ else
     pass "an unenrolled host is neither read nor reported on"
 fi
 
+# ── choose_agents: which agents the run provisions, decided before the first network step ─────
+# No agent ships enabled, so this is the step that makes a host run one, and every input it reads is driven in its fail
+# direction: an unanswered menu, "none" chosen, and an untrusted config each leave the key unwritten and the run at exit
+# 0 (Node alone); an unknown `--agents` name refuses with the key unwritten; a present key is not asked about and a key
+# naming more than one agent gets the shared-account notice once; the chosen or given names land in the file
+# the resolver reads. The manifests are a synthetic pair (no shipped agent is named, so a literal name in the code path
+# fails here), root-owned because the resolver trusts root-owned manifests alone -- so this section runs as root
+# and skips otherwise. The menu is stubbed: a drawn menu would block on /dev/tty, and which index it returns is
+# the library's own test (unit/msg.sh).
+section "ai-tools-admin system bootstrap: the agent choice (unit)"
+
+PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
+MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
+if [[ "${EUID}" -ne 0 ]]; then
+    skip "agent choice" "the resolver trusts root-owned manifests alone; run as root"
+elif [[ ! -r "${PROVIDERS_LIB}" || ! -r "${MSG_LIB}" ]]; then
+    skip "agent choice" "the helper reads ${PROVIDERS_LIB} and ${MSG_LIB}, which this host has not deployed"
+else
+    AGENTS_DIR="${TESTDIR}/agents.d"
+    CONF_DIR="${TESTDIR}/etc"
+    CONF="${CONF_DIR}/operator.conf"
+    PICK_MARKER="${TESTDIR}/menu-was-drawn"
+    install -d -o root -g root -m 755 "${AGENTS_DIR}" "${CONF_DIR}"
+    printf 'npm_package=@acme/experimental\nlauncher=acme\ndisplay_name=Acme\ndefault_enable=no\n' > "${AGENTS_DIR}/acme.conf"
+    printf 'npm_package=@acme/beta\nlauncher=beta\ndisplay_name=Beta\ndefault_enable=no\n'         > "${AGENTS_DIR}/beta.conf"
+    chmod 0644 "${AGENTS_DIR}"/*.conf
+    export AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}"
+
+    # The shipped template's shape: the key commented under its block, so an in-place rewrite is observable.
+    seed_conf() {
+        rm -f "${PICK_MARKER}"
+        printf '%s\n' '# host options' 'OPERATORS="op"' '' '# The agents this host runs.' "${1:-#AI_TOOLS_AGENTS=\"\"}" > "${CONF}"
+        chmod 0644 "${CONF}"; chown root:root "${CONF}"
+    }
+    # stub_pick <index|none> : the menu answers <index>, or ends unanswered (no terminal, closed input, three misses)
+    # on `none`. Either way it records that it was drawn, which is what the not-asked cases assert against.
+    stub_pick() {
+        printf 'ai_tools_msg_pick() { : > "%s"; [[ "%s" == none ]] && return 1; printf "%%s" "%s"; }\n' \
+            "${PICK_MARKER}" "$1" "$1"
+        printf 'ai_tools_msg_block() { :; }\n'
+    }
+    # run_choose <stub-code> <requested> : drive choose_agents in its own bash and echo what it said,
+    # with the function's status on a last `rc=` line -- absent when a die ended the shell. The libraries are sourced
+    # before the stubs, so the helper's own require_msg_lib re-source is a no-op under the include guard and the stub
+    # stands.
+    run_choose() {
+        bash -c '
+            set -euo pipefail
+            # shellcheck source=/dev/null
+            source "$1"
+            # shellcheck source=/dev/null
+            source "$2"
+            eval "$4"
+            # shellcheck source=/dev/null
+            source "$3"
+            declare -F choose_agents >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+            rc=0
+            choose_agents "$5" || rc=$?
+            printf "rc=%s\n" "${rc}"
+        ' _ "${PROVIDERS_LIB}" "${MSG_LIB}" "${HELPER}" "$1" "$2" 2>&1 || true
+    }
+    key_value() { AI_TOOLS_OPERATOR_CONF="${CONF}" bash -c 'source "$1"; ai_tools_conf_get "$2" AI_TOOLS_AGENTS' _ "${PROVIDERS_LIB}" "${CONF}" 2>/dev/null || true; }
+    key_present() { grep -qE '^[[:space:]]*AI_TOOLS_AGENTS[[:space:]]*=' "${CONF}"; }
+
+    # ── (H) An unanswered menu does not enable an agent and does not fail the run ─────────────
+    seed_conf
+    out="$(run_choose "$(stub_pick none)" "")"
+    if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
+        fail "the helper does not define choose_agents when sourced"
+    else
+        assert_msg MSG-X3M9 "${out}" "an unanswered menu is reported as no agent chosen"
+        if grep -qx 'rc=0' <<<"${out}" && ! key_present && [[ -e "${PICK_MARKER}" ]]; then
+            pass "an unanswered menu leaves the key unwritten and returns 0 (Node alone)"
+        else
+            fail "unanswered menu: $(grep '^rc=' <<<"${out}" || echo 'no rc'), key present=$(key_present && echo yes || echo no), drawn=$([[ -e "${PICK_MARKER}" ]] && echo yes || echo no)"
+        fi
+        if grep -qF 'sudo ai-tools-admin system bootstrap' <<<"${out}"; then
+            pass "the warning names the re-run"
+        else
+            fail "the warning does not name the re-run (${out})"
+        fi
+
+        # ── (I) The chosen agent is written in place, and one agent does not draw a notice ─────
+        seed_conf
+        out="$(run_choose "$(stub_pick 2)" "")"
+        if grep -qx 'rc=0' <<<"${out}" && [[ "$(key_value)" == "beta" ]]; then
+            pass "the chosen option's agent is written as AI_TOOLS_AGENTS"
+        else
+            fail "chose 2 (beta): $(grep '^rc=' <<<"${out}" || echo 'no rc'), key '$(key_value)' (${out})"
+        fi
+        if [[ "$(grep -c 'AI_TOOLS_AGENTS' "${CONF}")" -eq 1 && "$(wc -l < "${CONF}")" -eq 5 ]]; then
+            pass "the commented default is rewritten in place under its comment block"
+        else
+            fail "the write did not land in place: $(tr '\n' '|' < "${CONF}")"
+        fi
+        if ! grep -q 'MSG-C8W2' <<<"${out}"; then
+            pass "one agent chosen draws no shared-account notice"
+        else
+            fail "a single agent drew the shared-account notice"
+        fi
+
+        # ── (N) "None now" is the last option and does not enable an agent ───────────────────
+        seed_conf
+        out="$(run_choose "$(stub_pick 3)" "")"
+        assert_msg MSG-X3M9 "${out}" "the none option is reported as no agent chosen"
+        if grep -qx 'rc=0' <<<"${out}" && ! key_present; then
+            pass "the none option leaves the key unwritten and returns 0"
+        else
+            fail "none option: $(grep '^rc=' <<<"${out}" || echo 'no rc'), key present=$(key_present && echo yes || echo no)"
+        fi
+
+        # ── (J) A present key is the operator's declaration: no menu ─────────────────────────
+        seed_conf 'AI_TOOLS_AGENTS="acme"'
+        out="$(run_choose "$(stub_pick 2)" "")"
+        if grep -qx 'rc=0' <<<"${out}" && [[ ! -e "${PICK_MARKER}" && "$(key_value)" == "acme" ]]; then
+            pass "a key naming one agent is left as written and no menu is drawn"
+        else
+            fail "present key: $(grep '^rc=' <<<"${out}" || echo 'no rc'), drawn=$([[ -e "${PICK_MARKER}" ]] && echo yes || echo no), key '$(key_value)'"
+        fi
+        if ! grep -q 'MSG-C8W2' <<<"${out}"; then
+            pass "a key naming one agent draws no shared-account notice"
+        else
+            fail "a single-agent key drew the shared-account notice"
+        fi
+
+        # ── (K) A key naming more than one agent gets the notice, once, and no menu ──────────
+        seed_conf 'AI_TOOLS_AGENTS="acme beta"'
+        out="$(run_choose "$(stub_pick 2)" "")"
+        assert_msg MSG-C8W2 "${out}" "a key naming two agents draws the shared-account notice"
+        if [[ "$(grep -c '^MSG-C8W2$' <<<"${out}")" -eq 1 && ! -e "${PICK_MARKER}" && "$(key_value)" == "acme beta" ]]; then
+            pass "the notice is printed once, the key is left as written, no menu is drawn"
+        else
+            fail "two-agent key: notices=$(grep -c '^MSG-C8W2$' <<<"${out}"), drawn=$([[ -e "${PICK_MARKER}" ]] && echo yes || echo no), key '$(key_value)'"
+        fi
+
+        # ── (L) `--agents` writes the names given, notice once, no menu ───────────────────────
+        seed_conf
+        out="$(run_choose "$(stub_pick 2)" "beta,acme")"
+        if grep -qx 'rc=0' <<<"${out}" && [[ "$(key_value)" == "beta acme" && ! -e "${PICK_MARKER}" ]]; then
+            pass "--agents writes both names in the shared list grammar and draws no menu"
+        else
+            fail "--agents beta,acme: $(grep '^rc=' <<<"${out}" || echo 'no rc'), key '$(key_value)', drawn=$([[ -e "${PICK_MARKER}" ]] && echo yes || echo no)"
+        fi
+        if [[ "$(grep -c '^MSG-C8W2$' <<<"${out}")" -eq 1 ]]; then
+            pass "--agents naming two agents draws the shared-account notice once"
+        else
+            fail "--agents naming two agents drew the notice $(grep -c '^MSG-C8W2$' <<<"${out}") time(s)"
+        fi
+        seed_conf 'AI_TOOLS_AGENTS="acme beta"'
+        out="$(run_choose "$(stub_pick 2)" "acme")"
+        if grep -qx 'rc=0' <<<"${out}" && [[ "$(key_value)" == "acme" ]] && ! grep -q 'MSG-C8W2' <<<"${out}"; then
+            pass "--agents replaces a present key with the names given, and one name draws no notice"
+        else
+            fail "--agents acme over a two-agent key: key '$(key_value)' (${out})"
+        fi
+
+        # ── (M) An unknown `--agents` name refuses with the key unwritten ────────────────────
+        seed_conf
+        out="$(run_choose "$(stub_pick 2)" "acme,bogus")"
+        assert_msg MSG-M2N6 "${out}" "a name with no installed manifest is refused under its code"
+        if ! grep -q '^rc=' <<<"${out}" && ! key_present && [[ ! -e "${PICK_MARKER}" ]]; then
+            pass "the refusal ends the run with the key unwritten and no menu drawn"
+        else
+            fail "unknown name: $(grep '^rc=' <<<"${out}" || echo 'run ended'), key present=$(key_present && echo yes || echo no), drawn=$([[ -e "${PICK_MARKER}" ]] && echo yes || echo no)"
+        fi
+        if grep -qF 'bogus' <<<"${out}" && grep -qF 'acme beta' <<<"${out}"; then
+            pass "the refusal names the unknown name and the installed set"
+        else
+            fail "the refusal does not name what was unknown against what is installed (${out})"
+        fi
+        seed_conf
+        out="$(run_choose "$(stub_pick 2)" ",")"
+        assert_msg MSG-X8K6 "${out}" "a value naming no agent is refused as a valueless --agents"
+
+        # ── (O) An untrusted operator.conf is neither asked about nor written ────────────────
+        seed_conf
+        chmod 0666 "${CONF}"
+        out="$(run_choose "$(stub_pick 2)" "")"
+        if grep -qx 'rc=0' <<<"${out}" && [[ ! -e "${PICK_MARKER}" ]] && ! key_present; then
+            pass "an untrusted operator.conf draws no menu and takes no write"
+        else
+            fail "untrusted config: $(grep '^rc=' <<<"${out}" || echo 'no rc'), drawn=$([[ -e "${PICK_MARKER}" ]] && echo yes || echo no), key present=$(key_present && echo yes || echo no)"
+        fi
+        chmod 0644 "${CONF}"
+
+        # ── (P) No manifest installed: no menu, Node alone ────────────────────────────────────
+        seed_conf
+        empty_dir="${TESTDIR}/empty.d"; install -d -o root -g root -m 755 "${empty_dir}"
+        out="$(AI_TOOLS_AGENTS_DIR="${empty_dir}" run_choose "$(stub_pick 1)" "")"
+        if grep -qx 'rc=0' <<<"${out}" && [[ ! -e "${PICK_MARKER}" ]] && ! key_present; then
+            pass "a host with no agent manifest is not asked and provisions Node alone"
+        else
+            fail "no manifests: $(grep '^rc=' <<<"${out}" || echo 'no rc'), drawn=$([[ -e "${PICK_MARKER}" ]] && echo yes || echo no)"
+        fi
+        out="$(AI_TOOLS_AGENTS_DIR="${empty_dir}" run_choose "$(stub_pick 1)" "acme")"
+        assert_msg MSG-M2N6 "${out}" "--agents on a host with no manifest is refused, naming none installed"
+    fi
+    unset AI_TOOLS_AGENTS_DIR AI_TOOLS_OPERATOR_CONF
+fi
+
 finish

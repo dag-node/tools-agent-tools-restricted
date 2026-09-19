@@ -18,13 +18,14 @@ launch contract is [launch](launch.rule.md); the ownership handback and the swee
 [agent-claude-code](agent-claude-code.rule.md), and where the two differ the difference is stated in this rule.
 
 `ai-tools-agents-codex-restricted` ships the wrapper, the manifest, the session-env fragment, the two managed files
-with a pristine copy of each, the two hooks, and the agent's config directory. It ships **disabled**
-(`default_enable=no`): an operator names `codex` in `AI_TOOLS_AGENTS` to provision and launch it. It does not add
-a sudoers rule: it inherits the single `%ai-ops` grant on the shared shim. `install.sh` lays down the same files
-from the source tree, beside the claude-code ones, and runs what the package's `%post` runs — the `3770` mode
-of the config directory, the skills link, the orientation link — so a from-source host carries the package whole; its
-`uninstall` removes the wrapper, the hooks, the managed files and the pristine copies, and the skills link where it is
-managed, leaving the agent's state under `.codex` as it leaves claude's.
+with a pristine copy of each, the two hooks, and the agent's config directory. Like every agent package it ships
+`default_enable=no`: `codex` is provisioned and launched once `AI_TOOLS_AGENTS` names it, which the bootstrap writes
+for the agent an operator chooses ([providers](providers.rule.md)). It does not add a sudoers rule: it inherits
+the single `%ai-ops` grant on the shared shim. `install.sh` lays down the same files from the source tree, beside
+the claude-code ones, and runs what the package's `%post` runs — the `3770` mode of the config directory, the skills
+link, the orientation link — so a from-source host carries the package whole; its `uninstall` removes the wrapper,
+the hooks, the managed files and the pristine copies, and the skills link where it is managed, leaving the agent's state
+under `.codex` as it leaves claude's.
 
 ## The boundary is the host's; codex's configuration is not a security control
 
@@ -59,7 +60,7 @@ is the vendor's; the containment is the host's.
 | `memory_file` | `AGENTS.md` | where the shared orientation text is linked — the global-scope instructions codex reads first ([shipped-assets](shipped-assets.rule.md)) |
 | `managed_files` | `/etc/codex/requirements.toml`, `/etc/codex/managed_config.toml` | `ai-tools status` and `ai-tools-admin status` — which live files to compare against the pristine copies under `/usr/share/ai-tools/codex/` ([providers](providers.rule.md)) |
 | `entrypoint_fcontext` | a regex ending on the same vendor path `launcher_target` names | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
-| `default_enable` | `no` | the baseline set when `operator.conf` names none: codex is not in it |
+| `default_enable` | `no` | every agent manifest's value: the agents' baseline is empty, and the bootstrap writes the enabled set |
 
 Not declared, and why: `skills_dir` and `subagents_dir`, because codex reads skills from its admin scope
 (`/etc/codex/skills`, not a directory inside `CODEX_HOME`) and its sub-agent roles are a different shape from the shared

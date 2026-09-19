@@ -245,6 +245,15 @@ three of its writers (the CLI, the `ai-tools-allowlist` root helper, and `instal
 about what a line matches. A writer with its own matcher is a project that stays reachable after a "removal". The state
 model those functions implement, and the rules they enforce on every caller, are in [cli](cli.rule.md).
 
+It owns the one **write of a `KEY=value` file** for the same reason: `ai_tools_conf_set_key <file> <KEY> <value>`
+replaces the first line that *mentions* the key — a live `KEY=` or the template's commented `#KEY=` default, the same
+match `ai_tools_conf_keys` counts — with `KEY="value"`, in place under its comment block, and appends the line when no
+mention exists, writing beside the file and renaming so a reader sees the old file or the new one. A missing file is
+created at `0644`. It refuses a key outside the identifier charset and a value carrying a newline or a double quote,
+either of which would write a different setting than the one asked for. `ai-tools-admin operators add|remove` write
+`OPERATORS` through it and `ai-tools-bootstrap` writes `AI_TOOLS_AGENTS`; `tests/unit/conf.sh` drives it
+over a template-shaped fixture and asserts every other line byte-identical.
+
 `ai_tools_conf_read` returns present/absent separately from the value, which is what makes `KEY=` (an explicit "none")
 distinguishable from an omitted key — the distinction [Enablement is fail-closed](#enablement-is-fail-closed) turns on.
 `ai_tools_conf_list` overwrites its target array **only** when the key is present, so an override key overrides
@@ -327,9 +336,19 @@ grammar](#the-shared-config-grammar-conflibsh)) gates each kind:
 - **config unreadable, malformed, or untrusted** → treated as absent (the baseline; never "enable all").
 - **a listed name with no installed manifest** → reported and skipped, never guessed.
 
-A `default_enable=yes` is the shipping package's claim that its provider leaves host surface unchanged beyond
-the sandbox (Claude Code); a surface-widening one ships `default_enable=no` and is enabled only when an operator names
-it (dotnet). This is the fail-closed default-when-unset rule.
+For an **integration**, `default_enable=yes` is the shipping package's claim that its provider leaves host surface
+unchanged beyond the sandbox; a surface-widening one ships `default_enable=no` and is enabled only when an operator
+names it (dotnet). This is the fail-closed default-when-unset rule.
+
+**Every agent manifest ships `default_enable=no`**, so the agents' baseline is empty and which agents a host runs is
+the operator's declaration, written once: `ai-tools-bootstrap` asks which **one** installed agent to enable
+when `AI_TOOLS_AGENTS` is absent and writes the line through `ai_tools_conf_set_key` before its first network step,
+or takes the names from `--agents` after checking each against `ai_tools_installed_agents` (see
+[updater](updater.rule.md)). The pure verdict and the grammar are unchanged; what changed is the shipped data.
+An untrusted `operator.conf` therefore does not enable any agent — one step tighter than a baseline that carried one —
+and a key naming more than one agent is answered with a notice, since every agent named runs as the one sandbox account
+([ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9)). `tests/unit/providers.sh` holds every shipped agent manifest
+to `default_enable=no` and the shipped set under an absent key to the empty set with verdict `none`.
 
 ## The sandbox cannot widen its own surface
 
@@ -381,6 +400,9 @@ surface **as the agent** and asserts none of it is agent-writable (catching the 
 - `ai_tools_agent_sweeps_at_exit <handback-declaration>` — the pure handback-driver decision (the [handback
   capability](#the-handback-capability--which-side-converges-ownership)), likewise no I/O and unit-tested.
 - `ai_tools_enabled_agents` — prints `name<TAB>npm_package<TAB>launcher` per enabled installed agent.
+- `ai_tools_installed_agents` — the same line per **installed** agent, enabled or not: every trusted manifest naming
+  an `npm_package`, under the same trust rules. The set the toolchain provisioning offers an operator to choose
+  from, and checks an `--agents` name against, before the enabling key exists.
 - `ai_tools_enabled_integrations` — prints one enabled installed integration name per line.
 - `ai_tools_installed_integrations_declaring <key>` — prints `name<TAB>value` for every **installed** integration
   whose trusted manifest carries `<key>`, enabled or not, under the same trust rules. For a field that describes

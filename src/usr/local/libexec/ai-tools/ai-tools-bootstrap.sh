@@ -9,14 +9,19 @@
 #
 # Agent-agnostic: it does not install a hardcoded agent. Which agents to provision -- their npm package and launcher
 # name -- comes from the per-package manifests under /usr/local/lib/ai-tools/agents.d, gated by operator.conf
-# AI_TOOLS_AGENTS (providers.lib.sh). With no manifests deployed yet it provisions Node alone; a re-run
-# after an ai-tools-agents-* package is installed provisions that agent.
+# AI_TOOLS_AGENTS (providers.lib.sh). No agent ships enabled: every agent manifest is default_enable=no,
+# so with that key absent this command ASKS which one installed agent to enable (choose_agents), writes the line,
+# and provisions what it wrote -- ahead of the first network step, so an unattended run that chose none installs Node
+# alone. `--agents NAME[,NAME...]` is the unattended form of the same choice, checked against the installed manifests
+# before anything is written. A present key is the operator's declaration and is not asked about again; one naming more
+# than one agent is answered with a notice, since every agent named shares one sandbox account. With no manifests
+# deployed yet it provisions Node alone; a re-run after an ai-tools-agents-* package is installed asks.
 #
 # Idempotent: an existing account, nvm install, or Node version is reused, not rebuilt.
 #
 # Run as root (it creates a user and execs npm as @SANDBOX_USER@) through the command that reaches
 # it, which is what an administrator types:
-#       sudo ai-tools-admin system bootstrap
+#       `sudo ai-tools-admin system bootstrap [--agents NAME[,NAME...]]`
 # ai-tools-admin execs it at its installed path; it does not have a name on PATH of its own.
 # nvm defaults to its latest GitHub release (resolved at run time, so it does not rot); set
 # AI_TOOLS_NVM_VERSION=vX.Y.Z to pin it, or AI_TOOLS_NODE_MAJOR to choose the Node line.
@@ -55,6 +60,13 @@ warn() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-bootstrap: warn: %s\n' "$*" >&2
 }
+# notice states a consequence of the configuration this run read or wrote, for the operator at the terminal, at a lower
+# severity than warn: the run is complete and the host is as asked for.
+notice() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-bootstrap: notice: %s\n' "$*" >&2
+}
 # err reports a fault in the HOST that this command found and does not own: the provisioning it was asked for completed,
 # so it says so at the severity the state deserves and leaves the exit status to the steps that provision. die is
 # the other direction -- a fault that ends this run.
@@ -84,6 +96,16 @@ resolve_nvm_version() {
     fi
 }
 
+# require_msg_lib: source the shared message library, which every prompting step here needs once the control plane it
+# ships with is present. Required rather than optional past that gate: a missing lib is a broken install, and a prompt
+# answered through a private fallback would decide differently from every other consumer.
+require_msg_lib() {
+    local msglib=/usr/local/lib/ai-tools/msg.lib.sh
+    [[ -r "${msglib}" ]] || die MSG-H3H3 "control plane present but ${msglib} missing -- reinstall ai-tools"
+    # shellcheck source=/dev/null
+    source "${msglib}"
+}
+
 # configure_git_identity: offer to set the sandbox git identity -- the name/email the agent authors commits with --
 # in the shared control-plane gitconfig. install.sh / the RPM %post seed a safe default (ai-tools@<domain-or-hostname>);
 # this is the one interactive point both install flows share (an RPM %post cannot prompt), so the operator can adopt
@@ -100,10 +122,7 @@ configure_git_identity() {
 
     # The control plane is present (the gitconfig check), so its msg.lib is deployed too; require it like every other
     # prompting consumer -- a missing lib is a broken install, not a skip.
-    local msglib=/usr/local/lib/ai-tools/msg.lib.sh
-    [[ -r "${msglib}" ]] || die MSG-H3H3 "control plane present but ${msglib} missing -- reinstall ai-tools"
-    # shellcheck source=/dev/null
-    source "${msglib}"
+    require_msg_lib
 
     local cur_name cur_email
     cur_name="$(git config --file "${gc}" user.name  2>/dev/null || true)"
@@ -145,6 +164,120 @@ configure_git_identity() {
         *)  log "kept the current sandbox git identity: ${cur_name:-?} <${cur_email:-?}>" ;;
     esac
     log "verify the result in ${gc}"
+}
+
+# write_agents <name>... : set AI_TOOLS_AGENTS in operator.conf to the names given, through the shared writer,
+# so the line replaced is the one every reader of the file matches. The file this writes is the one the resolver reads
+# (AI_TOOLS_OPERATOR_CONF), so what the rest of this run provisions is what was just written. A write that does not read
+# back ends the run: the provision that followed would install the agents of a line the operator did not get.
+write_agents() {
+    install -d -o root -g root -m 755 "${AI_TOOLS_OPERATOR_CONF%/*}"
+    ai_tools_conf_set_key "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS "$*" \
+        || die MSG-J3E6 "could not write AI_TOOLS_AGENTS=\"$*\" into ${AI_TOOLS_OPERATOR_CONF} -- set the line by hand, then re-run: sudo ai-tools-admin system bootstrap"
+}
+
+# shared_account_notice <name>... : say, once per run, what naming more than one agent shares. Every agent runs
+# as the one sandbox account, so the notice is the trail that the operator who wrote the line was told; no confirm is
+# drawn, since the line is already theirs.
+shared_account_notice() {
+    notice MSG-C8W2 "AI_TOOLS_AGENTS names more than one agent ($*): every agent named runs as the one sandbox account, so a login or token one agent stores and the session history it keeps are readable by every session of every agent named, and a session of one can start another's binary inside itself -- see AI_TOOLS_AGENTS in operator.conf(5)"
+}
+
+# choose_agents [names] -- decide which agents this run provisions, ahead of the first network step, and write
+# the decision into operator.conf. Four inputs, in this order:
+#   * <names> (from `--agents`, the unattended form): each checked against the installed manifests
+#     BEFORE the line is written, since a name with no manifest is the updater's `fault` verdict
+#     on every later run; an unknown name refuses the run with no line written. Then the line is
+#     written and the run does not ask.
+#   * a present AI_TOOLS_AGENTS: the operator's declaration, not asked about again; one naming
+#     more than one agent gets the shared-account notice.
+#   * an untrusted operator.conf: not written to -- a root-owned rewrite would bless a file whose
+#     state is a tamper signal -- and the resolver reports the refusal when it reads the set.
+#   * the key absent (the baseline, which is no agent) with at least one installed manifest: one
+#     menu, ai_tools_msg_pick with no default, one option per installed agent and one for none.
+#     The library declines to answer for the user, so this caller decides every no-answer outcome
+#     -- no terminal, closed input, three unanswered attempts, or "none" chosen -- as NO AGENT:
+#     Node is provisioned bare, a coded warning names the line to set and the re-run, and the
+#     run exits 0, since a provision completed with a step outstanding is what the no-agent path
+#     already reports. The menu is single-select: a second agent is a manual edit of the line
+#     and a further run, which is where shared_account_notice meets the operator.
+# Gated on the resolver having loaded (the caller's guarded source) and on a manifest being installed; a host with
+# neither has no agent to choose and the Node-only path says so. The menu draws through msg.lib, required past that
+# gate like every other prompting step.
+choose_agents() {
+    local requested="${1-}" name npm_package display gate sel none_index
+    local -a installed_names=() installed_labels=() requested_names=() unknown=()
+    if declare -F ai_tools_installed_agents >/dev/null 2>&1; then
+        while IFS=$'\t' read -r name npm_package _; do
+            [[ -n "${name}" ]] || continue
+            installed_names+=("${name}")
+            display="$(ai_tools_agent_manifest_field "${name}" display_name 2>/dev/null || true)"
+            installed_labels+=("${display:-${name}}"$'\t'"installs ${npm_package} into the sandbox toolchain")
+        done < <(ai_tools_installed_agents)
+    fi
+
+    if [[ -n "${requested}" ]]; then
+        # The shared list grammar (commas and whitespace); split inline where the resolver, and so conf.lib.sh, did not
+        # load, since every name is then unknown and the refusal that follows has to name them.
+        if declare -F ai_tools_conf_split >/dev/null 2>&1; then
+            ai_tools_conf_split requested_names "${requested}"
+        else
+            read -ra requested_names <<< "${requested//,/ }"
+        fi
+        if (( ${#requested_names[@]} == 0 )); then
+            # The dispatcher's refusal for a valueless `--agents`, met here again for a value that does not name
+            # an agent.
+            printf '%s\n' MSG-X8K6 >&2
+            die "--agents takes a value (NAME[,NAME...]); nothing was written"
+        fi
+        local installed_name found
+        for name in "${requested_names[@]}"; do
+            found=0
+            for installed_name in "${installed_names[@]+"${installed_names[@]}"}"; do
+                [[ "${installed_name}" == "${name}" ]] && { found=1; break; }
+            done
+            (( found )) || unknown+=("${name}")
+        done
+        if (( ${#unknown[@]} > 0 )); then
+            die MSG-M2N6 "--agents names an agent with no installed manifest: ${unknown[*]} (installed: ${installed_names[*]:-none}) -- install its ai-tools-agents-* package, then re-run; nothing was written"
+        fi
+        write_agents "${requested_names[@]}"
+        log "enabled ${requested_names[*]} in ${AI_TOOLS_OPERATOR_CONF} (--agents)"
+        (( ${#requested_names[@]} > 1 )) && shared_account_notice "${requested_names[@]}"
+        return 0
+    fi
+
+    declare -F ai_tools_provider_gate >/dev/null 2>&1 || return 0
+    gate="$(ai_tools_provider_gate AI_TOOLS_AGENTS)"
+    case "${gate}" in
+        allowlist)
+            ai_tools_conf_split requested_names "$(ai_tools_conf_get "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS || true)"
+            (( ${#requested_names[@]} > 1 )) && shared_account_notice "${requested_names[@]}"
+            return 0 ;;
+        untrusted)
+            log "agent choice: ${AI_TOOLS_OPERATOR_CONF} is not trusted, so no agent is enabled and none is asked about (the refusal is reported below)"
+            return 0 ;;
+    esac
+    if (( ${#installed_names[@]} == 0 )); then
+        log "agent choice: no agent manifest is installed under ${AI_TOOLS_AGENTS_DIR} -- provisioning Node only; install an ai-tools-agents-* package, then re-run to choose one"
+        return 0
+    fi
+
+    require_msg_lib
+    ai_tools_msg_block "Choose the agent this host runs" \
+        "No agent runs until AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF} names one. This run writes that line for the agent you pick and installs its package into the sandbox toolchain." \
+        "" \
+        "Every agent named there runs as the one sandbox account and reads what the others store, so a second agent is a deliberate step: add its name to that line by hand and re-run this command. operator.conf(5) states what the account shares."
+    none_index=$(( ${#installed_names[@]} + 1 ))
+    sel="$(ai_tools_msg_pick none "${installed_labels[@]}" \
+            "None now"$'\t'"provision Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF} later")" || sel=""
+    if [[ -z "${sel}" || "${sel}" == "${none_index}" ]]; then
+        warn MSG-X3M9 "no agent chosen -- provisioning Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF}, or pass --agents NAME, then re-run: sudo ai-tools-admin system bootstrap"
+        return 0
+    fi
+    name="${installed_names[$(( sel - 1 ))]}"
+    write_agents "${name}"
+    log "enabled ${name} in ${AI_TOOLS_OPERATOR_CONF}"
 }
 
 # seed_managed_assets_step: (re)seed the ai-tools-managed shared assets from the pristine datadir copies into the config
@@ -241,11 +374,28 @@ report_shadowed_operators() {
 }
 
 # Executed, this provisions a host and needs root. Sourced -- by tests/unit/bootstrap.sh, which drives
-# report_shadowed_operators with its readings stubbed -- it defines its functions and stops here: every statement
-# from the root check on provisions. The executed path is unchanged, that check being the next statement.
+# report_shadowed_operators with its readings stubbed and choose_agents over fixture manifests -- it defines its
+# functions and stops here: every statement from the argument parse on provisions.
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 0
 fi
+
+# The one option, the unattended agent choice; ai-tools-admin parses the same spelling ahead of the exec and refuses
+# the same two shapes under the same codes, so a direct invocation meets the tokens the dispatcher's page documents.
+REQUESTED_AGENTS=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --agents)
+            if [[ $# -lt 2 || -z "$2" ]]; then
+                printf '%s\n' MSG-X8K6 >&2
+                die "--agents takes a value (NAME[,NAME...])"
+            fi
+            REQUESTED_AGENTS="$2"; shift 2 ;;
+        *)  printf '%s\n' MSG-H5Z4 >&2
+            die "unknown argument '$1' (--agents NAME[,NAME...])" ;;
+    esac
+done
+readonly REQUESTED_AGENTS
 
 [[ "${EUID}" -eq 0 ]] || die MSG-X7Z2 "run as root (sudo)"
 command -v curl >/dev/null 2>&1 || die MSG-T7H8 "curl is required to fetch nvm"
@@ -255,6 +405,28 @@ command -v curl >/dev/null 2>&1 || die MSG-T7H8 "curl is required to fetch nvm"
 # so nvm/npm's internal `find` warns "Failed to restore initial working directory". No step here depends on CWD (every
 # path is absolute), and / is always reachable, so move off the caller's directory up front.
 cd /
+
+# The provider resolver -- providers.lib.sh, the seam that keeps this toolchain step agent-agnostic: which agents are
+# installed, which are enabled, and what each one's npm package and launcher are, read from the manifests (agents.d)
+# gated by operator.conf AI_TOOLS_AGENTS. The lib is control-plane, so a bootstrap that PRECEDES control-plane install
+# has none yet: Node is provisioned bare and a re-run picks up the agents. Guarded load: providers.lib.sh returns
+# non-zero without defining a resolver when its own dependency (conf.lib.sh, the shared KEY=value grammar) is missing,
+# so probe the resolver rather than assume the source succeeded -- a bare `source` under `set -e` would abort
+# the provision instead of falling back to Node-only.
+_providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+_providers_loaded=0
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
+if source "${_providers_lib}" 2>/dev/null \
+        && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+    _providers_loaded=1
+else
+    log "provider resolver unavailable -- provisioning Node only; re-run after the control plane and an ai-tools-agents-* package are installed to provision agents"
+fi
+
+# Which agents this run provisions, decided and written before the first network step: a name given on the command line,
+# the line already in operator.conf, or the operator's answer to the menu. An unknown `--agents` name ends the run here,
+# with no package installed and no line written.
+choose_agents "${REQUESTED_AGENTS}"
 
 # Concrete tag (latest, pinned, or fallback). Constrained to v + digits/dots before it reaches the download URL piped
 # to bash, so a resolved value can never inject shell or URL.
@@ -284,25 +456,15 @@ for _sub in .nvm .cache .npm .local; do
     install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${SANDBOX_HOME}/${_sub}"
 done
 
-# Resolve which agents to provision from the installed manifests (agents.d) gated by operator.conf AI_TOOLS_AGENTS --
-# providers.lib.sh, the seam that keeps this toolchain step agent-agnostic. Each enabled line is
-# "name<TAB>npm_package<TAB>launcher"; collect the packages (installed in step 2) and launchers (symlinked in step 3).
-# The lib is control-plane, so a bootstrap that PRECEDES control-plane install has none yet: Node is provisioned bare
-# and a re-run picks up the agents. Its stderr warns of an enabled-but-uninstalled agent.
-_providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+# Resolve the enabled agents -- read AFTER choose_agents, so the set is the one this run just wrote. Each enabled line
+# is "name<TAB>npm_package<TAB>launcher"; collect the packages (installed in step 2) and launchers (symlinked in step
+# 3). The resolver's stderr warns of an enabled-but-uninstalled agent.
 _agent_packages=(); _agent_launchers=()
-# Guarded load: providers.lib.sh returns non-zero without defining a resolver when its own dependency (conf.lib.sh,
-# the shared KEY=value grammar) is missing, so probe the resolver rather than assume the source succeeded -- a bare
-# `source` under `set -e` would abort the provision instead of falling back to Node-only.
-# shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
-if source "${_providers_lib}" 2>/dev/null \
-        && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+if (( _providers_loaded )); then
     while IFS=$'\t' read -r _ manifest_package manifest_launcher; do
         [[ -n "${manifest_package}" ]]  && _agent_packages+=("${manifest_package}")
         [[ -n "${manifest_launcher}" ]] && _agent_launchers+=("${manifest_launcher}")
     done < <(ai_tools_enabled_agents)
-else
-    log "provider resolver unavailable -- provisioning Node only; re-run after the control plane and an ai-tools-agents-* package are installed to provision agents"
 fi
 
 # 2. nvm + Node + the enabled agents' npm packages, installed AS the sandbox account (network).

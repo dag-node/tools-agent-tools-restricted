@@ -4,24 +4,25 @@
 names](setting-names.md) — [all docs](../index.md)
 
 What the Codex package adds to a host, how you turn it on, and which of its
-files you may edit. The package ships off; two lines turn it on.
+files you may edit. The package ships off, like every agent package.
 
 ## Turn Codex on
 
 ```bash
-sudo sed -i 's/^#\?AI_TOOLS_AGENTS=.*/AI_TOOLS_AGENTS="claude-code codex"/' /etc/ai-tools/operator.conf
-sudo ai-tools-admin system bootstrap
+sudo ai-tools-admin system bootstrap --agents codex
 ```
 
-The package stays off until `AI_TOOLS_AGENTS` in `/etc/ai-tools/operator.conf`
-names `codex`. The key names exactly the agents the host provisions and lets
-start a session, so `AI_TOOLS_AGENTS="codex"` runs Codex alone. An agent's
-package stays in the toolchain after you take it off the key, until the next
-Node release replaces the toolchain; the two agents share one sandbox account,
-and [Scope](../about/scope.md) states what that shares between them.
-The bootstrap installs `@openai/codex` into the sandbox toolchain,
-and the nightly toolchain update maintains it from then on. Start a session
-in a claimed project by typing `codex`, as you type `claude`.
+The bootstrap writes `codex` into `AI_TOOLS_AGENTS`
+in `/etc/ai-tools/operator.conf`, the line that names the agents this host runs
+([Agents](index.md)), installs `@openai/codex` into the sandbox toolchain,
+and the nightly toolchain update maintains it from then on. Without `--agents`
+the bootstrap asks, offering every installed agent. To run Codex beside another
+agent, add its name to the line by hand and re-run the bootstrap; every agent
+named there shares one sandbox account, and [Scope](../about/scope.md) states
+what that shares between them. An agent's package stays in the toolchain
+after you take it off the key, until the next Node release replaces
+the toolchain. Start a session in a claimed project by typing `codex`, as you
+type `claude`.
 
 Codex needs a login before its first turn. The sandbox has no browser, so use
 the device-code login from inside a session:

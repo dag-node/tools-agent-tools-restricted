@@ -156,6 +156,12 @@ _ai_tools_skip_integration() {
     _ai_tools_provider_warn MSG-N9X8 "skipping integration $1: $2 $(ai_tools_conf_untrusted_reason "$2")"
 }
 
+# _ai_tools_skip_agent <name> <manifest-file> : the same report for an agent manifest, met by the
+#   enabled-set reader and the installed-set reader alike.
+_ai_tools_skip_agent() {
+    _ai_tools_provider_warn MSG-M3A5 "skipping agent $1: $2 $(ai_tools_conf_untrusted_reason "$2")"
+}
+
 # _ai_tools_warn_uninstalled <manifest-dir> <conf-key> <active> <list> : report each
 #   explicitly-requested (allowlisted) name that has no <name>.conf in the manifest dir -- never
 #   guessed into a package name. The baseline case (no allowlist) can only enable manifests that
@@ -184,7 +190,7 @@ ai_tools_enabled_agents() {
             [[ -e "${manifest_file}" ]] || continue
             agent_name="${manifest_file##*/}"; agent_name="${agent_name%.conf}"
             if ! ai_tools_conf_is_trusted "${manifest_file}"; then
-                _ai_tools_provider_warn MSG-M3A5 "skipping agent ${agent_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")"
+                _ai_tools_skip_agent "${agent_name}" "${manifest_file}"
                 continue
             fi
             npm_package="$(ai_tools_conf_get "${manifest_file}" npm_package || true)"
@@ -209,7 +215,8 @@ ai_tools_enabled_agents() {
 #            the same inputs, so a caller maintaining the toolchain ends the run as a failure
 #            rather than treating npm alone as the managed set.
 #     none   the configuration asks for no agent: AI_TOOLS_AGENTS is set and empty, no manifest is
-#            installed, or every installed manifest is default_enable=no with the key unset.
+#            installed, or the key is unset (every agent manifest ships default_enable=no, so
+#            an unset key is a host whose bootstrap has not yet enabled one).
 #   The reason carries each refused path with what the predicate read
 #   (ai_tools_conf_untrusted_reason), so the caller's one line names every cause. TAB-separated
 #   because the callers run under IFS=$'\n\t'. Any output shape the caller does not recognize is
@@ -251,7 +258,7 @@ ai_tools_agents_empty_verdict() {
     if (( installed == 0 )); then
         printf 'none\tno agent manifest is installed under %s\n' "${AI_TOOLS_AGENTS_DIR}"
     else
-        printf 'none\t%d agent manifest(s) under %s and none is default_enable=yes, with AI_TOOLS_AGENTS unset\n' \
+        printf 'none\t%d agent manifest(s) under %s and AI_TOOLS_AGENTS unset, so no agent is enabled -- sudo ai-tools-admin system bootstrap asks which one\n' \
             "${installed}" "${AI_TOOLS_AGENTS_DIR}"
     fi
     return 0
@@ -409,6 +416,30 @@ ai_tools_enabled_integrations() {
     fi
     _ai_tools_warn_uninstalled "${AI_TOOLS_INTEGRATIONS_DIR}" AI_TOOLS_INTEGRATIONS \
         "${requested_active}" "${requested_list}"
+    return 0
+}
+
+# ai_tools_installed_agents : print one "name<TAB>npm_package<TAB>launcher" line per INSTALLED
+#   agent, enabled or not, in manifest-filename order -- every trusted manifest that names an
+#   npm_package. The set the toolchain provisioning offers an operator to choose from, and the set
+#   a name given on its command line is checked against, before any is enabled. The same trust
+#   rules as ai_tools_enabled_agents: an untrusted directory yields an empty set and an untrusted
+#   manifest is skipped, each reported on stderr. Data-only stdout.
+ai_tools_installed_agents() {
+    local manifest_file agent_name npm_package launcher
+    _ai_tools_provider_dir_trusted "${AI_TOOLS_AGENTS_DIR}" AI_TOOLS_AGENTS || return 0
+    for manifest_file in "${AI_TOOLS_AGENTS_DIR}"/*.conf; do
+        [[ -e "${manifest_file}" ]] || continue
+        agent_name="${manifest_file##*/}"; agent_name="${agent_name%.conf}"
+        if ! ai_tools_conf_is_trusted "${manifest_file}"; then
+            _ai_tools_skip_agent "${agent_name}" "${manifest_file}"
+            continue
+        fi
+        npm_package="$(ai_tools_conf_get "${manifest_file}" npm_package || true)"
+        launcher="$(ai_tools_conf_get "${manifest_file}" launcher || true)"
+        [[ -n "${npm_package}" ]] || continue
+        printf '%s\t%s\t%s\n' "${agent_name}" "${npm_package}" "${launcher}"
+    done
     return 0
 }
 

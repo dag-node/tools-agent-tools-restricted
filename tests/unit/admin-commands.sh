@@ -428,6 +428,10 @@ run_admin system bootstrap --scope
 refused "--scope with no value is rejected" MSG-V5J3 2
 run_admin system bootstrap full
 refused "a bare positional scope is rejected, so the switch spelling is the only one" MSG-H5Z4 2
+# The unattended agent choice is a value the helper checks against the manifests; a valueless flag is refused here,
+# ahead of the exec, like a valueless `--scope`.
+run_admin system bootstrap --agents
+refused "--agents with no value is rejected" MSG-X8K6 2
 
 # ── `system bootstrap --scope full`: the loop that runs contributed commands unattended ───────
 # Driven by SOURCING the helper and calling the loop with the enabled-integration resolver stubbed -- the shape

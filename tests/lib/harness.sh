@@ -226,6 +226,28 @@ mk_operator() {
     export AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf"
 }
 
+# mk_operator_conf <path> <operator>... : write an operator.conf fixture at <path> for a test that drives the CLI
+# through its bootstrap gate: OPERATORS names the operators given, and AI_TOOLS_AGENTS names every installed agent this
+# host has provisioned (its stable launcher link exists), read through the deployed resolver, so the gate passes
+# on whichever agent the host runs and the test names none. No agent ships enabled, so a fixture carrying OPERATORS
+# alone reads as no agent and the gate refuses every command behind it; and the key is honoured only in a trusted file,
+# so the fixture is left root-owned 0644 (best-effort unprivileged) -- call it AFTER a chown of the tree it sits in.
+# mk_operator stays the helpers' fixture: the root helpers resolve an owner and do not read the gate.
+mk_operator_conf() {
+    local path="$1"; shift
+    local lib=/usr/local/lib/ai-tools/providers.lib.sh launcher_dir="${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
+    local agents="" name launcher
+    if [[ -r "${lib}" ]]; then
+        while IFS=$'\t' read -r name _ launcher; do
+            [[ -n "${name}" && -n "${launcher}" && -L "${launcher_dir}/${launcher}" ]] || continue
+            agents+="${agents:+ }${name}"
+        done < <(bash -c 'source "$1" 2>/dev/null && ai_tools_installed_agents 2>/dev/null' _ "${lib}")
+    fi
+    printf 'OPERATORS="%s"\nAI_TOOLS_AGENTS="%s"\n' "$*" "${agents}" > "${path}"
+    chown root:root "${path}" 2>/dev/null || true
+    chmod 0644 "${path}"
+}
+
 # finish: print the per-file summary and exit non-zero if anything failed (so a runner can aggregate by exit status).
 finish() {
     printf '\n%s\n  %d passed, %d failed, %d skipped\n' \

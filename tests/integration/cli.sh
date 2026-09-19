@@ -133,7 +133,7 @@ if command -v runuser >/dev/null 2>&1; then
     mktestdir
     chmod 755 "${TESTDIR}"
     tconf="${TESTDIR}/operator.conf"
-    printf 'OPERATORS="nobody-operator"\n' > "${tconf}"; chmod 644 "${tconf}"
+    mk_operator_conf "${tconf}" nobody-operator
     proj="${TESTDIR}/proj"; mkdir -p "${proj}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${proj}"
     # An empty FIXTURE allowlist (AI_TOOLS_ALLOWLIST test hook) so the mutating-verb refusals classify against it, never
     # the operator's real registry -- and a regression that wrote past a refusal would touch this throwaway file,
@@ -168,7 +168,7 @@ if command -v runuser >/dev/null 2>&1; then
     # lists the projects user) so classification runs past the operator gate; under setsid so any prompt takes its
     # non-interactive default rather than blocking.
     oconf="${TESTDIR}/op-self.conf"
-    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${oconf}"; chmod 644 "${oconf}"
+    mk_operator_conf "${oconf}" "${PROJECTS_USER}"
     lone="${TESTDIR}/not-a-project"; mkdir -p "${lone}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lone}"
     spell ai-tools.projects.unclaim
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
@@ -738,7 +738,7 @@ if command -v runuser >/dev/null 2>&1; then
     mktestdir
     chmod 755 "${TESTDIR}"
     fconf="${TESTDIR}/operator.conf"
-    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${fconf}"; chmod 644 "${fconf}"
+    mk_operator_conf "${fconf}" "${PROJECTS_USER}"
     fproj="${TESTDIR}/forproj"; mkdir -p "${fproj}"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${fproj}"
     fal="${TESTDIR}/for-allowlist"; : > "${fal}"
@@ -806,12 +806,13 @@ else
     mktestdir
     chmod 755 "${TESTDIR}"
     pd_conf="${TESTDIR}/op.conf"
-    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${pd_conf}"; chmod 644 "${pd_conf}"
     pd_al="${TESTDIR}/allowed-projects"
     pd_proj="${TESTDIR}/api"; pd_other="${TESTDIR}/web"
     pd_nested="${pd_proj}/service-a"; pd_carve="${pd_proj}/secrets"
     mkdir -p "${pd_proj}" "${pd_other}" "${pd_nested}" "${pd_carve}"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${TESTDIR}"
+    # Written after the chown, so the fixture stays root's and the gate honours its AI_TOOLS_AGENTS line.
+    mk_operator_conf "${pd_conf}" "${PROJECTS_USER}"
 
     # pd_cli <key> <args...> : run the command the key names as the operator against the fixture registry,
     # under setsid so every prompt takes its non-interactive default (the re-enable confirm defaults NO).

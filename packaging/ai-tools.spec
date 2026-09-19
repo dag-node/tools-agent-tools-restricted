@@ -180,11 +180,11 @@ package adds no runtime and is inert until enabled on a host that has dotnet ins
 %package -n ai-tools-agents
 Summary:        Umbrella for the sandboxed AI coding agents (metapackage)
 Recommends:     ai-tools-agents-claude-code-restricted = %{version}-%{release}
-# Weakly pulled like every other member, though codex ships default_enable=no: installation and
+# Weakly pulled like every other member, and every agent ships default_enable=no: installation and
 # enablement are separate axes, and enablement is the gate. Installed and unnamed in
-# AI_TOOLS_AGENTS, codex is provisioned by no toolchain run and launched by no wrapper; what the
-# package puts on the host is its own control plane. ai-tools-integration-dotnet is pulled the same
-# way for the same reason.
+# AI_TOOLS_AGENTS, an agent is provisioned by no toolchain run and launched by no wrapper; what the
+# package puts on the host is its own control plane, and `ai-tools-admin system bootstrap` asks
+# which one to enable. ai-tools-integration-dotnet is pulled the same way for the same reason.
 Recommends:     ai-tools-agents-codex-restricted = %{version}-%{release}
 
 %description -n ai-tools-agents
@@ -239,9 +239,9 @@ the launcher is re-linked at, and which one ai-tools-run may launch; its
 session-env fragment; codex's two managed files under /etc/codex, which pin the
 session to the host's confinement (codex adds no sandbox of its own) and declare
 the ownership-handback hooks as the only hooks; and those hooks. Ships disabled
-(default_enable=no): name it in AI_TOOLS_AGENTS to provision and launch it.
-Confinement itself is the base-owned ai-tools-run shim, shared with every other
-ai-tools-agents-* provider.
+like every agent: `ai-tools-admin system bootstrap` enables the agent an
+operator chooses. Confinement itself is the base-owned ai-tools-run shim, shared
+with every other ai-tools-agents-* provider.
 
 %prep
 %autosetup
@@ -716,7 +716,7 @@ fi
 if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_path}" ]; then
     echo "ai-tools-base: steps this host still needs:"
     if [ "${_at_toolchain}" = 1 ]; then
-        echo "  sudo ai-tools-admin system bootstrap          # install nvm + Node + Claude Code (network)"
+        echo "  sudo ai-tools-admin system bootstrap          # install nvm + Node + the agent you choose (network)"
     fi
     if [ "${_at_operator}" = 1 ]; then
         echo "  sudo ai-tools-admin operators add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"

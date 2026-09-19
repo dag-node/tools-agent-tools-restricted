@@ -343,7 +343,7 @@ cannot label ${cfg}: ${RELABEL_LIB} did not load \-\- reinstall ai\-tools\-base
 .TP
 .B MSG-H5Z4
 ERROR.
-system bootstrap: unknown argument '$1' (\-\-scope minimal|full)
+system bootstrap: unknown argument '$1' (\-\-scope minimal|full, \-\-agents NAME[,NAME...])
 .TP
 .B MSG-H6J5
 ERROR.
@@ -392,6 +392,10 @@ could not create ${cfg} at 700 ${user}:${group}
 .B MSG-N3T7
 WARNING.
 could not label ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}${AI_TOOLS_FCONTEXT_ERROR:+ \-\- ${AI_TOOLS_FCONTEXT_ERROR}}
+.TP
+.B MSG-N4H9
+ERROR.
+could not write OPERATORS into ${OPERATOR_CONF} \-\- the enrolment is incomplete; check the file and re\-run
 .TP
 .B MSG-P2T5
 ERROR.
@@ -524,6 +528,10 @@ semodule failed to load ${pp}
 .B MSG-W8A7
 ERROR.
 selinux groups disable: one group name at a time
+.TP
+.B MSG-X8K6
+ERROR.
+system bootstrap: \-\-agents takes a value (NAME[,NAME...])
 .TP
 .B MSG-X9F8
 WARNING.
@@ -785,6 +793,10 @@ entrypoint relabel did not complete \-\- run 'sudo ai\-tools\-admin system entry
 WARNING.
 could not start nvm\-update.timer (${_start_out:\-no output}) \-\- start it after the control plane is installed
 .TP
+.B MSG-C8W2
+NOTICE.
+AI_TOOLS_AGENTS names more than one agent ($*): every agent named runs as the one sandbox account, so a login or token one agent stores and the session history it keeps are readable by every session of every agent named, and a session of one can start another's binary inside itself \-\- see AI_TOOLS_AGENTS in operator.conf(5)
+.TP
 .B MSG-D9D3
 ERROR.
 control plane present but the managed\-asset libs are missing \-\- reinstall ai\-tools
@@ -805,9 +817,17 @@ could not verify npm signatures (offline or unsupported) \-\- proceeding; the to
 ERROR.
 control plane present but ${cplib} does not resolve the agents' config dirs
 .TP
+.B MSG-J3E6
+ERROR.
+could not write AI_TOOLS_AGENTS=\e"$*\e" into ${AI_TOOLS_OPERATOR_CONF} \-\- set the line by hand, then re\-run: sudo ai\-tools\-admin system bootstrap
+.TP
 .B MSG-K2D4
 ERROR.
 operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox
+.TP
+.B MSG-M2N6
+ERROR.
+\-\-agents names an agent with no installed manifest: ${unknown[*]} (installed: ${installed_names[*]:\-none}) \-\- install its ai\-tools\-agents\-* package, then re\-run; nothing was written
 .TP
 .B MSG-P9Q6
 WARNING.
@@ -828,6 +848,10 @@ could not enable linger for ${SANDBOX_USER} (${_linger_out:\-no output})
 .B MSG-W8X8
 ERROR.
 invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)
+.TP
+.B MSG-X3M9
+WARNING.
+no agent chosen \-\- provisioning Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF}, or pass \-\-agents NAME, then re\-run: sudo ai\-tools\-admin system bootstrap
 .TP
 .B MSG-X7Z2
 ERROR.
@@ -1613,7 +1637,7 @@ refusing the launcher target for ${launcher}: $(printf '%q' "${target}") is not 
 .TP
 .B MSG-M3A5
 WARNING.
-skipping agent ${agent_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")
+skipping agent $1: $2 $(ai_tools_conf_untrusted_reason "$2")
 .TP
 .B MSG-N4W6
 WARNING.

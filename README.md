@@ -79,7 +79,7 @@ Then finish setup. The first two commands are independent of each other
 and both run before the third:
 
 ```bash
-sudo ai-tools-admin system bootstrap             # Node, nvm, the agent, the update timer
+sudo ai-tools-admin system bootstrap             # Node, nvm, the agent you pick, the update timer
 sudo ai-tools-admin operators add "$(id -un)"    # enrol yourself: operator.conf + ai-ops
 ai-tools projects create ~/src/demo              # a new project, claimed, no prompts
 cd ~/src/demo && claude

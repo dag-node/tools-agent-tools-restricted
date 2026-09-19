@@ -14,6 +14,7 @@
 #   sudo ai-tools-admin selinux groups disable <name>      # unload one
 #   sudo ai-tools-admin system bootstrap                   # provision the sandbox account's toolchain
 #   sudo ai-tools-admin system bootstrap --scope full      # ... and every enabled integration
+#   sudo ai-tools-admin system bootstrap --agents codex    # ... enabling the named agent, unattended
 #   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
 #   sudo ai-tools-admin status                             # the host's health, read as root
@@ -46,9 +47,12 @@
 # helper ai-tools-bootstrap. It is the first command an administrator runs on a new host, and the one that installs
 # software over the network, which is why it is a command rather than an RPM scriptlet: a scriptlet must succeed offline
 # and inside a build chroot. Idempotent -- an existing account, nvm install or Node version is reused -- so it is also
-# the re-run after enabling an agent in operator.conf. The bare form does the minimal provision; `--scope full` then
-# runs each ENABLED integration's own `bootstrap` through the admin-commands seam, so a host is provisioned end to end
-# in one command without base naming an integration.
+# the re-run after enabling an agent in operator.conf. No agent is enabled until an operator names one:
+# with AI_TOOLS_AGENTS absent the helper asks which ONE installed agent to enable and writes that line, and `--agents`
+# is the unattended form of the same choice, passed through to the helper, which checks the names against the installed
+# manifests before writing. The bare form does the minimal provision; `--scope full` then runs each ENABLED
+# integration's own `bootstrap` through the admin-commands seam, so a host is provisioned end to end in one command
+# without base naming an integration.
 #
 # Beyond those, the command set is EXTENSIBLE rather than enumerated: this tool ships in ai-tools-base, which is
 # installed before anyone knows which provider packages a host will add, so a provider contributes a domain of its own
@@ -197,6 +201,7 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the t
     selinux groups disable <name>    unload a loaded group
   System
     system bootstrap [--scope full]  provision the sandbox account and its toolchain
+      --agents NAME[,NAME...]        enable the named agents instead of asking which one
     system entrypoints relabel       verify and relabel the agent entrypoints
     system post-upgrade              reconcile the .rpmnew files an upgrade leaves
   Health
@@ -530,26 +535,20 @@ source /usr/local/lib/ai-tools/msg.lib.sh || die_unsourced /usr/local/lib/ai-too
 export AI_TOOLS_MSG_FULLWIDTH=1
 
 # write_operators <name>...: set the OPERATORS list in operator.conf (root:root 644). Edits ONLY the OPERATORS line
-# in an existing file, preserving every other setting the operator maintains there (the SKIP_* categories; template:
-# src/etc/ai-tools/operator.conf, reference: skip-dirs.lib.sh); seeds a minimal file when absent. 644: world-readable
-# (the agent hooks and the root helpers both read it; it is free of secrets) and root-write-only, so the agent cannot
-# rewrite the identity root hands files back to.
+# in an existing file, through the shared writer (ai_tools_conf_set_key, conf.lib.sh -- the grammar's owner, so the line
+# replaced is the one every reader of the file matches), preserving every other setting the operator maintains there;
+# seeds a minimal file when absent. 644: world-readable (the agent hooks and the root helpers both read it; it is free
+# of secrets) and root-write-only, so the agent cannot rewrite the identity root hands files back to.
 write_operators() {
     install -d -o root -g root -m 755 /etc/ai-tools
-    local tmp; tmp="$(mktemp)"
-    if [[ -f "${OPERATOR_CONF}" ]] && grep -qE '^[[:space:]]*OPERATORS=' "${OPERATOR_CONF}"; then
-        sed -E "s|^[[:space:]]*OPERATORS=.*|OPERATORS=\"$*\"|" "${OPERATOR_CONF}" > "${tmp}"
-    elif [[ -f "${OPERATOR_CONF}" ]]; then
-        cat "${OPERATOR_CONF}" > "${tmp}"
-        printf 'OPERATORS="%s"\n' "$*" >> "${tmp}"
-    else
-        printf '%s\n' \
-            "# ai-tools host configuration -- full reference: /usr/local/lib/ai-tools/skip-dirs.lib.sh" \
-            "# and the template src/etc/ai-tools/operator.conf." \
-            "OPERATORS=\"$*\"" > "${tmp}"
+    if [[ ! -f "${OPERATOR_CONF}" ]]; then
+        local tmp; tmp="$(mktemp)"
+        printf '%s\n' "# ai-tools host configuration -- full reference: man 5 operator.conf" > "${tmp}"
+        install -o root -g root -m 644 "${tmp}" "${OPERATOR_CONF}"
+        rm -f "${tmp}"
     fi
-    install -o root -g root -m 644 "${tmp}" "${OPERATOR_CONF}"
-    rm -f "${tmp}"
+    ai_tools_conf_set_key "${OPERATOR_CONF}" OPERATORS "$*" \
+        || die MSG-N4H9 "could not write OPERATORS into ${OPERATOR_CONF} -- the enrolment is incomplete; check the file and re-run"
 }
 
 # in_list <name>: succeed when <name> is already in AI_TOOLS_OPERATORS.
@@ -1126,12 +1125,18 @@ sel_list() {
 # as a switch rather than a positional word because every other verb here takes a resource identifier in that slot.
 system_bootstrap() {
     local scope=minimal
+    local -a helper_args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --scope)
                 [[ $# -ge 2 ]] || reject MSG-V5J3 "system bootstrap: --scope takes a value (minimal|full)"
                 scope="$2"; shift 2 ;;
-            *)  reject MSG-H5Z4 "system bootstrap: unknown argument '$1' (--scope minimal|full)" ;;
+            # The unattended form of the agent choice the helper otherwise asks for; the helper checks each name
+            # against the installed manifests before it writes anything, so the value passes through as typed.
+            --agents)
+                [[ $# -ge 2 ]] || reject MSG-X8K6 "system bootstrap: --agents takes a value (NAME[,NAME...])"
+                helper_args+=(--agents "$2"); shift 2 ;;
+            *)  reject MSG-H5Z4 "system bootstrap: unknown argument '$1' (--scope minimal|full, --agents NAME[,NAME...])" ;;
         esac
     done
     case "${scope}" in
@@ -1142,8 +1147,8 @@ system_bootstrap() {
         || die MSG-D9W6 "the provisioning helper is not installed: ${BOOTSTRAP_BIN} -- install ai-tools-integration-nodejs"
     # Minimal scope has no step after the helper, so it hands the process over rather than wrapping it: the helper's
     # exit status is this command's, unmediated.
-    [[ "${scope}" == full ]] || exec "${BOOTSTRAP_BIN}"
-    "${BOOTSTRAP_BIN}" || die MSG-Y6F3 "the toolchain bootstrap failed -- no integration was reached"
+    [[ "${scope}" == full ]] || exec "${BOOTSTRAP_BIN}" "${helper_args[@]+"${helper_args[@]}"}"
+    "${BOOTSTRAP_BIN}" "${helper_args[@]+"${helper_args[@]}"}" || die MSG-Y6F3 "the toolchain bootstrap failed -- no integration was reached"
     bootstrap_integrations
 }
 
