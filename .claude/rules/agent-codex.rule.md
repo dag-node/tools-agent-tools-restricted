@@ -97,7 +97,7 @@ which `ai_tools_t` executes like every other program on the toolchain
 ([ref-section-w4z6](confinement.rule.md#ref-section-w4z6)): a session searches with codex's own `rg`, and the audit
 record of a refused read names it. The transition in `ai_tools.te` is keyed on `ai_tools_exec_t`, so the user manager
 enters `ai_tools_t` on that type alone. The manifest names the one binary that carries it, so a helper a later release
-adds beside it runs as a program and does not start a session.
+adds beside it runs as a program and is not the file a launch transitions on.
 
 ## The wrapper (`codex.sh`)
 
