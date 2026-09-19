@@ -84,7 +84,8 @@ done < <(ai_tools_enabled_agents 2>/dev/null)
 # and labels. Without the three checks that follow, a well-shaped target naming any file the sandbox account can create
 # -- inside a version directory the toolchain did not install, or reached by a symlink out of it -- takes a stable link
 # in the locked control-plane directory. Each is the predicate the toolchain's own re-link already applies
-# (ai_tools_relink_launcher), so the two writers of this chain accept the same set of targets.
+# (ai_tools_relink_launcher), the pattern's containment included, so the two writers of this chain accept the same set
+# of targets.
 #
 # It does not close the observed tier's limit on its own -- the same account owns the current version directory
 # (updater.rule.md) -- and it is not what confines the session either: an enforcing host labels the resolved file alone,
@@ -109,14 +110,19 @@ if [[ "${resolved}" != "${real_version_dir}/"* || ! -f "${resolved}" ]] || ! exe
     err MSG-P2R8 "target does not resolve to an executable file inside ${version_dir} (it resolves to ${resolved}) -- refusing to repoint ${LINK}"
 fi
 
-# The manifest's own regex, matched whole against the resolved path, exactly as the re-link matches it. A file no
-# entrypoint rule covers does not take ai_tools_exec_t, so a link written to it fails every launch closed at the label
-# preflight; an invalid regex makes `=~` return 2, which `!` reads as no match, and no match refuses.
+# The manifest's own pattern, held to the containment the relabel holds it to -- a plain path pattern anchored
+# under the directory the resolved version directory sits in (ai_tools_entrypoint_fcontext_valid) -- and then matched
+# whole against the resolved path, exactly as the re-link checks and matches it. A file no entrypoint rule covers does
+# not take ai_tools_exec_t, so a link written to it fails every launch closed at the label preflight; an invalid regex
+# that passes the containment's charset makes `=~` return 2, which `!` reads as no match, and no match refuses.
 entrypoint_fcontext="$(ai_tools_agent_manifest_field "${agent_name}" entrypoint_fcontext 2>/dev/null || true)"
 fcontext_pattern="^${entrypoint_fcontext}\$"
+containment_root="${real_version_dir%/*}"
 fcontext_refusal=""
 if [[ -z "${entrypoint_fcontext}" ]]; then
     fcontext_refusal="declares no entrypoint_fcontext"
+elif ! ai_tools_entrypoint_fcontext_valid "${entrypoint_fcontext}" "${containment_root}"; then
+    fcontext_refusal="declares an entrypoint_fcontext that is not a plain path pattern under ${containment_root}"
 elif ! [[ "${resolved}" =~ ${fcontext_pattern} ]]; then
     fcontext_refusal="declares an entrypoint_fcontext that does not cover it"
 fi

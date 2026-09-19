@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/relabel.sh
-# Unit test for the file-context predicates (relabel.lib.sh): the pure ai_tools_entrypoint_fcontext_valid that gates
-# every pattern an agent manifest declares before it becomes a `semanage fcontext` rule mapping files to ai_tools_exec_t
-# -- the exec entrypoint of the confined domain -- and ai_tools_operator_conf_valid, which gates the path that becomes
-# an ai_tools_conf_t rule for one operator's config subtree.
+# Unit test for the file-context decisions relabel.lib.sh makes about an agent's declared paths: the toolchain root it
+# holds every pattern an agent manifest declares to before the pattern becomes a `semanage fcontext` rule mapping files
+# to ai_tools_exec_t -- the exec entrypoint of the confined domain -- and ai_tools_operator_conf_valid, which gates
+# the path that becomes an ai_tools_conf_t rule for one operator's config subtree.
 #
 # The property under test is containment: a declared pattern may only ever match inside the sandbox's own Node
 # toolchain, and a config rule may only ever name one account's ~/.config/ai-tools. Both inputs are root-owned or read
 # from a passwd entry, so this is defense in depth rather than the only guard, but the failure it prevents is severe
 # and silent -- a pattern with an alternation, a traversal, or a foreign prefix would hand ai_tools_exec_t to a file
-# outside the toolchain, making it an entrypoint into the agent's domain. The entrypoint type is never manifest-supplied
-# and the config type never caller-supplied, which this file also pins.
+# outside the toolchain, making it an entrypoint into the agent's domain. The containment predicate itself takes
+# the root as an argument and is the launcher re-link's (ai_tools_entrypoint_fcontext_valid, providers.lib.sh), so its
+# truth table is unit/launcher-target.sh's; what this file pins is the root this library passes it, and that the shipped
+# shape holds under it. The entrypoint type is never manifest-supplied and the config type never caller-supplied,
+# which this file also pins.
 #
 # Sources the deployed library; no SELinux host, no privilege of its own. Run as root via sudo (suite contract).
 
@@ -26,35 +29,38 @@ if [[ ! -r "${LIB}" ]]; then
 fi
 # shellcheck source=/dev/null
 if ! source "${LIB}" || ! declare -F ai_tools_entrypoint_fcontext_valid >/dev/null 2>&1; then
-    fail "could not source ${LIB} or it does not define ai_tools_entrypoint_fcontext_valid"
+    fail "could not source ${LIB}, or ai_tools_entrypoint_fcontext_valid is not in scope once it is sourced"
     finish; exit
 fi
 
-# accepts/rejects <pattern> [why]
-accepts() {
-    if ai_tools_entrypoint_fcontext_valid "$1"; then pass "accepts ${1:-<empty>}"
-    else fail "rejected a valid entrypoint pattern: $1"; fi
-}
-rejects() {
-    if ai_tools_entrypoint_fcontext_valid "$1"; then fail "ACCEPTED ${2}: ${1:-<empty>}"
-    else pass "rejects ${2}"; fi
-}
-
-# The shipped shape, and the same path written without the SELinux backslash escapes.
-accepts '/opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@anthropic-ai/claude-code/bin/claude\.exe'
-accepts '/opt/ai-tools/.nvm/versions/node/[^/]+/bin/some-agent'
-
-# Containment: every way a pattern could name something outside the toolchain root.
-rejects ''                                              "an empty pattern"
-rejects '/etc/shadow'                                   "a path outside the toolchain root"
-rejects '/usr/bin/sudo'                                 "a host binary"
-rejects '/opt/ai-tools/.nvm/versions/node/../../../usr/bin/sudo' "a parent-directory traversal"
-rejects '/opt/ai-tools/.nvm/versions/node/x|/usr/bin/sudo'       "an alternation escaping the root"
-rejects '(/usr/bin/sudo|/opt/ai-tools/.nvm/versions/node/x)'     "a group whose first branch is foreign"
-rejects '.*'                                            "a match-anything pattern"
-# shellcheck disable=SC2016  # the literal $(...) is the input under test, not an expansion
-rejects '/opt/ai-tools/.nvm/versions/node/$(id)/bin/x'  "a shell-substitution character"
-rejects '/opt/ai-tools/.nvm/versions/node/a b/bin/x'    "whitespace in the pattern"
+# The ROOT is the library's: every declared pattern is held to it, so a manifest chooses which file under the toolchain
+# is its entrypoint and never a tree of its own. Pinned by value and by being readonly -- a root a caller could move
+# would move what may be labelled into the confined domain's entrypoint type.
+if [[ "${AI_TOOLS_NODE_VERSIONS_ROOT:-}" == "/opt/ai-tools/.nvm/versions/node" ]]; then
+    pass "the Node versions root is pinned by the library (/opt/ai-tools/.nvm/versions/node)"
+else
+    fail "AI_TOOLS_NODE_VERSIONS_ROOT is '${AI_TOOLS_NODE_VERSIONS_ROOT:-unset}', not the pinned toolchain root"
+fi
+readonly_names="$(readonly -p)"   # captured, then matched: a builtin writing into a closed pipe would fail the pipeline
+if grep -q ' AI_TOOLS_NODE_VERSIONS_ROOT=' <<<"${readonly_names}"; then
+    pass "the Node versions root is readonly"
+else
+    fail "AI_TOOLS_NODE_VERSIONS_ROOT is not readonly"
+fi
+# The shipped shape holds under the pinned root, and a host binary does not: the two ends of the containment as this
+# library applies it. The predicate's own truth table is unit/launcher-target.sh's.
+if ai_tools_entrypoint_fcontext_valid \
+        '/opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@anthropic-ai/claude-code/bin/claude\.exe' \
+        "${AI_TOOLS_NODE_VERSIONS_ROOT}"; then
+    pass "the shipped entrypoint shape is contained under the pinned root"
+else
+    fail "the shipped entrypoint shape is refused under ${AI_TOOLS_NODE_VERSIONS_ROOT}"
+fi
+if ai_tools_entrypoint_fcontext_valid '/usr/bin/sudo' "${AI_TOOLS_NODE_VERSIONS_ROOT}"; then
+    fail "ACCEPTED a host binary under the pinned root"
+else
+    pass "a host binary is refused under the pinned root"
+fi
 
 # The entrypoint TYPE is the library's, never a manifest's: an agent declares which file is its entrypoint, not
 # what label a file gets. A manifest that could name the type could name any type -- the reason this constant lives

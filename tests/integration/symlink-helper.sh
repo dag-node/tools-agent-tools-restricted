@@ -110,11 +110,47 @@ else
             "helper refuses a target resolving outside its own version directory"
     fi
 
-    # Neither refusal may have touched the locked directory -- not the live link, and not a link of its own.
+    # (E3) Covered by the declared pattern as a raw regex, yet by a pattern the relabel would refuse: an alternation
+    # whose first branch names the fixture. The helper holds the pattern to the relabel's containment before it matches,
+    # so the link is refused here rather than at the label preflight one launch later. The manifest is a fixture copy
+    # of the shipped one, read through the root-only AI_TOOLS_AGENTS_DIR hook; the resolver refuses a directory
+    # or a copy that is not root-owned and unwritable by others, so the copy is read back through it first, or a refused
+    # fixture would pass as the refusal under test.
+    mktestdir
+    fixture_agents="${TESTDIR}/agents.d"
+    mkdir -m 0755 "${fixture_agents}"
+    alternation='/opt/ai-tools/\.nvm/versions/node/[^/]+/opt/claude\.exe|/nowhere'
+    # The line is replaced in bash, not through a sed replacement: sed reads the pattern's `\.` as an escaped dot
+    # and writes a bare one, so the copy would declare a pattern the shipped manifest does not.
+    while IFS= read -r manifest_line; do
+        [[ "${manifest_line}" == entrypoint_fcontext=* ]] && manifest_line="entrypoint_fcontext=${alternation}"
+        printf '%s\n' "${manifest_line}"
+    done < /usr/local/lib/ai-tools/agents.d/claude-code.conf > "${fixture_agents}/claude-code.conf"
+    chmod 0644 "${fixture_agents}/claude-code.conf"
+    ln -sfn "${fake_version_dir}/opt/claude.exe" "${fake_version_dir}/bin/claude"
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    read_back="$(env AI_TOOLS_AGENTS_DIR="${fixture_agents}" bash -c \
+        'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_agent_manifest_field claude-code entrypoint_fcontext' \
+        2>/dev/null || true)"
+    if [[ "${read_back}" != "${alternation}" ]]; then
+        fail "the fixture manifest does not read back through the resolver (got '${read_back}'), so the case cannot be driven"
+    elif out="$(env AI_TOOLS_AGENTS_DIR="${fixture_agents}" "${helper}" "${fake_version_dir}/bin/claude" 2>&1)"; then
+        fail "helper accepted a target under an entrypoint_fcontext carrying an alternation"
+    else
+        assert_msg MSG-D4X6 "${out}" \
+            "helper refuses a pattern the relabel's containment refuses, although it covers the target as a raw regex"
+        if [[ "${out}" == *"not a plain path pattern under"* ]]; then
+            pass "the refusal names the containment, not a missing match"
+        else
+            fail "the refusal does not name the containment: ${out}"
+        fi
+    fi
+
+    # No refusal may have touched the locked directory -- not the live link, and not a link of its own.
     if [[ "$(readlink "${bin_dir}/claude" 2>/dev/null || true)" == "${before}" ]]; then
         pass "the refusals left ${bin_dir}/claude exactly as it was"
     else
-        fail "${bin_dir}/claude changed across two refused repoints"
+        fail "${bin_dir}/claude changed across the refused repoints"
     fi
     rm -rf -- "${fake_version_dir}"
 fi
