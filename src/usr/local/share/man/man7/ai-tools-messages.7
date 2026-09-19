@@ -1609,7 +1609,7 @@ skipping agent ${agent_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason 
 .TP
 .B MSG-N4W6
 WARNING.
-skipping the managed file $(printf '%q' "${path}") of ${agent}: not an absolute path without parent\-directory components
+skipping the managed file $(printf '%q' "${path}") of ${agent}: ${reason}
 .TP
 .B MSG-N9X8
 WARNING.
@@ -1626,6 +1626,10 @@ refusing every ${conf_key} provider: ${dir} $(ai_tools_conf_untrusted_reason "${
 .B MSG-W4H3
 WARNING.
 refusing to re\-link ${link}: it is not a symlink \-\- leaving it as it is
+.TP
+.B MSG-X7C4
+WARNING.
+could not retire the managed file ${live} \-\- leaving it as it is
 .TP
 .B MSG-X8P4
 WARNING.

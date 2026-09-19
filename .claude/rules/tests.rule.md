@@ -396,7 +396,13 @@ section that reports the same read: the CLI is sourced as the projects user with
 and `AI_TOOLS_LAUNCHER_DIR` pointed at fixtures, and every read is asserted in its fail direction — any enabled agent's
 link passes, an enabled set with no link refuses naming the bootstrap command, an empty allowlist, an allowlisted name
 with no manifest, and a group-writable manifest directory each refuse with the resolver's reason (a link present
-for the agent that directory names notwithstanding), and the report names each agent as the gate decided it.
+for the agent that directory names notwithstanding), and the report names each agent as the gate decided it. Its last
+section drives the entrypoint half of that report through three further fixture hooks — the pin, stale-mark and label
+record directories, so the label line under each pin reads from a fixture too — where what must not happen is
+the opposite of a refusal: a pin a reconciliation declined to re-record is left standing and reads, on its own,
+as a verification that succeeded. So the tier line is asserted as a control, then the mark replacing it and counting
+toward the exit status, then a mark saying anything but `stale` leaving the line as it was — the record grammar
+deciding, rather than the file's presence.
 
 `launch-wrapper.sh` drives the gate library every agent's wrapper runs (`launch-wrapper.lib.sh`, see
 [launch](launch.rule.md)), one gate at a time and each in its fail direction, as the account the case is
@@ -497,10 +503,14 @@ drives the empty-set verdict the updater reads once the resolver printed an empt
 and an allowlist none of whose names resolved, reads `fault` with the path and the owner and mode named on one line,
 while an empty allowlist, an empty manifest directory, and a set of `default_enable=no` manifests read `none` —
 the split that decides whether the updater exits `1` or maintains `npm` and exits `0`. Its last section pins
-the managed-file reading the two status reports share: the pure verdict over a byte-identical, an edited, an absent
-and a symlinked file (each way the comparison cannot be made reads `unknown`, never either answer), and the manifest
-reader that turns `managed_files` into (live, reference) pairs and refuses a path that is not absolute, since
-the reference is composed from its basename.
+the managed-file reading the two status reports share: the pure verdict over a byte-identical, an edited, an absent,
+a symlinked and a directory-shaped file (each way the comparison cannot be made reads `unknown`, never either answer),
+and the manifest reader that turns `managed_files` into (live, reference) pairs, refusing an entry that is not a plain
+name under `/etc/<agent>/` and a name already paired, since the reference is composed from that name. The write beside
+them is driven the same way, and every case there is about which file is destroyed: only one proven byte-identical
+to its reference is removed, an edit and an uncomparable file are moved aside under the dated `.retired` name,
+and a move that cannot be made leaves the file where it is — that last case as the **projects user**, since root ignores
+the directory mode the refusal turns on.
 
 `claude-prompt.sh` and `claude-endpoint.sh` are the runtime half of the custom system prompt and custom API endpoint
 (see [launch](launch.rule.md) and [providers](providers.rule.md)). Each drives its resolver over a root-only base-dir
@@ -649,7 +659,14 @@ the version directory resolving to a file inside it are pinned as accepted. The 
 with the relabel (`ai_tools_entrypoint_fcontext_valid`) is driven here over its truth table, against the shipped Node
 versions root, and in both directions of its root argument. It is pure — the version directory, launcher, target,
 pattern and root are arguments — and runs without root; its fixtures need the executable bit visible, so it takes
-`agent-installs.sh`'s probe and fallback.
+`agent-installs.sh`'s probe and fallback. One property there belongs to the two provisioning **scripts** instead:
+the re-link must precede the stable symlink's repoint, since the repoint fires the relabel watcher and the pin records
+what that link resolves to, so a repoint made first would pin the entry file npm wrote, and the next launch would refuse
+the toolchain the updater had just installed correctly. Driving it would take a real `npm install` of a shim-shaped
+package and a live handback socket, each half being covered already (`integration/symlink-helper.sh`,
+`integration/entrypoint-pin.sh`), so it is read as source order in the updater and the bootstrap, ahead of the fixture
+cases and their skip. An anchor the read no longer finds **fails**: a refactor that moved either call is
+when the invariant most needs re-asserting.
 
 `codex-package.sh` pins the files `ai-tools-agents-codex-restricted` ships to the seams they plug into, before any host
 installs them ([agent-codex](agent-codex.rule.md)): the manifest through the readers that parse it, with its
@@ -672,7 +689,9 @@ and the resolver trusts root-owned inputs alone, so unprivileged it skips and sa
 The path is one a host may already hold, so each state it can be in is driven and every state but "absent" is asserted
 to leave what the host placed exactly as it was — the entry, its target, the directory's own mode and entries —
 with the shared assets linked in under free names alone, and the reverse asserted to remove the managed links and no
-other entry. Pure and unprivileged: the function never re-owns or re-modes what it finds.
+other entry. The relabel is held to that same bound from its argument list, `restorecon` stubbed as a shell function:
+the links this run placed reach it, the directory holding them does not, since a recursive sweep there would relabel
+every entry the host put in it. Pure and unprivileged: the function never re-owns or re-modes what it finds.
 
 `bootstrap.sh` pins the report `ai-tools-admin system bootstrap` closes with: which enrolled operators a launcher would
 not reach the wrapper for. It is the last thing said before a host is treated as ready, so both directions are driven —
@@ -867,10 +886,14 @@ so `hooks.sh` asserts only what the deployed `settings.json` **declares** (the h
 and the hooks themselves run in the manual script, inside the project it claims. The same file reads codex's
 `requirements.toml` as codex parses it (a TOML parser, so a bare key that landed inside a table is not read as set)
 and pins the sandbox-mode pin, managed hooks only from the root-owned directory, and the four hook declarations
-against the installed bodies; `wrapper.sh` closes with the codex wrapper in whichever enablement state the host is
-in, holding the launcher symlink and the resolver's enabled set to agreement ([agent-codex](agent-codex.rule.md)).
-The wrapper test stays hermetic by pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`)
-and runs the wrapper under `setsid`, so it never touches the real allowlist or fires a claim prompt. Run as root.
+against the installed bodies. That file is `%config(noreplace)`, so the copy this reads is the one that drifts:
+the approval policy, the login method and each hook's own timeout are therefore read here as well as in unit,
+and the two states are told apart — a key the file does not declare at all is a file predating it and fails
+with the pristine copy named, while a value that differs is the operator's tuning and is noted; `wrapper.sh` closes
+with the codex wrapper in whichever enablement state the host is in, holding the launcher symlink and the resolver's
+enabled set to agreement ([agent-codex](agent-codex.rule.md)). The wrapper test stays hermetic by pointing `HOME`
+at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`) and runs the wrapper under `setsid`, so it never
+touches the real allowlist or fires a claim prompt. Run as root.
 
 `cli-flags.sh` holds every `ai-tools` command and every option `ai-tools(1)` documents to what it **achieves**, and its
 rows do not read message text, so the command surface can be respelled with the file unchanged
@@ -939,26 +962,30 @@ asserted as such, because each records a decision: the agent package's `package.
 account-writable, which is why the declared version is not a trust input and the observed pin tier states a limit rather
 than a guarantee (the type layout is what closes it, asserted in `integration/selinux.sh`), and each agent's config
 directory **is** agent-writable, since the hooks that write `.sweep-marker` and `.session-active` run as the agent
-and those files carry cadence rather than a guarantee. `providers.sh` asserts the deployed half of "the sandbox cannot
-widen its own surface": none of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four provider directories,
-the manifests, fragments and contributed commands in them, codex's `/etc/codex` and the two managed files in it,
-or the `ai-tools-run` shim and the `bin` directory holding it is agent-writable — nor either launch wrapper
-and the libraries every wrapper loads (`launch-wrapper`, `safe-paths`, `msg`), which is the one cross-principal
-escalation in the chain, a wrapper running **as the operator** before any drop to the sandbox account — while the NuGet
-restore cache the dotnet integration needs **is** — both directions matter, since a read-only cache breaks
-the integration as surely as a writable tools dir breaks the boundary. `admin-commands.d` and the `dotnet` command in it
-are the highest-privilege pair in that list: what a writable one would buy is not a wider session but a command
-`ai-tools-admin` runs as root. It is the counterpart to `unit/providers.sh` and `unit/admin-commands.sh`, which assert
-the runtime refusals; this one asserts the agent cannot reach the state those refusals exist to catch. `filters.sh` is
-the same pair for the command filters: the engine, `filters.d` and the rule sets in it, `operator.conf`,
-and the agent-side hook body are all asserted non-agent-writable — the engine because it is sourced as the agent
-on every Bash call, the rule sets because they decide what every command in a session becomes. These probe **DAC
-and account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside the `ai_tools_t`
-SELinux domain (a launched session), so they assert the filesystem/credential boundary; the SELinux enforcing posture is
-asserted separately in `integration/selinux.sh`. A property the **type layout alone** enforces is therefore not
-assertable here, and reads as its DAC answer: the agent's inability to write its own entrypoint is one (DAC permits it —
-the account owns that tree), so it is asserted in `integration/selinux.sh` as the layout the policy rests on, one check
-per swap vector.
+and those files carry cadence rather than a guarantee. A third records the reach this vantage has and a session does
+not: the account's own `--user manager` answers it over its bus, which is why the route by which an environment variable
+would reach `nvm-update.service` is closed by the domain rather than by any permission — the unit *files* being
+root-owned is the half asserted here, and `selinux/avc/avc-testsuite.sh` asks the bus from inside a session, the one
+vantage whose answer is about the domain. The probe is read-only in both places, since no automated file writes live
+runtime state. `providers.sh` asserts the deployed half of "the sandbox cannot widen its own surface": none
+of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four provider directories, the manifests, fragments
+and contributed commands in them, codex's `/etc/codex` and the two managed files in it, or the `ai-tools-run` shim
+and the `bin` directory holding it is agent-writable — nor either launch wrapper and the libraries every wrapper loads
+(`launch-wrapper`, `safe-paths`, `msg`), which is the one cross-principal escalation in the chain, a wrapper running
+**as the operator** before any drop to the sandbox account — while the NuGet restore cache the dotnet integration needs
+**is** — both directions matter, since a read-only cache breaks the integration as surely as a writable tools dir breaks
+the boundary. `admin-commands.d` and the `dotnet` command in it are the highest-privilege pair in that list:
+what a writable one would buy is not a wider session but a command `ai-tools-admin` runs as root. It is the counterpart
+to `unit/providers.sh` and `unit/admin-commands.sh`, which assert the runtime refusals; this one asserts the agent
+cannot reach the state those refusals exist to catch. `filters.sh` is the same pair for the command filters: the engine,
+`filters.d` and the rule sets in it, `operator.conf`, and the agent-side hook body are all asserted non-agent-writable —
+the engine because it is sourced as the agent on every Bash call, the rule sets because they decide what every command
+in a session becomes. These probe **DAC and account state** from the sandbox account's vantage — they run as the sandbox
+*user*, not inside the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
+boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`. A property the **type layout
+alone** enforces is therefore not assertable here, and reads as its DAC answer: the agent's inability to write its own
+entrypoint is one (DAC permits it — the account owns that tree), so it is asserted in `integration/selinux.sh`
+as the layout the policy rests on, one check per swap vector.
 
 ## Quirks
 

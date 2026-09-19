@@ -407,11 +407,13 @@ ai_tools_link_asset_readme() {
 #   * a regular file                          -> kept and reported; no link placed
 # The predicate for a managed link is its target: the shared root itself, or a path under it. Idempotent; a refresh
 # reports a current link as current. The links are root-owned, so a session reads what the operator installed and cannot
-# repoint one; the directory's own owner and mode are never rewritten, which is what lets an unprivileged caller drive
-# every state (the unit test) and what keeps a host-owned directory the host's.
+# repoint one; the directory's own owner, mode and label are never rewritten -- a relabel covers the links this run
+# placed and no other entry -- which is what lets an unprivileged caller drive every state (the unit test)
+# and what keeps a host-owned directory the host's.
 ai_tools_link_shared_root() {
     local shared_root="$1" path="$2" group="$3" readme_source="${4:-}"
     local name="${path##*/}" target src entry dst
+    local -a placed=()
     [[ -d "${shared_root}" ]] || return 0
     if [[ -L "${path}" ]]; then
         target="$(readlink -- "${path}")"
@@ -440,6 +442,7 @@ ai_tools_link_shared_root() {
             else
                 ln -s "${src}" "${dst}"
                 chown -h "root:${group}" "${dst}" 2>/dev/null || :
+                placed+=( "${dst}" )
                 _ai_tools_ma_say "${entry} linked -> ${src}"
             fi
         done
@@ -455,8 +458,14 @@ ai_tools_link_shared_root() {
         if [[ -n "${readme_source}" && -e "${readme_source}" && ! -e "${path}/README.md" && ! -L "${path}/README.md" ]]; then
             ln -s "${readme_source}" "${path}/README.md"
             chown -h "root:${group}" "${path}/README.md" 2>/dev/null || :
+            placed+=( "${path}/README.md" )
         fi
-        restorecon -R "${path}" >/dev/null 2>&1 || :
+        # The relabel takes the array this run appended a link to, never the directory: a `-R` here would relabel every
+        # entry a host put there, which this branch exists to leave exactly as it found it -- and the directory's own
+        # label with them.
+        if (( ${#placed[@]} > 0 )); then
+            restorecon "${placed[@]}" >/dev/null 2>&1 || :
+        fi
         return 0
     fi
     if [[ -e "${path}" ]]; then

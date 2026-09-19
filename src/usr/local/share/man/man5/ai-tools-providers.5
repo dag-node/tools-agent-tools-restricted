@@ -184,8 +184,12 @@ The configuration files the agent's own product reads from a fixed path
 outside
 .BR /opt/ai-tools ,
 as absolute paths.
+Each names a file directly under
+.BI /etc/ agent /
+\(em a nested path, or one under any other directory, is skipped with
+a warning.
 Each is kept across an upgrade, and the package ships a pristine copy of it
-under
+under the same name in
 .BI /usr/share/ai-tools/ agent /
 so that
 .B ai-tools status

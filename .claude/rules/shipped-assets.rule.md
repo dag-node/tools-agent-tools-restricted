@@ -137,9 +137,10 @@ of `ai_tools_link_shared_assets`, minus the repointing of a link, which inside a
 to the host; **a regular file** → kept and reported. A link into the shared root whose asset no longer ships is removed,
 as the per-agent linker removes it; the kind's README is linked only under a free name. The reverse for a package being
 erased, `ai_tools_unlink_shared_root`, removes the link to the shared root or the managed links inside the host's
-directory and no other entry. Neither function re-owns or re-modes what it finds, so `tests/unit/shared-root.sh` drives
-every state without root. Which agent takes this shape, and why the path is not in that package's file list, is
-in [agent-codex](agent-codex.rule.md).
+directory and no other entry. Neither function re-owns or re-modes what it finds, and the relabel that follows a link
+covers the links that run placed rather than the directory holding them, so what a host put there keeps its own label
+too — which is also what lets `tests/unit/shared-root.sh` drive every state without root. Which agent takes this shape,
+and why the path is not in that package's file list, is in [agent-codex](agent-codex.rule.md).
 
 ## Namespace
 
