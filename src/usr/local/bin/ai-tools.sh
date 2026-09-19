@@ -3094,8 +3094,8 @@ cmd_project_clone() {
     # neither this flag nor the value. Refused here, where the message can name both, and before the push.
     _need_value() {
         local flag="$1"; shift
-        (( $# )) || die "${flag} needs a value"
-        [[ "$1" != -* ]] || die "${flag} needs a value, not another option: $1"
+        (( $# )) || die MSG-J4P9 "a value is required after ${flag}"
+        [[ "$1" != -* ]] || die MSG-Z5V5 "a value is required after ${flag}, not another option: $1"
     }
     while (( $# )); do
         case "$1" in

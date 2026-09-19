@@ -787,7 +787,7 @@ fi
 section "5. ai-tools projects clone flag validation"
 for flag in --from --branch --dir; do
     OUT="$("${CLI}" projects clone "${flag}" -oops 2>&1)"; RC=$?
-    if [[ "${RC}" -ne 0 ]] && grep -qxF -- MSG-S4M8 <<<"${OUT}"; then
+    if [[ "${RC}" -ne 0 ]] && grep -qxF -- MSG-Z5V5 <<<"${OUT}"; then
         pass "${flag} refuses an option-shaped value"
     else
         fail "${flag} accepted '-oops' (rc=${RC}): ${OUT}"
