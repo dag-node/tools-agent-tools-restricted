@@ -62,12 +62,14 @@ that something is misconfigured: the pin turns off a layer that could not run
 here anyway. See [SELinux confinement](../system/selinux.md) and [The boundary,
 and what is out of scope](../about/scope.md).
 
-The SELinux denials a Codex session raises on an enforcing host are not swept
-the way a Claude Code session's are: an access the policy does not grant is
-refused in the session and logged in the audit log, and the policy is not
-widened for it. Enable Codex deliberately, and read a refused tool call
-against [SELinux confinement](../system/selinux.md) before treating it
-as a defect.
+The SELinux denials a Codex session raises on an enforcing host have been
+swept, and the policy was not widened for any of them. One is Codex's own —
+a filesystem watch under the sandbox account's home, refused at startup —
+and the rest are the ones any session raises, listed
+in [ref-section-g7c5](../system/selinux.md#ref-section-g7c5). An access
+the policy does not grant stays refused in the session and logged in the audit
+log, so a tool call that failed is worth reading against [SELinux
+confinement](../system/selinux.md) before treating it as a defect.
 
 Two groups of commands are refused outright, the same ones a Claude Code
 session is refused: the git verbs that destroy work no commit and no reflog
@@ -93,14 +95,15 @@ account's own access.
 
 Turned off by the package, and stated so you know what to expect: Codex's
 sub-agents, MCP servers, plugins and marketplaces, image generation,
-and telemetry. The vendored `rg`, `zsh` and `bwrap` beside the binary are not
-executable in a session; the system `rg` on the session's `PATH` serves search.
-The npm channel does not publish a signed per-release checksum, so Codex's
-entrypoint is pinned as installed instead: root records the checksum
-of the binary, `ai-tools status` reports that pin as `UNCHANGED`, and a binary
-that changes afterwards under the same version refuses the next session.
-That pin satisfies `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`, so a host setting it
-runs Codex and knows which tier it holds. [Entrypoint
+and telemetry. The `rg`, `zsh` and `bwrap` Codex ships beside its binary run
+in a session like any other program. What they cannot do is start one: only
+the pinned binary is a session entrypoint. The npm channel does not publish
+a signed per-release checksum, so Codex's entrypoint is pinned as installed
+instead: root records the checksum of the binary, `ai-tools status` reports
+that pin as `UNCHANGED`, and a binary that changes afterwards under the same
+version refuses the next session. That pin satisfies
+`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`, so a host setting it runs Codex and knows
+which tier it holds. [Entrypoint
 verification](../system/entrypoint-verification.md) says what that claims.
 
 ## The files you may edit
