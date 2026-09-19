@@ -204,6 +204,45 @@ in cooked mode; the banner is static output, so the echo stays until a full repa
 not run a query of its own before the launch, and no hook or library of this project changes tty state. It is cosmetic
 and the agent's own, and the launch path does not work around it.
 
+## An agent entrypoint started from inside a session
+
+Every gate in this rule runs in the wrapper or in the shim. The kernel side is one grant: `ai_tools_t` holds
+`execute_no_trans` on `ai_tools_exec_t` ([confinement](confinement.rule.md)), so a session that execs an agent
+entrypoint at its real path under the toolchain — its own, or the other enabled agent's — starts it without the operator
+gate, the allowlist and CWD gates, the pin comparison, or a transient unit of its own. By name the launcher does not get
+there: the session `PATH` does not include `/opt/ai-tools/bin`, so `claude` and `codex` resolve to the wrappers
+under `/usr/local/bin`, and the operator gate refuses the sandbox account (`MSG-N8Q4`). What such a child gets, read
+on a claude child under a codex session and a codex child under a claude session:
+
+- **It runs inside the parent's session.** Same cgroup, so the same unit, seccomp filter, `NoNewPrivs` and `UMask`;
+  `ai_tools_t` with no transition. The journal holds one `launch:` line, the parent's; `ai-tools status` and the stop
+  helper see one session.
+- **Its own configuration applies, and so does the handback.** `HOME` is the sandbox home, so the child's state
+  directory is the one its fragment pins (`~/.claude`, `~/.codex`), its hooks and deny rules or its managed files apply
+  as they do on a launch, and its per-turn hooks reach the handback socket, where the daemon stamps the parent's unit
+  on the record. A file the child writes is handed back before the turn ends.
+- **It lacks the other agent's fragment.** The shim sources the launching agent's fragment alone, so a claude child
+  under codex runs without `CLAUDE_CONFIG_DIR`, `DISABLE_AUTOUPDATER` and `NODE_COMPILE_CACHE`. Without the first it
+  reads its config file at `$HOME/.claude.json`, a path in the root-owned home root the account cannot create, and runs
+  with no config file at all, printing "Claude configuration file not found" once per step, while the pinned
+  `.claude/.claude.json` stays untouched. The updater switch is covered on every launch by the `settings.json` `env`
+  block (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`), and the entrypoint is a Bun binary, so no compile cache arises.
+  A codex child under claude resolves `CODEX_HOME` to the same `~/.codex` unpinned, and inherits the parent's whole
+  environment, a custom endpoint's `ANTHROPIC_*` included, as every Bash tool child does.
+- **It is not an escalation.** Same uid, same domain, no access the session lacks. Every credential either agent stores
+  under the sandbox home is readable by every session of any agent, which is the shared-account boundary
+  of [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9), and the route does not add to it.
+
+The grant stays because codex uses it: codex is a multi-call binary that execs its own entrypoint under staged names
+([agent-codex](agent-codex.rule.md)), so a domain without `execute_no_trans` on the entry type breaks codex's edits.
+Claude Code does not exec its own binary — a session is one `claude.exe` process, and a subagent runs inside it.
+
+What the route defeats is the sentence that a session is started by an operator in an approved project. No record today
+tells such a child from its parent: the audit trail carries the parent's launch and the child's handbacks
+under the parent's unit. An agent that has met the wrapper's refusal in its session declines the real path
+on the shipped orientation's conduct rule ([ref-section-g6c4](../../CLAUDE.md#ref-section-g6c4)); one that has not, runs
+it. That is conduct, not a control.
+
 ## Operator-configured launch inputs
 
 A wrapper may resolve agent-specific configuration from `operator.conf` and prepend it to the operator's `"$@"`

@@ -99,6 +99,13 @@ record of a refused read names it. The transition in `ai_tools.te` is keyed on `
 enters `ai_tools_t` on that type alone. The manifest names the one binary that carries it, so a helper a later release
 adds beside it runs as a program and is not the file a launch transitions on.
 
+The binary is also its own helper set. At session start codex stages symlinks to **[3]**
+under `$CODEX_HOME/tmp/arg0/<random>/`, named `apply_patch`, `applypatch`, `codex-execve-wrapper`
+and `codex-linux-sandbox`, and removes the directory at exit; an `apply_patch` edit execs the entrypoint inode
+through one of them, which `ai_tools_t`'s `execute_no_trans` on `ai_tools_exec_t` permits. The main process keeps
+the real path as `argv[0]` and `exe`, and a shell command is a direct `bash` child of it. That exec is why the grant
+stays in the core module; what else a session may start through it is in [launch](launch.rule.md).
+
 ## The wrapper (`codex.sh`)
 
 `/usr/local/bin/codex`, `root:root 0755`, rpm-owned, running as the invoking operator. It is the shared gate library

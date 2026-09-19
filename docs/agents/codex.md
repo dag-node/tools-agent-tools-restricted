@@ -14,9 +14,14 @@ sudo ai-tools-admin system bootstrap
 ```
 
 The package stays off until `AI_TOOLS_AGENTS` in `/etc/ai-tools/operator.conf`
-names `codex`. The bootstrap installs `@openai/codex` into the sandbox
-toolchain, and the nightly toolchain update maintains it from then on. Start
-a session in a claimed project by typing `codex`, as you type `claude`.
+names `codex`. The key names exactly the agents the host provisions and lets
+start a session, so `AI_TOOLS_AGENTS="codex"` runs Codex alone. An agent's
+package stays in the toolchain after you take it off the key, until the next
+Node release replaces the toolchain; the two agents share one sandbox account,
+and [Scope](../about/scope.md) states what that shares between them.
+The bootstrap installs `@openai/codex` into the sandbox toolchain,
+and the nightly toolchain update maintains it from then on. Start a session
+in a claimed project by typing `codex`, as you type `claude`.
 
 Codex needs a login before its first turn. The sandbox has no browser, so use
 the device-code login from inside a session:
