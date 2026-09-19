@@ -1,8 +1,15 @@
 # Project lifecycle
 
+**Projects** · [Permissions](permissions.md) · [Lockdown](lockdown.md) — [all
+docs](../index.md)
+
 How a project enters the agent's reach, what each prompt grants, and how every
 step reverses. Run every command as your own user: the `ai-tools` CLI calls
 `sudo` itself for the steps that need root and prompts for your password there.
+Two properties of a claimed tree have pages of their own:
+[Permissions](permissions.md), for what owns a file the agent wrote and how you
+both keep write access, and [Lockdown](lockdown.md), for what a claim locks
+away before it grants anything.
 
 ```bash
 ai-tools projects create ~/src/newproject    # make a new project and claim it
@@ -308,7 +315,7 @@ what:
   and the default ACL that new files inherited from the directory. New files
   in the tree then take their mode from the creating account's umask again,
   which the default ACL had been overriding (see the [permissions
-  cheatsheet](linux-permissions-cheatsheet.txt), §7b).
+  cheatsheet](../linux-permissions-cheatsheet.txt), §7b).
 - **Group write.** `chmod` drops it (`660` → `640`), and on directories also
   the setgid bit the claim set, so new files stop being born in the agent's
   group.
@@ -570,10 +577,8 @@ unclaim say so before asking.
 ## Where the security boundary actually is
 
 The allowlist (`~/.config/ai-tools/allowed-projects`) gates where sessions
-*launch* and which written files get ownership handed back. It is not a read
-boundary: once a session runs, ordinary file permissions plus the SELinux
-`ai_tools_project_t` label are what confine it, which is why every flow on this
-page locks secrets down *before* granting group access, and why declining
-a lockdown fails closed. The invariants are
-in [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8); the per-component
-mechanism is in [`.claude/rules/`](../.claude/rules/).
+*launch* and which written files get ownership handed back; once a session
+runs, file permissions and the SELinux label on the tree are what confine it.
+That is why every flow on this page locks secrets down *before* granting group
+access, and why declining a lockdown fails closed. [The boundary, and what is
+out of scope](../about/scope.md) states it in full.

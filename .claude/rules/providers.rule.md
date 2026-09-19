@@ -27,13 +27,18 @@ It is `KEY=value` data — **parsed, never sourced**, the same posture as `opera
 so a malformed or tampered manifest cannot execute code in the privileged scripts that read it:
 
 - agents: `npm_package` (the registry package), `launcher` (the bin symlinked at `/opt/ai-tools/bin/<launcher>`,
-  and the name `ai-tools-run` matches an executable against to decide whether it may launch), `display_name` (what
-  the launch banner and the unit description call it), `handback` (which side converges ownership),
-  `entrypoint_fcontext` and `config_dir` (the two paths it declares to SELinux), `skills_dir` / `subagents_dir` (where
-  inside its config directory it reads each shared asset kind, so the shared copies can be symlinked in — see
-  [shipped-assets](shipped-assets.rule.md)), `memory_file` (the filename that agent's product reads as user-scope
-  instructions, where the shared orientation text is linked), `default_enable`, and — optionally — the three
-  release-verification fields.
+  and the name `ai-tools-run` matches an executable against to decide whether it may launch), optionally
+  `launcher_target` (the executable that launcher is re-linked at, for a package whose own launcher is a shim — see
+  [`launcher_target`](#launcher_target--where-the-versioned-launcher-points)), `display_name` (what the launch banner
+  and the unit description call it), `handback` (which side converges ownership), `entrypoint_fcontext` and `config_dir`
+  (the two paths it declares to SELinux), `skills_dir` / `subagents_dir` (where inside its config directory it reads
+  each shared asset kind, so the shared copies can be symlinked in — see [shipped-assets](shipped-assets.rule.md)),
+  `memory_file` (the filename that agent's product reads as user-scope instructions, where the shared orientation text
+  is linked), `managed_files` (the kept-across-upgrade files its product reads from a fixed path outside the control
+  plane — each one a plain name directly under `/etc/<name>/`, shipped with a pristine copy of the same name
+  under `/usr/share/ai-tools/<name>/` that the two status reports compare the live file against — reported, never
+  enforced, since no such file holds a guarantee; codex's `/etc/codex` pair is the instance,
+  [agent-codex](agent-codex.rule.md)), `default_enable`, and — optionally — the three release-verification fields.
 - integrations: `default_enable`, and optionally the three keys the SELinux layer reads — `build_output_dirs` (the
   directory names that hold the toolchain's build output, which `relabel.lib.sh` reads from every installed manifest
   through `ai_tools_installed_integrations_declaring` and maps to the build-output type), `selinux_layout_module` (the
@@ -78,7 +83,9 @@ it has one, so the manifest declares it:
 
 `ai_tools_agent_sweeps_at_exit <declaration>` is the pure verdict, and it is an **allowlist**: only the exact literal
 `hooks` switches the sweep off, so an agent that declares any other value gets the sweep — a redundant walk is
-the recoverable error, an operator tree left sandbox-owned is not.
+the recoverable error, an operator tree left sandbox-owned is not. An agent that has hooks and declares `none` anyway
+gets both, the hooks as cadence and the sweep as the guarantee behind them; that is the declaration codex ships
+([agent-codex](agent-codex.rule.md)).
 
 The sweep only chooses which paths to **offer**; each one still passes `ai-tools-chown`'s allowlist, exclusion, secret,
 and born-owner re-validation as root, so it cannot reach a path the hooks could not. It runs from an `EXIT` trap,
@@ -105,18 +112,58 @@ the hooks), while the base pins its mode (`CP_AGENT_CONFIG_MODE`, setgid+sticky)
 and the permission test. The agent's session-env fragment pins the same directory as its config variable
 (`CLAUDE_CONFIG_DIR`), so the manifest and the fragment must agree.
 
-Two constraints keep that from being a label-anything primitive, and both live in `relabel.lib.sh`, not in the manifest:
+Two constraints keep that from being a label-anything primitive, and neither lives in the manifest:
 
-- **The types are pinned there**, never in a manifest. An agent declares *which path* is which, never *what label*
-  a path gets.
-- **Each declaration must be containable**: the entrypoint pattern to an anchored literal head
-  under `/opt/ai-tools/.nvm/versions/node/`, with no `..` and none of the regex constructs (`|`, groups) that could make
-  it match elsewhere; the config directory to one plain component under the sandbox home. `tests/unit/relabel.sh` drives
-  both predicates.
+- **The types are pinned in `relabel.lib.sh`** as `readonly` constants, and no manifest key names one: an agent declares
+  *which path* is which, and the label a path gets is not an input it holds.
+- **Each declaration must be containable**: the entrypoint pattern to an anchored literal head under the Node versions
+  root `relabel.lib.sh` pins (`AI_TOOLS_NODE_VERSIONS_ROOT`, `/opt/ai-tools/.nvm/versions/node`), with no `..` and none
+  of the regex constructs (`|`, groups) that could make it match elsewhere; the config directory to one plain component
+  under the sandbox home. The entrypoint predicate is `ai_tools_entrypoint_fcontext_valid` in `providers.lib.sh`, taking
+  the root it checks against as an argument, so the two writers of the launcher chain hold a pattern to the same
+  containment before they write a link to what it covers (see
+  [`launcher_target`](#launcher_target--where-the-versioned-launcher-points)); `tests/unit/launcher-target.sh` drives
+  its truth table, and `tests/unit/relabel.sh` pins the root the relabel passes it. The config-directory predicate is
+  `ai_tools_agent_config_dir_valid` in `control-plane.lib.sh`.
 
 The rule's lifecycle follows the package: applied by the agent package's `%post` (and by `install.sh`,
 `ai-tools-bootstrap`, the relabel watcher, and `ai-tools-admin system entrypoints relabel`), dropped by its `%preun`
 on final erase via `ai-tools-relabel-agent --remove <agent>`.
+
+## `launcher_target` — where the versioned launcher points
+
+`npm install -g` links `<version-dir>/bin/<launcher>` at the package's own entry file. For a package whose entry file is
+a shim — a JavaScript file that spawns the vendor's binary — that file is not the executable the session runs, and it is
+not the file `entrypoint_fcontext` names, so a launch through it fails closed at the label preflight. The manifest
+therefore declares `launcher_target`, the path of the executable relative to the version directory,
+and `ai-tools-bootstrap` and `nvm-update` re-link the versioned launcher at it after every install (npm rewrites its
+link on each one) and before the stable symlink is repointed, so the chain a launch resolves ends at the labelled file
+and the entrypoint verifier hashes that same file (see [updater](updater.rule.md)). The write is
+`ai_tools_relink_launcher`: a relative symlink (`../<target>`, npm's own form) created under a temporary name
+and renamed over the link, so the launcher path is never absent. What reserves that temporary name is the `ln -s`, not
+the `mktemp -u` that composed it: `-u` prints a name without creating a file, while `ln -s` fails on a name that already
+exists rather than following or truncating what is there, so a collision — with an earlier run's leftover,
+or with a file placed in that directory — is the refusal `MSG-A3S3` reports and never a write to something else.
+`tests/unit/launcher-target.sh` drives it.
+
+`ai_tools_relink_launcher` refuses each input the table lists, reports it under its own code, and leaves npm's link
+in place — a launch then fails closed at the preflight, the state a host with no such key is in:
+
+| refused | why |
+|---|---|
+| a value that is absolute, carries `..`, or leaves the path charset `[A-Za-z0-9_./@+-]` (`ai_tools_launcher_target_valid`, pure) | the join could name a file outside the version directory |
+| a join that does not resolve, symlinks followed, to a regular executable file inside the version directory | the chain would leave the toolchain, or end on a file without the executable bit |
+| an `entrypoint_fcontext` the relabel's containment refuses — an alternation, a group, a traversal, a literal head that is not the directory the resolved version directory sits in (`ai_tools_entrypoint_fcontext_valid`, pure) | the relabel does not register a rule from such a pattern, so no file it covers takes `ai_tools_exec_t`; refusing here reports it at the write instead of at the label preflight |
+| a resolved path the manifest's `entrypoint_fcontext` does not match, or a manifest declaring none | the file would carry no `ai_tools_exec_t`, and the relabel reconciliation would report the manifest `stale` |
+| a launcher path that exists and is not a symlink | a hand-edited tree; a `mv -T` would replace a file npm did not write |
+| a write that fails | the temporary link is removed and the launcher left as it was |
+
+The key is data the sandbox account cannot write (the manifest is root-owned, [The sandbox cannot widen its own
+surface](#the-sandbox-cannot-widen-its-own-surface)), and the write it asks for stays inside the one directory
+that account already owns: the re-link chooses which file under the version directory the launcher names, never
+what label a file gets or which paths may start a session — `ai-tools-run` still accepts the launcher only
+at `<version-dir>/bin/<launcher>` and requires the resolved target to stay inside that version directory (see
+[launch](launch.rule.md)).
 
 ## `release_manifest_url` / `release_key` / `release_fingerprint` — the agent declares its own provenance
 
@@ -350,6 +397,30 @@ surface **as the agent** and asserts none of it is agent-writable (catching the 
 - `ai_tools_provider_manifest_field <name> <key>` — the same read across both manifest kinds, for a caller holding
   a provider name without knowing which kind carries it (`ai-tools-admin` reads `admin_summary` this way). The namespace
   is flat, so at most one kind holds the name; integrations are tried first.
+- `ai_tools_launcher_target_valid <value>` — the pure shape check on a declared `launcher_target`;
+  `ai_tools_entrypoint_fcontext_valid <pattern> <containment-root>` — the pure containment check on a declared
+  `entrypoint_fcontext`, which `relabel.lib.sh` calls with the Node versions root it pins and the two writers
+  of the launcher chain call with the directory the resolved version directory sits
+  in; and `ai_tools_relink_launcher <version-dir> <launcher> <target> <entrypoint-fcontext>` — the one write this
+  library makes, the versioned launcher re-link (see
+  [`launcher_target`](#launcher_target--where-the-versioned-launcher-points)). Each takes its inputs as arguments;
+  the callers read the fields through `ai_tools_agent_manifest_field`.
+- `ai_tools_agent_managed_files <name>` — one `<live>\t<reference>` pair per file a trusted manifest names
+  in `managed_files`: the live path directly under `/etc/<name>/` and the reference the same name
+  under `AI_TOOLS_MANAGED_REFERENCE_DIR/<name>/`, so the pair differs only in its root. Because the reference is
+  composed rather than declared, the live path is held to the one directory that composition describes — an entry
+  that is relative, nested, a traversal, or under another package's directory is refused on stderr, and so is a second
+  entry repeating a name already paired, which would set two live paths against one reference copy. What root `cmp`s is
+  then that agent's own configuration rather than a path of the manifest's choosing.
+  `ai_tools_managed_file_state <live> <reference>` is the pure verdict beside it — `shipped`, `edited`, `missing`,
+  or `unknown` wherever the comparison cannot be made (an unreadable reference, a symlink or a directory on either
+  side), so a report never guesses "shipped" over a file it could not read, nor `edited` over a path that does not hold
+  any content. `ai_tools_managed_file_retire <live> <reference>` is the write beside them, the step a from-source
+  uninstall takes over each pair: a file still byte-identical to its reference is removed, and every other state —
+  an edit, or a comparison that cannot be made — is moved aside as `<live>.<YYYYMMDD>.retired` and reported, so the only
+  copy of what a host configured survives the uninstall that no longer ships it. That is `rpm -e`'s treatment
+  of an edited `%config(noreplace)` file, and moving rather than leaving is what keeps a live managed file from naming
+  hook scripts the same uninstall removed. `tests/unit/providers.sh` drives the verdict, the reader and the write.
 - `ai_tools_provider_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` / `baseline` /
   `untrusted`), read-only and side-effect free. The resolvers read it, and so does `ai-tools providers` (see
   [cli](cli.rule.md)), so an operator asking what is enabled and a session being launched consult one implementation.
@@ -507,8 +578,9 @@ No enforcement code.
 **An agent is an npm package on the sandbox's Node toolchain.** `npm_package` is in practice required (a manifest
 lacking it does not provision an agent), `ai-tools-bootstrap`/`nvm-update` install it with `npm install -g`,
 and `ai-tools-run` accepts an executable only under `/opt/ai-tools/.nvm/versions/node/<semver>/bin/`. That assumption
-lives in exactly two places — **provisioning** (which command installs the agent and where its launcher lands)
-and **exec validation** (which paths may start a session) — and nowhere else in the seam.
+lives in exactly two places — **provisioning** (which command installs the agent, where its launcher lands, and —
+through `launcher_target` — which file inside that version directory the launcher resolves to) and **exec validation**
+(which paths may start a session) — and nowhere else in the seam.
 
 ### Fitting a second agent runtime
 

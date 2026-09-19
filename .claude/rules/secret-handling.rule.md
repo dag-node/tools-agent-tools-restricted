@@ -82,15 +82,15 @@ so an edit there is lost on upgrade.
 **Replacing rather than extending has a cost the launch wrapper reports.** A config written once holds this host
 to the set it listed then, and every pattern added upstream since is absent from it — a narrowing no party is placed
 to notice, since the agent cannot read the file and a quarantine that did not happen writes no line to any log.
-`ai_tools_secret_patterns_drift` compares the set in force against the baseline as a set, and `claude.sh` logs
-the result to journald once per launch: the file's path, what it adds, and — the half that matters — which baseline
-patterns it drops, each one a credential name this host no longer quarantines. A missing or empty config is the baseline
-itself, so no line is written for it; the report names patterns rather than counts alone, and goes to the journal rather
-than the terminal, being a fact to act on later and not a launch decision. A failure to source the library is
-fail-closed: `ai-tools-chown` exits non-zero and skips that path's handback (it stays `SANDBOX_USER`-owned) rather than
-handing a possible secret back as an ordinary file. `ai-tools-chown` runs in `ai_tools_handback_t` (inherited
-from the handback daemon, no transition), so the policy grants that domain `libs_read_lib_files` to read
-the `lib_t`-labelled library.
+`ai_tools_secret_patterns_drift` compares the set in force against the baseline as a set, and the launch wrapper
+(`launch-wrapper.lib.sh`, for every agent) logs the result to journald once per launch: the file's path, what it adds,
+and — the half that matters — which baseline patterns it drops, each one a credential name this host no longer
+quarantines. A missing or empty config is the baseline itself, so no line is written for it; the report names patterns
+rather than counts alone, and goes to the journal rather than the terminal, being a fact to act on later and not
+a launch decision. A failure to source the library is fail-closed: `ai-tools-chown` exits non-zero and skips that path's
+handback (it stays `SANDBOX_USER`-owned) rather than handing a possible secret back as an ordinary file.
+`ai-tools-chown` runs in `ai_tools_handback_t` (inherited from the handback daemon, no transition), so the policy grants
+that domain `libs_read_lib_files` to read the `lib_t`-labelled library.
 
 The patterns are name- or environment-anchored (`appsettings.*.json`, `web.*.config`, `*.Production.*`, …), **not**
 broad `*.*.json`/`*.*.config` catch-alls: those would also match build artifacts the toolchain must read (`*.deps.json`,

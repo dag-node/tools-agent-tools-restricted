@@ -191,7 +191,7 @@ jobs:
   # Release tags publish; workflow_dispatch rehearses the identical build+sign+verify path with
   # the publish steps skipped (tag-gated per step). The channel follows the tag, never the branch:
   # vX.Y.Z -> GitHub Release + rpm.dagnode.com, vX.Y.Z-rc.N -> GitHub prerelease only. Process
-  # contract: docs/branching-and-release.md. Never runs on pull_request -- fork PRs must not
+  # contract: docs/development/release.md. Never runs on pull_request -- fork PRs must not
   # see the signing secret.
   release:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'

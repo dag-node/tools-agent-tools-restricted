@@ -149,9 +149,18 @@ governs only the other outcome, an entrypoint carrying
 host that has not yet run a relabel, one whose vendor published no manifest for
 the installed release, and any air\-gapped host.
 .B Set:
-only a verified entrypoint may start a session. Pin one with
+only a pinned entrypoint may start a session. A pin records either the checksum
+the vendor signed for the installed release or, for an agent whose vendor
+publishes no such manifest, the binary as installed \(em
+.B ai\-tools status
+names which of the two each agent holds, as
+.B VERIFIED
+or
+.BR UNCHANGED .
+Pin one with
 .BR "sudo ai\-tools\-admin system entrypoints relabel" ,
-which fetches the vendor's signed manifest and so needs the host online.
+which fetches the vendor's signed manifest where there is one and so needs the
+host online.
 .TP
 .BI CLAUDE_SYSTEM_PROMPT_FILE= FILE
 A custom system prompt for Claude Code sessions (requires the

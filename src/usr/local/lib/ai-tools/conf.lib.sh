@@ -237,7 +237,10 @@ ai_tools_conf_list() {
 #   without printing when the day's namespace is exhausted, so a caller never silently reuses a
 #   name. Pure except for the existence tests. Public because it is the single home of the
 #   `<path>.<YYYYMMDD>[-N].<kind>` convention: managed-assets.lib.sh stamps a replaced shipped
-#   asset the same way this file stamps a replaced config, and <path> may be a directory there.
+#   asset the same way this file stamps a replaced config, and <path> may be a directory there,
+#   while providers.lib.sh stamps a managed file an uninstall moved aside. The kind names the event
+#   that produced the copy -- `bak` beside a file a merge replaced, `retired` where the live path
+#   is gone -- so a reader tells the two recoveries apart by the name alone.
 ai_tools_conf_sidecar_path() {
     local file="$1" kind="$2" stamp candidate index
     stamp="$(date +%Y%m%d)" || return 1

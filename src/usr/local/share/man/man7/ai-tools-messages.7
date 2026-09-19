@@ -106,9 +106,17 @@ not a claimed project: ${d}
 ERROR.
 the parent directory does not exist: ${parent}
 .TP
+.B MSG-J4P9
+ERROR.
+a value is required after ${flag}
+.TP
 .B MSG-K5Y4
 ERROR.
 this path is inside a claimed project, not a project itself: ${d}
+.TP
+.B MSG-K7A6
+ERROR.
+no agent is enabled or resolved, so there is no agent to provision a project for \-\- ${reason}
 .TP
 .B MSG-K7D9
 ERROR.
@@ -182,6 +190,10 @@ ERROR.
 ERROR.
 this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}.
 .TP
+.B MSG-V3N7
+ERROR.
+the provider resolver is unavailable: ${ENABLED_AGENTS_ERROR}
+.TP
 .B MSG-W3H3
 ERROR.
 not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d}
@@ -203,6 +215,14 @@ this is an excluded path inside a claimed project, not a disabled project: ${d}
 .B MSG-X6U2
 ERROR.
 you (${INVOKING_USER}) are not a configured ai\-tools operator \-\- add your name to OPERATORS in ${conf} with:
+.TP
+.B MSG-X9H7
+ERROR.
+the sandbox is not provisioned for any enabled agent: ${joined%, } \-\- provision it with:
+.TP
+.B MSG-Z5V5
+ERROR.
+a value is required after ${flag}, not another option: $1
 .TP
 .B MSG-Z6Q6
 ERROR.
@@ -835,9 +855,17 @@ WARNING.
 FATAL: owner\-only.lib.sh defines no residue strip
 .SS ai-tools-launcher-symlink
 .TP
+.B MSG-D4X6
+ERROR.
+the ${agent_name} manifest ${fcontext_refusal}, so ${resolved} would carry no entrypoint label \-\- refusing to repoint ${LINK}
+.TP
 .B MSG-G4F4
 ERROR.
 no enabled agent provides the launcher \e"${LAUNCHER}\e" \-\- refusing to repoint ${LINK}
+.TP
+.B MSG-P2R8
+ERROR.
+target does not resolve to an executable file inside ${version_dir} (it resolves to ${resolved}) \-\- refusing to repoint ${LINK}
 .TP
 .B MSG-Q9M3
 ERROR.
@@ -999,6 +1027,10 @@ wrong type on ${subject}: it is '${detail}', NOT ${wanted}
 WARNING.
 entrypoint verifier unavailable (${ENTRYPOINT_VERIFY_LIB}) \-\- entrypoints will not be pinned
 .TP
+.B MSG-K4D7
+WARNING.
+could not record ${agent}'s stale pin for ai\-tools status \-\- the reports will render its pin as current
+.TP
 .B MSG-M2M5
 ERROR.
 a stale declaration stops this relabel: ${stale} agent(s) install their entrypoint where their manifest no longer says, so it cannot be labelled; update the agent package (dnf update 'ai\-tools\-agents\-*'), then rerun
@@ -1006,6 +1038,10 @@ a stale declaration stops this relabel: ${stale} agent(s) install their entrypoi
 .B MSG-M3E7
 ERROR.
 must run as root (via sudo)
+.TP
+.B MSG-M6C3
+WARNING.
+could not write the observed pin for ${agent} at ${version}
 .TP
 .B MSG-N9B9
 ERROR.
@@ -1023,9 +1059,13 @@ relabel.lib.sh is incomplete \-\- reinstall ai\-tools\-base
 ERROR.
 usage: ai\-tools\-relabel\-agent [\-\-remove <agent\-name>]
 .TP
+.B MSG-U6H8
+WARNING.
+the ${agent} entrypoint changed under an unchanged version ${version} \-\- leaving the pin as it is, so the next session refuses to start
+.TP
 .B MSG-W6V4
 ERROR.
-treat the toolchain as tampered: ${pin_failures} agent entrypoint(s) do NOT match the checksum their vendor signed for the installed version; reprovision it (sudo ai\-tools\-admin system bootstrap) and, if it recurs, investigate before launching a session
+treat the toolchain as tampered: ${pin_failures} agent entrypoint(s) no longer match the checksum recorded for the installed version; the pin is left as it was, so their sessions refuse to start \-\- replace each binary with the two commands printed above, and investigate before launching a session
 .TP
 .B MSG-W8N5
 WARNING.
@@ -1062,7 +1102,7 @@ AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR}
 .TP
 .B MSG-H7S2
 ERROR.
-the agent entrypoint does not match the checksum its vendor signed for the installed version \-\- refusing to start the session
+the agent entrypoint does not match its recorded checksum \-\- refusing to start the session
 .TP
 .B MSG-N4P3
 ERROR.
@@ -1222,45 +1262,9 @@ WARNING.
 left ${hardlinked} hardlinked file(s) untouched \-\- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with
 .SS claude
 .TP
-.B MSG-C7C9
+.B MSG-R3Q4
 ERROR.
-claude: ${_user} is not an ai\-tools operator \-\- not a member of the ${OPERATORS_GROUP} group
-.TP
-.B MSG-C9S6
-ERROR.
-claude: approved\-projects allowlist not found
-.TP
-.B MSG-K8K2
-ERROR.
-claude: $(pwd): excluded by '!' rule in approved projects list
-.TP
-.B MSG-N2Z7
-ERROR.
-claude: no session started \-\- ${cwd} is not set up for the agent.
-.TP
-.B MSG-N8Q4
-ERROR.
-claude: this is the sandbox account ${SANDBOX_USER}, which is not an ai\-tools operator
-.TP
-.B MSG-R2V6
-ERROR.
-claude: $(pwd): this project is disabled in your approved projects list
-.TP
-.B MSG-R7Z3
-ERROR.
-claude: ${_user} is an ai\-tools operator, but this shell started before the grant
-.TP
-.B MSG-S4B3
-ERROR.
-ERROR: claude symlink not found at ${CLAUDE_LINK}
-.TP
-.B MSG-U6A9
-ERROR.
-claude: cannot load the launch safety library \-\- refusing to start
-.TP
-.B MSG-W2P3
-ERROR.
-claude: $(pwd): excluded by '!' rule in approved projects list
+claude: cannot load the launch gate library \-\- refusing to start
 .SS conf.lib.sh
 .TP
 .B MSG-F9W4
@@ -1516,15 +1520,104 @@ test suite reported failures \-\- review the output above
 .B MSG-Z3H8
 WARNING.
 could not remove ${SCRIPT_DIR} from ${allowlist} \-\- it is still registered
+.SS launch-wrapper.lib.sh
+.TP
+.B MSG-B6G2
+ERROR.
+the launch gates did not run \-\- refusing to start
+.TP
+.B MSG-C2M7
+ERROR.
+cannot load the config library \-\- refusing to start
+.TP
+.B MSG-C7C9
+ERROR.
+not an ai\-tools operator \-\- ${user} is not a member of the ${OPERATORS_GROUP} group
+.TP
+.B MSG-C9S6
+ERROR.
+approved\-projects allowlist not found
+.TP
+.B MSG-G8R4
+ERROR.
+resolved path '${AI_TOOLS_LAUNCH_EXEC}' contains parent\-directory references
+.TP
+.B MSG-K8K2
+ERROR.
+excluded by '!' rule in approved projects list: $(pwd)
+.TP
+.B MSG-N2Z7
+ERROR.
+no session started \-\- ${cwd} is not set up for the agent.
+.TP
+.B MSG-N8Q4
+ERROR.
+this is the sandbox account ${SANDBOX_USER}, which is not an ai\-tools operator
+.TP
+.B MSG-R2V6
+ERROR.
+this project is disabled in your approved projects list: $(pwd)
+.TP
+.B MSG-R7Z3
+ERROR.
+this shell started before the grant \-\- ${user} is an ai\-tools operator per the group database
+.TP
+.B MSG-S3K2
+ERROR.
+resolved path '${AI_TOOLS_LAUNCH_EXEC}' is not an approved ai\-tools binary
+.TP
+.B MSG-S4B3
+ERROR.
+launcher symlink not found at ${launcher_link}
+.TP
+.B MSG-S5Y9
+ERROR.
+cannot read the launcher symlink ${launcher_link} \-\- reinstall or run nvm\-update.sh
+.TP
+.B MSG-S8D9
+ERROR.
+cannot resolve working directory
+.TP
+.B MSG-U6A9
+ERROR.
+cannot load the launch safety library \-\- refusing to start
+.TP
+.B MSG-W2P3
+ERROR.
+excluded by '!' rule in approved projects list: $(pwd)
+.TP
+.B MSG-W4X4
+ERROR.
+refusing to launch \-\- ${cwd} is not fully claimed for the sandbox
 .SS providers.lib.sh
+.TP
+.B MSG-A3S3
+WARNING.
+could not write ${link} \-> ../${target} \-\- leaving the launcher as it was
+.TP
+.B MSG-C4F6
+WARNING.
+refusing the launcher target for ${launcher}: ${target} does not resolve to an executable file inside ${version_dir}${resolved:+ (it resolves to ${resolved})} \-\- leaving ${link} as it is
 .TP
 .B MSG-C4F9
 WARNING.
 ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") \-\- using the default\-enabled providers only
 .TP
+.B MSG-F5U2
+WARNING.
+refusing the launcher target for ${launcher}: ${reason}, so the file would carry no entrypoint label \-\- leaving ${link} as it is
+.TP
+.B MSG-J5C3
+WARNING.
+refusing the launcher target for ${launcher}: $(printf '%q' "${target}") is not a relative path inside the version directory \-\- leaving ${link} as it is
+.TP
 .B MSG-M3A5
 WARNING.
 skipping agent ${agent_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")
+.TP
+.B MSG-N4W6
+WARNING.
+skipping the managed file $(printf '%q' "${path}") of ${agent}: ${reason}
 .TP
 .B MSG-N9X8
 WARNING.
@@ -1537,6 +1630,14 @@ providers.lib.sh: conf.lib.sh missing or incomplete \-\- no providers resolved
 .B MSG-W3Q3
 WARNING.
 refusing every ${conf_key} provider: ${dir} $(ai_tools_conf_untrusted_reason "${dir}")
+.TP
+.B MSG-W4H3
+WARNING.
+refusing to re\-link ${link}: it is not a symlink \-\- leaving it as it is
+.TP
+.B MSG-X7C4
+WARNING.
+could not retire the managed file ${live} \-\- leaving it as it is
 .TP
 .B MSG-X8P4
 WARNING.

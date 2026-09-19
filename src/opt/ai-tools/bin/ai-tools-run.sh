@@ -398,9 +398,13 @@ source "${AI_TOOLS_LIB_DIR}/skip-dirs.lib.sh" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
 # sweep_project_ownership : hand every @SANDBOX_USER@-owned path under the session's project directory to ai-tools-chown
-# through the handback socket. No project directory (a diagnostic run outside a wrapper) or no client leaves it a no-op.
+# through the handback socket. No project directory (a diagnostic run outside a wrapper), the sandbox home
+# as the working directory (a print-and-exit run), or no client leaves it a no-op.
 sweep_project_ownership() {
     [[ -n "${session_working_directory}" && -d "${session_working_directory}" ]] || return 0
+    # A sole `--version`/`--help` runs with the sandbox home as its working directory. No session writes a project
+    # there, and a walk of it would offer every toolchain file to the root helper for it to leave alone.
+    [[ "${session_working_directory}" != "${SANDBOX_HOME}" ]] || return 0
     [[ -x "${HANDBACK_CLIENT}" ]] || return 0
     # A down socket fails every CHOWN, so skip the walk and record that once, rather than logging a reassuring count
     # of calls that changed no ownership (the failure mode this whole change fixes).
@@ -411,47 +415,55 @@ sweep_project_ownership() {
     # The "reclaim" consumer omits the heavy dependency/build trees but WALKS .git -- the tree the per-turn hooks skip,
     # and which no other pass on this path would reach.
     ai_tools_skip_find_expr reclaim '' "${session_working_directory}"
-    # Count CONFIRMED handbacks (client exit 0), not attempts, so the audit line reflects what actually changed owner;
-    # a non-zero exit is either a routine skip (a path the root helper refused) or a mid-sweep socket loss, both
-    # surfaced as a failed tally rather than success.
-    local confirmed=0 failed=0 path
+    # Count OWNER CHANGES, not helper exits. `ai-tools-chown` exits 0 both for a path it handed back and for one it
+    # deliberately LEFT ALONE -- a `!`-excluded path, a hardlinked file, a secret-named one it quarantined elsewhere --
+    # so a tally of exits reports work that did not happen, which is the failure mode this line exists to rule out.
+    # The walk selected @SANDBOX_USER@-owned paths, so a path no longer owned by that account is one this call changed;
+    # an unreadable path (deleted mid-sweep) reads the same way and is not counted as left alone. A non-zero exit is
+    # a refusal the helper reports or a mid-sweep socket loss, both surfaced as a failed tally.
+    local confirmed=0 untouched=0 failed=0 path
     while IFS= read -r -d '' path; do
         if "${HANDBACK_CLIENT}" CHOWN "${path}" >/dev/null 2>&1; then
-            confirmed=$(( confirmed + 1 ))
+            if [[ "$(stat -c '%U' -- "${path}" 2>/dev/null || true)" == '@SANDBOX_USER@' ]]; then
+                untouched=$(( untouched + 1 ))
+            else
+                confirmed=$(( confirmed + 1 ))
+            fi
         else
             failed=$(( failed + 1 ))
         fi
     done < <(find "${session_working_directory}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -user '@SANDBOX_USER@' '(' -type f -o -type d ')' -print0 ')' 2>/dev/null)
+    # Reported alongside the handbacks rather than folded into them: a sweep that left every path as it was is a project
+    # whose paths the helper declines, which reads very differently from one it converged.
+    local left_alone_note=""
+    (( untouched > 0 )) && left_alone_note=", ${untouched} left as they were by the root helper"
     if (( failed > 0 )); then
-        audit warning "session-end sweep: handed back ${confirmed} path(s), ${failed} not handed back under ${session_working_directory} (agent=${agent_name}); reclaim with: ai-tools projects handback ${session_working_directory}"
-    elif (( confirmed > 0 )); then
-        audit info "session-end sweep: handed back ${confirmed} path(s) under ${session_working_directory} (agent=${agent_name})"
+        audit warning "session-end sweep: handed back ${confirmed} path(s)${left_alone_note}, ${failed} not handed back under ${session_working_directory} (agent=${agent_name}); reclaim with: ai-tools projects handback ${session_working_directory}"
+    elif (( confirmed > 0 || untouched > 0 )); then
+        audit info "session-end sweep: handed back ${confirmed} path(s)${left_alone_note} under ${session_working_directory} (agent=${agent_name})"
     fi
     return 0
 }
 
 # ── Launch ───────────────────────────────────────────────────────────────────────────────────
 # Three versions are reported and logged: Node from the validated executable path, the agent from its npm package.json,
-# and ai-tools from the value stamped at install (@*@ means an unsubstituted source tree). The agent version is read
-# from a file the sandbox account OWNS, so it is accepted only in MAJOR.MINOR.PATCH shape -- untrusted input reaching
-# the operator's terminal and journal, where a crafted value could otherwise inject terminal escapes.
+# and ai-tools from the value stamped at install (@*@ means an unsubstituted source tree). Both the node read here
+# and the agent read below clamp what they admit, because each comes from a file the sandbox account OWNS and lands
+# on the operator's terminal and in the journal, where a crafted value could otherwise inject terminal escapes.
 readonly VERSION_PATTERN='^v?[0-9]+\.[0-9]+\.[0-9]+$'
 ai_tools_version="@AI_TOOLS_VERSION@"; [[ "${ai_tools_version}" == @*@ ]] && ai_tools_version="dev"
 [[ "${node_version}" =~ ${VERSION_PATTERN} ]] || node_version="n/a"
 
+# The reader, the walk and the clamp are entrypoint-verify.lib.sh's, which the pin is written through as well,
+# so the banner and the pin cannot report different versions for one binary. The library is optional here -- a banner is
+# display, not a gate -- so a load that does not happen costs the version line and nothing else.
 agent_version="n/a"
-package_directory="${session_exec_path}"
-for _ in 1 2 3; do
-    package_directory="${package_directory%/*}"
-    [[ -n "${package_directory}" && -f "${package_directory}/package.json" ]] && break
-done
-if [[ -n "${package_directory}" && -r "${package_directory}/package.json" ]]; then
-    # Bounded read of a regular file: the version sits in the first bytes, and a fifo swapped in must never block
-    # the launch.
-    declared_version="$(head -c 65536 -- "${package_directory}/package.json" 2>/dev/null \
-        | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-    [[ "${declared_version}" =~ ${VERSION_PATTERN} ]] && agent_version="${declared_version}"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+if source "${AI_TOOLS_LIB_DIR}/entrypoint-verify.lib.sh" 2>/dev/null \
+        && declare -F ai_tools_entrypoint_installed_version >/dev/null 2>&1; then
+    declared_version="$(ai_tools_entrypoint_installed_version "${session_exec_path}" || true)"
+    [[ -n "${declared_version}" ]] && agent_version="${declared_version}"
 fi
 audit info "versions: ${agent_name}=${agent_version} node=${node_version} ai-tools=${ai_tools_version}"
 
@@ -518,15 +530,47 @@ audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} requir
 case "${entrypoint_pin_verdict}" in
     mismatch)
         audit warning "REFUSED: entrypoint does not match its pin (${session_exec_path})"
-        refuse MSG-H7S2 'the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session' \
+        # What the pin CLAIMS differs by tier, so the refusal names the tier this host holds: telling an operator
+        # that a vendor signed a checksum, for an agent whose vendor publishes none, sends them looking for a signature
+        # that does not exist. The reader defaults to the stronger claim, which is what a record with no KIND carries.
+        entrypoint_pin_claim='the checksum its vendor signed for the installed version'
+        if declare -F ai_tools_entrypoint_pin_kind >/dev/null 2>&1 \
+                && [[ "$(ai_tools_entrypoint_pin_kind "${agent_name}" 2>/dev/null || true)" == observed ]]; then
+            entrypoint_pin_claim='the checksum root recorded for the binary as installed'
+        fi
+        # The remedy is NOT the provisioning command on its own: its npm step is a no-op at an already-installed
+        # version, so the modified binary would survive it and every launch would go on refusing. The package directory
+        # goes first; the library composes it, and prints nothing where the entrypoint does not sit inside one.
+        entrypoint_package_dir=""
+        declare -F ai_tools_entrypoint_package_dir >/dev/null 2>&1 \
+            && entrypoint_package_dir="$(ai_tools_entrypoint_package_dir "${session_exec_path}" \
+                   "$(ai_tools_agent_manifest_field "${agent_name}" npm_package || true)" 2>/dev/null || true)"
+        declare -a entrypoint_remedy=( '  sudo ai-tools-admin system bootstrap' )
+        [[ -n "${entrypoint_package_dir}" ]] \
+            && entrypoint_remedy=( "  sudo rm -rf ${entrypoint_package_dir}" "${entrypoint_remedy[@]}" )
+        refuse MSG-H7S2 'the agent entrypoint does not match its recorded checksum -- refusing to start the session' \
                "entrypoint:  ${session_exec_path}" \
-               'The binary changed after it was verified. Treat this toolchain as tampered and reprovision it:' \
-               '  sudo ai-tools-admin system bootstrap' ;;
-    ok) ;;
+               "The pin holds ${entrypoint_pin_claim}, and the binary has changed since it was recorded." \
+               'Treat this toolchain as tampered and replace the binary -- reprovisioning alone' \
+               'reinstalls nothing at an unchanged version:' \
+               "${entrypoint_remedy[@]}" ;;
+    ok) # Either tier satisfies the switch: what it governs is an entrypoint carrying NO pin, and a pin recorded by
+        # observation is one -- root hashed the installed binary, and this launch just matched it. Which tier a host
+        # holds per agent is what the status reports name, so the operator sets the switch knowing that an agent
+        # whose vendor publishes no signed manifest is covered against a change and not against its origin.
+        ;;
     *)  if [[ "${require_entrypoint_verify}" == yes ]]; then
             audit warning "REFUSED: entrypoint unverified (${entrypoint_pin_verdict}) and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set"
-            refuse 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, but this entrypoint carries no verified checksum.' \
-                   'Pin it (this fetches the vendor'"'"'s signed release manifest, so the host must be online):' \
+            # The reconcile reaches the network only for an agent whose manifest declares a release manifest; for one
+            # that declares none it hashes what is installed, so naming an online host as a precondition would send
+            # the operator hunting connectivity a local step never needed.
+            if [[ -n "$(ai_tools_agent_manifest_field "${agent_name}" release_manifest_url 2>/dev/null || true)" ]]; then
+                entrypoint_pin_step='Pin it (this fetches the vendor'"'"'s signed release manifest, so the host must be online):'
+            else
+                entrypoint_pin_step='Pin it (this agent publishes no signed manifest, so root records the binary as installed):'
+            fi
+            refuse 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, but this entrypoint carries no pin' \
+                   "${entrypoint_pin_step}" \
                    '  sudo ai-tools-admin system entrypoints relabel'
         fi ;;
 esac

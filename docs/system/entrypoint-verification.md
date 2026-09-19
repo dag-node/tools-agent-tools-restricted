@@ -1,5 +1,7 @@
 # Entrypoint verification
 
+[System](index.md) · **Entrypoint verification** — [all docs](../index.md)
+
 How `ai-tools` proves that the agent binary it is about to run is the one its
 vendor published, what
 you have to do about it (almost always nothing), and what each failure means. <!-- prose-check: ignore: the reader is the actor; "nothing" is the action they take -->
@@ -95,13 +97,97 @@ where neither works.
 | `entrypoint verified … and pinned` after an update | working as intended | no action |
 | `could not verify … pin unchanged` | the host could not reach the vendor, or no manifest exists for that release | no action; it re-verifies on the next update. If it persists, check egress to `downloads.claude.ai` |
 | `signed by a key the pinned keyring does not hold` | the vendor rotated its signing key | `sudo dnf update 'ai-tools-agents-*'` |
-| a launch refused: `does not match the checksum its vendor signed` | **the binary changed after it was verified** | treat the toolchain as tampered: `sudo ai-tools-admin system bootstrap`, and investigate if it recurs |
-| a launch refused: `carries no verified checksum` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and this entrypoint was never pinned | `sudo ai-tools-admin system entrypoints relabel` (needs the host online) |
+| a launch refused: `does not match its recorded checksum` | **the binary changed after it was recorded** | treat the toolchain as tampered and replace the binary — see [Replacing a changed binary](#replacing-a-changed-binary) |
+| a launch refused: `carries no pin` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and no reconcile has pinned this entrypoint | `sudo ai-tools-admin system entrypoints relabel` (needs the host online for an agent whose vendor publishes a manifest) |
+| `PIN STALE` in `ai-tools status` | a reconciliation refused to re-record that pin, so it describes a binary that is no longer installed | the same: [Replacing a changed binary](#replacing-a-changed-binary) |
+| `UNCHANGED` in place of `VERIFIED` | that agent is pinned as installed | no action; [An agent whose vendor does not publish a signed manifest](#an-agent-whose-vendor-does-not-publish-a-signed-manifest) says what it claims |
 
 `sudo ai-tools-admin system entrypoints relabel` reconciles the entrypoint: it
 verifies and pins it, then fixes its SELinux label. Both are answers to "the
 toolchain changed"; it is the same command you already run when a Node upgrade
 leaves the entrypoint mislabelled.
+
+### Replacing a changed binary
+
+Reprovisioning on its own does **not** replace it. `system bootstrap` installs
+each agent's npm package, and `npm install -g` is a no-op at a version that is
+already installed — so the modified file stays where it is and every launch
+goes on refusing. Remove the installed package first:
+
+```bash
+sudo rm -rf /opt/ai-tools/.nvm/versions/node/v22.20.0/lib/node_modules/@openai/codex
+sudo ai-tools-admin system bootstrap
+```
+
+Both the refused launch and `sudo ai-tools-admin system entrypoints relabel`
+print those two commands with the paths this host has, so the version directory
+and the package name do not have to be looked up. Investigate before launching
+a session if it recurs: a binary that changes under an unchanged version is
+the one thing no update explains.
+
+## An agent whose vendor does not publish a signed manifest
+
+Not every vendor publishes one. Codex does not: its npm channel does not ship
+a signed per-release checksum, so `gpgv` has no signature to check. Such
+an agent is still pinned. Root records the checksum of the binary as installed,
+and `ai-tools status` reports that pin as `UNCHANGED`:
+
+```text
+Entrypoint verification
+  codex                        UNCHANGED (0.154.0-linux-x64, 2h ago, as installed)
+```
+
+The two words are two different claims. `VERIFIED` says the binary is the one
+the vendor signed. `UNCHANGED` says the binary is the one this host recorded
+and has not changed since — which is the case npm's own checks cannot see,
+and the one an agent could otherwise exploit by rewriting its own entrypoint
+between sessions. It does not say where the binary came from, and it does not
+say whether the binary was already modified when the host first recorded it.
+
+Such an agent launches on a host that requires verification: the switch asks
+for a pin, and this is one. What the tier changes is the claim the report
+makes, not whether a session starts.
+
+A binary that changes under the version it was recorded at refuses the launch
+either way: the reconcile refuses to re-record it and leaves the old pin
+in place, so the next session refuses rather than adopting the new value:
+
+```text
+ai-tools-relabel-agent: warn: the codex entrypoint changed under an unchanged
+version 0.154.0 -- leaving the pin as it is, so the next session refuses to start
+```
+
+A change that arrives with a new declared version reads as an update and is
+recorded again. The version is read from the package as installed
+in the toolchain, and the toolchain is written by the sandbox account, since
+the nightly update runs as it. With SELinux enforcing, a session cannot write
+the toolchain, so the only writer that can bring a new version is the update
+itself. Without SELinux, the session's own account owns the toolchain,
+and `UNCHANGED` then holds against a rewrite that leaves the declared version
+alone, and does not hold against one that changes it. What closes the rest is
+the vendor's signature, which is the `VERIFIED` tier.
+
+Verifying such a vendor's signature is possible — Codex signs each release
+binary through Sigstore — but checking one needs a verifier this project does
+not ship and no distribution repository carries, so it stays a dependency
+the project has not taken.
+
+### Verifying the Codex binary yourself with cosign
+
+```bash
+cosign verify-blob --bundle codex-x86_64-unknown-linux-musl.sigstore --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity https://github.com/openai/codex/.github/workflows/rust-release.yml@refs/tags/rust-v<version> <entrypoint>
+```
+
+Each Codex release `rust-v<version>` on GitHub publishes
+`codex-x86_64-unknown-linux-musl.sigstore`, a Sigstore bundle signed
+by OpenAI's release workflow over the same binary the npm package installs. Run
+against the entrypoint `sudo ai-tools-admin status` names under `labelled`,
+with `<version>` the number `ai-tools status` reports for Codex, the command
+confirms that binary was produced by that workflow. It is a check you run
+by hand, once per release: this project does not record its result,
+and `UNCHANGED` stays what the pin claims. It also costs maintenance
+the project does not take on for you — `cosign` installed and current, and its
+Sigstore trust root kept fresh, since the certificate chain it checks rotates.
 
 ## Strictness
 
@@ -117,11 +203,13 @@ To require verification, in `/etc/ai-tools/operator.conf`:
 AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes
 ```
 
-Then only a verified entrypoint starts a session, and the updater additionally
-declines to activate a release it could not verify — so an unverifiable release
-never becomes the one your launches would have to refuse. This is the same
-shape as `AI_TOOLS_REQUIRE_SELINUX`: the tool cannot tell an intentionally
-offline host from a degraded one, so you declare it.
+Then only a pinned entrypoint starts a session — a pin of either kind, since
+what this refuses is an entrypoint no reconcile has recorded — and the updater
+additionally declines to activate a release it could not verify —
+so an unverifiable release never becomes the one your launches would have
+to refuse. This is the same shape as `AI_TOOLS_REQUIRE_SELINUX`: the tool
+cannot tell an intentionally offline host from a degraded one, so you declare
+it.
 
 ## Air-gapped and mirrored hosts
 
@@ -163,5 +251,5 @@ across sessions and across operators indefinitely.
 
 - `operator.conf(5)` — `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` and the other
   switches
-- `docs/project-lifecycle.md` — claiming projects and running sessions
+- `docs/projects/index.md` — claiming projects and running sessions
 - `.claude/rules/updater.rule.md` — the mechanism, for contributors

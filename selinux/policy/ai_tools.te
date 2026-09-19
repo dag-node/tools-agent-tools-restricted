@@ -623,19 +623,22 @@ files_search_var(ai_tools_handback_t)
 # and stat bin/claude.
 files_read_usr_files(ai_tools_handback_t)
 # Stat THROUGH the versioned bin/claude symlink to its resolved end, claude.exe (ai_tools_exec_t).
-# ai-tools-launcher-symlink.sh:52 does `[[ -e TARGET ]]`, which follows bin/claude to claude.exe and getattr()s it;
-# files_read_usr_files / libs_read_lib_files cover the usr_t/bin_t/lib_t hops along the way but NOT the custom
-# ai_tools_exec_t entrypoint type at the end. Without this the getattr is denied, bash's `-e` silently reports false
-# (the swallowed-EACCES shape, same as the ai_tools_run_t:sock_file getattr finding), and the helper fails closed
-# with "target does not exist" even though the path plainly exists -- the SYMLINK verb dies and nvm-update.sh reports
-# "failed to repoint ... via handback SYMLINK" -> "ai-tools update failed". This domain needs ONLY getattr:
-# ai-tools-launcher-symlink stat()s the entrypoint for its `-e` existence check but never relabels it. Restoring
-# ai_tools_exec_t on a freshly bumped (bin_t) entrypoint needs relabelfrom/relabelto, intentionally NOT granted here --
-# it is owned by ai-tools-relabel-agent. That helper runs as root from the ai-tools-relabel.path watcher (system
-# instance) after the updater repoints the symlink, and on demand from `ai-tools-admin system entrypoints relabel` (the
-# operator, unconfined_t, which holds relabel). A mislabelled entrypoint does NOT run unconfined under enforcing:
-# ai-tools-run's pre-launch preflight refuses to start when the on-disk label isn't ai_tools_exec_t (fail-closed),
-# so a watcher relabel the system instance's domain cannot perform degrades to a refused launch the operator clears
+# ai-tools-launcher-symlink resolves the target with `realpath -e` and reads the resolved file's type and mode
+# with stat(2) to require a regular executable; files_read_usr_files / libs_read_lib_files cover the usr_t/bin_t/lib_t
+# hops along the way but NOT the custom ai_tools_exec_t entrypoint type at the end. Without this the getattr is denied,
+# the resolution silently does not report a file (the swallowed-EACCES shape, same as the ai_tools_run_t:sock_file
+# getattr finding), and the helper fails closed with "target does not exist" even though the path plainly exists --
+# the SYMLINK verb dies and nvm-update.sh reports "failed to repoint ... via handback SYMLINK" -> "ai-tools update
+# failed". This domain needs ONLY getattr, and the helper is written to need only that: it reads the execute bit
+# off the mode with stat. `-x` is access(2), which the kernel answers with a `file execute` check this domain does not
+# hold, so under enforcing that test read false for a 0755 entrypoint and refused every repoint. It never relabels
+# the entrypoint: this domain does not hold relabelfrom/relabelto on it. Restoring ai_tools_exec_t on a freshly bumped
+# (bin_t) entrypoint needs relabelfrom/relabelto, intentionally NOT granted here -- it is owned
+# by ai-tools-relabel-agent. That helper runs as root from the ai-tools-relabel.path watcher (system instance)
+# after the updater repoints the symlink, and on demand from `ai-tools-admin system entrypoints relabel` (the operator,
+# unconfined_t, which holds relabel). A mislabelled entrypoint does NOT run unconfined under enforcing: ai-tools-run's
+# pre-launch preflight refuses to start when the on-disk label isn't ai_tools_exec_t (fail-closed), so a watcher relabel
+# the system instance's domain cannot perform degrades to a refused launch the operator clears
 # with `ai-tools-admin system entrypoints relabel`, never an unconfined session. The relabel privilege stays out of this
 # agent-reachable domain.
 allow ai_tools_handback_t ai_tools_exec_t:file getattr;
@@ -649,6 +652,25 @@ allow ai_tools_handback_t bin_t:lnk_file { create rename unlink getattr read };
 allow ai_tools_handback_t ai_tools_log_t:dir { getattr search open add_name write };
 allow ai_tools_handback_t ai_tools_log_t:file { create getattr setattr open append };
 logging_log_filetrans(ai_tools_handback_t, ai_tools_log_t, file)
+
+# Read the peer session's cgroup, which is where the AI_TOOLS_SESSION_UNIT attribution field on this daemon's journald
+# records comes from (_peer_user_unit, see handback-bridge.rule.md). The daemon opens /proc/<peer_pid>/cgroup, and every
+# file under a process's own /proc entry carries that process's domain, so reaching it needs search on the session
+# domain's dir and read on its file -- granted here against ai_tools_t alone, the domain a confined session runs in.
+# Without these the open is denied on every served request, the function's OSError branch yields '', and the field is
+# absent from every record on an enforcing host while a DAC-only host carries it: attribution that disagrees with itself
+# between two supported hosts.
+#
+# The rule is TYPE-wide, not peer-specific: type enforcement cannot say "the process on the other end of this socket",
+# so it permits this daemon to read the /proc entry of ANY process labelled ai_tools_t -- every concurrent session
+# on the host, not only the peer that connected. What holds the read to the peer is the code: one open
+# of /proc/<peer_pid>/cgroup, of the pid SO_PEERCRED reported. That is a read of process state a root daemon holding
+# CAP_DAC_OVERRIDE can already perform under DAC, and it does not feed any decision -- the SO_PEERCRED uid is
+# what authorizes a request, and this value labels the record afterwards. A peer running outside ai_tools_t --
+# the updater's user-manager unit, which does not exec any entrypoint and so does not compute a transition -- is not
+# covered, and its records keep the field absent.
+allow ai_tools_handback_t ai_tools_t:dir search;
+allow ai_tools_handback_t ai_tools_t:file { getattr open read };
 
 # Process baseline for a short-lived forking subprocess (Python subprocess.run).
 allow ai_tools_handback_t self:process { fork sigchld signal signull };

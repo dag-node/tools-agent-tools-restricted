@@ -67,6 +67,94 @@ else
     fi
 fi
 
+# (E) Containment across the symlink, and the declared-entrypoint match. The path's SHAPE says where the link sits;
+# what a session executes is what that path RESOLVES to, and a string match cannot follow a link. Each case here is
+# correctly shaped and claimed by an enabled manifest, so shape and allowlist alone would accept them and put a stable
+# control-plane link on a file the toolchain never installed.
+#
+# Probed in a THROWAWAY version directory (v0.0.2), never the live one -- the helper only needs the path to be
+# semver-shaped. Like integration/ai-tools-run.sh's v0.0.1, this fixture cannot carry the harness's name rule,
+# so the residue sweep lists it by name and one already present is a FAILURE rather than a skip: skipping would let
+# residue silently cost the coverage.
+#
+# The target deliberately does NOT sit where claude-code's entrypoint_fcontext would match ([^/]+ spans the version
+# directory, so a fixture under `lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe` would be ACCEPTED and would
+# repoint the live link at it).
+fake_version_dir="/opt/ai-tools/.nvm/versions/node/v0.0.2"
+before="$(readlink "${bin_dir}/claude" 2>/dev/null || true)"
+if [[ -e "${fake_version_dir}" ]]; then
+    fail "${fake_version_dir} already exists -- residue of an earlier run; run \`tests/run.sh residue\` and rerun"
+else
+    _cleanup+=("${fake_version_dir}")
+    mkdir -p "${fake_version_dir}/bin" "${fake_version_dir}/opt"
+    printf '#!/bin/sh\nexit 0\n' > "${fake_version_dir}/opt/claude.exe"
+    chmod 0755 "${fake_version_dir}/opt/claude.exe"
+
+    # (E1) Inside the version directory, so containment holds -- but at a path no declared entrypoint rule covers. Such
+    # a file does not take ai_tools_exec_t, so a link to it fails every launch closed at the label preflight.
+    ln -sfn "${fake_version_dir}/opt/claude.exe" "${fake_version_dir}/bin/claude"
+    if out="$("${helper}" "${fake_version_dir}/bin/claude" 2>&1)"; then
+        fail "helper accepted a target the declared entrypoint_fcontext does not cover"
+    else
+        assert_msg MSG-D4X6 "${out}" \
+            "helper refuses a target no enabled manifest's entrypoint_fcontext covers"
+    fi
+
+    # (E2) Escapes the version directory: a real, executable target in a version directory the toolchain did not
+    # installed is what a repointed link would look like.
+    ln -sfn /bin/sh "${fake_version_dir}/bin/claude"
+    if out="$("${helper}" "${fake_version_dir}/bin/claude" 2>&1)"; then
+        fail "helper accepted a target resolving outside its own version directory"
+    else
+        assert_msg MSG-P2R8 "${out}" \
+            "helper refuses a target resolving outside its own version directory"
+    fi
+
+    # (E3) Covered by the declared pattern as a raw regex, yet by a pattern the relabel would refuse: an alternation
+    # whose first branch names the fixture. The helper holds the pattern to the relabel's containment before it matches,
+    # so the link is refused here rather than at the label preflight one launch later. The manifest is a fixture copy
+    # of the shipped one, read through the root-only AI_TOOLS_AGENTS_DIR hook; the resolver refuses a directory
+    # or a copy that is not root-owned and unwritable by others, so the copy is read back through it first, or a refused
+    # fixture would pass as the refusal under test.
+    mktestdir
+    fixture_agents="${TESTDIR}/agents.d"
+    mkdir -m 0755 "${fixture_agents}"
+    alternation='/opt/ai-tools/\.nvm/versions/node/[^/]+/opt/claude\.exe|/nowhere'
+    # The line is replaced in bash, not through a sed replacement: sed reads the pattern's `\.` as an escaped dot
+    # and writes a bare one, so the copy would declare a pattern the shipped manifest does not.
+    while IFS= read -r manifest_line; do
+        [[ "${manifest_line}" == entrypoint_fcontext=* ]] && manifest_line="entrypoint_fcontext=${alternation}"
+        printf '%s\n' "${manifest_line}"
+    done < /usr/local/lib/ai-tools/agents.d/claude-code.conf > "${fixture_agents}/claude-code.conf"
+    chmod 0644 "${fixture_agents}/claude-code.conf"
+    ln -sfn "${fake_version_dir}/opt/claude.exe" "${fake_version_dir}/bin/claude"
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    read_back="$(env AI_TOOLS_AGENTS_DIR="${fixture_agents}" bash -c \
+        'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_agent_manifest_field claude-code entrypoint_fcontext' \
+        2>/dev/null || true)"
+    if [[ "${read_back}" != "${alternation}" ]]; then
+        fail "the fixture manifest does not read back through the resolver (got '${read_back}'), so the case cannot be driven"
+    elif out="$(env AI_TOOLS_AGENTS_DIR="${fixture_agents}" "${helper}" "${fake_version_dir}/bin/claude" 2>&1)"; then
+        fail "helper accepted a target under an entrypoint_fcontext carrying an alternation"
+    else
+        assert_msg MSG-D4X6 "${out}" \
+            "helper refuses a pattern the relabel's containment refuses, although it covers the target as a raw regex"
+        if [[ "${out}" == *"not a plain path pattern under"* ]]; then
+            pass "the refusal names the containment, not a missing match"
+        else
+            fail "the refusal does not name the containment: ${out}"
+        fi
+    fi
+
+    # No refusal may have touched the locked directory -- not the live link, and not a link of its own.
+    if [[ "$(readlink "${bin_dir}/claude" 2>/dev/null || true)" == "${before}" ]]; then
+        pass "the refusals left ${bin_dir}/claude exactly as it was"
+    else
+        fail "${bin_dir}/claude changed across the refused repoints"
+    fi
+    rm -rf -- "${fake_version_dir}"
+fi
+
 # (D) Idempotent happy path: target the link's current versioned target. The end state is invariant -- exit 0, link
 # unchanged -- whether the helper repoints (relabel pending) or skips (entrypoint already labelled).
 if [[ "${cur}" =~ ^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/claude$ && -e "${cur}" ]]; then

@@ -8,7 +8,10 @@
 #
 # It is agent-agnostic: the launcher is the TARGET's own basename, accepted only when an ENABLED agent manifest claims
 # it -- the same allowlist ai-tools-run builds -- so the link it writes is always <bin>/<launcher> for a declared
-# launcher, and never differs from the binary it points at.
+# launcher, and never differs from the binary it points at. The path's shape says where the link sits; what a session
+# executes is what it RESOLVES to, so the target is resolved once and required to be a regular executable inside
+# the version directory the path names, at a path that agent's entrypoint_fcontext covers -- the predicate
+# ai_tools_relink_launcher applies to the same chain (providers.lib.sh).
 #
 # /opt/ai-tools/bin is locked (0551 root:ai-tools), so this root helper is the ONLY way the sandbox updater can move
 # a launcher symlink; it validates its argument strictly, because the caller is the agent-reachable handback socket
@@ -69,16 +72,62 @@ if ! source "${PROVIDERS_LIB}" 2>/dev/null \
         || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
     err MSG-R6K3 "cannot resolve the enabled agents (${PROVIDERS_LIB}) -- refusing to repoint ${LINK}"
 fi
-launcher_is_enabled=no
-while IFS=$'\t' read -r _ _ manifest_launcher; do
-    [[ "${manifest_launcher}" == "${LAUNCHER}" ]] && launcher_is_enabled=yes
+agent_name=""
+while IFS=$'\t' read -r manifest_agent _ manifest_launcher; do
+    [[ "${manifest_launcher}" == "${LAUNCHER}" ]] && agent_name="${manifest_agent}"
 done < <(ai_tools_enabled_agents 2>/dev/null)
-[[ "${launcher_is_enabled}" == yes ]] \
+[[ -n "${agent_name}" ]] \
     || err MSG-G4F4 "no enabled agent provides the launcher \"${LAUNCHER}\" -- refusing to repoint ${LINK}"
 
-# The target is itself an npm symlink into the package; `-e` follows it, so this also confirms the final binary is
-# present (not a dangling/half-installed tree).
-[[ -e "${TARGET}" ]] || err MSG-T8B9 "target does not exist: ${TARGET}"
+# ...and the file it points at must be the one that agent's manifest declares as its entrypoint. The path's SHAPE says
+# only where the link sits; what the session executes is what the link RESOLVES to, and that is the file root pins
+# and labels. Without the three checks that follow, a well-shaped target naming any file the sandbox account can create
+# -- inside a version directory the toolchain did not install, or reached by a symlink out of it -- takes a stable link
+# in the locked control-plane directory. Each is the predicate the toolchain's own re-link already applies
+# (ai_tools_relink_launcher), the pattern's containment included, so the two writers of this chain accept the same set
+# of targets.
+#
+# It does not close the observed tier's limit on its own -- the same account owns the current version directory
+# (updater.rule.md) -- and it is not what confines the session either: an enforcing host labels the resolved file alone,
+# and ai-tools-run re-validates the whole chain at launch. It keeps this helper from being the step that widens it.
+#
+# Every read here is a getattr, which is all ai_tools_handback_t holds on the entrypoint (ai_tools.te): realpath
+# and `-f` are stat(2), and the execute bit is read off the mode with stat as well. `-x` is access(2), which the kernel
+# answers with a `file execute` check this domain does not hold, so under enforcing it read false for a 0755 entrypoint
+# and refused every repoint the updater asked for. Any execute bit is what `-x` means to root, so the set accepted is
+# unchanged.
+executable_bits() {
+    local mode
+    mode="$(stat -c '%a' -- "$1" 2>/dev/null)" || return 1
+    [[ "${mode}" =~ ^[0-7]+$ ]] && (( 8#${mode} & 8#111 ))
+}
+version_dir="${TARGET%/bin/*}"
+resolved="$(realpath -e -- "${TARGET}" 2>/dev/null || true)"
+real_version_dir="$(realpath -e -- "${version_dir}" 2>/dev/null || true)"
+[[ -n "${resolved}" && -n "${real_version_dir}" ]] \
+    || err MSG-T8B9 "target does not exist: ${TARGET}"
+if [[ "${resolved}" != "${real_version_dir}/"* || ! -f "${resolved}" ]] || ! executable_bits "${resolved}"; then
+    err MSG-P2R8 "target does not resolve to an executable file inside ${version_dir} (it resolves to ${resolved}) -- refusing to repoint ${LINK}"
+fi
+
+# The manifest's own pattern, held to the containment the relabel holds it to -- a plain path pattern anchored
+# under the directory the resolved version directory sits in (ai_tools_entrypoint_fcontext_valid) -- and then matched
+# whole against the resolved path, exactly as the re-link checks and matches it. A file no entrypoint rule covers does
+# not take ai_tools_exec_t, so a link written to it fails every launch closed at the label preflight; an invalid regex
+# that passes the containment's charset makes `=~` return 2, which `!` reads as no match, and no match refuses.
+entrypoint_fcontext="$(ai_tools_agent_manifest_field "${agent_name}" entrypoint_fcontext 2>/dev/null || true)"
+fcontext_pattern="^${entrypoint_fcontext}\$"
+containment_root="${real_version_dir%/*}"
+fcontext_refusal=""
+if [[ -z "${entrypoint_fcontext}" ]]; then
+    fcontext_refusal="declares no entrypoint_fcontext"
+elif ! ai_tools_entrypoint_fcontext_valid "${entrypoint_fcontext}" "${containment_root}"; then
+    fcontext_refusal="declares an entrypoint_fcontext that is not a plain path pattern under ${containment_root}"
+elif ! [[ "${resolved}" =~ ${fcontext_pattern} ]]; then
+    fcontext_refusal="declares an entrypoint_fcontext that does not cover it"
+fi
+[[ -z "${fcontext_refusal}" ]] \
+    || err MSG-D4X6 "the ${agent_name} manifest ${fcontext_refusal}, so ${resolved} would carry no entrypoint label -- refusing to repoint ${LINK}"
 
 # Operate only inside the expected locked dir, never an attacker-substituted one.
 [[ -d "${BIN_DIR}" ]] || err MSG-Q9M3 "the launcher directory is missing: ${BIN_DIR}"
@@ -94,8 +143,9 @@ entrypoint_relabel_pending() {
     command -v selinuxenabled >/dev/null 2>&1 || return 1
     selinuxenabled 2>/dev/null || return 1
     command -v matchpathcon >/dev/null 2>&1 || return 1
-    local real want have
-    real="$(realpath -e "${TARGET}" 2>/dev/null)" || return 0   # unresolvable -> repoint
+    # The path the containment check resolved: one resolution per run, so the file this guard reads the label of is
+    # the file that was checked.
+    local real="${resolved}" want have
     want="$(matchpathcon -n "${real}" 2>/dev/null | awk -F: '{print $3}' || true)"
     [[ "${want}" == "ai_tools_exec_t" ]] || return 1            # no rule governs this path
     have="$(stat -c '%C' -- "${real}" 2>/dev/null | awk -F: '{print $3}' || true)"

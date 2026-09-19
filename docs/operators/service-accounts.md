@@ -1,5 +1,7 @@
 # Running agents under service accounts on one host
 
+[Operators](index.md) · **Service accounts** — [all docs](../index.md)
+
 ```bash
 sudo ai-tools-admin operators add svc-ci                  # enrol the service account
 ai-tools projects claim --for svc-ci /srv/projects/api    # claim a project on its behalf
@@ -21,8 +23,8 @@ An operator is any login account enrolled like this, a person or a service
 account alike. The model exists so that agents can work on tasks under limited
 accounts on one host: each account has its own allowlist and owns its own
 results, while one sandbox account does the work.
-[naming-conventions.md](naming-conventions.md) states what an operator
-and an allowlist are, and [project-lifecycle.md](project-lifecycle.md) covers
+[Naming conventions](../naming-conventions.md) states what an operator
+and an allowlist are, and [Project lifecycle](../projects/index.md) covers
 `--for` and the commands that take it.
 
 ## What a service account can do on its own
@@ -36,7 +38,7 @@ and an allowlist are, and [project-lifecycle.md](project-lifecycle.md) covers
 - **Stop every session on the host** with `ai-tools stop`, which does not ask
   for a password. It is the shutdown rung of the escalation ladder
   in the shipped governance framework
-  ([framework.md](../src/usr/share/ai-tools/skills/ai-tools-capable-systems-governance/references/framework.md),
+  ([framework.md](../../src/usr/share/ai-tools/skills/ai-tools-capable-systems-governance/references/framework.md),
   installed
   at `/opt/ai-tools/skills/ai-tools-capable-systems-governance/references/framework.md`),
   and it is granted without a password so that an unattended monitor can reach
@@ -76,7 +78,7 @@ once the reason it printed is cleared.
   who created it and uses that operator's git credentials, so `projects clone`
   does not take `--for`.
 - **The stop.** `ai-tools stop` ends every operator's sessions, not only
-  the caller's ([session-stop.md](session-stop.md)).
+  the caller's ([Stopping a running session](../sessions/stop.md)).
 
 ## What stays private to each operator
 
@@ -97,6 +99,6 @@ once the reason it printed is cleared.
 
 - `ai-tools-admin(8)` for enrolling and removing operators; `operator.conf(5)`
   and `allowed-projects(5)` for the two files an enrolment writes.
-- [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) for what the model leaves
+- [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9) for what the model leaves
   out on purpose: operators are trusted, and sessions are not isolated from one
   another.

@@ -1,6 +1,7 @@
 ---
 paths:
   - "src/opt/ai-tools/bin/ai-tools-run.sh"
+  - "src/usr/local/lib/ai-tools/launch-wrapper.lib.sh"
   - "src/etc/sudoers.d/ai-tools"
   - "src/usr/local/lib/ai-tools/path-order.sh"
   - "src/usr/local/lib/ai-tools/path-order.lib.sh"
@@ -20,8 +21,20 @@ agent's wrapper and its agent-specific inputs live in that agent's own rule —
 Each `ai-tools-agents-*` package ships one wrapper into `/usr/local/bin`, `root:root 0755`, rpm-owned, running
 as the invoking operator. `path-order.sh`, wired into the operator's dotfiles by `ai-tools-admin operators add`, ranks
 `/usr/local/bin` (Tier 1) ahead of the nvm shims, so a wrapper shadows the nvm-managed launcher of the same name
-on the operator's PATH. Whatever else a wrapper does, these five gates are what the security model rests on, and every
-one of them refuses toward *less* access:
+on the operator's PATH.
+
+The gates are one implementation, `/usr/local/lib/ai-tools/launch-wrapper.lib.sh` (`644 root:root`,
+`ai-tools-base`-owned), and a wrapper is three calls into it: `ai_tools_launch_init <launcher>`, which loads
+`msg.lib.sh`, `safe-paths.lib.sh` and `conf.lib.sh` fail-closed and records the launcher name every message
+and the stable symlink carry; `ai_tools_launch_gates "$@"`, which runs the numbered gates in their order;
+and `ai_tools_launch_session <arg>...`, the pre-launch notices and the `exec`. Whatever a wrapper adds sits
+between the gates and the session (its agent-specific launch inputs, see [Operator-configured launch
+inputs](#operator-configured-launch-inputs)), so a second agent's wrapper is those three calls alone, and a change
+to a gate lands for every agent at once. The wrapper's own inline check is the one guard the library cannot carry: it
+refuses (`MSG-R3Q4`) when the library will not load or lacks the functions it calls, in the plain form, since
+the message library is loaded by the library it could not load. `ai_tools_launch_session` refuses (`MSG-B6G2`) when it
+is reached without the gates' two results, so a wrapper cannot skip to the `exec`. Whatever else a wrapper does, these
+five gates are what the security model rests on, and every one of them refuses toward *less* access:
 
 1. **Operator gate first** — a caller not in the `ai-ops` operators group is refused before anything else happens,
    with a framed `msg.lib` message naming the `ai-tools-admin operators add` fix rather than leaking the raw `sudo`
@@ -31,12 +44,14 @@ one of them refuses toward *less* access:
    before matching and the match is exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle a CWD past
    the gate and a sibling sharing a name prefix does not match. `ai-tools-chown` parses the same list the same way,
    so the launch gate and the ownership handback agree on what is in-project.
-3. **Binary resolution to the versioned shape** — the stable symlink `/opt/ai-tools/bin/<launcher>` is resolved
-   and the target validated as an absolute, `..`-free path under the sandbox toolchain, then exported
-   as `AI_TOOLS_AGENT_EXEC`. This validation is an integrity check against a misconfigured or compromised
-   `ai-tools-launcher-symlink` root helper, not a guard against external injection — only root writes
-   `/opt/ai-tools/bin` (`0551 root:SANDBOX_GROUP`). `ai-tools-run` re-validates it regardless, so a wrapper is never
-   the only thing checking.
+3. **Binary resolution to the versioned shape** — the stable symlink `/opt/ai-tools/bin/<launcher>` is resolved one
+   `readlink` hop and the target validated as an absolute, `..`-free path of the shape
+   `${AI_TOOLS_NVM_DIR}/versions/node/*/bin/<launcher>`, then exported as `AI_TOOLS_AGENT_EXEC`. This validation is
+   an integrity check against a misconfigured or compromised `ai-tools-launcher-symlink` root helper, not a guard
+   against external injection — only root writes `/opt/ai-tools/bin` (`0551 root:SANDBOX_GROUP`). `ai-tools-run`
+   re-validates it regardless, so a wrapper is never the only thing checking. The directory the link is read from is
+   `${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}`, the hook [tests](tests.rule.md) lists: a value there moves which link
+   is read and not what it may resolve to, since the shape check and the shim's re-validation both stand.
 4. **Print-and-exit short-circuit** — `--version`/`-v`/`--help`/`-h` as the *sole* argument skips the CWD gates
    (backstop, allowlist, claim): such a run stays out of the working tree, so no project grant is implied. It still
    launches the same validated binary confined as `SANDBOX_USER`, with the sandbox home as `WorkingDirectory`.
@@ -44,8 +59,10 @@ one of them refuses toward *less* access:
    `AI_TOOLS_AGENT_EXEC` and `AI_TOOLS_PROJECT_DIR` through `env_keep`.
 
 A wrapper **detects and delegates; it never repairs.** Ownership, label, and `safe.directory` gaps are reported
-read-only and fixed by `ai-tools projects claim` (see [cli](cli.rule.md)) — no wrapper performs a `chgrp` or a relabel
-itself.
+read-only by the library's claim guard, which follows the CWD gate, and fixed by `ai-tools projects claim` (see
+[cli](cli.rule.md)) — the library performs neither a `chgrp` nor a relabel, and no wrapper carries a repair of its own.
+Each gate's refusal set is driven in `tests/unit/launch-wrapper.sh`; each wrapper keeps an integration test
+that the installed wrapper reaches the gates in this order (`tests/integration/wrapper.sh` for claude).
 
 Agent-specific inputs a wrapper may additionally resolve (a custom system prompt, an API endpoint) are that agent's rule
 to document, not this one's.
@@ -229,7 +246,7 @@ to the **zero-argument** form, since a command listed without arguments permits 
 grants the **bare** command only, and `--force` and `--dry-run` fall outside it and meet sudo's ordinary prompt.
 The helper is `750 root:root`, owned and writable by root alone. NOPASSWD is this rule's *purpose* rather than
 a convenience, and what that trades is a security question rather than a launch one: both are
-in [docs/session-stop.md](../../docs/session-stop.md), which owns this component ([cli](cli.rule.md) holds its CLI
+in [docs/sessions/stop.md](../../docs/sessions/stop.md), which owns this component ([cli](cli.rule.md) holds its CLI
 contract).
 
 **The entrypoint relabel is reached three ways, and none of them is a rule here.** After a Node upgrade the agent binary

@@ -504,6 +504,7 @@ inline_matchers=(
     src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh
     src/opt/ai-tools/bin/nvm-update.sh
     src/usr/local/bin/ai-tools.sh
+    src/usr/local/bin/claude.sh
     src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh
     src/usr/local/lib/ai-tools/conf.lib.sh
     src/usr/local/lib/ai-tools/log.lib.sh

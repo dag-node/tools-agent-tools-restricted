@@ -1,6 +1,7 @@
 ---
 paths:
   - src/usr/local/lib/ai-tools/msg.lib.sh
+  - src/usr/local/lib/ai-tools/launch-wrapper.lib.sh
   - src/usr/local/bin/claude.sh
   - src/usr/local/bin/ai-tools.sh
   - src/opt/ai-tools/bin/ai-tools-run.sh
@@ -87,8 +88,8 @@ and a document cites it once as a `URI-` reftag instead. `bash tools/generators/
 string that carries one, and `check` runs it over the tree, so the rule is held from the repository side rather than
 by review: the shipped prose checker skips a quoted span by design and never reads the string this is about (see
 [tests](tests.rule.md)). `ai_tools_msg_is_code` is the one predicate a leading code is detected with, so a component's
-local `die()`/`warn()` that routes to the emitters (`claude.sh`, `ai-tools.sh`, `ai-tools-run`, `ai-tools-stop`)
-recognises a code exactly as the library does.
+local `die()`/`warn()` that routes to the emitters (`launch-wrapper.lib.sh`, `ai-tools.sh`, `ai-tools-run`,
+`ai-tools-stop`) recognises a code exactly as the library does.
 
 The components that report without the library — the root helpers and the two installers, each with a `printf`
 `die()`/`warn()` of its own — match the same anchored form inline and render it the same way plain mode does: the code
@@ -171,11 +172,12 @@ stay copy-pasteable, and a closing `✓` (or a fail-closed error) ending the blo
 emitted as a content line — it is block structure, not decoration, so logs and test greps still see which block opened.
 
 `ai_tools_msg_block <title> <line...>` is the renderer for a multi-line guidance screen that *contains* commands (the
-`claude.sh` not-yet-claimed screen). It frames a titled `#` box but preserves author layout: a flush-left line wraps
-as prose, while an **indented or blank** line is kept **verbatim** — never reflowed — so a command stays on one line
-and the numbering/indentation survives. A verbatim line wider than the box **overflows** past the right border intact
-rather than breaking, so a long, non-separable command is never mangled. Every line still begins with `#`, so the block
-stays a paste-safe comment; a user copying a command selects the command text after the `# ` prefix.
+launch wrapper's not-yet-claimed screen, in `launch-wrapper.lib.sh`). It frames a titled `#` box but preserves author
+layout: a flush-left line wraps as prose, while an **indented or blank** line is kept **verbatim** — never reflowed —
+so a command stays on one line and the numbering/indentation survives. A verbatim line wider than the box **overflows**
+past the right border intact rather than breaking, so a long, non-separable command is never mangled. Every line still
+begins with `#`, so the block stays a paste-safe comment; a user copying a command selects the command text
+after the `# ` prefix.
 
 `ai_tools_msg_pick <default_index|none> <label...>` is the question companion: it draws a numbered menu under a block
 and echoes the chosen 1-based index. It draws on `/dev/tty` and emits only the index on stdout, so the caller reads it
@@ -200,9 +202,9 @@ to its default.
 
 **`none` does not weaken the safe-default rule; it moves where that rule is satisfied.** The guarantee is
 that an unattended run never blocks and never lands on the unsafe side, and a caller using `none` meets it in its own
-`have_tty` branch — `claude.sh` decides Cancel there and never reaches the menu, so no terminal means no session,
-decided by the caller rather than by an index. A caller that cannot state that outcome itself has no business using
-`none`.
+`have_tty` branch — `launch-wrapper.lib.sh` decides Cancel there and never reaches the menu, so no terminal means no
+session, decided by the caller rather than by an index. A caller that cannot state that outcome itself has no business
+using `none`.
 
 ## `ai_tools_cmd_display` — a command the user can type
 
@@ -254,7 +256,7 @@ break a command across lines (see *Quirks*).
 
 Because the no-terminal path is legitimate here rather than degraded, that helper records **which** path gave consent
 (`flag`, `prompt`, `fallback-prompt`, `no-tty`) rather than only the answer. Full reasoning:
-[docs/session-stop.md](../../docs/session-stop.md).
+[docs/sessions/stop.md](../../docs/sessions/stop.md).
 
 ## `ai_tools_msg_challenge` — the typed-name challenge
 
@@ -316,9 +318,10 @@ from **`ai-tools-run`**, which runs as the sandbox account so it can read each f
 `msg.lib.sh` carries the project's yes/no decisions, not just formatting, so every consumer **requires** it the way they
 require `safe-paths.lib.sh`: a valid install ships the lib (`tests/integration/perms.sh` is the single test asserting
 every deployed library's presence, owner, and mode), and a broken one fails closed rather than running through a private
-re-implementation. Root helpers bare-`source` it under `set -e`; the user-facing entry points (`claude.sh`, `ai-tools`,
-`ai-tools-run`) refuse with a reinstall hint; the installers source it from the source tree and abort if the checkout is
-broken. Consumers call the lib's functions directly — no `declare -F` probing, no stub branches.
+re-implementation. Root helpers bare-`source` it under `set -e`; the user-facing entry points (`launch-wrapper.lib.sh`
+for every agent's wrapper, `ai-tools`, `ai-tools-run`) refuse with a reinstall hint; the installers source it
+from the source tree and abort if the checkout is broken. Consumers call the lib's functions directly — no `declare -F`
+probing, no stub branches.
 
 The library carries an **include guard** (`_AI_TOOLS_MSG_LIB_LOADED`), so a consumer that sources it directly *and*
 receives it transitively (`safe-paths.lib.sh` requires it too) re-sources a no-op; without the guard the `readonly`
@@ -334,11 +337,13 @@ report.
 
 ## Where it is wired
 
-- **`claude.sh`** routes its central `die()` through `ai_tools_msg_error`, so every fatal refusal is framed at one
-  chokepoint; converts its standalone `safe.directory` NOTICE prose; and frames **both** guidance screens
-  with `ai_tools_msg_block`. Titles name the action, not the refusal ("Set up this project for the sandboxed agent",
-  "Finish setting up this project for the agent"), and commands print as bare names through `ai_tools_cmd_display`.
-  Neither screen repeats paths: the claim/clone commands default to the current directory.
+- **`launch-wrapper.lib.sh`**, the gates every agent's wrapper runs, routes `ai_tools_launch_die`
+  through `ai_tools_msg_error`, so every fatal refusal of a launch is framed at one chokepoint (a wrapper's own `die()`
+  is that function, and its one refusal ahead of the load, `refuse_early`, carries the inline matcher); it frames its
+  `safe.directory` NOTICE and **both** guidance screens with `ai_tools_msg_block`. Titles name the action, not
+  the refusal ("Set up this project for the sandboxed agent", "Finish setting up this project for the agent"),
+  and commands print as bare names through `ai_tools_cmd_display`. Neither screen repeats paths: the claim/clone
+  commands default to the current directory.
 
   The **setup** screen carries one line of prose and **no commands**; its options live in the `ai_tools_msg_pick none`
   menu under it, each with the consequence that distinguishes it — **1)** Create sandbox (*the session runs in the copy,
