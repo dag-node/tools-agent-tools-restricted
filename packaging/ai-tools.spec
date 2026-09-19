@@ -449,6 +449,11 @@ install -d -m 0750 %{buildroot}/opt/ai-tools/integrations
 # /opt/ai-tools/.gitignore, and generates .gitconfig, only when the live file is absent.
 install -d -m 0755 %{buildroot}%{_datadir}/ai-tools
 install -m 0644 src%{_datadir}/ai-tools/gitignore %{buildroot}%{_datadir}/ai-tools/gitignore
+# The example tool-call audit rule: reference material, copied into /etc/audit/rules.d by an
+# operator who wants that trail; this package does not enable it.
+install -d -m 0755 %{buildroot}%{_datadir}/ai-tools/audit
+install -m 0644 src%{_datadir}/ai-tools/audit/ai-tools-cmd.rules.example \
+    %{buildroot}%{_datadir}/ai-tools/audit/ai-tools-cmd.rules.example
 # Shipped agents/skills: pristine copies under %{_datadir} are the reseed source (rpm-owned).
 # They are in the CLAUDE CODE asset format, so the agent package owns them and seeds them into
 # its own config directory; the base owns only the parent dir and the shared seeder library. The
@@ -1228,6 +1233,8 @@ fi
 # preserves the operator's copies. The canonical .gitignore reseed source ships read-only here.
 %dir %{_datadir}/ai-tools
 %{_datadir}/ai-tools/gitignore
+%dir %attr(0755, root, root) %{_datadir}/ai-tools/audit
+%attr(0644, root, root) %{_datadir}/ai-tools/audit/ai-tools-cmd.rules.example
 
 %files -n ai-tools-integration
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-integration-* members.

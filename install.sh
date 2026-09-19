@@ -869,6 +869,7 @@ do_summary() {
     _chk /etc/codex/managed_config.toml
     _chk /usr/share/ai-tools/codex/requirements.toml
     _chk /usr/share/ai-tools/codex/managed_config.toml
+    _chk /usr/share/ai-tools/audit/ai-tools-cmd.rules.example
     _chk /etc/codex/skills
     _chk /opt/ai-tools/.codex/post-tool-hook.sh
     _chk /opt/ai-tools/.codex/session-hook.sh
@@ -2043,6 +2044,13 @@ do_install() {
         find "/usr/share/ai-tools/${_kind}" -type d -exec chmod 755 {} +
         find "/usr/share/ai-tools/${_kind}" -type f -exec chmod 644 {} +
     done
+
+    # The example tool-call audit rule: reference material an operator copies into /etc/audit/rules.d by hand. Not
+    # a managed asset (no seeding into the control plane) and not installed into the audit configuration.
+    log "/usr/share/ai-tools/audit (example audit rule, not enabled)"
+    install -d -o root -g root -m 755 /usr/share/ai-tools/audit
+    install -o root -g root -m 644 "${SCRIPT_DIR}/src/usr/share/ai-tools/audit/ai-tools-cmd.rules.example" \
+        /usr/share/ai-tools/audit/ai-tools-cmd.rules.example
 
     for _kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
         _shared="${CP_HOME}/${_kind}"

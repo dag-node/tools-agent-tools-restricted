@@ -1,0 +1,36 @@
+# ai-tools: EXAMPLE kernel audit rule -- every command a session runs.
+# Not installed by ai-tools; copy it into /etc/audit/rules.d to enable
+# it. `ai-tools audit` does not read it: the in-session entrypoint
+# record that command reports is written by the SELinux policy, and
+# this file is a separate, opt-in trail of every exec under the
+# sandbox account. See "Read the logs" in the ai-tools docs.
+#
+# WHAT IT RECORDS. One event per execve by the sandbox account's uid,
+# with the command (EXECVE argv), the working directory and the exec'd
+# path. The filter is the uid alone, no SELinux field, so a policy
+# reload does not change what it matches.
+#
+# SIZE IT BEFORE ENABLING IT. A busy session execs thousands of
+# processes an hour at about 1-2 KB per event, so the default
+# auditd.conf rotation (max_log_file = 8 MB, num_logs = 5) evicts the
+# host's other audit records within hours. Raise both in
+# /etc/audit/auditd.conf to hold the window you want to read back,
+# for example a week of one busy session:
+#
+#     max_log_file = 64
+#     num_logs = 20
+#     max_log_file_action = ROTATE
+#
+# ENABLE. Substitute the sandbox account's name where it differs.
+#
+#     sudo cp /usr/share/ai-tools/audit/ai-tools-cmd.rules.example \
+#         /etc/audit/rules.d/ai-tools-cmd.rules
+#     sudo augenrules --load    # refused where the configuration is
+#                               # immutable (-e 2): reboot instead
+#
+# READ BACK.
+#
+#     sudo ausearch -k ai-tools-cmd -ts today -i
+#
+# The file format takes one rule per line.
+-a always,exit -F arch=b64 -S execve -F uid=ai-tools -k ai-tools-cmd

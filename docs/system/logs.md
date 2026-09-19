@@ -46,6 +46,23 @@ in one line rather than listed individually. That split reads the name
 the caller passed, so treat the count as noise reduction and the records
 as the evidence.
 
+## Record every command a session runs (optional)
+
+An example kernel audit rule ships as reference material and is not enabled:
+
+```bash
+sudo cp /usr/share/ai-tools/audit/ai-tools-cmd.rules.example /etc/audit/rules.d/ai-tools-cmd.rules
+sudo augenrules --load      # or reboot, where the audit configuration is immutable
+sudo ausearch -k ai-tools-cmd -ts today -i
+```
+
+It records one event per exec under the sandbox account, with the command line,
+the working directory and the exec'd path. Size the log before enabling it:
+a busy session execs thousands of processes an hour, and the default
+`auditd.conf` rotation evicts the host's other audit records within hours.
+The file's own header states the `max_log_file` and `num_logs` values to raise.
+`ai-tools audit` does not read this trail.
+
 ## What the agent ran
 
 Every tool call a session makes is recorded, one line each:
