@@ -139,7 +139,7 @@ if [[ ! -d "${REPO_ROOT}/.git" ]]; then
     skip "the re-link precedes the repoint" "not a checkout, so the provisioning scripts cannot be read from the repository"
 else
     order_case "the updater" src/opt/ai-tools/bin/nvm-update.sh \
-        '^[[:space:]]+relink_agent_launchers ' 'ai-tools-handback-client SYMLINK'
+        '^[[:space:]]+relink_agent_launchers ' 'ai-tools-handback-client SYMLINK "'
     order_case "the bootstrap" src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh \
         'ai_tools_relink_launcher "\$@"' 'ln -sfn "\$\{_launcher_bin\}"'
 fi

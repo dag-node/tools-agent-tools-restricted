@@ -514,6 +514,11 @@ or a login banner without parsing its output.
 .TP
 .B status
 Report ai-tools health: the installed version, which enabled agents are provisioned,
+whether an agent you took off
+.B AI_TOOLS_AGENTS
+still has its package in the sandbox toolchain (no session starts until
+.B "ai\-tools\-admin system bootstrap"
+removes it),
 where this shell finds each enabled agent's launcher, each managed systemd unit
 \(em the handback socket, the relabel watcher, and the
 toolchain auto-update timer and update service \(em as OK, SKIPPED, DOWN, FAILED,

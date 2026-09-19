@@ -6,17 +6,18 @@
 # ai_tools_launch_init <launcher>, ai_tools_launch_gates "$@", resolves whatever agent-specific launch inputs it
 # carries, and ends in ai_tools_launch_session, which execs the shared confinement shim /opt/ai-tools/bin/ai-tools-run
 # as the sandbox account via sudo. Everything here runs as the invoking operator, before the drop, and every refusal
-# moves to less access: a library that will not load, a caller outside ai-ops, a launcher symlink that does not resolve
-# to the versioned shape, a CWD outside the allowlist or inside a protected directory, and an incompletely claimed
-# project each stop the launch through ai_tools_launch_die. The gate order, what each refusal distinguishes, and the two
-# variables the exec carries through sudo are in launch.rule.md; the wrapper contract each agent package holds to is
-# stated there too.
+# moves to less access: a library that will not load, a caller outside ai-ops, a disabled agent's package still
+# in the toolchain, a launcher symlink that does not resolve to the versioned shape, a CWD outside the allowlist
+# or inside a protected directory, and an incompletely claimed project each stop the launch through ai_tools_launch_die.
+# The gate order, what each refusal distinguishes, and the two variables the exec carries through sudo are
+# in launch.rule.md; the wrapper contract each agent package holds to is stated there too.
 #
-# The library reads the operator's allowlist off ${HOME} and the stable launcher symlink
+# The library reads the operator's allowlist off ${HOME} and the stable launcher symlinks
 # under ${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}, the hook ai-tools.sh and relabel.lib.sh already read for the same
 # directory; neither moves an access decision, since the resolved path must still match the versioned shape here
-# and ai-tools-run re-validates it against the enabled manifests after the drop. The unit test drives each gate
-# through them against fixtures.
+# and ai-tools-run re-validates it against the enabled manifests after the drop. The residue gate reads the same
+# directory for the links of agents the host installed but did not enable (toolchain.lib.sh), the operator-side read
+# of a package the shim refuses on from the tree itself. The unit test drives each gate through them against fixtures.
 
 [[ -n "${_AI_TOOLS_LAUNCH_LIB_LOADED:-}" ]] && return 0
 readonly _AI_TOOLS_LAUNCH_LIB_LOADED=1
@@ -32,6 +33,7 @@ readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
 # The claim guard's read-only inputs: the sandbox account's gitconfig (root-owned 644, so the safe.directory gap is read
 # here as the operator) and the root helper that writes an entry into it (the same one the CLI's reg_safedir uses; see
 # ai-tools-safedir's header for the model).
@@ -171,6 +173,41 @@ ai_tools_launch_gate_operator() {
                 "         sudo ai-tools-admin operators add ${user}"
         fi
     fi
+}
+
+# ai_tools_launch_gate_residue -- refuse every launch while an agent the host installed but did not enable still has its
+# stable launcher link, the operator-side evidence that its package is still in the sandbox toolchain
+# (ai_tools_agent_residue_links, toolchain.lib.sh). Such a package's entrypoint stays executable at its real path
+# from inside any session, so the toolchain is required to hold the enabled agents' packages alone before any session
+# starts, the launching agent's included; ai-tools-run reads the tree itself and refuses under the same code, and this
+# gate is the diagnostician that answers before sudo, naming the agent and the provisioning run that removes
+# the package. The library the reader lives in is required like the three ai_tools_launch_init loads: a wrapper
+# that cannot read it cannot tell residue from a clean toolchain, and the shim bare-sources the same file, so refusing
+# here names the cause.
+ai_tools_launch_gate_residue() {
+    local name="${AI_TOOLS_LAUNCH_NAME}" link_dir="${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}" agent launcher joined
+    local -a residue=()
+    # shellcheck source=SCRIPTDIR/toolchain.lib.sh
+    if ! source "${TOOLCHAIN_LIB}" 2>/dev/null \
+            || ! declare -F ai_tools_agent_residue_links >/dev/null 2>&1; then
+        command -v logger >/dev/null 2>&1 \
+            && logger -t "${name}" -p user.err \
+                "required toolchain library ${TOOLCHAIN_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
+        ai_tools_launch_die MSG-U9K8 "cannot load the toolchain library -- refusing to start" \
+            "       ${TOOLCHAIN_LIB}" \
+            "       Without it a disabled agent's package left in the sandbox toolchain cannot be told" \
+            "       from a clean one. Check that /usr/local/lib/ai-tools is traversable and its" \
+            "       libraries are present, then reinstall the package if needed."
+    fi
+    while IFS=$'\t' read -r agent launcher; do
+        [[ -n "${agent}" ]] && residue+=("${agent} (${link_dir}/${launcher})")
+    done < <(ai_tools_agent_residue_links "${link_dir}")
+    (( ${#residue[@]} > 0 )) || return 0
+    printf -v joined '%s, ' "${residue[@]}"
+    ai_tools_launch_die MSG-H4E2 "no session starts while a disabled agent's package is still in the sandbox toolchain: ${joined%, }" \
+        "       an agent installed on this host but not named in AI_TOOLS_AGENTS keeps its package" \
+        "       until a provisioning run removes it, and no agent launches until then; remove it with:" \
+        "         sudo ai-tools-admin system bootstrap"
 }
 
 # ai_tools_launch_resolve_executable -- resolve the stable launcher symlink one hop into AI_TOOLS_LAUNCH_EXEC. Tests
@@ -465,10 +502,13 @@ ai_tools_launch_claim_guard() {
 }
 
 # ai_tools_launch_gates "$@" -- run the gates in the order the security model rests on. The operator gate answers
-# before any other read, the launcher is resolved before the print-and-exit short-circuit can exec it, and the CWD gates
-# run only for a real project launch. A wrapper calls this once with its arguments and does not reorder or omit a gate.
+# before any other read, the residue gate before the launcher is resolved (a print-and-exit run execs the shim too,
+# which refuses residue on its own), the launcher is resolved before the print-and-exit short-circuit can exec it,
+# and the CWD gates run only for a real project launch. A wrapper calls this once with its arguments and does not
+# reorder or omit a gate.
 ai_tools_launch_gates() {
     ai_tools_launch_gate_operator
+    ai_tools_launch_gate_residue
     ai_tools_launch_resolve_executable
     ai_tools_launch_print_and_exit "$@"
     ai_tools_launch_gate_project

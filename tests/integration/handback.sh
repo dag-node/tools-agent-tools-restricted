@@ -118,6 +118,20 @@ else
     fail "handback SYMLINK verb FAILED -- check /run/ai-tools (0711) reachable and ai_tools_handback_t getattr on ai_tools_exec_t"
 fi
 
+# (4b) SYMLINK_REMOVE for an ENABLED agent's link, as the agent, through the live bridge: the boundary half
+# of the removal form. The helper accepts a removal only for an installed agent the enabled set does not carry, so this
+# request is refused and the link stays -- the enabled set cannot be narrowed from the sandbox side by this route.
+_link="/opt/ai-tools/bin/${_tgt##*/}"
+if [[ "${_symlink_ok:-0}" != 1 ]]; then
+    skip "handback SYMLINK_REMOVE refused for an enabled agent" "live SYMLINK verb did not run"
+elif runuser -u "${SANDBOX_USER}" -- "${_client}" SYMLINK_REMOVE "${_link}" >/dev/null 2>&1; then
+    fail "handback SYMLINK_REMOVE removed an ENABLED agent's launcher link through the bridge"
+elif [[ -L "${_link}" && "$(readlink "${_link}")" == "${_tgt}" ]]; then
+    pass "handback SYMLINK_REMOVE is refused for an enabled agent's link, which stays as it was"
+else
+    fail "handback SYMLINK_REMOVE was refused yet ${_link} changed"
+fi
+
 # (4a) The served request must leave a line in the daemon's own trail (/var/log/ai-tools/handback.log, root-only,
 # written by the root daemon at its hardcoded path -- unaffected by the harness AI_TOOLS_LOG_DIR override). Its presence
 # proves the daemon file sink AND, under enforcing, the ai_tools_handback_t -> ai_tools_log_t append rule; the daemon

@@ -5,13 +5,16 @@
 # wrapper runs as the invoking operator before dropping to the sandbox account. Each gate is driven on its own, in its
 # fail direction, against fixtures the test owns: the required libraries (a copy of the library repointed at a missing
 # safe-paths or conf library refuses at init), the operator gate (the sandbox account and a non-operator are each
-# refused with their own code), the launcher resolution (a missing link, a target outside the versioned shape, and one
-# carrying a parent-directory component are refused; the versioned shape resolves), the CWD gate (no allowlist,
-# an unapproved directory, a sibling sharing a name prefix, a '!'-carved subdirectory and a path under it, a parked
-# project, and an allowlisted protected directory are refused, each with its own code; an approved directory passes,
-# reached through a symlink too, since the CWD is canonicalized first), the claim guard (an approved directory
-# the sandbox group does not own is refused without a terminal), and the exec (refused when the gates did not run). It
-# closes with the order: the gate runner answers a non-operator before it reads the allowlist.
+# refused with their own code), the residue gate (a stable link for an agent the fixture manifests install
+# and the fixture operator.conf does not enable refuses before the executable resolves, naming the agent
+# and the provisioning run; no link, or that agent enabled, passes; a copy repointed at a missing toolchain library
+# refuses), the launcher resolution (a missing link, a target outside the versioned shape, and one carrying
+# a parent-directory component are refused; the versioned shape resolves), the CWD gate (no allowlist, an unapproved
+# directory, a sibling sharing a name prefix, a '!'-carved subdirectory and a path under it, a parked project,
+# and an allowlisted protected directory are refused, each with its own code; an approved directory passes, reached
+# through a symlink too, since the CWD is canonicalized first), the claim guard (an approved directory the sandbox group
+# does not own is refused without a terminal), and the exec (refused when the gates did not run). It closes
+# with the order: the gate runner answers a non-operator before it reads the allowlist.
 #
 # The library reads the allowlist off ${HOME} and the stable launcher symlink under AI_TOOLS_LAUNCHER_DIR, so each is
 # pointed at the testdir; every run is as the account the case is about, through runuser, and detached with setsid so no
@@ -61,13 +64,16 @@ link() { rm -f "${links}/claude"; ln -s "$1" "${links}/claude"; }
 # for the launcher `claude`, call <function> with the arguments, then print the two values the gates publish. Both
 # streams land in OUT and the status in RC. AI_TOOLS_MSG_PLAIN keeps a refusal's code on its own line; the strict mode
 # and IFS are the wrapper's, so the library runs as it does in one. A case that drives a gate downstream of the CWD gate
-# seeds the project directory that gate would have published through FIXTURE_PROJECT_DIR.
+# seeds the project directory that gate would have published through FIXTURE_PROJECT_DIR; the residue cases point
+# the resolver's two hooks at fixture manifests through FIXTURE_AGENTS_DIR and FIXTURE_OPERATOR_CONF (empty, each hook
+# takes its deployed default).
 run() {
     local lib="$1" user="$2" cwd="$3"; shift 3
     RC=0
     # shellcheck disable=SC2016  # the $1.. are for the inner `bash -c`, not this shell -- do not expand here
     OUT="$(setsid runuser -u "${user}" -- env HOME="${home}" AI_TOOLS_LAUNCHER_DIR="${links}" AI_TOOLS_MSG_PLAIN=1 \
         FIXTURE_PROJECT_DIR="${FIXTURE_PROJECT_DIR:-}" \
+        AI_TOOLS_AGENTS_DIR="${FIXTURE_AGENTS_DIR:-}" AI_TOOLS_OPERATOR_CONF="${FIXTURE_OPERATOR_CONF:-}" \
         bash -c 'set -euo pipefail; IFS=$'"'"'\n\t'"'"'; cd "$1" || exit 98; source "$2" || exit 99
                  ai_tools_launch_init claude; AI_TOOLS_LAUNCH_PROJECT_DIR="${FIXTURE_PROJECT_DIR}"; shift 2; "$@"
                  printf "EXEC=%s\nPROJECT=%s\n" "${AI_TOOLS_LAUNCH_EXEC}" "${AI_TOOLS_LAUNCH_PROJECT_DIR}"' \
@@ -127,6 +133,43 @@ if id -nG "${PROJECTS_USER}" | tr ' ' '\n' | grep -qx ai-ops; then
 else
     skip "operator passes the gate" "${PROJECTS_USER} is not in ai-ops here"
 fi
+
+# ── (1b) The residue gate: a disabled agent's launcher link refuses every launch ── Fixture manifests (a synthetic
+# pair, no shipped agent named) and an operator.conf enabling one of them, root-owned so the resolver admits them.
+# The other agent's stable link in the launcher directory is the operator-side evidence its package is still
+# in the toolchain; the gate refuses on it before the executable resolves, naming the agent and the provisioning run.
+# Without the link, and with that agent enabled too, the gate passes.
+fixture_agents="${TESTDIR}/agents.d"; fixture_conf="${TESTDIR}/operator.conf"
+mkdir -m 0755 "${fixture_agents}"
+printf 'npm_package=@acme/experimental\nlauncher=claude\ndefault_enable=no\n' > "${fixture_agents}/acme.conf"
+printf 'npm_package=@acme/beta\nlauncher=beta\ndefault_enable=no\n'         > "${fixture_agents}/beta.conf"
+printf 'AI_TOOLS_AGENTS="acme"\n' > "${fixture_conf}"
+chmod 0644 "${fixture_agents}"/*.conf "${fixture_conf}"
+ln -s "/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/beta" "${links}/beta"
+FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
+refused "a disabled agent's launcher link refuses the launch" MSG-H4E2
+says "and the refusal names the agent" "beta"
+says "and the refusal names the provisioning run" "sudo ai-tools-admin system bootstrap"
+silent "and the executable is not resolved first" 'MSG-S4B3|MSG-S3K2'
+rm -f "${links}/beta"
+FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
+passed "no link for the disabled agent, no refusal"
+ln -s "/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/beta" "${links}/beta"
+printf 'AI_TOOLS_AGENTS="acme beta"\n' > "${fixture_conf}"
+FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
+passed "a link for an agent that is enabled is not residue"
+rm -f "${links}/beta"
+# The gate is fail-closed on its library: a copy of the wrapper library repointed at a missing toolchain library
+# refuses, since a toolchain it could not read is reported as unreadable and not as clean.
+broken_toolchain="${TESTDIR}/launch-notoolchain.lib.sh"
+sed 's#^readonly TOOLCHAIN_LIB=.*#readonly TOOLCHAIN_LIB="/nonexistent/ai-tools/toolchain.lib.sh"#' \
+    "${LIB}" > "${broken_toolchain}"
+chmod 644 "${broken_toolchain}"
+run "${broken_toolchain}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
+refused "the residue gate refuses when toolchain.lib.sh will not load (fail closed)" MSG-U9K8
 
 # ── (2) Launcher resolution: one hop, validated as the versioned shape ──────────
 rm -f "${links}/claude"

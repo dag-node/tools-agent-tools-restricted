@@ -381,4 +381,27 @@ else
     unset AI_TOOLS_AGENTS_DIR AI_TOOLS_OPERATOR_CONF
 fi
 
+# ── remove_residue: the order it runs in ─────────────────────────────────────────────────────
+# The removal of a disabled agent's package sits after the agent choice (it reads the set that choice wrote) and ahead
+# of the first network step (the nvm version resolve), so an offline host still cleans up before its npm step fails.
+# That is a property of the SCRIPT's provisioning sequence, which the sourced-guard keeps this file from running, so it
+# is read as source order, the way unit/launcher-target.sh reads the re-link's; the routine itself is driven
+# in unit/toolchain.sh. Outside a checkout there is no script to read and the section skips.
+section "ai-tools-admin system bootstrap: the residue removal's place in the sequence (unit)"
+SCRIPT="${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh"
+if [[ ! -d "${ROOT}/.git" || ! -r "${SCRIPT}" ]]; then
+    skip "the removal precedes the network step" "not a checkout, so the helper cannot be read from the repository"
+else
+    choose_line="$(grep -n -m1 -E '^choose_agents "\$\{REQUESTED_AGENTS\}"' "${SCRIPT}" | cut -d: -f1)"
+    remove_line="$(grep -n -m1 -E '^remove_residue$' "${SCRIPT}" | cut -d: -f1)"
+    resolve_line="$(grep -n -m1 -E '^NVM_VERSION="\$\(resolve_nvm_version\)"' "${SCRIPT}" | cut -d: -f1)"
+    if [[ -z "${choose_line}" || -z "${remove_line}" || -z "${resolve_line}" ]]; then
+        fail "the agent choice, the removal or the version resolve is no longer where this reads it (choice -> ${choose_line:-none}, removal -> ${remove_line:-none}, resolve -> ${resolve_line:-none})"
+    elif (( choose_line < remove_line && remove_line < resolve_line )); then
+        pass "the residue removal runs after the agent choice and before the first network step"
+    else
+        fail "the residue removal is out of place: choice at ${choose_line}, removal at ${remove_line}, resolve at ${resolve_line}"
+    fi
+fi
+
 finish

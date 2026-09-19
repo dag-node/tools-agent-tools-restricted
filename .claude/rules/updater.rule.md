@@ -1,6 +1,7 @@
 ---
 paths:
   - "src/opt/ai-tools/bin/nvm-update.sh"
+  - "src/usr/local/lib/ai-tools/toolchain.lib.sh"
   - "src/usr/local/lib/ai-tools/npm-verify.lib.sh"
   - "src/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
   - "src/usr/local/lib/ai-tools/keys/**"
@@ -33,7 +34,11 @@ exit 0. `--agents NAME[,NAME...]`, passed through by `ai-tools-admin`, is the un
 against `ai_tools_installed_agents` and an unknown one refuses the run with the key unwritten. A present key is
 the operator's declaration and is not asked about; one naming more than one agent is answered with a notice, since every
 agent named runs as the one sandbox account, and an untrusted `operator.conf` is neither asked about nor written.
-The enabled set is resolved after that write, so the run provisions what it wrote. It then creates the `SANDBOX_USER`
+The enabled set is resolved after that write, so the run provisions what it wrote. **Residue goes next, still ahead
+of the network step** (`remove_residue`): the package of every installed agent that set does not name is removed
+as `SANDBOX_USER` through `ai_tools_agent_package_remove`, and its stable launcher link as root once no version
+directory holds the package, so an offline host cleans up before its npm step fails and every launch stops refusing (see
+[A disabled agent's package is residue](#a-disabled-agents-package-is-residue)). It then creates the `SANDBOX_USER`
 account and its `/opt/ai-tools` home if absent, installs nvm, Node (`AI_TOOLS_NODE_MAJOR`, default 22), and each enabled
 agent's npm package as `SANDBOX_USER` (the enabled set resolved via [providers](providers.rule.md)), re-links each
 versioned launcher at the target its manifest declares (see [The versioned launcher and its declared
@@ -227,6 +232,62 @@ session executes from would break it at the next lazy `require()` or `node`/`npm
 against the removed tree and fails `ENOENT`. The prune is housekeeping, so it also skips rather than aborts
 when the alias it is given resolves to no version, and each outcome is logged.
 
+## A disabled agent's package is residue
+
+The toolchain holds exactly the enabled agents' packages. `npm install -g` runs for the enabled set and never
+uninstalls, so an agent taken off `AI_TOOLS_AGENTS` would otherwise keep its package — and its entrypoint,
+which a session can exec at its real path ([launch](launch.rule.md)) — until a Node bump provisioned a fresh version
+directory. `toolchain.lib.sh` (`644 root:root`, requiring `providers.lib.sh` fail-closed the way that library requires
+`conf.lib.sh`) is the one home of what residue is and how it goes, and every function in it reads agent identity
+from the manifests, with no agent name in its code:
+
+- **Two readers, one per principal.** The tree is `0750 SANDBOX_USER`, so only that account reads the definitive set:
+  `ai_tools_agent_residue <nvm-dir>` prints `name<TAB>npm_package<TAB>version-dir` for every installed, not enabled
+  agent whose package directory sits under a semver version directory. The operator reads the artifact every
+  provisioning writes last and every removal takes with the package, the stable launcher link:
+  `ai_tools_agent_residue_links <launcher-dir>` prints `name<TAB>launcher` for every such agent whose link exists,
+  through `-L` so the read stays out of the tree. Both iterate `ai_tools_installed_not_enabled_agents`, the installed
+  set minus the enabled set ([providers](providers.rule.md)): a manifest the trust predicate refuses is not an agent
+  and so not residue, and an enabled agent's package is never residue whatever the tree holds.
+- **One writer.** `ai_tools_agent_package_remove <version-dir> <npm_package> [erase]` runs that version's own
+  `npm uninstall -g` with the version directory pinned as the prefix (no registry is reached) and prints one word:
+  `absent`, `removed`, or `deferred` when a live process executes from the package directory
+  (`ai_tools_agent_package_in_use`, the `/proc/<pid>/exe` prefix scan `version_in_use` makes for a version directory,
+  since codex stages symlinks to its own entrypoint inside its package and execs them per edit), which leaves it
+  for the next run. It **refuses an enabled agent's package** under `MSG-X7Z9` — a provisioning run must never remove
+  what it maintains, so the direction is less access only — unless called with `erase`, the form an agent package's own
+  erase takes while its manifest still names the package; a name outside npm's charset and an uninstall that left
+  the directory refuse under `MSG-X8F9`. A removal says what it leaves (`MSG-G4M8`): the agent's state directory,
+  `config_dir` from its manifest, stays under the sandbox home, readable by every session of every enabled agent until
+  the operator moves it out of the account's reach. `ai_tools_agent_package_erase <nvm-dir> <agent>` is the erase form
+  over every version directory holding the agent's package.
+- **Every path that writes the toolchain calls it**, each as `SANDBOX_USER`, the tree's owner: `ai-tools-bootstrap`
+  ahead of its network step, `nvm-update` ahead of `install_packages` (so npm's allow-scripts rescan sees the smaller
+  tree), and the erase paths — the agent package's `%preun` and `install.sh uninstall` — through the erase form, while
+  the manifest that names the package is still on disk, since once it is gone no reader knows the name. The erase paths
+  are best-effort (`|| :`), so the erase completes whatever they print; a removal deferred there is left to the next
+  update run and is then invisible to the readers, which is accepted and stated: an erase under a running session
+  of that agent is the operator's timing to avoid.
+- **The launcher link goes with the package.** The link is the operator's residue evidence, so a removal that left it
+  would keep the wrapper and `ai-tools status` refusing. The bootstrap removes it as root; the updater reaches root
+  through the handback bridge's `SYMLINK_REMOVE` verb ([handback-bridge](handback-bridge.rule.md)), the `--remove` form
+  of `ai-tools-launcher-symlink`; the erase paths remove it as root directly. Each caller removes it only once no
+  version directory still holds the package, so a deferral keeps the link and the launch keeps refusing until
+  the package is gone.
+- **Both launch tiers refuse while residue exists**, every agent's launch and not only the disabled one's, under one
+  code (`MSG-H4E2`): the wrapper's residue gate on the link, before the executable resolves and before `sudo`,
+  and `ai-tools-run` on the tree, before it validates the executable ([launch](launch.rule.md)). `ai-tools status`
+  reports the same read per agent and counts it ([cli](cli.rule.md)). The remedy every one of them names is
+  `sudo ai-tools-admin system bootstrap`, whose removal step runs first; an `ai-ops` operator who does not hold
+  a general sudo grant waits for the nightly updater or an administrator, the same shape as the on-demand entrypoint
+  relabel.
+
+`tests/unit/toolchain.sh` drives the readers over a synthetic manifest set and a fixture tree, and the writer with `npm`
+stubbed in the fixture version's own `bin`; `tests/unit/launch-wrapper.sh` and `tests/integration/ai-tools-run.sh` drive
+the two tiers' refusal; `tests/integration/symlink-helper.sh` the `--remove` form; `tests/integration/handback.sh`
+the verb's refusal of an enabled agent's link as the agent; and `tests/boundary/providers.sh` that the library is not
+agent-writable.
+
 ## The versioned launcher and its declared target
 
 `<version-dir>/bin/<launcher>` is npm's symlink into the package, and for an agent whose manifest declares
@@ -274,6 +335,15 @@ and does not decide the observed pin tier's limit (see [Two tiers](#two-tiers-an
 The updater (one call per enabled agent) and `install.sh` are the only callers; the updater reaches it
 through the [handback bridge](handback-bridge.rule.md) `SYMLINK` verb. The helper repoints the symlink but does not
 relabel the new entrypoint — it runs in the handback domain, which does not hold any relabel rights.
+
+`ai-tools-launcher-symlink --remove <stable-launcher-path>` is its second form, the updater's route to the link
+of a package it removed as residue (the `SYMLINK_REMOVE` verb). The argument is the stable link's own path, exactly
+`/opt/ai-tools/bin/<launcher>` (`MSG-D9K2` otherwise), and the link is removed only for a launcher an **installed**
+manifest claims whose agent the enabled set does **not** carry (`MSG-U2A7` for an enabled agent's link, a name no
+manifest claims, or a path that is not a symlink), so the enabled set cannot be narrowed from the sandbox side by this
+route and the links it can remove are exactly those the launch already refuses on. A link already absent is the wanted
+state, at exit 0. The unlink lands as a change in the watched directory like a repoint does, so the relabel watcher's
+reconcile runs and reports that agent's entrypoint as `none`.
 
 ## Post-upgrade entrypoint relabel
 

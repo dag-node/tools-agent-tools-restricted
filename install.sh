@@ -853,6 +853,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/keys/claude-code.asc
     _chk /usr/local/lib/ai-tools/conf.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
+    _chk /usr/local/lib/ai-tools/toolchain.lib.sh
     _chk /usr/local/lib/ai-tools/filters.lib.sh
     _chk /usr/local/lib/ai-tools/filters.d/core.rules
     _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
@@ -1242,6 +1243,14 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/providers.lib.sh" \
         /usr/local/lib/ai-tools/providers.lib.sh
+
+    # The residue readers and the one package removal (toolchain.lib.sh): 644 root:root like the resolver it requires,
+    # sourced by the launch wrapper (as the operator), ai-tools-run, nvm-update and the bootstrap's sandbox-account
+    # step. No secrets: it reads the manifests and edits the tree its caller already owns.
+    log "/usr/local/lib/ai-tools/toolchain.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/toolchain.lib.sh" \
+        /usr/local/lib/ai-tools/toolchain.lib.sh
 
     # Token-saving command filters: the engine (644 root:root -- world-readable, sourced by an agent's filter hook,
     # which runs as the sandbox account) plus the filters.d directory and the base's own rule set. Root-owned
@@ -2288,10 +2297,48 @@ retire_managed_files() {
     return 0
 }
 
+# remove_agent_packages -- remove each installed agent's npm package from the sandbox toolchain, and its launcher link,
+# while the manifest that names the package is still deployed: once the manifests are gone no reader knows a package
+# name, and a package left in the tree keeps an entrypoint a session can exec (toolchain.lib.sh; the agent packages'
+# %preun runs the same routine). The removal runs AS the sandbox account, the tree's owner, offline, and the link's
+# as root, which owns the locked bin directory. Node stays: the next `ai-tools-admin system bootstrap` reinstalls
+# the agents it enables. Best-effort by the same rule as retire_managed_files: an install too broken to carry
+# the library or the manifests removes none of them, and a removal deferred under a live session is left for the next
+# provisioning run.
+remove_agent_packages() {
+    local tclib=/usr/local/lib/ai-tools/toolchain.lib.sh
+    local agents_dir=/usr/local/lib/ai-tools/agents.d
+    [[ -r "${tclib}" && -d "${agents_dir}" && -d /opt/ai-tools/.nvm/versions/node ]] || return 0
+    id "${SANDBOX_USER}" >/dev/null 2>&1 || return 0
+    local manifest agent launcher version_dir outcome erased
+    for manifest in "${agents_dir}"/*.conf; do
+        [[ -e "${manifest}" ]] || continue
+        agent="${manifest##*/}"; agent="${agent%.conf}"
+        # shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+        erased="$(runuser -u "${SANDBOX_USER}" -- bash -c \
+            'set -euo pipefail; . "$1"; ai_tools_agent_package_erase /opt/ai-tools/.nvm "$2"' _ "${tclib}" "${agent}" \
+            || true)"
+        while IFS=$'\t' read -r version_dir outcome; do
+            [[ -n "${version_dir}" ]] || continue
+            log "${agent}: package in ${version_dir##*/} -- ${outcome}"
+        done <<<"${erased}"
+        # shellcheck disable=SC2016  # the same inner-shell arguments
+        launcher="$(bash -c 'set -euo pipefail; . "$1"; ai_tools_agent_manifest_field "$2" launcher' _ \
+            /usr/local/lib/ai-tools/providers.lib.sh "${agent}" 2>/dev/null || true)"
+        if [[ "${launcher}" =~ ^[A-Za-z0-9._-]+$ && -L "/opt/ai-tools/bin/${launcher}" ]]; then
+            rm -f "/opt/ai-tools/bin/${launcher}"
+            log "${agent}: removed the launcher link /opt/ai-tools/bin/${launcher}"
+        fi
+    done
+    return 0
+}
+
 # Disable the nvm-update timer and remove every deployed system and control-plane file. Preserves operator and agent
-# state so a reinstall keeps working: the .nvm toolchain and the bin/claude entrypoint into it,
-# /etc/ai-tools/operator.conf, ~/.config/ai-tools, the ai-tools account, and each agent's own state under its config
-# directory. Allowlist and git safe.directory pruning for this project are offered interactively.
+# state so a reinstall keeps working: the .nvm Node installation, /etc/ai-tools/operator.conf, ~/.config/ai-tools,
+# the ai-tools account, and each agent's own state under its config directory. Each installed agent's npm package leaves
+# the toolchain with the manifest that names it (remove_agent_packages), so a reinstall re-provisions the agents
+# with `ai-tools-admin system bootstrap`. Allowlist and git safe.directory pruning for this project are offered
+# interactively.
 do_uninstall() {
     printf '\n%sUninstalling the ai-tools Claude Code sandbox%s\n' "${C_BOLD}" "${C_RST}"
 
@@ -2313,6 +2360,10 @@ do_uninstall() {
     # both still installed: a file the host edited is kept as a sidecar rather than deleted.
     log "agent managed files"
     retire_managed_files
+    # Then each agent's npm package, for the same reason: the manifest naming it and the library that removes it are
+    # both about to go.
+    log "agent packages in the sandbox toolchain"
+    remove_agent_packages
 
     log "system files"
     # Remove the helper and library trees whole: they hold only deployed files, never operator or agent state,
@@ -2351,10 +2402,11 @@ do_uninstall() {
     # ~/.config/ai-tools so a reinstall keeps operators bound.
 
     log "ai-tools control-plane files"
-    # Remove only the deployed control-plane scripts and settings by name. Keep /opt/ai-tools/bin itself
-    # and the launcher symlinks in it: they point into the preserved .nvm toolchain, so the entrypoints stay live
-    # for a reinstall without a re-bootstrap. Each agent's own state under its config directory (.claude.json, project
-    # state, codex's sessions and auth) is likewise kept.
+    # Remove only the deployed control-plane scripts and settings by name. Keep /opt/ai-tools/bin itself: the .nvm Node
+    # installation stays for a reinstall, and the agent packages and their launcher links went with the manifests
+    # (remove_agent_packages).
+    # Each agent's own state under its config directory (.claude.json, project state, codex's sessions and auth) is
+    # likewise kept.
     rm -f /opt/ai-tools/bin/nvm-update.sh
     rm -f /opt/ai-tools/bin/ai-tools-run /opt/ai-tools/bin/claude-run
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
@@ -2401,8 +2453,7 @@ do_uninstall() {
     fi
 
     section "Uninstall complete -- always preserved"
-    say "  ${C_DIM}/opt/ai-tools/.nvm/${C_RST}        nvm and Node installation"
-    say "  ${C_DIM}/opt/ai-tools/bin/claude${C_RST}  launcher symlink into the toolchain"
+    say "  ${C_DIM}/opt/ai-tools/.nvm/${C_RST}        nvm and Node installation (the agent packages are removed)"
     say "  ${C_DIM}/var/opt/ai-tools/${C_RST}         sandbox project clones and README"
     say "  ${C_DIM}/etc/ai-tools/operator.conf${C_RST} operator bindings"
     say "  ${C_DIM}~/.config/ai-tools/${C_RST}        allowlist and user configuration (unless n above)"

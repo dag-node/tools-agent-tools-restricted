@@ -24,8 +24,9 @@ readonly AI_TEST_RESIDUE_FIXED=(/opt/ai-tools/.nvm/versions/node/v0.0.1
 
 # ai_test_residue_sites <projects-home>: PRINT the directories fixtures are born in, one per line, existing ones only.
 # The operator's home holds the noexec-/tmp fallback dirs and the manual suite's workspace fixtures; the clone area
-# holds the manual `--for` drill's tree beside the label probes. The cgroup v2 root is read from /proc/mounts, the way
-# the stop helper reads it.
+# holds the manual `--for` drill's tree beside the label probes; the launcher directory holds the link
+# integration/symlink-helper.sh gives a fixture launcher to drive the removal form. The cgroup v2 root is read
+# from /proc/mounts, the way the stop helper reads it.
 ai_test_residue_sites() {
     local home="$1" d mount_point fstype
     local -a sites=(
@@ -34,6 +35,7 @@ ai_test_residue_sites() {
         /var/opt/ai-tools
         /var/opt/ai-tools/sandbox-projects
         /opt/ai-tools
+        /opt/ai-tools/bin
         /opt/ai-tools/.claude
         /opt/ai-tools/.config/systemd/user
         /opt/ai-tools/.config/systemd/user/timers.target.wants

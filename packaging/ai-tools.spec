@@ -329,7 +329,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify managed-assets providers selinux-groups filters services path-order agent-installs; do
+for l in log msg conf skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify managed-assets providers toolchain selinux-groups filters services path-order agent-installs; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -1013,9 +1013,19 @@ fi
 # default labels on what it matched -- the type it names belongs to ai-tools-base, which the host
 # may erase next, and a local rule naming an undefined type breaks later relabels. Runs in %preun,
 # not %postun, because the pattern is read from this package's manifest, which is still on disk
-# here.
-if [ "$1" -eq 0 ] && [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
-    %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
+# here. The npm package this agent installed into the sandbox toolchain goes the same way, with its
+# launcher link: once the manifest is gone no reader knows the package name, and a package left
+# behind keeps an entrypoint a session can exec (toolchain.lib.sh). Run AS the sandbox account, the
+# tree's owner, offline (npm uninstall does not reach a registry), and best-effort (`|| :`), so
+# the erase completes whatever it prints; a removal deferred under a live session is left for
+# the next update run.
+if [ "$1" -eq 0 ]; then
+    [ -x %{ai_libexecdir}/ai-tools-relabel-agent ] \
+        && %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
+    if [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
+        runuser -u ai-tools -- bash -c '. /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm claude-code' 2>&1 | sed 's/^/ai-tools: /' || :
+    fi
+    rm -f /opt/ai-tools/bin/claude
 fi
 
 %post -n ai-tools-agents-codex-restricted
@@ -1075,6 +1085,12 @@ if [ "$1" -eq 0 ]; then
     if [ -r /usr/local/lib/ai-tools/managed-assets.lib.sh ] && command -v bash >/dev/null 2>&1; then
         bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_unlink_shared_root /opt/ai-tools/skills %{_sysconfdir}/codex/skills %{_datadir}/ai-tools/skills/README.md" >/dev/null 2>&1 || :
     fi
+    # The npm package and its launcher link, as the claude-code %%preun removes its own (the
+    # reasoning is there): as the sandbox account, offline, best-effort.
+    if [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
+        runuser -u ai-tools -- bash -c '. /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm codex' 2>&1 | sed 's/^/ai-tools: /' || :
+    fi
+    rm -f /opt/ai-tools/bin/codex
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1133,6 +1149,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/entrypoint-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/conf.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
+%attr(0644, root, root) %{ai_libdir}/toolchain.lib.sh
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
 %attr(0644, root, root) %{ai_libdir}/filters.lib.sh
 %attr(0644, root, root) %{ai_libdir}/services.lib.sh

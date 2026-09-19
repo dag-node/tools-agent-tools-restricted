@@ -20,8 +20,9 @@
 #
 # It is agent-agnostic. Which executables may launch, what environment each session gets, and whether the session's
 # ownership handback needs driving from here come from the root-owned provider manifests
-# under /usr/local/lib/ai-tools/agents.d and the session-env fragments under
-# /usr/local/lib/ai-tools/session-env.d.
+# under /usr/local/lib/ai-tools/agents.d and the session-env fragments under /usr/local/lib/ai-tools/session-env.d.
+# The same manifests decide what the toolchain may hold: a package of an agent that is installed but not enabled refuses
+# every launch until a provisioning run removes it (toolchain.lib.sh).
 #
 # Operating notes:
 #   * The session appears as @SANDBOX_USER@-<agent>-<pid>.service in `systemctl --user`. Its
@@ -63,11 +64,12 @@ if [[ -L "${AI_TOOLS_LIB_DIR}" || "${lib_dir_metadata%% *}" != 0 \
     exit 1
 fi
 
-# Four required libraries. Each is a gate, not an output path, so a bare source under `set -e` is the fail-closed load:
+# Five required libraries. Each is a gate, not an output path, so a bare source under `set -e` is the fail-closed load:
 # a missing one is a broken install and refuses the launch rather than skipping a check (see shellcheck.rule.md).
 #   msg          the framed refusals and the launch banner
 #   conf         the KEY=value grammar and ai_tools_conf_is_trusted
 #   providers    which agents may launch, which integrations contribute session env
+#   toolchain    whether a disabled agent's package is still in the toolchain (the residue refusal)
 #   confinement  the pure SELinux launch verdict
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/msg.lib.sh
 source "${AI_TOOLS_LIB_DIR}/msg.lib.sh"
@@ -75,6 +77,8 @@ source "${AI_TOOLS_LIB_DIR}/msg.lib.sh"
 source "${AI_TOOLS_LIB_DIR}/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
 source "${AI_TOOLS_LIB_DIR}/providers.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/toolchain.lib.sh
+source "${AI_TOOLS_LIB_DIR}/toolchain.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/confinement.lib.sh
 source "${AI_TOOLS_LIB_DIR}/confinement.lib.sh"
 
@@ -126,6 +130,25 @@ done < <(ai_tools_enabled_agents 2>/dev/null)
     || refuse 'no agent is enabled on this host -- nothing can launch' \
               'enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), then provision it:' \
               '  sudo ai-tools-admin system bootstrap'
+
+# The toolchain must hold the enabled agents' packages ALONE before any session starts: a package of an agent the host
+# installed but did not enable keeps an entrypoint a session can exec at its real path, so its presence refuses every
+# launch, this agent's included, until a provisioning run removes it. This shim runs as the account that owns the tree,
+# so it reads the tree itself (toolchain.lib.sh); the wrapper read the launcher links as the operator and refused
+# under the same code first, which makes this the boundary and the wrapper the diagnostician.
+residue_agents=""
+while IFS=$'\t' read -r residue_agent residue_package residue_version_dir; do
+    [[ -n "${residue_agent}" ]] || continue
+    residue_agents+="${residue_agents:+, }${residue_agent} (${residue_version_dir}/lib/node_modules/${residue_package})"
+done < <(ai_tools_agent_residue "${AI_TOOLS_NVM_DIR}" 2>/dev/null)
+if [[ -n "${residue_agents}" ]]; then
+    audit warning "REFUSED: a disabled agent's package is still in the toolchain: ${residue_agents}"
+    # The code is the wrapper's, cited here so both tiers of one situation carry one token (messaging.rule.md).
+    printf '%s\n' MSG-H4E2 >&2
+    refuse "no session starts while a disabled agent's package is still in the sandbox toolchain: ${residue_agents}" \
+           'the provisioning run removes it before it installs anything:' \
+           '  sudo ai-tools-admin system bootstrap'
+fi
 
 agent_executable_path="${AI_TOOLS_AGENT_EXEC:-}"
 [[ "${agent_executable_path}" != *"/../"* ]] \

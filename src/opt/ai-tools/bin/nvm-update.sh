@@ -227,6 +227,34 @@ verify_agent_entrypoints() {
     return 0
 }
 
+# remove_residue <nvm-dir>: remove every installed, not enabled agent's package from the toolchain, and its stable
+# launcher link with it, through the shared routine (toolchain.lib.sh) -- ahead of install_packages, so npm's
+# allow-scripts rescan sees the smaller tree, and every launch stops refusing on residue with this run. The link goes
+# only once no version directory still holds the package: a removal deferred under a live session leaves the link
+# as the operator-side evidence that a launch is still refused. The link is root's to remove (/opt/ai-tools/bin is
+# 0551), reached through the handback bridge like the repoint; a removal the bridge did not land warns, since
+# the package itself is gone and the next run retries the link.
+remove_residue() {
+    local nvm_dir="$1" agent package version_dir outcome launcher
+    local -A still_present=()
+    declare -F ai_tools_agent_residue >/dev/null 2>&1 || return 0
+    while IFS=$'\t' read -r agent package version_dir; do
+        [[ -n "${agent}" ]] || continue
+        outcome="$(ai_tools_agent_package_remove "${version_dir}" "${package}")" || outcome="${outcome:-failed}"
+        log "${agent}: ${package} in ${version_dir##*/} -- ${outcome}"
+        [[ "${outcome}" == removed || "${outcome}" == absent ]] || still_present["${agent}"]=1
+    done < <(ai_tools_agent_residue "${nvm_dir}")
+    while IFS=$'\t' read -r agent launcher; do
+        [[ -n "${agent}" && -z "${still_present[${agent}]:-}" ]] || continue
+        if /usr/local/bin/ai-tools-handback-client SYMLINK_REMOVE "${AI_TOOLS_BIN}/${launcher}"; then
+            log "${agent}: removed the stable launcher link ${AI_TOOLS_BIN}/${launcher}"
+        else
+            warn MSG-G4Q2 "could not remove ${AI_TOOLS_BIN}/${launcher} via handback SYMLINK_REMOVE -- the ${agent} package is gone and every launch stays refused until the link is; remove it as root: rm -f ${AI_TOOLS_BIN}/${launcher}"
+        fi
+    done < <(ai_tools_agent_residue_links "${AI_TOOLS_BIN}")
+    return 0
+}
+
 # relink_agent_launchers <target-version>: point each enabled agent's versioned launcher at the executable its manifest
 # declares (launcher_target; the check and the refusals are providers.lib.sh's). npm rewrites bin/<launcher> on every
 # install, so this runs after every install_packages and BEFORE the entrypoint verifier and the stable repoint:
@@ -355,9 +383,9 @@ install_packages() {
 }
 
 # main: resolve the latest LTS in the vMAJOR series (or take it from $1), install it under /opt/ai-tools if not already
-# active, refresh the sandbox global tools, re-link each versioned launcher at the target its manifest declares, prune
-# superseded versions, and repoint each enabled agent's stable /opt/ai-tools/bin/<launcher> symlink at the versioned
-# binary.
+# active, remove a disabled agent's package left in the toolchain, refresh the sandbox global tools, re-link each
+# versioned launcher at the target its manifest declares, prune superseded versions, and repoint each enabled agent's
+# stable /opt/ai-tools/bin/<launcher> symlink at the versioned binary.
 # args:  optional target Node version override (e.g. v22.15.0)
 main() {
     local target_version="${1:-}"
@@ -440,6 +468,16 @@ main() {
         fi
     else
         warn "provider resolver unavailable (${providers_lib}) -- updating npm only; enabled agents are unrefreshed and their launchers unrepointed this run"
+    fi
+
+    # The residue routine, from the library the resolver came from. Same guarded load: a library that will not load
+    # leaves residue in place and says so, and every launch goes on refusing until a run that can read it.
+    local toolchain_lib=/usr/local/lib/ai-tools/toolchain.lib.sh
+    # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/toolchain.lib.sh
+    if source "${toolchain_lib}" 2>/dev/null && declare -F ai_tools_agent_residue >/dev/null 2>&1; then
+        remove_residue "${nvm_dir}"
+    else
+        warn "toolchain library unavailable (${toolchain_lib}) -- a disabled agent's package left in the toolchain is not removed this run"
     fi
 
     # The managed tool set: an explicit AI_TOOLS_GLOBAL_TOOLS (unit Environment= or manual) overrides; otherwise npm

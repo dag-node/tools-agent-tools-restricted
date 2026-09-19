@@ -34,17 +34,24 @@ to a gate lands for every agent at once. The wrapper's own inline check is the o
 refuses (`MSG-R3Q4`) when the library will not load or lacks the functions it calls, in the plain form, since
 the message library is loaded by the library it could not load. `ai_tools_launch_session` refuses (`MSG-B6G2`) when it
 is reached without the gates' two results, so a wrapper cannot skip to the `exec`. Whatever else a wrapper does, these
-five gates are what the security model rests on, and every one of them refuses toward *less* access:
+gates are what the security model rests on, and every one of them refuses toward *less* access:
 
 1. **Operator gate first** — a caller not in the `ai-ops` operators group is refused before anything else happens,
    with a framed `msg.lib` message naming the `ai-tools-admin operators add` fix rather than leaking the raw `sudo`
    denial the `%ai-ops` rule would otherwise produce.
-2. **Protected-paths backstop, then the allowlist**, both on the `realpath -e`-canonicalized CWD. A session starts only
+2. **Residue gate** — a launch is refused (`MSG-H4E2`) while any agent the host installed but did not enable still has
+   its stable launcher link, the operator-side evidence that its package is in the sandbox toolchain
+   (`ai_tools_agent_residue_links`, [updater](updater.rule.md)); the refusal names the agent and the provisioning run
+   that removes the package, and a toolchain library that will not load refuses too (`MSG-U9K8`). It refuses every
+   agent's launch, the enabled one included, and does not remove a package: `ai-tools-run` reads the tree itself
+   and refuses under the same code, which makes the shim the boundary and this gate the diagnostician that answers
+   before `sudo`.
+3. **Protected-paths backstop, then the allowlist**, both on the `realpath -e`-canonicalized CWD. A session starts only
    inside an allowed project and never in a CWD carved out by a `!` exclusion. Every allowlist entry is canonicalized
    before matching and the match is exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle a CWD past
    the gate and a sibling sharing a name prefix does not match. `ai-tools-chown` parses the same list the same way,
    so the launch gate and the ownership handback agree on what is in-project.
-3. **Binary resolution to the versioned shape** — the stable symlink `/opt/ai-tools/bin/<launcher>` is resolved one
+4. **Binary resolution to the versioned shape** — the stable symlink `/opt/ai-tools/bin/<launcher>` is resolved one
    `readlink` hop and the target validated as an absolute, `..`-free path of the shape
    `${AI_TOOLS_NVM_DIR}/versions/node/*/bin/<launcher>`, then exported as `AI_TOOLS_AGENT_EXEC`. This validation is
    an integrity check against a misconfigured or compromised `ai-tools-launcher-symlink` root helper, not a guard
@@ -52,10 +59,10 @@ five gates are what the security model rests on, and every one of them refuses t
    re-validates it regardless, so a wrapper is never the only thing checking. The directory the link is read from is
    `${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}`, the hook [tests](tests.rule.md) lists: a value there moves which link
    is read and not what it may resolve to, since the shape check and the shim's re-validation both stand.
-4. **Print-and-exit short-circuit** — `--version`/`-v`/`--help`/`-h` as the *sole* argument skips the CWD gates
+5. **Print-and-exit short-circuit** — `--version`/`-v`/`--help`/`-h` as the *sole* argument skips the CWD gates
    (backstop, allowlist, claim): such a run stays out of the working tree, so no project grant is implied. It still
    launches the same validated binary confined as `SANDBOX_USER`, with the sandbox home as `WorkingDirectory`.
-5. **`exec sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/ai-tools-run`**, carrying exactly
+6. **`exec sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/ai-tools-run`**, carrying exactly
    `AI_TOOLS_AGENT_EXEC` and `AI_TOOLS_PROJECT_DIR` through `env_keep`.
 
 A wrapper **detects and delegates; it never repairs.** Ownership, label, and `safe.directory` gaps are reported
@@ -84,7 +91,11 @@ at `${AI_TOOLS_NVM_DIR}/versions/node/<semver>/bin/<launcher>` — an exact `MAJ
 and a single path component — **and** only when `<launcher>` is the `launcher` of an agent that `operator.conf` enables
 (see [providers](providers.rule.md)). A binary the sandbox account drops beside the launcher therefore cannot start
 a session, because no manifest claims it. A `..` component is refused before the match, and the resolution fails closed:
-with no enabled agent, the launch is refused.
+with no enabled agent, the launch is refused. The same manifests decide what the toolchain may **hold**:
+before the executable is validated, the shim reads the tree for the package of any agent that is installed and not
+enabled (`ai_tools_agent_residue`, [updater](updater.rule.md)) and refuses every launch while one is there (`MSG-H4E2`,
+the code the wrapper's residue gate defines), since that package's entrypoint stays executable at its real path
+from inside a session; the remedy it names is the provisioning run, which removes residue before it installs.
 
 **What is checked is what is exec'd.** That validated path is the versioned launcher *symlink*; the file `execve`
 transitions on is what it resolves to. The shim resolves it once, requires the target to stay inside the **same semver
@@ -208,9 +219,12 @@ and the agent's own, and the launch path does not work around it.
 
 Every gate in this rule runs in the wrapper or in the shim. The kernel side is one grant: `ai_tools_t` holds
 `execute_no_trans` on `ai_tools_exec_t` ([confinement](confinement.rule.md)), so a session that execs an agent
-entrypoint at its real path under the toolchain — its own, or the other enabled agent's — starts it without the operator
-gate, the allowlist and CWD gates, the pin comparison, or a transient unit of its own. By name the launcher does not get
-there: the session `PATH` does not include `/opt/ai-tools/bin`, so `claude` and `codex` resolve to the wrappers
+entrypoint at its real path under the toolchain — its own, or another enabled agent's — starts it without the operator
+gate, the allowlist and CWD gates, the pin comparison, or a transient unit of its own. The toolchain holds the enabled
+agents' entrypoints alone: an agent taken off `AI_TOOLS_AGENTS` keeps its package until the next provisioning run
+removes it, and no session of any agent starts in between (the residue gate in [The wrapper
+contract](#the-wrapper-contract-agent-side), and [updater](updater.rule.md)). By name the launcher does not get there:
+the session `PATH` does not include `/opt/ai-tools/bin`, so `claude` and `codex` resolve to the wrappers
 under `/usr/local/bin`, and the operator gate refuses the sandbox account (`MSG-N8Q4`). What such a child gets, read
 on a claude child under a codex session and a codex child under a claude session:
 

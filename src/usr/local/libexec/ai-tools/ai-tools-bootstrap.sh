@@ -15,7 +15,9 @@
 # alone. `--agents NAME[,NAME...]` is the unattended form of the same choice, checked against the installed manifests
 # before anything is written. A present key is the operator's declaration and is not asked about again; one naming more
 # than one agent is answered with a notice, since every agent named shares one sandbox account. With no manifests
-# deployed yet it provisions Node alone; a re-run after an ai-tools-agents-* package is installed asks.
+# deployed yet it provisions Node alone; a re-run after an ai-tools-agents-* package is installed asks. The package
+# of an agent that is installed and NOT in that set is residue: it is removed next, still ahead of the network step,
+# with its launcher link, since every launch refuses while it is in the toolchain (remove_residue).
 #
 # Idempotent: an existing account, nvm install, or Node version is reused, not rebuilt.
 #
@@ -280,6 +282,52 @@ choose_agents() {
     log "enabled ${name} in ${AI_TOOLS_OPERATOR_CONF}"
 }
 
+# remove_residue -- remove every installed, not enabled agent's package from the sandbox toolchain, and its stable
+# launcher link with it, ahead of the first network step: a package of an agent the operator did not name keeps
+# an entrypoint a session can exec, so every launch refuses while it is there, and this command is the remedy those
+# refusals name -- so an offline host that cannot reach the registry still cleans up before its npm step fails.
+# The routine is toolchain.lib.sh's (the updater, the agent packages' %preun and `install.sh uninstall` run the same
+# one); the package removal runs AS the sandbox account, the owner of the tree, and the link's removal as root,
+# which owns the locked bin directory. The link goes only for an agent none of whose version directories still holds
+# the package: a removal deferred under a live session keeps the link, which is what keeps the wrapper refusing. Gated
+# on a toolchain being present at all -- a first run has no tree to hold residue -- and on the library loading;
+# a library that will not load warns and leaves the package, since every launch then keeps refusing and says why.
+remove_residue() {
+    local toolchain_lib=/usr/local/lib/ai-tools/toolchain.lib.sh outcomes agent version_dir outcome launcher
+    local -A still_present=()
+    (( _providers_loaded )) || return 0
+    [[ -d "${NVM_DIR}/versions/node" ]] && id "${SANDBOX_USER}" &>/dev/null || return 0
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/toolchain.lib.sh
+    if ! source "${toolchain_lib}" 2>/dev/null || ! declare -F ai_tools_agent_residue_links >/dev/null 2>&1; then
+        warn "toolchain library unavailable (${toolchain_lib}) -- a disabled agent's package left in the toolchain is not removed this run, and every launch refuses until it is"
+        return 0
+    fi
+    # One line per residue package, "agent<TAB>version-dir<TAB>outcome", from the account that owns the tree.
+    # The heredoc is single-quoted, so the inner shell expands the variables from the env passed in.
+    outcomes="$(sudo -u "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" NVM_DIR="${NVM_DIR}" TOOLCHAIN_LIB="${toolchain_lib}" \
+        bash -s <<'EOSU'
+set -euo pipefail
+. "${TOOLCHAIN_LIB}"
+while IFS=$'\t' read -r agent package version_dir; do
+    [[ -n "${agent}" ]] || continue
+    outcome="$(ai_tools_agent_package_remove "${version_dir}" "${package}")" || outcome="${outcome:-failed}"
+    printf '%s\t%s\t%s\n' "${agent}" "${version_dir}" "${outcome}"
+done < <(ai_tools_agent_residue "${NVM_DIR}")
+EOSU
+    )" || warn "the residue removal step did not complete as ${SANDBOX_USER} -- a disabled agent's package may still be in the toolchain (see above)"
+    while IFS=$'\t' read -r agent version_dir outcome; do
+        [[ -n "${agent}" ]] || continue
+        log "${agent}: package in ${version_dir##*/} -- ${outcome}"
+        [[ "${outcome}" == removed || "${outcome}" == absent ]] || still_present["${agent}"]=1
+    done <<<"${outcomes}"
+    while IFS=$'\t' read -r agent launcher; do
+        [[ -n "${agent}" && -z "${still_present[${agent}]:-}" ]] || continue
+        rm -f -- "${SANDBOX_HOME}/bin/${launcher}"
+        log "${agent}: removed the stable launcher link ${SANDBOX_HOME}/bin/${launcher}"
+    done < <(ai_tools_agent_residue_links "${SANDBOX_HOME}/bin")
+    return 0
+}
+
 # seed_managed_assets_step: (re)seed the ai-tools-managed shared assets from the pristine datadir copies into the config
 # directory of each agent that uses that asset format. The directories come from the manifests (control-plane.lib.sh),
 # so this helper does not hardcode a path itself. Runs only when the control plane is present (a config dir
@@ -427,6 +475,10 @@ fi
 # the line already in operator.conf, or the operator's answer to the menu. An unknown `--agents` name ends the run here,
 # with no package installed and no line written.
 choose_agents "${REQUESTED_AGENTS}"
+
+# What the toolchain holds for an agent that is installed and not in the set just decided is residue, removed here --
+# ahead of the network step, so an offline host still cleans up -- and every launch refuses until it is gone.
+remove_residue
 
 # Concrete tag (latest, pinned, or fallback). Constrained to v + digits/dots before it reaches the download URL piped
 # to bash, so a resolved value can never inject shell or URL.
