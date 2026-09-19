@@ -658,7 +658,14 @@ the version directory resolving to a file inside it are pinned as accepted. The 
 with the relabel (`ai_tools_entrypoint_fcontext_valid`) is driven here over its truth table, against the shipped Node
 versions root, and in both directions of its root argument. It is pure — the version directory, launcher, target,
 pattern and root are arguments — and runs without root; its fixtures need the executable bit visible, so it takes
-`agent-installs.sh`'s probe and fallback.
+`agent-installs.sh`'s probe and fallback. One property there belongs to the two provisioning **scripts** instead:
+the re-link must precede the stable symlink's repoint, since the repoint fires the relabel watcher and the pin records
+what that link resolves to, so a repoint made first would pin the entry file npm wrote, and the next launch would refuse
+the toolchain the updater had just installed correctly. Driving it would take a real `npm install` of a shim-shaped
+package and a live handback socket, each half being covered already (`integration/symlink-helper.sh`,
+`integration/entrypoint-pin.sh`), so it is read as source order in the updater and the bootstrap, ahead of the fixture
+cases and their skip. An anchor the read no longer finds **fails**: a refactor that moved either call is
+when the invariant most needs re-asserting.
 
 `codex-package.sh` pins the files `ai-tools-agents-codex-restricted` ships to the seams they plug into, before any host
 installs them ([agent-codex](agent-codex.rule.md)): the manifest through the readers that parse it, with its

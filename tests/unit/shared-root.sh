@@ -7,7 +7,8 @@
 # alone: each of the states the path can be in is driven, and every state but "absent" is asserted to leave
 # what the host placed exactly as it was -- the entry, its target, the directory's own mode and entries --
 # with the shared assets linked in only under a free name. The relabel is held to the same bound, against a stubbed
-# restorecon: it covers the links placed, never the directory holding them. The reverse is asserted to remove our links
+# restorecon whose argument list is read: the links placed reach it, and the directory holding them never does.
+# The reverse is asserted to remove our links
 # alone.
 #
 # Pure: the shared root and the path are arguments, so the fixtures are a tree this file builds. Run without root:

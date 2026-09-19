@@ -281,10 +281,11 @@ PY
         codex_key_row "an approval policy" approval_policies never
         codex_key_row "a login method"     login_methods     chatgpt
         ${codex_keys_ok} && pass "requirements.toml constrains both the approval policy and the login method"
-        # (c6) Each hook's timeout, which is what bounds the handback that hook drives. An event with none runs
-        # under codex's own default, so the per-turn sweep can be cut short with nothing said; that is the drift this
-        # catches, while a value an operator changed is reported. SessionEnd is capped at 3 s whatever it declares,
-        # which is why the sweep hangs off Stop and why a longer value there would mislead a reader.
+        # (c6) Each hook's timeout, which is what bounds the handback that hook drives. An event that does not declare
+        # a timeout runs under codex's own default, so the per-turn sweep can be cut short with no line saying
+        # so; that is the drift this catches, while a value an operator changed is reported. SessionEnd is capped at 3 s
+        # whatever it declares, which is why the sweep hangs off Stop and why a longer value there would mislead
+        # a reader.
         declare -A want_codex_timeout=( [SessionStart]=60 [PostToolUse]=30 [Stop]=600 [SessionEnd]=3 )
         codex_timeouts_ok=true
         for ev in SessionStart PostToolUse Stop SessionEnd; do

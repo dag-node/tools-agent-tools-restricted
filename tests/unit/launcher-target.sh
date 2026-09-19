@@ -16,6 +16,10 @@
 # an alternation, a group, no literal head -- is refused at the write rather than one launch later; that predicate lives
 # beside the re-link, and its truth table is driven here against the shipped toolchain root.
 #
+# The order the two provisioning paths write that chain in is a property of the SCRIPTS rather than of any function --
+# the repoint fires the relabel watcher, and the pin records what the stable link resolves to -- so it is read here
+# as source order, and placed ahead of the fixture cases so it still runs where those skip.
+#
 # Pure: the three functions take the version directory, the launcher, the target, the pattern and the root as arguments,
 # so the fixtures are a tree this file builds and no manifest is read. Run without root. The fixtures carry
 # the executable bit, which the resolver asks about with `-x`, so they need a directory where that bit is VISIBLE:
@@ -101,6 +105,44 @@ else pass "rejects a pattern whose head is another root"; fi
 if ai_tools_entrypoint_fcontext_valid '/opt/ai-tools/.nvm/versions/node/[^/]+/bin/x' ''; then
     fail "ACCEPTED a pattern under an empty root"
 else pass "rejects every pattern under an empty root"; fi
+
+# ── The order both provisioning paths write the chain in ──────────────────────────────────────
+# The re-link must precede the stable symlink's repoint, in the updater and in the bootstrap alike. The repoint is
+# what fires the relabel watcher, and what the watcher pins is the file the stable link resolves to -- so a repoint made
+# while the versioned launcher still pointed at npm's own entry file would pin the shim, and the next launch would
+# refuse the toolchain the updater had just installed correctly. That ordering belongs to the two SCRIPTS, where no
+# function holds it, so it is read as source order: driving it would take a real npm install of a shim-shaped package
+# and a live handback socket, while each half of what the order protects is already covered on its own
+# (integration/symlink-helper.sh for what the repoint accepts, integration/entrypoint-pin.sh for what the pin records).
+# A file whose anchors are not found FAILS rather than skips -- a refactor that moved either call is exactly when this
+# invariant needs asserting again -- and outside a checkout the whole section skips, there being no repository to read
+# the scripts from.
+#
+# order_case <what> <repo-relative file> <relink-pattern> <repoint-pattern>
+order_case() {
+    local what="$1" file="${REPO_ROOT}/$2" relink="$3" repoint="$4" relink_line repoint_line
+    if [[ ! -r "${file}" ]]; then
+        fail "${what}: ${file} is not readable"
+        return
+    fi
+    relink_line="$(grep -n -m1 -E -- "${relink}" "${file}" | cut -d: -f1)"
+    repoint_line="$(grep -n -m1 -E -- "${repoint}" "${file}" | cut -d: -f1)"
+    if [[ -z "${relink_line}" || -z "${repoint_line}" ]]; then
+        fail "${what}: the re-link or the repoint is no longer where this reads it (re-link -> ${relink_line:-none}, repoint -> ${repoint_line:-none}) -- re-assert the order against the new shape"
+    elif (( relink_line < repoint_line )); then
+        pass "${what}: the versioned launcher is re-linked before the stable symlink is repointed"
+    else
+        fail "${what}: the stable symlink is repointed at line ${repoint_line}, ahead of the re-link at ${relink_line} -- the pin would record npm's own entry file"
+    fi
+}
+if [[ ! -d "${REPO_ROOT}/.git" ]]; then
+    skip "the re-link precedes the repoint" "not a checkout, so the provisioning scripts cannot be read from the repository"
+else
+    order_case "the updater" src/opt/ai-tools/bin/nvm-update.sh \
+        '^[[:space:]]+relink_agent_launchers ' 'ai-tools-handback-client SYMLINK'
+    order_case "the bootstrap" src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh \
+        'ai_tools_relink_launcher "\$@"' 'ln -sfn "\$\{_launcher_bin\}"'
+fi
 
 # ── Fixtures: a version directory shaped like npm leaves it ───────────────────────────────────
 x_bit_visible() {

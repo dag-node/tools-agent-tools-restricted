@@ -2263,7 +2263,7 @@ do_install() {
 # ai_tools_managed_file_retire's, so the suite drives them against fixtures; this reports what it did.
 #
 # Best-effort by the same rule as the rest of this seam: providers.lib.sh is sourced from the deployed tree,
-# and an install too broken to carry it retires nothing rather than guessing which files those are.
+# and the manifests it reads are what name the files. An install too broken to carry either retires none of them.
 retire_managed_files() {
     local prlib=/usr/local/lib/ai-tools/providers.lib.sh
     local agents_dir=/usr/local/lib/ai-tools/agents.d
@@ -2335,9 +2335,10 @@ do_uninstall() {
     rm -f /usr/local/share/man/man5/custom-claude-endpoint.conf.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude /usr/local/bin/codex
-    # Codex's skills link (its managed files are already retired, above). The link is removed only where it is ours (the
-    # reverse of the install's four-state check); a host's own /etc/codex/skills, and a /etc/codex holding anything else
-    # -- a host's file, or a sidecar this uninstall wrote -- stay, since the rmdir takes only an empty directory.
+    # Codex's skills link (retire_managed_files has already taken its managed files). The link is removed only where it
+    # is ours (the reverse of the install's four-state check); a host's own /etc/codex/skills, and a /etc/codex holding
+    # anything else -- a host's file, or a sidecar this uninstall wrote -- stay, since the rmdir takes only an empty
+    # directory.
     ai_tools_unlink_shared_root /opt/ai-tools/skills /etc/codex/skills /usr/share/ai-tools/skills/README.md
     rmdir /etc/codex 2>/dev/null || true
     rm -rf /usr/share/ai-tools/codex

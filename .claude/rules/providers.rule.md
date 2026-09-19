@@ -141,7 +141,7 @@ link on each one) and before the stable symlink is repointed, so the chain a lau
 and the entrypoint verifier hashes that same file (see [updater](updater.rule.md)). The write is
 `ai_tools_relink_launcher`: a relative symlink (`../<target>`, npm's own form) created under a temporary name
 and renamed over the link, so the launcher path is never absent. What reserves that temporary name is the `ln -s`, not
-the `mktemp -u` that composed it: `-u` prints a name and creates nothing, while `ln -s` fails on a name that already
+the `mktemp -u` that composed it: `-u` prints a name without creating a file, while `ln -s` fails on a name that already
 exists rather than following or truncating what is there, so a collision — with an earlier run's leftover,
 or with a file placed in that directory — is the refusal `MSG-A3S3` reports and never a write to something else.
 `tests/unit/launcher-target.sh` drives it.
@@ -414,13 +414,13 @@ surface **as the agent** and asserts none of it is agent-writable (catching the 
   then that agent's own configuration rather than a path of the manifest's choosing.
   `ai_tools_managed_file_state <live> <reference>` is the pure verdict beside it — `shipped`, `edited`, `missing`,
   or `unknown` wherever the comparison cannot be made (an unreadable reference, a symlink or a directory on either
-  side), so a report never guesses "shipped" over a file it could not read, nor `edited` over a path holding no content.
-  `ai_tools_managed_file_retire <live> <reference>` is the write beside them, the step a from-source uninstall takes
-  over each pair: a file still byte-identical to its reference is removed, and every other state — an edit,
-  or a comparison that cannot be made — is moved aside as `<live>.<YYYYMMDD>.retired` and reported, so the only copy
-  of what a host configured survives the uninstall that no longer ships it. That is `rpm -e`'s treatment of an edited
-  `%config(noreplace)` file, and moving rather than leaving is what keeps a live managed file from naming hook scripts
-  the same uninstall removed. `tests/unit/providers.sh` drives the verdict, the reader and the write.
+  side), so a report never guesses "shipped" over a file it could not read, nor `edited` over a path that does not hold
+  any content. `ai_tools_managed_file_retire <live> <reference>` is the write beside them, the step a from-source
+  uninstall takes over each pair: a file still byte-identical to its reference is removed, and every other state —
+  an edit, or a comparison that cannot be made — is moved aside as `<live>.<YYYYMMDD>.retired` and reported, so the only
+  copy of what a host configured survives the uninstall that no longer ships it. That is `rpm -e`'s treatment
+  of an edited `%config(noreplace)` file, and moving rather than leaving is what keeps a live managed file from naming
+  hook scripts the same uninstall removed. `tests/unit/providers.sh` drives the verdict, the reader and the write.
 - `ai_tools_provider_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` / `baseline` /
   `untrusted`), read-only and side-effect free. The resolvers read it, and so does `ai-tools providers` (see
   [cli](cli.rule.md)), so an operator asking what is enabled and a session being launched consult one implementation.

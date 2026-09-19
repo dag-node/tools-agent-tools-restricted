@@ -293,10 +293,10 @@ ai_tools_provider_manifest_field() {
 # /etc/codex/*.toml), shipped kept-across-upgrade so a host's edit survives. A manifest names them in `managed_files`,
 # and the package ships a pristine copy of each under <reference dir>/<agent>/<basename>, so the two status reports can
 # say whether the live file is the shipped one. The live file sits directly under /etc/<agent>/, the same name
-# the reference carries: the declaration then names the file and never the directory it is compared from, and root
-# `cmp`s one agent's own configuration rather than a path of the manifest's choosing. Reported and never enforced: no
-# such file holds a guarantee, so a host copy can only reduce what a session does. The reference directory is
-# overridable for the unit test alone; a caller who could set it may already read every file it names.
+# the reference carries: the reader recomposes each declared path from its own basename under that root, so root `cmp`s
+# one agent's own configuration and never a path of the manifest's choosing. Reported and never enforced: no such file
+# holds a guarantee, so a host copy can only reduce what a session does. The reference directory is overridable
+# for the unit test alone; a caller who could set it may already read every file it names.
 : "${AI_TOOLS_MANAGED_REFERENCE_DIR:=/usr/share/ai-tools}"
 
 # ai_tools_managed_file_state <live> <reference> : print one word for how a managed file relates to
@@ -307,8 +307,8 @@ ai_tools_provider_manifest_field() {
 ai_tools_managed_file_state() {
     local live="$1" reference="$2"
     [[ -e "${live}" ]] || { printf 'missing'; return 0; }
-    # A directory (or any other non-regular file) at either end is a comparison `cmp` cannot make: it fails, which read
-    # as `edited` -- a verdict about content over a path that holds none.
+    # A directory (or any other non-regular file) at either end has no content to compare: `cmp` fails, and that failure
+    # read as `edited` -- a verdict about content over a path that does not hold any.
     if [[ -L "${live}" || -L "${reference}" || ! -f "${live}" || ! -f "${reference}" \
             || ! -r "${live}" || ! -r "${reference}" ]]; then
         printf 'unknown'; return 0
@@ -319,18 +319,18 @@ ai_tools_managed_file_state() {
 
 # ai_tools_managed_file_retire <live> <reference> : remove a managed file whose package is being
 #   uninstalled, keeping what the host made of it. Prints one word, and the sidecar path with it
-#   where one was written: `absent` (nothing is there), `removed` (the live file is byte-identical
-#   to <reference>, so nothing of the host's is lost), `kept <sidecar>` (every other state -- an
+#   where one was written: `absent` (no file at <live>), `removed` (the live file is byte-identical
+#   to <reference>, so the shipped copy is all that is deleted), `kept <sidecar>` (every other state -- an
 #   edit, or a comparison that cannot be made -- moved aside as <live>.<YYYYMMDD>.retired, the
 #   token this tree gives a file moved rather than deleted, and the treatment rpm gives an edited
 #   %config(noreplace) file on erase). Moving rather than leaving is what keeps a live managed file
-#   from naming hooks this uninstall removed. Returns 1 under MSG-X7C4, printing
-#   nothing and leaving the file where it is, when the move or the removal fails. Only a file
+#   from naming hooks this uninstall removed. When the move or the removal fails it
+#   prints nothing, leaves the file where it is, and returns 1 under MSG-X7C4. Only a file
 #   proven to be the shipped one is deleted, so the fail direction is keeping.
 ai_tools_managed_file_retire() {
     local live="$1" reference="$2" sidecar
     [[ -e "${live}" || -L "${live}" ]] || { printf 'absent'; return 0; }
-    # The remover's and the mover's own stderr is dropped: either failure is the one refusal below, and an uninstall's
+    # The remover's and the mover's own stderr is dropped: either failure takes the MSG-X7C4 refusal, and an uninstall's
     # transcript carries one line for it rather than two saying the same thing in two voices.
     if [[ "$(ai_tools_managed_file_state "${live}" "${reference}")" == shipped ]]; then
         if rm -f -- "${live}" 2>/dev/null; then
@@ -360,11 +360,11 @@ ai_tools_agent_managed_files() {
     root="/etc/${agent}"
     ai_tools_conf_split paths "${value}"
     for path in "${paths[@]}"; do
-        # The pair is composed rather than declared, so the live path is held to the one directory that composition
-        # describes: a plain name directly under /etc/<agent>/. Recomposing the path from its own basename is what
-        # refuses a relative path, a nested one, a traversal, and a file of another package's in one comparison,
-        # and the charset refuses `.` and `..` before they reach it. A name declared twice is two live paths against
-        # one reference copy -- here, one live path reported twice -- so the second is a refusal rather than a line.
+        # The (live, reference) pair is composed rather than declared, so the live path is held to the directory
+        # that describes: a plain name directly under /etc/<agent>/. Recomposing the path from its own basename is
+        # what refuses a relative path, a nested one, a traversal, and a file of another package's in one comparison,
+        # and the charset refuses `.` and `..` before they reach it. A name declared twice is two live paths against one
+        # reference copy -- here, one live path reported twice -- so the second is a refusal rather than a line.
         base="${path##*/}"
         if [[ "${path}" != "${root}/${base}" || ! "${base}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]*$ ]]; then
             reason="not a plain filename directly under ${root}/"

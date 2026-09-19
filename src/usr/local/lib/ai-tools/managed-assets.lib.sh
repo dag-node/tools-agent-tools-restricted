@@ -408,8 +408,8 @@ ai_tools_link_asset_readme() {
 # The predicate for a managed link is its target: the shared root itself, or a path under it. Idempotent; a refresh
 # reports a current link as current. The links are root-owned, so a session reads what the operator installed and cannot
 # repoint one; the directory's own owner, mode and label are never rewritten -- a relabel covers the links this run
-# placed and nothing else -- which is what lets an unprivileged caller drive every state (the unit test) and what keeps
-# a host-owned directory the host's.
+# placed and no other entry -- which is what lets an unprivileged caller drive every state (the unit test)
+# and what keeps a host-owned directory the host's.
 ai_tools_link_shared_root() {
     local shared_root="$1" path="$2" group="$3" readme_source="${4:-}"
     local name="${path##*/}" target src entry dst
@@ -460,8 +460,9 @@ ai_tools_link_shared_root() {
             chown -h "root:${group}" "${path}/README.md" 2>/dev/null || :
             placed+=( "${path}/README.md" )
         fi
-        # Only the links just placed, never the directory: a `-R` here would relabel every entry a host put there,
-        # which this branch exists to leave exactly as it found it -- and the directory's own label with them.
+        # The relabel takes the array this run appended a link to, never the directory: a `-R` here would relabel every
+        # entry a host put there, which this branch exists to leave exactly as it found it -- and the directory's own
+        # label with them.
         if (( ${#placed[@]} > 0 )); then
             restorecon "${placed[@]}" >/dev/null 2>&1 || :
         fi

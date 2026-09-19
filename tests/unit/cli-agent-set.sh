@@ -151,8 +151,8 @@ fi
 # launch of which is already refused. Both records are fixtures here, written in the grammar the root writer uses,
 # and read through the deployed library's own hooks.
 #
-# `status_entrypoints` is what renders both, so it is what is driven: the pin alone first, as the control that the tier
-# line is reached at all, then the same pin with the mark.
+# `status_entrypoints` is what renders the pin and the mark, so it is what is driven: the pin alone first,
+# as the control that the tier line is reached at all, then the same pin with the mark.
 pin_record() {
     printf '# fixture pin\nAGENT=%s\nVERSION=%s\nSHA256=%s\nKIND=%s\nVERIFIED=%s\n' \
         "$1" "$2" "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" "$3" \
