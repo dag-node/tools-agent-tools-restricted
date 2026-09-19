@@ -54,6 +54,18 @@ from an oversight:
   to the operator that project was claimed for, and two sessions running
   under that one account are not kernel-isolated from each other. The scratch
   state a session keeps outside the project is shared between them.
+- **Every agent in the toolchain shares that account too.** A session can start
+  another agent's binary at its path inside the sandbox toolchain, whether
+  or not that agent is still enabled, since taking an agent
+  off `AI_TOOLS_AGENTS` stops it from starting a session and leaves its package
+  in place until the next Node release replaces the toolchain. The child runs
+  inside the parent's session with the parent's confinement, and the files it
+  writes come back to you. What the sandbox holds for one agent, its login
+  and a custom endpoint token where one is configured, every session of either
+  agent can read. A host running both agents runs them on one trust footing,
+  and a login you give one you have given the other. Keeping a credential
+  out of the account altogether needs a broker outside it, which is proposed
+  rather than built.
 - **Operators are trusted.** The model defends the host and its other users
   from the *agent*, not from an operator, who already holds the launch grant.
   `ai-tools projects claim --for <operator>` rests on that: one operator writes
