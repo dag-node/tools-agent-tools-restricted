@@ -79,6 +79,14 @@ is ignored.
 When that key is absent, the providers enabled are the installed ones whose
 manifest sets
 .BR default_enable=yes .
+Every agent manifest sets
+.BR default_enable=no ,
+so with
+.B AI_TOOLS_AGENTS
+absent no agent is enabled:
+.B "ai-tools-admin system bootstrap"
+asks which one installed agent to enable and writes that key
+.RB ( ai-tools-admin (8)).
 A name listed but not installed is reported and skipped.
 When
 .B operator.conf
@@ -95,9 +103,13 @@ or
 Whether a session receives this provider when
 .B operator.conf
 does not list providers of its kind.
-A provider that changes what the host exposes beyond the sandbox ships
+An integration that changes what the host exposes beyond the sandbox ships
 .BR no ,
 and is enabled only by being named.
+Every agent ships
+.BR no :
+which agents a host runs is written by the bootstrap, as described under
+.BR ENABLEMENT .
 Default:
 .BR no .
 .TP

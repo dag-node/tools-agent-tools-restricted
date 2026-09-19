@@ -24,17 +24,26 @@ and the new entrypoint is relabelled for the SELinux transition.
 
 `sudo ai-tools-admin system bootstrap` provisions the toolchain the updater then maintains. The command execs the root
 helper `ai-tools-bootstrap`, which keeps its name and its `/usr/local/libexec/ai-tools` path; what follows is
-that helper's work. It creates the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, installs nvm, Node
-(`AI_TOOLS_NODE_MAJOR`, default 22), and each enabled agent's npm package as `SANDBOX_USER` (the enabled set resolved
-via [providers](providers.rule.md)), re-links each versioned launcher at the target its manifest declares (see [The
-versioned launcher and its declared target](#the-versioned-launcher-and-its-declared-target)), points
-`/opt/ai-tools/bin/<launcher>` at each versioned binary, relabels the freshly installed entrypoint
-(`ai-tools-relabel-agent`, gated on that helper being deployed, so the first launch after a fresh provision is confined
-without a manual `ai-tools-admin system entrypoints relabel`), and captures the initial control plane in a root-private
-git repo. It is the one network step, so it is an operator command rather than an RPM scriptlet (which must succeed
-offline). It is idempotent: an existing account, nvm install, or Node version is reused. It enables `SANDBOX_USER`
-linger and the `nvm-update.timer` in that instance (best-effort), so the maintenance schedule is live once the toolchain
-exists.
+that helper's work. **It decides which agents it provisions before its first network step** (`choose_agents`): no agent
+manifest ships enabled, so with `AI_TOOLS_AGENTS` absent and at least one trusted manifest installed it draws one
+`ai_tools_msg_pick none` menu — one option per installed agent (`display_name`) and one for none, single-select —
+and writes the chosen name into `operator.conf` through `ai_tools_conf_set_key`; an unanswered menu (no terminal, closed
+input, three misses) or none chosen provisions Node alone under a coded warning naming the line and the re-run, at
+exit 0. `--agents NAME[,NAME...]`, passed through by `ai-tools-admin`, is the unattended form: each name is checked
+against `ai_tools_installed_agents` and an unknown one refuses the run with the key unwritten. A present key is
+the operator's declaration and is not asked about; one naming more than one agent is answered with a notice, since every
+agent named runs as the one sandbox account, and an untrusted `operator.conf` is neither asked about nor written.
+The enabled set is resolved after that write, so the run provisions what it wrote. It then creates the `SANDBOX_USER`
+account and its `/opt/ai-tools` home if absent, installs nvm, Node (`AI_TOOLS_NODE_MAJOR`, default 22), and each enabled
+agent's npm package as `SANDBOX_USER` (the enabled set resolved via [providers](providers.rule.md)), re-links each
+versioned launcher at the target its manifest declares (see [The versioned launcher and its declared
+target](#the-versioned-launcher-and-its-declared-target)), points `/opt/ai-tools/bin/<launcher>` at each versioned
+binary, relabels the freshly installed entrypoint (`ai-tools-relabel-agent`, gated on that helper being deployed,
+so the first launch after a fresh provision is confined without a manual `ai-tools-admin system entrypoints relabel`),
+and captures the initial control plane in a root-private git repo. It is the one network step, so it is an operator
+command rather than an RPM scriptlet (which must succeed offline). It is idempotent: an existing account, nvm install,
+or Node version is reused. It enables `SANDBOX_USER` linger and the `nvm-update.timer` in that instance (best-effort),
+so the maintenance schedule is live once the toolchain exists.
 
 Starting the timer **pre-seeds its `Persistent=` run-stamp** (`$XDG_DATA_HOME/systemd/timers/ stamp-nvm-update.timer`
 under `/opt/ai-tools`, written as `SANDBOX_USER`) so it begins on its next scheduled window rather than an **immediate

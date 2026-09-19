@@ -4,11 +4,11 @@
 # The one KEY=value grammar every ai-tools config file is read with, the trust predicate that decides whether a file may
 # be read at all, and three things that share the grammar and so live beside it: the dated config sidecars
 # (`<name>.<YYYYMMDD>[-N].{bak,shipped}`, whose stamp ai_tools_conf_sidecar_path is the single home
-# of), the settings.json hook-declaration merge, and every read AND write of allowed-projects. Sourced (never executed)
-# by operator.lib.sh, skip-dirs.lib.sh, providers.lib.sh, the launch wrapper, the CLI and the root helpers, so a key
-# and an allowlist line read the same whichever component reads them. The grammar, the present/absent distinction
-# the provider gating turns on, and what the trust predicate requires are in providers.rule.md; the allowlist state
-# model is in cli.rule.md.
+# of), the settings.json hook-declaration merge, the one in-place write of a KEY=value file (ai_tools_conf_set_key),
+# and every read AND write of allowed-projects. Sourced (never executed) by operator.lib.sh, skip-dirs.lib.sh,
+# providers.lib.sh, the launch wrapper, the CLI and the root helpers, so a key and an allowlist line read the same
+# whichever component reads them. The grammar, the present/absent distinction the provider gating turns
+# on, and what the trust predicate requires are in providers.rule.md; the allowlist state model is in cli.rule.md.
 #
 # Config files are PARSED, never sourced: a malformed or tampered file yields a bad value, never executed code
 # in a privileged script. List splitting pins IFS locally, because the sourcing scripts run under the strict-mode
@@ -469,6 +469,47 @@ ai_tools_conf_new_keys() {
     (( ${#_ai_tools_conf_new_out[@]} > 0 ))
 }
 
+# ── KEY=value files: set one key in place ────────────────────────────────────────────────────
+# The one rewrite this project makes to operator.conf is a single key's value -- OPERATORS
+# from `ai-tools-admin operators add|remove`, AI_TOOLS_AGENTS from the toolchain provisioning's agent choice. Setting
+# a key replaces one line and does not splice a block in, which is what ai_tools_conf_new_keys leaves to the operator:
+# the line replaced is the key's own, found by the same match ai_tools_conf_keys counts as a mention, so the template's
+# commented default is rewritten IN PLACE under its comment block and the file keeps the shape the new-key report reads.
+# Every other line is copied byte for byte.
+
+# ai_tools_conf_set_key <file> <KEY> <value> : write `KEY="value"` into <file>, replacing the first
+#   line that mentions KEY (`KEY=`, `#KEY=`, `# KEY=`, whitespace allowed around the key), or
+#   appending the line when none does. A missing <file> is created at mode 0644; an existing one
+#   keeps its owner and mode and is replaced by a rename (_ai_tools_conf_replace_file). Verified by
+#   re-reading the key through ai_tools_conf_read. Returns 0 when the file now holds the value, 1
+#   when it could not be written or does not read back, 2 for a KEY outside the identifier charset
+#   or a value carrying a newline or a double quote -- either would end the line or the quoted
+#   value early and write a different setting than the one asked for.
+ai_tools_conf_set_key() {
+    local file="$1" key="$2" value="$3" tmp line replaced=0
+    [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 2
+    [[ "${value}" != *$'\n'* && "${value}" != *'"'* ]] || return 2
+    tmp="$(mktemp 2>/dev/null)" || return 1
+    if [[ -f "${file}" ]]; then
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            if (( ! replaced )) && [[ "${line}" =~ ^[[:space:]]*(\#[[:space:]]?)?${key}[[:space:]]*= ]]; then
+                printf '%s="%s"\n' "${key}" "${value}"
+                replaced=1
+            else
+                printf '%s\n' "${line}"
+            fi
+        done < "${file}" > "${tmp}"
+    fi
+    (( replaced )) || printf '%s="%s"\n' "${key}" "${value}" >> "${tmp}"
+    if [[ -f "${file}" ]]; then
+        if ! _ai_tools_conf_replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
+    elif ! install -m 644 -- "${tmp}" "${file}" 2>/dev/null; then
+        rm -f -- "${tmp}"; return 1
+    fi
+    rm -f -- "${tmp}"
+    ai_tools_conf_read "${file}" "${key}" && [[ "${_ai_tools_conf_value}" == "${value}" ]]
+}
+
 # ── Path-list files (allowed-projects) ───────────────────────────────────────────────────────
 # The launch allowlist is one path per line rather than KEY=value, but it is read with the SAME rules as everything
 # else: a whole-line or end-of-line `#` comment, and one matched quote layer for a path that must contain a space
@@ -604,13 +645,14 @@ ai_tools_conf_allowlist_exclusion_lines() {
 # no session can start in), and enabling or disabling a path the file does not name would invent an
 # entry rather than edit one.
 
-# _ai_tools_conf_allowlist_write <file> <src> : replace <file> with <src>'s contents, preserving
+# _ai_tools_conf_replace_file <file> <src> : replace <file> with <src>'s contents, preserving
 #   its owner and mode. Written beside it and renamed, so a concurrent reader (a launch wrapper
 #   gating a session) sees the whole old file or the whole new one, never a half-written gate. The
 #   temp file is created in the file's OWN directory, which is what a rename across it requires --
 #   so this fails on a config directory the caller cannot write even when the file itself is
-#   writable, and the callers report that rather than aborting on it.
-_ai_tools_conf_allowlist_write() {
+#   writable, and the callers report that rather than aborting on it. Shared by the allowlist
+#   editors and by ai_tools_conf_set_key, the one rewrite of a KEY=value file.
+_ai_tools_conf_replace_file() {
     local file="$1" src="$2" tmp owner mode
     owner="$(stat -c '%U:%G' "${file}" 2>/dev/null || true)"
     mode="$(stat -c '%a' "${file}" 2>/dev/null || true)"
@@ -680,7 +722,7 @@ ai_tools_conf_allowlist_remove() {
         done
         ${keep} && printf '%s\n' "${line}"
     done < "${file}" > "${tmp}"
-    if ! _ai_tools_conf_allowlist_write "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
+    if ! _ai_tools_conf_replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
     rm -f -- "${tmp}"
     [[ "$(ai_tools_conf_allowlist_state "${file}" "${path}")" == absent ]] || return 1
 }
@@ -730,7 +772,7 @@ _ai_tools_conf_allowlist_retag() {
         done
         printf '%s\n' "${line}"
     done < "${file}" > "${tmp}"
-    if ! _ai_tools_conf_allowlist_write "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
+    if ! _ai_tools_conf_replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
     rm -f -- "${tmp}"
 }
 

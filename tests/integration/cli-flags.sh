@@ -123,7 +123,7 @@ make_fixtures() {
     N_C4="$(ai_test_name c4)"; N_C5="$(ai_test_name c5)"
     declare -gA N_CL=([077]="$(ai_test_name clone-077)" [027]="$(ai_test_name clone-027)")
     SRC="${R}/${N_SRC}"
-    printf 'OPERATORS="%s %s"\n' "${PROJECTS_USER}" "${FOR_USER}" > "${CONF}"; chmod 0644 "${CONF}"
+    mk_operator_conf "${CONF}" "${PROJECTS_USER}" "${FOR_USER}"
     : > "${AL}"; : > "${FOR_AL}"; : > "${GC}"
     mkdir -p "${SBROOT}"
     for d in pa pb pc pd pe pf pg plain unreg parent/p1 parent/p2 hold/inner for1 for2; do
@@ -153,6 +153,8 @@ make_fixtures() {
     # where the claim's secret scan then fails to enter the tree.
     chmod -R u+rwX,go+rX "${R}"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}"
+    # The operator.conf fixture stays root's: the gate honours its AI_TOOLS_AGENTS line in a trusted file alone.
+    chown root:root "${CONF}"
     # The `--for` target must own the tree a claim for it acts on (the claim's owner rule).
     chown -R "${FOR_USER}:${FOR_GROUP}" "${R}/for1" "${R}/for2"
     # An unregistered tree carrying the ai-tools fingerprint: the sandbox group.

@@ -9,23 +9,32 @@ on, and where one agent's own settings and environment variables are listed.
 ## Enable an agent
 
 ```bash
-sudo sed -i 's/^#\?AI_TOOLS_AGENTS=.*/AI_TOOLS_AGENTS="claude-code codex"/' /etc/ai-tools/operator.conf
+sudo ai-tools-admin system bootstrap                 # asks which agent, and writes the line
+sudo ai-tools-admin system bootstrap --agents codex  # the unattended form
 sudo sed -i 's/^#\?AI_TOOLS_REQUIRE_SELINUX=.*/AI_TOOLS_REQUIRE_SELINUX=yes/' /etc/ai-tools/operator.conf
 sudo sed -i 's/^#\?AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=.*/AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes/' /etc/ai-tools/operator.conf
-sudo ai-tools-admin system bootstrap
 ```
 
 `AI_TOOLS_AGENTS` in `/etc/ai-tools/operator.conf` names the agents this host
-runs. An installed agent package puts its files on the host and stays off until
-its name is on that line; the bootstrap then installs the agent's npm package
-into the sandbox toolchain, and the nightly update keeps it current. Claude
-Code runs with the line unset, Codex only once named. The file is root-owned,
-so which agents run is decided with `sudo` and from nowhere else: a session
-cannot add one, and an agent package that widens what the host exposes stays
-off until you name it. `ai-tools providers` lists what is installed
-and which of it is enabled.
+runs, and no agent is on until it is named there. An installed agent package
+puts its files on the host and stays off; the first bootstrap asks which one
+installed agent to enable, writes its name on that line, installs the agent's
+npm package into the sandbox toolchain, and the nightly update keeps it
+current. A run with no terminal, or one answered with none, provisions Node
+alone and says which line to set; `--agents <name>` makes the choice without
+asking. The file is root-owned, so which agents run is decided with `sudo`
+and from nowhere else: a session cannot add one, and an agent package
+that widens what the host exposes stays off until you name it.
+`ai-tools providers` lists what is installed and which of it is enabled.
 
-The second and third lines are optional and recommended.
+A second agent is a deliberate step, taken by hand: add its name to the line
+and re-run the bootstrap. Every agent named there runs as the one sandbox
+account and reads what the others store, a login or a token and the session
+history among them, and a session of one can start another's binary inside
+itself. Read [Scope](../about/scope.md) before naming a second agent;
+the bootstrap says the same once, on a line naming more than one.
+
+The third and fourth lines are optional and recommended.
 With `AI_TOOLS_REQUIRE_SELINUX=yes` a session starts only where SELinux is
 enforcing and the confinement policy is loaded, so a host whose policy drifted
 refuses the launch rather than running the session unconfined;
@@ -57,10 +66,9 @@ and environment variables that shape a session, what the sandbox sets for you,
 and what an operator may add — a custom system prompt or a custom API endpoint
 among them.
 
-[Codex](codex.md) is the second agent package. It ships off: the page states
-the two lines that turn it on, the device-code login a session needs, the two
-files under `/etc/codex` an operator may edit, and what a Codex session does
-not get.
+[Codex](codex.md) is the second agent package. The page states the command
+that turns it on, the device-code login a session needs, the two files
+under `/etc/codex` an operator may edit, and what a Codex session does not get.
 
 [Setting names](setting-names.md) decodes the six settings across both agents
 whose names read as the opposite of what they do — `danger-full-access`,
