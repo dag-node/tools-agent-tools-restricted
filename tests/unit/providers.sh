@@ -330,6 +330,7 @@ else
     printf 'a = 1\n' > "${mf}/live/same.toml"
     printf 'a = 2\n' > "${mf}/live/edited.toml"
     ln -s "${mf}/ref/f.toml" "${mf}/live/link.toml"
+    mkdir -p "${mf}/live/dir.toml"
     mf_state() {
         local desc="$1" expected="$2" got
         got="$(ai_tools_managed_file_state "$3" "$4")"
@@ -340,22 +341,32 @@ else
     mf_state "absent live file -> missing"              missing "${mf}/live/absent.toml" "${mf}/ref/f.toml"
     mf_state "absent reference -> unknown, never a verdict" unknown "${mf}/live/same.toml" "${mf}/ref/absent.toml"
     mf_state "a symlinked live file -> unknown"         unknown "${mf}/live/link.toml"   "${mf}/ref/f.toml"
+    mf_state "a directory as the live path -> unknown"  unknown "${mf}/live/dir.toml"    "${mf}/ref/f.toml"
+    mf_state "a directory as the reference -> unknown"  unknown "${mf}/live/same.toml"   "${mf}/live/dir.toml"
 
     # The manifest reader, over a fixture manifest in the root-owned fixture directory the resolver already trusts.
-    printf 'npm_package=@acme/managed\nlauncher=managed\nmanaged_files=/etc/acme/one.toml, /etc/acme/two.toml relative.toml /etc/../x.toml\n' \
+    # The live path is held to a plain name directly under /etc/<agent>/, since the reference is composed
+    # from that name: every other shape -- relative, nested, a traversal, another package's directory -- is refused,
+    # and so is a second entry repeating a name, which would compare two live paths against one reference copy.
+    printf 'npm_package=@acme/managed\nlauncher=managed\nmanaged_files=/etc/managed/one.toml, /etc/managed/two.toml relative.toml /etc/../x.toml /etc/managed/sub/three.toml /etc/other/four.toml /etc/managed/one.toml /etc/managed/..\n' \
         > "${agents_dir}/managed.conf"
     mf_pairs="$(AI_TOOLS_MANAGED_REFERENCE_DIR="${mf}/ref" ai_tools_agent_managed_files managed 2>"${mf}/warn")"
-    expected_pairs="$(printf '/etc/acme/one.toml\t%s/ref/managed/one.toml\n/etc/acme/two.toml\t%s/ref/managed/two.toml' "${mf}" "${mf}")"
+    expected_pairs="$(printf '/etc/managed/one.toml\t%s/ref/managed/one.toml\n/etc/managed/two.toml\t%s/ref/managed/two.toml' "${mf}" "${mf}")"
     if [[ "${mf_pairs}" == "${expected_pairs}" ]]; then
-        pass "managed_files yields one (live, reference) pair per absolute path, the reference under <dir>/<agent>/<basename>"
+        pass "managed_files yields one (live, reference) pair per name under /etc/<agent>/, the reference under <dir>/<agent>/<name>"
     else
         fail "managed_files pairs: got '${mf_pairs}'"
     fi
-    assert_msg MSG-N4W6 "$(cat "${mf}/warn")" "a relative path and a dotted path in managed_files are each refused on stderr"
-    if [[ "$(grep -c 'MSG-N4W6' "${mf}/warn")" -eq 2 ]]; then
-        pass "both refused paths are reported, one refusal each"
+    assert_msg MSG-N4W6 "$(cat "${mf}/warn")" "an entry outside /etc/<agent>/ and a repeated name are each refused on stderr"
+    if [[ "$(grep -c 'MSG-N4W6' "${mf}/warn")" -eq 6 ]]; then
+        pass "each of the six refused entries is reported, one refusal each"
     else
-        fail "expected two refusals, got: $(cat "${mf}/warn")"
+        fail "expected six refusals, got: $(cat "${mf}/warn")"
+    fi
+    if grep -q 'already paired with a reference copy' "${mf}/warn"; then
+        pass "the repeated name is refused as a collision, not as a shape"
+    else
+        fail "the repeated name was not reported as already paired: $(cat "${mf}/warn")"
     fi
     [[ -z "$(ai_tools_agent_managed_files claude-code 2>/dev/null)" ]] \
         && pass "an agent declaring no managed_files yields empty output" \

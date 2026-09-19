@@ -292,20 +292,25 @@ ai_tools_provider_manifest_field() {
 # Managed files: the configuration an agent's own product reads from a fixed path outside the control plane (codex's
 # /etc/codex/*.toml), shipped kept-across-upgrade so a host's edit survives. A manifest names them in `managed_files`,
 # and the package ships a pristine copy of each under <reference dir>/<agent>/<basename>, so the two status reports can
-# say whether the live file is the shipped one. Reported and never enforced: no such file holds a guarantee, so a host
-# copy can only reduce what a session does. The reference directory is overridable for the unit test alone; a caller
-# who could set it may already read every file it names.
+# say whether the live file is the shipped one. The live file sits directly under /etc/<agent>/, the same name
+# the reference carries: the declaration then names the file and never the directory it is compared from, and root
+# `cmp`s one agent's own configuration rather than a path of the manifest's choosing. Reported and never enforced: no
+# such file holds a guarantee, so a host copy can only reduce what a session does. The reference directory is
+# overridable for the unit test alone; a caller who could set it may already read every file it names.
 : "${AI_TOOLS_MANAGED_REFERENCE_DIR:=/usr/share/ai-tools}"
 
 # ai_tools_managed_file_state <live> <reference> : print one word for how a managed file relates to
 #   the pristine copy its package ships: `shipped` (byte-identical), `edited` (both readable and
-#   they differ), `missing` (the live file is absent), `unknown` (the reference cannot be read, or
-#   either path is a symlink -- a report that cannot compare says so rather than guessing). Pure:
-#   two paths in, one token out.
+#   they differ), `missing` (the live file is absent), `unknown` (the reference cannot be read,
+#   either path is a symlink, or either is not a regular file -- a report that cannot compare says
+#   so rather than guessing). Pure: two paths in, one token out.
 ai_tools_managed_file_state() {
     local live="$1" reference="$2"
     [[ -e "${live}" ]] || { printf 'missing'; return 0; }
-    if [[ -L "${live}" || -L "${reference}" || ! -r "${live}" || ! -r "${reference}" ]]; then
+    # A directory (or any other non-regular file) at either end is a comparison `cmp` cannot make: it fails, which read
+    # as `edited` -- a verdict about content over a path that holds none.
+    if [[ -L "${live}" || -L "${reference}" || ! -f "${live}" || ! -f "${reference}" \
+            || ! -r "${live}" || ! -r "${reference}" ]]; then
         printf 'unknown'; return 0
     fi
     if cmp -s -- "${live}" "${reference}"; then printf 'shipped'; else printf 'edited'; fi
@@ -313,22 +318,38 @@ ai_tools_managed_file_state() {
 }
 
 # ai_tools_agent_managed_files <agent> : print "<live>\t<reference>" per file the agent's trusted
-#   manifest names in managed_files, the reference being the pristine copy under
-#   AI_TOOLS_MANAGED_REFERENCE_DIR/<agent>/<basename>. A path that is not absolute, or carries a
-#   parent-directory component, is skipped with a refusal on stderr; empty output for an agent
-#   declaring none.
+#   manifest names in managed_files -- the live path directly under /etc/<agent>/, the reference
+#   the pristine copy at AI_TOOLS_MANAGED_REFERENCE_DIR/<agent>/ under the same name, so the two
+#   differ only in their root. An entry naming anything else, and a second entry repeating
+#   a name already paired, is skipped with a refusal on stderr; empty output for an agent declaring
+#   none.
 ai_tools_agent_managed_files() {
-    local agent="$1" value path
+    local agent="$1" value path base root reason seen=" "
     local -a paths=()
     value="$(ai_tools_agent_manifest_field "${agent}" managed_files 2>/dev/null || true)"
     [[ -n "${value}" ]] || return 0
+    root="/etc/${agent}"
     ai_tools_conf_split paths "${value}"
     for path in "${paths[@]}"; do
-        if [[ "${path}" != /* || "${path}" == *..* ]]; then
-            _ai_tools_provider_warn MSG-N4W6 "skipping the managed file $(printf '%q' "${path}") of ${agent}: not an absolute path without parent-directory components"
+        # The pair is composed rather than declared, so the live path is held to the one directory that composition
+        # describes: a plain name directly under /etc/<agent>/. Recomposing the path from its own basename is what
+        # refuses a relative path, a nested one, a traversal, and a file of another package's in one comparison,
+        # and the charset refuses `.` and `..` before they reach it. A name declared twice is two live paths against
+        # one reference copy -- here, one live path reported twice -- so the second is a refusal rather than a line.
+        base="${path##*/}"
+        if [[ "${path}" != "${root}/${base}" || ! "${base}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]*$ ]]; then
+            reason="not a plain filename directly under ${root}/"
+        elif [[ "${seen}" == *" ${base} "* ]]; then
+            reason="${base} is already paired with a reference copy"
+        else
+            reason=""
+        fi
+        if [[ -n "${reason}" ]]; then
+            _ai_tools_provider_warn MSG-N4W6 "skipping the managed file $(printf '%q' "${path}") of ${agent}: ${reason}"
             continue
         fi
-        printf '%s\t%s/%s/%s\n' "${path}" "${AI_TOOLS_MANAGED_REFERENCE_DIR}" "${agent}" "${path##*/}"
+        seen+="${base} "
+        printf '%s\t%s/%s/%s\n' "${path}" "${AI_TOOLS_MANAGED_REFERENCE_DIR}" "${agent}" "${base}"
     done
     return 0
 }
