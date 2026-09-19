@@ -672,7 +672,9 @@ and the resolver trusts root-owned inputs alone, so unprivileged it skips and sa
 The path is one a host may already hold, so each state it can be in is driven and every state but "absent" is asserted
 to leave what the host placed exactly as it was — the entry, its target, the directory's own mode and entries —
 with the shared assets linked in under free names alone, and the reverse asserted to remove the managed links and no
-other entry. Pure and unprivileged: the function never re-owns or re-modes what it finds.
+other entry. The relabel is held to that same bound from its argument list, `restorecon` stubbed as a shell function:
+the links this run placed reach it, the directory holding them does not, since a recursive sweep there would relabel
+every entry the host put in it. Pure and unprivileged: the function never re-owns or re-modes what it finds.
 
 `bootstrap.sh` pins the report `ai-tools-admin system bootstrap` closes with: which enrolled operators a launcher would
 not reach the wrapper for. It is the last thing said before a host is treated as ready, so both directions are driven —

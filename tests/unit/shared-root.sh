@@ -6,7 +6,9 @@
 # for a package being erased. The path is one a host may already hold, so what gives the step teeth is what it leaves
 # alone: each of the states the path can be in is driven, and every state but "absent" is asserted to leave
 # what the host placed exactly as it was -- the entry, its target, the directory's own mode and entries --
-# with the shared assets linked in only under a free name. The reverse is asserted to remove our links alone.
+# with the shared assets linked in only under a free name. The relabel is held to the same bound, against a stubbed
+# restorecon: it covers the links placed, never the directory holding them. The reverse is asserted to remove our links
+# alone.
 #
 # Pure: the shared root and the path are arguments, so the fixtures are a tree this file builds. Run without root:
 # the function never re-owns or re-modes what it finds, so an unprivileged caller drives every state.
@@ -151,6 +153,28 @@ run "${path}" >/dev/null
     && pass "a README the host holds is not replaced by the link" \
     || fail "the host's README was replaced"
 rm -f "${path}/README.md"; ln -s "${README}" "${path}/README.md"
+
+# ── the relabel covers the links placed, never the host's directory ─────────────────────────
+# A relabel needs root and a labelled host, so `restorecon` is stubbed as a shell function and what is asserted is
+# the argument list -- which is where this can go wrong: a `-R` over a host-owned directory relabels every entry
+# the host put there, in the one branch whose contract is to leave them exactly as they are.
+probe="${ETC}/probe-skills"
+mkdir -p "${probe}/ai-tools-one"                              # one shipped name taken, so the placed set is a subset
+args="${TESTDIR}/restorecon.args"
+: > "${args}"
+restorecon() { printf '%s\n' "$@" >> "${args}"; }
+run "${probe}" >/dev/null
+unset -f restorecon
+got="$(sort "${args}")"
+want="$(printf '%s\n' "${probe}/ai-tools-two" "${probe}/ai-tools-three" "${probe}/README.md" | sort)"
+[[ "${got}" == "${want}" ]] \
+    && pass "the relabel is given the links this run placed, one argument each" \
+    || fail "restorecon was called with '$(tr '\n' ' ' <"${args}")', expected '$(tr '\n' ' ' <<<"${want}")'"
+if ! grep -qxF -- '-R' "${args}" && ! grep -qxF -- "${probe}" "${args}"; then
+    pass "neither the host's directory nor a recursive sweep of it reaches the relabel"
+else
+    fail "the host's directory was relabelled: $(tr '\n' ' ' <"${args}")"
+fi
 
 # ── reverse over the host's directory: our links go, the host's entries stay ────────────────
 out="$(unrun "${path}")"
