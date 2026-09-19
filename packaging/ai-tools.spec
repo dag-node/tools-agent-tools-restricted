@@ -1294,9 +1294,11 @@ fi
   starts a confined session with the same project allowlist, SELinux domain and ownership handback
   a Claude Code session gets, and with the skills and orientation text both agents share. Two files
   under /etc/codex are yours to edit with sudo -- what every session is held to, and the defaults
-  applied ahead of any user config. Enable it deliberately: its confinement is exercised but its
-  denial set has not been swept on an enforcing host yet. docs/agents/codex.md covers what it
-  reaches, what the package turns off, and what a pinned sandbox mode costs a session.
+  applied ahead of any user config. Its denial set is swept on an enforcing host: a session raises
+  one refusal of its own, a filesystem watch under the sandbox account's home, and the policy was
+  not widened for it or for anything else. docs/agents/codex.md covers what it reaches, what the
+  package turns off, and what a pinned sandbox mode costs a session, and docs/system/selinux.md
+  lists the refusals a healthy session logs.
 - SECURITY: Codex refuses 'git push --force', 'git reset --hard' and 'git clean', the same three a
   Claude Code session is refused. Each deletes work no commit holds and no reflog returns, and each
   runs unprivileged in your own tree where no host control stops it; a refused command is raised in

@@ -92,9 +92,12 @@ a non-executable, a pattern that does not cover it — keeps npm's link to `code
 and the launch fails closed at the label preflight: the same state a host with no such key is
 in ([providers](providers.rule.md), [updater](updater.rule.md)).
 
-The binary's vendored helpers (`bwrap`, `rg`, `zsh`, `codex-code-mode-host`) sit beside it and stay `lib_t`: readable,
-not executable, by `ai_tools_t`. The manifest names the one binary, so a helper a later release adds beside it is not
-an entrypoint until a manifest names it. The system `rg` on the session `PATH` serves search.
+The binary's vendored helpers (`bwrap`, `rg`, `zsh`, `codex-code-mode-host`) sit beside it and stay `lib_t`,
+which `ai_tools_t` executes like every other program on the toolchain
+([ref-section-w4z6](confinement.rule.md#ref-section-w4z6)): a session searches with codex's own `rg`, and the audit
+record of a refused read names it. The transition in `ai_tools.te` is keyed on `ai_tools_exec_t`, so the user manager
+enters `ai_tools_t` on that type alone. The manifest names the one binary that carries it, so a helper a later release
+adds beside it runs as a program and is not the file a launch transitions on.
 
 ## The wrapper (`codex.sh`)
 
@@ -304,8 +307,8 @@ codex, the way the claude chain runs in `tests/manual/verify-live-flows.sh`.
 What a codex session does not get, stated as the posture the operator buys: no codex-side sandbox and no unprivileged
 user namespace (the host's confinement is the only one); no MCP servers, no sub-agents, no plugins or marketplaces, no
 image generation; the browser-callback login unavailable (device code and an API key are); telemetry off by disposition;
-the vendored `rg`, `zsh` and `bwrap` not executable; and no entrypoint provenance on the npm channel. Egress is not
-controlled by this package; one identity per host, since `auth.json` lives in the shared `CODEX_HOME`.
+and no entrypoint provenance on the npm channel. Egress is not controlled by this package; one identity per host, since
+`auth.json` lives in the shared `CODEX_HOME`.
 
 ## Quirks
 

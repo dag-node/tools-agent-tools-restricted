@@ -8,8 +8,8 @@
 # asserts: the system is Enforcing and neither domain is individually permissive; the module-presence probe ai-tools-run
 # reads resolves the way the shim expects; a sandbox clone takes ai_tools_project_t; each agent's declared entrypoint
 # rule still covers what its package installed; no link in the exec chain carries a type the confined domain may write;
-# and every enrolled operator's config subtree carries ai_tools_conf_t, the type the root helpers read that account's
-# allowlist through.
+# one inode per agent package carries the domain entry type; and every enrolled operator's config subtree carries
+# ai_tools_conf_t, the type the root helpers read that account's allowlist through.
 #
 # The layer is OPTIONAL -- the policy is its own subpackage, and a host may run DAC-only -- so with the module absent
 # the whole file SKIPS instead of demanding SELinux on a host that does not ship it. Run as root.
@@ -295,6 +295,67 @@ else
         done
     done < <(ai_tools_enabled_agents 2>/dev/null)
     (( chain_seen > 0 )) || skip "exec chain type containment" "no enabled agent's entrypoint resolved"
+fi
+
+# Every executable in an agent's package tree, by type. ai_tools_exec_t is the domain's ENTRY type -- the label
+# the manager transitions on -- so exactly one file in a package may carry it: the one the manifest declares and the pin
+# covers. A vendor shipping a second executable beside the entrypoint, or a file-context pattern that widened, would
+# otherwise add a domain entrypoint no manifest claims, no pin checksums, and no operator knows about.
+#
+# The rest of the tree is enumerated and REPORTED rather than asserted, because the count is what moves when a release
+# adds a helper. Their lib_t does not mean unexecutable: ai_tools_t executes lib_t through libs_read_lib_files and every
+# bin_t file through corecmd_exec_bin, and codex's vendored rg, zsh and bwrap each start inside a session. What a type
+# decides here is whether a file can be an entrypoint, which is why that is the assertion and the rest is a tally.
+#
+# Read-only: it stats live labels and runs no relabel. Root, to traverse the 0750 nvm tree.
+section "SELinux: one executable per agent package carries the domain entry type"
+
+if ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_agent_manifest_field >/dev/null 2>&1; then
+    skip "package entry-type enumeration" "providers.lib.sh not loaded"
+else
+    pkg_seen=0
+    while IFS=$'\t' read -r agent _ _; do
+        [[ -n "${agent}" ]] || continue
+        entry="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
+        pkg="$(ai_tools_agent_manifest_field "${agent}" npm_package || true)"
+        [[ -n "${entry}" && -n "${pkg}" ]] || continue
+        # The package root is the path up to the FIRST /lib/node_modules/<npm_package>/, which is where npm installs it;
+        # an entrypoint nested under a platform-specific dependency (codex) sits further down the same prefix.
+        root="${entry%%/lib/node_modules/"${pkg}"/*}/lib/node_modules/${pkg}"
+        if [[ ! -d "${root}" ]]; then
+            skip "${agent} package entry-type enumeration" "no package tree at ${root}"
+            continue
+        fi
+        pkg_seen=$(( pkg_seen + 1 ))
+        # Counted by INODE, not by path. An agent's platform-specific dependency is HARDLINKED into the path
+        # the manifest declares, so the entrypoint answers to two names that share one inode and therefore one label --
+        # the same distinction that made a path-wise entrypoint reconciliation report a false positive. What would be
+        # a second entrypoint is a second inode.
+        entry_names=(); entry_inodes=""; types=""
+        while IFS= read -r f; do
+            t="$(type_of "${f}")"
+            if [[ "${t}" == ai_tools_exec_t ]]; then
+                entry_names+=("${f}")
+                entry_inodes+="$(stat -c '%d:%i' -- "${f}" 2>/dev/null || echo unreadable)"$'\n'
+            fi
+            types+="${t:-unreadable}"$'\n'
+        done < <(find "${root}" -type f -perm -u+x 2>/dev/null)
+        distinct="$(printf '%s' "${entry_inodes}" | sort -u | grep -c '^.' || true)"
+        entry_inode="$(stat -c '%d:%i' -- "${entry}" 2>/dev/null || true)"
+        if [[ "${distinct}" -eq 1 && -n "${entry_inode}" ]] \
+                && grep -qxF "${entry_inode}" <<<"${entry_inodes}"; then
+            pass "${agent}: one inode in ${pkg} carries ai_tools_exec_t, and it is the declared entrypoint (${#entry_names[@]} name(s): ${entry_names[*]})"
+        elif [[ "${distinct}" -eq 0 ]]; then
+            fail "${agent}: no file under ${root} carries ai_tools_exec_t -- the manager has nothing to transition on and every launch fail-closes. Fix: sudo ai-tools-admin system entrypoints relabel"
+        elif [[ "${distinct}" -eq 1 ]]; then
+            fail "${agent}: the one inode carrying ai_tools_exec_t (${entry_names[*]}) is not the declared entrypoint ${entry} -- a binary no manifest claims is the domain's entry point"
+        else
+            fail "${agent}: ${distinct} distinct inodes carry ai_tools_exec_t (${entry_names[*]}) -- each is a domain entrypoint the manifest does not declare and the pin does not cover"
+        fi
+        note "${agent}: $(printf '%s' "${types}" | grep -c '^.' || true) executable file(s) under ${pkg}, by type: $(printf '%s' "${types}" | sort | uniq -c | awk '{printf "%s(%s) ", $2, $1}')"
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    (( pkg_seen > 0 )) || skip "package entry-type enumeration" "no enabled agent's package tree resolved"
 fi
 
 # EVERY enrolled operator's config subtree must carry ai_tools_conf_t, not only the account that ran the installer.

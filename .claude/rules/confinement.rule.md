@@ -160,6 +160,21 @@ and `ai_tools.te` grants `manage_*_pattern` only for the types it declares for t
 the agent's package directory `lib_t`, and the entrypoint `ai_tools_exec_t`, on which `ai_tools_t` holds
 `execute_no_trans` plus what `application_domain` gives (entrypoint/read/getattr), and no other permission.
 
+A vendored helper a package ships beside its entrypoint keeps `lib_t`, which the domain may **execute** — codex's `rg`,
+`zsh` and `bwrap` all start inside a session, as does every `bin_t` file under `corecmd_exec_bin` — so what the entry
+type decides is domain **entry**, not executability. Exactly one inode per package may carry it: the one the manifest
+declares and the pin checksums. An agent whose platform-specific dependency is hardlinked into the declared path answers
+to two names on one inode and therefore one label, so that is counted by inode (`tests/integration/selinux.sh`);
+the hardlink itself, and what else rests on it, are in [agent-claude-code](agent-claude-code.rule.md).
+
+`ai_tools_home_t` is the one type the domain both writes and executes. `ai_tools.te` grants `execute execute_no_trans`
+on it for the hook scripts under the agent's config directory, interpreted shell the session runs without a transition,
+and the grant reaches every path the type covers — the config directories and the caches. A file a session writes there
+runs in a later session at the same uid and in the same domain, another operator's session included, which is
+the shared-account boundary of [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9) and not an escalation. The project
+tree (`ai_tools_project_t`) and `/tmp` (`ai_tools_tmp_t`) are written and not executed; the `buildexec` group is the one
+exception, for build output alone.
+
 So on an enforcing host with the module loaded, `ai_tools_t` can neither write the entrypoint, nor unlink or rename
 over it (no `add_name`/`remove_name` on a `lib_t` directory), nor repoint the `bin_t` symlink — even though DAC alone
 would allow all three, since the account owns that tree. This is the layer that makes the exec root read-only
@@ -283,8 +298,27 @@ but does not run in `ai_tools_t`.
 
 `avc-testsuite.sh` (agent) exercises what the agent needs and writes a start marker; `avc-analyze.sh` (root) reads
 that marker so `ausearch -ts` starts at the right instant, and sorts each denial into **NEW**, **EXPECTED BOUNDARY** (an
-access `ai_tools.te` `dontaudit`s) or **EXPECTED GROUP-DISABLED** (one only an optional group would allow). Only NEW is
+access the policy refuses on purpose — `dontaudit`'d by section (4), or left visible by section (6) as a breach
+attempt), **EXPECTED GROUP-DISABLED** (one only an optional group would allow), or **BENIGN PROBE**. Only NEW is
 a candidate to fold in.
+
+A benign probe is an access whose refusal does not change what the caller does next, and it is classified and **left
+audited** rather than `dontaudit`'d. Three are classified: the login shell's `hostname_exec_t` lookup,
+which `/etc/profile` answers from `uname -n` and which every agent raises; `install`(1)'s relabel of the file it just
+created, which the `type_transition` has already given the type it asks for, so the copy exits 0; and codex's inotify
+`watch` on the account's home root (`usr_t`). Each is measured at three to four records per session start and none
+per command afterwards, which is what decides the treatment: section (4) silences a **flood**, and a `dontaudit` would
+equally hide a later agent release making the same call in a loop. The last two are matched on the permission,
+and `install`'s on the command as well, so a `chcon` of a project file and a `usr_t` denial of anything but `watch` stay
+NEW.
+
+**The window is the analyst's to state, because the marker is the exerciser's start** — one turn into the session,
+after the agent's own startup probes. Sweeping a whole session means passing `-ts` from before the launch and `-te`
+after it: every agent session under the account inherits the user manager's audit session id, so `ses=` does not
+separate two agents and only the window does. `ausearch` takes each end as two argv words and exits non-zero both
+for a window it could not parse and for one that did not match any record, so `avc-analyze.sh` keeps its stderr
+and distinguishes the two — a search that never ran would otherwise report as a policy covering everything the suite
+exercised.
 
 `avc-denials.sh` proves the inverse — that what the agent must not do is refused. Its root half brackets the probe
 with `semodule -DB` … `semodule -B`, since a `dontaudit` suppresses the audit record and an empty `ausearch` result

@@ -43,6 +43,35 @@ To inspect a denial:
 sudo ausearch -m avc -ts recent | audit2why
 ```
 
+## Denials a healthy session raises <a id="ref-section-g7c5"></a>
+
+A session logs a few refusals that do not need any action. Each is a probe
+a tool makes and answers another way, so the command you ran still succeeded:
+
+```bash
+sudo ausearch -m avc -su ai_tools_t -ts recent    # what a session was refused
+```
+
+- **The login shell asks the host its name.** `/etc/profile` tries
+  `hostnamectl`, then `hostname`, then `uname -n`. The first two are refused
+  and the third answers. Three records when a session starts, and none
+  per command after that.
+- **A search walks out of the project.** `ripgrep` reads the `.gitignore` file
+  of every parent directory of the one it is searching, and a parent in your
+  home is outside what a session may read. The search still honours
+  the project's own ignore rules.
+- **A file copy sets its own label.** `install` labels the file it just
+  created; the label it asks for is the one the file already has, so the copy
+  exits 0.
+- **Codex watches for changes under its home.** A Codex session arms
+  a filesystem watch on the sandbox account's home directory when it starts,
+  and is refused. Nothing in a turn waits on that watch.
+
+What does not belong on this list is a refusal that **stopped** you: a tool
+call that failed. Read that against [what the policy
+covers](#what-the-policy-covers), and raise it if it looks like a gap
+in the policy and not a boundary it draws.
+
 ## What the policy covers
 
 The policy ships a core module that every session needs, plus optional groups
