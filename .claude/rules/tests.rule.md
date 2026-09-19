@@ -873,10 +873,14 @@ so `hooks.sh` asserts only what the deployed `settings.json` **declares** (the h
 and the hooks themselves run in the manual script, inside the project it claims. The same file reads codex's
 `requirements.toml` as codex parses it (a TOML parser, so a bare key that landed inside a table is not read as set)
 and pins the sandbox-mode pin, managed hooks only from the root-owned directory, and the four hook declarations
-against the installed bodies; `wrapper.sh` closes with the codex wrapper in whichever enablement state the host is
-in, holding the launcher symlink and the resolver's enabled set to agreement ([agent-codex](agent-codex.rule.md)).
-The wrapper test stays hermetic by pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`)
-and runs the wrapper under `setsid`, so it never touches the real allowlist or fires a claim prompt. Run as root.
+against the installed bodies. That file is `%config(noreplace)`, so the copy this reads is the one that drifts:
+the approval policy, the login method and each hook's own timeout are therefore read here as well as in unit,
+and the two states are told apart — a key the file does not declare at all is a file predating it and fails
+with the pristine copy named, while a value that differs is the operator's tuning and is noted; `wrapper.sh` closes
+with the codex wrapper in whichever enablement state the host is in, holding the launcher symlink and the resolver's
+enabled set to agreement ([agent-codex](agent-codex.rule.md)). The wrapper test stays hermetic by pointing `HOME`
+at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`) and runs the wrapper under `setsid`, so it never
+touches the real allowlist or fires a claim prompt. Run as root.
 
 `cli-flags.sh` holds every `ai-tools` command and every option `ai-tools(1)` documents to what it **achieves**, and its
 rows do not read message text, so the command surface can be respelled with the file unchanged
@@ -945,26 +949,30 @@ asserted as such, because each records a decision: the agent package's `package.
 account-writable, which is why the declared version is not a trust input and the observed pin tier states a limit rather
 than a guarantee (the type layout is what closes it, asserted in `integration/selinux.sh`), and each agent's config
 directory **is** agent-writable, since the hooks that write `.sweep-marker` and `.session-active` run as the agent
-and those files carry cadence rather than a guarantee. `providers.sh` asserts the deployed half of "the sandbox cannot
-widen its own surface": none of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four provider directories,
-the manifests, fragments and contributed commands in them, codex's `/etc/codex` and the two managed files in it,
-or the `ai-tools-run` shim and the `bin` directory holding it is agent-writable — nor either launch wrapper
-and the libraries every wrapper loads (`launch-wrapper`, `safe-paths`, `msg`), which is the one cross-principal
-escalation in the chain, a wrapper running **as the operator** before any drop to the sandbox account — while the NuGet
-restore cache the dotnet integration needs **is** — both directions matter, since a read-only cache breaks
-the integration as surely as a writable tools dir breaks the boundary. `admin-commands.d` and the `dotnet` command in it
-are the highest-privilege pair in that list: what a writable one would buy is not a wider session but a command
-`ai-tools-admin` runs as root. It is the counterpart to `unit/providers.sh` and `unit/admin-commands.sh`, which assert
-the runtime refusals; this one asserts the agent cannot reach the state those refusals exist to catch. `filters.sh` is
-the same pair for the command filters: the engine, `filters.d` and the rule sets in it, `operator.conf`,
-and the agent-side hook body are all asserted non-agent-writable — the engine because it is sourced as the agent
-on every Bash call, the rule sets because they decide what every command in a session becomes. These probe **DAC
-and account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside the `ai_tools_t`
-SELinux domain (a launched session), so they assert the filesystem/credential boundary; the SELinux enforcing posture is
-asserted separately in `integration/selinux.sh`. A property the **type layout alone** enforces is therefore not
-assertable here, and reads as its DAC answer: the agent's inability to write its own entrypoint is one (DAC permits it —
-the account owns that tree), so it is asserted in `integration/selinux.sh` as the layout the policy rests on, one check
-per swap vector.
+and those files carry cadence rather than a guarantee. A third records the reach this vantage has and a session does
+not: the account's own `--user manager` answers it over its bus, which is why the route by which an environment variable
+would reach `nvm-update.service` is closed by the domain rather than by any permission — the unit *files* being
+root-owned is the half asserted here, and `selinux/avc/avc-testsuite.sh` asks the bus from inside a session, the one
+vantage whose answer is about the domain. The probe is read-only in both places, since no automated file writes live
+runtime state. `providers.sh` asserts the deployed half of "the sandbox cannot widen its own surface": none
+of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four provider directories, the manifests, fragments
+and contributed commands in them, codex's `/etc/codex` and the two managed files in it, or the `ai-tools-run` shim
+and the `bin` directory holding it is agent-writable — nor either launch wrapper and the libraries every wrapper loads
+(`launch-wrapper`, `safe-paths`, `msg`), which is the one cross-principal escalation in the chain, a wrapper running
+**as the operator** before any drop to the sandbox account — while the NuGet restore cache the dotnet integration needs
+**is** — both directions matter, since a read-only cache breaks the integration as surely as a writable tools dir breaks
+the boundary. `admin-commands.d` and the `dotnet` command in it are the highest-privilege pair in that list:
+what a writable one would buy is not a wider session but a command `ai-tools-admin` runs as root. It is the counterpart
+to `unit/providers.sh` and `unit/admin-commands.sh`, which assert the runtime refusals; this one asserts the agent
+cannot reach the state those refusals exist to catch. `filters.sh` is the same pair for the command filters: the engine,
+`filters.d` and the rule sets in it, `operator.conf`, and the agent-side hook body are all asserted non-agent-writable —
+the engine because it is sourced as the agent on every Bash call, the rule sets because they decide what every command
+in a session becomes. These probe **DAC and account state** from the sandbox account's vantage — they run as the sandbox
+*user*, not inside the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
+boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`. A property the **type layout
+alone** enforces is therefore not assertable here, and reads as its DAC answer: the agent's inability to write its own
+entrypoint is one (DAC permits it — the account owns that tree), so it is asserted in `integration/selinux.sh`
+as the layout the policy rests on, one check per swap vector.
 
 ## Quirks
 

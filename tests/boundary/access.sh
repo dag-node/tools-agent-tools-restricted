@@ -248,6 +248,24 @@ for _d in /opt/ai-tools/.config/systemd/user /opt/ai-tools/.config/systemd/user/
     fi
 done
 
+# The same manager, reached over its bus rather than through its unit directory. `systemctl --user set-environment`
+# writes into the manager, and the manager hands its environment to every unit it starts -- nvm-update.service
+# among them, which reads AI_TOOLS_AGENTS_DIR and AI_TOOLS_OPERATOR_CONF as root-only test hooks. This vantage is
+# the sandbox ACCOUNT and not a confined session, so the reading here is POSITIVE and is recorded as one: the account
+# does reach its own manager, which is why what closes that route is the ai_tools_t domain -- which holds connectto
+# on the handback socket alone -- rather than any permission. selinux/avc/avc-testsuite.sh probes it from inside
+# a session, the only vantage that answers it. Read-only: no automated file writes live runtime state, so this asks
+# the manager for its environment instead of setting one.
+_sandbox_uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
+if [[ -z "${_sandbox_uid}" || ! -d "/run/user/${_sandbox_uid}" ]]; then
+    skip "the --user manager's environment" "${SANDBOX_USER}'s --user instance is not running on this host"
+elif runuser -u "${SANDBOX_USER}" -- env XDG_RUNTIME_DIR="/run/user/${_sandbox_uid}" \
+        systemctl --user show-environment >/dev/null 2>&1; then
+    pass "the account reaches its own --user manager, so the updater-env route is closed by the domain and not by DAC"
+else
+    pass "the account cannot reach its own --user manager at all, so the updater-env route is closed here too"
+fi
+
 # Claude Code persists its state (.claude.json under CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude) atomically -- a temp file
 # beside the target, then rename -- so persistence needs create+rename in the CONTAINING DIR, not write on the file.
 # .claude (root:ai-tools 3770) grants the agent exactly that through the group bits, while the sticky bit keeps

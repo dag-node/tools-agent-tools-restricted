@@ -346,6 +346,20 @@ semodule -l 2>/dev/null | grep -qx 'ai_tools_buildexec' && {
     rm -rf "${_bo}"
 } || note "buildexec group not loaded -- skip (enable-group buildexec to cover it)"
 
+# The sandbox account's own `--user manager`, reached over its bus. The manager hands its environment to every unit it
+# starts, nvm-update.service among them, and that unit's reader honours AI_TOOLS_AGENTS_DIR and AI_TOOLS_OPERATOR_CONF
+# -- so a session that could `set-environment` there would choose which manifests the updater reads. The unit FILES are
+# root-owned and the agent cannot write one (tests/boundary/access.sh pins that), and this is the other half:
+# from inside the domain, which holds connectto on the handback socket alone, the bus is unreachable. Read-only --
+# `show-environment` asks, and a session that can ask could also set. This is the one vantage that answers it:
+# as the sandbox ACCOUNT the bus is reachable, so a probe outside the domain reads the DAC answer and settles nothing.
+note "probing the account's --user manager from inside the domain (the updater-env route)"
+if XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user show-environment >/dev/null 2>&1; then
+    fail "the session reached its own --user manager: it could set-environment into the updater's unit"
+else
+    pass "the session cannot reach its own --user manager, so it cannot plant environment for nvm-update.service"
+fi
+
 ########################################
 # Cleanup + next step
 ########################################
@@ -361,7 +375,7 @@ else
     printf '\033[1;32m[avc] ASSERTIONS: %d passed, 0 failed\033[0m\n' "${ASSERT_PASS}"
 fi
 echo
-note "DONE. Exercised: create, modify, temp(+assert/detect), git(+mv), secret-quarantine, net allow/deny."
+note "DONE. Exercised: create, modify, temp(+assert/detect), git(+mv), secret-quarantine, net allow/deny, user-manager bus."
 cat <<EOF
 
 Next -- as <you> (root), turn the logged denials into policy:

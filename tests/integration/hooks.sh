@@ -173,10 +173,13 @@ print("managed_only\t%s" % str(doc.get("allow_managed_hooks_only", "")).lower())
 print("modes\t%s" % "|".join(doc.get("allowed_sandbox_modes", [])))
 print("default_permissions\t%s" % doc.get("default_permissions", ""))
 hooks = doc.get("hooks", {})
+print("approval_policies\t%s" % "|".join(doc.get("allowed_approval_policies", [])))
+print("login_methods\t%s" % "|".join(doc.get("allowed_login_methods", [])))
 print("managed_dir\t%s" % hooks.get("managed_dir", ""))
 for event in ("SessionStart", "PostToolUse", "Stop", "SessionEnd"):
-    cmds = [h.get("command", "") for e in hooks.get(event, []) for h in e.get("hooks", [])]
-    print("%s\t%s" % (event, "|".join(cmds)))
+    entries = [h for e in hooks.get(event, []) for h in e.get("hooks", [])]
+    print("%s\t%s" % (event, "|".join(h.get("command", "") for h in entries)))
+    print("%s_timeout\t%s" % (event, "|".join(str(h.get("timeout", "")) for h in entries)))
 for r in doc.get("rules", {}).get("prefix_rules", []):
     tokens = [e.get("token") or "|".join(e.get("any_of", [])) for e in r.get("pattern", [])]
     print("rule\t%s => %s" % (" ".join(tokens), r.get("decision", "")))
@@ -259,6 +262,41 @@ PY
                 fail "${hb} is declared in requirements.toml and not executable -- codex skips it silently"
             fi
         done
+        # (c5) The two keys that say how a session may be answered and how it may authenticate. The unit suite pins
+        # the checkout's values; what this catches is the live file, which is kept across an upgrade -- so a host
+        # that installed before a key existed carries a file declaring NEITHER, and codex then constrains neither.
+        # An absent key is that case and fails; a different value is the operator's own tuning and is reported,
+        # the treatment the host-survey rows get.
+        codex_keys_ok=true
+        codex_key_row() {
+            local what="$1" key="$2" shipped="$3" got
+            got="$(decl "${key}")"
+            if [[ -z "${got}" ]]; then
+                fail "requirements.toml declares no ${what} -- a file predating the key, not a tuned one: copy it from /usr/share/ai-tools/codex/requirements.toml"
+                codex_keys_ok=false
+            elif [[ "${got}" != "${shipped}" ]]; then
+                note "requirements.toml ${what} is '${got}', not the shipped '${shipped}' -- tuned on this host"
+            fi
+        }
+        codex_key_row "an approval policy" approval_policies never
+        codex_key_row "a login method"     login_methods     chatgpt
+        ${codex_keys_ok} && pass "requirements.toml constrains both the approval policy and the login method"
+        # (c6) Each hook's timeout, which is what bounds the handback that hook drives. An event with none runs
+        # under codex's own default, so the per-turn sweep can be cut short with nothing said; that is the drift this
+        # catches, while a value an operator changed is reported. SessionEnd is capped at 3 s whatever it declares,
+        # which is why the sweep hangs off Stop and why a longer value there would mislead a reader.
+        declare -A want_codex_timeout=( [SessionStart]=60 [PostToolUse]=30 [Stop]=600 [SessionEnd]=3 )
+        codex_timeouts_ok=true
+        for ev in SessionStart PostToolUse Stop SessionEnd; do
+            got="$(decl "${ev}_timeout")"
+            if [[ -z "${got}" ]]; then
+                fail "requirements.toml ${ev} declares no timeout -- the hook runs under codex's default, which can cut its handback short"
+                codex_timeouts_ok=false
+            elif [[ "${got}" != "${want_codex_timeout[$ev]}" ]]; then
+                note "requirements.toml ${ev} timeout is ${got}s, not the shipped ${want_codex_timeout[$ev]}s -- tuned on this host"
+            fi
+        done
+        ${codex_timeouts_ok} && pass "requirements.toml bounds each of the four hooks with a timeout of its own"
     fi
 fi
 
