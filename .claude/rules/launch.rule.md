@@ -150,16 +150,20 @@ and [agent-claude-code](agent-claude-code.rule.md) for the pins Claude Code make
 
 **Enabled providers extend that allowlist, and they are its only extension.** Every enabled provider — each integration
 *and* the agent itself — may contribute session env and a PATH tail through a root-owned fragment
-`/usr/local/lib/ai-tools/session-env.d/<name>.env.sh`, which `ai-tools-run` sources: integrations first, **the agent
-last**, so the agent's own pins (its config directory, its cache) are authoritative over an integration's. See
-[providers](providers.rule.md) for the manifests, the enablement rules, and the trust checks every input passes.
+`/usr/local/lib/ai-tools/session-env.d/<name>.env.sh`, and every enabled agent contributes its pins (its config
+directory, its cache, its updater switch) through `<name>.pins.env.sh` beside it. `ai-tools-run` sources them in three
+tiers: the integrations first, then **every enabled agent's pins** in manifest order, then **the launching agent's
+fragment last**, so an agent's pins are authoritative over an integration's and the launching agent's fragment
+over everything. The pins reach every session of the account and the fragment reaches the launching agent's alone;
+which variable belongs in which file, the manifests, the enablement rules, and the trust checks every input passes are
+in [providers](providers.rule.md).
 
 Two launch-side consequences: PATH is **assembled and emitted once**, after the fragments run, so the base tiers
-(root-owned, least-writable first) always precede any addition; and the fragments are sourced **as `SANDBOX_USER`,
-before the unit is created**, which is why each one — and the directory holding it, and the libraries doing the sourcing
-— must be root-owned and non-group-writable. A failing check skips that fragment and logs it; an installed-but-disabled
-provider does not contribute a fragment. Fragments are additive, so a skipped one costs the session that provider's
-environment and leaves every property in this section intact.
+(root-owned, least-writable first) always precede any addition; and the fragments and pins are sourced **as
+`SANDBOX_USER`, before the unit is created**, which is why each file — and the directory holding it, and the libraries
+doing the sourcing — must be root-owned and non-group-writable. A failing check skips that file and logs it;
+an installed-but-disabled provider contributes neither a fragment nor pins. Fragments and pins are additive,
+so a skipped one costs the session that provider's environment and leaves every property in this section intact.
 
 **A session-end ownership sweep for agents that do not carry hooks.** The shim reads the resolved agent's `handback`
 declaration (see [providers](providers.rule.md)): `handback=hooks` means the agent converges the tree itself
@@ -231,18 +235,17 @@ on a claude child under a codex session and a codex child under a claude session
 - **It runs inside the parent's session.** Same cgroup, so the same unit, seccomp filter, `NoNewPrivs` and `UMask`;
   `ai_tools_t` with no transition. The journal holds one `launch:` line, the parent's; `ai-tools status` and the stop
   helper see one session.
-- **Its own configuration applies, and so does the handback.** `HOME` is the sandbox home, so the child's state
-  directory is the one its fragment pins (`~/.claude`, `~/.codex`), its hooks and deny rules or its managed files apply
-  as they do on a launch, and its per-turn hooks reach the handback socket, where the daemon stamps the parent's unit
-  on the record. A file the child writes is handed back before the turn ends.
+- **Its own configuration applies, and so does the handback.** `HOME` is the sandbox home and the shim sources every
+  enabled agent's pins into every session, so the child's state directory is the one its pins set (`~/.claude`,
+  `~/.codex`) — a claude child under codex reads the pinned `.claude/.claude.json` and does not self-update, a codex
+  child under claude finds `CODEX_HOME` — its hooks and deny rules or its managed files apply as they do on a launch,
+  and its per-turn hooks reach the handback socket, where the daemon stamps the parent's unit on the record. A file
+  the child writes is handed back before the turn ends.
 - **It lacks the other agent's fragment.** The shim sources the launching agent's fragment alone, so a claude child
-  under codex runs without `CLAUDE_CONFIG_DIR`, `DISABLE_AUTOUPDATER` and `NODE_COMPILE_CACHE`. Without the first it
-  reads its config file at `$HOME/.claude.json`, a path in the root-owned home root the account cannot create, and runs
-  with no config file at all, printing "Claude configuration file not found" once per step, while the pinned
-  `.claude/.claude.json` stays untouched. The updater switch is covered on every launch by the `settings.json` `env`
-  block (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`), and the entrypoint is a Bun binary, so no compile cache arises.
-  A codex child under claude resolves `CODEX_HOME` to the same `~/.codex` unpinned, and inherits the parent's whole
-  environment, a custom endpoint's `ANTHROPIC_*` included, as every Bash tool child does.
+  under codex runs at the default endpoint whatever `CLAUDE_BASE_URL_FILE` names, and a child inherits the parent's
+  whole environment, as every Bash tool child does: a codex child under claude carries a custom endpoint's
+  `ANTHROPIC_*`. Which variable is a pin and which stays in the fragment is the split [providers](providers.rule.md)
+  states.
 - **It is not an escalation.** Same uid, same domain, no access the session lacks. Every credential either agent stores
   under the sandbox home is readable by every session of any agent, which is the shared-account boundary
   of [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9), and the route does not add to it.

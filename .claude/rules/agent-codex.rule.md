@@ -2,7 +2,7 @@
 paths:
   - "src/usr/local/bin/codex.sh"
   - "src/usr/local/lib/ai-tools/agents.d/codex.conf"
-  - "src/usr/local/lib/ai-tools/session-env.d/codex.env.sh"
+  - "src/usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh"
   - "src/etc/codex/**"
   - "src/opt/ai-tools/agents/codex/**"
 ---
@@ -17,7 +17,7 @@ launch contract is [launch](launch.rule.md); the ownership handback and the swee
 [ownership-and-hooks](ownership-and-hooks.rule.md). The claude-code counterpart of every item here is
 [agent-claude-code](agent-claude-code.rule.md), and where the two differ the difference is stated in this rule.
 
-`ai-tools-agents-codex-restricted` ships the wrapper, the manifest, the session-env fragment, the two managed files
+`ai-tools-agents-codex-restricted` ships the wrapper, the manifest, the session pins, the two managed files
 with a pristine copy of each, the two hooks, and the agent's config directory. Like every agent package it ships
 `default_enable=no`: `codex` is provisioned and launched once `AI_TOOLS_AGENTS` names it, which the bootstrap writes
 for the agent an operator chooses ([providers](providers.rule.md)). It does not add a sudoers rule: it inherits
@@ -56,7 +56,7 @@ is the vendor's; the containment is the host's.
 | `launcher_target` | the vendor binary's path inside the version directory, under `…/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex` | `ai-tools-bootstrap`, `nvm-update` — where `<version-dir>/bin/codex` is re-linked after each install ([providers](providers.rule.md)) |
 | `display_name` | `Codex` | the launch banner, the unit description |
 | `handback` | `none` | `ai-tools-run` — the shim sweeps the project at session end (see [Handback](#handback-the-shims-sweep-is-the-guarantee-the-hooks-are-the-cadence)) |
-| `config_dir` | `.codex` | the control-plane mode/label set, and `→ ai_tools_home_t`; the fragment pins `CODEX_HOME` there |
+| `config_dir` | `.codex` | the control-plane mode/label set, and `→ ai_tools_home_t`; the pins set `CODEX_HOME` there |
 | `memory_file` | `AGENTS.md` | where the shared orientation text is linked — the global-scope instructions codex reads first ([shipped-assets](shipped-assets.rule.md)) |
 | `managed_files` | `/etc/codex/requirements.toml`, `/etc/codex/managed_config.toml` | `ai-tools status` and `ai-tools-admin status` — which live files to compare against the pristine copies under `/usr/share/ai-tools/codex/` ([providers](providers.rule.md)) |
 | `entrypoint_fcontext` | a regex ending on the same vendor path `launcher_target` names | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
@@ -277,14 +277,16 @@ before a project's own `AGENTS.md` files (`ai_tools_link_agent_memory`, the same
 
 ## Session environment pins
 
-`session-env.d/codex.env.sh` is sourced **last**, after every enabled integration, and pins one variable:
-**`CODEX_HOME=/opt/ai-tools/.codex`** — the directory codex writes its login (`auth.json`), its session logs
-and memories, its shell snapshots, and a `tmp/` tree of symlinks to its own binary that it appends to a tool's `PATH`.
-Unpinned it resolves under the `2751` home root, where the directory cannot be created; the `3770` config directory
-grants that write, and its sticky bit keeps the root-placed hooks, and a root-placed `auth.json`, undeletable
-by the session. The fragment does not carry a `CODEX_MANAGED_*` variable (the binary behaves the same without
-the shim's) or a credential: the API-key path is a root-placed `auth.json`, so there is no token to import by name. No
-Node runs in the chain, so there is no compile cache to relocate.
+`session-env.d/codex.pins.env.sh` is sourced into **every** session of the account while codex is enabled —
+a claude-code session included, so a codex child started inside one finds its state directory ([launch](launch.rule.md))
+— after every enabled integration, and pins one variable: **`CODEX_HOME=/opt/ai-tools/.codex`** — the directory codex
+writes its login (`auth.json`), its session logs and memories, its shell snapshots, and a `tmp/` tree of symlinks to its
+own binary that it appends to a tool's `PATH`. Unpinned it resolves under the `2751` home root, where the directory
+cannot be created; the `3770` config directory grants that write, and its sticky bit keeps the root-placed hooks,
+and a root-placed `auth.json`, undeletable by the session. Codex does not ship a fragment beside its pins: it does not
+carry a `CODEX_MANAGED_*` variable (the binary behaves the same without the shim's) or a credential — the API-key path
+is a root-placed `auth.json`, so there is no token to import by name — and so it has no variable that reaches its own
+sessions alone ([providers](providers.rule.md)). No Node runs in the chain, so there is no compile cache to relocate.
 
 `auth.json` is codex's own state in its own home, the standing claude's `.claude.json` has: sandbox-owned and writable
 on the default login path, root-placed `0640 root:SANDBOX_GROUP` on the API-key path, and in neither case confidential
@@ -307,7 +309,7 @@ drives enablement through the real resolver over this manifest: disabled with `A
 when named, and skipped when the manifest is group-writable however `operator.conf` reads). On the host,
 `tests/integration/perms.sh` pins the owner and mode of every file this rule names and the shape of `/etc/codex/skills`
 in each state the linker leaves; `tests/boundary/providers.sh` and `tests/boundary/access.sh` assert, as the agent,
-that the manifest, the fragment, `/etc/codex` and both managed files are not writable and that both hooks are executable
+that the manifest, the pins, `/etc/codex` and both managed files are not writable and that both hooks are executable
 and not writable; `tests/integration/hooks.sh` reads `requirements.toml` as codex does and pins the pin, managed hooks
 only, the four hook declarations against the installed bodies, and the refused git verbs;
 and `tests/integration/wrapper.sh` drives `/usr/local/bin/codex` in whichever state the host is in — refused

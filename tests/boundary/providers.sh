@@ -103,13 +103,17 @@ not_writable /usr/local/lib/ai-tools/integrations.d/dotnet.conf \
     "flip the dotnet integration to enabled-by-default"
 not_writable /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh \
     "inject environment and PATH into its own session"
-not_writable /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh \
+not_writable /usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh \
     "repoint its own config directory or re-enable the in-session updater"
-# The codex package's manifest and fragment, the same two decisions for the second agent. The manifest ships
+# The pins reach every session of the account and the fragment reaches claude-code sessions alone; writable,
+# the fragment is where a session of another agent would put the line that imports the claude endpoint token.
+not_writable /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh \
+    "route the claude endpoint and its token into every agent's sessions"
+# The codex package's manifest and pins, the same two decisions for the second agent. The manifest ships
 # default_enable=no, so writable it would be the file the agent flips to enable itself.
 not_writable /usr/local/lib/ai-tools/agents.d/codex.conf \
     "enable itself by default, or repoint the codex package the toolchain installs"
-not_writable /usr/local/lib/ai-tools/session-env.d/codex.env.sh \
+not_writable /usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh \
     "repoint CODEX_HOME at a directory it controls"
 
 # Codex's managed files, read by codex at every start from a fixed path. No file under /etc/codex holds a guarantee --

@@ -218,10 +218,10 @@ Obsoletes:      claude-code-restricted < 0.7.0-1
 %description -n ai-tools-agents-claude-code-restricted
 The Claude Code provider layer: the `claude` launch wrapper, the agent manifest
 that tells the toolchain which npm package to provision and ai-tools-run which
-executable may launch, its session-env fragment, and the Claude Code hooks that
-drive ownership handback and secret quarantine. Confinement itself is the
-base-owned ai-tools-run shim, so a sibling ai-tools-agents-* provider sits beside
-this one on the same base and integration layers.
+executable may launch, its session pins and session-env fragment, and the Claude
+Code hooks that drive ownership handback and secret quarantine. Confinement
+itself is the base-owned ai-tools-run shim, so a sibling ai-tools-agents-*
+provider sits beside this one on the same base and integration layers.
 
 # ─────────────────────────────────────────────────────────────────────────────
 %package -n ai-tools-agents-codex-restricted
@@ -236,7 +236,7 @@ Requires:       jq
 The Codex provider layer: the `codex` launch wrapper, the agent manifest that
 tells the toolchain which npm package to provision, which executable inside it
 the launcher is re-linked at, and which one ai-tools-run may launch; its
-session-env fragment; codex's two managed files under /etc/codex, which pin the
+session pins; codex's two managed files under /etc/codex, which pin the
 session to the host's confinement (codex adds no sandbox of its own) and declare
 the ownership-handback hooks as the only hooks; and those hooks. Ships disabled
 like every agent: `ai-tools-admin system bootstrap` enables the agent an
@@ -334,9 +334,10 @@ for l in log msg conf skip-dirs owner-only relabel secret-patterns operator cont
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
 # files here): agents.d/<name>.conf and integrations.d/<name>.conf manifests, and
-# session-env.d/<name>.env.sh fragments. providers.lib.sh reads the manifests to keep the
-# toolchain and launch layers provider-agnostic; ai-tools-run sources the fragment of each enabled
-# provider, agent and integration alike.
+# session-env.d/<name>.env.sh fragments beside the per-agent <name>.pins.env.sh. providers.lib.sh
+# reads the manifests to keep the toolchain and launch layers provider-agnostic; ai-tools-run
+# sources the fragment of each enabled provider, agent and integration alike, and the pins of
+# every enabled agent into every session.
 install -d -m 0755 %{buildroot}%{ai_libdir}/agents.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/integrations.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/session-env.d
@@ -524,8 +525,10 @@ install -m 0644 src%{ai_libdir}/agents.d/claude-code.conf  %{buildroot}%{ai_libd
 # one, never by an edit on the host. Its fingerprint is declared in the manifest and asserted
 # against gpgv's output, so this file alone does not decide what may sign a release.
 install -m 0644 src%{ai_libdir}/keys/claude-code.asc %{buildroot}%{ai_libdir}/keys/claude-code.asc
-# Its session env (config dir, compile cache, in-session updater), sourced by ai-tools-run last
-# so the agent's own pins are authoritative over an integration's.
+# Its session pins (config dir, compile cache, in-session updater), sourced by ai-tools-run into
+# every session of the account after the integrations, and its own fragment (the custom endpoint
+# and prompt), sourced last and into claude-code sessions alone.
+install -m 0644 src%{ai_libdir}/session-env.d/claude-code.pins.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.pins.env.sh
 install -m 0644 src%{ai_libdir}/session-env.d/claude-code.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.env.sh
 # Claude Code-specific resolvers (the base owns the lib directory; the agent ships these into it):
 # the custom system prompt (claude.sh, wrapper-side) and the custom API endpoint (the fragment
@@ -554,7 +557,7 @@ install -d -m 0770 %{buildroot}/opt/ai-tools/.codex
 install -m 0750 src/opt/ai-tools/agents/codex/post-tool-hook.sh %{buildroot}/opt/ai-tools/.codex/post-tool-hook.sh
 install -m 0750 src/opt/ai-tools/agents/codex/session-hook.sh   %{buildroot}/opt/ai-tools/.codex/session-hook.sh
 install -m 0644 src%{ai_libdir}/agents.d/codex.conf        %{buildroot}%{ai_libdir}/agents.d/codex.conf
-install -m 0644 src%{ai_libdir}/session-env.d/codex.env.sh %{buildroot}%{ai_libdir}/session-env.d/codex.env.sh
+install -m 0644 src%{ai_libdir}/session-env.d/codex.pins.env.sh %{buildroot}%{ai_libdir}/session-env.d/codex.pins.env.sh
 # Codex's two managed files. Codex reads them itself from this fixed path: requirements.toml is
 # what a session cannot override (the sandbox-mode pin, the approval policy, managed hooks only),
 # managed_config.toml the defaults applied ahead of any user config. Both 0644 root:root -- the
@@ -1273,6 +1276,7 @@ fi
 %dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
 %attr(0644, root, root) %{ai_libdir}/agents.d/claude-code.conf
 %attr(0644, root, root) %{ai_libdir}/keys/claude-code.asc
+%attr(0644, root, root) %{ai_libdir}/session-env.d/claude-code.pins.env.sh
 %attr(0644, root, root) %{ai_libdir}/session-env.d/claude-code.env.sh
 %attr(0644, root, root) %{ai_libdir}/claude-prompt.lib.sh
 %attr(0644, root, root) %{ai_libdir}/claude-endpoint.lib.sh
@@ -1296,7 +1300,7 @@ fi
 %attr(0750, root, ai-tools) /opt/ai-tools/.codex/post-tool-hook.sh
 %attr(0750, root, ai-tools) /opt/ai-tools/.codex/session-hook.sh
 %attr(0644, root, root) %{ai_libdir}/agents.d/codex.conf
-%attr(0644, root, root) %{ai_libdir}/session-env.d/codex.env.sh
+%attr(0644, root, root) %{ai_libdir}/session-env.d/codex.pins.env.sh
 %attr(0755, root, root) %{ai_bindir}/codex
 # Codex's managed files, at the fixed path codex reads them from. World-readable data, not secrets:
 # they hold the pin and the hook declarations, and no file under /etc/codex carries a guarantee. The

@@ -56,12 +56,13 @@ a pointer](#a-config-files-header-is-a-pointer)).
   no use for it, and a domain whose manifest omits it is still listed.
 
 Either kind may also ship `session-env.d/<name>.env.sh`, keyed by the same `<name>` — one flat namespace across both
-kinds, so a provider name is unique host-wide. A package with root-only administration of its own additionally ships
-`admin-commands.d/<name>`, keyed the same way, which is the `<name>` domain of `ai-tools-admin`. A package with commands
-of its own may additionally ship `filters.d/<name>.rules`, keyed the same way, carrying the token-saving rules for those
-commands (see [filters](filters.rule.md)). That set is read by an agent's filter hook rather than by `ai-tools-run`,
-and it is not gated on provider enablement — a rule is inert unless the agent runs the command it matches — so it is
-a rule-set name rather than a provider capability.
+kinds, so a provider name is unique host-wide — and an agent ships `session-env.d/<name>.pins.env.sh` beside it.
+A package with root-only administration of its own additionally ships `admin-commands.d/<name>`, keyed the same way,
+which is the `<name>` domain of `ai-tools-admin`. A package with commands of its own may additionally ship
+`filters.d/<name>.rules`, keyed the same way, carrying the token-saving rules for those commands (see
+[filters](filters.rule.md)). That set is read by an agent's filter hook rather than by `ai-tools-run`, and it is not
+gated on provider enablement — a rule is inert unless the agent runs the command it matches — so it is a rule-set name
+rather than a provider capability.
 
 `ai-tools-base` owns the four directories (`agents.d`, `integrations.d`, `session-env.d`, `admin-commands.d`), ships
 `providers.lib.sh`, and owns both readers — the `ai-tools-run` shim and the `ai-tools-admin` dispatcher; each member
@@ -478,12 +479,25 @@ for `ai-tools-run`.
 
 A fragment `/usr/local/lib/ai-tools/session-env.d/<name>.env.sh` appends to two arrays the launcher owns —
 `session_environment_options` (`--setenv=` entries) and `session_path_entries` (PATH tail) — which `ai-tools-run` emits
-into the transient unit. Both provider kinds use it: `ai-tools-run` sources each enabled **integration**'s fragment,
-then the resolved **agent**'s, so the agent's pins are authoritative over an integration's. See [launch](launch.rule.md)
+into the transient unit. Both provider kinds use it, and an agent ships a second file beside its fragment,
+`<name>.pins.env.sh`, holding its **pins**. `ai-tools-run` sources each enabled **integration**'s fragment, then every
+enabled **agent**'s pins in manifest order, then the launching agent's fragment last, so an agent's pins are
+authoritative over an integration's and the launching agent's fragment over everything. See [launch](launch.rule.md)
 for where that sits in the launch sequence.
 
 This is where per-agent environment lives, rather than as manifest fields: an agent's pins are arbitrary `KEY=value`
 shell, and a fragment is a mechanism the seam already has.
+
+**A pin reaches every session of the account; a fragment reaches the launching agent's sessions alone.** Every enabled
+agent's pins go into every session because an agent entrypoint started from inside another agent's session
+([launch](launch.rule.md)) reads the environment its parent was launched with: with its pins there it finds its state
+directory, its updater switch and its cache, and without them it resolves each under the root-owned home root.
+The launching agent's fragment is where a credential or a route lives — the claude-code endpoint imports a bearer token
+by name — and sourcing every agent's fragment would hand that token to the other agents' sessions, which the split
+refuses by construction. So a pin is a `--setenv=NAME=value` whose value is a path under `/opt/ai-tools` or a switch
+(`0`/`1`); it appends to `session_environment_options` alone, with no PATH tail and no name-only import;
+and `tests/unit/session-env.sh` holds every shipped pins file to that allowlist. An agent whose every variable is a pin
+does not ship a fragment (codex), and the shim's existence check makes the absent file a no-op.
 
 The seam is **best-effort**, not the fail-closed tier `msg.lib`/`confinement.lib` hold: a missing or untrusted lib,
 directory, or fragment leaves the integration env empty and the confined launch unaffected, because the integration env
@@ -497,6 +511,8 @@ unsets its own temporaries. The **agent** fragment (`source_session_env_fragment
 by a direct call in `ai-tools-run`'s main shell rather than in that loop, which is what lets the two sanctioned
 exceptions reach the launch: an `export` it makes persists into the `systemd-run` invocation, and an `exit` it takes
 refuses the launch (it runs before the unit is created and before the session-end sweep trap, so the refusal is clean).
+A pins file takes neither exception: it is sourced for every enabled agent into every session, so an `export` there
+would reach sessions of every agent and an `exit` there would refuse every agent's launch for one agent's file.
 
 ### A fragment may resolve operator configuration of its own
 

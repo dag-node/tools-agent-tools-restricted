@@ -5,6 +5,7 @@ paths:
   - "src/usr/local/lib/ai-tools/claude-endpoint.lib.sh"
   - "src/usr/local/lib/ai-tools/agents.d/claude-code.conf"
   - "src/usr/local/lib/ai-tools/session-env.d/claude-code.env.sh"
+  - "src/usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh"
 ---
 
 # The claude-code agent
@@ -16,9 +17,9 @@ endpoint). The **provider seam** these plug into — manifests, fail-closed enab
 `settings.json` is [claude-settings](claude-settings.rule.md), which stays a rule of its own because it is scoped
 to a different file set and a different question (what the harness may run), not because the two domains are unrelated.
 
-`ai-tools-agents-claude-code-restricted` ships the wrapper, the manifest, the session-env fragment, the two resolver
-libraries, and the agent's config directory. It does not add a sudoers rule: it inherits the single `%ai-ops` grant
-on the shared shim.
+`ai-tools-agents-claude-code-restricted` ships the wrapper, the manifest, the session pins and the session-env fragment,
+the two resolver libraries, and the agent's config directory. It does not add a sudoers rule: it inherits the single
+`%ai-ops` grant on the shared shim.
 
 ## What the manifest declares
 
@@ -235,9 +236,10 @@ the parent). Outbound traffic is governed by network policy, not this variable.
 
 ## Session environment pins
 
-`session-env.d/claude-code.env.sh` is sourced **last**, after every enabled integration, so its pins are authoritative.
-Each exists because the sandbox home is deliberately not agent-writable at its root, and the fragment states
-the mechanism beside each pin:
+`session-env.d/claude-code.pins.env.sh` is sourced into **every** session of the account while claude-code is enabled —
+a codex session included, so a claude child started inside one finds its state directory ([launch](launch.rule.md)) —
+after every enabled integration, so the pins are authoritative over an integration's. Each exists because the sandbox
+home is deliberately not agent-writable at its root, and the file states the mechanism beside each pin:
 
 - **`CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude`** — the one directory where Claude Code's write-then-rename
   of `.claude.json` succeeds (`3770`, setgid+sticky; the `2751` home root refuses the rename).
@@ -247,6 +249,11 @@ the mechanism beside each pin:
 - **`DISABLE_AUTOUPDATER=1`** — the Node tree is read-only to the session under the SELinux policy (and sandbox-owned
   under DAC, per [Distribution channel](#distribution-channel)), so a self-update cannot write the npm prefix;
   the `nvm-update` timer maintains it out of band ([updater](updater.rule.md)).
+
+`session-env.d/claude-code.env.sh` is the agent's fragment, sourced last and into claude-code sessions alone: it carries
+the [custom API endpoint](#custom-api-endpoint-claude-endpointlibsh), a bearer token among its options, and the [custom
+system prompt](#custom-system-prompt-claude-promptlibsh) check. That is why the pins are a file of their own — sourcing
+the fragment into every agent's session would route the token there, the split [providers](providers.rule.md) states.
 
 ## Distribution channel
 

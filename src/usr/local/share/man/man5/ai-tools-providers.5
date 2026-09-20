@@ -289,7 +289,11 @@ Integration manifests, one per installed integration package.
 .TP
 .I /usr/local/lib/ai-tools/session-env.d/NAME.env.sh
 The provider's session-environment fragment, sourced by the launcher when the
-provider is enabled.
+provider is enabled, into sessions of that agent alone.
+.TP
+.I /usr/local/lib/ai-tools/session-env.d/NAME.pins.env.sh
+An agent's session pins (its state directory, its cache, its updater switch),
+sourced by the launcher into every session while the agent is enabled.
 .TP
 .I /usr/local/lib/ai-tools/admin-commands.d/NAME
 The provider's command domain of
