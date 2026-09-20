@@ -1339,6 +1339,13 @@ fi
   ('launcher_target'), and the updater re-links it before the stable symlink is repointed. An agent
   whose npm package ships a launcher that spawns a vendored binary is therefore verified, labelled
   and executed as the one file that actually runs.
+- CHANGE: A .NET session no longer receives ASPNETCORE_ENVIRONMENT or DOTNET_ENVIRONMENT, both of
+  which were pinned to Development. A host that needs either sets it explicitly; the dotnet
+  session-env fragment carries the spelling.
+- CHANGE: The optional SELinux policy group 'apphost' is now 'memfdexec', and its grant is narrowed
+  to the in-memory code a session generates itself. A host that enabled it is migrated
+  automatically; a script naming 'apphost' is updated by hand. It now ships compiled, so enabling it
+  no longer needs a source checkout.
 - SECURITY: Codex is refused the same commands a Claude Code session is refused: 'git push --force',
   'git reset --hard' and 'git clean', each of which deletes work no commit holds and no reflog
   returns, and the host-survey commands (who has an account, what is installed, what every other
@@ -1386,6 +1393,10 @@ fi
   material at /usr/share/ai-tools/audit/ai-tools-cmd.rules.example, not enabled: the trail runs to
   thousands of events an hour, and the file's header states the auditd sizing to set before copying
   it into /etc/audit/rules.d.
+- NEW: A claim and a session launch report the configuration files above a project that the sandbox
+  account cannot read -- the ones a build collects by walking up from the project directory, so a
+  build that reads one fails on a path outside it (.editorconfig, Directory.Build.props and the
+  rest, for .NET). Both reports name the paths and change none of them.
 - FIX: An agent started from inside another agent's session now finds its own state directory,
   cache and updater switch: every enabled agent's pins reach every session, so a Claude Code
   child under Codex reads the pinned configuration instead of running with none. What stays with
@@ -1404,7 +1415,7 @@ fi
   owner changed rather than every call it made.
 - FIX: 'install.sh uninstall' keeps an edited managed file under /etc/codex as
   '<file>.<YYYYMMDD>.retired' instead of deleting it, and removes one still byte-identical to the
-  shipped copy -- the treatment rpm gives an edited %config(noreplace) file.
+  shipped copy -- the treatment rpm gives an edited %%config(noreplace) file.
 - FIX: Linking the shared skills into a directory a host already holds (codex's admin-scope skills
   path) relabels the links placed and no longer runs restorecon over the host's own entries.
 - FIX: 'ai-tools projects clone' refuses a missing or option-shaped value after --from, --branch
