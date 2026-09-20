@@ -20,8 +20,10 @@
 #
 # It is agent-agnostic. Which executables may launch, what environment each session gets, and whether the session's
 # ownership handback needs driving from here come from the root-owned provider manifests
-# under /usr/local/lib/ai-tools/agents.d and the session-env fragments under
-# /usr/local/lib/ai-tools/session-env.d.
+# under /usr/local/lib/ai-tools/agents.d and the session-env fragments and per-agent pins
+# under /usr/local/lib/ai-tools/session-env.d. The same manifests decide what the toolchain may hold: a package
+# of an agent that is installed but not enabled refuses every launch until a provisioning run removes it
+# (toolchain.lib.sh).
 #
 # Operating notes:
 #   * The session appears as @SANDBOX_USER@-<agent>-<pid>.service in `systemctl --user`. Its
@@ -63,11 +65,12 @@ if [[ -L "${AI_TOOLS_LIB_DIR}" || "${lib_dir_metadata%% *}" != 0 \
     exit 1
 fi
 
-# Four required libraries. Each is a gate, not an output path, so a bare source under `set -e` is the fail-closed load:
+# Five required libraries. Each is a gate, not an output path, so a bare source under `set -e` is the fail-closed load:
 # a missing one is a broken install and refuses the launch rather than skipping a check (see shellcheck.rule.md).
 #   msg          the framed refusals and the launch banner
 #   conf         the KEY=value grammar and ai_tools_conf_is_trusted
 #   providers    which agents may launch, which integrations contribute session env
+#   toolchain    whether a disabled agent's package is still in the toolchain (the residue refusal)
 #   confinement  the pure SELinux launch verdict
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/msg.lib.sh
 source "${AI_TOOLS_LIB_DIR}/msg.lib.sh"
@@ -75,6 +78,8 @@ source "${AI_TOOLS_LIB_DIR}/msg.lib.sh"
 source "${AI_TOOLS_LIB_DIR}/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
 source "${AI_TOOLS_LIB_DIR}/providers.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/toolchain.lib.sh
+source "${AI_TOOLS_LIB_DIR}/toolchain.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/confinement.lib.sh
 source "${AI_TOOLS_LIB_DIR}/confinement.lib.sh"
 
@@ -119,13 +124,35 @@ fi
 # so an executable no manifest claims cannot launch -- and the agent identity follows from the path rather than
 # from a separate variable crossing sudo.
 declare -A agent_name_by_launcher=()
+declare -a enabled_agent_names=()   # manifest order; the session-env pins are sourced in it
 while IFS=$'\t' read -r manifest_agent_name _ manifest_launcher; do
-    [[ -n "${manifest_launcher}" ]] && agent_name_by_launcher["${manifest_launcher}"]="${manifest_agent_name}"
+    [[ -n "${manifest_launcher}" ]] || continue
+    agent_name_by_launcher["${manifest_launcher}"]="${manifest_agent_name}"
+    enabled_agent_names+=( "${manifest_agent_name}" )
 done < <(ai_tools_enabled_agents 2>/dev/null)
 (( ${#agent_name_by_launcher[@]} > 0 )) \
     || refuse 'no agent is enabled on this host -- nothing can launch' \
               'enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), then provision it:' \
               '  sudo ai-tools-admin system bootstrap'
+
+# The toolchain must hold the enabled agents' packages ALONE before any session starts: a package of an agent the host
+# installed but did not enable keeps an entrypoint a session can exec at its real path, so its presence refuses every
+# launch, this agent's included, until a provisioning run removes it. This shim runs as the account that owns the tree,
+# so it reads the tree itself (toolchain.lib.sh); the wrapper read the launcher links as the operator and refused
+# under the same code first, which makes this the boundary and the wrapper the diagnostician.
+residue_agents=""
+while IFS=$'\t' read -r residue_agent residue_package residue_version_dir; do
+    [[ -n "${residue_agent}" ]] || continue
+    residue_agents+="${residue_agents:+, }${residue_agent} (${residue_version_dir}/lib/node_modules/${residue_package})"
+done < <(ai_tools_agent_residue "${AI_TOOLS_NVM_DIR}" 2>/dev/null)
+if [[ -n "${residue_agents}" ]]; then
+    audit warning "REFUSED: a disabled agent's package is still in the toolchain: ${residue_agents}"
+    # The code is the wrapper's, cited here so both tiers of one situation carry one token (messaging.rule.md).
+    printf '%s\n' MSG-H4E2 >&2
+    refuse "no session starts while a disabled agent's package is still in the sandbox toolchain: ${residue_agents}" \
+           'the provisioning run removes it before it installs anything:' \
+           '  sudo ai-tools-admin system bootstrap'
+fi
 
 agent_executable_path="${AI_TOOLS_AGENT_EXEC:-}"
 [[ "${agent_executable_path}" != *"/../"* ]] \
@@ -349,15 +376,21 @@ declare -a session_path_entries=()
 
 # ── Session-env fragments ────────────────────────────────────────────────────────────────────
 # Each enabled provider may ship /usr/local/lib/ai-tools/session-env.d/<name>.env.sh, appending
-# to session_environment_options and session_path_entries. Integrations are sourced first and the agent last,
-# so the agent's own pins are authoritative over an integration's.
+# to session_environment_options and session_path_entries, and each enabled agent may ship a second file beside it,
+# <name>.pins.env.sh, holding the pins a session of ANY agent under this account needs -- its state directory, its
+# updater switch, its cache -- and no variable routed to one agent's sessions alone (a credential, an endpoint).
+# The order is: every enabled integration's fragment, then every enabled agent's pins in manifest order, then
+# the launching agent's own fragment last, so an agent's pins are authoritative over an integration's and the launching
+# agent's fragment over everything. Sourcing every agent's pins is what lets an agent entrypoint started from inside
+# another agent's session find its own state directory (launch.rule.md); sourcing every agent's FRAGMENT would hand one
+# agent's endpoint token to the other's sessions, which is why the pins are a file of their own.
 #
-# This runs as @SANDBOX_USER@ and decides what the agent's own session gets, so every fragment -- and the directory
-# holding it, since a group-writable directory lets a non-root writer replace a root-owned file inside it -- must pass
-# ai_tools_conf_is_trusted. A failing fragment is skipped and logged, never sourced. Fragments are additive, so skipping
-# one costs the session that provider's environment and leaves every other property intact.
-source_session_env_fragment() {
-    local provider_name="$1" fragment_path="${SESSION_ENV_DIR}/$1.env.sh"
+# This runs as @SANDBOX_USER@ and decides what the agent's own session gets, so every file -- and the directory holding
+# it, since a group-writable directory lets a non-root writer replace a root-owned file inside it -- must pass
+# ai_tools_conf_is_trusted; where a file fails it, the file is skipped and logged, never sourced. Fragments and pins
+# are additive, so skipping one costs the session that provider's environment and leaves every other property intact.
+source_session_env_fragment() {   # <provider> [pins]  -- <provider>.env.sh, or <provider>.pins.env.sh
+    local provider_name="$1" fragment_path="${SESSION_ENV_DIR}/$1${2:+.$2}.env.sh"
     [[ -e "${fragment_path}" ]] || return 0
     if ! ai_tools_conf_is_trusted "${fragment_path}"; then
         ai_tools_msg_warn "ai-tools-run: skipping session env for ${provider_name} -- ${fragment_path} is not root-owned or is writable by group/other"
@@ -371,6 +404,9 @@ if ai_tools_conf_is_trusted "${SESSION_ENV_DIR}"; then
     while IFS= read -r enabled_integration_name; do
         [[ -n "${enabled_integration_name}" ]] && source_session_env_fragment "${enabled_integration_name}"
     done < <(ai_tools_enabled_integrations 2>/dev/null)
+    for enabled_agent_name in "${enabled_agent_names[@]}"; do
+        source_session_env_fragment "${enabled_agent_name}" pins
+    done
     source_session_env_fragment "${agent_name}"
 elif [[ -e "${SESSION_ENV_DIR}" ]]; then
     ai_tools_msg_warn "ai-tools-run: skipping all session env -- ${SESSION_ENV_DIR} is not root-owned or is writable by group/other"
@@ -398,9 +434,13 @@ source "${AI_TOOLS_LIB_DIR}/skip-dirs.lib.sh" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
 # sweep_project_ownership : hand every @SANDBOX_USER@-owned path under the session's project directory to ai-tools-chown
-# through the handback socket. No project directory (a diagnostic run outside a wrapper) or no client leaves it a no-op.
+# through the handback socket. No project directory (a diagnostic run outside a wrapper), the sandbox home
+# as the working directory (a print-and-exit run), or no client leaves it a no-op.
 sweep_project_ownership() {
     [[ -n "${session_working_directory}" && -d "${session_working_directory}" ]] || return 0
+    # A sole `--version`/`--help` runs with the sandbox home as its working directory. No session writes a project
+    # there, and a walk of it would offer every toolchain file to the root helper for it to leave alone.
+    [[ "${session_working_directory}" != "${SANDBOX_HOME}" ]] || return 0
     [[ -x "${HANDBACK_CLIENT}" ]] || return 0
     # A down socket fails every CHOWN, so skip the walk and record that once, rather than logging a reassuring count
     # of calls that changed no ownership (the failure mode this whole change fixes).
@@ -411,47 +451,55 @@ sweep_project_ownership() {
     # The "reclaim" consumer omits the heavy dependency/build trees but WALKS .git -- the tree the per-turn hooks skip,
     # and which no other pass on this path would reach.
     ai_tools_skip_find_expr reclaim '' "${session_working_directory}"
-    # Count CONFIRMED handbacks (client exit 0), not attempts, so the audit line reflects what actually changed owner;
-    # a non-zero exit is either a routine skip (a path the root helper refused) or a mid-sweep socket loss, both
-    # surfaced as a failed tally rather than success.
-    local confirmed=0 failed=0 path
+    # Count OWNER CHANGES, not helper exits. `ai-tools-chown` exits 0 both for a path it handed back and for one it
+    # deliberately LEFT ALONE -- a `!`-excluded path, a hardlinked file, a secret-named one it quarantined elsewhere --
+    # so a tally of exits reports work that did not happen, which is the failure mode this line exists to rule out.
+    # The walk selected @SANDBOX_USER@-owned paths, so a path no longer owned by that account is one this call changed;
+    # an unreadable path (deleted mid-sweep) reads the same way and is not counted as left alone. A non-zero exit is
+    # a refusal the helper reports or a mid-sweep socket loss, both surfaced as a failed tally.
+    local confirmed=0 untouched=0 failed=0 path
     while IFS= read -r -d '' path; do
         if "${HANDBACK_CLIENT}" CHOWN "${path}" >/dev/null 2>&1; then
-            confirmed=$(( confirmed + 1 ))
+            if [[ "$(stat -c '%U' -- "${path}" 2>/dev/null || true)" == '@SANDBOX_USER@' ]]; then
+                untouched=$(( untouched + 1 ))
+            else
+                confirmed=$(( confirmed + 1 ))
+            fi
         else
             failed=$(( failed + 1 ))
         fi
     done < <(find "${session_working_directory}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -user '@SANDBOX_USER@' '(' -type f -o -type d ')' -print0 ')' 2>/dev/null)
+    # Reported alongside the handbacks rather than folded into them: a sweep that left every path as it was is a project
+    # whose paths the helper declines, which reads very differently from one it converged.
+    local left_alone_note=""
+    (( untouched > 0 )) && left_alone_note=", ${untouched} left as they were by the root helper"
     if (( failed > 0 )); then
-        audit warning "session-end sweep: handed back ${confirmed} path(s), ${failed} not handed back under ${session_working_directory} (agent=${agent_name}); reclaim with: ai-tools projects handback ${session_working_directory}"
-    elif (( confirmed > 0 )); then
-        audit info "session-end sweep: handed back ${confirmed} path(s) under ${session_working_directory} (agent=${agent_name})"
+        audit warning "session-end sweep: handed back ${confirmed} path(s)${left_alone_note}, ${failed} not handed back under ${session_working_directory} (agent=${agent_name}); reclaim with: ai-tools projects handback ${session_working_directory}"
+    elif (( confirmed > 0 || untouched > 0 )); then
+        audit info "session-end sweep: handed back ${confirmed} path(s)${left_alone_note} under ${session_working_directory} (agent=${agent_name})"
     fi
     return 0
 }
 
 # ── Launch ───────────────────────────────────────────────────────────────────────────────────
 # Three versions are reported and logged: Node from the validated executable path, the agent from its npm package.json,
-# and ai-tools from the value stamped at install (@*@ means an unsubstituted source tree). The agent version is read
-# from a file the sandbox account OWNS, so it is accepted only in MAJOR.MINOR.PATCH shape -- untrusted input reaching
-# the operator's terminal and journal, where a crafted value could otherwise inject terminal escapes.
+# and ai-tools from the value stamped at install (@*@ means an unsubstituted source tree). Both the node read here
+# and the agent read below clamp what they admit, because each comes from a file the sandbox account OWNS and lands
+# on the operator's terminal and in the journal, where a crafted value could otherwise inject terminal escapes.
 readonly VERSION_PATTERN='^v?[0-9]+\.[0-9]+\.[0-9]+$'
 ai_tools_version="@AI_TOOLS_VERSION@"; [[ "${ai_tools_version}" == @*@ ]] && ai_tools_version="dev"
 [[ "${node_version}" =~ ${VERSION_PATTERN} ]] || node_version="n/a"
 
+# The reader, the walk and the clamp are entrypoint-verify.lib.sh's, which the pin is written through as well,
+# so the banner and the pin cannot report different versions for one binary. The library is optional here -- a banner is
+# display, not a gate -- so a load that does not happen costs the version line and nothing else.
 agent_version="n/a"
-package_directory="${session_exec_path}"
-for _ in 1 2 3; do
-    package_directory="${package_directory%/*}"
-    [[ -n "${package_directory}" && -f "${package_directory}/package.json" ]] && break
-done
-if [[ -n "${package_directory}" && -r "${package_directory}/package.json" ]]; then
-    # Bounded read of a regular file: the version sits in the first bytes, and a fifo swapped in must never block
-    # the launch.
-    declared_version="$(head -c 65536 -- "${package_directory}/package.json" 2>/dev/null \
-        | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-    [[ "${declared_version}" =~ ${VERSION_PATTERN} ]] && agent_version="${declared_version}"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+if source "${AI_TOOLS_LIB_DIR}/entrypoint-verify.lib.sh" 2>/dev/null \
+        && declare -F ai_tools_entrypoint_installed_version >/dev/null 2>&1; then
+    declared_version="$(ai_tools_entrypoint_installed_version "${session_exec_path}" || true)"
+    [[ -n "${declared_version}" ]] && agent_version="${declared_version}"
 fi
 audit info "versions: ${agent_name}=${agent_version} node=${node_version} ai-tools=${ai_tools_version}"
 
@@ -518,15 +566,47 @@ audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} requir
 case "${entrypoint_pin_verdict}" in
     mismatch)
         audit warning "REFUSED: entrypoint does not match its pin (${session_exec_path})"
-        refuse MSG-H7S2 'the agent entrypoint does not match the checksum its vendor signed for the installed version -- refusing to start the session' \
+        # What the pin CLAIMS differs by tier, so the refusal names the tier this host holds: telling an operator
+        # that a vendor signed a checksum, for an agent whose vendor publishes none, sends them looking for a signature
+        # that does not exist. The reader defaults to the stronger claim, which is what a record with no KIND carries.
+        entrypoint_pin_claim='the checksum its vendor signed for the installed version'
+        if declare -F ai_tools_entrypoint_pin_kind >/dev/null 2>&1 \
+                && [[ "$(ai_tools_entrypoint_pin_kind "${agent_name}" 2>/dev/null || true)" == observed ]]; then
+            entrypoint_pin_claim='the checksum root recorded for the binary as installed'
+        fi
+        # The remedy is NOT the provisioning command on its own: its npm step is a no-op at an already-installed
+        # version, so the modified binary would survive it and every launch would go on refusing. The package directory
+        # goes first; the library composes it, and prints nothing where the entrypoint does not sit inside one.
+        entrypoint_package_dir=""
+        declare -F ai_tools_entrypoint_package_dir >/dev/null 2>&1 \
+            && entrypoint_package_dir="$(ai_tools_entrypoint_package_dir "${session_exec_path}" \
+                   "$(ai_tools_agent_manifest_field "${agent_name}" npm_package || true)" 2>/dev/null || true)"
+        declare -a entrypoint_remedy=( '  sudo ai-tools-admin system bootstrap' )
+        [[ -n "${entrypoint_package_dir}" ]] \
+            && entrypoint_remedy=( "  sudo rm -rf ${entrypoint_package_dir}" "${entrypoint_remedy[@]}" )
+        refuse MSG-H7S2 'the agent entrypoint does not match its recorded checksum -- refusing to start the session' \
                "entrypoint:  ${session_exec_path}" \
-               'The binary changed after it was verified. Treat this toolchain as tampered and reprovision it:' \
-               '  sudo ai-tools-admin system bootstrap' ;;
-    ok) ;;
+               "The pin holds ${entrypoint_pin_claim}, and the binary has changed since it was recorded." \
+               'Treat this toolchain as tampered and replace the binary -- reprovisioning alone' \
+               'reinstalls nothing at an unchanged version:' \
+               "${entrypoint_remedy[@]}" ;;
+    ok) # Either tier satisfies the switch: what it governs is an entrypoint carrying NO pin, and a pin recorded by
+        # observation is one -- root hashed the installed binary, and this launch just matched it. Which tier a host
+        # holds per agent is what the status reports name, so the operator sets the switch knowing that an agent
+        # whose vendor publishes no signed manifest is covered against a change and not against its origin.
+        ;;
     *)  if [[ "${require_entrypoint_verify}" == yes ]]; then
             audit warning "REFUSED: entrypoint unverified (${entrypoint_pin_verdict}) and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set"
-            refuse 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, but this entrypoint carries no verified checksum.' \
-                   'Pin it (this fetches the vendor'"'"'s signed release manifest, so the host must be online):' \
+            # The reconcile reaches the network only for an agent whose manifest declares a release manifest; for one
+            # that declares none it hashes what is installed, so naming an online host as a precondition would send
+            # the operator hunting connectivity a local step never needed.
+            if [[ -n "$(ai_tools_agent_manifest_field "${agent_name}" release_manifest_url 2>/dev/null || true)" ]]; then
+                entrypoint_pin_step='Pin it (this fetches the vendor'"'"'s signed release manifest, so the host must be online):'
+            else
+                entrypoint_pin_step='Pin it (this agent publishes no signed manifest, so root records the binary as installed):'
+            fi
+            refuse 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, but this entrypoint carries no pin' \
+                   "${entrypoint_pin_step}" \
                    '  sudo ai-tools-admin system entrypoints relabel'
         fi ;;
 esac

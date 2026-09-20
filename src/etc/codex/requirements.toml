@@ -1,0 +1,175 @@
+# /etc/codex/requirements.toml -- what codex enforces on every session
+# the sandbox launches: the sandbox-mode pin, the approval policy, the
+# login method, the hooks in its [hooks] table as the only hooks, and
+# the destructive git verbs its [rules] table refuses.
+# Shipped by ai-tools-agents-codex-restricted as 0644 root:root and
+# kept across an upgrade; a newer copy lands beside it as
+# requirements.toml.rpmnew.
+#
+# Nothing here holds a guarantee: the session runs as the sandbox
+# account in the confined domain whatever codex reads. The pinned mode
+# names CODEX's own sandbox -- bubblewrap, which needs a user namespace
+# the session unit refuses -- so pinning full access turns that layer
+# off and leaves the host's boundary standing, and read-only stays
+# listed because codex refuses the list without it.
+#
+# What each key does, what an operator may change, and what a release
+# that renames one costs: the Codex page in the shipped documentation
+# and ai-tools-providers(5).
+#
+# Bare keys stay AHEAD OF the first table header: a bare key after one
+# is that table's key and is ignored.
+allowed_sandbox_modes = ["read-only", "danger-full-access"]
+allowed_approval_policies = ["never"]
+allowed_login_methods = ["chatgpt"]
+allow_managed_hooks_only = true
+default_permissions = ":danger-full-access"
+
+[allowed_permission_profiles]
+":danger-full-access" = true
+
+[marketplaces]
+restrict_to_allowed_sources = true
+
+# The per-command refusals, and a gate rather than a boundary: what
+# the session may reach is DAC and ai_tools_t. A requirements rule can
+# only narrow -- its decision is "prompt" or "forbidden", never
+# "allow", and the most restrictive rule that matches wins -- so the
+# table holds the rows the host does not otherwise refuse, in the two
+# groups claude-code denies for the same reasons: the git verbs that
+# destroy with no undo, unprivileged, in the operator's own tree, and
+# the host-survey commands that run and disclose. What is left out is
+# the third group, the root-only commands (sudo, systemctl, dnf, ...):
+# NoNewPrivileges and the confined domain refuse those already, so a
+# row for one would buy a message and no mediation.
+#
+# A pattern is an exact prefix of the command's arguments, matched
+# token by token, so `git push origin main --force` does not match the
+# push rule -- the reach claude-code's `git push --force*` has too.
+# What the layer buys is that the habitual spelling reaches the
+# operator rather than the shell.
+#
+# One spelling IS narrower here than claude-code's: a token is matched
+# whole, so `--force-with-lease=main` is one token that equals none of
+# the four in the any_of list, while the glob `--force*` covers it.
+# Adding a row per `=`-suffixed form would enumerate what the next
+# release may extend, so what this row catches is the habitual
+# spelling and not every spelling.
+#
+# `git clean` is refused as a whole verb rather than by flag, the one
+# row wider than claude-code's: its destructive spellings are one token
+# each, and an enumeration leaks the one it misses. A dry run is what
+# that costs, and `git status --porcelain` lists untracked files.
+[[rules.prefix_rules]]
+pattern = [
+  { token = "git" },
+  { token = "push" },
+  { any_of = ["-f", "--force", "--force-with-lease", "--force-if-includes"] },
+]
+decision = "forbidden"
+justification = "A force push overwrites the branch for every other clone: raise it, and the operator runs it"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "git" }, { token = "reset" }, { token = "--hard" }]
+decision = "forbidden"
+justification = "A hard reset deletes uncommitted work: commit it, or `git stash`, or `git restore` one path"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "git" }, { token = "clean" }]
+decision = "forbidden"
+justification = "git clean deletes untracked files no commit and no reflog can return: remove a path by name"
+
+# The host-survey group, the second set claude-code also denies. Each of
+# these RUNS as the sandbox account and discloses host state beyond the
+# file-read baseline: the host refuses none of these calls, so no row
+# here is noise suppression. (The domain narrows what some of them
+# return -- ps does not see any other domain's process state -- without
+# refusing the command.) Under approval_policy = "never" a row is the
+# only mediation there is: an agent that needs one of these raises it
+# in the session, with its reasoning, and the operator runs it.
+#
+# A pattern is an argv PREFIX, so a single token covers the bare command
+# and every argument form, where claude-code's glob layer needs a pair.
+# The root-only commands (sudo, dnf, semanage, ...) stay unlisted: the
+# host refuses those whatever this file says.
+[[rules.prefix_rules]]
+pattern = [{ token = "id" }]
+decision = "forbidden"
+justification = "Account and group enumeration: NSS can reach a directory service, past any local file read"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "getent" }]
+decision = "forbidden"
+justification = "Account and group enumeration: NSS can reach a directory service, past any local file read"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "rpm" }]
+decision = "forbidden"
+justification = "Installed-package inventory is a reconnaissance target: ask the operator what a package provides"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "ps" }]
+decision = "forbidden"
+justification = "A host-wide process survey reads every account's work, not this session's"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "df" }]
+decision = "forbidden"
+justification = "Mount and storage topology is the host's shape, not the project's"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "du" }]
+decision = "forbidden"
+justification = "A tree-size survey walks past the project: name a directory and the operator measures it"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "mount" }]
+decision = "forbidden"
+justification = "The mount table is the host's shape, not the project's"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "readlink" }]
+decision = "forbidden"
+justification = "Runtime layout through the /proc magic links: an in-project symlink reads with ls -l"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "getenforce" }]
+decision = "forbidden"
+justification = "Security-posture probing: when confinement is diagnosed WITH the operator, the operator runs it"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "matchpathcon" }]
+decision = "forbidden"
+justification = "Security-posture probing: when confinement is diagnosed WITH the operator, the operator runs it"
+
+# The ownership handback's cadence. The shim's session-end sweep hands
+# back whatever these miss; Stop is where the per-turn sweep runs, since
+# SessionEnd is capped at 3 s whatever timeout is declared.
+[hooks]
+managed_dir = "/opt/ai-tools/.codex"
+
+[[hooks.SessionStart]]
+matcher = "startup|resume"
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "/opt/ai-tools/.codex/session-hook.sh session-start"
+timeout = 60
+
+[[hooks.PostToolUse]]
+matcher = ".*"
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "/opt/ai-tools/.codex/post-tool-hook.sh"
+timeout = 30
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "/opt/ai-tools/.codex/session-hook.sh"
+timeout = 600
+
+[[hooks.SessionEnd]]
+[[hooks.SessionEnd.hooks]]
+type = "command"
+command = "/opt/ai-tools/.codex/session-hook.sh session-end"
+timeout = 3

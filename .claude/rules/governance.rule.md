@@ -71,7 +71,7 @@ and exempts **no** cgroup in the account's slice, because a stop path the monito
 not a stop path — and any target or exemption is a way to be outside it.
 
 Two properties of the rung matter to this rule beyond the mechanism, which lives
-in [docs/session-stop.md](../../docs/session-stop.md):
+in [docs/sessions/stop.md](../../docs/sessions/stop.md):
 
 - **It is containment, not reversal.** Stopping ends the process; it does not undo what the session already did.
   An incident procedure that treats a completed stop as a resolved incident has skipped the review rung.

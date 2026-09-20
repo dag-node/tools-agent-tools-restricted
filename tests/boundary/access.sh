@@ -194,6 +194,26 @@ else
     fail "cannot execute ${shook} -- stop-sweep / session-start silently skipped"
 fi
 
+# The codex agent's two hook adapters carry the same pair of properties: not agent-writable, since an emptied hook skips
+# the per-turn handback for the rest of the session, and agent-executable, since codex runs them as the sandbox account
+# and skips a hook it cannot execute without an error. Absent where the codex package is not installed.
+for _codex_hook in /opt/ai-tools/.codex/post-tool-hook.sh /opt/ai-tools/.codex/session-hook.sh; do
+    if [[ ! -e "${_codex_hook}" ]]; then
+        skip "${_codex_hook}" "not deployed on this host"
+        continue
+    fi
+    if ! runuser -u "${SANDBOX_USER}" -- test -w "${_codex_hook}" 2>/dev/null; then
+        pass "cannot write ${_codex_hook} (750 no group-write): codex's handback cadence protected"
+    else
+        fail "can write ${_codex_hook} -- agent could empty the hook and drop codex's per-turn handback"
+    fi
+    if runuser -u "${SANDBOX_USER}" -- test -x "${_codex_hook}" 2>/dev/null; then
+        pass "can execute ${_codex_hook} (750 group-exec): the declared codex hook will fire"
+    else
+        fail "cannot execute ${_codex_hook} -- codex skips the hook and only the session-end sweep hands back"
+    fi
+done
+
 # The control-plane home root is root:${SANDBOX_GROUP} at CP_HOME_MODE (control-plane.lib.sh, asserted
 # in integration/perms.sh). Three parts of that mode matter here: SETGID, so an entry born under it stays in the sandbox
 # group; group r-x, so the agent traverses and reads but must NOT create new top-level entries, or it could drop files
@@ -227,6 +247,24 @@ for _d in /opt/ai-tools/.config/systemd/user /opt/ai-tools/.config/systemd/user/
         pass "cannot write ${_d} (root-owned 2750): confined session cannot register a --user unit"
     fi
 done
+
+# The same manager, reached over its bus rather than through its unit directory. `systemctl --user set-environment`
+# writes into the manager, and the manager hands its environment to every unit it starts -- nvm-update.service
+# among them, which reads AI_TOOLS_AGENTS_DIR and AI_TOOLS_OPERATOR_CONF as root-only test hooks. This vantage is
+# the sandbox ACCOUNT and not a confined session, so the reading here is POSITIVE and is recorded as one: the account
+# does reach its own manager, which is why what closes that route is the ai_tools_t domain -- which holds connectto
+# on the handback socket alone -- rather than any permission. selinux/avc/avc-testsuite.sh probes it from inside
+# a session, the only vantage that answers it. Read-only: no automated file writes live runtime state, so this asks
+# the manager for its environment instead of setting one.
+_sandbox_uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
+if [[ -z "${_sandbox_uid}" || ! -d "/run/user/${_sandbox_uid}" ]]; then
+    skip "the --user manager's environment" "${SANDBOX_USER}'s --user instance is not running on this host"
+elif runuser -u "${SANDBOX_USER}" -- env XDG_RUNTIME_DIR="/run/user/${_sandbox_uid}" \
+        systemctl --user show-environment >/dev/null 2>&1; then
+    pass "the account reaches its own --user manager, so the updater-env route is closed by the domain and not by DAC"
+else
+    pass "the account cannot reach its own --user manager at all, so the updater-env route is closed here too"
+fi
 
 # Claude Code persists its state (.claude.json under CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude) atomically -- a temp file
 # beside the target, then rename -- so persistence needs create+rename in the CONTAINING DIR, not write on the file.
@@ -342,6 +380,7 @@ fi
 # fails.
 for _ev_path in /var/opt/ai-tools/state/entrypoint-pin.d \
                 /var/opt/ai-tools/state/entrypoint-label.d \
+                /var/opt/ai-tools/state/entrypoint-stale.d \
                 /usr/local/lib/ai-tools/keys \
                 /usr/local/lib/ai-tools/keys/claude-code.asc \
                 /usr/local/lib/ai-tools/entrypoint-verify.lib.sh; do
@@ -381,6 +420,47 @@ else
     pass "the agent cannot write the record that reports its labelling"
 fi
 
+# ── What the account CAN write, and why each is stated rather than fixed ─────────────────────
+# Two positive readings, recorded here because their value is that they are deliberate. This vantage is the sandbox
+# ACCOUNT, not a session in ai_tools_t (tests.rule.md), so what it reads is DAC -- which is exactly the layer these two
+# facts live on.
+#
+# The toolchain first. The account owns it, so DAC permits it to rewrite the binary it runs and the package.json
+# that declares that binary's version. That is why the observed pin tier states a LIMIT rather than a guarantee:
+# a rewrite arriving with an edited version reads as an update and is re-recorded (updater.rule.md). What closes it is
+# the type layout -- no link in the exec chain carries a type ai_tools_t may manage -- which only a session
+# in that domain can be held to, and integration/selinux.sh asserts it there. So this probe is the standing record
+# of what the DAC layer alone leaves open, and it FAILS if the toolchain ever stops being account-writable, because
+# that would mean the pin's stated limit had quietly changed shape.
+_pkg_json=""
+while IFS= read -r _candidate; do
+    [[ -n "${_candidate}" ]] && { _pkg_json="${_candidate}"; break; }
+done < <(find /opt/ai-tools/.nvm/versions/node -maxdepth 5 -name package.json -path '*/lib/node_modules/*' \
+              2>/dev/null | head -1)
+if [[ -z "${_pkg_json}" ]]; then
+    skip "the declared version is not a trust input" "no agent package.json found under the toolchain"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${_pkg_json}" 2>/dev/null; then
+    pass "the agent can write ${_pkg_json} under DAC -- which is why the declared version is not a trust input and the observed tier states its limit"
+else
+    fail "${_pkg_json} is no longer account-writable -- the observed pin tier's stated limit rests on this reading; re-read updater.rule.md before changing it"
+fi
+
+# The two hook state files next. The sweep marker and the clean-exit marker are agent-written by design -- the hooks
+# that write them run AS the agent -- and what they carry is CADENCE, never a guarantee: the sweep marker bounds
+# a turn-end walk, and the clean-exit marker selects which project a session-start reclaim widens to. A change that made
+# either root-owned would break the hook silently, so the reading is asserted rather than left to be discovered.
+_hook_dirs=0
+for _hook_dir in /opt/ai-tools/.claude /opt/ai-tools/.codex; do
+    [[ -d "${_hook_dir}" ]] || continue
+    _hook_dirs=$(( _hook_dirs + 1 ))
+    if runuser -u "${SANDBOX_USER}" -- test -w "${_hook_dir}" 2>/dev/null; then
+        pass "the agent can write ${_hook_dir}, where .sweep-marker and .session-active live -- documented cadence state, not a guarantee"
+    else
+        fail "the agent cannot write ${_hook_dir} -- its hooks cannot rotate .sweep-marker or clear .session-active, so every sweep runs unbounded or not at all"
+    fi
+done
+(( _hook_dirs > 0 )) || skip "hook state stays agent-writable" "no agent config directory installed"
+
 # ── journald attribution: a tag is not an attribution, _UID is ───────────────────────────────
 # Every documented journal query pairs a syslog tag with the uid of that tag's legitimate writer
 # (.claude/rules/logging.rule.md). This is the reason, probed rather than asserted from the design: the agent can write
@@ -414,11 +494,12 @@ else
     fi
 fi
 
-# ── the audit reader and the trail it reports are out of reach ───────────────────────────────
-# ai-tools.audit presents the root-only file sink as EVIDENCE, and that claim rests on this vantage: the sandbox account
-# can neither read the trail (so it cannot know what an operator is about to be shown) nor write it (so it cannot plant
-# or erase a finding), and cannot run or alter the reader itself. Asserted from the agent's side, because that is
-# the side the claim is
+# ── the audit reader and the trails it reports are out of reach ──────────────────────────────
+# ai-tools.audit presents the root-only file sink and the kernel's audit log as EVIDENCE, and that claim rests on this
+# vantage: the sandbox account can neither read either trail (so it cannot know what an operator is about to be shown)
+# nor write it (so it cannot plant or erase a finding), and cannot run or alter the reader itself. The kernel-record
+# section's predicate is a rule in the loaded SELinux policy, so the policy store is asserted beside the log: an account
+# that could write it could retire the rule. Asserted from the agent's side, because that is the side the claim is
 # about.
 _audit_bin=/usr/local/libexec/ai-tools/ai-tools-audit
 if [[ ! -x "${_audit_bin}" ]]; then
@@ -436,6 +517,21 @@ else
     else
         pass "the agent can neither read the audit trail nor run or alter its reader"
     fi
+    # The kernel's trail and the policy store that holds the rule, each asserted where the host keeps it (the audit log
+    # directory is 700 root:root, and so is the active policy store).
+    for _kernel_path in /var/log/audit /var/lib/selinux/targeted/active; do
+        [[ -e "${_kernel_path}" ]] || continue
+        _kernel_breach=""
+        runuser -u "${SANDBOX_USER}" -- test -r "${_kernel_path}" 2>/dev/null \
+            && _kernel_breach="the agent can read ${_kernel_path}"
+        runuser -u "${SANDBOX_USER}" -- test -w "${_kernel_path}" 2>/dev/null \
+            && _kernel_breach="the agent can write ${_kernel_path}"
+        if [[ -n "${_kernel_breach}" ]]; then
+            fail "the kernel record is not out of the agent's reach: ${_kernel_breach}"
+        else
+            pass "the agent can neither read nor write ${_kernel_path}"
+        fi
+    done
 fi
 
 # ── the stop path is out of reach from inside a session ──────────────────────────────────────
@@ -511,8 +607,8 @@ fi
 # Both are driven with NO path argument, so a regression that let one through would still have no path to act on --
 # the create refuses a missing path outright, and the remove would resolve the agent's own cwd, which is not a claimed
 # project of the agent's. The assertion is on the principal guard's own message CODE, not merely on a non-zero exit,
-# since every one of these commands has other reasons to fail. Each is named by the key tests/lib/cli-spelling.sh
-# turns into today's tokens, so a respelling of the surface edits that table alone.
+# since every one of these commands has other reasons to fail. Each is named by the key tests/lib/cli-spelling.sh turns
+# into today's tokens, so a respelling of the surface edits that table alone.
 for _key in ai-tools.projects.create ai-tools.projects.remove.inplace; do
     cli_cmd "${_key}" || exit 2
     _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_CLI:-/usr/local/bin/ai-tools}" "${CLI_ARGV[@]}" 2>&1)" \

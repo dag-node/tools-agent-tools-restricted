@@ -180,6 +180,12 @@ package adds no runtime and is inert until enabled on a host that has dotnet ins
 %package -n ai-tools-agents
 Summary:        Umbrella for the sandboxed AI coding agents (metapackage)
 Recommends:     ai-tools-agents-claude-code-restricted = %{version}-%{release}
+# Weakly pulled like every other member, and every agent ships default_enable=no: installation and
+# enablement are separate axes, and enablement is the gate. Installed and unnamed in
+# AI_TOOLS_AGENTS, an agent is provisioned by no toolchain run and launched by no wrapper; what the
+# package puts on the host is its own control plane, and `ai-tools-admin system bootstrap` asks
+# which one to enable. ai-tools-integration-dotnet is pulled the same way for the same reason.
+Recommends:     ai-tools-agents-codex-restricted = %{version}-%{release}
 
 %description -n ai-tools-agents
 Metapackage grouping the ai-tools-agents-* provider layers -- the AI coding agents that run
@@ -212,10 +218,30 @@ Obsoletes:      claude-code-restricted < 0.7.0-1
 %description -n ai-tools-agents-claude-code-restricted
 The Claude Code provider layer: the `claude` launch wrapper, the agent manifest
 that tells the toolchain which npm package to provision and ai-tools-run which
-executable may launch, its session-env fragment, and the Claude Code hooks that
-drive ownership handback and secret quarantine. Confinement itself is the
-base-owned ai-tools-run shim, so a sibling ai-tools-agents-* provider sits beside
-this one on the same base and integration layers.
+executable may launch, its session pins and session-env fragment, and the Claude
+Code hooks that drive ownership handback and secret quarantine. Confinement
+itself is the base-owned ai-tools-run shim, so a sibling ai-tools-agents-*
+provider sits beside this one on the same base and integration layers.
+
+# ─────────────────────────────────────────────────────────────────────────────
+%package -n ai-tools-agents-codex-restricted
+Summary:        Codex launch wrapper, managed configuration, and hooks for the ai-tools sandbox
+Requires:       ai-tools-integration-nodejs = %{version}-%{release}
+# jq is a HARD runtime dependency of both hooks this package ships: each parses its event JSON
+# with it. Absent, both take their `|| exit 0` path silently -- the per-call handback and the
+# turn-end sweep stop -- and only the shim's session-end sweep is left to converge the tree.
+Requires:       jq
+
+%description -n ai-tools-agents-codex-restricted
+The Codex provider layer: the `codex` launch wrapper, the agent manifest that
+tells the toolchain which npm package to provision, which executable inside it
+the launcher is re-linked at, and which one ai-tools-run may launch; its
+session pins; codex's two managed files under /etc/codex, which pin the
+session to the host's confinement (codex adds no sandbox of its own) and declare
+the ownership-handback hooks as the only hooks; and those hooks. Ships disabled
+like every agent: `ai-tools-admin system bootstrap` enables the agent an
+operator chooses. Confinement itself is the base-owned ai-tools-run shim, shared
+with every other ai-tools-agents-* provider.
 
 %prep
 %autosetup
@@ -303,14 +329,15 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths confinement npm-verify entrypoint-verify managed-assets providers selinux-groups filters services path-order agent-installs; do
+for l in log msg conf skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify managed-assets providers ancestor-config toolchain selinux-groups filters services path-order agent-installs; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
 # files here): agents.d/<name>.conf and integrations.d/<name>.conf manifests, and
-# session-env.d/<name>.env.sh fragments. providers.lib.sh reads the manifests to keep the
-# toolchain and launch layers provider-agnostic; ai-tools-run sources the fragment of each enabled
-# provider, agent and integration alike.
+# session-env.d/<name>.env.sh fragments beside the per-agent <name>.pins.env.sh. providers.lib.sh
+# reads the manifests to keep the toolchain and launch layers provider-agnostic; ai-tools-run
+# sources the fragment of each enabled provider, agent and integration alike, and the pins of
+# every enabled agent into every session.
 install -d -m 0755 %{buildroot}%{ai_libdir}/agents.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/integrations.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/session-env.d
@@ -396,6 +423,9 @@ install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-pin.d
 # ownership for the same reason: it reports on the sandbox account, which must not be able to
 # rewrite it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-label.d
+# The mark a reconciliation leaves when it REFUSED to re-record a pin: the pin beside it is then
+# stale by design, and both status reports read this to say so instead of rendering that pin green.
+install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-stale.d
 install -m 0640 src/var/opt/ai-tools/README.md %{buildroot}/var/opt/ai-tools/README.md
 install -d -m 0700 %{buildroot}/var/log/ai-tools
 
@@ -420,6 +450,11 @@ install -d -m 0750 %{buildroot}/opt/ai-tools/integrations
 # /opt/ai-tools/.gitignore, and generates .gitconfig, only when the live file is absent.
 install -d -m 0755 %{buildroot}%{_datadir}/ai-tools
 install -m 0644 src%{_datadir}/ai-tools/gitignore %{buildroot}%{_datadir}/ai-tools/gitignore
+# The example tool-call audit rule: reference material, copied into /etc/audit/rules.d by an
+# operator who wants that trail; this package does not enable it.
+install -d -m 0755 %{buildroot}%{_datadir}/ai-tools/audit
+install -m 0644 src%{_datadir}/ai-tools/audit/ai-tools-cmd.rules.example \
+    %{buildroot}%{_datadir}/ai-tools/audit/ai-tools-cmd.rules.example
 # Shipped agents/skills: pristine copies under %{_datadir} are the reseed source (rpm-owned).
 # They are in the CLAUDE CODE asset format, so the agent package owns them and seeds them into
 # its own config directory; the base owns only the parent dir and the shared seeder library. The
@@ -490,8 +525,10 @@ install -m 0644 src%{ai_libdir}/agents.d/claude-code.conf  %{buildroot}%{ai_libd
 # one, never by an edit on the host. Its fingerprint is declared in the manifest and asserted
 # against gpgv's output, so this file alone does not decide what may sign a release.
 install -m 0644 src%{ai_libdir}/keys/claude-code.asc %{buildroot}%{ai_libdir}/keys/claude-code.asc
-# Its session env (config dir, compile cache, in-session updater), sourced by ai-tools-run last
-# so the agent's own pins are authoritative over an integration's.
+# Its session pins (config dir, compile cache, in-session updater), sourced by ai-tools-run into
+# every session of the account after the integrations, and its own fragment (the custom endpoint
+# and prompt), sourced last and into claude-code sessions alone.
+install -m 0644 src%{ai_libdir}/session-env.d/claude-code.pins.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.pins.env.sh
 install -m 0644 src%{ai_libdir}/session-env.d/claude-code.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.env.sh
 # Claude Code-specific resolvers (the base owns the lib directory; the agent ships these into it):
 # the custom system prompt (claude.sh, wrapper-side) and the custom API endpoint (the fragment
@@ -510,6 +547,30 @@ install -m 0640 src%{_sysconfdir}/ai-tools/prompts/claude-system-prompt.md \
 install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools/endpoints
 install -m 0640 src%{_sysconfdir}/ai-tools/endpoints/custom-claude-endpoint.conf \
     %{buildroot}%{_sysconfdir}/ai-tools/endpoints/custom-claude-endpoint.conf
+
+# ── agents-codex: launch wrapper + managed files + hooks ────────────────────
+# The sibling of the claude-code layer, laid out the same way: the payload lives at
+# src/opt/ai-tools/agents/codex/ (named for its manifest) and installs into the directory that
+# manifest declares (config_dir=.codex). The wrapper is the shared gate library alone.
+install -m 0755 src%{ai_bindir}/codex.sh                   %{buildroot}%{ai_bindir}/codex
+install -d -m 0770 %{buildroot}/opt/ai-tools/.codex
+install -m 0750 src/opt/ai-tools/agents/codex/post-tool-hook.sh %{buildroot}/opt/ai-tools/.codex/post-tool-hook.sh
+install -m 0750 src/opt/ai-tools/agents/codex/session-hook.sh   %{buildroot}/opt/ai-tools/.codex/session-hook.sh
+install -m 0644 src%{ai_libdir}/agents.d/codex.conf        %{buildroot}%{ai_libdir}/agents.d/codex.conf
+install -m 0644 src%{ai_libdir}/session-env.d/codex.pins.env.sh %{buildroot}%{ai_libdir}/session-env.d/codex.pins.env.sh
+# Codex's two managed files. Codex reads them itself from this fixed path: requirements.toml is
+# what a session cannot override (the sandbox-mode pin, the approval policy, managed hooks only),
+# managed_config.toml the defaults applied ahead of any user config. Both 0644 root:root -- the
+# sandbox account reads them, an operator holding sudo edits them -- and %config(noreplace), so
+# an edit survives an upgrade and a newer copy lands as .rpmnew (the %post says so).
+install -d -m 0755 %{buildroot}%{_sysconfdir}/codex
+install -m 0644 src%{_sysconfdir}/codex/requirements.toml   %{buildroot}%{_sysconfdir}/codex/requirements.toml
+install -m 0644 src%{_sysconfdir}/codex/managed_config.toml %{buildroot}%{_sysconfdir}/codex/managed_config.toml
+# A pristine copy of each managed file, the reference the two status reports compare the live
+# %config(noreplace) file against (the manifest's managed_files key, ai-tools-providers(5)).
+install -d -m 0755 %{buildroot}%{_datadir}/ai-tools/codex
+install -m 0644 src%{_sysconfdir}/codex/requirements.toml   %{buildroot}%{_datadir}/ai-tools/codex/requirements.toml
+install -m 0644 src%{_sysconfdir}/codex/managed_config.toml %{buildroot}%{_datadir}/ai-tools/codex/managed_config.toml
 
 # ── base: ghost the operation logs so the package owns them with the right context ──
 for f in chown setgid setfacl symlink lockdown relabel handback install; do
@@ -663,7 +724,7 @@ fi
 if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_path}" ]; then
     echo "ai-tools-base: steps this host still needs:"
     if [ "${_at_toolchain}" = 1 ]; then
-        echo "  sudo ai-tools-admin system bootstrap          # install nvm + Node + Claude Code (network)"
+        echo "  sudo ai-tools-admin system bootstrap          # install nvm + Node + the agent you choose (network)"
     fi
     if [ "${_at_operator}" = 1 ]; then
         echo "  sudo ai-tools-admin operators add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"
@@ -789,17 +850,19 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     # module name per current group, and a host that enabled the old module keeps it loaded
     # across this upgrade. Replace it with every current group whose rules it carried, in a
     # single transaction, so a failed load leaves the old module and the workload it serves. The
-    # same swap install-selinux.sh makes on any run; the pair here is the registry's row for
-    # ai_tools_netcore, written out because a scriptlet runs under /bin/sh.
-    _old_group_mod=ai_tools_netcore; _new_groups="localipc buildexec"
-    if semodule -l 2>/dev/null | grep -qx "${_old_group_mod}"; then
+    # same swap install-selinux.sh makes on any run; the pairs here are the registry's rows, written out because
+    # a scriptlet runs under /bin/sh. Each row is "<former module> <current group>...", and a row's groups must be on
+    # the shipped set for the .pp to exist here -- an experimental group has none, so its row waits until it graduates.
+    for _row in "ai_tools_netcore localipc buildexec" "ai_tools_apphost memfdexec"; do
+        _old_group_mod=${_row%% *}; _new_groups=${_row#* }
+        semodule -l 2>/dev/null | grep -qx "${_old_group_mod}" || continue
         _swap_args=""
         for _g in ${_new_groups}; do
             _swap_args="${_swap_args} -i %{_datadir}/selinux/packages/ai-tools/ai_tools_${_g}.pp"
         done
         semodule -r "${_old_group_mod}" ${_swap_args} >/dev/null 2>&1 \
             || echo "ai-tools-selinux: WARNING could not replace the ${_old_group_mod} module with the ${_new_groups} groups; it stays loaded. Re-run: sudo ai-tools-admin selinux groups enable ${_new_groups}" >&2
-    fi
+    done
     # Each installed integration's LAYOUT module (selinux_layout_module in its manifest): it types
     # the integration's build-output directories and does not add any permission, so it loads with
     # the policy and is not an operator's choice. Loaded here as well as by the integration's own
@@ -960,17 +1023,91 @@ fi
 # default labels on what it matched -- the type it names belongs to ai-tools-base, which the host
 # may erase next, and a local rule naming an undefined type breaks later relabels. Runs in %preun,
 # not %postun, because the pattern is read from this package's manifest, which is still on disk
-# here.
-if [ "$1" -eq 0 ] && [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
-    %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
+# here. The npm package this agent installed into the sandbox toolchain goes the same way, with its
+# launcher link: once the manifest is gone no reader knows the package name, and a package left
+# behind keeps an entrypoint a session can exec (toolchain.lib.sh). Run AS the sandbox account, the
+# tree's owner, offline (npm uninstall does not reach a registry), and best-effort (`|| :`), so
+# the erase completes whatever it prints; a removal deferred under a live session is left for
+# the next update run.
+if [ "$1" -eq 0 ]; then
+    [ -x %{ai_libexecdir}/ai-tools-relabel-agent ] \
+        && %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
+    if [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
+        runuser -u ai-tools -- bash -c '. /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm claude-code' 2>&1 | sed 's/^/ai-tools: /' || :
+    fi
+    rm -f /opt/ai-tools/bin/claude
+fi
+
+%post -n ai-tools-agents-codex-restricted
+# Register this agent's SELinux entrypoint file-context and label whatever it matches, as the
+# claude-code scriptlet does: the pattern comes from this package's manifest and names the vendor
+# binary the launcher is re-linked at. Offline and idempotent; no-ops while the toolchain is not
+# provisioned. Not swallowed: a mislabelled entrypoint refuses every launch, so the remedy is
+# reported and the scriptlet exits non-zero. No release-signing key ships for codex, so the pin
+# reuse the claude scriptlet asks for has no pin to reuse and is not requested.
+if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
+    %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
+        echo "ai-tools-agents-codex-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
+        echo "ai-tools-agents-codex-restricted: fix the cause and re-run: sudo ai-tools-admin system entrypoints relabel" >&2
+        exit 1
+    }
+fi
+# The base pins the 3770 setgid+sticky mode of an ENABLED agent's config directory only, and this
+# agent ships disabled, so its own package holds the mode: rpm on EL10 drops setgid from a %%attr
+# directory mode, hence the chmod here and again in %%posttrans (which one survives is rpm-dependent).
+chmod 3770 /opt/ai-tools/.codex 2>/dev/null || :
+# The shared skills reach codex through its admin scope, /etc/codex/skills, rather than through a
+# directory inside .codex: a symlink to the live shared root when the path is free. A host that
+# already holds something there keeps it -- a directory of its own gets the shared assets linked
+# into it one per free name, a link elsewhere and a file are left alone -- and each outcome is
+# reported. Reuses the base's seeder lib under an explicit bash (a %%post scriptlet runs under
+# /bin/sh). The install never fails on it.
+if [ -d /opt/ai-tools/skills ] && command -v bash >/dev/null 2>&1; then
+    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_shared_root /opt/ai-tools/skills %{_sysconfdir}/codex/skills ai-tools %{_datadir}/ai-tools/skills/README.md" 2>/dev/null || :
+fi
+# The shared orientation text, linked under the name THIS agent reads as its global instructions
+# (its manifest's memory_file, AGENTS.md at the root of CODEX_HOME). A real file already there wins.
+if [ -f /opt/ai-tools/orientation/AGENTS.md ] && command -v bash >/dev/null 2>&1; then
+    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_agent_memory /opt/ai-tools/orientation/AGENTS.md /opt/ai-tools/.codex AGENTS.md ai-tools" >/dev/null 2>&1 || :
+fi
+# The two managed files are %config(noreplace): a host that edited one keeps it, and rpm parks this
+# version's copy as .rpmnew. Say so, because a key this version adds is not in the live file until
+# the operator merges it, and codex reads only the live file.
+for f in requirements.toml managed_config.toml; do
+    if [ -f "%{_sysconfdir}/codex/${f}.rpmnew" ]; then
+        echo "ai-tools: %{_sysconfdir}/codex/${f}.rpmnew is waiting -- this version's keys are not in the live"
+        echo "  ${f} yet; compare the two and carry the keys over (codex reads the live file alone)"
+    fi
+done
+
+%posttrans -n ai-tools-agents-codex-restricted
+# The fail-safe for the 3770 mode of this agent's config directory (see %%post).
+chmod 3770 /opt/ai-tools/.codex 2>/dev/null || :
+
+%preun -n ai-tools-agents-codex-restricted
+# On final erase, drop the entrypoint file-context rule this package registered (the pattern is
+# read from this package's manifest, still on disk in %%preun), and remove the skills link the
+# %%post created -- the link to the shared root, or our links inside a host-owned /etc/codex/skills.
+# Anything the host placed there is left as it is; the shared root belongs to the base.
+if [ "$1" -eq 0 ]; then
+    [ -x %{ai_libexecdir}/ai-tools-relabel-agent ] \
+        && %{ai_libexecdir}/ai-tools-relabel-agent --remove codex >/dev/null 2>&1 || :
+    if [ -r /usr/local/lib/ai-tools/managed-assets.lib.sh ] && command -v bash >/dev/null 2>&1; then
+        bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_unlink_shared_root /opt/ai-tools/skills %{_sysconfdir}/codex/skills %{_datadir}/ai-tools/skills/README.md" >/dev/null 2>&1 || :
+    fi
+    # The npm package and its launcher link, as the claude-code %%preun removes its own (the
+    # reasoning is there): as the sandbox account, offline, best-effort.
+    if [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
+        runuser -u ai-tools -- bash -c '. /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm codex' 2>&1 | sed 's/^/ai-tools: /' || :
+    fi
+    rm -f /opt/ai-tools/bin/codex
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # File lists
 # ─────────────────────────────────────────────────────────────────────────────
 %files
-%doc docs/rpm-packaging.md docs/project-lifecycle.md docs/entrypoint-verification.md
-%doc docs/session-stop.md docs/multi-operator.md docs/option-spellings.md README.md
+%doc docs README.md
 
 # The module files come from the list %%install wrote (`-f`): one line per module the build derived.
 %files -n ai-tools-selinux -f selinux-files.list
@@ -1016,11 +1153,14 @@ fi
 %attr(0644, root, root) %{ai_libdir}/control-plane.lib.sh
 %attr(0644, root, root) %{ai_libdir}/managed-assets.lib.sh
 %attr(0644, root, root) %{ai_libdir}/safe-paths.lib.sh
+%attr(0644, root, root) %{ai_libdir}/launch-wrapper.lib.sh
 %attr(0644, root, root) %{ai_libdir}/confinement.lib.sh
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/entrypoint-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/conf.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
+%attr(0644, root, root) %{ai_libdir}/ancestor-config.lib.sh
+%attr(0644, root, root) %{ai_libdir}/toolchain.lib.sh
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
 %attr(0644, root, root) %{ai_libdir}/filters.lib.sh
 %attr(0644, root, root) %{ai_libdir}/services.lib.sh
@@ -1063,6 +1203,7 @@ fi
 %dir %attr(0750, root, ai-tools) /var/opt/ai-tools/state
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-pin.d
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-label.d
+%dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-stale.d
 %dir %attr(0700, root, root) /var/log/ai-tools
 %ghost %attr(0600, root, root) /var/log/ai-tools/chown.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/setgid.log
@@ -1098,6 +1239,8 @@ fi
 # preserves the operator's copies. The canonical .gitignore reseed source ships read-only here.
 %dir %{_datadir}/ai-tools
 %{_datadir}/ai-tools/gitignore
+%dir %attr(0755, root, root) %{_datadir}/ai-tools/audit
+%attr(0644, root, root) %{_datadir}/ai-tools/audit/ai-tools-cmd.rules.example
 
 %files -n ai-tools-integration
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-integration-* members.
@@ -1136,6 +1279,7 @@ fi
 %dir %attr(3770, root, ai-tools) /opt/ai-tools/.claude
 %attr(0644, root, root) %{ai_libdir}/agents.d/claude-code.conf
 %attr(0644, root, root) %{ai_libdir}/keys/claude-code.asc
+%attr(0644, root, root) %{ai_libdir}/session-env.d/claude-code.pins.env.sh
 %attr(0644, root, root) %{ai_libdir}/session-env.d/claude-code.env.sh
 %attr(0644, root, root) %{ai_libdir}/claude-prompt.lib.sh
 %attr(0644, root, root) %{ai_libdir}/claude-endpoint.lib.sh
@@ -1152,7 +1296,141 @@ fi
 %attr(0750, root, ai-tools) /opt/ai-tools/.claude/filter-hook.sh
 %config(noreplace) %attr(0640, root, ai-tools) /opt/ai-tools/.claude/settings.json
 
+%files -n ai-tools-agents-codex-restricted
+# This agent's own control-plane directory, the same shape as .claude: setgid+sticky, so the agent
+# writes its state (its login, its logs, its shell snapshots) but cannot unlink the root-owned hooks.
+%dir %attr(3770, root, ai-tools) /opt/ai-tools/.codex
+%attr(0750, root, ai-tools) /opt/ai-tools/.codex/post-tool-hook.sh
+%attr(0750, root, ai-tools) /opt/ai-tools/.codex/session-hook.sh
+%attr(0644, root, root) %{ai_libdir}/agents.d/codex.conf
+%attr(0644, root, root) %{ai_libdir}/session-env.d/codex.pins.env.sh
+%attr(0755, root, root) %{ai_bindir}/codex
+# Codex's managed files, at the fixed path codex reads them from. World-readable data, not secrets:
+# they hold the pin and the hook declarations, and no file under /etc/codex carries a guarantee. The
+# skills link the %post places is deliberately NOT listed: a listed path would be written over
+# whatever a host holds there, and it is removed by %preun only when it is ours.
+%dir %attr(0755, root, root) %{_sysconfdir}/codex
+%config(noreplace) %attr(0644, root, root) %{_sysconfdir}/codex/requirements.toml
+%config(noreplace) %attr(0644, root, root) %{_sysconfdir}/codex/managed_config.toml
+# The pristine copies the status reports compare those two against.
+%dir %attr(0755, root, root) %{_datadir}/ai-tools/codex
+%attr(0644, root, root) %{_datadir}/ai-tools/codex/requirements.toml
+%attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
+
 %changelog
+* Sun Sep 20 2026 dagnode <tools@dagnode.com> - 0.19.0-1
+- CHANGE: No agent is enabled by default; 'sudo ai-tools-admin system bootstrap' asks which one
+  installed agent to enable and writes AI_TOOLS_AGENTS for it ('--agents NAME' is the unattended
+  form). A host whose /etc/ai-tools/operator.conf has no AI_TOOLS_AGENTS line stops enabling Claude
+  Code on this upgrade: set the line, or re-run the bootstrap, which asks. A second agent is a
+  manual edit of that line plus a further bootstrap; every agent named shares one sandbox account.
+- CHANGE: The sandbox toolchain holds the enabled agents' packages alone. An agent taken off
+  AI_TOOLS_AGENTS kept its package, and with it an entrypoint a session could start at its real
+  path; every provisioning run (the nightly update, the bootstrap, a package erase, 'install.sh
+  uninstall') now removes it, and no session of any agent starts while it is there. A host holding
+  such a package refuses every launch after this upgrade until the nightly update or
+  'sudo ai-tools-admin system bootstrap' has run; the refusal names the agent and the command.
+- CHANGE: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY asks for a pin of either kind, which is what
+  operator.conf(5) has always said it governs -- an entrypoint carrying no pin. A host that sets it
+  now also launches an agent pinned as installed, and the status report is where the tier is named.
+  The key's comment in /etc/ai-tools/operator.conf is reworded to match, so an edited file gets an
+  .rpmnew beside it on upgrade.
+- CHANGE: An agent package declares the executable its versioned launcher must resolve to
+  ('launcher_target'), and the updater re-links it before the stable symlink is repointed. An agent
+  whose npm package ships a launcher that spawns a vendored binary is therefore verified, labelled
+  and executed as the one file that actually runs.
+- CHANGE: A .NET session no longer receives ASPNETCORE_ENVIRONMENT or DOTNET_ENVIRONMENT, both of
+  which were pinned to Development. A host that needs either sets it explicitly; the dotnet
+  session-env fragment carries the spelling.
+- CHANGE: The optional SELinux policy group 'apphost' is now 'memfdexec', and its grant is narrowed
+  to the in-memory code a session generates itself. A host that enabled it is migrated
+  automatically; a script naming 'apphost' is updated by hand. It now ships compiled, so enabling it
+  no longer needs a source checkout.
+- SECURITY: Codex is refused the same commands a Claude Code session is refused: 'git push --force',
+  'git reset --hard' and 'git clean', each of which deletes work no commit holds and no reflog
+  returns, and the host-survey commands (who has an account, what is installed, what every other
+  account is running, how the host is mounted). A refused command is raised in the session for you
+  to run where the consequence lands. An edited /etc/codex/requirements.toml takes the new rows by
+  hand.
+- SECURITY: An agent entrypoint started from inside a running session, at its real path in the
+  toolchain, is now recorded by the kernel, and 'sudo ai-tools audit' reports each one as a third
+  section. The child runs in its parent's unit, so the launch line and the handbacks carry the
+  parent's identity; this record is the one trail that tells the two apart, and the sandbox account
+  can neither write it nor suppress it. An agent dispatching a tool it bundles is counted, not
+  listed.
+- SECURITY: The clean-exit marker a session writes into its config directory was read unvalidated
+  into the next session's SessionStart reply and into the cross-project .git reclaim; it is now
+  accepted only as an existing directory named by an absolute path, and the reply names a prior
+  session's project without printing the path.
+- SECURITY: A pin recorded from the installed binary whose version field was longer than the reader
+  returns was re-recorded on every reconcile, so a changed binary would have been recorded rather
+  than refused; such a pin is now decided by its checksum alone. A reconciliation that refuses to
+  re-record is shown by 'ai-tools status' in place of the agent's green line, and the refusal names
+  the package directory to remove first -- a bootstrap at the installed version kept the changed
+  binary.
+- SECURITY: An agent whose vendor publishes no signed per-release checksum now gets an entrypoint
+  pin too. Root records the checksum of the binary as installed, so a binary rewritten between
+  sessions under the version it was recorded at -- the case a delivery-side signature cannot see,
+  since it attests to what was delivered and not to what is on disk now -- refuses the next launch.
+  'ai-tools status' names which of the two pins each agent holds, VERIFIED against UNCHANGED, and a
+  reconcile that meets the same version hashing differently leaves the pin alone and says so
+  rather than adopting the new value. A change that arrives with a new declared version reads as
+  an update and is recorded again: the version is read from the toolchain, which the sandbox
+  account writes, so on a host without SELinux this pin holds against the same-version rewrite
+  alone. docs/system/entrypoint-verification.md states what each tier claims.
+- NEW: Codex runs sandboxed, as the second supported agent. Install
+  'ai-tools-agents-codex-restricted' (the umbrella pulls it), name it in AI_TOOLS_AGENTS in
+  /etc/ai-tools/operator.conf and run 'sudo ai-tools-admin system bootstrap': typing 'codex' then
+  starts a confined session with the same project allowlist, SELinux domain and ownership handback
+  a Claude Code session gets, and with the skills and orientation text both agents share. Two files
+  under /etc/codex are yours to edit with sudo -- what every session is held to, and the defaults
+  applied ahead of any user config. Its denial set is swept on an enforcing host: a session raises
+  one refusal of its own, a filesystem watch under the sandbox account's home, and the policy was
+  not widened for it or for anything else. docs/agents/codex.md covers what it reaches, what the
+  package turns off, and what a pinned sandbox mode costs a session, and docs/system/selinux.md
+  lists the refusals a healthy session logs.
+- NEW: An example audit rule that records every command a sandbox session runs ships as reference
+  material at /usr/share/ai-tools/audit/ai-tools-cmd.rules.example, not enabled: the trail runs to
+  thousands of events an hour, and the file's header states the auditd sizing to set before copying
+  it into /etc/audit/rules.d.
+- NEW: A claim and a session launch report the configuration files above a project that the sandbox
+  account cannot read -- the ones a build collects by walking up from the project directory, so a
+  build that reads one fails on a path outside it (.editorconfig, Directory.Build.props and the
+  rest, for .NET). Both reports name the paths and change none of them.
+- FIX: An agent started from inside another agent's session now finds its own state directory,
+  cache and updater switch: every enabled agent's pins reach every session, so a Claude Code
+  child under Codex reads the pinned configuration instead of running with none. What stays with
+  the launching agent's sessions alone is its own fragment -- a custom Claude endpoint and its
+  token are not in a Codex session's environment.
+- FIX: On an enforcing host the handback daemon's journal records carry the session unit again
+  (the read of the peer's cgroup was denied since the field was added), and a handback no longer
+  leaves denials in the audit log for the cgroup read or for find's filesystem probe.
+- FIX: The launcher symlink repoint works on an enforcing host: the helper read the entrypoint's
+  execute bit through access(2), which the policy refuses, so every repoint the updater requested
+  was refused as "not an executable file". A repoint or re-link is also held to the entrypoint the
+  manifest declares before the link is written, where it used to fail one launch later at the
+  label preflight.
+- FIX: The session-end ownership sweep skips a working directory that is the sandbox home, so
+  'codex --version' no longer walks the whole toolchain, and its journal line counts the paths whose
+  owner changed rather than every call it made.
+- FIX: 'install.sh uninstall' keeps an edited managed file under /etc/codex as
+  '<file>.<YYYYMMDD>.retired' instead of deleting it, and removes one still byte-identical to the
+  shipped copy -- the treatment rpm gives an edited %%config(noreplace) file.
+- FIX: Linking the shared skills into a directory a host already holds (codex's admin-scope skills
+  path) relabels the links placed and no longer runs restorecon over the host's own entries.
+- FIX: 'ai-tools projects clone' refuses a missing or option-shaped value after --from, --branch
+  and --dir under message codes of its own (MSG-J4P9, MSG-Z5V5).
+- FIX: 'sudo ai-tools-admin system bootstrap' closes by naming the CLI rather than one agent's
+  wrapper, so the next step it prints is right on a host running any agent.
+- DOCS: The operator documentation is a tree of nine categories under docs/, each with its own
+  index, and the front page is a map to it rather than the manual itself. Every page states what
+  you can do and what happens when you do it; the mechanisms moved to the contributor rules, so a
+  page stays accurate across a refactor.
+- DOCS: docs/agents/ opens with the operator.conf lines that enable an agent, explains the settings
+  whose names read as the opposite of what they do here (danger-full-access among them), keeps the
+  codex page to what an operator does and sees, and states what an agent started from inside
+  another agent's session gets.
+
 * Tue Sep 15 2026 dagnode <tools@dagnode.com> - 0.18.0-1
 - CHANGE: 'ai-tools' spells a command as a bare word -- a collection and its verb ('ai-tools
   projects claim DIRECTORY'), or one word for the host ('status', 'audit', 'stop') -- leaving

@@ -71,6 +71,8 @@ check_file /usr/local/lib/ai-tools/managed-assets.lib.sh     root              r
 # Protected-paths backstop: 644 root:root. Sourced by the wrapper, the CLI, and the root helpers to refuse a system
 # directory as a target; world-readable, no secrets.
 check_file /usr/local/lib/ai-tools/safe-paths.lib.sh         root              root              644
+# Launch gates: 644 root:root. Sourced by every agent's launch wrapper as the operator; world-readable, no secrets.
+check_file /usr/local/lib/ai-tools/launch-wrapper.lib.sh     root              root              644
 check_file /usr/local/lib/ai-tools/confinement.lib.sh        root              root              644
 check_file /usr/local/lib/ai-tools/npm-verify.lib.sh         root              root              644
 check_file /usr/local/lib/ai-tools/entrypoint-verify.lib.sh  root              root              644
@@ -81,6 +83,12 @@ check_file /usr/local/lib/ai-tools/conf.lib.sh               root              r
 # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and nvm-update (both run
 # as the sandbox account) to read the agent manifests; does not carry secrets.
 check_file /usr/local/lib/ai-tools/providers.lib.sh          root              root              644
+# Unreadable ancestor configuration: 644 root:root -- world-readable, sourced by the claim CLI and the launch wrapper
+# (both as the operator); it reports paths and does not change any file, so it does not carry any secrets.
+check_file /usr/local/lib/ai-tools/ancestor-config.lib.sh    root              root              644
+# The residue readers and the package removal: 644 root:root, sourced by the wrapper (as the operator), the shim,
+# the updater and the bootstrap's sandbox-account step; reads manifests, edits a tree its caller owns.
+check_file /usr/local/lib/ai-tools/toolchain.lib.sh          root              root              644
 # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by ai-tools-admin
 # and selinux/install-selinux.sh (both root); read-only data, does not carry secrets.
 check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              root              644
@@ -146,14 +154,54 @@ check_file /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh  root            
 # helper, so the agent can neither read nor run it, and root-owned so the dispatch's trust check admits it.
 check_file /usr/local/lib/ai-tools/admin-commands.d/dotnet      root            root              750
 check_file /usr/local/lib/ai-tools/filters.d/dotnet.rules       root            root              644
-# The claude-code agent's own session-env fragment, shipped by its agent package. ai-tools-run sources it last, so these
-# pins outrank an integration's -- and 644 root:root is what makes it trusted enough to source at all.
+# The claude-code agent's session pins and its own session-env fragment, shipped by its agent package. ai-tools-run
+# sources the pins into every session of the account after the integrations and the fragment last, into claude-code
+# sessions alone -- and 644 root:root is what makes each trusted enough to source at all.
+check_file /usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh root    root              644
 check_file /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh root         root              644
 # The claude-code agent's Claude-specific resolvers: the custom system prompt (wrapper-side) and the custom API endpoint
 # (fragment-side). 644 root:root -- sourced by claude.sh / the fragment, so root-owned and non-group-writable is
 # what makes them trusted enough to source. No secrets.
 check_file /usr/local/lib/ai-tools/claude-prompt.lib.sh      root              root              644
 check_file /usr/local/lib/ai-tools/claude-endpoint.lib.sh    root              root              644
+# The codex agent's manifest and session pins, shipped by ai-tools-agents-codex-restricted: the same shapes and the same
+# reasoning as claude-code's. The package ships default_enable=no, and installation is the axis these rows read, so they
+# are asserted whether or not the agent is enabled -- like the dotnet integration's rows.
+check_file /usr/local/lib/ai-tools/agents.d/codex.conf          root            root              644
+check_file /usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh root         root              644
+# Codex's two managed files, at the fixed path codex reads them from (the pin that keeps the session on the host's
+# confinement, and the hook declarations). 644 root:root: world-readable data, and no file under /etc/codex carries
+# a guarantee, so the boundary is WRITE, asserted as the agent in boundary/providers.sh, while the read is open.
+# The directory is a plain 755 root:root.
+check_file /etc/codex                                         root              root              755
+check_file /etc/codex/requirements.toml                       root              root              644
+check_file /etc/codex/managed_config.toml                     root              root              644
+# The pristine copies the status reports compare those two against (the manifest's managed_files key): package data
+# beside the pristine skills, 644 root:root like them.
+check_file /usr/share/ai-tools/codex                          root              root              755
+check_file /usr/share/ai-tools/codex/requirements.toml        root              root              644
+check_file /usr/share/ai-tools/codex/managed_config.toml      root              root              644
+# The example tool-call audit rule: reference material, world-readable, and not a file auditd reads.
+check_file_optional /usr/share/ai-tools/audit                          root      root              755
+check_file_optional /usr/share/ai-tools/audit/ai-tools-cmd.rules.example root    root              644
+# The shared skills reach codex through its admin scope, /etc/codex/skills. The package places a symlink to the shared
+# root when the path is free, and keeps what a host already holds there (a directory of its own, a link elsewhere)
+# with the shared assets linked inside a host directory one per free name -- so the kept shapes read as the coexistence
+# they are, and only an absent path fails: the shared skills then do not reach codex.
+if [[ -L /etc/codex/skills && "$(readlink /etc/codex/skills)" == /opt/ai-tools/skills ]]; then
+    pass "/etc/codex/skills is the symlink to the shared root /opt/ai-tools/skills"
+elif [[ -L /etc/codex/skills ]]; then
+    skip "/etc/codex/skills" "a link the host placed elsewhere is kept ($(readlink /etc/codex/skills))"
+elif [[ -d /etc/codex/skills ]]; then
+    if [[ -L /etc/codex/skills/ai-tools-technical-docs \
+            && "$(readlink /etc/codex/skills/ai-tools-technical-docs)" == /opt/ai-tools/skills/* ]]; then
+        pass "/etc/codex/skills is the host's own directory, kept, with the shared assets linked inside it"
+    else
+        fail "/etc/codex/skills is the host's own directory and the shared assets are not linked inside it -- re-run the install"
+    fi
+else
+    fail "/etc/codex/skills: MISSING -- codex finds no shared skill"
+fi
 # Secret-pattern config: user-owned 600. ai-tools (not owner/group, cannot enter the 700 .config/ai-tools dir) can
 # neither read nor write it; root helpers read it. Optional: it is a per-operator OVERRIDE -- the shared classifier
 # falls back to its built-in defaults when the file is absent (secret-patterns.lib.sh), so install.sh seeds it
@@ -190,6 +238,10 @@ check_file /opt/ai-tools/.claude/post-tool-hook.sh            root              
 check_file /opt/ai-tools/.claude/session-hook.sh             root              "${SANDBOX_GROUP}" 750
 check_file /opt/ai-tools/.claude/filter-hook.sh              root              "${SANDBOX_GROUP}" 750
 check_file /opt/ai-tools/.claude/settings.json               root              "${SANDBOX_GROUP}" 640
+# The codex agent's two hook adapters, in the directory its manifest declares. Codex declares its hooks
+# in /etc/codex/requirements.toml (asserted in integration/hooks.sh) and has no settings file of its own.
+check_file /opt/ai-tools/.codex/post-tool-hook.sh            root              "${SANDBOX_GROUP}" 750
+check_file /opt/ai-tools/.codex/session-hook.sh              root              "${SANDBOX_GROUP}" 750
 # EVERY agent's config directory is root-owned with setgid+sticky (CP_AGENT_CONFIG_MODE, 3770): ai-tools is
 # a group-writer for its own state but cannot unlink/replace the root-owned control files it holds. Owned by ai-tools,
 # or without the sticky bit, the agent could delete and recreate them. The set of directories comes from the manifests
@@ -210,13 +262,17 @@ fi
 _cp_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
 # shellcheck source=/dev/null
 if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/dev/null 2>&1; then
-    _cfg_found=0
+    _cfg_found=0; _codex_cfg_walked=0
     while IFS=$'\t' read -r _agent _cfg; do
         [[ -n "${_cfg}" ]] || continue
         _cfg_found=1
+        [[ "${_cfg}" == /opt/ai-tools/.codex ]] && _codex_cfg_walked=1
         check_file "${_cfg}" root "${SANDBOX_GROUP}" "${CP_AGENT_CONFIG_MODE}"
     done < <(ai_tools_agent_config_dirs)
     (( _cfg_found )) || skip "agent config directory modes" "no enabled agent declares a config_dir"
+    # The walk covers ENABLED agents, and codex ships disabled, so its directory is asserted by name until it is
+    # enabled: the base pins the mode of an enabled agent's directory only, and the codex package holds it itself.
+    (( _codex_cfg_walked )) || check_file /opt/ai-tools/.codex root "${SANDBOX_GROUP}" "${CP_AGENT_CONFIG_MODE}"
     # Each agent's asset directories carry SYMLINKS into the shared roots, not copies -- that is what keeps an asset
     # authored in one place. Assert a shipped asset of each kind arrived that way, so a regression to per-agent copies
     # (silently forking the content) fails here. The pairs are <manifest field>:<shared root>:<a shipped asset name>.
@@ -247,8 +303,8 @@ if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/de
     # to keep.
     if declare -F ai_tools_agent_memory_targets >/dev/null 2>&1; then
         _memory_found=0
-        while IFS=$'\t' read -r _agent _memory; do
-            _memory_found=1
+        check_memory_link() {
+            local _memory="$1"
             if [[ ! -e "${_memory}" ]]; then
                 skip "${_memory}" "shipped orientation not linked on this host"
             elif [[ -L "${_memory}" && "$(readlink "${_memory}")" == /opt/ai-tools/orientation/* ]]; then
@@ -258,8 +314,17 @@ if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/de
             else
                 fail "${_memory} is a managed COPY, not a symlink into /opt/ai-tools/orientation -- the orientation text forks per agent"
             fi
+        }
+        _codex_memory_walked=0
+        while IFS=$'\t' read -r _agent _memory; do
+            _memory_found=1
+            [[ "${_memory}" == /opt/ai-tools/.codex/AGENTS.md ]] && _codex_memory_walked=1
+            check_memory_link "${_memory}"
         done < <(ai_tools_agent_memory_targets)
         (( _memory_found )) || skip "agent orientation link" "no enabled agent declares a memory_file"
+        # Codex's link, by name while the agent is disabled (the walk covers enabled agents): its manifest names
+        # AGENTS.md at the root of its config directory, the global scope codex reads first.
+        (( _codex_memory_walked )) || check_memory_link /opt/ai-tools/.codex/AGENTS.md
     else
         fail "${_cp_lib} does not resolve the agents' memory targets"
     fi
@@ -340,6 +405,9 @@ fi
 # of the nvm shims, so it shadows nvm's claude). Runs as the invoking operator, gates on ai-ops membership, then drops
 # to the sandbox account via sudo; root-owned so the agent cannot rewrite it.
 check_file /usr/local/bin/claude                              root root 755
+# The codex wrapper: the same shape at the same PATH position, so it shadows a host's own codex the way the claude
+# wrapper shadows nvm's claude. Installed with the package, whether or not the agent is enabled.
+check_file /usr/local/bin/codex                               root root 755
 # Message formatter: 644 root:root -- world-readable like log.lib.sh; sourced by the operator wrapper/CLI, the agent's
 # hooks, and ai-tools-run, so every principal must read it. No secrets.
 check_file /usr/local/lib/ai-tools/msg.lib.sh                 root root 644
@@ -362,6 +430,7 @@ check_file_optional /var/opt/ai-tools/state/nvm-update.status "${SANDBOX_USER}" 
 # able to write it.
 check_file /var/opt/ai-tools/state/entrypoint-pin.d           root              root              755
 check_file /var/opt/ai-tools/state/entrypoint-label.d         root              root              755
+check_file /var/opt/ai-tools/state/entrypoint-stale.d         root              root              755
 # Sandbox-area operator ACL: ai-ops reaches the area without SANDBOX_GROUP membership -- traverse on the outer dir, rwX
 # + default on sandbox-projects. The agent (not in ai-ops) does not gain access.
 if ! command -v getfacl >/dev/null 2>&1; then

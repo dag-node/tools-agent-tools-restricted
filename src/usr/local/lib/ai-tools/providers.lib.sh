@@ -15,7 +15,8 @@
 # (ai_tools_provider_is_enabled, ai_tools_agent_sweeps_at_exit, ai_tools_provider_gate) take no input but their
 # arguments, so tests/unit/providers.sh drives them over the truth table; the resolvers around them read the files
 # and print data-only stdout, with every refusal on stderr and in journald, naming the owner and mode the predicate
-# read.
+# read. The one write this file makes is the versioned launcher re-link an agent's `launcher_target` asks for (the
+# launcher target section), driven by the toolchain provisioning and the updater.
 
 # Include guard: consumers may source this alongside libs that also pull it in. An if-statement, not `[[ ]] && return`,
 # which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
@@ -155,6 +156,12 @@ _ai_tools_skip_integration() {
     _ai_tools_provider_warn MSG-N9X8 "skipping integration $1: $2 $(ai_tools_conf_untrusted_reason "$2")"
 }
 
+# _ai_tools_skip_agent <name> <manifest-file> : the same report for an agent manifest, met by the
+#   enabled-set reader and the installed-set reader alike.
+_ai_tools_skip_agent() {
+    _ai_tools_provider_warn MSG-M3A5 "skipping agent $1: $2 $(ai_tools_conf_untrusted_reason "$2")"
+}
+
 # _ai_tools_warn_uninstalled <manifest-dir> <conf-key> <active> <list> : report each
 #   explicitly-requested (allowlisted) name that has no <name>.conf in the manifest dir -- never
 #   guessed into a package name. The baseline case (no allowlist) can only enable manifests that
@@ -183,7 +190,7 @@ ai_tools_enabled_agents() {
             [[ -e "${manifest_file}" ]] || continue
             agent_name="${manifest_file##*/}"; agent_name="${agent_name%.conf}"
             if ! ai_tools_conf_is_trusted "${manifest_file}"; then
-                _ai_tools_provider_warn MSG-M3A5 "skipping agent ${agent_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")"
+                _ai_tools_skip_agent "${agent_name}" "${manifest_file}"
                 continue
             fi
             npm_package="$(ai_tools_conf_get "${manifest_file}" npm_package || true)"
@@ -208,7 +215,8 @@ ai_tools_enabled_agents() {
 #            the same inputs, so a caller maintaining the toolchain ends the run as a failure
 #            rather than treating npm alone as the managed set.
 #     none   the configuration asks for no agent: AI_TOOLS_AGENTS is set and empty, no manifest is
-#            installed, or every installed manifest is default_enable=no with the key unset.
+#            installed, or the key is unset (every agent manifest ships default_enable=no, so
+#            an unset key is a host whose bootstrap has not yet enabled one).
 #   The reason carries each refused path with what the predicate read
 #   (ai_tools_conf_untrusted_reason), so the caller's one line names every cause. TAB-separated
 #   because the callers run under IFS=$'\n\t'. Any output shape the caller does not recognize is
@@ -250,7 +258,7 @@ ai_tools_agents_empty_verdict() {
     if (( installed == 0 )); then
         printf 'none\tno agent manifest is installed under %s\n' "${AI_TOOLS_AGENTS_DIR}"
     else
-        printf 'none\t%d agent manifest(s) under %s and none is default_enable=yes, with AI_TOOLS_AGENTS unset\n' \
+        printf 'none\t%d agent manifest(s) under %s and AI_TOOLS_AGENTS unset, so no agent is enabled -- sudo ai-tools-admin system bootstrap asks which one\n' \
             "${installed}" "${AI_TOOLS_AGENTS_DIR}"
     fi
     return 0
@@ -288,6 +296,100 @@ ai_tools_provider_manifest_field() {
     _ai_tools_manifest_field "${AI_TOOLS_AGENTS_DIR}" "$@"
 }
 
+# Managed files: the configuration an agent's own product reads from a fixed path outside the control plane (codex's
+# /etc/codex/*.toml), shipped kept-across-upgrade so a host's edit survives. A manifest names them in `managed_files`,
+# and the package ships a pristine copy of each under <reference dir>/<agent>/<basename>, so the two status reports can
+# say whether the live file is the shipped one. The live file sits directly under /etc/<agent>/, the same name
+# the reference carries: the reader recomposes each declared path from its own basename under that root, so root `cmp`s
+# one agent's own configuration and never a path of the manifest's choosing. Reported and never enforced: no such file
+# holds a guarantee, so a host copy can only reduce what a session does. The reference directory is overridable
+# for the unit test alone; a caller who could set it may already read every file it names.
+: "${AI_TOOLS_MANAGED_REFERENCE_DIR:=/usr/share/ai-tools}"
+
+# ai_tools_managed_file_state <live> <reference> : print one word for how a managed file relates to
+#   the pristine copy its package ships: `shipped` (byte-identical), `edited` (both readable and
+#   they differ), `missing` (the live file is absent), `unknown` (the reference cannot be read,
+#   either path is a symlink, or either is not a regular file -- a report that cannot compare says
+#   so rather than guessing). Pure: two paths in, one token out.
+ai_tools_managed_file_state() {
+    local live="$1" reference="$2"
+    [[ -e "${live}" ]] || { printf 'missing'; return 0; }
+    # A directory (or any other non-regular file) at either end has no content to compare: `cmp` fails, and that failure
+    # read as `edited` -- a verdict about content over a path that does not hold any.
+    if [[ -L "${live}" || -L "${reference}" || ! -f "${live}" || ! -f "${reference}" \
+            || ! -r "${live}" || ! -r "${reference}" ]]; then
+        printf 'unknown'; return 0
+    fi
+    if cmp -s -- "${live}" "${reference}"; then printf 'shipped'; else printf 'edited'; fi
+    return 0
+}
+
+# ai_tools_managed_file_retire <live> <reference> : remove a managed file whose package is being
+#   uninstalled, keeping what the host made of it. Prints one word, and the sidecar path with it
+#   where one was written: `absent` (no file at <live>), `removed` (the live file is byte-identical
+#   to <reference>, so the shipped copy is all that is deleted), `kept <sidecar>` (every other state -- an
+#   edit, or a comparison that cannot be made -- moved aside as <live>.<YYYYMMDD>.retired, the
+#   token this tree gives a file moved rather than deleted, and the treatment rpm gives an edited
+#   %config(noreplace) file on erase). Moving rather than leaving is what keeps a live managed file
+#   from naming hooks this uninstall removed. When the move or the removal fails it
+#   prints nothing, leaves the file where it is, and returns 1 under MSG-X7C4. Only a file
+#   proven to be the shipped one is deleted, so the fail direction is keeping.
+ai_tools_managed_file_retire() {
+    local live="$1" reference="$2" sidecar
+    [[ -e "${live}" || -L "${live}" ]] || { printf 'absent'; return 0; }
+    # The remover's and the mover's own stderr is dropped: either failure takes the MSG-X7C4 refusal, and an uninstall's
+    # transcript carries one line for it rather than two saying the same thing in two voices.
+    if [[ "$(ai_tools_managed_file_state "${live}" "${reference}")" == shipped ]]; then
+        if rm -f -- "${live}" 2>/dev/null; then
+            printf 'removed'
+            return 0
+        fi
+    elif sidecar="$(ai_tools_conf_sidecar_path "${live}" retired)" && [[ -n "${sidecar}" ]] \
+            && mv -f -- "${live}" "${sidecar}" 2>/dev/null; then
+        printf 'kept %s' "${sidecar}"
+        return 0
+    fi
+    _ai_tools_provider_warn MSG-X7C4 "could not retire the managed file ${live} -- leaving it as it is"
+    return 1
+}
+
+# ai_tools_agent_managed_files <agent> : print "<live>\t<reference>" per file the agent's trusted
+#   manifest names in managed_files -- the live path directly under /etc/<agent>/, the reference
+#   the pristine copy at AI_TOOLS_MANAGED_REFERENCE_DIR/<agent>/ under the same name, so the two
+#   differ only in their root. An entry naming anything else, and a second entry repeating
+#   a name already paired, is skipped with a refusal on stderr; empty output for an agent declaring
+#   none.
+ai_tools_agent_managed_files() {
+    local agent="$1" value path base root reason seen=" "
+    local -a paths=()
+    value="$(ai_tools_agent_manifest_field "${agent}" managed_files 2>/dev/null || true)"
+    [[ -n "${value}" ]] || return 0
+    root="/etc/${agent}"
+    ai_tools_conf_split paths "${value}"
+    for path in "${paths[@]}"; do
+        # The (live, reference) pair is composed rather than declared, so the live path is held to the directory
+        # that describes: a plain name directly under /etc/<agent>/. Recomposing the path from its own basename is
+        # what refuses a relative path, a nested one, a traversal, and a file of another package's in one comparison,
+        # and the charset refuses `.` and `..` before they reach it. A name declared twice is two live paths against one
+        # reference copy -- here, one live path reported twice -- so the second is a refusal rather than a line.
+        base="${path##*/}"
+        if [[ "${path}" != "${root}/${base}" || ! "${base}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]*$ ]]; then
+            reason="not a plain filename directly under ${root}/"
+        elif [[ "${seen}" == *" ${base} "* ]]; then
+            reason="${base} is already paired with a reference copy"
+        else
+            reason=""
+        fi
+        if [[ -n "${reason}" ]]; then
+            _ai_tools_provider_warn MSG-N4W6 "skipping the managed file $(printf '%q' "${path}") of ${agent}: ${reason}"
+            continue
+        fi
+        seen+="${base} "
+        printf '%s\t%s/%s/%s\n' "${path}" "${AI_TOOLS_MANAGED_REFERENCE_DIR}" "${agent}" "${base}"
+    done
+    return 0
+}
+
 # ai_tools_enabled_integrations : print one enabled AND installed integration name per line, in
 #   manifest-filename order. An integration carries only default_enable; its session env lives in
 #   session-env.d/<name>.env.sh, which ai-tools-run sources by name -- after applying the same trust
@@ -317,6 +419,30 @@ ai_tools_enabled_integrations() {
     return 0
 }
 
+# ai_tools_installed_agents : print one "name<TAB>npm_package<TAB>launcher" line per INSTALLED
+#   agent, enabled or not, in manifest-filename order -- every trusted manifest that names an
+#   npm_package. The set the toolchain provisioning offers an operator to choose from, and the set
+#   a name given on its command line is checked against, before any is enabled. The same trust
+#   rules as ai_tools_enabled_agents: an untrusted directory yields an empty set and an untrusted
+#   manifest is skipped, each reported on stderr. Data-only stdout.
+ai_tools_installed_agents() {
+    local manifest_file agent_name npm_package launcher
+    _ai_tools_provider_dir_trusted "${AI_TOOLS_AGENTS_DIR}" AI_TOOLS_AGENTS || return 0
+    for manifest_file in "${AI_TOOLS_AGENTS_DIR}"/*.conf; do
+        [[ -e "${manifest_file}" ]] || continue
+        agent_name="${manifest_file##*/}"; agent_name="${agent_name%.conf}"
+        if ! ai_tools_conf_is_trusted "${manifest_file}"; then
+            _ai_tools_skip_agent "${agent_name}" "${manifest_file}"
+            continue
+        fi
+        npm_package="$(ai_tools_conf_get "${manifest_file}" npm_package || true)"
+        launcher="$(ai_tools_conf_get "${manifest_file}" launcher || true)"
+        [[ -n "${npm_package}" ]] || continue
+        printf '%s\t%s\t%s\n' "${agent_name}" "${npm_package}" "${launcher}"
+    done
+    return 0
+}
+
 # ai_tools_installed_integrations_declaring <key> : print "name<TAB>value" for every INSTALLED
 #   integration whose trusted manifest carries <key>, in manifest-filename order, enabled or not.
 #   For a manifest field that describes a toolchain present on the host rather than what a session
@@ -338,4 +464,116 @@ ai_tools_installed_integrations_declaring() {
         printf '%s\t%s\n' "${integration_name}" "${value}"
     done
     return 0
+}
+
+# ── The launcher target: where an agent's versioned launcher points ──────────────────────────
+# npm links <version-dir>/bin/<launcher> at the package's own entry file. For an agent whose package starts from a shim
+# -- a JavaScript file that spawns the vendor's binary -- that file is not the executable the session runs,
+# so the manifest declares `launcher_target`, the path of that executable relative to the version directory,
+# and the toolchain provisioning (ai-tools-bootstrap) and the updater (nvm-update) re-link the versioned launcher at it
+# after every install and before the stable symlink is repointed. The chain a launch resolves --
+# /opt/ai-tools/bin/<launcher> -> <version-dir>/bin/<launcher> -> the target -- then ends at the file the manifest's
+# entrypoint_fcontext labels. The pattern is held to the containment the relabel holds it to before it is matched
+# (ai_tools_entrypoint_fcontext_valid, defined here because the relabel library sources this one and the confined shim
+# sources this one alone), so a manifest the relabel would refuse is refused at the write, with the reason, and not one
+# step later at the launch preflight. ai_tools_relink_launcher refuses, leaving npm's own link in place, on every input
+# it cannot honour; the launch then fails closed at the label preflight, since no rule labels the file npm's link
+# resolves to. The callers read the key as any other field (ai_tools_agent_manifest_field); the functions here take
+# the values as arguments, so tests/unit/launcher-target.sh drives the write against fixtures with no manifest.
+
+# ai_tools_launcher_target_valid <value> : pure check, no I/O -- succeed when <value> is a path
+#   that can only name a file inside the version directory it is joined to: relative, free of
+#   `..`, and drawn from the path characters a declared entrypoint pattern is allowed (letters,
+#   digits, `_ . / @ + -`). ai_tools_relink_launcher checks what the join resolves to, symlinks
+#   followed.
+ai_tools_launcher_target_valid() {
+    local value="${1:-}"
+    [[ -n "${value}" ]] || return 1
+    [[ "${value}" != /* ]] || return 1
+    [[ "${value}" =~ ^[A-Za-z0-9_./@+-]+$ ]] || return 1
+    [[ "${value}" != *..* ]]
+}
+
+# ai_tools_entrypoint_fcontext_valid <pattern> <containment-root> : pure check, no I/O -- succeed
+#   when <pattern> is a file-context regex that can only ever match inside <containment-root>. Two
+#   conditions, both required, because the type the relabel gives what it matches is an exec
+#   entrypoint of the confined domain: with its backslash escapes removed the pattern must start
+#   with <containment-root> (so the literal head is anchored there), and it must contain no `|`,
+#   `(`, or other metacharacter that could match a path outside that head. Character classes, `*`,
+#   `+`, `.`, and escapes are what a path pattern needs and all it gets. An empty pattern or an empty
+#   root is refused. relabel.lib.sh passes the Node versions root it pins
+#   (AI_TOOLS_NODE_VERSIONS_ROOT); the two writers of the launcher chain pass the directory
+#   the resolved version directory sits in, which on the toolchain is that same root and on a test
+#   fixture is the fixture's.
+ai_tools_entrypoint_fcontext_valid() {
+    # Path characters, character classes, `*`, `+`, `.` and escapes -- no `|`, no `(`, no `$`, no whitespace. `]` leads
+    # the set and `-` closes it, the POSIX way to include both.
+    local allowed='^[]A-Za-z0-9_./@+*^[\-]+$'
+    local pattern="${1:-}" containment_root="${2:-}" plain="${1//\\/}"
+    [[ -n "${pattern}" && -n "${containment_root}" ]] || return 1
+    [[ "${pattern}" =~ ${allowed} ]] || return 1
+    [[ "${pattern}" != *..* ]] || return 1
+    [[ "${plain}" == "${containment_root}/"* ]]
+}
+
+# ai_tools_relink_launcher <version-dir> <launcher> <target> <entrypoint-fcontext> : point
+#   <version-dir>/bin/<launcher> at <version-dir>/<target> -- a symlink written under a temporary
+#   name and renamed over the link, so the launcher is never absent -- and print one word:
+#   `linked` when the link was written, `current` when it already pointed there. Refuses, printing
+#   nothing, returning 1, and reporting the reason on stderr under its code, when <target> fails
+#   ai_tools_launcher_target_valid, when it does not resolve (symlinks followed) to a regular
+#   executable file inside <version-dir>, when <entrypoint-fcontext> is empty, is not a plain path
+#   pattern anchored under the directory the resolved <version-dir> sits in
+#   (ai_tools_entrypoint_fcontext_valid), or does not match the resolved path (the file would carry
+#   no ai_tools_exec_t, and the launch would refuse it), when the launcher path exists and is not
+#   a symlink, or when the write fails. A refusal leaves whatever is at the launcher path as it
+#   was. The link is relative (`../<target>`), the form npm writes its own in.
+ai_tools_relink_launcher() {
+    local version_dir="${1:-}" launcher="${2:-}" target="${3:-}" fcontext="${4:-}"
+    local link="${version_dir}/bin/${launcher}" real_version_dir="" resolved="" containment_root pattern reason tmp
+    if ! ai_tools_launcher_target_valid "${target}"; then
+        _ai_tools_provider_warn MSG-J5C3 "refusing the launcher target for ${launcher}: $(printf '%q' "${target}") is not a relative path inside the version directory -- leaving ${link} as it is"
+        return 1
+    fi
+    if real_version_dir="$(realpath -e -- "${version_dir}" 2>/dev/null)"; then
+        resolved="$(realpath -e -- "${version_dir}/${target}" 2>/dev/null)" || resolved=""
+    fi
+    if [[ -z "${resolved}" || "${resolved}" != "${real_version_dir}/"* || ! -f "${resolved}" || ! -x "${resolved}" ]]; then
+        _ai_tools_provider_warn MSG-C4F6 "refusing the launcher target for ${launcher}: ${target} does not resolve to an executable file inside ${version_dir}${resolved:+ (it resolves to ${resolved})} -- leaving ${link} as it is"
+        return 1
+    fi
+    # The pattern is held to the relabel's containment first -- a plain path pattern anchored under the directory
+    # the resolved version directory sits in -- and then matched whole, as the manifest's own regex,
+    # against the resolved path. An invalid regex that passes the containment's charset (an unclosed bracket) makes `=~`
+    # return 2, which the `!` reads as no match, and no match is a refusal.
+    pattern="^${fcontext}\$"
+    containment_root="${real_version_dir%/*}"
+    if [[ -z "${fcontext}" ]]; then
+        reason="the manifest declares no entrypoint_fcontext to cover ${resolved}"
+    elif ! ai_tools_entrypoint_fcontext_valid "${fcontext}" "${containment_root}"; then
+        reason="the manifest's entrypoint_fcontext ${fcontext} is not a plain path pattern under ${containment_root}"
+    elif ! [[ "${resolved}" =~ ${pattern} ]]; then
+        reason="the manifest's entrypoint_fcontext ${fcontext} does not cover ${resolved}"
+    else
+        reason=""
+    fi
+    if [[ -n "${reason}" ]]; then
+        _ai_tools_provider_warn MSG-F5U2 "refusing the launcher target for ${launcher}: ${reason}, so the file would carry no entrypoint label -- leaving ${link} as it is"
+        return 1
+    fi
+    if [[ -e "${link}" && ! -L "${link}" ]]; then
+        _ai_tools_provider_warn MSG-W4H3 "refusing to re-link ${link}: it is not a symlink -- leaving it as it is"
+        return 1
+    fi
+    if [[ "$(readlink -- "${link}" 2>/dev/null)" == "../${target}" ]]; then
+        printf 'current'
+        return 0
+    fi
+    tmp="$(mktemp -u "${version_dir}/bin/.${launcher}.XXXXXX" 2>/dev/null)" || tmp=""
+    if [[ -z "${tmp}" ]] || ! ln -s "../${target}" "${tmp}" 2>/dev/null || ! mv -Tf "${tmp}" "${link}" 2>/dev/null; then
+        [[ -n "${tmp}" ]] && rm -f -- "${tmp}" 2>/dev/null
+        _ai_tools_provider_warn MSG-A3S3 "could not write ${link} -> ../${target} -- leaving the launcher as it was"
+        return 1
+    fi
+    printf 'linked'
 }

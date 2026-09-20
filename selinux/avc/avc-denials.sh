@@ -4,7 +4,8 @@
 # actually DENIED under enforcing.
 #
 # Probe sections and goals:
-#   A    Group surfaces (disabled by default): systemd, pkgmgmt, netadmin, podman, tmpmap, apphost, localipc, buildexec
+#   A    Group surfaces (disabled by default): systemd, pkgmgmt, netadmin, podman,
+#        tmpmap, memfdexec, localipc, buildexec
 #   B-F  In-core boundary (dontaudit'd): /proc state, user home/config, container
 #        storage, non-http ports, MTA exec
 #   G    Credentials: /etc/shadow, /etc/gshadow           (goal 1)
@@ -317,16 +318,16 @@ finally:
     skip_check GRP-007 SELinux "mmap a /tmp file" "python3 not available to attempt the mmap"
   fi
 
-  # apphost is an execute-on-memfd grant, not a /tmp map: create an anonymous memfd (born tmpfs_t) and map it PROT_EXEC
-  # -- the path .NET's JIT/apphost uses. With the group off the execute is denied; a success means apphost is on.
-  # Disjoint from GRP-007: this touches tmpfs_t (memfd), never ai_tools_tmp_t (/tmp), which stays noexec regardless.
+  # memfdexec is an execute-on-memfd grant, not a /tmp map: create an anonymous memfd and map it PROT_EXEC -- the path
+  # a .NET JIT/apphost uses. With the group off the execute is denied; a success means memfdexec is on. Disjoint
+  # from GRP-007: this touches the memfd, never ai_tools_tmp_t (/tmp), which stays noexec regardless.
   _type="tmpfs_t (memfd file execute)"
-  _why=".NET writes JIT'd/apphost native code to an anonymous memfd file and maps it PROT_EXEC to run it. Without the optional apphost group ai_tools_t holds execmem (anonymous RWX) but no execute on a tmpfs file mapping, so the executable mapping is denied and any executable/host project (dotnet run, ASP.NET Core, xunit.v3) fails. A success here means the apphost group is enabled."
+  _why="A JIT writes generated native code to an anonymous memfd file and maps it PROT_EXEC to run it. Without the optional memfdexec group no tmpfs type_transition applies, so the memfd is born tmpfs_t and ai_tools_t holds execmem (anonymous RWX) but no execute on any file mapping -- the executable mapping is denied and any executable/host project (dotnet run, ASP.NET Core, xunit.v3) fails. A success here means the memfdexec group is enabled."
   if command -v python3 >/dev/null 2>&1 \
         && python3 -c 'import os,sys; sys.exit(0 if hasattr(os,"memfd_create") else 1)' 2>/dev/null; then
     check GRP-008 SELinux "mmap a memfd PROT_EXEC" python3 -c '
 import mmap, os
-fd = os.memfd_create("avc-apphost")
+fd = os.memfd_create("avc-memfdexec")
 try:
     os.ftruncate(fd, 4096)
     mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_EXEC).close()

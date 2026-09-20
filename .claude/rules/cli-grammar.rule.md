@@ -160,7 +160,7 @@ not mark privilege and most resources do without it. A resource takes the prefix
   manages deliberately.
 
 `entrypoints` takes it on the first test. `selinux groups` takes neither: an operator enables a group to make a workload
-run (`tmpmap` for a .NET restore, `apphost` for `dotnet run`), which is a first-class administration concern owned
+run (`tmpmap` for a .NET restore, `memfdexec` for `dotnet run`), which is a first-class administration concern owned
 by the SELinux domain.
 
 **Being admin-only is not a test, and neither is returning more detail.** `operators` and the anticipated `proxies`,
@@ -241,13 +241,13 @@ side and authorization middleware expresses it on the HTTP side. Neither needs a
 ## Where the surface stands
 
 `ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`,
-`system bootstrap [--scope minimal|full]`, `system entrypoints relabel`, `system post-upgrade`, `status`, `--help`/`-h`,
-`--version`, plus one domain per installed provider — `dotnet bootstrap`, `dotnet tools install <pkg...>`,
-`dotnet status`. `ai-tools-admin(8)` documents the base surface and `tests/unit/man.sh` holds the page, the helper's
-`usage()` and its dispatch arms in agreement, so a command renamed in one of the three fails the suite rather than going
-stale in the others. A contributed domain is outside that pairing by construction — its commands exist only
-where the package is installed — so the page documents the **seam**, `--help` lists the domains this host has, and each
-domain answers its own `--help`.
+`system bootstrap [--scope minimal|full] [--agents NAME[,NAME...]]`, `system entrypoints relabel`,
+`system post-upgrade`, `status`, `--help`/`-h`, `--version`, plus one domain per installed provider —
+`dotnet bootstrap`, `dotnet tools install <pkg...>`, `dotnet status`. `ai-tools-admin(8)` documents the base surface
+and `tests/unit/man.sh` holds the page, the helper's `usage()` and its dispatch arms in agreement, so a command renamed
+in one of the three fails the suite rather than going stale in the others. A contributed domain is outside that pairing
+by construction — its commands exist only where the package is installed — so the page documents the **seam**, `--help`
+lists the domains this host has, and each domain answers its own `--help`.
 
 Two names carry a `%{_sbindir}` symlink so `sudo <name>` resolves through `secure_path`: `ai-tools`
 and `ai-tools-admin`. Every other command in this project is a verb of one of them, reached at a fixed path the dispatch

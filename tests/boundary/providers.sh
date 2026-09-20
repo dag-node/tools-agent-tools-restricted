@@ -54,6 +54,18 @@ not_writable /usr/local/lib/ai-tools/conf.lib.sh \
 not_writable /usr/local/lib/ai-tools/providers.lib.sh \
     "rewrite which providers resolve as enabled"
 
+# The library that reads the toolchain for a disabled agent's package and refuses every launch on it, sourced
+# by the wrapper as the operator and by ai-tools-run as the sandbox account. Writable, the agent rewrites the reader
+# to pass residue as clean -- or the writer to remove an enabled agent's package.
+not_writable /usr/local/lib/ai-tools/toolchain.lib.sh \
+    "pass a disabled agent's package as clean, or remove an enabled agent's"
+
+# The library every agent's launch wrapper sources as the operator for the gates a launch passes: the operator gate,
+# the launcher resolution, the allowlist and the claim guard. Writable, the agent rewrites what the wrapper accepts
+# before the drop -- ai-tools-run re-validates the executable, but the allowlist and the claim guard are decided here.
+not_writable /usr/local/lib/ai-tools/launch-wrapper.lib.sh \
+    "rewrite the gates every launch wrapper runs before dropping to the sandbox account"
+
 # The library that turns a manifest's declared entrypoint pattern into a `semanage fcontext` rule. It pins the type
 # (ai_tools_exec_t) and the containment check on the pattern, so writable it would let the agent label a file of its
 # choosing as an entrypoint of the confined domain -- or as anything else.
@@ -91,8 +103,29 @@ not_writable /usr/local/lib/ai-tools/integrations.d/dotnet.conf \
     "flip the dotnet integration to enabled-by-default"
 not_writable /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh \
     "inject environment and PATH into its own session"
-not_writable /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh \
+not_writable /usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh \
     "repoint its own config directory or re-enable the in-session updater"
+# The pins reach every session of the account and the fragment reaches claude-code sessions alone; writable,
+# the fragment is where a session of another agent would put the line that imports the claude endpoint token.
+not_writable /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh \
+    "route the claude endpoint and its token into every agent's sessions"
+# The codex package's manifest and pins, the same two decisions for the second agent. The manifest ships
+# default_enable=no, so writable it would be the file the agent flips to enable itself.
+not_writable /usr/local/lib/ai-tools/agents.d/codex.conf \
+    "enable itself by default, or repoint the codex package the toolchain installs"
+not_writable /usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh \
+    "repoint CODEX_HOME at a directory it controls"
+
+# Codex's managed files, read by codex at every start from a fixed path. No file under /etc/codex holds a guarantee --
+# the session runs as the sandbox account in the confined domain whatever codex reads -- so what a writer there changes
+# is what the package OWNS: the hook declarations that hand files back per turn and the pin that keeps codex from adding
+# a sandbox of its own. Root-owned control-plane data stays root-written, like settings.json.
+not_writable /etc/codex \
+    "replace the managed files codex reads at every start"
+not_writable /etc/codex/requirements.toml \
+    "rewrite the pin and the hook declarations codex enforces on its own session"
+not_writable /etc/codex/managed_config.toml \
+    "rewrite the defaults codex reapplies at every start"
 
 # The shared asset roots. Every agent symlinks into these two places, so a writable root here would let one session
 # rewrite the standing instructions -- or the delegate definitions -- that every agent and every later session reads.
@@ -109,6 +142,26 @@ not_writable /opt/ai-tools/bin/ai-tools-run \
     "rewrite the confinement properties every session is launched with"
 not_writable /opt/ai-tools/bin \
     "replace the confinement shim or the launcher symlink the wrapper resolves"
+
+# The launch WRAPPERS, and they are the one cross-principal escalation in this chain: each runs AS THE OPERATOR
+# who typed the launcher name, before any drop to the sandbox account. A writable wrapper is the agent's code executed
+# with that operator's identity, credentials and home -- everything the confinement exists to keep it away from --
+# so the modes in integration/perms.sh are not the only place this is asserted; here it is probed from the vantage
+# of the account that would have to write one.
+not_writable /usr/local/bin/claude \
+    "run its own code as the operator, before any session is confined"
+not_writable /usr/local/bin/codex \
+    "run its own code as the operator, before any session is confined"
+
+# The two libraries every wrapper loads fail-closed, sourced in that same operator-owned process. safe-paths carries
+# the protected-paths backstop and msg carries the yes/no decisions, so either one writable is both a refusal the agent
+# can remove and code it can place in the operator's shell.
+not_writable /usr/local/lib/ai-tools/launch-wrapper.lib.sh \
+    "rewrite the gates every wrapper runs, in a process owned by the operator"
+not_writable /usr/local/lib/ai-tools/safe-paths.lib.sh \
+    "remove the protected-paths backstop from every caller that loads it"
+not_writable /usr/local/lib/ai-tools/msg.lib.sh \
+    "answer the confirmations an operator is asked, in their own process"
 
 # The integration state root itself: base-owned, one directory per integration inside it. A writable root would let
 # the agent create or replace an integration's whole state tree.

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/wrapper.sh
-# Integration: the deployed launch wrapper (/usr/local/bin/claude). Exercises the ai-ops operator gate, the allowlist
-# gate, and the symlink-existence guard against the REAL installed wrapper, hermetically: the wrapper keys its allowlist
-# off ${HOME}, so the test points HOME at a /tmp testdir with a controlled allowed-projects (no dependency
+# Integration: the deployed launch wrapper (/usr/local/bin/claude). The boundary test of this wrapper: it proves
+# the installed wrapper reaches the shared gates (launch-wrapper.lib.sh) in their order -- the ai-ops operator gate,
+# the allowlist gate, and the symlink-existence guard -- against the REAL installed files, hermetically: the gates key
+# the allowlist off ${HOME}, so the test points HOME at a /tmp testdir with a controlled allowed-projects (no dependency
 # on the operator's real allowlist, and no dependency on whether the install dir is a project). Every wrapper run is
-# detached via setsid so the wrapper's /dev/tty claim prompt can never fire -- the test never claims a project as a side
-# effect. Run as root via sudo.
+# detached via setsid so the /dev/tty claim prompt can never fire -- the test never claims a project as a side effect.
+# Each gate's own refusal set is driven in tests/unit/launch-wrapper.sh. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -230,32 +231,50 @@ else
     skip "hazard demo" "final target is readable to ${PROJECTS_USER}; EACCES path not exercised"
 fi
 
-# (B) Pin the deployed wrapper to `-L`: a revert to `-e` reintroduces the bug.
-if grep -Eq '!\s*-L\s+"\$\{CLAUDE_LINK\}"' "${wrapper}"; then
-    pass "wrapper guards CLAUDE_LINK with -L"
-elif grep -Eq '!\s*-e\s+"\$\{CLAUDE_LINK\}"' "${wrapper}"; then
-    fail "wrapper uses -e on CLAUDE_LINK -- reintroduces false 'symlink not found' bug"
+# (B) Pin the deployed gate library to `-L`: a revert to `-e` reintroduces the bug. The resolution is the library's
+#     (launch-wrapper.lib.sh), one implementation for every agent's wrapper.
+launch_lib=/usr/local/lib/ai-tools/launch-wrapper.lib.sh
+if [[ ! -r "${launch_lib}" ]]; then
+    fail "launch gate library not installed at ${launch_lib}"
+elif grep -Eq '!\s*-L\s+"\$\{launcher_link\}"' "${launch_lib}"; then
+    pass "the gate library guards the launcher symlink with -L"
+elif grep -Eq '!\s*-e\s+"\$\{launcher_link\}"' "${launch_lib}"; then
+    fail "the gate library uses -e on the launcher symlink -- reintroduces false 'symlink not found' bug"
 else
-    fail "wrapper has no recognisable CLAUDE_LINK existence guard"
+    fail "the gate library has no recognisable launcher symlink existence guard"
 fi
 
-# ── Fail-closed on a missing safety library ──────────────────────────────────────
+# ── Fail-closed on a missing library ────────────────────────────────────────────
 #
-# The wrapper sources safe-paths.lib.sh and MUST refuse to start if it (or its guard functions) cannot load --
-# a fail-open no-op stub would launch with the protected-path guard off (the exact fail-open the project removed,
-# [[fail-closed-everywhere]]). Prove it on the real wrapper body: copy it, repoint SAFE_PATHS_LIB at a nonexistent file,
-# and confirm the copy refuses before doing anything. The check runs before the operator/allowlist gates, so it fires
-# regardless of who runs it or from where.
-section "Wrapper fails closed when the safety library is unloadable"
-brk="${TESTDIR}/claude-broken"
-sed 's#^readonly SAFE_PATHS_LIB=.*#readonly SAFE_PATHS_LIB="/nonexistent/ai-tools/safe-paths.lib.sh"#' \
-    "${wrapper}" > "${brk}"
-# Run the copy via `bash <file>`, not by executing it: TESTDIR is under /tmp, which a hardened host mounts noexec (and
-# the tmp label blocks execve under confinement), so a direct exec fails with EACCES before the wrapper's own logic
-# runs. `bash <file>` reads it as a script, exercising the fail-closed branch regardless of the mount options
-# or the file's SELinux type.
-fc_out="$(setsid bash "${brk}" --version < /dev/null 2>&1 || true)"
-assert_msg MSG-U6A9 "${fc_out}" "wrapper refuses to start when safe-paths.lib.sh cannot load (fail closed)"
+# The wrapper sources launch-wrapper.lib.sh, which sources safe-paths.lib.sh, and each link MUST refuse to start
+# when the next cannot load -- a fail-open no-op stub would launch with the protected-path guard off (the exact
+# fail-open the project removed, [[fail-closed-everywhere]]). Both links are proven on the real deployed bodies: a copy
+# of the library with SAFE_PATHS_LIB repointed at a nonexistent file, reached from a copy of the wrapper with LAUNCH_LIB
+# repointed at that copy, must refuse at the library's init; a copy of the wrapper with LAUNCH_LIB repointed
+# at a nonexistent file must refuse before any gate. Both checks run before the operator/allowlist gates, so they fire
+# regardless of who runs them or from where.
+section "Wrapper fails closed when a required library is unloadable"
+if [[ ! -r "${launch_lib}" ]]; then
+    skip "wrapper fail-closed chain" "launch gate library not installed at ${launch_lib}"
+else
+    brk_lib="${TESTDIR}/launch-wrapper-broken.lib.sh"
+    sed 's#^readonly SAFE_PATHS_LIB=.*#readonly SAFE_PATHS_LIB="/nonexistent/ai-tools/safe-paths.lib.sh"#' \
+        "${launch_lib}" > "${brk_lib}"
+    brk="${TESTDIR}/claude-broken"
+    sed "s#^readonly LAUNCH_LIB=.*#readonly LAUNCH_LIB=\"${brk_lib}\"#" "${wrapper}" > "${brk}"
+    # Run the copy via `bash <file>`, not by executing it: TESTDIR is under /tmp, which a hardened host mounts noexec
+    # (and the tmp label blocks execve under confinement), so a direct exec fails with EACCES before the wrapper's own
+    # logic runs. `bash <file>` reads it as a script, exercising the fail-closed branch regardless of the mount options
+    # or the file's SELinux type.
+    fc_out="$(setsid bash "${brk}" --version < /dev/null 2>&1 || true)"
+    assert_msg MSG-U6A9 "${fc_out}" "the wrapper refuses to start when safe-paths.lib.sh cannot load (fail closed)"
+
+    brk_nolib="${TESTDIR}/claude-nolib"
+    sed 's#^readonly LAUNCH_LIB=.*#readonly LAUNCH_LIB="/nonexistent/ai-tools/launch-wrapper.lib.sh"#' \
+        "${wrapper}" > "${brk_nolib}"
+    nl_out="$(setsid bash "${brk_nolib}" --version < /dev/null 2>&1 || true)"
+    assert_msg MSG-R3Q4 "${nl_out}" "the wrapper refuses to start when the gate library cannot load (fail closed)"
+fi
 
 # ── The wrapper actually CONSULTS the protected-paths backstop ───────────────────
 #
@@ -273,6 +292,71 @@ if grep -qxE 'MSG-C7C9|MSG-R7Z3' <<<"${pp_out}"; then
 else
     assert_msg MSG-Q6H3 "${pp_out}" \
         "wrapper refuses to launch in an allowlisted-but-protected system directory (/etc)"
+fi
+
+# ── The codex wrapper: enablement fails closed ───────────────────────────────────
+# The second agent's wrapper runs the same gate library, so its gates are proven by this file's claude cases; what is
+# its own is ENABLEMENT. An agent gets a launcher symlink under /opt/ai-tools/bin only while it is enabled
+# and provisioned, and the wrapper resolves that link before the CWD gate -- so a disabled codex refuses every launch
+# at the launcher gate, whichever directory it is typed in, and an enabled one reaches the allowlist gate exactly
+# as claude does. Which of the two this host is in is read from the same resolver the toolchain provisions
+# from, and the link and the enabled set must agree: a link for an agent the resolver does not enable is a launcher no
+# enabled manifest claims, which ai-tools-run refuses (integration/ai-tools-run.sh) -- reported here so the two gates
+# are never seen
+# disagreeing.
+section "codex wrapper: enablement fails closed (integration)"
+codex_wrapper=/usr/local/bin/codex
+if [[ ! -x "${codex_wrapper}" ]]; then
+    skip "codex wrapper" "not installed at ${codex_wrapper} (the codex package is absent)"
+else
+    printf '%s\n' "${approved}" "!${excluded}" > "${home}/.config/ai-tools/allowed-projects"
+    codex_enabled=0
+    # shellcheck source=/dev/null
+    if source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null \
+            && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+        while IFS=$'\t' read -r _agent _ _; do
+            [[ "${_agent}" == codex ]] && codex_enabled=1
+        done < <(ai_tools_enabled_agents 2>/dev/null)
+    else
+        fail "cannot source providers.lib.sh to read the enabled agents"
+    fi
+    codex_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
+        "${codex_wrapper}" --version --gate-probe < /dev/null 2>&1 || true )"
+    if [[ -L /opt/ai-tools/bin/codex ]]; then
+        if (( codex_enabled )); then
+            pass "codex is enabled and its launcher symlink is present -- the wrapper resolves it"
+            assert_msg MSG-N2Z7 "${codex_out}" "codex wrapper reaches the allowlist gate and refuses an unapproved directory"
+            # A sole `--version` runs with the sandbox home as the working directory. Codex declares handback=none,
+            # so the shim installs its session-end sweep -- which must not walk the sandbox home: that would offer every
+            # toolchain file to the root helper, one socket round trip each, for it to leave alone.
+            codex_version_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
+                "${codex_wrapper}" --version < /dev/null 2>&1 || true )"
+            if printf '%s' "${codex_version_out}" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
+                pass "codex: sole --version passes through from an unapproved cwd and prints the version"
+            else
+                fail "codex: sole --version did not yield a version string (output: ${codex_version_out})"
+            fi
+            if journalctl -t ai-tools-run --since '-2 min' -o cat 2>/dev/null \
+                    | grep -q 'session-end sweep: handed back .* under /opt/ai-tools ('; then
+                fail "codex: the session-end sweep walked the sandbox home after a sole --version"
+            else
+                pass "codex: the session-end sweep did not walk the sandbox home after a sole --version"
+            fi
+        else
+            fail "/opt/ai-tools/bin/codex exists while codex is not enabled -- a launcher no enabled manifest claims (ai-tools-run refuses it; remove the link or enable the agent)"
+        fi
+    else
+        if (( codex_enabled )); then
+            skip "codex launch through the wrapper" "codex is enabled but not provisioned -- run: sudo ai-tools-admin system bootstrap"
+        else
+            assert_msg MSG-S4B3 "${codex_out}" "codex wrapper refuses to launch while codex is disabled (no launcher symlink to resolve)"
+            if gate_refused "${codex_out}"; then
+                fail "codex wrapper reached the allowlist gate for a disabled agent -- the launcher gate must refuse first"
+            else
+                pass "disabled codex is refused at the launcher gate, before the allowlist is read"
+            fi
+        fi
+    fi
 fi
 
 finish

@@ -5,6 +5,7 @@ paths:
   - "src/usr/local/lib/ai-tools/claude-endpoint.lib.sh"
   - "src/usr/local/lib/ai-tools/agents.d/claude-code.conf"
   - "src/usr/local/lib/ai-tools/session-env.d/claude-code.env.sh"
+  - "src/usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh"
 ---
 
 # The claude-code agent
@@ -16,9 +17,9 @@ endpoint). The **provider seam** these plug into — manifests, fail-closed enab
 `settings.json` is [claude-settings](claude-settings.rule.md), which stays a rule of its own because it is scoped
 to a different file set and a different question (what the harness may run), not because the two domains are unrelated.
 
-`ai-tools-agents-claude-code-restricted` ships the wrapper, the manifest, the session-env fragment, the two resolver
-libraries, and the agent's config directory. It does not add a sudoers rule: it inherits the single `%ai-ops` grant
-on the shared shim.
+`ai-tools-agents-claude-code-restricted` ships the wrapper, the manifest, the session pins and the session-env fragment,
+the two resolver libraries, and the agent's config directory. It does not add a sudoers rule: it inherits the single
+`%ai-ops` grant on the shared shim.
 
 ## What the manifest declares
 
@@ -34,7 +35,7 @@ on the shared shim.
 | `skills_dir` / `subagents_dir` | `skills` / `agents` | where shared assets are symlinked in ([shipped-assets](shipped-assets.rule.md)) |
 | `memory_file` | `CLAUDE.md` | where the shared orientation text is symlinked in — the one filename this product reads as user-scope instructions ([shipped-assets](shipped-assets.rule.md)) |
 | `entrypoint_fcontext` | a regex ending `…/@anthropic-ai/claude-code/bin/claude\.exe` | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
-| `default_enable` | `yes` | the baseline set when `operator.conf` names none |
+| `default_enable` | `no` | the agents' baseline is empty: `ai-tools-bootstrap` writes the enabled set, so this agent runs where the operator chose it ([providers](providers.rule.md)) |
 | `release_manifest_url` / `release_key` / `release_fingerprint` | the vendor's per-release `manifest.json` template under `downloads.claude.ai`, the key file `keys/claude-code.asc` this package ships, and that key's fingerprint | `entrypoint-verify.lib.sh` — proves the installed `claude.exe` is the binary Anthropic published; the fields and the pin they feed are in [providers](providers.rule.md) and [updater](updater.rule.md) |
 
 What `handback=hooks` switches off, and why `config_dir` must match the directory the fragment pins
@@ -77,6 +78,14 @@ so the executable ships in a nested package
 - Any rule written against the nested path would have to span the arch variants, which a single anchored literal head
   cannot. This is why the relabel's reconciliation **resolves** the entrypoint rather than declaring a second pattern
   for it.
+
+**The binary is multi-call, so a session is not one process.** `claude.exe` bundles the search tools it uses and reaches
+each by exec'ing **[3]** with the tool's name as `argv0` — `rg`, `ugrep` and `bfs` — which `ai_tools_t`'s
+`execute_no_trans` on `ai_tools_exec_t` permits, and which the policy's `auditallow` on that access records like any
+other exec of the entrypoint from inside a session. `ai-tools audit` counts those rather than reporting them,
+on the bare `argv0` alone, so a release that bundles a fourth tool is counted on the same rule, with no name
+for a manifest to declare ([cli](cli.rule.md), [launch](launch.rule.md)). Agent subagents are unrelated to this: they
+run inside the one process that started them.
 
 ## Entrypoint labelling: applied from the declaration, checked on the resolved inode
 
@@ -133,7 +142,11 @@ split the line or reach the operator's terminal).
 `/usr/local/bin` (Tier 1) ahead of the nvm shims in operator dotfiles, so this shadows any nvm-managed `claude`
 on an operator's PATH ([launch](launch.rule.md)).
 
-It gates in this order, each step refusing before the next can matter:
+It is the shared gate library plus this agent's one launch input: it sources `launch-wrapper.lib.sh` fail-closed
+(`MSG-R3Q4` when it will not load), calls `ai_tools_launch_init claude`, loads `claude-prompt.lib.sh` best-effort, runs
+`ai_tools_launch_gates`, resolves the custom system prompt, and ends in `ai_tools_launch_session`. A launch therefore
+passes these steps in this order, each refusing before the next can matter — every step but 7's prompt resolution is
+the library's:
 
 1. **Required libraries**, fail-closed: `msg.lib.sh` (it carries the yes/no decisions), `safe-paths.lib.sh` (the
    protected-path guard), and `conf.lib.sh` (without it every allowlist line parses as no entry, which refuses every
@@ -152,11 +165,12 @@ It gates in this order, each step refusing before the next can matter:
 5. **Protected-paths backstop**, then the **allowlist** (exclusions first, since `!` overrides allows), both
    on the `realpath`-canonicalized CWD.
 6. **Claim guard** — three gaps detected read-only: group/mode (fatal — the session starts but `posix_spawn` fails
-   `EACCES` on every child), SELinux label (fatal under enforcing), and git `safe.directory` (non-fatal). The wrapper
-   never performs a `chgrp` or a relabel itself; it detects, offers, and delegates to `ai-tools projects claim`
+   `EACCES` on every child), SELinux label (fatal under enforcing), and git `safe.directory` (non-fatal). The library
+   never performs a `chgrp` or a relabel; it detects, offers, and delegates to `ai-tools projects claim`
    ([cli](cli.rule.md)).
-7. **Prompt resolution** and a **best-effort service-health warning** (the relabel watcher; the handback socket is
-   the shim's to report — see [launch](launch.rule.md)).
+7. **Prompt resolution** (this file's), then the library's **best-effort service-health warning** (the relabel watcher;
+   the handback socket is the shim's to report — see [launch](launch.rule.md)) and its secret-pattern drift line
+   to journald ([secret-handling](secret-handling.rule.md)).
 8. `exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/ai-tools-run`, carrying exactly `AI_TOOLS_AGENT_EXEC`
    and `AI_TOOLS_PROJECT_DIR` through `env_keep`. **No agent identity crosses sudo**; the shim derives it
    from the launcher name in the path.
@@ -222,9 +236,10 @@ the parent). Outbound traffic is governed by network policy, not this variable.
 
 ## Session environment pins
 
-`session-env.d/claude-code.env.sh` is sourced **last**, after every enabled integration, so its pins are authoritative.
-Each exists because the sandbox home is deliberately not agent-writable at its root, and the fragment states
-the mechanism beside each pin:
+`session-env.d/claude-code.pins.env.sh` is sourced into **every** session of the account while claude-code is enabled —
+a codex session included, so a claude child started inside one finds its state directory ([launch](launch.rule.md)) —
+after every enabled integration, so the pins are authoritative over an integration's. Each exists because the sandbox
+home is deliberately not agent-writable at its root, and the file states the mechanism beside each pin:
 
 - **`CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude`** — the one directory where Claude Code's write-then-rename
   of `.claude.json` succeeds (`3770`, setgid+sticky; the `2751` home root refuses the rename).
@@ -234,6 +249,11 @@ the mechanism beside each pin:
 - **`DISABLE_AUTOUPDATER=1`** — the Node tree is read-only to the session under the SELinux policy (and sandbox-owned
   under DAC, per [Distribution channel](#distribution-channel)), so a self-update cannot write the npm prefix;
   the `nvm-update` timer maintains it out of band ([updater](updater.rule.md)).
+
+`session-env.d/claude-code.env.sh` is the agent's fragment, sourced last and into claude-code sessions alone: it carries
+the [custom API endpoint](#custom-api-endpoint-claude-endpointlibsh), a bearer token among its options, and the [custom
+system prompt](#custom-system-prompt-claude-promptlibsh) check. That is why the pins are a file of their own — sourcing
+the fragment into every agent's session would route the token there, the split [providers](providers.rule.md) states.
 
 ## Distribution channel
 
@@ -261,8 +281,8 @@ Two properties of the current channel shape the design:
 - **A `.rpmnew` for `settings.json` leaves a newly shipped hook installed but uninvoked.** It is `%config(noreplace)`
   for the same reason `operator.conf` is — a dormant option is recoverable, a silently reverted setting is not (see
   [providers](providers.rule.md), [claude-settings](claude-settings.rule.md)).
-- **The wrapper's `-L` test is not interchangeable with `-e`.** `-e` dereferences the whole chain into the `700` package
-  directory, so a perfectly valid link reports "not found" to the operator.
+- **The gate library's `-L` test is not interchangeable with `-e`.** `-e` dereferences the whole chain into the `700`
+  package directory, so a perfectly valid link reports "not found" to the operator.
 
 ## Deferred
 

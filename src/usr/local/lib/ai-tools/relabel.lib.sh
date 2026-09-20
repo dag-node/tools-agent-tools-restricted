@@ -50,8 +50,10 @@ readonly AI_TOOLS_ENTRYPOINT_TYPE="ai_tools_exec_t"
 # so the confined domain may write its session state there.
 readonly AI_TOOLS_AGENT_CONFIG_TYPE="ai_tools_home_t"
 # The one tree an agent entrypoint may live in -- the sandbox's own Node toolchain. Every declared pattern is checked
-# against it (ai_tools_entrypoint_fcontext_valid).
-readonly AI_TOOLS_ENTRYPOINT_ROOT="/opt/ai-tools/.nvm/versions/node"
+# against it through ai_tools_entrypoint_fcontext_valid (providers.lib.sh), which takes the root as an argument
+# so the two writers of the launcher chain hold a pattern to the same containment before they write a link to what it
+# covers.
+readonly AI_TOOLS_NODE_VERSIONS_ROOT="/opt/ai-tools/.nvm/versions/node"
 # The locked control-plane directory holding every agent's stable launcher symlink. Resolving through it is how this
 # library learns where a package actually PUT its executable, rather than only where a manifest says it is
 # (ai_tools_agent_entrypoint_path). Root-only test hook, the same posture as providers.lib.sh's manifest directories:
@@ -59,10 +61,11 @@ readonly AI_TOOLS_ENTRYPOINT_ROOT="/opt/ai-tools/.nvm/versions/node"
 # of these names.
 : "${AI_TOOLS_LAUNCHER_DIR:=/opt/ai-tools/bin}"
 
-# Which agents are enabled and what each declares comes from the provider manifests; the home root, the config-directory
-# contract, and its name validator come from control-plane.lib.sh (which loads providers itself). Both best-effort:
-# without them the agent functions refuse (they resolve no agent), while the project functions -- which need neither --
-# keep working.
+# Which agents are enabled and what each declares, and the containment predicate every declared entrypoint pattern
+# passes, come from the provider manifests' reader; the home root, the config-directory contract, and its name validator
+# come from control-plane.lib.sh (which loads providers itself). Both best-effort: without them the agent functions
+# refuse (they resolve no agent, and a predicate that is not defined reads as a refusal at each call), while the project
+# functions -- which need neither -- keep working.
 # shellcheck source=SCRIPTDIR/providers.lib.sh
 source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null || true
 # shellcheck source=SCRIPTDIR/control-plane.lib.sh
@@ -279,27 +282,10 @@ ai_tools_unlabel_project() {
 #                                            home root is usr_t, which ai_tools_t may not write).
 #
 # The base pins the TYPES here; a manifest chooses only which path is which, and each declaration is checked to be
-# containable -- the entrypoint pattern under the sandbox toolchain, the config directory to one component
-# under the sandbox home. So a second agent brings its binary and its state directory into this policy without the base
-# policy naming either.
-
-# ai_tools_entrypoint_fcontext_valid <pattern>: pure check, no I/O -- succeed when <pattern> is a
-#   file-context regex that can only ever match inside the sandbox toolchain. Two conditions,
-#   both required, because the type it will be given is an exec entrypoint of the confined
-#   domain: with its backslash escapes removed the pattern must start with the toolchain root
-#   (so the literal head is anchored there), and it must contain no `|`, `(`, or other
-#   metacharacter that could match a path outside that head. Character classes, `*`, `+`, `.`,
-#   and escapes are what a path pattern needs and all it gets.
-ai_tools_entrypoint_fcontext_valid() {
-    # Path characters, character classes, `*`, `+`, `.` and escapes -- no `|`, no `(`, no `$`, no whitespace. `]` leads
-    # the set and `-` closes it, the POSIX way to include both.
-    local allowed='^[]A-Za-z0-9_./@+*^[\-]+$'
-    local pattern="${1:-}" plain="${1//\\/}"
-    [[ -n "${pattern}" ]] || return 1
-    [[ "${pattern}" =~ ${allowed} ]] || return 1
-    [[ "${pattern}" != *..* ]] || return 1
-    [[ "${plain}" == "${AI_TOOLS_ENTRYPOINT_ROOT}/"* ]]
-}
+# containable -- the entrypoint pattern under the sandbox toolchain (ai_tools_entrypoint_fcontext_valid,
+# providers.lib.sh, called with AI_TOOLS_NODE_VERSIONS_ROOT), the config directory to one component under the sandbox
+# home (ai_tools_agent_config_dir_valid, control-plane.lib.sh). So a second agent brings its binary and its state
+# directory into this policy without the base policy naming either.
 
 # _ai_tools_entrypoint_path_reportable <path>: succeed when <path> may be put in a status line.
 #   The paths this pass reconciles are AGENT-INFLUENCED -- the middle link of the launcher chain is an
@@ -408,7 +394,7 @@ _ai_tools_agent_config_pattern() {
 #   regex, so the set relabelled here is the set the rule governs -- no second pattern language.
 #   The walk is rooted at the toolchain (never `/`) and runs on a relabel, not on a launch.
 _ai_tools_entrypoint_paths() {
-    find "${AI_TOOLS_ENTRYPOINT_ROOT}" -xdev -regextype posix-extended \
+    find "${AI_TOOLS_NODE_VERSIONS_ROOT}" -xdev -regextype posix-extended \
          -regex "$1" -type f 2>/dev/null
 }
 
@@ -475,9 +461,9 @@ _ai_tools_label_agent_entrypoint() {
         printf 'skip %s declares no entrypoint_fcontext\n' "${agent}"
         return 0
     fi
-    if ! ai_tools_entrypoint_fcontext_valid "${pattern}"; then
+    if ! ai_tools_entrypoint_fcontext_valid "${pattern}" "${AI_TOOLS_NODE_VERSIONS_ROOT}"; then
         printf 'skip %s entrypoint_fcontext is not a plain path pattern under %s\n' \
-            "${agent}" "${AI_TOOLS_ENTRYPOINT_ROOT}"
+            "${agent}" "${AI_TOOLS_NODE_VERSIONS_ROOT}"
         return 1
     fi
     if ! _ai_tools_fcontext add f "${AI_TOOLS_ENTRYPOINT_TYPE}" "${pattern}"; then
@@ -584,7 +570,7 @@ ai_tools_unlabel_agent_paths() {
     declare -F ai_tools_agent_manifest_field >/dev/null 2>&1 || return 2
 
     pattern="$(ai_tools_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
-    if ai_tools_entrypoint_fcontext_valid "${pattern}"; then
+    if ai_tools_entrypoint_fcontext_valid "${pattern}" "${AI_TOOLS_NODE_VERSIONS_ROOT}"; then
         _ai_tools_fcontext delete f "${AI_TOOLS_ENTRYPOINT_TYPE}" "${pattern}"
         while IFS= read -r path; do
             restorecon -F "${path}" 2>/dev/null || true

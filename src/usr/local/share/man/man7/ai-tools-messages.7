@@ -106,9 +106,17 @@ not a claimed project: ${d}
 ERROR.
 the parent directory does not exist: ${parent}
 .TP
+.B MSG-J4P9
+ERROR.
+a value is required after ${flag}
+.TP
 .B MSG-K5Y4
 ERROR.
 this path is inside a claimed project, not a project itself: ${d}
+.TP
+.B MSG-K7A6
+ERROR.
+no agent is enabled or resolved, so there is no agent to provision a project for \-\- ${reason}
 .TP
 .B MSG-K7D9
 ERROR.
@@ -182,6 +190,10 @@ ERROR.
 ERROR.
 this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}.
 .TP
+.B MSG-V3N7
+ERROR.
+the provider resolver is unavailable: ${ENABLED_AGENTS_ERROR}
+.TP
 .B MSG-W3H3
 ERROR.
 not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d}
@@ -203,6 +215,14 @@ this is an excluded path inside a claimed project, not a disabled project: ${d}
 .B MSG-X6U2
 ERROR.
 you (${INVOKING_USER}) are not a configured ai\-tools operator \-\- add your name to OPERATORS in ${conf} with:
+.TP
+.B MSG-X9H7
+ERROR.
+the sandbox is not provisioned for any enabled agent: ${joined%, } \-\- provision it with:
+.TP
+.B MSG-Z5V5
+ERROR.
+a value is required after ${flag}, not another option: $1
 .TP
 .B MSG-Z6Q6
 ERROR.
@@ -323,7 +343,7 @@ cannot label ${cfg}: ${RELABEL_LIB} did not load \-\- reinstall ai\-tools\-base
 .TP
 .B MSG-H5Z4
 ERROR.
-system bootstrap: unknown argument '$1' (\-\-scope minimal|full)
+system bootstrap: unknown argument '$1' (\-\-scope minimal|full, \-\-agents NAME[,NAME...])
 .TP
 .B MSG-H6J5
 ERROR.
@@ -372,6 +392,10 @@ could not create ${cfg} at 700 ${user}:${group}
 .B MSG-N3T7
 WARNING.
 could not label ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}${AI_TOOLS_FCONTEXT_ERROR:+ \-\- ${AI_TOOLS_FCONTEXT_ERROR}}
+.TP
+.B MSG-N4H9
+ERROR.
+could not write OPERATORS into ${OPERATOR_CONF} \-\- the enrolment is incomplete; check the file and re\-run
 .TP
 .B MSG-P2T5
 ERROR.
@@ -504,6 +528,10 @@ semodule failed to load ${pp}
 .B MSG-W8A7
 ERROR.
 selinux groups disable: one group name at a time
+.TP
+.B MSG-X8K6
+ERROR.
+system bootstrap: \-\-agents takes a value (NAME[,NAME...])
 .TP
 .B MSG-X9F8
 WARNING.
@@ -732,6 +760,14 @@ ERROR.
 no operators configured \-\- run: sudo ai\-tools\-admin operators add <user>
 .SS ai-tools-audit
 .TP
+.B MSG-C6E6
+NOTICE.
+no audit daemon on this host, so an agent started from inside a session leaves no kernel record
+.TP
+.B MSG-H2B5
+WARNING.
+an agent entrypoint was started from inside a running session, which no launch gate saw
+.TP
 .B MSG-K9C5
 ERROR.
 ai\-tools\-audit must run as root: the trail it reads is 700 root:root
@@ -747,6 +783,10 @@ unknown option: $1
 .B MSG-T3T7
 WARNING.
 cannot load ${LOG_LIB} \-\- refusing to print log text unsanitized
+.TP
+.B MSG-V8Z9
+NOTICE.
+the SELinux rule that records an agent started from inside a session is not in force, so no such start is recorded
 .TP
 .B MSG-Y3M7
 ERROR.
@@ -764,6 +804,10 @@ entrypoint relabel did not complete \-\- run 'sudo ai\-tools\-admin system entry
 .B MSG-C8M9
 WARNING.
 could not start nvm\-update.timer (${_start_out:\-no output}) \-\- start it after the control plane is installed
+.TP
+.B MSG-C8W2
+NOTICE.
+AI_TOOLS_AGENTS names more than one agent ($*): every agent named runs as the one sandbox account, so a login or token one agent stores and the session history it keeps are readable by every session of every agent named, and a session of one can start another's binary inside itself \-\- see AI_TOOLS_AGENTS in operator.conf(5)
 .TP
 .B MSG-D9D3
 ERROR.
@@ -785,9 +829,17 @@ could not verify npm signatures (offline or unsupported) \-\- proceeding; the to
 ERROR.
 control plane present but ${cplib} does not resolve the agents' config dirs
 .TP
+.B MSG-J3E6
+ERROR.
+could not write AI_TOOLS_AGENTS=\e"$*\e" into ${AI_TOOLS_OPERATOR_CONF} \-\- set the line by hand, then re\-run: sudo ai\-tools\-admin system bootstrap
+.TP
 .B MSG-K2D4
 ERROR.
 operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox
+.TP
+.B MSG-M2N6
+ERROR.
+\-\-agents names an agent with no installed manifest: ${unknown[*]} (installed: ${installed_names[*]:\-none}) \-\- install its ai\-tools\-agents\-* package, then re\-run; nothing was written
 .TP
 .B MSG-P9Q6
 WARNING.
@@ -808,6 +860,10 @@ could not enable linger for ${SANDBOX_USER} (${_linger_out:\-no output})
 .B MSG-W8X8
 ERROR.
 invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)
+.TP
+.B MSG-X3M9
+WARNING.
+no agent chosen \-\- provisioning Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF}, or pass \-\-agents NAME, then re\-run: sudo ai\-tools\-admin system bootstrap
 .TP
 .B MSG-X7Z2
 ERROR.
@@ -835,9 +891,21 @@ WARNING.
 FATAL: owner\-only.lib.sh defines no residue strip
 .SS ai-tools-launcher-symlink
 .TP
+.B MSG-D4X6
+ERROR.
+the ${agent_name} manifest ${fcontext_refusal}, so ${resolved} would carry no entrypoint label \-\- refusing to repoint ${LINK}
+.TP
+.B MSG-D9K2
+ERROR.
+not a stable launcher path under ${BIN_DIR}: ${TARGET}
+.TP
 .B MSG-G4F4
 ERROR.
 no enabled agent provides the launcher \e"${LAUNCHER}\e" \-\- refusing to repoint ${LINK}
+.TP
+.B MSG-P2R8
+ERROR.
+target does not resolve to an executable file inside ${version_dir} (it resolves to ${resolved}) \-\- refusing to repoint ${LINK}
 .TP
 .B MSG-Q9M3
 ERROR.
@@ -845,11 +913,15 @@ the launcher directory is missing: ${BIN_DIR}
 .TP
 .B MSG-R6K3
 ERROR.
-cannot resolve the enabled agents (${PROVIDERS_LIB}) \-\- refusing to repoint ${LINK}
+cannot resolve the enabled agents (${PROVIDERS_LIB}) \-\- refusing to change ${LINK}
 .TP
 .B MSG-T8B9
 ERROR.
 target does not exist: ${TARGET}
+.TP
+.B MSG-U2A7
+ERROR.
+refusing to remove ${LINK}: ${remove_refusal}
 .TP
 .B MSG-W5K8
 ERROR.
@@ -999,6 +1071,10 @@ wrong type on ${subject}: it is '${detail}', NOT ${wanted}
 WARNING.
 entrypoint verifier unavailable (${ENTRYPOINT_VERIFY_LIB}) \-\- entrypoints will not be pinned
 .TP
+.B MSG-K4D7
+WARNING.
+could not record ${agent}'s stale pin for ai\-tools status \-\- the reports will render its pin as current
+.TP
 .B MSG-M2M5
 ERROR.
 a stale declaration stops this relabel: ${stale} agent(s) install their entrypoint where their manifest no longer says, so it cannot be labelled; update the agent package (dnf update 'ai\-tools\-agents\-*'), then rerun
@@ -1006,6 +1082,10 @@ a stale declaration stops this relabel: ${stale} agent(s) install their entrypoi
 .B MSG-M3E7
 ERROR.
 must run as root (via sudo)
+.TP
+.B MSG-M6C3
+WARNING.
+could not write the observed pin for ${agent} at ${version}
 .TP
 .B MSG-N9B9
 ERROR.
@@ -1023,9 +1103,13 @@ relabel.lib.sh is incomplete \-\- reinstall ai\-tools\-base
 ERROR.
 usage: ai\-tools\-relabel\-agent [\-\-remove <agent\-name>]
 .TP
+.B MSG-U6H8
+WARNING.
+the ${agent} entrypoint changed under an unchanged version ${version} \-\- leaving the pin as it is, so the next session refuses to start
+.TP
 .B MSG-W6V4
 ERROR.
-treat the toolchain as tampered: ${pin_failures} agent entrypoint(s) do NOT match the checksum their vendor signed for the installed version; reprovision it (sudo ai\-tools\-admin system bootstrap) and, if it recurs, investigate before launching a session
+treat the toolchain as tampered: ${pin_failures} agent entrypoint(s) no longer match the checksum recorded for the installed version; the pin is left as it was, so their sessions refuse to start \-\- replace each binary with the two commands printed above, and investigate before launching a session
 .TP
 .B MSG-W8N5
 WARNING.
@@ -1062,7 +1146,7 @@ AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR}
 .TP
 .B MSG-H7S2
 ERROR.
-the agent entrypoint does not match the checksum its vendor signed for the installed version \-\- refusing to start the session
+the agent entrypoint does not match its recorded checksum \-\- refusing to start the session
 .TP
 .B MSG-N4P3
 ERROR.
@@ -1222,45 +1306,9 @@ WARNING.
 left ${hardlinked} hardlinked file(s) untouched \-\- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with
 .SS claude
 .TP
-.B MSG-C7C9
+.B MSG-R3Q4
 ERROR.
-claude: ${_user} is not an ai\-tools operator \-\- not a member of the ${OPERATORS_GROUP} group
-.TP
-.B MSG-C9S6
-ERROR.
-claude: approved\-projects allowlist not found
-.TP
-.B MSG-K8K2
-ERROR.
-claude: $(pwd): excluded by '!' rule in approved projects list
-.TP
-.B MSG-N2Z7
-ERROR.
-claude: no session started \-\- ${cwd} is not set up for the agent.
-.TP
-.B MSG-N8Q4
-ERROR.
-claude: this is the sandbox account ${SANDBOX_USER}, which is not an ai\-tools operator
-.TP
-.B MSG-R2V6
-ERROR.
-claude: $(pwd): this project is disabled in your approved projects list
-.TP
-.B MSG-R7Z3
-ERROR.
-claude: ${_user} is an ai\-tools operator, but this shell started before the grant
-.TP
-.B MSG-S4B3
-ERROR.
-ERROR: claude symlink not found at ${CLAUDE_LINK}
-.TP
-.B MSG-U6A9
-ERROR.
-claude: cannot load the launch safety library \-\- refusing to start
-.TP
-.B MSG-W2P3
-ERROR.
-claude: $(pwd): excluded by '!' rule in approved projects list
+claude: cannot load the launch gate library \-\- refusing to start
 .SS conf.lib.sh
 .TP
 .B MSG-F9W4
@@ -1516,15 +1564,121 @@ test suite reported failures \-\- review the output above
 .B MSG-Z3H8
 WARNING.
 could not remove ${SCRIPT_DIR} from ${allowlist} \-\- it is still registered
+.SS launch-wrapper.lib.sh
+.TP
+.B MSG-B6G2
+ERROR.
+the launch gates did not run \-\- refusing to start
+.TP
+.B MSG-C2M7
+ERROR.
+cannot load the config library \-\- refusing to start
+.TP
+.B MSG-C7C9
+ERROR.
+not an ai\-tools operator \-\- ${user} is not a member of the ${OPERATORS_GROUP} group
+.TP
+.B MSG-C9S6
+ERROR.
+approved\-projects allowlist not found
+.TP
+.B MSG-G8R4
+ERROR.
+resolved path '${AI_TOOLS_LAUNCH_EXEC}' contains parent\-directory references
+.TP
+.B MSG-H4E2
+ERROR.
+no session starts while a disabled agent's package is still in the sandbox toolchain: ${joined%, }
+.TP
+.B MSG-K8K2
+ERROR.
+excluded by '!' rule in approved projects list: $(pwd)
+.TP
+.B MSG-N2Z7
+ERROR.
+no session started \-\- ${cwd} is not set up for the agent.
+.TP
+.B MSG-N5S2
+WARNING.
+the sandbox account cannot read ${#unreadable[@]} configuration file(s) above this project, which an installed toolchain reads for a build here \-\- a build that reads one fails on it, naming a path outside the project
+.TP
+.B MSG-N8Q4
+ERROR.
+this is the sandbox account ${SANDBOX_USER}, which is not an ai\-tools operator
+.TP
+.B MSG-R2V6
+ERROR.
+this project is disabled in your approved projects list: $(pwd)
+.TP
+.B MSG-R7Z3
+ERROR.
+this shell started before the grant \-\- ${user} is an ai\-tools operator per the group database
+.TP
+.B MSG-S3K2
+ERROR.
+resolved path '${AI_TOOLS_LAUNCH_EXEC}' is not an approved ai\-tools binary
+.TP
+.B MSG-S4B3
+ERROR.
+launcher symlink not found at ${launcher_link}
+.TP
+.B MSG-S5Y9
+ERROR.
+cannot read the launcher symlink ${launcher_link} \-\- reinstall or run nvm\-update.sh
+.TP
+.B MSG-S8D9
+ERROR.
+cannot resolve working directory
+.TP
+.B MSG-U6A9
+ERROR.
+cannot load the launch safety library \-\- refusing to start
+.TP
+.B MSG-U9K8
+ERROR.
+cannot load the toolchain library \-\- refusing to start
+.TP
+.B MSG-W2P3
+ERROR.
+excluded by '!' rule in approved projects list: $(pwd)
+.TP
+.B MSG-W4X4
+ERROR.
+refusing to launch \-\- ${cwd} is not fully claimed for the sandbox
+.SS nvm-update
+.TP
+.B MSG-G4Q2
+WARNING.
+could not remove ${AI_TOOLS_BIN}/${launcher} via handback SYMLINK_REMOVE \-\- the ${agent} package is gone and every launch stays refused until the link is; remove it as root: rm \-f ${AI_TOOLS_BIN}/${launcher}
 .SS providers.lib.sh
+.TP
+.B MSG-A3S3
+WARNING.
+could not write ${link} \-> ../${target} \-\- leaving the launcher as it was
+.TP
+.B MSG-C4F6
+WARNING.
+refusing the launcher target for ${launcher}: ${target} does not resolve to an executable file inside ${version_dir}${resolved:+ (it resolves to ${resolved})} \-\- leaving ${link} as it is
 .TP
 .B MSG-C4F9
 WARNING.
 ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") \-\- using the default\-enabled providers only
 .TP
+.B MSG-F5U2
+WARNING.
+refusing the launcher target for ${launcher}: ${reason}, so the file would carry no entrypoint label \-\- leaving ${link} as it is
+.TP
+.B MSG-J5C3
+WARNING.
+refusing the launcher target for ${launcher}: $(printf '%q' "${target}") is not a relative path inside the version directory \-\- leaving ${link} as it is
+.TP
 .B MSG-M3A5
 WARNING.
-skipping agent ${agent_name}: ${manifest_file} $(ai_tools_conf_untrusted_reason "${manifest_file}")
+skipping agent $1: $2 $(ai_tools_conf_untrusted_reason "$2")
+.TP
+.B MSG-N4W6
+WARNING.
+skipping the managed file $(printf '%q' "${path}") of ${agent}: ${reason}
 .TP
 .B MSG-N9X8
 WARNING.
@@ -1538,6 +1692,14 @@ providers.lib.sh: conf.lib.sh missing or incomplete \-\- no providers resolved
 WARNING.
 refusing every ${conf_key} provider: ${dir} $(ai_tools_conf_untrusted_reason "${dir}")
 .TP
+.B MSG-W4H3
+WARNING.
+refusing to re\-link ${link}: it is not a symlink \-\- leaving it as it is
+.TP
+.B MSG-X7C4
+WARNING.
+could not retire the managed file ${live} \-\- leaving it as it is
+.TP
 .B MSG-X8P4
 WARNING.
 enabled with nothing installed: $(printf '%q' "${requested_name}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} \-\- install its ai\-tools package or remove it; skipping
@@ -1546,6 +1708,27 @@ enabled with nothing installed: $(printf '%q' "${requested_name}") is enabled in
 .B MSG-Q6H3
 ERROR.
 Refusing the ${operation}: the target is a protected system directory.
+.SS toolchain.lib.sh
+.TP
+.B MSG-G4M8
+NOTICE.
+removed the ${agent} package from the sandbox toolchain, and left its state directory ${config_dir:+/opt/ai\-tools/${config_dir} }in place \-\- a login or token it stored and the history it kept are readable by every session of every enabled agent until you move that directory out of the sandbox account's reach
+.TP
+.B MSG-J5W4
+WARNING.
+cannot remove $(printf '%q' "${npm_package}") from $(printf '%q' "${version_dir}"): not an npm package name in a version directory \-\- leaving the toolchain as it is
+.TP
+.B MSG-X2B7
+WARNING.
+deferring the removal of ${npm_package} from ${version_dir##*/}: a live session executes from it \-\- it is removed on the next provisioning or update run, and no session starts until then
+.TP
+.B MSG-X7Z9
+WARNING.
+refusing to remove ${npm_package} from ${version_dir##*/}: ${name} is enabled in AI_TOOLS_AGENTS \-\- leaving it as it is
+.TP
+.B MSG-X8F9
+WARNING.
+could not remove ${package_dir} (npm uninstall left it in place) \-\- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re\-run: sudo ai\-tools\-admin system bootstrap
 .SH SEE ALSO
 .BR ai-tools (1),
 .BR ai-tools-admin (8),

@@ -17,7 +17,7 @@
 #   which drops sudo's SUID bit).
 #
 # Installed 750 root:root, so only root runs it. Deploying from a checkout:
-# docs/install-from-source.md.
+# docs/install/from-source.md.
 
 set -euo pipefail
 

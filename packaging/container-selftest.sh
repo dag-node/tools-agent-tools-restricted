@@ -126,8 +126,10 @@ phase "ai-tools-selinux ships exactly the derived policy module set" \
 # ── toolchain provisioning (network) ─────────────────────────────────────────
 # Run at runtime, not build: under a live systemd, bootstrap enables the sandbox account's linger
 # and the nvm-update.timer in its own `--user instance`. Idempotent (reuses an existing nvm/Node), so a re-run is cheap.
+# No agent ships enabled and this run has no terminal to choose one on, so the agent the later phases launch is named
+# here through the unattended form, which writes AI_TOOLS_AGENTS before the toolchain is installed.
 phase "system bootstrap (nvm + Node + claude; linger + timer)" \
-    ai-tools-admin system bootstrap
+    ai-tools-admin system bootstrap --agents claude-code
 
 phase "claude launcher symlink resolves to the nvm-installed binary" \
     bash -c 'test -L /opt/ai-tools/bin/claude && readlink -f /opt/ai-tools/bin/claude | grep -q "/versions/node/"'

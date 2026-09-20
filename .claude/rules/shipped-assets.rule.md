@@ -124,6 +124,24 @@ declaring no `skills_dir` is given no skills.
 and reads the file beneath, which follows links transparently; `tests/integration/perms.sh` asserts a shipped asset
 of each kind arrives as a link, so a regression to per-agent copies (which would silently fork the content) fails there.
 
+### Linking a whole kind at a path outside the agent (`ai_tools_link_shared_root`)
+
+An agent may read a kind from one fixed path outside its config directory rather than from a directory the manifest
+names inside it — codex reads skills at its admin scope, `/etc/codex/skills` — and that path is one a host may already
+hold, with its own skills in it. `ai_tools_link_shared_root <shared_root> <path> <group> [readme_source]` points such
+a path at the shared root without displacing anything, on the state the path is in: **absent** → a symlink to the shared
+root; **a symlink to the shared root** → current; **a symlink elsewhere** → the host's, left alone and reported; **a
+real directory** → the host's own assets, kept exactly as they are (owner, mode and entries untouched), with the shared
+assets linked into it one per free name and a name the host holds left to the host and reported — the per-asset rule
+of `ai_tools_link_shared_assets`, minus the repointing of a link, which inside a host-owned directory the linker leaves
+to the host; **a regular file** → kept and reported. A link into the shared root whose asset no longer ships is removed,
+as the per-agent linker removes it; the kind's README is linked only under a free name. The reverse for a package being
+erased, `ai_tools_unlink_shared_root`, removes the link to the shared root or the managed links inside the host's
+directory and no other entry. Neither function re-owns or re-modes what it finds, and the relabel that follows a link
+covers the links that run placed rather than the directory holding them, so what a host put there keeps its own label
+too — which is also what lets `tests/unit/shared-root.sh` drive every state without root. Which agent takes this shape,
+and why the path is not in that package's file list, is in [agent-codex](agent-codex.rule.md).
+
 ## Namespace
 
 Every shipped asset's name is prefixed `ai-tools-`: an agent's filename and `name:` frontmatter, and a skill's directory

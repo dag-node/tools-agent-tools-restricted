@@ -54,7 +54,7 @@ umask 022
 
 readonly CLI="/usr/local/bin/ai-tools"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
-readonly CLAUDE_LINK="/opt/ai-tools/bin/claude"
+readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 readonly FOR_USER="nobody"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SPELLING="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/cli-spelling.sh"
@@ -66,7 +66,18 @@ TRACE_BASE="${AI_TOOLS_CLI_FLAGS_TRACE:-}"; TRACE=""
 section "ai-tools: every command and option, by effect (integration)"
 
 if [[ ! -x "${CLI}" ]]; then skip "cli flags" "not installed at ${CLI}"; finish; exit; fi
-if [[ ! -L "${CLAUDE_LINK}" ]]; then skip "cli flags" "host not provisioned (no ${CLAUDE_LINK}); the CLI's bootstrap gate refuses"; finish; exit; fi
+# provisioned_agent : succeed when any enabled agent's stable launcher symlink exists -- the read the CLI's bootstrap
+# gate makes, through the same resolver, so every gated row would refuse where this fails. In a child shell, since
+# the resolver pulls conf.lib.sh, which this file sources itself once the skips are passed.
+provisioned_agent() {
+    bash -c 'source "$1" 2>/dev/null || exit 1
+        declare -F ai_tools_enabled_agents >/dev/null 2>&1 || exit 1
+        while read -r _ _ launcher; do
+            [[ -L "/opt/ai-tools/bin/${launcher}" ]] && exit 0
+        done < <(ai_tools_enabled_agents 2>/dev/null)
+        exit 1' _ "${PROVIDERS_LIB}"
+}
+if ! provisioned_agent; then skip "cli flags" "host not provisioned (no enabled agent has a launcher symlink under /opt/ai-tools/bin); the CLI's bootstrap gate refuses"; finish; exit; fi
 if [[ ! -r "${CONF_LIB}" ]]; then skip "cli flags" "no ${CONF_LIB} to read registry state with"; finish; exit; fi
 if ! command -v runuser >/dev/null 2>&1; then skip "cli flags" "runuser unavailable"; finish; exit; fi
 if ! getent passwd "${FOR_USER}" >/dev/null 2>&1; then skip "cli flags" "no ${FOR_USER} account for the --for rows"; finish; exit; fi
@@ -112,7 +123,7 @@ make_fixtures() {
     N_C4="$(ai_test_name c4)"; N_C5="$(ai_test_name c5)"
     declare -gA N_CL=([077]="$(ai_test_name clone-077)" [027]="$(ai_test_name clone-027)")
     SRC="${R}/${N_SRC}"
-    printf 'OPERATORS="%s %s"\n' "${PROJECTS_USER}" "${FOR_USER}" > "${CONF}"; chmod 0644 "${CONF}"
+    mk_operator_conf "${CONF}" "${PROJECTS_USER}" "${FOR_USER}"
     : > "${AL}"; : > "${FOR_AL}"; : > "${GC}"
     mkdir -p "${SBROOT}"
     for d in pa pb pc pd pe pf pg plain unreg parent/p1 parent/p2 hold/inner for1 for2; do
@@ -142,6 +153,8 @@ make_fixtures() {
     # where the claim's secret scan then fails to enter the tree.
     chmod -R u+rwX,go+rX "${R}"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}"
+    # The operator.conf fixture stays root's: the gate honours its AI_TOOLS_AGENTS line in a trusted file alone.
+    chown root:root "${CONF}"
     # The `--for` target must own the tree a claim for it acts on (the claim's owner rule).
     chown -R "${FOR_USER}:${FOR_GROUP}" "${R}/for1" "${R}/for2"
     # An unregistered tree carrying the ai-tools fingerprint: the sandbox group.

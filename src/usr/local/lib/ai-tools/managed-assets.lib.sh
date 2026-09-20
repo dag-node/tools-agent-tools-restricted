@@ -4,8 +4,10 @@
 # Seeds the ai-tools-managed shared assets into their shared roots and links them into each agent that reads them.
 # The kinds are AI_TOOLS_ASSET_KINDS. Each is seeded ONCE into /opt/ai-tools/<kind>, and every agent whose manifest
 # names a directory for that kind gets a SYMLINK per asset (ai_tools_link_shared_assets); the orientation text is linked
-# under the filename the agent's manifest names (ai_tools_link_agent_memory). One file to author and update, however
-# many agents read it. A managed asset is one whose name matches the kind's glob AND whose frontmatter carries
+# under the filename the agent's manifest names (ai_tools_link_agent_memory); an agent that reads a whole kind from one
+# fixed path outside its config directory (codex's /etc/codex/skills) gets that path pointed at the shared root without
+# displacing what the host holds there (ai_tools_link_shared_root). One file to author and update, however many agents
+# read it. A managed asset is one whose name matches the kind's glob AND whose frontmatter carries
 # `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the operator authored is never claimed
 # or overwritten. Seeded copies are root:SANDBOX_GROUP (files 640, dirs 750): the agent reads and invokes them
 # and cannot rewrite one. `x-ai-tools-version` is a monotonic integer bumped once per release, and a newer shipped
@@ -332,7 +334,7 @@ ai_tools_link_shared_assets() {
     done
 
     # Drop links into the shared root whose skill no longer ships, so a removed skill does not leave a dangling entry
-    # the agent would try to read. A link pointing anywhere else is not ours and is left alone.
+    # the agent would try to read. A link pointing anywhere else is the host's and is left alone.
     for dst in "${agent_dir}"/*; do
         [[ -L "${dst}" ]] || continue
         src="$(readlink -- "${dst}")"
@@ -386,5 +388,125 @@ ai_tools_link_asset_readme() {
     [[ -n "${readme_source}" && -e "${readme_source}" && -d "${target_dir}" ]] || return 0
     ln -sfn "${readme_source}" "${target_dir}/README.md"
     chown -h "root:${group}" "${target_dir}/README.md" 2>/dev/null || :
+    return 0
+}
+
+# ai_tools_link_shared_root <shared_root> <path> <group> [readme_source] Point a path an agent reads a whole asset kind
+# from -- one fixed path outside its config directory, such as codex's admin-scope skills directory /etc/codex/skills --
+# at the shared root, without displacing what the host holds there. The path's state decides, and every state
+# but the first leaves what the host placed exactly as it was:
+#   * absent                                  -> a symlink to the shared root, reported as created
+#   * a symlink to the shared root            -> managed; current, left alone
+#   * a symlink anywhere else                 -> the host's; left alone and reported, no link placed
+#   * a real directory                        -> the host's own assets; kept as it is (owner, mode and entries
+#                                                untouched), and the shared assets linked INTO it one per free name.
+#                                                A name the host already holds -- a file, a directory, a link
+#                                                elsewhere -- is left to the host and reported; a link into the shared
+#                                                root whose asset no longer ships is removed, as the per-agent linker
+#                                                removes it. The kind's README is linked only under a free name.
+#   * a regular file                          -> kept and reported; no link placed
+# The predicate for a managed link is its target: the shared root itself, or a path under it. Idempotent; a refresh
+# reports a current link as current. The links are root-owned, so a session reads what the operator installed and cannot
+# repoint one; the directory's own owner, mode and label are never rewritten -- a relabel covers the links this run
+# placed and no other entry -- which is what lets an unprivileged caller drive every state (the unit test)
+# and what keeps a host-owned directory the host's.
+ai_tools_link_shared_root() {
+    local shared_root="$1" path="$2" group="$3" readme_source="${4:-}"
+    local name="${path##*/}" target src entry dst
+    local -a placed=()
+    [[ -d "${shared_root}" ]] || return 0
+    if [[ -L "${path}" ]]; then
+        target="$(readlink -- "${path}")"
+        if [[ "${target}" == "${shared_root}" ]]; then
+            _ai_tools_ma_say "${name} current (a link to ${shared_root})"
+        else
+            _ai_tools_ma_say "${name} kept (the host's own link to ${target}; the shared assets are not linked)"
+        fi
+        return 0
+    fi
+    if [[ -d "${path}" ]]; then
+        _ai_tools_ma_say "${name} is the host's own directory: kept, the shared assets linked into it"
+        for src in "${shared_root}"/*; do
+            [[ -e "${src}" ]] || continue                # no matches -> literal pattern, skip
+            entry="${src##*/}"
+            [[ "${entry}" == README.md ]] && continue
+            dst="${path}/${entry}"
+            if [[ -L "${dst}" ]]; then
+                target="$(readlink -- "${dst}")"
+                if [[ "${target}" == "${src}" ]]; then
+                    continue
+                fi
+                _ai_tools_ma_say "${entry} kept (the host's own link to ${target})"
+            elif [[ -e "${dst}" ]]; then
+                _ai_tools_ma_say "${entry} kept (a real entry here wins over the shared one)"
+            else
+                ln -s "${src}" "${dst}"
+                chown -h "root:${group}" "${dst}" 2>/dev/null || :
+                placed+=( "${dst}" )
+                _ai_tools_ma_say "${entry} linked -> ${src}"
+            fi
+        done
+        # A link into the shared root whose asset no longer ships is managed and dangling: drop it, as the per-agent
+        # linker does. A link anywhere else is the host's and is left alone whatever it points at.
+        for dst in "${path}"/*; do
+            [[ -L "${dst}" ]] || continue
+            target="$(readlink -- "${dst}")"
+            [[ "${target}" == "${shared_root}/"* && ! -e "${target}" ]] || continue
+            rm -f "${dst}"
+            _ai_tools_ma_say "${dst##*/} link removed (no longer shipped)"
+        done
+        if [[ -n "${readme_source}" && -e "${readme_source}" && ! -e "${path}/README.md" && ! -L "${path}/README.md" ]]; then
+            ln -s "${readme_source}" "${path}/README.md"
+            chown -h "root:${group}" "${path}/README.md" 2>/dev/null || :
+            placed+=( "${path}/README.md" )
+        fi
+        # The relabel takes the array this run appended a link to, never the directory: a `-R` here would relabel every
+        # entry a host put there, which this branch exists to leave exactly as it found it -- and the directory's own
+        # label with them.
+        if (( ${#placed[@]} > 0 )); then
+            restorecon "${placed[@]}" >/dev/null 2>&1 || :
+        fi
+        return 0
+    fi
+    if [[ -e "${path}" ]]; then
+        _ai_tools_ma_say "${name} kept (a file here wins; the shared assets are not linked)"
+        return 0
+    fi
+    if [[ ! -d "${path%/*}" ]]; then
+        _ai_tools_ma_say "${name} not linked (${path%/*} is absent)"
+        return 0
+    fi
+    ln -s "${shared_root}" "${path}"
+    chown -h "root:${group}" "${path}" 2>/dev/null || :
+    restorecon "${path}" >/dev/null 2>&1 || :
+    _ai_tools_ma_say "${name} linked -> ${shared_root}"
+    return 0
+}
+
+# ai_tools_unlink_shared_root <shared_root> <path> [readme_source] Reverse ai_tools_link_shared_root for a package being
+# erased: remove the path when it is the managed link to the shared root, and remove the managed links INTO it (and
+# the README link at the source given) from a host-owned directory there, leaving the directory and everything else
+# in it. A link elsewhere, a real entry, and the directory itself are the host's and are not touched. Reports each
+# removal.
+ai_tools_unlink_shared_root() {
+    local shared_root="$1" path="$2" readme_source="${3:-}" name="${2##*/}" target dst
+    if [[ -L "${path}" ]]; then
+        target="$(readlink -- "${path}")"
+        if [[ "${target}" == "${shared_root}" ]]; then
+            rm -f "${path}"
+            _ai_tools_ma_say "${name} link removed"
+        fi
+        return 0
+    fi
+    [[ -d "${path}" ]] || return 0
+    for dst in "${path}"/*; do
+        [[ -L "${dst}" ]] || continue
+        target="$(readlink -- "${dst}")"
+        if [[ "${target}" == "${shared_root}/"* ]] \
+                || [[ -n "${readme_source}" && "${dst##*/}" == README.md && "${target}" == "${readme_source}" ]]; then
+            rm -f "${dst}"
+            _ai_tools_ma_say "${dst##*/} link removed"
+        fi
+    done
     return 0
 }

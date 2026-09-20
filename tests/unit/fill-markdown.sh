@@ -120,7 +120,7 @@ The line after the marker, long enough to be rewrapped at a narrow column on its
 
 Spans stay whole: a sentence long enough to reach the column `ai-tools status` is named, then a
 span wider than the column on a line of its own,
-`sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`, then the tie
+`sudo ai-tools-admin selinux groups enable tmpmap memfdexec localipc buildexec`, then the tie
 rule beside a span, so that no line ends on the `750 root:root` mode of the pin.
 
 A command key is one word, so a reflow moves it down whole rather than breaking it apart: this
@@ -206,9 +206,9 @@ detects "table row rewrapped" "any page with a table" \
     '| `<path>` | a long table row that must not be touched by any filler at all, ever |' \
     $'| `<path>` | a long table row that must not\n  be touched by any filler at all, ever |'
 detects "a word changed" "any page" 'A plain paragraph' 'A simple paragraph'
-detects "quote prefix dropped on a continuation line" "docs/session-stop.md" \
+detects "quote prefix dropped on a continuation line" "docs/sessions/stop.md" \
     $'its prefix\n> by a filler' $'its prefix\nby a filler'
-detects "alert line merged into its paragraph" "docs/project-lifecycle.md" \
+detects "alert line merged into its paragraph" "docs/projects/index.md" \
     $'> [!NOTE]\n> A blockquote' '> [!NOTE] A blockquote'
 detects "list marker respaced" "wip notes" '-   A wide marker' '- A wide marker'
 detects "a wrap invented a list item" "wip notes" \
@@ -216,7 +216,7 @@ detects "a wrap invented a list item" "wip notes" \
 detects "indented code block rewrapped" "wip issues" \
     $'    sudo ai-tools audit --since \'2 days ago\' --and-a-tail' \
     $'    sudo ai-tools audit --since \'2 days ago\'\n    --and-a-tail'
-detects "ignore-marker line rewrapped" "docs/entrypoint-verification.md" \
+detects "ignore-marker line rewrapped" "docs/system/entrypoint-verification.md" \
     'The label probe is cheap. <!-- prose-check: ignore:' $'The label probe is cheap.\n<!-- prose-check: ignore:'
 
 # (5) `--lines` confines the reflow to the blocks meeting a range: the plain paragraph is named
@@ -253,7 +253,7 @@ else
     fail "a command key was broken by the reflow: $(grep -n 'remove' "${f}")"
 fi
 # shellcheck disable=SC2016
-if grep -qxF -- '`sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`,' "${f}"; then
+if grep -qxF -- '`sudo ai-tools-admin selinux groups enable tmpmap memfdexec localipc buildexec`,' "${f}"; then
     pass "a span wider than the column runs over on a line of its own"
 else
     fail "a span wider than the column was split or shared a line: $(grep -n 'selinux groups' "${f}")"
@@ -272,8 +272,8 @@ else
     fail "a span closing one column past it was split or left: $(grep -n 'projects claim' "${f}")"
 fi
 
-# (7) The tree's own pages: every agent-facing page at 120 and every human-facing page at 79
-# reflows to a state the gate passes, the checker finds complete, and a second run leaves alone.
+# (7) The tree's own pages: every agent-facing page at 120 and every human-facing page at 79 reflows to a state the gate
+# passes, the checker finds complete, and a second run leaves alone.
 if ! git -C "${ROOT}" rev-parse --show-toplevel >/dev/null 2>&1; then
     skip "real pages" "not a git checkout"
 else

@@ -40,11 +40,12 @@ session_environment_options+=(
     "--setenv=DOTNET_ROOT=${dotnet_root}"
     "--setenv=NUGET_PACKAGES=/opt/ai-tools/integrations/dotnet/nuget/packages"
     "--setenv=DOTNET_CLI_HOME=/opt/ai-tools/integrations/dotnet/cli"
+    "--setenv=MSBUILDDISABLENODEREUSE=1"
+    "--setenv=DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1"
     "--setenv=DOTNET_CLI_TELEMETRY_OPTOUT=1"
     "--setenv=DOTNET_NOLOGO=1"
-    "--setenv=MSBUILDDISABLENODEREUSE=1"
-    "--setenv=ASPNETCORE_ENVIRONMENT=Development"
-    "--setenv=DOTNET_ENVIRONMENT=Development"
+    # "--setenv=ASPNETCORE_ENVIRONMENT=Production"
+    # "--setenv=DOTNET_ENVIRONMENT=Production"
 )
 # Only the root-owned shared tools join PATH. A tool the agent installs for itself under DOTNET_CLI_HOME stays runnable
 # by full path but never lands on the session PATH, so the sandbox cannot put an executable of its own choosing there.

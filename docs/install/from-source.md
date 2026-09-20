@@ -1,13 +1,21 @@
 # Install from source
 
+[Install](index.md) · **From source** · [Upgrade](upgrade.md) — [all
+docs](../index.md)
+
 The manual path — four root steps a checkout installs with, no RPM. The package
 install (see the README) automates all of it;
 `sudo ai-tools-admin system bootstrap` automates steps 2–3 once `install.sh`
 has deployed it, and `install.sh` automates everything from step 4 on.
 
+```bash
+git clone https://github.com/dag-node/tools-agent-tools-restricted.git
+cd tools-agent-tools-restricted
+```
+
 Set the recurring identities once, in the shell you run these steps
 in, so every command pastes verbatim (the full naming spec is
-in [naming-conventions.md](naming-conventions.md)):
+in [Naming conventions](../naming-conventions.md)):
 
 ```bash
 export PROJECTS_USER="$(id -un)"
@@ -44,7 +52,7 @@ through, and the daily npm update all sit inside the restricted account,
 where an agent that does run on Node takes the same toolchain. Your account
 cannot traverse that directory, so you reach the agent through the wrapper
 at `/usr/local/bin/claude`, which checks the caller and the project before it
-drops into the sandbox ([ref-section-e7g6](../README.md#ref-section-e7g6)).
+drops into the sandbox ([ref-section-e7g6](../../README.md#ref-section-e7g6)).
 
 Your own shell can still put another `claude` first. The shell searches `$PATH`
 left to right and runs the first match, and `nvm` prepends its versioned `bin`
@@ -95,8 +103,8 @@ is idempotent — sourcing it again in the same shell produces the same PATH.
 ## 2. Create the `SANDBOX_USER` OS account at `/opt` (root, once)
 
 ```bash
-# The sandbox account name is fixed at ai-tools (see "Identities and naming" in the
-# README). Set it here so this block works even pasted on its own -- an unset
+# The sandbox account name is fixed at ai-tools (see the naming conventions page).
+# Set it here so this block works even pasted on its own -- an unset
 # SANDBOX_USER makes useradd fail with "invalid user name ''".
 SANDBOX_USER=ai-tools
 SANDBOX_GROUP=ai-tools
@@ -254,12 +262,23 @@ ai-tools projects clone /path/to/repo          # an isolated shallow clone
 ai-tools projects lockdown /path/to/project    # revoke agent access to secrets (sudo)
 ```
 
-[project-lifecycle.md](project-lifecycle.md) covers registering in depth —
+[Project lifecycle](../projects/index.md) covers registering in depth —
 claim vs sandbox clone, what each consent prompt grants (including
 the traverse-only parent grant a home-nested project needs), and every
 recovery/reversal path.
 
 To remove everything installed by this script: `sudo ./install.sh uninstall`.
+It keeps what you configured, and it keeps Node under `/opt/ai-tools/.nvm`;
+each agent's package leaves that toolchain with the manifest that names it,
+so after a reinstall `sudo ai-tools-admin system bootstrap` installs the agents
+you enable again. An agent's managed file you edited — codex's
+`/etc/codex/requirements.toml`, for one — is moved aside
+as `<file>.<YYYYMMDD>.retired` rather than deleted, and the run names each
+sidecar it wrote; a file still matching the copy the package shipped is
+removed. That is what `rpm -e` does with an edited `%config(noreplace)` file,
+and it matters here for a second reason: such a file points at hook scripts
+under `/opt/ai-tools`, which the same uninstall removes, so leaving it live
+would hand a codex you keep a configuration naming scripts that are gone.
 
 ## Files
 
@@ -286,6 +305,7 @@ which `sudo ./install.sh check-perms` runs):
 | `src/usr/lib/systemd/system/ai-tools-handback@.service` | `/usr/lib/systemd/system/ai-tools-handback@.service` (root) |
 | `src/usr/local/lib/ai-tools/secret-patterns.lib.sh` | `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/skip-dirs.lib.sh` | `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (root) |
+| `src/usr/local/lib/ai-tools/ancestor-config.lib.sh` | `/usr/local/lib/ai-tools/ancestor-config.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/filters.lib.sh` | `/usr/local/lib/ai-tools/filters.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/filters.d/core.rules` | `/usr/local/lib/ai-tools/filters.d/core.rules` (root) |
 | `src/usr/local/lib/ai-tools/filters.d/dotnet.rules` | `/usr/local/lib/ai-tools/filters.d/dotnet.rules` (root) |

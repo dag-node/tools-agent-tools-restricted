@@ -81,8 +81,23 @@ The coding agents a session may run, by provider name (a manifest basename under
 .B Present:
 exactly the names listed \(em an empty value enables none.
 .B Absent:
-every installed agent whose manifest declares
-.BR default_enable=yes .
+no agent.
+Every agent package ships disabled, and
+.B "ai-tools-admin system bootstrap"
+asks which one installed agent to enable and writes this line for it, or writes
+the names given to its
+.B \-\-agents
+option; see
+.BR ai-tools-admin (8).
+.IP
+Every agent named here runs as the one sandbox account and reads what the
+others store: a login or a token one agent keeps, its session history, and
+a custom endpoint token where one is configured, are readable by every session
+of every agent named, and a session of one agent can start another named
+agent's binary inside itself.
+A second agent is therefore a line you write by hand, followed by a further
+bootstrap; the bootstrap says the same once when it reads a line naming more
+than one.
 Names are reported at launch, so
 .B "ai-tools providers"
 shows the resolved set.
@@ -149,9 +164,18 @@ governs only the other outcome, an entrypoint carrying
 host that has not yet run a relabel, one whose vendor published no manifest for
 the installed release, and any air\-gapped host.
 .B Set:
-only a verified entrypoint may start a session. Pin one with
+only a pinned entrypoint may start a session. A pin records either the checksum
+the vendor signed for the installed release or, for an agent whose vendor
+publishes no such manifest, the binary as installed \(em
+.B ai\-tools status
+names which of the two each agent holds, as
+.B VERIFIED
+or
+.BR UNCHANGED .
+Pin one with
 .BR "sudo ai\-tools\-admin system entrypoints relabel" ,
-which fetches the vendor's signed manifest and so needs the host online.
+which fetches the vendor's signed manifest where there is one and so needs the
+host online.
 .TP
 .BI CLAUDE_SYSTEM_PROMPT_FILE= FILE
 A custom system prompt for Claude Code sessions (requires the

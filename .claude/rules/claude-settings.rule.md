@@ -12,10 +12,10 @@ in [filters](filters.rule.md)), the Bash-tool permission rules, an `env` block, 
 and the observability defaults. This rule covers the **permission rules** and how they couple to the SELinux policy,
 the **`env` block**, the **observability defaults**, and the **`disableAutoMode`** default. The catalog of other Claude
 Code options an operator MAY add — and which are set elsewhere — is
-in [`docs/claude-options.md`](../../docs/claude-options.md).
+in [`docs/agents/claude-code.md`](../../docs/agents/claude-code.md).
 
-Settings coupled to the sandbox's layout rather than to Claude Code policy live outside this file: the agent's
-session-env fragment pins `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, and `DISABLE_AUTOUPDATER=1` (see
+Settings coupled to the sandbox's layout rather than to Claude Code policy live outside this file: the agent's session
+pins set `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, and `DISABLE_AUTOUPDATER=1` (see
 [agent-claude-code](agent-claude-code.rule.md)), and `ai-tools-run` pins `HOME`, `SHELL`, and `PATH` (see
 [launch](launch.rule.md)).
 
@@ -198,7 +198,7 @@ between approving a command string and approving what the command did.
 
 They are the operator-side complement to `disableAutoMode`: that key decides *whether* a human is asked, these decide
 *how much* that human is shown. The catalog of the other UI and behavior keys an operator MAY add is
-in [`docs/claude-options.md`](../../docs/claude-options.md).
+in [`docs/agents/claude-code.md`](../../docs/agents/claude-code.md).
 
 ## `disableAutoMode` — confirm-by-default
 

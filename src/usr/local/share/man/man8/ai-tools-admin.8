@@ -95,6 +95,19 @@ It is the first command to run on a new host, and the one that installs
 software over the network \(em which is why no install scriptlet runs it for
 you: a scriptlet has to succeed offline and inside a build chroot.
 .PP
+No agent ships enabled.
+On a host whose
+.BR operator.conf (5)
+does not yet name one, the command asks which one installed agent to enable
+and writes
+.B AI_TOOLS_AGENTS
+for it before it installs anything;
+.B \-\-agents
+makes that choice without asking.
+A run with no terminal and no
+.B \-\-agents
+installs Node alone and names the line to set.
+.PP
 It is idempotent, so it is also the command to re-run after enabling another
 agent in
 .BR operator.conf (5):
@@ -284,9 +297,25 @@ Unload the module for
 .IR GROUP .
 Works for any loaded group, stable or experimental.
 .TP
-.B system bootstrap \fR[\fB\-\-scope full\fR]
+.B system bootstrap \fR[\fB\-\-scope full\fR] [\fB\-\-agents \fINAMES\fR]
 Provision the sandbox account and the toolchain the enabled agents run on.
-Creates the
+Decides first which agents that is: where
+.BR operator.conf (5)
+does not name any, it lists every installed agent and asks which one to enable,
+writes
+.B AI_TOOLS_AGENTS
+for the answer, and provisions what it wrote; a menu left unanswered, or
+answered with none, installs Node alone and names the line to set, at exit 0.
+A line already present is not asked about; one naming more than one agent is
+answered with a notice stating what those agents share.
+Next, still before the network is reached, removes from the toolchain the
+package of every installed agent that line does not name, and its launcher
+with it: no session of any agent starts while such a package is present, and
+this command is what the refusal names.
+The agent's own state under
+.I /opt/ai-tools
+stays, and the run says so.
+Then creates the
 .B ai-tools
 account and its
 .I /opt/ai-tools
@@ -304,6 +333,17 @@ Which agents it installs comes from
 .BR operator.conf (5)
 and the installed manifests, so it names none of them itself.
 .RS
+.TP
+.BI "\-\-agents " "NAME\fR[,\fP NAME\fR...]\fP"
+Enable the named agents without asking: each
+.I NAME
+is a manifest basename under
+.IR /usr/local/lib/ai-tools/agents.d ,
+checked against the installed manifests before the line is written, and a name
+with no manifest refuses the run with the file unchanged.
+More than one name is accepted and draws the same notice a hand-written line
+naming several does.
+The unattended form; a value is required.
 .TP
 .BR \-\-scope " " minimal | full
 How far to provision.
@@ -510,7 +550,15 @@ sudo ai\-tools\-admin operators add "$(id \-un)"
 .EE
 .RE
 .PP
-Provision an agent you enabled after the first run \(em edit
+Provision a host unattended, enabling one agent without the menu:
+.PP
+.RS 4
+.EX
+sudo ai\-tools\-admin system bootstrap \-\-agents codex
+.EE
+.RE
+.PP
+Provision a second agent after the first run \(em add its name to
 .B AI_TOOLS_AGENTS
 in
 .BR operator.conf (5),

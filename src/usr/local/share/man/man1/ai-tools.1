@@ -511,9 +511,32 @@ runs as the sandbox account and can reach only journald \(em they are the sessio
 account of itself, to reconcile against the file trail rather than to rely on alone.
 Exits non-zero when anything is reported, so it can be run unattended from a cron job
 or a login banner without parsing its output.
+.RS
+.PP
+A third section reports what the kernel recorded: an agent's binary started from
+inside a session that was already running, rather than by you through the launcher.
+Such a child runs inside its parent's session, so the launch line and the ownership
+hand-backs all carry the parent's identity, and this is the one reading that tells it
+apart. The SELinux confinement policy writes the record, by auditing the one access
+such a start takes, so your own launches are not in it and no audit rule file is
+installed. On a host running no audit daemon, without the policy loaded, or with
+a policy older than the rule, the section says which reading it could not make rather
+than reporting a clean window.
+.PP
+An agent re-running its own binary to reach a tool it bundles, as Codex does to apply
+an edit and Claude Code to search files, is recorded too. The section counts those in
+one line instead of reporting each record, by the bare name the caller passed. That is
+something the caller arranges, so it decides nothing: the record is written either way,
+and the count says what it covered.
+.RE
 .TP
 .B status
-Report ai-tools health: the installed version, whether the toolchain is provisioned,
+Report ai-tools health: the installed version, which enabled agents are provisioned,
+whether an agent you took off
+.B AI_TOOLS_AGENTS
+still has its package in the sandbox toolchain (no session starts until
+.B "ai\-tools\-admin system bootstrap"
+removes it),
 where this shell finds each enabled agent's launcher, each managed systemd unit
 \(em the handback socket, the relabel watcher, and the
 toolchain auto-update timer and update service \(em as OK, SKIPPED, DOWN, FAILED,

@@ -79,6 +79,14 @@ is ignored.
 When that key is absent, the providers enabled are the installed ones whose
 manifest sets
 .BR default_enable=yes .
+Every agent manifest sets
+.BR default_enable=no ,
+so with
+.B AI_TOOLS_AGENTS
+absent no agent is enabled:
+.B "ai-tools-admin system bootstrap"
+asks which one installed agent to enable and writes that key
+.RB ( ai-tools-admin (8)).
 A name listed but not installed is reported and skipped.
 When
 .B operator.conf
@@ -95,9 +103,13 @@ or
 Whether a session receives this provider when
 .B operator.conf
 does not list providers of its kind.
-A provider that changes what the host exposes beyond the sandbox ships
+An integration that changes what the host exposes beyond the sandbox ships
 .BR no ,
 and is enabled only by being named.
+Every agent ships
+.BR no :
+which agents a host runs is written by the bootstrap, as described under
+.BR ENABLEMENT .
 Default:
 .BR no .
 .TP
@@ -118,6 +130,24 @@ The command name, installed as
 .BI /opt/ai-tools/bin/ launcher
 and the only name an executable may carry to start a session as this agent.
 Required.
+.TP
+.B launcher_target
+The executable the versioned launcher resolves to, as a path relative to
+the Node version directory.
+Set when the package's own launcher is a shim that starts the real
+binary: after every install the toolchain re-links
+.IB version /bin/ launcher
+at it, before the stable symlink is repointed, so the session runs the
+file
+.B entrypoint_fcontext
+labels.
+The value must be relative, without
+.BR .. ,
+and resolve to an executable regular file inside the version directory
+that the pattern covers; any other value is refused and npm's own link is
+left in place, which on an enforcing host refuses the launch at the
+entrypoint label check.
+Unset for an agent whose npm launcher is the executable itself.
 .TP
 .B display_name
 What the launch banner and the session unit call the agent.
@@ -160,6 +190,28 @@ The shared orientation text under
 .B /opt/ai-tools/orientation
 is linked under that name.
 Unset for an agent that reads none.
+.TP
+.B managed_files
+The configuration files the agent's own product reads from a fixed path
+outside
+.BR /opt/ai-tools ,
+as absolute paths.
+Each names a file directly under
+.BI /etc/ agent /
+\(em a nested path, or one under any other directory, is skipped with
+a warning.
+Each is kept across an upgrade, and the package ships a pristine copy of it
+under the same name in
+.BI /usr/share/ai-tools/ agent /
+so that
+.B ai-tools status
+and
+.B ai-tools-admin status
+report a live file that differs from the shipped one.
+Reported, not enforced: the agent reads the live file alone, and a file
+there does not carry a guarantee.
+Unset for an agent whose configuration lives inside
+.BR config_dir .
 .TP
 .B entrypoint_fcontext
 A file-context pattern for the binary that starts a session, which the
@@ -207,6 +259,26 @@ policy group may grant execute on.
 Each name is one plain component (letters, digits, dot, underscore, hyphen).
 Read from every installed manifest, enabled or not.
 .TP
+.B project_markers
+Filename globs that mark a project directory as this toolchain's, matched in
+the project directory itself
+.RB ( *.csproj
+for .NET).
+Each is one plain filename glob; a path or any other glob construct is
+refused.
+A claim and a launch report this toolchain's unreadable ancestor
+configuration only for a project a marker matches, so a project built with
+another toolchain raises no notice.
+.TP
+.B ancestor_config_files
+Configuration filenames this toolchain's build reads from the directories
+above a project.
+A claim and a launch report each one that exists above the project and that
+the sandbox account cannot read, because the build opens it and fails with
+an error naming a path outside the project.
+Each is one plain filename.
+Read from every installed manifest, enabled or not.
+.TP
 .B selinux_layout_module
 The SELinux policy module that types those same directories at the moment
 they are created, and inside sandbox clones.
@@ -237,7 +309,11 @@ Integration manifests, one per installed integration package.
 .TP
 .I /usr/local/lib/ai-tools/session-env.d/NAME.env.sh
 The provider's session-environment fragment, sourced by the launcher when the
-provider is enabled.
+provider is enabled, into sessions of that agent alone.
+.TP
+.I /usr/local/lib/ai-tools/session-env.d/NAME.pins.env.sh
+An agent's session pins (its state directory, its cache, its updater switch),
+sourced by the launcher into every session while the agent is enabled.
 .TP
 .I /usr/local/lib/ai-tools/admin-commands.d/NAME
 The provider's command domain of

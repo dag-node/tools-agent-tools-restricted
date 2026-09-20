@@ -5,7 +5,10 @@
 #
 #   1. PIN   -- verify it against the checksum its vendor signed and record the result, which the
 #              launch shim compares against (entrypoint-verify.lib.sh). Runs on every host,
-#              including the DAC-only one where step 2 has no label to apply.
+#              including the DAC-only one where step 2 has no label to apply. A refusal to
+#              re-record leaves the pin standing -- that staleness is what refuses the next
+#              launch -- so it also files the mark both status reports read, and prints the two
+#              commands that replace the binary.
 #   2. LABEL -- apply the SELinux file-context rules each agent declares and restore the labels on
 #              what they match: its launcher binary -> ai_tools_exec_t, so its exec fires the ->
 #              ai_tools_t domain transition, and its config directory -> ai_tools_home_t, so the
@@ -125,7 +128,84 @@ if ! source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null \
     ai_tools_entrypoint_label_write() { return 1; }
     ai_tools_entrypoint_inputs_digest() { return 1; }
     ai_tools_entrypoint_sha256() { return 1; }
+    ai_tools_entrypoint_stale_write() { return 1; }
+    ai_tools_entrypoint_stale_clear() { return 0; }
+    ai_tools_entrypoint_package_dir() { return 1; }
 fi
+
+# reinstall_remedy <agent> <entrypoint> : print the two commands that replace a changed binary, one per line,
+#   or an empty string when the package directory cannot be derived. `system bootstrap` alone does NOT do it --
+#   its npm step is a no-op at an already-installed version, so the modified file survives the reprovision
+#   and the host keeps refusing every launch with no explanation. Removing the package directory is what makes
+#   the reinstall fetch it again.
+reinstall_remedy() {
+    local agent="$1" entrypoint="$2" package package_dir
+    package="$(ai_tools_agent_manifest_field "${agent}" npm_package || true)"
+    package_dir="$(ai_tools_entrypoint_package_dir "${entrypoint}" "${package}" 2>/dev/null || true)"
+    [[ -n "${package_dir}" ]] || return 0
+    printf '  sudo rm -rf %s\n  sudo ai-tools-admin system bootstrap' "${package_dir}"
+}
+
+# report_entrypoint_refusal <agent> <version> <reason-token> <entrypoint> : file the stale mark and print the remedy,
+#   for either tier's refusal to re-record a pin. The mark is what the two status reports read: the pin is left
+#   standing on purpose -- that is what makes the next launch refuse -- so without a record beside it both reports
+#   render the stale pin green and the refusal reaches only whoever ran this helper. Best-effort, and it never
+#   changes the outcome of the reconciliation it describes.
+report_entrypoint_refusal() {
+    local agent="$1" version="$2" reason="$3" entrypoint="$4" remedy
+    ai_tools_entrypoint_stale_write "${agent}" "${version}" "${reason}" \
+        || warn MSG-K4D7 "could not record ${agent}'s stale pin for ai-tools status -- the reports will render its pin as current"
+    remedy="$(reinstall_remedy "${agent}" "${entrypoint}")"
+    if [[ -n "${remedy}" ]]; then
+        say "replace the binary and reprovision -- reprovisioning alone reinstalls nothing at an unchanged version:"
+        say "${remedy}"
+    fi
+    return 0
+}
+
+# observe_agent_entrypoint <agent> : record the checksum of the installed entrypoint for an agent that declares no
+#   signed release manifest, so the launch gate has a value to compare against. Returns 1 when the same version now
+#   hashes differently -- the one state an update does not explain, where the pin is deliberately left stale so the
+#   next launch refuses. ai_tools_entrypoint_observe_decision holds that rule and is unit-tested over its table.
+observe_agent_entrypoint() {
+    local agent="$1" entrypoint version observed pinned_version pinned_sha decision
+    declare -F ai_tools_entrypoint_pin_write_observed >/dev/null 2>&1 || return 0
+
+    entrypoint="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
+    if [[ -z "${entrypoint}" ]]; then
+        say "${agent}: not provisioned -- nothing to pin"
+        return 0
+    fi
+    observed="$(ai_tools_entrypoint_sha256 "${entrypoint}" 2>/dev/null || true)"
+    # An unreadable version becomes the same token the pin records, so the two sides of the decision compare like
+    # for like. Left empty here it would never equal the pinned `unknown`, every run would read as a new version,
+    # and a changed binary would be re-recorded instead of refused -- the one outcome this tier exists to prevent.
+    version="$(_installed_agent_version "${entrypoint}")"
+    version="${version:-unknown}"
+    pinned_version="$(ai_tools_entrypoint_pin_version "${agent}" 2>/dev/null || true)"
+    pinned_sha="$(ai_tools_entrypoint_pin_read "${agent}" 2>/dev/null || true)"
+    decision="$(ai_tools_entrypoint_observe_decision \
+                    "${pinned_version}" "${pinned_sha}" "${version}" "${observed}" || true)"
+    case "${decision}" in
+        keep)   say "${agent}: entrypoint unchanged since its pin for ${version} -- no signature to check"
+                ai_tools_entrypoint_stale_clear "${agent}" || true ;;
+        pin)    if ai_tools_entrypoint_pin_write_observed "${agent}" "${version}" "${observed}"; then
+                    say "${agent}: entrypoint pinned as installed at ${version} -- no vendor signature to verify it against"
+                    ai_tools_log_info "${agent}: entrypoint pinned by observation at ${version} (${observed})"
+                    # The pin this run wrote describes what is installed, so whatever a previous run refused is settled.
+                    ai_tools_entrypoint_stale_clear "${agent}" || true
+                else
+                    warn MSG-M6C3 "could not write the observed pin for ${agent} at ${version}"
+                    ai_tools_log_warn "${agent}: observed pin write failed at ${version}"
+                fi ;;
+        tamper) warn MSG-U6H8 "the ${agent} entrypoint changed under an unchanged version ${version} -- leaving the pin as it is, so the next session refuses to start"
+                ai_tools_log_error "${agent}: entrypoint changed under an unchanged version ${version} -- pin left stale"
+                report_entrypoint_refusal "${agent}" "${version}" "changed-under-same-version" "${entrypoint}"
+                return 1 ;;
+        *)      say "${agent}: entrypoint could not be hashed -- pin unchanged" ;;
+    esac
+    return 0
+}
 
 # pin_agent_entrypoint <agent> : verify one agent's installed entrypoint against its vendor's
 #   signed release manifest and record the result. Returns 1 only on a mismatch.
@@ -142,7 +222,9 @@ pin_agent_entrypoint() {
     local observed inputs
 
     url_template="$(ai_tools_agent_manifest_field "${agent}" release_manifest_url || true)"
-    [[ -n "${url_template}" ]] || return 0          # declares no provenance: nothing to verify
+    # An agent whose vendor publishes no signed release manifest gets the weaker of the two pins rather than none: root
+    # records the checksum of what is installed, so a later change to that file is refused at the next launch.
+    [[ -n "${url_template}" ]] || { observe_agent_entrypoint "${agent}"; return $?; }
     key_file="$(ai_tools_agent_manifest_field "${agent}" release_key || true)"
     fingerprints="$(ai_tools_agent_manifest_field "${agent}" release_fingerprint || true)"
 
@@ -168,6 +250,8 @@ pin_agent_entrypoint() {
         if ai_tools_entrypoint_pin_reusable "${agent}" "${version}" "${inputs}" "${observed}"; then
             say "${agent}: entrypoint unchanged since its pin for ${version} -- signature not re-checked"
             ai_tools_log_info "${agent}: pin reused at ${version} -- no manifest fetch"
+            # The pin describes this file and this version, so a refusal an earlier run recorded no longer stands.
+            ai_tools_entrypoint_stale_clear "${agent}" || true
             return 0
         fi
     fi
@@ -178,11 +262,13 @@ pin_agent_entrypoint() {
         0)  if ai_tools_entrypoint_pin_write "${agent}" "${version}" "${checksum}" "${url_template}" "${inputs}"; then
                 say "${agent}: entrypoint verified against the signed release ${version} and pinned"
                 ai_tools_log_info "${agent}: entrypoint pinned at ${version} (${checksum})"
+                ai_tools_entrypoint_stale_clear "${agent}" || true
             else
                 warn MSG-W8N5 "could not write the pin for ${agent} after verifying ${version}"
                 ai_tools_log_warn "${agent}: pin write failed at ${version}"
             fi ;;
         1)  ai_tools_log_error "${agent}: entrypoint does not match the signed release ${version}"
+            report_entrypoint_refusal "${agent}" "${version}" "signature-mismatch" "${entrypoint}"
             return 1 ;;
         *)  warn MSG-B6H9 "could not verify the entrypoint for ${agent} against release ${version} (see above) -- pin unchanged"
             ai_tools_log_warn "${agent}: entrypoint unverified at ${version}; pin left as-is" ;;
@@ -190,21 +276,12 @@ pin_agent_entrypoint() {
     return 0
 }
 
-# _installed_agent_version <entrypoint> : print the MAJOR.MINOR.PATCH the package beside the
-#   entrypoint declares, walking up to the nearest package.json the way ai-tools-run does for the
-#   launch banner. Bounded read; anything not semver-shaped yields an empty string.
+# _installed_agent_version <entrypoint> : print the version the package around the entrypoint declares,
+#   or an empty string. The walk, the bounded read and the clamp are the library's
+#   (ai_tools_entrypoint_installed_version), which the launch banner reads through as well, so the pin
+#   and the banner cannot report different versions for one binary.
 _installed_agent_version() {
-    local dir="${1%/*}" declared
-    for _ in 1 2 3; do
-        if [[ -f "${dir}/package.json" ]]; then
-            declared="$(head -c 65536 -- "${dir}/package.json" 2>/dev/null \
-                | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-            [[ "${declared}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && { printf '%s' "${declared}"; return 0; }
-        fi
-        dir="${dir%/*}"
-        [[ -n "${dir}" ]] || break
-    done
-    return 0
+    ai_tools_entrypoint_installed_version "${1:-}"
 }
 
 pin_failures=0
@@ -219,7 +296,7 @@ fi
 # Reported before any labelling outcome: an entrypoint that is not the binary its vendor published is a more serious
 # finding than any label, and the remedy is different in kind.
 (( pin_failures == 0 )) \
-    || die MSG-W6V4 "treat the toolchain as tampered: ${pin_failures} agent entrypoint(s) do NOT match the checksum their vendor signed for the installed version; reprovision it (sudo ai-tools-admin system bootstrap) and, if it recurs, investigate before launching a session"
+    || die MSG-W6V4 "treat the toolchain as tampered: ${pin_failures} agent entrypoint(s) no longer match the checksum recorded for the installed version; the pin is left as it was, so their sessions refuse to start -- replace each binary with the two commands printed above, and investigate before launching a session"
 
 # Collect the report first, so the lib's return code survives (2 = the SELinux layer is not active here, which is
 # a supported deployment and not a failure).

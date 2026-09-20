@@ -1,5 +1,8 @@
 # Claude Code options
 
+[Agents](index.md) · **Claude Code** · [Codex](codex.md) · [Setting
+names](setting-names.md) — [all docs](../index.md)
+
 Catalog of the Claude Code settings and environment variables that shape
 an agent session, what the sandbox sets by default, and what an operator MAY
 add. The authoritative, version-current references are Claude Code's own docs:
@@ -14,7 +17,7 @@ A session's configuration comes from three places in this project:
 | Layer | File | Owner | Scope |
 |---|---|---|---|
 | Control-plane defaults | `/opt/ai-tools/.claude/settings.json` (user layer) | `root:ai-tools`, agent cannot edit | every session |
-| Structural pins | `ai-tools-run` (`HOME`, `SHELL`, `PATH`) and the agent's session-env fragment, `session-env.d/claude-code.env.sh` (`CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, `DISABLE_AUTOUPDATER`) | root-owned, agent cannot edit | every session |
+| Structural pins | `ai-tools-run` (`HOME`, `SHELL`, `PATH`) and the agent's session pins, `session-env.d/claude-code.pins.env.sh` (`CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, `DISABLE_AUTOUPDATER`) | root-owned, agent cannot edit | every session |
 | Per-project overrides | `<project>/.claude/settings.json` (project layer) | operator (agent-writable tree) | one project |
 
 Claude Code merges these by precedence: managed policy > command line > local
@@ -22,7 +25,7 @@ project > project > user. The control-plane `settings.json` is the **user**
 layer, so a project layer overrides its single-valued keys (`env`,
 `disableAutoMode`) but cannot remove its merged-set keys (`permissions.deny`,
 `hooks`). See
-[`.claude/rules/claude-settings.rule.md`](../.claude/rules/claude-settings.rule.md).
+[`.claude/rules/claude-settings.rule.md`](../../.claude/rules/claude-settings.rule.md).
 
 A machine-wide, unoverridable lock uses managed policy
 (`/etc/claude-code/managed-settings.json`); the sandbox does not ship it,
@@ -38,9 +41,9 @@ the sandbox account.
 | `disableAutoMode` | `"disable"` | `settings.json` | Removes `auto` from the `Shift+Tab` cycle and rejects `--permission-mode auto`, so a session confirms its actions. |
 | `showThinkingSummaries` | `true` | `settings.json` | Re-shows the thinking blocks Claude Code hides by default, so the operator confirming an action sees the reasoning behind it. |
 | `verbose` | `true` | `settings.json` | Shows Bash and command output in full rather than truncated. |
-| `DISABLE_AUTOUPDATER` | `1` | `session-env.d/claude-code.env.sh` | The agent's Node tree is read-only to the session; updates run out-of-band via the toolchain updater. |
+| `DISABLE_AUTOUPDATER` | `1` | `session-env.d/claude-code.pins.env.sh` | The agent's Node tree is read-only to the session; updates run out-of-band via the toolchain updater. |
 | `HOME`, `SHELL`, `PATH` | sandbox paths | `ai-tools-run` `--setenv` | Structural pins coupled to the sandbox layout — do not override. |
-| `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE` | sandbox paths | `session-env.d/claude-code.env.sh` | The agent's own structural pins, sourced last so they win over an integration's — do not override. |
+| `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE` | sandbox paths | `session-env.d/claude-code.pins.env.sh` | The agent's own structural pins, sourced into every session after the integrations so they win over an integration's — do not override. |
 | `TERM`, `COLORTERM`, `LANG`/`LC_*`, `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`, `XDG_RUNTIME_DIR` | forwarded from operator | `ai-tools-run` `--setenv` | Terminal, locale, and outbound-proxy shaping imported by name from the operator's environment. |
 
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` subsumes `DISABLE_TELEMETRY`,

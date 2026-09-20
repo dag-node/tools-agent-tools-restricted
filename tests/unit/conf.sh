@@ -719,4 +719,88 @@ else
     fail "conf.lib.sh does not define ai_tools_conf_is_text_file"
 fi
 
+# --- the one in-place write of a KEY=value file: ai_tools_conf_set_key ------------------------
+# The writer behind `operators add` and the toolchain provisioning's agent choice. What matters is WHICH line it
+# replaces -- the key's own, commented default included, found by the mention rule ai_tools_conf_keys reads --
+# and that every other byte survives, since the file it rewrites is the operator's, and a writer with its own idea
+# of a match is one that appends a second live line under a commented default the operator then edits to no effect.
+section "conf: ai_tools_conf_set_key rewrites one key in place"
+if declare -F ai_tools_conf_set_key >/dev/null 2>&1; then
+    sk="${TESTDIR}/set-key.conf"
+    cat > "${sk}" <<'EOF'
+# a header line
+OPERATORS="op"
+
+# The agents this host runs. Absent: no agent.
+#   AI_TOOLS_AGENTS="example"     an indented example is prose, not the key
+#AI_TOOLS_AGENTS=""
+
+#SKIP_CACHE_DIRS="__pycache__"
+EOF
+    cp "${sk}" "${sk}.before"
+    chmod 0640 "${sk}"
+    rc=0; ai_tools_conf_set_key "${sk}" AI_TOOLS_AGENTS "acme beta" || rc=$?
+    if [[ "${rc}" -eq 0 && "$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS)" == "acme beta" ]]; then
+        pass "a commented default is rewritten as the live key and reads back"
+    else
+        fail "set_key over a commented default: rc ${rc}, value '$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS || true)'"
+    fi
+    if diff <(sed 's/^#AI_TOOLS_AGENTS=""$/AI_TOOLS_AGENTS="acme beta"/' "${sk}.before") "${sk}" >/dev/null; then
+        pass "the key's own line is replaced in place and every other line is byte-identical"
+    else
+        fail "set_key changed more than the key's line: $(diff "${sk}.before" "${sk}" | tr '\n' '|')"
+    fi
+    if [[ "$(stat -c '%a' "${sk}")" == "640" ]]; then
+        pass "the rewritten file keeps its mode"
+    else
+        fail "the rewritten file's mode changed to $(stat -c '%a' "${sk}")"
+    fi
+    rc=0; ai_tools_conf_set_key "${sk}" AI_TOOLS_AGENTS "gamma" || rc=$?
+    if [[ "${rc}" -eq 0 && "$(grep -c 'AI_TOOLS_AGENTS=' "${sk}")" -eq 2 \
+            && "$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS)" == "gamma" ]]; then
+        pass "an existing live key is replaced, not duplicated (the indented example stays prose)"
+    else
+        fail "set_key over a live key: rc ${rc}, $(grep -c 'AI_TOOLS_AGENTS=' "${sk}") mention(s), value '$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS || true)'"
+    fi
+    rc=0; ai_tools_conf_set_key "${sk}" OPERATORS "op two" || rc=$?
+    if [[ "${rc}" -eq 0 && "$(sed -n 2p "${sk}")" == 'OPERATORS="op two"' ]]; then
+        pass "OPERATORS is rewritten on its own line, in its place"
+    else
+        fail "set_key on OPERATORS: rc ${rc}, line 2 is '$(sed -n 2p "${sk}")'"
+    fi
+    rc=0; ai_tools_conf_set_key "${sk}" NEW_KEY "v" || rc=$?
+    if [[ "${rc}" -eq 0 && "$(tail -n 1 "${sk}")" == 'NEW_KEY="v"' ]]; then
+        pass "a key the file does not mention is appended"
+    else
+        fail "set_key on an absent key: rc ${rc}, last line '$(tail -n 1 "${sk}")'"
+    fi
+    printf 'TRAIL=1' > "${sk}.noeol"
+    ai_tools_conf_set_key "${sk}.noeol" NEXT "2" || true
+    if [[ "$(ai_tools_conf_get "${sk}.noeol" TRAIL)" == "1" && "$(ai_tools_conf_get "${sk}.noeol" NEXT)" == "2" ]]; then
+        pass "an append after an unterminated last line keeps both keys"
+    else
+        fail "an append joined the unterminated last line: $(tr '\n' '|' < "${sk}.noeol")"
+    fi
+    rc=0; ai_tools_conf_set_key "${TESTDIR}/fresh.conf" OPERATORS "op" || rc=$?
+    if [[ "${rc}" -eq 0 && "$(stat -c '%a' "${TESTDIR}/fresh.conf")" == "644" \
+            && "$(ai_tools_conf_get "${TESTDIR}/fresh.conf" OPERATORS)" == "op" ]]; then
+        pass "a missing file is created at 644 holding the key"
+    else
+        fail "set_key on a missing file: rc ${rc}"
+    fi
+    for bad in 'bad-key' '1KEY' ''; do
+        rc=0; ai_tools_conf_set_key "${sk}" "${bad}" v || rc=$?
+        [[ "${rc}" -eq 2 ]] && pass "a key outside the identifier charset ('${bad}') is refused with 2" \
+                             || fail "key '${bad}' returned rc ${rc}, expected 2"
+    done
+    for bad in $'a\nb' 'a"b'; do
+        rc=0; ai_tools_conf_set_key "${sk}" AI_TOOLS_AGENTS "${bad}" || rc=$?
+        [[ "${rc}" -eq 2 && "$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS)" == "gamma" ]] \
+            && pass "a value that would end the line or the quote early is refused with 2, file unchanged" \
+            || fail "value '${bad//$'\n'/\\n}' returned rc ${rc} (value now '$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS || true)')"
+    done
+else
+    fail "conf.lib.sh does not define ai_tools_conf_set_key"
+fi
+
 finish

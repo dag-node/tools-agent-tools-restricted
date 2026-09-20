@@ -14,6 +14,7 @@
 #   sudo ai-tools-admin selinux groups disable <name>      # unload one
 #   sudo ai-tools-admin system bootstrap                   # provision the sandbox account's toolchain
 #   sudo ai-tools-admin system bootstrap --scope full      # ... and every enabled integration
+#   sudo ai-tools-admin system bootstrap --agents codex    # ... enabling the named agent, unattended
 #   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
 #   sudo ai-tools-admin status                             # the host's health, read as root
@@ -46,9 +47,12 @@
 # helper ai-tools-bootstrap. It is the first command an administrator runs on a new host, and the one that installs
 # software over the network, which is why it is a command rather than an RPM scriptlet: a scriptlet must succeed offline
 # and inside a build chroot. Idempotent -- an existing account, nvm install or Node version is reused -- so it is also
-# the re-run after enabling an agent in operator.conf. The bare form does the minimal provision; `--scope full` then
-# runs each ENABLED integration's own `bootstrap` through the admin-commands seam, so a host is provisioned end to end
-# in one command without base naming an integration.
+# the re-run after enabling an agent in operator.conf. No agent is enabled until an operator names one:
+# with AI_TOOLS_AGENTS absent the helper asks which ONE installed agent to enable and writes that line, and `--agents`
+# is the unattended form of the same choice, passed through to the helper, which checks the names against the installed
+# manifests before writing. The bare form does the minimal provision; `--scope full` then runs each ENABLED
+# integration's own `bootstrap` through the admin-commands seam, so a host is provisioned end to end in one command
+# without base naming an integration.
 #
 # Beyond those, the command set is EXTENSIBLE rather than enumerated: this tool ships in ai-tools-base, which is
 # installed before anyone knows which provider packages a host will add, so a provider contributes a domain of its own
@@ -83,7 +87,7 @@
 # what they want from it. The from-source installer reaches the same end through its own keep-or-reset prompts and dated
 # .bak/.shipped sidecars; this is the RPM-side equivalent.
 #
-# Deploying from a checkout: docs/install-from-source.md.
+# Deploying from a checkout: docs/install/from-source.md.
 
 set -euo pipefail
 
@@ -197,6 +201,7 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the t
     selinux groups disable <name>    unload a loaded group
   System
     system bootstrap [--scope full]  provision the sandbox account and its toolchain
+      --agents NAME[,NAME...]        enable the named agents instead of asking which one
     system entrypoints relabel       verify and relabel the agent entrypoints
     system post-upgrade              reconcile the .rpmnew files an upgrade leaves
   Health
@@ -530,26 +535,20 @@ source /usr/local/lib/ai-tools/msg.lib.sh || die_unsourced /usr/local/lib/ai-too
 export AI_TOOLS_MSG_FULLWIDTH=1
 
 # write_operators <name>...: set the OPERATORS list in operator.conf (root:root 644). Edits ONLY the OPERATORS line
-# in an existing file, preserving every other setting the operator maintains there (the SKIP_* categories; template:
-# src/etc/ai-tools/operator.conf, reference: skip-dirs.lib.sh); seeds a minimal file when absent. 644: world-readable
-# (the agent hooks and the root helpers both read it; it is free of secrets) and root-write-only, so the agent cannot
-# rewrite the identity root hands files back to.
+# in an existing file, through the shared writer (ai_tools_conf_set_key, conf.lib.sh -- the grammar's owner, so the line
+# replaced is the one every reader of the file matches), preserving every other setting the operator maintains there;
+# seeds a minimal file when absent. 644: world-readable (the agent hooks and the root helpers both read it; it is free
+# of secrets) and root-write-only, so the agent cannot rewrite the identity root hands files back to.
 write_operators() {
     install -d -o root -g root -m 755 /etc/ai-tools
-    local tmp; tmp="$(mktemp)"
-    if [[ -f "${OPERATOR_CONF}" ]] && grep -qE '^[[:space:]]*OPERATORS=' "${OPERATOR_CONF}"; then
-        sed -E "s|^[[:space:]]*OPERATORS=.*|OPERATORS=\"$*\"|" "${OPERATOR_CONF}" > "${tmp}"
-    elif [[ -f "${OPERATOR_CONF}" ]]; then
-        cat "${OPERATOR_CONF}" > "${tmp}"
-        printf 'OPERATORS="%s"\n' "$*" >> "${tmp}"
-    else
-        printf '%s\n' \
-            "# ai-tools host configuration -- full reference: /usr/local/lib/ai-tools/skip-dirs.lib.sh" \
-            "# and the template src/etc/ai-tools/operator.conf." \
-            "OPERATORS=\"$*\"" > "${tmp}"
+    if [[ ! -f "${OPERATOR_CONF}" ]]; then
+        local tmp; tmp="$(mktemp)"
+        printf '%s\n' "# ai-tools host configuration -- full reference: man 5 operator.conf" > "${tmp}"
+        install -o root -g root -m 644 "${tmp}" "${OPERATOR_CONF}"
+        rm -f "${tmp}"
     fi
-    install -o root -g root -m 644 "${tmp}" "${OPERATOR_CONF}"
-    rm -f "${tmp}"
+    ai_tools_conf_set_key "${OPERATOR_CONF}" OPERATORS "$*" \
+        || die MSG-N4H9 "could not write OPERATORS into ${OPERATOR_CONF} -- the enrolment is incomplete; check the file and re-run"
 }
 
 # in_list <name>: succeed when <name> is already in AI_TOOLS_OPERATORS.
@@ -1126,12 +1125,18 @@ sel_list() {
 # as a switch rather than a positional word because every other verb here takes a resource identifier in that slot.
 system_bootstrap() {
     local scope=minimal
+    local -a helper_args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --scope)
                 [[ $# -ge 2 ]] || reject MSG-V5J3 "system bootstrap: --scope takes a value (minimal|full)"
                 scope="$2"; shift 2 ;;
-            *)  reject MSG-H5Z4 "system bootstrap: unknown argument '$1' (--scope minimal|full)" ;;
+            # The unattended form of the agent choice the helper otherwise asks for; the helper checks each name
+            # against the installed manifests before it writes anything, so the value passes through as typed.
+            --agents)
+                [[ $# -ge 2 ]] || reject MSG-X8K6 "system bootstrap: --agents takes a value (NAME[,NAME...])"
+                helper_args+=(--agents "$2"); shift 2 ;;
+            *)  reject MSG-H5Z4 "system bootstrap: unknown argument '$1' (--scope minimal|full, --agents NAME[,NAME...])" ;;
         esac
     done
     case "${scope}" in
@@ -1142,8 +1147,8 @@ system_bootstrap() {
         || die MSG-D9W6 "the provisioning helper is not installed: ${BOOTSTRAP_BIN} -- install ai-tools-integration-nodejs"
     # Minimal scope has no step after the helper, so it hands the process over rather than wrapping it: the helper's
     # exit status is this command's, unmediated.
-    [[ "${scope}" == full ]] || exec "${BOOTSTRAP_BIN}"
-    "${BOOTSTRAP_BIN}" || die MSG-Y6F3 "the toolchain bootstrap failed -- no integration was reached"
+    [[ "${scope}" == full ]] || exec "${BOOTSTRAP_BIN}" "${helper_args[@]+"${helper_args[@]}"}"
+    "${BOOTSTRAP_BIN}" "${helper_args[@]+"${helper_args[@]}"}" || die MSG-Y6F3 "the toolchain bootstrap failed -- no integration was reached"
     bootstrap_integrations
 }
 
@@ -1454,6 +1459,34 @@ status_services() {
     return 0
 }
 
+# status_managed_files: per enabled agent, each managed file its manifest names (managed_files, ai-tools-providers(5))
+# whose live copy is not the shipped one -- the same reading `ai-tools status` makes, rendered in this tool's table.
+# The package never overwrites such a file, so this line is where an operator learns it differs. An edited file is
+# a supported state and is not counted; a missing one is, since the package is then broken. Prints no line for a file
+# matching the shipped copy.
+status_managed_files() {
+    declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0
+    declare -F ai_tools_agent_managed_files >/dev/null 2>&1 || return 0
+    local agent live reference state
+    while IFS=$'\t' read -r agent _ _; do
+        [[ -n "${agent}" ]] || continue
+        while IFS=$'\t' read -r live reference; do
+            [[ -n "${live}" ]] || continue
+            state="$(ai_tools_managed_file_state "${live}" "${reference}")"
+            case "${state}" in
+                shipped) ;;
+                edited)  st edited "${agent}  ${live} differs from the shipped copy"
+                         detail "${agent} reads the live file alone: a key this release adds is not in it, and what it declares is the host's"
+                         detail "shipped copy: ${reference}" ;;
+                missing) st MISSING "${agent}  ${live} is missing -- reinstall the ${agent} package"
+                         STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+                *)       st "?" "${agent}  ${live} cannot be compared with the shipped copy ${reference}" ;;
+            esac
+        done < <(ai_tools_agent_managed_files "${agent}")
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    return 0
+}
+
 # status_entrypoints: per enabled agent, the two halves of the entrypoint reconciliation -- the pin
 # ai_tools_entrypoint_pin_write leaves, and the type its paths carry now. Reported together because they fail
 # independently: verification can succeed while labelling does not, leaving a green pin written by the very run
@@ -1473,7 +1506,7 @@ status_entrypoints() {
         return 0
     fi
 
-    local agent pin version age strict=no seen=0
+    local agent pin version age live strict=no seen=0
     declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
         && ai_tools_entrypoint_verify_required && strict=yes
     while IFS=$'\t' read -r agent _ _; do
@@ -1482,13 +1515,31 @@ status_entrypoints() {
         # Verification compares the binary against the checksum in the vendor's signed release manifest,
         # which an agent's package names in release_manifest_url. An agent whose package omits that key is reported
         # as such rather than as perpetually unverified.
-        if [[ -z "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" ]]; then
-            st "n/a" "${agent}  its package declares no signed release manifest to verify against"
+        pin="$(ai_tools_entrypoint_pin_path "${agent}" 2>/dev/null || true)"
+        if [[ -z "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
+              && ! -e "${pin}" ]]; then
+            st "n/a" "${agent}  its package declares no signed release manifest, and root has recorded no pin yet"
             continue
         fi
-        pin="$(ai_tools_entrypoint_pin_path "${agent}" 2>/dev/null || true)"
         version="$(ai_tools_service_stamp_field "${pin}" VERSION)"
-        if [[ -n "${version}" ]]; then
+        # The reading this vantage adds: root can traverse the toolchain, so it hashes the entrypoint and compares it
+        # against the pin instead of reporting what the last reconciliation recorded. A binary that changed since is
+        # therefore named here even where no reconciliation has run over it yet -- the pin's own fields cannot say
+        # so, and the operator's report can only read them.
+        live="$(entrypoint_live_verdict "${agent}")"
+        if [[ "${live}" == mismatch ]]; then
+            st MISMATCH "${agent}  the installed entrypoint does not match its pin${version:+ (${version})} -- its sessions refuse to start"
+            detail "sudo ai-tools-admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        elif entrypoint_stale_mark "${agent}"; then
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        elif [[ -n "${version}" && "$(ai_tools_entrypoint_pin_kind "${agent}" 2>/dev/null || true)" == observed ]]; then
+            # Recorded as installed: a change to the binary refuses at every setting, and no vendor signature stands
+            # behind the value. UNCHANGED is what the comparison proves; it does not say the binary was sound when root
+            # first recorded it. It is a pin, so it satisfies the strictness switch and is not a problem.
+            age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${pin}" VERIFIED)")"
+            st UNCHANGED "${agent}  ${version}${age:+, ${age}}, as installed -- its vendor publishes no signed manifest"
+        elif [[ -n "${version}" ]]; then
             age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${pin}" VERIFIED)")"
             st VERIFIED "${agent}  ${version}${age:+, ${age}}"
         elif [[ -e "${pin}" ]]; then
@@ -1504,6 +1555,38 @@ status_entrypoints() {
     done < <(ai_tools_enabled_agents 2>/dev/null)
     [[ "${seen}" -eq 1 ]] || st "n/a" "no agent is enabled in ${OPERATOR_CONF}"
     status_labels
+}
+
+# entrypoint_live_verdict <agent>: print what the agent's installed entrypoint hashes to against its pin RIGHT NOW --
+# `ok`, `mismatch`, `unpinned`, `unreadable` -- or an empty string where the reading cannot be made. The third root-only
+# reading of this report, beside the live SELinux type: the toolchain is 0750 and sandbox-owned, so no operator-side
+# command can hash that file, and a pin records only what the last reconciliation found. Read-only, and it does not
+# reach the network: it is the comparison the launch shim makes on every launch.
+entrypoint_live_verdict() {
+    local agent="$1" entrypoint
+    declare -F ai_tools_entrypoint_check      >/dev/null 2>&1 || return 0
+    declare -F ai_tools_agent_entrypoint_path >/dev/null 2>&1 || return 0
+    entrypoint="$(ai_tools_agent_entrypoint_path "${agent}" 2>/dev/null || true)"
+    [[ -n "${entrypoint}" ]] || return 0
+    ai_tools_entrypoint_check "${agent}" "${entrypoint}" 2>/dev/null || true
+}
+
+# entrypoint_stale_mark <agent>: report, and return 0, when the last reconciliation REFUSED to re-record this agent's
+# pin. The refusal leaves the pin standing -- that staleness is what makes the next launch refuse -- so without this
+# the pin's own fields render as a verification that succeeded. Returns non-zero when there is no mark, which is
+# the ordinary state.
+entrypoint_stale_mark() {
+    local agent="$1" record reason version age
+    declare -F ai_tools_entrypoint_stale_path >/dev/null 2>&1 || return 1
+    record="$(ai_tools_entrypoint_stale_path "${agent}" 2>/dev/null || true)"
+    [[ -n "${record}" && -e "${record}" ]] || return 1
+    [[ "$(ai_tools_service_stamp_field "${record}" STATE)" == stale ]] || return 1
+    reason="$(ai_tools_service_stamp_field "${record}" REASON)"
+    version="$(ai_tools_service_stamp_field "${record}" VERSION)"
+    age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${record}" DETECTED)")"
+    st "PIN STALE" "${agent}  a reconciliation refused to re-record this pin (${reason:-refused}${version:+, ${version}})${age:+, ${age}} -- its sessions refuse to start"
+    detail "sudo ai-tools-admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
+    return 0
 }
 
 # status_labels: render ai_tools_agent_label_report -- the live SELinux type of each enabled agent's own paths,
@@ -1588,6 +1671,7 @@ status() {
         detail "sudo ai-tools-admin system bootstrap"
         STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
     fi
+    status_managed_files
 
     status_services
     status_entrypoints

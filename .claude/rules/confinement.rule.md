@@ -159,6 +159,24 @@ and `ai_tools.te` grants `manage_*_pattern` only for the types it declares for t
 `ai_tools_home_t`, `ai_tools_tmp_t`. None of them appears in the exec chain: the versioned launcher symlink is `bin_t`,
 the agent's package directory `lib_t`, and the entrypoint `ai_tools_exec_t`, on which `ai_tools_t` holds
 `execute_no_trans` plus what `application_domain` gives (entrypoint/read/getattr), and no other permission.
+The `execute_no_trans` grant is the one access the module also audits (`auditallow`, beside the grant in `ai_tools.te`):
+an exec through it is an entrypoint started from inside a session, the kernel writes an AVC `granted` record for each,
+and `ai-tools audit` reads those back ([launch](launch.rule.md), [cli](cli.rule.md)).
+
+A vendored helper a package ships beside its entrypoint keeps `lib_t`, which the domain may **execute** — codex's `rg`,
+`zsh` and `bwrap` all start inside a session, as does every `bin_t` file under `corecmd_exec_bin` — so what the entry
+type decides is domain **entry**, not executability. Exactly one inode per package may carry it: the one the manifest
+declares and the pin checksums. An agent whose platform-specific dependency is hardlinked into the declared path answers
+to two names on one inode and therefore one label, so that is counted by inode (`tests/integration/selinux.sh`);
+the hardlink itself, and what else rests on it, are in [agent-claude-code](agent-claude-code.rule.md).
+
+`ai_tools_home_t` is the one type the domain both writes and executes. `ai_tools.te` grants `execute execute_no_trans`
+on it for the hook scripts under the agent's config directory, interpreted shell the session runs without a transition,
+and the grant reaches every path the type covers — the config directories and the caches. A file a session writes there
+runs in a later session at the same uid and in the same domain, another operator's session included, which is
+the shared-account boundary of [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9) and not an escalation. The project
+tree (`ai_tools_project_t`) and `/tmp` (`ai_tools_tmp_t`) are written and not executed; the `buildexec` group is the one
+exception, for build output alone.
 
 So on an enforcing host with the module loaded, `ai_tools_t` can neither write the entrypoint, nor unlink or rename
 over it (no `add_name`/`remove_name` on a `lib_t` directory), nor repoint the `bin_t` symlink — even though DAC alone
@@ -233,7 +251,7 @@ Operational notes for that case:
 
 ## Optional SELinux groups and the namespace filter
 
-The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`/`apphost`/`localipc`/`buildexec`) are all
+The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`/`memfdexec`/`localipc`/`buildexec`) are all
 off by default and each carries a **stability** field in the registry (`experimental`/`stable`) that decides how it is
 shipped and enabled. Both front doors draw the group set, descriptions, and stability from one place —
 `selinux-groups.lib.sh`, so they cannot disagree. The same registry records a renamed group's **former module name**,
@@ -242,8 +260,8 @@ on the shipped set — replaces a loaded former module with the group's current 
 so a host that enabled a group under its old name keeps the workload running across the rename and does not hold both
 rule sets:
 
-- **Stable** groups (`tmpmap`, `localipc`, `buildexec`: a rule set exercised against its workload on an enforcing host)
-  are on the **shipped set**: compiled as `ai_tools_<group>.pp` beside the core
+- **Stable** groups (`tmpmap`, `memfdexec`, `localipc`, `buildexec`: a rule set exercised against its workload
+  on an enforcing host) are on the **shipped set**: compiled as `ai_tools_<group>.pp` beside the core
   in `/usr/share/selinux/packages/ai-tools/` (how, and by what, is in [How the policy ships](#how-the-policy-ships)),
   where `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads one on an installed host without a source
   tree or `selinux-policy-devel`, then restores the labels the group's own file contexts decide (the sandbox-clone
@@ -283,8 +301,40 @@ but does not run in `ai_tools_t`.
 
 `avc-testsuite.sh` (agent) exercises what the agent needs and writes a start marker; `avc-analyze.sh` (root) reads
 that marker so `ausearch -ts` starts at the right instant, and sorts each denial into **NEW**, **EXPECTED BOUNDARY** (an
-access `ai_tools.te` `dontaudit`s) or **EXPECTED GROUP-DISABLED** (one only an optional group would allow). Only NEW is
+access the policy refuses on purpose — `dontaudit`'d by section (4), or left visible by section (6) as a breach
+attempt), **EXPECTED GROUP-DISABLED** (one only an optional group would allow), or **BENIGN PROBE**. Only NEW is
 a candidate to fold in.
+
+A benign probe is an access whose refusal does not change what the caller does next, and it is classified and **left
+audited** rather than `dontaudit`'d. Four are classified: the login shell's `hostname_exec_t` lookup,
+which `/etc/profile` answers from `uname -n` and which every agent raises; `install`(1)'s relabel of the file it just
+created, which the `type_transition` has already given the type it asks for, so the copy exits 0; codex's inotify
+`watch` on the account's home root (`usr_t`); and `emacs`(1)'s two startup existence probes — one for `ssh`
+(`access(X_OK)`, which the kernel checks as `ssh_exec_t:file execute` without the binary being run) and a read
+of the mail-spool symlink (`mail_spool_t:lnk_file`) — which this repository's own comment filler raises once per file it
+formats. The first three are measured at three to four records per session start and none per command afterwards,
+which is what decides the treatment: section (4) silences a **flood**, and a `dontaudit` would equally hide a later
+agent release making the same call in a loop. The emacs pair scales with files formatted rather than with sessions,
+and neither probe is reachable from this repository's side — `tramp` is not loaded during a fill run and `$MAIL` is
+unset, and both fire regardless — so there is no invocation to change and the classification is the remedy.
+
+**Neither is `dontaudit`'d, and the ssh one must not be.** A `dontaudit` names a type and a permission and cannot be
+scoped to a command, so silencing this probe would silence *every* `ssh_exec_t:file execute` the domain ever makes —
+the same lateral-movement signal `sudo_exec_t` and `semanage_exec_t` are deliberately left visible for. It would also
+ship that silence to every host to quiet a condition only a development host can reach: `emacs` is a dependency
+of the formatter, not of the product, and a host that only runs sessions does not have it installed. All but the first
+are matched on the permission, and `install`'s and `emacs`'s on the command as well. **NEW is the default bucket** — it
+holds every denial no classifier claims — so how narrowly a probe is matched is the whole of what keeps a real signal
+out of it: a `chcon` of a project file, a `usr_t` denial of anything but `watch`, and, `ssh_exec_t` being a type no
+other classifier names, an `execute` of it by any command other than emacs.
+
+**The window is the analyst's to state, because the marker is the exerciser's start** — one turn into the session,
+after the agent's own startup probes. Sweeping a whole session means passing `-ts` from before the launch and `-te`
+after it: every agent session under the account inherits the user manager's audit session id, so `ses=` does not
+separate two agents and only the window does. `ausearch` takes each end as two argv words and exits non-zero both
+for a window it could not parse and for one that did not match any record, so `avc-analyze.sh` keeps its stderr
+and distinguishes the two — a search that never ran would otherwise report as a policy covering everything the suite
+exercised.
 
 `avc-denials.sh` proves the inverse — that what the agent must not do is refused. Its root half brackets the probe
 with `semodule -DB` … `semodule -B`, since a `dontaudit` suppresses the audit record and an empty `ausearch` result
