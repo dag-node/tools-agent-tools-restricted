@@ -201,6 +201,49 @@ What follows from that placement:
   under an earlier name set is dropped with the claim and does not keep a subtree of an unclaimed project on a type
   the confined domain manages.
 
+## Configuration the build reads from a project's ancestors <a id="ref-section-t8k3"></a>
+
+MSBuild, NuGet and Roslyn collect configuration by walking from the project directory toward `/`, opening every file
+of a name they recognise. A session reaches the project and not its ancestor directories, so each such file found there
+is opened and denied, and every one of them is a **hard error** naming an ancestor path, with no mention of the sandbox
+boundary in the message:
+
+| file | error |
+|---|---|
+| `.editorconfig` | `CS1504` |
+| `Directory.Build.props` | `MSB4024` |
+| `Directory.Packages.props` | `MSB4024` |
+| `global.json` | `error 13` |
+| `NuGet.config` | hard error |
+
+`ancestor-config.lib.sh` reports them, and the manifest supplies both halves of what it looks for: `project_markers`
+decides that a directory is a project of this toolchain's, so a tree built with another one does not raise a notice,
+and `ancestor_config_files` names the files. Base names neither, and a second toolchain adds a manifest.
+`ai-tools projects claim` prints the paths in its Review block and the launch wrapper prints them with its pre-launch
+notices; neither repairs one, since every step either of them performs acts inside the project.
+
+Three things that look like the fix and are not:
+
+- **`root = true` does not bound the walk.** Roslyn applies the marker when it **parses** the file, so a file is opened
+  before it can say the search should have stopped: with the marker at a middle level, discovery still collected every
+  ancestor past it, and an unreadable file among those still produced `CS1504`.
+- **DAC is not the binding constraint.** An ancestor `.editorconfig` at `640 <operator>:SANDBOX_GROUP` — the shape
+  an operator reaches for, read for the group and write for nobody but themselves — grants the group `r` and the read is
+  still denied, the file being `user_home_t`, which the base policy grants `ai_tools_t` no read on. A `setfacl`
+  or `chmod` remedy therefore does not work on an enforcing host, and a readability check computed from mode and group
+  alone answers "readable" exactly where the report is needed — which is why `ai_tools_session_can_read` asks both
+  layers.
+- **`DiscoverEditorConfigFiles=false` is not the fix**, and neither is a filter rule. The property empties
+  `EditorConfigFiles` entirely, the project's own file included, so analyzer severities and naming rules stop applying
+  and the sandbox build diverges silently from the operator's; and a `-p:` that changes what the compiler is handed is
+  a semantics change wearing a verbosity rule's clothes ([filters](filters.rule.md) holds what that layer is for).
+
+**A read grant on an ancestor is not built.** Two problems are open. A `semanage fcontext` rule plus `restorecon` does
+not survive an editor's write-and-rename: the new inode takes the default type, so the grant lapses on each edit
+the operator makes to their own file, and the next session reports that path again exactly as it did before the grant.
+And one ancestor serves every project beneath it, so `projects unclaim` would have to refcount a shared rule. The report
+states the reading as it stands at each launch, which is why it ships first.
+
 ## Not SELinux
 
 One .NET fix is runtime-env, not policy, and applies on a DAC-only host too: **`MSBUILDDISABLENODEREUSE=1`**

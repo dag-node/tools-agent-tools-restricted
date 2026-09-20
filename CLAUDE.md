@@ -68,7 +68,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
 | Toolchain provisioning + Node/claude updater, the residue a disabled agent's package is and its removal, symlink repoint and removal, post-upgrade entrypoint reconciliation (signed-release verification + relabel) | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `toolchain.lib.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-agent.sh`, `entrypoint-verify.lib.sh`, `keys/**`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
 | Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, and the `session-env.d` and `admin-commands.d` seams | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env,admin-commands}.d/**`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
-| The dotnet integration (its manifest, session-env fragment, filter rules, and contributed `dotnet` command) and running .NET (CoreCLR) under confinement: the `tmpmap`/`memfdexec`/`localipc`/`buildexec` SELinux groups, the build-output type and the `ai_tools_dotnet` layout module, project-type→group map, denial breakdown, the manifest keys and `ai-tools-providers(5)` | `lib/ai-tools/integrations.d/dotnet.conf`, `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `lib/ai-tools/admin-commands.d/dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,memfdexec,localipc,buildexec,dotnet}.te`, `share/man/man5/ai-tools-providers.5` | [dotnet](.claude/rules/dotnet.rule.md) |
+| The dotnet integration (its manifest, session-env fragment, filter rules, and contributed `dotnet` command) and running .NET (CoreCLR) under confinement: the `tmpmap`/`memfdexec`/`localipc`/`buildexec` SELinux groups, the build-output type and the `ai_tools_dotnet` layout module, project-type→group map, denial breakdown, the configuration a build reads from a project's ancestors and the report that names what a session is denied, the manifest keys and `ai-tools-providers(5)` | `lib/ai-tools/integrations.d/dotnet.conf`, `lib/ai-tools/ancestor-config.lib.sh`, `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `lib/ai-tools/admin-commands.d/dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,memfdexec,localipc,buildexec,dotnet}.te`, `share/man/man5/ai-tools-providers.5` | [dotnet](.claude/rules/dotnet.rule.md) |
 | Management CLI, project lifecycle, relabel, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Host health as one resource read from two vantages: what an operator can see and what root adds (live `--user units`, the entrypoint pin, the live SELinux label) | `services.lib.sh`, `relabel.lib.sh`, `bin/ai-tools.sh` (`status`), `ai-tools-admin.sh` (`status`) | [cli](.claude/rules/cli.rule.md) |
 | Terminating sessions that are already running (`stop`) — the incident ladder's stop rung; it sweeps every session in the account's cgroup and restores the user manager | `ai-tools-stop.sh` | [cli](.claude/rules/cli.rule.md) + [docs/sessions/stop.md](docs/sessions/stop.md) |
@@ -303,13 +303,13 @@ not gaps, so a reader tells bounded design from an oversight:
   execs once it and its directory pass the provider trust predicate (`dotnet` is the one installed today). **Shared
   libraries** live under `/usr/local/lib/ai-tools/` (`conf`, `secret-patterns`, `skip-dirs`, `owner-only`, `safe-paths`,
   `relabel`, `operator`, `control-plane`, `confinement`, `launch-wrapper`, `npm-verify`, `entrypoint-verify`,
-  `managed-assets`, `providers`, `toolchain`, `selinux-groups`, `filters`, `services`, `msg`, `log`, `path-order`,
-  `agent-installs`, and the claude-code pair `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering
-  fragment `ai-tools-admin` wires into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory
-  and its contents are `root`-owned and non-group-writable, and the sandbox group reads them — load-bearing, since
-  the sandbox account sources several of these libraries. Read is open on every one of them and **write** is
-  the boundary: a shared library carries shipped logic or a general list, and an operator's own data stays
-  in that operator's private config instead, so an open read discloses only what already ships (the modes are
+  `managed-assets`, `providers`, `ancestor-config`, `toolchain`, `selinux-groups`, `filters`, `services`, `msg`, `log`,
+  `path-order`, `agent-installs`, and the claude-code pair `claude-prompt`/`claude-endpoint`), plus `path-order.sh`,
+  the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see [launch](.claude/rules/launch.rule.md)).
+  That directory and its contents are `root`-owned and non-group-writable, and the sandbox group reads them —
+  load-bearing, since the sandbox account sources several of these libraries. Read is open on every one of them
+  and **write** is the boundary: a shared library carries shipped logic or a general list, and an operator's own data
+  stays in that operator's private config instead, so an open read discloses only what already ships (the modes are
   in [providers](.claude/rules/providers.rule.md); the guarantee is the invariant that the sandbox cannot widen its own
   surface).
 
