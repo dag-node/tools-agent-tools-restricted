@@ -686,6 +686,19 @@ and the fixture `operator.conf` does not enable, before the executable resolves 
 and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside copies
 of the deployed ones, with the package gone as the control. `cli-agent-set.sh` reports and counts the same link.
 
+`audit.sh` pins the kernel-record section of `ai-tools-audit` ([cli](cli.rule.md)). The trail it reports is one **only
+the kernel writes**, so a test cannot produce a record: the helper is sourced (inert by construction), the audit
+and SELinux tools are stubbed as shell functions, and fixture records drive the parser. Three properties carry
+the weight. The rule the reader keeps is read out of the policy source and compared with the labels the helper holds
+a record to, so the two cannot drift apart unnoticed. Every way a record can fail to be this section's — another
+domain's, another permission, another object type, no AVC line — is asserted to be dropped, and every field an agent
+composes (`argv0`, the path) is asserted to stay data: a counterfeit record line inside a field, a planted separator,
+and an over-long value each end up neutralized or marked. And each host state reports as itself, by message code,
+so an empty window reads as "no such exec" only where the rule is in force. The classification runs over a synthetic
+agent pair, and the manifest map is built through the real resolver where root allows and stubbed elsewhere, asserted
+rather than assumed. The live half is `integration/selinux.sh` (`sesearch` over the loaded policy) and the boundary half
+`boundary/access.sh` (the audit log and the policy store are out of the sandbox account's reach).
+
 `codex-package.sh` pins the files `ai-tools-agents-codex-restricted` ships to the seams they plug into, before any host
 installs them ([agent-codex](agent-codex.rule.md)): the manifest through the readers that parse it, with its
 `launcher_target` and `entrypoint_fcontext` asserted to agree by pattern and, where the executable bit is visible,
@@ -889,9 +902,10 @@ input validation, the unit properties it pins, and the session env it sources �
 to answer to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh` asserts the confinement layer is
 enforcing: when the `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t`
 nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is optional). It also
-holds the two entrypoint assertions that need a labelled host — that each agent's declared file-context rule still
-covers what its package installed, and that no link in the exec chain carries a type the confined domain may manage —
-and, where the `ai_tools_dotnet` layout module is loaded, the build-output labelling that only libselinux can answer:
+holds the entrypoint assertions that need a labelled host — that each agent's declared file-context rule still covers
+what its package installed, that no link in the exec chain carries a type the confined domain may manage,
+and that the loaded core module audits an in-session exec of the entrypoint, read with `sesearch` and skipped without it
+— and, where the `ai_tools_dotnet` layout module is loaded, the build-output labelling that only libselinux can answer:
 a path under one of the module's directories resolves to `ai_tools_project_build_t` and every other clone path
 to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`), and a `bin/` directory
 created in the sandbox area by `unconfined_t` is born on the build type with no `restorecon`. It closes by reading

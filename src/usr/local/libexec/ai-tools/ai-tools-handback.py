@@ -139,9 +139,13 @@ def _peer_user_unit(pid):
     # (ai_tools.te). A peer outside that domain -- the updater's user-manager unit -- is not covered and yields ''.
     # An unreadable or unmatched cgroup yields '' too, which leaves the field ABSENT rather than guessed -- the value is
     # attribution, not authorization.
+    # Unbuffered and binary: the default open() probes isatty() to pick a buffering mode, which is a TCGETS ioctl the
+    # policy does not grant on ai_tools_t:file, so every served request would leave an AVC denial in the audit log.
+    # buffering=0 skips the probe; the bytes are decoded here, and a byte that is not UTF-8 becomes U+FFFD, which
+    # the unit-name allowlist rejects like any other character outside the set.
     try:
-        with open('/proc/%d/cgroup' % pid) as handle:
-            text = handle.read()
+        with open('/proc/%d/cgroup' % pid, 'rb', buffering=0) as handle:
+            text = handle.read().decode('utf-8', 'replace')
     except OSError:
         return ''
     for line in text.splitlines():

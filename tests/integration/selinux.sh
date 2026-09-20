@@ -217,6 +217,26 @@ else
     (( agents_seen > 0 )) || skip "entrypoint declaration reconciliation" "no enabled agent resolved"
 fi
 
+# (7b) The loaded core module audits an entrypoint exec made from inside a session. `ai-tools audit`'s kernel-record
+# section reads the AVC `granted` records that `auditallow ai_tools_t ai_tools_exec_t:file execute_no_trans;` writes,
+# and reports the rule as not in force where sesearch finds none; this is the live half of unit/audit.sh's lockstep
+# between the policy source and the reader. What it catches is a host whose loaded module predates the rule -- a policy
+# package not upgraded beside the base -- which the reader reports as a diagnostic on every run until it is. Read-only:
+# sesearch reads the loaded policy. Skips without setools, which the reader itself treats the same way.
+section "SELinux: the core module audits an in-session entrypoint exec"
+
+if ! command -v sesearch >/dev/null 2>&1; then
+    skip "auditallow on the entrypoint exec" "sesearch (setools-console) not installed"
+else
+    # Captured, then matched: a `grep -q` at the end of a pipe exits at the match and leaves sesearch to SIGPIPE.
+    exec_audit_rules="$(sesearch --auditallow -s ai_tools_t -t ai_tools_exec_t -c file -p execute_no_trans 2>/dev/null || true)"
+    if [[ "$(grep -c '^auditallow ' <<<"${exec_audit_rules}")" == 1 ]]; then
+        pass "the loaded policy carries one auditallow ai_tools_t ai_tools_exec_t:file execute_no_trans"
+    else
+        fail "the loaded policy carries $(grep -c '^auditallow ' <<<"${exec_audit_rules}") auditallow rule(s) for the entrypoint exec, expected 1 -- ai-tools audit cannot read an in-session exec; rebuild: sudo selinux/install-selinux.sh rebuild"
+    fi
+fi
+
 # (8) The build-output type, where the dotnet layout module is loaded. Its static rule must win over the clone rule
 # for a path under one of the named directories and lose everywhere else -- the precedence the narrowing rests
 # on, decided by libselinux from the two rules' stems, which no unit test can read. matchpathcon reads the loaded file

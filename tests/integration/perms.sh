@@ -176,6 +176,9 @@ check_file /etc/codex/managed_config.toml                     root              
 check_file /usr/share/ai-tools/codex                          root              root              755
 check_file /usr/share/ai-tools/codex/requirements.toml        root              root              644
 check_file /usr/share/ai-tools/codex/managed_config.toml      root              root              644
+# The example tool-call audit rule: reference material, world-readable, and not a file auditd reads.
+check_file_optional /usr/share/ai-tools/audit                          root      root              755
+check_file_optional /usr/share/ai-tools/audit/ai-tools-cmd.rules.example root    root              644
 # The shared skills reach codex through its admin scope, /etc/codex/skills. The package places a symlink to the shared
 # root when the path is free, and keeps what a host already holds there (a directory of its own, a link elsewhere)
 # with the shared assets linked inside a host directory one per free name -- so the kept shapes read as the coexistence

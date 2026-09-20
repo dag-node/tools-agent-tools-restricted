@@ -281,12 +281,45 @@ an ordinary account read it — a partial view, the file sink being the authorit
   is the most actionable thing the command can surface. A helper that adds a warning is therefore reported
   from the moment it ships, with no pattern here to update.
 
-  **Two sources, not equal, and the report says so.** `/var/log/ai-tools/*.log` is `700 root:root`, root writers only,
+  **Three sources, not equal, and the report says so.** `/var/log/ai-tools/*.log` is `700 root:root`, root writers only,
   so the sandbox account can neither read nor append to it: those lines are **evidence**. Launch refusals are
   the exception — `ai-tools-run` runs *as* the sandbox account and reaches only journald, under a tag whose legitimate
   writer is that same account — so they are shown in a section of their own as the session's own account of itself,
   to reconcile against the first rather than to rely on alone (see [logging](logging.rule.md)). This is the split
   that keeps an agent-writable trail from being presented as proof.
+
+  **The third is the kernel's, and it is what makes the section tamper-proof rather than merely root-owned.** An agent
+  entrypoint exec'd from inside a running session is recorded by the `auditallow` the core SELinux module carries
+  on that one access ([launch](launch.rule.md)), and no process of the sandbox account can write that trail or remove
+  a record from it. The AVC line is the predicate: a block is a record only where that rule's own `granted` line is
+  in it, whatever the syscall number, so a denial or another domain's record is dropped and an exec
+  through `execveat(2)` is not a way past the report. The helper resolves the exec'd file to an agent through every
+  **installed** manifest's `entrypoint_fcontext`, enabled or not — a disabled agent whose package is still in the tree
+  is the case the section exists for — and counts, rather than itemizes, the one ordinary exec: a bare `argv0`
+  into an agent's own entrypoint, which is that agent reaching a tool it bundles. The count names what it folded, and it
+  is a noise filter, not a control, since a caller chooses its own `argv0`. Reading the manifests is best-effort:
+  with no manifest to match, every record is reported as a file no manifest claims, so a failure there costs noise
+  rather than coverage.
+
+  **The records are read raw, and that is a security choice rather than a convenience.** A path and an argv are
+  the agent's to compose, and the audit format already answers that: auditd hex-encodes an untrusted string holding
+  a space, a quote or a control byte, so every field arrives as one token on one line. `ausearch -i` would decode those
+  to their literal bytes **before** the helper saw them, so an `argv0` carrying a newline would arrive as an extra line
+  — and a line beginning `type=SYSCALL` is one the parser reads, which would let a session name its own record's `exe`
+  and have its exec reported as another agent's expected dispatch. Decoding after the line structure is fixed keeps
+  a record's fields data rather than input. Each decoded field then takes the treatment every untrusted string reaching
+  a sink or a terminal gets ([logging](logging.rule.md)): the printable-ASCII allowlist, so a terminal escape or a bidi
+  byte becomes `?`; the record separator replaced, since a value carrying one would fabricate a column; and a clamp
+  that **marks** where it cut, so a truncated value does not read as a complete one.
+
+  **The section states which reading it made**, because a window with no finding means one thing where the rule is
+  in force and another where it is not: the findings where the core module is loaded and, where `sesearch` is installed,
+  carries the `auditallow`; a coded notice naming the remedy where SELinux is disabled or the module is not loaded
+  (install the policy) or where the loaded module predates the rule (upgrade or rebuild it); and a coded notice
+  where the host does not run an audit daemon at all, since the record then lands in the kernel log and not in the trail
+  `ausearch` reads. The module list is captured before it is matched, for the SIGPIPE reason
+  `ai_tools_selinux_group_loaded` states. Only the findings count toward the non-zero exit; a reading the helper could
+  not make is a diagnostic, the same rule `status` follows for a `?`.
 
   **It reports events, never current state.** Each line is something that *happened* between two points in time;
   a condition recorded here may have been resolved since. That distinction is load-bearing and the report states it,

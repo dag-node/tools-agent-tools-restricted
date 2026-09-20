@@ -78,6 +78,14 @@ so the executable ships in a nested package
   cannot. This is why the relabel's reconciliation **resolves** the entrypoint rather than declaring a second pattern
   for it.
 
+**The binary is multi-call, so a session is not one process.** `claude.exe` bundles the search tools it uses and reaches
+each by exec'ing **[3]** with the tool's name as `argv0` — `rg`, `ugrep` and `bfs` — which `ai_tools_t`'s
+`execute_no_trans` on `ai_tools_exec_t` permits, and which the policy's `auditallow` on that access records like any
+other exec of the entrypoint from inside a session. `ai-tools audit` counts those rather than reporting them,
+on the bare `argv0` alone, so a release that bundles a fourth tool is counted on the same rule, with no name
+for a manifest to declare ([cli](cli.rule.md), [launch](launch.rule.md)). Agent subagents are unrelated to this: they
+run inside the one process that started them.
+
 ## Entrypoint labelling: applied from the declaration, checked on the resolved inode
 
 Because the transition fires on **[3]**, that inode must carry `ai_tools_exec_t`, and a freshly installed one is born
