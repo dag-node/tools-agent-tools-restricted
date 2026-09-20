@@ -193,6 +193,15 @@ a security gate, so a missing `services.lib.sh` skips the warning rather than fa
 the `safe-paths` load, which does), and a healthy host stays silent. The print-and-exit path exec'd earlier, so a bare
 `--version`/`--help` never triggers it.
 
+**An unreadable-ancestor-configuration report (wrapper-side).** Beside that warning the wrapper prints each
+configuration file in the project's ancestry that a build toolchain reads and the sandbox account is denied (`MSG-N5S2`,
+`ancestor-config.lib.sh`), the launch-side half of the report `ai-tools projects claim` prints. It is warn-not-block
+and best-effort like the other notices — a missing library skips it — and it reports rather than repairs, no launch path
+reaching outside the project. It is **not** in the claim guard: each of that guard's findings is closed
+by `ai-tools projects claim`, which does not close this one. The print-and-exit path exec'd earlier, so a bare
+`--version`/`--help` does not take the reading. What the report is about is
+[ref-section-t8k3](dotnet.rule.md#ref-section-t8k3).
+
 **`WorkingDirectory` is the validated project directory.** A transient unit defaults its cwd to `/`. The wrapper exports
 the realpath'd, allowlist- and claim-validated project directory as `AI_TOOLS_PROJECT_DIR`, carried through sudo
 via `env_keep`; `ai-tools-run` re-validates it (absolute, `..`-free, existing) and sets it as the unit's

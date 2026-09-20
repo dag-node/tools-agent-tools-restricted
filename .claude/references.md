@@ -14,6 +14,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | Id | Reftag | Name | File | Cited by | Emitter |
 |---|---|---|---|---|---|
 | w4z6 | [ref-section-w4z6](rules/confinement.rule.md#ref-section-w4z6) | The toolchain is read-only to the confined domain | .claude/rules/confinement.rule.md | .claude/rules/agent-claude-code.rule.md, .claude/rules/agent-codex.rule.md, .claude/rules/launch.rule.md, .claude/rules/updater.rule.md |  |
+| t8k3 | [ref-section-t8k3](rules/dotnet.rule.md#ref-section-t8k3) | Configuration the build reads from a project's ancestors | .claude/rules/dotnet.rule.md | .claude/rules/cli.rule.md, .claude/rules/launch.rule.md |  |
 | p3k8 | [ref-section-p3k8](rules/launch.rule.md#ref-section-p3k8) | The ordering is read, not assumed | .claude/rules/launch.rule.md | .claude/rules/cli.rule.md |  |
 | f6z3 | MSG-F6Z3 | example | .claude/rules/messaging.rule.md |  |  |
 | b3k5 | [ref-section-b3k5](rules/updater.rule.md#ref-section-b3k5) | A refusal leaves a mark too | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
@@ -182,6 +183,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | w2p3 | [MSG-W2P3](../src/usr/local/lib/ai-tools/launch-wrapper.lib.sh) | excluded by '!' rule in approved projects list: $(pwd) | src/usr/local/lib/ai-tools/launch-wrapper.lib.sh | tests/integration/wrapper.sh, tests/unit/launch-wrapper.sh | ai_tools_launch_die |
 | n2z7 | [MSG-N2Z7](../src/usr/local/lib/ai-tools/launch-wrapper.lib.sh) | no session started -- ${cwd} is not set up for the agent. | src/usr/local/lib/ai-tools/launch-wrapper.lib.sh | tests/integration/wrapper.sh, tests/unit/launch-wrapper.sh | _ai_tools_launch_error |
 | w4x4 | [MSG-W4X4](../src/usr/local/lib/ai-tools/launch-wrapper.lib.sh) | refusing to launch -- ${cwd} is not fully claimed for the sandbox | src/usr/local/lib/ai-tools/launch-wrapper.lib.sh | tests/unit/launch-wrapper.sh | ai_tools_launch_die |
+| n5s2 | [MSG-N5S2](../src/usr/local/lib/ai-tools/launch-wrapper.lib.sh) | the sandbox account cannot read ${#unreadable[@]} configuration file(s) above this project, which an installed toolchain reads for a build here -- a build that reads one fails on it, naming a path outside the project | src/usr/local/lib/ai-tools/launch-wrapper.lib.sh |  | _ai_tools_launch_warn |
 | b6g2 | [MSG-B6G2](../src/usr/local/lib/ai-tools/launch-wrapper.lib.sh) | the launch gates did not run -- refusing to start | src/usr/local/lib/ai-tools/launch-wrapper.lib.sh | tests/unit/launch-wrapper.sh | ai_tools_launch_die |
 | p4m9 | [MSG-P4M9](../src/usr/local/lib/ai-tools/providers.lib.sh) | providers.lib.sh: conf.lib.sh missing or incomplete -- no providers resolved | src/usr/local/lib/ai-tools/providers.lib.sh |  | _ai_tools_provider_warn |
 | c4f9 | [MSG-C4F9](../src/usr/local/lib/ai-tools/providers.lib.sh) | ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") -- using the default-enabled providers only | src/usr/local/lib/ai-tools/providers.lib.sh |  | _ai_tools_provider_warn |
