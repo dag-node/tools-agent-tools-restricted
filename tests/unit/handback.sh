@@ -160,7 +160,7 @@ for text, want, label in cases:
     with real_open(fixture, "w") as handle:
         handle.write(text)
     builtins.open = (lambda name, *args, **kwargs:
-                     real_open(fixture) if str(name).startswith("/proc/")
+                     real_open(fixture, *args, **kwargs) if str(name).startswith("/proc/")
                      else real_open(name, *args, **kwargs))
     try:
         got = unit_of(1)
@@ -225,7 +225,7 @@ for text, want_record, label in audit_cases:
     with real_open(fixture, "w") as handle:
         handle.write(text)
     builtins.open = (lambda name, *args, **kwargs:
-                     real_open(fixture) if str(name).startswith("/proc/")
+                     real_open(fixture, *args, **kwargs) if str(name).startswith("/proc/")
                      else real_open(name, *args, **kwargs))
     try:
         unit_of(4743)
