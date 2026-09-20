@@ -610,6 +610,12 @@ allow ai_tools_handback_t ai_tools_conf_t:file { getattr open read lock ioctl };
 
 # Read the shared libraries the helpers source.
 libs_read_lib_files(ai_tools_handback_t)
+
+# statfs(2) on the project's filesystem. The helpers walk a project with `find -xdev`, and GNU find probes each
+# directory's filesystem type (fstatfs) to decide its leaf optimization; `-xdev` itself reads st_dev from stat(2), so
+# without this grant the walk still completes and the probe leaves a `fs_t:filesystem getattr` denial four times
+# per handback. The grant is a read of filesystem statistics by a domain that already runs as root.
+fs_getattr_xattr_fs(ai_tools_handback_t)
 files_read_etc_files(ai_tools_handback_t)   # /etc/passwd, nsswitch.conf, ...
 auth_use_nsswitch(ai_tools_handback_t)       # resolve uid/gid (getpwnam)
 
