@@ -1,0 +1,2 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+## <summary>Optional ai_tools policy group: execute generated code from the anonymous memfd files the session creates itself (private ai_tools_memfd_t, map+execute). Exports no interfaces.</summary>

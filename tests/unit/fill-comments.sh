@@ -74,7 +74,7 @@ INNER
 # preformatted output whose line breaks are content, long enough that a filler would rewrap it
 # </pre>
 s=7
-# Spans stay whole: a sentence long enough to reach the column where `ai-tools status` is named, then a span wider than the column, `sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`, and the tie rule beside a span, so that no line ends on the `750 root:root` mode of the pin.
+# Spans stay whole: a sentence long enough to reach the column where `ai-tools status` is named, then a span wider than the column, `sudo ai-tools-admin selinux groups enable tmpmap memfdexec localipc buildexec`, and the tie rule beside a span, so that no line ends on the `750 root:root` mode of the pin.
 t=8
 # A command key is one word, so a fill moves it down whole rather than breaking it apart: the tail of this line has no room left for ai-tools.projects.remove.inplace once the sentence has run on this far.
 t2=8
@@ -231,7 +231,7 @@ else
     fail "a command key was broken by the fill: $(grep -n 'remove' "${f}")"
 fi
 # shellcheck disable=SC2016
-if grep -qxF -- '# `sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`,' "${f}"; then
+if grep -qxF -- '# `sudo ai-tools-admin selinux groups enable tmpmap memfdexec localipc buildexec`,' "${f}"; then
     pass "a span wider than the column runs the line over, on a line of its own"
 else
     fail "a span wider than the column was split: $(grep -n 'selinux groups' "${f}")"

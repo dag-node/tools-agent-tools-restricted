@@ -251,7 +251,7 @@ Operational notes for that case:
 
 ## Optional SELinux groups and the namespace filter
 
-The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`/`apphost`/`localipc`/`buildexec`) are all
+The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`/`memfdexec`/`localipc`/`buildexec`) are all
 off by default and each carries a **stability** field in the registry (`experimental`/`stable`) that decides how it is
 shipped and enabled. Both front doors draw the group set, descriptions, and stability from one place —
 `selinux-groups.lib.sh`, so they cannot disagree. The same registry records a renamed group's **former module name**,
@@ -260,8 +260,8 @@ on the shipped set — replaces a loaded former module with the group's current 
 so a host that enabled a group under its old name keeps the workload running across the rename and does not hold both
 rule sets:
 
-- **Stable** groups (`tmpmap`, `localipc`, `buildexec`: a rule set exercised against its workload on an enforcing host)
-  are on the **shipped set**: compiled as `ai_tools_<group>.pp` beside the core
+- **Stable** groups (`tmpmap`, `memfdexec`, `localipc`, `buildexec`: a rule set exercised against its workload
+  on an enforcing host) are on the **shipped set**: compiled as `ai_tools_<group>.pp` beside the core
   in `/usr/share/selinux/packages/ai-tools/` (how, and by what, is in [How the policy ships](#how-the-policy-ships)),
   where `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads one on an installed host without a source
   tree or `selinux-policy-devel`, then restores the labels the group's own file contexts decide (the sandbox-clone
@@ -306,14 +306,27 @@ attempt), **EXPECTED GROUP-DISABLED** (one only an optional group would allow), 
 a candidate to fold in.
 
 A benign probe is an access whose refusal does not change what the caller does next, and it is classified and **left
-audited** rather than `dontaudit`'d. Three are classified: the login shell's `hostname_exec_t` lookup,
+audited** rather than `dontaudit`'d. Four are classified: the login shell's `hostname_exec_t` lookup,
 which `/etc/profile` answers from `uname -n` and which every agent raises; `install`(1)'s relabel of the file it just
-created, which the `type_transition` has already given the type it asks for, so the copy exits 0; and codex's inotify
-`watch` on the account's home root (`usr_t`). Each is measured at three to four records per session start and none
-per command afterwards, which is what decides the treatment: section (4) silences a **flood**, and a `dontaudit` would
-equally hide a later agent release making the same call in a loop. The last two are matched on the permission,
-and `install`'s on the command as well, so a `chcon` of a project file and a `usr_t` denial of anything but `watch` stay
-NEW.
+created, which the `type_transition` has already given the type it asks for, so the copy exits 0; codex's inotify
+`watch` on the account's home root (`usr_t`); and `emacs`(1)'s two startup existence probes — one for `ssh`
+(`access(X_OK)`, which the kernel checks as `ssh_exec_t:file execute` without the binary being run) and a read
+of the mail-spool symlink (`mail_spool_t:lnk_file`) — which this repository's own comment filler raises once per file it
+formats. The first three are measured at three to four records per session start and none per command afterwards,
+which is what decides the treatment: section (4) silences a **flood**, and a `dontaudit` would equally hide a later
+agent release making the same call in a loop. The emacs pair scales with files formatted rather than with sessions,
+and neither probe is reachable from this repository's side — `tramp` is not loaded during a fill run and `$MAIL` is
+unset, and both fire regardless — so there is no invocation to change and the classification is the remedy.
+
+**Neither is `dontaudit`'d, and the ssh one must not be.** A `dontaudit` names a type and a permission and cannot be
+scoped to a command, so silencing this probe would silence *every* `ssh_exec_t:file execute` the domain ever makes —
+the same lateral-movement signal `sudo_exec_t` and `semanage_exec_t` are deliberately left visible for. It would also
+ship that silence to every host to quiet a condition only a development host can reach: `emacs` is a dependency
+of the formatter, not of the product, and a host that only runs sessions does not have it installed. All but the first
+are matched on the permission, and `install`'s and `emacs`'s on the command as well. **NEW is the default bucket** — it
+holds every denial no classifier claims — so how narrowly a probe is matched is the whole of what keeps a real signal
+out of it: a `chcon` of a project file, a `usr_t` denial of anything but `watch`, and, `ssh_exec_t` being a type no
+other classifier names, an `execute` of it by any command other than emacs.
 
 **The window is the analyst's to state, because the marker is the exerciser's start** — one turn into the session,
 after the agent's own startup probes. Sweeping a whole session means passing `-ts` from before the launch and `-te`

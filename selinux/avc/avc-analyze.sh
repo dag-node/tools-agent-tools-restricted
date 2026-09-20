@@ -146,15 +146,21 @@ readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home
 #   podman   -> container_runtime_exec_t        (container_file_t is a BOUNDARY type:
 #                                                core dontaudit's it regardless)
 # tmpmap is handled separately (_g2): its type, ai_tools_tmp_t, is core-granted for read/write, so it is matched
-# on the `map` PERMISSION, not the type alone. apphost is handled separately (_g3): the core does not grant a permission
-# on tmpfs_t:file, so the whole memfd surface the .NET JIT/apphost touches (write to size it, map, and the defining
-# execute) is that group -- matched on the tmpfs_t:file TYPE. localipc and buildexec are handled separately (_g4):
-# the .NET runtime's sockets/FIFOs under tmp/home, getsid, and executing a built binary from the project tree -- matched
-# on those classes/perms, which the base grants nowhere.
+# on the `map` PERMISSION, not the type alone. memfdexec is handled separately (_g3): with that group off no tmpfs
+# type_transition applies, so a memfd is born tmpfs_t -- a type the core grants nothing on -- and the whole surface
+# a W^X JIT touches is that group, matched on the tmpfs_t:file TYPE. localipc and buildexec are handled separately
+# (_g4): the .NET runtime's sockets/FIFOs under tmp/home, getsid, and executing a built binary from the project tree --
+# matched on those classes/perms, which the base grants nowhere.
 readonly GROUP_DISABLED_RE='(systemd_systemctl_exec_t|journalctl_exec_t|systemd_unit_file_t|rpm_exec_t|rpm_var_lib_t|firewalld_t|NetworkManager_t|container_runtime_exec_t)'
 
-# One line per denial, from the raw AVC records.
-LINES="$(printf '%s\n' "${RAW}" | grep -E '^type=AVC|avc:.*denied' || true)"
+# One line per DENIAL, from the raw AVC records. `ausearch -m AVC` returns granted records too -- the core module
+# carries `auditallow ai_tools_t ai_tools_exec_t:file execute_no_trans`, so every exec of an agent entrypoint
+# from inside a session writes one on purpose, and a multi-call binary dispatching a tool it bundles (claude-code
+# as bfs, rg, ugrep) produces several per session. Those are evidence, not denials: keeping them here files each one
+# under NEW, which reads as a policy gap and is the opposite of what the auditallow is for. `ai-tools audit` is their
+# reader.
+LINES="$(printf '%s\n' "${RAW}" | grep -E 'avc:[[:space:]]*denied' || true)"
+GRANTED="$(printf '%s\n' "${RAW}" | grep -E 'avc:[[:space:]]*granted' || true)"
 
 # Build the boundary set from the three categories, deduplicated. Category 1: known named types.
 _b1="$(printf '%s\n' "${LINES}" | grep -E "tcontext=[^ ]*:${BOUNDARY_NAMED_RE}:" || true)"
@@ -172,11 +178,12 @@ _g="$(printf '%s\n' "${LINES}" | grep -E "tcontext=[^ ]*:${GROUP_DISABLED_RE}:" 
 # (read/write/create), so match on the permission -- only a `map` denial here is the disabled group. An execute denial
 # on it stays NEW (deliberately never granted; /tmp is noexec regardless).
 _g2="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:ai_tools_tmp_t:' | grep -E 'denied.*\bmap\b' || true)"
-# apphost group: any access to a tmpfs (memfd) file. Unlike ai_tools_tmp_t, tmpfs_t:file is NOT core-granted at all --
-# so the whole surface .NET's JIT/apphost needs (write to size the memfd, map both mappings, execute the PROT_EXEC one)
-# is denied while the group is off, and all of it is this group. Match on the TYPE, so a core-only run does not misfile
-# the write/map denials as NEW; `execute` is the highest-risk perm and the reason it is gated. (The graduation-to-stable
-# step scopes the grant to a private memfd type, at which point this matches that type instead of the shared tmpfs_t.)
+# memfdexec group: any access to a tmpfs (memfd) file. With the group off no type_transition applies, so a memfd is born
+# tmpfs_t -- and unlike ai_tools_tmp_t, tmpfs_t:file is NOT core-granted at all, so the whole surface a W^X JIT needs
+# (write to size the memfd, map both mappings, execute the PROT_EXEC one) is denied, and all of it is this group. Match
+# on the TYPE, so a core-only run does not misfile the write/map denials as NEW; `execute` is the highest-risk perm
+# and the reason the group is gated. With the group ON a memfd carries the module's own ai_tools_memfd_t, which this
+# deliberately does NOT match: a denial on that type is a permission the module lacks, and belongs in NEW.
 _g3="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:tmpfs_t:file' || true)"
 # localipc + buildexec: three disjoint signals the base grants nowhere -- the .NET runtime's unix sockets / debug FIFOs
 # (created under tmp_t or ai_tools_home_t) and getsid (process getsession), both localipc; and executing a native binary
@@ -212,12 +219,28 @@ groupdis="$(comm -23 <(printf '%s\n' "${_g}" | sort -u | grep -v '^$') \
 #                      correctly labelled (verified for -m, a plain copy, and -D). Matched on the COMMAND as well as
 #                      the permission, so a chcon/setfattr attempt to relabel a project file -- an escalation signal --
 #                      stays NEW. comm is an analyst's aid, not a control: the access is denied either way.
+#   emacs(1)        -- this repository fills comments with `emacs --batch` (tools/formatters/fill-comments.sh), once
+#                      per file, so an agent formatting prose raises these on every run rather than once per session.
+#                      Two existence probes emacs makes at startup: one for `ssh` -- access(X_OK), which SELinux
+#                      checks as file:execute WITHOUT the binary being run -- and a read of the mail-spool symlink.
+#                      Both are refused, emacs falls back, and the fill completes. Neither is reachable from this
+#                      repository's side: tramp is not loaded during a fill run and $MAIL is unset, and both fire
+#                      regardless, so there is no invocation to change and classifying them is the remedy. Matched
+#                      on the COMMAND, the PERMISSION and the TYPE together: an `execute` on ssh_exec_t from anything
+#                      but emacs is a lateral-movement signal and stays NEW, as does any other access emacs makes.
+#                      NOT dontaudit'd: a dontaudit cannot be scoped to a command, so silencing this one would
+#                      silence every ssh probe the domain makes, on every host -- and emacs is a developer-tooling
+#                      dependency of the formatter, absent from a host that only runs sessions.
 readonly PROBE_NAMED_RE='(hostname_exec_t)'
 _p1="$(printf '%s\n' "${LINES}" | grep -E "tcontext=[^ ]*:${PROBE_NAMED_RE}:" || true)"
 _p2="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:usr_t:' | grep -E 'denied[^}]*\bwatch\b' || true)"
 _p3="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:ai_tools_project_t:' \
         | grep -E 'denied[^}]*\brelabelfrom\b' | grep -F 'comm="install"' || true)"
-probe="$(printf '%s\n' "${_p1}" "${_p2}" "${_p3}" | sort -u | grep -v '^$' || true)"
+_p4a="$(printf '%s\n' "${LINES}" | grep -F 'comm="emacs"' | grep -E 'denied[^}]*\bexecute\b' \
+        | grep -E 'tcontext=[^ ]*:ssh_exec_t:' | grep -E 'tclass=file\b' || true)"
+_p4b="$(printf '%s\n' "${LINES}" | grep -F 'comm="emacs"' | grep -E 'denied[^}]*\bread\b' \
+        | grep -E 'tcontext=[^ ]*:mail_spool_t:' | grep -E 'tclass=lnk_file\b' || true)"
+probe="$(printf '%s\n' "${_p1}" "${_p2}" "${_p3}" "${_p4a}" "${_p4b}" | sort -u | grep -v '^$' || true)"
 
 # Everything intentionally denied (boundary + group-disabled + benign probe), to subtract from NEW.
 excluded="$(printf '%s\n' "${boundary}" "${groupdis}" "${probe}" | sort -u | grep -v '^$' || true)"
@@ -244,6 +267,10 @@ fmt() {
 }
 
 echo "counts: boundary=$(cnt "${boundary}")  group-disabled=$(cnt "${groupdis}")  probe=$(cnt "${probe}")  NEW=$(cnt "${new}")  (NEW must be 0 to pass)"
+# Granted records are reported apart from the counts above, which are denials. A non-zero count here is the core
+# module's auditallow doing its job, not a finding; `ai-tools audit` resolves each exec to an agent.
+[[ -z "${GRANTED}" ]] \
+    || echo "        granted=$(cnt "${GRANTED}")  audited-on-purpose entrypoint exec(s) -- evidence, not denials; read them with 'ai-tools audit'"
 echo
 
 hr
@@ -269,8 +296,8 @@ fi
 echo
 
 hr
-echo "BENIGN PROBE denials (left audited on purpose -- the caller falls back and the"
-echo "rate is per session, not per command; do NOT grant and do NOT dontaudit):"
+echo "BENIGN PROBE denials (left audited on purpose -- the caller falls back, and a"
+echo "dontaudit would silence the same access for every command; do NOT grant):"
 hr
 if [[ -n "${probe}" ]]; then
   printf '%s\n' "${probe}" | fmt

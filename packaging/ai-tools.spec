@@ -850,17 +850,19 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     # module name per current group, and a host that enabled the old module keeps it loaded
     # across this upgrade. Replace it with every current group whose rules it carried, in a
     # single transaction, so a failed load leaves the old module and the workload it serves. The
-    # same swap install-selinux.sh makes on any run; the pair here is the registry's row for
-    # ai_tools_netcore, written out because a scriptlet runs under /bin/sh.
-    _old_group_mod=ai_tools_netcore; _new_groups="localipc buildexec"
-    if semodule -l 2>/dev/null | grep -qx "${_old_group_mod}"; then
+    # same swap install-selinux.sh makes on any run; the pairs here are the registry's rows, written out because
+    # a scriptlet runs under /bin/sh. Each row is "<former module> <current group>...", and a row's groups must be on
+    # the shipped set for the .pp to exist here -- an experimental group has none, so its row waits until it graduates.
+    for _row in "ai_tools_netcore localipc buildexec" "ai_tools_apphost memfdexec"; do
+        _old_group_mod=${_row%% *}; _new_groups=${_row#* }
+        semodule -l 2>/dev/null | grep -qx "${_old_group_mod}" || continue
         _swap_args=""
         for _g in ${_new_groups}; do
             _swap_args="${_swap_args} -i %{_datadir}/selinux/packages/ai-tools/ai_tools_${_g}.pp"
         done
         semodule -r "${_old_group_mod}" ${_swap_args} >/dev/null 2>&1 \
             || echo "ai-tools-selinux: WARNING could not replace the ${_old_group_mod} module with the ${_new_groups} groups; it stays loaded. Re-run: sudo ai-tools-admin selinux groups enable ${_new_groups}" >&2
-    fi
+    done
     # Each installed integration's LAYOUT module (selinux_layout_module in its manifest): it types
     # the integration's build-output directories and does not add any permission, so it loads with
     # the policy and is not an operator's choice. Loaded here as well as by the integration's own

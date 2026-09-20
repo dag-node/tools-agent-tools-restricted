@@ -50,7 +50,7 @@ selinux/
   README.md            this guide
   policy/              policy source (GPL-2.0-or-later); the modules compiled from it land
                          here, gitignored. ai_tools.{te,fc,if}, the optional ai_tools_{systemd,
-                         pkgmgmt,netadmin,podman,tmpmap,apphost,localipc,buildexec}.{te,fc,if},
+                         pkgmgmt,netadmin,podman,tmpmap,memfdexec,localipc,buildexec}.{te,fc,if},
                          the layout module ai_tools_dotnet.{te,fc,if}, Makefile,
                          shipped-modules.sh (prints the shipped set: core + stable groups +
                          layout modules), helper-domain.te.draft; build scratch in policy/tmp/
@@ -78,7 +78,7 @@ by default**, each named for the capability it grants:
 | `netadmin` | `firewall-cmd` / `nmcli` D-Bus |
 | `podman`   | container runtime exec + image storage (still blocked by the namespace filter — see the confinement rule) |
 | `tmpmap`   | mmap of the agent's own `/tmp` files (`dotnet` build, `git`/SQLite in `/tmp`) |
-| `apphost`  | map+execute of tmpfs/memfd files (.NET apphost/JIT: `dotnet run`, ASP.NET Core, `xunit.v3`); disjoint from `tmpmap` |
+| `memfdexec` | map+execute of the session's own memfd files, on a private type (.NET apphost/JIT: `dotnet run`, ASP.NET Core, `xunit.v3`); disjoint from `tmpmap` |
 | `localipc` | unix sockets and FIFOs under `/tmp` and the home state, connect to the session's own sockets and to a loopback port (`dotnet test`, multi-node MSBuild, a dev server and its browser) |
 | `buildexec` | execute on a project's build output — the directories an integration's manifest names and its layout module types; a script written there runs too — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) |
 

@@ -5,7 +5,7 @@ paths:
   - "src/usr/local/lib/ai-tools/integrations.d/dotnet.conf"
   - "src/usr/local/lib/ai-tools/admin-commands.d/**"
   - "selinux/policy/ai_tools_tmpmap.te"
-  - "selinux/policy/ai_tools_apphost.te"
+  - "selinux/policy/ai_tools_memfdexec.te"
   - "selinux/policy/ai_tools_localipc.te"
   - "selinux/policy/ai_tools_buildexec.te"
   - "selinux/policy/ai_tools_dotnet.te"
@@ -34,9 +34,13 @@ cache), so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS
 
 - `session-env.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets the variables the fragment declares —
   the toolchain root, the NuGet cache and CLI home under its state root, the telemetry and banner opt-outs, the MSBuild
-  node-reuse switch, and the `Development` environment — and adds `integrations/dotnet/tools` to PATH. The set is
-  the one current for **.NET 8 LTS and later**; the .NET Core 2.x/3.x-era opt-outs (`DOTNET_SKIP_FIRST_TIME_EXPERIENCE`,
-  `DOTNET_PRINT_TELEMETRY_MESSAGE`) are absent because the SDK does not read them.
+  node-reuse switch, and the first-run opt-out — and adds `integrations/dotnet/tools` to PATH. The set is the one
+  current for **.NET 8 LTS and later**, `DOTNET_SKIP_FIRST_TIME_EXPERIENCE` among them: the SDK reads it, and with it
+  set the first-run configurer does not run, so a session's first `dotnet` command does not write first-use sentinels
+  or run the NuGet migration. `ASPNETCORE_ENVIRONMENT` and `DOTNET_ENVIRONMENT` ship **commented** rather than set,
+  so a deployed host states the environment it wants explicitly; the commented line carries the spelling, so turning one
+  on is an uncomment rather than a lookup, and it carries `Production`, so uncommenting one does not turn on developer
+  exception pages or a development configuration on a host that only wanted the variable present.
   `DOTNET_CLI_HOME=…/integrations/dotnet/cli` is what keeps the shared-tools tree read-only: the SDK's own state
   (first-use sentinels, CLI logs) defaults to `$HOME/.dotnet`, so it is pinned at a writable sibling inside the same
   state root. Only the root-owned tools dir joins PATH; a tool the agent installs for itself under `DOTNET_CLI_HOME`
@@ -84,7 +88,7 @@ No group is enabled automatically.
 | group | grants | needed for |
 |---|---|---|
 | `tmpmap` | `ai_tools_tmp_t:file map` | NuGet **restore** and **build** — the runtime mmaps a shared-memory mutex under `/tmp/.dotnet/shm`. Also git/SQLite in `/tmp`. |
-| `apphost` | `tmpfs_t:file map+execute` (anonymous memfd) | **building/JIT-ing** an executable — CoreCLR maps generated code and the apphost from a memfd `PROT_EXEC`. `execmem` (base) covers anonymous exec; this covers a file-backed one. Experimental until its grant is scoped to a private memfd type; it takes a mechanism name then. |
+| `memfdexec` | `map+execute` on `ai_tools_memfd_t`, the private type a tmpfs `type_transition` gives the memfds the session creates | **building/JIT-ing** an executable — CoreCLR maps generated code and the apphost from a memfd `PROT_EXEC`. `execmem` (base) covers anonymous exec; this covers a file-backed one, and only for a memfd this domain created itself. |
 | `localipc` | unix sockets and FIFOs under `/tmp` and the home state, `connectto` on the domain's own stream sockets, loopback TCP to an ephemeral port, `getsid`, `/proc/sys/net` | **`dotnet test`** (diagnostic socket, test-host connect) and **multi-node MSBuild** (worker pipes); also a dev server and the browser driven against it, a language server |
 | `buildexec` | execute on `ai_tools_project_build_t` (`file { map execute execute_no_trans execmod }`), the base's build-output type | **running** an apphost/testhost/R2R image the agent built |
 
@@ -99,7 +103,7 @@ relabel instead of when it is created.
 
 ## Which groups a project needs
 
-| workload | tmpmap | apphost | localipc | buildexec |
+| workload | tmpmap | memfdexec | localipc | buildexec |
 |---|---|---|---|---|
 | class **library** build | ✓ | | | |
 | **executable / host** build (console, ASP.NET Core, worker, single-file) | ✓ | ✓ | | |
@@ -108,12 +112,12 @@ relabel instead of when it is created.
 | **run** a native host / out-of-process testhost / R2R image (`dotnet run`, `./App`, `xunit.v3`) | ✓ | ✓ | ✓ | ✓ |
 | multi-node MSBuild (drop the `-m:1` workaround) | ✓ | ✓ | ✓ | |
 
-The short version: **`tmpmap` to restore/build, `+apphost` to build an executable, `+localipc` to test, `+buildexec`
+The short version: **`tmpmap` to restore/build, `+memfdexec` to build an executable, `+localipc` to test, `+buildexec`
 to run what was built.** Enable all four for a full build-test-run .NET workflow; `ai-tools-admin selinux groups enable`
-takes them in one command, and the experimental one is compiled from a source checkout.
+takes them in one command, all four being on the shipped set.
 
 An IL-only assembly run through the host binary does not need execute on any project file: the process image is
-`/usr/bin/dotnet`, the assembly is mapped for reading, and the JIT emits into the memfd mapping `apphost` covers,
+`/usr/bin/dotnet`, the assembly is mapped for reading, and the JIT emits into the memfd mapping `memfdexec` covers,
 so that row holds wherever in the tree the assembly sits. What `buildexec` is for is a process image or an executable
 mapping that *is* a project file: the apphost ELF, a test host, a ReadyToRun image.
 
@@ -209,18 +213,20 @@ not a .NET group ([confinement](confinement.rule.md)).
 
 ## Design notes
 
-- **Groups are named for the capability, and the integration names the set.** `localipc` and `buildexec` each read
-  as one class of access an administrator could have written, and neither module names a toolchain. A host that only
-  runs in-process MSTest enables `localipc` without `buildexec`, and a Node workload driving a browser over a socket
-  enables `localipc` without any .NET at all. What is .NET's — the output layout and the list of groups — is
-  the integration's manifest and its layout module, so a second toolchain adds a manifest and a layout module
+- **Groups are named for the capability, and the integration names the set.** `memfdexec`, `localipc` and `buildexec`
+  each read as one class of access an administrator could have written, and none of the modules names a toolchain.
+  A host that only runs in-process MSTest enables `localipc` without `buildexec`, and a Node workload driving a browser
+  over a socket enables `localipc` without any .NET at all. What is .NET's — the output layout and the list of groups —
+  is the integration's manifest and its layout module, so a second toolchain adds a manifest and a layout module
   and touches neither the base nor a group.
 - **Base stays Claude-Code-minimal.** Even the benign IPC is kept out of the core domain, because the agent itself needs
   none of it; it is toolchain-driven and loads with the groups.
 - **A group graduates to `stable`** — the registry field in `selinux-groups.lib.sh` that decides how it ships
   and which front door enables it — after an enforcing `selinux/avc` bring-up trims its rule to the observed minimum.
   `localipc` and `buildexec` are stable: the IPC rules were brought up against `dotnet test` and multi-node MSBuild,
-  and the execute rule only narrows the grant that bring-up carried. `apphost` stays experimental until its grant is
-  scoped from the shared `tmpfs_t` to a private memfd type through a `type_transition` and verified on an enforcing
-  host; it is renamed for the mechanism (`memfdexec`) in the same change, and the former-module seam carries a host
-  across. `dotnet exec` of an R2R assembly is the case to watch for extra `map`/`execmod` on `ai_tools_project_build_t`.
+  and the execute rule only narrows the grant that bring-up carried. `memfdexec` is stable on a bring-up
+  against an out-of-process test host and a single-file publish, with its `type_transition` confirmed firing:
+  `avc-testsuite.sh` reads a memfd's live type back through `/proc/self/fd`, so a fallback to the host-shared `tmpfs_t`
+  is a visible failure there rather than a silently broader grant. `dotnet exec` of an R2R assembly is the case to watch
+  for extra `map`/`execmod` on `ai_tools_project_build_t`, and Native AOT needs a host carrying `clang` to exercise
+  at all.
