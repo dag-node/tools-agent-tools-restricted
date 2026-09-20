@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# ai_tools_memfdexec has no file-context rules: the type it declares (ai_tools_memfd_t) is carried by anonymous
+# in-memory files, which a type_transition assigns at creation, so this module labels no path on disk.

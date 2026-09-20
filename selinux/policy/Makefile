@@ -10,7 +10,7 @@
 #   make ai_tools_netadmin.pp        # optional: firewall-cmd, nmcli D-Bus
 #   make ai_tools_podman.pp          # optional: podman/buildah, container storage
 #   make ai_tools_tmpmap.pp          # optional: mmap of the agent's own /tmp files
-#   make ai_tools_apphost.pp         # optional: execute .NET apphost/JIT code from memfd
+#   make ai_tools_memfdexec.pp       # optional: execute generated code from an anonymous memfd
 #   make ai_tools_localipc.pp        # optional: local IPC between the session's own processes
 #   make ai_tools_buildexec.pp       # optional: execute a project's build output
 #   make ai_tools_dotnet.pp          # layout module: .NET's build output typed at creation

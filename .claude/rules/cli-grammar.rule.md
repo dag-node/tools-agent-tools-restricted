@@ -160,7 +160,7 @@ not mark privilege and most resources do without it. A resource takes the prefix
   manages deliberately.
 
 `entrypoints` takes it on the first test. `selinux groups` takes neither: an operator enables a group to make a workload
-run (`tmpmap` for a .NET restore, `apphost` for `dotnet run`), which is a first-class administration concern owned
+run (`tmpmap` for a .NET restore, `memfdexec` for `dotnet run`), which is a first-class administration concern owned
 by the SELinux domain.
 
 **Being admin-only is not a test, and neither is returning more detail.** `operators` and the anticipated `proxies`,

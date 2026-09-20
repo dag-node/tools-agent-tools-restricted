@@ -295,18 +295,51 @@ semodule -l 2>/dev/null | grep -q '^ai_tools_podman' && {
     podman info 2>/dev/null | head -5 || true
 } || note "podman group not loaded -- skip (enable-group podman to cover it)"
 
-# apphost: the .NET memfd double-mapped JIT / apphost creation (execute on a tmpfs memfd file). Any managed dotnet
-# invocation spins the CLR and sets up its executable code heap through that path, so `dotnet --info` exercises it;
-# a real executable build/run under the agent (dotnet run / an xunit.v3 or ASP.NET Core project) covers it more fully.
-# Skipped when the group is off or dotnet is absent (an optional integration that does not ship a runtime).
-semodule -l 2>/dev/null | grep -q '^ai_tools_apphost' && {
-    if command -v dotnet >/dev/null 2>&1; then
-        note "apphost group loaded -- exercising the .NET memfd JIT via dotnet --info"
-        dotnet --info >/dev/null 2>&1 || true
+# memfdexec: the double-mapped W^X JIT path -- write generated code through a read-write mapping of an anonymous memfd,
+# then execute it from a second PROT_EXEC mapping. Probed directly rather than through a toolchain, so the section runs
+# on a host carrying no dotnet: python3's os.memfd_create reaches the same kernel path a .NET apphost does. The probe
+# reads the memfd's LIVE type back through /proc/self/fd BEFORE mapping it, which is the one reading that separates
+# a working type_transition from a fallback to the host-shared tmpfs_t -- a fallback the mapping itself would not
+# reveal, since it fails for want of a grant either way. A real executable build and run under the agent (dotnet run,
+# an xunit.v3 or ASP.NET Core project) covers the toolchain's own use of the path more fully.
+#
+# The section is NOT gated on the module being loaded. Whether a group is loaded is a fact only the module store holds,
+# the store is root-only, and `semodule` is refused by the sandbox's command policy -- so a `semodule -l` gate evaluates
+# false in the one context this script is meant to run in, and would skip the section exactly when it is supposed
+# to run. The probe reports what it found instead: the type read-back names which of the two states the host is
+# in, and each assertion carries the remedy.
+{
+    if command -v python3 >/dev/null 2>&1; then
+        note "exercising memfd create, type read-back, and a PROT_EXEC mapping"
+        memfd_type="$(python3 -c '
+import os, subprocess
+fd = os.memfd_create("avc-memfdexec")
+out = subprocess.run(["ls", "-LZ", "/proc/%d/fd/%d" % (os.getpid(), fd)],
+                     capture_output=True, text=True).stdout.split()
+print(out[0].split(":")[2] if out else "")
+os.close(fd)' 2>/dev/null || true)"
+        case "${memfd_type}" in
+          ai_tools_memfd_t) pass "a memfd is born ai_tools_memfd_t -- the memfdexec type_transition fired" ;;
+          tmpfs_t)          fail "a memfd is born tmpfs_t -- memfdexec is not loaded (enable-group memfdexec), or its type_transition did not fire" ;;
+          *)                fail "could not read a memfd's type back through /proc/self/fd (got '${memfd_type:-nothing}')" ;;
+        esac
+        if python3 -c '
+import mmap, os
+fd = os.memfd_create("avc-memfdexec-map")
+try:
+    os.ftruncate(fd, 4096)
+    mmap.mmap(fd, 4096, prot=mmap.PROT_READ | mmap.PROT_WRITE).close()
+    mmap.mmap(fd, 4096, prot=mmap.PROT_READ | mmap.PROT_EXEC).close()
+finally:
+    os.close(fd)' 2>/dev/null; then
+            pass "memfd double mapping (read-write, then PROT_EXEC) succeeded"
+        else
+            fail "the PROT_EXEC mapping of a memfd was denied -- any executable/host .NET project fails; enable-group memfdexec"
+        fi
     else
-        note "apphost group loaded but dotnet absent -- nothing to exercise"
+        note "python3 absent -- the memfd path was not exercised"
     fi
-} || note "apphost group not loaded -- skip (enable-group apphost to cover it)"
+}
 
 # localipc group: the .NET runtime's IPC is probe-able without dotnet -- create a unix socket and a FIFO under /tmp
 # (which the base does not create there), connect to the socket, and getsid. Skipped if the group is off.

@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+policy_module(ai_tools_memfdexec, 1.0.0)
+
+# ai_tools OPTIONAL GROUP: memfdexec  [DEFAULT: DISABLED]
+#
+# Grants ai_tools_t map + execute on the anonymous in-memory files it creates itself, so a runtime may execute code it
+# generated without writing that code to disk. .NET is the toolchain that needs it: it creates an executable `apphost`
+# and runs its W^X JIT by writing generated native code to a memfd_create(2) file and mapping it a second time
+# PROT_EXEC. The core module grants `execmem` (anonymous read-write-execute pages, shared with V8's JIT) but NOT
+# `execute` on a FILE mapping, so that second mapping fails EACCES and any project that builds or runs a native host
+# aborts:
+#   - executable output types: console apps, ASP.NET Core, worker/hosted services
+#   - test runners with an out-of-process host: xunit.v3, single-file publish
+# Library builds and in-process test runners (MSTest on Microsoft.Testing.Platform) do NOT need it, which is why this is
+# a separate group from tmpmap. The group is named for the capability rather than for .NET: any W^X JIT emitting
+# into a memfd -- a Wasm runtime, LuaJIT, a JVM under some flags -- needs exactly this grant and no more.
+#
+# THE TYPE IS THIS MODULE'S OWN. tmpfs is declared `fs_use_trans`, so an inode on the internal shmem mount
+# that memfd_create(2) allocates takes the type a type_transition names between the creating domain and the filesystem's
+# SID; with no such rule it takes the filesystem's own type, tmpfs_t, which every tmpfs file on the host shares.
+# The type_transition below gives this domain's memfds a private type, so the execute grant reaches the files this
+# domain created and no others -- a memfd received from another domain over SCM_RIGHTS keeps tmpfs_t and stays
+# non-executable here.
+#
+# SECURITY: this permits fileless in-memory execution (memfd + PROT_EXEC, the classic evasion primitive), but it does
+# not grant a new PRIVILEGE. The domain already holds `execmem`, so in-process arbitrary native execution is already
+# possible; this only extends it to a file-backed executable mapping. Code executed this way still runs as ai_tools_t --
+# there is no entrypoint from this domain to a more privileged one -- so an in-memory payload lands back in the same DAC
+# + type confinement, with the handback boundary and no-sudo posture intact. It is off by default because it widens
+# the surface (and detectability) around in-memory execution.
+#
+# SCOPE: this grant does NOT touch ai_tools_tmp_t, the on-disk /tmp type. tmpmap adds `map` there and never `execute`;
+# /tmp stays mounted noexec, which no rule here changes. It is NOT `execmod`: .NET's W^X JIT uses two separate mappings
+# (one writable, one executable) of the same memfd, so it needs { map execute }, never a writable-and-executable single
+# mapping.
+#
+# SECCOMP: memfd_create passes the session's @system-service SystemCallFilter (only namespace syscalls are filtered),
+# so SELinux is the operative gate for this path.
+#
+# The permission set is the minimum an enforcing bring-up observes for that sequence, and nothing here is speculative.
+# A transition that does not fire leaves every memfd tmpfs_t and breaks the workload rather than widening it,
+# so `avc-testsuite.sh` reads the live label of a memfd back through /proc/self/fd and fails visibly on the shared type.
+
+require {
+    type ai_tools_t;
+    type tmpfs_t;
+}
+
+type ai_tools_memfd_t;
+files_tmpfs_file(ai_tools_memfd_t)
+
+# An anonymous memfd this domain creates is born ai_tools_memfd_t instead of the host-shared tmpfs_t.
+type_transition ai_tools_t tmpfs_t:file ai_tools_memfd_t;
+
+# memfd double-mapped W^X JIT / apphost: size and write the generated code through a read-write mapping of the memfd,
+# then execute it from a second mapping. The executable mapping needs `execute`; both mappings need `map`; creating,
+# sizing and writing the memfd needs open/read/write/getattr.
+allow ai_tools_t ai_tools_memfd_t:file { open read write getattr map execute };

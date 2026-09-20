@@ -13,7 +13,7 @@ policy_module(ai_tools_localipc, 0.1.0)
 # child over loopback, is the same class as the file management the base already grants, and none of it reaches a new
 # host surface.
 #
-# For .NET this pairs with tmpmap (mmap of the /tmp shm mutex), apphost (memfd exec for the JIT and apphost creation)
+# For .NET this pairs with tmpmap (mmap of the /tmp shm mutex), memfdexec (memfd exec for the JIT and apphost creation)
 # and buildexec (running what a build produced); the workload-to-group map is in the dotnet integration's rule.
 
 require {

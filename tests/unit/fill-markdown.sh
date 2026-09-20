@@ -120,7 +120,7 @@ The line after the marker, long enough to be rewrapped at a narrow column on its
 
 Spans stay whole: a sentence long enough to reach the column `ai-tools status` is named, then a
 span wider than the column on a line of its own,
-`sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`, then the tie
+`sudo ai-tools-admin selinux groups enable tmpmap memfdexec localipc buildexec`, then the tie
 rule beside a span, so that no line ends on the `750 root:root` mode of the pin.
 
 A command key is one word, so a reflow moves it down whole rather than breaking it apart: this
@@ -253,7 +253,7 @@ else
     fail "a command key was broken by the reflow: $(grep -n 'remove' "${f}")"
 fi
 # shellcheck disable=SC2016
-if grep -qxF -- '`sudo ai-tools-admin selinux groups enable tmpmap apphost localipc buildexec`,' "${f}"; then
+if grep -qxF -- '`sudo ai-tools-admin selinux groups enable tmpmap memfdexec localipc buildexec`,' "${f}"; then
     pass "a span wider than the column runs over on a line of its own"
 else
     fail "a span wider than the column was split or shared a line: $(grep -n 'selinux groups' "${f}")"
@@ -272,8 +272,8 @@ else
     fail "a span closing one column past it was split or left: $(grep -n 'projects claim' "${f}")"
 fi
 
-# (7) The tree's own pages: every agent-facing page at 120 and every human-facing page at 79
-# reflows to a state the gate passes, the checker finds complete, and a second run leaves alone.
+# (7) The tree's own pages: every agent-facing page at 120 and every human-facing page at 79 reflows to a state the gate
+# passes, the checker finds complete, and a second run leaves alone.
 if ! git -C "${ROOT}" rev-parse --show-toplevel >/dev/null 2>&1; then
     skip "real pages" "not a git checkout"
 else

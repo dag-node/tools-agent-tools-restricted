@@ -251,7 +251,7 @@ Operational notes for that case:
 
 ## Optional SELinux groups and the namespace filter
 
-The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`/`apphost`/`localipc`/`buildexec`) are all
+The optional groups (`systemd`/`pkgmgmt`/`netadmin`/`podman`/`tmpmap`/`memfdexec`/`localipc`/`buildexec`) are all
 off by default and each carries a **stability** field in the registry (`experimental`/`stable`) that decides how it is
 shipped and enabled. Both front doors draw the group set, descriptions, and stability from one place —
 `selinux-groups.lib.sh`, so they cannot disagree. The same registry records a renamed group's **former module name**,
@@ -260,8 +260,8 @@ on the shipped set — replaces a loaded former module with the group's current 
 so a host that enabled a group under its old name keeps the workload running across the rename and does not hold both
 rule sets:
 
-- **Stable** groups (`tmpmap`, `localipc`, `buildexec`: a rule set exercised against its workload on an enforcing host)
-  are on the **shipped set**: compiled as `ai_tools_<group>.pp` beside the core
+- **Stable** groups (`tmpmap`, `memfdexec`, `localipc`, `buildexec`: a rule set exercised against its workload
+  on an enforcing host) are on the **shipped set**: compiled as `ai_tools_<group>.pp` beside the core
   in `/usr/share/selinux/packages/ai-tools/` (how, and by what, is in [How the policy ships](#how-the-policy-ships)),
   where `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads one on an installed host without a source
   tree or `selinux-policy-devel`, then restores the labels the group's own file contexts decide (the sandbox-clone
