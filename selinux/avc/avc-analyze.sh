@@ -153,8 +153,13 @@ readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home
 # on those classes/perms, which the base grants nowhere.
 readonly GROUP_DISABLED_RE='(systemd_systemctl_exec_t|journalctl_exec_t|systemd_unit_file_t|rpm_exec_t|rpm_var_lib_t|firewalld_t|NetworkManager_t|container_runtime_exec_t)'
 
-# One line per denial, from the raw AVC records.
-LINES="$(printf '%s\n' "${RAW}" | grep -E '^type=AVC|avc:.*denied' || true)"
+# One line per DENIAL, from the raw AVC records. `ausearch -m AVC` returns granted records too -- the core module
+# carries `auditallow ai_tools_t ai_tools_exec_t:file execute_no_trans`, so every exec of an agent entrypoint from
+# inside a session writes one on purpose, and a multi-call binary dispatching a tool it bundles (claude-code as bfs,
+# rg, ugrep) produces several per session. Those are evidence, not denials: keeping them here files each one under NEW,
+# which reads as a policy gap and is the opposite of what the auditallow is for. `ai-tools audit` is their reader.
+LINES="$(printf '%s\n' "${RAW}" | grep -E 'avc:[[:space:]]*denied' || true)"
+GRANTED="$(printf '%s\n' "${RAW}" | grep -E 'avc:[[:space:]]*granted' || true)"
 
 # Build the boundary set from the three categories, deduplicated. Category 1: known named types.
 _b1="$(printf '%s\n' "${LINES}" | grep -E "tcontext=[^ ]*:${BOUNDARY_NAMED_RE}:" || true)"
@@ -245,6 +250,10 @@ fmt() {
 }
 
 echo "counts: boundary=$(cnt "${boundary}")  group-disabled=$(cnt "${groupdis}")  probe=$(cnt "${probe}")  NEW=$(cnt "${new}")  (NEW must be 0 to pass)"
+# Granted records are reported apart from the counts above, which are denials. A non-zero count here is the core
+# module's auditallow doing its job, not a finding; `ai-tools audit` resolves each exec to an agent.
+[[ -z "${GRANTED}" ]] \
+    || echo "        granted=$(cnt "${GRANTED}")  audited-on-purpose entrypoint exec(s) -- evidence, not denials; read them with 'ai-tools audit'"
 echo
 
 hr
