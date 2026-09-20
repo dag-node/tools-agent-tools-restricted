@@ -702,7 +702,7 @@ rather than assumed. The live half is `integration/selinux.sh` (`sesearch` over 
 `codex-package.sh` pins the files `ai-tools-agents-codex-restricted` ships to the seams they plug into, before any host
 installs them ([agent-codex](agent-codex.rule.md)): the manifest through the readers that parse it, with its
 `launcher_target` and `entrypoint_fcontext` asserted to agree by pattern and, where the executable bit is visible,
-through the real re-link on a fixture version directory; the fragment's one pin under the session-env contract;
+through the real re-link on a fixture version directory; the pins file's one pin, with no fragment beside it;
 the wrapper's three library calls in order and its fail-closed load, driven on a copy whose library path points
 at an absent file; the two managed TOML files as a TOML parser reads them, so a bare key that landed inside a table —
 the shape two harness runs measured a pin as "accepted" with — fails here, with every declared hook naming a script
@@ -714,6 +714,14 @@ no root helper, since a `session-start` on a fresh process would call the live h
 is the one part that needs root: it drives the real resolver over a copy of the manifest — disabled
 with `AI_TOOLS_AGENTS` unset, enabled when named, skipped with its refusal reported once the copy is group-writable —
 and the resolver trusts root-owned inputs alone, so unprivileged it skips and says so.
+
+`session-env.sh` holds every shipped pins file (`session-env.d/<name>.pins.env.sh`) to the pins contract
+([providers](providers.rule.md)), which is a disclosure question: the shim sources a pins file into every agent's
+session. Each names an installed agent manifest, sources clean into the array it is contracted to append to, and appends
+`--setenv=NAME=value` lines alone, each value a path under `/opt/ai-tools` or a switch — the allowlist that keeps
+a credential, a name-only import and a PATH tail out of the file. The checker is driven on fixtures it must refuse (a
+name-only import, a token, a PATH tail), so a green run is evidence about the shipped files and not about a pattern
+that admits everything. It reads the checkout and runs without root.
 
 `shared-root.sh` pins the shared-root link and its reverse (`ai_tools_link_shared_root`, see
 [shipped-assets](shipped-assets.rule.md)), the step that points codex's admin-scope skills path at the live shared root.
@@ -893,17 +901,19 @@ launcher's link in the live launcher directory), the CLI principal guard (refuse
 or an entrypoint that does not match its pin — is refused before any session launches — including a real sibling binary
 in the same versioned `bin` directory, which is refused because no enabled agent manifest claims that launcher,
 and a non-semver version directory) plus its pinned session-confinement properties
-(`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), the claude-code session-env pins (`DISABLE_AUTOUPDATER`,
-`CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE` — asserted by **sourcing** the fragment into the two arrays it is contracted
-to append to, so a fragment that stops appending or appends to a renamed array fails rather than silently costing
-the session its environment), the `settings.json` hook + deny-rule declarations, and SELinux labels (the `claude.exe`
-entrypoint and the handback daemon binary). Every assertion about the shim lives in `ai-tools-run.sh` beside it — its
-input validation, the unit properties it pins, and the session env it sources — so a change to the shim has one file
-to answer to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh` asserts the confinement layer is
-enforcing: when the `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t`
-nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is optional). It also
-holds the entrypoint assertions that need a labelled host — that each agent's declared file-context rule still covers
-what its package installed, that no link in the exec chain carries a type the confined domain may manage,
+(`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), every enabled agent's session pins (read through the deployed
+resolver, so no agent is named, and asserted by **sourcing** each pins file into the two arrays it is contracted
+to append to, so a file that stops appending or appends to a renamed array fails rather than silently costing every
+session that agent's environment; claude-code's three by name, with its fragment asserted to carry none of them),
+the shim's sourcing order read as source (the integrations, then every enabled agent's pins, then the launching agent's
+fragment — no refusal the shim can be driven to reveals it), the `settings.json` hook + deny-rule declarations,
+and SELinux labels (the `claude.exe` entrypoint and the handback daemon binary). Every assertion about the shim lives
+in `ai-tools-run.sh` beside it — its input validation, the unit properties it pins, and the session env it sources —
+so a change to the shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh`
+asserts the confinement layer is enforcing: when the `ai_tools` module is loaded the system is `Enforcing` and neither
+`ai_tools_t` nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is optional).
+It also holds the entrypoint assertions that need a labelled host — that each agent's declared file-context rule still
+covers what its package installed, that no link in the exec chain carries a type the confined domain may manage,
 and that the loaded core module audits an in-session exec of the entrypoint, read with `sesearch` and skipped without it
 — and, where the `ai_tools_dotnet` layout module is loaded, the build-output labelling that only libselinux can answer:
 a path under one of the module's directories resolves to `ai_tools_project_build_t` and every other clone path

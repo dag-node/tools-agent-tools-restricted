@@ -859,11 +859,12 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
     _chk /usr/local/lib/ai-tools/services.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
+    _chk /usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
     _chk /usr/local/lib/ai-tools/claude-prompt.lib.sh
     _chk /usr/local/lib/ai-tools/claude-endpoint.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/codex.conf
-    _chk /usr/local/lib/ai-tools/session-env.d/codex.env.sh
+    _chk /usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh
     _chk /usr/local/bin/codex
     _chk /etc/codex/requirements.toml
     _chk /etc/codex/managed_config.toml
@@ -1291,26 +1292,29 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/agents.d/claude-code.conf" \
         /usr/local/lib/ai-tools/agents.d/claude-code.conf
 
-    # The claude-code agent's session env (config dir, compile cache, in-session updater), sourced by ai-tools-run
-    # after every enabled integration so these pins are authoritative. Root-owned and non-group-writable is what makes
-    # it trusted enough to source. No secrets.
+    # The claude-code agent's session pins (config dir, compile cache, in-session updater), sourced by ai-tools-run
+    # into every session of the account after every enabled integration, and its own fragment (the custom endpoint
+    # and prompt), sourced last and into claude-code sessions alone. Root-owned and non-group-writable is what makes
+    # each trusted enough to source. No secrets.
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/session-env.d
-    log "/usr/local/lib/ai-tools/session-env.d/claude-code.env.sh"
-    install -o root -g root -m 644 \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/claude-code.env.sh" \
-        /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
+    for _cc_env in claude-code.pins.env.sh claude-code.env.sh; do
+        log "/usr/local/lib/ai-tools/session-env.d/${_cc_env}"
+        install -o root -g root -m 644 \
+            "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/${_cc_env}" \
+            "/usr/local/lib/ai-tools/session-env.d/${_cc_env}"
+    done
 
-    # The codex agent's manifest and session env, the same two shapes for the second agent (the RPM ships them
-    # in the codex subpackage). The manifest carries default_enable=no, so the files are installed and the agent stays
-    # off until operator.conf names it in AI_TOOLS_AGENTS. No secrets.
+    # The codex agent's manifest and session pins, the same shapes for the second agent (the RPM ships them in the codex
+    # subpackage). The manifest carries default_enable=no, so the files are installed and the agent stays off until
+    # operator.conf names it in AI_TOOLS_AGENTS. No secrets.
     log "/usr/local/lib/ai-tools/agents.d/codex.conf"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/agents.d/codex.conf" \
         /usr/local/lib/ai-tools/agents.d/codex.conf
-    log "/usr/local/lib/ai-tools/session-env.d/codex.env.sh"
+    log "/usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh"
     install -o root -g root -m 644 \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/codex.env.sh" \
-        /usr/local/lib/ai-tools/session-env.d/codex.env.sh
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh" \
+        /usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh
 
     # Claude Code-specific resolvers: the custom system prompt (claude.sh, wrapper-side) and the custom API endpoint
     # (its own fragment, sandbox-side). Root-owned and non-group-writable so both are trusted enough to source. No

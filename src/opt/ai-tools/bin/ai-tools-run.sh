@@ -20,9 +20,10 @@
 #
 # It is agent-agnostic. Which executables may launch, what environment each session gets, and whether the session's
 # ownership handback needs driving from here come from the root-owned provider manifests
-# under /usr/local/lib/ai-tools/agents.d and the session-env fragments under /usr/local/lib/ai-tools/session-env.d.
-# The same manifests decide what the toolchain may hold: a package of an agent that is installed but not enabled refuses
-# every launch until a provisioning run removes it (toolchain.lib.sh).
+# under /usr/local/lib/ai-tools/agents.d and the session-env fragments and per-agent pins
+# under /usr/local/lib/ai-tools/session-env.d. The same manifests decide what the toolchain may hold: a package
+# of an agent that is installed but not enabled refuses every launch until a provisioning run removes it
+# (toolchain.lib.sh).
 #
 # Operating notes:
 #   * The session appears as @SANDBOX_USER@-<agent>-<pid>.service in `systemctl --user`. Its
@@ -123,8 +124,11 @@ fi
 # so an executable no manifest claims cannot launch -- and the agent identity follows from the path rather than
 # from a separate variable crossing sudo.
 declare -A agent_name_by_launcher=()
+declare -a enabled_agent_names=()   # manifest order; the session-env pins are sourced in it
 while IFS=$'\t' read -r manifest_agent_name _ manifest_launcher; do
-    [[ -n "${manifest_launcher}" ]] && agent_name_by_launcher["${manifest_launcher}"]="${manifest_agent_name}"
+    [[ -n "${manifest_launcher}" ]] || continue
+    agent_name_by_launcher["${manifest_launcher}"]="${manifest_agent_name}"
+    enabled_agent_names+=( "${manifest_agent_name}" )
 done < <(ai_tools_enabled_agents 2>/dev/null)
 (( ${#agent_name_by_launcher[@]} > 0 )) \
     || refuse 'no agent is enabled on this host -- nothing can launch' \
@@ -372,15 +376,21 @@ declare -a session_path_entries=()
 
 # ── Session-env fragments ────────────────────────────────────────────────────────────────────
 # Each enabled provider may ship /usr/local/lib/ai-tools/session-env.d/<name>.env.sh, appending
-# to session_environment_options and session_path_entries. Integrations are sourced first and the agent last,
-# so the agent's own pins are authoritative over an integration's.
+# to session_environment_options and session_path_entries, and each enabled agent may ship a second file beside it,
+# <name>.pins.env.sh, holding the pins a session of ANY agent under this account needs -- its state directory, its
+# updater switch, its cache -- and no variable routed to one agent's sessions alone (a credential, an endpoint).
+# The order is: every enabled integration's fragment, then every enabled agent's pins in manifest order, then
+# the launching agent's own fragment last, so an agent's pins are authoritative over an integration's and the launching
+# agent's fragment over everything. Sourcing every agent's pins is what lets an agent entrypoint started from inside
+# another agent's session find its own state directory (launch.rule.md); sourcing every agent's FRAGMENT would hand one
+# agent's endpoint token to the other's sessions, which is why the pins are a file of their own.
 #
-# This runs as @SANDBOX_USER@ and decides what the agent's own session gets, so every fragment -- and the directory
-# holding it, since a group-writable directory lets a non-root writer replace a root-owned file inside it -- must pass
-# ai_tools_conf_is_trusted. A failing fragment is skipped and logged, never sourced. Fragments are additive, so skipping
-# one costs the session that provider's environment and leaves every other property intact.
-source_session_env_fragment() {
-    local provider_name="$1" fragment_path="${SESSION_ENV_DIR}/$1.env.sh"
+# This runs as @SANDBOX_USER@ and decides what the agent's own session gets, so every file -- and the directory holding
+# it, since a group-writable directory lets a non-root writer replace a root-owned file inside it -- must pass
+# ai_tools_conf_is_trusted; where a file fails it, the file is skipped and logged, never sourced. Fragments and pins
+# are additive, so skipping one costs the session that provider's environment and leaves every other property intact.
+source_session_env_fragment() {   # <provider> [pins]  -- <provider>.env.sh, or <provider>.pins.env.sh
+    local provider_name="$1" fragment_path="${SESSION_ENV_DIR}/$1${2:+.$2}.env.sh"
     [[ -e "${fragment_path}" ]] || return 0
     if ! ai_tools_conf_is_trusted "${fragment_path}"; then
         ai_tools_msg_warn "ai-tools-run: skipping session env for ${provider_name} -- ${fragment_path} is not root-owned or is writable by group/other"
@@ -394,6 +404,9 @@ if ai_tools_conf_is_trusted "${SESSION_ENV_DIR}"; then
     while IFS= read -r enabled_integration_name; do
         [[ -n "${enabled_integration_name}" ]] && source_session_env_fragment "${enabled_integration_name}"
     done < <(ai_tools_enabled_integrations 2>/dev/null)
+    for enabled_agent_name in "${enabled_agent_names[@]}"; do
+        source_session_env_fragment "${enabled_agent_name}" pins
+    done
     source_session_env_fragment "${agent_name}"
 elif [[ -e "${SESSION_ENV_DIR}" ]]; then
     ai_tools_msg_warn "ai-tools-run: skipping all session env -- ${SESSION_ENV_DIR} is not root-owned or is writable by group/other"

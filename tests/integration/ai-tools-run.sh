@@ -31,37 +31,103 @@ if [[ ! -x "${CRUN}" ]]; then
     skip "ai-tools-run" "not installed at ${CRUN}"; finish; exit
 fi
 
-# The claude-code session env. These pins are agent-specific, so they live in that agent's
-# session-env fragment rather than in the agent-agnostic shim; ai-tools-run sources it last,
-# after every enabled integration, so no fragment can override them. Each one is load-bearing:
+# Every enabled agent's session pins. An agent's pins are agent-specific, so they live in that agent's
+# session-env.d/<name>.pins.env.sh, and the agent-agnostic shim sources EVERY enabled agent's pins into every session --
+# after the integrations, so no integration overrides them, and before the launching agent's own fragment -- so an agent
+# entrypoint started from inside another agent's session finds its state directory (launch.rule.md). The deployed files
+# are read through the deployed resolver, so this does not name an agent: each enabled agent must ship a pins file
+# that passes the trust predicate the shim applies, and each is SOURCED into the two arrays it is contracted to append
+# to rather than grepped for strings, so a pins file that stops appending -- or appends to a renamed array -- fails here
+# instead of silently costing every session that agent's environment. What a pin may be is the allowlist
+# unit/session-env.sh holds every shipped pins file to; here the deployed set is held to its shape alone:
+# `--setenv=NAME=value` lines, no name-only import and no PATH tail.
+session_env_dir="/usr/local/lib/ai-tools/session-env.d"
+# source_session_env <file>: print what sourcing <file> appends, one array entry per line, PATH entries prefixed.
+source_session_env() {
+    (
+        declare -a session_environment_options=() session_path_entries=()
+        # shellcheck source=/dev/null
+        source "$1" 2>/dev/null || true
+        printf '%s\n' "${session_environment_options[@]+"${session_environment_options[@]}"}"
+        printf 'PATH:%s\n' "${session_path_entries[@]+"${session_path_entries[@]}"}"
+    )
+}
+# shellcheck source=/dev/null
+if ! source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null \
+        || ! source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null \
+        || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+    skip "session pins" "the provider resolver is not deployed"
+else
+    enabled_agent_names="$(ai_tools_enabled_agents 2>/dev/null | cut -f1)"
+    [[ -n "${enabled_agent_names}" ]] || skip "session pins" "no agent is enabled on this host"
+    while IFS= read -r enabled_agent; do
+        [[ -n "${enabled_agent}" ]] || continue
+        pins="${session_env_dir}/${enabled_agent}.pins.env.sh"
+        if [[ ! -r "${pins}" ]]; then
+            fail "enabled agent ${enabled_agent} ships no session pins at ${pins} -- a child of it started inside another agent's session runs without its state directory"
+            continue
+        fi
+        if ai_tools_conf_is_trusted "${pins}"; then
+            pass "${enabled_agent}'s session pins pass the trust predicate the shim applies"
+        else
+            fail "${enabled_agent}'s session pins would be skipped by the shim: ${pins} $(ai_tools_conf_untrusted_reason "${pins}")"
+        fi
+        pins_out="$(source_session_env "${pins}")"
+        if [[ "$(grep -c '^--setenv=[A-Z][A-Z0-9_]*=.' <<<"${pins_out}")" -gt 0 ]] \
+                && ! grep -qvE '^(--setenv=[A-Z][A-Z0-9_]*=.|PATH:$)' <<<"${pins_out}"; then
+            pass "${enabled_agent}'s session pins append --setenv=NAME=value lines alone: $(grep '^--setenv' <<<"${pins_out}" | sed 's/^--setenv=//; s/=.*//' | tr '\n' ' ')"
+        else
+            fail "${enabled_agent}'s session pins append something other than --setenv=NAME=value lines: $(tr '\n' '|' <<<"${pins_out}")"
+        fi
+    done <<<"${enabled_agent_names}"
+fi
+
+# The claude-code pins by name -- each one is load-bearing and its loss is silent until a session dies or demands
+# a fresh login -- and the claude-code fragment asserted to carry none of them: the fragment reaches claude-code
+# sessions alone (the custom endpoint's token is in it), so a pin that slid back into it would be missing from every
+# other agent's session while still passing a read of the pins file.
 #   DISABLE_AUTOUPDATER  the node tree is read-only to the agent, so the in-session auto-updater
 #                        would fail every launch (+ AVC); updates are the timer's job
 #   CLAUDE_CONFIG_DIR    unpinned, the state file lands under the 2751 home root where the agent
 #                        cannot create it, and every session demands a fresh login
 #   NODE_COMPILE_CACHE   unpinned, the cache lands on the shared /tmp where a stale user_tmp_t
 #                        entry denies node's own open() and the session dies at startup
-# The fragment is SOURCED into the two arrays it is contracted to append to, rather than grepped for strings:
-# that exercises the real contract, so a fragment that stops appending -- or appends to a renamed array -- fails here
-# instead of silently costing the session its environment.
-agent_env="/usr/local/lib/ai-tools/session-env.d/claude-code.env.sh"
-if [[ ! -r "${agent_env}" ]]; then
-    skip "claude-code session env" "${agent_env} unreadable"
+claude_pins="${session_env_dir}/claude-code.pins.env.sh"
+claude_fragment="${session_env_dir}/claude-code.env.sh"
+if [[ ! -r "${claude_pins}" || ! -r "${claude_fragment}" ]]; then
+    skip "claude-code session pins" "${claude_pins} or ${claude_fragment} unreadable"
 else
-    agent_setenv="$(
-        declare -a session_environment_options=() session_path_entries=()
-        # shellcheck source=/dev/null
-        source "${agent_env}" 2>/dev/null || true
-        printf '%s\n' "${session_environment_options[@]:-}"
-    )"
+    claude_pins_out="$(source_session_env "${claude_pins}")"
+    claude_fragment_out="$(source_session_env "${claude_fragment}")"
     for pin in DISABLE_AUTOUPDATER=1 \
                CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude \
                NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache; do
-        if grep -qxF -- "--setenv=${pin}" <<<"${agent_setenv}"; then
-            pass "claude-code session env pins ${pin}"
+        if grep -qxF -- "--setenv=${pin}" <<<"${claude_pins_out}"; then
+            pass "claude-code's session pins carry ${pin}"
         else
-            fail "claude-code session env does not pin ${pin} (${agent_env})"
+            fail "claude-code's session pins do not carry ${pin} (${claude_pins})"
+        fi
+        if grep -q -- "--setenv=${pin%%=*}=" <<<"${claude_fragment_out}"; then
+            fail "claude-code's fragment carries ${pin%%=*}, which reaches claude-code sessions alone -- it belongs in ${claude_pins}"
+        else
+            pass "claude-code's fragment leaves ${pin%%=*} to the pins"
         fi
     done
+fi
+
+# The shim's order, read as source: the integrations' fragments, then every enabled agent's pins, then the launching
+# agent's fragment. No refusal the shim can be driven to reveals the order (the one gate past the fragments needs
+# a valid launch), so the three calls are held to their line order, the way the entrypoint re-check is.
+crun_integrations_line="$(grep -n 'ai_tools_enabled_integrations' "${CRUN}" | head -n1 | cut -d: -f1)"
+# shellcheck disable=SC2016  # grep patterns over the shim's own text
+crun_pins_line="$(grep -n 'source_session_env_fragment "\${enabled_agent_name}" pins' "${CRUN}" | head -n1 | cut -d: -f1)"
+crun_agent_line="$(grep -n '^    source_session_env_fragment "\${agent_name}"$' "${CRUN}" | head -n1 | cut -d: -f1)"
+if [[ -z "${crun_integrations_line}" || -z "${crun_pins_line}" || -z "${crun_agent_line}" ]]; then
+    fail "ai-tools-run does not source the integrations, every enabled agent's pins, and the launching agent's fragment (integrations '${crun_integrations_line}', pins '${crun_pins_line}', agent '${crun_agent_line}')"
+elif (( crun_integrations_line < crun_pins_line && crun_pins_line < crun_agent_line )); then
+    pass "ai-tools-run sources the integrations, then every enabled agent's pins, then the launching agent's fragment"
+else
+    fail "ai-tools-run sources the session env out of order (integrations line ${crun_integrations_line}, pins line ${crun_pins_line}, agent line ${crun_agent_line})"
 fi
 
 # ai-tools-run pins the session's kernel-confinement properties on the transient unit:

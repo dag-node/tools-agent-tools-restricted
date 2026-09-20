@@ -151,19 +151,21 @@ check_file /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh  root            
 # helper, so the agent can neither read nor run it, and root-owned so the dispatch's trust check admits it.
 check_file /usr/local/lib/ai-tools/admin-commands.d/dotnet      root            root              750
 check_file /usr/local/lib/ai-tools/filters.d/dotnet.rules       root            root              644
-# The claude-code agent's own session-env fragment, shipped by its agent package. ai-tools-run sources it last, so these
-# pins outrank an integration's -- and 644 root:root is what makes it trusted enough to source at all.
+# The claude-code agent's session pins and its own session-env fragment, shipped by its agent package. ai-tools-run
+# sources the pins into every session of the account after the integrations and the fragment last, into claude-code
+# sessions alone -- and 644 root:root is what makes each trusted enough to source at all.
+check_file /usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh root    root              644
 check_file /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh root         root              644
 # The claude-code agent's Claude-specific resolvers: the custom system prompt (wrapper-side) and the custom API endpoint
 # (fragment-side). 644 root:root -- sourced by claude.sh / the fragment, so root-owned and non-group-writable is
 # what makes them trusted enough to source. No secrets.
 check_file /usr/local/lib/ai-tools/claude-prompt.lib.sh      root              root              644
 check_file /usr/local/lib/ai-tools/claude-endpoint.lib.sh    root              root              644
-# The codex agent's manifest and session-env fragment, shipped by ai-tools-agents-codex-restricted: the same two shapes
-# and the same reasoning as claude-code's. The package ships default_enable=no, and installation is the axis these rows
-# read, so they are asserted whether or not the agent is enabled -- like the dotnet integration's rows.
+# The codex agent's manifest and session pins, shipped by ai-tools-agents-codex-restricted: the same shapes and the same
+# reasoning as claude-code's. The package ships default_enable=no, and installation is the axis these rows read, so they
+# are asserted whether or not the agent is enabled -- like the dotnet integration's rows.
 check_file /usr/local/lib/ai-tools/agents.d/codex.conf          root            root              644
-check_file /usr/local/lib/ai-tools/session-env.d/codex.env.sh   root            root              644
+check_file /usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh root         root              644
 # Codex's two managed files, at the fixed path codex reads them from (the pin that keeps the session on the host's
 # confinement, and the hook declarations). 644 root:root: world-readable data, and no file under /etc/codex carries
 # a guarantee, so the boundary is WRITE, asserted as the agent in boundary/providers.sh, while the read is open.

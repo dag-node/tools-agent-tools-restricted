@@ -1,41 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # shellcheck shell=bash
 # /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
-# Session environment for the claude-code agent. ai-tools-run sources this last, after every enabled integration,
-# so these pins are authoritative for the session. Each exists because the sandbox home is deliberately not
-# agent-writable at its root; the reason beside each pin is the mechanism, and agent-claude-code.rule.md carries
-# the summary.
-#
-#   CLAUDE_CONFIG_DIR    Claude Code saves .claude.json (login, onboarding, per-project trust)
-#                        by writing a temp file beside it and renaming, which needs write on the
-#                        CONTAINING directory. /opt/ai-tools/.claude (3770, setgid+sticky) grants
-#                        exactly that, while the sticky bit keeps the control files it does not
-#                        own undeletable. Unpinned it would resolve under the 2751 home root,
-#                        where the rename is refused and every session demands a fresh login.
-#
-#   NODE_COMPILE_CACHE   Node caches compiled modules under os.tmpdir() by default, on the shared
-#                        host /tmp. Entries left there by an earlier unconfined run carry
-#                        user_tmp_t, a type the session's domain has no rule for, so Node's own
-#                        open() of its cache is denied and the session dies at startup. The
-#                        .cache subtree is ai_tools_home_t (ai_tools.fc) and agent-managed.
-#
-#   DISABLE_AUTOUPDATER  The Node program tree is read-only to the session by SELinux policy (under
-#                        DAC alone the sandbox account owns it), so an in-session `npm install -g`
-#                        self-update cannot write the npm prefix. The nvm-update timer maintains
-#                        the toolchain out of band instead, which also keeps the toolset stable for
-#                        the whole session.
+# Session environment for the claude-code agent that reaches claude-code sessions ALONE: the custom API endpoint (a
+# bearer token among its options) and the custom system prompt check. ai-tools-run sources this last, after every
+# enabled integration and after every enabled agent's pins, and only when claude-code is the agent being launched --
+# a codex session under the same account never sources it, so the endpoint token stays in claude-code sessions. The pins
+# every session of the account carries (CLAUDE_CONFIG_DIR, NODE_COMPILE_CACHE, DISABLE_AUTOUPDATER) are
+# claude-code.pins.env.sh, beside this file.
 #
 # Fragment contract (see providers.rule.md): append to session_environment_options and session_path_entries, unset your
 # own temporaries, and do not exec, prompt, or read stdin. This fragment additionally EXPORTS ANTHROPIC_AUTH_TOKEN
 # when a custom endpoint supplies one (the credential-off-cmdline pattern) -- the one sanctioned caller-environment
 # mutation, so the paired name-only `--setenv` imports it without the value reaching any command line.
 # shellcheck disable=SC2154  # both arrays belong to the sourcing launcher
-
-session_environment_options+=(
-    "--setenv=CLAUDE_CONFIG_DIR=/opt/ai-tools/.claude"
-    "--setenv=NODE_COMPILE_CACHE=/opt/ai-tools/.cache/node-compile-cache"
-    "--setenv=DISABLE_AUTOUPDATER=1"
-)
 
 # Custom API endpoint (operator.conf CLAUDE_BASE_URL_FILE -> /etc/ai-tools/endpoints/<file>). Routes the session
 # at a non-default ANTHROPIC_BASE_URL with its auth token and model labels. Only valid, uncommented options are

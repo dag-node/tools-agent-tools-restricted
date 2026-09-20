@@ -14,8 +14,8 @@ the **`env` block**, the **observability defaults**, and the **`disableAutoMode`
 Code options an operator MAY add — and which are set elsewhere — is
 in [`docs/agents/claude-code.md`](../../docs/agents/claude-code.md).
 
-Settings coupled to the sandbox's layout rather than to Claude Code policy live outside this file: the agent's
-session-env fragment pins `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, and `DISABLE_AUTOUPDATER=1` (see
+Settings coupled to the sandbox's layout rather than to Claude Code policy live outside this file: the agent's session
+pins set `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, and `DISABLE_AUTOUPDATER=1` (see
 [agent-claude-code](agent-claude-code.rule.md)), and `ai-tools-run` pins `HOME`, `SHELL`, and `PATH` (see
 [launch](launch.rule.md)).
 

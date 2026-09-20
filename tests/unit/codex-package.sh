@@ -41,7 +41,7 @@ if [[ -z "${SRC}" ]]; then
 fi
 
 readonly MANIFEST="${LIB_DIR}/agents.d/codex.conf"
-readonly FRAGMENT="${LIB_DIR}/session-env.d/codex.env.sh"
+readonly FRAGMENT="${LIB_DIR}/session-env.d/codex.pins.env.sh"
 readonly WRAPPER="${SRC}/usr/local/bin/codex.sh"
 readonly REQUIREMENTS="${SRC}/etc/codex/requirements.toml"
 readonly MANAGED_CONFIG="${SRC}/etc/codex/managed_config.toml"
@@ -211,8 +211,16 @@ else
     fi
 fi
 
-# ── 2. The fragment ───────────────────────────────────────────────────────────────────────────
-section "codex.env.sh: one pin, the session-env contract"
+# ── 2. The pins ───────────────────────────────────────────────────────────────────────────────
+# Codex ships its pins alone: with no variable routed to its own sessions alone, there is no codex.env.sh,
+# and the shim's `[[ -e ]]` guard makes the absent fragment a no-op rather than a skipped one (unit/session-env.sh holds
+# every shipped pins file to the pins contract; this section holds codex's to its manifest).
+section "codex.pins.env.sh: one pin, the pins contract"
+if [[ ! -e "${LIB_DIR}/session-env.d/codex.env.sh" ]]; then
+    pass "codex ships no session-env fragment beside its pins"
+else
+    fail "codex ships a session-env fragment beside its pins: ${LIB_DIR}/session-env.d/codex.env.sh -- move what it carries into the pins, or record what codex's sessions alone need"
+fi
 fragment_out="$(bash -c '
     set -euo pipefail
     declare -a session_environment_options=() session_path_entries=()
