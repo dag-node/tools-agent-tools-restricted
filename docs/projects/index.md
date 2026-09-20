@@ -160,6 +160,31 @@ A claim walks through self-contained blocks, each with its own decision:
   `u:ai-tools:--x` on each blocking parent you own: enter only, never list
   or read. It widens access on the project's ancestors, hence the No default.
 
+### Configuration your build reads from the enclosing directories
+
+```text
+NOTICE: configuration above this project the agent cannot read
+  2 file(s) above /home/you/src/app are configuration an installed toolchain
+  reads for a build here, and the sandbox account cannot open them ...
+      /home/you/src/.editorconfig
+      /home/you/src/Directory.Build.props
+```
+
+A build toolchain collects configuration by walking from the project directory
+toward `/`, opening every file of a name it recognises. A session reaches
+the project and not the directories enclosing it, so a file found there is
+opened and denied and the build stops with an error naming a path outside
+the project. .NET is where this shows up today: `.editorconfig`,
+`Directory.Build.props`, `Directory.Packages.props`, `global.json`
+and `NuGet.config`, and a project built with another toolchain does not raise
+a notice at all.
+
+The claim reports these and changes none of them — every step it performs acts
+inside the project — and a launch reports them too, so a file that appears
+in one of those directories after the claim is named at the next session.
+A file moved into the project is readable to the agent; one left outside it is
+not.
+
 ### Re-claiming: drift and skip-lists
 
 ```bash
