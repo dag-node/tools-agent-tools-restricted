@@ -1315,22 +1315,49 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
-* Fri Sep 18 2026 dagnode <tools@dagnode.com> - 0.19.0-1
-- NEW: Codex runs sandboxed, as the second supported agent. Install
-  'ai-tools-agents-codex-restricted' (the umbrella pulls it), add it to AI_TOOLS_AGENTS in
-  /etc/ai-tools/operator.conf and run 'sudo ai-tools-admin system bootstrap': typing 'codex' then
-  starts a confined session with the same project allowlist, SELinux domain and ownership handback
-  a Claude Code session gets, and with the skills and orientation text both agents share. Two files
-  under /etc/codex are yours to edit with sudo -- what every session is held to, and the defaults
-  applied ahead of any user config. Its denial set is swept on an enforcing host: a session raises
-  one refusal of its own, a filesystem watch under the sandbox account's home, and the policy was
-  not widened for it or for anything else. docs/agents/codex.md covers what it reaches, what the
-  package turns off, and what a pinned sandbox mode costs a session, and docs/system/selinux.md
-  lists the refusals a healthy session logs.
-- SECURITY: Codex refuses 'git push --force', 'git reset --hard' and 'git clean', the same three a
-  Claude Code session is refused. Each deletes work no commit holds and no reflog returns, and each
-  runs unprivileged in your own tree where no host control stops it; a refused command is raised in
-  the session for you to run where the consequence lands.
+* Sun Sep 20 2026 dagnode <tools@dagnode.com> - 0.19.0-1
+- CHANGE: No agent is enabled by default; 'sudo ai-tools-admin system bootstrap' asks which one
+  installed agent to enable and writes AI_TOOLS_AGENTS for it ('--agents NAME' is the unattended
+  form). A host whose /etc/ai-tools/operator.conf has no AI_TOOLS_AGENTS line stops enabling Claude
+  Code on this upgrade: set the line, or re-run the bootstrap, which asks. A second agent is a
+  manual edit of that line plus a further bootstrap; every agent named shares one sandbox account.
+- CHANGE: The sandbox toolchain holds the enabled agents' packages alone. An agent taken off
+  AI_TOOLS_AGENTS kept its package, and with it an entrypoint a session could start at its real
+  path; every provisioning run (the nightly update, the bootstrap, a package erase, 'install.sh
+  uninstall') now removes it, and no session of any agent starts while it is there. A host holding
+  such a package refuses every launch after this upgrade until the nightly update or
+  'sudo ai-tools-admin system bootstrap' has run; the refusal names the agent and the command.
+- CHANGE: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY asks for a pin of either kind, which is what
+  operator.conf(5) has always said it governs -- an entrypoint carrying no pin. A host that sets it
+  now also launches an agent pinned as installed, and the status report is where the tier is named.
+  The key's comment in /etc/ai-tools/operator.conf is reworded to match, so an edited file gets an
+  .rpmnew beside it on upgrade.
+- CHANGE: An agent package declares the executable its versioned launcher must resolve to
+  ('launcher_target'), and the updater re-links it before the stable symlink is repointed. An agent
+  whose npm package ships a launcher that spawns a vendored binary is therefore verified, labelled
+  and executed as the one file that actually runs.
+- SECURITY: Codex is refused the same commands a Claude Code session is refused: 'git push --force',
+  'git reset --hard' and 'git clean', each of which deletes work no commit holds and no reflog
+  returns, and the host-survey commands (who has an account, what is installed, what every other
+  account is running, how the host is mounted). A refused command is raised in the session for you
+  to run where the consequence lands. An edited /etc/codex/requirements.toml takes the new rows by
+  hand.
+- SECURITY: An agent entrypoint started from inside a running session, at its real path in the
+  toolchain, is now recorded by the kernel, and 'sudo ai-tools audit' reports each one as a third
+  section. The child runs in its parent's unit, so the launch line and the handbacks carry the
+  parent's identity; this record is the one trail that tells the two apart, and the sandbox account
+  can neither write it nor suppress it. An agent dispatching a tool it bundles is counted, not
+  listed.
+- SECURITY: The clean-exit marker a session writes into its config directory was read unvalidated
+  into the next session's SessionStart reply and into the cross-project .git reclaim; it is now
+  accepted only as an existing directory named by an absolute path, and the reply names a prior
+  session's project without printing the path.
+- SECURITY: A pin recorded from the installed binary whose version field was longer than the reader
+  returns was re-recorded on every reconcile, so a changed binary would have been recorded rather
+  than refused; such a pin is now decided by its checksum alone. A reconciliation that refuses to
+  re-record is shown by 'ai-tools status' in place of the agent's green line, and the refusal names
+  the package directory to remove first -- a bootstrap at the installed version kept the changed
+  binary.
 - SECURITY: An agent whose vendor publishes no signed per-release checksum now gets an entrypoint
   pin too. Root records the checksum of the binary as installed, so a binary rewritten between
   sessions under the version it was recorded at -- the case a delivery-side signature cannot see,
@@ -1341,21 +1368,54 @@ fi
   an update and is recorded again: the version is read from the toolchain, which the sandbox
   account writes, so on a host without SELinux this pin holds against the same-version rewrite
   alone. docs/system/entrypoint-verification.md states what each tier claims.
-- CHANGE: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY asks for a pin of either kind, which is what
-  operator.conf(5) has always said it governs -- an entrypoint carrying no pin. A host that sets it
-  now also launches an agent pinned as installed, and the status report is where the tier is named.
-  The key's comment in /etc/ai-tools/operator.conf is reworded to match, so an edited file gets an
-  .rpmnew beside it on upgrade.
-- CHANGE: An agent package declares the executable its versioned launcher must resolve to
-  ('launcher_target'), and the updater re-links it before the stable symlink is repointed. An agent
-  whose npm package ships a launcher that spawns a vendored binary is therefore verified, labelled
-  and executed as the one file that actually runs.
+- NEW: Codex runs sandboxed, as the second supported agent. Install
+  'ai-tools-agents-codex-restricted' (the umbrella pulls it), name it in AI_TOOLS_AGENTS in
+  /etc/ai-tools/operator.conf and run 'sudo ai-tools-admin system bootstrap': typing 'codex' then
+  starts a confined session with the same project allowlist, SELinux domain and ownership handback
+  a Claude Code session gets, and with the skills and orientation text both agents share. Two files
+  under /etc/codex are yours to edit with sudo -- what every session is held to, and the defaults
+  applied ahead of any user config. Its denial set is swept on an enforcing host: a session raises
+  one refusal of its own, a filesystem watch under the sandbox account's home, and the policy was
+  not widened for it or for anything else. docs/agents/codex.md covers what it reaches, what the
+  package turns off, and what a pinned sandbox mode costs a session, and docs/system/selinux.md
+  lists the refusals a healthy session logs.
+- NEW: An example audit rule that records every command a sandbox session runs ships as reference
+  material at /usr/share/ai-tools/audit/ai-tools-cmd.rules.example, not enabled: the trail runs to
+  thousands of events an hour, and the file's header states the auditd sizing to set before copying
+  it into /etc/audit/rules.d.
+- FIX: An agent started from inside another agent's session now finds its own state directory,
+  cache and updater switch: every enabled agent's pins reach every session, so a Claude Code
+  child under Codex reads the pinned configuration instead of running with none. What stays with
+  the launching agent's sessions alone is its own fragment -- a custom Claude endpoint and its
+  token are not in a Codex session's environment.
+- FIX: On an enforcing host the handback daemon's journal records carry the session unit again
+  (the read of the peer's cgroup was denied since the field was added), and a handback no longer
+  leaves denials in the audit log for the cgroup read or for find's filesystem probe.
+- FIX: The launcher symlink repoint works on an enforcing host: the helper read the entrypoint's
+  execute bit through access(2), which the policy refuses, so every repoint the updater requested
+  was refused as "not an executable file". A repoint or re-link is also held to the entrypoint the
+  manifest declares before the link is written, where it used to fail one launch later at the
+  label preflight.
+- FIX: The session-end ownership sweep skips a working directory that is the sandbox home, so
+  'codex --version' no longer walks the whole toolchain, and its journal line counts the paths whose
+  owner changed rather than every call it made.
+- FIX: 'install.sh uninstall' keeps an edited managed file under /etc/codex as
+  '<file>.<YYYYMMDD>.retired' instead of deleting it, and removes one still byte-identical to the
+  shipped copy -- the treatment rpm gives an edited %config(noreplace) file.
+- FIX: Linking the shared skills into a directory a host already holds (codex's admin-scope skills
+  path) relabels the links placed and no longer runs restorecon over the host's own entries.
+- FIX: 'ai-tools projects clone' refuses a missing or option-shaped value after --from, --branch
+  and --dir under message codes of its own (MSG-J4P9, MSG-Z5V5).
 - FIX: 'sudo ai-tools-admin system bootstrap' closes by naming the CLI rather than one agent's
   wrapper, so the next step it prints is right on a host running any agent.
 - DOCS: The operator documentation is a tree of nine categories under docs/, each with its own
   index, and the front page is a map to it rather than the manual itself. Every page states what
   you can do and what happens when you do it; the mechanisms moved to the contributor rules, so a
   page stays accurate across a refactor.
+- DOCS: docs/agents/ opens with the operator.conf lines that enable an agent, explains the settings
+  whose names read as the opposite of what they do here (danger-full-access among them), keeps the
+  codex page to what an operator does and sees, and states what an agent started from inside
+  another agent's session gets.
 
 * Tue Sep 15 2026 dagnode <tools@dagnode.com> - 0.18.0-1
 - CHANGE: 'ai-tools' spells a command as a bare word -- a collection and its verb ('ai-tools
