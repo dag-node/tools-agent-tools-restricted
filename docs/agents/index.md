@@ -10,7 +10,7 @@ on, and where one agent's own settings and environment variables are listed.
 
 ```bash
 sudo ai-tools-admin system bootstrap                 # asks which agent, and writes the line
-sudo ai-tools-admin system bootstrap --agents codex  # the unattended form
+sudo ai-tools-admin system bootstrap --agents <name> # claude-code | codex - the unattended form
 sudo sed -i 's/^#\?AI_TOOLS_REQUIRE_SELINUX=.*/AI_TOOLS_REQUIRE_SELINUX=yes/' /etc/ai-tools/operator.conf
 sudo sed -i 's/^#\?AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=.*/AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes/' /etc/ai-tools/operator.conf
 ```
