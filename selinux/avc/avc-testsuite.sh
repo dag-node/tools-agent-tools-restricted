@@ -269,31 +269,52 @@ fi
 
 ########################################
 # 9. OPTIONAL GROUP SURFACES
-#    If a group is loaded, exercise its core path so the bring-up loop covers
-#    the extra surface before enforcing. Silently skipped when not loaded.
+#    Exercise each group's core path so the bring-up loop covers the extra surface before enforcing.
+#
+#    NONE of these is gated on the module being loaded. Whether a group is loaded is a fact only the module store
+#    holds, the store is root-only, and `semodule` is refused by the sandbox's command policy -- so a `semodule -l`
+#    gate evaluates false in the one context this script supports, and would skip every section here exactly when it
+#    is meant to run. Each section exercises its path and reports what happened instead: under permissive the denial
+#    is logged, which is the point of the pass, and under enforcing the access fails and the report names the group
+#    that grants it.
+#
+#    A STABLE group asserts (memfdexec, localipc, buildexec): its rule set is exercised against a workload the
+#    project supports, so a denial is a finding worth a FAIL line. An EXPERIMENTAL group reports: it is off by
+#    default and most hosts want it off, so a host running without all four would otherwise tally four failures
+#    every run for a configuration it chose.
 ########################################
-step "optional group surfaces (each skipped if group not loaded)"
+step "optional group surfaces"
 
-semodule -l 2>/dev/null | grep -q '^ai_tools_systemd' && {
-    note "systemd group loaded -- exercising systemctl + journalctl"
-    systemctl --no-pager status 2>/dev/null | head -3 || true
-    journalctl --no-pager -n 3 2>/dev/null | head -3 || true
-} || note "systemd group not loaded -- skip (enable-group systemd to cover it)"
+# exercise_group <group> <tool> <description> <command>... : run one command needing an optional group's grant
+# and report the outcome.
+#
+# A tool an optional group gates does not resolve on PATH while that group is off, and the resolution itself is
+# the denial: `command -v` runs access(X_OK), the kernel checks that as `execute` on the tool's own exec type
+# (systemd_systemctl_exec_t, rpm_exec_t, container_runtime_exec_t), and the core module grants none of them --
+# so a binary that is present reads as one that is absent. The two are not distinguishable from inside the domain,
+# and the report names both rather than picking one. The record this pass exists to produce is written either way, since
+# the refused access(X_OK) is itself the audited denial. firewall-cmd is the other shape: it is bin_t and resolves, then
+# fails at the D-Bus call netadmin grants.
+exercise_group() {
+    local group="$1" tool="$2" desc="$3"; shift 3
+    if ! command -v "${tool}" >/dev/null 2>&1; then
+        note "${group}: ${tool} did not resolve on PATH -- absent, or its exec type is denied while this group is off (enable-group ${group})"
+        return 0
+    fi
+    local rc=0
+    "$@" >/dev/null 2>&1 || rc=$?
+    if [[ "${rc}" -eq 0 ]]; then
+        note "${group}: ${desc} ran"
+    else
+        note "${group}: ${desc} exited ${rc} -- a denial here is this group being off (enable-group ${group})"
+    fi
+}
 
-semodule -l 2>/dev/null | grep -q '^ai_tools_pkgmgmt' && {
-    note "pkgmgmt group loaded -- exercising rpm -qa"
-    rpm -qa --queryformat '%{NAME}\n' 2>/dev/null | head -5 || true
-} || note "pkgmgmt group not loaded -- skip (enable-group pkgmgmt to cover it)"
-
-semodule -l 2>/dev/null | grep -q '^ai_tools_netadmin' && {
-    note "netadmin group loaded -- exercising firewall-cmd"
-    firewall-cmd --list-zones 2>/dev/null | head -3 || true
-} || note "netadmin group not loaded -- skip (enable-group netadmin to cover it)"
-
-semodule -l 2>/dev/null | grep -q '^ai_tools_podman' && {
-    note "podman group loaded -- exercising podman info"
-    podman info 2>/dev/null | head -5 || true
-} || note "podman group not loaded -- skip (enable-group podman to cover it)"
+exercise_group systemd  systemctl    "systemctl status"       systemctl --no-pager status
+exercise_group systemd  journalctl   "a journal read"         journalctl --no-pager -n 3
+exercise_group pkgmgmt  rpm          "rpm -qa"                rpm -qa --queryformat '%{NAME}\n'
+exercise_group netadmin firewall-cmd "firewall-cmd zone list" firewall-cmd --list-zones
+exercise_group podman   podman       "podman info"            podman info
 
 # memfdexec: the double-mapped W^X JIT path -- write generated code through a read-write mapping of an anonymous memfd,
 # then execute it from a second PROT_EXEC mapping. Probed directly rather than through a toolchain, so the section runs
@@ -301,16 +322,12 @@ semodule -l 2>/dev/null | grep -q '^ai_tools_podman' && {
 # reads the memfd's LIVE type back through /proc/self/fd BEFORE mapping it, which is the one reading that separates
 # a working type_transition from a fallback to the host-shared tmpfs_t -- a fallback the mapping itself would not
 # reveal, since it fails for want of a grant either way. A real executable build and run under the agent (dotnet run,
-# an xunit.v3 or ASP.NET Core project) covers the toolchain's own use of the path more fully.
-#
-# The section is NOT gated on the module being loaded. Whether a group is loaded is a fact only the module store holds,
-# the store is root-only, and `semodule` is refused by the sandbox's command policy -- so a `semodule -l` gate evaluates
-# false in the one context this script is meant to run in, and would skip the section exactly when it is supposed
-# to run. The probe reports what it found instead: the type read-back names which of the two states the host is
-# in, and each assertion carries the remedy.
+# an xunit.v3 or ASP.NET Core project) covers the toolchain's own use of the path more fully. The type read-back is
+# what names which of the two states the host is in, where the section header explains why none of these sections asks
+# the module store.
 {
     if command -v python3 >/dev/null 2>&1; then
-        note "exercising memfd create, type read-back, and a PROT_EXEC mapping"
+        note "memfdexec: exercising memfd create, type read-back, and a PROT_EXEC mapping"
         memfd_type="$(python3 -c '
 import os, subprocess
 fd = os.memfd_create("avc-memfdexec")
@@ -342,11 +359,11 @@ finally:
 }
 
 # localipc group: the .NET runtime's IPC is probe-able without dotnet -- create a unix socket and a FIFO under /tmp
-# (which the base does not create there), connect to the socket, and getsid. Skipped if the group is off.
-semodule -l 2>/dev/null | grep -qx 'ai_tools_localipc' && {
-    note "localipc group loaded -- exercising a /tmp socket (create+connect) + FIFO and getsid"
-    if command -v python3 >/dev/null 2>&1; then
-        python3 -c '
+# (which the base does not create there), connect to the socket, and getsid. A fresh temporary directory has no other
+# failure mode, so the outcome is an assertion rather than a note.
+if command -v python3 >/dev/null 2>&1; then
+    note "localipc: exercising a /tmp socket (create+connect) + FIFO and getsid"
+    if python3 -c '
 import socket, os, tempfile
 d = tempfile.mkdtemp(dir="/tmp"); p = os.path.join(d, "avc.sock")
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -358,26 +375,36 @@ try:
     os.getsid(0)                               # process getsession
 finally:
     c.close(); s.close()
-' 2>/dev/null || true
+' 2>/dev/null; then
+        pass "localipc: a /tmp socket and FIFO were created, connected to, and getsid returned"
+    else
+        fail "localipc: creating or connecting to a /tmp socket or FIFO was denied -- dotnet test and multi-node MSBuild need it (enable-group localipc)"
     fi
-} || note "localipc group not loaded -- skip (enable-group localipc to cover it)"
+else
+    note "localipc: python3 is not installed, so the socket and FIFO path was not exercised"
+fi
 
 # buildexec group: the execute grant is on ai_tools_project_build_t alone. A script under a directory the dotnet layout
 # module types (bin/, created here, so born on that type by the module's named transition) runs, while the same script
 # beside it stays ai_tools_project_t and is refused with 126. Both outcomes are reported, since a hook that runs means
 # the grant is wider than the group states, and a bin/ that is refused means the layout module is not loaded. Running
 # a real build's output is left to `dotnet run` under the agent.
-semodule -l 2>/dev/null | grep -qx 'ai_tools_buildexec' && {
-    note "buildexec group loaded -- exercising execute on build output vs. the rest of the tree"
-    _bo="${SCRATCH}/build-output-probe"; mkdir -p "${_bo}/bin" "${_bo}/hooks"
-    printf '#!/bin/sh\nexit 0\n' > "${_bo}/bin/probe";   chmod 755 "${_bo}/bin/probe"
-    printf '#!/bin/sh\nexit 0\n' > "${_bo}/hooks/probe"; chmod 755 "${_bo}/hooks/probe"
-    if "${_bo}/bin/probe" 2>/dev/null; then note "  bin/probe ran ($(ls -Zd "${_bo}/bin" | awk '{print $1}'))"
-    else note "  bin/probe REFUSED -- is the dotnet layout module loaded? ($(ls -Zd "${_bo}/bin" | awk '{print $1}'))"; fi
-    if "${_bo}/hooks/probe" 2>/dev/null; then note "  hooks/probe RAN -- execute is wider than build output"
-    else note "  hooks/probe refused (expected: ai_tools_project_t is not executable)"; fi
-    rm -rf "${_bo}"
-} || note "buildexec group not loaded -- skip (enable-group buildexec to cover it)"
+note "buildexec: exercising execute on build output against the rest of the tree"
+_bo="${SCRATCH}/build-output-probe"; mkdir -p "${_bo}/bin" "${_bo}/hooks"
+printf '#!/bin/sh\nexit 0\n' > "${_bo}/bin/probe";   chmod 755 "${_bo}/bin/probe"
+printf '#!/bin/sh\nexit 0\n' > "${_bo}/hooks/probe"; chmod 755 "${_bo}/hooks/probe"
+if "${_bo}/bin/probe" 2>/dev/null; then
+    pass "buildexec: a script under bin/ ran ($(label_of "${_bo}/bin"))"
+else
+    fail "buildexec: a script under bin/ was refused ($(label_of "${_bo}/bin")) -- the group is off, or the dotnet layout module is not loaded so bin/ did not take the build-output type"
+fi
+# The other direction is the boundary the group is scoped to, so a script that RUNS here is the finding.
+if "${_bo}/hooks/probe" 2>/dev/null; then
+    fail "buildexec: a script outside the build-output directories ran ($(label_of "${_bo}/hooks")) -- execute reaches wider than the build output"
+else
+    pass "buildexec: a script outside the build-output directories was refused ($(label_of "${_bo}/hooks")) -- the grant is scoped to the build-output type"
+fi
+rm -rf "${_bo}"
 
 # The sandbox account's own `--user manager`, reached over its bus. The manager hands its environment to every unit it
 # starts, nvm-update.service among them, and that unit's reader honours AI_TOOLS_AGENTS_DIR and AI_TOOLS_OPERATOR_CONF

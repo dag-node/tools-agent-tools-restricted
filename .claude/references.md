@@ -124,8 +124,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q3r9 | [MSG-Q3R9](../src/usr/local/bin/ai-tools.sh) | this project contains ${#nested[@]} other claimed project(s), listed above: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | h3f6 | [MSG-H3F6](../src/usr/local/bin/ai-tools.sh) | the parent directory is not writable by ${OWNER_USER}: ${rm_parent} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | s6v2 | [MSG-S6V2](../src/usr/local/bin/ai-tools.sh) | removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | warn |
-| j4p9 | [MSG-J4P9](../src/usr/local/bin/ai-tools.sh) | a value is required after ${flag} | src/usr/local/bin/ai-tools.sh |  | die |
-| z5v5 | [MSG-Z5V5](../src/usr/local/bin/ai-tools.sh) | a value is required after ${flag}, not another option: $1 | src/usr/local/bin/ai-tools.sh | tests/manual/verify-live-flows.sh | die |
+| j4p9 | [MSG-J4P9](../src/usr/local/bin/ai-tools.sh) | a value is required after ${flag} | src/usr/local/bin/ai-tools.sh | packaging/ai-tools.spec | die |
+| z5v5 | [MSG-Z5V5](../src/usr/local/bin/ai-tools.sh) | a value is required after ${flag}, not another option: $1 | src/usr/local/bin/ai-tools.sh | packaging/ai-tools.spec, tests/manual/verify-live-flows.sh | die |
 | h2d4 | [MSG-H2D4](../src/usr/local/bin/ai-tools.sh) | destination already exists: ${dst} | src/usr/local/bin/ai-tools.sh |  | die |
 | t4a8 | [MSG-T4A8](../src/usr/local/bin/ai-tools.sh) | not a claimed project: $1 | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | b7k4 | [MSG-B7K4](../src/usr/local/bin/ai-tools.sh) | unknown option for stop: ${argument} | src/usr/local/bin/ai-tools.sh | src/usr/local/libexec/ai-tools/ai-tools-stop.sh, tests/integration/cli.sh, tests/unit/stop.sh | die_stop_usage |
