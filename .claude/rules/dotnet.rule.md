@@ -34,9 +34,13 @@ cache), so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS
 
 - `session-env.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets the variables the fragment declares —
   the toolchain root, the NuGet cache and CLI home under its state root, the telemetry and banner opt-outs, the MSBuild
-  node-reuse switch, and the `Development` environment — and adds `integrations/dotnet/tools` to PATH. The set is
-  the one current for **.NET 8 LTS and later**; the .NET Core 2.x/3.x-era opt-outs (`DOTNET_SKIP_FIRST_TIME_EXPERIENCE`,
-  `DOTNET_PRINT_TELEMETRY_MESSAGE`) are absent because the SDK does not read them.
+  node-reuse switch, and the first-run opt-out — and adds `integrations/dotnet/tools` to PATH. The set is the one
+  current for **.NET 8 LTS and later**, `DOTNET_SKIP_FIRST_TIME_EXPERIENCE` among them: the SDK reads it, and with it
+  set the first-run configurer does not run, so a session's first `dotnet` command does not write first-use sentinels
+  or run the NuGet migration. `ASPNETCORE_ENVIRONMENT` and `DOTNET_ENVIRONMENT` ship **commented** rather than set,
+  so a deployed host states the environment it wants explicitly; the commented line carries the spelling, so turning one
+  on is an uncomment rather than a lookup, and it carries `Production`, so uncommenting one does not turn on developer
+  exception pages or a development configuration on a host that only wanted the variable present.
   `DOTNET_CLI_HOME=…/integrations/dotnet/cli` is what keeps the shared-tools tree read-only: the SDK's own state
   (first-use sentinels, CLI logs) defaults to `$HOME/.dotnet`, so it is pinned at a writable sibling inside the same
   state root. Only the root-owned tools dir joins PATH; a tool the agent installs for itself under `DOTNET_CLI_HOME`
