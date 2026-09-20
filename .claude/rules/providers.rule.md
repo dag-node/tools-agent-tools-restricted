@@ -43,7 +43,10 @@ so a malformed or tampered manifest cannot execute code in the privileged script
   directory names that hold the toolchain's build output, which `relabel.lib.sh` reads from every installed manifest
   through `ai_tools_installed_integrations_declaring` and maps to the build-output type), `selinux_layout_module` (the
   policy module that types them at creation, loaded with the integration), and `selinux_groups` (the optional groups
-  the toolchain needs, which the status reports name when not loaded). What each is for is in [dotnet](dotnet.rule.md).
+  the toolchain needs, which the status reports name when not loaded) — plus the pair `ancestor-config.lib.sh` reads
+  through that same reader: `project_markers` (the filename globs that mark a directory as this toolchain's project)
+  and `ancestor_config_files` (the configuration filenames its build reads from a project's ancestor directories).
+  What each is for is in [dotnet](dotnet.rule.md).
 
 `ai-tools-providers(5)` is the operator's statement of every key, and a manifest's own header is a pointer to it:
 a manifest is package data replaced on upgrade, so a description that lives in the file is one an upgrade rewrites
@@ -424,7 +427,10 @@ surface **as the agent** and asserts none of it is agent-writable (catching the 
 - `ai_tools_enabled_integrations` — prints one enabled installed integration name per line.
 - `ai_tools_installed_integrations_declaring <key>` — prints `name<TAB>value` for every **installed** integration
   whose trusted manifest carries `<key>`, enabled or not, under the same trust rules. For a field that describes
-  a toolchain present on the host rather than what a session receives.
+  a toolchain present on the host rather than what a session receives. Two libraries read keys this way:
+  `relabel.lib.sh` for the build-output directory names, and `ancestor-config.lib.sh` for the project markers
+  and the ancestor configuration filenames — each validating every item it takes to one plain component, since a name is
+  joined to a path and a marker is expanded as a glob there.
 - `ai_tools_agents_empty_verdict` — for a caller whose `ai_tools_enabled_agents` printed an empty set, one
   `fault`/`none` line saying why, every refused path named with what the predicate read. The resolver reports a refusal
   on stderr only, so a caller reading its stdout sees an empty set for a tampered manifest directory and for a host

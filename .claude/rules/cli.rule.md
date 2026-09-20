@@ -836,6 +836,16 @@ the category override in `operator.conf`, list the path in `SKIP_ARTIFACT_DIRS_E
 sharing a skipped build-output name), then re-claim; or `ai-tools projects handback --full` for ownership alone.
 Declining plus a `!` exclusion (or `chmod 700`) records an intentional carve-out so it is not re-reported.
 
+**Configuration the build reads from a project's ancestors.** A build toolchain collects configuration by walking
+from the project directory toward `/`, so a file it opens in an ancestor that the sandbox account is denied fails
+the build with an error naming that path. The Review block reports each one (`ancestor-config.lib.sh`),
+on the fully-claimed no-op path as well, since a project's ancestry changes independently of the claim that registered
+it. It is **read-only and does not name any remedy the claim performs**: every claim step acts inside the project,
+so none of them closes this. What it looks for comes from the installed integration manifests — the markers that make
+a directory that toolchain's project, and the filenames its build reads — so a project no installed toolchain claims
+does not raise a notice. The .NET measurements, and why neither a mode nor a stop marker settles it, are
+in [ref-section-t8k3](dotnet.rule.md#ref-section-t8k3).
+
 **Sealed directories with a third-party setgid.** A second read-only scan (`sealed_setgid_scan`) reports the one piece
 of residue the claim walks decline to remove: a setgid bit on an owner-only directory whose group is neither
 `SANDBOX_GROUP` nor the group of that directory's own owner (see [ownership-and-hooks](ownership-and-hooks.rule.md)

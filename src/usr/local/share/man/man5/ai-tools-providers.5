@@ -259,6 +259,26 @@ policy group may grant execute on.
 Each name is one plain component (letters, digits, dot, underscore, hyphen).
 Read from every installed manifest, enabled or not.
 .TP
+.B project_markers
+Filename globs that mark a project directory as this toolchain's, matched in
+the project directory itself
+.RB ( *.csproj
+for .NET).
+Each is one plain filename glob; a path or any other glob construct is
+refused.
+A claim and a launch report this toolchain's unreadable ancestor
+configuration only for a project a marker matches, so a project built with
+another toolchain raises no notice.
+.TP
+.B ancestor_config_files
+Configuration filenames this toolchain's build reads from the directories
+above a project.
+A claim and a launch report each one that exists above the project and that
+the sandbox account cannot read, because the build opens it and fails with
+an error naming a path outside the project.
+Each is one plain filename.
+Read from every installed manifest, enabled or not.
+.TP
 .B selinux_layout_module
 The SELinux policy module that types those same directories at the moment
 they are created, and inside sandbox clones.

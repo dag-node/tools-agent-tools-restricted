@@ -853,6 +853,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/keys/claude-code.asc
     _chk /usr/local/lib/ai-tools/conf.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
+    _chk /usr/local/lib/ai-tools/ancestor-config.lib.sh
     _chk /usr/local/lib/ai-tools/toolchain.lib.sh
     _chk /usr/local/lib/ai-tools/filters.lib.sh
     _chk /usr/local/lib/ai-tools/filters.d/core.rules
@@ -1245,6 +1246,15 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/providers.lib.sh" \
         /usr/local/lib/ai-tools/providers.lib.sh
+
+    # Unreadable ancestor configuration (ancestor-config.lib.sh): 644 root:root like the resolver it reads the two
+    # manifest keys through, sourced by the claim CLI and by the launch wrapper, both as the operator. Substituted:
+    # the predicate asks what the sandbox account can read. It reports and does not change any file, so it does not
+    # carry any secrets and does not grant any access.
+    log "/usr/local/lib/ai-tools/ancestor-config.lib.sh"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/ancestor-config.lib.sh" \
+        /usr/local/lib/ai-tools/ancestor-config.lib.sh
 
     # The residue readers and the one package removal (toolchain.lib.sh): 644 root:root like the resolver it requires,
     # sourced by the launch wrapper (as the operator), ai-tools-run, nvm-update and the bootstrap's sandbox-account

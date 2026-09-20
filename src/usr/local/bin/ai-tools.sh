@@ -516,6 +516,14 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_NAMES=(); AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
+# Unreadable ancestor configuration (ancestor-config.lib.sh): the claim reports the configuration files in a project's
+# ancestry that ai_tools_session_can_read refuses, so a build that would fail on one says so here rather than
+# from inside a session. Best-effort: the report is advisory and does not change any file, so a missing lib costs
+# the notice and leaves every claim step as it was. It is sourced AFTER safe-paths, whose backstop bounds its walk.
+readonly ANCESTOR_CONFIG_LIB="/usr/local/lib/ai-tools/ancestor-config.lib.sh"
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/ancestor-config.lib.sh
+source "${ANCESTOR_CONFIG_LIB}" 2>/dev/null || true
+
 # Service-health registry (services.lib.sh): the single source `ai-tools status`, the launch wrapper's pre-launch health
 # warning and `ai-tools-admin status` share, so no two of them disagree on which units matter, what one is doing,
 # or how to fix it. Best-effort -- only `status` reads it, and it degrades to a "registry unavailable" notice rather
@@ -1718,6 +1726,24 @@ cmd_project_claim() {
         say "      ${C_DIM}if it was not intended, clear it yourself:  chmod g-s <dir>${C_RST}"
     }
 
+    # Configuration a build reads from the project's ancestor directories. The toolchain walks the ancestry and opens
+    # each file it recognises, so one the sandbox account is denied is a hard error naming that path, and the message
+    # does not mention the sandbox boundary (ancestor-config.lib.sh). Read-only, and reported rather than repaired:
+    # every step of a claim acts inside the project, so none of them closes this.
+    local -a ancestor_configs=()
+    if declare -F ai_tools_unreadable_ancestor_configs >/dev/null 2>&1; then
+        mapfile -t ancestor_configs < <(ai_tools_unreadable_ancestor_configs "${d}")
+    fi
+
+    ancestor_config_note() {
+        (( ${#ancestor_configs[@]} )) || return 0
+        headline_warn "NOTICE: configuration above this project the agent cannot read" \
+            "${#ancestor_configs[@]} file(s) above ${d} are configuration an installed toolchain reads for a build here, and the sandbox account cannot open them -- a build that reads one fails on it, naming a path outside the project. The claim acts inside the project, so it leaves them as they are."
+        path_listing "file(s)" "${ancestor_configs[@]}"
+        say "      ${C_DIM}a file moved into the project is readable to the sandbox account,${C_RST}"
+        say "      ${C_DIM}which one above it is not${C_RST}"
+    }
+
     # skip_listed_note: the skip-listed hits are informational either way -- shown both on the fully-claimed early
     # return and in the pending flow.
     skip_listed_note() {
@@ -1772,6 +1798,7 @@ cmd_project_claim() {
             && (( ${#drift[@]} == 0 )); then
         skip_listed_note
         sealed_setgid_note
+        ancestor_config_note
         # A claimed project can still sit under a non-traversable parent (a later chmod 700 on an ancestor),
         # so the reachability block runs on the no-op path too.
         reg_reach "${d}"
@@ -1820,6 +1847,7 @@ cmd_project_claim() {
     fi
     skip_listed_note
     sealed_setgid_note
+    ancestor_config_note
 
     # Heavy steps (recursive chgrp; sudo relabel/ACL; drift repair) close the Review block behind the proceed confirm;
     # pure registry additions do not. --yes pre-answers exactly this prompt: the launch wrapper passes it after taking

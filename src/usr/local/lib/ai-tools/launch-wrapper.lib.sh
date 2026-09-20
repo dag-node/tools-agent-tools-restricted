@@ -73,6 +73,17 @@ _ai_tools_launch_error() {
     ai_tools_msg_error ${code:+"${code}"} "${first}" "$@"
 }
 
+# _ai_tools_launch_warn [<code>] <line>... -- the same shape one severity down, for a condition the operator acts
+# on while the launch continues. The prefix belongs here for the reason the error emitter's does, and a coded warning
+# needs it: a message text opening with the launcher name would open with an expansion, which the reference index reads
+# as a citation rather than as the definition of the code (messaging.rule.md).
+_ai_tools_launch_warn() {
+    local code=""
+    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
+    local first="${AI_TOOLS_LAUNCH_NAME}: $1"; shift
+    ai_tools_msg_warn ${code:+"${code}"} "${first}" "$@"
+}
+
 # ai_tools_launch_die [<code>] <line>... -- _ai_tools_launch_error, pause on a tty, and exit 1.
 ai_tools_launch_die() {
     _ai_tools_launch_error "$@"
@@ -532,8 +543,15 @@ ai_tools_launch_gates() {
 # to the journal, never to the terminal, since it is not a launch decision and the operator did not ask a question.
 # A missing lib, an unreadable file, or an absent `logger` skips it; an empty or missing file means the baseline is
 # in force, which is no difference and stays silent.
+#
+# Unreadable ancestor configuration: a build toolchain collects configuration from a project's ancestor directories,
+# and a file it opens there that the DAC mode or the SELinux label denies the sandbox account fails the build
+# with an error naming that path (ancestor-config.lib.sh). The reading is taken per launch, since a project's ancestry
+# changes independently of the claim that registered it. It reports and does not repair any of them: no launch path
+# reaches outside the project. It sits here rather than in the claim guard because each of that guard's findings is
+# closed by `ai-tools projects claim`, which does not close this one.
 _ai_tools_launch_notices() {
-    local name="${AI_TOOLS_LAUNCH_NAME}" svc drift
+    local name="${AI_TOOLS_LAUNCH_NAME}" svc drift config
     # shellcheck source=SCRIPTDIR/services.lib.sh
     if source /usr/local/lib/ai-tools/services.lib.sh 2>/dev/null \
             && declare -F ai_tools_services_scan >/dev/null 2>&1 \
@@ -557,6 +575,22 @@ _ai_tools_launch_notices() {
         # false -- which is the healthy host, every launch.
         if [[ -n "${drift}" ]]; then
             logger -t "${name}" -p user.notice -- "${drift}"
+        fi
+    fi
+
+    # shellcheck source=SCRIPTDIR/ancestor-config.lib.sh
+    if [[ -n "${AI_TOOLS_LAUNCH_PROJECT_DIR}" ]] \
+            && source /usr/local/lib/ai-tools/ancestor-config.lib.sh 2>/dev/null \
+            && declare -F ai_tools_unreadable_ancestor_configs >/dev/null 2>&1; then
+        local -a unreadable=()
+        mapfile -t unreadable < <(ai_tools_unreadable_ancestor_configs "${AI_TOOLS_LAUNCH_PROJECT_DIR}")
+        if (( ${#unreadable[@]} )); then
+            _ai_tools_launch_warn MSG-N5S2 \
+                "the sandbox account cannot read ${#unreadable[@]} configuration file(s) above this project, which an installed toolchain reads for a build here -- a build that reads one fails on it, naming a path outside the project"
+            # The paths print plain under the frame: the emitter wraps its text, and a path is copied whole.
+            for config in "${unreadable[@]}"; do
+                printf '       %s\n' "${config}" >&2
+            done
         fi
     fi
 }
