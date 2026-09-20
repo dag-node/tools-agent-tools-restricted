@@ -537,8 +537,10 @@ render_entrypoint_section() {
     render_findings < <(printf '%s\n' "${ENTRYPOINT_EXEC_FINDINGS[@]}")
     ai_tools_msg_warn MSG-H2B5 \
         "an agent entrypoint was started from inside a running session, which no launch gate saw" \
-        "the child runs in its parent's unit, so the launch and the handbacks carry the parent's identity" \
-        "read the session it happened in: journalctl -t ai-tools-hook _UID=\$(id -u ${SANDBOX_USER})"
+        "the child runs in its parent's unit, so the launch and the handbacks carry the parent's identity"
+    # The command stays outside the frame: the wrapping emitter would break it across lines (msg.lib.sh).
+    printf '  %s\n' "read the session it happened in:"
+    printf '    %s\n' "journalctl -t ai-tools-hook _UID=\$(id -u ${SANDBOX_USER})"
 }
 
 # collect_entrypoint_findings -- fill ENTRYPOINT_EXEC_STATE, ENTRYPOINT_EXEC_FINDINGS, the folded count
