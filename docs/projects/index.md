@@ -332,12 +332,16 @@ Reverts the SELinux label, drops both registries, and — behind its own confirm
 The directory stays on disk.
 
 Four routes into the tree come off together: the **group owner** moves
-from `ai-tools` to yours, every extended **ACL** entry is cleared including
-the default one, **group write** goes along with directory setgid,
-and the **SELinux label** reverts. The group owner is the one that closes
-the standing route — clearing the ACL alone would leave the agent its access
-through the group bits of a tree still group-owned by `ai-tools`. The modes
-each path lands on are in [what a claim and an unclaim do
+from `ai-tools` to yours, every extended **ACL** entry is cleared — the default
+one and any that predated the claim — **group write** goes along with directory
+setgid whether or not the claim set it, and the **SELinux label** reverts.
+The group owner is the one that closes the standing route — clearing the ACL
+alone would leave the agent its access through the group bits of a tree still
+group-owned by `ai-tools`. No record of a tree's pre-claim state is kept, so no
+command puts any of it back: **back up first**, the only safeguard there is,
+which is why both the claim and the forced unclaim say so before asking. The
+modes each path lands on are
+in [what a claim and an unclaim do
 to permissions](#what-a-claim-and-an-unclaim-do-to-permissions); new files then
 take their mode from the creating account's umask again, which the default ACL
 had been overriding (see the [permissions
@@ -614,13 +618,9 @@ and unclaiming then drops group write and leaves `640`. A tree that needs
 to stay world-readable is not a candidate for an in-place claim — use a sandbox
 clone.
 
-The rest of what an unclaim does not restore: **every** extended ACL is
-cleared, including entries that predated the claim and were unrelated
-to ai-tools; directory setgid is removed whether or not the claim set it;
-the group owner becomes whoever you hand the tree to. Nothing records a tree's
-pre-claim state, so no command can put any of it back. **Back up first** —
-that is the only real safeguard, which is why both the claim and the forced
-unclaim say so before asking.
+The group owner becomes whoever you hand the tree to, and the rest of what
+an unclaim clears is under [Unclaim a project](#unclaim-a-project): it
+normalizes rather than restores, so back up first.
 
 > Watching a claim with `ls -l` can mislead: a POSIX ACL shows the **mask**
 > in the group bits, not the group's own permission, and the only visible hint

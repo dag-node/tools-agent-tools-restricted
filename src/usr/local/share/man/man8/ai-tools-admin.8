@@ -382,7 +382,7 @@ This command always re-fetches the vendor's signed manifest, where the
 unattended callers may answer from an unchanged pin.
 Takes no argument: the entrypoints come from the installed agent manifests.
 See
-.I /usr/share/doc/ai\-tools/entrypoint\-verification.md
+.I /usr/share/doc/ai\-tools/docs/system/entrypoint\-verification.md
 and
 .BR operator.conf (5).
 .TP
@@ -412,20 +412,21 @@ Report this host's health: the installed version, whether the toolchain is
 provisioned, each managed
 .BR systemd (1)
 unit, and \(em per enabled agent \(em both halves of the entrypoint
-reconciliation: whether the binary is pinned to a checksum its vendor signed,
+reconciliation: whether the binary matches the checksum pinned for it,
 and what SELinux type its paths carry.
 .RS
 .PP
 It is the same report
 .B "ai\-tools status"
-gives an operator, completed with the three readings that vantage point lacks
+gives an operator, completed with the readings that vantage point lacks
 the privilege for and prints as
 .BR ? :
 the sandbox account's own
 .B "systemd \-\-user"
 units, read live over the machine transport; the entrypoint pin, which sits in
-a state directory a non-operator cannot traverse; and the SELinux type each
-agent path carries, inside a toolchain only root can enter.
+a state directory a non-operator cannot traverse; whether the installed binary
+still matches that pin, hashed inside a toolchain only root can enter; and the
+SELinux type each agent path carries there.
 Every verdict comes from the registry both reports read, so the two differ in
 what each is allowed to see and never in what either says about the same unit.
 .PP
@@ -624,8 +625,8 @@ sudo ai\-tools\-admin system entrypoints relabel
 .PP
 Running agents under service accounts on one host \(em what an account does
 on its own, what every operator shares, and what stays private to each:
-.I /usr/share/doc/ai\-tools/multi\-operator.md
+.I /usr/share/doc/ai\-tools/docs/operators/service\-accounts.md
 .PP
 How an entrypoint is verified against its vendor's signed release, what the pin
 holds, and what a launch does with each outcome:
-.I /usr/share/doc/ai\-tools/entrypoint\-verification.md
+.I /usr/share/doc/ai\-tools/docs/system/entrypoint\-verification.md
