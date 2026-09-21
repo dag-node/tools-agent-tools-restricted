@@ -158,19 +158,6 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
-# Secret-name matcher: never touch a secret-named path (a locked secret stays put). Best-effort -- falls back
-# to the '!' allowlist exclusions if the matcher cannot load.
-readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-_secret_loaded=false
-# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
-if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
-    _secret_loaded=true
-fi
-_is_secret_name() {
-    ${_secret_loaded} || return 1
-    ai_tools_is_secret_basename "$(basename -- "$1")"
-}
-
 # Validate the target group exists before touching anything (fail-closed).
 getent group "${TARGET_GROUP}" >/dev/null 2>&1 \
     || die MSG-R3C7 "unknown target group '${TARGET_GROUP}' -- nothing changed"
@@ -207,6 +194,9 @@ if ${UNLISTED}; then
     ${_is_operator} \
         || die MSG-H9D4 "--unlisted: ${caller} is not a configured operator -- nothing changed"
     PROJECTS_UID="${caller_uid}"
+    # The caller is the one operator identity in play, so the secret matcher reads the caller's own pattern file
+    # (the loader builds its path from PROJECTS_HOME), as it reads the resolved owner's on the registered path.
+    PROJECTS_HOME="$(getent passwd "${caller}" 2>/dev/null | cut -d: -f6)"
     # The caller's own allowlist is still read, for its '!' exclusions and for the "already registered" refusal: a glob
     # rule the operator wrote to keep a path out of reach keeps it out of reach here too. Resolved
     # through operator.lib's own path helper so the AI_TOOLS_ALLOWLIST test hook applies here exactly as it does
@@ -221,6 +211,21 @@ else
     ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
 fi
 readonly ALLOWLIST PROJECTS_UID
+
+# Secret-name matcher: never touch a secret-named path (a locked secret stays put). Loaded AFTER the operator is known,
+# because the loader builds the file path from PROJECTS_HOME: a load ahead of it reads the built-in baseline and marks
+# the set loaded, so the operator's own secret-patterns file is never read. Best-effort -- falls back to the '!'
+# allowlist exclusions if the matcher cannot load.
+readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
+_secret_loaded=false
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
+if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
+    _secret_loaded=true
+fi
+_is_secret_name() {
+    ${_secret_loaded} || return 1
+    ai_tools_is_secret_basename "$(basename -- "$1")"
+}
 
 # This run reverts one project for one operator, so the operator and the project ride as per-run log context
 # (logging.rule.md).

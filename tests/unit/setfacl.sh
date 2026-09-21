@@ -207,4 +207,18 @@ else
     skip "third-party project root" "user 'nobody' not present"
 fi
 
+# (F) The secret patterns are loaded AFTER the owner resolve. The loader builds its path from PROJECTS_HOME, so a load
+# ahead of the resolve reads the built-in baseline and never the operator's own file -- a regression the secret case (B)
+# cannot see, since a fixture cannot write the operator's real ~/.config. Read as source order in the installed
+# helper; an anchor no longer found FAILS, since a refactor that moved either call is when this needs re-asserting.
+resolve_line="$(grep -n -m1 -E '^ai_tools_resolve_owner "' "${HELPER}" | cut -d: -f1)"
+load_line="$(grep -n -m1 -F 'ai_tools_load_secret_patterns' "${HELPER}" | cut -d: -f1)"
+if [[ -z "${resolve_line}" || -z "${load_line}" ]]; then
+    fail "the owner resolve or the secret-pattern load is no longer where this reads it (resolve -> ${resolve_line:-none}, load -> ${load_line:-none})"
+elif (( resolve_line < load_line )); then
+    pass "the secret patterns are loaded after the owner resolve, so the operator's own file is read"
+else
+    fail "the secret patterns are loaded at line ${load_line}, ahead of the owner resolve at ${resolve_line} -- the walk reads the baseline, never the operator's file"
+fi
+
 finish

@@ -64,9 +64,12 @@ The secret basename patterns live in a single user-owned config file, `~/.config
 neither its owner nor in its group, and unable to enter the `700 .config/ai-tools` dir — can neither read nor write it;
 the root helpers read it on the operator's behalf, so the agent cannot weaken its own secret classification.
 
-Both root helpers source `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (`644 root:root`, not
-in a `SANDBOX_USER`-writable dir) for one matcher over that file, so `ai-tools-chown` and `ai-tools-lockdown` never
-drift apart. Its built-in list is the **public baseline** — the credential names software writes in general — and ships
+Every helper that classifies a basename — `ai-tools-chown`, `ai-tools-lockdown`, and the claim-side walks
+`ai-tools-setfacl` and `ai-tools-unclaim`, which skip a match — sources `/usr/local/lib/ai-tools/secret-patterns.lib.sh`
+(`644 root:root`, not in a `SANDBOX_USER`-writable dir) for one matcher over that file, so no two of them drift apart.
+Each loads the set only once the path's operator is resolved, since the loader builds the file's path from that
+operator's home: a load made earlier reads the built-in baseline and marks the set loaded, so the operator's file is
+never read. `tests/unit/setfacl.sh` and `tests/unit/unclaim.sh` read that order off the installed helpers. Its built-in list is the **public baseline** — the credential names software writes in general — and ships
 in the source repo, so read is open: the installed copy holds only what is already published. Root-only **write** is
 the boundary, since an agent that could edit the matcher would decide its own classification; `tests/boundary/access.sh`
 asserts that as the agent. An operator's config **replaces** it rather than adding to it, and the baseline applies

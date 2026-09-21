@@ -111,21 +111,6 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
-# Secret-name matcher (defense in depth): the walk skips every path whose basename matches the secret patterns
-# (_is_secret_name), so a private file such as .env is not re-exposed to the agent group even if the operator forgot
-# to '!'-exclude it. Best-effort -- the '!' allowlist exclusions remain the authoritative control; if the matcher cannot
-# load, fall back to them.
-readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-_secret_loaded=false
-# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
-if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
-    _secret_loaded=true
-fi
-_is_secret_name() {
-    ${_secret_loaded} || return 1
-    ai_tools_is_secret_basename "$(basename -- "$1")"
-}
-
 # Without setfacl (or on a filesystem without ACL support) there is no ACL to apply -- warn once and exit cleanly
 # (best-effort, mirrors the other helpers' fail-soft). The claim reports the step as applied either way, so the operator
 # is told on stderr as well as in the log: a tree with no ACL is one the agent reaches only through the group it was
@@ -164,6 +149,23 @@ ai_tools_assert_safe_target "${canonical}" "ACL grant" || exit 3
 # only on paths the resolved operator or the sandbox account hold.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
+
+# Secret-name matcher (defense in depth): the walk skips every path whose basename matches the secret patterns
+# (_is_secret_name), so a private file such as .env is not re-exposed to the agent group even if the operator forgot
+# to '!'-exclude it. Loaded AFTER the owner resolve, because the loader builds the file path from PROJECTS_HOME:
+# a load ahead of the resolve reads the built-in baseline and marks the set loaded, so the operator's own
+# secret-patterns file is never read. Best-effort -- the '!' allowlist exclusions remain the authoritative control;
+# if the matcher cannot load, fall back to them.
+readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
+_secret_loaded=false
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
+if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
+    _secret_loaded=true
+fi
+_is_secret_name() {
+    ${_secret_loaded} || return 1
+    ai_tools_is_secret_basename "$(basename -- "$1")"
+}
 
 # This run grants one project for one operator, so the operator and the project ride as per-run log context
 # (logging.rule.md).
