@@ -209,8 +209,8 @@ fi
 
 # (F) The secret patterns are loaded AFTER the owner resolve. The loader builds its path from PROJECTS_HOME, so a load
 # ahead of the resolve reads the built-in baseline and never the operator's own file -- a regression the secret case (B)
-# cannot see, since a fixture cannot write the operator's real ~/.config. Read as source order in the installed
-# helper; an anchor no longer found FAILS, since a refactor that moved either call is when this needs re-asserting.
+# cannot see, since a fixture cannot write the operator's real ~/.config. Read as source order in the installed helper;
+# an anchor no longer found FAILS, since a refactor that moved either call is when this needs re-asserting.
 resolve_line="$(grep -n -m1 -E '^ai_tools_resolve_owner "' "${HELPER}" | cut -d: -f1)"
 load_line="$(grep -n -m1 -F 'ai_tools_load_secret_patterns' "${HELPER}" | cut -d: -f1)"
 if [[ -z "${resolve_line}" || -z "${load_line}" ]]; then

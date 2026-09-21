@@ -99,11 +99,11 @@ to stderr — `ai-tools-chown`'s per-path prompt and breach `NOTICE`, `ai-tools-
 consumers that keep a soft no-op fallback. `ai-tools-stop` (`stop.log`) is the one consumer that prints agent-influenced
 values and still loads the logger **best-effort**, behind an inline sanitizer byte-identical to `ai_tools_log_sanitize`
 and an inline `logger(1)`-plus-append fallback: there a missing library would mean a stop that did not happen,
-so the reduction is preserved rather than the load being made fatal
-([ref-section-e8k5](stop.rule.md#ref-section-e8k5)). The values it reduces are a unit name and a session's
-`WorkingDirectory`, both read from the sandbox account's own user manager; that helper additionally refuses any working
-directory that is not an absolute path, so a value it cannot interpret degrades to `unknown` instead of reaching
-the operator inside a `projects handback` command it is invited to run.
+so the reduction is preserved rather than the load being made fatal ([ref-section-e8k5](stop.rule.md#ref-section-e8k5)).
+The values it reduces are a unit name and a session's `WorkingDirectory`, both read from the sandbox account's own user
+manager; that helper additionally refuses any working directory that is not an absolute path, so a value it cannot
+interpret degrades to `unknown` instead of reaching the operator inside a `projects handback` command it is invited
+to run.
 
 The test harness applies the same allowlist to every `pass`/`fail`/`skip`/`section` line (`_san`), so a suite run —
 which executes as root via `sudo`, often on a live host — cannot print a crafted byte a fixture carried into a result

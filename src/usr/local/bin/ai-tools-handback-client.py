@@ -17,8 +17,8 @@
 # SocketGroup=@SANDBOX_GROUP@), and the daemon authenticates the connection via SO_PEERCRED.
 #
 # Installed 750 root:@SANDBOX_GROUP@ as ai-tools-handback-client, with @SANDBOX_GROUP@ substituted at install: the group
-# execute bit is what lets a session run it, and root ownership is what stops the session rewriting it. Its domain
-# rule is handback-bridge.rule.md.
+# execute bit is what lets a session run it, and root ownership is what stops the session rewriting it. Its domain rule
+# is handback-bridge.rule.md.
 
 import socket
 import sys

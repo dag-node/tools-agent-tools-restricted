@@ -43,10 +43,9 @@ set -euo pipefail
 # of the message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since this helper reports
 # before msg.lib.sh is loaded. Each refusal exits at its own site: this helper's statuses are 2 (usage), 3 (an unusable
 # library) and 0 (a completed walk, and a target it declines silently), so there is no one status for a die() to carry.
-# The printed text is left
-# in _warn_text, and the code it printed in _warn_code, for a site that also records the situation through log.lib.sh:
-# the log call passes the variable, so the code literal stays at the emit call the reference index reads as its
-# definition (messaging.rule.md).
+# The printed text is left in _warn_text, and the code it printed in _warn_code, for a site that also records
+# the situation through log.lib.sh: the log call passes the variable, so the code literal stays at the emit call
+# the reference index reads as its definition (messaging.rule.md).
 _warn_text="" _warn_code=""
 warn() {
     local IFS=' ' code=""
@@ -152,10 +151,10 @@ readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
 
 # Secret-name matcher (defense in depth): the walk skips every path whose basename matches the secret patterns
 # (_is_secret_name), so a private file such as .env is not re-exposed to the agent group even if the operator forgot
-# to '!'-exclude it. Loaded AFTER the owner resolve, because the loader builds the file path from PROJECTS_HOME:
-# a load ahead of the resolve reads the built-in baseline and marks the set loaded, so the operator's own
-# secret-patterns file is never read. Best-effort -- the '!' allowlist exclusions remain the authoritative control;
-# if the matcher cannot load, fall back to them.
+# to '!'-exclude it. Loaded AFTER the owner resolve, because the loader builds the file path from PROJECTS_HOME: a load
+# ahead of the resolve reads the built-in baseline and marks the set loaded, so the operator's own secret-patterns file
+# is never read. Best-effort -- the '!' allowlist exclusions remain the authoritative control; if the matcher cannot
+# load, fall back to them.
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 _secret_loaded=false
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
