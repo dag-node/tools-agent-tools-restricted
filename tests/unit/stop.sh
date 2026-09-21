@@ -13,9 +13,9 @@
 # finds them in seconds.
 #
 # The helper is SOURCED, which is inert by construction (it does not parse an argument and does not resolve host state
-# at file scope), and the three globals the walk is expressed against are then pointed at the fixture. Two things are
-# stubbed, both non-decisions here: unit_working_directory, whose real form would reach the sandbox account's user
-# manager over sudo, and that one alone. Liveness and enumeration are exercised as written.
+# at file scope), and the three globals the walk is expressed against are then pointed at the fixture. One function is
+# stubbed, and no verdict rests on it: unit_working_directory, whose real form would reach the sandbox account's user
+# manager over sudo. Liveness and enumeration are exercised as written.
 #
 # NO REAL PROCESS CAN BE SIGNALLED. Every fixture pid is past the host's pid_max, so it has no /proc entry; the helper
 # validates a pid's start time immediately before signalling and skips one it cannot read, which is asserted here rather
