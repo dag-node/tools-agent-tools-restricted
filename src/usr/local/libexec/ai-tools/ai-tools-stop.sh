@@ -7,8 +7,8 @@
 #
 # THE PROPERTY THIS FILE EXISTS TO HOLD: a stop that is asked for and reported as done HAS HAPPENED. The design
 # that follows from it -- why sessions are found by CGROUP rather than by process tree, why it does not take a target,
-# where containment ends, and the residual failure modes -- is documented once, in stop.rule.md. This header
-# states only what a reader of THIS FILE needs; each function carries its own local mechanism.
+# where containment ends, and the residual failure modes -- is documented once, in stop.rule.md. This header states only
+# what a reader of THIS FILE needs; each function carries its own local mechanism.
 #
 # ── Two inverted conventions, stated here so they are not "fixed" back ───────────────────────
 # For every other component in this project the safe direction is DON'T ACT. For this one it is ACT, and two

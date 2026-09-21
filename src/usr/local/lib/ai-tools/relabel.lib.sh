@@ -28,10 +28,10 @@
 # reports (AI_TOOLS_FCONTEXT_ERROR).
 #
 # In-place project paths (under a user's home) are DYNAMIC, so they get a per-project `semanage fcontext` rule here.
-# Sandbox clones under /var/opt/ai-tools/sandbox-projects are already mapped by a STATIC rule
-# in the policy's file-context source ai_tools.fc, so for those a plain restorecon suffices and adding a local rule
-# would be redundant -- this library's helpers detect and skip the semanage step for sandbox paths. See ai_tools.fc
-# and ai_tools.te in the policy source.
+# Sandbox clones under /var/opt/ai-tools/sandbox-projects are already mapped by a STATIC rule in the policy's
+# file-context source ai_tools.fc, so for those a plain restorecon suffices and adding a local rule would be redundant
+# -- this library's helpers detect and skip the semanage step for sandbox paths. See ai_tools.fc and ai_tools.te
+# in the policy source.
 #
 # Every mutating function is root-only: semanage writes the policy store and restorecon needs relabel. Callers must
 # already be root. The functions are best-effort -- a disabled SELinux or a missing toolchain is reported via the return
@@ -47,8 +47,8 @@ readonly AI_TOOLS_PROJECT_BUILD_TYPE="ai_tools_project_build_t"
 readonly AI_TOOLS_SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
 # An agent's entrypoint: the label that drives the exec transition into ai_tools_t.
 readonly AI_TOOLS_ENTRYPOINT_TYPE="ai_tools_exec_t"
-# Every agent's own config directory -- the same type as the rest of the agent's home state, so the confined domain
-# may write its session state there.
+# Every agent's own config directory -- the same type as the rest of the agent's home state, so the confined domain may
+# write its session state there.
 readonly AI_TOOLS_AGENT_CONFIG_TYPE="ai_tools_home_t"
 # The one tree an agent entrypoint may live in -- the sandbox's own Node toolchain. Every declared pattern is checked
 # against it through ai_tools_entrypoint_fcontext_valid (providers.lib.sh), which takes the root as an argument
@@ -75,8 +75,7 @@ source "${BASH_SOURCE[0]%/*}/control-plane.lib.sh" 2>/dev/null || true
 # ── Serializing writes to the policy store ───────────────────────────────────────────────────
 # semanage serializes on the policy store and reports an error to whichever process finds it held, rather than waiting
 # for it, so two root helpers running at once leave rules unregistered and both report a failure neither caused.
-# The helpers take this lock so the second one waits. Which callers overlap, and when, is
-# in updater.rule.md.
+# The helpers take this lock so the second one waits. Which callers overlap, and when, is in updater.rule.md.
 #
 # Root-only test hooks, the same posture as AI_TOOLS_LAUNCHER_DIR: the helpers that take this lock run under sudo,
 # which scrubs the environment, and the sudoers rules keep neither name. A caller that did set one moves an advisory

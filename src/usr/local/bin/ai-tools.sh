@@ -3500,10 +3500,10 @@ cmd_audit() {
 #
 # die_stop_usage -- refuse a `stop` command line in the HELPER's exit-code space (2 = usage), not the CLI's own (die
 # exits 1). Because cmd_stop propagates the helper's status, 2 is what a caller reading `stop`'s exit code is told
-# a usage error is (ai-tools(1)) -- and WHICH SIDE refused is an implementation
-# detail of the ordering, not something the caller asked about. Exiting 1 here would report the same mistake as one code
-# from the CLI and another from a direct root call, and 1 already means "a process survived SIGKILL". It splits
-# a leading code off exactly as die() does, so a `stop` refusal carries one.
+# a usage error is (ai-tools(1)) -- and WHICH SIDE refused is an implementation detail of the ordering, not something
+# the caller asked about. Exiting 1 here would report the same mistake as one code from the CLI and another
+# from a direct root call, and 1 already means "a process survived SIGKILL". It splits a leading code off exactly
+# as die() does, so a `stop` refusal carries one.
 die_stop_usage() {
     local code=""
     if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
@@ -4562,8 +4562,8 @@ require_sudo_access() {
         # zero-argument form (the trailing ""), because the probe does not pass an operand. An entry here would only
         # ever produce "grant present", so it stays out and the verb reaches sudo directly, which reports a missing
         # drop-in itself. The pin also means `stop`'s FLAGGED forms fall outside the rule and meet sudo's ordinary
-        # prompt (deliberate; stop.rule.md). This probe could not report that either: it asks about the helper,
-        # while what a flag changes is whether the rule matches the command
+        # prompt (deliberate; stop.rule.md). This probe could not report that either: it asks about the helper, while
+        # what a flag changes is whether the rule matches the command
         # line.
         *) return 0 ;;
     esac

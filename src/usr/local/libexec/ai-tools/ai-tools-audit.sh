@@ -17,10 +17,10 @@
 # as authoritative. A launch refusal is the exception -- it is written by ai-tools-run, which runs AS the sandbox
 # account and therefore reaches journald only, under a tag whose legitimate writer is that same account. Those lines are
 # the session's own account of itself, reportable but not proof, and are shown in a separately titled section rather
-# than mixed into the first (see logging.rule.md). The third is the KERNEL's: an exec of an agent
-# entrypoint by a confined session, which the SELinux core module audits with an `auditallow` on the one permission
-# that exec takes (execute_no_trans on ai_tools_exec_t by ai_tools_t; the policy source ai_tools.te), so the kernel writes
-# an AVC `granted` record for each one. A session launch enters the domain through a transition, which is a different
+# than mixed into the first (see logging.rule.md). The third is the KERNEL's: an exec of an agent entrypoint
+# by a confined session, which the SELinux core module audits with an `auditallow` on the one permission that exec takes
+# (execute_no_trans on ai_tools_exec_t by ai_tools_t; the policy source ai_tools.te), so the kernel writes an AVC
+# `granted` record for each one. A session launch enters the domain through a transition, which is a different
 # permission, so a launch is not recorded and does not need telling apart. No process of the sandbox account writes
 # that trail and none can suppress a record in it, so it is evidence of the first kind and answers what neither
 # of the others can -- an agent started from inside a session runs in its parent's unit, so the launch and the handbacks
@@ -78,10 +78,10 @@ readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
 source "${MSG_LIB}"
 
-# Provider manifests, for the kernel-record section alone: which file is which agent's entrypoint. Loaded
-# BEST-EFFORT, unlike the logger and the renderer, because a failure here is
-# already the safe one -- with no manifest to match, every recorded exec is reported as a finding naming a file no
-# manifest claims, so a library that will not load costs noise rather than coverage.
+# Provider manifests, for the kernel-record section alone: which file is which agent's entrypoint. Loaded BEST-EFFORT,
+# unlike the logger and the renderer, because a failure here is already the safe one -- with no manifest to match, every
+# recorded exec is reported as a finding naming a file no manifest claims, so a library that will not load costs noise
+# rather than coverage.
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source "/usr/local/lib/ai-tools/conf.lib.sh" 2>/dev/null || true
@@ -332,9 +332,9 @@ audit_hex_decode() {
 
 # audit_record_field <field> -- reduce one record field to something safe to print and safe to carry
 # through the pipe-delimited record format, the same treatment every untrusted string reaching a sink or a terminal gets
-# (see logging.rule.md). ai_tools_log_sanitize is the allowlist -- printable ASCII alone, so a decoded
-# newline, terminal escape or bidi byte becomes `?`; the pipe is replaced after it, since a value carrying one would
-# fabricate a column in the rendered table; and the result is clamped, marked where it was cut.
+# (see logging.rule.md). ai_tools_log_sanitize is the allowlist -- printable ASCII alone, so a decoded newline, terminal
+# escape or bidi byte becomes `?`; the pipe is replaced after it, since a value carrying one would fabricate a column
+# in the rendered table; and the result is clamped, marked where it was cut.
 audit_record_field() {
     local value; value="$(ai_tools_log_sanitize "$1")"
     value="${value//|/?}"

@@ -11,8 +11,8 @@
 # for the same reason -- the mode alone does not hold.
 #
 # A second pass then seals the paths the operator sealed by MODE: every path already owner-only under the target,
-# whatever its name, gets the same residue stripped, so a directory or file sealed after the claim does not wait for
-# the next claim to be cleaned up. The target directory itself is not sealed (the enumeration states why). That pass
+# whatever its name, gets the same residue stripped, so a directory or file sealed after the claim does not wait
+# for the next claim to be cleaned up. The target directory itself is not sealed (the enumeration states why). That pass
 # only ever removes the sandbox's reach, so unlike the lock it runs without a confirmation.
 #
 # Unlike ai-tools-chown (reactive: fires per agent-written path and acts only on ai-tools-owned paths), this is

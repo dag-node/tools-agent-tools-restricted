@@ -26,9 +26,9 @@ set -euo pipefail
 # instead of at each site. A leading message code (msg.lib.sh states the form) is printed on its own line ahead
 # of the message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since this helper reports
 # before msg.lib.sh is loaded. The reports that are not one situation -- the pre-scan sample and its count -- print raw
-# where they are made, and carry no code. The code it printed is left in _warn_code, for a site that also records the situation
-# through log.lib.sh: the log call passes the variable, so the code literal stays at the emit call the reference index
-# reads as its definition (messaging.rule.md).
+# where they are made, and carry no code. The code it printed is left in _warn_code, for a site that also records
+# the situation through log.lib.sh: the log call passes the variable, so the code literal stays at the emit call
+# the reference index reads as its definition (messaging.rule.md).
 _warn_code=""
 warn() {
     local IFS=' ' code=""

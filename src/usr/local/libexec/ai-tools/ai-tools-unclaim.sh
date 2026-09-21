@@ -194,8 +194,8 @@ if ${UNLISTED}; then
     ${_is_operator} \
         || die MSG-H9D4 "--unlisted: ${caller} is not a configured operator -- nothing changed"
     PROJECTS_UID="${caller_uid}"
-    # The caller is the one operator identity in play, so the secret matcher reads the caller's own pattern file
-    # (the loader builds its path from PROJECTS_HOME), as it reads the resolved owner's on the registered path.
+    # The caller is the one operator identity in play, so the secret matcher reads the caller's own pattern file (the
+    # loader builds its path from PROJECTS_HOME), as it reads the resolved owner's on the registered path.
     PROJECTS_HOME="$(getent passwd "${caller}" 2>/dev/null | cut -d: -f6)"
     # The caller's own allowlist is still read, for its '!' exclusions and for the "already registered" refusal: a glob
     # rule the operator wrote to keep a path out of reach keeps it out of reach here too. Resolved
