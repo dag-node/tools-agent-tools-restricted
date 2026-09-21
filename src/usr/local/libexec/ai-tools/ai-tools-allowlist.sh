@@ -40,11 +40,7 @@
 # re-enable prompt), and they are deliberately not an add/remove pair: the line keeps its position and its comment,
 # so a park-and-restore round trip leaves an ordered, commented allowed-projects exactly as its operator wrote it.
 #
-# Deploy:
-#   ```bash
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh /usr/local/libexec/ai-tools/ai-tools-allowlist
-#   ```
+# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 

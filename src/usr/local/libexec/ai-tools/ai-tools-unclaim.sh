@@ -39,7 +39,7 @@
 #                never part of a claim is left byte-for-byte as it is, so running this on the
 #                wrong directory leaves it exactly as it was. This mode additionally hands sandbox-OWNED
 #                inodes back to the invoking operator (ai-tools-reclaim, which normally does
-#                that, refuses an unlisted path) and resets a leftover ai_tools_project_t
+#                that, declines an unlisted path -- MSG-K9H2, exit 0) and resets a leftover ai_tools_project_t
 #                label. `--full` extends the walk into the skip-listed heavy trees, where
 #                residue survives a copy exactly like everywhere else.
 #
@@ -73,11 +73,7 @@
 # Idempotent: re-running on an already-unclaimed tree finds no ACL left to clear, regroups to the same group,
 # and removes an already-absent write bit -- all no-ops.
 #
-# Deploy:
-#   ```bash
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh /usr/local/libexec/ai-tools/ai-tools-unclaim
-#   ```
+# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 

@@ -31,8 +31,7 @@
 #
 # Installed 0750 root:root at /usr/local/lib/ai-tools/admin-commands.d/dotnet, in a 0755 root:root directory: the agent
 # must not read or run a root command, and ai-tools-admin refuses the whole directory when either is writable by anyone
-# else. Deploying from a checkout:
-# docs/install/from-source.md.
+# else. Its domain rule is dotnet.rule.md.
 
 set -euo pipefail
 

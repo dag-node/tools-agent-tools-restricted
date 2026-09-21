@@ -15,11 +15,7 @@
 #
 # Usage:  ai-tools-safedir [--remove] [<absolute-project-path>]
 #
-# Deploy:
-#   ```bash
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-safedir.sh /usr/local/libexec/ai-tools/ai-tools-safedir
-#   ```
+# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 

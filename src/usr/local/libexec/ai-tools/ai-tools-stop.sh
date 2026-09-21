@@ -73,11 +73,7 @@
 #         5 this helper could not run (no cgroup2 hierarchy, no sandbox uid) -- distinct from 1,
 #           so a caller can tell a broken tool from a surviving process
 #
-# Deploy:
-#   ```bash
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-stop.sh /usr/local/libexec/ai-tools/ai-tools-stop
-#   ```
+# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 # NOT `set -e`: see inverted convention 1. An unexpected non-zero must never abandon a half-finished kill.
 set -uo pipefail
