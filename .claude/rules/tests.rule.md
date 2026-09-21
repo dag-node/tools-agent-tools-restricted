@@ -327,15 +327,19 @@ both filled, since the first fill moves every line the later range names. Refuse
 through the reader every formatter shares (`tools/formatters/text_file.py`): a file holding an escape sequence,
 and a symlink, each reported with its reason and left as it was while the clean file beside it is filled. Two more pin
 the Emacs side: a file named like one of its options (`-Q`) is filled rather than obeyed, since the files are handed
-over after `--`, and a file-local `eval:` form is not run. Skipped without Emacs. `format.sh` pins the front door
-over both fillers (`tools/formatters/format.sh`): every file in a fixture repository goes to the filler for the kind
-the checker names, at the column it names — a page at 79, a router at 120, a source comment at 120, a header
-under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker) is reported as skipped with its
-kind and left as it was, since the failure it exists to prevent is the comment filler pointed at a page. What may be
-formatted at all is the explicit scope `FORMAT_SCOPE` names: a unit file, a log and a Makefile in the fixture are
-outside it, so `--all` counts and leaves them, a man page and a binary never reach the checker, and a file named
-on the command line is reported and skipped, as is a path outside the repository, while a named path is read
-from the directory the command was run in. The scope rule is pinned from both sides: with no file named, only
+over after `--`, and a file-local `eval:` form is not run. It closes on the reflow gate over its own output, which is
+where the gate's reading of a source file is pinned: a comment marker is a line prefix there, as a blockquote's `>` is
+on a page, so a marker the fill moved onto another line is not a difference and a marker it dropped is one. The gate's
+own fixture is a page, which reaches none of that, so the classes injected here are the ones only a source file carries:
+a dropped marker, a merged pair of comment paragraphs, a changed code line. Skipped without Emacs. `format.sh` pins
+the front door over both fillers (`tools/formatters/format.sh`): every file in a fixture repository goes to the filler
+for the kind the checker names, at the column it names — a page at 79, a router at 120, a source comment at 120,
+a header under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker) is reported as skipped
+with its kind and left as it was, since the failure it exists to prevent is the comment filler pointed at a page.
+What may be formatted at all is the explicit scope `FORMAT_SCOPE` names: a unit file, a log and a Makefile
+in the fixture are outside it, so `--all` counts and leaves them, a man page and a binary never reach the checker,
+and a file named on the command line is reported and skipped, as is a path outside the repository, while a named path is
+read from the directory the command was run in. The scope rule is pinned from both sides: with no file named, only
 the paragraph a diff touched is filled and an over-width paragraph the commit already held is left, `--files` fills
 that one too, an untracked file is filled whole either way, and `--all` warns first. Its exit status is pinned
 as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler can shorten remains
