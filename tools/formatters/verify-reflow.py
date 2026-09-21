@@ -38,6 +38,18 @@ source. `--prose` and `--source` override it, since that rule fails silently in 
 a document copy whose name lost its extension reads as source, where its `#` headings would be
 read as comment markers.
 
+Three of the block rules then read a comment as the comment filler does, since a comment reaches
+its reader as written and a page's rules would report the fill itself:
+
+- what stays verbatim is a line holding a column of three or more spaces — an aligned table, a
+  signature, an example — rather than a four-space indented block, since a comment's leading
+  indentation is the language's own and a code line is left to the token stream;
+- the markers counted are a bullet and a table row, where a page also counts `+`, a
+  parenthesized number, a heading and an HTML comment, each of which a wrap lands on a line
+  start by filling ordinary prose;
+- `prose-check: ignore` marks the line where it opens the comment's text, where a page carries
+  it at the end of the line it marks.
+
 Exits 0 when every path passes and 1 otherwise, printing the path, the check that failed, and the
 position. A path the base does not hold is reported as skipped rather than as a pass. Both copies
 are read through `tools/formatters/text_file.py`, so a copy that is not plain text is reported as a failure
@@ -70,6 +82,10 @@ QUOTE = re.compile(r"^(\s*(?:>\s?)+)(.*)$")
 LINE_COMMENT = re.compile(r"^(\s*(?:#(?!!)|//+)\s?)(.*)$")
 # The extensions the checker reads whole as prose. Every other path is read as source.
 PROSE_WHOLE_FILE = (".md", ".1", ".5", ".7", ".8")
+# A comment line holding a column of three or more spaces: an aligned table, a signature, an example. This is
+# the comment filler's own reading of a line to leave as written (`ai-tools-fill--skip-line`), and it stands
+# where a page has its four-space indented block -- a comment's leading indentation is the language's own.
+COLUMNED = re.compile(r"[^ \t] {3,}[^ \t]")
 ALERT = re.compile(r"^\[![A-Z]+\]\s*$")
 # A list marker with the spaces after it: its width is the item's content indent, so a marker respaced is a structure
 # change and is part of the block signature.
@@ -77,6 +93,10 @@ ITEM = re.compile(r"^\s*([-*+] +|\d+[.)] +)\S")
 # A token that opens a block at a line start. A wrap that moves one there invents the block, and the token stream cannot
 # see it, so the count of such lines is part of each block's signature.
 MARKER_LINE = re.compile(r"^\s*(?:[-*+] |\d+[.)] |#{1,6} |\||`{3,}|~{3,}|<!--)")
+# The same for a comment, which reaches its reader as written: a bullet and a table row are the shapes a filler must
+# keep, and the rest are read as the ordinary prose they are. A tree's comments put `+` between two names and a mode
+# in parentheses (`0700)`) at a line start by wrapping alone, so counting those reports a fill that did its job.
+SOURCE_MARKER_LINE = re.compile(r"^\s*(?:[-*] |\||`{3,}|~{3,})")
 
 Signature = tuple[str, int, int]
 Partition = tuple[list[str], list[str], list[Signature]]
@@ -148,9 +168,14 @@ def partition(text: str, source: bool = False) -> Partition:
         elif COMMENT_OPEN.match(line):
             protected.append(line)
             in_comment = COMMENT_CLOSE not in line
-        elif TABLE.match(rest) or IGNORE_MARKER in line or ALERT.match(rest.strip()):
+        # The ignore marker is a directive where it opens a comment's text, and prose where a sentence names it. A page
+        # carries it at the end of a line it marks, so only a source file reads the position.
+        elif TABLE.match(rest) or ALERT.match(rest.strip()) or (
+                rest.startswith(IGNORE_MARKER) if source else IGNORE_MARKER in line):
             protected.append(line)
-        elif in_code or (block is None and not listed and body.startswith("    ")):
+        elif source and marked and COLUMNED.search(rest):
+            protected.append(line)
+        elif not source and (in_code or (block is None and not listed and line.startswith("    "))):
             protected.append(line)
             in_code = True
         if not body.strip():
@@ -166,7 +191,7 @@ def partition(text: str, source: bool = False) -> Partition:
             blocks.append(block)
         elif prefix != block[1]:
             block[2] += 1
-        block[3] += bool(MARKER_LINE.match(rest))
+        block[3] += bool((SOURCE_MARKER_LINE if source else MARKER_LINE).match(rest))
         tokens.extend(rest.split())
     return protected, tokens, [(head, lazy, markers) for head, _, lazy, markers in blocks]
 

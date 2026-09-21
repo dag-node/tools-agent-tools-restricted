@@ -398,6 +398,29 @@ PY
     detects "a fenced block inside a comment rewrapped" \
         $'# sudo ai-tools-admin operators add alice\n' $'# sudo ai-tools-admin operators\n# add alice\n'
     detects "a code line changed" $'\nx=1\n' $'\nx=2\n'
+    # An aligned run is code to the filler -- a line holding a column of three or more spaces, which is the reading
+    # ai-tools-fill--skip-line states -- so the gate reads the same shape rather than Markdown's four-space indent,
+    # which a comment's own leading indentation is not.
+    detects "an aligned column rewrapped into prose" \
+        $'#   name          what it holds\n#   comment-width' $'#   name what it holds comment-width'
+
+    # (10) What the gate must NOT report, which is where a page's rules cost a source file: comment prose renders
+    # nowhere, and this tree wraps `+` between two names and a mode in parentheses onto a line start by filling alone.
+    # A gate reading those as a list marker fails a fill that did its job, and a run whose every finding is noise is
+    # a run nobody reads.
+    mkdir -p "${TESTDIR}/quiet-base"
+    printf '%s\n' '#!/usr/bin/env bash' \
+        '# The fragments the reader loads are the manifest directory + operator.conf via the root-only override, and' \
+        '# a directory left at 0700) is refused.' > "${TESTDIR}/quiet-base/quiet.sh"
+    printf '%s\n' '#!/usr/bin/env bash' \
+        '# The fragments the reader loads are the manifest directory' \
+        '# + operator.conf via the root-only override, and a directory left at' \
+        '# 0700) is refused.' > "${TESTDIR}/quiet.sh"
+    if ( cd "${TESTDIR}" && python3 "${GATE}" --against "${TESTDIR}/quiet-base" quiet.sh >/dev/null 2>&1 ); then
+        pass "a wrap landing on \`+\` or \`0700)\` is a fill, not a finding"
+    else
+        fail "the gate read wrapped prose as a block marker: $(cd "${TESTDIR}" && python3 "${GATE}" --against "${TESTDIR}/quiet-base" quiet.sh 2>&1 | head -3)"
+    fi
 fi
 
 finish
