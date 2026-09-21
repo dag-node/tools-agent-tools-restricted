@@ -280,6 +280,20 @@ fi
 # sourced as root or the sandbox account, and under setsid so the no-terminal path takes its default instead
 # of prompting. `set -u` is on inside, so a result the function failed to publish to its caller is an abort here --
 # exactly the failure being pinned, and one no stdout-capturing test can see.
+# The secret patterns are loaded AFTER the operator is known (the resolved owner, or the invoking operator under
+# `--unlisted`). The loader builds its path from PROJECTS_HOME, so a load ahead of that reads the built-in baseline
+# and never the operator's own file -- a regression the secret case (D) cannot see, since a fixture cannot write
+# the operator's real ~/.config. Read as source order in the installed helper; an anchor no longer found FAILS.
+known_line="$(grep -n -m1 -E '^readonly ALLOWLIST PROJECTS_UID' "${HELPER}" | cut -d: -f1)"
+load_line="$(grep -n -m1 -F 'ai_tools_load_secret_patterns' "${HELPER}" | cut -d: -f1)"
+if [[ -z "${known_line}" || -z "${load_line}" ]]; then
+    fail "the operator binding or the secret-pattern load is no longer where this reads it (binding -> ${known_line:-none}, load -> ${load_line:-none})"
+elif (( known_line < load_line )); then
+    pass "the secret patterns are loaded after the operator is bound, so the operator's own file is read"
+else
+    fail "the secret patterns are loaded at line ${load_line}, ahead of the operator binding at ${known_line} -- the walk reads the baseline, never the operator's file"
+fi
+
 section "ai-tools.projects.unclaim: hand-back group resolution (unit)"
 readonly CLI="/usr/local/bin/ai-tools"
 if [[ ! -x "${CLI}" ]]; then
