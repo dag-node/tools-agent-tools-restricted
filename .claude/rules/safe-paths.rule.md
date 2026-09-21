@@ -99,12 +99,11 @@ Two layers, both fail-closed:
 Refusal exits `3` in the helpers (distinct from usage `2` and the silent skips) and `1` in the launch wrapper (matching
 its `die`); a load failure uses the same codes.
 
-**`ai-tools-stop` is not a consumer, and the reason is instructive.** It loaded this library while it took a per-project
-target, to vet that caller-supplied path — advisorily, since it only *selected processes* by the path and never wrote
-to it. It does not take a path at all: what it terminates is decided by cgroup-slice membership, so there is no
-caller-supplied path to vet and the library is not loaded. A helper comes into scope here by *taking an argument
-that names a path*, which is the same rule that keeps the `dotnet` admin command out: its targets are fixed literals
-compiled into it, so it has no caller-supplied path to vet. [docs/sessions/stop.md](../../docs/sessions/stop.md).
+**`ai-tools-stop` is not a consumer, and the reason is instructive.** It does not take a path at all: what it terminates
+is decided by cgroup-slice membership, so there is no caller-supplied path to vet and the library is not loaded
+([ref-section-r5r9](stop.rule.md#ref-section-r5r9)). A helper comes into scope here by *taking an argument that names
+a path*, which is the same rule that keeps the `dotnet` admin command out: its targets are fixed literals compiled
+into it, so it has no caller-supplied path to vet.
 
 ## Load failure fails closed
 

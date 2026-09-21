@@ -7,12 +7,12 @@
 #
 # THE PROPERTY THIS FILE EXISTS TO HOLD: a stop that is asked for and reported as done HAS HAPPENED. The design
 # that follows from it -- why sessions are found by CGROUP rather than by process tree, why it does not take a target,
-# where containment ends, and the residual failure modes -- is documented once, in docs/sessions/stop.md. This header
+# where containment ends, and the residual failure modes -- is documented once, in stop.rule.md. This header
 # states only what a reader of THIS FILE needs; each function carries its own local mechanism.
 #
 # ── Two inverted conventions, stated here so they are not "fixed" back ───────────────────────
 # For every other component in this project the safe direction is DON'T ACT. For this one it is ACT, and two
-# project-wide conventions invert for that single reason (the "Degradation policy" section of docs/sessions/stop.md):
+# project-wide conventions invert for that single reason (stop.rule.md, ref-section-e8k5):
 #
 #   1. NO REQUIRED DEPENDENCIES, and deliberately NO `set -e`. A missing library that aborted the
 #      run, or an unexpected non-zero that abandoned a half-finished kill, would be a stop that did
@@ -49,8 +49,8 @@
 #
 # IT TAKES NO TARGET AND NO AUTHORIZATION INPUT. What is stopped is decided by one fact a session cannot influence --
 # membership of the account's cgroup slice -- and everything this file reads from the account being stopped (a unit's
-# WorkingDirectory, its name) is kept away from that decision and used only to label a row. Why a per-project form
-# cannot be built on either of them is in docs/sessions/stop.md §2.
+# WorkingDirectory, its name) is kept away from that decision and used only to label a row. Why neither of them can
+# carry a per-project form -- each is written by the account being stopped -- is in stop.rule.md (ref-section-r5r9).
 #
 # The routine way to FINISH a session is `/exit` inside it, which lets it run its own session-end handback. This command
 # TERMINATES instead: it kills the process tree, so no handback runs and the last turn's writes may still be
@@ -73,7 +73,7 @@
 #         5 this helper could not run (no cgroup2 hierarchy, no sandbox uid) -- distinct from 1,
 #           so a caller can tell a broken tool from a surviving process
 #
-# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
+# Installed 750 root:root, so only root runs it. Its domain rule is stop.rule.md.
 
 # NOT `set -e`: see inverted convention 1. An unexpected non-zero must never abandon a half-finished kill.
 set -uo pipefail

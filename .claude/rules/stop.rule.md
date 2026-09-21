@@ -5,8 +5,8 @@ paths:
 
 # Stopping running sessions (`ai-tools-stop`)
 
-`ai-tools-stop` (`/usr/local/libexec/ai-tools/ai-tools-stop`, `750 root:root`) terminates every agent session on the host
-and everything each one spawned. It is the stop rung of the incident ladder ([governance](governance.rule.md)): the one
+`ai-tools-stop` (`/usr/local/libexec/ai-tools/ai-tools-stop`, `750 root:root`) terminates every agent session
+on the host and everything each one spawned. It is the stop rung of the incident ladder ([governance](governance.rule.md)): the one
 control that acts on a session **already running**, where every other operator control — unclaiming a project,
 disabling a provider, revoking an operator, relabelling an entrypoint — changes what the *next* launch gets.
 `ai-tools stop`, the verb that reaches it, its option grammar, and its place among the verbs root may run are
@@ -23,7 +23,7 @@ or disarm it? Every decision in this rule follows from that.
 
 | # | Invariant | Where it comes from | What would break it |
 |---|---|---|---|
-| I1 | A process cannot leave the cgroup it is in, and a child inherits it across `fork()`. Membership survives `setsid(2)` and the double fork that re-parents to PID 1. | `cgroups(7)`; a task moves only when something writes a `cgroup.procs` | a kernel that lets a task rewrite its own membership |
+| I1 | A process stays in the cgroup it is in until something writes its pid to a `cgroup.procs`, and a child inherits it across `fork()`. Membership survives `setsid(2)` and the double fork that re-parents to PID 1. | `cgroups(7)` | a kernel that lets a task rewrite its own membership |
 | I2 | Every process of the sandbox account lives under that account's per-user slice, `user-<uid>.slice`. | `systemd-logind(8)` places user processes there; the account has no login shell, so no other path creates one | a process escaping to another slice — needs the user manager, which SELinux denies and DAC-only leaves as a residual |
 | I3 | `SIGKILL` is neither catchable nor blockable, and `cgroup.kill` (Linux ≥ 5.14) delivers it to a whole cgroup **atomically** — one write freezes the cgroup and kills every member including descendants. | `signal(7)`; `cgroups(7)` | no userspace mechanism |
 | I4 | The kernel answers "is anything alive here" itself: `cgroup.events`' `populated` field is 1 while the cgroup **or any descendant** holds a live process. | cgroup v2 interface files | a threaded subtree, where `cgroup.procs` reads fail — handled by reading `cgroup.threads` beside it |
@@ -84,10 +84,11 @@ systemd **delegates** the per-user subtree to the account — that is what lets 
 and delegation permits the delegatee to move its own tasks between cgroups *inside* that subtree. Containment holds
 at the delegation boundary, not within it.
 
-On a host with the SELinux module loaded this is closed outright: `ai_tools_t` is granted no permission on `cgroup_t`
-(only a `dontaudit … getattr`), so a session can neither write a `cgroup.procs` nor create a cgroup, and it has no
-`connectto` on the user runtime socket, so it cannot reach its own user manager to ask for a unit either. **On
-a DAC-only host both are reachable**, since the account owns the delegated cgroup files and its own bus socket.
+On a host with the SELinux module loaded this is closed outright: the policy does not grant `ai_tools_t` any permission
+on `cgroup_t` beyond a `dontaudit … getattr`, so a session can neither write a `cgroup.procs` nor create a cgroup,
+and it has no `connectto` on the user runtime socket, so it cannot reach its own user manager to ask for a unit either.
+**On a DAC-only host a session reaches both the delegated cgroup files and its own bus socket**, since the account
+owns them.
 
 This is why the sweep **covers every cgroup**, the account's own `systemd --user` and its `init.scope` included.
 An exemption is a destination: any cgroup left out is one a session on a DAC-only host can move into, whether it is
@@ -111,7 +112,8 @@ a rogue unit can misreport it, and all that buys is a wrong label in the table a
 It cannot affect what is terminated, because the sweep does not consult it. The split between agent sessions
 and the account's own plumbing (its user manager, dbus, login session scopes) is advisory in the same sense: the class
 comes from a unit name, which inside a delegated subtree is the delegatee's to choose, so a session can name itself
-out of the agent class and gains no exemption by it. The split orders the table, separates the two counts, and decides
+out of the agent class and does not gain an exemption by it. The split orders the table, separates the two counts,
+and decides
 which rows carry a `projects handback` line; both classes are enumerated, listed and killed identically. Only an agent
 session gets a `projects handback` line: the account's dbus broker reports `/opt/ai-tools` as its working directory,
 the control plane, which the protected-paths backstop refuses.
@@ -132,9 +134,9 @@ Stated so the guarantee is bounded rather than overstated.
 - **Blast radius.** Everything in the account's slice is in scope, including an in-flight toolchain update
   and the account's own user manager. The updater is fail-closed on interruption and leaves the previous, trusted
   version active ([updater](updater.rule.md)); the manager is restarted afterwards.
-- **The manager does not come back.** The restart is best-effort and reported separately. Until it succeeds the host
-  cannot start a *new* session, which is nearer to the point of this command than against it, and the message names
-  the command that fixes it.
+- **The manager does not come back.** The restart is best-effort and reported separately. Until it succeeds no *new*
+  session starts, since `ai-tools-run` launches each one as a transient unit of that manager, which is nearer
+  to the point of this command than against it; the message names the command that fixes it.
 - **Kernel below 5.14 or a cgroup-v1-only host.** Without `cgroup.kill` the fallback re-collects and re-signals
   in a loop, narrowing the fork window without closing it. With no cgroup v2 hierarchy at all the helper **refuses**
   (exit 5) and names the manual command, rather than reporting that no session is running. Both supported EL targets
@@ -144,9 +146,10 @@ Stated so the guarantee is bounded rather than overstated.
 
 ## What the monitored system can do about it
 
-The sandbox account cannot read, write or execute the helper and does not hold a `sudo` rule to reach root by, asserted
-from the agent's own vantage in `tests/boundary/access.sh`. The command takes no authorization input for it to aim at.
-The kill is delivered by root to a cgroup, and no process inside the cgroup takes part in it.
+The helper is `750 root:root` in a `750 root:root` directory, so the sandbox account cannot read, write or execute it,
+and the account does not hold a `sudo` rule to reach root by, asserted from the agent's own vantage
+in `tests/boundary/access.sh`. The command does not take an authorization input for it to aim at. The kill is delivered
+by root to a cgroup, and no process inside the cgroup takes part in it.
 
 **No name buys anything, because no name is spared.** One cgroup is matched by name at all — the manager unit,
 `user@<uid>.service`, by exact path — and it is not an exemption: it is descended into rather than emitted, so its
@@ -246,13 +249,14 @@ conventions are inverted, each for that reason alone:
 2. **The confirmation defaults to yes.** The principle in [messaging](messaging.rule.md) is unchanged — *the default is
    the safe outcome* — and which outcome is safe is what flips: for the one control whose job is to end a session
    already running, declining is the failure. A bare Enter, a pipe, a cron run and an absent `msg.lib.sh` all proceed;
-   only a deliberate `n` declines, and `--dry-run` is how the command is looked at without acting. Because
-   the no-terminal path is legitimate here rather than degraded, the helper records **which** path gave consent
-   (`flag`, `prompt`, `fallback-prompt`, `no-tty`) rather than only the answer.
+   only a deliberate `n` declines, and `--dry-run` is how the command is looked at without acting. The no-terminal
+   path is a legitimate path here, so the helper records **which** path gave consent (`flag`, `prompt`,
+   `fallback-prompt`, `no-tty`) beside the answer.
 
 ## Design notes
 
-Each of these looks like a defect to a fresh reader, and each is deliberate:
+Each of these looks like a defect to a fresh reader, and each is deliberate: a change reverting one of them retires
+the guarantee its row names.
 
 | Decision | Why |
 |---|---|
@@ -262,7 +266,7 @@ Each of these looks like a defect to a fresh reader, and each is deliberate:
 | A path errors rather than being ignored | it keeps targeted stopping addable later without changing what an existing command means ([Who may stop what](#who-may-stop-what)) |
 | **No cgroup is exempt**, `init.scope` included | an exemption is a cgroup a session can move into on a DAC-only host ([Where containment ends](#where-containment-ends)) |
 | The user manager is restarted, not spared | the exemption it would need costs more than the restart does ([Where containment ends](#where-containment-ends)) |
-| The restart never changes the exit status | the invariant is that the *stop* happened; the manager is a separate fact ([Where containment ends](#where-containment-ends)) |
+| The restart runs after verification and is reported on its own, outside the exit status | the invariant is that the *stop* happened; the manager is a separate fact ([Where containment ends](#where-containment-ends)) |
 | Liveness comes from cgroups only | systemd never decides whether something is running ([The decisions inside those phases](#the-decisions-inside-those-phases)) |
 | Attribution is best-effort and display-only | the sweep does not consult it, so a misreported project costs a label rather than a target ([Where containment ends](#where-containment-ends)) |
 | Agent sessions and account plumbing are counted apart, advisorily | the class comes from a unit name, so it is the account's word; it labels a row and never selects one, and a headline that counted four units of scaffolding as four agent sessions misread the incident ([Where containment ends](#where-containment-ends)) |

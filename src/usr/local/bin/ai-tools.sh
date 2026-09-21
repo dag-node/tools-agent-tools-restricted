@@ -3493,14 +3493,14 @@ cmd_audit() {
 # the whole contract: the command accepts neither a target nor an authorization input, so this side has no decision left
 # to make. What a stop reaches follows from membership of the sandbox account's cgroup slice, which only the root helper
 # can read, and every remaining decision is a security decision that must not be made twice in two places. Option
-# grammar is all that lives here. Why the command is shaped this way: docs/sessions/stop.md.
+# grammar is all that lives here. Why the command is shaped this way: stop.rule.md.
 #
 # The helper's EXIT STATUS propagates unchanged, so a caller reads one set of codes whichever side refused. They are
 # listed in ai-tools(1) and are not restated here, so the two cannot drift.
 #
 # die_stop_usage -- refuse a `stop` command line in the HELPER's exit-code space (2 = usage), not the CLI's own (die
 # exits 1). Because cmd_stop propagates the helper's status, 2 is what a caller reading `stop`'s exit code is told
-# a usage error is -- in ai-tools(1) and docs/sessions/stop.md alike -- and WHICH SIDE refused is an implementation
+# a usage error is (ai-tools(1)) -- and WHICH SIDE refused is an implementation
 # detail of the ordering, not something the caller asked about. Exiting 1 here would report the same mistake as one code
 # from the CLI and another from a direct root call, and 1 already means "a process survived SIGKILL". It splits
 # a leading code off exactly as die() does, so a `stop` refusal carries one.
@@ -4562,7 +4562,7 @@ require_sudo_access() {
         # zero-argument form (the trailing ""), because the probe does not pass an operand. An entry here would only
         # ever produce "grant present", so it stays out and the verb reaches sudo directly, which reports a missing
         # drop-in itself. The pin also means `stop`'s FLAGGED forms fall outside the rule and meet sudo's ordinary
-        # prompt (deliberate; docs/sessions/stop.md). This probe could not report that either: it asks about the helper,
+        # prompt (deliberate; stop.rule.md). This probe could not report that either: it asks about the helper,
         # while what a flag changes is whether the rule matches the command
         # line.
         *) return 0 ;;
