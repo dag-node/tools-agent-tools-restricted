@@ -1,0 +1,69 @@
+---
+name: ai-tools-decide
+# ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the frontmatter name is stable.
+x-ai-tools-managed: true
+x-ai-tools-status: draft
+x-ai-tools-version: 1
+x-ai-tools-updated: 2026-09-21
+description: "Use when a search, a `git log`, or a checker leaves more lines than the task needs — more than about 30 — and the task can be stated in one sentence. Hands the listing to a bounded classifier and prints the lines that bear on the task; falls back to the full listing on any error. Not for security or permission questions, and not a substitute for the check a task owes."
+---
+
+# Decide: keep the lines that bear on the task
+
+A listing is piped to the decide command with the task in one sentence. The command prints the lines that bear on it
+in full, then one summary line naming the rest by id:
+
+```bash
+grep -rn 'parse_config' src tests | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --task "rename parse_config to load_config in every caller and the test that covers it"
+```
+
+```text
+src/config/loader.py:42:def parse_config(path):
+src/server/startup.py:118:    settings = parse_config(config_path)
+tests/config/test_loader.py:27:    assert parse_config(tmp / "app.toml").debug is True
+decide: kept 3/12 (uncertain: docs/configuration.md:64); dropped: CHANGELOG.md:88 src/server/metrics.py:31 …; jev-1.13.0, 1 request(s), 1.4s, 2210 tokens
+```
+
+Each line's id is its `path:line` prefix where the listing has one, else `L<n>` for the n-th line. A checker's two-line
+records take `--format prose-check`, so the rule travels apart from the excerpt:
+
+```bash
+python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all docs/*.md | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --format prose-check --task "which findings are in prose this branch added"
+```
+
+The command exits non-zero with one line on stderr naming the class (`configuration`, `input`, `provider`, `contract`,
+`deadline`) and does not print a result: the listing already in hand is the fallback, and a failed call costs the one
+invocation. It asks before it runs, since the lines it is given leave the host.
+
+## Which layer answers which question
+
+A call is paid for per line and answers one bounded judgment, so a question a parser or an exit status already answers
+is not sent to it, and a judgment the task owes is not handed to it either:
+
+| Question | Answered by |
+|---|---|
+| a diagnostic's severity, code, file, line and project | a parser: the fields are in the text |
+| whether the build succeeded | the build's exit status |
+| whether two diagnostics are the same | string comparison, keeping which project and framework each came from |
+| whether a line bears on the task in hand | `decide filter` |
+| what caused a diagnostic, and what to change | the agent |
+
+A `dotnet build` log on a host carrying the dotnet integration is the case this most applies to: the log runs
+to thousands of lines, an MSBuild diagnostic parses deterministically, and what is left is the question a parser does
+not answer — which of the diagnostics that remain bear on the change in hand.
+
+## Three rules
+
+1. **Pipe listings, not file contents.** A line of a grep, a log, or a checker is what the classifier reads; a file's
+   body is not a listing and is not sent.
+2. **Keep the dropped ids in view.** The summary line names every line not kept; an `uncertain` id is one the classifier
+   could not place, and the agent opens it rather than trusting either side.
+3. **Run the deterministic check after the edit.** A kept set narrows what to read first; the grep, the test,
+   or the checker that stated the task is run again once the edit is made, and that run is the verification.
+
+## When it does not apply
+
+A permission, secret, or security question is answered from the code and the rule that owns it, not from a classifier.
+A listing the command refuses as over its bound is narrowed at the source (a tighter pattern, a path) rather than split
+by hand. Where the command reports the integration as not enabled or the file as not configured, the host has not turned
+it on: read the full listing and say so.

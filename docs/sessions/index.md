@@ -1,6 +1,6 @@
 # Sessions
 
-**Sessions** · [Stop](stop.md) — [all docs](../index.md)
+**Sessions** · [Stop](stop.md) · [Decide](decide.md) — [all docs](../index.md)
 
 Starting an agent session inside a claimed project, what the session reaches
 while it runs, and how to end one that is already running.
@@ -76,4 +76,6 @@ resolved and what it is checked against are
 in [agent-claude-code](../../.claude/rules/agent-claude-code.rule.md).
 
 [Stop](stop.md) ends sessions that are already running — every one on the host,
-in a single command.
+in a single command. [Decide](decide.md) is the one integration that sends part
+of a session's work off the host: with it enabled, a session hands a long
+listing to a classifier and reads the lines that bear on its task first.

@@ -27,8 +27,9 @@ the tag, so no other input could carry the decision.
                 v
              develop <--------------------------------------------.
                 |                                                 |
-                |  every push: shellcheck + rpm-selftest (EL9+10) |
-                |  snapshot RPMs, Release: 0.<run>.git<sha>       |  fixes during
+                |  every push: shellcheck, typesafe-client,       |
+                |  rpm-selftest (EL9+10); snapshot RPMs,          |
+                |  Release: 0.<run>.git<sha>                      |  fixes during
                 |  (workflow artifacts only, never published)     |  stabilization
                 |                                                 |
                 |  tag vX.Y.Z-rc.N on develop                     |

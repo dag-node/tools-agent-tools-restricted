@@ -1,0 +1,104 @@
+.\" ai-tools-typesafe.conf(5) -- the TypeSafe credential file of the typesafe integration.
+.\" @AI_TOOLS_VERSION@ is substituted at deploy time (install.sh install_subst
+.\" and the RPM %prep), like ai-tools(1). The validation described here is the
+.\" one the decide command applies when it reads the file.
+.TH AI-TOOLS-TYPESAFE.CONF 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.SH NAME
+ai-tools-typesafe.conf \- the credential and endpoint the typesafe integration sends a listing to
+.SH SYNOPSIS
+.B /etc/ai-tools/endpoints/typesafe.conf
+.SH DESCRIPTION
+The typesafe integration lets a sandboxed session hand a long listing (a
+grep, a git log, a checker's findings) to TypeSafe's bounded classifier
+and get back the lines that bear on the task it states.
+This file holds the API key that call is made with, and names the host it
+may be sent to.
+The decide command reads it at call time, and a session is handed the file's
+path alone, so the key is in no session's environment.
+.PP
+The file is read only in a session launched with
+.B typesafe
+named in
+.B AI_TOOLS_INTEGRATIONS
+in
+.BR ai-tools-operator.conf (5).
+The shipped file has the key commented, so installing and enabling the
+integration does not make a request until an operator sets it: the command reports
+the file as not configured and does not print a result, and the session
+falls back to the listing it already holds.
+.PP
+The file holds a credential, so it is owned by
+.B root
+in group
+.B ai-tools
+at mode
+.BR 0640 :
+root and the sandbox account read it, and no other account does.
+Edit it with
+.BR sudo .
+The command refuses a file that is world-readable, world-writable, or a
+symlink, and a key that still holds the template placeholder.
+.PP
+Only the four documented options are read; any other key in the file is
+ignored.
+The file is parsed with the grammar
+.BR ai-tools-operator.conf (5)
+describes.
+.SH OPTIONS
+.TP
+.BI TYPESAFE_API_KEY= KEY
+The API key TypeSafe issued, a single printable token.
+Required: with it commented or empty the command exits with the
+configuration status and does not print a result.
+.TP
+.BI TYPESAFE_MODEL= MODEL
+The model that answers, a single token.
+The shipped file names a versioned model rather than the moving alias
+.BR jev-latest ,
+because the alias changes answers on a release and the integration's
+measurements are made against one version.
+.TP
+.BI TYPESAFE_BASE_URL= URL
+The API origin: an
+.B https://
+URL with no path, query, or fragment.
+Defaults to the vendor's public endpoint when unset.
+.TP
+.BI TYPESAFE_ENDPOINT_HOST= HOST
+The host the key may be sent to.
+Defaults to the vendor's public host.
+The base URL's host must equal it, or the command refuses the call before
+any request is made: a key is sent only to a host this file names twice, so
+a base URL edited to another host does not carry the key there on its own.
+.SH FILES
+.TP
+.I /etc/ai-tools/endpoints/typesafe.conf
+The shipped credential file, inert until the key is set.
+An upgrade keeps the operator's copy.
+.TP
+.I /opt/ai-tools/integrations/typesafe/usage.log
+One line per call: counts, the model that answered, tokens, elapsed time and
+the outcome.
+No task text, no listing line, and no key is written there.
+.SH EXAMPLES
+The public endpoint with the shipped model:
+.PP
+.RS 4
+.EX
+TYPESAFE_API_KEY=ts_live_0123456789abcdef
+TYPESAFE_MODEL=jev-1.13.0
+.EE
+.RE
+.PP
+Enable the integration, in
+.BR ai-tools-operator.conf (5):
+.PP
+.RS 4
+.EX
+AI_TOOLS_INTEGRATIONS=typesafe
+.EE
+.RE
+.SH SEE ALSO
+.BR ai\-tools (1),
+.BR ai-tools-operator.conf (5),
+.BR ai\-tools\-providers (5)

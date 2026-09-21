@@ -476,6 +476,7 @@ check_config_page() {
 section "man page: the shipped config templates in sync with their pages (unit)"
 check_config_page ai-tools-operator.conf "${CONFIG_TEMPLATES}/operator.conf" AI-TOOLS-OPERATOR.CONF
 check_config_page ai-tools-custom-claude-endpoint.conf "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" AI-TOOLS-CUSTOM-CLAUDE-ENDPOINT.CONF
+check_config_page ai-tools-typesafe.conf "${CONFIG_TEMPLATES}/endpoints/typesafe.conf" AI-TOOLS-TYPESAFE.CONF
 
 # ── ai-tools-messages(7): the generated page ───────────────────────────────────────────────────
 # Each other page is written by hand and held to what it documents; this one is derived from .claude/references.md,

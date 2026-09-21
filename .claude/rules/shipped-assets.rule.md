@@ -19,14 +19,17 @@ per agent:
 
 Each kind is seeded ONCE into its own shared root under `/opt/ai-tools` — one per kind, named in `control-plane.lib.sh`
 (`CP_SHARED_SKILLS`, `CP_SHARED_SUBAGENTS`, `CP_SHARED_ORIENTATION`) and owned by `ai-tools-base`
-along with the pristine copies — and every agent gets a **symlink** per asset into the directory its own product reads.
-One file to author, one to update, however many agents read it. The formats are Claude Code's (`SKILL.md`, subagent
-frontmatter) and are not standardized across products, so an agent that cannot read a kind leaves that field unset,
-and does not take links of that kind.
+along with the pristine copies of the assets base ships — and every agent gets a **symlink** per asset
+into the directory its own product reads. An integration package may ship a skill of its own into the same pristine
+root; it owns that directory, and places and withdraws the live copy itself (see
+[Seeding](#seeding-managed-assetslibsh)). One file to author, one to update, however many agents read it. The formats
+are Claude Code's (`SKILL.md`, subagent frontmatter) and are not standardized across products, so an agent that cannot
+read a kind leaves that field unset, and does not take links of that kind.
 
 The shipped set is the `ai-tools-reference-architect` subagent; the skills `ai-tools-technical-docs` (the writing
 standard for every artifact), `ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance`;
-and the orientation text.
+and the orientation text. `ai-tools-decide` is the one skill a provider package ships rather than base: it belongs
+to `ai-tools-integration-typesafe` ([typesafe](typesafe.rule.md)).
 
 ## The orientation text
 
@@ -244,8 +247,13 @@ each kind into its shared root, then links) and `ai-tools-bootstrap` (`seed_mana
 plane being present) reuse the lib directly and offer the interactive version update; in the RPM the split follows
 package ownership — **base**'s `%post` seeds each shared root, the **agent package**'s `%post` links them
 into the directories that agent reads. Both scriptlets reuse the same lib under an explicit `bash` (a scriptlet is
-`/bin/sh`) and, being non-interactive, place only what is absent. This mirrors the `.gitignore`/`.gitconfig` reseed (see
-[ownership-and-hooks](ownership-and-hooks.rule.md) for the control-plane ownership model).
+`/bin/sh`) and, being non-interactive, place only what is absent. A **provider package that ships a skill** runs both
+halves in its own `%post` — seeds the shared root and links every enabled agent's skills directory — because on a first
+install base's and the agents' scriptlets run before that package's files are on disk; its `%postun` on final erase
+withdraws the live copy with `ai_tools_withdraw_asset`, the per-asset step the retired-list pass is built
+from, and re-runs the linker so each agent's link to the gone target is dropped. This mirrors
+the `.gitignore`/`.gitconfig` reseed (see [ownership-and-hooks](ownership-and-hooks.rule.md) for the control-plane
+ownership model).
 
 ## SELinux
 

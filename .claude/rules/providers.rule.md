@@ -620,10 +620,12 @@ unattended. Those are behaviour rather than text, so they are contracted here an
 
 ## The integration this project ships
 
-`dotnet` (`ai-tools-integration-dotnet`) is the one member package of the integration kind. It uses every seam this rule
-states — a manifest with `default_enable=no`, a session-env fragment, a filter rule set, and a contributed `dotnet`
-domain — and what each of those does for .NET, together with the SELinux groups the runtime needs under enforcing, is
-in [dotnet](dotnet.rule.md).
+`dotnet` (`ai-tools-integration-dotnet`) uses every seam this rule states — a manifest with `default_enable=no`,
+a session-env fragment, a filter rule set, and a contributed `dotnet` domain — and what each of those does for .NET,
+together with the SELinux groups the runtime needs under enforcing, is in [dotnet](dotnet.rule.md). `typesafe`
+(`ai-tools-integration-typesafe`) uses the manifest and the fragment alone: the fragment hands a session two paths
+and the command reads a credential from one of them at call time, which is the seam's credential pattern with the read
+moved from the fragment into the command ([typesafe](typesafe.rule.md)).
 
 ## Boundaries
 

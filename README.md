@@ -80,6 +80,7 @@ sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
 sudo dnf install ai-tools-selinux ai-tools-agents-claude-code-restricted  # Claude Code
 sudo dnf install ai-tools-selinux ai-tools-agents-codex-restricted        # Codex
 sudo dnf install ai-tools-integration-dotnet                              # .NET projects
+sudo dnf install ai-tools-integration-typesafe                            # TypeSafe for RLCD
 ```
 
 Run the line for the agent you want: each one is a complete install on its own,
