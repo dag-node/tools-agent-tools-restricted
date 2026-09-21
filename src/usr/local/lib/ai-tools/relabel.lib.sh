@@ -38,16 +38,17 @@
 # code (2 = unavailable, 1 = hard failure), never an abort -- so a sourcing script keeps `set -e` semantics by checking
 # the return value.
 
+# Every type this library applies is pinned in this file, and the labelling functions do not take a type argument:
+# a manifest or a caller names WHICH path is a project, a build-output directory, an entrypoint or a config directory,
+# never what type it gets, so no manifest can label a file into a domain of its choosing.
 readonly AI_TOOLS_PROJECT_TYPE="ai_tools_project_t"
-# The type of a project's build-output directories. Pinned here like the other types: a manifest declares
-# which directory NAMES are build output (build_output_dirs), never what type they get.
+# A project's build-output directories; a manifest names the directories (build_output_dirs).
 readonly AI_TOOLS_PROJECT_BUILD_TYPE="ai_tools_project_build_t"
 readonly AI_TOOLS_SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
-# The entrypoint type is pinned HERE, not read from a manifest: an agent package declares only WHICH path is its
-# entrypoint, never what type to give it, so no manifest can label a file into a domain of its choosing.
+# An agent's entrypoint: the label that drives the exec transition into ai_tools_t.
 readonly AI_TOOLS_ENTRYPOINT_TYPE="ai_tools_exec_t"
-# The type every agent's own config directory carries -- the same one the rest of the agent's home state uses,
-# so the confined domain may write its session state there.
+# Every agent's own config directory -- the same type as the rest of the agent's home state, so the confined domain
+# may write its session state there.
 readonly AI_TOOLS_AGENT_CONFIG_TYPE="ai_tools_home_t"
 # The one tree an agent entrypoint may live in -- the sandbox's own Node toolchain. Every declared pattern is checked
 # against it through ai_tools_entrypoint_fcontext_valid (providers.lib.sh), which takes the root as an argument
@@ -89,7 +90,7 @@ source "${BASH_SOURCE[0]%/*}/control-plane.lib.sh" 2>/dev/null || true
 AI_TOOLS_RELABEL_LOCK_NOTE=""
 
 # ai_tools_relabel_lock: hold AI_TOOLS_RELABEL_LOCK until ai_tools_relabel_unlock or the end of
-#   the calling process, so a concurrent relabel waits rather than colliding inside semanage.
+#   the calling process.
 #   Root-only: the lock file is created under /run/lock. Every writer of the policy store takes
 #   it -- the root helpers, install-selinux.sh, and (open-coded on the same path, since a
 #   scriptlet does not source this library) the ai-tools-selinux %post.
@@ -138,8 +139,9 @@ ai_tools_relabel_unlock() {
     return 0
 }
 
-# ai_tools_relabel_available: 0 when SELinux is active and restorecon is present, i.e. when labelling can do anything.
-# Non-zero (2) otherwise.
+# ai_tools_relabel_available: 0 when restorecon is installed and `getenforce` does not print `Disabled`, the state
+#   in which labelling can act; 2 otherwise. A host without `getenforce` reads as active: both ship in policycoreutils,
+#   so a missing one is a broken toolchain, which the first semanage call then reports.
 ai_tools_relabel_available() {
     command -v restorecon >/dev/null 2>&1 || return 2
     [[ "$(getenforce 2>/dev/null)" == "Disabled" ]] && return 2
@@ -281,11 +283,10 @@ ai_tools_unlabel_project() {
 #                                            confined session cannot write its own state (the
 #                                            home root is usr_t, which ai_tools_t may not write).
 #
-# The base pins the TYPES here; a manifest chooses only which path is which, and each declaration is checked to be
-# containable -- the entrypoint pattern under the sandbox toolchain (ai_tools_entrypoint_fcontext_valid,
-# providers.lib.sh, called with AI_TOOLS_NODE_VERSIONS_ROOT), the config directory to one component under the sandbox
-# home (ai_tools_agent_config_dir_valid, control-plane.lib.sh). So a second agent brings its binary and its state
-# directory into this policy without the base policy naming either.
+# Each declaration is checked to be containable -- the entrypoint pattern under the sandbox toolchain
+# (ai_tools_entrypoint_fcontext_valid, providers.lib.sh, called with AI_TOOLS_NODE_VERSIONS_ROOT), the config directory
+# to one component under the sandbox home (ai_tools_agent_config_dir_valid, control-plane.lib.sh). So a second agent
+# brings its binary and its state directory into this policy without the base policy naming either.
 
 # _ai_tools_entrypoint_path_reportable <path>: succeed when <path> may be put in a status line.
 #   The paths this pass reconciles are AGENT-INFLUENCED -- the middle link of the launcher chain is an
@@ -673,9 +674,7 @@ ai_tools_project_labelled() {
 # costs that operator, are in
 # confinement.rule.md.
 
-# The type an operator's config subtree carries. Pinned here like every other type this library applies: a caller names
-# WHICH directory is an operator's config, and the functions below take no type argument, so the label a directory gets
-# is this constant.
+# The type an operator's config subtree carries.
 readonly AI_TOOLS_OPERATOR_CONF_TYPE="ai_tools_conf_t"
 # The tail every such directory ends with, and the only shape this library will label. Kept as one constant because
 # the validator and the pattern builder must agree on it.

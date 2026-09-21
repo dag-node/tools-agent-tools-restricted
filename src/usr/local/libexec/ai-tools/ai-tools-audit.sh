@@ -27,7 +27,7 @@
 # both carry the parent's identity (see launch.rule.md).
 #
 # WHAT THE CLASSIFICATION IS AND IS NOT. One recorded exec is ordinary: an agent dispatching a tool it bundles
-# through its own binary (claude-code for `rg`, `ugrep` and `bfs`; codex for `apply_patch`), told by a bare argv0. It is
+# through its own binary, told by a bare argv0 (launch.rule.md names the tools the shipped agents reach that way). It is
 # counted and summarized rather than reported as a finding. The argv0 is the caller's to arrange, so the split is
 # a NOISE FILTER and not a control: the record is the evidence, and it is written either way. Every other record is
 # a finding, including one whose exe no installed manifest claims, so a manifest this helper cannot read yields MORE
@@ -369,9 +369,9 @@ build_agent_entrypoint_map() {
 # way, and the count render_entrypoint_section prints names what it folded.
 #
 # The two classes, in the order they are decided:
-#   self     a bare argv0 (no `/`) into an agent's own entrypoint: the agent dispatching a tool it bundles, as
-#            claude-code does for `rg`, `ugrep` and `bfs`, and codex for `apply_patch`. An exec that names a PATH
-#            is not this, so starting an entrypoint at its real path stays a finding whichever agent does it.
+#   self     a bare argv0 (no `/`) into an agent's own entrypoint: the agent dispatching a tool it bundles
+#            (launch.rule.md names them per shipped agent). An exec that names a PATH is not this, so starting
+#            an entrypoint at its real path stays a finding whichever agent does it.
 #   finding  everything else, including every exe no manifest claims -- so a manifest this helper cannot read
 #            yields MORE findings rather than fewer.
 #

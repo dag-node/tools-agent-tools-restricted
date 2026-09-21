@@ -92,7 +92,7 @@ warn() {
 }
 # die records the refusal as well as reporting it, so a run the CLI only sees fail leaves the reason in the trail. It
 # therefore runs only after log.lib.sh has loaded, which every refusal that uses it does; the option refusal
-# below reports through warn and exits 2 at its own site.
+# in the argument parse reports through warn and exits 2 at its own site.
 die() {
     local IFS=' '
     warn "$@"
@@ -158,8 +158,8 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
-# Secret-name matcher: never touch a secret-named path (a locked secret stays put). We run as root, so we can read
-# the 640 root:root lib. Best-effort -- falls back to the '!' allowlist exclusions if the matcher cannot load.
+# Secret-name matcher: never touch a secret-named path (a locked secret stays put). Best-effort -- falls back
+# to the '!' allowlist exclusions if the matcher cannot load.
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 _secret_loaded=false
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh

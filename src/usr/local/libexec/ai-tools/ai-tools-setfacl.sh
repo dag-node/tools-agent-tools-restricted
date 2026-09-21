@@ -42,7 +42,8 @@ set -euo pipefail
 # instead of at each site. A leading message code (msg.lib.sh states the form) is printed on its own line ahead
 # of the message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since this helper reports
 # before msg.lib.sh is loaded. Each refusal exits at its own site: this helper's statuses are 2 (usage), 3 (an unusable
-# library) and 0 (nothing to apply), so there is no one status for a die() to carry. The printed text is left
+# library) and 0 (a completed walk, and a target it declines silently), so there is no one status for a die() to carry.
+# The printed text is left
 # in _warn_text, and the code it printed in _warn_code, for a site that also records the situation through log.lib.sh:
 # the log call passes the variable, so the code literal stays at the emit call the reference index reads as its
 # definition (messaging.rule.md).
@@ -110,10 +111,10 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
-# Secret-name matcher (defense in depth): never apply the group ACL to a path whose basename looks like a secret (e.g.
-# .env), so a private file is not re-exposed to the agent group even if the operator forgot to '!'-exclude it. We run
-# as root, so we can read the 640 root:root lib. Best-effort -- the '!' allowlist exclusions remain the authoritative
-# control; if the matcher cannot load, fall back to them.
+# Secret-name matcher (defense in depth): the walk skips every path whose basename matches the secret patterns
+# (_is_secret_name), so a private file such as .env is not re-exposed to the agent group even if the operator forgot
+# to '!'-exclude it. Best-effort -- the '!' allowlist exclusions remain the authoritative control; if the matcher cannot
+# load, fall back to them.
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 _secret_loaded=false
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
