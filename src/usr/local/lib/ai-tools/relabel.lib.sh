@@ -6,10 +6,10 @@
 #   * PROJECTS -- map an approved project directory to ai_tools_project_t (or revert it) so the
 #     confined agent (ai_tools_t) can read and write the tree, and its build-output directories
 #     to ai_tools_project_build_t. The directory names come from the installed integration
-#     manifests (build_output_dirs, see .claude/rules/dotnet.rule.md), so this library does not
+#     manifests (build_output_dirs, see dotnet.rule.md), so this library does not
 #     name any toolchain's layout, and a host where no integration declares any writes only the
-#     project rule. Sourced by the root helper ai-tools-relabel and by selinux/install-selinux.sh's
-#     allowlist sweep.
+#     project rule. Sourced by the root helper ai-tools-relabel and by the policy installer
+#     install-selinux.sh's allowlist sweep.
 #   * AGENT PATHS -- map each enabled agent's own paths to the types this policy defines: its
 #     launcher binary to ai_tools_exec_t (the label that drives the -> ai_tools_t domain
 #     transition on exec) and its config directory to ai_tools_home_t (so the confined session can
@@ -29,9 +29,9 @@
 #
 # In-place project paths (under a user's home) are DYNAMIC, so they get a per-project `semanage fcontext` rule here.
 # Sandbox clones under /var/opt/ai-tools/sandbox-projects are already mapped by a STATIC rule
-# in selinux/policy/ai_tools.fc, so for those a plain restorecon suffices and adding a local rule would be redundant --
-# this library's helpers detect and skip the semanage step for sandbox paths. See selinux/policy/ai_tools.fc
-# and selinux/policy/ai_tools.te.
+# in the policy's file-context source ai_tools.fc, so for those a plain restorecon suffices and adding a local rule
+# would be redundant -- this library's helpers detect and skip the semanage step for sandbox paths. See ai_tools.fc
+# and ai_tools.te in the policy source.
 #
 # Every mutating function is root-only: semanage writes the policy store and restorecon needs relabel. Callers must
 # already be root. The functions are best-effort -- a disabled SELinux or a missing toolchain is reported via the return
@@ -75,7 +75,7 @@ source "${BASH_SOURCE[0]%/*}/control-plane.lib.sh" 2>/dev/null || true
 # semanage serializes on the policy store and reports an error to whichever process finds it held, rather than waiting
 # for it, so two root helpers running at once leave rules unregistered and both report a failure neither caused.
 # The helpers take this lock so the second one waits. Which callers overlap, and when, is
-# in .claude/rules/updater.rule.md.
+# in updater.rule.md.
 #
 # Root-only test hooks, the same posture as AI_TOOLS_LAUNCHER_DIR: the helpers that take this lock run under sudo,
 # which scrubs the environment, and the sudoers rules keep neither name. A caller that did set one moves an advisory
@@ -321,7 +321,7 @@ _ai_tools_entrypoint_path_reportable() {
 #   to compensate: the set of files that ever take ai_tools_exec_t -- the exec entrypoint of the
 #   confined domain -- stays exactly the set the root-owned manifests declare, so a stale manifest
 #   is fixed by updating the agent package, not by this helper widening the set on its own.
-#   Unit-tested over the truth table (tests/unit/relabel.sh).
+#   The unit test relabel.sh drives the truth table.
 ai_tools_entrypoint_reconcile_verdict() {
     local installed="${1:-}" covered="${2:-}" matched="${3:-}"
     if [[ -z "${installed}" ]]; then
@@ -671,7 +671,7 @@ ai_tools_project_labelled() {
 # allowed-projects and secret-patterns through. A home path is dynamic, so the rule is a local `semanage fcontext` entry
 # rather than a line in ai_tools.fc, and there is one per operator. What the type buys, and what an unlabelled subtree
 # costs that operator, are in
-# .claude/rules/confinement.rule.md.
+# confinement.rule.md.
 
 # The type an operator's config subtree carries. Pinned here like every other type this library applies: a caller names
 # WHICH directory is an operator's config, and the functions below take no type argument, so the label a directory gets

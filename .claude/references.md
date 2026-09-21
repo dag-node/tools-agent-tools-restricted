@@ -15,9 +15,12 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 |---|---|---|---|---|---|
 | w4z6 | [ref-section-w4z6](rules/confinement.rule.md#ref-section-w4z6) | The toolchain is read-only to the confined domain | .claude/rules/confinement.rule.md | .claude/rules/agent-claude-code.rule.md, .claude/rules/agent-codex.rule.md, .claude/rules/launch.rule.md, .claude/rules/updater.rule.md |  |
 | t8k3 | [ref-section-t8k3](rules/dotnet.rule.md#ref-section-t8k3) | Configuration the build reads from a project's ancestors | .claude/rules/dotnet.rule.md | .claude/rules/cli.rule.md, .claude/rules/launch.rule.md |  |
+| f2p3 | [ref-section-f2p3](rules/launch.rule.md#ref-section-f2p3) | An agent entrypoint started from inside a session | .claude/rules/launch.rule.md | .claude/rules/cli.rule.md |  |
 | p3k8 | [ref-section-p3k8](rules/launch.rule.md#ref-section-p3k8) | The ordering is read, not assumed | .claude/rules/launch.rule.md | .claude/rules/cli.rule.md |  |
 | f6z3 | MSG-F6Z3 | example | .claude/rules/messaging.rule.md |  |  |
+| y9z4 | [ref-section-y9z4](rules/ownership-and-hooks.rule.md#ref-section-y9z4) | Setgid normalization | .claude/rules/ownership-and-hooks.rule.md | .claude/rules/cli.rule.md |  |
 | b3k5 | [ref-section-b3k5](rules/updater.rule.md#ref-section-b3k5) | A refusal leaves a mark too | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
+| j9w8 | [ref-section-j9w8](rules/updater.rule.md#ref-section-j9w8) | The labelling half leaves a record too | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
 | q7v4 | [ref-section-q7v4](rules/updater.rule.md#ref-section-q7v4) | Two tiers, and what each one claims | .claude/rules/updater.rule.md | CLAUDE.md |  |
 | e7n8 | [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8) | Security model — what `SANDBOX_USER` can and cannot do | CLAUDE.md | README.md, docs/about/index.md |  |
 | g6c4 | [ref-section-g6c4](../CLAUDE.md#ref-section-g6c4) | What is expected of the agent where a control leaves a choice | CLAUDE.md | .claude/rules/launch.rule.md, README.md |  |

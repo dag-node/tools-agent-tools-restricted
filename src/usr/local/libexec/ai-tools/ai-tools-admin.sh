@@ -87,7 +87,7 @@
 # what they want from it. The from-source installer reaches the same end through its own keep-or-reset prompts and dated
 # .bak/.shipped sidecars; this is the RPM-side equivalent.
 #
-# Deploying from a checkout: docs/install/from-source.md.
+# Its domain rules are cli.rule.md (what each command does) and cli-grammar.rule.md (how it is spelled).
 
 set -euo pipefail
 

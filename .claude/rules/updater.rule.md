@@ -399,7 +399,7 @@ and `ai-tools-admin status` renders it under the reading only root can make — 
 and comparing it against the pin, which names a changed binary even where no reconciliation has run over it yet (see
 [cli](cli.rule.md)).
 
-### The labelling half leaves a record too
+### The labelling half leaves a record too <a id="ref-section-j9w8"></a>
 
 Each run records what it could do about every enabled agent's labels,
 in `/var/opt/ai-tools/state/entrypoint-label.d/<agent>` — the same `KEY=value` grammar, directory ownership,

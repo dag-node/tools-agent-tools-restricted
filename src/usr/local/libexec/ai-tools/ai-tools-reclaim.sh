@@ -18,11 +18,7 @@
 # Runs as root via sudo under `ai-tools projects handback` (no-NOPASSWD, like ai-tools-setfacl); root is required
 # to chown files the projects user does not own.
 #
-# Deploy:
-#   ```bash
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh /usr/local/libexec/ai-tools/ai-tools-reclaim
-#   ```
+# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 

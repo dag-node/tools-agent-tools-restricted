@@ -156,7 +156,7 @@ and the `session-start` pass — the one the operator reads — surfaces a disti
 the front-line detector for the same condition (see [launch](launch.rule.md),
 [handback-bridge](handback-bridge.rule.md)).
 
-## Setgid normalization
+## Setgid normalization <a id="ref-section-y9z4"></a>
 
 The same `SessionStart` pass normalizes the project's setgid bit via the root helper `ai-tools-setgid`
 (allowlist-validated, idempotent): every project directory is set group `SANDBOX_GROUP` with `g+s`, so a file

@@ -228,7 +228,7 @@ in cooked mode; the banner is static output, so the echo stays until a full repa
 not run a query of its own before the launch, and no hook or library of this project changes tty state. It is cosmetic
 and the agent's own, and the launch path does not work around it.
 
-## An agent entrypoint started from inside a session
+## An agent entrypoint started from inside a session <a id="ref-section-f2p3"></a>
 
 Every gate in this rule runs in the wrapper or in the shim. The kernel side is one grant: `ai_tools_t` holds
 `execute_no_trans` on `ai_tools_exec_t` ([confinement](confinement.rule.md)), so a session that execs an agent

@@ -34,11 +34,7 @@
 # @SANDBOX_GROUP@ (it arrived by rename, inheriting neither the setgid group nor the default ACL) -- so a re-claim's
 # drift scan (acl_drift_scan in the CLI) finds the tree settled.
 #
-# Deploy:
-#   ```bash
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh /usr/local/libexec/ai-tools/ai-tools-setfacl
-#   ```
+# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 

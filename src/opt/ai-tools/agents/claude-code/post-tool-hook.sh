@@ -26,8 +26,7 @@
 # silently.
 #
 # Installed 750 root:ai-tools: the session executes it through the group and cannot rewrite it, which is what keeps
-# the handback it performs out of the agent's control (see ownership-and-hooks.rule.md). Deploying from a checkout:
-# docs/install/from-source.md.
+# the handback it performs out of the agent's control (see ownership-and-hooks.rule.md).
 
 set -euo pipefail
 
