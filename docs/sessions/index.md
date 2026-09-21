@@ -71,8 +71,8 @@ A host that configures neither key launches unchanged. A key that is set
 but cannot be honoured — a missing file, one outside the prompts directory, one
 that is not plain text, or an unknown mode — **refuses the launch** rather than
 starting a session without the prompt an operator asked for. Both keys,
-with their defaults, are in `man 5 operator.conf`; how each is resolved
-and what it is checked against are
+with their defaults, are in `man 5 ai-tools-operator.conf`; how each is
+resolved and what it is checked against are
 in [agent-claude-code](../../.claude/rules/agent-claude-code.rule.md).
 
 [Stop](stop.md) ends sessions that are already running — every one on the host,

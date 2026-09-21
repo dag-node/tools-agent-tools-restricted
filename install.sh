@@ -829,11 +829,11 @@ do_summary() {
     _chk /usr/lib/systemd/system/ai-tools-relabel.service
     _chk /usr/local/bin/ai-tools
     _chk /usr/local/share/man/man1/ai-tools.1
-    _chk /usr/local/share/man/man5/operator.conf.5
+    _chk /usr/local/share/man/man5/ai-tools-operator.conf.5
     _chk /usr/local/share/man/man5/ai-tools-providers.5
-    _chk /usr/local/share/man/man5/allowed-projects.5
-    _chk /usr/local/share/man/man5/secret-patterns.5
-    _chk /usr/local/share/man/man5/custom-claude-endpoint.conf.5
+    _chk /usr/local/share/man/man5/ai-tools-allowed-projects.5
+    _chk /usr/local/share/man/man5/ai-tools-secret-patterns.5
+    _chk /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     _chk /usr/local/share/man/man7/ai-tools-messages.7
     _chk /usr/local/share/man/man8/ai-tools-admin.8
     _chk /var/opt/ai-tools
@@ -1630,13 +1630,26 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man8/ai-tools-admin.8" \
         /usr/local/share/man/man8/ai-tools-admin.8
 
-    # operator.conf(5). Documents the shared KEY=value grammar and every host option, so an operator reading the config
-    # has a manual rather than only its inline comments.
-    log "/usr/local/share/man/man5/operator.conf.5"
+    # Every section-5 page carries the ai-tools- prefix, so it cannot shadow a page some other package installs
+    # under the same generic name -- /usr/local/share/man and /usr/share/man are both on the default MANDATORY_MANPATH,
+    # and `man operator.conf` on a host that installs a vendor page would otherwise resolve to whichever the search
+    # order reaches first. Migration: remove the unprefixed names a from-source install placed, which the new run does
+    # not overwrite because it writes different paths. (The RPM drops them on upgrade from its own %files.)
     install -d -o root -g root -m 755 /usr/local/share/man/man5
+    local stale_page
+    for stale_page in operator.conf allowed-projects secret-patterns custom-claude-endpoint.conf; do
+        if [[ -f "/usr/local/share/man/man5/${stale_page}.5" ]]; then
+            log "removing superseded /usr/local/share/man/man5/${stale_page}.5"
+            rm -f "/usr/local/share/man/man5/${stale_page}.5" "/usr/local/share/man/man5/${stale_page}.5.gz"
+        fi
+    done
+
+    # ai-tools-operator.conf(5). Documents the shared KEY=value grammar and every host option, so an operator reading
+    # the config has a manual rather than only its inline comments.
+    log "/usr/local/share/man/man5/ai-tools-operator.conf.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/operator.conf.5" \
-        /usr/local/share/man/man5/operator.conf.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-operator.conf.5" \
+        /usr/local/share/man/man5/ai-tools-operator.conf.5
 
     # ai-tools-providers(5). The provider manifests under agents.d and integrations.d and every key they take,
     # so a manifest's own header can stay a pointer.
@@ -1645,27 +1658,27 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-providers.5" \
         /usr/local/share/man/man5/ai-tools-providers.5
 
-    # allowed-projects(5). The operator's project allowlist: its grammar, what an entry and an exclusion mean,
+    # ai-tools-allowed-projects(5). The operator's project allowlist: its grammar, what an entry and an exclusion mean,
     # and the entry states. The seeded file's header is written once and never rewritten, so it points here rather than
     # carrying the reference.
-    log "/usr/local/share/man/man5/allowed-projects.5"
+    log "/usr/local/share/man/man5/ai-tools-allowed-projects.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/allowed-projects.5" \
-        /usr/local/share/man/man5/allowed-projects.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-allowed-projects.5" \
+        /usr/local/share/man/man5/ai-tools-allowed-projects.5
 
-    # secret-patterns(5). The operator's secret-name patterns: the glob grammar, what a match does,
+    # ai-tools-secret-patterns(5). The operator's secret-name patterns: the glob grammar, what a match does,
     # and the replace-the-baseline rule. Seeded once like the allowlist, so its header points here too.
-    log "/usr/local/share/man/man5/secret-patterns.5"
+    log "/usr/local/share/man/man5/ai-tools-secret-patterns.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/secret-patterns.5" \
-        /usr/local/share/man/man5/secret-patterns.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-secret-patterns.5" \
+        /usr/local/share/man/man5/ai-tools-secret-patterns.5
 
-    # custom-claude-endpoint.conf(5). The endpoint file's four options, their validation and their precedence,
+    # ai-tools-custom-claude-endpoint.conf(5). The endpoint file's four options, their validation and their precedence,
     # so the %config(noreplace) template can stay a pointer.
-    log "/usr/local/share/man/man5/custom-claude-endpoint.conf.5"
+    log "/usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/custom-claude-endpoint.conf.5" \
-        /usr/local/share/man/man5/custom-claude-endpoint.conf.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5" \
+        /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
 
     # ai-tools-messages(7). Every message code the tree emits, with its severity and the component that emits it,
     # so `journalctl AI_TOOLS_MSG=<code>` and a code read off a terminal both resolve to a message. Section 7 because it
@@ -2244,7 +2257,7 @@ do_install() {
     say "    ${C_BOLD}/etc/ai-tools/operator.conf${C_RST}                  ${C_DIM}# host options, each documented inline${C_RST}"
     say "    ${C_BOLD}man ai-tools${C_RST}                                 ${C_DIM}# the CLI${C_RST}"
     say "    ${C_BOLD}man ai-tools-admin${C_RST}                           ${C_DIM}# the root-only host commands${C_RST}"
-    say "    ${C_BOLD}man 5 operator.conf${C_RST}                          ${C_DIM}# every host option${C_RST}"
+    say "    ${C_BOLD}man 5 ai-tools-operator.conf${C_RST}                 ${C_DIM}# every host option${C_RST}"
     say ""
     suggest_lint_tools
 
@@ -2401,11 +2414,11 @@ do_uninstall() {
     rm -f /usr/local/bin/ai-tools-handback-client
     rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/share/man/man1/ai-tools.1
-    rm -f /usr/local/share/man/man5/operator.conf.5
+    rm -f /usr/local/share/man/man5/ai-tools-operator.conf.5
     rm -f /usr/local/share/man/man5/ai-tools-providers.5
-    rm -f /usr/local/share/man/man5/allowed-projects.5
-    rm -f /usr/local/share/man/man5/secret-patterns.5
-    rm -f /usr/local/share/man/man5/custom-claude-endpoint.conf.5
+    rm -f /usr/local/share/man/man5/ai-tools-allowed-projects.5
+    rm -f /usr/local/share/man/man5/ai-tools-secret-patterns.5
+    rm -f /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude /usr/local/bin/codex
     # Codex's skills link (retire_managed_files has already taken its managed files). The link is removed only where it

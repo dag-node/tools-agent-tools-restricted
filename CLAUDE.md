@@ -328,7 +328,12 @@ does not name any tool of this repository's, so the skill does not name that com
 - Changelogs, release notes, migration guides → what the operator gains and what changes on upgrade.
 - Commit messages → Conventional Commits; the why and what the change achieves, pointing at the layer that owns
   the detail rather than restating it.
-- `src/usr/local/share/man/**` → man pages; see the skill's `references/man-pages.md`.
+- `src/usr/local/share/man/**` → man pages; see the skill's `references/man-pages.md`. Every page this project installs
+  is named `ai-tools-<topic>`, whatever section it sits in and whatever file it documents (`ai-tools-operator.conf(5)`
+  for `/etc/ai-tools/operator.conf`), because `/usr/local/share/man` and `/usr/share/man` are both on the default
+  `MANDATORY_MANPATH`: an unprefixed page would resolve ahead of, or behind, a page another package installs
+  under the same generic name. A page ships in the package that installs the file it documents, so an optional
+  integration carries a page of its own rather than contributing a section to a shared one.
 - Error messages, notices, and log lines → runtime output: what happened, and what to do.
 
 <!-- Agent-facing prose wraps at 120, the column `prose-check.py` measures this file against and

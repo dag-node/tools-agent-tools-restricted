@@ -2,15 +2,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/man.sh
 # Hermetic sync test between this project's man pages and what each documents: ai-tools(1) against the CLI's usage(),
-# ai-tools-admin(8) against the admin helper's, ai-tools-providers(5) against the shipped manifests, allowed-projects(5)
-# and secret-patterns(5) against the header each file is seeded with and the parser its examples must load
-# in, operator.conf(5) and custom-claude-endpoint.conf(5) against the keys their shipped templates mention,
-# and ai-tools-messages(7) against the generator that derives it from the cross-reference index. It then holds every
-# authored page to the way a page is WRITTEN -- the font and placeholder rules whose home is references/man-pages.md
-# in the shipped ai-tools-technical-docs skill, edited in lockstep with the check here -- and closes by holding every
-# config header this project writes to the fixed-width rule (72 columns). In the two command pairs the page and the help
-# are not copies of each other -- usage() is orientation while the page is the reference -- so equality of their whole
-# option sets is the wrong contract and is what made slimming the help impossible.
+# ai-tools-admin(8) against the admin helper's, ai-tools-providers(5) against the shipped manifests,
+# ai-tools-allowed-projects(5) and ai-tools-secret-patterns(5) against the header each file is seeded
+# with and the parser its examples must load in, ai-tools-operator.conf(5) and ai-tools-custom-claude-endpoint.conf(5)
+# against the keys their shipped templates mention, and ai-tools-messages(7) against the generator that derives it
+# from the cross-reference index. It then holds every authored page to the way a page is WRITTEN -- the font
+# and placeholder rules whose home is references/man-pages.md in the shipped ai-tools-technical-docs skill, edited
+# in lockstep with the check here -- and closes by holding every config header this project writes to the fixed-width
+# rule (72 columns). In the two command pairs the page and the help are not copies of each other -- usage() is
+# orientation while the page is the reference -- so equality of their whole option sets is the wrong contract and is
+# what made slimming the help impossible.
 #
 # Both commands spell a command in bare words (.claude/rules/cli-grammar.rule.md), so what is compared is
 # the COMMAND PATH -- `projects claim`, `selinux groups enable` -- rather than a single flag. ai-tools(1), five checks:
@@ -313,7 +314,7 @@ check_providers_page() {
 }
 check_providers_page
 
-# ── The seeded operator files: allowed-projects(5), secret-patterns(5) ──────────
+# ── The seeded operator files: ai-tools-allowed-projects(5), ai-tools-secret-patterns(5) ──────────
 # The header each *_seed function in conf.lib.sh prints is written into an operator's file once, at enrolment, and no
 # upgrade rewrites it -- so the reference lives in the page, which the package replaces on every upgrade, and the header
 # stays a pointer. check_seed_header holds that shape for both files: the header is short (the cap is what stops it
@@ -360,50 +361,50 @@ check_seed_header() {
     fi
 }
 
-ALLOWLIST_MAN="$(man5_path allowed-projects)"
-section "man page: allowed-projects(5) and the seeded allowlist header (unit)"
+ALLOWLIST_MAN="$(man5_path ai-tools-allowed-projects)"
+section "man page: ai-tools-allowed-projects(5) and the seeded allowlist header (unit)"
 check_allowlist_page() {
     if [[ ! -r "${ALLOWLIST_MAN}" ]]; then
-        skip "allowed-projects page" "allowed-projects.5 not found in the repo or installed"; return
+        skip "ai-tools-allowed-projects page" "ai-tools-allowed-projects.5 not found in the repo or installed"; return
     fi
     # shellcheck source=/dev/null
     if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_path_entry >/dev/null 2>&1; then
-        skip "allowed-projects seed header" "conf.lib.sh not loadable from ${CONF_LIB}"; return
+        skip "ai-tools-allowed-projects seed header" "conf.lib.sh not loadable from ${CONF_LIB}"; return
     fi
-    check_seed_header ai_tools_conf_allowlist_seed allowed-projects
+    check_seed_header ai_tools_conf_allowlist_seed ai-tools-allowed-projects
 
     # Every entry-shaped example -- a path, an exclusion, or a quoted path -- parses as an entry; the CLI invocations
     # in the same blocks are not entries and are not read.
     local -a examples=(); local line bad=0
     mapfile -t examples < <(man_examples "${ALLOWLIST_MAN}" | grep -E '^[/!"]' || true)
     if (( ${#examples[@]} == 0 )); then
-        fail "allowed-projects(5) EXAMPLES carry no entry-shaped line to check"
+        fail "ai-tools-allowed-projects(5) EXAMPLES carry no entry-shaped line to check"
     else
         for line in "${examples[@]}"; do
             # shellcheck disable=SC2154  # _ai_tools_conf_value is set by ai_tools_conf_path_entry in the sourced library
             if ai_tools_conf_path_entry "${line}" && [[ "${_ai_tools_conf_value}" == /* || "${_ai_tools_conf_value}" == '!/'* ]]; then :
-            else fail "allowed-projects(5) example does not parse as an entry: ${line}"; bad=1; fi
+            else fail "ai-tools-allowed-projects(5) example does not parse as an entry: ${line}"; bad=1; fi
         done
-        (( bad )) || pass "every entry-shaped EXAMPLES line in allowed-projects(5) parses through the shared grammar (${#examples[@]} lines)"
+        (( bad )) || pass "every entry-shaped EXAMPLES line in ai-tools-allowed-projects(5) parses through the shared grammar (${#examples[@]} lines)"
     fi
-    th_version "${ALLOWLIST_MAN}" ALLOWED-PROJECTS
+    th_version "${ALLOWLIST_MAN}" AI-TOOLS-ALLOWED-PROJECTS
 }
 check_allowlist_page
 
-SECRET_MAN="$(man5_path secret-patterns)"
+SECRET_MAN="$(man5_path ai-tools-secret-patterns)"
 SECRET_LIB="${ROOT}/src/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 [[ -r "${SECRET_LIB}" ]] || SECRET_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-section "man page: secret-patterns(5) and the seeded patterns header (unit)"
+section "man page: ai-tools-secret-patterns(5) and the seeded patterns header (unit)"
 check_secret_patterns_page() {
     if [[ ! -r "${SECRET_MAN}" ]]; then
-        skip "secret-patterns page" "secret-patterns.5 not found in the repo or installed"; return
+        skip "ai-tools-secret-patterns page" "ai-tools-secret-patterns.5 not found in the repo or installed"; return
     fi
     # shellcheck source=/dev/null
     if ! source "${CONF_LIB}" 2>/dev/null || ! source "${SECRET_LIB}" 2>/dev/null \
             || ! declare -F ai_tools_load_secret_patterns >/dev/null 2>&1; then
-        skip "secret-patterns seed header" "conf.lib.sh or secret-patterns.lib.sh not loadable"; return
+        skip "ai-tools-secret-patterns seed header" "conf.lib.sh or secret-patterns.lib.sh not loadable"; return
     fi
-    check_seed_header ai_tools_conf_secret_patterns_seed secret-patterns
+    check_seed_header ai_tools_conf_secret_patterns_seed ai-tools-secret-patterns
 
     # The page's example patterns load as patterns: the pattern-shaped lines of EXAMPLES (not the CLI invocations) are
     # written to a file, read through the library's own loader, and must come back one for one, each a basename glob
@@ -411,7 +412,7 @@ check_secret_patterns_page() {
     local -a examples=() loaded=(); local pattern bad=0 file
     mapfile -t examples < <(man_examples "${SECRET_MAN}" | grep -vE '^(ai-tools|#|$)' || true)
     if (( ${#examples[@]} == 0 )); then
-        fail "secret-patterns(5) EXAMPLES carry no pattern line to check"; return
+        fail "ai-tools-secret-patterns(5) EXAMPLES carry no pattern line to check"; return
     fi
     file="$(mktemp)"
     printf '%s\n' "${examples[@]}" > "${file}"
@@ -420,17 +421,17 @@ check_secret_patterns_page() {
     rm -f "${file}"
     _AI_TOOLS_PATTERNS_LOADED=""
     for pattern in "${examples[@]}"; do
-        [[ "${pattern}" == */* ]] && { fail "secret-patterns(5) example carries a '/', which a basename glob never matches: ${pattern}"; bad=1; }
+        [[ "${pattern}" == */* ]] && { fail "ai-tools-secret-patterns(5) example carries a '/', which a basename glob never matches: ${pattern}"; bad=1; }
     done
     if (( ${#loaded[@]} != ${#examples[@]} )); then
-        fail "secret-patterns(5) EXAMPLES: ${#examples[@]} pattern lines loaded as ${#loaded[@]} patterns"; bad=1
+        fail "ai-tools-secret-patterns(5) EXAMPLES: ${#examples[@]} pattern lines loaded as ${#loaded[@]} patterns"; bad=1
     fi
-    (( bad )) || pass "every pattern line in secret-patterns(5) EXAMPLES loads through the shared matcher (${#examples[@]} patterns)"
-    th_version "${SECRET_MAN}" SECRET-PATTERNS
+    (( bad )) || pass "every pattern line in ai-tools-secret-patterns(5) EXAMPLES loads through the shared matcher (${#examples[@]} patterns)"
+    th_version "${SECRET_MAN}" AI-TOOLS-SECRET-PATTERNS
 }
 check_secret_patterns_page
 
-# ── The shipped config templates: operator.conf(5), custom-claude-endpoint.conf(5) ──────────────
+# ── The shipped config templates: ai-tools-operator.conf(5), ai-tools-custom-claude-endpoint.conf(5) ──────────────
 # Each template is %config(noreplace), so a prose change to it reaches an upgraded host only as an .rpmnew the operator
 # reconciles by hand; the reference lives in the page and the template keeps a brief line per option beside its
 # commented default. check_config_page holds the two in lockstep: every key the template mentions is documented
@@ -473,8 +474,8 @@ check_config_page() {
     th_version "${page}" "${th}"
 }
 section "man page: the shipped config templates in sync with their pages (unit)"
-check_config_page operator.conf "${CONFIG_TEMPLATES}/operator.conf" OPERATOR.CONF
-check_config_page custom-claude-endpoint.conf "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" CUSTOM-CLAUDE-ENDPOINT.CONF
+check_config_page ai-tools-operator.conf "${CONFIG_TEMPLATES}/operator.conf" AI-TOOLS-OPERATOR.CONF
+check_config_page ai-tools-custom-claude-endpoint.conf "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" AI-TOOLS-CUSTOM-CLAUDE-ENDPOINT.CONF
 
 # ── ai-tools-messages(7): the generated page ───────────────────────────────────────────────────
 # Each other page is written by hand and held to what it documents; this one is derived from .claude/references.md,

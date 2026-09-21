@@ -39,7 +39,7 @@ Your own list lives at `~/.config/ai-tools/secret-patterns` and **replaces**
 the baseline rather than adding to it — so a file written once holds this host
 to the set it named then. Each launch records the difference to journald,
 naming the baseline patterns your file drops. The file's grammar and the full
-baseline are in `man 5 secret-patterns`.
+baseline are in `man 5 ai-tools-secret-patterns`.
 
 ## Git history is a separate exposure
 

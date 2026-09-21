@@ -1,10 +1,10 @@
-.\" custom-claude-endpoint.conf(5) -- a custom API endpoint for Claude Code.
+.\" ai-tools-custom-claude-endpoint.conf(5) -- a custom API endpoint for Claude Code.
 .\" @AI_TOOLS_VERSION@ is substituted at deploy time (install.sh install_subst
 .\" and the RPM %prep), like ai-tools(1). The validation described here is the
 .\" one claude-endpoint.lib.sh applies in the session-env fragment.
-.TH CUSTOM-CLAUDE-ENDPOINT.CONF 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.TH AI-TOOLS-CUSTOM-CLAUDE-ENDPOINT.CONF 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
 .SH NAME
-custom-claude-endpoint.conf \- route sandboxed Claude Code sessions at a custom API endpoint
+ai-tools-custom-claude-endpoint.conf \- route sandboxed Claude Code sessions at a custom API endpoint
 .SH SYNOPSIS
 .B /etc/ai-tools/endpoints/custom-claude-endpoint.conf
 .SH DESCRIPTION
@@ -12,7 +12,7 @@ An endpoint file routes every Claude Code session on the host at an
 Anthropic-compatible API other than the default one: a local proxy, or a
 gateway of your own.
 It is read only where
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)
 sets
 .B CLAUDE_BASE_URL_FILE
 to its path, and the shipped file is inert, every option commented, so
@@ -28,7 +28,7 @@ root and the sandbox account read it, and no other account does.
 Edit it with
 .BR sudo .
 The pointer in
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)
 is world-readable and holds only the path.
 .PP
 A file elsewhere is refused.
@@ -36,7 +36,7 @@ The path must resolve under
 .IR /etc/ai-tools/endpoints/ ,
 the one directory the confined session is granted read on, and the file,
 that directory and
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)
 must each be root-owned and not group- or other-writable.
 .PP
 Only the four documented options are read; any other key in the file is
@@ -49,7 +49,7 @@ A file with every option commented leaves the environment as it is, and the
 session launches at the default endpoint.
 .PP
 The file is parsed with the grammar
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)
 describes.
 .SH OPTIONS
 .TP
@@ -128,7 +128,7 @@ ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-4-5-20251001
 .RE
 .PP
 Point sessions at the file, in
-.BR operator.conf (5):
+.BR ai-tools-operator.conf (5):
 .PP
 .RS 4
 .EX
@@ -137,4 +137,4 @@ CLAUDE_BASE_URL_FILE=/etc/ai-tools/endpoints/custom-claude-endpoint.conf
 .RE
 .SH SEE ALSO
 .BR ai\-tools (1),
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)

@@ -13,7 +13,7 @@
 #     OPERATORS="alice bob svc-ci"
 # Home and primary group are derived per name via getent/id. Names separate on commas or whitespace and the quotes are
 # optional -- the one KEY=value grammar conf.lib.sh defines for every key in the file; the host options beside it are
-# stated in operator.conf(5). It is root-owned 644 (etc_t): world-readable so both the agent hooks (ai_tools_t)
+# stated in ai-tools-operator.conf(5). It is root-owned 644 (etc_t): world-readable so both the agent hooks (ai_tools_t)
 # and the root helpers (ai_tools_handback_t) read it -- files_read_etc_files covers both domains -- and root-write-only,
 # so the agent cannot rewrite the identity root chowns files back to.
 #

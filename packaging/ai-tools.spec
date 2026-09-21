@@ -298,18 +298,18 @@ install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_man
 # ai-tools-admin(8): section 8 because every command it documents refuses a non-root caller.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man8
 install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_mandir}/man8/ai-tools-admin.8
-# operator.conf(5): the host options and the shared KEY=value grammar they are written in.
+# ai-tools-operator.conf(5): the host options and the shared KEY=value grammar they are written in.
 # ai-tools-providers(5): the provider manifests (agents.d, integrations.d) and their keys.
-# allowed-projects(5), secret-patterns(5): the two files an operator's enrolment seeds, whose
+# ai-tools-allowed-projects(5), ai-tools-secret-patterns(5): the two files an operator's enrolment seeds, whose
 # headers are written once and point here for the reference.
-# custom-claude-endpoint.conf(5): the endpoint file's options, so its %%config(noreplace)
+# ai-tools-custom-claude-endpoint.conf(5): the endpoint file's options, so its %%config(noreplace)
 # template stays a pointer.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
-install -m 0644 src%{ai_mandir}/man5/operator.conf.5               %{buildroot}%{ai_mandir}/man5/operator.conf.5
-install -m 0644 src%{ai_mandir}/man5/ai-tools-providers.5          %{buildroot}%{ai_mandir}/man5/ai-tools-providers.5
-install -m 0644 src%{ai_mandir}/man5/allowed-projects.5            %{buildroot}%{ai_mandir}/man5/allowed-projects.5
-install -m 0644 src%{ai_mandir}/man5/secret-patterns.5             %{buildroot}%{ai_mandir}/man5/secret-patterns.5
-install -m 0644 src%{ai_mandir}/man5/custom-claude-endpoint.conf.5 %{buildroot}%{ai_mandir}/man5/custom-claude-endpoint.conf.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-operator.conf.5               %{buildroot}%{ai_mandir}/man5/ai-tools-operator.conf.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-providers.5                   %{buildroot}%{ai_mandir}/man5/ai-tools-providers.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-allowed-projects.5            %{buildroot}%{ai_mandir}/man5/ai-tools-allowed-projects.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-secret-patterns.5             %{buildroot}%{ai_mandir}/man5/ai-tools-secret-patterns.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5 %{buildroot}%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5
 # ai-tools-messages(7): every message code the tree emits, generated from the cross-reference
 # index. Section 7 documents a convention rather than a command, and no EL package owns man7
 # under %%{_prefix}/local, so the directory ships here.
@@ -1134,11 +1134,11 @@ fi
 %attr(0755, root, root) %{ai_bindir}/ai-tools
 %{_sbindir}/ai-tools
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
-%attr(0644, root, root) %{ai_mandir}/man5/operator.conf.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-operator.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-providers.5*
-%attr(0644, root, root) %{ai_mandir}/man5/allowed-projects.5*
-%attr(0644, root, root) %{ai_mandir}/man5/secret-patterns.5*
-%attr(0644, root, root) %{ai_mandir}/man5/custom-claude-endpoint.conf.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-allowed-projects.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-secret-patterns.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man7/ai-tools-messages.7*
 %attr(0644, root, root) %{ai_mandir}/man8/ai-tools-admin.8*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
@@ -1331,7 +1331,7 @@ fi
   such a package refuses every launch after this upgrade until the nightly update or
   'sudo ai-tools-admin system bootstrap' has run; the refusal names the agent and the command.
 - CHANGE: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY asks for a pin of either kind, which is what
-  operator.conf(5) has always said it governs -- an entrypoint carrying no pin. A host that sets it
+  ai-tools-operator.conf(5) has always said it governs -- an entrypoint carrying no pin. A host that sets it
   now also launches an agent pinned as installed, and the status report is where the tier is named.
   The key's comment in /etc/ai-tools/operator.conf is reworded to match, so an edited file gets an
   .rpmnew beside it on upgrade.
@@ -1521,8 +1521,8 @@ fi
   for. 'journalctl -t ai-tools-chown AI_TOOLS_PROJECT=DIRECTORY' answers what happened to one
   project, and on a host running two sessions the ownership record says which one asked.
 - NEW: Each operator config file has a section 5 page the package replaces on every upgrade --
-  'allowed-projects(5)', 'secret-patterns(5)', 'operator.conf(5)' and
-  'custom-claude-endpoint.conf(5)' -- and 'ai-tools-providers(5)' documents every manifest key. Each
+  'ai-tools-allowed-projects(5)', 'ai-tools-secret-patterns(5)', 'ai-tools-operator.conf(5)' and
+  'ai-tools-custom-claude-endpoint.conf(5)' -- and 'ai-tools-providers(5)' documents every manifest key. Each
   template keeps a line per option beside its commented default and points at its page, so a
   corrected reference arrives with the package. operator.conf ships shrunk to that, as one .rpmnew.
 - NEW: 'ai-tools --providers' names the SELinux policy groups each enabled integration declares and
@@ -2215,7 +2215,7 @@ fi
   dated .bak and .shipped sidecars, never overwritten
 - NEW: Read allowed-projects with the shared config grammar (conf.lib.sh): end-of-line comments
   and quoted paths, one parser for the wrapper, the CLI, and the handback helper
-- NEW: Add operator.conf(5)
+- NEW: Add ai-tools-operator.conf(5)
 - NEW: Optional SELinux policy group apphost lets the sandbox build and run .NET executable and
   host projects -- console apps, ASP.NET Core and worker services, xunit.v3 tests, single-file
   publishes. A class library, or in-process MSTest (Microsoft.Testing.Platform), does not need it.

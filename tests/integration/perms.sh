@@ -366,30 +366,30 @@ if [[ -e /usr/local/share/man/man1/ai-tools.1.gz ]]; then
 else
     check_file /usr/local/share/man/man1/ai-tools.1           root root 644
 fi
-if [[ -e /usr/local/share/man/man5/operator.conf.5.gz ]]; then
-    check_file /usr/local/share/man/man5/operator.conf.5.gz   root root 644
+if [[ -e /usr/local/share/man/man5/ai-tools-operator.conf.5.gz ]]; then
+    check_file /usr/local/share/man/man5/ai-tools-operator.conf.5.gz   root root 644
 else
-    check_file /usr/local/share/man/man5/operator.conf.5      root root 644
+    check_file /usr/local/share/man/man5/ai-tools-operator.conf.5      root root 644
 fi
 if [[ -e /usr/local/share/man/man5/ai-tools-providers.5.gz ]]; then
     check_file /usr/local/share/man/man5/ai-tools-providers.5.gz root root 644
 else
     check_file /usr/local/share/man/man5/ai-tools-providers.5    root root 644
 fi
-if [[ -e /usr/local/share/man/man5/allowed-projects.5.gz ]]; then
-    check_file /usr/local/share/man/man5/allowed-projects.5.gz   root root 644
+if [[ -e /usr/local/share/man/man5/ai-tools-allowed-projects.5.gz ]]; then
+    check_file /usr/local/share/man/man5/ai-tools-allowed-projects.5.gz   root root 644
 else
-    check_file /usr/local/share/man/man5/allowed-projects.5      root root 644
+    check_file /usr/local/share/man/man5/ai-tools-allowed-projects.5      root root 644
 fi
-if [[ -e /usr/local/share/man/man5/secret-patterns.5.gz ]]; then
-    check_file /usr/local/share/man/man5/secret-patterns.5.gz    root root 644
+if [[ -e /usr/local/share/man/man5/ai-tools-secret-patterns.5.gz ]]; then
+    check_file /usr/local/share/man/man5/ai-tools-secret-patterns.5.gz    root root 644
 else
-    check_file /usr/local/share/man/man5/secret-patterns.5       root root 644
+    check_file /usr/local/share/man/man5/ai-tools-secret-patterns.5       root root 644
 fi
-if [[ -e /usr/local/share/man/man5/custom-claude-endpoint.conf.5.gz ]]; then
-    check_file /usr/local/share/man/man5/custom-claude-endpoint.conf.5.gz root root 644
+if [[ -e /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5.gz ]]; then
+    check_file /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5.gz root root 644
 else
-    check_file /usr/local/share/man/man5/custom-claude-endpoint.conf.5    root root 644
+    check_file /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5    root root 644
 fi
 if [[ -e /usr/local/share/man/man7/ai-tools-messages.7.gz ]]; then
     check_file /usr/local/share/man/man7/ai-tools-messages.7.gz  root root 644

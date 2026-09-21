@@ -156,8 +156,8 @@ a build path, a developer workflow.
 - **Fonts and placeholders** are covered by [Placeholders](#placeholders) and [Fonts, and where the rule
   binds](#fonts-and-where-the-rule-binds).
 - **One `.TP` per option**, tag first, description following. Note the default in the description.
-- **Cross-reference as `name(section)`** — `ai-tools(1)`, `operator.conf(5)` — with `.BR` markup so the section number
-  renders unbolded.
+- **Cross-reference as `name(section)`** — `ai-tools(1)`, `ai-tools-operator.conf(5)` — with `.BR` markup so the section
+  number renders unbolded.
 - **ASCII only**, including in examples.
 
 ## Keeping a page current

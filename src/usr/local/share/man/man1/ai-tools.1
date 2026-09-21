@@ -79,7 +79,7 @@ membership of the
 group, and a name in
 .B OPERATORS
 in
-.BR operator.conf (5).
+.BR ai-tools-operator.conf (5).
 A general
 .BR sudo (8)
 grant is neither of them \(em the host's own sudoers decides it, and no file in
@@ -743,7 +743,7 @@ A question defaulting to
 still prompts, so this never turns a refusal into consent.
 .PP
 Operator-wide settings are not environment variables: they live in
-.BR operator.conf (5),
+.BR ai-tools-operator.conf (5),
 which is root-owned so that a session cannot widen what it is given.
 .SH FILES
 .TP
@@ -762,7 +762,7 @@ the agent's reach. The grammar and the replace rule are in
 .I /etc/ai-tools/operator.conf
 The host options: the operator list, the enabled providers and filters, the
 strictness switches, and the skip lists. See
-.BR operator.conf (5).
+.BR ai-tools-operator.conf (5).
 .TP
 .I /var/opt/ai-tools/sandbox-projects/
 The sandbox-clone area;
@@ -830,7 +830,7 @@ ai\-tools projects unclaim ~/src/myproject
 .SH SEE ALSO
 .BR ai\-tools\-admin (8),
 .BR allowed\-projects (5),
-.BR operator.conf (5),
+.BR ai-tools-operator.conf (5),
 .BR secret\-patterns (5),
 .BR setfacl (1),
 .BR sudo (8).

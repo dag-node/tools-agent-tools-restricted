@@ -182,7 +182,7 @@ write_agents() {
 # as the one sandbox account, so the notice is the trail that the operator who wrote the line was told; no confirm is
 # drawn, since the line is already theirs.
 shared_account_notice() {
-    notice MSG-C8W2 "AI_TOOLS_AGENTS names more than one agent ($*): every agent named runs as the one sandbox account, so a login or token one agent stores and the session history it keeps are readable by every session of every agent named, and a session of one can start another's binary inside itself -- see AI_TOOLS_AGENTS in operator.conf(5)"
+    notice MSG-C8W2 "AI_TOOLS_AGENTS names more than one agent ($*): every agent named runs as the one sandbox account, so a login or token one agent stores and the session history it keeps are readable by every session of every agent named, and a session of one can start another's binary inside itself -- see AI_TOOLS_AGENTS in ai-tools-operator.conf(5)"
 }
 
 # choose_agents [names] -- decide which agents this run provisions, ahead of the first network step, and write
@@ -269,7 +269,7 @@ choose_agents() {
     ai_tools_msg_block "Choose the agent this host runs" \
         "No agent runs until AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF} names one. This run writes that line for the agent you pick and installs its package into the sandbox toolchain." \
         "" \
-        "Every agent named there runs as the one sandbox account and reads what the others store, so a second agent is a deliberate step: add its name to that line by hand and re-run this command. operator.conf(5) states what the account shares."
+        "Every agent named there runs as the one sandbox account and reads what the others store, so a second agent is a deliberate step: add its name to that line by hand and re-run this command. ai-tools-operator.conf(5) states what the account shares."
     none_index=$(( ${#installed_names[@]} + 1 ))
     sel="$(ai_tools_msg_pick none "${installed_labels[@]}" \
             "None now"$'\t'"provision Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF} later")" || sel=""
