@@ -253,8 +253,8 @@ Licensed under the **GNU Affero General Public License v3.0 only**
 
 **The agents are separate.** This license covers this repository's own source —
 the sandboxing, install, and CLI machinery. `ai-tools-admin system bootstrap`
-installs each enabled agent's package from npm at your own bootstrap step;
-each agent is its vendor's product under its own terms, which this repository
+installs each enabled agent's package from npm at your own bootstrap step; each
+agent is its vendor's product under its own terms, which this repository
 neither vendors nor redistributes. [Agents](docs/agents/index.md) names each
 package.
 

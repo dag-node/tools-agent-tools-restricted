@@ -17,8 +17,8 @@ as done has happened.** Everything on this page follows from that.
 This page says what to run, what each outcome means, and what to do next;
 `ai-tools(1)` holds the option grammar and every exit code. The invariants
 the stop rests on, where containment ends, and its residual failure modes are
-written for a reviewer or a contributor
-in [the stop rule](../../.claude/rules/stop.rule.md).
+written for a reviewer or a contributor in [the stop
+rule](../../.claude/rules/stop.rule.md).
 
 ## One form
 
@@ -149,11 +149,11 @@ in the trail afterwards:
 
 Exit 0 means precisely this: every session that existed when the command
 enumerated was terminated and verified gone, and a final re-enumeration found
-no process still live. It does **not** mean none can start afterwards — the
-residual failure modes are in [the stop
-rule](../../.claude/rules/stop.rule.md) — and it makes **no claim about
-the user manager**, whose restoration is reported on its own line and is not
-part of this status.
+no process still live. It does **not** mean none can start afterwards —
+the residual failure modes are in [the stop
+rule](../../.claude/rules/stop.rule.md) — and it makes **no claim
+about the user manager**, whose restoration is reported on its own line and is
+not part of this status.
 
 ## After a stop: reclaim
 
