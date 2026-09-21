@@ -374,7 +374,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | g3r5 | [MSG-G3R5](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | no TTY for confirmation; re-run with --yes to apply non-interactively | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
 | w6a2 | [MSG-W6A2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | unknown option: ${arg} | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
 | w2b2 | [MSG-W2B2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
-| k9h2 | [MSG-K9H2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | nothing to reclaim -- ${canonical} is not under any claimed project | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
+| k9h2 | [MSG-K9H2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | nothing to reclaim -- ${canonical} is not under any claimed project | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh | src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh | warn |
 | j6b2 | [MSG-J6B2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | nothing to reclaim under ${canonical} | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh | tests/unit/reclaim.sh | warn |
 | t9m5 | [MSG-T9M5](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | declined; ownership left as it stands | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
 | j4w5 | [MSG-J4W5](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical} | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
@@ -406,7 +406,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | u2g7 | [MSG-U2G7](../src/usr/local/libexec/ai-tools/ai-tools-relabel.sh) | missing label library: ${RELABEL_LIB} | src/usr/local/libexec/ai-tools/ai-tools-relabel.sh |  | die |
 | q4x9 | [MSG-Q4X9](../src/usr/local/libexec/ai-tools/ai-tools-relabel.sh) | failed to revert SELinux label on ${dir} | src/usr/local/libexec/ai-tools/ai-tools-relabel.sh |  | die |
 | p8j7 | [MSG-P8J7](../src/usr/local/libexec/ai-tools/ai-tools-relabel.sh) | refusing to label ${dir}: not in the allowed-projects allowlist | src/usr/local/libexec/ai-tools/ai-tools-relabel.sh | tests/unit/relabel.sh | die |
-| m2d2 | [MSG-M2D2](../src/usr/local/libexec/ai-tools/ai-tools-relabel.sh) | failed to label ${dir} (is the ai_tools policy module loaded? run: sudo selinux/install-selinux.sh install) | src/usr/local/libexec/ai-tools/ai-tools-relabel.sh |  | die |
+| m2d2 | [MSG-M2D2](../src/usr/local/libexec/ai-tools/ai-tools-relabel.sh) | failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install) | src/usr/local/libexec/ai-tools/ai-tools-relabel.sh |  | die |
 | v7j8 | [MSG-V7J8](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | unknown option: ${arg} | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
 | f6q4 | [MSG-F6Q4](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
 | y5r2 | [MSG-Y5R2](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | could not chown ${GITCONFIG} to root:${GROUP} | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |

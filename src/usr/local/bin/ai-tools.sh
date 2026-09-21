@@ -1244,7 +1244,8 @@ clone_is_private() {
 # fcontext rule in selinux/policy/ai_tools.fc maps every directory under sandbox-projects/ to ai_tools_project_t,
 # so a plain restorecon labels it -- no per-project semanage and no root: the projects user runs as unconfined_t,
 # which the policy grants relabel to ai_tools_project_t. No-op when SELinux is disabled (or the module is not loaded,
-# in which case the label stays the default and the operator must run selinux/install-selinux.sh install).
+# in which case the label stays the default until the operator installs ai-tools-selinux, or from a checkout runs
+# selinux/install-selinux.sh install).
 relabel_clone() {
     local d="$1"
     command -v restorecon >/dev/null 2>&1 || return 0
