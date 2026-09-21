@@ -14,42 +14,13 @@ on.
 The property it holds is one sentence: **a stop that is asked for and reported
 as done has happened.** Everything on this page follows from that.
 
----
+This page says what to run, what each outcome means, and what to do next;
+`ai-tools(1)` holds the option grammar and every exit code. The invariants
+the stop rests on, where containment ends, and its residual failure modes are
+written for a reviewer or a contributor
+in [the stop rule](../../.claude/rules/stop.rule.md).
 
-## Where each fact lives
-
-Four audiences read about this feature, and each fact has exactly one home.
-Follow the pointer rather than expecting the same paragraph twice.
-
-| If you are… | Read | It holds | It never holds |
-|---|---|---|---|
-| an operator running the command | `ai-tools(1)`, then §1 here | the option grammar and exit codes (man page); what to run, what each outcome means, what to do next | why the code is shaped this way |
-| a security or systems reviewer | §2–§3 here | the invariants relied on, where containment ends, residual failure modes | how to use the command |
-| a contributor or coding agent | [`.claude/rules/cli.rule.md`](../../.claude/rules/cli.rule.md) | the domain contract, and which project-wide conventions this component inverts | the reasoning behind each inversion — it links here |
-| reading the code | `ai-tools-stop.sh`'s header and its function names | this file's local mechanism and its exit contract | the design essay |
-
-Two other rules carry a one-line note that this component is their exception,
-each linking back here: [messaging](../../.claude/rules/messaging.rule.md) (the
-confirmation defaults *yes*) and [logging](../../.claude/rules/logging.rule.md)
-(the logger loads best-effort).
-[safe-paths](../../.claude/rules/safe-paths.rule.md) no longer names this helper
-at all: it took a caller-supplied path only for the per-project form, and there
-is no longer one.
-
-**The code is the fourth surface, and it is meant to be read directly.**
-The functions are named for the question they answer, so the kill path reads
-as prose without a comment per line:
-
-```
-find_session_cgroups → has_own_tasks → cgroup_pids → cgroup_is_live
-confirm_stop → end_session → terminate_gracefully → kill_outright → restore_user_manager
-```
-
----
-
-## 1. For the operator
-
-### One form
+## One form
 
 ```
 ai-tools stop              # terminate every agent session on this host
@@ -57,15 +28,17 @@ ai-tools stop --dry-run    # list what would be terminated, change nothing
 ```
 
 Run it as yourself, not under `sudo` — the CLI reaches the root helper on its
-own, and the bare form runs without a password at all (§2, *Who may stop
-what*). The `--dry-run` and `--force` forms fall outside that grant, so those
-prompt. Root may run the command too.
+own, and the bare form runs without a password at all, so an unattended
+detector reaches it too
+([ref-section-r5r9](../../.claude/rules/stop.rule.md#ref-section-r5r9)). Every
+option falls outside that grant — `--dry-run`, `--force`, `-y` and `--all`
+alike — so a flagged form prompts for your password. Root may run the command
+too.
 
 Add `-y`/`--yes` to skip the confirmation, `--force` to skip the ten-second
-grace period and kill immediately. `--all` is accepted and has no effect —
-every run already terminates every session, and the flag exists only
-so a script that spells the intent out is not refused for being explicit.
-The full grammar and every exit code are in `ai-tools(1)`.
+grace period and kill immediately. `--all` is accepted and has no effect: every
+run already terminates every session. The full grammar and every exit code are
+in `ai-tools(1)`.
 
 **There is no per-project form, and a path is refused rather than ignored.**
 Two reasons, and the first is the one that matters:
@@ -88,7 +61,7 @@ recorded by **root** at launch, not the user manager's word — `stop <path>`
 moves from *error* to *accepted*. Nobody's existing command silently changes
 meaning.
 
-### What you get
+## What you get
 
 Each session is listed with its unit, how many processes it holds
 and the project it is running in, and the confirmation is answered
@@ -106,8 +79,8 @@ but they are listed after the agent sessions and marked `(account plumbing)`,
 and the headline gives the two counts apart:
 
 ```
-1 agent session(s) will be terminated, with everything they spawned. … 3 unit(s) of the
-ai-tools account's own plumbing (marked below) go with them -- no cgroup in the account's
+1 agent session(s) will be terminated, with everything they spawned. 3 unit(s) of the
+ai-tools account's own plumbing (marked below) go with them -- nothing in the account's
 slice is exempt -- and its user manager is restarted afterwards.
 
             SESSION                              PROCS  PROJECT
@@ -130,7 +103,7 @@ a project to hand back. The account's dbus broker reports `/opt/ai-tools`
 as its working directory — the control plane, which the protected-paths
 backstop refuses — so listing it offered a remedy that cannot run.
 
-### A second run is not silent
+## A second run is not silent
 
 Running `stop` again straight after a successful one is **not** a no-op,
 and that follows from sweeping every cgroup rather than being a defect in it.
@@ -146,11 +119,12 @@ restarted afterwards.
 The command is idempotent in **end state** — no sessions, manager up — which is
 what "re-running is the remedy" means. It is not idempotent in what it
 *reports*, and it cannot be without either exempting the manager (a cgroup
-a session could then move into, §2) or letting a name decide what is swept.
+a session could then move into) or letting a name decide what is swept.
 
 > **The confirmation defaults to *yes*.** A bare Enter, a pipe, a cron job
 > and a login banner all proceed; only a deliberate `n` declines. This is
-> the opposite of every other destructive command here, on purpose (§4). Use
+> the opposite of every other destructive command here, on purpose
+> ([ref-section-e8k5](../../.claude/rules/stop.rule.md#ref-section-e8k5)). Use
 > `--dry-run` to look without acting.
 
 Each session then gets **10 seconds** to exit on `SIGTERM` before it is killed.
@@ -162,7 +136,7 @@ in the trail afterwards:
   KILLED     ai-tools-claude-code-4823.service  (/home/<you>/projects/web)  did not exit within 10s
 ```
 
-### Outcomes
+## Outcomes
 
 | Exit | Meaning | What to do |
 |---|---|---|
@@ -171,15 +145,17 @@ in the trail afterwards:
 | 2 | usage — an unknown option, or a path (this command does not take a target) | run `ai-tools stop` |
 | 4 | you declined at the confirmation | no session was stopped |
 | 5 | the helper could not run (no cgroup v2, no sandbox account) | a broken host, not a failed stop |
+| 130 | the run was interrupted by a signal | some sessions may be partially stopped; run it again |
 
 Exit 0 means precisely this: every session that existed when the command
 enumerated was terminated and verified gone, and a final re-enumeration found
-no process still live. It does **not** mean none can start afterwards — see
-*Residual failure modes* in §2 — and it makes **no claim about the user
-manager**, whose restoration is reported separately and never folded into this
-status.
+no process still live. It does **not** mean none can start afterwards — the
+residual failure modes are in [the stop
+rule](../../.claude/rules/stop.rule.md) — and it makes **no claim about
+the user manager**, whose restoration is reported on its own line and is not
+part of this status.
 
-### After a stop: reclaim
+## After a stop: reclaim
 
 A stop cannot run the agent's own session-end handback — that hook fires
 when an agent exits on its own terms, not when it is signalled. Files written
@@ -194,7 +170,7 @@ ai-tools projects handback /home/<you>/projects/api
 The next session that starts in that project also notices the missing
 clean-exit marker, widens its `.git` reclaim and warns you.
 
-### What a stop does not undo
+## What a stop does not undo
 
 Stopping ends the process. It does not roll back what the session already did:
 files it wrote are on disk, commits it made are in the repository, and anything
@@ -202,7 +178,7 @@ it pushed to a remote is gone. This rung is **containment, not reversal**. If
 the concern is what a session may still do rather than what it has done, stop
 first and investigate second — that ordering is the point of the rung.
 
-### A process survived (exit 1)
+## A process survived (exit 1)
 
 A task only outlives `SIGKILL` while blocked in an uninterruptible kernel call
 (`D` state): a hung NFS mount, a wedged block device, a stalled page fault.
@@ -216,7 +192,7 @@ sudo ps -o pid,stat,wchan:20,cmd -u ai-tools
 sudo cat /proc/<pid>/stack
 ```
 
-### Reading the trail
+## Reading the trail
 
 Every run is recorded twice: to journald, and to a root-only file the sandbox
 account can neither read nor append to.
@@ -238,372 +214,10 @@ One operator ending another operator's work is a thing the trail shows. That is
 deliberate: all sessions run as one shared account, so the trail is the only
 place the *human* behind a stop is recorded.
 
-### The drill
+## The drill
 
 `tests/manual/verify-live-flows.sh --stop-all-drill` runs the destructive form
 end to end and checks the result against the kernel. An escalation ladder
 nobody has climbed is a document, not a control — run it deliberately,
 periodically, and read the trail afterwards. Without the flag the same section
 still exercises everything reversible (the dry run, both refusals, the trail).
-
----
-
-## 2. For the security specialist
-
-### The threat this rung answers
-
-A session is not a service. It is an interactive process with tool access,
-running as a shared service account, able to spawn arbitrary children —
-and, in the case this control exists for, one that may be doing something
-an operator wants ended *now* and may not cooperate. So the stop path is
-designed against a session that is at best indifferent and at worst
-adversarial, and it is judged by one question: **can the monitored system
-decline, evade, or disarm it?**
-
-### The invariants it rests on
-
-| # | Invariant | Where it comes from | What would break it |
-|---|---|---|---|
-| I1 | A process cannot leave the cgroup it is in, and a child inherits it across `fork()`. Membership survives `setsid(2)` and the double fork that re-parents to PID 1. | `cgroups(7)`; a task moves only when something writes a `cgroup.procs` | a kernel that lets a task rewrite its own membership |
-| I2 | Every process of the sandbox account lives under that account's per-user slice, `user-<uid>.slice`. | `systemd-logind(8)` places user processes there; the account has no login shell, so no other path creates one | a process escaping to another slice — needs the user manager, which SELinux denies and DAC-only leaves as a residual |
-| I3 | `SIGKILL` is neither catchable nor blockable, and `cgroup.kill` (Linux ≥ 5.14) delivers it to a whole cgroup **atomically** — one write freezes the cgroup and kills every member including descendants. | `signal(7)`; `cgroups(7)` | no userspace mechanism |
-| I4 | The kernel answers "is anything alive here" itself: `cgroup.events`' `populated` field is 1 while the cgroup **or any descendant** holds a live process. | cgroup v2 interface files | a threaded subtree, where `cgroup.procs` reads fail — handled by corroborating with `cgroup.threads` |
-| I5 | Only root may signal across accounts and write `cgroup.kill`. The sandbox account does not hold a `sudo` rule, and the session runs under `PR_SET_NO_NEW_PRIVS`, which drops `sudo`'s SUID bit outright. | the sudoers drop-in; `ai-tools-run`'s unit properties | an operator adding a rule for the sandbox account |
-| I6 | The set of sessions terminated is decided by cgroup-slice membership alone — no input the account can write reaches that decision, because the command accepts neither a target nor an authorization argument. | this command's own grammar | adding a per-project form scoped by anything the account reports |
-| I7 | `/proc` and `/sys` reads plus bash builtins need no external binary. The kill path calls `sleep` alone. | the helper's own construction | — |
-
-Two of these carry the whole design. **I1 is why discovery is by cgroup**:
-a process group is broken by `setsid(2)` and a ppid walk is broken
-by the double fork, so neither can enumerate what a session spawned. **I3 is
-why the kill is by cgroup too**: signalling a list of pids races the fork
-that happens between reading the list and signalling it, and `cgroup.kill` has
-no such window.
-
-### Who may stop what
-
-Any `ai-ops` operator may run it — and so may root — and it terminates every
-agent session on the host, including other operators'. That is deliberate,
-and it is not a widening: `--all` never took an authorization input,
-so an operator could always end everyone's sessions. What changed is that there
-is no longer a *politer* form beside it, because the politer form was not
-a control.
-
-**It runs without a password, and that is the requirement the grant answers.**
-The `%ai-ops` drop-in carries a NOPASSWD rule for the helper's bare form,
-so the command runs with no prompt:
-
-```
-%ai-ops ALL=(root) NOPASSWD: /usr/local/libexec/ai-tools/ai-tools-stop ""
-```
-
-The deciding argument is automation, not convenience. A service that detects
-a session doing something that must end *now* cannot answer an interactive
-password prompt, so a stop gated behind one is reachable only by a human
-at a terminal — which makes the ladder's last rung unavailable during exactly
-the incidents it exists for. The bare command is the whole of what a detector
-needs, because the confirmation defaults yes and proceeds with no terminal
-(§1). The trailing `""` pins the rule to that zero-argument form and therefore
-withholds `--force` (which drops the grace period and the current turn's
-unsaved work with it) and `--dry-run` (a detector does not preview); both stay
-behind a general sudo grant. Since the helper does not take a target
-or an authorization input, the rule has no argument surface at all —
-the narrowest shape a NOPASSWD rule can have.
-
-Root reaches the same command directly (`ai-tools stop` is one of the verbs
-that write no operator-owned state, so the CLI admits root; the helper required
-root regardless), which matters because root is the identity a monitoring
-daemon usually runs as.
-
-What this widens, stated plainly: any `ai-ops` member can now end every
-operator's sessions without authenticating. That is availability-only, it was
-already true of anyone holding a general grant, and it moves
-in the **corrigible** direction — every other control in this project resolves
-failure toward *less access*, and this one resolves toward *less activity*,
-so making it easier to reach is asymmetrically safe.
-
-A per-project form would have to decide which sessions belong to a project,
-and every available answer is written by the account being stopped — the unit's
-`WorkingDirectory`, its name, its launch line. Scoping a stop by any of them
-lets a session influence what a stop reaches, which is exactly inverted.
-The alternative that would work is a session-to-project mapping recorded
-by **root** at launch (through the handback socket, whose peer uid the kernel
-supplies), and that is real machinery: a verb, a registry, and its lifecycle.
-It is not built, because the routine way to end a session is `/exit`,
-and the incident that reaches for this rung wants everything stopped.
-
-The operational consequence, stated plainly rather than left to be discovered:
-**on a shared host one operator's stop ends every operator's sessions.**
-The trail records who asked.
-
-### Where containment ends
-
-systemd **delegates** the per-user subtree to the account — that is what lets
-its user manager create units at all — and delegation permits the delegatee
-to move its own tasks between cgroups *inside* that subtree. Containment holds
-at the delegation boundary, not within it.
-
-On a host with the SELinux module loaded this is closed outright: `ai_tools_t`
-is granted no permission on `cgroup_t` (only a `dontaudit … getattr`),
-so a session can neither write a `cgroup.procs` nor create a cgroup, and it has
-no `connectto` on the user runtime socket, so it cannot reach its own user
-manager to ask for a unit either. **On a DAC-only host both are reachable**,
-since the account owns the delegated cgroup files and its own bus socket.
-
-This is why the sweep **covers every cgroup** — the account's own
-`systemd --user` and its `init.scope` included. An exemption is a destination:
-any cgroup left out is one a session on a DAC-only host can move into, whether
-it is named or identified by exact path. Covering every cgroup means there is
-nowhere to move to, and a unit the session asks its manager to create is still
-inside the slice being swept. It also means **no unit name appears
-in the helper at all**, so there is no name here to differ between EL9, EL10
-and Fedora.
-
-The cost is that the user manager is terminated too, and `SIGKILL` leaves
-`user@<uid>.service` **failed** rather than restarting it. That is paid back
-rather than exempted: `restore_user_manager` runs after the kill *and*
-after the verification, restarts the unit, and reports the outcome on its own —
-a manager that did not come back never changes what the command says
-about the stop. If it fails, the message names the fix and the next launch
-needs it before a session can start.
-
-A final sweep re-enumerates after the run and reports a cgroup that became live
-after being verified empty (`AI_TOOLS_RESULT=reappeared`) — that is
-what a mid-run launch looks like from here. Re-running is the remedy;
-the command is idempotent.
-
-Attribution is best-effort and display-only: a `WorkingDirectory` is read
-from the account's own user manager, so a rogue unit can misreport it — and all
-that buys is a wrong label in the table and a missing `projects handback` line.
-It cannot affect what is terminated, because the sweep does not consult it.
-
-### Residual failure modes
-
-Stated so the guarantee is bounded honestly rather than overstated.
-
-- **Uninterruptible sleep.** A `D`-state task cannot be reaped until its
-  syscall returns; the run reports it as surviving, which is honest. It stays
-  off the CPU meanwhile.
-- **The helper itself is `SIGKILL`ed mid-run.** An `EXIT` trap narrows
-  the *audit* gap (it covers every signal bash can handle) but no mechanism
-  narrows the *state* gap. The remedy is that the command is idempotent: run it
-  again. A watchdog would be a second privileged daemon for a case a rerun
-  already answers.
-- **The launch/stop window.** A session launched after the final sweep is
-  outside the command's window. Closing it needs a gate shared
-  with the launcher, which does not exist; for the incident case the operator
-  holds the launch path anyway, and for an adversarial session the answer is
-  a revoked launch grant beside the stop, not a stronger promise here.
-- **Blast radius.** Everything in the account's slice is in scope, including
-  an in-flight toolchain update and the account's own user manager. The updater
-  is fail-closed on interruption and leaves the previous, trusted version
-  active; the manager is restarted afterwards. Neither is a surprise worth
-  discovering during an incident, which is why both are stated here.
-- **The manager does not come back.** The restart is best-effort and reported
-  separately. Until it succeeds the host cannot start a *new* session — nearer
-  to the point of this command than against it, but it must be fixed
-  before work resumes. The message names the command.
-- **Kernel below 5.14 or a cgroup-v1-only host.** Without `cgroup.kill`
-  the fallback re-collects and re-signals in a loop, narrowing the fork window
-  without closing it. With no cgroup v2 hierarchy at all the helper **refuses**
-  (exit 5) and names the manual command, rather than reporting that no session
-  is running. Both supported EL targets are unified and ≥ 5.14.
-- **Both log sinks unavailable.** The stop still succeeds or correctly fails;
-  the record is lost. The two sinks fail independently.
-
-### What the monitored system can do about it
-
-Nothing, and this is asserted from the agent's own vantage
-in `tests/boundary/access.sh`: the sandbox account cannot read, write
-or execute the helper and does not hold a `sudo` rule to reach root by. There
-is no authorization input left for it to aim at, either — the command takes
-none. The kill is delivered by root to a cgroup, and no process inside
-the cgroup takes part in it.
-
-**No name buys anything, because no name is spared.** One cgroup is matched
-by name at all — the manager unit, `user@<uid>.service`, by *exact path* —
-and it is not an exemption: it is descended into rather than emitted, so its
-contents (`init.scope` among them) are listed and killed individually instead
-of the whole manager subtree being swallowed as one opaque row. A nested cgroup
-that names itself `init.scope`, or `user@0.service`, is enumerated like any
-other, because every name inside a delegated subtree is the delegatee's
-to choose. Dot-named cgroups are enumerated for the same reason.
-
----
-
-## 3. Implementation
-
-### Why this is not `systemctl stop`
-
-The obvious one-liner is
-`systemctl --user -M ai-tools@.host stop ai-tools-claude-code-<pid>.service`.
-It is the wrong instrument here for four reasons, each of which is a chunk
-of the code:
-
-1. **It asks the monitored system's own manager.** That manager runs
-   as the account being stopped, over a bus that account can reach. Its answer
-   is the session's account of itself.
-2. **It reports on unit state, not on processes.** "The unit is gone" and "no
-   task is left" are different facts, and a wedged manager, an absent machine
-   transport and "already stopped" are one exit status. The helper therefore
-   never lets systemd decide liveness; it verifies against `cgroup.procs`
-   and `/proc`, and where the two views disagree the kernel wins.
-3. **It is unavailable exactly when you need it.** An incident is when the user
-   manager is most likely to be wedged. The kill path deliberately depends
-   on no project library, no `set -e`, and no external binary but `sleep` (I7).
-4. **It stops one named unit.** The command has to *find* the sessions first —
-   across a delegated subtree whose names the delegatee chooses — and say
-   what it did.
-
-That is the answer to "why so much code to turn off a service": almost none
-of it is the turning off. It is discovery, consent, verification, restoration,
-and the record.
-
-### The five phases
-
-```
-  ┌ 1. parse ──────────────────────────────────────────────────────────────────┐
-  │  no target, no authorization input: nothing to decide, nothing to trust    │
-  │  --all accepted and inert; a PATH is refused (exit 2), never ignored       │
-  └────────────────────────────────────────────────────────────────────────────┘
-  ┌ 2. enumerate ──────────────────────────────────────────────────────────────┐
-  │  walk  /sys/fs/cgroup/user.slice/user-<uid>.slice                          │
-  │        descend slices → stop at the first .service/.scope = ONE SESSION    │
-  │        the manager service is descended into, never emitted                │
-  │        NOTHING is exempt -- init.scope is enumerated like anything else    │
-  │  attribute each unit via WorkingDirectory  (best-effort, DISPLAY ONLY:     │
-  │        it selects nothing, so `unknown` costs a label, not a target)       │
-  │  classify agent session vs account plumbing  (advisory, DISPLAY ONLY:      │
-  │        splits the counts and orders the table; selects nothing)            │
-  └────────────────────────────────────────────────────────────────────────────┘
-  ┌ 3. confirm ────────────────────────────────────────────────────────────────┐
-  │  the table, then a question that DEFAULTS TO YES; consent path recorded    │
-  └────────────────────────────────────────────────────────────────────────────┘
-  ┌ 4. end each session ───────────────────────────────────────────────────────┐
-  │  SIGTERM pass, deepest-first, re-collected each second, up to 10s          │
-  │        → empty?  outcome = terminated                                      │
-  │  SIGKILL pass:  write cgroup.kill (atomic, re-asserted per pass)           │
-  │                 + validated per-pid kill as the pre-5.14 fallback          │
-  │        → empty?  outcome = killed        else  outcome = alive             │
-  └────────────────────────────────────────────────────────────────────────────┘
-  ┌ 5. sweep, restore, report ─────────────────────────────────────────────────┐
-  │  re-enumerate the whole slice; any live cgroup → did not complete (exit 1) │
-  │  live but not one the loop reported  → reappeared: a session started       │
-  │                                        mid-run; re-running is the remedy   │
-  │  restart user@<uid>.service -- AFTER verification, reported separately,    │
-  │        never folded into the stop's exit status                            │
-  │  name the projects handback per project terminated                         │
-  └────────────────────────────────────────────────────────────────────────────┘
-```
-
-### The decisions inside those phases
-
-- **A systemd *unit* is the unit of work.** The walk descends `.slice`
-  directories and stops at the first `.service`/`.scope`, emitting it whole:
-  its nested cgroups are part of it, so descending further would list the same
-  processes twice and offer a parent slice as a stoppable thing — which would
-  take every sibling unit with it. Nothing is lost, because the only place
-  a task can hide from a unit walk is a slice, and a slice holding tasks
-  *directly* is emitted in its own right.
-- **Deepest-first signalling.** Children are reached before their parents,
-  so a parent is never left waiting on a child it can still see.
-- **Re-collect between passes.** A set read once and signalled twice misses
-  whatever was forked in between. Each pass re-reads the cgroup.
-- **Validate a pid's start time immediately before signalling it**
-  (`/proc/<pid>/stat` field 22), so a pid recycled between collection and kill
-  is skipped rather than signalled blind. This is the pre-5.14 path;
-  `cgroup.kill` does not signal any pid.
-- **Every liveness read fails closed.** Only one failure means "empty":
-  the file not existing, i.e. the cgroup was removed, which is what a completed
-  kill looks like. A permission-unreadable `cgroup.procs` reports LIVE.
-  A threaded cgroup — whose `cgroup.procs` read fails while live threads sit
-  in it — is corroborated against `cgroup.threads` (I4), because bash cannot
-  tell a failed `read(2)` from a clean EOF.
-- **Verification never runs through an external command.** An earlier form
-  of the liveness predicate piped to `head`; with `head` absent it would have
-  answered "no tasks" and reported a stop as complete while the session ran.
-  Every other external in the file fails toward doing *less*; that one failed
-  toward *claiming more*, on the one check the guarantee rests on.
-
-### Degradation policy: two inversions, one reason
-
-For every other component here the safe direction is **don't act**. For this
-one it is **act**. So two project-wide conventions are inverted, and each is
-inverted for that reason alone:
-
-1. **No required dependencies, and no `set -e`.** A missing library
-   that aborted the run, or an unexpected non-zero that abandoned
-   a half-finished kill, would be a stop that did not happen. The rule is
-   about *abandonment*, not about `set -e` specifically: `set -u` **is** used,
-   and it ends the shell just as abruptly wherever a name or an argument is
-   read unset — so a value a caller may legitimately not have passed is
-   defaulted where it is read, rather than left to abort a run mid-way. What is
-   guaranteed is independence from *this project's* libraries, and now
-   absolutely: **no project library is load-bearing here at all.** The command
-   does not take any input that decides which sessions to stop, so there is no
-   input left for a library to gate. `log.lib.sh` and `msg.lib.sh` load
-   best-effort for output quality; `safe-paths.lib.sh` and `operator.lib.sh`
-   are not loaded, having existed here only to vet and authorize
-   a caller-supplied target. It is not independence from the base system
-   and does not pretend to be — which externals a run touches and which of them
-   are on the kill path (I7) is stated in the helper's header, beside the code.
-2. **The confirmation defaults to yes.** The principle
-   in [messaging](../../.claude/rules/messaging.rule.md) is unchanged — *the
-   default is the safe outcome*; which outcome is safe is what flips.
-
----
-
-## 4. Decisions that must not be reverted
-
-Each of these looks like a defect to a fresh reader, and each is deliberate. If
-you are about to "fix" one, this is the section that says why not.
-
-| Decision | Why |
-|---|---|
-| The confirmation defaults **yes** | for the one control whose job is to act, declining is the failure (§3) |
-| No `set -e`, no required library, and every value defaulted where `set -u` would abort | an aborted run is a stop that did not happen — including one aborted by an argument a caller did not pass (§3) |
-| There is **no per-project form**, and a path is an error | every way to attribute a session to a project is written by the account being stopped (§2) |
-| A path errors rather than being ignored | it keeps targeted stopping addable later without changing what an existing command means (§1) |
-| **Nothing is exempt**, `init.scope` included | an exemption is a cgroup a session can move into on a DAC-only host (§2) |
-| The user manager is restarted, not spared | the exemption it would need costs more than the restart does (§2) |
-| The restart never changes the exit status | the invariant is that the *stop* happened; the manager is a separate fact (§2) |
-| Liveness comes from cgroups only | systemd never decides whether something is running (§3) |
-| Attribution is best-effort and display-only | the sweep does not consult it, so a misreported project costs a label, not a target (§2) |
-| Agent sessions and account plumbing are counted apart, advisorily | the class comes from a unit name, so it is the account's word — but it labels a row, never selects one, and the alternative was telling an operator four "agent sessions" were running when one was (§1) |
-| A second run terminates and restarts the manager again | idempotence is in end state; a silent rerun costs either an exemption or a name-decided sweep (§1) |
-
-## 5. Deferred hardening
-
-Known, bounded, and not yet built:
-
-- **Pin the cgroup by file descriptor.** A unit can exit and systemd recreate
-  the same path, so a kill could in principle hit a newer invocation. Holding
-  an fd on the cgroup directory and working through `/proc/self/fd/<n>/` makes
-  a recreated path read `ENOENT`. The worst case today is stopping a *newly
-  started session of the same account*, which is not an escalation and is
-  what `--all` would do anyway.
-- **A dedicated slice for agent sessions.** Launching into an `ai-tools.slice`
-  would let the sweep spare the user manager structurally instead of restarting
-  it. **Rejected for now, and the reason matters:** it would also put every
-  cgroup *outside* that slice out of reach, and on a DAC-only host a session
-  can create a unit there by asking its own user manager — so the slice would
-  buy a tidier blast radius at the cost of the property that makes this rung
-  worth having. Revisit only together with closing that reach.
-- **A root-recorded session registry.** The prerequisite for any per-project
-  form: `ai-tools-run` recording unit→project through the handback socket,
-  whose peer uid the kernel supplies, so the mapping is not the account's word.
-  A verb, a registry, and its lifecycle — not built, because `/exit` covers
-  the routine case (§2).
-- **A launch/stop gate.** A session launched after the final sweep is outside
-  the window; closing that needs the launcher to take the same lock. It would
-  also serialize concurrent stops, whose current cost is duplicate audit events
-  rather than a wrong result.
-
-## See also
-
-- `ai-tools(1)` — the option grammar and every exit code
-- [Project lifecycle](../projects/index.md) — claiming projects,
-  and `projects handback`
-- [`.claude/rules/cli.rule.md`](../../.claude/rules/cli.rule.md) — the domain
-  contract, for contributors
-- [`.claude/rules/governance.rule.md`](../../.claude/rules/governance.rule.md) —
-  where this rung sits in the incident ladder

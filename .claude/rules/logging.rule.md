@@ -100,7 +100,7 @@ consumers that keep a soft no-op fallback. `ai-tools-stop` (`stop.log`) is the o
 values and still loads the logger **best-effort**, behind an inline sanitizer byte-identical to `ai_tools_log_sanitize`
 and an inline `logger(1)`-plus-append fallback: there a missing library would mean a stop that did not happen,
 so the reduction is preserved rather than the load being made fatal
-([docs/sessions/stop.md](../../docs/sessions/stop.md)). The values it reduces are a unit name and a session's
+([ref-section-e8k5](stop.rule.md#ref-section-e8k5)). The values it reduces are a unit name and a session's
 `WorkingDirectory`, both read from the sandbox account's own user manager; that helper additionally refuses any working
 directory that is not an absolute path, so a value it cannot interpret degrades to `unknown` instead of reaching
 the operator inside a `projects handback` command it is invited to run.

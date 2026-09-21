@@ -256,7 +256,7 @@ break a command across lines (see *Quirks*).
 
 Because the no-terminal path is legitimate here rather than degraded, that helper records **which** path gave consent
 (`flag`, `prompt`, `fallback-prompt`, `no-tty`) rather than only the answer. Full reasoning:
-[docs/sessions/stop.md](../../docs/sessions/stop.md).
+[ref-section-e8k5](stop.rule.md#ref-section-e8k5).
 
 ## `ai_tools_msg_challenge` — the typed-name challenge
 

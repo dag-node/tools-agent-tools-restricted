@@ -53,7 +53,8 @@ die() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-allowlist: %s\n' "$*" >&2; exit 1
 }
-# note: the same line on stdout, for an action that completed or had nothing to do. It does not exit, so the exit status
+# note: the same line on stdout, for an action that completed or found the entry already in the state it asked for. It
+# does not exit, so the exit status
 # stays where the action decides it, and it carries the prefix so no call site repeats it.
 note() {
     local code=""

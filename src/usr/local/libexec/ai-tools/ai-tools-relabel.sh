@@ -155,6 +155,6 @@ else
            ai_tools_log_structured info "labelled project ${dir} ai_tools_project_t" \
                "AI_TOOLS_RESULT=ok" ;;
         2) echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}" ;;
-        *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? run: sudo selinux/install-selinux.sh install)" ;;
+        *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;
     esac
 fi

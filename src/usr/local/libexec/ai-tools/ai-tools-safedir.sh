@@ -145,7 +145,7 @@ if ${REMOVE}; then
 fi
 
 # ADD. The path must be a real directory an operator's allowlist covers. Each refusal is reported as well as recorded:
-# a direct `sudo ai-tools-safedir` that registered nothing would otherwise exit 0 with no account of itself,
+# a direct `sudo ai-tools-safedir` that declined the path would otherwise exit 0 with no account of itself,
 # and the CLI's own report says only that the step ran.
 canonical="$(realpath -e -- "${TARGET}" 2>/dev/null)" || {
     warn MSG-N4D4 "no such directory ${TARGET} -- not registering safe.directory"

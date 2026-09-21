@@ -124,7 +124,7 @@ is answered accurately rather than through one representative. `projects push`, 
 verbs reach no helper that can refuse the command, and are not probed. Neither is `stop`, the privileged verb
 an operator without a general grant can already run through the `%ai-ops` rule for its helper: probing it answers "grant
 present" every time, so the entry would carry no information. (That rule covers the bare form only, so `stop`'s flagged
-forms do meet sudo's ordinary prompt — see [docs/sessions/stop.md](../../docs/sessions/stop.md). The probe could not
+forms do meet sudo's ordinary prompt — [ref-section-r5r9](stop.rule.md#ref-section-r5r9). The probe could not
 have reported that either: it asks about a helper, not about a command line.)
 
 The probe is `sudo -n -l <helper>`, which cannot prompt. An operator holding a general grant gets exit 0 and the command
@@ -297,46 +297,20 @@ an ordinary account read it — a partial view, the file sink being the authorit
   a reassuring wall of old findings.
 - `stop` — terminate every running agent session and everything it spawned, through the `ai-tools-stop` root helper,
   which `%ai-ops` grants NOPASSWD in its bare form (the one rule in the drop-in whose passwordlessness is its purpose:
-  an unattended detector cannot answer a prompt — [docs/sessions/stop.md](../../docs/sessions/stop.md)). The only verb
+  an unattended detector cannot answer a prompt — [ref-section-r5r9](stop.rule.md#ref-section-r5r9)). The only verb
   that acts on a session **already running**; every other control here changes what the *next* launch gets. It is
   **not** the session-lifecycle command — `/exit` inside a session is, and it lets the session run its own `SessionEnd`
   handback. The CLI half is deliberately thin — option grammar only — because every remaining decision is a security
-  decision that must not be made twice in two places.
-
-  Four properties a contributor has to hold on to; the reasoning for each is
-  in **[docs/sessions/stop.md](../../docs/sessions/stop.md)**, which is this component's single source of truth:
-
-  - **Sessions are found and killed by cgroup**, never by process tree, and liveness is read from the kernel. systemd
-    supplies one thing only — a unit's `WorkingDirectory` — and that is **display**: it labels a row and fills
-    in the path a `projects handback` is named with, without selecting any target. The report's split between agent
-    sessions and the account's own plumbing (its user manager, dbus, login session scopes) is display in that same sense
-    and carries the same caveat — the class comes from a unit name, which inside a delegated subtree is the delegatee's
-    to choose. It splits the two counts, orders the table, and decides which rows carry a `projects handback` line; both
-    classes are killed identically.
-  - **It does not take a target or an authorization input.** There is no per-project form, because every way
-    to attribute a session to a project is written by the account being stopped. A path is **refused (exit 2), not
-    ignored** — which is also what keeps targeted stopping addable later without changing what an existing command line
-    means. `--all` is accepted and inert.
-  - **Every cgroup under the account is swept, including its own `systemd --user` and `init.scope`.** An exemption is
-    a cgroup a session can move into on a DAC-only host. The manager is **restarted afterwards**
-    (`restore_user_manager`), as a step that runs after verification and is reported on its own — it never changes
-    what the command says about the stop. One consequence to keep: a **rerun is therefore not silent**, since
-    the restored manager is back inside the swept slice. The command is idempotent in *end state*, not in what it
-    reports, and buying a silent rerun would cost either an exemption or a name-decided sweep.
-  - **Two project conventions are inverted here**, both because the safe direction for this one component is *act*:
-    the confirmation defaults YES ([messaging](messaging.rule.md)), and no library is required nor `set -e` used
-    ([logging](logging.rule.md)). No project library is load-bearing at all: with no target to vet or authorize,
-    `safe-paths.lib.sh` and `operator.lib.sh` are not loaded ([safe-paths](safe-paths.rule.md)). The second inversion is
-    about *abandonment*, not about one shell option — `set -u` is on, and it ends a run just as abruptly, so a value
-    a caller may not have passed is defaulted where it is read rather than left to abort a stop that was already asked
-    for.
+  decision that must not be made twice in two places: `cmd_stop` passes each recognised option through, takes neither
+  a target nor an authorization input, and refuses a path with exit 2, in the helper's exit-code space. What
+  the helper does with that, the invariants it rests on, and the two project conventions it inverts are
+  in [stop](stop.rule.md), which owns the component.
 
   A stop cannot run the agent's `SessionEnd` hook, so the in-flight turn's writes may still be sandbox-owned
   and the clean-exit marker is left for the next `SessionStart` ([ownership-and-hooks](ownership-and-hooks.rule.md));
-  the command names a `projects handback` for each project it terminated a session in. On a shared host one operator's
-  stop ends every operator's sessions — a stated consequence, not an oversight, since `--all` does not take
-  an authorization input either. Everything is recorded to `stop.log` and journald, including which path gave consent
-  and which pass ended each session. Exit codes are in `ai-tools(1)`.
+  the command names a `projects handback` for each project it terminated a session in. Everything is recorded
+  to `stop.log` and journald, including which path gave consent and which pass ended each session. Exit codes are
+  in `ai-tools(1)`.
 - `status` — read-only health report: the installed `ai-tools` version, a version pointer per enabled agent
   whose wrapper is installed, which enabled agents are provisioned (one line each, from the read the bootstrap gate
   makes — see [Bootstrap preflight](#bootstrap-preflight)) and, under each, every managed file its manifest names

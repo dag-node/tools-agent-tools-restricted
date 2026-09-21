@@ -321,11 +321,11 @@ the versioned binary is exec'd by `ai-tools-run` after it re-validates `AI_TOOLS
 The second rule runs **as root**: `ai-tools stop` terminates every running agent session, which means signalling
 the sandbox account's cgroups. It is scoped by a **fixed, non-glob path** plus the trailing `""` that pins it
 to the **zero-argument** form, since a command listed without arguments permits *any* (`sudoers(5)`) — so the `""`
-grants the **bare** command only, and `--force` and `--dry-run` fall outside it and meet sudo's ordinary prompt.
+grants the **bare** command only, and every option falls outside it and meets sudo's ordinary prompt.
 The helper is `750 root:root`, owned and writable by root alone. NOPASSWD is this rule's *purpose* rather than
-a convenience, and what that trades is a security question rather than a launch one: both are
-in [docs/sessions/stop.md](../../docs/sessions/stop.md), which owns this component ([cli](cli.rule.md) holds its CLI
-contract).
+a convenience, and what that trades is a security question rather than a launch one: the purpose and the trade are
+in [ref-section-r5r9](stop.rule.md#ref-section-r5r9), the rule that owns this component ([cli](cli.rule.md) holds
+its CLI contract).
 
 **The entrypoint relabel is reached three ways, and none of them is a rule here.** After a Node upgrade the agent binary
 carries the wrong label, so a launch fail-closes until it is restored, which needs the `unconfined_t` that root holds
