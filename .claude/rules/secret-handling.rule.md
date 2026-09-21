@@ -57,7 +57,7 @@ so the seal does not rest on a single mode bit staying put. `owner-only.lib.sh` 
 which paths are sealed, exactly what the strip removes, and what it leaves as found. A `!`-exclusion remains
 the stronger form, since an excluded subtree is skipped by every walk whatever its mode.
 
-## Shared secret-pattern set (one source, two consumers)
+## Shared secret-pattern set (one source, one matcher)
 
 The secret basename patterns live in a single user-owned config file, `~/.config/ai-tools/secret-patterns`
 (`<you>:<you> 600`), co-located with `allowed-projects` and owned the same way: the operator edits it; `SANDBOX_USER` —
