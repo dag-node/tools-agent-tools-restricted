@@ -329,7 +329,7 @@ fi
 
 # Render the lib's status lines: it reports per path and per agent, this decides what an operator reads and what fails
 # the run. The wanted type travels with a "bad" line, since an agent declares two paths that carry different types.
-labelled=0 mislabelled=0 stale=0
+labelled=0 mislabelled=0 stale=0 incomplete=0
 declare -A agent_outcome=() agent_reason=()
 if [[ -n "${report}" ]]; then
     while read -r verdict subject detail wanted; do
@@ -342,9 +342,18 @@ if [[ -n "${report}" ]]; then
                    ai_tools_log_warn "${subject} did not take ${wanted} (now '${detail}')" ;;
             stale) stale=$(( stale + 1 ))
                    agent_reason["${subject}"]="stale-declaration"
-                   warn MSG-Z5B4 "stale declaration for ${subject}: its installed entrypoint is
-       ${detail} -- a path the file-context rule its manifest declares does not cover"
+                   warn MSG-Z5B4 "stale declaration for ${subject}: its launcher resolves to
+       ${detail}, and the file-context rule its manifest declares labels a different installed file -- so the file
+       a session execs is left unlabelled"
                    ai_tools_log_warn "${subject}: installed entrypoint ${detail} is not covered by its declared entrypoint_fcontext" ;;
+            # The same divergence with the other cause, and the other remedy: the declared rule covers no installed
+            # file, so what the package is missing is the entrypoint itself rather than a manifest that has moved on.
+            incomplete) incomplete=$(( incomplete + 1 ))
+                   agent_reason["${subject}"]="incomplete-package"
+                   warn MSG-M7B2 "incomplete package for ${subject}: its launcher resolves to
+       ${detail}, and no installed file under the sandbox toolchain matches the entrypoint its manifest declares -- so
+       the package is missing the executable a session is meant to exec"
+                   ai_tools_log_warn "${subject}: the entrypoint declared by its manifest is not installed; the launcher resolves to ${detail}" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log_info "${subject}: ${detail} absent, nothing to label" ;;
             skip)  agent_reason["${subject}"]="rule-not-registered"
@@ -369,10 +378,15 @@ for label_agent in "${!agent_outcome[@]}"; do
     esac
 done
 
-# A stale declaration is reported FIRST, because it is the more specific cause and the only one here this helper cannot
-# clear: the entrypoint is installed somewhere the declared rule does not reach, so every relabel -- this one included
-# -- leaves it unlabelled and every launch fail-closes. Naming the module or a rerun as the remedy would send
-# the operator around a loop that cannot end. The fix is upstream of this helper, in the agent package's manifest.
+# A divergence between what a manifest declares and what is installed is reported FIRST, because it is the more specific
+# cause and the only one here this helper cannot clear: the entrypoint is installed somewhere the declared rule does not
+# reach, so every relabel -- this one included -- leaves it unlabelled and every launch fail-closes. Naming the module
+# or a rerun as the remedy would send the operator around a loop that cannot end. The fix is upstream of this helper,
+# and WHICH upstream is what the two causes differ in: an incomplete package is repaired by the run that installs
+# the toolchain, a stale manifest by a newer agent package. Reporting either one under the other's remedy is a loop
+# of its own -- an RPM update does not install an npm package's missing dependency.
+(( incomplete == 0 )) \
+    || die MSG-D7H2 "an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: sudo ai-tools-admin system bootstrap, then rerun"
 (( stale == 0 )) \
     || die MSG-M2M5 "a stale declaration stops this relabel: ${stale} agent(s) install their entrypoint where their manifest no longer says, so it cannot be labelled; update the agent package (dnf update 'ai-tools-agents-*'), then rerun"
 # A mislabelled path is a broken session: a mislabelled entrypoint runs unconfined (ai-tools-run refuses the launch)

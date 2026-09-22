@@ -17,8 +17,9 @@
 #     installer's verify pass. The declared pattern APPLIES the label (an fcontext rule is what
 #     makes a type survive a later restorecon); the launcher symlink, resolved the way the launch
 #     preflight resolves it, CHECKS the result -- so a manifest that has stopped describing where
-#     its package installs the executable is reported as such instead of passing as "not
-#     installed" (ai_tools_entrypoint_reconcile_verdict).
+#     its package installs the executable, and a package that did not install the executable its
+#     manifest declares, are each reported as such instead of passing as "not installed"
+#     (ai_tools_entrypoint_reconcile_verdict).
 #   * OPERATOR CONFIG -- map one operator's ~/.config/ai-tools to ai_tools_conf_t, the narrow type
 #     that lets the root helpers read that operator's allowlist without reaching the rest of
 #     ~/.config. Sourced by ai-tools-admin, which registers the rule for each account it enrols,
@@ -303,24 +304,34 @@ _ai_tools_entrypoint_path_reportable() {
 # ai_tools_entrypoint_reconcile_verdict <installed-path> <covered> <matched>: pure verdict, no I/O
 #   -- reconcile what an agent's manifest DECLARES against what its package actually INSTALLED,
 #   and print one of:
-#     ok     the declared rule governs the installed entrypoint (or no entrypoint is installed and the
-#            rule matched a file anyway -- another Node version's copy, mid-upgrade)
-#     none   no entrypoint is installed and the rule matched no file: the agent is not provisioned yet
-#     stale  an entrypoint IS installed and the declared rule does not cover it
+#     ok          the declared rule governs the installed entrypoint (or no entrypoint is installed and
+#                 the rule matched a file anyway -- another Node version's copy, mid-upgrade)
+#     none        no entrypoint is installed and the rule matched no file: the agent is not provisioned yet
+#     stale       an entrypoint IS installed elsewhere and the declared rule covers a file the launcher
+#                 does not resolve to: the manifest has stopped describing its own package
+#     incomplete  an entrypoint IS installed and the declared rule covers no file at all: the package
+#                 did not install the entrypoint it declares
 #   <installed-path> is the file the agent's launcher symlink resolves to, empty when it does not
 #   resolve; <covered> is whether that file was among the pattern's matches; <matched> is whether
 #   the pattern matched anything at all. Both flags are `yes`/`no`, and anything other than the
 #   exact literal `yes` reads as `no` -- an unknown input errs toward reporting a divergence, which
 #   is the direction that fails a relabel loudly rather than blessing one silently.
 #
-#   `stale` exists because the two are checked by different mechanisms and can disagree: the launch
-#   preflight and the symlink helper RESOLVE the entrypoint, while this library PATTERN-MATCHES a
-#   declared path. Where they disagree the launch fail-closes on an unlabelled inode, so a relabel
-#   that reported `none` and exited 0 would name the wrong cause ("not installed") and send the
-#   operator back around a loop that cannot clear it. The relabel does not label the resolved path
+#   The two divergent verdicts exist because the two sides are checked by different mechanisms and can
+#   disagree: the launch preflight and the symlink helper RESOLVE the entrypoint, while this library
+#   PATTERN-MATCHES a declared path. Where they disagree the launch fail-closes on an unlabelled inode,
+#   so a relabel that reported `none` and exited 0 would name the wrong cause ("not installed") and send
+#   the operator back around a loop that cannot clear it. The relabel does not label the resolved path
 #   to compensate: the set of files that ever take ai_tools_exec_t -- the exec entrypoint of the
-#   confined domain -- stays exactly the set the root-owned manifests declare, so a stale manifest
-#   is fixed by updating the agent package, not by this helper widening the set on its own.
+#   confined domain -- stays exactly the set the root-owned manifests declare, so a divergence is fixed
+#   upstream of this helper, not by it widening the set on its own.
+#
+#   `matched` is what tells the two apart, and it decides which remedy the caller names: a declared rule
+#   that covers no installed file at all describes an entrypoint the PACKAGE did not install, which
+#   a toolchain reinstall puts back, while a rule covering some other file describes a MANIFEST that has
+#   stopped matching the package, which a newer agent package carries. A toolchain holding an older Node
+#   version whose package is still whole reads as `stale` on that older copy's match -- the declared
+#   entrypoint is installed, and it is the launcher that resolves elsewhere.
 #   Unit-tested over the truth table (tests/unit/relabel.sh).
 ai_tools_entrypoint_reconcile_verdict() {
     local installed="${1:-}" covered="${2:-}" matched="${3:-}"
@@ -329,7 +340,8 @@ ai_tools_entrypoint_reconcile_verdict() {
         printf 'none'; return 0
     fi
     [[ "${covered}" == yes ]] && { printf 'ok'; return 0; }
-    printf 'stale'
+    [[ "${matched}" == yes ]] && { printf 'stale'; return 0; }
+    printf 'incomplete'
 }
 
 # _ai_tools_entrypoint_policy_active: succeed when there is an ai_tools_exec_t to assign, i.e.
@@ -484,6 +496,7 @@ _ai_tools_label_agent_entrypoint() {
         none)  printf 'none %s its entrypoint\n' "${agent}"
                if [[ "${status}" -eq 0 ]]; then status=3; fi ;;
         stale) printf 'stale %s %s\n' "${agent}" "${installed}"; status=1 ;;
+        incomplete) printf 'incomplete %s %s\n' "${agent}" "${installed}"; status=1 ;;
     esac
     return "${status}"
 }
@@ -524,8 +537,12 @@ _ai_tools_label_agent_config_dir() {
 #     bad   <path> <actual> <wanted>   it does not -- the session would break or run unconfined
 #     none  <agent> <what>             declared, but not installed (yet)
 #     stale <agent> <installed-path>   an entrypoint IS installed and the agent's declared rule
-#                                      does not cover it, so no relabel can label it -- the
+#                                      covers some other file, so no relabel can label it -- the
 #                                      agent package's manifest has to be updated
+#     incomplete <agent> <installed-path>
+#                                      an entrypoint IS installed and the declared rule covers no
+#                                      file at all -- the package did not install the entrypoint it
+#                                      declares, and the toolchain has to reinstall it
 #     skip  <agent> <reason...>        no rule to apply, or a declaration was refused
 #     agent <agent> <ok|failed|none>   that agent's whole outcome, closing its lines: every path it
 #                                      declares took its type, one of them did not, or neither is
@@ -534,8 +551,8 @@ _ai_tools_label_agent_config_dir() {
 #                                      operator can see the labelling half from outside the
 #                                      toolchain they cannot read.
 #   Returns 0 when every path it managed is correctly labelled, 1 when one is not, a rule could
-#   not be registered, or a declaration is stale, and 2 when the SELinux layer is inactive
-#   (no work to do).
+#   not be registered, or an entrypoint is installed that the declared rule does not govern, and 2
+#   when the SELinux layer is inactive (no work to do).
 ai_tools_label_agent_paths() {
     _ai_tools_entrypoint_policy_active || return 2
     declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 2

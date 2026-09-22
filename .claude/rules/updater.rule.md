@@ -462,13 +462,31 @@ that did not happen. It is written on the DAC-only path too, where the run exits
 best-effort and never changes the outcome of the relabel it describes.
 
 The helper then **reconciles** what it applied against what is installed: it resolves `/opt/ai-tools/bin/<launcher>`
-the way the launch preflight does and reports `stale` — non-zero — when an entrypoint is installed at a path
-the declared pattern does not cover, instead of the `none`/success a pattern matching no path would otherwise produce.
-So a relabel that exits 0 means the next launch will not fail closed on the entrypoint label, and a manifest that has
-stopped describing its own package is named as the cause rather than diagnosed as a missing install. It never labels
-the resolved path: the files that take `ai_tools_exec_t` stay exactly those the root-owned manifests declare (see
+the way the launch preflight does and fails — non-zero — when an entrypoint is installed at a path the declared pattern
+does not cover, instead of the `none`/success a pattern matching no path would otherwise produce. So a relabel
+that exits 0 means the next launch will not fail closed on the entrypoint label, and the divergence is named
+as the cause rather than diagnosed as a missing install. It never labels the resolved path: the files that take
+`ai_tools_exec_t` stay exactly those the root-owned manifests declare (see
 [agent-claude-code](agent-claude-code.rule.md)). `ai-tools-relabel-agent --remove <agent>` is the erase-time
 counterpart: the agent package's `%preun` drops its rule while its manifest is still on disk.
+
+**The divergence has two causes, and the reconciliation tells them apart, because their remedies do not overlap.**
+Whether the declared pattern matches *any* installed file is what decides it (`ai_tools_entrypoint_reconcile_verdict`,
+`relabel.lib.sh`):
+
+| verdict | what the pattern matched | the cause | the remedy the refusal names |
+|---|---|---|---|
+| `stale` | some other file | the manifest has stopped describing its own package | a newer agent package (`dnf update 'ai-tools-agents-*'`) |
+| `incomplete` | no installed file | the package did not install the entrypoint it declares | the toolchain reinstall (`sudo ai-tools-admin system bootstrap`) |
+
+Each is reported per agent as a warning and fails the run under its own code, and the split is what keeps the operator
+out of a loop: the missing executable comes from the sandbox toolchain rather than from the RPM, so an agent package
+update leaves it exactly as it was and the next `ai-tools status` sends the operator back to the same relabel.
+That repair is the on-demand form of the updater's own (see [An enabled agent's package without its declared entrypoint
+is repaired, not reported](#an-enabled-agents-package-without-its-declared-entrypoint-is-repaired-not-reported)),
+so a nightly run repairs a host nobody looked at. A toolchain still holding an older Node version whose package is whole
+reads as `stale` on that copy's match — the declared entrypoint *is* installed, and it is the launcher that resolves
+elsewhere.
 
 `ai-tools-bootstrap` runs the helper directly at provision time (see [Toolchain
 provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run it after an upgrade, both as root, never

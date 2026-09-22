@@ -1055,6 +1055,10 @@ the relabel did not take: ${mislabelled} path(s) did not take their type \-\- is
 WARNING.
 could not verify the entrypoint for ${agent} against release ${version} (see above) \-\- pin unchanged
 .TP
+.B MSG-D7H2
+ERROR.
+an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: sudo ai\-tools\-admin system bootstrap, then rerun
+.TP
 .B MSG-E4U5
 WARNING.
 relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL_LOCK_NOTE}
@@ -1086,6 +1090,10 @@ must run as root (via sudo)
 .B MSG-M6C3
 WARNING.
 could not write the observed pin for ${agent} at ${version}
+.TP
+.B MSG-M7B2
+WARNING.
+incomplete package for ${subject}: its launcher resolves to
 .TP
 .B MSG-N9B9
 ERROR.
@@ -1121,7 +1129,7 @@ labelling skipped for ${subject} \-\- ${detail} ${wanted}
 .TP
 .B MSG-Z5B4
 WARNING.
-stale declaration for ${subject}: its installed entrypoint is
+stale declaration for ${subject}: its launcher resolves to
 .SS ai-tools-run
 .TP
 .B MSG-A3H6
