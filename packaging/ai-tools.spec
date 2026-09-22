@@ -1318,6 +1318,18 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Tue Sep 22 2026 dagnode <tools@dagnode.com> - 0.19.1-1
+- FIX: An agent package installed without its platform-specific binary is repaired rather than
+  carried forward. The nightly update reinstalls a package that does not hold the executable its
+  manifest declares, where it used to update such a package and leave the hole -- so an agent whose
+  vendored binary never arrived stayed unlaunchable through every run. A host in that state
+  recovers on the next update, or at once with 'sudo ai-tools-admin system bootstrap'.
+- FIX: 'sudo ai-tools-admin system entrypoints relabel' tells an incomplete package from a stale
+  manifest and names the remedy that works for each. The first reported both as a stale manifest
+  and asked for 'dnf update ai-tools-agents-*', which cannot install an npm package's missing
+  dependency, so the status report sent the operator back to the same relabel; it now names the
+  toolchain reinstall, and ai-tools-relabel.service stops failing once that has run.
+
 * Sun Sep 20 2026 dagnode <tools@dagnode.com> - 0.19.0-1
 - CHANGE: No agent is enabled by default; 'sudo ai-tools-admin system bootstrap' asks which one
   installed agent to enable and writes AI_TOOLS_AGENTS for it ('--agents NAME' is the unattended
