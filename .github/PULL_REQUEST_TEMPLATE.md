@@ -4,13 +4,9 @@
      the handback bridge, ownership, or secrets, state how the security invariants
      (`CLAUDE.md`, "Security model") are preserved. -->
 
-## Checklist
+## Test run
 
-- [ ] Branched from `develop` (`feature/<ticket-num>-<feature-name>`), PR
-  targets `develop`
-- [ ] `sudo tests/run.sh all` passes (state which categories, and whether
-  the host is SELinux-enforcing)
-- [ ] ShellCheck baseline clean:
-  `find src -name '*.sh' -print0 | xargs -0 shellcheck && shellcheck install.sh`
-- [ ] Rule files (`.claude/rules/*.rule.md`) updated in step with any behavior
-  they document
+<!-- CI runs ShellCheck and the EL9/EL10 rpm selftest on this pull request and
+     reports them on this page, so state here what it cannot reach:
+     `sudo tests/run.sh all` on a real host, which categories ran, and whether
+     the host is SELinux-enforcing. -->

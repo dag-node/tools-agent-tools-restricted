@@ -110,8 +110,16 @@ and the unit suite fails on either.
 
 ## Pull requests
 
-Branch from `develop`, not `main`, using `feature/<ticket-num>-<feature-name>`
-(e.g. `feature/260625-rpm-package`) — and target `develop` when opening the PR.
+Branch from `develop`, not `main`, using `<type>/<id>-<name>` — the type
+from [Commit style](#commit-style), then a lowercase id and a short slug,
+so `feat/atr-260625-rpm-package` — and target `develop` when opening the PR.
+A change of one or two commits with no breaking change lands straight
+on `develop` instead.
+
+Give the PR an explicit title, in the same `type(scope): summary` form
+as a commit subject. Left blank it is GitHub's, derived from the branch name,
+and the merge commit keeps that derivation for good.
+
 The full branch model, tag grammar, and release process (RCs, channels,
 rehearsal) are in [`docs/development/release.md`](docs/development/release.md).
 
