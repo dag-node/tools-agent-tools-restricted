@@ -473,6 +473,12 @@ an ordinary account read it — a partial view, the file sink being the authorit
   or an agent the toolchain has not provisioned), or `?` where no reconciliation has been recorded. Only a recorded
   failure counts toward the exit status, since it is the one state that stops the next launch.
 
+  **One reason token is read rather than printed**, and it is the one whose remedy differs in kind: `incomplete-package`
+  says the agent's package does not hold the executable its manifest declares, which no relabel can supply, so the line
+  names the provisioning run that reinstalls the package instead of the relabel retry every other failure gets. Offering
+  the retry there would be the loop this report exists to end. The token is written by `ai-tools-relabel-agent` (see
+  [updater](updater.rule.md)); every other reason is rendered as the record carries it.
+
   **The two halves are reported together because they fail independently.** Verification and labelling run in the same
   helper, in that order, and the first can succeed while the second does not — leaving the pin line freshly green,
   written by the very run whose labelling failed. Reported alone it reads as an all-clear rather than as half a story.

@@ -358,15 +358,13 @@ prune_versions() {
     done
 }
 
-# install_packages: install each package missing from the active nvm context, reinstall one named as incomplete,
-# and update the rest. A failed package warns and is skipped, never aborting the run.
+# install_packages: install each package missing from the active nvm context, reinstall one the caller names
+# as incomplete, and update the rest. A failed package warns and is skipped, never aborting the run.
 #
-# The reinstall branch exists because `npm update` advances a package's version and leaves the tree it finds: a package
-# whose platform-specific dependency never installed keeps that hole through every update run, so its agent's declared
-# entrypoint stays absent and no session of that agent starts. Reinstalling reifies the dependency tree
-# from the package's own manifest, which is what puts the missing dependency back. The set comes
-# from ai_tools_agent_incomplete (toolchain.lib.sh) and the allowlist is the same one every other branch passes,
-# so repairing a package widens nothing.
+# The reinstall branch takes the same invocation and the same allowlist as the install branch, on a package npm already
+# reports as installed: `npm update` would leave the tree it finds, while `npm install` reifies the dependency tree
+# from the package's own manifest. Which packages are named, and why that repair is keyed on the entrypoint's absence,
+# are in updater.rule.md.
 # args:  comma-joined allow-scripts allowlist, comma-joined packages to reinstall, then package names
 install_packages() {
     local allow_csv="$1" repair_csv="$2"; shift 2
@@ -499,13 +497,11 @@ main() {
     else
         tools=(npm "${agent_packages[@]}")
     fi
-    # Which of them are installed without the entrypoint their manifest declares, read from the version directory this
-    # run installs into: an update leaves such a package as it found it, so the completeness of what is there decides
-    # the branch. The read covers both ways a hole arrives -- one an earlier run left in the active version, and one
-    # `nvm reinstall-packages` just copied into a version directory this run created -- so a Node bump that carried
-    # a package across without its platform dependency is repaired by the same run that made it. A library that would
-    # not load leaves the set empty and every package takes the branch it took before, which is the state this repairs
-    # rather than a new one.
+    # Which of them are installed without the entrypoint their manifest declares (toolchain.lib.sh), read
+    # from the version directory this run installs into, which is what makes the read cover a hole
+    # `nvm reinstall-packages` copied there moments ago as well as one an earlier run left. A library that would not
+    # load leaves the set empty and every package takes the branch it took before -- the state this repairs, not a new
+    # one. What the branch then does, and why the read is keyed on the entrypoint's absence, are in updater.rule.md.
     local version_dir="${nvm_dir}/versions/node/${target_version}"
     local -a repair=()
     if declare -F ai_tools_agent_incomplete >/dev/null 2>&1; then
@@ -524,16 +520,13 @@ main() {
     log "Packages: ${tools[*]}"
     install_packages "${allow_csv}" "${repair_csv}" "${tools[@]}"
 
-    # The same read again, now that npm has run: what it names is a package the install did not complete, and saying
-    # so here is what keeps this run's account honest -- the launch that refuses afterwards happens somewhere
-    # the operator is, and this log is not. Reported rather than fatal: the toolchain is otherwise installed, every
-    # other agent is repointed below, and the relabel and the launch preflight both fail closed for this one on their
-    # own.
+    # The same read again, now that npm has run: what it names is a package the install did not complete, which npm
+    # itself reports as a success (updater.rule.md). Reported rather than fatal, for the reasons stated there.
     if declare -F ai_tools_agent_incomplete >/dev/null 2>&1; then
         local left_agent left_package
         while IFS=$'\t' read -r left_agent left_package; do
             [[ -n "${left_package}" ]] || continue
-            warn "${left_agent}: ${left_package} still does not hold the entrypoint its manifest declares after the install -- no session of that agent starts; reinstall it as root: sudo ai-tools-admin system bootstrap"
+            warn "${left_agent}: ${left_package} still does not hold the entrypoint its manifest declares after the install -- no session of that agent starts until that executable is installed; this run's npm output carries the reason"
         done < <(ai_tools_agent_incomplete "${version_dir}")
     fi
 

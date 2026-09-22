@@ -13,10 +13,9 @@
 # in updater.rule.md; the launch refusal is in launch.rule.md.
 #
 # An ENABLED agent's package that does not hold the entrypoint its manifest declares is INCOMPLETE
-# (ai_tools_agent_incomplete): an npm package installs its platform-specific dependency as an optional one, so a tree
-# missing it carries the package directory and not the executable, and no launch of that agent starts. The observable is
-# the declared path's absence rather than any account of how npm got there, and the updater reinstalls the package on it
-# (updater.rule.md).
+# (ai_tools_agent_incomplete): the package directory is installed and the executable is not, so no launch of that agent
+# starts. The reader answers on that absence alone. How a package reaches that state, what each provisioner does
+# about it, and why the absence is the condition rather than any cause are in updater.rule.md.
 #
 # Two residue readers, one per principal, since the tree is 0750 and only the sandbox account traverses it:
 # the operator's wrapper and `ai-tools status` read the stable launcher link as the proxy for a provisioned package
@@ -133,9 +132,8 @@ ai_tools_agent_residue_links() {
 }
 
 # ai_tools_agent_incomplete <version-dir> : print "name<TAB>npm_package" for every ENABLED agent whose
-#   manifest declares a launcher_target that <version-dir> does not hold -- the observable of a package
-#   installed without the platform-specific dependency its entrypoint lives in. Read-only, and the
-#   definitive read: the tree is 0750, so it needs the account that traverses it. An agent declaring no
+#   manifest declares a launcher_target that <version-dir> does not hold. Read-only, and the definitive
+#   read: the tree is 0750, so it needs the account that traverses it. An agent declaring no
 #   launcher_target yields no line -- npm's own link is its launcher, and this library has no declared
 #   path to compare the tree against -- and a target ai_tools_launcher_target_valid refuses is skipped
 #   and reported, since it cannot be joined to a path.
