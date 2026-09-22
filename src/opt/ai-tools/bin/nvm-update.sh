@@ -358,11 +358,18 @@ prune_versions() {
     done
 }
 
-# install_packages: install each package missing from the active nvm context, or update it if already present globally.
-# A failed package warns and is skipped, never aborting the run.
-# args:  comma-joined allow-scripts allowlist, then package names
+# install_packages: install each package missing from the active nvm context, reinstall one named as incomplete,
+# and update the rest. A failed package warns and is skipped, never aborting the run.
+#
+# The reinstall branch exists because `npm update` advances a package's version and leaves the tree it finds: a package
+# whose platform-specific dependency never installed keeps that hole through every update run, so its agent's declared
+# entrypoint stays absent and no session of that agent starts. Reinstalling reifies the dependency tree
+# from the package's own manifest, which is what puts the missing dependency back. The set comes
+# from ai_tools_agent_incomplete (toolchain.lib.sh) and the allowlist is the same one every other branch passes,
+# so repairing a package widens nothing.
+# args:  comma-joined allow-scripts allowlist, comma-joined packages to reinstall, then package names
 install_packages() {
-    local allow_csv="$1"; shift
+    local allow_csv="$1" repair_csv="$2"; shift 2
     local pkg
     # npm 11.5+ gates preinstall/install/postinstall behind an allowScripts allowlist and, on every install, re-scans
     # the WHOLE global tree -- warning "N packages have install scripts not yet covered by allowScripts" for any
@@ -372,7 +379,10 @@ install_packages() {
     # claude-code's required postinstall) flagged. Scoped to the named tools by the caller's list, never a blanket
     # `--dangerously-allow-all-scripts`.
     for pkg in "$@"; do
-        if npm list -g --depth=0 "${pkg}" &>/dev/null; then
+        if [[ -n "${repair_csv}" && ",${repair_csv}," == *",${pkg},"* ]]; then
+            log "  reinstalling ${pkg} -- the entrypoint its manifest declares is not in this toolchain"
+            npm install -g --allow-scripts="${allow_csv}" "${pkg}" || warn "  npm install failed for ${pkg} -- skipping"
+        elif npm list -g --depth=0 "${pkg}" &>/dev/null; then
             log "  updating ${pkg}"
             npm update -g --allow-scripts="${allow_csv}" "${pkg}" || warn "  npm update failed for ${pkg} -- skipping"
         else
@@ -383,9 +393,10 @@ install_packages() {
 }
 
 # main: resolve the latest LTS in the vMAJOR series (or take it from $1), install it under /opt/ai-tools if not already
-# active, remove a disabled agent's package left in the toolchain, refresh the sandbox global tools, re-link each
-# versioned launcher at the target its manifest declares, prune superseded versions, and repoint each enabled agent's
-# stable /opt/ai-tools/bin/<launcher> symlink at the versioned binary.
+# active, remove a disabled agent's package left in the toolchain, refresh the sandbox global tools -- reinstalling
+# rather than updating an enabled agent's package that does not hold the entrypoint its manifest declares -- re-link
+# each versioned launcher at the target its manifest declares, prune superseded versions, and repoint each enabled
+# agent's stable /opt/ai-tools/bin/<launcher> symlink at the versioned binary.
 # args:  optional target Node version override (e.g. v22.15.0)
 main() {
     local target_version="${1:-}"
@@ -488,11 +499,43 @@ main() {
     else
         tools=(npm "${agent_packages[@]}")
     fi
+    # Which of them are installed without the entrypoint their manifest declares, read from the version directory this
+    # run installs into: an update leaves such a package as it found it, so the completeness of what is there decides
+    # the branch. The read covers both ways a hole arrives -- one an earlier run left in the active version, and one
+    # `nvm reinstall-packages` just copied into a version directory this run created -- so a Node bump that carried
+    # a package across without its platform dependency is repaired by the same run that made it. A library that would
+    # not load leaves the set empty and every package takes the branch it took before, which is the state this repairs
+    # rather than a new one.
+    local version_dir="${nvm_dir}/versions/node/${target_version}"
+    local -a repair=()
+    if declare -F ai_tools_agent_incomplete >/dev/null 2>&1; then
+        local repair_agent repair_package
+        while IFS=$'\t' read -r repair_agent repair_package; do
+            [[ -n "${repair_package}" ]] || continue
+            warn "${repair_agent}: ${repair_package} is installed without the entrypoint its manifest declares -- reinstalling it; no session of that agent starts until it is back"
+            repair+=("${repair_package}")
+        done < <(ai_tools_agent_incomplete "${version_dir}")
+    fi
+
     # The full managed set is the allow-scripts allowlist -- npm re-scans the whole global tree on every install,
     # so each call must cover all of them (see install_packages).
     local allow_csv; allow_csv="$(IFS=,; printf '%s' "${tools[*]}")"
+    local repair_csv; repair_csv="$(IFS=,; printf '%s' "${repair[*]}")"
     log "Packages: ${tools[*]}"
-    install_packages "${allow_csv}" "${tools[@]}"
+    install_packages "${allow_csv}" "${repair_csv}" "${tools[@]}"
+
+    # The same read again, now that npm has run: what it names is a package the install did not complete, and saying
+    # so here is what keeps this run's account honest -- the launch that refuses afterwards happens somewhere
+    # the operator is, and this log is not. Reported rather than fatal: the toolchain is otherwise installed, every
+    # other agent is repointed below, and the relabel and the launch preflight both fail closed for this one on their
+    # own.
+    if declare -F ai_tools_agent_incomplete >/dev/null 2>&1; then
+        local left_agent left_package
+        while IFS=$'\t' read -r left_agent left_package; do
+            [[ -n "${left_package}" ]] || continue
+            warn "${left_agent}: ${left_package} still does not hold the entrypoint its manifest declares after the install -- no session of that agent starts; reinstall it as root: sudo ai-tools-admin system bootstrap"
+        done < <(ai_tools_agent_incomplete "${version_dir}")
+    fi
 
     # The versioned launcher chain takes its final shape here, ahead of every gate that reads it (see the function).
     relink_agent_launchers "${target_version}"

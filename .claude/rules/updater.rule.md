@@ -288,6 +288,47 @@ the two tiers' refusal; `tests/integration/symlink-helper.sh` the `--remove` for
 the verb's refusal of an enabled agent's link as the agent; and `tests/boundary/providers.sh` that the library is not
 agent-writable.
 
+## An enabled agent's package without its declared entrypoint is repaired, not reported
+
+The toolchain holds each enabled agent's package **whole**, and the one thing that makes a package whole here is
+that the executable its manifest declares is in it. An agent's platform-specific binary arrives as an npm **optional**
+dependency, so a package can install with its own directory in place and that binary absent — leaving the JS entry file
+npm wrote as the only executable, the versioned launcher un-re-linked, and every launch of that agent refused
+at the label preflight, since no file-context rule covers what the launcher now resolves to.
+
+`ai_tools_agent_incomplete <version-dir>` (`toolchain.lib.sh`) is the reader: for every **enabled** agent, it joins
+the `launcher_target` its manifest declares to the version directory and prints `name<TAB>npm_package` when that path
+does not exist. An agent that does not declare a `launcher_target` is not read at all — npm's own link is then its
+launcher, and this library has no declared path to compare the tree against — and a target
+`ai_tools_launcher_target_valid` refuses is skipped and reported instead of being joined to a path. A disabled agent's
+package is residue, which `ai_tools_agent_residue` covers, so it is not read here either: reinstalling what the run is
+about to remove is the one outcome that would be wrong.
+
+`nvm-update` reads it **before** `install_packages` and hands it the set, and a package in that set takes
+the **install** branch rather than the update branch. `npm update` advances a package's version and leaves the tree it
+finds, so an incomplete tree stays incomplete through every nightly run — which is what turns a missing binary
+into a permanent refusal — while `npm install` reifies the dependency tree from the package's own manifest and puts
+the missing dependency back. `ai-tools-bootstrap` installs rather than updates already,
+so `sudo ai-tools-admin system bootstrap` is the on-demand form of the same repair, and it is what the relabel's refusal
+names.
+
+The read is taken against the version directory the run installs **into**, which covers both ways a hole arrives: one
+an earlier run left in the active version, and one carried into a version directory this run created — a Node bump
+copies the previous version's globals across (`nvm reinstall-packages`) before this point, so a copy that arrived
+without its platform dependency is repaired by the same run that made it. The same read runs **again after**
+the install, and what it names then is a package npm did not complete: that is reported with the reinstall command
+and does not fail the run, since the rest of the toolchain is installed, every other agent is repointed, and the relabel
+and the launch preflight each fail closed for that one agent on their own.
+
+**The condition is the observable, not an account of how npm got there.** A declared entrypoint that is absent means
+a broken package whatever produced it, and the repair is the same either way; keying the branch on an npm behaviour
+would make the repair only as good as that theory. The reinstall is not a widening: it is the invocation
+`install_packages` already makes, with the same `--allow-scripts` allowlist, on a package an enabled manifest names.
+
+`tests/unit/toolchain.sh` drives the reader over the fixture tree — which agent a declaration is read for, and every
+value that cannot be joined to a path — and reads the updater's two uses of it as source order, since the updater runs
+`main` on its last line and cannot be sourced.
+
 ## The versioned launcher and its declared target
 
 `<version-dir>/bin/<launcher>` is npm's symlink into the package, and for an agent whose manifest declares
