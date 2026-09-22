@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/toolchain.lib.sh
-# What the sandbox toolchain holds for an agent the host installed but does not enable, and the one write that removes
-# it. The invariant this library serves: the toolchain under /opt/ai-tools/.nvm holds exactly the enabled agents' npm
-# packages. A package of an agent whose manifest is installed but whose name is not in AI_TOOLS_AGENTS is RESIDUE: its
-# entrypoint stays executable at its real path from inside any session, so every path that writes the toolchain
+# What the sandbox toolchain holds for each agent, and the one write that removes a package. The invariant this library
+# serves: the toolchain under /opt/ai-tools/.nvm holds exactly the enabled agents' npm packages, each of them whole. It
+# is read in both directions.
+#
+# A package of an agent whose manifest is installed but whose name is not in AI_TOOLS_AGENTS is RESIDUE: its entrypoint
+# stays executable at its real path from inside any session, so every path that writes the toolchain
 # (ai-tools-bootstrap, nvm-update, the agent package's %preun and `install.sh uninstall`) removes it
 # through ai_tools_agent_package_remove, and both launch tiers (the wrapper's gate and ai-tools-run's) refuse every
 # agent's launch while any is present. The readers, the writer's outcomes, and where each caller sits are
 # in updater.rule.md; the launch refusal is in launch.rule.md.
 #
-# Two readers, one per principal, since the tree is 0750 and only the sandbox account traverses it: the operator's
-# wrapper and `ai-tools status` read the stable launcher link as the proxy for a provisioned package
+# An ENABLED agent's package that does not hold the entrypoint its manifest declares is INCOMPLETE
+# (ai_tools_agent_incomplete): the package directory is installed and the executable is not, so no launch of that agent
+# starts. The reader answers on that absence alone. How a package reaches that state, what each provisioner does
+# about it, and why the absence is the condition rather than any cause are in updater.rule.md.
+#
+# Two residue readers, one per principal, since the tree is 0750 and only the sandbox account traverses it:
+# the operator's wrapper and `ai-tools status` read the stable launcher link as the proxy for a provisioned package
 # (ai_tools_agent_residue_links), and the shim, the provisioners and the updater read the tree itself
 # (ai_tools_agent_residue). Agent identity enters every function as a manifest record read through providers.lib.sh,
 # never as a name this file knows, so a third agent package is covered without an edit here.
@@ -53,8 +60,9 @@ _ai_tools_toolchain_notice() {
 if ! source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_installed_agents >/dev/null 2>&1 \
         || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_launcher_target_valid >/dev/null 2>&1 \
         || ! declare -F ai_tools_agent_manifest_field >/dev/null 2>&1; then
-    _ai_tools_toolchain_warn "toolchain.lib.sh: providers.lib.sh missing or incomplete -- no residue reader defined"
+    _ai_tools_toolchain_warn "toolchain.lib.sh: providers.lib.sh missing or incomplete -- no toolchain reader defined"
     return 1
 fi
 
@@ -120,6 +128,29 @@ ai_tools_agent_residue_links() {
         [[ "${launcher}" =~ ^[A-Za-z0-9._-]+$ ]] || continue
         [[ -L "${launcher_dir}/${launcher}" ]] && printf '%s\t%s\n' "${name}" "${launcher}"
     done < <(ai_tools_installed_not_enabled_agents)
+    return 0
+}
+
+# ai_tools_agent_incomplete <version-dir> : print "name<TAB>npm_package" for every ENABLED agent whose
+#   manifest declares a launcher_target that <version-dir> does not hold. Read-only, and the definitive
+#   read: the tree is 0750, so it needs the account that traverses it. An agent declaring no
+#   launcher_target yields no line -- npm's own link is its launcher, and this library has no declared
+#   path to compare the tree against -- and a target ai_tools_launcher_target_valid refuses is skipped
+#   and reported, since it cannot be joined to a path.
+ai_tools_agent_incomplete() {
+    local version_dir="${1:-}" name npm_package launcher_target
+    [[ -n "${version_dir}" && -d "${version_dir}" ]] || return 0
+    while IFS=$'\t' read -r name npm_package _; do
+        [[ -n "${name}" && -n "${npm_package}" ]] || continue
+        launcher_target="$(ai_tools_agent_manifest_field "${name}" launcher_target 2>/dev/null || true)"
+        [[ -n "${launcher_target}" ]] || continue
+        if ! ai_tools_launcher_target_valid "${launcher_target}"; then
+            _ai_tools_toolchain_warn "skipping ${name}: its launcher_target $(printf '%q' "${launcher_target}") is not a relative path inside a version directory"
+            continue
+        fi
+        [[ -e "${version_dir}/${launcher_target}" ]] && continue
+        printf '%s\t%s\n' "${name}" "${npm_package}"
+    done < <(ai_tools_enabled_agents 2>/dev/null)
     return 0
 }
 

@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/toolchain.sh
 # Unit test for toolchain.lib.sh: the two residue readers and the one package removal behind the launch refusal every
-# wrapper and ai-tools-run make while an installed, not enabled agent's package is still in the sandbox toolchain.
+# wrapper and ai-tools-run make while an installed, not enabled agent's package is still in the sandbox toolchain,
+# and the completeness reader the updater takes its install branch from.
 #
 # What gives it teeth is the direction each function must fail in. A reader that listed an enabled agent's package would
 # have the provisioners remove what they maintain; one that passed a disabled agent's package as clean would have every
@@ -19,8 +20,14 @@
 # root-only hooks, so no shipped agent is named; they are root-owned 0644 in 0755 directories, which the trust predicate
 # admits, so this runs as root via sudo (suite contract). The npm stub must be executable where it sits, so the tree is
 # built where the executable bit is visible (the testdir, or a directory beside the operator's home on a noexec /tmp --
-# the fallback unit/launcher-target.sh takes). It closes with the order the updater runs the removal in, read as source
-# order like the re-link's: the removal precedes install_packages, so npm's allow-scripts rescan sees the smaller tree.
+# the fallback unit/launcher-target.sh takes).
+#
+# The completeness reader fails in the opposite direction: a package read as complete when it is not leaves
+# the entrypoint missing and every launch of that agent refused, so each case is about which agent a declaration is read
+# for, and every value that cannot be joined to a path yields no line. The file closes on what the updater does
+# with both readers, read as source order like the re-link's in unit/launcher-target.sh: the removal precedes
+# install_packages, so npm's allow-scripts rescan sees the smaller tree, and a package the completeness reader names
+# reaches npm as an install rather than an update.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
@@ -258,13 +265,58 @@ expected="${NVM}/versions/node/v1.2.3"$'\tremoved\n'"${NVM}/versions/node/v2.0.0
 [[ -z "$(ai_tools_agent_package_erase "${NVM}" nopkg 2>/dev/null)" ]] \
     && pass "an agent naming no package erases nothing" || fail "erase printed lines for a manifest naming no package"
 
-# ── The order the updater runs the removal in ─────────────────────────────────────────────────
-# The removal precedes install_packages: npm re-scans the whole global tree for install scripts on every call,
-# so the rescan sees the tree without the package. Source order, read like the re-link's in unit/launcher-target.sh;
-# outside a checkout there is no script to read and the case skips.
+# ── ai_tools_agent_incomplete: an enabled agent's package without its declared entrypoint ──────
+# The reader the updater takes its install branch from. Its fail direction is the opposite of the residue readers':
+# a package read as complete when it is not leaves the entrypoint missing and every launch of that agent refused, while
+# one read as incomplete costs a reinstall. So each case is about which agent the declaration is read for, and every
+# input that cannot be joined to a path is asserted to yield no line.
+VERSION_DIR="${NVM}/versions/node/v1.2.3"
+manifest acme @acme/experimental acme launcher_target=lib/node_modules/@acme/experimental/bin/acme.exe
+manifest beta @acme/beta beta config_dir=.beta launcher_target=lib/node_modules/@acme/beta/bin/beta.exe
+package v1.2.3 @acme/experimental
+
+incomplete="$(ai_tools_agent_incomplete "${VERSION_DIR}" 2>/dev/null)"
+[[ "${incomplete}" == $'acme\t@acme/experimental' ]] \
+    && pass "an enabled agent whose declared entrypoint is absent is read as incomplete, and no other agent is" \
+    || fail "incomplete read: got '$(tr '\n' '|' <<<"${incomplete}")' expected 'acme<TAB>@acme/experimental'"
+
+mkdir -p "${VERSION_DIR}/lib/node_modules/@acme/experimental/bin"
+printf '#!/bin/sh\n' > "${VERSION_DIR}/lib/node_modules/@acme/experimental/bin/acme.exe"
+[[ -z "$(ai_tools_agent_incomplete "${VERSION_DIR}" 2>/dev/null)" ]] \
+    && pass "a package holding the entrypoint its manifest declares is complete" \
+    || fail "a package holding its declared entrypoint was read as incomplete"
+
+# beta declares a target nothing installed, and is NOT enabled: its package is residue, which the readers above cover
+# and the updater removes -- reinstalling it is the one outcome that would be wrong here.
+grep -q '^beta' <<<"$(ai_tools_agent_incomplete "${VERSION_DIR}" 2>/dev/null)" \
+    && fail "a disabled agent was read as incomplete" || pass "a disabled agent is never incomplete"
+
+manifest acme @acme/experimental acme
+[[ -z "$(ai_tools_agent_incomplete "${VERSION_DIR}" 2>/dev/null)" ]] \
+    && pass "an agent declaring no launcher_target yields no line -- npm's own link is its launcher" \
+    || fail "an agent declaring no launcher_target was read as incomplete"
+
+manifest acme @acme/experimental acme launcher_target=../../../etc/passwd
+incomplete="$(ai_tools_agent_incomplete "${VERSION_DIR}" 2>"${FIXTURE_ROOT}/err")"
+[[ -z "${incomplete}" && -s "${FIXTURE_ROOT}/err" ]] \
+    && pass "a launcher_target that could name a file outside the version directory is skipped and reported" \
+    || fail "traversing launcher_target: out '${incomplete}', stderr '$(<"${FIXTURE_ROOT}/err")'"
+
+manifest acme @acme/experimental acme launcher_target=lib/node_modules/@acme/experimental/bin/acme.exe
+[[ -z "$(ai_tools_agent_incomplete "${FIXTURE_ROOT}/no-such-version" 2>/dev/null)" ]] \
+    && pass "an absent version directory holds no incomplete package" \
+    || fail "an absent version directory was read as holding one"
+
+# ── What the updater does with each reader ────────────────────────────────────────────────────
+# Two properties of the caller, read as source like the re-link's in unit/launcher-target.sh, since the updater runs
+# main on its last line and cannot be sourced: the removal precedes install_packages (npm re-scans the whole global tree
+# for install scripts on every call, so the rescan sees the tree without the package), and a package this file's reader
+# names reaches npm as an INSTALL -- an update advances the version and leaves the incomplete tree it finds, which is
+# the state that refuses every launch. An anchor the read no longer finds fails: a call that moved is when each property
+# most needs re-asserting. Outside a checkout there is no script to read and the cases skip.
 updater="${REPO_ROOT}/src/opt/ai-tools/bin/nvm-update.sh"
 if [[ ! -d "${REPO_ROOT}/.git" || ! -r "${updater}" ]]; then
-    skip "the removal precedes install_packages" "not a checkout, so the updater cannot be read from the repository"
+    skip "the updater's use of the readers" "not a checkout, so the updater cannot be read from the repository"
 else
     remove_line="$(grep -n -m1 -E '^[[:space:]]+remove_residue "\$\{nvm_dir\}"' "${updater}" | cut -d: -f1)"
     install_line="$(grep -n -m1 -E '^[[:space:]]+install_packages "\$\{allow_csv\}"' "${updater}" | cut -d: -f1)"
@@ -274,6 +326,26 @@ else
         pass "the updater removes residue before it installs packages"
     else
         fail "the updater installs packages at line ${install_line}, ahead of the removal at ${remove_line}"
+    fi
+
+    incomplete_line="$(grep -n -m1 -E 'ai_tools_agent_incomplete "' "${updater}" | cut -d: -f1)"
+    if [[ -z "${incomplete_line}" || -z "${install_line}" ]]; then
+        fail "the updater no longer reads ai_tools_agent_incomplete before install_packages (read -> ${incomplete_line:-none}, install -> ${install_line:-none})"
+    elif (( incomplete_line < install_line )) \
+            && grep -qE '^[[:space:]]+install_packages "\$\{allow_csv\}" "\$\{repair_csv\}"' "${updater}"; then
+        pass "the updater reads the incomplete set before the install and hands it to install_packages"
+    else
+        fail "the updater does not read the incomplete set ahead of the install it decides (read -> ${incomplete_line}, install -> ${install_line})"
+    fi
+
+    # The branch itself: the repair arm runs `npm install`, never `npm update`.
+    repair_branch="$(sed -n '/repair_csv}," == \*",\${pkg},"\*/,/^        elif/p' "${updater}")"
+    if [[ -z "${repair_branch}" ]]; then
+        fail "install_packages no longer carries the branch this reads (the repair set's arm)"
+    elif grep -q 'npm install -g' <<<"${repair_branch}" && ! grep -q 'npm update -g' <<<"${repair_branch}"; then
+        pass "a package named as incomplete takes the install branch, not the update branch"
+    else
+        fail "the repair arm does not install: '$(tr '\n' '|' <<<"${repair_branch}")'"
     fi
 fi
 
