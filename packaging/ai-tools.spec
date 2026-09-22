@@ -1329,6 +1329,11 @@ fi
   and asked for 'dnf update ai-tools-agents-*', which cannot install an npm package's missing
   dependency, so the status report sent the operator back to the same relabel; it now names the
   toolchain reinstall, and ai-tools-relabel.service stops failing once that has run.
+- FIX: An install that left an agent's entrypoint missing is reported by the command that ran it.
+  'sudo ai-tools-admin system bootstrap' and the nightly update both reported success in that
+  state, leaving the relabel to mention it and send the operator back to the same command; each
+  now names the agent and where the reason is. 'ai-tools status' names the package reinstall for
+  this state rather than a relabel retry that cannot clear it.
 
 * Sun Sep 20 2026 dagnode <tools@dagnode.com> - 0.19.0-1
 - CHANGE: No agent is enabled by default; 'sudo ai-tools-admin system bootstrap' asks which one
