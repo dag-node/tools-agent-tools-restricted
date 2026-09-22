@@ -292,9 +292,11 @@ agent-writable.
 
 The toolchain holds each enabled agent's package **whole**, and the one thing that makes a package whole here is
 that the executable its manifest declares is in it. An agent's platform-specific binary arrives as an npm **optional**
-dependency, so a package can install with its own directory in place and that binary absent — leaving the JS entry file
-npm wrote as the only executable, the versioned launcher un-re-linked, and every launch of that agent refused
-at the label preflight, since no file-context rule covers what the launcher now resolves to.
+dependency, and npm reports one it could not unpack as a warning at **exit 0** — so a package installs with its own
+directory in place and that binary absent, while every command in the chain reports success: the JS entry file npm wrote
+is the only executable, the versioned launcher is not re-linked, and every launch of that agent is refused at the label
+preflight, no file-context rule covering what the launcher now resolves to. That exit status is why this state is
+**read** rather than inferred from a failure.
 
 `ai_tools_agent_incomplete <version-dir>` (`toolchain.lib.sh`) is the reader: for every **enabled** agent, it joins
 the `launcher_target` its manifest declares to the version directory and prints `name<TAB>npm_package` when that path
@@ -315,10 +317,16 @@ names.
 The read is taken against the version directory the run installs **into**, which covers both ways a hole arrives: one
 an earlier run left in the active version, and one carried into a version directory this run created — a Node bump
 copies the previous version's globals across (`nvm reinstall-packages`) before this point, so a copy that arrived
-without its platform dependency is repaired by the same run that made it. The same read runs **again after**
-the install, and what it names then is a package npm did not complete: that is reported with the reinstall command
-and does not fail the run, since the rest of the toolchain is installed, every other agent is repointed, and the relabel
-and the launch preflight each fail closed for that one agent on their own.
+without its platform dependency is repaired by the same run that made it.
+
+**Both provisioners take the same read again after their install**, and that second read is what keeps the remedy
+from looping: the install reports success, so without it the next thing to mention the state is the relabel,
+whose remedy is the provisioning command the operator has just run. `ai-tools-bootstrap` reports it before the steps
+that fail because of it (the re-link, then the relabel); `nvm-update` reports it after its install. Neither fails
+the run: the rest of the toolchain is installed, every other agent is repointed, and the relabel and the launch
+preflight each fail closed for that one agent on their own. What each report establishes is the **absence**, so it says
+that and names npm's output for the run as where the reason is, rather than a cause the read did not establish —
+the same rule the two relabel remedies follow.
 
 **The condition is the observable, not an account of how npm got there.** A declared entrypoint that is absent means
 a broken package whatever produced it, and the repair is the same either way; keying the branch on an npm behaviour
