@@ -130,6 +130,19 @@ judgment: for a noul they are what the model answers against, so a criterion nam
 answers that notion whatever the task says, and the shipped pair defers to the task instead. `TEMPLATE_VERSION`
 is recorded with every usage line, so a criteria edit is visible beside the model that answered.
 
+Every bound sits in one frozen `LIMITS` block at the top of `core.mts`, with the reason for each beside it: what
+stdin may hold, what one item and one request may carry, the longest line a pattern runs over, and the deadlines.
+They are tunables an operator edits in that file, deliberately not configuration keys -- a bound guards work and
+cost rather than access, it is read on every call, and the credential file is not a place to add a parse to.
+
+Three input formats. `lines` makes an item of each non-empty line, taking a `path:line` prefix as the id where that
+prefix is an id `core.mts` would accept, so a log line carrying a clock time falls back to `L<n>` rather than
+failing the listing. `prose-check` reads the checker's two-line records. `msbuild` is a pre-filter: it keeps
+a build log's diagnostics, collapses the repeat MSBuild prints in its summary, and reports how many lines it set
+aside -- a `dotnet build -v n` log carries its compiler invocations in the same stream, and one of those lines
+alone runs to tens of kilobytes. A listing is untrusted input in every format, so `parse` first holds stdin to text
+within the size bound and refuses a stream carrying a NUL or a run of undecodable bytes, which is what keeps
+a binary file from reaching the provider.
 
 A `triage` template (a verdict per checker finding) is written but not dispatched: in the live
 measurement its precision on the accepted class did not reach the criterion set for it, so asking for it exits

@@ -9,9 +9,9 @@ sudoedit /etc/ai-tools/endpoints/typesafe.conf   # set TYPESAFE_API_KEY
 ```
 
 With the `typesafe` integration enabled, a session that meets a long listing —
-a grep with sixty hits, a `git log`, a checker's findings — can hand it
-to TypeSafe's classifier with the task in one sentence and get back the lines
-that bear on it. The agent runs the decide command itself, guided
+a grep with sixty hits, a `git log`, a checker's findings, a build log — can
+hand it to TypeSafe's classifier with the task in one sentence and get back
+the lines that bear on it. The agent runs the decide command itself, guided
 by the `ai-tools-decide` skill the package ships:
 
 ```bash
@@ -23,11 +23,24 @@ by id, so the agent still sees what was set aside. On any failure the command
 prints one line saying why and no result, and the agent reads the full listing
 as it would have without the integration.
 
+A build log is handed over as its diagnostics rather than as its lines:
+
+```bash
+dotnet build -v n 2>&1 | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --format msbuild --task "which diagnostics are the cause"
+```
+
+The command keeps each diagnostic, collapses the repeat MSBuild prints in its
+summary, and says on the summary line how many lines it set aside — a build log
+carries its compiler invocations in the same stream, and one of those lines can
+be tens of kilobytes on its own.
+
 ## What leaves the host
 
 The task sentence and the listing lines the agent pipes. The skill's first rule
 is to pipe listings and not a file's contents, and the command refuses
-a listing over its bound rather than truncating it. Claude Code asks
+a listing over its bound rather than truncating it. It also refuses a stream
+that is not text — one holding a NUL byte or a run of undecodable bytes — so
+a binary file piped in by mistake does not reach the service. Claude Code asks
 before running the command, since it is not on the shipped allow list;
 the prompt is where you see each call. Whether a given project's lines may
 leave the host is your decision, which is why the integration is off until you

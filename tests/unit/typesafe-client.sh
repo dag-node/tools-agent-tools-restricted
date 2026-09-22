@@ -84,7 +84,7 @@ run "x" filter --task t --config "${conf}"; expect_refusal "a non-https base URL
 # A valid file: the next refusal is the listing's, so the file was accepted (group-writable by ACL mask is fine).
 printf 'TYPESAFE_API_KEY=%s\n' "${KEY}" > "${conf}"; chmod 0660 "${conf}"
 run "" filter --task t --config "${conf}"; expect_refusal "a valid file, then an empty listing" 2 input
-run "$(printf 'x:%d: y\n' {1..201})" filter --task t --config "${conf}"; expect_refusal "a listing over the item bound" 2 input
+run "$(printf 'x:%d: y\n' {1..1001})" filter --task t --config "${conf}"; expect_refusal "a listing over the item bound" 2 input
 run "$(printf 'a:1: y\nb:2: z\nnot a finding\n')" filter --task t --format prose-check --config "${conf}"; expect_refusal "a prose-check record the parser cannot place" 2 input
 if ! grep -qF "${KEY}" "${TESTDIR}/err"; then pass "no refusal line carries the key"; else fail "a refusal line carries the key"; fi
 
@@ -92,17 +92,52 @@ if ! grep -qF "${KEY}" "${TESTDIR}/err"; then pass "no refusal line carries the 
 # The parsers, the contract and the request's pinning are asserted from node, where the fetch the transport makes is
 # injected and records what it was handed. Every case prints one line: `ok <what>` or `FAIL <what>: <why>`.
 cat > "${TESTDIR}/drive.mjs" <<EOF
-import { parseLines, parseProseCheck } from "${DIR}/parsers.mjs";
+import { parseLines, parseProseCheck, parseMsbuild, parse } from "${DIR}/parsers.mjs";
 import { contractProblems, makeClient, decideFilter, LIMITS, chunkItems, normalizeItems } from "${DIR}/core.mjs";
 import { filter } from "${DIR}/templates.mjs";
 import { readConfig } from "${DIR}/config.mjs";
 const report = (cond, what, why = "") => console.log(cond ? \`ok \${what}\` : \`FAIL \${what}: \${why}\`);
-const lines = parseLines("src/a.sh:12: foo()\\n\\nplain line\\nsrc/b.sh:3:bar\\n");
+const lines = parseLines("src/a.sh:12: foo()\\n\\nplain line\\nsrc/b.sh:3:bar\\n").items;
 report(lines.length === 3 && lines[0].id === "src/a.sh:12" && lines[1].id === "L2" && lines[2].id === "src/b.sh:3" && lines[0].text === "src/a.sh:12: foo()", "lines: path:line ids, L<n> fallback, blank lines skipped", JSON.stringify(lines));
-const pc = parseProseCheck("docs/x.md:5: unbacked-absolute [never] -- name the guard\\n    The account is never an admin.\\n\\n1 finding(s). See the skill\\n");
+const pc = parseProseCheck("docs/x.md:5: unbacked-absolute [never] -- name the guard\\n    The account is never an admin.\\n\\n1 finding(s). See the skill\\n").items;
 report(pc.length === 1 && pc[0].id === "docs/x.md:5" && pc[0].rule.startsWith("unbacked-absolute") && pc[0].text === "The account is never an admin.", "prose-check: id, rule and excerpt split, trailer skipped", JSON.stringify(pc));
-const many = normalizeItems(Array.from({ length: 95 }, (_, i) => ({ id: \`i\${i}\`, text: "t" })));
-report(chunkItems(many).map((c) => c.length).join("/") === "40/40/15", "chunking 95 items as 40/40/15");
+const many = normalizeItems(Array.from({ length: 95 }, (_, i) => ({ id: \`i\${i}\`, text: "t" }))).items;
+const per = LIMITS.maxItemsPerRequest;
+const want = [];
+for (let left = 95; left > 0; left -= per) want.push(Math.min(per, left));
+report(chunkItems(many).map((c) => c.length).join("/") === want.join("/"), \`chunking 95 items as \${want.join("/")}\`, JSON.stringify(chunkItems(many).map((c) => c.length)));
+// A line whose text carries a clock time matches the `path:line:` shape and is not a valid id: it falls back to
+// L<n> rather than failing the listing, which is what every MSBuild log at normal verbosity depends on.
+const clock = parseLines("Build started 9/22/2026 10:18:09 AM.\\nsrc/a.sh:12: real\\nTime Elapsed 00:00:01.81\\n").items;
+report(clock.length === 3 && clock[0].id === "L1" && clock[1].id === "src/a.sh:12" && clock[2].id === "L3", "lines: a clock time falls back to L<n>", JSON.stringify(clock));
+
+// msbuild: diagnostics are kept with the code as the rule, the summary repeat collapses, the rest is set aside.
+const log = [
+  "Build started 9/22/2026 10:18:09 AM.",
+  "     1>Project \"/p/x.sln\" on node 1 (Restore target(s)).",
+  "     2>/p/src/S/ModelProfiles.cs(236,76): error CS1061: 'X' has no definition for 'Y' [/p/src/S/S.csproj]",
+  "     2>/p/src/S/Other.cs(12): warning CS0168: unused [/p/src/S/S.csproj]",
+  "         /p/src/S/ModelProfiles.cs(236,76): error CS1061: 'X' has no definition for 'Y' [/p/src/S/S.csproj]",
+  "    1 Error(s)",
+  "x".repeat(LIMITS.maxParseLineChars + 1) + ": error CS9999: not matched, the line is over the parse bound",
+].join("\\n");
+const ms = parseMsbuild(log);
+report(ms.items.length === 2 && ms.items[0].id === "/p/src/S/ModelProfiles.cs:236" && ms.items[0].rule === "error CS1061"
+  && ms.items[0].context === "/p/src/S/S.csproj" && ms.items[1].rule === "warning CS0168" && ms.items[1].id === "/p/src/S/Other.cs:12"
+  && ms.setAside === 5, "msbuild: diagnostics kept, repeat collapsed, over-long line and chatter set aside", JSON.stringify(ms));
+report((() => { try { parseMsbuild("Build succeeded.\\n    0 Error(s)\\n"); return false; } catch (e) { return e.code === "input"; } })(),
+  "msbuild: a log with no diagnostic is an input error naming the line count");
+
+// Untrusted input: a binary stream is refused before a request, whatever the format.
+for (const [what, text] of [["a NUL", "ok line\\n\\u0000\\u0000binary\\n"], ["control bytes", "\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\u0008".repeat(20)]]) {
+  report((() => { try { parse("lines", text); return false; } catch (e) { return e.code === "input"; } })(), \`binary input refused: \${what}\`);
+}
+report((() => { try { parse("lines", "x".repeat(LIMITS.maxInputChars + 1)); return false; } catch (e) { return e.code === "input"; } })(),
+  "input over the size bound is refused");
+
+// An item the bound cut is counted, so a run reports evidence the model did not see.
+const cutNorm = normalizeItems([{ id: "a", text: "x".repeat(LIMITS.maxItemChars + 1) }, { id: "b", text: "short" }]);
+report(cutNorm.cut === 1 && cutNorm.items[0].text.includes("[...cut at"), "a cut item is counted", JSON.stringify(cutNorm.cut));
 const ids = ["a", "b"];
 const good = { model: "jev-1.13.0", answers: { a: { type: "noul", noul: 0.9 }, b: { type: "noul", noul: 0.1 } }, usage: { input_tokens: 10, output_tokens: 0 } };
 report(contractProblems(good, ids, "noul", null).length === 0, "contract: a valid noul body passes");
@@ -136,7 +171,7 @@ for (const [what, mutate, needle] of badChoice) {
 }
 // Pinning: hostile SDK fallbacks in the environment do not change the origin, the bearer or the model.
 process.env.TYPESAFE_API_KEY = "env_key_must_not_be_used_0123456789";
-process.env.TYPESAFE_BASE_URL = "https://evil.invalid";
+process.env.TYPESAFE_BASE_URL = "https://doesnotexist.invalid";
 process.env.TYPESAFE_DEFAULT_MODEL = "env-model";
 const config = readConfig("${conf}");
 const calls = [];

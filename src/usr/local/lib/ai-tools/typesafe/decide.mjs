@@ -2,8 +2,8 @@
 // clients/typesafe/src/decide.mts -- installed as /usr/local/lib/ai-tools/typesafe/decide.mjs, run as
 //
 //     ```text
-//     <listing> | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --task "<one sentence>" [--format lines|prose-check]
-//                                                                       [--threshold 0.5] [--config <file>]
+//     <listing> | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --task "<one sentence>"
+//                   [--format lines|prose-check|msbuild] [--threshold 0.5] [--config <file>]
 //     ```
 //
 // Reads a line-oriented listing on stdin, hands it to TypeSafe's System One API with one bounded question per line,
@@ -30,8 +30,9 @@ import { decideFilter, LIMITS, makeClient } from "./core.mjs";
 import { DecideError, inputError, configurationError } from "./errors.mjs";
 import { FORMATS, parse } from "./parsers.mjs";
 import { filter, MAX_TASK_CHARS, TEMPLATE_VERSION } from "./templates.mjs";
-const USAGE = `usage: <listing> | node decide.mjs filter --task "<one sentence>" [--format lines|prose-check] [--threshold 0.5] [--config <file>]
+const USAGE = `usage: <listing> | node decide.mjs filter --task "<one sentence>" [--format lines|prose-check|msbuild] [--threshold 0.5] [--config <file>]
   filter    keep the lines that bear on the task; the rest are listed by id on the summary line
+  --format  lines (default), prose-check, or msbuild (a build log's diagnostics; the rest set aside)
   triage    deferred -- not dispatched in this release
 exit: 0 result, 2 input, 3 configuration, 4 provider, 5 contract, 6 deadline, 1 unexpected`;
 function parseArgs(argv) {
@@ -92,13 +93,17 @@ function readStdin() {
         throw inputError(`stdin is not readable (${err instanceof Error ? err.message : String(err)}) -- pipe a listing in`);
     }
 }
-function summary(decision) {
+function summary(decision, setAside, format) {
     const tokens = decision.requests.reduce((n, r) => n + r.inputTokens, 0);
     const elapsed = decision.requests.reduce((n, r) => n + r.elapsedMs, 0);
     const models = [...new Set(decision.requests.map((r) => r.model))].join(",");
     const uncertain = decision.uncertain.length === 0 ? "" : ` (uncertain: ${decision.uncertain.map((r) => r.id).join(" ")})`;
     const dropped = decision.dropped.length === 0 ? "none" : decision.dropped.map((r) => r.id).join(" ");
-    return `decide: kept ${decision.kept.length}/${decision.total}${uncertain}; dropped: ${dropped}; ${models}, ${decision.requests.length} request(s), ${(elapsed / 1000).toFixed(1)}s, ${tokens} tokens`;
+    // A cut item and a set-aside line are evidence the model did not see, so the summary names each count.
+    const bounded = [decision.cut === 0 ? "" : `${decision.cut} item(s) cut at ${LIMITS.maxItemChars} chars`, setAside === 0 ? "" : `${setAside} line(s) set aside by --format ${format}`]
+        .filter((part) => part !== "")
+        .join(", ");
+    return `decide: kept ${decision.kept.length}/${decision.total}${uncertain}; dropped: ${dropped}${bounded === "" ? "" : `; ${bounded}`}; ${models}, ${decision.requests.length} request(s), ${(elapsed / 1000).toFixed(1)}s, ${tokens} tokens`;
 }
 function usageLine(fields) {
     const root = process.env["AI_TOOLS_TYPESAFE_STATE"];
@@ -132,11 +137,12 @@ async function main(argv) {
         throw configurationError("the typesafe integration is not enabled in this session (AI_TOOLS_TYPESAFE_CONF is unset); enable it in /etc/ai-tools/operator.conf AI_TOOLS_INTEGRATIONS and start a new session");
     }
     const config = readConfig(configPath);
-    const items = parse(args.format, readStdin());
+    const { items, setAside } = parse(args.format, readStdin());
     if (items.length === 0)
         throw inputError("the listing on stdin is empty");
-    if (items.length > LIMITS.maxItems)
-        throw inputError(`${items.length} lines exceeds the bound of ${LIMITS.maxItems}; narrow the listing first`, { items: items.length });
+    if (items.length > LIMITS.maxItems) {
+        throw inputError(`${items.length} items exceeds the bound of ${LIMITS.maxItems}. A listing within the bound is split across requests of ${LIMITS.maxItemsPerRequest} on its own; past it, narrow the listing at its source or pre-filter it (--format msbuild for a build log)`, { items: items.length });
+    }
     const client = makeClient(config);
     const started = Date.now();
     let decision;
@@ -151,11 +157,14 @@ async function main(argv) {
     const byId = new Map(items.map((i) => [i.id, i.text]));
     for (const row of decision.kept)
         process.stdout.write(`${byId.get(row.id) ?? row.id}\n`);
-    process.stdout.write(`${summary(decision)}\n`);
+    process.stdout.write(`${summary(decision, setAside, args.format)}\n`);
     usageLine({
         template: "filter",
         items: decision.total,
         kept: decision.kept.length,
+        cut: decision.cut,
+        setAside,
+        format: args.format,
         requests: decision.requests.length,
         model: [...new Set(decision.requests.map((r) => r.model))].join(","),
         inputTokens: decision.requests.reduce((n, r) => n + r.inputTokens, 0),

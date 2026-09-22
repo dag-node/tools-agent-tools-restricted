@@ -7,17 +7,43 @@
 // `contractProblems` then reports what the projection could not fill, so a dropped field reads as a missing one.
 import { makeTransport, send } from "./transport.mjs";
 import { DecideError, ErrorCode, inputError } from "./errors.mjs";
-/** Bounds on what one invocation may send; chars approximate tokens at about four to one. */
+/**
+ * Every bound one invocation obeys. They are values in this file rather than configuration keys: a bound guards
+ * work and cost rather than access, and it is read on every call.
+ *
+ * Local capacity and request payload are separate: `maxInputChars` and `maxParseLineChars` bound work this process
+ * does and cost nothing at the provider; the rest bound what is sent, and sit inside the documented request limits
+ * (64k tokens for the state and all questions, 32k for the state and the longest question), which are a ceiling
+ * rather than a target since a state carrying unrelated material costs accuracy. `chunkItems` enforces the item
+ * count and the state size together and starts another request instead of truncating a state.
+ */
 export const LIMITS = Object.freeze({
-    maxItems: 200,
-    maxItemsPerRequest: 40,
-    maxItemChars: 600,
-    maxStateChars: 48_000,
-    timeoutMs: 20_000,
+    /** stdin as a whole. A log over this is an explicit refusal, never a silent prefix. */
+    maxInputChars: 4_000_000,
+    /** The whole invocation, split across requests. A listing past it is refused rather than partly classified. */
+    maxItems: 1000,
+    /** One request, with maxStateChars; whichever binds first closes the chunk. */
+    maxItemsPerRequest: 32,
+    /** One item's text, rule or context. A cut item is counted and reported: cut evidence reads as absent evidence. */
+    maxItemChars: 2_000,
+    /** The state one request carries. */
+    maxStateChars: 16_000,
+    /** The longest line a pattern is run over. Parsing tolerates a longer line than is ever sent. */
+    maxParseLineChars: 16_000,
+    /** One attempt. */
+    timeoutMs: 15_000,
     maxRetries: 1,
-    totalBudgetMs: 90_000,
+    /** The whole invocation, sized so a listing at maxItems completes rather than being cancelled at the deadline. */
+    totalBudgetMs: 180_000,
 });
-const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$/;
+// The id is a key in the question map this loop builds and matches answers back by, and is used for no
+// filesystem access. A leading "/" is admitted because a compiler reports an absolute path, and an id that
+// names the file beats an L<n> in the summary line the agent reads.
+const ID_RE = /^[A-Za-z0-9/][A-Za-z0-9._:/@+-]{0,199}$/;
+/** Whether `id` is an item id this loop accepts; parsers.mts derives an id only where this holds. */
+export function isItemId(id) {
+    return ID_RE.test(id);
+}
 const cut = (text, max) => (text.length <= max ? text : `${text.slice(0, max)} [...cut at ${max} chars]`);
 /** Checks ids unique and well-formed, text present, and cuts each field to the item bound. */
 export function normalizeItems(items) {
@@ -26,7 +52,8 @@ export function normalizeItems(items) {
     if (items.length > LIMITS.maxItems)
         throw inputError(`${items.length} items exceeds the bound of ${LIMITS.maxItems}`, { items: items.length });
     const seen = new Set();
-    return items.map((item, index) => {
+    let cutCount = 0;
+    const out = items.map((item, index) => {
         if (!ID_RE.test(item.id))
             throw inputError(`item ${index} has an invalid id '${item.id.slice(0, 40)}'`);
         if (seen.has(item.id))
@@ -34,13 +61,16 @@ export function normalizeItems(items) {
         seen.add(item.id);
         if (item.text.trim() === "")
             throw inputError(`item '${item.id}' has no text`);
-        const out = { id: item.id, text: cut(item.text, LIMITS.maxItemChars) };
+        if (item.text.length > LIMITS.maxItemChars || (item.rule?.length ?? 0) > LIMITS.maxItemChars || (item.context?.length ?? 0) > LIMITS.maxItemChars)
+            cutCount++;
+        const row = { id: item.id, text: cut(item.text, LIMITS.maxItemChars) };
         if (item.rule !== undefined && item.rule !== "")
-            out.rule = cut(item.rule, LIMITS.maxItemChars);
+            row.rule = cut(item.rule, LIMITS.maxItemChars);
         if (item.context !== undefined && item.context !== "")
-            out.context = cut(item.context, LIMITS.maxItemChars);
-        return out;
+            row.context = cut(item.context, LIMITS.maxItemChars);
+        return row;
     });
+    return { items: out, cut: cutCount };
 }
 /** Lists of at most maxItemsPerRequest items whose serialized size stays under maxStateChars. */
 export function chunkItems(items) {
@@ -203,7 +233,7 @@ async function runChunks(client, kind, options, chunks, build, run) {
 }
 /** Runs the filter template over `items` and returns the compact decision. */
 export async function decideFilter(client, template, rawItems, params, run = {}) {
-    const items = normalizeItems(rawItems);
+    const { items, cut: cutItems } = normalizeItems(rawItems);
     const chunks = chunkItems(items);
     const build = (chunk) => ({
         state: template.buildState(chunk, params),
@@ -221,11 +251,11 @@ export async function decideFilter(client, template, rawItems, params, run = {})
             uncertain.push(row);
         (template.keep(a, params) ? kept : dropped).push(row);
     }
-    return { template: template.name, total: items.length, kept, dropped, uncertain, requests };
+    return { template: template.name, total: items.length, cut: cutItems, kept, dropped, uncertain, requests };
 }
 /** Runs the triage template over `items`; carried for the deferred re-measurement, not dispatched by the command. */
 export async function decideTriage(client, template, rawItems, params, run = {}) {
-    const items = normalizeItems(rawItems);
+    const { items, cut: cutItems } = normalizeItems(rawItems);
     const chunks = chunkItems(items);
     const build = (chunk) => ({
         state: template.buildState(chunk, params),
@@ -244,5 +274,5 @@ export async function decideTriage(client, template, rawItems, params, run = {})
         };
         (template.keep(a, params) ? kept : dropped).push(row);
     }
-    return { template: template.name, total: items.length, kept, dropped, uncertain: [], requests };
+    return { template: template.name, total: items.length, cut: cutItems, kept, dropped, uncertain: [], requests };
 }
