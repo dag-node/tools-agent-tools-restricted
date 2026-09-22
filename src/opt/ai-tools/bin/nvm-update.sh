@@ -358,11 +358,16 @@ prune_versions() {
     done
 }
 
-# install_packages: install each package missing from the active nvm context, or update it if already present globally.
-# A failed package warns and is skipped, never aborting the run.
-# args:  comma-joined allow-scripts allowlist, then package names
+# install_packages: install each package missing from the active nvm context, reinstall one the caller names
+# as incomplete, and update the rest. A failed package warns and is skipped, never aborting the run.
+#
+# The reinstall branch takes the same invocation and the same allowlist as the install branch, on a package npm already
+# reports as installed: `npm update` would leave the tree it finds, while `npm install` reifies the dependency tree
+# from the package's own manifest. Which packages are named, and why that repair is keyed on the entrypoint's absence,
+# are in updater.rule.md.
+# args:  comma-joined allow-scripts allowlist, comma-joined packages to reinstall, then package names
 install_packages() {
-    local allow_csv="$1"; shift
+    local allow_csv="$1" repair_csv="$2"; shift 2
     local pkg
     # npm 11.5+ gates preinstall/install/postinstall behind an allowScripts allowlist and, on every install, re-scans
     # the WHOLE global tree -- warning "N packages have install scripts not yet covered by allowScripts" for any
@@ -372,7 +377,10 @@ install_packages() {
     # claude-code's required postinstall) flagged. Scoped to the named tools by the caller's list, never a blanket
     # `--dangerously-allow-all-scripts`.
     for pkg in "$@"; do
-        if npm list -g --depth=0 "${pkg}" &>/dev/null; then
+        if [[ -n "${repair_csv}" && ",${repair_csv}," == *",${pkg},"* ]]; then
+            log "  reinstalling ${pkg} -- the entrypoint its manifest declares is not in this toolchain"
+            npm install -g --allow-scripts="${allow_csv}" "${pkg}" || warn "  npm install failed for ${pkg} -- skipping"
+        elif npm list -g --depth=0 "${pkg}" &>/dev/null; then
             log "  updating ${pkg}"
             npm update -g --allow-scripts="${allow_csv}" "${pkg}" || warn "  npm update failed for ${pkg} -- skipping"
         else
@@ -383,9 +391,10 @@ install_packages() {
 }
 
 # main: resolve the latest LTS in the vMAJOR series (or take it from $1), install it under /opt/ai-tools if not already
-# active, remove a disabled agent's package left in the toolchain, refresh the sandbox global tools, re-link each
-# versioned launcher at the target its manifest declares, prune superseded versions, and repoint each enabled agent's
-# stable /opt/ai-tools/bin/<launcher> symlink at the versioned binary.
+# active, remove a disabled agent's package left in the toolchain, refresh the sandbox global tools -- reinstalling
+# rather than updating an enabled agent's package that does not hold the entrypoint its manifest declares -- re-link
+# each versioned launcher at the target its manifest declares, prune superseded versions, and repoint each enabled
+# agent's stable /opt/ai-tools/bin/<launcher> symlink at the versioned binary.
 # args:  optional target Node version override (e.g. v22.15.0)
 main() {
     local target_version="${1:-}"
@@ -488,11 +497,38 @@ main() {
     else
         tools=(npm "${agent_packages[@]}")
     fi
+    # Which of them are installed without the entrypoint their manifest declares (toolchain.lib.sh), read
+    # from the version directory this run installs into, which is what makes the read cover a hole
+    # `nvm reinstall-packages` copied there moments ago as well as one an earlier run left. A library that would not
+    # load leaves the set empty and every package takes the branch it took before -- the state this repairs, not a new
+    # one. What the branch then does, and why the read is keyed on the entrypoint's absence, are in updater.rule.md.
+    local version_dir="${nvm_dir}/versions/node/${target_version}"
+    local -a repair=()
+    if declare -F ai_tools_agent_incomplete >/dev/null 2>&1; then
+        local repair_agent repair_package
+        while IFS=$'\t' read -r repair_agent repair_package; do
+            [[ -n "${repair_package}" ]] || continue
+            warn "${repair_agent}: ${repair_package} is installed without the entrypoint its manifest declares -- reinstalling it; no session of that agent starts until it is back"
+            repair+=("${repair_package}")
+        done < <(ai_tools_agent_incomplete "${version_dir}")
+    fi
+
     # The full managed set is the allow-scripts allowlist -- npm re-scans the whole global tree on every install,
     # so each call must cover all of them (see install_packages).
     local allow_csv; allow_csv="$(IFS=,; printf '%s' "${tools[*]}")"
+    local repair_csv; repair_csv="$(IFS=,; printf '%s' "${repair[*]}")"
     log "Packages: ${tools[*]}"
-    install_packages "${allow_csv}" "${tools[@]}"
+    install_packages "${allow_csv}" "${repair_csv}" "${tools[@]}"
+
+    # The same read again, now that npm has run: what it names is a package the install did not complete, which npm
+    # itself reports as a success (updater.rule.md). Reported rather than fatal, for the reasons stated there.
+    if declare -F ai_tools_agent_incomplete >/dev/null 2>&1; then
+        local left_agent left_package
+        while IFS=$'\t' read -r left_agent left_package; do
+            [[ -n "${left_package}" ]] || continue
+            warn "${left_agent}: ${left_package} still does not hold the entrypoint its manifest declares after the install -- no session of that agent starts until that executable is installed; this run's npm output carries the reason"
+        done < <(ai_tools_agent_incomplete "${version_dir}")
+    fi
 
     # The versioned launcher chain takes its final shape here, ahead of every gate that reads it (see the function).
     relink_agent_launchers "${target_version}"

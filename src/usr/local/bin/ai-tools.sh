@@ -3962,11 +3962,21 @@ status_entrypoint_label() {
     case "${result}" in
         ok)      printf '  %-28s %slabelled%s %s(%s)%s\n' "" "${C_DIM}" "${C_RST}" \
                      "${C_DIM}" "${age:-at an unknown time}" "${C_RST}" ;;
+        # One reason is read rather than only printed: `incomplete-package` (written by ai-tools-relabel-agent) says
+        # the executable the manifest declares is not installed, which no relabel can supply -- so naming the relabel
+        # as the retry would send the operator around the loop this report exists to end. The package is what has to be
+        # reinstalled, and the provisioning command is what does it.
         failed)  printf '  %-28s %sNOT LABELLED%s %s(%s%s)%s\n' "" "${C_RED}" "${C_RST}" \
                      "${C_DIM}" "${age:-at an unknown time}" "${reason:+, ${reason}}" "${C_RST}"
-                 say "      the last reconciliation could not apply this agent's labels; the label its"
-                 say "      entrypoint carries now is read by: ${C_BOLD}sudo ai-tools-admin status${C_RST}"
-                 say "      retry: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST} ${C_DIM}(then: journalctl -t ai-tools-relabel-agent)${C_RST}"
+                 if [[ "${reason}" == incomplete-package ]]; then
+                     say "      this agent's package does not hold the executable its manifest declares, so there is"
+                     say "      nothing to label and no session of it starts; reinstall the package:"
+                     say "      ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST} ${C_DIM}(its output names an install that did not complete)${C_RST}"
+                 else
+                     say "      the last reconciliation could not apply this agent's labels; the label its"
+                     say "      entrypoint carries now is read by: ${C_BOLD}sudo ai-tools-admin status${C_RST}"
+                     say "      retry: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST} ${C_DIM}(then: journalctl -t ai-tools-relabel-agent)${C_RST}"
+                 fi
                  return 1 ;;
         # Nothing to label -- a DAC-only host, or an agent the toolchain has not provisioned yet. Neither is a fault,
         # so neither is coloured or counted.

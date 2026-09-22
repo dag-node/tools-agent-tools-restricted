@@ -75,9 +75,10 @@ fi
 # The label is applied from the manifest's declared pattern, but the SELinux transition fires on the inode the launcher
 # symlink resolves to -- so the two can disagree, and this file covered neither side of it the relabel would report
 # success while every launch fail-closed on an unlabelled entrypoint. ai_tools_entrypoint_reconcile_verdict is the pure
-# decision that closes that: `stale` is the verdict that must make a relabel FAIL, because it is the one cause a rerun
-# cannot clear. Pinned here over the whole truth table; the resolution it consumes needs a provisioned host and lives
-# in integration/selinux.sh.
+# decision that closes that: `stale` and `incomplete` are the verdicts that must make a relabel FAIL, being the causes
+# a rerun cannot clear, and they must be told apart -- each sends the operator to a different repair, and naming
+# the wrong one is a loop rather than a fix. Pinned here over the whole truth table; the resolution it consumes needs
+# a provisioned host and lives in integration/selinux.sh.
 section "relabel: declared-vs-installed entrypoint reconciliation (unit)"
 
 readonly INSTALLED='/opt/ai-tools/.nvm/versions/node/v22.23.2/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe'
@@ -91,16 +92,17 @@ verdict_is() {
 }
 
 if declare -F ai_tools_entrypoint_reconcile_verdict >/dev/null 2>&1; then
-    verdict_is ok    "${INSTALLED}" yes yes "an installed entrypoint the declared rule covers"
-    verdict_is stale "${INSTALLED}" no  no  "an installed entrypoint the rule matches nothing for"
-    verdict_is stale "${INSTALLED}" no  yes "the rule matched some OTHER file, not the installed one"
-    verdict_is none  ""            no  no  "no entrypoint installed and no match (not provisioned)"
-    verdict_is ok    ""            no  yes "no launcher resolves but the rule matched a copy"
+    verdict_is ok         "${INSTALLED}" yes yes "an installed entrypoint the declared rule covers"
+    verdict_is incomplete "${INSTALLED}" no  no  "an installed entrypoint the rule matches nothing for"
+    verdict_is stale      "${INSTALLED}" no  yes "the rule matched some OTHER file, not the installed one"
+    verdict_is none       ""             no  no  "no entrypoint installed and no match (not provisioned)"
+    verdict_is ok         ""             no  yes "no launcher resolves but the rule matched a copy"
     # Unknown flags must not read as "covered": an input this function cannot interpret errs toward reporting
-    # a divergence, which fails a relabel loudly rather than blessing one.
-    verdict_is stale "${INSTALLED}" ""      "" "an empty covered flag"
-    verdict_is stale "${INSTALLED}" YES     no "a flag that is not the exact literal yes"
-    verdict_is none  ""             yes     "" "covered claimed with nothing installed"
+    # a divergence, which fails a relabel loudly rather than blessing one. Which divergence it lands on decides only
+    # the remedy the caller names.
+    verdict_is incomplete "${INSTALLED}" ""      "" "an empty covered flag"
+    verdict_is incomplete "${INSTALLED}" YES     no "a flag that is not the exact literal yes"
+    verdict_is none       ""             yes     "" "covered claimed with nothing installed"
 else
     skip "entrypoint reconciliation" "ai_tools_entrypoint_reconcile_verdict not defined by ${LIB}"
 fi

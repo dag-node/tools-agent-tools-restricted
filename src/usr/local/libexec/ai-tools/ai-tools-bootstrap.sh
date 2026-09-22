@@ -568,6 +568,20 @@ EOSU
 #     The active Node version is read once here and reused by step 3.
 _node_version="$(sudo -u "${SANDBOX_USER}" env NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" \
         bash -c '. "${NVM_DIR}/nvm.sh"; nvm version default' 2>/dev/null || true)"
+
+# What the install did NOT complete (toolchain.lib.sh), reported here -- before the re-link and the relabel, each
+# of which fails because of it and the second of which names this very command as its remedy. An install npm reports
+# as successful can leave this state, and why this run says so rather than the relabel, are in updater.rule.md. Read
+# as root, which traverses the 0750 toolchain, through the library the residue step sourced: a run that did not reach
+# that step says nothing here.
+if [[ -n "${_node_version}" ]] && declare -F ai_tools_agent_incomplete >/dev/null 2>&1; then
+    _version_dir="${NVM_DIR}/versions/node/${_node_version}"
+    while IFS=$'\t' read -r _agent _package; do
+        [[ -n "${_package}" ]] || continue
+        warn MSG-T9P2 "incomplete package for ${_agent}: ${_package} is installed and ${_version_dir} does not hold the entrypoint its manifest declares -- no session of ${_agent} starts until that executable is installed; this run's npm output carries the reason"
+    done < <(ai_tools_agent_incomplete "${_version_dir}")
+fi
+
 if [[ -n "${_node_version}" ]] && declare -F ai_tools_relink_launcher >/dev/null 2>&1; then
     while IFS=$'\t' read -r _agent _ _launcher; do
         [[ -n "${_agent}" && -n "${_launcher}" ]] || continue
