@@ -123,9 +123,15 @@ the whole pristine root, so `install.sh` seeds it with the rest.
 
 ## Templates, measurement, and what is deferred
 
-`filter` is the one template dispatched. The question is one bounded relevance judgment per listing line, asked
-in chunks under the limits `core.mts` declares, with one retry and a per-invocation deadline; a rate limit or an outage
-costs one invocation. A `triage` template (a verdict per checker finding) is written but not dispatched: in the live
+`filter` is the one template dispatched. The question is one bounded judgment per listing item -- whether that item
+satisfies the task the caller stated -- asked in chunks under the limits `core.mts` declares, with one retry and
+a per-invocation deadline; a rate limit or an outage costs one invocation. The two `criteria` strings carry that
+judgment: for a noul they are what the model answers against, so a criterion naming a fixed notion of relevance
+answers that notion whatever the task says, and the shipped pair defers to the task instead. `TEMPLATE_VERSION`
+is recorded with every usage line, so a criteria edit is visible beside the model that answered.
+
+
+A `triage` template (a verdict per checker finding) is written but not dispatched: in the live
 measurement its precision on the accepted class did not reach the criterion set for it, so asking for it exits
 with the input status and the reason. The verification script that measured both, and its recorded runs, live
 in the companion wip repository under `typesafe/verify/`; the criterion that decides whether `filter` stays is
