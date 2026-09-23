@@ -39,8 +39,11 @@ Edit it with
 The command refuses a file that is world-readable, world-writable, or a
 symlink, and a key that still holds the template placeholder.
 .PP
-Only the four documented options are read; any other key in the file is
+Only the documented options are read; any other key in the file is
 ignored.
+A value outside its documented form is refused with the configuration
+status, and the command does not fall back to the default: a mistyped
+threshold would otherwise change what is kept without a line saying so.
 The file is parsed with the grammar
 .BR ai-tools-operator.conf (5)
 describes.
@@ -70,6 +73,26 @@ Defaults to the vendor's public host.
 The base URL's host must equal it, or the command refuses the call before
 any request is made: a key is sent only to a host this file names twice, so
 a base URL edited to another host does not carry the key there on its own.
+.TP
+.BI TYPESAFE_THRESHOLD= P
+The least probability, from 0 to 1, that a listing line satisfies the task
+for the line to be kept.
+Defaults to 0.5.
+.TP
+.BI TYPESAFE_UNCERTAIN_BAND= LOW , HIGH
+The inclusive band of probability reported as uncertain on the summary
+line, as two probabilities with
+.I LOW
+no greater than
+.IR HIGH .
+Defaults to
+.BR 0.35,0.65 .
+.TP
+.BI TYPESAFE_TIMEOUT_MS= MS
+The time one request attempt may take, in whole milliseconds from 1000 to
+120000.
+Defaults to 15000.
+The command bounds a whole call separately, so a retry does not extend it.
 .SH FILES
 .TP
 .I /etc/ai-tools/endpoints/typesafe.conf
@@ -77,15 +100,17 @@ The shipped credential file, inert until the key is set.
 An upgrade keeps the operator's copy.
 .TP
 .I /opt/ai-tools/integrations/typesafe/usage.log
-One line per call: counts, the model that answered, tokens, elapsed time and
-the outcome.
+One line per call made with
+.BR \-\-usage\-log ,
+which the shipped skill passes: counts, the model that answered, tokens,
+elapsed time and the outcome.
 No task text, no listing line, and no key is written there.
 .SH EXAMPLES
 The public endpoint with the shipped model:
 .PP
 .RS 4
 .EX
-TYPESAFE_API_KEY=ts_live_0123456789abcdef
+TYPESAFE_API_KEY=apikey_0123456789abcdef
 TYPESAFE_MODEL=jev-1.13.0
 .EE
 .RE

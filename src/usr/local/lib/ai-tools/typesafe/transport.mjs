@@ -1,8 +1,9 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// clients/typesafe/src/transport.mts
+// SPDX-FileCopyrightText: 2026 Ondřej Nedomlel <tools@dagnode.com>
+// SPDX-License-Identifier: MIT
+// src/transport.mts
 // The one request the decide command makes: POST <base>/v1/systemone with a bearer token, at most one retry, under a
-// per-attempt timeout. It replaces a vendored provider SDK, so the code the sandbox account executes on a call is the
-// code this repository ships and the integration carries no third-party runtime dependency.
+// per-attempt timeout. It replaces a vendored provider SDK, so the code a host executes on a call is the code this
+// repository ships, and the client does not carry a third-party runtime dependency.
 //
 // Everything the provider sends back is untrusted input. The gates run in a fixed order and each refuses before the
 // next sees anything: the status, then the content type, then a hard byte cap on the read -- so a body that is not a
@@ -10,15 +11,22 @@
 // copies the documented fields onto null-prototype objects and drops the rest, reading own properties only and
 // walking the ids this process asked for rather than the ids the body offers.
 //
-// The projection drops; it never coerces. A field that fails its predicate is left out rather than clamped, so
-// `contractProblems` still reports it and a malformed answer cannot be repaired into a valid-looking one.
+// The projection drops a field it cannot fill and does not coerce one: a field failing its predicate is left out
+// rather than clamped, so `contractProblems` still reports it and a malformed answer cannot be repaired into a
+// valid-looking one.
+//
+// A redirect is not followed. The configuration pins the one origin the key and the listing go to; a 3xx from it
+// is returned as the provider's answer and refused on the status, so neither travels to the location it names.
 import { DecideError, ErrorCode } from "./errors.mjs";
 const REQUEST_PATH = "/v1/systemone";
 /** A result for one chunk is a few KB; a body past this is refused unread. */
 const MAX_BODY_BYTES = 1 << 20;
 /** How much of a failing body reaches the error detail. */
 const MAX_SNIPPET_CHARS = 200;
-const MAX_MODEL_CHARS = 120;
+/** A model name reaches the summary line and the usage log, so it is admitted only in the shape config.mts accepts. */
+const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+/** `application/json`, with or without parameters; a longer subtype is not JSON. */
+const JSON_CONTENT_TYPE = /^application\/json\s*(?:;|$)/i;
 /** Retry backoff, and the ceiling on a provider-supplied Retry-After. */
 const BACKOFF_INITIAL_MS = 500;
 const BACKOFF_MAX_MS = 5_000;
@@ -106,9 +114,9 @@ async function readCapped(response) {
     }
     return text + decoder.decode();
 }
-/** Drops the keys that would reach an object's prototype. The projection reads own properties only; this is its pair. */
+/** Drops the keys that would reach an object's prototype: the pair to the projection's own-properties-only read. */
 const noProtoKeys = (key, value) => key === "__proto__" || key === "constructor" || key === "prototype" ? undefined : value;
-/** One answer, reduced to the fields its kind documents. A field failing its predicate is dropped, never coerced. */
+/** One answer, reduced to the fields its kind documents. A field that fails its predicate is dropped, not coerced. */
 function projectAnswer(raw, kind, optionNames) {
     const out = Object.create(null);
     if (own(raw, "type") === kind)
@@ -138,7 +146,7 @@ function projectAnswer(raw, kind, optionNames) {
     return out;
 }
 /**
- * The documented result shape and nothing else, on null-prototype objects. Answers are taken by walking `expectedIds`,
+ * The documented result shape alone, on null-prototype objects. Answers are taken by walking `expectedIds`,
  * so an id the body offers and this process did not ask for is dropped without being enumerated.
  */
 function projectResult(raw, expectedIds, kind, options) {
@@ -163,8 +171,8 @@ function projectResult(raw, expectedIds, kind, options) {
     }
     const model = own(raw, "model");
     const out = { usage, answers };
-    if (typeof model === "string" && model !== "")
-        out.model = model.slice(0, MAX_MODEL_CHARS);
+    if (typeof model === "string" && MODEL_RE.test(model))
+        out.model = model;
     return out;
 }
 /** The id the provider names for this request, admitted only in the shape the usage log records. */
@@ -172,7 +180,7 @@ function requestIdOf(headers) {
     const raw = headers.get("x-typesafe-request-id");
     return raw !== null && REQUEST_ID_RE.test(raw) ? raw : null;
 }
-/** A failing status carries a short snippet of its body, read under the same cap and never parsed. */
+/** A failing status carries a short snippet of its body, read under the same cap and left unparsed. */
 async function failureFor(response) {
     let snippet = "";
     try {
@@ -198,6 +206,10 @@ export async function send(transport, request, { expectedIds, kind, options, sig
     const body = JSON.stringify(payload);
     let attempt = 0;
     for (;;) {
+        // Checked before the attempt, so a cancellation already in force does not make a request, whatever
+        // fetch does with it.
+        if (signal.aborted)
+            throw new DecideError(ErrorCode.deadline, "the invocation was cancelled", {}, { cause: signal.reason });
         const attemptSignal = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]);
         let response;
         try {
@@ -210,6 +222,8 @@ export async function send(transport, request, { expectedIds, kind, options, sig
                 },
                 body,
                 signal: attemptSignal,
+                // Node's fetch returns the 3xx itself under "manual", and Gate 1 refuses it.
+                redirect: "manual",
             });
         }
         catch (err) {
@@ -228,7 +242,7 @@ export async function send(transport, request, { expectedIds, kind, options, sig
             attempt += 1;
             continue;
         }
-        // Gate 1: the status. A body that is not a 200 is never read as a result.
+        // Gate 1: the status. A body that is not a 200 does not reach the result path.
         if (response.status !== 200) {
             if (isRetryableStatus(response.status) && attempt < maxRetries) {
                 const delay = retryDelayMs(attempt, response.headers);
@@ -241,7 +255,7 @@ export async function send(transport, request, { expectedIds, kind, options, sig
         }
         // Gate 2: the content type. Anything but JSON is refused with the body unread.
         const contentType = response.headers.get("content-type") ?? "";
-        if (!contentType.toLowerCase().startsWith("application/json")) {
+        if (!JSON_CONTENT_TYPE.test(contentType)) {
             await response.body?.cancel();
             throw contractError("the answer is not JSON", { contentType: contentType.slice(0, MAX_SNIPPET_CHARS) });
         }

@@ -1,5 +1,6 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// clients/typesafe/src/core.mts
+// SPDX-FileCopyrightText: 2026 Ondřej Nedomlel <tools@dagnode.com>
+// SPDX-License-Identifier: MIT
+// src/core.mts
 // The bounded request loop: items are checked and cut, chunked to a request size, sent one request at a time
 // under one deadline, and every answer is held to the documented shape before anything is returned. A failure in
 // any chunk fails the whole invocation -- the caller falls back to the full listing -- since a partial result would
@@ -9,16 +10,16 @@ import { makeTransport, send } from "./transport.mjs";
 import { DecideError, ErrorCode, inputError } from "./errors.mjs";
 /**
  * Every bound one invocation obeys. They are values in this file rather than configuration keys: a bound guards
- * work and cost rather than access, and it is read on every call.
+ * work and cost, not access, and it is read on every call.
  *
  * Local capacity and request payload are separate: `maxInputChars` and `maxParseLineChars` bound work this process
- * does and cost nothing at the provider; the rest bound what is sent, and sit inside the documented request limits
- * (64k tokens for the state and all questions, 32k for the state and the longest question), which are a ceiling
- * rather than a target since a state carrying unrelated material costs accuracy. `chunkItems` enforces the item
+ * does and do not reach the provider; the rest bound what is sent, and sit inside the documented request limits
+ * (64k tokens for the state and all questions, 32k for the state and the longest question). Those are a ceiling
+ * and not a target: a state carrying unrelated material costs accuracy. `chunkItems` enforces the item
  * count and the state size together and starts another request instead of truncating a state.
  */
 export const LIMITS = Object.freeze({
-    /** stdin as a whole. A log over this is an explicit refusal, never a silent prefix. */
+    /** stdin as a whole. A log over this is refused; the parser does not read a prefix of it. */
     maxInputChars: 4_000_000,
     /** The whole invocation, split across requests. A listing past it is refused rather than partly classified. */
     maxItems: 1000,
@@ -40,9 +41,34 @@ export const LIMITS = Object.freeze({
 // filesystem access. A leading "/" is admitted because a compiler reports an absolute path, and an id that
 // names the file beats an L<n> in the summary line the agent reads.
 const ID_RE = /^[A-Za-z0-9/][A-Za-z0-9._:/@+-]{0,199}$/;
+// The two names the grammar admits that the reviver in transport.mts drops from every body: an item so named
+// could never be answered, so it is not an id.
+const RESERVED_IDS = new Set(["constructor", "prototype"]);
+// Two classes of character with no visible glyph, handled differently because they deceive different readers.
+//
+// A TAG character is invisible to a reader and ordinary text to a tokenizer, so a listing carrying one sends the
+// model instructions its caller cannot see. Sending it is the harm, and a count on the summary line does not undo
+// it, so an item carrying one is refused.
+//
+// The rest -- zero-width, the word joiners, and the bidirectional embeddings, overrides and isolates -- reorder or
+// hide what a READER sees and leave the model's input unchanged. They are counted and sent: a caller asking which
+// lines carry a bidirectional override needs them to arrive intact, which is the case this check exists to serve
+// rather than to break.
+//
+// Bidirectional text is legitimate infrastructure, and the count targets the control characters, not right-to-left
+// content: a line of Arabic or Hebrew is not counted. The marks U+200E and U+200F are out of the class for the same
+// reason -- they are ordinary formatting wherever a script mixes with digits, so counting them would report correct
+// text, and a signal that fires on correct content erodes.
+//
+// Private use (U+E000-U+F8FF) is deliberately out of the refusal and the count: an icon font puts those in
+// ordinary terminal output, so counting them would report a listing piped in from a themed shell. Confusable
+// scripts are out too -- telling Cyrillic a from Latin a needs the Unicode confusables table, a dependency this
+// project does not carry.
+const TAG_CHARACTER = /[\u{E0000}-\u{E007F}]/u;
+const INVISIBLE_FORMATTING = /[\u200b-\u200d\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/u;
 /** Whether `id` is an item id this loop accepts; parsers.mts derives an id only where this holds. */
 export function isItemId(id) {
-    return ID_RE.test(id);
+    return ID_RE.test(id) && !RESERVED_IDS.has(id);
 }
 const cut = (text, max) => (text.length <= max ? text : `${text.slice(0, max)} [...cut at ${max} chars]`);
 /** Checks ids unique and well-formed, text present, and cuts each field to the item bound. */
@@ -53,14 +79,21 @@ export function normalizeItems(items) {
         throw inputError(`${items.length} items exceeds the bound of ${LIMITS.maxItems}`, { items: items.length });
     const seen = new Set();
     let cutCount = 0;
+    let invisibleCount = 0;
     const out = items.map((item, index) => {
-        if (!ID_RE.test(item.id))
+        if (!isItemId(item.id))
             throw inputError(`item ${index} has an invalid id '${item.id.slice(0, 40)}'`);
         if (seen.has(item.id))
             throw inputError(`item id '${item.id}' repeats`);
         seen.add(item.id);
         if (item.text.trim() === "")
             throw inputError(`item '${item.id}' has no text`);
+        const fields = [item.text, item.rule ?? "", item.context ?? ""];
+        if (fields.some((field) => TAG_CHARACTER.test(field))) {
+            throw inputError(`item '${item.id}' carries a Unicode tag character -- invisible to a reader and text to the model`, { id: item.id });
+        }
+        if (fields.some((field) => INVISIBLE_FORMATTING.test(field)))
+            invisibleCount++;
         if (item.text.length > LIMITS.maxItemChars || (item.rule?.length ?? 0) > LIMITS.maxItemChars || (item.context?.length ?? 0) > LIMITS.maxItemChars)
             cutCount++;
         const row = { id: item.id, text: cut(item.text, LIMITS.maxItemChars) };
@@ -70,7 +103,7 @@ export function normalizeItems(items) {
             row.context = cut(item.context, LIMITS.maxItemChars);
         return row;
     });
-    return { items: out, cut: cutCount };
+    return { items: out, cut: cutCount, invisible: invisibleCount };
 }
 /** Lists of at most maxItemsPerRequest items whose serialized size stays under maxStateChars. */
 export function chunkItems(items) {
@@ -181,6 +214,9 @@ async function runChunks(client, kind, options, chunks, build, run) {
     const deadline = setTimeout(() => controller.abort(new Error(`total budget of ${LIMITS.totalBudgetMs}ms exceeded`)), LIMITS.totalBudgetMs);
     const onCallerAbort = () => controller.abort(run.signal?.reason);
     run.signal?.addEventListener("abort", onCallerAbort, { once: true });
+    // A signal already aborted on entry does not fire an event: the first send sees the cancellation instead.
+    if (run.signal?.aborted)
+        onCallerAbort();
     const requests = [];
     // Null-prototype: the keys are the provider's, so an accumulator with a prototype would let one of them reach it.
     const answers = Object.create(null);
@@ -196,7 +232,7 @@ async function runChunks(client, kind, options, chunks, build, run) {
                     kind,
                     options,
                     signal: controller.signal,
-                    timeoutMs: LIMITS.timeoutMs,
+                    timeoutMs: run.timeoutMs ?? LIMITS.timeoutMs,
                     maxRetries: LIMITS.maxRetries,
                 });
             }
@@ -233,7 +269,7 @@ async function runChunks(client, kind, options, chunks, build, run) {
 }
 /** Runs the filter template over `items` and returns the compact decision. */
 export async function decideFilter(client, template, rawItems, params, run = {}) {
-    const { items, cut: cutItems } = normalizeItems(rawItems);
+    const { items, cut: cutItems, invisible } = normalizeItems(rawItems);
     const chunks = chunkItems(items);
     const build = (chunk) => ({
         state: template.buildState(chunk, params),
@@ -246,16 +282,16 @@ export async function decideFilter(client, template, rawItems, params, run = {})
     for (const item of items) {
         const a = answers[item.id];
         const row = { id: item.id, p: round(a.noul) };
-        const band = template.uncertainBand;
+        const band = params.uncertainBand ?? template.uncertainBand;
         if (band !== null && a.noul >= band[0] && a.noul <= band[1])
             uncertain.push(row);
         (template.keep(a, params) ? kept : dropped).push(row);
     }
-    return { template: template.name, total: items.length, cut: cutItems, kept, dropped, uncertain, requests };
+    return { template: template.name, total: items.length, cut: cutItems, invisible, kept, dropped, uncertain, requests };
 }
 /** Runs the triage template over `items`; carried for the deferred re-measurement, not dispatched by the command. */
 export async function decideTriage(client, template, rawItems, params, run = {}) {
-    const { items, cut: cutItems } = normalizeItems(rawItems);
+    const { items, cut: cutItems, invisible } = normalizeItems(rawItems);
     const chunks = chunkItems(items);
     const build = (chunk) => ({
         state: template.buildState(chunk, params),
@@ -274,5 +310,5 @@ export async function decideTriage(client, template, rawItems, params, run = {})
         };
         (template.keep(a, params) ? kept : dropped).push(row);
     }
-    return { template: template.name, total: items.length, cut: cutItems, kept, dropped, uncertain: [], requests };
+    return { template: template.name, total: items.length, cut: cutItems, invisible, kept, dropped, uncertain: [], requests };
 }

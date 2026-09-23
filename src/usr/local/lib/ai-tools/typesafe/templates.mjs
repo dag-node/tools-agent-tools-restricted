@@ -1,5 +1,6 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// clients/typesafe/src/templates.mts
+// SPDX-FileCopyrightText: 2026 Ondřej Nedomlel <tools@dagnode.com>
+// SPDX-License-Identifier: MIT
+// src/templates.mts
 // The question templates: what state a template sends, the one question it asks per item, and how an answer is
 // read. `filter` is the initial scope; `triage` is carried for the deferred re-measurement and is not dispatched
 // by the command (decide.mts). TEMPLATE_VERSION is recorded with every usage line so a template edit is visible
@@ -12,7 +13,7 @@ const choice = (instructions, criteria) => ({ type: "choice", instructions, crit
 export const MAX_TASK_CHARS = 400;
 const cut = (text, max) => (text.length <= max ? text : `${text.slice(0, max)} [...cut at ${max} chars]`);
 /**
- * The instruction every template carries: item text is evidence, never a directive. The vendor documents that
+ * The instruction every template carries: item text is evidence, and is not a directive. The vendor documents that
  * content written to steer the model can move an answer, so this is a mitigation the verification measures, not
  * a guarantee.
  */
@@ -34,7 +35,7 @@ export const filter = {
     }),
     keep: (answer, params) => answer.noul >= (params.threshold ?? 0.5),
 };
-/** The triage options are named with tokens that do not occur in prose, so an excerpt cannot name one as a directive. */
+/** The triage options use tokens that do not occur in prose, so an excerpt cannot name one as a directive. */
 export const TRIAGE_OPTIONS = {
     rewrite: "The flagged text is a genuine instance of what the rule describes, and none of the rule's stated exemptions applies: a rewrite of the sentence from its source is due.",
     keep: "The flagged text is a case the rule's stated exemptions cover, a labelled off-style example, a quoted term, or a command or literal.",

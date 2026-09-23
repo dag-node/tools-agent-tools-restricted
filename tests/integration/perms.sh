@@ -155,14 +155,15 @@ check_file /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh  root            
 check_file /usr/local/lib/ai-tools/admin-commands.d/dotnet      root            root              750
 check_file /usr/local/lib/ai-tools/filters.d/dotnet.rules       root            root              644
 # typesafe integration data (shipped by ai-tools-integration-typesafe): the manifest and fragment on the same terms
-# as dotnet's, and the decide command with its vendored SDK -- JavaScript node reads as the sandbox account, so 644
-# root:root in a 755 root:root tree: node reads the files and does not execute them, and root alone writes them,
+# as dotnet's, and the decide command vendored from its signed release -- JavaScript node reads as the sandbox account,
+# so 644 root:root in a 755 root:root tree: node reads the files and does not execute them, and root alone writes them,
 # so the agent cannot change what a call sends.
 check_file /usr/local/lib/ai-tools/integrations.d/typesafe.conf root            root              644
 check_file /usr/local/lib/ai-tools/session-env.d/typesafe.env.sh root           root              644
 check_file /usr/local/lib/ai-tools/typesafe                     root            root              755
 check_file /usr/local/lib/ai-tools/typesafe/decide.mjs          root            root              644
 check_file /usr/local/lib/ai-tools/typesafe/transport.mjs      root            root              644
+check_file /usr/local/lib/ai-tools/typesafe/LICENSE            root            root              644
 # Its state root: the one path a call writes (the usage log), agent-writable and setgid so the log is group-owned.
 check_file /opt/ai-tools/integrations/typesafe                  root              "${SANDBOX_GROUP}" 2770
 # The claude-code agent's session pins and its own session-env fragment, shipped by its agent package. ai-tools-run

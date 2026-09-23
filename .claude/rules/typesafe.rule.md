@@ -7,7 +7,8 @@ paths:
   - "src/usr/local/share/man/man5/ai-tools-typesafe.conf.5"
   - "src/usr/share/ai-tools/skills/ai-tools-decide/**"
   - "tests/unit/typesafe.sh"
-  - "tests/unit/typesafe-client.sh"
+  - "tools/generators/typesafe-client.sh"
+  - "tools/generators/typesafe-client.pin"
   - "tests/boundary/typesafe.sh"
 ---
 
@@ -15,7 +16,8 @@ paths:
 
 `typesafe` (`ai-tools-integration-typesafe`) lets a session hand a long listing — a grep, a `git log`, a checker's
 findings — to TypeSafe's bounded classifier and get back the lines that bear on the task it states in one sentence.
-The session runs the **decide command**, `node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --task "…"`,
+The session runs the **decide command**,
+`node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --task "…" --config "$AI_TOOLS_TYPESAFE_CONF" --usage-log "$AI_TOOLS_TYPESAFE_USAGE_LOG"`,
 with the listing on stdin; the command prints the kept lines in full and one summary line naming the rest by id,
 and exits non-zero with one stderr line and no result on any failure, so the listing the session already holds is always
 the fallback. It is an **integration on the provider seam** ([providers](providers.rule.md)): a manifest, a session-env
@@ -27,28 +29,33 @@ when the command is worth running and what it does not replace.
 
 The fragment `session-env.d/typesafe.env.sh` self-gates on the credential file's presence and appends two `--setenv=`
 entries, both paths: `AI_TOOLS_TYPESAFE_CONF=/etc/ai-tools/endpoints/typesafe.conf`
-and `AI_TOOLS_TYPESAFE_STATE=/opt/ai-tools/integrations/typesafe`. It does not add a PATH tail, does not export
-a variable, and does not take either of the seam's fragment exceptions; `tests/unit/typesafe.sh` holds it to that shape.
-The credential reaches the process at **call time**: `config.mjs` reads the file the variable names, as the sandbox
-account, and every option the transport uses is pinned from it, so no `TYPESAFE_*` environment value is read and the key
-is in no session's environment and in no child process's. The read refuses a symlink, a file readable or writable
-by other, an empty or placeholder key, a base URL other than an https origin, and a base URL whose host differs
-from the one `TYPESAFE_ENDPOINT_HOST` names — the key is sent only to a host the file names twice. The group bits are
-not read: on a file under a claimed project the group class shows the ACL mask, and the group is the sandbox account,
-which reads the key in any case.
+and `AI_TOOLS_TYPESAFE_USAGE_LOG=/opt/ai-tools/integrations/typesafe/usage.log`. It does not add a PATH tail, does not
+export a variable, and does not take either of the seam's fragment exceptions; `tests/unit/typesafe.sh` holds it
+to that shape. The command itself does not read any environment variable: the skill passes the two values as `--config`
+and `--usage-log`, so in a session the integration is not enabled for, `--config` is empty and the command exits 3.
+The credential reaches the process at **call time**: `config.mjs` reads the file `--config` names, as the sandbox
+account, and every option the transport uses is pinned from it, so the key is in no session's environment and in no
+child process's. The read refuses a symlink, a file readable or writable by other, an empty or placeholder key, a base
+URL other than an https origin, and a base URL whose host differs from the one `TYPESAFE_ENDPOINT_HOST` names — the key
+is sent only to a host the file names twice. The group bits are not read: on a file under a claimed project the group
+class shows the ACL mask, and the group is the sandbox account, which reads the key in any case.
 
 `/etc/ai-tools/endpoints/typesafe.conf` ships `0640 root:ai-tools`, `%config(noreplace)`, with `TYPESAFE_API_KEY`
 commented and `TYPESAFE_MODEL` set to a versioned id: installing and enabling the integration does not make a request
 until an operator sets the key with `sudo`, and the alias `jev-latest` is not used because the vendor moves it
-on a release. `ai-tools-typesafe.conf(5)` states each option; the template stays a pointer and `tests/unit/man.sh` holds
-the two in lockstep. The model that answered is on every summary line and in the usage log, so a template edit
-or a model change is visible in both.
+on a release. The keep threshold, the uncertain band and the per-attempt timeout ship commented at the client's defaults; they are keys in this file because an operator's
+copy survives an upgrade that replaces the command, and `config.mjs` refuses a value outside its form rather than
+falling back to the default, so a mistyped threshold does not change what is kept without a line saying so.
+`ai-tools-typesafe.conf(5)` states each option; the template stays a pointer and `tests/unit/man.sh` holds the two
+in lockstep. The model that answered is on every summary line and in the usage log, so a template edit or a model change
+is visible in both.
 
-The one path a call writes is the state root's `usage.log`: one JSON line per invocation (counts, template version,
-the model, tokens, elapsed time, outcome class, request ids) with no task text, no listing line, and no key. The root is
-`2770 root:ai-tools`, agent-writable, so the log is cost accounting and not an audit trail; a root the session cannot
-write costs the line and not the result. The exit statuses and the refusal classes are declared in `decide.mts`'s header
-and asserted by `tests/unit/typesafe-client.sh`.
+The one path a call writes is the file `--usage-log` names, `usage.log` in the state root: one JSON line per invocation
+(counts, template version, the model, tokens, elapsed time, outcome class, request ids) with no task text, no listing
+line, and no key; without the flag the command does not write a file. The root is `2770 root:ai-tools`, agent-writable,
+so the log is cost accounting and not an audit trail; a log the session cannot write costs the line and not the result.
+The exit statuses and the refusal classes are declared in `decide.mjs`'s header and frozen by the client repository's
+suite.
 
 ## What a call discloses, and what it does not change
 
@@ -66,21 +73,24 @@ another credential file: a session that writes one of its own sends its own key 
 which HTTPS egress already permits and which does not reach the root-owned key. The guarantees are the ones
 `tests/boundary/typesafe.sh` probes as the agent — the shipped file is readable by the sandbox account and not writable
 by it or readable by other, neither the command nor the transport that decides where a request goes is writable,
-the state root is — and their runtime halves are the refusals `tests/unit/typesafe-client.sh` drives. No SELinux policy
-is added: HTTPS egress, the read of `/etc/ai-tools`, and writes under the integration state root are granted to the base
+the state root is — and their runtime halves are the refusals the client repository's suite drives. No SELinux policy is
+added: HTTPS egress, the read of `/etc/ai-tools`, and writes under the integration state root are granted to the base
 domain.
 
-## No runtime dependency: the shipped JavaScript is the reviewed JavaScript
+## No runtime dependency: the shipped JavaScript is a pinned, signed release
 
-`src/usr/local/lib/ai-tools/typesafe/*.mjs` is what the package installs and what a host runs. Each module imports its
-siblings and the Node builtins alone, so the code the sandbox account executes on a call is code this repository ships
-and reviews, and the integration does not put a third-party dependency in the agent's execution path. The RPM build
-and a host need `node` alone, and `tests/unit/typesafe-client.sh` drives the shipped files offline with the one request
-injected.
+`src/usr/local/lib/ai-tools/typesafe/*.mjs` is what the package installs and what a host runs: the `dist/` modules
+of a release of `dag-node/typesafe-client-js` (MIT), vendored unmodified with the `LICENSE` and `CHANGELOG.md`
+the release tarball carries beside them; the package's `%license` is that `LICENSE`. Each module imports its siblings
+and the Node builtins alone, so the integration does not put a third-party dependency in the agent's execution path,
+and the RPM build and a host need `node` alone. The client repository's CI runs the command's suite, with the one
+request injected; this repository holds the vendored files to the release (see [Which release is vendored,
+and how that is checked](#which-release-is-vendored-and-how-that-is-checked)).
 
 `transport.mjs` is that one request: `POST <base>/v1/systemone` with a bearer token, at most one retry,
-under a per-attempt timeout, with the invocation's total budget carried on an abort signal. `core.mjs` reads its
-projected result.
+under a per-attempt timeout, with the invocation's total budget carried on an abort signal. A redirect is not followed:
+it is refused as the provider's answer, so neither the key nor the listing reaches the host it names. `core.mjs` reads
+its projected result.
 
 **A response is untrusted input, and the gates run before the parser.** The status, then the content type, then a hard
 byte cap on the read — so a body that is not a small JSON result is refused with the stream cancelled rather than handed
@@ -93,23 +103,37 @@ charset.
 
 ## Written against the provider's published types, shipped without them
 
-The TypeScript the `.mjs` is emitted from lives in the companion wip repository (`typesafe/client/`), which holds
-the strict `nodenext` configuration and whose `tsc` emits into this tree. It keeps `@typesafe-ai/sdk` at `^0.6.0`
-as a **devDependency**: the provider publishes its wire contract as TypeScript declarations, and `transport.mts`,
-`core.mts` and `templates.mts` bind to them through `import type` — the request body to `SystemOneRequestPayload`,
-the question builders to `NoulQuestion` and `ChoiceQuestion`, and a `DriftCheck` tuple to each answer and usage field
-`contractProblems` validates. A release that renames or retypes one of those fails the next build there, which is
-what the caret range is for. `import type` is erased on emit, so the shipped `.mjs` does not import them:
-the declarations are a build-time contract rather than a runtime dependency.
+The TypeScript the modules are compiled from lives in `dag-node/typesafe-client-js`, whose strict `nodenext` `tsc` build
+is the whole of `dist/`. It keeps `@typesafe-ai/sdk` at `^0.6.0` as a **devDependency**: the provider publishes its wire
+contract as TypeScript declarations, and `transport.mts`, `core.mts` and `templates.mts` bind to them
+through `import type` — the request body to `SystemOneRequestPayload`, the question builders to `NoulQuestion`
+and `ChoiceQuestion`, and a `DriftCheck` tuple to each answer and usage field `contractProblems` validates. A release
+that renames or retypes one of those fails the client's next build, which is what the caret range is for. `import type`
+is erased on emit, so the shipped `.mjs` does not import them: the declarations are a build-time contract rather than
+a runtime dependency.
 
 The validation is written against the documented shapes rather than the types, so a wire change the declarations do not
 describe is still caught at runtime: a declaration does not check a body.
 
-**The committed `.mjs` is the artifact of record, and this repository does not check it against that source.**
-What stands in place of such a check is that the shipped file is reviewed as source: it is the one a reader opens,
-the one `tests/unit/typesafe-client.sh` drives, and the one the package installs. An edit made here and not carried back
-to the `.mts` is a divergence a reviewer catches or nobody does. Bringing the source back into this repository,
-or pinning the emitted files against a signed release of it, is what would close that.
+## Which release is vendored, and how that is checked
+
+`tools/generators/typesafe-client.pin` names the release — the tag, the commit the tag names, the release tarball's
+sha256, and each vendored file's sha256 — and `tools/generators/typesafe-client.sh generate <tag>` is the one writer
+of both the pin and the vendored files. A release is accepted only when the tarball carries the notices beside its
+modules, when the tarball matches the checksum the release publishes, its detached signature is by the DagNode
+package-signing key, and the tag is an annotated tag signed by the client's release key. The trust anchors are the two
+keys' **primary fingerprints**, held in the generator; each key is fetched over HTTPS for the one call, so the URL is
+transport, a key served from a compromised account does not match, and a rotated signing subkey leaves the pin
+unchanged. The client's release job verifies the tag before it signs the tarball; the generator checks the tag again
+against its author's key, so the pinned commit does not rest on the org key alone. Signatures are checked with `gpgv`,
+which verifies without reading a secret key or an agent.
+
+Two checks hold the tree to the pin, and they answer different questions. `stale` is offline and runs
+in `tests/unit/typesafe.sh`: a vendored file edited, added or removed fails it. It cannot tell a file edited together
+with the pin line that lists it; `verify` can, because it downloads the pinned release, repeats every signature check,
+and re-derives each hash. The CI job `typesafe-client` runs `verify`, and the release job needs it, so a release is
+built only from modules a signed release carries. A change to the command is therefore made and released in the client
+repository and arrives here as `generate` on its tag.
 
 ## The skill this package ships
 
@@ -124,31 +148,33 @@ the whole pristine root, so `install.sh` seeds it with the rest.
 ## Templates, measurement, and what is deferred
 
 `filter` is the one template dispatched. The question is one bounded judgment per listing item -- whether that item
-satisfies the task the caller stated -- asked in chunks under the limits `core.mts` declares, with one retry and
-a per-invocation deadline; a rate limit or an outage costs one invocation. The two `criteria` strings carry that
-judgment: for a noul they are what the model answers against, so a criterion naming a fixed notion of relevance
-answers that notion whatever the task says, and the shipped pair defers to the task instead. `TEMPLATE_VERSION`
-is recorded with every usage line, so a criteria edit is visible beside the model that answered.
+satisfies the task the caller stated -- asked in chunks under the limits `core.mts` declares, with one retry
+and a per-invocation deadline; a rate limit or an outage costs one invocation. The two `criteria` strings carry
+that judgment: for a noul they are what the model answers against, so a criterion naming a fixed notion of relevance
+answers that notion whatever the task says, and the shipped pair defers to the task instead. `TEMPLATE_VERSION` is
+recorded with every usage line, so a criteria edit is visible beside the model that answered.
 
-Every bound sits in one frozen `LIMITS` block at the top of `core.mts`, with the reason for each beside it: what
-stdin may hold, what one item and one request may carry, the longest line a pattern runs over, and the deadlines.
-They are tunables an operator edits in that file, deliberately not configuration keys -- a bound guards work and
-cost rather than access, it is read on every call, and the credential file is not a place to add a parse to.
+Every request bound sits in one frozen `LIMITS` block at the top of `core.mjs`, with the reason for each beside it:
+what stdin may hold, what one item and one request may carry, the longest line a pattern runs over, and the total
+deadline. They are chosen against each other and change with a client release, not with an edit here, which `stale`
+refuses; the values an operator tunes per host are the credential file's keys.
 
-Three input formats. `lines` makes an item of each non-empty line, taking a `path:line` prefix as the id where that
-prefix is an id `core.mts` would accept, so a log line carrying a clock time falls back to `L<n>` rather than
-failing the listing. `prose-check` reads the checker's two-line records. `msbuild` is a pre-filter: it keeps
-a build log's diagnostics, collapses the repeat MSBuild prints in its summary, and reports how many lines it set
-aside -- a `dotnet build -v n` log carries its compiler invocations in the same stream, and one of those lines
-alone runs to tens of kilobytes. A listing is untrusted input in every format, so `parse` first holds stdin to text
-within the size bound and refuses a stream carrying a NUL or a run of undecodable bytes, which is what keeps
-a binary file from reaching the provider.
+Three input formats. `lines` makes an item of each non-empty line, taking a `path:line` prefix as the id
+where that prefix is an id `core.mts` would accept, so a log line carrying a clock time falls back to `L<n>` rather than
+failing the listing. `prose-check` reads the checker's two-line records. `msbuild` is a pre-filter: it keeps a build
+log's diagnostics, collapses the repeat MSBuild prints in its summary, and reports how many lines it set aside --
+a `dotnet build -v n` log carries its compiler invocations in the same stream, and one of those lines alone runs to tens
+of kilobytes. A listing is untrusted input in every format, so `parse` first holds stdin to text within the size bound
+and refuses a stream carrying a NUL or a run of undecodable bytes, which is what keeps a binary file from reaching
+the provider. An item carrying a Unicode tag character is refused, since the model reads it; zero-width characters
+and bidi controls are counted on the summary line and sent unchanged, since they mislead a reader of the output rather
+than the model.
 
-A `triage` template (a verdict per checker finding) is written but not dispatched: in the live
-measurement its precision on the accepted class did not reach the criterion set for it, so asking for it exits
-with the input status and the reason. The verification script that measured both, and its recorded runs, live
-in the companion wip repository under `typesafe/verify/`; the criterion that decides whether `filter` stays is
-the plan's evaluation on real listings from this repository's own sessions.
+A `triage` template (a verdict per checker finding) is written but not dispatched: in the live measurement its precision
+on the accepted class did not reach the criterion set for it, so asking for it exits with the input status
+and the reason. The verification script that measured both, and its recorded runs, live in the companion wip repository
+under `typesafe/verify/`; the criterion that decides whether `filter` stays is the plan's evaluation on real listings
+from this repository's own sessions.
 
 No cache (inputs rarely repeat, and a cache keyed on project content would be shared state across every operator's
 sessions under one account), no `ai-tools-admin` domain (the two root-side steps are scriptlet-sized,

@@ -4,17 +4,18 @@ name: ai-tools-decide
 x-ai-tools-managed: true
 x-ai-tools-status: draft
 x-ai-tools-version: 1
-x-ai-tools-updated: 2026-09-22
+x-ai-tools-updated: 2026-09-23
 description: "Use when a listing runs longer than the task needs — a search with more than about 30 hits, a `git log`, a checker's findings, a failing build's diagnostics — the task fits one sentence, and the criterion applies to each line on its own. Hands the listing to a bounded classifier and prints the lines that bear on the task; falls back to the full listing on any error. Not for a question about the listing as a whole (which finding is the odd one out, which diagnostic is the root cause), not for security or permission questions, not for a claim that a set is complete, and not a substitute for the check a task owes."
 ---
 
 # Decide: keep the lines that bear on the task
 
 A listing is piped to the decide command with the task in one sentence. The command prints the lines that bear on it
-in full, then one summary line naming the rest by id:
+in full, then one summary line naming the rest by id. `--config` and `--usage-log` take the paths a session of a host
+running the integration is handed in `AI_TOOLS_TYPESAFE_CONF` and `AI_TOOLS_TYPESAFE_USAGE_LOG`:
 
 ```bash
-grep -rn 'parse_config' src tests | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --task "rename parse_config to load_config in every caller and the test that covers it"
+grep -rn 'parse_config' src tests | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --config "$AI_TOOLS_TYPESAFE_CONF" --usage-log "$AI_TOOLS_TYPESAFE_USAGE_LOG" --task "rename parse_config to load_config in every caller and the test that covers it"
 ```
 
 ```text
@@ -28,13 +29,13 @@ Each line's id is its `path:line` prefix where the listing has one, else `L<n>` 
 records take `--format prose-check`, so the rule travels apart from the excerpt:
 
 ```bash
-python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all docs/*.md | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --format prose-check --task "which findings are in prose this branch added"
+python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all docs/*.md | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --config "$AI_TOOLS_TYPESAFE_CONF" --usage-log "$AI_TOOLS_TYPESAFE_USAGE_LOG" --format prose-check --task "which findings are in prose this branch added"
 ```
 
 A build log takes `--format msbuild`, which keeps the log's diagnostics and sets the rest of it aside:
 
 ```bash
-dotnet build -v n 2>&1 | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --format msbuild --task "which diagnostics are the cause rather than a knock-on of another one"
+dotnet build -v n 2>&1 | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --config "$AI_TOOLS_TYPESAFE_CONF" --usage-log "$AI_TOOLS_TYPESAFE_USAGE_LOG" --format msbuild --task "which diagnostics are the cause rather than a knock-on of another one"
 ```
 
 Each diagnostic becomes one item -- its location the id, its code the rule, its project the context -- and the
@@ -101,8 +102,9 @@ read and does not settle a question on its own.
 
 A permission, secret, or security question is answered from the code and the rule that owns it, not from a classifier.
 A listing the command refuses as over its bound is narrowed at the source (a tighter pattern, a path) rather than split
-by hand. The listing must also carry the evidence the task asks about: `git log --oneline` holds subject lines, so
-a task about what a commit's diff touched is not answerable from it. A long item is cut at the command's item
-bound, and the summary line says how many were cut: evidence a bound removed reads as evidence the line lacks.
-Where the command reports the integration as not enabled or the file as not configured, the host has not turned
-it on: read the full listing and say so.
+by hand. The listing must also carry the evidence the task asks about: `git log --oneline` holds subject lines,
+so a task about what a commit's diff touched is not answerable from it. A long item is cut at the command's item bound,
+and the summary line says how many were cut: evidence a bound removed reads as evidence the line lacks.
+Where the command reports that `--config` is required (`AI_TOOLS_TYPESAFE_CONF` is empty, so the integration is not
+enabled for this session) or that the file is not configured, the host has not turned it on: read the full listing
+and say so.

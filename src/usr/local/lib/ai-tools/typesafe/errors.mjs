@@ -1,8 +1,15 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// clients/typesafe/src/errors.mts
+// SPDX-FileCopyrightText: 2026 Ondřej Nedomlel <tools@dagnode.com>
+// SPDX-License-Identifier: MIT
+// src/errors.mts
 // Every failure the decide command reports, as one class carrying a code, so the caller (an agent reading stderr,
 // a test reading the exit status) tells a configuration refusal from a provider error from a malformed answer
 // without parsing prose. The code decides the exit status; the message is for the reader.
+//
+// A message may quote what it refused -- a line of the listing, a snippet of a provider body -- and that text is
+// untrusted. `describe` therefore renders the whole line through `oneLine`, so nothing a message carries can add a
+// second line to stderr or style the terminal, whatever the caller of a constructor put in it.
+/** `text` with every control character (C0, DEL, C1) and Unicode line separator replaced by a space. */
+export const oneLine = (text) => text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ");
 /** The failure classes, each with the exit status it maps to. */
 export const ErrorCode = {
     /** The command line or the stdin listing is unusable (empty, over a bound, a bad id). */
@@ -37,12 +44,15 @@ export class DecideError extends Error {
     get exitStatus() {
         return EXIT_STATUS[this.code];
     }
-    /** One stderr line: `decide: <code>: <message> [key=value ...]`, with no body content beyond what detail names. */
+    /**
+     * One stderr line: `decide: <code>: <message> [key=value ...]`, with no body content beyond what detail names,
+     * and no control character however the message or a detail came by one.
+     */
     describe() {
         const tail = Object.entries(this.detail)
             .map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(";") : String(value)}`)
             .join(" ");
-        return `decide: ${this.code}: ${this.message}${tail === "" ? "" : ` [${tail}]`}`;
+        return oneLine(`decide: ${this.code}: ${this.message}${tail === "" ? "" : ` [${tail}]`}`);
     }
 }
 export const inputError = (message, detail) => new DecideError(ErrorCode.input, message, detail);

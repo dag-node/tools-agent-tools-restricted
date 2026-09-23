@@ -15,7 +15,7 @@ the lines that bear on it. The agent runs the decide command itself, guided
 by the `ai-tools-decide` skill the package ships:
 
 ```bash
-grep -rn 'resolve_owner' src tests | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --task "rename resolve_owner in every caller"
+grep -rn 'resolve_owner' src tests | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --config "$AI_TOOLS_TYPESAFE_CONF" --usage-log "$AI_TOOLS_TYPESAFE_USAGE_LOG" --task "rename resolve_owner in every caller"
 ```
 
 The kept lines print in full, then one summary line names every other line
@@ -26,7 +26,7 @@ as it would have without the integration.
 A build log is handed over as its diagnostics rather than as its lines:
 
 ```bash
-dotnet build -v n 2>&1 | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --format msbuild --task "which diagnostics are the cause"
+dotnet build -v n 2>&1 | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --config "$AI_TOOLS_TYPESAFE_CONF" --usage-log "$AI_TOOLS_TYPESAFE_USAGE_LOG" --format msbuild --task "which diagnostics are the cause"
 ```
 
 The command keeps each diagnostic, collapses the repeat MSBuild prints in its
@@ -39,9 +39,9 @@ be tens of kilobytes on its own.
 The task sentence and the listing lines the agent pipes. The skill's first rule
 is to pipe listings and not a file's contents, and the command refuses
 a listing over its bound rather than truncating it. It also refuses a stream
-that is not text — one holding a NUL byte or a run of undecodable bytes — so
-a binary file piped in by mistake does not reach the service. Claude Code asks
-before running the command, since it is not on the shipped allow list;
+that is not text — one holding a NUL byte or a run of undecodable bytes —
+so a binary file piped in by mistake does not reach the service. Claude Code
+asks before running the command, since it is not on the shipped allow list;
 the prompt is where you see each call. Whether a given project's lines may
 leave the host is your decision, which is why the integration is off until you
 name it in `/etc/ai-tools/operator.conf` and set the key.
@@ -54,8 +54,9 @@ and the sandbox account read it and no other account does; edit it with `sudo`.
 The command reads it when it runs, and a session is handed the file's path
 alone, so the key is in no session's environment. The shipped file has the key
 commented: until you set it, the command reports the file as not configured
-and does not make a request. An upgrade keeps your copy.
-`man 5 ai-tools-typesafe.conf` states each option.
+and does not make a request. The keep threshold, the uncertain band
+and the time one request may take sit beside it, each commented at its default.
+An upgrade keeps your copy. `man 5 ai-tools-typesafe.conf` states each option.
 
 ## Turning it off
 

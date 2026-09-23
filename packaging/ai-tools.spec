@@ -177,6 +177,9 @@ package adds no runtime and is inert until enabled on a host that has dotnet ins
 # ─────────────────────────────────────────────────────────────────────────────
 %package -n ai-tools-integration-typesafe
 Summary:        TypeSafe decision integration for the ai-tools sandbox
+# The decide command is vendored unmodified from a signed release of dag-node/typesafe-client-js,
+# which is MIT; the fragment, manifest, credential template, man page and skill are this project's.
+License:        AGPL-3.0-only AND MIT
 Requires:       ai-tools-base = %{version}-%{release}
 # The decide command is JavaScript the sandbox's own Node runs (the session PATH carries it), so
 # the nodejs integration is a hard dependency; it imports its own modules alone, so no npm package
@@ -523,7 +526,8 @@ touch %{buildroot}/var/log/ai-tools/dotnet.log
 
 # ── integration-typesafe: the decide command + fragment + manifest + credential file ─────────
 # The command is JavaScript committed under src/ with no runtime dependency, so this build copies
-# files and does not run a compiler or npm. Its TypeScript source lives in the companion wip repository.
+# files and does not run a compiler or npm. Its TypeScript source is dag-node/typesafe-client-js,
+# whose LICENSE and CHANGELOG.md are vendored beside the modules and installed with them.
 # Every file under the lib directory is 0644 root:root: node reads it and does not execute it.
 cp -rT src%{ai_libdir}/typesafe %{buildroot}%{ai_libdir}/typesafe
 find %{buildroot}%{ai_libdir}/typesafe -type d -exec chmod 0755 {} +
@@ -1334,6 +1338,7 @@ fi
 %ghost %attr(0600, root, root) /var/log/ai-tools/dotnet.log
 
 %files -n ai-tools-integration-typesafe
+%license src%{ai_libdir}/typesafe/LICENSE
 # The command, the whole tree: read by node as the sandbox account, written by root alone
 # (directories 0755 and files 0644, set in %%install).
 %attr(-, root, root) %{ai_libdir}/typesafe

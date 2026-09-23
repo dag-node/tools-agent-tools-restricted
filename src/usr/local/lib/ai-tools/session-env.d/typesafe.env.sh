@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # shellcheck shell=bash
 # /usr/local/lib/ai-tools/session-env.d/typesafe.env.sh
-# Session environment for the typesafe integration: where the decide command finds its credential file and its state
-# root. ai-tools-run sources this when `typesafe` is named in /etc/ai-tools/operator.conf (AI_TOOLS_INTEGRATIONS). It
-# self-gates on the credential file's presence, so a host whose package is gone while the name stays sets neither
-# variable and the command reports the integration as not enabled.
+# Session environment for the typesafe integration: the credential file and the usage log the decide command is pointed
+# at with `--config` and `--usage-log`, which the ai-tools-decide skill passes from these two variables. ai-tools-run
+# sources this when `typesafe` is named in /etc/ai-tools/operator.conf (AI_TOOLS_INTEGRATIONS). It self-gates
+# on the credential file's presence, so a host whose package is gone while the name stays sets neither variable,
+# and a session outside the integration passes an empty `--config` that the command refuses with exit 3.
 #
 # The two values are paths, never the credential: the command reads the key from the file at call time, as the sandbox
 # account, so the key is in no session's environment and does not reach a child process (typesafe.rule.md). A file
@@ -19,5 +20,5 @@
 
 session_environment_options+=(
     "--setenv=AI_TOOLS_TYPESAFE_CONF=/etc/ai-tools/endpoints/typesafe.conf"
-    "--setenv=AI_TOOLS_TYPESAFE_STATE=/opt/ai-tools/integrations/typesafe"
+    "--setenv=AI_TOOLS_TYPESAFE_USAGE_LOG=/opt/ai-tools/integrations/typesafe/usage.log"
 )

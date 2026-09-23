@@ -7,7 +7,7 @@
 # What the agent must not get a vote on: the credential file (which key is sent, and to which host), the decide command
 # and the transport it calls (what leaves the host, and where a result comes from), and the manifest and fragment
 # tests/boundary/providers.sh covers with every other provider's. The command refuses a world-readable or world-writable
-# file (tests/unit/typesafe-client.sh drives that); this file asserts the other half -- that on a real install
+# file (the suite of its source repository drives that); this file asserts the other half -- that on a real install
 # the shipped file is not in that state and the agent has no write on it to put it there. The one path the agent MUST
 # write is the state root, where the usage log lands; a read-only root costs the log and not the result, so that is
 # asserted as writable.

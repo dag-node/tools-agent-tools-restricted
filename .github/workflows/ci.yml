@@ -61,29 +61,20 @@ jobs:
           find src -name '*.sh' -print0 | xargs -0 shellcheck
           shellcheck install.sh
 
-  # The typesafe integration's decide command is the JavaScript under
-  # src/usr/local/lib/ai-tools/typesafe/, which the repository ships as source: it has no runtime
-  # dependency, and no job or tool here builds it. This job runs its offline unit suite -- every refusal the
-  # command makes before a request, the two stdin parsers, and the answer contract, with the one
-  # request it makes injected. It runs on the runner rather than in the EL image because inside the
-  # selftest container the sandbox account's node is not on root's PATH, so the whole file would
-  # skip. The release job needs this job. The TypeScript the .mjs is emitted from lives in the
-  # companion wip repository, whose tsc emits into this tree; a bump is committed here with its
-  # reason, so no file on this side pins a compiler.
+  # The typesafe integration's decide command is vendored from a signed release of
+  # dag-node/typesafe-client-js, whose own CI runs the command's suite. This job re-derives the
+  # committed modules from that release: it downloads the tarball tools/generators/typesafe-client.pin
+  # names, checks its signature and the tag's against the fingerprints the generator pins, and fails
+  # unless every committed module matches the release. A module edited here, or a pin edited to match
+  # it, fails this job; the offline half (tests/unit/typesafe.sh) sees only the first. The release job
+  # needs this job.
   typesafe-client:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      # The Node major the command is written against. The job does not install any packages and
-      # there is no lockfile to read, so the action's own npm cache is switched off.
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: 22
-          package-manager-cache: false
-
-      - name: Unit test the decide command offline
-        run: bash tests/unit/typesafe-client.sh
+      - name: Verify the vendored decide command against its signed release
+        run: bash tools/generators/typesafe-client.sh verify
 
   # Builds the RPMs and runs the full admin -> operator -> agent workflow (bootstrap,
   # operator enrolment, project claim, tests/run.sh all, a confined `claude --version`

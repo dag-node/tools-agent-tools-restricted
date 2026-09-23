@@ -2,14 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/typesafe.sh
 # Unit test for the typesafe integration's shell-side files (typesafe.rule.md): the manifest keeps the integration
-# off until an operator names it, the session-env fragment hands a session the credential file's PATH and the state root
-# alone -- no PATH tail, no export, no exit, no value that is not one of those two paths -- and the shipped credential
-# template is inert: every option but the model pin is commented, so the decide command, given the template itself,
-# refuses with the configuration status before any request. The command's own refusals are
-# tests/unit/typesafe-client.sh; the agent-side half of these guarantees is tests/boundary/typesafe.sh.
+# off until an operator names it, the session-env fragment hands a session the credential file's path and the usage
+# log's path alone -- no PATH tail, no export, no exit, no value that is not one of those two paths -- the shipped
+# credential template is inert: the key is commented, so the decide command, given the template itself, refuses
+# with the configuration status before any request -- and the vendored command is the signed release
+# tools/generators/typesafe-client.pin names, file for file. The command's own refusals are the suite of its source
+# repository, dag-node/typesafe-client-js; the agent-side half of these guarantees is tests/boundary/typesafe.sh.
 #
-# Pure: reads the checkout, runs the fragment in a subshell with the two arrays declared, and runs the command
-# against a copy of the template in its own testdir. Run without root.
+# Pure: reads the checkout, runs the fragment in a subshell with the two arrays declared, runs the command
+# against a copy of the template in its own testdir, and runs the generator's offline `stale` verb. Run without root.
 
 set -euo pipefail
 # shellcheck source=/dev/null
@@ -54,10 +55,10 @@ fragment_effect() {
     ' _ "$1" 2>&1
 }
 effect="$(fragment_effect "${FRAGMENT}")" || fail "the fragment does not source cleanly: $(tr '\n' '|' <<<"${effect}")"
-allowed='^--setenv=AI_TOOLS_TYPESAFE_(CONF=/etc/ai-tools/endpoints/typesafe\.conf|STATE=/opt/ai-tools/integrations/typesafe)$'
+allowed='^--setenv=AI_TOOLS_TYPESAFE_(CONF=/etc/ai-tools/endpoints/typesafe\.conf|USAGE_LOG=/opt/ai-tools/integrations/typesafe/usage\.log)$'
 offending="$(grep -vE "${allowed}" <<<"${effect}" | grep -v '^PATH:$' || true)"
 if [[ -z "${offending}" ]]; then
-    pass "the fragment appends the credential file path and the state root alone, with no PATH tail"
+    pass "the fragment appends the credential file path and the usage log path alone, with no PATH tail"
 else
     fail "the fragment appends an entry outside its two paths: $(tr '\n' '|' <<<"${offending}")"
 fi
@@ -81,7 +82,7 @@ else
 fi
 
 # ── 3. The shipped credential template is inert ──────────────────────────────────────────────────
-# Every option but the model pin is commented, and the command, given the template, refuses before a request.
+# The key is commented, and the command, given the template, refuses before a request.
 if ai_tools_conf_read "${TEMPLATE}" TYPESAFE_API_KEY && [[ -n "${_ai_tools_conf_value}" ]]; then
     fail "the shipped template sets TYPESAFE_API_KEY ('${_ai_tools_conf_value}') -- it ships with the key commented"
 else
@@ -96,8 +97,8 @@ if [[ -r "${CLI}" ]] && command -v node >/dev/null 2>&1; then
     mktestdir
     cp "${TEMPLATE}" "${TESTDIR}/typesafe.conf"; chmod 0600 "${TESTDIR}/typesafe.conf"
     set +e
-    out="$(printf 'a:1: x\n' | env -u AI_TOOLS_TYPESAFE_CONF -u AI_TOOLS_TYPESAFE_STATE \
-        node "${CLI}" filter --task t --config "${TESTDIR}/typesafe.conf" 2>"${TESTDIR}/err")"; rc=$?
+    out="$(printf 'a:1: x\n' | node "${CLI}" filter --task t --config "${TESTDIR}/typesafe.conf" 2>"${TESTDIR}/err")"
+    rc=$?
     set -e
     if [[ ${rc} -eq 3 && -z "${out}" && "$(cat "${TESTDIR}/err")" == "decide: configuration: "* ]]; then
         pass "given the shipped template, the command exits 3 (configuration) with no result and no request"
@@ -106,6 +107,21 @@ if [[ -r "${CLI}" ]] && command -v node >/dev/null 2>&1; then
     fi
 else
     skip "template through the command" "decide.mjs or node not available"
+fi
+
+# ── 4. The vendored command is the pinned release ────────────────────────────────────────────────
+# The modules and notices are a signed release's, unmodified: an edit here, or a file added or removed, reads as stale.
+# Whether the pin itself names a release that verifies is the generator's `verify`, which needs the network and runs
+# in CI.
+GENERATOR="${ROOT}/tools/generators/typesafe-client.sh"
+if [[ -r "${GENERATOR}" ]]; then
+    if out="$(bash "${GENERATOR}" stale 2>&1)"; then
+        pass "the vendored files match tools/generators/typesafe-client.pin"
+    else
+        fail "the vendored files do not match the pin: ${out}"
+    fi
+else
+    skip "vendored files against the pin" "not a checkout (no ${GENERATOR})"
 fi
 
 finish
