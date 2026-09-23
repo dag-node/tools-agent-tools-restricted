@@ -88,10 +88,10 @@ if ai_tools_conf_read "${TEMPLATE}" TYPESAFE_API_KEY && [[ -n "${_ai_tools_conf_
 else
     pass "the shipped template leaves TYPESAFE_API_KEY commented"
 fi
-if ai_tools_conf_read "${TEMPLATE}" TYPESAFE_MODEL && [[ "${_ai_tools_conf_value}" =~ ^jev-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    pass "the shipped template pins a versioned model (${_ai_tools_conf_value}), not the moving alias"
+if ai_tools_conf_read "${TEMPLATE}" TYPESAFE_MODEL && [[ "${_ai_tools_conf_value}" == jev-latest ]]; then
+    pass "the shipped template names the model alias jev-latest"
 else
-    fail "the shipped template does not pin a versioned model (read '${_ai_tools_conf_value:-}')"
+    fail "the shipped template does not name jev-latest (read '${_ai_tools_conf_value:-}')"
 fi
 if [[ -r "${CLI}" ]] && command -v node >/dev/null 2>&1; then
     mktestdir

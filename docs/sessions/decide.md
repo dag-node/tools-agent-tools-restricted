@@ -61,6 +61,15 @@ and does not make a request. The keep threshold, the uncertain band
 and the time one request may take sit beside it, each commented at its default.
 An upgrade keeps your copy. `man 5 ai-tools-typesafe.conf` states each option.
 
+The shipped file names the model `jev-latest`, which TypeSafe moves to each
+stable release; the usage log records the version that answered each call.
+A release can score the same line differently, so to keep the answers of one
+release, name it:
+
+```ini
+TYPESAFE_MODEL=jev-1.13.0
+```
+
 ## Turning it off
 
 Remove `typesafe` from `AI_TOOLS_INTEGRATIONS`, or comment the key: either way

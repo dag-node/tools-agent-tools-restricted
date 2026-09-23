@@ -41,9 +41,12 @@ is sent only to a host the file names twice. The group bits are not read: on a f
 class shows the ACL mask, and the group is the sandbox account, which reads the key in any case.
 
 `/etc/ai-tools/endpoints/typesafe.conf` ships `0640 root:ai-tools`, `%config(noreplace)`, with `TYPESAFE_API_KEY`
-commented and `TYPESAFE_MODEL` set to a versioned id: installing and enabling the integration does not make a request
-until an operator sets the key with `sudo`, and the alias `jev-latest` is not used because the vendor moves it
-on a release. The keep threshold, the uncertain band and the per-attempt timeout ship commented at the client's defaults; they are keys in this file because an operator's
+commented and `TYPESAFE_MODEL` set to the alias `jev-latest`: installing and enabling the integration does not make
+a request until an operator sets the key with `sudo`. The vendor moves the alias to each stable release and states
+that an answer's shape is stable across releases and its probabilities are not; `transport.mjs` records the `model`
+the response names, so the summary line and the usage log carry the version that answered, and a versioned id is
+the operator's choice where a threshold is measured against one release. The keep threshold, the uncertain band
+and the per-attempt timeout ship commented at the client's defaults; they are keys in this file because an operator's
 copy survives an upgrade that replaces the command, and `config.mjs` refuses a value outside its form rather than
 falling back to the default, so a mistyped threshold does not change what is kept without a line saying so.
 `ai-tools-typesafe.conf(5)` states each option; the template stays a pointer and `tests/unit/man.sh` holds the two

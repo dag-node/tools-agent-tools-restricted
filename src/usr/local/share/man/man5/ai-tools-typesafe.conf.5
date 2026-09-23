@@ -56,10 +56,17 @@ configuration status and does not print a result.
 .TP
 .BI TYPESAFE_MODEL= MODEL
 The model that answers, a single token.
-The shipped file names a versioned model rather than the moving alias
+The shipped file names
 .BR jev-latest ,
-because the alias changes answers on a release and the integration's
-measurements are made against one version.
+the alias TypeSafe moves to each stable release; the summary line and the
+usage log name the version that answered.
+The layout of an answer is the same across releases, and its probabilities
+are not: the same line can score differently on the next release.
+Name a version, as
+.BR jev-1.13.0 ,
+to keep the answers of one release, for example while a
+.B TYPESAFE_THRESHOLD
+is measured against it.
 .TP
 .BI TYPESAFE_BASE_URL= URL
 The API origin: an
@@ -111,7 +118,7 @@ The public endpoint with the shipped model:
 .RS 4
 .EX
 TYPESAFE_API_KEY=apikey_0123456789abcdef
-TYPESAFE_MODEL=jev-1.13.0
+TYPESAFE_MODEL=jev-latest
 .EE
 .RE
 .PP
