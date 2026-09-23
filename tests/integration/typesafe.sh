@@ -232,10 +232,12 @@ fi
 
 # A reader that closes stdout early ends the command with status 0 and an empty stderr.
 rc=0
+# stdin and stderr are opened here, as root, like every other call's: a root-created file is not one the sandbox
+# account may open for writing.
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
 runuser -u "${SANDBOX_USER}" -- bash -c '"$1" "$2" filter --task "which lines name a fruit" --config "$3" \
-    <"$4" 2>"$5" | head -c 0; exit "${PIPESTATUS[0]}"' _ "${NODE}" "${CLI}" "${CONF}" "${TESTDIR}/fruit" \
-    "${TESTDIR}/err" || rc=$?
+    | head -c 0; exit "${PIPESTATUS[0]}"' _ "${NODE}" "${CLI}" "${CONF}" \
+    <"${TESTDIR}/fruit" 2>"${TESTDIR}/err" || rc=$?
 if [[ ${rc} -eq 0 && ! -s "${TESTDIR}/err" ]]; then
     pass "a reader closing stdout early: exit 0, nothing on stderr"
 else
