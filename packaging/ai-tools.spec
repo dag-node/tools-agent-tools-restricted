@@ -536,7 +536,9 @@ install -m 0644 src%{ai_libdir}/session-env.d/typesafe.env.sh %{buildroot}%{ai_l
 install -m 0644 src%{ai_libdir}/integrations.d/typesafe.conf  %{buildroot}%{ai_libdir}/integrations.d/typesafe.conf
 # The credential file, in the endpoints directory the claude-code package also uses: 0640
 # root:ai-tools like the endpoint file there, %%config(noreplace) so the operator's key survives
-# an upgrade. Its reference page ships with it.
+# an upgrade. Its reference page ships with it. The directory is created here as well, since this
+# section runs before the claude-code one and a host may install this package without that agent.
+install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools/endpoints
 install -m 0640 src%{_sysconfdir}/ai-tools/endpoints/typesafe.conf \
     %{buildroot}%{_sysconfdir}/ai-tools/endpoints/typesafe.conf
 install -m 0644 src%{ai_mandir}/man5/ai-tools-typesafe.conf.5 %{buildroot}%{ai_mandir}/man5/ai-tools-typesafe.conf.5
@@ -1344,8 +1346,10 @@ fi
 %attr(-, root, root) %{ai_libdir}/typesafe
 %attr(0644, root, root) %{ai_libdir}/session-env.d/typesafe.env.sh
 %attr(0644, root, root) %{ai_libdir}/integrations.d/typesafe.conf
-# The credential file: 0640 root:ai-tools because it holds the API key; the endpoints directory
-# itself is the claude-code package's.
+# The credential file: 0640 root:ai-tools because it holds the API key. The endpoints directory is
+# owned with the claude-code package, on the same attributes, so it stays owned on a host that
+# installs one of the two.
+%dir %attr(0755, root, root) %{_sysconfdir}/ai-tools/endpoints
 %config(noreplace) %attr(0640, root, ai-tools) %{_sysconfdir}/ai-tools/endpoints/typesafe.conf
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-typesafe.conf.5*
 # The state root: base owns /opt/ai-tools/integrations, this package its own directory inside
