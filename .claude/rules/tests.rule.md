@@ -895,16 +895,16 @@ the listing before matching it.
 
 **`integration`** — checks that need a completed install and the running system (`perms.sh`, `wrapper.sh`, `hooks.sh`,
 `symlink-helper.sh`, `entrypoint-pin.sh`, `handback.sh`, `cli.sh`, `cli-flags.sh`, `ai-tools-run.sh`, `systemd.sh`,
-`selinux.sh`): installed-artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end (its allowlist gate,
-`!`-exclusion refusal, fail-closed load of the gate library and, through it, of `safe-paths.lib.sh`, and consultation
-of the protected-paths backstop on the launch CWD), the handback `socket → daemon → helper` chain (including its
-negative paths — unknown verb, wrong/empty/non-absolute/control-character args, an out-of-allowlist CHOWN,
-and a `SYMLINK_REMOVE` of an enabled agent's link all refused), the launcher symlink helper's repoint and removal forms
-(`symlink-helper.sh`: the removal accepts only a launcher an installed, not enabled manifest claims, driven on a fixture
-launcher's link in the live launcher directory), the CLI principal guard (refuses root and the sandbox account),
-`ai-tools-run`'s `AI_TOOLS_AGENT_EXEC` / `AI_TOOLS_PROJECT_DIR` re-validation and its entrypoint gates (a bad value —
-or an entrypoint that does not match its pin — is refused before any session launches — including a real sibling binary
-in the same versioned `bin` directory, which is refused because no enabled agent manifest claims that launcher,
+`selinux.sh`, `typesafe.sh`): installed-artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end (its
+allowlist gate, `!`-exclusion refusal, fail-closed load of the gate library and, through it, of `safe-paths.lib.sh`,
+and consultation of the protected-paths backstop on the launch CWD), the handback `socket → daemon → helper` chain
+(including its negative paths — unknown verb, wrong/empty/non-absolute/control-character args, an out-of-allowlist
+CHOWN, and a `SYMLINK_REMOVE` of an enabled agent's link all refused), the launcher symlink helper's repoint and removal
+forms (`symlink-helper.sh`: the removal accepts only a launcher an installed, not enabled manifest claims, driven
+on a fixture launcher's link in the live launcher directory), the CLI principal guard (refuses root and the sandbox
+account), `ai-tools-run`'s `AI_TOOLS_AGENT_EXEC` / `AI_TOOLS_PROJECT_DIR` re-validation and its entrypoint gates (a bad
+value — or an entrypoint that does not match its pin — is refused before any session launches — including a real sibling
+binary in the same versioned `bin` directory, which is refused because no enabled agent manifest claims that launcher,
 and a non-semver version directory) plus its pinned session-confinement properties
 (`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), every enabled agent's session pins (read through the deployed
 resolver, so no agent is named, and asserted by **sourcing** each pins file into the two arrays it is contracted
@@ -990,6 +990,13 @@ as executable, since bash's `PATH` search asks `access(2)` and a `noexec` mount 
 a `/tmp` is passed over and the real command runs — a fixture rule left in the host's policy store. The file therefore
 asserts before its first run that `command -v` under the helper's `PATH` resolves to the stubs and stops when it does
 not, and reads the switch back from the helper's own inactive line after the run.
+
+`typesafe.sh` holds the installed decide command to the release it is vendored from and to its refusals. The installed
+directory must hold exactly the files the pin lists, so a module a release adds cannot be left out and one it drops
+cannot linger. Each refusal class is driven as the sandbox account against a host that does not resolve, so none
+of those cases can send a listing off the host, and each out-of-range value is paired with an in-range one that passes
+the configuration check. Live calls run only when `AI_TOOLS_TEST_TYPESAFE_LIVE=1` is set, since each sends its listing
+with the host's key, and they assert the integration's contract; which lines the classifier kept is reported as a note.
 
 `perms.sh` is the **single source** for the deployed-artifact permission assertions (every installed file
 and directory's owner/group/mode): `install.sh` does not carry a parallel checker — `sudo ./install.sh check-perms`

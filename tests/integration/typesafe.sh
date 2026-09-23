@@ -4,8 +4,9 @@
 # Integration: the installed decide command of the typesafe integration (typesafe.rule.md). Three sections:
 #
 #   1. The installed tree is the vendored release: every file tools/generators/typesafe-client.pin lists is installed
-#      with its pinned sha256 at 644 root:root, and the directory does not hold a file the pin does not list -- so a module
-#      a release adds reaches the host and one a release drops does not linger. `--version` names the pinned tag.
+#      with its pinned sha256 at 644 root:root, and the directory does not hold a file the pin does not list -- so
+#      a module a release adds reaches the host and one a release drops does not linger. `--version` names the pinned
+#      tag.
 #   2. Every refusal the command makes before a request, driven as the sandbox account against fixture credential
 #      files: the configuration class (exit 3) and the input class (exit 2), and the provider class (exit 4) for a host
 #      that cannot resolve. The fixtures name `typesafe.invalid` (RFC 2606, never resolves), so no case in this section
@@ -119,38 +120,36 @@ expect_refusal() {
     local want="$1" class="$2" what="$3" input="$4" rc=0; shift 4
     as_agent_decide "${input}" "$@" || rc=$?
     local err; err="$(cat "${TESTDIR}/err")"
-    if [[ ${rc} -eq ${want} && ! -s "${TESTDIR}/out" && "${err}" == "decide: ${class}: "* && "${err}" != *$'\n'* ]]; then
+    if [[ ${rc} -eq ${want} && ! -s "${TESTDIR}/out" \
+            && "${err}" == "decide: ${class}: "* && "${err}" != *$'\n'* ]]; then
         pass "${what}: exit ${want} (${class}), no result, one stderr line"
     else
         fail "${what}: exit ${rc}, stdout '$(head -c 120 "${TESTDIR}/out")', stderr '$(head -c 200 <<<"${err}")'"
     fi
 }
 C="${TESTDIR}"
-expect_refusal 3 configuration "no --config"                    "${C}/listing" filter --task t
-expect_refusal 3 configuration "an empty --config (a session without the integration)" \
-                                                                 "${C}/listing" filter --task t --config ""
-expect_refusal 3 configuration "a credential file readable by other" \
-                                                                 "${C}/listing" filter --task t --config "${C}/world.conf"
-expect_refusal 3 configuration "a credential file behind a symlink" \
-                                                                 "${C}/listing" filter --task t --config "${C}/link.conf"
-expect_refusal 3 configuration "a base URL whose host the file does not name twice" \
-                                                                 "${C}/listing" filter --task t --config "${C}/mismatch.conf"
-expect_refusal 3 configuration "the template's placeholder key" "${C}/listing" filter --task t --config "${C}/placeholder.conf"
-expect_refusal 3 configuration "a threshold outside 0..1"       "${C}/listing" filter --task t --config "${C}/threshold.conf"
-expect_refusal 3 configuration "an uncertain band whose low end is above its high end" \
-                                                                 "${C}/listing" filter --task t --config "${C}/band.conf"
-expect_refusal 3 configuration "a model that is not one token"  "${C}/listing" filter --task t --config "${C}/model.conf"
+# conf_refused <what> <args>...: the two-line listing with a task, refused with the configuration status.
+conf_refused() { expect_refusal 3 configuration "$1" "${C}/listing" filter --task t "${@:2}"; }
+# input_refused <what> <stdin-name> <args>...: a fixture listing under TESTDIR, refused with the input status.
+input_refused() { expect_refusal 2 input "$1" "${C}/$2" "${@:3}"; }
+conf_refused "no --config"
+conf_refused "an empty --config (a session without the integration)" --config ""
+conf_refused "a credential file readable by other"                   --config "${C}/world.conf"
+conf_refused "a credential file behind a symlink"                    --config "${C}/link.conf"
+conf_refused "a base URL whose host the file does not name twice"    --config "${C}/mismatch.conf"
+conf_refused "the template's placeholder key"                        --config "${C}/placeholder.conf"
+conf_refused "a threshold outside 0..1"                              --config "${C}/threshold.conf"
+conf_refused "an uncertain band whose low end is above its high end" --config "${C}/band.conf"
+conf_refused "a model that is not one token"                         --config "${C}/model.conf"
 if [[ -r "${CONF}" ]] && ! grep -qE '^[[:space:]]*TYPESAFE_API_KEY=' "${CONF}"; then
-    expect_refusal 3 configuration "the shipped credential file with its key commented" \
-                                                                 "${C}/listing" filter --task t --config "${CONF}"
+    conf_refused "the shipped credential file with its key commented" --config "${CONF}"
 fi
-expect_refusal 2 input "a stream holding a NUL byte"            "${C}/binary"  filter --task t --config "${C}/ok.conf"
-expect_refusal 2 input "an empty listing"                       "${C}/empty"   filter --task t --config "${C}/ok.conf"
-expect_refusal 2 input "no --task"                              "${C}/listing" filter --config "${C}/ok.conf"
-expect_refusal 2 input "an unknown --format"                    "${C}/listing" filter --task t --format nope --config "${C}/ok.conf"
-expect_refusal 2 input "the deferred triage template"           "${C}/listing" triage --task t --config "${C}/ok.conf"
-expect_refusal 2 input "an item carrying a Unicode tag character" \
-                                                                 "${C}/tagged"  filter --task t --config "${C}/ok.conf"
+input_refused "a stream holding a NUL byte"      binary  filter --task t --config "${C}/ok.conf"
+input_refused "an empty listing"                 empty   filter --task t --config "${C}/ok.conf"
+input_refused "no --task"                        listing filter --config "${C}/ok.conf"
+input_refused "an unknown --format"              listing filter --task t --format nope --config "${C}/ok.conf"
+input_refused "the deferred triage template"     listing triage --task t --config "${C}/ok.conf"
+input_refused "an item carrying a Unicode tag character" tagged filter --task t --config "${C}/ok.conf"
 
 # The provider class: a file every configuration check accepts reaches the request, which fails on the unresolvable
 # host. The in-range threshold values and band pair the out-of-range ones, so the refusals are about the range.
@@ -184,22 +183,25 @@ live_log="${TESTDIR}/live-usage.log"
 : >"${live_log}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${live_log}"
 
 # expect_answer <what> <items> <format> <stdin-file> <task>: exit 0, a summary line over <items> items naming
-# a versioned model, and one new usage line with outcome ok and the format.
+# a versioned model, and one new usage line with outcome ok and the format. Returns 1 when the call did not answer,
+# so a check that reads the answer is not run on a failed call.
 expect_answer() {
     local what="$1" items="$2" format="$3" input="$4" task="$5" rc=0 before summary
     before="$(wc -l <"${live_log}")"
     as_agent_decide "${input}" filter --format "${format}" --task "${task}" \
         --config "${CONF}" --usage-log "${live_log}" || rc=$?
     summary="$(tail -n 1 "${TESTDIR}/out")"
-    if [[ ${rc} -eq 0 && "${summary}" =~ ^decide:\ kept\ [0-9]+/${items}[^0-9].*\ (jev-[0-9]+\.[0-9]+\.[0-9]+),\ [0-9]+\ request ]]; then
+    local shape="^decide: kept [0-9]+/${items}[^0-9].* (jev-[0-9]+\\.[0-9]+\\.[0-9]+), [0-9]+ request"
+    if [[ ${rc} -eq 0 && "${summary}" =~ ${shape} ]]; then
         pass "${what}: exit 0, the summary names the version that answered (${BASH_REMATCH[1]})"
     else
-        fail "${what}: exit ${rc}, summary '${summary}', stderr '$(head -c 200 "${TESTDIR}/err")'"
-        return
+        fail "${what}: exit ${rc}, summary '${summary}', stderr '$(head -c 300 "${TESTDIR}/err")'"
+        return 1
     fi
+    # shellcheck disable=SC2016  # $f is jq's variable, bound by --arg
+    local line_ok='.outcome == "ok" and .format == $f and (.model | test("^jev-[0-9]+\\.[0-9]+\\.[0-9]+$"))'
     if [[ "$(wc -l <"${live_log}")" -eq $(( before + 1 )) ]] \
-            && tail -n 1 "${live_log}" | jq -e --arg f "${format}" \
-                '.outcome == "ok" and .format == $f and (.model | test("^jev-[0-9]+\\.[0-9]+\\.[0-9]+$"))' >/dev/null; then
+            && tail -n 1 "${live_log}" | jq -e --arg f "${format}" "${line_ok}" >/dev/null; then
         pass "${what}: one usage line, outcome ok, format ${format}, a versioned model"
     else
         fail "${what}: the usage log gained '$(tail -n 1 "${live_log}")'"
@@ -212,19 +214,20 @@ printf '%s\n' "basket.txt:1: apple" "basket.txt:2: hammer" "basket.txt:3: banana
 printf '%s\n' "docs/a.md:3: filler [basically] -- cut it" "    it is basically done" \
     "docs/b.md:9: absolute [never] -- name the guard" "    the file is never written" >"${TESTDIR}/prose"
 printf '%s\n' "Build started 9/23/2026 10:00:00 AM." \
-    "/src/App/Program.cs(12,5): error CS0103: The name 'Execute' does not exist in the current context [/src/App/App.csproj]" \
+    "/src/App/Program.cs(12,5): error CS0103: The name 'Execute' does not exist [/src/App/App.csproj]" \
     "  App -> /src/App/bin/Debug/net9.0/App.dll" \
-    "/src/Lib/Util.cs(4,1): warning CS8618: Non-nullable property 'Name' must contain a non-null value [/src/Lib/Lib.csproj]" \
+    "/src/Lib/Util.cs(4,1): warning CS8618: Non-nullable property 'Name' is uninitialized [/src/Lib/Lib.csproj]" \
     "Build FAILED." "Time Elapsed 00:00:02.13" >"${TESTDIR}/msbuild"
 chmod 0644 "${TESTDIR}"/{fruit,prose,msbuild}
 
-expect_answer "lines"       6 lines       "${TESTDIR}/fruit"   "which lines name a fruit"
-expect_answer "prose-check" 2 prose-check "${TESTDIR}/prose"   "which findings are about an absolute claim"
-expect_answer "msbuild"     2 msbuild     "${TESTDIR}/msbuild" "which diagnostics are errors rather than warnings"
-if tail -n 1 "${live_log}" | jq -e '.setAside > 0' >/dev/null 2>&1; then
-    pass "msbuild: the usage line counts the log lines set aside"
-else
-    fail "msbuild: the usage line does not count a set-aside line: '$(tail -n 1 "${live_log}")'"
+expect_answer "lines"       6 lines       "${TESTDIR}/fruit"   "which lines name a fruit" || :
+expect_answer "prose-check" 2 prose-check "${TESTDIR}/prose"   "which findings are about an absolute claim" || :
+if expect_answer "msbuild"  2 msbuild     "${TESTDIR}/msbuild" "which diagnostics are errors rather than warnings"; then
+    if tail -n 1 "${live_log}" | jq -e '.setAside > 0' >/dev/null 2>&1; then
+        pass "msbuild: the usage line counts the log lines set aside"
+    else
+        fail "msbuild: the usage line does not count a set-aside line: '$(tail -n 1 "${live_log}")'"
+    fi
 fi
 
 # A reader that closes stdout early ends the command with status 0 and an empty stderr.

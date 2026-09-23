@@ -64,10 +64,13 @@ else
 fi
 
 # The command: what runs on every call, root-owned so a session cannot change what leaves the host or fabricate
-# a result. transport.mjs is the file that decides where a request goes and what a body is trusted to carry.
+# a result. transport.mjs is the file that decides where a request goes and what a body is trusted to carry. Every
+# module is checked, since each one a call imports can change what it sends or trusts.
 not_writable "${LIB}" "replace the decide command"
-not_writable "${LIB}/decide.mjs" "change what a call sends or prints"
-not_writable "${LIB}/transport.mjs" "change where a request goes, or what an answer is held to"
+for module in "${LIB}"/*.mjs; do
+    [[ -e "${module}" ]] || continue
+    not_writable "${module}" "change what a call sends, where it goes, or what an answer is held to"
+done
 
 # The state root: the one path a call writes (usage.log). Absent until the package is installed.
 if [[ ! -e "${STATE}" ]]; then
