@@ -220,7 +220,30 @@ printf '%s\n' "Build started 9/23/2026 10:00:00 AM." \
     "Build FAILED." "Time Elapsed 00:00:02.13" >"${TESTDIR}/msbuild"
 chmod 0644 "${TESTDIR}"/{fruit,prose,msbuild}
 
-expect_answer "lines"       6 lines       "${TESTDIR}/fruit"   "which lines name a fruit" || :
+# A key the provider never issued, sent to the host's own endpoint with a one-line listing: the provider must refuse
+# it, and the command must report that as the provider class with the status. An answer here is the failure.
+conf_value() { sed -n "s/^[[:space:]]*$1=[\"']\\{0,1\\}\\([^\"' ]*\\).*/\\1/p" "${CONF}" | tail -n 1; }
+base_url="$(conf_value TYPESAFE_BASE_URL)"; endpoint_host="$(conf_value TYPESAFE_ENDPOINT_HOST)"
+conf_fixture forged.conf "TYPESAFE_API_KEY=apikey_$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" \
+    "TYPESAFE_BASE_URL=${base_url:-https://api.typesafe.ai}" \
+    "TYPESAFE_ENDPOINT_HOST=${endpoint_host:-api.typesafe.ai}" "TYPESAFE_TIMEOUT_MS=15000"
+printf 'basket.txt:1: apple\n' >"${TESTDIR}/one"; chmod 0644 "${TESTDIR}/one"
+rc=0; as_agent_decide "${TESTDIR}/one" filter --task "which lines name a fruit" --config "${C}/forged.conf" || rc=$?
+if [[ ${rc} -eq 4 && ! -s "${TESTDIR}/out" && "$(cat "${TESTDIR}/err")" =~ status=40[13] ]]; then
+    pass "a key the provider never issued: refused ($(grep -oE 'status=40[13]' "${TESTDIR}/err")), exit 4, no result"
+elif [[ ${rc} -eq 0 ]]; then
+    fail "a key the provider never issued was answered: '$(head -c 200 "${TESTDIR}/out")'"
+else
+    fail "a key the provider never issued: exit ${rc}, stderr '$(head -c 300 "${TESTDIR}/err")'"
+fi
+
+# The host's key: the first call tells a refused key apart from a per-format defect, and a refused key ends the live
+# calls there, since each one after it would send its listing for the same refusal.
+if ! expect_answer "lines"  6 lines       "${TESTDIR}/fruit"   "which lines name a fruit" \
+        && grep -qE 'status=40[13]' "${TESTDIR}/err"; then
+    skip "the remaining live calls" "the provider refused the host's key -- set a key issued for ${base_url} in ${CONF}"
+    finish; exit
+fi
 expect_answer "prose-check" 2 prose-check "${TESTDIR}/prose"   "which findings are about an absolute claim" || :
 if expect_answer "msbuild"  2 msbuild     "${TESTDIR}/msbuild" "which diagnostics are errors rather than warnings"; then
     if tail -n 1 "${live_log}" | jq -e '.setAside > 0' >/dev/null 2>&1; then
@@ -239,7 +262,7 @@ runuser -u "${SANDBOX_USER}" -- bash -c '"$1" "$2" filter --task "which lines na
     | head -c 0; exit "${PIPESTATUS[0]}"' _ "${NODE}" "${CLI}" "${CONF}" \
     <"${TESTDIR}/fruit" 2>"${TESTDIR}/err" || rc=$?
 if [[ ${rc} -eq 0 && ! -s "${TESTDIR}/err" ]]; then
-    pass "a reader closing stdout early: exit 0, nothing on stderr"
+    pass "a reader closing stdout early: exit 0, an empty stderr"
 else
     fail "a reader closing stdout early: exit ${rc}, stderr '$(head -c 200 "${TESTDIR}/err")'"
 fi
