@@ -4,9 +4,12 @@
 
 ```bash
 sudo dnf install ai-tools-integration-typesafe
-sudo sed -i 's/^#\?AI_TOOLS_INTEGRATIONS=.*/AI_TOOLS_INTEGRATIONS=typesafe/' /etc/ai-tools/operator.conf
+sudoedit /etc/ai-tools/operator.conf             # add typesafe to AI_TOOLS_INTEGRATIONS
 sudoedit /etc/ai-tools/endpoints/typesafe.conf   # set TYPESAFE_API_KEY
 ```
+
+`typesafe` joins any integration already named, for example
+`AI_TOOLS_INTEGRATIONS="dotnet typesafe"`.
 
 With the `typesafe` integration enabled, a session that meets a long listing —
 a grep with sixty hits, a `git log`, a checker's findings, a build log — can
