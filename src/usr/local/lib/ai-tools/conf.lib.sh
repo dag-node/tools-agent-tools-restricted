@@ -818,7 +818,7 @@ ai_tools_conf_allowlist_enable() {
 
 # ai_tools_conf_allowlist_seed : print the header a fresh allowed-projects carries. It does not
 #   name any project, so a session cannot start anywhere until the CLI or the operator adds an
-#   entry. The reference is allowed-projects(5).
+#   entry. The reference is ai-tools-allowed-projects(5).
 ai_tools_conf_allowlist_seed() {
     printf '%s\n' \
         "# Project directories the ai-tools sandbox may work in, one per line." \
@@ -834,7 +834,7 @@ ai_tools_conf_allowlist_seed() {
         "# Managed by the ai-tools CLI: projects claim, projects create and" \
         "# projects clone register a project; projects disable and projects" \
         "# enable park and restore one; projects list reviews the file." \
-        "# Full reference: man 5 allowed-projects" \
+        "# Full reference: man 5 ai-tools-allowed-projects" \
         ""
 }
 
@@ -842,7 +842,7 @@ ai_tools_conf_allowlist_seed() {
 #   carries the header alone, which leaves the built-in baseline in secret-patterns.lib.sh in
 #   force -- so seeding this file changes what is classified as a secret only once the operator
 #   writes a pattern into it. The replace rule stays in the header whatever the page says, since
-#   it is the one fact a reader needs before writing a line. The reference is secret-patterns(5).
+#   it is the one fact a reader needs before writing a line. The reference is ai-tools-secret-patterns(5).
 ai_tools_conf_secret_patterns_seed() {
     printf '%s\n' \
         "# Secret-name patterns for the ai-tools sandbox, one basename glob" \
@@ -858,6 +858,6 @@ ai_tools_conf_secret_patterns_seed() {
         "#" \
         "#   .env              *.pem             appsettings.*.json" \
         "#" \
-        "# Full reference: man 5 secret-patterns" \
+        "# Full reference: man 5 ai-tools-secret-patterns" \
         ""
 }

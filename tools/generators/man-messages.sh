@@ -173,7 +173,7 @@ ROFF
 .BR ai-tools-admin (8),
 .BR ai-tools-providers (5),
 .BR journalctl (1),
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)
 ROFF
 }
 

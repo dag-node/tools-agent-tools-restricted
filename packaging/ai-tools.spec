@@ -128,6 +128,7 @@ the kernel-enforced type transition does not.
 Summary:        Umbrella for the ai-tools sandbox toolchain/runtime integrations (metapackage)
 Recommends:     ai-tools-integration-nodejs = %{version}-%{release}
 Recommends:     ai-tools-integration-dotnet = %{version}-%{release}
+Recommends:     ai-tools-integration-typesafe = %{version}-%{release}
 
 %description -n ai-tools-integration
 Metapackage grouping the ai-tools-integration-* toolchain layers the sandboxed agent builds
@@ -172,6 +173,28 @@ exports DOTNET_ROOT and a sandbox-writable NuGet cache when the dotnet integrati
 (operator.conf AI_TOOLS_INTEGRATIONS), and the `dotnet` domain of ai-tools-admin to provision that
 cache and shared global tools. The .NET SDK/runtime itself is the host's RPM-managed dotnet; this
 package adds no runtime and is inert until enabled on a host that has dotnet installed.
+
+# ─────────────────────────────────────────────────────────────────────────────
+%package -n ai-tools-integration-typesafe
+Summary:        TypeSafe decision integration for the ai-tools sandbox
+# The decide command is vendored unmodified from a signed release of dag-node/typesafe-client-js,
+# which is MIT; the fragment, manifest, credential template, man page and skill are this project's.
+License:        AGPL-3.0-only AND MIT
+Requires:       ai-tools-base = %{version}-%{release}
+# The decide command is JavaScript the sandbox's own Node runs (the session PATH carries it), so
+# the nodejs integration is a hard dependency; it imports its own modules alone, so no npm package
+# is installed and the toolchain is not touched.
+Requires:       ai-tools-integration-nodejs = %{version}-%{release}
+# Weakly pulled by the ai-tools-integration umbrella and shipped default_enable=no: a call sends
+# listing lines off the host, so a session gets it only where an operator names it.
+
+%description -n ai-tools-integration-typesafe
+Lets a sandboxed session hand a long listing (a grep, a git log, a checker's findings) to
+TypeSafe's bounded classifier and get back the lines that bear on the task it states: the decide
+command under /usr/local/lib/ai-tools/typesafe, its session-env fragment and manifest, the
+root-owned credential file /etc/ai-tools/endpoints/typesafe.conf (shipped with the key commented),
+and the ai-tools-decide skill every enabled agent lists. Off until `typesafe` is named in
+operator.conf AI_TOOLS_INTEGRATIONS and the key is set.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ai-tools-agents umbrella: the AI coding agents that run confined in the sandbox. A thin
@@ -298,18 +321,18 @@ install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_man
 # ai-tools-admin(8): section 8 because every command it documents refuses a non-root caller.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man8
 install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_mandir}/man8/ai-tools-admin.8
-# operator.conf(5): the host options and the shared KEY=value grammar they are written in.
+# ai-tools-operator.conf(5): the host options and the shared KEY=value grammar they are written in.
 # ai-tools-providers(5): the provider manifests (agents.d, integrations.d) and their keys.
-# allowed-projects(5), secret-patterns(5): the two files an operator's enrolment seeds, whose
+# ai-tools-allowed-projects(5), ai-tools-secret-patterns(5): the two files an operator's enrolment seeds, whose
 # headers are written once and point here for the reference.
-# custom-claude-endpoint.conf(5): the endpoint file's options, so its %%config(noreplace)
+# ai-tools-custom-claude-endpoint.conf(5): the endpoint file's options, so its %%config(noreplace)
 # template stays a pointer.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
-install -m 0644 src%{ai_mandir}/man5/operator.conf.5               %{buildroot}%{ai_mandir}/man5/operator.conf.5
-install -m 0644 src%{ai_mandir}/man5/ai-tools-providers.5          %{buildroot}%{ai_mandir}/man5/ai-tools-providers.5
-install -m 0644 src%{ai_mandir}/man5/allowed-projects.5            %{buildroot}%{ai_mandir}/man5/allowed-projects.5
-install -m 0644 src%{ai_mandir}/man5/secret-patterns.5             %{buildroot}%{ai_mandir}/man5/secret-patterns.5
-install -m 0644 src%{ai_mandir}/man5/custom-claude-endpoint.conf.5 %{buildroot}%{ai_mandir}/man5/custom-claude-endpoint.conf.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-operator.conf.5               %{buildroot}%{ai_mandir}/man5/ai-tools-operator.conf.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-providers.5                   %{buildroot}%{ai_mandir}/man5/ai-tools-providers.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-allowed-projects.5            %{buildroot}%{ai_mandir}/man5/ai-tools-allowed-projects.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-secret-patterns.5             %{buildroot}%{ai_mandir}/man5/ai-tools-secret-patterns.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5 %{buildroot}%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5
 # ai-tools-messages(7): every message code the tree emits, generated from the cross-reference
 # index. Section 7 documents a convention rather than a command, and no EL package owns man7
 # under %%{_prefix}/local, so the directory ships here.
@@ -500,6 +523,27 @@ install -m 0750 src%{ai_libdir}/admin-commands.d/dotnet.sh  %{buildroot}%{ai_lib
 # Ghost this helper's operation log alongside the base helpers' (the /var/log/ai-tools dir itself
 # is base-owned), so it carries the package's context and is removed with the package.
 touch %{buildroot}/var/log/ai-tools/dotnet.log
+
+# ── integration-typesafe: the decide command + fragment + manifest + credential file ─────────
+# The command is JavaScript committed under src/ with no runtime dependency, so this build copies
+# files and does not run a compiler or npm. Its TypeScript source is dag-node/typesafe-client-js,
+# whose LICENSE and CHANGELOG.md are vendored beside the modules and installed with them.
+# Every file under the lib directory is 0644 root:root: node reads it and does not execute it.
+cp -rT src%{ai_libdir}/typesafe %{buildroot}%{ai_libdir}/typesafe
+find %{buildroot}%{ai_libdir}/typesafe -type d -exec chmod 0755 {} +
+find %{buildroot}%{ai_libdir}/typesafe -type f -exec chmod 0644 {} +
+install -m 0644 src%{ai_libdir}/session-env.d/typesafe.env.sh %{buildroot}%{ai_libdir}/session-env.d/typesafe.env.sh
+install -m 0644 src%{ai_libdir}/integrations.d/typesafe.conf  %{buildroot}%{ai_libdir}/integrations.d/typesafe.conf
+# The credential file, in the endpoints directory the claude-code package also uses: 0640
+# root:ai-tools like the endpoint file there, %%config(noreplace) so the operator's key survives
+# an upgrade. Its reference page ships with it. The directory is created here as well, since this
+# section runs before the claude-code one and a host may install this package without that agent.
+install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools/endpoints
+install -m 0640 src%{_sysconfdir}/ai-tools/endpoints/typesafe.conf \
+    %{buildroot}%{_sysconfdir}/ai-tools/endpoints/typesafe.conf
+install -m 0644 src%{ai_mandir}/man5/ai-tools-typesafe.conf.5 %{buildroot}%{ai_mandir}/man5/ai-tools-typesafe.conf.5
+# The state root the usage log lands in: agent-writable, setgid so the log is group-owned.
+install -d -m 2770 %{buildroot}/opt/ai-tools/integrations/typesafe
 
 # ── agents-claude: launch wrapper + hooks + settings ─────────────────────────
 # This agent's payload lives at src/opt/ai-tools/agents/claude-code/ -- named for its MANIFEST,
@@ -965,6 +1009,30 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     semodule -l 2>/dev/null | grep -qx ai_tools_dotnet && semodule -r ai_tools_dotnet >/dev/null 2>&1 || :
 fi
 
+%post -n ai-tools-integration-typesafe
+# rpm on EL10 drops the setgid bit %%attr declares on a directory, so the state root's mode is
+# re-asserted here (the usage log inside it is then group-owned by the sandbox group).
+chmod 2770 /opt/ai-tools/integrations/typesafe 2>/dev/null || :
+# Seed the ai-tools-decide skill this package ships into the shared skills root and link it into
+# every enabled agent's skills directory. Base's %%post seeds the same datadir, but on a first
+# install it runs before this package's files are on disk, and an agent's %%post links what the
+# shared root holds at that moment -- so this package places its own asset, with the same lib
+# under an explicit bash and the same pre-answered confirm (base's %%post says why). Every other
+# skill in the datadir is already at its live version, so the pass leaves it alone.
+if command -v bash >/dev/null 2>&1; then
+    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; . /usr/local/lib/ai-tools/control-plane.lib.sh; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools skills; ai_tools_agent_asset_dirs skills_dir | while read -r agent dir; do ai_tools_link_shared_assets /opt/ai-tools/skills "${dir}" ai-tools "$1/skills/README.md"; done' _ %{_datadir}/ai-tools || :
+fi
+
+%postun -n ai-tools-integration-typesafe
+# On final erase, withdraw the skill this package seeded: the live copy is not rpm-owned, so it
+# is moved to /opt/ai-tools/retired the way base withdraws a dropped asset, and each agent's link
+# to it goes in the linker's pass over links whose target is gone. An operator's own
+# ai-tools-decide (no managed marker) is kept. The credential file and the state root stay, as
+# every integration's state does.
+if [ "$1" -eq 0 ] && [ -r /usr/local/lib/ai-tools/managed-assets.lib.sh ] && command -v bash >/dev/null 2>&1; then
+    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; . /usr/local/lib/ai-tools/control-plane.lib.sh; ai_tools_withdraw_asset /opt/ai-tools skills ai-tools-decide "package removed"; ai_tools_agent_asset_dirs skills_dir | while read -r agent dir; do ai_tools_link_shared_assets /opt/ai-tools/skills "${dir}" ai-tools; done' || :
+fi
+
 %post -n ai-tools-agents-claude-code-restricted
 # Register this agent's SELinux entrypoint file-context and label whatever it matches. The base
 # policy is agent-agnostic (see selinux/policy/ai_tools.fc): the pattern comes from this package's
@@ -1134,11 +1202,11 @@ fi
 %attr(0755, root, root) %{ai_bindir}/ai-tools
 %{_sbindir}/ai-tools
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
-%attr(0644, root, root) %{ai_mandir}/man5/operator.conf.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-operator.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-providers.5*
-%attr(0644, root, root) %{ai_mandir}/man5/allowed-projects.5*
-%attr(0644, root, root) %{ai_mandir}/man5/secret-patterns.5*
-%attr(0644, root, root) %{ai_mandir}/man5/custom-claude-endpoint.conf.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-allowed-projects.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-secret-patterns.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man7/ai-tools-messages.7*
 %attr(0644, root, root) %{ai_mandir}/man8/ai-tools-admin.8*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
@@ -1230,8 +1298,11 @@ fi
 # own directory inside it, and the state within is runtime data -- not rpm-owned, so an erase
 # leaves a restore cache alone.
 %dir %attr(0750, root, ai-tools) /opt/ai-tools/integrations
-# Pristine reseed sources (rpm-owned) for every shared kind.
+# Pristine reseed sources (rpm-owned) for every shared kind. A skill an integration package ships
+# sits in the same datadir, since the seeder reads one pristine root; that package owns its
+# directory and base excludes it here.
 %{_datadir}/ai-tools/skills
+%exclude %{_datadir}/ai-tools/skills/ai-tools-decide
 %{_datadir}/ai-tools/subagents
 %{_datadir}/ai-tools/orientation
 # /opt/ai-tools/.gitignore and .gitconfig are deliberately NOT listed here: rpm-owning them
@@ -1267,6 +1338,26 @@ fi
 %attr(0644, root, root) %{ai_libdir}/filters.d/dotnet.rules
 %attr(0750, root, root) %{ai_libdir}/admin-commands.d/dotnet
 %ghost %attr(0600, root, root) /var/log/ai-tools/dotnet.log
+
+%files -n ai-tools-integration-typesafe
+%license src%{ai_libdir}/typesafe/LICENSE
+# The command, the whole tree: read by node as the sandbox account, written by root alone
+# (directories 0755 and files 0644, set in %%install).
+%attr(-, root, root) %{ai_libdir}/typesafe
+%attr(0644, root, root) %{ai_libdir}/session-env.d/typesafe.env.sh
+%attr(0644, root, root) %{ai_libdir}/integrations.d/typesafe.conf
+# The credential file: 0640 root:ai-tools because it holds the API key. The endpoints directory is
+# owned with the claude-code package, on the same attributes, so it stays owned on a host that
+# installs one of the two.
+%dir %attr(0755, root, root) %{_sysconfdir}/ai-tools/endpoints
+%config(noreplace) %attr(0640, root, ai-tools) %{_sysconfdir}/ai-tools/endpoints/typesafe.conf
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-typesafe.conf.5*
+# The state root: base owns /opt/ai-tools/integrations, this package its own directory inside
+# it; the usage log within is runtime data, not rpm-owned.
+%dir %attr(2770, root, ai-tools) /opt/ai-tools/integrations/typesafe
+# The pristine copy of the skill this package ships, under the shared skills datadir base owns
+# (base %%excludes this one directory). Seeded live and linked by this package's %%post.
+%{_datadir}/ai-tools/skills/ai-tools-decide
 
 %files -n ai-tools-agents
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-agents-* members.
@@ -1348,7 +1439,7 @@ fi
   such a package refuses every launch after this upgrade until the nightly update or
   'sudo ai-tools-admin system bootstrap' has run; the refusal names the agent and the command.
 - CHANGE: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY asks for a pin of either kind, which is what
-  operator.conf(5) has always said it governs -- an entrypoint carrying no pin. A host that sets it
+  ai-tools-operator.conf(5) has always said it governs -- an entrypoint carrying no pin. A host that sets it
   now also launches an agent pinned as installed, and the status report is where the tier is named.
   The key's comment in /etc/ai-tools/operator.conf is reworded to match, so an edited file gets an
   .rpmnew beside it on upgrade.
@@ -1538,8 +1629,8 @@ fi
   for. 'journalctl -t ai-tools-chown AI_TOOLS_PROJECT=DIRECTORY' answers what happened to one
   project, and on a host running two sessions the ownership record says which one asked.
 - NEW: Each operator config file has a section 5 page the package replaces on every upgrade --
-  'allowed-projects(5)', 'secret-patterns(5)', 'operator.conf(5)' and
-  'custom-claude-endpoint.conf(5)' -- and 'ai-tools-providers(5)' documents every manifest key. Each
+  'ai-tools-allowed-projects(5)', 'ai-tools-secret-patterns(5)', 'ai-tools-operator.conf(5)' and
+  'ai-tools-custom-claude-endpoint.conf(5)' -- and 'ai-tools-providers(5)' documents every manifest key. Each
   template keeps a line per option beside its commented default and points at its page, so a
   corrected reference arrives with the package. operator.conf ships shrunk to that, as one .rpmnew.
 - NEW: 'ai-tools --providers' names the SELinux policy groups each enabled integration declares and
@@ -2232,7 +2323,7 @@ fi
   dated .bak and .shipped sidecars, never overwritten
 - NEW: Read allowed-projects with the shared config grammar (conf.lib.sh): end-of-line comments
   and quoted paths, one parser for the wrapper, the CLI, and the handback helper
-- NEW: Add operator.conf(5)
+- NEW: Add ai-tools-operator.conf(5)
 - NEW: Optional SELinux policy group apphost lets the sandbox build and run .NET executable and
   host projects -- console apps, ASP.NET Core and worker services, xunit.v3 tests, single-file
   publishes. A class library, or in-process MSTest (Microsoft.Testing.Platform), does not need it.

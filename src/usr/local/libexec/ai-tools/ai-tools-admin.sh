@@ -543,7 +543,7 @@ write_operators() {
     install -d -o root -g root -m 755 /etc/ai-tools
     if [[ ! -f "${OPERATOR_CONF}" ]]; then
         local tmp; tmp="$(mktemp)"
-        printf '%s\n' "# ai-tools host configuration -- full reference: man 5 operator.conf" > "${tmp}"
+        printf '%s\n' "# ai-tools host configuration -- full reference: man 5 ai-tools-operator.conf" > "${tmp}"
         install -o root -g root -m 644 "${tmp}" "${OPERATOR_CONF}"
         rm -f "${tmp}"
     fi
@@ -1337,7 +1337,7 @@ _pu_keyval() {
         log "  options this version documents that ${deployed} does not mention:"
         for key in "${new_keys[@]}"; do log "    ${key}"; done
         log "  each one is optional and an unmentioned key keeps its default, so leaving them out"
-        log "  breaks nothing -- copy the blocks you want; see operator.conf(5)"
+        log "  breaks nothing -- copy the blocks you want; see ai-tools-operator.conf(5)"
     else
         log "  every option this version documents is already mentioned in ${deployed}"
     fi

@@ -829,11 +829,11 @@ do_summary() {
     _chk /usr/lib/systemd/system/ai-tools-relabel.service
     _chk /usr/local/bin/ai-tools
     _chk /usr/local/share/man/man1/ai-tools.1
-    _chk /usr/local/share/man/man5/operator.conf.5
+    _chk /usr/local/share/man/man5/ai-tools-operator.conf.5
     _chk /usr/local/share/man/man5/ai-tools-providers.5
-    _chk /usr/local/share/man/man5/allowed-projects.5
-    _chk /usr/local/share/man/man5/secret-patterns.5
-    _chk /usr/local/share/man/man5/custom-claude-endpoint.conf.5
+    _chk /usr/local/share/man/man5/ai-tools-allowed-projects.5
+    _chk /usr/local/share/man/man5/ai-tools-secret-patterns.5
+    _chk /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     _chk /usr/local/share/man/man7/ai-tools-messages.7
     _chk /usr/local/share/man/man8/ai-tools-admin.8
     _chk /var/opt/ai-tools
@@ -880,6 +880,11 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/integrations.d/dotnet.conf
     _chk /usr/local/lib/ai-tools/filters.d/dotnet.rules
     _chk /usr/local/lib/ai-tools/admin-commands.d/dotnet
+    _chk /usr/local/lib/ai-tools/session-env.d/typesafe.env.sh
+    _chk /usr/local/lib/ai-tools/integrations.d/typesafe.conf
+    _chk /usr/local/lib/ai-tools/typesafe/decide.mjs
+    _chk /etc/ai-tools/endpoints/typesafe.conf
+    _chk /usr/local/share/man/man5/ai-tools-typesafe.conf.5
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/managed-assets.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
@@ -1375,6 +1380,29 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh" \
         /usr/local/lib/ai-tools/admin-commands.d/dotnet
 
+    # typesafe integration: the decide command (JavaScript node reads as the sandbox account and does not execute,
+    # so 644 root:root in a 755 tree), its session-env fragment and manifest. The credential file is seeded
+    # with the other endpoint file, and the state root the usage log lands in is created here on the RPM's terms: base's
+    # integrations root 0750, this integration's directory 2770 root:SANDBOX_GROUP.
+    log "/usr/local/lib/ai-tools/typesafe (the decide command)"
+    rm -rf /usr/local/lib/ai-tools/typesafe
+    cp -rT "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/typesafe" /usr/local/lib/ai-tools/typesafe
+    chown -R root:root /usr/local/lib/ai-tools/typesafe
+    find /usr/local/lib/ai-tools/typesafe -type d -exec chmod 755 {} +
+    find /usr/local/lib/ai-tools/typesafe -type f -exec chmod 644 {} +
+    log "/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh" \
+        /usr/local/lib/ai-tools/session-env.d/typesafe.env.sh
+    log "/usr/local/lib/ai-tools/integrations.d/typesafe.conf"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/typesafe.conf" \
+        /usr/local/lib/ai-tools/integrations.d/typesafe.conf
+    log "/opt/ai-tools/integrations/typesafe (state root: the usage log)"
+    ensure_dir "${CP_DIR_MODES[integrations]}" root "${SANDBOX_GROUP}" /opt/ai-tools/integrations
+    ensure_dir 2770 root "${SANDBOX_GROUP}" /opt/ai-tools/integrations/typesafe
+    chmod 2770 /opt/ai-tools/integrations/typesafe
+
     # SELinux policy modules: compiled from this checkout and staged under the canonical package dir (see
     # stage_selinux_modules). Loading and labelling the core is offer_selinux's step, later; this lays the modules
     # down for ai-tools-admin, or refuses the SELinux step outright on a host that cannot compile them. No secrets.
@@ -1630,13 +1658,26 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man8/ai-tools-admin.8" \
         /usr/local/share/man/man8/ai-tools-admin.8
 
-    # operator.conf(5). Documents the shared KEY=value grammar and every host option, so an operator reading the config
-    # has a manual rather than only its inline comments.
-    log "/usr/local/share/man/man5/operator.conf.5"
+    # Every section-5 page carries the ai-tools- prefix, so it cannot shadow a page some other package installs
+    # under the same generic name -- /usr/local/share/man and /usr/share/man are both on the default MANDATORY_MANPATH,
+    # and `man typesafe.conf` on a host that installs a vendor page would otherwise resolve to whichever the search
+    # order reaches first. Migration: remove the unprefixed names a from-source install placed, which the new run does
+    # not overwrite because it writes different paths. (The RPM drops them on upgrade from its own %files.)
     install -d -o root -g root -m 755 /usr/local/share/man/man5
+    local stale_page
+    for stale_page in operator.conf allowed-projects secret-patterns custom-claude-endpoint.conf typesafe.conf; do
+        if [[ -f "/usr/local/share/man/man5/${stale_page}.5" ]]; then
+            log "removing superseded /usr/local/share/man/man5/${stale_page}.5"
+            rm -f "/usr/local/share/man/man5/${stale_page}.5" "/usr/local/share/man/man5/${stale_page}.5.gz"
+        fi
+    done
+
+    # ai-tools-operator.conf(5). Documents the shared KEY=value grammar and every host option, so an operator reading
+    # the config has a manual rather than only its inline comments.
+    log "/usr/local/share/man/man5/ai-tools-operator.conf.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/operator.conf.5" \
-        /usr/local/share/man/man5/operator.conf.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-operator.conf.5" \
+        /usr/local/share/man/man5/ai-tools-operator.conf.5
 
     # ai-tools-providers(5). The provider manifests under agents.d and integrations.d and every key they take,
     # so a manifest's own header can stay a pointer.
@@ -1645,27 +1686,34 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-providers.5" \
         /usr/local/share/man/man5/ai-tools-providers.5
 
-    # allowed-projects(5). The operator's project allowlist: its grammar, what an entry and an exclusion mean,
+    # ai-tools-allowed-projects(5). The operator's project allowlist: its grammar, what an entry and an exclusion mean,
     # and the entry states. The seeded file's header is written once and never rewritten, so it points here rather than
     # carrying the reference.
-    log "/usr/local/share/man/man5/allowed-projects.5"
+    log "/usr/local/share/man/man5/ai-tools-allowed-projects.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/allowed-projects.5" \
-        /usr/local/share/man/man5/allowed-projects.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-allowed-projects.5" \
+        /usr/local/share/man/man5/ai-tools-allowed-projects.5
 
-    # secret-patterns(5). The operator's secret-name patterns: the glob grammar, what a match does,
+    # ai-tools-secret-patterns(5). The operator's secret-name patterns: the glob grammar, what a match does,
     # and the replace-the-baseline rule. Seeded once like the allowlist, so its header points here too.
-    log "/usr/local/share/man/man5/secret-patterns.5"
+    log "/usr/local/share/man/man5/ai-tools-secret-patterns.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/secret-patterns.5" \
-        /usr/local/share/man/man5/secret-patterns.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-secret-patterns.5" \
+        /usr/local/share/man/man5/ai-tools-secret-patterns.5
 
-    # custom-claude-endpoint.conf(5). The endpoint file's four options, their validation and their precedence,
+    # ai-tools-custom-claude-endpoint.conf(5). The endpoint file's four options, their validation and their precedence,
     # so the %config(noreplace) template can stay a pointer.
-    log "/usr/local/share/man/man5/custom-claude-endpoint.conf.5"
+    log "/usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/custom-claude-endpoint.conf.5" \
-        /usr/local/share/man/man5/custom-claude-endpoint.conf.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5" \
+        /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
+
+    # ai-tools-typesafe.conf(5). The typesafe integration's credential file: its four options and what the decide
+    # command refuses, so the seeded template can stay a pointer.
+    log "/usr/local/share/man/man5/ai-tools-typesafe.conf.5"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-typesafe.conf.5" \
+        /usr/local/share/man/man5/ai-tools-typesafe.conf.5
 
     # ai-tools-messages(7). Every message code the tree emits, with its severity and the component that emits it,
     # so `journalctl AI_TOOLS_MSG=<code>` and a code read off a terminal both resolve to a message. Section 7 because it
@@ -1835,6 +1883,20 @@ do_install() {
         install -o root -g "${SANDBOX_GROUP}" -m 640 \
             "${SCRIPT_DIR}/src/etc/ai-tools/endpoints/custom-claude-endpoint.conf" "${endpointf}"
         seed_result "${endpointf}" "${endpointf_existed}" 0 "inert default"
+    fi
+    # The typesafe integration's credential file, in the same directory and on the same terms: 640 root:SANDBOX_GROUP
+    # (the decide command reads the key as the sandbox account), kept when it exists, and shipped with the key commented
+    # so a from-source install does not make a request until the operator sets it. ai-tools-typesafe.conf(5) is its
+    # reference.
+    local typesafef=/etc/ai-tools/endpoints/typesafe.conf typesafef_existed=0
+    [[ -f "${typesafef}" ]] && typesafef_existed=1
+    if keep_existing "${typesafef}" "Discards your TypeSafe API key and model pin."; then
+        chown "root:${SANDBOX_GROUP}" "${typesafef}"; chmod 640 "${typesafef}"
+        seed_result "${typesafef}" "${typesafef_existed}" 1 "edited in place by the operator"
+    else
+        install -o root -g "${SANDBOX_GROUP}" -m 640 \
+            "${SCRIPT_DIR}/src/etc/ai-tools/endpoints/typesafe.conf" "${typesafef}"
+        seed_result "${typesafef}" "${typesafef_existed}" 0 "inert default (key commented)"
     fi
 
     # Codex's two managed files, at the fixed path codex reads them from: requirements.toml pins the session
@@ -2244,7 +2306,7 @@ do_install() {
     say "    ${C_BOLD}/etc/ai-tools/operator.conf${C_RST}                  ${C_DIM}# host options, each documented inline${C_RST}"
     say "    ${C_BOLD}man ai-tools${C_RST}                                 ${C_DIM}# the CLI${C_RST}"
     say "    ${C_BOLD}man ai-tools-admin${C_RST}                           ${C_DIM}# the root-only host commands${C_RST}"
-    say "    ${C_BOLD}man 5 operator.conf${C_RST}                          ${C_DIM}# every host option${C_RST}"
+    say "    ${C_BOLD}man 5 ai-tools-operator.conf${C_RST}                 ${C_DIM}# every host option${C_RST}"
     say ""
     suggest_lint_tools
 
@@ -2401,11 +2463,12 @@ do_uninstall() {
     rm -f /usr/local/bin/ai-tools-handback-client
     rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/share/man/man1/ai-tools.1
-    rm -f /usr/local/share/man/man5/operator.conf.5
+    rm -f /usr/local/share/man/man5/ai-tools-operator.conf.5
     rm -f /usr/local/share/man/man5/ai-tools-providers.5
-    rm -f /usr/local/share/man/man5/allowed-projects.5
-    rm -f /usr/local/share/man/man5/secret-patterns.5
-    rm -f /usr/local/share/man/man5/custom-claude-endpoint.conf.5
+    rm -f /usr/local/share/man/man5/ai-tools-allowed-projects.5
+    rm -f /usr/local/share/man/man5/ai-tools-secret-patterns.5
+    rm -f /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
+    rm -f /usr/local/share/man/man5/ai-tools-typesafe.conf.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude /usr/local/bin/codex
     # Codex's skills link (retire_managed_files has already taken its managed files). The link is removed only where it

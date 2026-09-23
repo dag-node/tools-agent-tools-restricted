@@ -97,8 +97,9 @@ once the reason it printed is cleared.
 
 ## Where to read more
 
-- `ai-tools-admin(8)` for enrolling and removing operators; `operator.conf(5)`
-  and `allowed-projects(5)` for the two files an enrolment writes.
+- `ai-tools-admin(8)` for enrolling and removing operators;
+  `ai-tools-operator.conf(5)` and `ai-tools-allowed-projects(5)` for the two
+  files an enrolment writes.
 - [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9) for what the model leaves
   out on purpose: operators are trusted, and sessions are not isolated from one
   another.

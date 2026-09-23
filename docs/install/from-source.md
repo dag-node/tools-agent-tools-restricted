@@ -309,6 +309,11 @@ which `sudo ./install.sh check-perms` runs):
 | `src/usr/local/lib/ai-tools/filters.lib.sh` | `/usr/local/lib/ai-tools/filters.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/filters.d/core.rules` | `/usr/local/lib/ai-tools/filters.d/core.rules` (root) |
 | `src/usr/local/lib/ai-tools/filters.d/dotnet.rules` | `/usr/local/lib/ai-tools/filters.d/dotnet.rules` (root) |
+| `src/usr/local/lib/ai-tools/integrations.d/typesafe.conf` | `/usr/local/lib/ai-tools/integrations.d/typesafe.conf` (root) |
+| `src/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh` | `/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh` (root) |
+| `src/usr/local/lib/ai-tools/typesafe/` | `/usr/local/lib/ai-tools/typesafe/` (root; the decide command) |
+| `src/etc/ai-tools/endpoints/typesafe.conf` | `/etc/ai-tools/endpoints/typesafe.conf` (root:ai-tools, kept when it exists) |
+| `src/usr/local/share/man/man5/ai-tools-typesafe.conf.5` | `/usr/local/share/man/man5/ai-tools-typesafe.conf.5` (root) |
 | `src/usr/local/bin/claude.sh` | `/usr/local/bin/claude` (root) |
 | `src/opt/ai-tools/bin/ai-tools-run.sh` | `/opt/ai-tools/bin/ai-tools-run` |
 | `src/opt/ai-tools/agents/claude-code/post-tool-hook.sh` | `/opt/ai-tools/.claude/post-tool-hook.sh` |

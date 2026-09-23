@@ -299,8 +299,8 @@ The cost is that reconciling the `.rpmnew` is manual, so it is signposted: each 
 whenever one is present, and `sudo ai-tools-admin system post-upgrade` names the options the new version documents
 that the file does not mention and shows the difference. It leaves this file unchanged, and leaves the copy in place
 as the baseline the operator edits from, naming it as theirs to delete. An additive merge could append an option block
-the file lacks, but it could never correct the prose of one already there, so `operator.conf(5)` is the single current
-statement of what an option means and the file points at the man page rather than restating it.
+the file lacks, but it could never correct the prose of one already there, so `ai-tools-operator.conf(5)` is the single
+current statement of what an option means and the file points at the man page rather than restating it.
 
 ### A config file's header is a pointer
 
@@ -311,11 +311,11 @@ and `secret-patterns`, are seeded once, by `ai-tools-admin operators add` (the t
 and no upgrade rewrites them: the header an operator's file carries is the one that shipped on the day that account was
 enrolled, for as long as the account exists. A header written into any of the four therefore states what the file is,
 the one rule a reader needs before writing a line, example lines or one brief line per option beside its commented
-default, and the page that holds the reference — `operator.conf(5)`, `custom-claude-endpoint.conf(5)`,
-`allowed-projects(5)`, `secret-patterns(5)` — and the grammar, the semantics and the worked examples live in the page,
-which the package replaces on every upgrade. A commented default (`#KEY=`) stays in a template: it is a setting, and it
-is what `ai_tools_conf_keys` counts as *mentioned*, which keeps `system post-upgrade` from announcing every option
-as new.
+default, and the page that holds the reference — `ai-tools-operator.conf(5)`, `ai-tools-custom-claude-endpoint.conf(5)`,
+`ai-tools-allowed-projects(5)`, `ai-tools-secret-patterns(5)` — and the grammar, the semantics and the worked examples
+live in the page, which the package replaces on every upgrade. A commented default (`#KEY=`) stays in a template: it is
+a setting, and it is what `ai_tools_conf_keys` counts as *mentioned*, which keeps `system post-upgrade` from announcing
+every option as new.
 
 A config header is read in a terminal, which does not reflow it, so it holds to 72 columns, ragged right, with no
 comment line ending on an article, a conjunction, a preposition, or a wh-word — the words `msg.lib.sh` carries
@@ -620,10 +620,12 @@ unattended. Those are behaviour rather than text, so they are contracted here an
 
 ## The integration this project ships
 
-`dotnet` (`ai-tools-integration-dotnet`) is the one member package of the integration kind. It uses every seam this rule
-states — a manifest with `default_enable=no`, a session-env fragment, a filter rule set, and a contributed `dotnet`
-domain — and what each of those does for .NET, together with the SELinux groups the runtime needs under enforcing, is
-in [dotnet](dotnet.rule.md).
+`dotnet` (`ai-tools-integration-dotnet`) uses every seam this rule states — a manifest with `default_enable=no`,
+a session-env fragment, a filter rule set, and a contributed `dotnet` domain — and what each of those does for .NET,
+together with the SELinux groups the runtime needs under enforcing, is in [dotnet](dotnet.rule.md). `typesafe`
+(`ai-tools-integration-typesafe`) uses the manifest and the fragment alone: the fragment hands a session two paths
+and the command reads a credential from one of them at call time, which is the seam's credential pattern with the read
+moved from the fragment into the command ([typesafe](typesafe.rule.md)).
 
 ## Boundaries
 

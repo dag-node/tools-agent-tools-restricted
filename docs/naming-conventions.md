@@ -177,7 +177,7 @@ way:
 
 | Facet | Where | Prose term |
 |-------|-------|------------|
-| an operator's project list | `~/.config/ai-tools/allowed-projects`, per operator (`allowed-projects(5)`) | "the allowlist" / "`<operator>`'s allowlist" |
+| an operator's project list | `~/.config/ai-tools/allowed-projects`, per operator (`ai-tools-allowed-projects(5)`) | "the allowlist" / "`<operator>`'s allowlist" |
 | a line in it | a path, or a `!`-prefixed carve-out | "an allowlist entry" / "a carve-out" |
 | the pair a claim writes and an unclaim drops | the allowlist entry and the `safe.directory` entry in the sandbox account's `.gitconfig` | "the registries" / "both registries" |
 

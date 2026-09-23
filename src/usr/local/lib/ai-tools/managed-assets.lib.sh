@@ -233,7 +233,7 @@ ai_tools_remove_retired_assets() {
     if (( ${#kinds[@]} )); then
         _ai_tools_require_kinds ai_tools_remove_retired_assets "${kinds[@]}" || return 1
     fi
-    local entry kind name path marker retired_dir target
+    local entry kind name
     for entry in "${AI_TOOLS_RETIRED_ASSETS[@]}"; do
         kind="${entry%%/*}"; name="${entry#*/}"
         _ai_tools_require_kinds "ai_tools_remove_retired_assets (AI_TOOLS_RETIRED_ASSETS: ${entry})" \
@@ -245,23 +245,33 @@ ai_tools_remove_retired_assets() {
             done
             (( match )) || continue
         fi
-        path="${live_root}/${kind}/${name}"
-        [[ -e "${path}" ]] || continue
-        marker="${path}"; [[ -d "${path}" ]] && marker="${path}/SKILL.md"
-        if ! ai_tools_asset_is_managed "${marker}"; then
-            _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"
-            continue
-        fi
-        retired_dir="${live_root}/retired"
-        if ! declare -F ai_tools_conf_sidecar_path >/dev/null 2>&1 \
-           || ! install -d -o root -g root -m 700 "${retired_dir}" 2>/dev/null \
-           || ! target="$(ai_tools_conf_sidecar_path "${retired_dir}/${name}" retired)" \
-           || ! mv "${path}" "${target}" 2>/dev/null; then
-            _ai_tools_ma_say "${name} kept (no longer shipped, and could not be moved aside)"
-            continue
-        fi
-        _ai_tools_ma_say "${name} withdrawn (no longer shipped); kept as retired/${target##*/}"
+        ai_tools_withdraw_asset "${live_root}" "${kind}" "${name}" "no longer shipped"
     done
+}
+
+# ai_tools_withdraw_asset <live_root> <kind> <name> [reason] Move ONE live asset aside into <live_root>/retired,
+# under the same marker gate and the same fail-toward-keeping rule as the retired-list pass, which calls this per entry.
+# The other caller is a provider package's final erase: a package that ships a skill withdraws it here, since
+# the retired list names what the PROJECT dropped and a package removal is not that. An absent asset returns 0 without
+# a move. The reason is printed with the outcome ("no longer shipped", "package removed").
+ai_tools_withdraw_asset() {
+    local live_root="$1" kind="$2" name="$3" reason="${4:-no longer shipped}"
+    local path="${live_root}/${kind}/${name}" marker retired_dir target
+    [[ -e "${path}" ]] || return 0
+    marker="${path}"; [[ -d "${path}" ]] && marker="${path}/SKILL.md"
+    if ! ai_tools_asset_is_managed "${marker}"; then
+        _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"
+        return 0
+    fi
+    retired_dir="${live_root}/retired"
+    if ! declare -F ai_tools_conf_sidecar_path >/dev/null 2>&1 \
+       || ! install -d -o root -g root -m 700 "${retired_dir}" 2>/dev/null \
+       || ! target="$(ai_tools_conf_sidecar_path "${retired_dir}/${name}" retired)" \
+       || ! mv "${path}" "${target}" 2>/dev/null; then
+        _ai_tools_ma_say "${name} kept (${reason}, and could not be moved aside)"
+        return 0
+    fi
+    _ai_tools_ma_say "${name} withdrawn (${reason}); kept as retired/${target##*/}"
 }
 
 # _ai_tools_asset_is_stale_copy <shared> <live> : true when <live> is a copy this project placed under the pre-shared
