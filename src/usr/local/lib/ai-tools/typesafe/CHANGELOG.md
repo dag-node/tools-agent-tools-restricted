@@ -7,6 +7,16 @@ MIT licensed.
 
 Source, issues and releases: https://github.com/dag-node/typesafe-client-js
 
+## [0.1.2] — 2026-09-23
+
+### Changed
+
+- **Source readability.** Variables, parameters and shared types in `src/`
+  carry descriptive names, and the value checks several modules apply live in
+  one module. Behaviour, output, exit statuses and the package's exports are
+  unchanged; an editor shows the new parameter names in the type
+  declarations (for example `makeClient(config, fetchFunction)`).
+
 ## [0.1.1] — 2026-09-23
 
 ### Changed

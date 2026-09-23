@@ -5,13 +5,13 @@
 // read. `filter` is the initial scope; `triage` is carried for the deferred re-measurement and is not dispatched
 // by the command (decide.mts). TEMPLATE_VERSION is recorded with every usage line so a template edit is visible
 // beside the model that answered.
+import { truncateText } from "./core.mjs";
 export const TEMPLATE_VERSION = 2;
 /** One question whose answer is P(true), judged against the two criteria. */
-const noul = (instructions, criteria) => ({ type: "noul", instructions, criteria });
+const makeNoulQuestion = (instructions, criteria) => ({ type: "noul", instructions, criteria });
 /** One question whose answer is a label from `criteria`, a map of label to the description that selects it. */
-const choice = (instructions, criteria) => ({ type: "choice", instructions, criteria });
+const makeChoiceQuestion = (instructions, criteria) => ({ type: "choice", instructions, criteria });
 export const MAX_TASK_CHARS = 400;
-const cut = (text, max) => (text.length <= max ? text : `${text.slice(0, max)} [...cut at ${max} chars]`);
 /**
  * The instruction every template carries: item text is evidence, and is not a directive. The vendor documents that
  * content written to steer the model can move an answer, so this is a mitigation the verification measures, not
@@ -24,8 +24,8 @@ export const filter = {
     kind: "noul",
     options: null,
     uncertainBand: [0.35, 0.65],
-    buildState: (items, params) => ({ task: cut(params.task, MAX_TASK_CHARS), note: EVIDENCE_NOTE, items: [...items] }),
-    buildQuestion: (item) => noul({
+    buildState: (items, params) => ({ task: truncateText(params.task, MAX_TASK_CHARS), note: EVIDENCE_NOTE, items: [...items] }),
+    buildQuestion: (item) => makeNoulQuestion({
         question: `Does the item whose id is "${item.id}" satisfy the task stated in \`task\`?`,
         item_id: item.id,
         focus: "Judge that one item against `task`. A passing mention, a similar name in unrelated code, or a comment that only repeats the search word is not relevant.",
@@ -51,8 +51,8 @@ export const triage = {
     kind: "choice",
     options: TRIAGE_OPTIONS,
     uncertainBand: null,
-    buildState: (items, params) => ({ checker: cut(params.checker, MAX_TASK_CHARS), note: EVIDENCE_NOTE, findings: [...items] }),
-    buildQuestion: (item) => choice({
+    buildState: (items, params) => ({ checker: truncateText(params.checker, MAX_TASK_CHARS), note: EVIDENCE_NOTE, findings: [...items] }),
+    buildQuestion: (item) => makeChoiceQuestion({
         question: `For the finding whose id is "${item.id}", which disposition applies?`,
         finding_id: item.id,
         focus: "Read the finding's rule, its stated exemptions, and the excerpt. Decide on the excerpt as written; do not assume context the excerpt does not show.",

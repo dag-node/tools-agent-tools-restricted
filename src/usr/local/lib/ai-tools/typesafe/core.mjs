@@ -8,6 +8,7 @@
 // `contractProblems` then reports what the projection could not fill, so a dropped field reads as a missing one.
 import { makeTransport, send } from "./transport.mjs";
 import { DecideError, ErrorCode, inputError } from "./errors.mjs";
+import { isNonNegativeInteger, isProbability, isRecord } from "./validation.mjs";
 /**
  * Every bound one invocation obeys. They are values in this file rather than configuration keys: a bound guards
  * work and cost, not access, and it is read on every call.
@@ -40,10 +41,10 @@ export const LIMITS = Object.freeze({
 // The id is a key in the question map this loop builds and matches answers back by, and is used for no
 // filesystem access. A leading "/" is admitted because a compiler reports an absolute path, and an id that
 // names the file beats an L<n> in the summary line the agent reads.
-const ID_RE = /^[A-Za-z0-9/][A-Za-z0-9._:/@+-]{0,199}$/;
+const ITEM_ID_PATTERN = /^[A-Za-z0-9/][A-Za-z0-9._:/@+-]{0,199}$/;
 // The two names the grammar admits that the reviver in transport.mts drops from every body: an item so named
 // could never be answered, so it is not an id.
-const RESERVED_IDS = new Set(["constructor", "prototype"]);
+const RESERVED_ITEM_IDS = new Set(["constructor", "prototype"]);
 // Two classes of character with no visible glyph, handled differently because they deceive different readers.
 //
 // A TAG character is invisible to a reader and ordinary text to a tokenizer, so a listing carrying one sends the
@@ -68,247 +69,252 @@ const TAG_CHARACTER = /[\u{E0000}-\u{E007F}]/u;
 const INVISIBLE_FORMATTING = /[\u200b-\u200d\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/u;
 /** Whether `id` is an item id this loop accepts; parsers.mts derives an id only where this holds. */
 export function isItemId(id) {
-    return ID_RE.test(id) && !RESERVED_IDS.has(id);
+    return ITEM_ID_PATTERN.test(id) && !RESERVED_ITEM_IDS.has(id);
 }
-const cut = (text, max) => (text.length <= max ? text : `${text.slice(0, max)} [...cut at ${max} chars]`);
+/** `text` whole when it fits in `maxChars`, else its first `maxChars` characters and a marker naming the cut. */
+export const truncateText = (text, maxChars) => (text.length <= maxChars ? text : `${text.slice(0, maxChars)} [...cut at ${maxChars} chars]`);
 /** Checks ids unique and well-formed, text present, and cuts each field to the item bound. */
 export function normalizeItems(items) {
     if (items.length === 0)
         throw inputError("the listing is empty");
     if (items.length > LIMITS.maxItems)
         throw inputError(`${items.length} items exceeds the bound of ${LIMITS.maxItems}`, { items: items.length });
-    const seen = new Set();
-    let cutCount = 0;
-    let invisibleCount = 0;
-    const out = items.map((item, index) => {
+    const seenIds = new Set();
+    let cutItemCount = 0;
+    let invisibleItemCount = 0;
+    const normalizedItems = items.map((item, itemIndex) => {
         if (!isItemId(item.id))
-            throw inputError(`item ${index} has an invalid id '${item.id.slice(0, 40)}'`);
-        if (seen.has(item.id))
+            throw inputError(`item ${itemIndex} has an invalid id '${item.id.slice(0, 40)}'`);
+        if (seenIds.has(item.id))
             throw inputError(`item id '${item.id}' repeats`);
-        seen.add(item.id);
+        seenIds.add(item.id);
         if (item.text.trim() === "")
             throw inputError(`item '${item.id}' has no text`);
-        const fields = [item.text, item.rule ?? "", item.context ?? ""];
-        if (fields.some((field) => TAG_CHARACTER.test(field))) {
+        const itemFields = [item.text, item.rule ?? "", item.context ?? ""];
+        if (itemFields.some((field) => TAG_CHARACTER.test(field))) {
             throw inputError(`item '${item.id}' carries a Unicode tag character -- invisible to a reader and text to the model`, { id: item.id });
         }
-        if (fields.some((field) => INVISIBLE_FORMATTING.test(field)))
-            invisibleCount++;
-        if (item.text.length > LIMITS.maxItemChars || (item.rule?.length ?? 0) > LIMITS.maxItemChars || (item.context?.length ?? 0) > LIMITS.maxItemChars)
-            cutCount++;
-        const row = { id: item.id, text: cut(item.text, LIMITS.maxItemChars) };
+        if (itemFields.some((field) => INVISIBLE_FORMATTING.test(field)))
+            invisibleItemCount++;
+        if (itemFields.some((field) => field.length > LIMITS.maxItemChars))
+            cutItemCount++;
+        const normalizedItem = { id: item.id, text: truncateText(item.text, LIMITS.maxItemChars) };
         if (item.rule !== undefined && item.rule !== "")
-            row.rule = cut(item.rule, LIMITS.maxItemChars);
+            normalizedItem.rule = truncateText(item.rule, LIMITS.maxItemChars);
         if (item.context !== undefined && item.context !== "")
-            row.context = cut(item.context, LIMITS.maxItemChars);
-        return row;
+            normalizedItem.context = truncateText(item.context, LIMITS.maxItemChars);
+        return normalizedItem;
     });
-    return { items: out, cut: cutCount, invisible: invisibleCount };
+    return { items: normalizedItems, cut: cutItemCount, invisible: invisibleItemCount };
 }
 /** Lists of at most maxItemsPerRequest items whose serialized size stays under maxStateChars. */
 export function chunkItems(items) {
     const chunks = [];
-    let current = [];
-    let size = 0;
+    let currentChunk = [];
+    let currentChunkChars = 0;
     for (const item of items) {
-        const itemSize = JSON.stringify(item).length + 2;
-        if (current.length > 0 && (current.length >= LIMITS.maxItemsPerRequest || size + itemSize > LIMITS.maxStateChars)) {
-            chunks.push(current);
-            current = [];
-            size = 0;
+        const itemChars = JSON.stringify(item).length + 2;
+        if (currentChunk.length > 0 && (currentChunk.length >= LIMITS.maxItemsPerRequest || currentChunkChars + itemChars > LIMITS.maxStateChars)) {
+            chunks.push(currentChunk);
+            currentChunk = [];
+            currentChunkChars = 0;
         }
-        current.push(item);
-        size += itemSize;
+        currentChunk.push(item);
+        currentChunkChars += itemChars;
     }
-    if (current.length > 0)
-        chunks.push(current);
+    if (currentChunk.length > 0)
+        chunks.push(currentChunk);
     return chunks;
 }
-const isUnit = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1;
-const isCount = (v) => Number.isInteger(v) && v >= 0;
-const isRecord = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+/** How far the probabilities of a choice answer may sum from 1 and still hold the contract. */
+const PROBABILITY_SUM_TOLERANCE = 0.02;
+/** Floating-point slack when the chosen option's probability is compared with the highest one. */
+const FLOAT_EPSILON = 1e-6;
 /** Every way `result` departs from the documented shape for `kind`; empty when the contract holds. */
-export function contractProblems(result, expectedIds, kind, options) {
+export function contractProblems(result, expectedIds, kind, choiceOptions) {
     const problems = [];
     if (!isRecord(result))
         return ["result is not an object"];
     if (typeof result["model"] !== "string" || result["model"] === "")
         problems.push("model is not a string");
     const usage = result["usage"];
-    if (!isRecord(usage) || !isCount(usage["input_tokens"]) || !isCount(usage["output_tokens"]))
+    if (!isRecord(usage) || !isNonNegativeInteger(usage["input_tokens"]) || !isNonNegativeInteger(usage["output_tokens"]))
         problems.push("usage.input_tokens/output_tokens are not non-negative integers");
     const answers = result["answers"];
     if (!isRecord(answers))
         return [...problems, "answers is not an object"];
-    const got = new Set(Object.keys(answers));
+    const answeredIds = new Set(Object.keys(answers));
     for (const id of expectedIds)
-        if (!got.has(id))
+        if (!answeredIds.has(id))
             problems.push(`answer for '${id}' is missing`);
-    for (const id of got)
+    for (const id of answeredIds)
         if (!expectedIds.includes(id))
             problems.push(`unexpected answer '${id}'`);
+    const optionNames = Object.keys(choiceOptions ?? {});
     for (const id of expectedIds) {
-        const a = answers[id];
-        if (!isRecord(a)) {
+        const answer = answers[id];
+        if (!isRecord(answer)) {
             problems.push(`answer '${id}' is not an object`);
             continue;
         }
-        if (a["type"] !== kind)
-            problems.push(`answer '${id}' has type '${String(a["type"])}', expected '${kind}'`);
-        if (kind === "noul") {
-            if (!isUnit(a["noul"]))
-                problems.push(`answer '${id}'.noul is not in [0,1]`);
-            continue;
-        }
-        const names = Object.keys(options ?? {});
-        const chosen = a["choice"];
-        if (typeof chosen !== "string" || !names.includes(chosen))
-            problems.push(`answer '${id}'.choice '${String(chosen)}' is not an option`);
-        if (!isUnit(a["confidence"]))
-            problems.push(`answer '${id}'.confidence is not in [0,1]`);
-        const p = a["probabilities"];
-        if (!isRecord(p)) {
-            problems.push(`answer '${id}'.probabilities missing`);
-            continue;
-        }
-        const keys = Object.keys(p);
-        if (keys.length !== names.length || !names.every((n) => keys.includes(n)))
-            problems.push(`answer '${id}'.probabilities keys differ from the options`);
-        let sum = 0;
-        let top = -1;
-        for (const n of keys) {
-            const v = p[n];
-            if (!isUnit(v)) {
-                problems.push(`answer '${id}'.probabilities.${n} not in [0,1]`);
-                continue;
-            }
-            sum += v;
-            if (v > top)
-                top = v;
-        }
-        if (Math.abs(sum - 1) > 0.02)
-            problems.push(`answer '${id}'.probabilities sum to ${sum.toFixed(3)}`);
-        if (typeof chosen === "string") {
-            const pc = p[chosen];
-            if (isUnit(pc) && pc < top - 1e-6)
-                problems.push(`answer '${id}'.choice is not the highest-probability option`);
-        }
+        if (answer["type"] !== kind)
+            problems.push(`answer '${id}' has type '${String(answer["type"])}', expected '${kind}'`);
+        problems.push(...(kind === "noul" ? noulAnswerProblems(id, answer) : choiceAnswerProblems(id, answer, optionNames)));
     }
     return problems;
 }
-/** The request target and credential for this invocation; `fetchImpl` is the unit test's injection point. */
-export function makeClient(config, fetchImpl) {
-    return makeTransport(config, fetchImpl);
+/** Every way the noul answer for `id` departs from its documented shape. */
+function noulAnswerProblems(id, answer) {
+    return isProbability(answer["noul"]) ? [] : [`answer '${id}'.noul is not in [0,1]`];
+}
+/** Every way the choice answer for `id` departs from its documented shape over `optionNames`. */
+function choiceAnswerProblems(id, answer, optionNames) {
+    const problems = [];
+    const chosenOption = answer["choice"];
+    if (typeof chosenOption !== "string" || !optionNames.includes(chosenOption))
+        problems.push(`answer '${id}'.choice '${String(chosenOption)}' is not an option`);
+    if (!isProbability(answer["confidence"]))
+        problems.push(`answer '${id}'.confidence is not in [0,1]`);
+    const probabilities = answer["probabilities"];
+    if (!isRecord(probabilities))
+        return [...problems, `answer '${id}'.probabilities missing`];
+    const probabilityNames = Object.keys(probabilities);
+    if (probabilityNames.length !== optionNames.length || !optionNames.every((optionName) => probabilityNames.includes(optionName)))
+        problems.push(`answer '${id}'.probabilities keys differ from the options`);
+    let probabilitySum = 0;
+    let highestProbability = -1;
+    for (const optionName of probabilityNames) {
+        const probability = probabilities[optionName];
+        if (!isProbability(probability)) {
+            problems.push(`answer '${id}'.probabilities.${optionName} not in [0,1]`);
+            continue;
+        }
+        probabilitySum += probability;
+        if (probability > highestProbability)
+            highestProbability = probability;
+    }
+    if (Math.abs(probabilitySum - 1) > PROBABILITY_SUM_TOLERANCE)
+        problems.push(`answer '${id}'.probabilities sum to ${probabilitySum.toFixed(3)}`);
+    if (typeof chosenOption === "string") {
+        const chosenProbability = probabilities[chosenOption];
+        if (isProbability(chosenProbability) && chosenProbability < highestProbability - FLOAT_EPSILON)
+            problems.push(`answer '${id}'.choice is not the highest-probability option`);
+    }
+    return problems;
+}
+/** The request target and credential for this invocation; `fetchFunction` is the unit test's injection point. */
+export function makeClient(config, fetchFunction) {
+    return makeTransport(config, fetchFunction);
 }
 /** The transport reports every failure as a DecideError; anything else reaching here is a defect and is rethrown. */
-export function classifyFailure(err) {
-    if (err instanceof DecideError)
-        return err;
-    if (err instanceof Error)
-        throw err;
-    throw new Error(String(err));
+export function asDecideError(error) {
+    if (error instanceof DecideError)
+        return error;
+    if (error instanceof Error)
+        throw error;
+    throw new Error(String(error));
 }
-const round = (v) => Math.round(v * 1000) / 1000;
-async function runChunks(client, kind, options, chunks, build, run) {
-    const controller = new AbortController();
-    const deadline = setTimeout(() => controller.abort(new Error(`total budget of ${LIMITS.totalBudgetMs}ms exceeded`)), LIMITS.totalBudgetMs);
-    const onCallerAbort = () => controller.abort(run.signal?.reason);
-    run.signal?.addEventListener("abort", onCallerAbort, { once: true });
+const roundToThousandths = (value) => Math.round(value * 1000) / 1000;
+async function runChunks(client, kind, choiceOptions, chunks, buildRequest, runOptions) {
+    const invocationController = new AbortController();
+    const budgetTimer = setTimeout(() => invocationController.abort(new Error(`total budget of ${LIMITS.totalBudgetMs}ms exceeded`)), LIMITS.totalBudgetMs);
+    const onCallerAbort = () => invocationController.abort(runOptions.signal?.reason);
+    runOptions.signal?.addEventListener("abort", onCallerAbort, { once: true });
     // A signal already aborted on entry does not fire an event: the first send sees the cancellation instead.
-    if (run.signal?.aborted)
+    if (runOptions.signal?.aborted)
         onCallerAbort();
     const requests = [];
     // Null-prototype: the keys are the provider's, so an accumulator with a prototype would let one of them reach it.
     const answers = Object.create(null);
     try {
         for (const chunk of chunks) {
-            const ids = chunk.map((i) => i.id);
-            const request = build(chunk);
-            const started = Date.now();
-            let outcome;
+            const itemIds = chunk.map((item) => item.id);
+            const request = buildRequest(chunk);
+            const startedAt = Date.now();
+            let sendOutcome;
             try {
-                outcome = await send(client, request, {
-                    expectedIds: ids,
+                sendOutcome = await send(client, request, {
+                    expectedIds: itemIds,
                     kind,
-                    options,
-                    signal: controller.signal,
-                    timeoutMs: run.timeoutMs ?? LIMITS.timeoutMs,
+                    options: choiceOptions,
+                    signal: invocationController.signal,
+                    timeoutMs: runOptions.timeoutMs ?? LIMITS.timeoutMs,
                     maxRetries: LIMITS.maxRetries,
                 });
             }
-            catch (err) {
-                throw classifyFailure(err);
+            catch (error) {
+                throw asDecideError(error);
             }
-            const elapsedMs = Date.now() - started;
-            const problems = contractProblems(outcome.data, ids, kind, options);
+            const elapsedMs = Date.now() - startedAt;
+            const problems = contractProblems(sendOutcome.data, itemIds, kind, choiceOptions);
             if (problems.length > 0)
                 throw new DecideError(ErrorCode.contract, "the answer does not hold the documented shape", { problems });
-            const data = outcome.data;
+            const validResult = sendOutcome.data;
             requests.push({
-                items: ids.length,
-                model: data.model,
-                inputTokens: data.usage.input_tokens,
-                outputTokens: data.usage.output_tokens,
+                items: itemIds.length,
+                model: validResult.model,
+                inputTokens: validResult.usage.input_tokens,
+                outputTokens: validResult.usage.output_tokens,
                 elapsedMs,
-                requestId: outcome.requestId,
-                retries: outcome.retries,
+                requestId: sendOutcome.requestId,
+                retries: sendOutcome.retries,
             });
             // Copied id by id rather than assigned: the keys the projection kept are still the provider's.
-            for (const id of ids) {
-                const answer = data.answers[id];
+            for (const id of itemIds) {
+                const answer = validResult.answers[id];
                 if (answer !== undefined)
                     answers[id] = answer;
             }
         }
     }
     finally {
-        clearTimeout(deadline);
-        run.signal?.removeEventListener("abort", onCallerAbort);
+        clearTimeout(budgetTimer);
+        runOptions.signal?.removeEventListener("abort", onCallerAbort);
     }
     return { answers, requests };
 }
 /** Runs the filter template over `items` and returns the compact decision. */
-export async function decideFilter(client, template, rawItems, params, run = {}) {
-    const { items, cut: cutItems, invisible } = normalizeItems(rawItems);
+export async function decideFilter(client, template, rawItems, params, runOptions = {}) {
+    const { items, cut: cutItemCount, invisible: invisibleItemCount } = normalizeItems(rawItems);
     const chunks = chunkItems(items);
-    const build = (chunk) => ({
+    const buildRequest = (chunk) => ({
         state: template.buildState(chunk, params),
         questions: Object.fromEntries(chunk.map((item) => [item.id, template.buildQuestion(item)])),
     });
-    const { answers, requests } = await runChunks(client, "noul", null, chunks, build, run);
+    const { answers, requests } = await runChunks(client, "noul", null, chunks, buildRequest, runOptions);
     const kept = [];
     const dropped = [];
     const uncertain = [];
     for (const item of items) {
-        const a = answers[item.id];
-        const row = { id: item.id, p: round(a.noul) };
-        const band = params.uncertainBand ?? template.uncertainBand;
-        if (band !== null && a.noul >= band[0] && a.noul <= band[1])
+        const answer = answers[item.id];
+        const row = { id: item.id, p: roundToThousandths(answer.noul) };
+        const uncertainBand = params.uncertainBand ?? template.uncertainBand;
+        if (uncertainBand !== null && answer.noul >= uncertainBand[0] && answer.noul <= uncertainBand[1])
             uncertain.push(row);
-        (template.keep(a, params) ? kept : dropped).push(row);
+        (template.keep(answer, params) ? kept : dropped).push(row);
     }
-    return { template: template.name, total: items.length, cut: cutItems, invisible, kept, dropped, uncertain, requests };
+    return { template: template.name, total: items.length, cut: cutItemCount, invisible: invisibleItemCount, kept, dropped, uncertain, requests };
 }
 /** Runs the triage template over `items`; carried for the deferred re-measurement, not dispatched by the command. */
-export async function decideTriage(client, template, rawItems, params, run = {}) {
-    const { items, cut: cutItems, invisible } = normalizeItems(rawItems);
+export async function decideTriage(client, template, rawItems, params, runOptions = {}) {
+    const { items, cut: cutItemCount, invisible: invisibleItemCount } = normalizeItems(rawItems);
     const chunks = chunkItems(items);
-    const build = (chunk) => ({
+    const buildRequest = (chunk) => ({
         state: template.buildState(chunk, params),
         questions: Object.fromEntries(chunk.map((item) => [item.id, template.buildQuestion(item)])),
     });
-    const { answers, requests } = await runChunks(client, "choice", template.options, chunks, build, run);
+    const { answers, requests } = await runChunks(client, "choice", template.options, chunks, buildRequest, runOptions);
     const kept = [];
     const dropped = [];
     for (const item of items) {
-        const a = answers[item.id];
+        const answer = answers[item.id];
         const row = {
             id: item.id,
-            choice: a.choice,
-            confidence: round(a.confidence),
-            p: Object.fromEntries(Object.entries(a.probabilities).map(([k, v]) => [k, round(v)])),
+            choice: answer.choice,
+            confidence: roundToThousandths(answer.confidence),
+            p: Object.fromEntries(Object.entries(answer.probabilities).map(([optionName, probability]) => [optionName, roundToThousandths(probability)])),
         };
-        (template.keep(a, params) ? kept : dropped).push(row);
+        (template.keep(answer, params) ? kept : dropped).push(row);
     }
-    return { template: template.name, total: items.length, cut: cutItems, invisible, kept, dropped, uncertain: [], requests };
+    return { template: template.name, total: items.length, cut: cutItemCount, invisible: invisibleItemCount, kept, dropped, uncertain: [], requests };
 }

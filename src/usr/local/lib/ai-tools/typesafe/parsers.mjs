@@ -28,54 +28,54 @@ import { isItemId, LIMITS } from "./core.mjs";
 import { inputError } from "./errors.mjs";
 export const FORMATS = ["lines", "prose-check", "msbuild"];
 /**
- * The id for the `n`th item: `derived` where core.mts accepts it and no earlier item took it, else `L<n>`. A
- * derived id in the `L<n>` form is refused, so the fallback never collides with one.
+ * The id for the `ordinal`th item: `derivedId` where core.mts accepts it and no earlier item took it, else
+ * `L<ordinal>`. A derived id in the `L<n>` form is refused, so the fallback never collides with one.
  */
-function idFor(derived, n, taken) {
-    const id = derived !== undefined && isItemId(derived) && !/^L\d+$/.test(derived) && !taken.has(derived) ? derived : `L${n}`;
-    taken.add(id);
+function idFor(derivedId, ordinal, takenIds) {
+    const id = derivedId !== undefined && isItemId(derivedId) && !/^L\d+$/.test(derivedId) && !takenIds.has(derivedId) ? derivedId : `L${ordinal}`;
+    takenIds.add(id);
     return id;
 }
-const LOCATION = /^([^\s:][^:]*:\d+):\s?(.*)$/;
+const LOCATION_PREFIX = /^([^\s:][^:]*:\d+):\s?(.*)$/;
 /** One item per non-empty line; the `path:line` prefix is the id when it is a well-formed one. */
 export function parseLines(text) {
     const items = [];
-    const taken = new Set();
-    let n = 0;
-    for (const raw of text.split(/\r?\n/)) {
-        const line = raw.trimEnd();
+    const takenIds = new Set();
+    let ordinal = 0;
+    for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.trimEnd();
         if (line.trim() === "")
             continue;
-        n++;
-        const m = line.length > LIMITS.maxParseLineChars ? null : LOCATION.exec(line);
-        items.push({ id: idFor(m?.[1], n, taken), text: line });
+        ordinal++;
+        const locationMatch = line.length > LIMITS.maxParseLineChars ? null : LOCATION_PREFIX.exec(line);
+        items.push({ id: idFor(locationMatch?.[1], ordinal, takenIds), text: line });
     }
     return { items, setAside: 0 };
 }
-const FINDING = /^([^\s:][^:]*:\d+):\s+(.+)$/;
+const FINDING_HEADER = /^([^\s:][^:]*:\d+):\s+(.+)$/;
 /** prose-check.py records: a `path:line: rule...` line followed by one indented excerpt line. */
 export function parseProseCheck(text) {
     const items = [];
-    const taken = new Set();
+    const takenIds = new Set();
     const lines = text.split(/\r?\n/);
-    let n = 0;
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i] ?? "";
+    let ordinal = 0;
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        const line = lines[lineIndex] ?? "";
         if (line.trim() === "")
             continue;
         if (/^\d+ finding\(s\)/.test(line) || line.startsWith("See the "))
             continue; // the checker's trailer
         if (line.length > LIMITS.maxParseLineChars)
-            throw inputError(`line ${i + 1} is over the parse bound of ${LIMITS.maxParseLineChars} chars`, { line: i + 1 });
-        const m = FINDING.exec(line);
-        if (!m)
-            throw inputError(`line ${i + 1} is not a prose-check finding: ${line.slice(0, 80)}`, { line: i + 1 });
-        const next = lines[i + 1] ?? "";
-        if (!/^\s+\S/.test(next))
-            throw inputError(`finding at line ${i + 1} has no excerpt line under it`, { line: i + 1 });
-        n++;
-        items.push({ id: idFor(m[1], n, taken), rule: m[2], text: next.trim() });
-        i++;
+            throw inputError(`line ${lineIndex + 1} is over the parse bound of ${LIMITS.maxParseLineChars} chars`, { line: lineIndex + 1 });
+        const findingMatch = FINDING_HEADER.exec(line);
+        if (!findingMatch)
+            throw inputError(`line ${lineIndex + 1} is not a prose-check finding: ${line.slice(0, 80)}`, { line: lineIndex + 1 });
+        const excerptLine = lines[lineIndex + 1] ?? "";
+        if (!/^\s+\S/.test(excerptLine))
+            throw inputError(`finding at line ${lineIndex + 1} has no excerpt line under it`, { line: lineIndex + 1 });
+        ordinal++;
+        items.push({ id: idFor(findingMatch[1], ordinal, takenIds), rule: findingMatch[2], text: excerptLine.trim() });
+        lineIndex++;
     }
     return { items, setAside: 0 };
 }
@@ -97,37 +97,37 @@ const CS_LOCATION = /^(.*?)\((\d+)(?:,\d+)?\)$/;
  */
 export function parseMsbuild(text) {
     const items = [];
-    const seen = new Set();
-    const taken = new Set();
-    let nonEmpty = 0;
-    let n = 0;
-    for (const raw of text.split(/\r?\n/)) {
-        const line = raw.trimEnd();
+    const seenDiagnostics = new Set();
+    const takenIds = new Set();
+    let nonEmptyLineCount = 0;
+    let ordinal = 0;
+    for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.trimEnd();
         if (line.trim() === "")
             continue;
-        nonEmpty++;
+        nonEmptyLineCount++;
         // A compiler invocation line runs to tens of kilobytes, past any diagnostic: set it aside unmatched.
         if (line.length > LIMITS.maxParseLineChars)
             continue;
-        const m = DIAGNOSTIC_MARKER.exec(line);
-        if (!m)
+        const markerMatch = DIAGNOSTIC_MARKER.exec(line);
+        if (!markerMatch)
             continue;
-        const [, severity, code] = m;
-        const rawLocation = line.slice(0, m.index).replace(NODE_PREFIX, "").trim();
-        const rawMessage = line.slice(m.index + m[0].length).trim();
+        const [, severity, code] = markerMatch;
+        const rawLocation = line.slice(0, markerMatch.index).replace(NODE_PREFIX, "").trim();
+        const rawMessage = line.slice(markerMatch.index + markerMatch[0].length).trim();
         if (rawLocation === "" || rawMessage === "")
             continue;
         const project = PROJECT_SUFFIX.exec(rawMessage)?.[1];
         const message = rawMessage.replace(PROJECT_SUFFIX, "");
-        const key = `${rawLocation}|${code}|${message}`;
-        if (seen.has(key))
+        const diagnosticKey = `${rawLocation}|${code}|${message}`;
+        if (seenDiagnostics.has(diagnosticKey))
             continue;
-        seen.add(key);
-        n++;
-        const cs = CS_LOCATION.exec(rawLocation);
-        const derived = cs === null ? rawLocation : `${cs[1]}:${cs[2]}`;
+        seenDiagnostics.add(diagnosticKey);
+        ordinal++;
+        const csLocationMatch = CS_LOCATION.exec(rawLocation);
+        const derivedId = csLocationMatch === null ? rawLocation : `${csLocationMatch[1]}:${csLocationMatch[2]}`;
         const item = {
-            id: idFor(derived, n, taken),
+            id: idFor(derivedId, ordinal, takenIds),
             rule: `${severity} ${code}`,
             text: message,
             ...(project === undefined ? {} : { context: project }),
@@ -135,9 +135,9 @@ export function parseMsbuild(text) {
         items.push(item);
     }
     if (items.length === 0) {
-        throw inputError(`the log holds no error or warning diagnostic in ${nonEmpty} non-empty lines; pipe it as --format lines to judge the lines themselves`, { lines: nonEmpty });
+        throw inputError(`the log holds no error or warning diagnostic in ${nonEmptyLineCount} non-empty lines; pipe it as --format lines to judge the lines themselves`, { lines: nonEmptyLineCount });
     }
-    return { items, setAside: nonEmpty - items.length };
+    return { items, setAside: nonEmptyLineCount - items.length };
 }
 /**
  * Refuses a stream that is not text a listing could be: over the size bound, carrying a NUL, or holding more than
@@ -145,23 +145,25 @@ export function parseMsbuild(text) {
  * undecodable byte to U+FFFD rather than failing, so the replacement character is counted here as the evidence it
  * is. Tab, newline and carriage return are text.
  */
+/** How much of the input the control-character check samples: its first 64 KiB. */
+const TEXT_SAMPLE_CHARS = 65_536;
 export function assertTextual(text) {
     if (text.length > LIMITS.maxInputChars) {
         throw inputError(`the input is ${text.length} characters; the bound is ${LIMITS.maxInputChars}. Narrow the listing at its source`, { chars: text.length });
     }
-    const sample = text.slice(0, 65_536);
+    const sample = text.slice(0, TEXT_SAMPLE_CHARS);
     if (sample.includes("\u0000"))
         throw inputError("the input holds a NUL byte, so it is not a text listing");
-    let suspect = 0;
-    for (const ch of sample) {
-        const code = ch.codePointAt(0);
-        if (ch === "\t" || ch === "\n" || ch === "\r")
+    let suspectCount = 0;
+    for (const character of sample) {
+        const codePoint = character.codePointAt(0);
+        if (character === "\t" || character === "\n" || character === "\r")
             continue;
-        if (code < 0x20 || code === 0x7f || ch === "\uFFFD")
-            suspect++;
+        if (codePoint < 0x20 || codePoint === 0x7f || character === "\uFFFD")
+            suspectCount++;
     }
-    if (sample.length > 0 && suspect * 100 > sample.length) {
-        throw inputError(`the input holds ${suspect} control or undecodable characters in its first ${sample.length}, so it is not a text listing`, { suspect });
+    if (sample.length > 0 && suspectCount * 100 > sample.length) {
+        throw inputError(`the input holds ${suspectCount} control or undecodable characters in its first ${sample.length}, so it is not a text listing`, { suspect: suspectCount });
     }
 }
 export function parse(format, text) {

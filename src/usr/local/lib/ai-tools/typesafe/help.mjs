@@ -11,7 +11,7 @@
 // injected at build time: dist/ is exactly tsc's output from src/, so a rebuild from a tag reproduces it byte for
 // byte, and a build step that rewrote a file would end that. The suite holds the two to each other, so a release
 // cannot ship a version that disagrees with its own manifest.
-export const VERSION = "0.1.1";
+export const VERSION = "0.1.2";
 export const USAGE = `usage: <listing> | node decide.mjs filter --task "<one sentence>" --config <file> [--format lines|prose-check|msbuild] [--threshold 0.5] [--usage-log <file>]
   filter       keep the lines that bear on the task; the rest are listed by id on the summary line
   --config     the KEY=value file holding the API key, the endpoint and the tuned values. Required
