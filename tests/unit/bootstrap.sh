@@ -242,7 +242,8 @@ else
             printf "rc=%s\n" "${rc}"
         ' _ "${PROVIDERS_LIB}" "${MSG_LIB}" "${HELPER}" "$1" "$2" 2>&1 || true
     }
-    key_value() { AI_TOOLS_OPERATOR_CONF="${CONF}" bash -c 'source "$1"; ai_tools_conf_get "$2" AI_TOOLS_AGENTS' _ "${PROVIDERS_LIB}" "${CONF}" 2>/dev/null || true; }
+    # key_value : the names AI_TOOLS_AGENTS holds, read through the list grammar and joined by a space.
+    key_value() { bash -c 'source "$1"; names=(); ai_tools_conf_list names "$2" AI_TOOLS_AGENTS; printf "%s" "${names[*]-}"' _ "${PROVIDERS_LIB}" "${CONF}" 2>/dev/null || true; }
     key_present() { grep -qE '^[[:space:]]*AI_TOOLS_AGENTS[[:space:]]*=' "${CONF}"; }
 
     # ── (H) An unanswered menu does not enable an agent and does not fail the run ─────────────
@@ -275,6 +276,11 @@ else
             pass "the commented default is rewritten in place under its comment block"
         else
             fail "the write did not land in place: $(tr '\n' '|' < "${CONF}")"
+        fi
+        if grep -qx 'AI_TOOLS_AGENTS=\[beta\]' "${CONF}"; then
+            pass "the chosen agent is written in the bracketed list form"
+        else
+            fail "the key is not written as AI_TOOLS_AGENTS=[beta]: $(grep AI_TOOLS_AGENTS "${CONF}")"
         fi
         if ! grep -q 'MSG-C8W2' <<<"${out}"; then
             pass "one agent chosen draws no shared-account notice"
@@ -316,6 +322,15 @@ else
             fail "two-agent key: notices=$(grep -c '^MSG-C8W2$' <<<"${out}"), drawn=$([[ -e "${PICK_MARKER}" ]] && echo yes || echo no), key '$(key_value)'"
         fi
 
+        # The bracketed form of the same key is the same declaration.
+        seed_conf 'AI_TOOLS_AGENTS=[acme, beta]'
+        out="$(run_choose "$(stub_pick 2)" "")"
+        if [[ "$(grep -c '^MSG-C8W2$' <<<"${out}")" -eq 1 && ! -e "${PICK_MARKER}" && "$(key_value)" == "acme beta" ]]; then
+            pass "a bracketed key naming two agents is read the same: one notice, no menu"
+        else
+            fail "bracketed two-agent key: notices=$(grep -c '^MSG-C8W2$' <<<"${out}"), key '$(key_value)'"
+        fi
+
         # ── (L) `--agents` writes the names given, notice once, no menu ───────────────────────
         seed_conf
         out="$(run_choose "$(stub_pick 2)" "beta,acme")"
@@ -354,6 +369,16 @@ else
         seed_conf
         out="$(run_choose "$(stub_pick 2)" ",")"
         assert_msg MSG-X8K6 "${out}" "a value naming no agent is refused as a valueless --agents"
+        # An argument takes the plain list form alone: a bracket is refused by name, with the key unwritten.
+        for value in '[acme,beta]' '[acme' 'acme]' '[acme, beta]'; do
+            seed_conf
+            out="$(run_choose "$(stub_pick 2)" "${value}")"
+            if grep -qx MSG-Y7B6 <<<"${out}" && ! grep -q '^rc=' <<<"${out}" && ! key_present; then
+                pass "--agents ${value} is refused as a bracketed argument, the key unwritten"
+            else
+                fail "--agents ${value}: not refused under MSG-Y7B6 with the key unwritten (${out})"
+            fi
+        done
 
         # ── (O) An untrusted operator.conf is neither asked about nor written ────────────────
         seed_conf

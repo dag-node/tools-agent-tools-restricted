@@ -412,7 +412,7 @@ install -m 0440 src%{_sysconfdir}/sudoers.d/ai-tools %{buildroot}%{_sysconfdir}/
 #    `ai-tools-admin operators add` fills it in place. %config(noreplace) keeps the
 #    operator's OPERATORS/SKIP_* edits across upgrades. ──
 install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools
-sed 's/^OPERATORS=.*/OPERATORS=""/' src%{_sysconfdir}/ai-tools/operator.conf \
+sed 's/^OPERATORS=.*/OPERATORS=[]/' src%{_sysconfdir}/ai-tools/operator.conf \
     > %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 
@@ -718,7 +718,7 @@ if [ -d /opt/ai-tools/.nvm ]; then
     _at_toolchain=0
 fi
 if [ -n "$(getent group ai-ops 2>/dev/null | cut -d: -f4)" ] \
-   && grep -Eq '^[[:space:]]*OPERATORS[[:space:]]*=[[:space:]]*"?[A-Za-z0-9_]' \
+   && grep -Eq '^[[:space:]]*OPERATORS[[:space:]]*=[[:space:]]*["[]?[[:space:],]*[A-Za-z0-9_]' \
         /etc/ai-tools/operator.conf 2>/dev/null; then
     _at_operator=0
 fi

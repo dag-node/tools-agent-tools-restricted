@@ -165,7 +165,7 @@ _ai_tools_build_output_names() {
     while IFS=$'\t' read -r _ declared; do
         [[ -n "${declared}" ]] || continue
         names=()
-        ai_tools_conf_split names "${declared}"
+        ai_tools_conf_list_value names "${declared}" 0 "build_output_dirs in an integration manifest"
         for name in "${names[@]}"; do
             [[ "${name}" =~ ^[A-Za-z0-9._-]+$ && "${name}" != *..* ]] || continue
             printf '%s\n' "${name}"

@@ -304,7 +304,7 @@ selinux_status() {
     fi
     declared="$(manifest_field selinux_groups || true)"
     [[ -n "${declared}" ]] || return 0
-    ai_tools_conf_split names "${declared}"
+    ai_tools_conf_list_value names "${declared}" 0 "selinux_groups in the dotnet manifest"
     for name in "${names[@]}"; do
         ai_tools_selinux_group_valid "${name}" || continue
         if ai_tools_selinux_group_loaded "${name}"; then

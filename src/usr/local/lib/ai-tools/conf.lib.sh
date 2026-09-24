@@ -4,12 +4,12 @@
 # The one KEY=value grammar every ai-tools config file is read with, the trust predicate that decides whether a file may
 # be read at all, and what shares the grammar and so lives beside it: the dated config sidecars
 # (`<name>.<YYYYMMDD>-<N>.{bak,shipped}`, whose stamp ai_tools_conf_sidecar_path is the single home of), the one
-# in-place write of a KEY=value file (ai_tools_conf_set_key), and every read AND write of allowed-projects.
-# The settings.json hook-declaration merge, which writes through the sidecars, is settings-merge.lib.sh. Sourced (never
-# executed) by operator.lib.sh, skip-dirs.lib.sh, providers.lib.sh, the launch wrapper, the CLI and the root helpers,
-# so a key and an allowlist line read the same whichever component reads them. The grammar, the present/absent
-# distinction the provider gating turns on, and what the trust predicate requires are in providers.rule.md;
-# the allowlist state model is in cli.rule.md.
+# in-place write of a KEY=value file (ai_tools_conf_set_key for a scalar, ai_tools_conf_set_list for a list), and every
+# read AND write of allowed-projects. The settings.json hook-declaration merge, which writes through the sidecars, is
+# settings-merge.lib.sh. Sourced (never executed) by operator.lib.sh, skip-dirs.lib.sh, providers.lib.sh, the launch
+# wrapper, the CLI and the root helpers, so a key and an allowlist line read the same whichever component reads them.
+# The grammar, the present/absent distinction the provider gating turns on, and what the trust predicate requires are
+# in providers.rule.md; the allowlist state model is in cli.rule.md.
 #
 # Config files are PARSED, never sourced: a malformed or tampered file yields a bad value, never executed code
 # in a privileged script. List splitting pins IFS locally, because the sourcing scripts run under the strict-mode
@@ -133,7 +133,9 @@ _ai_tools_conf_strip_inline_comment() {
 #   the `=`) denotes -- surrounding whitespace trimmed, one matched quote layer stripped, inline
 #   comment removed. A quoted value ends at its closing quote and whatever follows is discarded,
 #   so `#` inside quotes stays literal. An unmatched opening quote is taken verbatim rather than
-#   silently truncating the value at some later character.
+#   silently truncating the value at some later character. Sets _ai_tools_conf_value_quoted to 1
+#   when the value opened with a quote and 0 otherwise, which is what ai_tools_conf_list_value
+#   tells `"[a]"` from `[a]` by once the quotes are gone.
 _ai_tools_conf_parse_value() {
     local value="$1" quote rest
     value="${value#"${value%%[![:space:]]*}"}"
@@ -142,6 +144,8 @@ _ai_tools_conf_parse_value() {
         "'"*) quote="'" ;;
         *)    quote=''  ;;
     esac
+    _ai_tools_conf_value_quoted=0
+    [[ -n "${quote}" ]] && _ai_tools_conf_value_quoted=1
     if [[ -n "${quote}" ]]; then
         rest="${value#?}"
         if [[ "${rest}" == *"${quote}"* ]]; then
@@ -163,6 +167,7 @@ _ai_tools_conf_parse_value() {
 ai_tools_conf_read() {
     local file="$1" wanted="$2" line key found=1
     _ai_tools_conf_value=""
+    _ai_tools_conf_value_quoted=0
     [[ -r "${file}" ]] || return 1
     while IFS= read -r line || [[ -n "${line}" ]]; do
         line="${line#"${line%%[![:space:]]*}"}"
@@ -202,7 +207,8 @@ ai_tools_conf_get() {
 
 # ai_tools_conf_split <array-name> <value> : split <value> into the named array on commas and
 #   whitespace, dropping empty items. IFS is set locally, so the result does not depend on the
-#   caller's IFS.
+#   caller's IFS. The splitter for a command-line argument, which does not read brackets; a list
+#   read from a file goes through ai_tools_conf_list_value.
 ai_tools_conf_split() {
     local -n _ai_tools_conf_split_out="$1"
     local raw="${2-}" token
@@ -224,7 +230,44 @@ ai_tools_conf_split() {
 ai_tools_conf_list() {
     local out_name="$1" file="$2" key="$3"
     ai_tools_conf_read "${file}" "${key}" || return 1
-    ai_tools_conf_split "${out_name}" "${_ai_tools_conf_value}"
+    ai_tools_conf_list_value "${out_name}" "${_ai_tools_conf_value}" "${_ai_tools_conf_value_quoted}" \
+        "${key} in ${file}"
+}
+
+# ai_tools_conf_list_value <array-name> <value> [quoted] [label] : split a list value read from
+#   a file into the named array. `[a, b]` is a bracketed list, whose inside splits as
+#   ai_tools_conf_split splits; any other value splits as it stands. A value with one bracket and not
+#   the other, one whose quotes the parser stripped (<quoted> 1, `"[a]"`), and a bracketed one
+#   carrying a quote or a further bracket inside is invalid: the array is set EMPTY, MSG-D5N5 names
+#   <label> on stderr, and _ai_tools_conf_list_invalid is set to 1 (0 otherwise). Empty is the less-access
+#   reading for every list that grants something -- an empty OPERATORS does not enrol any account, an
+#   empty AI_TOOLS_AGENTS does not enable any agent -- where treating the key as absent would fall back to a default
+#   that enables more. Returns 0 either way, since several callers run under `set -e`.
+ai_tools_conf_list_value() {
+    local out_name="$1" value="${2-}" quoted="${3:-0}" label="${4:-a list value}" inner reason=""
+    _ai_tools_conf_list_invalid=0
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    if [[ "${value}" != '['* && "${value}" != *']' ]]; then
+        ai_tools_conf_split "${out_name}" "${value}"
+        return 0
+    fi
+    inner="${value#[}"; inner="${inner%]}"
+    if [[ "${value}" != '['*']' ]]; then
+        reason="it has one bracket and not the other"
+    elif [[ "${quoted}" == 1 ]]; then
+        reason="a bracketed list is written without quotes around it"
+    elif [[ "${inner}" == *[\"\'\[\]]* ]]; then
+        reason="an item inside brackets carries no quote or bracket"
+    fi
+    if [[ -n "${reason}" ]]; then
+        local -n _ai_tools_conf_list_value_out="${out_name}"
+        _ai_tools_conf_list_value_out=()
+        _ai_tools_conf_list_invalid=1
+        _ai_tools_conf_warn MSG-D5N5 "invalid list, read as the empty list -- ${label} (${reason}): ${value}; write it as [a, b]"
+        return 0
+    fi
+    ai_tools_conf_split "${out_name}" "${inner}"
 }
 
 # ── Sidecar files: what an upgrade preserves when it touches an operator's config ────────────
@@ -382,12 +425,13 @@ ai_tools_conf_new_keys() {
 }
 
 # ── KEY=value files: set one key in place ────────────────────────────────────────────────────
-# The one rewrite this project makes to operator.conf is a single key's value -- OPERATORS
-# from `ai-tools-admin operators add|remove`, AI_TOOLS_AGENTS from the toolchain provisioning's agent choice. Setting
-# a key replaces one line and does not splice a block in, which is what ai_tools_conf_new_keys leaves to the operator:
-# the line replaced is the key's own, found by the same match ai_tools_conf_keys counts as a mention, so the template's
-# commented default is rewritten IN PLACE under its comment block and the file keeps the shape the new-key report reads.
-# Every other line is copied byte for byte.
+# The one rewrite this project makes to operator.conf is a single key's value -- the OPERATORS list
+# from `ai-tools-admin operators add|remove` and the AI_TOOLS_AGENTS list from the toolchain provisioning's agent choice
+# (ai_tools_conf_set_list), and the provisioning's switches (ai_tools_conf_set_key). Setting a key replaces one line
+# and does not splice a block in, which is what ai_tools_conf_new_keys leaves to the operator: the line replaced is
+# the key's own, found by the same match ai_tools_conf_keys counts as a mention, so the template's commented default is
+# rewritten IN PLACE under its comment block and the file keeps the shape the new-key report reads. Every other line is
+# copied byte for byte.
 
 # ai_tools_conf_set_key <file> <KEY> <value> : write `KEY="value"` into <file>, replacing the first
 #   line that mentions KEY (`KEY=`, `#KEY=`, `# KEY=`, whitespace allowed around the key), or
@@ -398,28 +442,59 @@ ai_tools_conf_new_keys() {
 #   or a value carrying a newline or a double quote -- either would end the line or the quoted
 #   value early and write a different setting than the one asked for.
 ai_tools_conf_set_key() {
-    local file="$1" key="$2" value="$3" tmp line replaced=0
+    local file="$1" key="$2" value="$3"
     [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 2
     [[ "${value}" != *$'\n'* && "${value}" != *'"'* ]] || return 2
+    _ai_tools_conf_write_line "${file}" "${key}" "${key}=\"${value}\"" || return 1
+    ai_tools_conf_read "${file}" "${key}" && [[ "${_ai_tools_conf_value}" == "${value}" ]]
+}
+
+# ai_tools_conf_set_list <file> <KEY> [item]... : write `KEY=[a, b]` into <file> (`KEY=[]` for no
+#   items), replacing the same line ai_tools_conf_set_key replaces and keeping the file's owner and
+#   mode the same way. Verified by reading the list back through ai_tools_conf_list. Returns 0 when
+#   the file now holds the items in order, 1 when it could not be written or does not read back, 2 for
+#   a KEY outside the identifier charset or an item that is empty or carries whitespace, a comma,
+#   a bracket, a quote or a `#` -- each would split into other items, or end the list, on the read.
+ai_tools_conf_set_list() {
+    local file="$1" key="$2" item joined=""
+    shift 2
+    [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 2
+    for item in "$@"; do
+        [[ -n "${item}" && "${item}" != *[[:space:],\[\]\"\'#]* ]] || return 2
+        joined+="${joined:+, }${item}"
+    done
+    _ai_tools_conf_write_line "${file}" "${key}" "${key}=[${joined}]" || return 1
+    local -a written=()
+    ai_tools_conf_list written "${file}" "${key}" || return 1
+    [[ "${written[*]-}" == "$*" && ${#written[@]} -eq $# ]]
+}
+
+# _ai_tools_conf_write_line <file> <KEY> <line> : replace the first line of <file> that mentions
+#   KEY (`KEY=`, `#KEY=`, `# KEY=`, whitespace allowed around the key) with <line>, or append <line>
+#   when none does, copying every other line byte for byte. A missing <file> is created at mode
+#   0644; an existing one keeps its owner and mode and is replaced by a rename
+#   (_ai_tools_conf_replace_file). Returns 1 when the file could not be written. The one line
+#   replacement both public writers share, so they rewrite the same line of the same file.
+_ai_tools_conf_write_line() {
+    local file="$1" key="$2" new_line="$3" tmp line replaced=0
     tmp="$(mktemp 2>/dev/null)" || return 1
     if [[ -f "${file}" ]]; then
         while IFS= read -r line || [[ -n "${line}" ]]; do
             if (( ! replaced )) && [[ "${line}" =~ ^[[:space:]]*(\#[[:space:]]?)?${key}[[:space:]]*= ]]; then
-                printf '%s="%s"\n' "${key}" "${value}"
+                printf '%s\n' "${new_line}"
                 replaced=1
             else
                 printf '%s\n' "${line}"
             fi
         done < "${file}" > "${tmp}"
     fi
-    (( replaced )) || printf '%s="%s"\n' "${key}" "${value}" >> "${tmp}"
+    (( replaced )) || printf '%s\n' "${new_line}" >> "${tmp}"
     if [[ -f "${file}" ]]; then
         if ! _ai_tools_conf_replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
     elif ! install -m 644 -- "${tmp}" "${file}" 2>/dev/null; then
         rm -f -- "${tmp}"; return 1
     fi
     rm -f -- "${tmp}"
-    ai_tools_conf_read "${file}" "${key}" && [[ "${_ai_tools_conf_value}" == "${value}" ]]
 }
 
 # ── Path-list files (allowed-projects) ───────────────────────────────────────────────────────
