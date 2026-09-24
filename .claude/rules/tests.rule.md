@@ -423,13 +423,14 @@ about through `runuser` and under `setsid`, so a menu or a confirm takes its no-
 with one load path broken refuses at init; the sandbox account and a non-operator are refused at the operator gate, each
 with its own code; a missing launcher symlink, a target outside the versioned shape, one naming another launcher,
 and one carrying a parent-directory component are each refused, while the versioned shape resolves one hop
-with the target left unresolved; the CWD gate refuses a missing allowlist, an unapproved directory, a sibling sharing
-a name prefix, a carved-out subdirectory and a path under it, a parked project, and an allowlisted protected directory,
-and passes an approved directory reached directly or through a symlink with the canonical path published; the claim
-guard refuses an approved directory the sandbox group does not own when no terminal can answer its confirm; the session
-exec refuses without the gates' results; and the gate runner answers the sandbox account before it reads the allowlist.
-The installed wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper reaches those gates
-in that order.
+with the target left unresolved; the provider-list gate refuses a name written without its kind prefix, naming it
+and `system post-upgrade`, with a migrated file as the control; the CWD gate refuses a missing allowlist, an unapproved
+directory, a sibling sharing a name prefix, a carved-out subdirectory and a path under it, a parked project,
+and an allowlisted protected directory, and passes an approved directory reached directly or through a symlink
+with the canonical path published; the claim guard refuses an approved directory the sandbox group does not own when no
+terminal can answer its confirm; the session exec refuses without the gates' results; and the gate runner answers
+the sandbox account before it reads the allowlist. The installed wrapper's own test is `integration/wrapper.sh`,
+which proves the deployed wrapper reaches those gates in that order.
 
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
@@ -716,7 +717,9 @@ the first network step, with the refusal of an unresolved agent set between the 
 tiers are driven where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent the fixture manifests
 install and the fixture `operator.conf` does not enable, before the executable resolves and fail-closed on a missing
 library, and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside
-copies of the deployed ones, with the package gone as the control. `cli-agent-set.sh` reports and counts the same link.
+copies of the deployed ones, with the package gone as the control. The same file drives the shim's provider-list refusal
+through a fixture `operator.conf`, with this host's enabled agents written prefixed as the control. `cli-agent-set.sh`
+reports and counts the same link.
 
 `audit.sh` pins the kernel-record section of `ai-tools-audit` ([cli](cli.rule.md)). The trail it reports is one **only
 the kernel writes**, so a test cannot produce a record: the helper is sourced (inert by construction), the audit
