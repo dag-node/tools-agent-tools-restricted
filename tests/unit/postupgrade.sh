@@ -225,6 +225,11 @@ if [[ "${out}" == *"kept as set: OPERATORS"* ]]; then
 else
     fail "the host's own settings were not named"
 fi
+if [[ "${out}" == *"Post-upgrade done -- nothing needs your attention"* ]]; then
+    pass "a run with nothing to carry over closes by saying nothing needs attention"
+else
+    fail "a run with nothing to act on closed with the wrong summary: ${out}"
+fi
 # The same file with one comment reworded: the copy now holds prose the file lacks, so no removal is offered.
 printf '# The accounts that run agent sessions,\n# managed by the admin command.\n#OPERATORS=""\n' > "${CONF}.rpmnew"
 out="$(run_pu)"
@@ -232,6 +237,11 @@ if [[ "${out}" == *"comments differ"* && "${out}" != *"sudo rm"* && "${out}" == 
     pass "a reworded comment withholds the removal and names the difference"
 else
     fail "a copy carrying new prose was offered for removal: ${out}"
+fi
+if [[ "${out}" == *"Post-upgrade done -- review the warnings and errors manually"* ]]; then
+    pass "a run with something to carry over closes by asking for a manual review"
+else
+    fail "a run with something to act on closed without asking for a review: ${out}"
 fi
 
 # ── (E3) A kept file another package ships: found, reported, and never printed ─────────────────────

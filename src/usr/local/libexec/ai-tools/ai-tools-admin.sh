@@ -1281,8 +1281,11 @@ else
     readonly _PU_GRN='' _PU_YEL='' _PU_RED='' _PU_DIM='' _PU_RST=''
 fi
 _PU_NAME=""
+# The lines that ask the operator to act, counted so the closing line can say whether anything needs review.
+_PU_ATTENTION=0
 _pu_say() {
     local level="$1" text="$2"
+    [[ "${level}" == act || "${level}" == err ]] && _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
     case "${level}" in
         ok)  printf '  %s: %s✓%s %s\n' "${_PU_NAME}" "${_PU_GRN}" "${_PU_RST}" "${text}" ;;
         act) printf '  %s:   %s%s%s\n' "${_PU_NAME}" "${_PU_YEL}" "${text}" "${_PU_RST}" ;;
@@ -1334,7 +1337,8 @@ _pu_provenance() {
 _pu_json() {
     local deployed="$1" rpmnew="$2" scratch status=0
     ai_tools_conf_require_jq \
-        || { warn MSG-A5Z7 "jq is missing, so this file's JSON cannot be read -- merge it by hand"; return 0; }
+        || { warn MSG-A5Z7 "jq is missing, so this file's JSON cannot be read -- merge it by hand"
+             _PU_ATTENTION=$(( _PU_ATTENTION + 1 )); return 0; }
 
     scratch="$(mktemp -d)" || return 0
     cp -p "${deployed}" "${scratch}/probe" 2>/dev/null || { rm -rf "${scratch}"; return 0; }
@@ -1368,6 +1372,7 @@ _pu_json() {
     ai_tools_conf_merge_hook_declarations "${deployed}" "${rpmnew}" || status=$?
     if (( status >= 2 )); then
         warn MSG-X9F8 "the merge failed: ${_ai_tools_conf_merge_reason} -- ${deployed} is unchanged"
+        _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
         return 0
     fi
     _pu_say ok "merged -- the previous file is saved as ${_ai_tools_conf_merge_backup}"
@@ -1452,6 +1457,7 @@ _pu_keyval() {
 # _pu_review <deployed> <rpmnew>: show and stop. This file is the sudo grant itself.
 _pu_review() {
     local deployed="$1" rpmnew="$2"
+    _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
     ai_tools_msg_warn MSG-H8A2 \
         "This file defines the sudo grant that lets an operator launch the sandbox. It is shown, never merged: check any change yourself with visudo -c before adopting it."
     _pu_diff "${deployed}" "${rpmnew}"
@@ -1535,11 +1541,15 @@ postupgrade() {
     done < <(_pu_entries "${root}")
 
     _pu_sidecars "${root}"
+    printf '\n'
     if (( found == 0 )); then
-        log "no .rpmnew files are waiting -- every config file this stack owns is reconciled"
-        return 0
+        printf 'Post-upgrade done -- no .rpmnew file is waiting, so every config file this stack owns is reconciled\n'
+    elif (( _PU_ATTENTION > 0 )); then
+        printf 'Post-upgrade done -- review the warnings and errors manually\n'
+    else
+        printf 'Post-upgrade done -- nothing needs your attention\n'
     fi
-    log "done -- this command is idempotent, re-run it at any time"
+    printf '%sthis command is idempotent, re-run it at any time%s\n' "${_PU_DIM}" "${_PU_RST}"
 }
 
 # ── status ───────────────────────────────────────────────────────────────────────────────────
