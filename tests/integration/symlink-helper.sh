@@ -180,10 +180,10 @@ fi
 # (E) The removal form. `--remove` takes the stable link's own path and removes it only for a launcher an INSTALLED
 # manifest claims whose agent is NOT enabled -- the link of a package the updater removed as residue. The refusals touch
 # no link: a path outside the locked directory, an enabled agent's link (the one every launch of that agent resolves
-# through), and a name no manifest claims. The accepted case needs a launcher no operator.conf names, so it is
-# a synthetic manifest read through the root-only AI_TOOLS_AGENTS_DIR hook beside copies of the deployed ones, and its
-# link carries the harness's fixture name in the live launcher directory (the residue sweep lists that directory),
-# registered for teardown.
+# through), a name no manifest claims, and a disabled agent's link while the enabled set cannot be read. The accepted
+# case needs a launcher no operator.conf names, so it is a synthetic manifest read through the root-only
+# AI_TOOLS_AGENTS_DIR hook beside copies of the deployed ones, and its link carries the harness's fixture name
+# in the live launcher directory (the residue sweep lists that directory), registered for teardown.
 section "ai-tools-launcher-symlink: the removal form"
 
 for bogus in "/etc/passwd" "/opt/ai-tools/bin/../bin/claude" "/opt/ai-tools/.nvm/versions/node/v22.0.0/bin/claude"; do
@@ -241,6 +241,25 @@ ln -s "/opt/ai-tools/.nvm/versions/node/v0.0.2/bin/${fixture_launcher}" "${fixtu
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
 read_back="$(env AI_TOOLS_AGENTS_DIR="${remove_agents}" bash -c \
     'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_installed_agents' 2>/dev/null | cut -f1 | grep -cx "${fixture_agent}" || true)"
+# The same link while the enabled set cannot be read: an invalid AI_TOOLS_AGENTS, read through the root-only
+# AI_TOOLS_OPERATOR_CONF hook, is a fault verdict, which the helper does not read as "no agent enabled", so the link
+# stays. Driven before the accepted case, on the link that case then removes.
+unreadable_conf="${TESTDIR}/operator.conf"
+printf 'AI_TOOLS_AGENTS=[%s\n' "${fixture_agent}" > "${unreadable_conf}"; chmod 0644 "${unreadable_conf}"
+if [[ "${read_back}" == 1 ]]; then
+    if out="$(env AI_TOOLS_AGENTS_DIR="${remove_agents}" AI_TOOLS_OPERATOR_CONF="${unreadable_conf}" \
+            "${helper}" --remove "${fixture_link}" 2>&1)"; then
+        fail "helper --remove accepted a link while AI_TOOLS_AGENTS was not a valid list"
+    else
+        assert_msg MSG-U2A7 "${out}" "helper --remove refuses while the enabled set cannot be read"
+    fi
+    if [[ -L "${fixture_link}" ]]; then
+        pass "the refusal left ${fixture_link} in place"
+    else
+        fail "${fixture_link} was removed while the enabled set could not be read"
+    fi
+fi
+
 if [[ "${read_back}" != 1 ]]; then
     fail "the fixture manifest does not read back through the resolver, so the removal case cannot be driven"
 elif ! out="$(env AI_TOOLS_AGENTS_DIR="${remove_agents}" "${helper}" --remove "${fixture_link}" 2>&1)"; then

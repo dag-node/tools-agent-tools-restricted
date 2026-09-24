@@ -10,11 +10,14 @@
 # launch start beside an entrypoint a session can exec at its real path. So residue is asserted to be EXACTLY
 # the installed-not-enabled-present set: an enabled agent's package does not appear in it, a manifest the trust
 # predicate refuses does not (the resolver skips it, and its launcher is refused on its own), a manifest without
-# an npm_package does not, and a version directory outside the semver shape is not read. The writer is driven with npm
-# stubbed in the fixture version's own bin: it refuses an enabled agent's package under its code and does not call npm,
-# defers a package a live process executes from (the collector stubbed to say so), issues exactly one uninstall
-# for a removal and reports the state directory the removal leaves, and reports an uninstall that left the directory
-# in place. The erase form removes an enabled agent's package too, since it runs while the manifest is being erased.
+# an npm_package does not, and a version directory outside the semver shape is not read. An empty enabled set yields
+# residue only where the configuration asks for no agent: under a fault verdict (an invalid list, an untrusted
+# operator.conf, names none of which resolved) every reader prints nothing, with a declared-empty list as the control
+# that still yields every installed agent. The writer is driven with npm stubbed in the fixture version's own bin: it
+# refuses an enabled agent's package under its code and does not call npm, defers a package a live process executes
+# from (the collector stubbed to say so), issues exactly one uninstall for a removal and reports the state directory
+# the removal leaves, and reports an uninstall that left the directory in place. The erase form removes an enabled
+# agent's package too, since it runs while the manifest is being erased.
 #
 # Fixtures are a synthetic manifest set (the acme/beta pair unit/providers.sh uses) read through the resolver's two
 # root-only hooks, so no shipped agent is named; they are root-owned 0644 in 0755 directories, which the trust predicate
@@ -119,6 +122,29 @@ not_enabled="$(ai_tools_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr 
     || fail "installed-not-enabled: got '${not_enabled}', expected 'beta '"
 not_enabled_err="$(ai_tools_installed_not_enabled_agents 2>&1 >/dev/null)"
 assert_msg MSG-M3A5 "${not_enabled_err}" "the untrusted manifest is reported, through the resolver's own code"
+
+# An empty enabled set is read as empty only where the configuration asks for no agent. Under a fault the declared set
+# is unknown, and reading it as empty would make every installed agent's package residue for the writer to remove,
+# so each fault row must yield no line from the set or either reader. The declared-empty row is the control: the same
+# empty enabled set, classified `none`, still yields every installed agent. Rows: <operator.conf line> <mode> <expected
+# set>.
+while IFS='|' read -r conf_line conf_mode want; do
+    printf '%s\n' "${conf_line}" > "${CONF}"; chmod "${conf_mode}" "${CONF}"
+    got_set="$(ai_tools_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+    got_tree="$(ai_tools_agent_residue "${NVM}" 2>/dev/null | cut -f1 | sort -u | tr '\n' ' ')"
+    got_links="$(ai_tools_agent_residue_links "${LINKS}" 2>/dev/null | cut -f1 | tr '\n' ' ')"
+    if [[ "${got_set}" == "${want}" && "${got_tree}" == "${want}" && "${got_links}" == "${want}" ]]; then
+        pass "operator.conf '${conf_line}' (${conf_mode}): installed-not-enabled, residue and residue links are '${want}'"
+    else
+        fail "operator.conf '${conf_line}' (${conf_mode}): expected '${want}' from each, got set '${got_set}', tree '${got_tree}', links '${got_links}'"
+    fi
+done <<'ROWS'
+AI_TOOLS_AGENTS=[acme|0644|
+AI_TOOLS_AGENTS="acme"|0666|
+AI_TOOLS_AGENTS=[nosuch]|0644|
+AI_TOOLS_AGENTS=[]|0644|acme beta
+ROWS
+printf 'AI_TOOLS_AGENTS="acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
 
 # ── ai_tools_agent_residue: the tree read ───────────────────────────────────────────────────────
 residue="$(ai_tools_agent_residue "${NVM}" 2>/dev/null)"

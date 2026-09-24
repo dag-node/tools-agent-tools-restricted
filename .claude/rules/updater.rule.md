@@ -34,14 +34,17 @@ at exit 0. `--agents NAME[,NAME...]`, passed through by `ai-tools-admin`, is the
 against `ai_tools_installed_agents` and an unknown one refuses the run with the key unwritten. A present key is
 the operator's declaration and is not asked about; one naming more than one agent is answered with a notice, since every
 agent named runs as the one sandbox account, and an untrusted `operator.conf` is neither asked about nor written.
-The enabled set is resolved after that write, so the run provisions what it wrote. **Residue goes next, still ahead
-of the network step** (`remove_residue`): the package of every installed agent that set does not name is removed
-as `SANDBOX_USER` through `ai_tools_agent_package_remove`, and its stable launcher link as root once no version
-directory holds the package, so an offline host cleans up before its npm step fails and every launch stops refusing (see
-[A disabled agent's package is residue](#a-disabled-agents-package-is-residue)). It then creates the `SANDBOX_USER`
-account and its `/opt/ai-tools` home if absent, installs nvm, Node (`AI_TOOLS_NODE_MAJOR`, default 22), and each enabled
-agent's npm package as `SANDBOX_USER` (the enabled set resolved via [providers](providers.rule.md)), re-links each
-versioned launcher at the target its manifest declares (see [The versioned launcher and its declared
+The enabled set is resolved after that write, so the run provisions what it wrote. An empty set the configuration did
+not ask for — `ai_tools_agents_empty_verdict` answering anything but `none` — ends the run there under `MSG-M9G5`,
+before anything is installed or removed, the fault the updater ends on ([the empty-set
+classification](#the-run-classifies-itself-ok-skipped-or-failed)). **Residue goes next, still ahead of the network
+step** (`remove_residue`): the package of every installed agent that set does not name is removed as `SANDBOX_USER`
+through `ai_tools_agent_package_remove`, and its stable launcher link as root once no version directory holds
+the package, so an offline host cleans up before its npm step fails and every launch stops refusing (see [A disabled
+agent's package is residue](#a-disabled-agents-package-is-residue)). It then creates the `SANDBOX_USER` account and its
+`/opt/ai-tools` home if absent, installs nvm, Node (`AI_TOOLS_NODE_MAJOR`, default 22), and each enabled agent's npm
+package as `SANDBOX_USER` (the enabled set resolved via [providers](providers.rule.md)), re-links each versioned
+launcher at the target its manifest declares (see [The versioned launcher and its declared
 target](#the-versioned-launcher-and-its-declared-target)), points `/opt/ai-tools/bin/<launcher>` at each versioned
 binary, relabels the freshly installed entrypoint (`ai-tools-relabel-agent`, gated on that helper being deployed,
 so the first launch after a fresh provision is confined without a manual `ai-tools-admin system entrypoints relabel`),
@@ -259,7 +262,10 @@ from the manifests, with no agent name in its code:
   `ai_tools_agent_residue_links <launcher-dir>` prints `name<TAB>launcher` for every such agent whose link exists,
   through `-L` so the read stays out of the tree. Both iterate `ai_tools_installed_not_enabled_agents`, the installed
   set minus the enabled set ([providers](providers.rule.md)): a manifest the trust predicate refuses is not an agent
-  and so not residue, and an enabled agent's package is never residue whatever the tree holds.
+  and so not residue, and an enabled agent's package is never residue whatever the tree holds. An empty enabled set
+  counts only under the `none` verdict: under a `fault` — an invalid `AI_TOOLS_AGENTS`, an untrusted `operator.conf` —
+  the set the operator declared is unknown rather than empty, so the set does not print a line, and every installed
+  agent's package stays where it is instead of reaching the writer.
 - **One writer.** `ai_tools_agent_package_remove <version-dir> <npm_package> [erase]` runs that version's own
   `npm uninstall -g` with the version directory pinned as the prefix (no registry is reached) and prints one word:
   `absent`, `removed`, or `deferred` when a live process executes from the package directory
@@ -399,11 +405,11 @@ relabel the new entrypoint — it runs in the handback domain, which does not ho
 `ai-tools-launcher-symlink --remove <stable-launcher-path>` is its second form, the updater's route to the link
 of a package it removed as residue (the `SYMLINK_REMOVE` verb). The argument is the stable link's own path, exactly
 `/opt/ai-tools/bin/<launcher>` (`MSG-D9K2` otherwise), and the link is removed only for a launcher an **installed**
-manifest claims whose agent the enabled set does **not** carry (`MSG-U2A7` for an enabled agent's link, a name no
-manifest claims, or a path that is not a symlink), so the enabled set cannot be narrowed from the sandbox side by this
-route and the links it can remove are exactly those the launch already refuses on. A link already absent is the wanted
-state, at exit 0. The unlink lands as a change in the watched directory like a repoint does, so the relabel watcher's
-reconcile runs and reports that agent's entrypoint as `none`.
+manifest claims whose agent the enabled set does **not** carry (`MSG-U2A7` for an enabled agent's link, an empty enabled
+set under a `fault` verdict, a name no manifest claims, or a path that is not a symlink), so the enabled set cannot be
+narrowed from the sandbox side by this route and the links it can remove are exactly those the launch already refuses
+on. A link already absent is the wanted state, at exit 0. The unlink lands as a change in the watched directory like
+a repoint does, so the relabel watcher's reconcile runs and reports that agent's entrypoint as `none`.
 
 ## Post-upgrade entrypoint relabel
 

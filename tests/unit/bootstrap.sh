@@ -186,10 +186,11 @@ fi
 # direction: an unanswered menu, "none" chosen, and an untrusted config each leave the key unwritten and the run at exit
 # 0 (Node alone); an unknown `--agents` name refuses with the key unwritten; a present key is not asked about and a key
 # naming more than one agent gets the shared-account notice once; the chosen or given names land in the file
-# the resolver reads. The manifests are a synthetic pair (no shipped agent is named, so a literal name in the code path
-# fails here), root-owned because the resolver trusts root-owned manifests alone -- so this section runs as root
-# and skips otherwise. The menu is stubbed: a drawn menu would block on /dev/tty, and which index it returns is
-# the library's own test (unit/msg.sh).
+# the resolver reads; and the step after the choice ends the run on an empty set the configuration did not ask
+# for, the state in which the residue removal would otherwise read every installed agent as disabled. The manifests are
+# a synthetic pair (no shipped agent is named, so a literal name in the code path fails here), root-owned because
+# the resolver trusts root-owned manifests alone -- so this section runs as root and skips otherwise. The menu is
+# stubbed: a drawn menu would block on /dev/tty, and which index it returns is the library's own test (unit/msg.sh).
 section "ai-tools-admin system bootstrap: the agent choice (unit)"
 
 PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
@@ -402,6 +403,45 @@ else
         fi
         out="$(AI_TOOLS_AGENTS_DIR="${empty_dir}" run_choose "$(stub_pick 1)" "acme")"
         assert_msg MSG-M2N6 "${out}" "--agents on a host with no manifest is refused, naming none installed"
+
+        # ── (Q) An agent set the configuration did not ask to be empty ends the run ──────────
+        # The step after the choice: an invalid list, an untrusted file and a list none of whose names resolved each end
+        # the run under its code, before the residue removal could read the empty set; a declared-empty list, an absent
+        # key and a resolving list each continue. Rows: <operator.conf line> <mode> <ends|continues>.
+        run_refuse() {
+            bash -c '
+                set -euo pipefail
+                # shellcheck source=/dev/null
+                source "$1"
+                # shellcheck source=/dev/null
+                source "$2"
+                declare -F refuse_unresolved_agents >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+                _providers_loaded=1
+                refuse_unresolved_agents
+                printf "rc=0\n"
+            ' _ "${PROVIDERS_LIB}" "${HELPER}" 2>&1 || true
+        }
+        while IFS='|' read -r conf_line conf_mode want; do
+            seed_conf "${conf_line}"; chmod "${conf_mode}" "${CONF}"
+            out="$(run_refuse)"
+            if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
+                fail "the helper does not define refuse_unresolved_agents when sourced"; break
+            elif [[ "${want}" == ends ]] && grep -qx MSG-M9G5 <<<"${out}" && ! grep -q '^rc=' <<<"${out}"; then
+                pass "operator.conf '${conf_line}' (${conf_mode}) ends the run under MSG-M9G5"
+            elif [[ "${want}" == continues ]] && grep -qx 'rc=0' <<<"${out}" && ! grep -q MSG-M9G5 <<<"${out}"; then
+                pass "operator.conf '${conf_line}' (${conf_mode}) continues the run"
+            else
+                fail "operator.conf '${conf_line}' (${conf_mode}): expected the run to ${want%s} (${out})"
+            fi
+        done <<'ROWS'
+AI_TOOLS_AGENTS=[acme|0644|ends
+AI_TOOLS_AGENTS="acme"|0666|ends
+AI_TOOLS_AGENTS=[nosuch]|0644|ends
+AI_TOOLS_AGENTS=[]|0644|continues
+#AI_TOOLS_AGENTS=""|0644|continues
+AI_TOOLS_AGENTS=[acme]|0644|continues
+ROWS
+        chmod 0644 "${CONF}"
     fi
     unset AI_TOOLS_AGENTS_DIR AI_TOOLS_OPERATOR_CONF
 fi
@@ -530,9 +570,10 @@ fi
 
 # ── remove_residue: the order it runs in ─────────────────────────────────────────────────────
 # The removal of a disabled agent's package sits after the agent choice (it reads the set that choice wrote) and ahead
-# of the first network step (the nvm version resolve), so an offline host still cleans up before its npm step fails.
-# That is a property of the SCRIPT's provisioning sequence, which the sourced-guard keeps this file from running, so it
-# is read as source order, the way unit/launcher-target.sh reads the re-link's; the routine itself is driven
+# of the first network step (the nvm version resolve), so an offline host still cleans up before its npm step fails;
+# the refusal of an unresolved set sits between the choice and the removal, which reads the set it would refuse. That is
+# a property of the SCRIPT's provisioning sequence, which the sourced-guard keeps this file from running, so it is read
+# as source order, the way unit/launcher-target.sh reads the re-link's; the routine itself is driven
 # in unit/toolchain.sh. Outside a checkout there is no script to read and the section skips.
 section "ai-tools-admin system bootstrap: the residue removal's place in the sequence (unit)"
 SCRIPT="${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh"
@@ -540,14 +581,15 @@ if [[ ! -d "${ROOT}/.git" || ! -r "${SCRIPT}" ]]; then
     skip "the removal precedes the network step" "not a checkout, so the helper cannot be read from the repository"
 else
     choose_line="$(grep -n -m1 -E '^choose_agents "\$\{REQUESTED_AGENTS\}"' "${SCRIPT}" | cut -d: -f1)"
+    refuse_line="$(grep -n -m1 -E '^refuse_unresolved_agents$' "${SCRIPT}" | cut -d: -f1)"
     remove_line="$(grep -n -m1 -E '^remove_residue$' "${SCRIPT}" | cut -d: -f1)"
     resolve_line="$(grep -n -m1 -E '^NVM_VERSION="\$\(resolve_nvm_version\)"' "${SCRIPT}" | cut -d: -f1)"
-    if [[ -z "${choose_line}" || -z "${remove_line}" || -z "${resolve_line}" ]]; then
-        fail "the agent choice, the removal or the version resolve is no longer where this reads it (choice -> ${choose_line:-none}, removal -> ${remove_line:-none}, resolve -> ${resolve_line:-none})"
-    elif (( choose_line < remove_line && remove_line < resolve_line )); then
-        pass "the residue removal runs after the agent choice and before the first network step"
+    if [[ -z "${choose_line}" || -z "${refuse_line}" || -z "${remove_line}" || -z "${resolve_line}" ]]; then
+        fail "the agent choice, the unresolved-set refusal, the removal or the version resolve is no longer where this reads it (choice -> ${choose_line:-none}, refusal -> ${refuse_line:-none}, removal -> ${remove_line:-none}, resolve -> ${resolve_line:-none})"
+    elif (( choose_line < refuse_line && refuse_line < remove_line && remove_line < resolve_line )); then
+        pass "the unresolved-set refusal follows the agent choice, and the residue removal follows it, before the first network step"
     else
-        fail "the residue removal is out of place: choice at ${choose_line}, removal at ${remove_line}, resolve at ${resolve_line}"
+        fail "out of place: choice at ${choose_line}, refusal at ${refuse_line}, removal at ${remove_line}, resolve at ${resolve_line}"
     fi
 fi
 

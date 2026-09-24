@@ -15,9 +15,11 @@
 # alone. `--agents NAME[,NAME...]` is the unattended form of the same choice, checked against the installed manifests
 # before anything is written. A present key is the operator's declaration and is not asked about again; one naming more
 # than one agent is answered with a notice, since every agent named shares one sandbox account. With no manifests
-# deployed yet it provisions Node alone; a re-run after an ai-tools-agents-* package is installed asks. The package
-# of an agent that is installed and NOT in that set is residue: it is removed next, still ahead of the network step,
-# with its launcher link, since every launch refuses while it is in the toolchain (remove_residue).
+# deployed yet it provisions Node alone; a re-run after an ai-tools-agents-* package is installed asks. An empty set
+# the configuration did not ask for -- an invalid or untrusted line, names none of which resolved -- ends the run
+# as a fault before anything is installed or removed (refuse_unresolved_agents). The package of an agent that is
+# installed and NOT in that set is residue: it is removed next, still ahead of the network step, with its launcher link,
+# since every launch refuses while it is in the toolchain (remove_residue).
 #
 # Idempotent: an existing account, nvm install, or Node version is reused, not rebuilt.
 #
@@ -288,6 +290,24 @@ choose_agents() {
     log "enabled ${name} in ${AI_TOOLS_OPERATOR_CONF}"
 }
 
+# refuse_unresolved_agents -- end the run when the agent set choose_agents left is empty and the configuration did not
+# ask for that: ai_tools_agents_empty_verdict classifies it, and anything but `none` -- an invalid AI_TOOLS_AGENTS,
+# an untrusted operator.conf or manifest, a list none of whose names resolved -- ends the run here, before the residue
+# removal and the network step, the same fault nvm-update ends on. Provisioning Node alone would report a host
+# as provisioned whose agents are neither maintained nor launchable; the residue readers already print no residue
+# for such a set (toolchain.lib.sh), so this is the run saying why, not the guard against the removal. Gated
+# on the resolver having loaded, as choose_agents is.
+refuse_unresolved_agents() {
+    local name verdict="" reason=""
+    (( _providers_loaded )) || return 0
+    while IFS=$'\t' read -r name _ _; do
+        [[ -n "${name}" ]] && return 0
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    IFS=$'\t' read -r verdict reason < <(ai_tools_agents_empty_verdict 2>/dev/null) || true
+    [[ "${verdict}" == none ]] && return 0
+    die MSG-M9G5 "no agent resolved: ${reason:-the classification printed nothing} -- no package was installed or removed; correct it, then re-run: sudo ai-tools-admin system bootstrap"
+}
+
 # remove_residue -- remove every installed, not enabled agent's package from the sandbox toolchain, and its stable
 # launcher link with it, ahead of the first network step: a package of an agent the operator did not name keeps
 # an entrypoint a session can exec, so every launch refuses while it is there, and this command is the remedy those
@@ -540,6 +560,7 @@ fi
 # the line already in operator.conf, or the operator's answer to the menu. An unknown `--agents` name ends the run here,
 # with no package installed and no line written.
 choose_agents "${REQUESTED_AGENTS}"
+refuse_unresolved_agents
 
 # What the toolchain holds for an agent that is installed and not in the set just decided is residue, removed here --
 # ahead of the network step, so an offline host still cleans up -- and every launch refuses until it is gone.
