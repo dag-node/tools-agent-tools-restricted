@@ -20,7 +20,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-section "typesafe: credential, command, and state root, probed as the agent (boundary)"
+section "typesafe: credential, command, and state root, probed as the agent"
 
 if ! command -v runuser >/dev/null; then
     skip "typesafe boundary" "runuser not available"; finish; exit
@@ -32,51 +32,56 @@ STATE=/opt/ai-tools/integrations/typesafe
 
 as_agent() { runuser -u "${SANDBOX_USER}" -- "$@" 2>/dev/null; }
 
-not_writable() {
-    local path="$1" consequence="$2"
-    if [[ ! -e "${path}" ]]; then
-        skip "${path}" "not deployed on this host"; return
-    fi
-    if as_agent test -w "${path}"; then
-        fail "agent can write ${path} -- it could ${consequence}"
-    else
-        pass "cannot write ${path}: agent cannot ${consequence}"
-    fi
-}
-
 # The credential file: readable by the sandbox account (the command runs as it), not writable by it, and not readable
-# by other -- the mode the package installs and the command re-checks at every call.
+# by other -- the mode the package installs and the command re-checks at every call. One PASS for the file, one FAIL
+# per property it breaks.
 if [[ ! -e "${CONF}" ]]; then
     skip "${CONF}" "not deployed on this host"
 else
-    if as_agent test -r "${CONF}"; then
-        pass "can read ${CONF}: the command reads the key as the sandbox account"
-    else
-        fail "agent cannot read ${CONF} -- every call refuses with the configuration status"
-    fi
-    not_writable "${CONF}" "swap the key or point the call at another host"
     mode="$(stat -c '%a' "${CONF}")"
-    if (( (8#${mode} & 8#006) == 0 )); then
-        pass "${CONF} is ${mode}: not readable or writable by other"
-    else
-        fail "${CONF} is ${mode}: readable or writable by other, and the command refuses such a file"
+    conf_ok=1
+    if ! as_agent test -r "${CONF}"; then
+        fail "agent cannot read ${CONF} -- every call refuses with the configuration status"; conf_ok=0
+    fi
+    if as_agent test -w "${CONF}"; then
+        fail "agent can write ${CONF} -- it could swap the key or point the call at another host"; conf_ok=0
+    fi
+    if (( (8#${mode} & 8#006) != 0 )); then
+        fail "${CONF} is ${mode}: readable or writable by other, and the command refuses such a file"; conf_ok=0
+    fi
+    if (( conf_ok )); then
+        pass "${CONF} (${mode}): the agent reads it and cannot write it"
     fi
 fi
 
 # The command: what runs on every call, root-owned so a session cannot change what leaves the host or fabricate
-# a result. transport.mjs is the file that decides where a request goes and what a body is trusted to carry. Every
-# module is checked, since each one a call imports can change what it sends or trusts.
-not_writable "${LIB}" "replace the decide command"
-for module in "${LIB}"/*.mjs; do
-    [[ -e "${module}" ]] || continue
-    not_writable "${module}" "change what a call sends, where it goes, or what an answer is held to"
-done
+# a result. transport.mjs is the file that decides where a request goes and what a body is trusted to carry. The
+# directory and every module a call imports are checked; one PASS covers them, one FAIL names each writable path.
+if [[ ! -e "${LIB}" ]]; then
+    skip "${LIB}" "not deployed on this host"
+else
+    module_count=0
+    writable=()
+    for path in "${LIB}" "${LIB}"/*.mjs; do
+        [[ -e "${path}" ]] || continue
+        [[ "${path}" == "${LIB}" ]] || module_count=$(( module_count + 1 ))
+        if as_agent test -w "${path}"; then
+            writable+=("${path}")
+        fi
+    done
+    for path in "${writable[@]}"; do
+        fail "agent can write ${path} -- it could change what a call sends, where it goes, or what an answer is held to"
+    done
+    if (( ${#writable[@]} == 0 )); then
+        pass "${LIB} and its ${module_count} modules: not writable by the agent"
+    fi
+fi
 
 # The state root: the one path a call writes (usage.log). Absent until the package is installed.
 if [[ ! -e "${STATE}" ]]; then
     skip "${STATE}" "not deployed on this host"
 elif as_agent test -w "${STATE}"; then
-    pass "can write ${STATE}: the usage log has somewhere to land"
+    pass "${STATE}: writable by the agent, for the usage log"
 else
     fail "agent cannot write ${STATE} -- every call loses its usage line"
 fi
