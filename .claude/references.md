@@ -44,6 +44,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | u8c9 | [MSG-U8C9](../install.sh) | the checkout ${SCRIPT_DIR} carries ${total} uncommitted path(s) -- review and commit them (git -C ${SCRIPT_DIR} status; git -C ${SCRIPT_DIR} diff), or install work in progress with: sudo ${SCRIPT_DIR}/install.sh install --allow-uncommitted | install.sh | tests/unit/install-guards.sh | die |
 | w9z9 | [MSG-W9Z9](../install.sh) | the kept ${deployed} does not mention this version's new options: | install.sh |  | warn |
 | v7m6 | [MSG-V7M6](../install.sh) | hook declarations not merged into ${deployed}: ${_ai_tools_conf_merge_reason} | install.sh |  | warn |
+| k2p8 | [MSG-K2P8](../install.sh) | the kept $1 runs these commands without asking, and each sends data off the host: | install.sh |  | warn |
 | g6h3 | [MSG-G6H3](../install.sh) | systemctl --user $* failed by both the machine transport and the account's own | install.sh |  | warn |
 | v9c7 | [MSG-V9C7](../install.sh) | lockdown: failed to chown ${d} | install.sh |  | warn |
 | y3e5 | [MSG-Y3E5](../install.sh) | lockdown: failed to chmod 750 ${d} | install.sh |  | warn |
@@ -280,6 +281,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q4f6 | [MSG-Q4F6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | cannot merge the hook declarations: ${_ai_tools_conf_merge_reason} | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
 | x9f8 | [MSG-X9F8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | the merge failed: ${_ai_tools_conf_merge_reason} -- ${deployed} is unchanged | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
 | h8a2 | [MSG-H8A2](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | This file defines the sudo grant that lets an operator launch the sandbox. It is shown, never merged: check any change yourself with visudo -c before adopting it. | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | ai_tools_msg_warn |
+| b2e6 | [MSG-B2E6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | the ask entries in ${settings} were not checked -- jq is missing or the file is not valid JSON | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
 | s9m6 | [MSG-S9M6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | system post-upgrade: takes no arguments | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | reject |
 | t6s6 | [MSG-T6S6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | status: takes no arguments | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/admin-commands.sh | reject |
 | v6n9 | [MSG-V6N9](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | the service registry (${SERVICES_LIB}) is unavailable -- reinstall ai-tools-base | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | die |

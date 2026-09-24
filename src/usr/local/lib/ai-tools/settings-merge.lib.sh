@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/settings-merge.lib.sh
 # The merge that carries this version's hook declarations into an agent's settings.json when an upgrade keeps the file,
-# and the jq gate every JSON path of the reconciliation passes first. Sourced by install.sh
-# and `ai-tools-admin system post-upgrade`, both as root at install time; kept out of conf.lib.sh, which every session
-# launch and every root helper sources and which does not need jq. What the merge adds, removes and leaves as written is
-# in claude-settings.rule.md.
+# the read-only check for the ask entries such a file lacks, and the jq gate every JSON path of the reconciliation
+# passes first. Sourced by install.sh, `ai-tools-admin system post-upgrade` and the agent package's typesafe trigger,
+# all as root at install time; kept out of conf.lib.sh, which every session launch and every root helper sources
+# and which does not need jq. What the merge adds, removes and leaves as written is in claude-settings.rule.md.
 #
 # conf.lib.sh is a hard dependency: it holds the dated sidecars (the .bak kept before a merge replaces the file,
 # the .shipped baseline left when a merge cannot run) and the report this file writes through. A load failure returns
@@ -184,5 +184,34 @@ ai_tools_conf_merge_hook_declarations() {
     while IFS= read -r line; do
         [[ -n "${line}" ]] && _ai_tools_conf_merge_removed+=("${line}")
     done <<< "${duplicates}"
+    return 0
+}
+
+# ── JSON ask entries ─────────────────────────────────────────────────────────────────────────
+# A command that sends data off the host carries an `ask` entry in the shipped settings.json, so the operator confirms
+# every call (claude-settings.rule.md). The merge leaves the permission arrays as the host wrote them, so a kept file
+# does not gain a newly shipped entry, and after an upgrade the host may hold no shipped copy to compare with. Each
+# entry is therefore listed here as "<command path>|<entry>", and a kept file is checked against this table. The shipped
+# settings.json carries every entry listed here.
+readonly -a _AI_TOOLS_CONF_ASK_GATES=(
+    "/usr/local/lib/ai-tools/typesafe/decide.mjs|Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)"
+)
+
+# ai_tools_conf_ask_gaps <settings> [root] : print each ask entry <settings> does not carry for a command installed
+#   under <root> (default /), one per line. Prints nothing when every installed command asks.
+#     returns 0  checked     the gaps, if any, are on stdout
+#     returns 1  not checked jq is missing, <settings> is not readable JSON, or its permissions.ask is not an array
+#   Read-only: the permission arrays are the host's, so a caller reports the gap and does not write the entry.
+ai_tools_conf_ask_gaps() {
+    local settings="$1" root="${2:-}" have gate command entry
+    ai_tools_conf_require_jq || return 1
+    have="$(jq -r '(.permissions.ask // []) | if type == "array" then .[] else error end' "${settings}" 2>/dev/null)" \
+        || return 1
+    for gate in "${_AI_TOOLS_CONF_ASK_GATES[@]}"; do
+        command="${gate%%|*}"
+        entry="${gate#*|}"
+        [[ -e "${root}${command}" ]] || continue
+        grep -qxF -- "${entry}" <<< "${have}" || printf '%s\n' "${entry}"
+    done
     return 0
 }

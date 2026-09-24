@@ -1494,6 +1494,26 @@ _pu_entries() {
     done
 }
 
+# _pu_ask_gaps <root>: name each ask entry the kept settings.json lacks for an installed command, with the line to add.
+# Checked whether or not a .rpmnew is waiting: rpm parks a copy only on the upgrade that changed the shipped file,
+# and the operator may have removed it since, while the entry stays missing. Reported and not written, since
+# the permission rules are the host's.
+_pu_ask_gaps() {
+    local settings="$1/opt/ai-tools/.claude/settings.json" gaps entry
+    [[ -f "${settings}" ]] || return 0
+    if ! gaps="$(ai_tools_conf_ask_gaps "${settings}" "$1")"; then
+        warn MSG-B2E6 "the ask entries in ${settings} were not checked -- jq is missing or the file is not valid JSON"
+        _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
+        return 0
+    fi
+    [[ -n "${gaps}" ]] || return 0
+    _PU_NAME="${settings##*/}"
+    ai_tools_msg_headline "${_PU_NAME} -- commands that run without asking" 1 "${settings}"
+    _pu_say act "each of these sends data off the host, and the file does not ask before it runs:"
+    while IFS= read -r entry; do _pu_say act "  \"${entry}\""; done <<< "${gaps}"
+    _pu_say info "add each line to \"permissions.ask\" -- no command writes it, since the permission rules are yours"
+}
+
 # _pu_sort_copies: read sidecar paths on stdin and print them grouped by file and in the order they were made --
 # by date, then by the day's number, an unnumbered copy (the name an earlier release gave a day's first) counting as 1.
 # A name that carries a date but not in that shape (a copy made by hand) is kept, after the day's numbered copies.
@@ -1563,12 +1583,13 @@ postupgrade() {
         esac
     done < <(_pu_entries "${root}")
 
+    _pu_ask_gaps "${root}"
     _pu_sidecars "${root}"
     printf '\n'
-    if (( found == 0 )); then
-        printf 'Post-upgrade done -- no .rpmnew file is waiting, so every config file this stack owns is reconciled\n'
-    elif (( _PU_ATTENTION > 0 )); then
+    if (( _PU_ATTENTION > 0 )); then
         printf 'Post-upgrade done -- review the warnings and errors manually\n'
+    elif (( found == 0 )); then
+        printf 'Post-upgrade done -- no .rpmnew file is waiting, so every config file this stack owns is reconciled\n'
     else
         printf 'Post-upgrade done -- nothing needs your attention\n'
     fi

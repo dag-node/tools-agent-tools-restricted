@@ -249,6 +249,10 @@ system bootstrap: unknown scope '${scope}' (minimal|full)
 ERROR.
 semodule not found \-\- install policycoreutils
 .TP
+.B MSG-B2E6
+WARNING.
+the ask entries in ${settings} were not checked \-\- jq is missing or the file is not valid JSON
+.TP
 .B MSG-B5K9
 ERROR.
 a malformed interface floor: ${fragment} declares $(printf '%q' "${declared_floor}"), which is not <major>.<minor>
@@ -1476,6 +1480,10 @@ an agent outside the sandbox is installed at ${install_path}
 .B MSG-G6H3
 WARNING.
 systemctl \-\-user $* failed by both the machine transport and the account's own
+.TP
+.B MSG-K2P8
+WARNING.
+the kept $1 runs these commands without asking, and each sends data off the host:
 .TP
 .B MSG-K4W7
 ERROR.

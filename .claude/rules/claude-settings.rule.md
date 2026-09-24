@@ -90,8 +90,14 @@ so a project's own allow list cannot silence it; and it matches a command inside
 
 A kept `settings.json` does not gain this entry on upgrade: the merge carries hook declarations and leaves
 the permission arrays as the host wrote them ([An upgrade keeps host tuning and still lands this version's
-hooks](#an-upgrade-keeps-host-tuning-and-still-lands-this-versions-hooks)), so an upgraded host adds it by hand. Codex's
-counterpart is a requirements rule marked `prompt` ([agent-codex](agent-codex.rule.md)), which is not shipped.
+hooks](#an-upgrade-keeps-host-tuning-and-still-lands-this-versions-hooks)), so an upgraded host adds it by hand.
+`ai_tools_conf_ask_gaps` (`settings-merge.lib.sh`) names the entry a kept file lacks for an installed command, checked
+against a table there rather than a shipped copy, since a host may hold none after an upgrade. Three paths print it
+as a warning and none writes it: `install.sh` on a kept file, `ai-tools-admin system post-upgrade` whether or not
+a `.rpmnew` is waiting, and the agent package's rpm trigger on the typesafe package, which fires when either is
+installed or upgraded while the other is present, so the line shows in the `dnf` output. `tests/integration/hooks.sh`
+fails on the same gap. Codex's counterpart is a requirements rule marked `prompt` ([agent-codex](agent-codex.rule.md)),
+which is not shipped.
 
 ### Refused (`deny`)
 
@@ -277,9 +283,8 @@ onto an existing host: its body and data arrive with the package, and this is th
 so the hook runs rather than sitting installed and uninvoked.
 
 Each outcome is reported at the severity it earns, so neither is lost in an install's output: a merge reports at `ok`
-and **names every declaration it added or removed**, which is what makes an edit to an operator-owned file
-reviewable. A file
-already declaring everything shipped is not rewritten.
+and **names every declaration it added or removed**, which is what makes an edit to an operator-owned file reviewable.
+A file already declaring everything shipped is not rewritten.
 
 Two sidecar files serve two different recoveries, and neither substitutes for the other:
 

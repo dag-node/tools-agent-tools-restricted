@@ -327,6 +327,34 @@ else
     fail "copies listed out of order: ${listed}"
 fi
 
+# ── (E8) An ask entry the kept file lacks: reported with or without a copy, and never written ────────
+# rpm parks a copy only on the upgrade that changed the shipped file, so the run checks the kept settings.json with no
+# .rpmnew waiting. The command is a stub under the prefix root, the only thing the check reads it for.
+reset_root
+mkdir -p "${ROOT}/usr/local/lib/ai-tools/typesafe"
+: > "${ROOT}/usr/local/lib/ai-tools/typesafe/decide.mjs"
+jq 'del(.permissions.ask)' "${SHIPPED_SETTINGS}" > "${SETTINGS}"
+cp "${SETTINGS}" "${TESTDIR}/pre.settings"
+out="$(run_pu)"
+if [[ "${out}" == *'"Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)"'* \
+      && "${out}" == *"permissions.ask"* && "${out}" == *"review the warnings"* ]]; then
+    pass "a missing ask entry is named with the line to add, and the run asks for a review"
+else
+    fail "a missing ask entry was not reported: ${out}"
+fi
+if cmp -s "${SETTINGS}" "${TESTDIR}/pre.settings" && [[ "$(sidecars "${SETTINGS}")" == 0 ]]; then
+    pass "the file is left byte-identical and gains no sidecar"
+else
+    fail "the ask check wrote to settings.json"
+fi
+cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
+out="$(run_pu)"
+if [[ "${out}" != *"without asking"* && "${out}" == *"no .rpmnew"* ]]; then
+    pass "a file carrying every ask entry is not reported"
+else
+    fail "a current file was reported as missing an ask entry: ${out}"
+fi
+
 # ── (F) The sudoers grant: shown, never adopted ──────────────────────────────────────────────
 reset_root
 printf '%%ai-ops ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/bin/ai-tools-run\n' > "${SUDOERS}"

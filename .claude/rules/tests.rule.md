@@ -542,10 +542,11 @@ its absent command alone, and a repeat an earlier merge left is repaired), what 
 declaration, the permission arrays, a relaxed deny entry, an operator's own hook, repeated or not), and what must be
 **said** (the report names every addition and every removal, since the operator reviews the install log rather than
 the JSON) — plus the two sidecars, which answer different questions and do not substitute for each other: `.bak` is
-what the operator had, `.shipped` is what they were meant to get, written only when the merge could not run. It drives
-the deployed `settings-merge.lib.sh` directly, like the other library unit tests: the decision lives there rather than
-in `install.sh` precisely so it can be exercised without stubs or text extraction, and the installer keeps only
-the rendering.
+what the operator had, `.shipped` is what they were meant to get, written only when the merge could not run. The ask
+check beside the merge is held to being read-only and to the shipped file carrying every entry it requires, so a fresh
+install does not report a gap the package left. It drives the deployed `settings-merge.lib.sh` directly, like the other
+library unit tests: the decision lives there rather than in `install.sh` precisely so it can be exercised without stubs
+or text extraction, and the installer keeps only the rendering.
 
 `install-guards.sh` is the other `install.sh` unit test, and it covers the decision that sits before the dispatch:
 which account the install enrols. Every refusal is driven through `--operator`, the one route by which a name reaches
@@ -572,7 +573,8 @@ so a silent adoption fails loudly), a kept file the registry does not name found
 nor the copy's content printed, the removal command offered only where the file mentions every option the copy documents
 and carries the same comment prose (a re-wrapped comment is the same prose, a reworded one is not), a copy dated
 before the installation named as such, a copy byte-identical to its file reported as such with its removal offered,
-and earlier `.bak`/`.shipped` copies listed in the order they were made and left in place — plus the property every case
+earlier `.bak`/`.shipped` copies listed in the order they were made and left in place, and an ask entry the kept
+`settings.json` lacks named with no `.rpmnew` waiting and the file left as written — plus the property every case
 shares: the `.rpmnew` survives the run and is named as the operator's to delete, the case where the merge leaves the two
 files matching included. Every run is under `setsid`, so each prompt takes its own default: that is the unattended
 behaviour and what makes an interactive command reproducible. The agent-side half of the pair is already deployed:
