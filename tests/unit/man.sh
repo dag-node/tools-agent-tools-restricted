@@ -725,12 +725,13 @@ check_page_convention
 
 # ── The trailing argument's shape, page against usage() ────────────────────────────────────────
 # arg_shape <argument text>: '', 'X', '[X]', 'X...' or '[X]...' -- the positional argument with its name normalized
-# away, since the page and the help spell a placeholder differently by design. Option groups are dropped first:
-# the option checks earlier in this file hold those, and a page documents more of them than the help does.
+# away, since the page and the help spell a placeholder differently by design. Option groups are dropped first,
+# innermost first so a nested group (`[--check [--all]]`) goes whole: the option checks earlier in this file hold those,
+# and a page documents more of them than the help does.
 arg_shape() {
     printf '%s' "$1" | sed -E \
         -e 's/\\f.//g' -e 's/\\-/-/g' -e 's/"//g' \
-        -e 's/\[[^]]*-[^]]*\]/ /g' \
+        -e ':group' -e 's/\[[^][]*-[^][]*\]/ /g' -e 't group' \
         -e 's/(^| )-{1,2}[a-zA-Z][a-zA-Z0-9_-]*( +(<?[A-Za-z][A-Za-z0-9_-]*>?))?/ /g' \
         -e 's/[[:space:]]+/ /g' -e 's/^ //' -e 's/ $//' \
         -e 's/^\[ *<?[A-Za-z][A-Za-z0-9_-]*>? *\](\.\.\.)?$/[X]\1/' \
