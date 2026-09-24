@@ -106,11 +106,14 @@ path the agent can reach, and they are deferred until one exists.
 
 - **key absent** → every installed rule set applies. This is the default: filtering leaves the surface unchanged, and it
   neither opens a network path nor ships a binary.
-- **key present** → exactly the named sets. An **empty value is the kill switch** — no filtering at all, the switch
-  to reach for when a session's command output looks unexpected. The kill switch covers both transforms: the rewrite
-  path loads its rule sets only when enabled, and the adapter gates its noise strip on the same verdict
-  (`ai_tools_filter_enabled`), so a switched-off session's output reaches the model byte-identical to what the tool
-  produced. A named list narrows which rule sets load, never the strip.
+- **key present** → exactly the named sets, each written `filter-<name>`. An **empty value is the kill switch** — no
+  filtering at all, the switch to reach for when a session's command output looks unexpected. The kill switch covers
+  both transforms: the rewrite path loads its rule sets only when enabled, and the adapter gates its noise strip
+  on the same verdict (`ai_tools_filter_enabled`), so a switched-off session's output reaches the model byte-identical
+  to what the tool produced. A named list narrows which rule sets load, never the strip. A list the reader refuses — one
+  the grammar refuses, or one holding an item without its `filter-` prefix — reads as empty and so as the switch,
+  and its report is dropped here, since the hook runs on every Bash call; the launch gate and `system post-upgrade`
+  report it.
 - **untrusted or unreadable `operator.conf`** → the installed sets, which can only ever be root-owned rules.
 
 Rule sets are **not** gated on provider enablement. A rule is inert unless the agent runs the command it matches,

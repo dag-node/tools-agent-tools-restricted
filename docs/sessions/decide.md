@@ -4,12 +4,12 @@
 
 ```bash
 sudo dnf install ai-tools-integration-typesafe
-sudoedit /etc/ai-tools/operator.conf             # add typesafe to AI_TOOLS_INTEGRATIONS
+sudoedit /etc/ai-tools/operator.conf             # add integration-typesafe to AI_TOOLS_INTEGRATIONS
 sudoedit /etc/ai-tools/endpoints/typesafe.conf   # set TYPESAFE_API_KEY
 ```
 
-`typesafe` joins any integration already named, for example
-`AI_TOOLS_INTEGRATIONS="dotnet typesafe"`.
+`integration-typesafe` joins any integration already named, for example
+`AI_TOOLS_INTEGRATIONS=[integration-dotnet, integration-typesafe]`.
 
 With the `typesafe` integration enabled, a session that meets a long listing —
 a grep with sixty hits, a `git log`, a checker's findings, a build log — can
@@ -99,9 +99,9 @@ calling after the first refusal and tells you.
 
 ## Turning it off
 
-Remove `typesafe` from `AI_TOOLS_INTEGRATIONS`, or comment the key: either way
-the next session's calls fall back to the full listing. Removing the package
-withdraws the skill from every agent and leaves the credential file
+Remove `integration-typesafe` from `AI_TOOLS_INTEGRATIONS`, or comment the key:
+either way the next session's calls fall back to the full listing. Removing
+the package withdraws the skill from every agent and leaves the credential file
 and the usage log in place.
 
 ## The usage log

@@ -244,7 +244,7 @@ else
         ' _ "${PROVIDERS_LIB}" "${MSG_LIB}" "${HELPER}" "$1" "$2" 2>&1 || true
     }
     # key_value : the names AI_TOOLS_AGENTS holds, read through the list grammar and joined by a space.
-    key_value() { bash -c 'source "$1"; names=(); ai_tools_conf_list names "$2" AI_TOOLS_AGENTS; printf "%s" "${names[*]-}"' _ "${PROVIDERS_LIB}" "${CONF}" 2>/dev/null || true; }
+    key_value() { bash -c 'source "$1"; names=(); ai_tools_conf_kind_list names "$2" AI_TOOLS_AGENTS; printf "%s" "${names[*]-}"' _ "${PROVIDERS_LIB}" "${CONF}" 2>/dev/null || true; }
     key_present() { grep -qE '^[[:space:]]*AI_TOOLS_AGENTS[[:space:]]*=' "${CONF}"; }
 
     # ── (H) An unanswered menu does not enable an agent and does not fail the run ─────────────
@@ -278,10 +278,10 @@ else
         else
             fail "the write did not land in place: $(tr '\n' '|' < "${CONF}")"
         fi
-        if grep -qx 'AI_TOOLS_AGENTS=\[beta\]' "${CONF}"; then
-            pass "the chosen agent is written in the bracketed list form"
+        if grep -qx 'AI_TOOLS_AGENTS=\[agent-beta\]' "${CONF}"; then
+            pass "the chosen agent is written in the bracketed list form, with its kind prefix"
         else
-            fail "the key is not written as AI_TOOLS_AGENTS=[beta]: $(grep AI_TOOLS_AGENTS "${CONF}")"
+            fail "the key is not written as AI_TOOLS_AGENTS=[agent-beta]: $(grep AI_TOOLS_AGENTS "${CONF}")"
         fi
         if ! grep -q 'MSG-C8W2' <<<"${out}"; then
             pass "one agent chosen draws no shared-account notice"
@@ -300,7 +300,7 @@ else
         fi
 
         # ── (J) A present key is the operator's declaration: no menu ─────────────────────────
-        seed_conf 'AI_TOOLS_AGENTS="acme"'
+        seed_conf 'AI_TOOLS_AGENTS="agent-acme"'
         out="$(run_choose "$(stub_pick 2)" "")"
         if grep -qx 'rc=0' <<<"${out}" && [[ ! -e "${PICK_MARKER}" && "$(key_value)" == "acme" ]]; then
             pass "a key naming one agent is left as written and no menu is drawn"
@@ -314,7 +314,7 @@ else
         fi
 
         # ── (K) A key naming more than one agent gets the notice, once, and no menu ──────────
-        seed_conf 'AI_TOOLS_AGENTS="acme beta"'
+        seed_conf 'AI_TOOLS_AGENTS="agent-acme agent-beta"'
         out="$(run_choose "$(stub_pick 2)" "")"
         assert_msg MSG-C8W2 "${out}" "a key naming two agents draws the shared-account notice"
         if [[ "$(grep -c '^MSG-C8W2$' <<<"${out}")" -eq 1 && ! -e "${PICK_MARKER}" && "$(key_value)" == "acme beta" ]]; then
@@ -324,7 +324,7 @@ else
         fi
 
         # The bracketed form of the same key is the same declaration.
-        seed_conf 'AI_TOOLS_AGENTS=[acme, beta]'
+        seed_conf 'AI_TOOLS_AGENTS=[agent-acme, agent-beta]'
         out="$(run_choose "$(stub_pick 2)" "")"
         if [[ "$(grep -c '^MSG-C8W2$' <<<"${out}")" -eq 1 && ! -e "${PICK_MARKER}" && "$(key_value)" == "acme beta" ]]; then
             pass "a bracketed key naming two agents is read the same: one notice, no menu"
@@ -345,12 +345,20 @@ else
         else
             fail "--agents naming two agents drew the notice $(grep -c '^MSG-C8W2$' <<<"${out}") time(s)"
         fi
-        seed_conf 'AI_TOOLS_AGENTS="acme beta"'
+        seed_conf 'AI_TOOLS_AGENTS="agent-acme agent-beta"'
         out="$(run_choose "$(stub_pick 2)" "acme")"
         if grep -qx 'rc=0' <<<"${out}" && [[ "$(key_value)" == "acme" ]] && ! grep -q 'MSG-C8W2' <<<"${out}"; then
             pass "--agents replaces a present key with the names given, and one name draws no notice"
         else
             fail "--agents acme over a two-agent key: key '$(key_value)' (${out})"
+        fi
+        # Both spellings are accepted on the command line, and the file takes the prefixed one either way.
+        seed_conf
+        out="$(run_choose "$(stub_pick 2)" "agent-beta,acme")"
+        if grep -qx 'rc=0' <<<"${out}" && grep -qx 'AI_TOOLS_AGENTS=\[agent-beta, agent-acme\]' "${CONF}"; then
+            pass "--agents agent-beta,acme is written as [agent-beta, agent-acme]"
+        else
+            fail "--agents agent-beta,acme: $(grep AI_TOOLS_AGENTS "${CONF}") (${out})"
         fi
 
         # ── (M) An unknown `--agents` name refuses with the key unwritten ────────────────────
@@ -435,11 +443,12 @@ else
             fi
         done <<'ROWS'
 AI_TOOLS_AGENTS=[acme|0644|ends
-AI_TOOLS_AGENTS="acme"|0666|ends
-AI_TOOLS_AGENTS=[nosuch]|0644|ends
+AI_TOOLS_AGENTS="agent-acme"|0666|ends
+AI_TOOLS_AGENTS=[agent-nosuch]|0644|ends
+AI_TOOLS_AGENTS=[acme]|0644|ends
 AI_TOOLS_AGENTS=[]|0644|continues
 #AI_TOOLS_AGENTS=""|0644|continues
-AI_TOOLS_AGENTS=[acme]|0644|continues
+AI_TOOLS_AGENTS=[agent-acme]|0644|continues
 ROWS
         chmod 0644 "${CONF}"
     fi

@@ -143,7 +143,7 @@ fixture_agents="${TESTDIR}/agents.d"; fixture_conf="${TESTDIR}/operator.conf"
 mkdir -m 0755 "${fixture_agents}"
 printf 'npm_package=@acme/experimental\nlauncher=claude\ndefault_enable=no\n' > "${fixture_agents}/acme.conf"
 printf 'npm_package=@acme/beta\nlauncher=beta\ndefault_enable=no\n'         > "${fixture_agents}/beta.conf"
-printf 'AI_TOOLS_AGENTS="acme"\n' > "${fixture_conf}"
+printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${fixture_conf}"
 chmod 0644 "${fixture_agents}"/*.conf "${fixture_conf}"
 ln -s "/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/beta" "${links}/beta"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
@@ -157,7 +157,7 @@ FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
     run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
 passed "no link for the disabled agent, no refusal"
 ln -s "/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/beta" "${links}/beta"
-printf 'AI_TOOLS_AGENTS="acme beta"\n' > "${fixture_conf}"
+printf 'AI_TOOLS_AGENTS="agent-acme agent-beta"\n' > "${fixture_conf}"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
     run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
 passed "a link for an agent that is enabled is not residue"

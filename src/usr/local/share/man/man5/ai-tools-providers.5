@@ -23,10 +23,12 @@ The base package reads the manifests and never names a provider itself,
 so a provider is added by installing its package and removed by erasing it.
 .PP
 .I name
-is the token an operator writes in
+is the token an operator writes, after its kind prefix, in
 .B AI_TOOLS_AGENTS
+.RB ( agent\- \fIname\fR)
 or
 .B AI_TOOLS_INTEGRATIONS
+.RB ( integration\- \fIname\fR)
 in
 .BR ai-tools-operator.conf (5)
 to enable the provider.

@@ -117,7 +117,7 @@ rc=0; out="$(call require_bootstrap)" || rc=$?
 refused "an empty AI_TOOLS_AGENTS refuses with a link present" MSG-K7A6 "${rc}" "${out}"
 says "the empty-allowlist refusal carries the resolver's reason" 'set and empty' "${out}"
 
-reset_fixtures; manifest alpha la yes; link la; operator_conf 'AI_TOOLS_AGENTS=ghost'
+reset_fixtures; manifest alpha la yes; link la; operator_conf 'AI_TOOLS_AGENTS=agent-ghost'
 rc=0; out="$(call require_bootstrap)" || rc=$?
 refused "an allowlisted name with no manifest refuses with a link present" MSG-K7A6 "${rc}" "${out}"
 says "the uninstalled-name refusal names the name" 'ghost' "${out}"

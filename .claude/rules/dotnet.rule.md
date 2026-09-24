@@ -30,7 +30,7 @@ Integrates a **host-managed** .NET toolchain (RPM `dotnet`, at `/usr/bin/dotnet`
 carries **no dotnet RPM dependency** and is inert without one. The `ai-tools-integration` umbrella pulls it as a dnf
 **weak dependency** (`Recommends`), so it installs by default on every host yet stays fully optional — removable with no
 effect on the rest of the stack. `default_enable=no` (it widens surface: a new runtime exec, NuGet egress, a writable
-cache), so a session gets dotnet only when `dotnet` is in `AI_TOOLS_INTEGRATIONS`.
+cache), so a session gets dotnet only when `integration-dotnet` is in `AI_TOOLS_INTEGRATIONS`.
 
 - `session-env.d/dotnet.env.sh` self-gates on `/usr/bin/dotnet`, then sets the variables the fragment declares —
   the toolchain root, the NuGet cache and CLI home under its state root, the telemetry and banner opt-outs, the MSBuild

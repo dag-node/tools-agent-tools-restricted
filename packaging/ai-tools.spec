@@ -170,7 +170,7 @@ Requires:       ai-tools-base = %{version}-%{release}
 %description -n ai-tools-integration-dotnet
 Integrates a host-managed .NET toolchain into a sandbox session: a session-env fragment that
 exports DOTNET_ROOT and a sandbox-writable NuGet cache when the dotnet integration is enabled
-(operator.conf AI_TOOLS_INTEGRATIONS), and the `dotnet` domain of ai-tools-admin to provision that
+(integration-dotnet in operator.conf AI_TOOLS_INTEGRATIONS), and the `dotnet` domain of ai-tools-admin to provision that
 cache and shared global tools. The .NET SDK/runtime itself is the host's RPM-managed dotnet; this
 package adds no runtime and is inert until enabled on a host that has dotnet installed.
 
@@ -193,8 +193,8 @@ Lets a sandboxed session hand a long listing (a grep, a git log, a checker's fin
 TypeSafe's bounded classifier and get back the lines that bear on the task it states: the decide
 command under /usr/local/lib/ai-tools/typesafe, its session-env fragment and manifest, the
 root-owned credential file /etc/ai-tools/endpoints/typesafe.conf (shipped with the key commented),
-and the ai-tools-decide skill every enabled agent lists. Off until `typesafe` is named in
-operator.conf AI_TOOLS_INTEGRATIONS and the key is set.
+and the ai-tools-decide skill every enabled agent lists. Off until `integration-typesafe` is
+named in operator.conf AI_TOOLS_INTEGRATIONS and the key is set.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ai-tools-agents umbrella: the AI coding agents that run confined in the sandbox. A thin

@@ -499,25 +499,27 @@ commit).
 `conf.sh` pins the shared `KEY=value` grammar every `operator.conf` key and every manifest is read with — quotes
 optional, commas and whitespace both separating, inline comments ending a value, a present-but-empty key distinguishable
 from an absent one, and the bracketed list form beside the plain one, driven as a table of valid and invalid values
-with an invalid value asserted to read as the empty list — plus two properties whose breakage is silent in production:
-the splitter must be **IFS-independent** (it is sourced into scripts that set `IFS=$'\n\t'`, where an inherited IFS
-collapses a multi-item value into one bogus item), and `ai_tools_conf_is_trusted` must refuse every state a non-root
-writer can create (non-root-owned, group- or other-writable, a symlink), for directories as well as files. The refusal's
-text is pinned with it: the owner uid and mode the predicate read, the map parser over fixture `uid_map` contents (the
-kernel's padded identity line, a translated map, a multi-range map, an empty one, and the identity line
-under the strict-mode IFS), and — inside a real user namespace where `unshare -Ur` is permitted, skipped otherwise —
-the clause naming a translated uid beside the `65534` it read. Its new-option report carries a third: a commented
-**default** (`#KEY=`, `# KEY=`) is a mention while an indented **example** in a header block is not, so a file seeded
-with `operator.conf`'s own grammar comments is not mistaken for one that already knows every option. `providers.sh`
-drives the enablement truth table and then, for each untrusted input in turn — `operator.conf`, a manifest, a manifest
-directory — asserts the resolver moves to *less* access and says so, never more. It closes with the installed-manifest
-field reader (`ai_tools_installed_integrations_declaring`), which `relabel.lib.sh` reads `build_output_dirs`
-through: a key is read from an installed integration whether or not it is enabled, since a project's label is applied
-at claim time, and an untrusted manifest or directory does not yield any value, under the same trust rules
-as the resolver. It then drives the empty-set verdict the updater reads once the resolver printed an empty set: each
-refused input, and an allowlist none of whose names resolved, reads `fault` with the path and the owner and mode named
-on one line, while an empty allowlist, an empty manifest directory, and a set of `default_enable=no` manifests read
-`none` — the split that decides whether the updater exits `1` or maintains `npm` and exits `0`. Its last section pins
+with an invalid value asserted to read as the empty list, and the kind-prefixed reader over a table of its own (a bare
+name, another kind's prefix and the prefix alone each empty under their code, the writer's side and the detection
+predicate beside it) — plus two properties whose breakage is silent in production: the splitter must be
+**IFS-independent** (it is sourced into scripts that set `IFS=$'\n\t'`, where an inherited IFS collapses a multi-item
+value into one bogus item), and `ai_tools_conf_is_trusted` must refuse every state a non-root writer can create
+(non-root-owned, group- or other-writable, a symlink), for directories as well as files. The refusal's text is pinned
+with it: the owner uid and mode the predicate read, the map parser over fixture `uid_map` contents (the kernel's padded
+identity line, a translated map, a multi-range map, an empty one, and the identity line under the strict-mode IFS),
+and — inside a real user namespace where `unshare -Ur` is permitted, skipped otherwise — the clause naming a translated
+uid beside the `65534` it read. Its new-option report carries a third: a commented **default** (`#KEY=`, `# KEY=`) is
+a mention while an indented **example** in a header block is not, so a file seeded with `operator.conf`'s own grammar
+comments is not mistaken for one that already knows every option. `providers.sh` drives the enablement truth table
+and then, for each untrusted input in turn — `operator.conf`, a manifest, a manifest directory — asserts the resolver
+moves to *less* access and says so, never more. It closes with the installed-manifest field reader
+(`ai_tools_installed_integrations_declaring`), which `relabel.lib.sh` reads `build_output_dirs` through: a key is read
+from an installed integration whether or not it is enabled, since a project's label is applied at claim time,
+and an untrusted manifest or directory does not yield any value, under the same trust rules as the resolver. It then
+drives the empty-set verdict the updater reads once the resolver printed an empty set: each refused input,
+and an allowlist none of whose names resolved, reads `fault` with the path and the owner and mode named on one line,
+while an empty allowlist, an empty manifest directory, and a set of `default_enable=no` manifests read `none` —
+the split that decides whether the updater exits `1` or maintains `npm` and exits `0`. Its last section pins
 the managed-file reading the two status reports share: the pure verdict over a byte-identical, an edited, an absent,
 a symlinked and a directory-shaped file (each way the comparison cannot be made reads `unknown`, never either answer),
 and the manifest reader that turns `managed_files` into (live, reference) pairs, refusing an entry that is not a plain

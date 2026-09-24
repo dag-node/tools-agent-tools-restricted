@@ -13,8 +13,8 @@
 #
 # ── Rules are data ───────────────────────────────────────────────────────────────────────────
 # One rule set per package, /usr/local/lib/ai-tools/filters.d/<name>.rules, root-owned and PARSED, never sourced --
-# the same posture as the provider manifests. <name> is the token an operator writes in operator.conf AI_TOOLS_FILTERS.
-# Four TAB-separated columns:
+# the same posture as the provider manifests. An operator names the set in operator.conf AI_TOOLS_FILTERS
+# as filter-<name>, which the list reader strips back to <name> (ai_tools_conf_kind_list). Four TAB-separated columns:
 #
 #   match       the literal leading words a command must start with ("git log")
 #   action      args -- insert <payload> right after those words
@@ -46,7 +46,8 @@
 # ── Enablement ───────────────────────────────────────────────────────────────────────────────
 # operator.conf AI_TOOLS_FILTERS, in the shared grammar (conf.lib.sh):
 #   key absent  -> every installed rule set (the default; filtering is on)
-#   key present -> exactly the named sets; an EMPTY value is the kill switch, no filtering at all
+#   key present -> exactly the named sets (filter-<name>); an EMPTY value, or a list the reader
+#                  refuses, is the kill switch, no filtering at all
 #                  -- ai_tools_filter_enabled is that verdict, and an adapter gates its noise
 #                  strip on it too, so the switch really does turn off every transform
 # An untrusted operator.conf or filters.d is ignored, which likewise leaves the command unfiltered. Rule
@@ -67,7 +68,7 @@ fi
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_list >/dev/null 2>&1; then
+        || ! declare -F ai_tools_conf_kind_list >/dev/null 2>&1; then
     return 1
 fi
 # Journald is where a tamper refusal belongs. Deliberately NOT stderr: this runs on every Bash call, and a per-call
@@ -192,7 +193,7 @@ _ai_tools_filter_installed_sets() {
 ai_tools_filter_enabled() {
     local -a _ai_tools_filter_enabled_sets=()
     ai_tools_conf_is_trusted "${AI_TOOLS_OPERATOR_CONF}" || return 0
-    ai_tools_conf_list _ai_tools_filter_enabled_sets "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_FILTERS \
+    ai_tools_conf_kind_list _ai_tools_filter_enabled_sets "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_FILTERS 2>/dev/null \
         || return 0
     (( ${#_ai_tools_filter_enabled_sets[@]} > 0 ))
 }
@@ -208,10 +209,12 @@ ai_tools_filter_rules_load() {
     fi
 
     # A present AI_TOOLS_FILTERS is the exact set (empty = the kill switch); absent, unreadable or untrusted falls back
-    # to every installed set, which can only ever be root-owned rules.
+    # to every installed set, which can only ever be root-owned rules. An invalid list reads as empty, the kill switch;
+    # the list reader's report is dropped here as the trust refusal is, since this runs on every Bash call,
+    # and the launch gate and `system post-upgrade` report the same list where an operator reads them.
     local -a rule_sets=()
     if ! ai_tools_conf_is_trusted "${AI_TOOLS_OPERATOR_CONF}" \
-            || ! ai_tools_conf_list rule_sets "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_FILTERS; then
+            || ! ai_tools_conf_kind_list rule_sets "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_FILTERS 2>/dev/null; then
         _ai_tools_filter_installed_sets rule_sets
     fi
 

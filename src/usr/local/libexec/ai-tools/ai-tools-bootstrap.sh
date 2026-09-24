@@ -12,14 +12,14 @@
 # AI_TOOLS_AGENTS (providers.lib.sh). No agent ships enabled: every agent manifest is default_enable=no,
 # so with that key absent this command ASKS which one installed agent to enable (choose_agents), writes the line,
 # and provisions what it wrote -- ahead of the first network step, so an unattended run that chose none installs Node
-# alone. `--agents NAME[,NAME...]` is the unattended form of the same choice, checked against the installed manifests
-# before anything is written. A present key is the operator's declaration and is not asked about again; one naming more
-# than one agent is answered with a notice, since every agent named shares one sandbox account. With no manifests
-# deployed yet it provisions Node alone; a re-run after an ai-tools-agents-* package is installed asks. An empty set
-# the configuration did not ask for -- an invalid or untrusted line, names none of which resolved -- ends the run
-# as a fault before anything is installed or removed (refuse_unresolved_agents). The package of an agent that is
-# installed and NOT in that set is residue: it is removed next, still ahead of the network step, with its launcher link,
-# since every launch refuses while it is in the toolchain (remove_residue).
+# alone. `--agents NAME[,NAME...]` is the unattended form of the same choice, each NAME written agent-<name> or bare,
+# checked against the installed manifests before anything is written. A present key is the operator's declaration and is
+# not asked about again; one naming more than one agent is answered with a notice, since every agent named shares one
+# sandbox account. With no manifests deployed yet it provisions Node alone; a re-run after an ai-tools-agents-* package
+# is installed asks. An empty set the configuration did not ask for -- an invalid or untrusted line, names none
+# of which resolved -- ends the run as a fault before anything is installed or removed (refuse_unresolved_agents).
+# The package of an agent that is installed and NOT in that set is residue: it is removed next, still ahead
+# of the network step, with its launcher link, since every launch refuses while it is in the toolchain (remove_residue).
 #
 # Idempotent: an existing account, nvm install, or Node version is reused, not rebuilt.
 #
@@ -170,14 +170,23 @@ configure_git_identity() {
     log "verify the result in ${gc}"
 }
 
-# write_agents <name>... : set AI_TOOLS_AGENTS in operator.conf to the names given, through the shared writer,
-# so the line replaced is the one every reader of the file matches. The file this writes is the one the resolver reads
-# (AI_TOOLS_OPERATOR_CONF), so what the rest of this run provisions is what was just written. A write that does not read
-# back ends the run: the provision that followed would install the agents of a line the operator did not get.
+# write_agents <name>... : set AI_TOOLS_AGENTS in operator.conf to the bare agent names given, each written with its
+# kind prefix (agent-<name>, ai_tools_conf_kind_item), through the shared writer, so the line replaced is the one every
+# reader of the file matches. The file this writes is the one the resolver reads (AI_TOOLS_OPERATOR_CONF),
+# so what the rest of this run provisions is what was just written. A write that does not read back ends the run:
+# the provision that followed would install the agents of a line the operator did not get.
 write_agents() {
+    local name item
+    local -a items=()
+    for name in "$@"; do
+        item="$(ai_tools_conf_kind_item AI_TOOLS_AGENTS "${name}")" || { items=(); break; }
+        items+=("${item}")
+    done
     install -d -o root -g root -m 755 "${AI_TOOLS_OPERATOR_CONF%/*}"
-    ai_tools_conf_set_list "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS "$@" \
-        || die MSG-J3E6 "could not write AI_TOOLS_AGENTS (${*}) into ${AI_TOOLS_OPERATOR_CONF} -- set the line by hand, then re-run: sudo ai-tools-admin system bootstrap"
+    if (( ${#items[@]} != $# )) \
+            || ! ai_tools_conf_set_list "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS "${items[@]}"; then
+        die MSG-J3E6 "could not write AI_TOOLS_AGENTS (${*}) into ${AI_TOOLS_OPERATOR_CONF} -- set the line by hand, then re-run: sudo ai-tools-admin system bootstrap"
+    fi
 }
 
 # shared_account_notice <name>... : say, once per run, what naming more than one agent shares. Every agent runs
@@ -225,7 +234,7 @@ choose_agents() {
         # `[a,` is a glob that can match a file in the current directory, so a bracket is refused by name rather than
         # read as part of an agent name.
         if [[ "${requested}" == *[\[\]]* ]]; then
-            die MSG-Y7B6 "--agents takes names separated by commas, without brackets: --agents claude-code,codex -- nothing was written"
+            die MSG-Y7B6 "--agents takes names separated by commas, without brackets: --agents agent-claude-code,agent-codex -- nothing was written"
         fi
         # The shared list grammar (commas and whitespace); split inline where the resolver, and so conf.lib.sh, did not
         # load, since every name is then unknown and the refusal that follows has to name them.
@@ -234,6 +243,13 @@ choose_agents() {
         else
             read -ra requested_names <<< "${requested//,/ }"
         fi
+        # Both spellings are accepted, the bare name an earlier release documented and the agent-<name> form
+        # operator.conf holds; each is checked, and written, as its bare manifest name.
+        local agent_prefix index
+        agent_prefix="$(ai_tools_conf_kind_prefix AI_TOOLS_AGENTS 2>/dev/null || true)"
+        for index in "${!requested_names[@]}"; do
+            [[ -n "${agent_prefix}" ]] && requested_names[index]="${requested_names[index]#"${agent_prefix}"}"
+        done
         if (( ${#requested_names[@]} == 0 )); then
             # The dispatcher's refusal for a valueless `--agents`, met here again for a value that does not name
             # an agent.
@@ -261,7 +277,7 @@ choose_agents() {
     gate="$(ai_tools_provider_gate AI_TOOLS_AGENTS)"
     case "${gate}" in
         allowlist)
-            ai_tools_conf_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
+            ai_tools_conf_kind_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
             (( ${#requested_names[@]} > 1 )) && shared_account_notice "${requested_names[@]}"
             return 0 ;;
         untrusted)

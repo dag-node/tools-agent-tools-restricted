@@ -71,6 +71,29 @@ and
 .B AI_TOOLS_INTEGRATIONS
 it enrols or enables none.
 .TP
+.B AI_TOOLS_AGENTS=[agent\-claude\-code]
+Each item of
+.BR AI_TOOLS_AGENTS ,
+.B AI_TOOLS_INTEGRATIONS
+and
+.B AI_TOOLS_FILTERS
+carries its kind in front of the name:
+.BI agent\- NAME\fR,\fP
+.BI integration\- NAME
+and
+.BI filter\- NAME\fR,\fP
+where
+.I NAME
+is the basename of the manifest or rule set.
+One word then names one thing: the dotnet integration is
+.B integration\-dotnet
+and its filter set is
+.BR filter\-dotnet .
+An item without its key's prefix makes the list invalid, and
+.B "ai\-tools\-admin system post\-upgrade"
+rewrites one an earlier release wrote bare; see
+.BR Upgrades .
+.TP
 .B KEY=value   # why
 An inline comment. A
 .B #
@@ -123,8 +146,10 @@ grants together with the entry here; edit by hand only to review or remove.
 no account.
 .TP
 .BI AI_TOOLS_AGENTS= "NAME\fR[,\fP NAME\fR...]\fP"
-The coding agents a session may run, by provider name (a manifest basename under
-.IR /usr/local/lib/ai-tools/agents.d ).
+The coding agents a session may run, each written
+.BI agent\- NAME
+for a manifest basename under
+.IR /usr/local/lib/ai-tools/agents.d .
 Exactly the names listed;
 .B []
 enables none.
@@ -151,9 +176,10 @@ Names are reported at launch, so
 shows the resolved set.
 .TP
 .BI AI_TOOLS_INTEGRATIONS= "NAME\fR[,\fP NAME\fR...]\fP"
-Host-toolchain integrations a session receives, by provider name (a manifest
-basename under
-.IR /usr/local/lib/ai-tools/integrations.d ).
+Host-toolchain integrations a session receives, each written
+.BI integration\- NAME
+for a manifest basename under
+.IR /usr/local/lib/ai-tools/integrations.d .
 Exactly the names listed;
 .B []
 enables none.
@@ -165,9 +191,10 @@ An integration that widens host surface ships
 and is enabled only by naming it here \(em the dotnet integration, for example.
 .TP
 .BI AI_TOOLS_FILTERS= "NAME\fR[,\fP NAME\fR...]\fP"
-The token-saving command-filter rule sets a session applies, by rule-set name (a
-file basename under
-.IR /usr/local/lib/ai-tools/filters.d ).
+The token-saving command-filter rule sets a session applies, each written
+.BI filter\- NAME
+for a rule-set basename under
+.IR /usr/local/lib/ai-tools/filters.d .
 A filter rewrites a matching command so the tool prints less and strips terminal
 control noise from what it printed.
 Exactly the sets named, so
@@ -421,7 +448,7 @@ Enable the dotnet integration and keep every default elsewhere:
 .PP
 .RS 4
 .EX
-AI_TOOLS_INTEGRATIONS=[dotnet]
+AI_TOOLS_INTEGRATIONS=[integration\-dotnet]
 .EE
 .RE
 .PP

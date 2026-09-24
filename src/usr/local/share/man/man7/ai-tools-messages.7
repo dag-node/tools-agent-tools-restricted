@@ -943,7 +943,7 @@ run as root (sudo)
 .TP
 .B MSG-Y7B6
 ERROR.
-\-\-agents takes names separated by commas, without brackets: \-\-agents claude\-code,codex \-\- nothing was written
+\-\-agents takes names separated by commas, without brackets: \-\-agents agent\-claude\-code,agent\-codex \-\- nothing was written
 .SS ai-tools-chown
 .TP
 .B MSG-A6D8
@@ -1402,6 +1402,10 @@ switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no valu
 .B MSG-D5N5
 WARNING.
 invalid list, read as the empty list \-\- ${label} (${reason}): ${value}; write it as [a, b]
+.TP
+.B MSG-X6F2
+WARNING.
+invalid list, read as the empty list \-\- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai\-tools\-admin system post\-upgrade
 .SS install-selinux.sh
 .TP
 .B MSG-A5N2

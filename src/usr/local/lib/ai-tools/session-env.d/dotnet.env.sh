@@ -4,9 +4,9 @@
 # Session environment for the dotnet integration: a host-managed .NET toolchain, a sandbox-writable NuGet cache,
 # and the admin-provisioned shared tools on PATH.
 #
-# ai-tools-run sources this when `dotnet` is enabled in /etc/ai-tools/operator.conf (AI_TOOLS_INTEGRATIONS). It
-# self-gates on a host dotnet, so it is inert on a host without one even when enabled -- this integration does not ship
-# a runtime of its own.
+# ai-tools-run sources this when `integration-dotnet` is enabled in /etc/ai-tools/operator.conf (AI_TOOLS_INTEGRATIONS).
+# It self-gates on a host dotnet, so it is inert on a host without one even when enabled -- this integration does not
+# ship a runtime of its own.
 #
 # One state root backs it, provisioned by `sudo ai-tools-admin dotnet bootstrap` -- every integration keeps its
 # sandbox-side state under /opt/ai-tools/integrations/<name>, so no toolchain adds a dotdir to the sandbox home and one

@@ -154,7 +154,7 @@ rm -f "${filters_dir}/zz-later.rules"
 mk_operator     # writes TESTDIR/operator.conf and points the hook at it
 set_filters() { printf 'AI_TOOLS_FILTERS=%s\n' "$1" >> "${AI_TOOLS_OPERATOR_CONF}"; }
 
-set_filters '"core"'
+set_filters '"filter-core"'
 ai_tools_filter_rules_load
 rewrites "a named set applies"                    'git log --date=short'    'git log'
 rewrites "a set left out of the list does not"    PASSTHROUGH               'dotnet build'
@@ -168,7 +168,7 @@ else
 fi
 rewrites "kill switch leaves every command alone" PASSTHROUGH               'git log'
 
-mk_operator; set_filters '"core nonexistent"'
+mk_operator; set_filters '"filter-core filter-nonexistent"'
 ai_tools_filter_rules_load
 rewrites "a named set with no installed file is skipped, not guessed" 'git log --date=short' 'git log'
 
@@ -185,15 +185,26 @@ export AI_TOOLS_OPERATOR_CONF="${TESTDIR}/absent.conf"
 enabled_is "enabled when operator.conf is absent"          0
 mk_operator
 enabled_is "enabled when AI_TOOLS_FILTERS is absent"       0
-set_filters '"core"'
+set_filters '"filter-core"'
 enabled_is "enabled when sets are named"                   0
 # Every spelling of a present, empty list is the one kill switch; a named set, bracketed or not, keeps filtering on.
 for value in '' '""' '[]' '[ , ]'; do
     mk_operator; set_filters "${value}"
     enabled_is "AI_TOOLS_FILTERS=${value} reports disabled"   1
 done
+mk_operator; set_filters '[filter-core, filter-dotnet]'
+enabled_is "AI_TOOLS_FILTERS=[filter-core, filter-dotnet] reports enabled" 0
+# A name without its filter- prefix, the spelling an earlier release wrote, makes the list invalid: it reads as empty,
+# the kill switch, and the reader's report is not printed, since the hook runs on every Bash call.
 mk_operator; set_filters '[core, dotnet]'
-enabled_is "AI_TOOLS_FILTERS=[core, dotnet] reports enabled" 0
+enabled_is "AI_TOOLS_FILTERS=[core, dotnet] (unprefixed) reports disabled" 1
+unprefixed_err="$(ai_tools_filter_rules_load 2>&1 >/dev/null)"
+ai_tools_filter_rules_load 2>/dev/null
+if [[ "${#_AI_TOOLS_FILTER_RULES[@]}" -eq 0 && -z "${unprefixed_err}" ]]; then
+    pass "an unprefixed list loads no rules and prints nothing on stderr"
+else
+    fail "unprefixed list: ${#_AI_TOOLS_FILTER_RULES[@]} rule(s) loaded, stderr '${unprefixed_err}'"
+fi
 mk_operator; set_filters ''
 chmod 666 "${AI_TOOLS_OPERATOR_CONF}"
 enabled_is "an untrusted operator.conf leaves filtering on" 0

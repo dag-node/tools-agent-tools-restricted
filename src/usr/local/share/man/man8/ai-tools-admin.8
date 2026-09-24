@@ -345,11 +345,16 @@ and the installed manifests, so it names none of them itself.
 .RS
 .TP
 .BI "\-\-agents " "NAME\fR[,\fP NAME\fR...]\fP"
-Enable the named agents without asking: each
+Enable the named agents without asking.
+Each is written
+.BI agent\- NAME\fR,\fP
 .I NAME
-is a manifest basename under
+being a manifest basename under
 .IR /usr/local/lib/ai-tools/agents.d ,
-checked against the installed manifests before the line is written, and a name
+and lands in the file in that form; the bare
+.I NAME
+is accepted too.
+Each is checked against the installed manifests before the line is written, and a name
 with no manifest refuses the run with the file unchanged.
 More than one name is accepted and draws the same notice a hand-written line
 naming several does.
@@ -662,11 +667,13 @@ Provision a host unattended, enabling one agent without the menu:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system bootstrap \-\-agents codex
+sudo ai\-tools\-admin system bootstrap \-\-agents agent\-codex
 .EE
 .RE
 .PP
-Provision a second agent after the first run \(em add its name to
+Provision a second agent after the first run \(em add it, as
+.BI agent\- NAME\fR,\fP
+to
 .B AI_TOOLS_AGENTS
 in
 .BR ai-tools-operator.conf (5),

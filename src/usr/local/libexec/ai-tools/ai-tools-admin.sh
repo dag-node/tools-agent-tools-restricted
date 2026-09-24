@@ -14,7 +14,7 @@
 #   sudo ai-tools-admin selinux groups disable <name>      # unload one
 #   sudo ai-tools-admin system bootstrap                   # provision the sandbox account's toolchain
 #   sudo ai-tools-admin system bootstrap --scope full      # ... and every enabled integration
-#   sudo ai-tools-admin system bootstrap --agents codex    # ... enabling the named agent, unattended
+#   sudo ai-tools-admin system bootstrap --agents agent-codex # ... enabling the named agent, unattended
 #   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
 #   sudo ai-tools-admin system post-upgrade --check        # findings as tab-separated lines; silent, exit 0 when clean

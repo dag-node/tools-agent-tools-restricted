@@ -97,9 +97,9 @@ Then finish setup. An installed agent package puts its wrapper, hooks,
 and manifest on the host and leaves the agent itself off: `system bootstrap`
 asks which installed agent to enable, records the answer in `AI_TOOLS_AGENTS`
 (`/etc/ai-tools/operator.conf`, root-owned), and only then fetches that agent's
-npm package into the sandbox toolchain — `--agents <name>` makes the choice
-without asking. The first two commands are independent of each other and both
-run before the third:
+npm package into the sandbox toolchain — `--agents agent-<name>` makes
+the choice without asking. The first two commands are independent of each other
+and both run before the third:
 
 ```bash
 sudo ai-tools-admin system bootstrap             # Node, nvm, the agent you pick, the update timer

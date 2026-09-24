@@ -240,7 +240,7 @@ mk_operator_conf() {
     if [[ -r "${lib}" ]]; then
         while IFS=$'\t' read -r name _ launcher; do
             [[ -n "${name}" && -n "${launcher}" && -L "${launcher_dir}/${launcher}" ]] || continue
-            agents+="${agents:+ }${name}"
+            agents+="${agents:+ }agent-${name}"
         done < <(bash -c 'source "$1" 2>/dev/null && ai_tools_installed_agents 2>/dev/null' _ "${lib}")
     fi
     printf 'OPERATORS="%s"\nAI_TOOLS_AGENTS="%s"\n' "$*" "${agents}" > "${path}"

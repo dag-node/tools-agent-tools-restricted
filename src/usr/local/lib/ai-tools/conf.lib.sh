@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/conf.lib.sh
 # The one KEY=value grammar every ai-tools config file is read with, the trust predicate that decides whether a file may
-# be read at all, and what shares the grammar and so lives beside it: the dated config sidecars
+# be read at all, and what shares the grammar and so lives beside it: the kind prefix a provider list item carries
+# (ai_tools_conf_kind_list, which filters.lib.sh reads as well as providers.lib.sh), the dated config sidecars
 # (`<name>.<YYYYMMDD>-<N>.{bak,shipped}`, whose stamp ai_tools_conf_sidecar_path is the single home of), the one
 # in-place write of a KEY=value file (ai_tools_conf_set_key for a scalar, ai_tools_conf_set_list for a list), and every
 # read AND write of allowed-projects. The settings.json hook-declaration merge, which writes through the sidecars, is
@@ -268,6 +269,108 @@ ai_tools_conf_list_value() {
         return 0
     fi
     ai_tools_conf_split "${out_name}" "${inner}"
+}
+
+# ── Kind prefixes: what a provider list item names ───────────────────────────────────────────
+# An item of AI_TOOLS_AGENTS, AI_TOOLS_INTEGRATIONS or AI_TOOLS_FILTERS carries its kind as a prefix (agent-claude-code,
+# integration-dotnet, filter-dotnet), so one word names one thing wherever an operator writes it: dotnet is both
+# an integration and a filter set. The prefix lives in operator.conf alone -- a manifest, a fragment and a rules file
+# keep the bare name, since their directory already states the kind -- so the list reader strips it and every consumer
+# receives the bare name. An item without its key's prefix makes the whole list invalid (MSG-X6F2): an earlier release
+# wrote bare names, and `ai-tools-admin system post-upgrade` rewrites them (ai_tools_conf_kind_migrate,
+# providers.lib.sh). _ai_tools_conf_kind_table is the one place a key is tied to its prefix.
+
+# _ai_tools_conf_kind_table : print "KEY<TAB>prefix" per list key that carries a kind prefix.
+_ai_tools_conf_kind_table() {
+    printf '%s\t%s\n' AI_TOOLS_AGENTS agent- AI_TOOLS_INTEGRATIONS integration- AI_TOOLS_FILTERS filter-
+}
+
+# ai_tools_conf_kind_prefix <KEY> : print the kind prefix <KEY>'s items carry. Returns 1, printing
+#   nothing, for a key outside the table.
+ai_tools_conf_kind_prefix() {
+    local key prefix
+    while IFS=$'\t' read -r key prefix; do
+        [[ "${key}" == "${1-}" ]] && { printf '%s' "${prefix}"; return 0; }
+    done < <(_ai_tools_conf_kind_table)
+    return 1
+}
+
+# _ai_tools_conf_kind_bare <prefix> <item> : print the bare name when <item> is <prefix> followed by
+#   a plain name (the charset a manifest basename takes, no `..`); return 1 otherwise.
+_ai_tools_conf_kind_bare() {
+    local prefix="$1" item="$2" bare
+    [[ "${item}" == "${prefix}"* ]] || return 1
+    bare="${item#"${prefix}"}"
+    [[ "${bare}" =~ ^[A-Za-z0-9._-]+$ && "${bare}" != *..* ]] || return 1
+    printf '%s' "${bare}"
+}
+
+# ai_tools_conf_kind_list <array-name> <file> <KEY> : ai_tools_conf_list for a key in the kind table,
+#   which then requires every item to carry the key's prefix and sets the array to the BARE names,
+#   in order. An item that does not makes the whole list invalid: the array is set EMPTY,
+#   _ai_tools_conf_list_invalid and _ai_tools_conf_list_unprefixed are set to 1, and MSG-X6F2 names
+#   the key, the items and the command that rewrites them on stderr -- the less-access reading
+#   ai_tools_conf_list_value gives a malformed list, for the same reason. Returns 1, leaving the
+#   array untouched, for an absent key, so a caller's baseline stands; 2 for a key outside the table.
+ai_tools_conf_kind_list() {
+    local out_name="$1" file="$2" key="$3" prefix item bare
+    local -a _ai_tools_conf_kind_list_raw=() _ai_tools_conf_kind_list_bare=() unprefixed=()
+    _ai_tools_conf_list_invalid=0 _ai_tools_conf_list_unprefixed=0
+    prefix="$(ai_tools_conf_kind_prefix "${key}")" || return 2
+    ai_tools_conf_list _ai_tools_conf_kind_list_raw "${file}" "${key}" || return 1
+    local -n _ai_tools_conf_kind_list_out="${out_name}"
+    if (( _ai_tools_conf_list_invalid )); then
+        _ai_tools_conf_kind_list_out=()
+        return 0
+    fi
+    for item in "${_ai_tools_conf_kind_list_raw[@]}"; do
+        if bare="$(_ai_tools_conf_kind_bare "${prefix}" "${item}")"; then
+            _ai_tools_conf_kind_list_bare+=("${bare}")
+        else
+            unprefixed+=("${item}")
+        fi
+    done
+    if (( ${#unprefixed[@]} > 0 )); then
+        _ai_tools_conf_kind_list_out=()
+        _ai_tools_conf_list_invalid=1
+        _ai_tools_conf_list_unprefixed=1
+        _ai_tools_conf_warn MSG-X6F2 "invalid list, read as the empty list -- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai-tools-admin system post-upgrade"
+        return 0
+    fi
+    _ai_tools_conf_kind_list_out=("${_ai_tools_conf_kind_list_bare[@]+"${_ai_tools_conf_kind_list_bare[@]}"}")
+    return 0
+}
+
+# ai_tools_conf_kind_item <KEY> <name> : print <name> as <KEY> holds it -- with the key's prefix
+#   added to a bare name, and a name already carrying it printed as given. The writer's side of
+#   ai_tools_conf_kind_list. Returns 1, printing nothing, for a key outside the table or a name
+#   that is not a plain name once the prefix is added.
+ai_tools_conf_kind_item() {
+    local key="$1" name="$2" prefix
+    prefix="$(ai_tools_conf_kind_prefix "${key}")" || return 1
+    [[ "${name}" == "${prefix}"* ]] || name="${prefix}${name}"
+    _ai_tools_conf_kind_bare "${prefix}" "${name}" >/dev/null || return 1
+    printf '%s' "${name}"
+}
+
+# ai_tools_conf_kind_unmigrated <file> : print "KEY<TAB>item" for every item a key in the kind table
+#   holds without that key's prefix, in table order and then list order -- the items that make
+#   ai_tools_conf_kind_list refuse the list. The one detection predicate: the base package's %post,
+#   install.sh, `system post-upgrade --check` and both launch tiers read it. Read-only. A missing or
+#   untrusted <file>, an absent key and a list the grammar refuses print nothing, since each already
+#   has a report of its own.
+ai_tools_conf_kind_unmigrated() {
+    local file="$1" key prefix item
+    local -a items=()
+    [[ -f "${file}" ]] && ai_tools_conf_is_trusted "${file}" || return 0
+    while IFS=$'\t' read -r key prefix; do
+        ai_tools_conf_list items "${file}" "${key}" 2>/dev/null || continue
+        (( _ai_tools_conf_list_invalid )) && continue
+        for item in "${items[@]+"${items[@]}"}"; do
+            _ai_tools_conf_kind_bare "${prefix}" "${item}" >/dev/null || printf '%s\t%s\n' "${key}" "${item}"
+        done
+    done < <(_ai_tools_conf_kind_table)
+    return 0
 }
 
 # ── Sidecar files: what an upgrade preserves when it touches an operator's config ────────────

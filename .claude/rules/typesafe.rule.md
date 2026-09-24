@@ -21,9 +21,9 @@ The session runs the **decide command**,
 with the listing on stdin; the command prints the kept lines in full and one summary line naming the rest by id,
 and exits non-zero with one stderr line and no result on any failure, so the listing the session already holds is always
 the fallback. It is an **integration on the provider seam** ([providers](providers.rule.md)): a manifest, a session-env
-fragment, and the `default_enable=no` that keeps it off until an operator names `typesafe` in `AI_TOOLS_INTEGRATIONS`,
-because a call sends listing lines off the host. The shipped `ai-tools-decide` skill is what tells an agent
-when the command is worth running and what it does not replace.
+fragment, and the `default_enable=no` that keeps it off until an operator names `integration-typesafe`
+in `AI_TOOLS_INTEGRATIONS`, because a call sends listing lines off the host. The shipped `ai-tools-decide` skill is
+what tells an agent when the command is worth running and what it does not replace.
 
 ## The call path
 

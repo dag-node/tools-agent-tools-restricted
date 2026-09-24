@@ -3,10 +3,12 @@
 # /usr/local/lib/ai-tools/providers.lib.sh
 # Resolve which sandboxed providers are enabled and how to provision each: the seam that keeps the toolchain and launch
 # layers provider-agnostic. A provider's details live in the manifest its own package ships
-# (/usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, <name> being the token an operator writes
-# in operator.conf's AI_TOOLS_AGENTS / AI_TOOLS_INTEGRATIONS), and that key gates which are enabled. The manifest fields
-# and what reads each, the fail-closed enablement rules, and the trust predicate every input and its directory pass are
-# in providers.rule.md; the values one agent declares are that manifest's own comments.
+# (/usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, an operator writing <name> with its kind prefix
+# in operator.conf's AI_TOOLS_AGENTS / AI_TOOLS_INTEGRATIONS: agent-<name>, integration-<name>), and that key gates
+# which are enabled. The list reader strips the prefix (ai_tools_conf_kind_list, conf.lib.sh), so every name this file
+# prints is the bare manifest name. The manifest fields and what reads each, the fail-closed enablement rules,
+# and the trust predicate every input and its directory pass are in providers.rule.md; the values one agent declares are
+# that manifest's own comments.
 #
 # Manifests and operator.conf are DATA, parsed through conf.lib.sh and never sourced, so a malformed or tampered file
 # yields a bad value rather than code running in the scripts that read it. conf.lib.sh is therefore a hard dependency:
@@ -49,7 +51,8 @@ _ai_tools_provider_warn() {
 if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_untrusted_reason >/dev/null 2>&1; then
+        || ! declare -F ai_tools_conf_untrusted_reason >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf_kind_list >/dev/null 2>&1; then
     _ai_tools_provider_warn MSG-P4M9 \
         "providers.lib.sh: conf.lib.sh missing or incomplete -- no providers resolved"
     return 1
@@ -120,9 +123,10 @@ ai_tools_provider_gate() {
 #   empty, is the allowlist); "no" means absent, unreadable, or UNTRUSTED -- all of which fall
 #   back to the baseline, so a config the agent could have written cannot enable anything its own
 #   package did not already mark default_enable=yes. An untrusted config is reported here rather
-#   than in the pure gate, which stays side-effect free. requested_list holds the names joined by
-#   a space, read through the file-list grammar once here, so an invalid list is reported once per
-#   read and arrives as the empty allowlist -- no provider of that kind enabled.
+#   than in the pure gate, which stays side-effect free. requested_list holds the bare names joined
+#   by a space, read through the kind-prefixed list reader once here, so an invalid list -- one the
+#   grammar refuses, or one holding an item without its kind prefix -- is reported once per read
+#   and arrives as the empty allowlist: no provider of that kind enabled.
 _ai_tools_provider_requested() {
     local conf_key="$1"
     local -a requested_names=()
@@ -132,7 +136,7 @@ _ai_tools_provider_requested() {
             _ai_tools_provider_warn MSG-C4F9 "ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") -- using the default-enabled providers only" ;;
         allowlist)
             requested_active=yes
-            ai_tools_conf_list requested_names "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}" || true
+            ai_tools_conf_kind_list requested_names "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}" || true
             local IFS=' '
             requested_list="${requested_names[*]-}" ;;
     esac
@@ -247,9 +251,12 @@ ai_tools_agents_empty_verdict() {
         return 0
     fi
     if [[ "${gate}" == allowlist ]]; then
-        ai_tools_conf_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
-        if (( _ai_tools_conf_list_invalid )); then
-            printf 'fault\tAI_TOOLS_AGENTS in %s is not a valid list, so it enables no agent -- write it as [name, name]\n' \
+        ai_tools_conf_kind_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
+        if (( _ai_tools_conf_list_unprefixed )); then
+            printf 'fault\tAI_TOOLS_AGENTS in %s holds a name not written as agent-<name>, so it enables no agent -- rewrite it: sudo ai-tools-admin system post-upgrade\n' \
+                "${AI_TOOLS_OPERATOR_CONF}"
+        elif (( _ai_tools_conf_list_invalid )); then
+            printf 'fault\tAI_TOOLS_AGENTS in %s is not a valid list, so it enables no agent -- write it as [agent-<name>, agent-<name>]\n' \
                 "${AI_TOOLS_OPERATOR_CONF}"
         elif (( ${#requested_names[@]} > 0 )); then
             printf -v joined '%s ' "${requested_names[@]}"

@@ -97,41 +97,53 @@ assert_names() {
 assert_names "no config -> baseline (claude-code only)"   "claude-code " /nonexistent
 printf 'OPERATORS="x"\n' > "${conf}"
 assert_names "config without AI_TOOLS_AGENTS -> baseline" "claude-code " "${conf}"
-printf 'AI_TOOLS_AGENTS="claude-code experimental"\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS="agent-claude-code agent-experimental"\n' > "${conf}"
 assert_names "allowlist both -> both provisioned"        "claude-code experimental " "${conf}"
 printf 'AI_TOOLS_AGENTS=""\n' > "${conf}"
 assert_names "explicit empty allowlist -> no agents"     "" "${conf}"
 
 # The shared grammar applies to the gating keys too: quotes optional, commas or whitespace between names, an inline
 # comment ending the value.
-printf 'AI_TOOLS_AGENTS=claude-code, experimental\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS=agent-claude-code, agent-experimental\n' > "${conf}"
 assert_names "unquoted, comma-separated allowlist"       "claude-code experimental " "${conf}"
-printf 'AI_TOOLS_AGENTS = claude-code  experimental   # both agents\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS = agent-claude-code  agent-experimental   # both agents\n' > "${conf}"
 assert_names "padded value with an inline comment"       "claude-code experimental " "${conf}"
 
 # The bracketed list form reads as the same allowlist, and an invalid list enables NO agent: it reads as the empty
 # allowlist, never as an absent key, which would fall back to the default-enabled baseline. One row per value,
 # the expected names then the value as it follows `AI_TOOLS_AGENTS=`, split on the first tab.
 gating_cases=(
-    $'claude-code experimental \t[claude-code, experimental]'
-    $'claude-code experimental \t[experimental,claude-code]   # both'
-    $'claude-code \t[, claude-code]'
+    $'claude-code experimental \t[agent-claude-code, agent-experimental]'
+    $'claude-code experimental \t[agent-experimental,agent-claude-code]   # both'
+    $'claude-code \t[, agent-claude-code]'
     $'\t[]'
-    $'\t[claude-code'
-    $'\tclaude-code]'
-    $'\t"[claude-code]"'
-    $'\t[claude-code, "experimental"]'
+    $'\t[agent-claude-code'
+    $'\tagent-claude-code]'
+    $'\t"[agent-claude-code]"'
+    $'\t[agent-claude-code, "agent-experimental"]'
+    $'\t[claude-code, agent-experimental]'
+    $'\t[integration-claude-code]'
+    $'\t[agent-]'
+    $'\tagent-../claude-code'
 )
 for row in "${gating_cases[@]}"; do
     printf 'AI_TOOLS_AGENTS=%s\n' "${row#*$'\t'}" > "${conf}"
     assert_names "AI_TOOLS_AGENTS=${row#*$'\t'} enables '${row%%$'\t'*}'" "${row%%$'\t'*}" "${conf}"
 done
-printf 'AI_TOOLS_AGENTS=[claude-code\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS=[agent-claude-code\n' > "${conf}"
 assert_msg MSG-D5N5 "$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)" \
     "an invalid AI_TOOLS_AGENTS list is reported"
+# A name without its kind prefix, the spelling an earlier release wrote, is reported under its own code, which names
+# the command that rewrites it.
+printf 'AI_TOOLS_AGENTS=[claude-code]\n' > "${conf}"
+unprefixed_err="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
+assert_msg MSG-X6F2 "${unprefixed_err}" "an unprefixed AI_TOOLS_AGENTS item is reported"
+[[ "${unprefixed_err}" == *"system post-upgrade"* ]] \
+    && pass "the unprefixed-item report names system post-upgrade" \
+    || fail "the unprefixed-item report does not name system post-upgrade: ${unprefixed_err}"
 
 # A requested-but-uninstalled agent is skipped from stdout AND reported on stderr (never guessed).
-printf 'AI_TOOLS_AGENTS="missing"\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS="agent-missing"\n' > "${conf}"
 warn_out="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
 out_names="$(resolve "${conf}" | cut -f1 | tr '\n' ' ')"
 if [[ -z "${out_names}" ]]; then
@@ -168,7 +180,7 @@ chmod 0644 "${agents_dir}/claude-code.conf"
 
 # --- IFS independence: the resolver runs inside scripts that set the strict-mode IFS ----------
 section "providers: resolution is independent of the caller's IFS"
-printf 'AI_TOOLS_AGENTS="claude-code experimental"\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS="agent-claude-code agent-experimental"\n' > "${conf}"
 # A SUBSHELL with IFS=$'\n\t' -- exactly what nvm-update.sh sets -- so the assertion cannot be masked by this file's own
 # IFS. Without a locally-pinned IFS in the splitter the whole value reads as one name and BOTH agents drop out with only
 # a stderr warning.
@@ -179,7 +191,7 @@ if [[ "${ifs_names}" == "claude-code experimental " ]]; then
 else
     fail "IFS-dependent split: under IFS=\$'\\n\\t' got '${ifs_names}' expected 'claude-code experimental '"
 fi
-printf 'AI_TOOLS_AGENTS=claude-code,experimental\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS=agent-claude-code,agent-experimental\n' > "${conf}"
 ifs_names="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>/dev/null \
               | cut -f1 | sort | tr '\n' ' ' )"
 if [[ "${ifs_names}" == "claude-code experimental " ]]; then
@@ -195,7 +207,7 @@ section "providers: untrusted inputs fail closed"
 
 # An operator.conf the agent could have written must not be able to opt a default_enable=no provider in: it is ignored
 # entirely, falling back to the baseline.
-printf 'AI_TOOLS_AGENTS="claude-code experimental"\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS="agent-claude-code agent-experimental"\n' > "${conf}"
 chown "${PROJECTS_USER}" "${conf}"
 assert_names "non-root-owned operator.conf ignored -> baseline only" "claude-code " "${conf}"
 chown root:root "${conf}"
@@ -249,13 +261,15 @@ printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Cla
     > "${agents_dir}/claude-code.conf"
 
 # An allowlist that is not a valid list does not enable any agent, and the operator asked for something: a fault.
-printf 'AI_TOOLS_AGENTS=[claude-code\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS=[agent-claude-code\n' > "${conf}"
 assert_empty "an invalid allowlist is a fault"            fault "is not a valid list"          "${conf}"
+printf 'AI_TOOLS_AGENTS=[claude-code, codex]\n' > "${conf}"
+assert_empty "an unprefixed allowlist is a fault naming post-upgrade" fault "system post-upgrade" "${conf}"
 printf 'AI_TOOLS_AGENTS=[]\n' > "${conf}"
 assert_empty "an empty bracketed allowlist is none"       none  "set and empty"                "${conf}"
 
 # The operator asked for agents that did not resolve: a fault, naming what was asked for.
-printf 'AI_TOOLS_AGENTS="missing other"\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS="agent-missing agent-other"\n' > "${conf}"
 assert_empty "an allowlist that resolved nothing is a fault" fault "names missing other but no agent resolved" "${conf}"
 
 # A refused input is a fault whatever the configuration says, and the reason names the path and what the predicate read
@@ -267,7 +281,7 @@ assert_empty "two refused inputs are both named on one line" fault "2 input(s) f
 chmod 0755 "${agents_dir}"
 assert_empty "an untrusted manifest is a fault"           fault "${agents_dir}/claude-code.conf: owner=0 mode=666" /nonexistent
 chmod 0644 "${agents_dir}/claude-code.conf"
-printf 'AI_TOOLS_AGENTS="claude-code"\n' > "${conf}"; chmod 0666 "${conf}"
+printf 'AI_TOOLS_AGENTS="agent-claude-code"\n' > "${conf}"; chmod 0666 "${conf}"
 assert_empty "an untrusted operator.conf is a fault"      fault "${conf}: owner=0 mode=666"    "${conf}"
 chmod 0644 "${conf}"
 # The caller parses this under IFS=$'\n\t'; the TAB is what keeps verdict and reason apart there.
@@ -291,21 +305,21 @@ assert_ints() {
 }
 # Baseline: only default_enable=yes; dotnet (surface-widening, default_enable=no) stays OFF.
 assert_ints "integrations baseline -> only default_enable=yes" "baseline " /nonexistent
-printf 'AI_TOOLS_INTEGRATIONS="dotnet"\n' > "${conf}"
+printf 'AI_TOOLS_INTEGRATIONS="integration-dotnet"\n' > "${conf}"
 assert_ints "integrations allowlist opts dotnet in"           "dotnet "   "${conf}"
 printf 'AI_TOOLS_INTEGRATIONS=""\n' > "${conf}"
 assert_ints "integrations explicit empty -> none"             ""          "${conf}"
-printf 'AI_TOOLS_INTEGRATIONS=dotnet, baseline  # both\n' > "${conf}"
+printf 'AI_TOOLS_INTEGRATIONS=integration-dotnet, integration-baseline  # both\n' > "${conf}"
 assert_ints "integrations comma list with a comment"          "baseline dotnet " "${conf}"
-printf 'AI_TOOLS_INTEGRATIONS=[dotnet, baseline]\n' > "${conf}"
+printf 'AI_TOOLS_INTEGRATIONS=[integration-dotnet, integration-baseline]\n' > "${conf}"
 assert_ints "integrations bracketed list"                     "baseline dotnet " "${conf}"
 # An invalid list reads as the empty allowlist: not even the default-enabled baseline, which absent would enable.
-printf 'AI_TOOLS_INTEGRATIONS=[dotnet\n' > "${conf}"
+printf 'AI_TOOLS_INTEGRATIONS=[integration-dotnet\n' > "${conf}"
 assert_ints "integrations invalid list -> none, not the baseline" "" "${conf}"
 
 # The surface-widening case that matters most: an untrusted operator.conf must not be able to turn dotnet
 # (default_enable=no) on.
-printf 'AI_TOOLS_INTEGRATIONS="dotnet"\n' > "${conf}"; chmod 0666 "${conf}"
+printf 'AI_TOOLS_INTEGRATIONS="integration-dotnet"\n' > "${conf}"; chmod 0666 "${conf}"
 assert_ints "untrusted conf cannot enable a default=no integration" "baseline " "${conf}"
 chmod 0644 "${conf}"
 

@@ -85,7 +85,7 @@ manifest beta  @acme/beta         beta  config_dir=.beta
 manifest gamma @acme/gamma        gamma
 printf 'launcher=nopkg\ndefault_enable=no\n' > "${AGENTS_DIR}/nopkg.conf"; chmod 0644 "${AGENTS_DIR}/nopkg.conf"
 chmod 0666 "${AGENTS_DIR}/gamma.conf"      # untrusted: not an agent, so never residue
-printf 'AI_TOOLS_AGENTS="acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
+printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
 
 # package <version> <package> : the package directory npm leaves, with a marker file inside.
 package() {
@@ -140,11 +140,12 @@ while IFS='|' read -r conf_line conf_mode want; do
     fi
 done <<'ROWS'
 AI_TOOLS_AGENTS=[acme|0644|
-AI_TOOLS_AGENTS="acme"|0666|
-AI_TOOLS_AGENTS=[nosuch]|0644|
+AI_TOOLS_AGENTS="agent-acme"|0666|
+AI_TOOLS_AGENTS=[agent-nosuch]|0644|
+AI_TOOLS_AGENTS=[acme]|0644|
 AI_TOOLS_AGENTS=[]|0644|acme beta
 ROWS
-printf 'AI_TOOLS_AGENTS="acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
+printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
 
 # ── ai_tools_agent_residue: the tree read ───────────────────────────────────────────────────────
 residue="$(ai_tools_agent_residue "${NVM}" 2>/dev/null)"
@@ -164,11 +165,11 @@ grep -q 'notaversion' <<<"${residue}" && fail "a non-semver version directory wa
     && pass "an absent toolchain holds no residue" || fail "an absent toolchain printed residue"
 
 # The same tree with beta enabled too: no residue, whatever the tree holds.
-printf 'AI_TOOLS_AGENTS="acme beta"\n' > "${CONF}"
+printf 'AI_TOOLS_AGENTS="agent-acme agent-beta"\n' > "${CONF}"
 [[ -z "$(ai_tools_agent_residue "${NVM}" 2>/dev/null)" ]] \
     && pass "a package is residue only while its agent is not enabled" \
     || fail "residue reported with every installed agent enabled"
-printf 'AI_TOOLS_AGENTS="acme"\n' > "${CONF}"
+printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"
 
 # ── ai_tools_agent_residue_links: the operator's read ──────────────────────────────────────────
 links="$(ai_tools_agent_residue_links "${LINKS}" 2>/dev/null)"

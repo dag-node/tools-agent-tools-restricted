@@ -22,9 +22,10 @@ kinds share the mechanism:
 ## Manifests
 
 Each installed member package ships one manifest, `/usr/local/lib/ai-tools/{agents,integrations}.d/ <name>.conf`,
-`644 root:root`. `<name>` (the basename) is the token an operator writes in `AI_TOOLS_AGENTS` / `AI_TOOLS_INTEGRATIONS`.
-It is `KEY=value` data — **parsed, never sourced**, the same posture as `operator.conf`/`skip-dirs.lib.sh`,
-so a malformed or tampered manifest cannot execute code in the privileged scripts that read it:
+`644 root:root`. `<name>` (the basename) is the name an operator writes, after its kind prefix, in `AI_TOOLS_AGENTS`
+(`agent-<name>`) / `AI_TOOLS_INTEGRATIONS` (`integration-<name>`). It is `KEY=value` data — **parsed, never sourced**,
+the same posture as `operator.conf`/`skip-dirs.lib.sh`, so a malformed or tampered manifest cannot execute code
+in the privileged scripts that read it:
 
 - agents: `npm_package` (the registry package), `launcher` (the bin symlinked at `/opt/ai-tools/bin/<launcher>`,
   and the name `ai-tools-run` matches an executable against to decide whether it may launch), optionally
@@ -267,6 +268,17 @@ which is acceptable for package data. A **command-line argument** keeps the plai
 by `ai_tools_conf_split`, which does not read brackets: the shell splits `[a, b]` into words and an unquoted `[a,` is
 a glob, so `ai-tools-bootstrap --agents` refuses a bracket by name (`MSG-Y7B6`) rather than reading it as part
 of an agent name.
+
+**A provider list item carries its kind.** Each item of `AI_TOOLS_AGENTS`, `AI_TOOLS_INTEGRATIONS`
+and `AI_TOOLS_FILTERS` is written `agent-<name>`, `integration-<name>` or `filter-<name>`, so one word names one thing
+wherever an operator writes it — the dotnet integration and its filter set share a basename. The prefix lives
+in `operator.conf` values alone: a manifest, a fragment, a rules file and a contributed command keep the bare name,
+since the directory already states the kind. `ai_tools_conf_kind_list` is the reader: it takes a key from the one table
+that ties a key to its prefix, requires every item to carry that prefix, and hands its caller the bare names, so every
+resolver and every consumer past it is unchanged. An item without its key's prefix makes the list invalid,
+the `MSG-D5N5` direction — empty, under its own code `MSG-X6F2`, which names the command that rewrites a bare name.
+`ai_tools_conf_kind_item` is the writer's side (`--agents` accepts either spelling and writes the prefixed one),
+and `ai_tools_conf_kind_unmigrated` is the one detection predicate every report of an unmigrated list reads.
 
 The **path-list** files share that grammar rather than defining their own. `ai_tools_conf_path_entry` reads one
 `allowed-projects` line — whole-line and end-of-line comments, and one quote layer for a path carrying a space
