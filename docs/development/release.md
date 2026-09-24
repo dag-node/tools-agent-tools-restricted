@@ -112,6 +112,17 @@ and the operator merges them manually. A change of one or two commits with no
 `BREAKING CHANGE` footer lands straight on `develop`; a branch and a PR are
 for work large enough that the review round trip pays for itself.
 
+```bash
+git commit -a --fixup=<commit>
+git rebase --autosquash develop
+```
+
+A fix to a commit that has not been pushed goes into that commit. `--fixup`
+records the fix against `<commit>` and the rebase folds it in, so the branch
+reaches review without a `fix` commit for a defect no one else received. Git
+2.44 and later apply `--autosquash` without an interactive rebase. A pushed
+commit takes a `fix` commit of its own.
+
 Give the PR an explicit title, in the same Conventional Commits form
 as a commit subject:
 
