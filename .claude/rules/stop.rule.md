@@ -272,6 +272,12 @@ the guarantee its row names.
 | Agent sessions and account plumbing are counted apart, advisorily | the class comes from a unit name, so it is the account's word; it labels a row and never selects one, and a headline that counted four units of scaffolding as four agent sessions misread the incident ([Where containment ends](#where-containment-ends)) |
 | A second run terminates and restarts the manager again | idempotence is in end state; a silent rerun costs either an exemption or a name-decided sweep ([Where containment ends](#where-containment-ends)) |
 
+## Quirks
+
+- **A cgroupfs file stats as zero bytes**, as procfs and sysfs files do, so `[[ -s <cgroup>/cgroup.procs ]]` is false
+  however many tasks the cgroup holds. Whether a cgroup holds a task is answered by reading the file, as `has_own_tasks`
+  does.
+
 ## Why not
 
 - **`systemctl --user -M ai-tools@.host stop <unit>`.** The obvious one-liner is the wrong instrument for four reasons,
