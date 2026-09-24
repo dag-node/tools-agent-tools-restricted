@@ -71,16 +71,15 @@ A `dotnet build` log on a host carrying the dotnet integration is the case this 
 to thousands of lines, an MSBuild diagnostic parses deterministically, and what is left is the question a parser does
 not answer — which of the diagnostics that remain bear on the change in hand.
 
-## Four rules
+## Rules for a call
 
 1. **Pipe listings, not file contents.** A line of a grep, a log, or a checker is what the classifier reads; a file's
    body is not a listing and is not sent.
-2. **Read the number as a probability.** The answer to each line is P(the line satisfies the task); there is no
-   separate confidence field to consult, so a line at 0.55 is a coin-flip on the question asked, not a confident
-   "somewhat relevant". The kept set is the lines over the threshold, and the uncertain ids are the band around it.
-3. **Keep the dropped ids in view.** The summary line names every line not kept; an `uncertain` id is one the classifier
-   could not place, and the agent opens it rather than trusting either side.
-4. **Run the deterministic check after the edit.** A kept set narrows what to read first; the grep, the test,
+2. **Open the uncertain ids, and keep the dropped ids in view.** A kept line is one whose answer cleared the keep
+   threshold. An `uncertain` id is one whose answer fell in the band around that threshold, where the classifier does
+   not tell the two answers apart, so the agent opens the line rather than trusting either side. The summary line names
+   every line not kept.
+3. **Run the deterministic check after the edit.** A kept set narrows what to read first; the grep, the test,
    or the checker that stated the task is run again once the edit is made, and that run is the verification.
 
 ## What the result is good for
