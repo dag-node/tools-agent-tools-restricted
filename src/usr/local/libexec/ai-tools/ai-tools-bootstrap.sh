@@ -343,7 +343,7 @@ seed_managed_assets_step() {
     # conf.lib.sh owns the dated-sidecar stamp the seeder uses to preserve a replaced or withdrawn asset, so it is
     # required here rather than optional: without it those steps decline to act.
     local conflib=/usr/local/lib/ai-tools/conf.lib.sh
-    [[ -d "${pristine}/agents" && -r "${cplib}" ]] \
+    [[ -d "${pristine}/skills" && -r "${cplib}" ]] \
         || { log "managed assets: control plane not present yet -- install it, then re-run to seed agents/skills"; return 0; }
     [[ -r "${lib}" && -r "${msglib}" && -r "${conflib}" ]] \
         || die MSG-D9D3 "control plane present but the managed-asset libs are missing -- reinstall ai-tools"
@@ -719,20 +719,20 @@ if command -v loginctl >/dev/null 2>&1; then
     _linger_out="$(loginctl enable-linger "${SANDBOX_USER}" 2>&1)" \
         || warn MSG-V4D9 "could not enable linger for ${SANDBOX_USER} (${_linger_out:-no output})"
 fi
-# Wait for the manager to come up before driving it; XDG_RUNTIME_DIR alone lets `systemctl --user` reach the user
-# manager over its bus, so DBUS_SESSION_BUS_ADDRESS need not be pinned.
+# Wait for the manager to come up before driving it.
 for _i in $(seq 1 30); do
     systemctl is-active "user@${_uid}.service" >/dev/null 2>&1 && break
     sleep 0.5
 done
 # Start the timer now to cover a manager that was already running: the wants symlink alone starts it when the manager
-# next reaches timers.target. Capture the output so the warn on a failed start carries systemctl's own error text.
-if _start_out="$(sudo -u "${SANDBOX_USER}" \
-        XDG_RUNTIME_DIR="/run/user/${_uid}" \
-        bash -c 'systemctl --user daemon-reload && systemctl --user start nvm-update.timer' 2>&1)"; then
+# next reaches timers.target. Root drives that manager over the machine transport (`-M <account>@.host`), the route
+# the system bus authorizes for root; `sudo -u` to the account and its own bus is refused there even while the manager
+# is healthy. Capture the output so the warn on a failed start carries systemctl's own error text.
+if _start_out="$(systemctl --user -M "${SANDBOX_USER}@.host" daemon-reload 2>&1 \
+        && systemctl --user -M "${SANDBOX_USER}@.host" start nvm-update.timer 2>&1)"; then
     log "started nvm-update.timer in ${SANDBOX_USER}'s --user instance"
 else
-    warn MSG-C8M9 "could not start nvm-update.timer (${_start_out:-no output}) -- start it after the control plane is installed"
+    warn MSG-C8M9 "could not start nvm-update.timer (${_start_out:-no output}) -- once the manager runs, start it with: sudo systemctl --user -M ${SANDBOX_USER}@.host start nvm-update.timer"
 fi
 
 log "toolchain ready under ${SANDBOX_HOME}"
@@ -754,7 +754,11 @@ report_shadowed_operators
 # rather than assuming one order. The CLI is the sentinel because base ships it whichever agents a host installs;
 # an agent's wrapper would read a host that enabled another agent as undeployed.
 if [[ -x /usr/local/bin/ai-tools ]]; then
-    log "next: enrol an operator -- sudo ai-tools-admin operators add <user>"
+    if (( _providers_loaded )) && [[ -n "$(ai_tools_conf_get "${AI_TOOLS_OPERATOR_CONF}" OPERATORS 2>/dev/null)" ]]; then
+        log "next: as an enrolled operator, claim a project and start an agent in it -- ai-tools projects claim <path>"
+    else
+        log "next: enrol an operator -- sudo ai-tools-admin operators add <user>"
+    fi
 else
     log "next: deploy the control plane -- sudo ./install.sh install   (or install the RPM)"
 fi
