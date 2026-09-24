@@ -270,8 +270,8 @@ Two sidecar files serve two different recoveries, and neither substitutes for th
 
 | file | written when | answers |
 |---|---|---|
-| `settings.json.<YYYYMMDD>.bak` | a merge is about to replace the file | "what did I have?" — the only copy that can restore host tuning if a merge produces valid JSON that is nonetheless wrong, the one failure a parse check cannot catch |
-| `settings.json.<YYYYMMDD>.shipped` | a merge could **not** run — absent `jq`, malformed JSON, a result that does not parse | "what was I supposed to get?" — the baseline to merge from by hand, since an RPM-installed host has no source checkout to copy from |
+| `settings.json.<YYYYMMDD>-<N>.bak` | a merge is about to replace the file | "what did I have?" — the only copy that can restore host tuning if a merge produces valid JSON that is nonetheless wrong, the one failure a parse check cannot catch |
+| `settings.json.<YYYYMMDD>-<N>.shipped` | a merge could **not** run — absent `jq`, malformed JSON, a result that does not parse | "what was I supposed to get?" — the baseline to merge from by hand, since an RPM-installed host has no source checkout to copy from |
 
 Each failure direction leaves the deployed file byte-identical and warns, naming which check refused. Both sidecars are
 date-stamped and neither overwrites an earlier copy, and a no-op run writes neither. They differ in what a repeat run

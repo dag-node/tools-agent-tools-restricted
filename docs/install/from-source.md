@@ -273,7 +273,7 @@ each agent's package leaves that toolchain with the manifest that names it,
 so after a reinstall `sudo ai-tools-admin system bootstrap` installs the agents
 you enable again. An agent's managed file you edited — codex's
 `/etc/codex/requirements.toml`, for one — is moved aside
-as `<file>.<YYYYMMDD>.retired` rather than deleted, and the run names each
+as `<file>.<YYYYMMDD>-<N>.retired` rather than deleted, and the run names each
 sidecar it wrote; a file still matching the copy the package shipped is
 removed. That is what `rpm -e` does with an edited `%config(noreplace)` file,
 and it matters here for a second reason: such a file points at hook scripts

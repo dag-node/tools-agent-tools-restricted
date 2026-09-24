@@ -220,7 +220,7 @@ if [[ -n "${backup_path}" && "$(cat "${backup_path}")" == "${original}" ]]; then
 else
     fail "no faithful, named backup of the pre-merge file: '${backup_path}'"
 fi
-if [[ "${backup_path}" == *.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].bak ]]; then
+if [[ "${backup_path}" =~ \.[0-9]{8}-[0-9]+\.bak$ ]]; then
     pass "the backup is date-stamped, so successive installs do not overwrite each other"
 else
     fail "the backup is not date-stamped: ${backup_path}"

@@ -212,8 +212,8 @@ ai_tools_seed_managed_assets() {
 #
 # The asset is MOVED, not deleted: a withdrawn asset has no shipped counterpart left to compare against, so there is no
 # way to tell a copy an operator edited from an untouched one, and the unrecoverable direction is the one to avoid. It
-# lands in `<live_root>/retired/` as `<name>.<YYYYMMDD>.retired`, through the same stamping helper conf.lib.sh uses
-# for a replaced config -- one home for the `<name>.<YYYYMMDD>[-N].<kind>` shape, and a kind token that says which event
+# lands in `<live_root>/retired/` as `<name>.<YYYYMMDD>-<N>.retired`, through the same stamping helper conf.lib.sh uses
+# for a replaced config -- one home for the `<name>.<YYYYMMDD>-<N>.<kind>` shape, and a kind token that says which event
 # produced the copy. A subagent keeps its `.md`, so one flat directory holds both kinds without collision.
 #
 # That directory sits BESIDE the shared roots rather than inside one, which is what keeps it out of circulation:

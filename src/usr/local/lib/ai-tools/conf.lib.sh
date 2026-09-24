@@ -3,7 +3,7 @@
 # /usr/local/lib/ai-tools/conf.lib.sh
 # The one KEY=value grammar every ai-tools config file is read with, the trust predicate that decides whether a file may
 # be read at all, and what shares the grammar and so lives beside it: the dated config sidecars
-# (`<name>.<YYYYMMDD>[-N].{bak,shipped}`, whose stamp ai_tools_conf_sidecar_path is the single home of), the one
+# (`<name>.<YYYYMMDD>-<N>.{bak,shipped}`, whose stamp ai_tools_conf_sidecar_path is the single home of), the one
 # in-place write of a KEY=value file (ai_tools_conf_set_key), and every read AND write of allowed-projects.
 # The settings.json hook-declaration merge, which writes through the sidecars, is settings-merge.lib.sh. Sourced (never
 # executed) by operator.lib.sh, skip-dirs.lib.sh, providers.lib.sh, the launch wrapper, the CLI and the root helpers,
@@ -231,17 +231,18 @@ ai_tools_conf_list() {
 # An install that rewrites a config the operator owns leaves two kinds of copy behind, and they answer different
 # questions -- neither substitutes for the other:
 #
-#   <name>.<YYYYMMDD>.bak       what the operator HAD. The only thing that restores their
+#   <name>.<YYYYMMDD>-<N>.bak   what the operator HAD. The only thing that restores their
 #                               settings if a rewrite is valid but wrong, which no syntax check
 #                               catches. Written only when a file is about to change.
-#   <name>.<YYYYMMDD>.shipped   what they were SUPPOSED to get. Written when the merge could not
+#   <name>.<YYYYMMDD>-<N>.shipped  what they were SUPPOSED to get. Written when the merge could not
 #                               run, or when the file is one this project refuses to rewrite
 #                               unattended, so the hand merge has a source -- a host installed
 #                               from the RPM has no checkout to copy from.
 #
 # The date stamp makes them survive successive runs: each install adds a copy rather than overwriting the evidence
-# of the last. A same-day second copy takes a `-N` counter, so a .bak is never overwritten -- an operator who ran
-# the installer twice in a day is exactly the one who needs the first copy.
+# of the last. Every copy takes a `-N` counter, starting at 1, so a .bak is never overwritten -- an operator who ran
+# the installer twice in a day is exactly the one who needs the first copy -- and the day's copies sort in the order
+# they were made.
 #
 # The two kinds accumulate differently, because they record different things. A .bak records that a run replaced
 # the file, so each one is distinct evidence and every rewrite writes one. A .shipped records the baseline that was
@@ -252,21 +253,22 @@ ai_tools_conf_list() {
 # ai_tools_conf_sidecar_path <path> <kind> : print an UNUSED sidecar path for <path>. Returns 1
 #   without printing when the day's namespace is exhausted, so a caller never silently reuses a
 #   name. Pure except for the existence tests. Public because it is the single home of the
-#   `<path>.<YYYYMMDD>[-N].<kind>` convention: managed-assets.lib.sh stamps a replaced shipped
+#   `<path>.<YYYYMMDD>-<N>.<kind>` convention: managed-assets.lib.sh stamps a replaced shipped
 #   asset the same way this file stamps a replaced config, and <path> may be a directory there,
 #   while providers.lib.sh stamps a managed file an uninstall moved aside. The kind names the event
 #   that produced the copy -- `bak` beside a file a merge replaced, `retired` where the live path
 #   is gone -- so a reader tells the two recoveries apart by the name alone.
 ai_tools_conf_sidecar_path() {
-    local file="$1" kind="$2" stamp candidate index
+    local file="$1" kind="$2" stamp index taken=0
     stamp="$(date +%Y%m%d)" || return 1
-    candidate="${file}.${stamp}.${kind}"
-    [[ -e "${candidate}" ]] || { printf '%s' "${candidate}"; return 0; }
-    for (( index = 2; index < 100; index++ )); do
-        candidate="${file}.${stamp}-${index}.${kind}"
-        [[ -e "${candidate}" ]] || { printf '%s' "${candidate}"; return 0; }
+    # The next number is one past the highest the day already holds, so a copy made later never sorts before one made
+    # earlier. An unnumbered copy, the name an earlier release gave the day's first, counts as 1.
+    [[ -e "${file}.${stamp}.${kind}" ]] && taken=1
+    for (( index = 1; index < 100; index++ )); do
+        [[ -e "${file}.${stamp}-${index}.${kind}" ]] && taken="${index}"
     done
-    return 1
+    (( taken < 99 )) || return 1
+    printf '%s' "${file}.${stamp}-$(( taken + 1 )).${kind}"
 }
 
 # _ai_tools_conf_match_perms <target> <model> : give <target> the owner and mode of <model>, so a
