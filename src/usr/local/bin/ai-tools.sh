@@ -2995,7 +2995,7 @@ cmd_project_remove() {
     # "and two cleanup steps failed". So the check mark is reserved for a clean run, and a run with failures closes
     # by stating both facts and exits non-zero, which is also what lets a script tell the two apart.
     if (( ROOT_STEP_FAILURES )); then
-        warn MSG-S6V2 "removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run."
+        warn MSG-S6V2 "removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run"
         say  "  Each is named above with the command that completes it. Registry entries left"
         say  "  behind now point at a path that no longer exists; this lists every entry that"
         say  "  needs attention, across all your projects:"

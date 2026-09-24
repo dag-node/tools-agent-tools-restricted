@@ -2302,11 +2302,11 @@ do_install() {
         # The symlink is in place, so the timer starts with the manager at next boot. Say what is not running now
         # and what to check, rather than pointing at a nologin account.
         warn MSG-M7K6 "the systemd --user manager of ${SANDBOX_USER} did not come up -- the auto-update timer"
-        warn "  is enabled but not running, so toolchain updates wait for the next boot."
+        warn "  is enabled but not running, so toolchain updates wait for the next boot"
         warn "  Check:  sudo systemctl status user@${sandbox_uid}.service"
         warn "  Then:   sudo systemctl start user@${sandbox_uid}.service"
         warn "  A session launch needs that instance too (ai-tools-run wraps each session in a"
-        warn "  transient --user unit), so bring it up before the first claude run."
+        warn "  transient --user unit), so bring it up before the first claude run"
     fi
 
     log "reload systemd and enable ai-tools-handback.socket + ai-tools-relabel.path"

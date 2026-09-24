@@ -800,7 +800,7 @@ wire_dedup() {
     # sessions actually get, at the moment the wiring is offered.
     case "${login_shell}" in
         */bash|'') ;;
-        *) log "note: ${user}'s login shell is ${login_shell}, which reads its own init files rather than ${bashrc} or ${bashprof}."
+        *) log "note: ${user}'s login shell is ${login_shell}, which reads its own init files rather than ${bashrc} or ${bashprof}"
            log "      rank ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR} ahead of the nvm shims there too, so that typing ${launcher} reaches the ai-tools wrapper in that shell" ;;
     esac
 
@@ -1060,7 +1060,7 @@ _sel_enable_one() {
     _restore_group_static_labels
     log "group '${name}' enabled"
     log "re-run the SELinux bring-up loop (selinux/avc/) to catch any new denials from the"
-    log "expanded surface before relying on it under enforcing."
+    log "expanded surface before relying on it under enforcing"
 }
 
 sel_disable() {

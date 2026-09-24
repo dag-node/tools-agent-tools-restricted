@@ -949,7 +949,7 @@ main() {
     print_session_table "stop"
 
     if ! confirm_stop "${agent_count}" "${plumbing_count}"; then
-        say_notice MSG-J3U9 "Nothing was stopped."
+        say_notice MSG-J3U9 "Nothing was stopped"
         log_event notice \
             "${CALLER} declined the stop of ${agent_count} agent session(s) and ${plumbing_count} account unit(s) in ${scope} -- nothing stopped" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=declined"
