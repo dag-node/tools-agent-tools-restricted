@@ -473,7 +473,7 @@ surface **as the agent** and asserts none of it is agent-writable (catching the 
   side), so a report never guesses "shipped" over a file it could not read, nor `edited` over a path that does not hold
   any content. `ai_tools_managed_file_retire <live> <reference>` is the write beside them, the step a from-source
   uninstall takes over each pair: a file still byte-identical to its reference is removed, and every other state —
-  an edit, or a comparison that cannot be made — is moved aside as `<live>.<YYYYMMDD>.retired` and reported, so the only
+  an edit, or a comparison that cannot be made — is moved aside as `<live>.<YYYYMMDD>-<N>.retired` and reported, so the only
   copy of what a host configured survives the uninstall that no longer ships it. That is `rpm -e`'s treatment
   of an edited `%config(noreplace)` file, and moving rather than leaving is what keeps a live managed file from naming
   hook scripts the same uninstall removed. `tests/unit/providers.sh` drives the verdict, the reader and the write.

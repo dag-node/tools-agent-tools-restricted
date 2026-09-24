@@ -297,6 +297,36 @@ else
     fail "an earlier copy was not listed, or was removed: ${out}"
 fi
 
+# ── (E6) A copy identical to the file skips the treatments, and only its removal is left ──────────────────────
+reset_root
+mkdir -p "${ROOT}/etc/ai-tools/prompts"
+PROMPT="${ROOT}/etc/ai-tools/prompts/prompt.md"
+: > "${PROMPT}"; : > "${PROMPT}.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"identical to the package copy"* && "${out}" == *"sudo rm ${PROMPT}.rpmnew"* \
+      && "${out}" == *"nothing needs your attention"* && -f "${PROMPT}.rpmnew" ]]; then
+    pass "an identical copy is reported as such, offered for removal, and kept"
+else
+    fail "an identical copy was treated as a difference: ${out}"
+fi
+if [[ "${out}" == *meld* ]]; then
+    pass "a run that found a copy names meld for a side-by-side comparison"
+else
+    fail "the meld line is missing: ${out}"
+fi
+
+# ── (E7) Earlier copies are listed in the order they were made ───────────────────────────────────
+# An unnumbered copy is the name an earlier release gave the day's first, so it lists before that day's -2 and -3.
+reset_root
+printf 'OPERATORS="root"\n' > "${CONF}"
+for suffix in 20200105-3 20200105 20200103 20200105-2; do : > "${CONF}.${suffix}.shipped"; done
+listed="$(run_pu | grep -oE 'operator\.conf\.[0-9-]+\.shipped' | tr '\n' ' ')"
+if [[ "${listed}" == "operator.conf.20200103.shipped operator.conf.20200105.shipped operator.conf.20200105-2.shipped operator.conf.20200105-3.shipped " ]]; then
+    pass "a day's copies list in the order they were made, the unnumbered first"
+else
+    fail "copies listed out of order: ${listed}"
+fi
+
 # ── (F) The sudoers grant: shown, never adopted ──────────────────────────────────────────────
 reset_root
 printf '%%ai-ops ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/bin/ai-tools-run\n' > "${SUDOERS}"

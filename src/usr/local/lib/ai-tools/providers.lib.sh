@@ -328,7 +328,7 @@ ai_tools_managed_file_state() {
 #   uninstalled, keeping what the host made of it. Prints one word, and the sidecar path with it
 #   where one was written: `absent` (no file at <live>), `removed` (the live file is byte-identical
 #   to <reference>, so the shipped copy is all that is deleted), `kept <sidecar>` (every other state -- an
-#   edit, or a comparison that cannot be made -- moved aside as <live>.<YYYYMMDD>.retired, the
+#   edit, or a comparison that cannot be made -- moved aside as <live>.<YYYYMMDD>-<N>.retired, the
 #   token this tree gives a file moved rather than deleted, and the treatment rpm gives an edited
 #   %config(noreplace) file on erase). Moving rather than leaving is what keeps a live managed file
 #   from naming hooks this uninstall removed. When the move or the removal fails it

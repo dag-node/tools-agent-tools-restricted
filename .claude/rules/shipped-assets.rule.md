@@ -192,7 +192,7 @@ package's files first and removing the old package's only at the end of the tran
 the *previous* version's copy of an asset this version withdrew, and without the gate would report it against a file rpm
 is about to delete — or seed it, on a host whose live root lacks it — for the withdrawal pass to undo moments later.
 
-The asset is **moved, not deleted**, to `/opt/ai-tools/retired/<name>.<YYYYMMDD>.retired` — `ai_tools_conf_sidecar_path`
+The asset is **moved, not deleted**, to `/opt/ai-tools/retired/<name>.<YYYYMMDD>-<N>.retired` — `ai_tools_conf_sidecar_path`
 (`conf.lib.sh`) is the single home of that stamp, shared with the config sidecars, and the kind token names the event
 that produced the copy. Withdrawal is the one path with no prompt and no baseline, so it fails toward keeping: an asset
 that cannot be moved is left in place and reported rather than destroyed.

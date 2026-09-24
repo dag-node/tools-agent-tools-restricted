@@ -303,8 +303,8 @@ cfg="${TESTDIR}/sidecar.conf"
 printf 'ORIGINAL\n' > "${cfg}"; chown root:root "${cfg}"; chmod 640 "${cfg}"
 
 first_bak="$(ai_tools_conf_backup "${cfg}")"
-if [[ "${first_bak}" == "${cfg}.${stamp}.bak" && "$(cat "${first_bak}")" == ORIGINAL ]]; then
-    pass "a backup is date-stamped and copies the file verbatim"
+if [[ "${first_bak}" == "${cfg}.${stamp}-1.bak" && "$(cat "${first_bak}")" == ORIGINAL ]]; then
+    pass "a backup is date-stamped, numbered from 1, and copies the file verbatim"
 else
     fail "backup path/content wrong: ${first_bak}"
 fi
@@ -316,8 +316,8 @@ fi
 
 printf 'CHANGED\n' > "${cfg}"
 second_bak="$(ai_tools_conf_backup "${cfg}")"
-if [[ "${second_bak}" != "${first_bak}" && "$(cat "${first_bak}")" == ORIGINAL ]]; then
-    pass "a same-day second backup takes a new name and leaves the first intact"
+if [[ "${second_bak}" == "${cfg}.${stamp}-2.bak" && "$(cat "${first_bak}")" == ORIGINAL ]]; then
+    pass "a same-day second backup takes the next number and leaves the first intact"
 else
     fail "same-day backup collided: ${second_bak}"
 fi
@@ -327,7 +327,7 @@ fi
 baseline="${TESTDIR}/sidecar.shipped-src"
 printf 'SHIPPED\n' > "${baseline}"; chmod 666 "${baseline}"
 ref="$(ai_tools_conf_reference "${cfg}" "${baseline}")"
-if [[ "${ref}" == "${cfg}.${stamp}.shipped" && "$(perm "${ref}")" == 640 ]]; then
+if [[ "${ref}" == "${cfg}.${stamp}-1.shipped" && "$(perm "${ref}")" == 640 ]]; then
     pass "a reference copy is date-stamped and takes the deployed file's mode"
 else
     fail "reference path/mode wrong: ${ref} mode $(perm "${ref}" 2>/dev/null)"
