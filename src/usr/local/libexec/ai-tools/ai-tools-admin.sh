@@ -17,6 +17,7 @@
 #   sudo ai-tools-admin system bootstrap --agents codex    # ... enabling the named agent, unattended
 #   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
+#   sudo ai-tools-admin system post-upgrade --check        # report only, for cron: silent and exit 0 when clean
 #   sudo ai-tools-admin status                             # the host's health, read as root
 #   sudo ai-tools-admin dotnet bootstrap                   # a domain a provider package contributes
 #   ```
@@ -204,7 +205,7 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the t
     system bootstrap [--scope full]  provision the sandbox account and its toolchain
       --agents NAME[,NAME...]        enable the named agents instead of asking which one
     system entrypoints relabel       verify and relabel the agent entrypoints
-    system post-upgrade              reconcile the .rpmnew files an upgrade leaves
+    system post-upgrade [--check]    reconcile the .rpmnew files an upgrade leaves; --check only reports
   Health
     status                           this host's services, entrypoints and live labels
 EOF
@@ -1571,8 +1572,74 @@ _pu_sidecars() {
     printf '  each is yours to keep or remove -- no command reads one\n'
 }
 
+# postupgrade [--check]: reconcile the copies, or with --check list what needs attention without asking or writing.
+# Returns 0 when nothing is left to act on and 1 otherwise, the contract `status` offers, so a caller reads the outcome
+# from the exit status alone.
 postupgrade() {
-    [[ $# -eq 0 ]] || reject MSG-S9M6 "system post-upgrade: takes no arguments"
+    local check=0
+    case "${1-}" in
+        --check) check=1; shift ;;
+    esac
+    [[ $# -eq 0 ]] || reject MSG-S9M6 "system post-upgrade: takes no argument but --check"
+    if (( check )); then
+        _pu_check "${AI_TOOLS_POSTUPGRADE_ROOT:-}"
+        return
+    fi
+    _pu_report
+    (( _PU_ATTENTION == 0 ))
+}
+
+# _pu_check <root>: one line per finding on stdout, `<finding> TAB <path> TAB <detail>`, and nothing else -- no colour,
+# no heading, no line when the host is clean, so cron mails only a host that needs attention and a monitor splits
+# the line on a tab. A copy identical to its file, and the dated sidecars, are not findings. Returns 1 when it printed
+# a line. The findings are the ones ai-tools-admin(8) lists; each reads the same predicate the report does.
+_pu_check() {
+    local root="$1" file kind label scratch status key line findings=0
+    local -a new_keys=() entries=()
+    _pc() { printf '%s\t%s\t%s\n' "$1" "$2" "${3:--}"; findings=$(( findings + 1 )); }
+    while IFS='|' read -r file kind label; do
+        cmp -s "${file}" "${file}.rpmnew" && continue
+        case "${kind}" in
+        json)
+            if ! ai_tools_conf_require_jq 2>/dev/null; then _pc error "${file}" "jq is not installed"; continue; fi
+            scratch="$(mktemp -d)" || { _pc error "${file}" "no temporary directory"; continue; }
+            status=0
+            cp -p "${file}" "${scratch}/probe" && ai_tools_conf_merge_hook_declarations "${scratch}/probe" \
+                "${file}.rpmnew" >/dev/null 2>&1 || status=$?
+            rm -rf "${scratch}"
+            case "${status}" in
+            0)  for line in "${_ai_tools_conf_merge_added[@]}"; do _pc hook-missing "${file}" "${line}"; done
+                for line in "${_ai_tools_conf_merge_removed[@]}"; do _pc hook-repeated "${file}" "${line}"; done ;;
+            1)  _pc rpmnew-differs "${file}" "permission rules" ;;
+            *)  _pc error "${file}" "${_ai_tools_conf_merge_reason:-merge probe failed}" ;;
+            esac ;;
+        keyval)
+            if ai_tools_conf_new_keys new_keys "${file}" "${file}.rpmnew"; then
+                for key in "${new_keys[@]}"; do _pc option-unmentioned "${file}" "${key}"; done
+            fi
+            [[ "$(_pu_prose "${file}")" == "$(_pu_prose "${file}.rpmnew")" ]] \
+                || _pc rpmnew-differs "${file}" "comments" ;;
+        review)
+            _pc rpmnew-review "${file}" "sudoers grant" ;;
+        *)
+            _pc rpmnew-differs "${file}" ;;
+        esac
+    done < <(_pu_entries "${root}")
+
+    file="${root}/opt/ai-tools/.claude/settings.json"
+    if [[ -f "${file}" ]]; then
+        if line="$(ai_tools_conf_ask_gaps "${file}" "${root}" 2>/dev/null)"; then
+            [[ -n "${line}" ]] && mapfile -t entries <<< "${line}"
+            for line in "${entries[@]}"; do _pc ask-missing "${file}" "${line}"; done
+        else
+            _pc error "${file}" "ask entries not checked: jq is missing or the file is not valid JSON"
+        fi
+    fi
+    (( findings == 0 ))
+}
+
+# _pu_report: the reconciliation itself, one block per file with a copy waiting, then the closing lines.
+_pu_report() {
     local file kind label title found=0 attention_before copy
     local root="${AI_TOOLS_POSTUPGRADE_ROOT:-}"
     # Files whose copy still differs after their treatment, which is when a side-by-side comparison has something

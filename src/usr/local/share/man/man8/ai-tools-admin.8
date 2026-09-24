@@ -396,7 +396,7 @@ See
 and
 .BR ai-tools-operator.conf (5).
 .TP
-.B system post-upgrade
+.B system post-upgrade \fR[\fB\-\-check\fR]
 Reconcile the
 .I FILE.rpmnew
 copies an upgrade leaves beside the configuration files this stack owns.
@@ -442,6 +442,43 @@ to add; it does not write that entry.
 Idempotent, and leaves every file as it is when no
 .I .rpmnew
 file is waiting.
+Exits 0 when nothing is left to act on and 1 otherwise, so a copy identical to
+its file counts as clean.
+.RS
+.TP
+.B \-\-check
+List what needs attention without asking or writing, one line per finding:
+.IP
+.I FINDING
+TAB
+.I PATH
+TAB
+.I DETAIL
+.IP
+with no heading, colour, or other text, and no line at all when nothing needs
+attention, so a
+.BR cron (8)
+job mails only a host that needs you.
+.I FINDING
+is one of
+.B hook\-missing
+and
+.B hook\-repeated
+(a hook declaration the merge would add or remove),
+.B ask\-missing
+(a
+.B permissions.ask
+entry the file lacks),
+.B option\-unmentioned
+(an option the copy documents that the file does not mention),
+.B rpmnew\-differs
+(a difference to carry over by hand),
+.B rpmnew\-review
+(the sudoers grant changed), and
+.B error
+(a check that could not run, with the reason as
+.IR DETAIL ).
+.RE
 .TP
 .B status
 Report this host's health: the installed version, whether the toolchain is
@@ -640,6 +677,15 @@ Reconcile the configuration files an upgrade left behind:
 .RS 4
 .EX
 sudo ai\-tools\-admin system post\-upgrade
+.EE
+.RE
+.PP
+Check each morning from root's crontab, with a mail only when a file needs
+you:
+.PP
+.RS 4
+.EX
+0 7 * * * /usr/sbin/ai\-tools\-admin system post\-upgrade \-\-check
 .EE
 .RE
 .PP

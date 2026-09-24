@@ -363,6 +363,52 @@ else
     fail "a current file was reported as missing an ask entry: ${out}"
 fi
 
+# ── (E9) --check: one tab-separated line per finding, nothing when clean, and no write ───────────────────────
+# It is what cron runs, so a clean host must print nothing at all and exit 0, a finding must be one line a monitor
+# splits on a tab, and a merge the interactive run would make must be reported without being made.
+run_check() {
+    local rc=0
+    out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check \
+        < /dev/null 2>&1)" || rc=$?
+    check_rc="${rc}"
+}
+reset_root
+cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
+mkdir -p "${ROOT}/etc/ai-tools/prompts"
+: > "${ROOT}/etc/ai-tools/prompts/prompt.md"; : > "${ROOT}/etc/ai-tools/prompts/prompt.md.rpmnew"
+run_check
+if [[ -z "${out}" && "${check_rc}" == 0 ]]; then
+    pass "a clean host, identical copy included, prints nothing and exits 0 under --check"
+else
+    fail "a clean host was reported under --check (exit ${check_rc}): ${out}"
+fi
+
+reset_root
+jq 'del(.hooks.PreToolUse) | del(.permissions.ask)' "${SHIPPED_SETTINGS}" > "${SETTINGS}"
+cp "${SHIPPED_SETTINGS}" "${SETTINGS}.rpmnew"
+mkdir -p "${ROOT}/usr/local/lib/ai-tools/typesafe"
+: > "${ROOT}/usr/local/lib/ai-tools/typesafe/decide.mjs"
+cp "${SETTINGS}" "${TESTDIR}/pre-check.json"
+shipped_cmd="$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "${SHIPPED_SETTINGS}")"
+run_check
+if [[ "${check_rc}" == 1 ]] && grep -qxF "$(printf 'hook-missing\t%s\tPreToolUse: %s' "${SETTINGS}" "${shipped_cmd}")" \
+        <<< "${out}" && grep -qxF "$(printf 'ask-missing\t%s\tBash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)' \
+        "${SETTINGS}")" <<< "${out}"; then
+    pass "each finding is one tab-separated line naming the finding, the file and the detail, and the run exits 1"
+else
+    fail "--check did not report the pending merge and the missing ask entry as findings (exit ${check_rc}): ${out}"
+fi
+if ! grep -qvP '^[a-z-]+\t/[^\t]+\t[^\t]+$' <<< "${out}"; then
+    pass "every line --check prints has the three-field shape and no other text"
+else
+    fail "--check printed a line outside the finding shape: ${out}"
+fi
+if cmp -s "${SETTINGS}" "${TESTDIR}/pre-check.json" && [[ "$(sidecars "${SETTINGS}")" == 0 ]]; then
+    pass "--check writes nothing: the file is byte-identical and gains no backup"
+else
+    fail "--check changed settings.json or left a sidecar"
+fi
+
 # ── (F) The sudoers grant: shown, never adopted ──────────────────────────────────────────────
 reset_root
 printf '%%ai-ops ALL=(ai-tools:ai-tools) NOPASSWD: /opt/ai-tools/bin/ai-tools-run\n' > "${SUDOERS}"

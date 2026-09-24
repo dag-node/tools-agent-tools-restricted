@@ -574,7 +574,8 @@ nor the copy's content printed, the removal command offered only where the file 
 and carries the same comment prose (a re-wrapped comment is the same prose, a reworded one is not), a copy dated
 before the installation named as such, a copy byte-identical to its file reported as such with its removal offered,
 earlier `.bak`/`.shipped` copies listed in the order they were made and left in place, and an ask entry the kept
-`settings.json` lacks named with no `.rpmnew` waiting and the file left as written — plus the property every case
+`settings.json` lacks named with no `.rpmnew` waiting and the file left as written, and `--check` held to one
+tab-separated line per finding, no output and exit 0 on a clean host, and no write — plus the property every case
 shares: the `.rpmnew` survives the run and is named as the operator's to delete, the case where the merge leaves the two
 files matching included. Every run is under `setsid`, so each prompt takes its own default: that is the unattended
 behaviour and what makes an interactive command reproducible. The agent-side half of the pair is already deployed:
