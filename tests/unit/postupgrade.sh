@@ -486,6 +486,57 @@ else
     fail "the sudoers copy was dropped or shown without its verification step"
 fi
 
+# ── (H) Provider lists an earlier release wrote bare: rewritten on every run ─────────────────
+# The one rewrite the command makes to operator.conf, with no .rpmnew waiting: `--check` names each key the run would
+# rewrite and each name it cannot, and writes nothing; the run rewrites the mappable key after a backup and leaves
+# the other as written, named; a second `--check` names only what is left. The installed names come from fixture
+# directories through the resolver's root-only hooks.
+reset_root
+mkdir -p "${TESTDIR}/kinds/agents.d" "${TESTDIR}/kinds/integrations.d" "${TESTDIR}/kinds/filters.d"
+touch "${TESTDIR}/kinds/agents.d/acme.conf" "${TESTDIR}/kinds/filters.d/base.rules"
+printf '%s\n' '# host options' 'OPERATORS=[op]' 'AI_TOOLS_AGENTS=[acme]' 'AI_TOOLS_INTEGRATIONS=[nosuch]' \
+    'AI_TOOLS_FILTERS=[core]' > "${CONF}"
+chmod 0644 "${CONF}"; cp "${CONF}" "${TESTDIR}/pre.operator.conf"
+kinds_env=(AI_TOOLS_AGENTS_DIR="${TESTDIR}/kinds/agents.d" AI_TOOLS_INTEGRATIONS_DIR="${TESTDIR}/kinds/integrations.d"
+           AI_TOOLS_FILTERS_DIR="${TESTDIR}/kinds/filters.d")
+check_rc=0
+out="$(setsid env "${kinds_env[@]}" AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check \
+    < /dev/null 2>&1)" || check_rc=$?
+if [[ "${check_rc}" == 1 ]] \
+        && has_finding MSG-P5K4 "${CONF}" list-unmigrated 'AI_TOOLS_AGENTS: [acme] -> [agent-acme]' \
+        && has_finding MSG-S3D8 "${CONF}" list-unmigratable 'AI_TOOLS_INTEGRATIONS: nosuch' \
+        && has_finding MSG-P5K4 "${CONF}" list-unmigrated 'AI_TOOLS_FILTERS: [core] -> [filter-base]'; then
+    pass "--check names each list it would rewrite and each name it cannot, and exits 1"
+else
+    fail "--check over bare provider lists (exit ${check_rc}): ${out}"
+fi
+if cmp -s "${CONF}" "${TESTDIR}/pre.operator.conf" && [[ "$(sidecars "${CONF}")" == 0 ]]; then
+    pass "--check leaves the bare lists as written and takes no backup"
+else
+    fail "--check changed operator.conf or left a sidecar"
+fi
+out="$(setsid env "${kinds_env[@]}" AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade \
+    < /dev/null 2>&1 || true)"
+if [[ "$(tr '\n' '|' < "${CONF}")" == '# host options|OPERATORS=[op]|AI_TOOLS_AGENTS=[agent-acme]|AI_TOOLS_INTEGRATIONS=[nosuch]|AI_TOOLS_FILTERS=[filter-base]|' ]]; then
+    pass "the run rewrites each mappable list and leaves the unmappable one as written, with no .rpmnew waiting"
+else
+    fail "the run left operator.conf as '$(tr '\n' '|' < "${CONF}")'"
+fi
+if [[ "$(sidecars "${CONF}")" == 1 && "${out}" == *"[agent-acme]"* && "${out}" == *"nosuch"* ]]; then
+    pass "the run takes one backup and reports the rewrite and the name it left"
+else
+    fail "the run's backup or report: $(sidecars "${CONF}") sidecar(s), output ${out}"
+fi
+check_rc=0
+out="$(setsid env "${kinds_env[@]}" AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check \
+    < /dev/null 2>&1)" || check_rc=$?
+if [[ "${check_rc}" == 1 && "$(grep -c . <<< "${out}")" == 1 ]] \
+        && has_finding MSG-S3D8 "${CONF}" list-unmigratable 'AI_TOOLS_INTEGRATIONS: nosuch'; then
+    pass "after the run --check names only the name left to edit by hand"
+else
+    fail "--check after the run (exit ${check_rc}): ${out}"
+fi
+
 # ── (G) Dispatch ─────────────────────────────────────────────────────────────────────────────
 reset_root
 if out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade extra \

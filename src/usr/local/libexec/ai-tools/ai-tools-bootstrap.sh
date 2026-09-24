@@ -12,12 +12,17 @@
 # AI_TOOLS_AGENTS (providers.lib.sh). No agent ships enabled: every agent manifest is default_enable=no,
 # so with that key absent this command ASKS which one installed agent to enable (choose_agents), writes the line,
 # and provisions what it wrote -- ahead of the first network step, so an unattended run that chose none installs Node
-# alone. `--agents NAME[,NAME...]` is the unattended form of the same choice, checked against the installed manifests
-# before anything is written. A present key is the operator's declaration and is not asked about again; one naming more
-# than one agent is answered with a notice, since every agent named shares one sandbox account. With no manifests
-# deployed yet it provisions Node alone; a re-run after an ai-tools-agents-* package is installed asks. The package
-# of an agent that is installed and NOT in that set is residue: it is removed next, still ahead of the network step,
-# with its launcher link, since every launch refuses while it is in the toolchain (remove_residue).
+# alone. `--agents NAME[,NAME...]` is the unattended form of the same choice, each NAME written agent-<name> or bare,
+# checked against the installed manifests before anything is written. A present key is the operator's declaration and is
+# not asked about again; one naming more than one agent is answered with a notice, since every agent named shares one
+# sandbox account. With no manifests deployed yet it provisions Node alone; a re-run after an ai-tools-agents-* package
+# is installed asks. An empty set the configuration did not ask for -- an invalid or untrusted line, names none
+# of which resolved -- ends the run as a fault before anything is installed or removed (refuse_unresolved_agents).
+# The package of an agent that is installed and NOT in that set is residue: it is removed next, still ahead
+# of the network step, with its launcher link, since every launch refuses while it is in the toolchain (remove_residue).
+#
+# Before any of that it rewrites the provider list items an earlier release wrote bare (migrate_provider_lists),
+# the rewrite `system post-upgrade` makes, so the choice reads the line this release reads.
 #
 # Idempotent: an existing account, nvm install, or Node version is reused, not rebuilt.
 #
@@ -168,14 +173,23 @@ configure_git_identity() {
     log "verify the result in ${gc}"
 }
 
-# write_agents <name>... : set AI_TOOLS_AGENTS in operator.conf to the names given, through the shared writer,
-# so the line replaced is the one every reader of the file matches. The file this writes is the one the resolver reads
-# (AI_TOOLS_OPERATOR_CONF), so what the rest of this run provisions is what was just written. A write that does not read
-# back ends the run: the provision that followed would install the agents of a line the operator did not get.
+# write_agents <name>... : set AI_TOOLS_AGENTS in operator.conf to the bare agent names given, each written with its
+# kind prefix (agent-<name>, ai_tools_conf_kind_item), through the shared writer, so the line replaced is the one every
+# reader of the file matches. The file this writes is the one the resolver reads (AI_TOOLS_OPERATOR_CONF),
+# so what the rest of this run provisions is what was just written. A write that does not read back ends the run:
+# the provision that followed would install the agents of a line the operator did not get.
 write_agents() {
+    local name item
+    local -a items=()
+    for name in "$@"; do
+        item="$(ai_tools_conf_kind_item AI_TOOLS_AGENTS "${name}")" || { items=(); break; }
+        items+=("${item}")
+    done
     install -d -o root -g root -m 755 "${AI_TOOLS_OPERATOR_CONF%/*}"
-    ai_tools_conf_set_list "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS "$@" \
-        || die MSG-J3E6 "could not write AI_TOOLS_AGENTS (${*}) into ${AI_TOOLS_OPERATOR_CONF} -- set the line by hand, then re-run: sudo ai-tools-admin system bootstrap"
+    if (( ${#items[@]} != $# )) \
+            || ! ai_tools_conf_set_list "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS "${items[@]}"; then
+        die MSG-J3E6 "could not write AI_TOOLS_AGENTS (${*}) into ${AI_TOOLS_OPERATOR_CONF} -- set the line by hand, then re-run: sudo ai-tools-admin system bootstrap"
+    fi
 }
 
 # shared_account_notice <name>... : say, once per run, what naming more than one agent shares. Every agent runs
@@ -223,7 +237,7 @@ choose_agents() {
         # `[a,` is a glob that can match a file in the current directory, so a bracket is refused by name rather than
         # read as part of an agent name.
         if [[ "${requested}" == *[\[\]]* ]]; then
-            die MSG-Y7B6 "--agents takes names separated by commas, without brackets: --agents claude-code,codex -- nothing was written"
+            die MSG-Y7B6 "--agents takes names separated by commas, without brackets: --agents agent-claude-code,agent-codex -- nothing was written"
         fi
         # The shared list grammar (commas and whitespace); split inline where the resolver, and so conf.lib.sh, did not
         # load, since every name is then unknown and the refusal that follows has to name them.
@@ -232,6 +246,13 @@ choose_agents() {
         else
             read -ra requested_names <<< "${requested//,/ }"
         fi
+        # Both spellings are accepted, the bare name an earlier release documented and the agent-<name> form
+        # operator.conf holds; each is checked, and written, as its bare manifest name.
+        local agent_prefix index
+        agent_prefix="$(ai_tools_conf_kind_prefix AI_TOOLS_AGENTS 2>/dev/null || true)"
+        for index in "${!requested_names[@]}"; do
+            [[ -n "${agent_prefix}" ]] && requested_names[index]="${requested_names[index]#"${agent_prefix}"}"
+        done
         if (( ${#requested_names[@]} == 0 )); then
             # The dispatcher's refusal for a valueless `--agents`, met here again for a value that does not name
             # an agent.
@@ -259,7 +280,7 @@ choose_agents() {
     gate="$(ai_tools_provider_gate AI_TOOLS_AGENTS)"
     case "${gate}" in
         allowlist)
-            ai_tools_conf_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
+            ai_tools_conf_kind_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
             (( ${#requested_names[@]} > 1 )) && shared_account_notice "${requested_names[@]}"
             return 0 ;;
         untrusted)
@@ -286,6 +307,46 @@ choose_agents() {
     name="${installed_names[$(( sel - 1 ))]}"
     write_agents "${name}"
     log "enabled ${name} in ${AI_TOOLS_OPERATOR_CONF}"
+}
+
+# migrate_provider_lists -- rewrite the provider list items operator.conf holds in an earlier release's bare form
+# (ai_tools_conf_kind_migrate, providers.lib.sh -- the rewrite `system post-upgrade` makes), ahead of choose_agents,
+# so the choice reads a migrated line and `--agents` writes into one. A key holding a name no installed manifest or rule
+# set matches stays as written and is named under the code `system post-upgrade --check` reports it
+# with; an AI_TOOLS_AGENTS left that way reads as no agent, which refuse_unresolved_agents then ends the run on. Gated
+# on the resolver having loaded.
+migrate_provider_lists() {
+    local verdict key old new
+    (( _providers_loaded )) && declare -F ai_tools_conf_kind_migrate >/dev/null 2>&1 || return 0
+    [[ -f "${AI_TOOLS_OPERATOR_CONF}" ]] || return 0
+    while IFS=$'\t' read -r verdict key old new; do
+        case "${verdict}" in
+            backup)    log "provider names: the file as it was is saved as ${key}" ;;
+            rewritten) log "provider names: ${key} [${old// /, }] -> [${new// /, }] in ${AI_TOOLS_OPERATOR_CONF}" ;;
+            blocked)   printf '%s\n' MSG-S3D8 >&2
+                       warn "${key} in ${AI_TOOLS_OPERATOR_CONF} holds ${old}, which names nothing installed -- the line is left as written and enables nothing; edit it by hand" ;;
+            failed)    warn "${key} in ${AI_TOOLS_OPERATOR_CONF} was not rewritten: ${new} -- the line is left as written" ;;
+        esac
+    done < <(ai_tools_conf_kind_migrate "${AI_TOOLS_OPERATOR_CONF}")
+    return 0
+}
+
+# refuse_unresolved_agents -- end the run when the agent set choose_agents left is empty and the configuration did not
+# ask for that: ai_tools_agents_empty_verdict classifies it, and anything but `none` -- an invalid AI_TOOLS_AGENTS,
+# an untrusted operator.conf or manifest, a list none of whose names resolved -- ends the run here, before the residue
+# removal and the network step, the same fault nvm-update ends on. Provisioning Node alone would report a host
+# as provisioned whose agents are neither maintained nor launchable; the residue readers already print no residue
+# for such a set (toolchain.lib.sh), so this is the run saying why, not the guard against the removal. Gated
+# on the resolver having loaded, as choose_agents is.
+refuse_unresolved_agents() {
+    local name verdict="" reason=""
+    (( _providers_loaded )) || return 0
+    while IFS=$'\t' read -r name _ _; do
+        [[ -n "${name}" ]] && return 0
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    IFS=$'\t' read -r verdict reason < <(ai_tools_agents_empty_verdict 2>/dev/null) || true
+    [[ "${verdict}" == none ]] && return 0
+    die MSG-M9G5 "no agent resolved: ${reason:-the classification printed nothing} -- no package was installed or removed; correct it, then re-run: sudo ai-tools-admin system bootstrap"
 }
 
 # remove_residue -- remove every installed, not enabled agent's package from the sandbox toolchain, and its stable
@@ -539,7 +600,9 @@ fi
 # Which agents this run provisions, decided and written before the first network step: a name given on the command line,
 # the line already in operator.conf, or the operator's answer to the menu. An unknown `--agents` name ends the run here,
 # with no package installed and no line written.
+migrate_provider_lists
 choose_agents "${REQUESTED_AGENTS}"
+refuse_unresolved_agents
 
 # What the toolchain holds for an agent that is installed and not in the set just decided is residue, removed here --
 # ahead of the network step, so an offline host still cleans up -- and every launch refuses until it is gone.

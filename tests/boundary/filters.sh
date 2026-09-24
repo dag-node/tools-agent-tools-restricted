@@ -51,7 +51,7 @@ not_writable /usr/local/lib/ai-tools/filters.d \
     "plant a rule set that rewrites commands as it chooses"
 
 # The shipped rule sets themselves.
-not_writable /usr/local/lib/ai-tools/filters.d/core.rules \
+not_writable /usr/local/lib/ai-tools/filters.d/base.rules \
     "rewrite the base rules every session applies"
 not_writable /usr/local/lib/ai-tools/filters.d/dotnet.rules \
     "rewrite the rules applied to every dotnet command"

@@ -24,14 +24,20 @@ section "Handback bridge + entrypoint (regression guards)"
 
 # (1) claude.exe must carry ai_tools_exec_t, or the unconfined_t/init_t -> ai_tools_t transition never fires
 # and ai-tools-run's preflight refuses to launch. It is a HARD LINK to the platform-package ELF, so a bulk restorecon
-# can demote the shared inode to lib_t; install-selinux.sh relabels it LAST. Only meaningful when the ai_tools module is
-# installed.
+# can demote the shared inode to lib_t; the entrypoint relabel restores it last, for every copy its pattern matches.
+# Only meaningful when the ai_tools module is installed.
 #
 # The module supplies the TYPE; the rule that maps this path to it comes from the claude-code manifest and is registered
 # by ai-tools-relabel-agent (see providers.rule.md). So the two conditions are checked separately: no module is
 # a legitimate skip (the SELinux layer is optional), but a loaded module whose file-contexts do not map the entrypoint
 # is the broken state ai-tools-run fail-closes on, and it FAILS here rather than skipping quietly.
-_exe="$(ls -1 /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe 2>/dev/null | head -1)"
+#
+# Every copy is checked, the one the stable launcher resolves to first: that is the file a launch execs, and the rest
+# are copies in version directories the updater has not pruned yet -- kept while a live session still runs from one --
+# which the relabel covers too, so a copy left on another type is a relabel that did not reach its whole pattern.
+_launched="$(realpath -e /opt/ai-tools/bin/claude 2>/dev/null || true)"
+mapfile -t _exes < <(find /opt/ai-tools/.nvm/versions/node -xdev -path '*/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe' \
+    -type f 2>/dev/null | sort)
 _module_loaded=no
 # The listing is captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE, which this
 # file's pipefail reports as "module absent" -- see the note on ai_tools_selinux_group_loaded (selinux-groups.lib.sh).
@@ -40,16 +46,27 @@ if command -v semodule >/dev/null 2>&1; then
     _modules="$(semodule -l 2>/dev/null || true)"
 fi
 grep -qE '^ai_tools([[:space:]]|$)' <<<"${_modules}" && _module_loaded=yes
-if [[ -z "${_exe}" ]]; then
+if (( ${#_exes[@]} == 0 )); then
     skip "claude.exe entrypoint label" "no claude.exe under the nvm tree"
 elif [[ "${_module_loaded}" != yes ]] || ! command -v matchpathcon >/dev/null 2>&1; then
     skip "claude.exe entrypoint label" "ai_tools SELinux module not installed"
-elif [[ "$(matchpathcon -n "${_exe}" 2>/dev/null)" != *ai_tools_exec_t* ]]; then
-    fail "no file-context maps ${_exe} to ai_tools_exec_t -- the claude-code entrypoint rule is not registered, so ai-tools-run refuses to launch. Fix: sudo ai-tools-admin system entrypoints relabel"
-elif [[ "$(stat -c '%C' "${_exe}" 2>/dev/null)" == *:ai_tools_exec_t:* ]]; then
-    pass "claude.exe labelled ai_tools_exec_t (entrypoint transition fires)"
 else
-    fail "claude.exe is '$(stat -c '%C' "${_exe}" 2>/dev/null)', NOT ai_tools_exec_t -- ai-tools-run will refuse to launch. Fix: install-selinux.sh relabel"
+    if [[ "${_launched}" != */claude.exe ]]; then
+        fail "/opt/ai-tools/bin/claude resolves to '${_launched:-nothing}', not to a claude.exe -- the launch has no labelled entrypoint to transition on. Fix: sudo ai-tools-admin system entrypoints relabel"
+    else
+        _ordered=("${_launched}")
+        for _exe in "${_exes[@]}"; do [[ "${_exe}" == "${_launched}" ]] || _ordered+=("${_exe}"); done
+        for _exe in "${_ordered[@]}"; do
+            if [[ "${_exe}" == "${_launched}" ]]; then _which="the launched claude.exe"; else _which="the kept copy ${_exe}"; fi
+            if [[ "$(matchpathcon -n "${_exe}" 2>/dev/null)" != *ai_tools_exec_t* ]]; then
+                fail "no file-context maps ${_exe} (${_which}) to ai_tools_exec_t -- the claude-code entrypoint rule is not registered. Fix: sudo ai-tools-admin system entrypoints relabel"
+            elif [[ "$(stat -c '%C' "${_exe}" 2>/dev/null)" == *:ai_tools_exec_t:* ]]; then
+                pass "${_which} is labelled ai_tools_exec_t (${_exe})"
+            else
+                fail "${_which} is '$(stat -c '%C' "${_exe}" 2>/dev/null)', NOT ai_tools_exec_t (${_exe}) -- a launch from it is refused. Fix: sudo ai-tools-admin system entrypoints relabel"
+            fi
+        done
+    fi
 fi
 
 # (1a) The handback daemon binary must carry ai_tools_handback_exec_t, or the socket-activated service transitions

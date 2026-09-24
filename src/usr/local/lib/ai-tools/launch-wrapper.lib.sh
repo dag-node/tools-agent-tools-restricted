@@ -140,7 +140,8 @@ ai_tools_launch_init() {
 
     # shellcheck source=SCRIPTDIR/conf.lib.sh
     if ! source "${CONF_LIB}" 2>/dev/null \
-            || ! declare -F ai_tools_conf_path_entry >/dev/null 2>&1; then
+            || ! declare -F ai_tools_conf_path_entry >/dev/null 2>&1 \
+            || ! declare -F ai_tools_conf_kind_unmigrated >/dev/null 2>&1; then
         command -v logger >/dev/null 2>&1 \
             && logger -t "${name}" -p user.err \
                 "required config library ${CONF_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
@@ -184,6 +185,23 @@ ai_tools_launch_gate_operator() {
                 "         sudo ai-tools-admin operators add ${user}"
         fi
     fi
+}
+
+# ai_tools_launch_gate_lists -- refuse every launch while operator.conf holds a provider list item an earlier release
+# wrote without its kind prefix (ai_tools_conf_kind_unmigrated, conf.lib.sh). The list reader reads such a list
+# as empty, so an unmigrated AI_TOOLS_AGENTS would reach the launch as "no agent is enabled", which names the wrong
+# remedy, and an unmigrated AI_TOOLS_INTEGRATIONS or AI_TOOLS_FILTERS would start the session without its integrations
+# or its filters. ai-tools-run refuses under the same code, and this gate is the diagnostician that answers before sudo,
+# naming each item and the command that rewrites it.
+ai_tools_launch_gate_lists() {
+    local conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}" key item joined=""
+    while IFS=$'\t' read -r key item; do
+        [[ -n "${key}" ]] && joined+="${joined:+, }${key} ${item}"
+    done < <(ai_tools_conf_kind_unmigrated "${conf}")
+    [[ -n "${joined}" ]] || return 0
+    ai_tools_launch_die MSG-V3Q5 "no session starts while operator.conf names a provider without its kind prefix: ${joined}" \
+        "       an earlier release wrote these names bare; rewrite them with:" \
+        "         sudo ai-tools-admin system post-upgrade"
 }
 
 # ai_tools_launch_gate_residue -- refuse every launch while an agent the host installed but did not enable still has its
@@ -519,6 +537,7 @@ ai_tools_launch_claim_guard() {
 # reorder or omit a gate.
 ai_tools_launch_gates() {
     ai_tools_launch_gate_operator
+    ai_tools_launch_gate_lists
     ai_tools_launch_gate_residue
     ai_tools_launch_resolve_executable
     ai_tools_launch_print_and_exit "$@"

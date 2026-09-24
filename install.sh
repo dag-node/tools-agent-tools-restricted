@@ -883,7 +883,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/ancestor-config.lib.sh
     _chk /usr/local/lib/ai-tools/toolchain.lib.sh
     _chk /usr/local/lib/ai-tools/filters.lib.sh
-    _chk /usr/local/lib/ai-tools/filters.d/core.rules
+    _chk /usr/local/lib/ai-tools/filters.d/base.rules
     _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
     _chk /usr/local/lib/ai-tools/services.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
@@ -1310,11 +1310,18 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.lib.sh" \
         /usr/local/lib/ai-tools/filters.lib.sh
-    log "/usr/local/lib/ai-tools/filters.d/core.rules"
+    log "/usr/local/lib/ai-tools/filters.d/base.rules"
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/filters.d
     install -o root -g root -m 644 \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/core.rules" \
-        /usr/local/lib/ai-tools/filters.d/core.rules
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/base.rules" \
+        /usr/local/lib/ai-tools/filters.d/base.rules
+    # A from-source install of an earlier release placed the base's set as core.rules, which this run does not
+    # overwrite; every installed set loads while AI_TOOLS_FILTERS is absent, so the superseded file is removed. (The RPM
+    # drops it on upgrade from its own %files.)
+    if [[ -f /usr/local/lib/ai-tools/filters.d/core.rules ]]; then
+        log "removing superseded /usr/local/lib/ai-tools/filters.d/core.rules"
+        rm -f /usr/local/lib/ai-tools/filters.d/core.rules
+    fi
 
     # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by ai-tools-admin (to load
     # a staged group) and selinux/install-selinux.sh (to compile one) so the two never disagree on the group set.
@@ -1398,7 +1405,7 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/dotnet.conf" \
         /usr/local/lib/ai-tools/integrations.d/dotnet.conf
     # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET layer rather than
-    # in the base's core.rules.
+    # in the base's base.rules.
     log "/usr/local/lib/ai-tools/filters.d/dotnet.rules"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/dotnet.rules" \
@@ -2325,7 +2332,18 @@ do_install() {
     offer_selinux
 
     section "Install complete -- next steps"
-    if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
+    # A provider list an earlier release wrote with bare names refuses every session start until `system post-upgrade`
+    # rewrites it. This installer keeps operator.conf as the operator left it, so it names the command first,
+    # in the colour of a step the host still owes; the predicate is the one the reader refuses by (conf.lib.sh).
+    local unmigrated
+    unmigrated="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh && ai_tools_conf_kind_unmigrated /etc/ai-tools/operator.conf' \
+        2>/dev/null || true)"
+    if [[ -n "${unmigrated}" ]]; then
+        say "  ${C_YEL}rewrite the provider names in /etc/ai-tools/operator.conf -- no session starts until then:${C_RST}"
+        say "    ${C_BOLD}sudo ai-tools-admin system post-upgrade${C_RST}"
+        say ""
+    fi
+    if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 && -z "${unmigrated}" ]]; then
         say "  provision the sandbox toolchain (nvm + Node + claude) -- required before launch:"
         say "    ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"
         say ""
@@ -2350,10 +2368,17 @@ do_install() {
     # a non-interactive install skips all of it (a surprising, heavy default), leaving `install.sh check-perms`
     # and `tests/run.sh` available on demand.
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
+        # An unmigrated operator.conf does not enable any agent, so no launcher was linked and the toolchain reads
+        # as unprovisioned when it is not; MSG-N7S2 names the step that host owes instead.
+        if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 && -z "${unmigrated}" ]]; then
             warn MSG-A7X8 "toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail"
             warn "until it is; for a full pass run sudo ai-tools-admin system bootstrap first, then re-test"
             warn "with: sudo ${SCRIPT_DIR}/tests/run.sh all"
+        fi
+        if [[ -n "${unmigrated}" ]]; then
+            warn MSG-N7S2 "operator.conf names providers without their kind prefix -- every launch refuses and the"
+            warn "wrapper, launch and symlink checks fail until it is rewritten; run sudo ai-tools-admin system"
+            warn "post-upgrade first, then re-test with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
         # The section header prints only when the suite runs, so a skip avoids an empty "Verify" heading
         # in the transcript.

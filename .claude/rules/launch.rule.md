@@ -39,19 +39,26 @@ gates are what the security model rests on, and every one of them refuses toward
 1. **Operator gate first** — a caller not in the `ai-ops` operators group is refused before anything else happens,
    with a framed `msg.lib` message naming the `ai-tools-admin operators add` fix rather than leaking the raw `sudo`
    denial the `%ai-ops` rule would otherwise produce.
-2. **Residue gate** — a launch is refused (`MSG-H4E2`) while any agent the host installed but did not enable still has
+2. **Provider-list gate** — a launch is refused (`MSG-V3Q5`) while `operator.conf` holds a provider list item written
+   without its kind prefix, the spelling an earlier release wrote (`ai_tools_conf_kind_unmigrated`,
+   [providers](providers.rule.md)). The list reader reads such a list as empty, so without the gate an unmigrated
+   `AI_TOOLS_AGENTS` would be refused with the wrong remedy and an unmigrated `AI_TOOLS_INTEGRATIONS`
+   or `AI_TOOLS_FILTERS` would start a session without them; the refusal names each item and `system post-upgrade`,
+   which rewrites them. `ai-tools-run` refuses under the same code, the shim the boundary and this gate
+   the diagnostician.
+3. **Residue gate** — a launch is refused (`MSG-H4E2`) while any agent the host installed but did not enable still has
    its stable launcher link, the operator-side evidence that its package is in the sandbox toolchain
    (`ai_tools_agent_residue_links`, [updater](updater.rule.md)); the refusal names the agent and the provisioning run
    that removes the package, and a toolchain library that will not load refuses too (`MSG-U9K8`). It refuses every
    agent's launch, the enabled one included, and does not remove a package: `ai-tools-run` reads the tree itself
    and refuses under the same code, which makes the shim the boundary and this gate the diagnostician that answers
    before `sudo`.
-3. **Protected-paths backstop, then the allowlist**, both on the `realpath -e`-canonicalized CWD. A session starts only
+4. **Protected-paths backstop, then the allowlist**, both on the `realpath -e`-canonicalized CWD. A session starts only
    inside an allowed project and never in a CWD carved out by a `!` exclusion. Every allowlist entry is canonicalized
    before matching and the match is exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle a CWD past
    the gate and a sibling sharing a name prefix does not match. `ai-tools-chown` parses the same list the same way,
    so the launch gate and the ownership handback agree on what is in-project.
-4. **Binary resolution to the versioned shape** — the stable symlink `/opt/ai-tools/bin/<launcher>` is resolved one
+5. **Binary resolution to the versioned shape** — the stable symlink `/opt/ai-tools/bin/<launcher>` is resolved one
    `readlink` hop and the target validated as an absolute, `..`-free path of the shape
    `${AI_TOOLS_NVM_DIR}/versions/node/*/bin/<launcher>`, then exported as `AI_TOOLS_AGENT_EXEC`. This validation is
    an integrity check against a misconfigured or compromised `ai-tools-launcher-symlink` root helper, not a guard
@@ -59,10 +66,10 @@ gates are what the security model rests on, and every one of them refuses toward
    re-validates it regardless, so a wrapper is never the only thing checking. The directory the link is read from is
    `${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}`, the hook [tests](tests.rule.md) lists: a value there moves which link
    is read and not what it may resolve to, since the shape check and the shim's re-validation both stand.
-5. **Print-and-exit short-circuit** — `--version`/`-v`/`--help`/`-h` as the *sole* argument skips the CWD gates
+6. **Print-and-exit short-circuit** — `--version`/`-v`/`--help`/`-h` as the *sole* argument skips the CWD gates
    (backstop, allowlist, claim): such a run stays out of the working tree, so no project grant is implied. It still
    launches the same validated binary confined as `SANDBOX_USER`, with the sandbox home as `WorkingDirectory`.
-6. **`exec sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/ai-tools-run`**, carrying exactly
+7. **`exec sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/ai-tools-run`**, carrying exactly
    `AI_TOOLS_AGENT_EXEC` and `AI_TOOLS_PROJECT_DIR` through `env_keep`.
 
 A wrapper **detects and delegates; it never repairs.** Ownership, label, and `safe.directory` gaps are reported

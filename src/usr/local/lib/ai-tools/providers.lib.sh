@@ -3,10 +3,12 @@
 # /usr/local/lib/ai-tools/providers.lib.sh
 # Resolve which sandboxed providers are enabled and how to provision each: the seam that keeps the toolchain and launch
 # layers provider-agnostic. A provider's details live in the manifest its own package ships
-# (/usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, <name> being the token an operator writes
-# in operator.conf's AI_TOOLS_AGENTS / AI_TOOLS_INTEGRATIONS), and that key gates which are enabled. The manifest fields
-# and what reads each, the fail-closed enablement rules, and the trust predicate every input and its directory pass are
-# in providers.rule.md; the values one agent declares are that manifest's own comments.
+# (/usr/local/lib/ai-tools/{agents,integrations}.d/<name>.conf, an operator writing <name> with its kind prefix
+# in operator.conf's AI_TOOLS_AGENTS / AI_TOOLS_INTEGRATIONS: agent-<name>, integration-<name>), and that key gates
+# which are enabled. The list reader strips the prefix (ai_tools_conf_kind_list, conf.lib.sh), so every name this file
+# prints is the bare manifest name. The manifest fields and what reads each, the fail-closed enablement rules,
+# and the trust predicate every input and its directory pass are in providers.rule.md; the values one agent declares are
+# that manifest's own comments.
 #
 # Manifests and operator.conf are DATA, parsed through conf.lib.sh and never sourced, so a malformed or tampered file
 # yields a bad value rather than code running in the scripts that read it. conf.lib.sh is therefore a hard dependency:
@@ -49,7 +51,8 @@ _ai_tools_provider_warn() {
 if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_untrusted_reason >/dev/null 2>&1; then
+        || ! declare -F ai_tools_conf_untrusted_reason >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf_kind_list >/dev/null 2>&1; then
     _ai_tools_provider_warn MSG-P4M9 \
         "providers.lib.sh: conf.lib.sh missing or incomplete -- no providers resolved"
     return 1
@@ -66,6 +69,9 @@ _AI_TOOLS_PROVIDERS_LIB_LOADED=1
 : "${AI_TOOLS_AGENTS_DIR:=/usr/local/lib/ai-tools/agents.d}"
 : "${AI_TOOLS_INTEGRATIONS_DIR:=/usr/local/lib/ai-tools/integrations.d}"
 : "${AI_TOOLS_OPERATOR_CONF:=/etc/ai-tools/operator.conf}"
+# The rule-set directory, read here only by the kind-prefix migration, which checks a filter name against it; the same
+# default filters.lib.sh holds.
+: "${AI_TOOLS_FILTERS_DIR:=/usr/local/lib/ai-tools/filters.d}"
 
 # ai_tools_provider_is_enabled <name> <default_enable> <allowlist_active> <allowlist>
 #   Pure enablement verdict for either provider kind, no I/O -- unit-tested over the truth table.
@@ -120,9 +126,10 @@ ai_tools_provider_gate() {
 #   empty, is the allowlist); "no" means absent, unreadable, or UNTRUSTED -- all of which fall
 #   back to the baseline, so a config the agent could have written cannot enable anything its own
 #   package did not already mark default_enable=yes. An untrusted config is reported here rather
-#   than in the pure gate, which stays side-effect free. requested_list holds the names joined by
-#   a space, read through the file-list grammar once here, so an invalid list is reported once per
-#   read and arrives as the empty allowlist -- no provider of that kind enabled.
+#   than in the pure gate, which stays side-effect free. requested_list holds the bare names joined
+#   by a space, read through the kind-prefixed list reader once here, so an invalid list -- one the
+#   grammar refuses, or one holding an item without its kind prefix -- is reported once per read
+#   and arrives as the empty allowlist: no provider of that kind enabled.
 _ai_tools_provider_requested() {
     local conf_key="$1"
     local -a requested_names=()
@@ -132,7 +139,7 @@ _ai_tools_provider_requested() {
             _ai_tools_provider_warn MSG-C4F9 "ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") -- using the default-enabled providers only" ;;
         allowlist)
             requested_active=yes
-            ai_tools_conf_list requested_names "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}" || true
+            ai_tools_conf_kind_list requested_names "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}" || true
             local IFS=' '
             requested_list="${requested_names[*]-}" ;;
     esac
@@ -166,18 +173,36 @@ _ai_tools_skip_agent() {
     _ai_tools_provider_warn MSG-M3A5 "skipping agent $1: $2 $(ai_tools_conf_untrusted_reason "$2")"
 }
 
+# _ai_tools_provider_package <conf-key> <name> : print the package that ships <name>'s manifest, by
+#   the naming the packages follow -- ai-tools-agents-<name>-restricted for an agent,
+#   ai-tools-integration-<name> for an integration (the naming convention providers.rule.md states
+#   for the flat namespace). Derived rather than looked up, since a manifest that is not installed
+#   cannot be asked; a derivation that misses costs the operator a dnf "no match". Returns 1 for
+#   a key outside the two provider kinds.
+_ai_tools_provider_package() {
+    case "$1" in
+        AI_TOOLS_AGENTS)       printf 'ai-tools-agents-%s-restricted' "$2" ;;
+        AI_TOOLS_INTEGRATIONS) printf 'ai-tools-integration-%s' "$2" ;;
+        *)                     return 1 ;;
+    esac
+}
+
 # _ai_tools_warn_uninstalled <manifest-dir> <conf-key> <active> <list> : report each
-#   explicitly-requested (allowlisted) name that has no <name>.conf in the manifest dir -- never
-#   guessed into a package name. The baseline case (no allowlist) can only enable manifests that
-#   exist, so it has no name to warn about.
+#   explicitly-requested (allowlisted) name that has no <name>.conf in the manifest dir, as the
+#   operator writes it, with the package that ships it (_ai_tools_provider_package). The name
+#   does not enable anything until that package is installed. The baseline case (no allowlist)
+#   can only enable manifests that exist, so it has no name to warn about.
 _ai_tools_warn_uninstalled() {
     local dir="$1" conf_key="$2" active="$3" list="$4"
     [[ "${active}" == yes ]] || return 0
     local -a requested_names=(); ai_tools_conf_split requested_names "${list}"
-    local requested_name
+    local requested_name item package
     for requested_name in "${requested_names[@]}"; do
-        [[ -f "${dir}/${requested_name}.conf" ]] || \
-            _ai_tools_provider_warn MSG-X8P4 "enabled with nothing installed: $(printf '%q' "${requested_name}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} -- install its ai-tools package or remove it; skipping"
+        [[ -f "${dir}/${requested_name}.conf" ]] && continue
+        item="$(ai_tools_conf_kind_item "${conf_key}" "${requested_name}" 2>/dev/null)" || item="${requested_name}"
+        if package="$(_ai_tools_provider_package "${conf_key}" "${requested_name}")"; then
+            _ai_tools_provider_warn MSG-X8P4 "enabled with nothing installed: $(printf '%q' "${item}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} -- install it with: sudo dnf install ${package}, or remove it from the line; skipping"
+        fi
     done
     return 0
 }
@@ -247,9 +272,12 @@ ai_tools_agents_empty_verdict() {
         return 0
     fi
     if [[ "${gate}" == allowlist ]]; then
-        ai_tools_conf_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
-        if (( _ai_tools_conf_list_invalid )); then
-            printf 'fault\tAI_TOOLS_AGENTS in %s is not a valid list, so it enables no agent -- write it as [name, name]\n' \
+        ai_tools_conf_kind_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
+        if (( _ai_tools_conf_list_unprefixed )); then
+            printf 'fault\tAI_TOOLS_AGENTS in %s holds a name not written as agent-<name>, so it enables no agent -- rewrite it: sudo ai-tools-admin system post-upgrade\n' \
+                "${AI_TOOLS_OPERATOR_CONF}"
+        elif (( _ai_tools_conf_list_invalid )); then
+            printf 'fault\tAI_TOOLS_AGENTS in %s is not a valid list, so it enables no agent -- write it as [agent-<name>, agent-<name>]\n' \
                 "${AI_TOOLS_OPERATOR_CONF}"
         elif (( ${#requested_names[@]} > 0 )); then
             printf -v joined '%s ' "${requested_names[@]}"
@@ -268,6 +296,109 @@ ai_tools_agents_empty_verdict() {
             "${installed}" "${AI_TOOLS_AGENTS_DIR}"
     fi
     return 0
+}
+
+# ── The kind-prefix migration: the one rewrite of an earlier release's list values ───────────
+# An earlier release wrote the items of AI_TOOLS_AGENTS, AI_TOOLS_INTEGRATIONS and AI_TOOLS_FILTERS as bare names,
+# which ai_tools_conf_kind_list refuses (conf.lib.sh). `ai-tools-admin system post-upgrade` and `system bootstrap`
+# rewrite them through ai_tools_conf_kind_migrate, a key at a time and only when every item the key holds maps
+# onto a name this host installs, so a rewritten line always reads back whole, and a line holding a name no installed
+# manifest or rule set matches stays as written and is named for the operator. The base package's %post and install.sh
+# detect the same state through ai_tools_conf_kind_unmigrated and name that command; neither rewrites a config file.
+
+# _ai_tools_conf_kind_migrate_item <KEY> <item> : print the spelling <item> takes in <KEY> -- itself
+#   when it already carries the key's prefix around a plain name; the prefix and the name when the
+#   bare name is installed as that kind (agents.d/<name>.conf, integrations.d/<name>.conf,
+#   filters.d/<name>.rules), `core` in AI_TOOLS_FILTERS naming the base set, base.rules. Returns 1,
+#   printing nothing, for any other item: a name not installed, another kind's prefix, a name
+#   outside the manifest-basename charset.
+_ai_tools_conf_kind_migrate_item() {
+    local key="$1" item="$2" prefix name
+    prefix="$(ai_tools_conf_kind_prefix "${key}")" || return 1
+    if [[ "${item}" == "${prefix}"* ]]; then
+        name="${item#"${prefix}"}"
+    else
+        name="${item}"
+        [[ "${key}" == AI_TOOLS_FILTERS && "${name}" == core ]] && name=base
+        case "${key}" in
+            AI_TOOLS_AGENTS)       [[ -f "${AI_TOOLS_AGENTS_DIR}/${name}.conf" ]] || return 1 ;;
+            AI_TOOLS_INTEGRATIONS) [[ -f "${AI_TOOLS_INTEGRATIONS_DIR}/${name}.conf" ]] || return 1 ;;
+            AI_TOOLS_FILTERS)      [[ -f "${AI_TOOLS_FILTERS_DIR}/${name}.rules" ]] || return 1 ;;
+            *)                     return 1 ;;
+        esac
+    fi
+    [[ "${name}" =~ ^[A-Za-z0-9._-]+$ && "${name}" != *..* ]] || return 1
+    printf '%s%s' "${prefix}" "${name}"
+}
+
+# ai_tools_conf_kind_plan <file> : read-only -- print what ai_tools_conf_kind_migrate would do, one
+#   line per key holding an unmigrated item (ai_tools_conf_kind_unmigrated), in table order:
+#     migrate<TAB>KEY<TAB>old items<TAB>new items   every item maps, items space-joined
+#     blocked<TAB>KEY<TAB>item                      one line per item that does not, and no
+#                                                   migrate line for that key
+#   Prints nothing for a migrated, missing or untrusted file.
+ai_tools_conf_kind_plan() {
+    local file="$1" key item new IFS=$' \t\n'
+    local -a items=() mapped=() blocked=()
+    local -A planned=()
+    while IFS=$'\t' read -r key _; do
+        [[ -n "${key}" && -z "${planned[${key}]:-}" ]] || continue
+        planned["${key}"]=1
+        ai_tools_conf_list items "${file}" "${key}" 2>/dev/null || continue
+        mapped=(); blocked=()
+        for item in "${items[@]}"; do
+            if new="$(_ai_tools_conf_kind_migrate_item "${key}" "${item}")"; then
+                mapped+=("${new}")
+            else
+                blocked+=("${item}")
+            fi
+        done
+        if (( ${#blocked[@]} > 0 )); then
+            for item in "${blocked[@]}"; do printf 'blocked\t%s\t%s\n' "${key}" "${item}"; done
+        else
+            printf 'migrate\t%s\t%s\t%s\n' "${key}" "${items[*]}" "${mapped[*]}"
+        fi
+    done < <(ai_tools_conf_kind_unmigrated "${file}")
+    return 0
+}
+
+# ai_tools_conf_kind_migrate <file> : rewrite each key ai_tools_conf_kind_plan maps, through
+#   ai_tools_conf_set_list, after one dated .bak of <file> (ai_tools_conf_backup) taken before
+#   the first write. Prints one line per outcome, in plan order:
+#     backup<TAB>path                               the copy of the file as it was
+#     rewritten<TAB>KEY<TAB>old items<TAB>new items the key now holds the new items
+#     blocked<TAB>KEY<TAB>item                      left as written: the item maps onto no installed name
+#     failed<TAB>KEY<TAB>old items<TAB>reason       left as written: the backup or the write failed
+#   Returns 0 when every key read back migrated, 1 when a line was blocked or failed. A key is
+#   rewritten whole or not at all, so the file never holds a half-migrated list.
+ai_tools_conf_kind_migrate() {
+    local file="$1" verdict key old new backup="" backup_failed=0 rc=0 IFS=$' \t\n'
+    local -a new_items=()
+    while IFS=$'\t' read -r verdict key old new; do
+        case "${verdict}" in
+            blocked)
+                printf 'blocked\t%s\t%s\n' "${key}" "${old}"; rc=1 ;;
+            migrate)
+                if [[ -z "${backup}" ]] && (( ! backup_failed )); then
+                    if backup="$(ai_tools_conf_backup "${file}")"; then
+                        printf 'backup\t%s\n' "${backup}"
+                    else
+                        backup=""; backup_failed=1
+                    fi
+                fi
+                if (( backup_failed )); then
+                    printf 'failed\t%s\t%s\t%s\n' "${key}" "${old}" "no backup of ${file} could be written"; rc=1
+                    continue
+                fi
+                read -ra new_items <<< "${new}"
+                if ai_tools_conf_set_list "${file}" "${key}" "${new_items[@]}"; then
+                    printf 'rewritten\t%s\t%s\t%s\n' "${key}" "${old}" "${new}"
+                else
+                    printf 'failed\t%s\t%s\t%s\n' "${key}" "${old}" "the line was not written, or did not read back"; rc=1
+                fi ;;
+        esac
+    done < <(ai_tools_conf_kind_plan "${file}")
+    return "${rc}"
 }
 
 # _ai_tools_manifest_field <manifest-dir> <name> <key> : print one field of a trusted manifest in

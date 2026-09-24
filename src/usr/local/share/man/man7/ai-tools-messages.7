@@ -441,6 +441,10 @@ rpmnew\-differs
 WARNING.
 could not seed ${file}
 .TP
+.B MSG-P5K4
+WARNING.
+list\-unmigrated
+.TP
 .B MSG-P9K2
 WARNING.
 config not seeded for ${user}, which stays enrolled \-\- without allowed\-projects in ~/.config/ai\-tools it cannot start a session or claim a project
@@ -476,6 +480,10 @@ asset\-outdated
 .B MSG-R7U6
 WARNING.
 no home directory on this host for ${user}; skipping the config seed
+.TP
+.B MSG-S3D8
+WARNING.
+list\-unmigratable
 .TP
 .B MSG-S3E9
 ERROR.
@@ -901,6 +909,10 @@ operator ${user} who types ${launcher} would run ${winner}, which is an agent ou
 ERROR.
 \-\-agents names an agent with no installed manifest: ${unknown[*]} (installed: ${installed_names[*]:\-none}) \-\- install its ai\-tools\-agents\-* package, then re\-run; nothing was written
 .TP
+.B MSG-M9G5
+ERROR.
+no agent resolved: ${reason:\-the classification printed nothing} \-\- no package was installed or removed; correct it, then re\-run: sudo ai\-tools\-admin system bootstrap
+.TP
 .B MSG-N8U6
 WARNING.
 could not write ${key}=${answer} into ${conf} \-\- set the line by hand
@@ -939,7 +951,7 @@ run as root (sudo)
 .TP
 .B MSG-Y7B6
 ERROR.
-\-\-agents takes names separated by commas, without brackets: \-\-agents claude\-code,codex \-\- nothing was written
+\-\-agents takes names separated by commas, without brackets: \-\-agents agent\-claude\-code,agent\-codex \-\- nothing was written
 .SS ai-tools-chown
 .TP
 .B MSG-A6D8
@@ -1398,6 +1410,10 @@ switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no valu
 .B MSG-D5N5
 WARNING.
 invalid list, read as the empty list \-\- ${label} (${reason}): ${value}; write it as [a, b]
+.TP
+.B MSG-X6F2
+WARNING.
+invalid list, read as the empty list \-\- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai\-tools\-admin system post\-upgrade
 .SS install-selinux.sh
 .TP
 .B MSG-A5N2
@@ -1569,6 +1585,10 @@ the systemd \-\-user manager of ${SANDBOX_USER} did not come up \-\- the auto\-u
 ERROR.
 sudoers syntax check failed
 .TP
+.B MSG-N7S2
+WARNING.
+operator.conf names providers without their kind prefix \-\- every launch refuses and the
+.TP
 .B MSG-P2N3
 WARNING.
 restorecon not found \-\- skipping SELinux context restoration
@@ -1726,6 +1746,10 @@ cannot load the launch safety library \-\- refusing to start
 ERROR.
 cannot load the toolchain library \-\- refusing to start
 .TP
+.B MSG-V3Q5
+ERROR.
+no session starts while operator.conf names a provider without its kind prefix: ${joined}
+.TP
 .B MSG-W2P3
 ERROR.
 excluded by '!' rule in approved projects list: $(pwd)
@@ -1790,7 +1814,7 @@ could not retire the managed file ${live} \-\- leaving it as it is
 .TP
 .B MSG-X8P4
 WARNING.
-enabled with nothing installed: $(printf '%q' "${requested_name}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} \-\- install its ai\-tools package or remove it; skipping
+enabled with nothing installed: $(printf '%q' "${item}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} \-\- install it with: sudo dnf install ${package}, or remove it from the line; skipping
 .SS safe-paths.lib.sh
 .TP
 .B MSG-Q6H3

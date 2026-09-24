@@ -205,6 +205,90 @@ done
 # refuses one carrying a bracket by name, so the splitter reading them would hide that refusal.
 check_split "the argument splitter leaves brackets in the items" "[a|b]|" "[a, b]"
 
+# --- ai_tools_conf_kind_list: a provider list item carries its kind --------------------------------------------------
+# Each key in the kind table takes items written <prefix><name> and hands its caller the bare names. An item without
+# its key's prefix -- the bare name an earlier release wrote, another kind's prefix, the prefix alone, a traversal after
+# it -- makes the whole list read as empty under MSG-X6F2, the less-access reading; a list the grammar refuses keeps
+# its own code; an absent key returns 1 with the caller's array untouched. Rows: <KEY> <line> <expected>, where
+# the expected value is the items joined by `|`, INVALID:<code>, or ABSENT.
+kind_conf="${TESTDIR}/kind.conf"
+while IFS=$'\t' read -r key line expected; do
+    printf '%s\n' "${line}" > "${kind_conf}"
+    said="$( IFS=$'\n\t'; target=(default); rc=0
+             ai_tools_conf_kind_list target "${kind_conf}" "${key}" 2>&1 >/dev/null || rc=$?
+             joined=""; for item in "${target[@]}"; do joined+="${item}|"; done
+             printf '\nITEMS=%s\nRC=%s\nINVALID=%s\n' "${joined}" "${rc}" "${_ai_tools_conf_list_invalid}" )"
+    got="$(sed -n 's/^ITEMS=//p' <<< "${said}")"; rc="$(sed -n 's/^RC=//p' <<< "${said}")"
+    invalid="$(sed -n 's/^INVALID=//p' <<< "${said}")"
+    case "${expected}" in
+        ABSENT)    [[ "${rc}" == 1 && "${got}" == "default|" ]] ;;
+        INVALID:*) [[ "${rc}" == 0 && -z "${got}" && "${invalid}" == 1 ]] && grep -qx "${expected#INVALID:}" <<< "${said}" ;;
+        *)         [[ "${rc}" == 0 && "${got}" == "${expected}" && "${invalid}" == 0 ]] && ! grep -q '^MSG-' <<< "${said}" ;;
+    esac && pass "kind list ${line} (${key}) reads as ${expected}" \
+         || fail "kind list ${line} (${key}): expected ${expected}, got items '${got}' rc=${rc} invalid=${invalid} (${said//$'\n'/ })"
+done <<'ROWS'
+AI_TOOLS_AGENTS	AI_TOOLS_AGENTS=[agent-claude-code, agent-codex]	claude-code|codex|
+AI_TOOLS_AGENTS	AI_TOOLS_AGENTS="agent-claude-code agent-codex"	claude-code|codex|
+AI_TOOLS_INTEGRATIONS	AI_TOOLS_INTEGRATIONS=[integration-dotnet]	dotnet|
+AI_TOOLS_FILTERS	AI_TOOLS_FILTERS=[filter-dotnet, filter-a.b_c]	dotnet|a.b_c|
+AI_TOOLS_AGENTS	AI_TOOLS_AGENTS=[]
+AI_TOOLS_AGENTS	OPERATORS=[x]	ABSENT
+AI_TOOLS_AGENTS	AI_TOOLS_AGENTS=[claude-code]	INVALID:MSG-X6F2
+AI_TOOLS_AGENTS	AI_TOOLS_AGENTS=[agent-claude-code, codex]	INVALID:MSG-X6F2
+AI_TOOLS_AGENTS	AI_TOOLS_AGENTS=[integration-dotnet]	INVALID:MSG-X6F2
+AI_TOOLS_INTEGRATIONS	AI_TOOLS_INTEGRATIONS=[filter-dotnet]	INVALID:MSG-X6F2
+AI_TOOLS_FILTERS	AI_TOOLS_FILTERS=[core, dotnet]	INVALID:MSG-X6F2
+AI_TOOLS_AGENTS	AI_TOOLS_AGENTS=[agent-]	INVALID:MSG-X6F2
+AI_TOOLS_AGENTS	AI_TOOLS_AGENTS=agent-..	INVALID:MSG-X6F2
+AI_TOOLS_AGENTS	AI_TOOLS_AGENTS=[agent-claude-code	INVALID:MSG-D5N5
+ROWS
+if ai_tools_conf_kind_list target "${kind_conf}" OPERATORS 2>/dev/null; then
+    fail "ai_tools_conf_kind_list accepted a key outside the kind table"
+else
+    pass "ai_tools_conf_kind_list refuses a key outside the kind table"
+fi
+
+# ai_tools_conf_kind_item is the writer's side: a bare name gains the prefix, a prefixed one is kept, and a name that is
+# not a plain name once prefixed, or a key outside the table, prints nothing. Rows: <KEY> <name> <expected|REFUSED>.
+while IFS=$'\t' read -r key name expected; do
+    got="$(ai_tools_conf_kind_item "${key}" "${name}")" && rc=0 || rc=$?
+    if [[ "${expected}" == REFUSED ]]; then
+        [[ "${rc}" != 0 && -z "${got}" ]]
+    else
+        [[ "${rc}" == 0 && "${got}" == "${expected}" ]]
+    fi && pass "kind item ${key} ${name} -> ${expected}" || fail "kind item ${key} ${name}: got '${got}' rc=${rc}, expected ${expected}"
+done <<'ROWS'
+AI_TOOLS_AGENTS	codex	agent-codex
+AI_TOOLS_AGENTS	agent-codex	agent-codex
+AI_TOOLS_FILTERS	dotnet	filter-dotnet
+AI_TOOLS_AGENTS	../x	REFUSED
+AI_TOOLS_AGENTS	a b	REFUSED
+OPERATORS	x	REFUSED
+ROWS
+
+# ai_tools_conf_kind_unmigrated is the one detection predicate: it prints every item without its key's prefix, keyed,
+# and prints nothing for a clean file, a list the grammar refuses, or a file the trust predicate refuses. The listing
+# half needs a root-owned fixture, so it is driven where this runs as root; unprivileged, the fixture is untrusted
+# and prints nothing either way, which is asserted as the refusal direction.
+printf '%s\n' 'AI_TOOLS_AGENTS=[claude-code, agent-codex]' 'AI_TOOLS_INTEGRATIONS=[integration-dotnet]' \
+    'AI_TOOLS_FILTERS=[core, filter-dotnet]' 'OPERATORS=[x]' > "${kind_conf}"
+chmod 0644 "${kind_conf}"
+unmigrated="$(ai_tools_conf_kind_unmigrated "${kind_conf}")"
+if ai_tools_conf_is_trusted "${kind_conf}"; then
+    [[ "${unmigrated}" == $'AI_TOOLS_AGENTS\tclaude-code\nAI_TOOLS_FILTERS\tcore' ]] \
+        && pass "the unmigrated items are listed by key, in table order" \
+        || fail "unmigrated items: got '${unmigrated//$'\n'/|}'"
+    printf '%s\n' 'AI_TOOLS_AGENTS=[agent-claude-code' 'AI_TOOLS_FILTERS=[filter-dotnet]' > "${kind_conf}"
+    [[ -z "$(ai_tools_conf_kind_unmigrated "${kind_conf}")" ]] \
+        && pass "a migrated file and a list the grammar refuses list no unmigrated item" \
+        || fail "a migrated file listed unmigrated items: $(ai_tools_conf_kind_unmigrated "${kind_conf}")"
+    chmod 0666 "${kind_conf}"
+    printf 'AI_TOOLS_AGENTS=[claude-code]\n' > "${kind_conf}"
+fi
+[[ -z "$(ai_tools_conf_kind_unmigrated "${kind_conf}")" ]] \
+    && pass "an untrusted file lists no unmigrated item (the trust refusal reports it)" \
+    || fail "an untrusted file listed unmigrated items"
+
 # --- ai_tools_conf_set_list: writes the bracketed form in place and reads it back ------------------------------------
 list_conf="${TESTDIR}/set-list.conf"
 printf '# header\n#K=[]\nOTHER=kept\n' > "${list_conf}"
@@ -879,6 +963,22 @@ EOF
         pass "an existing live key is replaced, not duplicated (the indented example stays prose)"
     else
         fail "set_key over a live key: rc ${rc}, $(grep -c 'AI_TOOLS_AGENTS=' "${sk}") mention(s), value '$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS || true)'"
+    fi
+    # A live line an operator wrote after the template's commented default is the one a reader takes, so it is the one
+    # replaced: rewriting the commented default instead would leave the later line winning the read.
+    printf '%s\n' '#K=""' 'OTHER=1' 'K="old"' > "${sk}.below"
+    rc=0; ai_tools_conf_set_key "${sk}.below" K "new" || rc=$?
+    if [[ "${rc}" -eq 0 && "$(tr '\n' '|' < "${sk}.below")" == '#K=""|OTHER=1|K="new"|' ]]; then
+        pass "a live line below a commented default is the one replaced, and the default stays commented"
+    else
+        fail "set_key over a live line below a commented default: rc ${rc}, file '$(tr '\n' '|' < "${sk}.below")'"
+    fi
+    printf '%s\n' 'K="a"' 'K="b"' > "${sk}.twice"
+    rc=0; ai_tools_conf_set_key "${sk}.twice" K "c" || rc=$?
+    if [[ "${rc}" -eq 0 && "$(tr '\n' '|' < "${sk}.twice")" == 'K="a"|K="c"|' ]]; then
+        pass "of two live lines the last, the one a reader takes, is replaced"
+    else
+        fail "set_key over a repeated key: rc ${rc}, file '$(tr '\n' '|' < "${sk}.twice")'"
     fi
     rc=0; ai_tools_conf_set_key "${sk}" OPERATORS "op two" || rc=$?
     if [[ "${rc}" -eq 0 && "$(sed -n 2p "${sk}")" == 'OPERATORS="op two"' ]]; then

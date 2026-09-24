@@ -1,4 +1,4 @@
-# /usr/local/lib/ai-tools/filters.d/core.rules
+# /usr/local/lib/ai-tools/filters.d/base.rules
 # The base's own token-saving command rules (shipped by ai-tools-base). Parsed, never sourced, by
 # /usr/local/lib/ai-tools/filters.lib.sh, which carries the grammar and the safety rules; this
 # file carries only the per-command judgement.

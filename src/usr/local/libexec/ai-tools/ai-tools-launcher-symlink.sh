@@ -15,8 +15,9 @@
 #
 # `--remove <stable-launcher-path>` is the second form: it removes /opt/ai-tools/bin/<launcher>, and only for a launcher
 # an INSTALLED manifest claims whose agent is NOT enabled -- the link of a package the updater has just removed
-# as residue (toolchain.lib.sh). The enabled set cannot be narrowed from the sandbox side by this route, and an unknown
-# name is refused, so the links it can remove are exactly those the launch already refuses on.
+# as residue (toolchain.lib.sh), and not while the enabled set cannot be read. The enabled set cannot be narrowed
+# from the sandbox side by this route, and an unknown name is refused, so the links it can remove are exactly those
+# the launch already refuses on.
 #
 # /opt/ai-tools/bin is locked (0551 root:ai-tools), so this root helper is the ONLY way the sandbox updater can move
 # or remove a launcher symlink; it validates its argument strictly, because the caller is the agent-reachable handback
@@ -85,27 +86,38 @@ readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
 if ! source "${PROVIDERS_LIB}" 2>/dev/null \
         || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
-        || ! declare -F ai_tools_installed_agents >/dev/null 2>&1; then
+        || ! declare -F ai_tools_installed_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_agents_empty_verdict >/dev/null 2>&1; then
     err MSG-R6K3 "cannot resolve the enabled agents (${PROVIDERS_LIB}) -- refusing to change ${LINK}"
 fi
 agent_name=""
+enabled_count=0
 while IFS=$'\t' read -r manifest_agent _ manifest_launcher; do
+    [[ -n "${manifest_agent}" ]] && enabled_count=$(( enabled_count + 1 ))
     [[ "${manifest_launcher}" == "${LAUNCHER}" ]] && agent_name="${manifest_agent}"
 done < <(ai_tools_enabled_agents 2>/dev/null)
 
 # The removal form. The link may go only for a launcher an installed manifest claims whose agent the enabled set does
 # not carry: an enabled agent's link is what its every launch resolves through, and a name no manifest claims is not
-# this helper's to reason about. The removal is what makes the operator's read (the link) agree with the sandbox's (the
-# tree) once the updater has removed the package; a link already absent is the wanted state, and a path that is not
-# a symlink is not something this helper wrote.
+# this helper's to reason about. An empty enabled set counts only where the configuration asks for no agent (the `none`
+# verdict): under a fault -- an invalid AI_TOOLS_AGENTS, an untrusted operator.conf -- the declared set is unknown,
+# and reading it as empty would make every installed agent's link removable. The removal is what makes the operator's
+# read (the link) agree with the sandbox's (the tree) once the updater has removed the package; a link already absent is
+# the wanted state, and a path that is not a symlink is not something this helper wrote.
 if [[ "${MODE}" == remove ]]; then
     installed_agent=""
     while IFS=$'\t' read -r manifest_agent _ manifest_launcher; do
         [[ "${manifest_launcher}" == "${LAUNCHER}" ]] && installed_agent="${manifest_agent}"
     done < <(ai_tools_installed_agents 2>/dev/null)
+    empty_verdict=none; empty_reason=""
+    if (( enabled_count == 0 )); then
+        IFS=$'\t' read -r empty_verdict empty_reason < <(ai_tools_agents_empty_verdict 2>/dev/null) || true
+    fi
     remove_refusal=""
     if [[ -n "${agent_name}" ]]; then
         remove_refusal="${agent_name} is enabled, so its launcher link stays"
+    elif [[ "${empty_verdict}" != none ]]; then
+        remove_refusal="the enabled agent set cannot be read (${empty_reason:-its classification printed nothing})"
     elif [[ -z "${installed_agent}" ]]; then
         remove_refusal="no installed agent manifest claims the launcher \"${LAUNCHER}\""
     elif [[ -e "${LINK}" && ! -L "${LINK}" ]]; then

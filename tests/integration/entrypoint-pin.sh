@@ -95,7 +95,7 @@ display_name=Pin Probe
 entrypoint_fcontext=/opt/ai-tools/\\.nvm/versions/node/[^/]+/lib/node_modules/@test/pinprobe/bin/pinprobe
 default_enable=yes
 EOF
-printf 'AI_TOOLS_AGENTS=pinprobe\n' > "${TESTDIR}/operator.conf"
+printf 'AI_TOOLS_AGENTS=agent-pinprobe\n' > "${TESTDIR}/operator.conf"
 chmod 0644 "${agents_dir}/pinprobe.conf" "${TESTDIR}/operator.conf"
 
 # The SELinux half, switched off at the probe that decides it: relabel.lib.sh reads `getenforce`, and `Disabled` is

@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/conf.lib.sh
 # The one KEY=value grammar every ai-tools config file is read with, the trust predicate that decides whether a file may
-# be read at all, and what shares the grammar and so lives beside it: the dated config sidecars
+# be read at all, and what shares the grammar and so lives beside it: the kind prefix a provider list item carries
+# (ai_tools_conf_kind_list, which filters.lib.sh reads as well as providers.lib.sh), the dated config sidecars
 # (`<name>.<YYYYMMDD>-<N>.{bak,shipped}`, whose stamp ai_tools_conf_sidecar_path is the single home of), the one
 # in-place write of a KEY=value file (ai_tools_conf_set_key for a scalar, ai_tools_conf_set_list for a list), and every
 # read AND write of allowed-projects. The settings.json hook-declaration merge, which writes through the sidecars, is
@@ -270,6 +271,108 @@ ai_tools_conf_list_value() {
     ai_tools_conf_split "${out_name}" "${inner}"
 }
 
+# ── Kind prefixes: what a provider list item names ───────────────────────────────────────────
+# An item of AI_TOOLS_AGENTS, AI_TOOLS_INTEGRATIONS or AI_TOOLS_FILTERS carries its kind as a prefix (agent-claude-code,
+# integration-dotnet, filter-dotnet), so one word names one thing wherever an operator writes it: dotnet is both
+# an integration and a filter set. The prefix lives in operator.conf alone -- a manifest, a fragment and a rules file
+# keep the bare name, since their directory already states the kind -- so the list reader strips it and every consumer
+# receives the bare name. An item without its key's prefix makes the whole list invalid (MSG-X6F2): an earlier release
+# wrote bare names, and `ai-tools-admin system post-upgrade` rewrites them (ai_tools_conf_kind_migrate,
+# providers.lib.sh). _ai_tools_conf_kind_table is the one place a key is tied to its prefix.
+
+# _ai_tools_conf_kind_table : print "KEY<TAB>prefix" per list key that carries a kind prefix.
+_ai_tools_conf_kind_table() {
+    printf '%s\t%s\n' AI_TOOLS_AGENTS agent- AI_TOOLS_INTEGRATIONS integration- AI_TOOLS_FILTERS filter-
+}
+
+# ai_tools_conf_kind_prefix <KEY> : print the kind prefix <KEY>'s items carry. Returns 1, printing
+#   nothing, for a key outside the table.
+ai_tools_conf_kind_prefix() {
+    local key prefix
+    while IFS=$'\t' read -r key prefix; do
+        [[ "${key}" == "${1-}" ]] && { printf '%s' "${prefix}"; return 0; }
+    done < <(_ai_tools_conf_kind_table)
+    return 1
+}
+
+# _ai_tools_conf_kind_bare <prefix> <item> : print the bare name when <item> is <prefix> followed by
+#   a plain name (the charset a manifest basename takes, no `..`); return 1 otherwise.
+_ai_tools_conf_kind_bare() {
+    local prefix="$1" item="$2" bare
+    [[ "${item}" == "${prefix}"* ]] || return 1
+    bare="${item#"${prefix}"}"
+    [[ "${bare}" =~ ^[A-Za-z0-9._-]+$ && "${bare}" != *..* ]] || return 1
+    printf '%s' "${bare}"
+}
+
+# ai_tools_conf_kind_list <array-name> <file> <KEY> : ai_tools_conf_list for a key in the kind table,
+#   which then requires every item to carry the key's prefix and sets the array to the BARE names,
+#   in order. An item that does not makes the whole list invalid: the array is set EMPTY,
+#   _ai_tools_conf_list_invalid and _ai_tools_conf_list_unprefixed are set to 1, and MSG-X6F2 names
+#   the key, the items and the command that rewrites them on stderr -- the less-access reading
+#   ai_tools_conf_list_value gives a malformed list, for the same reason. Returns 1, leaving the
+#   array untouched, for an absent key, so a caller's baseline stands; 2 for a key outside the table.
+ai_tools_conf_kind_list() {
+    local out_name="$1" file="$2" key="$3" prefix item bare
+    local -a _ai_tools_conf_kind_list_raw=() _ai_tools_conf_kind_list_bare=() unprefixed=()
+    _ai_tools_conf_list_invalid=0 _ai_tools_conf_list_unprefixed=0
+    prefix="$(ai_tools_conf_kind_prefix "${key}")" || return 2
+    ai_tools_conf_list _ai_tools_conf_kind_list_raw "${file}" "${key}" || return 1
+    local -n _ai_tools_conf_kind_list_out="${out_name}"
+    if (( _ai_tools_conf_list_invalid )); then
+        _ai_tools_conf_kind_list_out=()
+        return 0
+    fi
+    for item in "${_ai_tools_conf_kind_list_raw[@]}"; do
+        if bare="$(_ai_tools_conf_kind_bare "${prefix}" "${item}")"; then
+            _ai_tools_conf_kind_list_bare+=("${bare}")
+        else
+            unprefixed+=("${item}")
+        fi
+    done
+    if (( ${#unprefixed[@]} > 0 )); then
+        _ai_tools_conf_kind_list_out=()
+        _ai_tools_conf_list_invalid=1
+        _ai_tools_conf_list_unprefixed=1
+        _ai_tools_conf_warn MSG-X6F2 "invalid list, read as the empty list -- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai-tools-admin system post-upgrade"
+        return 0
+    fi
+    _ai_tools_conf_kind_list_out=("${_ai_tools_conf_kind_list_bare[@]+"${_ai_tools_conf_kind_list_bare[@]}"}")
+    return 0
+}
+
+# ai_tools_conf_kind_item <KEY> <name> : print <name> as <KEY> holds it -- with the key's prefix
+#   added to a bare name, and a name already carrying it printed as given. The writer's side of
+#   ai_tools_conf_kind_list. Returns 1, printing nothing, for a key outside the table or a name
+#   that is not a plain name once the prefix is added.
+ai_tools_conf_kind_item() {
+    local key="$1" name="$2" prefix
+    prefix="$(ai_tools_conf_kind_prefix "${key}")" || return 1
+    [[ "${name}" == "${prefix}"* ]] || name="${prefix}${name}"
+    _ai_tools_conf_kind_bare "${prefix}" "${name}" >/dev/null || return 1
+    printf '%s' "${name}"
+}
+
+# ai_tools_conf_kind_unmigrated <file> : print "KEY<TAB>item" for every item a key in the kind table
+#   holds without that key's prefix, in table order and then list order -- the items that make
+#   ai_tools_conf_kind_list refuse the list. The one detection predicate: the base package's %post,
+#   install.sh, `system post-upgrade --check` and both launch tiers read it. Read-only. A missing or
+#   untrusted <file>, an absent key and a list the grammar refuses print nothing, since each already
+#   has a report of its own.
+ai_tools_conf_kind_unmigrated() {
+    local file="$1" key prefix item
+    local -a items=()
+    [[ -f "${file}" ]] && ai_tools_conf_is_trusted "${file}" || return 0
+    while IFS=$'\t' read -r key prefix; do
+        ai_tools_conf_list items "${file}" "${key}" 2>/dev/null || continue
+        (( _ai_tools_conf_list_invalid )) && continue
+        for item in "${items[@]+"${items[@]}"}"; do
+            _ai_tools_conf_kind_bare "${prefix}" "${item}" >/dev/null || printf '%s\t%s\n' "${key}" "${item}"
+        done
+    done < <(_ai_tools_conf_kind_table)
+    return 0
+}
+
 # ── Sidecar files: what an upgrade preserves when it touches an operator's config ────────────
 # An install that rewrites a config the operator owns leaves two kinds of copy behind, and they answer different
 # questions -- neither substitutes for the other:
@@ -429,13 +532,15 @@ ai_tools_conf_new_keys() {
 # from `ai-tools-admin operators add|remove` and the AI_TOOLS_AGENTS list from the toolchain provisioning's agent choice
 # (ai_tools_conf_set_list), and the provisioning's switches (ai_tools_conf_set_key). Setting a key replaces one line
 # and does not splice a block in, which is what ai_tools_conf_new_keys leaves to the operator: the line replaced is
-# the key's own, found by the same match ai_tools_conf_keys counts as a mention, so the template's commented default is
-# rewritten IN PLACE under its comment block and the file keeps the shape the new-key report reads. Every other line is
-# copied byte for byte.
+# the key's own -- its last live assignment, the one a reader takes, or where the file has none, the first commented
+# default ai_tools_conf_keys counts as a mention -- so the template's commented default is rewritten IN PLACE under its
+# comment block and the file keeps the shape the new-key report reads. A live line an operator added after the commented
+# default is the one replaced, since rewriting the default would leave the later line winning the read. Every other line
+# is copied byte for byte.
 
-# ai_tools_conf_set_key <file> <KEY> <value> : write `KEY="value"` into <file>, replacing the first
-#   line that mentions KEY (`KEY=`, `#KEY=`, `# KEY=`, whitespace allowed around the key), or
-#   appending the line when none does. A missing <file> is created at mode 0644; an existing one
+# ai_tools_conf_set_key <file> <KEY> <value> : write `KEY="value"` into <file>, replacing the line
+#   _ai_tools_conf_write_line picks -- the last live `KEY=`, else the first `#KEY=` / `# KEY=` --
+#   or appending the line when none does. A missing <file> is created at mode 0644; an existing one
 #   keeps its owner and mode and is replaced by a rename (_ai_tools_conf_replace_file). Verified by
 #   re-reading the key through ai_tools_conf_read. Returns 0 when the file now holds the value, 1
 #   when it could not be written or does not read back, 2 for a KEY outside the identifier charset
@@ -469,26 +574,36 @@ ai_tools_conf_set_list() {
     [[ "${written[*]-}" == "$*" && ${#written[@]} -eq $# ]]
 }
 
-# _ai_tools_conf_write_line <file> <KEY> <line> : replace the first line of <file> that mentions
-#   KEY (`KEY=`, `#KEY=`, `# KEY=`, whitespace allowed around the key) with <line>, or append <line>
-#   when none does, copying every other line byte for byte. A missing <file> is created at mode
-#   0644; an existing one keeps its owner and mode and is replaced by a rename
+# _ai_tools_conf_write_line <file> <KEY> <line> : replace the last live assignment of KEY in <file>
+#   (`KEY=`, whitespace allowed around the key) with <line> -- or, where there is none, the first
+#   commented default (`#KEY=`, `# KEY=`) -- or append <line> when the file mentions neither,
+#   copying every other line byte for byte. A missing <file> is created at mode 0644; an
+#   existing one keeps its owner and mode and is replaced by a rename
 #   (_ai_tools_conf_replace_file). Returns 1 when the file could not be written. The one line
 #   replacement both public writers share, so they rewrite the same line of the same file.
 _ai_tools_conf_write_line() {
-    local file="$1" key="$2" new_line="$3" tmp line replaced=0
-    tmp="$(mktemp 2>/dev/null)" || return 1
+    local file="$1" key="$2" new_line="$3" tmp line number=0 live=0 commented=0 target
     if [[ -f "${file}" ]]; then
         while IFS= read -r line || [[ -n "${line}" ]]; do
-            if (( ! replaced )) && [[ "${line}" =~ ^[[:space:]]*(\#[[:space:]]?)?${key}[[:space:]]*= ]]; then
-                printf '%s\n' "${new_line}"
-                replaced=1
-            else
-                printf '%s\n' "${line}"
+            number=$(( number + 1 ))
+            if [[ "${line}" =~ ^[[:space:]]*${key}[[:space:]]*= ]]; then
+                live="${number}"
+            elif (( ! commented )) && [[ "${line}" =~ ^[[:space:]]*\#[[:space:]]?${key}[[:space:]]*= ]]; then
+                commented="${number}"
             fi
+        done < "${file}"
+    fi
+    target="${live}"
+    (( target )) || target="${commented}"
+    tmp="$(mktemp 2>/dev/null)" || return 1
+    if [[ -f "${file}" ]]; then
+        number=0
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            number=$(( number + 1 ))
+            if (( number == target )); then printf '%s\n' "${new_line}"; else printf '%s\n' "${line}"; fi
         done < "${file}" > "${tmp}"
     fi
-    (( replaced )) || printf '%s\n' "${new_line}" >> "${tmp}"
+    (( target )) || printf '%s\n' "${new_line}" >> "${tmp}"
     if [[ -f "${file}" ]]; then
         if ! _ai_tools_conf_replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
     elif ! install -m 644 -- "${tmp}" "${file}" 2>/dev/null; then

@@ -22,9 +22,10 @@ kinds share the mechanism:
 ## Manifests
 
 Each installed member package ships one manifest, `/usr/local/lib/ai-tools/{agents,integrations}.d/ <name>.conf`,
-`644 root:root`. `<name>` (the basename) is the token an operator writes in `AI_TOOLS_AGENTS` / `AI_TOOLS_INTEGRATIONS`.
-It is `KEY=value` data — **parsed, never sourced**, the same posture as `operator.conf`/`skip-dirs.lib.sh`,
-so a malformed or tampered manifest cannot execute code in the privileged scripts that read it:
+`644 root:root`. `<name>` (the basename) is the name an operator writes, after its kind prefix, in `AI_TOOLS_AGENTS`
+(`agent-<name>`) / `AI_TOOLS_INTEGRATIONS` (`integration-<name>`). It is `KEY=value` data — **parsed, never sourced**,
+the same posture as `operator.conf`/`skip-dirs.lib.sh`, so a malformed or tampered manifest cannot execute code
+in the privileged scripts that read it:
 
 - agents: `npm_package` (the registry package), `launcher` (the bin symlinked at `/opt/ai-tools/bin/<launcher>`,
   and the name `ai-tools-run` matches an executable against to decide whether it may launch), optionally
@@ -268,6 +269,17 @@ by `ai_tools_conf_split`, which does not read brackets: the shell splits `[a, b]
 a glob, so `ai-tools-bootstrap --agents` refuses a bracket by name (`MSG-Y7B6`) rather than reading it as part
 of an agent name.
 
+**A provider list item carries its kind.** Each item of `AI_TOOLS_AGENTS`, `AI_TOOLS_INTEGRATIONS`
+and `AI_TOOLS_FILTERS` is written `agent-<name>`, `integration-<name>` or `filter-<name>`, so one word names one thing
+wherever an operator writes it — the dotnet integration and its filter set share a basename. The prefix lives
+in `operator.conf` values alone: a manifest, a fragment, a rules file and a contributed command keep the bare name,
+since the directory already states the kind. `ai_tools_conf_kind_list` is the reader: it takes a key from the one table
+that ties a key to its prefix, requires every item to carry that prefix, and hands its caller the bare names, so every
+resolver and every consumer past it is unchanged. An item without its key's prefix makes the list invalid,
+the `MSG-D5N5` direction — empty, under its own code `MSG-X6F2`, which names the command that rewrites a bare name.
+`ai_tools_conf_kind_item` is the writer's side (`--agents` accepts either spelling and writes the prefixed one),
+and `ai_tools_conf_kind_unmigrated` is the one detection predicate every report of an unmigrated list reads.
+
 The **path-list** files share that grammar rather than defining their own. `ai_tools_conf_path_entry` reads one
 `allowed-projects` line — whole-line and end-of-line comments, and one quote layer for a path carrying a space
 or a literal `#`, with a leading `!` preserved so an exclusion stays distinguishable after the quotes come off. Every
@@ -289,15 +301,15 @@ model those functions implement, and the rules they enforce on every caller, are
 
 It owns the one **write of a `KEY=value` file** for the same reason. `ai_tools_conf_set_key <file> <KEY> <value>` writes
 a scalar as `KEY="value"` and `ai_tools_conf_set_list <file> <KEY> <item>...` writes a list as `KEY=[a, b]`, and both go
-through one line replacement: the first line that *mentions* the key — a live `KEY=` or the template's commented `#KEY=`
-default, the same match `ai_tools_conf_keys` counts — is replaced in place under its comment block, the line is appended
-when no mention exists, and the file is written beside itself and renamed so a reader sees the old file or the new one.
-A missing file is created at `0644`. Each writer refuses a key outside the identifier charset, and each refuses
-what would read back as a different setting: `set_key` a value carrying a newline or a double quote, `set_list` an empty
-item or one carrying whitespace, a comma, a bracket, a quote or a `#`. Each verifies by reading the key back.
-`ai-tools-admin operators add|remove` write `OPERATORS` and `ai-tools-bootstrap` writes `AI_TOOLS_AGENTS`
-through the list writer, and the bootstrap's launch switches go through the scalar one; `tests/unit/conf.sh` drives both
-over a template-shaped fixture and asserts every other line byte-identical.
+through one line replacement: the key's last live `KEY=` line — the assignment a reader takes — or, where there is none,
+the template's commented `#KEY=` default, the same match `ai_tools_conf_keys` counts, is replaced in place under its
+comment block, and the line is appended when no mention exists, and the file is written beside itself and renamed
+so a reader sees the old file or the new one. A missing file is created at `0644`. Each writer refuses a key outside
+the identifier charset, and each refuses what would read back as a different setting: `set_key` a value carrying
+a newline or a double quote, `set_list` an empty item or one carrying whitespace, a comma, a bracket, a quote or a `#`.
+Each verifies by reading the key back. `ai-tools-admin operators add|remove` write `OPERATORS` and `ai-tools-bootstrap`
+writes `AI_TOOLS_AGENTS` through the list writer, and the bootstrap's launch switches go through the scalar one;
+`tests/unit/conf.sh` drives both over a template-shaped fixture and asserts every other line byte-identical.
 
 A **switch** — a key whose value is yes or no — is read through `ai_tools_conf_yes`, so every switch accepts the same
 spellings: `yes`, `true`, `1` and `on` read as yes, and `no`, `false`, `0`, `off` and an empty value as no, in any case
@@ -335,13 +347,26 @@ The cost is that reconciling the `.rpmnew` is manual, so it is signposted: each 
 whenever one is present, and `sudo ai-tools-admin system post-upgrade` names the options the new version documents
 that the file does not mention, the keys the host sets for itself, and whether the comment prose differs, and gives
 the `diff -u` that compares the two. It prints neither file: a kept `KEY=value` file may hold a credential. It leaves
-this file unchanged and the copy in place as the baseline the operator edits from, and prints the command that removes
-the copy only when every option is mentioned and the prose is the same, since otherwise the copy still holds something
-the file lacks. A copy dated before the installation is named as an earlier version's template. The same treatment
-reaches a kept `*.conf` another package ships under `/etc/ai-tools`, which the command finds by its directory rather
-than by name. An additive merge could append an option block the file lacks, but it could never correct the prose of one
-already there, so `ai-tools-operator.conf(5)` is the single current statement of what an option means and the file
-points at the man page rather than restating it.
+this file's prose and options as written and the copy in place as the baseline the operator edits from, and prints
+the command that removes the copy only when every option is mentioned and the prose is the same, since otherwise
+the copy still holds something the file lacks. A copy dated before the installation is named as an earlier version's
+template. The same treatment reaches a kept `*.conf` another package ships under `/etc/ai-tools`, which the command
+finds by its directory rather than by name. An additive merge could append an option block the file lacks, but it could
+never correct the prose of one already there, so `ai-tools-operator.conf(5)` is the single current statement
+of what an option means and the file points at the man page rather than restating it.
+
+**The one rewrite it makes is the kind prefix.** A provider list an earlier release wrote with bare names is invalid
+under [the kind prefix](#the-shared-config-grammar-conflibsh), so every session start refuses until it changes;
+and the change is spelling, not a setting. `ai_tools_conf_kind_migrate` (`providers.lib.sh`) makes it on every run,
+with or without an `.rpmnew` and unattended too, through `ai_tools_conf_set_list` after one dated `.bak`: a key is
+rewritten only when every item maps onto a name this host installs (`core` in `AI_TOOLS_FILTERS` onto `filter-base`),
+so a rewritten line always reads back whole, and a key holding any other name stays as written and is named, since only
+the operator knows what it meant. A rewritten `AI_TOOLS_AGENTS` is followed by the entrypoint reconciliation
+`system entrypoints relabel` runs (answering from an unchanged pin, as the unattended callers do): no relabel covered
+those agents while the line enabled none, so an install in that window leaves an entrypoint hardlinked to its platform
+package on that package's type. `system bootstrap` runs the same function ahead of its agent choice. `%post`
+and `install.sh` do not edit the file: each reads `ai_tools_conf_kind_unmigrated` and names this command, `%post`
+among the steps a host still needs and `install.sh` first in its closing steps.
 
 The same command answers unattended. It exits 1 while anything it reports needs the operator and 0 otherwise,
 the contract `status` offers, and `--check` prints the findings as data instead of a report: one tab-separated line

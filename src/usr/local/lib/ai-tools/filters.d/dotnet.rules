@@ -5,7 +5,7 @@
 #
 #   match<TAB>action<TAB>blocking<TAB>payload
 #
-# These live with the integration rather than in core.rules for the same reason its session-env
+# These live with the integration rather than in base.rules for the same reason its session-env
 # fragment does: they are .NET knowledge, and they install and are removed with the package that
 # has it.
 #

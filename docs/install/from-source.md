@@ -307,7 +307,7 @@ which `sudo ./install.sh check-perms` runs):
 | `src/usr/local/lib/ai-tools/skip-dirs.lib.sh` | `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/ancestor-config.lib.sh` | `/usr/local/lib/ai-tools/ancestor-config.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/filters.lib.sh` | `/usr/local/lib/ai-tools/filters.lib.sh` (root) |
-| `src/usr/local/lib/ai-tools/filters.d/core.rules` | `/usr/local/lib/ai-tools/filters.d/core.rules` (root) |
+| `src/usr/local/lib/ai-tools/filters.d/base.rules` | `/usr/local/lib/ai-tools/filters.d/base.rules` (root) |
 | `src/usr/local/lib/ai-tools/filters.d/dotnet.rules` | `/usr/local/lib/ai-tools/filters.d/dotnet.rules` (root) |
 | `src/usr/local/lib/ai-tools/integrations.d/typesafe.conf` | `/usr/local/lib/ai-tools/integrations.d/typesafe.conf` (root) |
 | `src/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh` | `/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh` (root) |

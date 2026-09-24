@@ -103,7 +103,7 @@ ai-tools-admin dotnet -- the .NET toolchain: its sandbox state and shared tools
     dotnet status                       host SDKs and runtimes, and the sandbox state
 
   The .NET SDK is the host's own; this integration ships no runtime. A session gets
-  it once 'dotnet' is named in AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}.
+  it once 'integration-dotnet' is named in AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}.
 EOF
 }
 
@@ -222,7 +222,7 @@ bootstrap() {
         log "SELinux labelling skipped: no enforcing ai-tools policy on this host (DAC governs)"
     fi
     log "dotnet integration ready: writable NuGet cache ${NUGET_DIR}, shared tools ${TOOLS_DIR}"
-    log "enable it for sessions by adding 'dotnet' to AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}"
+    log "enable it for sessions by adding 'integration-dotnet' to AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}"
 }
 
 tools_install() {
@@ -277,7 +277,7 @@ status() {
     if dotnet_enabled; then
         log "session enablement: dotnet ENABLED in ${OPERATOR_CONF}"
     else
-        log "session enablement: dotnet NOT enabled -- add it to AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}"
+        log "session enablement: dotnet NOT enabled -- add integration-dotnet to AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}"
     fi
     selinux_status
 }

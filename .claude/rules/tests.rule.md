@@ -423,13 +423,14 @@ about through `runuser` and under `setsid`, so a menu or a confirm takes its no-
 with one load path broken refuses at init; the sandbox account and a non-operator are refused at the operator gate, each
 with its own code; a missing launcher symlink, a target outside the versioned shape, one naming another launcher,
 and one carrying a parent-directory component are each refused, while the versioned shape resolves one hop
-with the target left unresolved; the CWD gate refuses a missing allowlist, an unapproved directory, a sibling sharing
-a name prefix, a carved-out subdirectory and a path under it, a parked project, and an allowlisted protected directory,
-and passes an approved directory reached directly or through a symlink with the canonical path published; the claim
-guard refuses an approved directory the sandbox group does not own when no terminal can answer its confirm; the session
-exec refuses without the gates' results; and the gate runner answers the sandbox account before it reads the allowlist.
-The installed wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper reaches those gates
-in that order.
+with the target left unresolved; the provider-list gate refuses a name written without its kind prefix, naming it
+and `system post-upgrade`, with a migrated file as the control; the CWD gate refuses a missing allowlist, an unapproved
+directory, a sibling sharing a name prefix, a carved-out subdirectory and a path under it, a parked project,
+and an allowlisted protected directory, and passes an approved directory reached directly or through a symlink
+with the canonical path published; the claim guard refuses an approved directory the sandbox group does not own when no
+terminal can answer its confirm; the session exec refuses without the gates' results; and the gate runner answers
+the sandbox account before it reads the allowlist. The installed wrapper's own test is `integration/wrapper.sh`,
+which proves the deployed wrapper reaches those gates in that order.
 
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
@@ -499,25 +500,27 @@ commit).
 `conf.sh` pins the shared `KEY=value` grammar every `operator.conf` key and every manifest is read with — quotes
 optional, commas and whitespace both separating, inline comments ending a value, a present-but-empty key distinguishable
 from an absent one, and the bracketed list form beside the plain one, driven as a table of valid and invalid values
-with an invalid value asserted to read as the empty list — plus two properties whose breakage is silent in production:
-the splitter must be **IFS-independent** (it is sourced into scripts that set `IFS=$'\n\t'`, where an inherited IFS
-collapses a multi-item value into one bogus item), and `ai_tools_conf_is_trusted` must refuse every state a non-root
-writer can create (non-root-owned, group- or other-writable, a symlink), for directories as well as files. The refusal's
-text is pinned with it: the owner uid and mode the predicate read, the map parser over fixture `uid_map` contents (the
-kernel's padded identity line, a translated map, a multi-range map, an empty one, and the identity line
-under the strict-mode IFS), and — inside a real user namespace where `unshare -Ur` is permitted, skipped otherwise —
-the clause naming a translated uid beside the `65534` it read. Its new-option report carries a third: a commented
-**default** (`#KEY=`, `# KEY=`) is a mention while an indented **example** in a header block is not, so a file seeded
-with `operator.conf`'s own grammar comments is not mistaken for one that already knows every option. `providers.sh`
-drives the enablement truth table and then, for each untrusted input in turn — `operator.conf`, a manifest, a manifest
-directory — asserts the resolver moves to *less* access and says so, never more. It closes with the installed-manifest
-field reader (`ai_tools_installed_integrations_declaring`), which `relabel.lib.sh` reads `build_output_dirs`
-through: a key is read from an installed integration whether or not it is enabled, since a project's label is applied
-at claim time, and an untrusted manifest or directory does not yield any value, under the same trust rules
-as the resolver. It then drives the empty-set verdict the updater reads once the resolver printed an empty set: each
-refused input, and an allowlist none of whose names resolved, reads `fault` with the path and the owner and mode named
-on one line, while an empty allowlist, an empty manifest directory, and a set of `default_enable=no` manifests read
-`none` — the split that decides whether the updater exits `1` or maintains `npm` and exits `0`. Its last section pins
+with an invalid value asserted to read as the empty list, and the kind-prefixed reader over a table of its own (a bare
+name, another kind's prefix and the prefix alone each empty under their code, the writer's side and the detection
+predicate beside it) — plus two properties whose breakage is silent in production: the splitter must be
+**IFS-independent** (it is sourced into scripts that set `IFS=$'\n\t'`, where an inherited IFS collapses a multi-item
+value into one bogus item), and `ai_tools_conf_is_trusted` must refuse every state a non-root writer can create
+(non-root-owned, group- or other-writable, a symlink), for directories as well as files. The refusal's text is pinned
+with it: the owner uid and mode the predicate read, the map parser over fixture `uid_map` contents (the kernel's padded
+identity line, a translated map, a multi-range map, an empty one, and the identity line under the strict-mode IFS),
+and — inside a real user namespace where `unshare -Ur` is permitted, skipped otherwise — the clause naming a translated
+uid beside the `65534` it read. Its new-option report carries a third: a commented **default** (`#KEY=`, `# KEY=`) is
+a mention while an indented **example** in a header block is not, so a file seeded with `operator.conf`'s own grammar
+comments is not mistaken for one that already knows every option. `providers.sh` drives the enablement truth table
+and then, for each untrusted input in turn — `operator.conf`, a manifest, a manifest directory — asserts the resolver
+moves to *less* access and says so, never more. It closes with the installed-manifest field reader
+(`ai_tools_installed_integrations_declaring`), which `relabel.lib.sh` reads `build_output_dirs` through: a key is read
+from an installed integration whether or not it is enabled, since a project's label is applied at claim time,
+and an untrusted manifest or directory does not yield any value, under the same trust rules as the resolver. It then
+drives the empty-set verdict the updater reads once the resolver printed an empty set: each refused input,
+and an allowlist none of whose names resolved, reads `fault` with the path and the owner and mode named on one line,
+while an empty allowlist, an empty manifest directory, and a set of `default_enable=no` manifests read `none` —
+the split that decides whether the updater exits `1` or maintains `npm` and exits `0`. Its last section pins
 the managed-file reading the two status reports share: the pure verdict over a byte-identical, an edited, an absent,
 a symlinked and a directory-shaped file (each way the comparison cannot be made reads `unknown`, never either answer),
 and the manifest reader that turns `managed_files` into (live, reference) pairs, refusing an entry that is not a plain
@@ -525,7 +528,9 @@ name under `/etc/<agent>/` and a name already paired, since the reference is com
 them is driven the same way, and every case there is about which file is destroyed: only one proven byte-identical
 to its reference is removed, an edit and an uncomparable file are moved aside under the dated `.retired` name,
 and a move that cannot be made leaves the file where it is — that last case as the **projects user**, since root ignores
-the directory mode the refusal turns on.
+the directory mode the refusal turns on. Its last section drives the kind-prefix migration over a table of lines: a key
+is rewritten only when every item maps onto an installed name, one `.bak` precedes the first write, every other line
+survives byte for byte, and an untrusted file is not touched.
 
 `claude-prompt.sh` and `claude-endpoint.sh` are the runtime half of the custom system prompt and custom API endpoint
 (see [launch](launch.rule.md) and [providers](providers.rule.md)). Each drives its resolver over a root-only base-dir
@@ -583,14 +588,15 @@ nor the copy's content printed, the removal command offered only where the file 
 and carries the same comment prose (a re-wrapped comment is the same prose, a reworded one is not), a copy dated
 before the installation named as such, a copy byte-identical to its file reported as such with its removal offered,
 earlier `.bak`/`.shipped` copies listed in the order they were made and left in place, and an ask entry the kept
-`settings.json` lacks named with no `.rpmnew` waiting and the file left as written, and `--check` held to one line
-per finding carrying its code, no output and exit 0 on a clean host, the no-action findings under `--all` alone, and no
-write — plus the property every case shares: the `.rpmnew` survives the run and is named as the operator's to delete,
-the case where the merge leaves the two files matching included. Every run is under `setsid`, so each prompt takes its
-own default: that is the unattended behaviour and what makes an interactive command reproducible. The agent-side half
-of the pair is already deployed: `boundary/access.sh` covers `settings.json` and the helper directory,
-`boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`, and `boundary/sudo.sh` covers the grant, so no
-input this command reads is agent-writable.
+`settings.json` lacks named with no `.rpmnew` waiting and the file left as written, a provider list an earlier release
+wrote bare rewritten with no `.rpmnew` waiting while a name no installed manifest or rule set matches stays as written,
+and `--check` held to one line per finding carrying its code, no output and exit 0 on a clean host, the no-action
+findings under `--all` alone, and no write — plus the property every case shares: the `.rpmnew` survives the run and is
+named as the operator's to delete, the case where the merge leaves the two files matching included. Every run is
+under `setsid`, so each prompt takes its own default: that is the unattended behaviour and what makes an interactive
+command reproducible. The agent-side half of the pair is already deployed: `boundary/access.sh` covers `settings.json`
+and the helper directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`,
+and `boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
 
 `admin-commands.sh` pins the seam that lets a provider package add a domain to `ai-tools-admin` (see
 [providers](providers.rule.md)). What it drives is a dispatch that **execs a file as root**, so every assertion targets
@@ -696,21 +702,24 @@ when the invariant most needs re-asserting.
 `toolchain.sh` pins the residue readers and the package removal (`toolchain.lib.sh`, see [updater](updater.rule.md)),
 in each one's fail direction: residue is asserted to be exactly the installed-not-enabled-present set over a synthetic
 manifest pair and a fixture tree — an enabled agent's package does not appear in it, a manifest the trust predicate
-refuses does not, a version directory outside the semver shape is not read — and the link reader the same
-from the operator's vantage. The writer is driven with `npm` stubbed in the fixture version's own `bin`,
-where the library puts it first on `PATH`: it refuses an enabled agent's package with no npm call, defers a package
-a live process executes from (the `/proc` collector stubbed to say so, the pure predicate driven over its table
-and against this shell's own executable as the live control — which reads `/proc/$$/exe`, a link `ai_tools_t` does not
-grant, so the control fails when the file is run as the agent and belongs to the root run), issues exactly one uninstall
-with the version directory as the prefix for a removal and names the state directory it leaves, and reports an uninstall
-that left the directory. Like `launcher-target.sh` it needs the executable bit visible and takes the same fallback,
-and it reads one order as source: the updater's removal precedes `install_packages`. `bootstrap.sh` reads
-the bootstrap's the same way — the removal after the agent choice and before the version resolve, the first network
-step. The two launch tiers are driven where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent
-the fixture manifests install and the fixture `operator.conf` does not enable, before the executable resolves
-and fail-closed on a missing library, and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1`
-for a synthetic manifest read beside copies of the deployed ones, with the package gone as the control.
-`cli-agent-set.sh` reports and counts the same link.
+refuses does not, a version directory outside the semver shape is not read, and an empty enabled set under a `fault`
+verdict does not yield any residue, beside a declared-empty set as the control that yields every installed agent —
+and the link reader the same from the operator's vantage. The writer is driven with `npm` stubbed in the fixture
+version's own `bin`, where the library puts it first on `PATH`: it refuses an enabled agent's package with no npm call,
+defers a package a live process executes from (the `/proc` collector stubbed to say so, the pure predicate driven
+over its table and against this shell's own executable as the live control — which reads `/proc/$$/exe`, a link
+`ai_tools_t` does not grant, so the control fails when the file is run as the agent and belongs to the root run), issues
+exactly one uninstall with the version directory as the prefix for a removal and names the state directory it leaves,
+and reports an uninstall that left the directory. Like `launcher-target.sh` it needs the executable bit visible
+and takes the same fallback, and it reads one order as source: the updater's removal precedes `install_packages`.
+`bootstrap.sh` reads the bootstrap's the same way — the removal after the agent choice and before the version resolve,
+the first network step, with the refusal of an unresolved agent set between the choice and the removal. The two launch
+tiers are driven where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent the fixture manifests
+install and the fixture `operator.conf` does not enable, before the executable resolves and fail-closed on a missing
+library, and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside
+copies of the deployed ones, with the package gone as the control. The same file drives the shim's provider-list refusal
+through a fixture `operator.conf`, with this host's enabled agents written prefixed as the control. `cli-agent-set.sh`
+reports and counts the same link.
 
 `audit.sh` pins the kernel-record section of `ai-tools-audit` ([cli](cli.rule.md)). The trail it reports is one **only
 the kernel writes**, so a test cannot produce a record: the helper is sourced (inert by construction), the audit
@@ -933,22 +942,23 @@ to append to, so a file that stops appending or appends to a renamed array fails
 session that agent's environment; claude-code's three by name, with its fragment asserted to carry none of them),
 the shim's sourcing order read as source (the integrations, then every enabled agent's pins, then the launching agent's
 fragment — no refusal the shim can be driven to reveals it), the `settings.json` hook, deny-rule and ask-rule
-declarations, and SELinux labels (the `claude.exe` entrypoint and the handback daemon binary). Every assertion
-about the shim lives in `ai-tools-run.sh` beside it — its input validation, the unit properties it pins, and the session
-env it sources — so a change to the shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoint
-label. `selinux.sh` asserts the confinement layer is enforcing: when the `ai_tools` module is loaded the system is
-`Enforcing` and neither `ai_tools_t` nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent
-(the layer is optional). It also holds the entrypoint assertions that need a labelled host — that each agent's declared
-file-context rule still covers what its package installed, that no link in the exec chain carries a type the confined
-domain may manage, and that the loaded core module audits an in-session exec of the entrypoint, read with `sesearch`
-and skipped without it — and, where the `ai_tools_dotnet` layout module is loaded, the build-output labelling that only
-libselinux can answer: a path under one of the module's directories resolves to `ai_tools_project_build_t` and every
-other clone path to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`),
-and a `bin/` directory created in the sandbox area by `unconfined_t` is born on the build type with no `restorecon`. It
-closes by reading the live type of **every** enrolled operator's `~/.config/ai-tools`: the rule is per account,
-and a subtree without it denies the root helpers the read that resolves a path's owner, so that operator's projects stop
-being handed back while every DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant
-need a session, and `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
+declarations, and SELinux labels (the `claude.exe` entrypoint — the one the stable launcher resolves to first, then
+every copy a kept version directory holds — and the handback daemon binary). Every assertion about the shim lives
+in `ai-tools-run.sh` beside it — its input validation, the unit properties it pins, and the session env it sources —
+so a change to the shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh`
+asserts the confinement layer is enforcing: when the `ai_tools` module is loaded the system is `Enforcing` and neither
+`ai_tools_t` nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is optional).
+It also holds the entrypoint assertions that need a labelled host — that each agent's declared file-context rule still
+covers what its package installed, that no link in the exec chain carries a type the confined domain may manage,
+and that the loaded core module audits an in-session exec of the entrypoint, read with `sesearch` and skipped without it
+— and, where the `ai_tools_dotnet` layout module is loaded, the build-output labelling that only libselinux can answer:
+a path under one of the module's directories resolves to `ai_tools_project_build_t` and every other clone path
+to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`), and a `bin/` directory
+created in the sandbox area by `unconfined_t` is born on the build type with no `restorecon`. It closes by reading
+the live type of **every** enrolled operator's `~/.config/ai-tools`: the rule is per account, and a subtree without it
+denies the root helpers the read that resolves a path's owner, so that operator's projects stop being handed back while
+every DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant need a session,
+and `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
 `systemd-analyze verify` on each shipped unit, plus enablement in the correct instance — the `nvm-update` timer
 in the sandbox account's own `--user instance`, the relabel watcher and handback socket in the system instance.
 The handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers with its own

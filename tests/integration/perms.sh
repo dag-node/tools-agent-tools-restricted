@@ -140,10 +140,10 @@ check_file /usr/local/lib/ai-tools/session-env.d              root              
 check_file /usr/local/lib/ai-tools/admin-commands.d          root              root              755
 # The command-filter rule-set directory carries the same reasoning one step further out: its files decide what every
 # command in a session becomes, so a non-root writer here could reshape the commands the agent runs and the transcript
-# the operator reads. Base owns the directory and core.rules; a package with commands of its own drops a rule set beside
+# the operator reads. Base owns the directory and base.rules; a package with commands of its own drops a rule set beside
 # them.
 check_file /usr/local/lib/ai-tools/filters.d                 root              root              755
-check_file /usr/local/lib/ai-tools/filters.d/core.rules      root              root              644
+check_file /usr/local/lib/ai-tools/filters.d/base.rules      root              root              644
 # Agent manifest, shipped by ai-tools-agents-claude-code-restricted (not base): 644 root:root, parsed data naming
 # the Claude npm package + launcher.
 check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              root              644

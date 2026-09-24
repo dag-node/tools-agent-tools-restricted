@@ -143,7 +143,7 @@ fixture_agents="${TESTDIR}/agents.d"; fixture_conf="${TESTDIR}/operator.conf"
 mkdir -m 0755 "${fixture_agents}"
 printf 'npm_package=@acme/experimental\nlauncher=claude\ndefault_enable=no\n' > "${fixture_agents}/acme.conf"
 printf 'npm_package=@acme/beta\nlauncher=beta\ndefault_enable=no\n'         > "${fixture_agents}/beta.conf"
-printf 'AI_TOOLS_AGENTS="acme"\n' > "${fixture_conf}"
+printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${fixture_conf}"
 chmod 0644 "${fixture_agents}"/*.conf "${fixture_conf}"
 ln -s "/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/beta" "${links}/beta"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
@@ -157,7 +157,7 @@ FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
     run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
 passed "no link for the disabled agent, no refusal"
 ln -s "/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/beta" "${links}/beta"
-printf 'AI_TOOLS_AGENTS="acme beta"\n' > "${fixture_conf}"
+printf 'AI_TOOLS_AGENTS="agent-acme agent-beta"\n' > "${fixture_conf}"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
     run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
 passed "a link for an agent that is enabled is not residue"
@@ -170,6 +170,22 @@ sed 's#^readonly TOOLCHAIN_LIB=.*#readonly TOOLCHAIN_LIB="/nonexistent/ai-tools/
 chmod 644 "${broken_toolchain}"
 run "${broken_toolchain}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
 refused "the residue gate refuses when toolchain.lib.sh will not load (fail closed)" MSG-U9K8
+
+# ── (1c) The provider-list gate: a name an earlier release wrote bare refuses every launch ── The list reader reads
+# such a list as empty, so without this gate an unmigrated AI_TOOLS_AGENTS would be refused as "no agent is enabled"
+# and an unmigrated AI_TOOLS_FILTERS would start a session with filtering off. The gate names each item and the command
+# that rewrites it; a migrated file is the control.
+printf 'AI_TOOLS_AGENTS=[acme]\nAI_TOOLS_FILTERS=[core, filter-dotnet]\n' > "${fixture_conf}"
+FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_lists
+refused "a provider name written without its kind prefix refuses the launch" MSG-V3Q5
+says "and the refusal names each bare item" "AI_TOOLS_AGENTS acme, AI_TOOLS_FILTERS core"
+says "and the refusal names the command that rewrites them" "sudo ai-tools-admin system post-upgrade"
+printf 'AI_TOOLS_AGENTS=[agent-acme]\nAI_TOOLS_FILTERS=[filter-base, filter-dotnet]\n' > "${fixture_conf}"
+FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_lists
+passed "prefixed provider lists pass the gate"
+printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${fixture_conf}"
 
 # ── (2) Launcher resolution: one hop, validated as the versioned shape ──────────
 rm -f "${links}/claude"

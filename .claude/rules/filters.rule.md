@@ -30,7 +30,7 @@ the "pure output path" case).
 | layer | path | shipped by |
 |---|---|---|
 | engine — pure rewrite and noise-strip logic | `/usr/local/lib/ai-tools/filters.lib.sh` | `ai-tools-base` |
-| rules — data, parsed never sourced | `/usr/local/lib/ai-tools/filters.d/<name>.rules` | base ships `core.rules`; a package with commands of its own ships its set |
+| rules — data, parsed never sourced | `/usr/local/lib/ai-tools/filters.d/<name>.rules` | base ships `base.rules`; a package with commands of its own ships its set |
 | adapter — one agent's hook JSON | `<agent config>/filter-hook.sh` | that agent's package |
 
 Only the adapter is agent-specific: hook event names and their JSON shapes belong to the agent product, while
@@ -72,8 +72,8 @@ words into a command the engine has not fully parsed could change what runs.
 
 ### Which rule wins
 
-The applying rule with the most matched words, and on a tie the one loaded **last**. `core.rules` loads first,
-so a provider's set overrides a core rule by matching the same words — the seam a wrapper-style tool uses to take
+The applying rule with the most matched words, and on a tie the one loaded **last**. `base.rules` loads first,
+so a provider's set overrides a base rule by matching the same words — the seam a wrapper-style tool uses to take
 a command over from the native rule.
 
 ## The two hook events
@@ -106,11 +106,14 @@ path the agent can reach, and they are deferred until one exists.
 
 - **key absent** → every installed rule set applies. This is the default: filtering leaves the surface unchanged, and it
   neither opens a network path nor ships a binary.
-- **key present** → exactly the named sets. An **empty value is the kill switch** — no filtering at all, the switch
-  to reach for when a session's command output looks unexpected. The kill switch covers both transforms: the rewrite
-  path loads its rule sets only when enabled, and the adapter gates its noise strip on the same verdict
-  (`ai_tools_filter_enabled`), so a switched-off session's output reaches the model byte-identical to what the tool
-  produced. A named list narrows which rule sets load, never the strip.
+- **key present** → exactly the named sets, each written `filter-<name>`. An **empty value is the kill switch** — no
+  filtering at all, the switch to reach for when a session's command output looks unexpected. The kill switch covers
+  both transforms: the rewrite path loads its rule sets only when enabled, and the adapter gates its noise strip
+  on the same verdict (`ai_tools_filter_enabled`), so a switched-off session's output reaches the model byte-identical
+  to what the tool produced. A named list narrows which rule sets load, never the strip. A list the reader refuses — one
+  the grammar refuses, or one holding an item without its `filter-` prefix — reads as empty and so as the switch,
+  and its report is dropped here, since the hook runs on every Bash call; the launch gate and `system post-upgrade`
+  report it.
 - **untrusted or unreadable `operator.conf`** → the installed sets, which can only ever be root-owned rules.
 
 Rule sets are **not** gated on provider enablement. A rule is inert unless the agent runs the command it matches,
@@ -134,7 +137,7 @@ and `tests/boundary/filters.sh` probes the same files **as the agent** and asser
 
 ## The shipped rule sets
 
-`core.rules` (base) covers three commands. `git diff`, `git show`, `git blame`, `find` and `grep` are absent: every
+`base.rules` (base) covers three commands. `git diff`, `git show`, `git blame`, `find` and `grep` are absent: every
 terse mode they have discards content the agent asked for by running them.
 
 | command | payload | what it removes |

@@ -144,9 +144,9 @@ else
     [[ "$(enabled_names "${en_conf}")" == "" ]] \
         && pass "AI_TOOLS_AGENTS unset: codex stays disabled (default_enable=no)" \
         || fail "codex resolved as enabled with AI_TOOLS_AGENTS unset: '$(enabled_names "${en_conf}")'"
-    printf 'AI_TOOLS_AGENTS="codex"\n' > "${en_conf}"
+    printf 'AI_TOOLS_AGENTS="agent-codex"\n' > "${en_conf}"
     [[ "$(enabled_names "${en_conf}")" == "codex " ]] \
-        && pass "AI_TOOLS_AGENTS=codex: codex resolves as enabled" \
+        && pass "AI_TOOLS_AGENTS=agent-codex: codex resolves as enabled" \
         || fail "codex did not resolve as enabled when named: '$(enabled_names "${en_conf}")'"
     chmod 0664 "${en_dir}/codex.conf"
     en_warn="$(AI_TOOLS_AGENTS_DIR="${en_dir}" AI_TOOLS_OPERATOR_CONF="${en_conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"

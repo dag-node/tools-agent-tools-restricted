@@ -170,7 +170,7 @@ Requires:       ai-tools-base = %{version}-%{release}
 %description -n ai-tools-integration-dotnet
 Integrates a host-managed .NET toolchain into a sandbox session: a session-env fragment that
 exports DOTNET_ROOT and a sandbox-writable NuGet cache when the dotnet integration is enabled
-(operator.conf AI_TOOLS_INTEGRATIONS), and the `dotnet` domain of ai-tools-admin to provision that
+(integration-dotnet in operator.conf AI_TOOLS_INTEGRATIONS), and the `dotnet` domain of ai-tools-admin to provision that
 cache and shared global tools. The .NET SDK/runtime itself is the host's RPM-managed dotnet; this
 package adds no runtime and is inert until enabled on a host that has dotnet installed.
 
@@ -193,8 +193,8 @@ Lets a sandboxed session hand a long listing (a grep, a git log, a checker's fin
 TypeSafe's bounded classifier and get back the lines that bear on the task it states: the decide
 command under /usr/local/lib/ai-tools/typesafe, its session-env fragment and manifest, the
 root-owned credential file /etc/ai-tools/endpoints/typesafe.conf (shipped with the key commented),
-and the ai-tools-decide skill every enabled agent lists. Off until `typesafe` is named in
-operator.conf AI_TOOLS_INTEGRATIONS and the key is set.
+and the ai-tools-decide skill every enabled agent lists. Off until `integration-typesafe` is
+named in operator.conf AI_TOOLS_INTEGRATIONS and the key is set.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ai-tools-agents umbrella: the AI coding agents that run confined in the sandbox. A thin
@@ -370,10 +370,10 @@ install -d -m 0755 %{buildroot}%{ai_libdir}/session-env.d
 # provider package ships the domain named for itself.
 install -d -m 0755 %{buildroot}%{ai_libdir}/admin-commands.d
 # Token-saving command-filter rule sets, keyed by name the same way: filters.d/<name>.rules. Base
-# owns the directory and ships core.rules, the set every host gets; a package with commands of its
+# owns the directory and ships base.rules, the set every host gets; a package with commands of its
 # own ships one beside it. An agent's filter hook reads them through filters.lib.sh.
 install -d -m 0755 %{buildroot}%{ai_libdir}/filters.d
-install -m 0644 src%{ai_libdir}/filters.d/core.rules %{buildroot}%{ai_libdir}/filters.d/core.rules
+install -m 0644 src%{ai_libdir}/filters.d/base.rules %{buildroot}%{ai_libdir}/filters.d/base.rules
 # Pinned vendor release-signing keys, keyed by agent: keys/<agent>.asc. Base owns the directory
 # and ships none -- the key that signs an agent's releases belongs to that agent's package, the
 # same split as agents.d. entrypoint-verify.lib.sh verifies a release manifest against the key its
@@ -517,7 +517,7 @@ install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/
 install -m 0644 src%{ai_libdir}/session-env.d/dotnet.env.sh %{buildroot}%{ai_libdir}/session-env.d/dotnet.env.sh
 install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_libdir}/integrations.d/dotnet.conf
 # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET
-# package rather than in the base's core.rules.
+# package rather than in the base's base.rules.
 install -m 0644 src%{ai_libdir}/filters.d/dotnet.rules      %{buildroot}%{ai_libdir}/filters.d/dotnet.rules
 install -m 0750 src%{ai_libdir}/admin-commands.d/dotnet.sh  %{buildroot}%{ai_libdir}/admin-commands.d/dotnet
 # Ghost this helper's operation log alongside the base helpers' (the /var/log/ai-tools dir itself
@@ -728,6 +728,14 @@ fi
 if [ -f /etc/ai-tools/operator.conf.rpmnew ]; then
     _at_merge=1
 fi
+# A provider list an earlier release wrote with bare names makes every session start refuse until
+# `system post-upgrade` rewrites it. A scriptlet does not edit a config file, so this names the
+# command; the predicate is the one the reader refuses by (conf.lib.sh).
+_at_unmigrated=0
+if command -v bash >/dev/null 2>&1 \
+   && [ -n "$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; ai_tools_conf_kind_unmigrated /etc/ai-tools/operator.conf' 2>/dev/null || :)" ]; then
+    _at_unmigrated=1
+fi
 # Repoint each enrolled operator's guard line where it still names the fragment's former path, then
 # name the operators whose init this scriptlet could not write. The bound on that edit, and what a
 # reading of their shell needs instead, are ai_tools_path_order_repoint's header.
@@ -766,7 +774,7 @@ while IFS= read -r launcher; do
     done < <(ai_tools_agent_installs "${launcher}")
 done < <(ai_tools_path_order_launchers)' 2>/dev/null || :)"
 fi
-if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_path}" ]; then
+if [ "${_at_toolchain}${_at_operator}${_at_merge}${_at_unmigrated}" != "0000" ] || [ -n "${_at_path}" ]; then
     echo "ai-tools-base: steps this host still needs:"
     if [ "${_at_toolchain}" = 1 ]; then
         echo "  sudo ai-tools-admin system bootstrap          # install nvm + Node + the agent you choose (network)"
@@ -774,7 +782,9 @@ if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_pat
     if [ "${_at_operator}" = 1 ]; then
         echo "  sudo ai-tools-admin operators add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"
     fi
-    if [ "${_at_merge}" = 1 ]; then
+    if [ "${_at_unmigrated}" = 1 ]; then
+        echo "  sudo ai-tools-admin system post-upgrade       # rewrites operator.conf's provider names; no session starts until then"
+    elif [ "${_at_merge}" = 1 ]; then
         echo "  sudo ai-tools-admin system post-upgrade       # operator.conf.rpmnew is waiting"
     fi
     if [ -n "${_at_path}" ]; then
@@ -1261,7 +1271,7 @@ fi
 %dir %attr(0755, root, root) %{ai_libdir}/session-env.d
 %dir %attr(0755, root, root) %{ai_libdir}/admin-commands.d
 %dir %attr(0755, root, root) %{ai_libdir}/filters.d
-%attr(0644, root, root) %{ai_libdir}/filters.d/core.rules
+%attr(0644, root, root) %{ai_libdir}/filters.d/base.rules
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/ai-tools-run
 %attr(0644, root, root) %{ai_libdir}/path-order.sh
 %{_unitdir}/ai-tools-handback.socket
