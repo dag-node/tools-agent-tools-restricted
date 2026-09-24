@@ -67,7 +67,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | c2x3 | [MSG-C2X3](../install.sh) | could not add ${PROJECTS_USER} to ai-ops | install.sh |  | warn |
 | m7k6 | [MSG-M7K6](../install.sh) | the systemd --user manager of ${SANDBOX_USER} did not come up -- the auto-update timer | install.sh |  | warn |
 | a7x8 | [MSG-A7X8](../install.sh) | toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail | install.sh |  | warn |
-| n7s2 | [MSG-N7S2](../install.sh) | operator.conf names providers without their kind prefix -- every launch refuses and the | install.sh |  | warn |
+| n7s2 | [MSG-N7S2](../install.sh) | operator.conf names providers without their kind prefix -- every launch refuses and the | install.sh | install.sh | warn |
 | y5p5 | [MSG-Y5P5](../install.sh) | test suite reported failures -- review the output above | install.sh |  | warn |
 | z3h8 | [MSG-Z3H8](../install.sh) | could not remove ${SCRIPT_DIR} from ${allowlist} -- it is still registered | install.sh |  | warn |
 | s3y6 | [MSG-S3Y6](../install.sh) | no usable operator named -- re-run the install and name one that exists | install.sh |  | die |

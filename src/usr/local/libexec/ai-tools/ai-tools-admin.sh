@@ -1869,8 +1869,15 @@ _pu_kind_noun() {
 # own. It runs on every run, the unattended one included: the rewrite changes spelling alone, and until it lands every
 # session start is refused. A key holding a name no installed manifest or rule set matches is left as written and named,
 # since only the operator knows what it meant.
+#
+# A rewritten AI_TOOLS_AGENTS enables agents that the unmigrated line left enabled nowhere, so no relabel covered them
+# while it stood: an install run in that window restorecon'd the toolchain with no entrypoint rule to apply last,
+# which leaves an entrypoint hardlinked to its platform package on that package's type. The reconciliation
+# `system entrypoints relabel` runs (ai-tools-relabel-agent) therefore follows the rewrite, answering from an unchanged
+# pin as the other unattended callers do. It is skipped under AI_TOOLS_POSTUPGRADE_ROOT, since the suite does not change
+# the host's SELinux policy to test a helper.
 _pu_kind_migrate() {
-    local file="$1/etc/ai-tools/operator.conf" line verdict key old new opened=0
+    local file="$1/etc/ai-tools/operator.conf" line verdict key old new opened=0 agents_rewritten=0
     [[ -f "${file}" ]] || return 0
     if ! declare -F ai_tools_conf_kind_migrate >/dev/null 2>&1; then
         declare -F ai_tools_conf_kind_unmigrated >/dev/null 2>&1 && [[ -n "$(ai_tools_conf_kind_unmigrated "${file}")" ]] \
@@ -1890,11 +1897,20 @@ _pu_kind_migrate() {
         fi
         case "${verdict}" in
             backup)    _pu_say info "the file as it was is saved as ${key}" ;;
-            rewritten) _pu_say ok "${key}: [${old// /, }] -> [${new// /, }]" ;;
+            rewritten) _pu_say ok "${key}: [${old// /, }] -> [${new// /, }]"
+                       [[ "${key}" == AI_TOOLS_AGENTS ]] && agents_rewritten=1 ;;
             blocked)   _pu_say act "${key} holds ${old}, which names no installed $(_pu_kind_noun "${key}") -- the line is left as written and enables nothing; edit it by hand" ;;
             failed)    _pu_say err "${key} was not rewritten: ${new} -- the line is left as written" ;;
         esac
     done < <(ai_tools_conf_kind_migrate "${file}")
+    (( agents_rewritten )) && [[ -z "${AI_TOOLS_POSTUPGRADE_ROOT:-}" ]] || return 0
+    if [[ ! -x "${RELABEL_ENTRYPOINT_BIN}" ]]; then
+        _pu_say info "the entrypoints were not reconciled: ${RELABEL_ENTRYPOINT_BIN} is not installed"
+    elif AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 "${RELABEL_ENTRYPOINT_BIN}"; then
+        _pu_say ok "the enabled agents' entrypoints are reconciled (verified and labelled)"
+    else
+        _pu_say err "the entrypoint reconciliation reported a problem above -- re-run it: sudo ai-tools-admin system entrypoints relabel"
+    fi
 }
 
 # _pu_report: the reconciliation itself, one block per file with a copy waiting, then the closing lines.

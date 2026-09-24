@@ -361,7 +361,10 @@ and the change is spelling, not a setting. `ai_tools_conf_kind_migrate` (`provid
 with or without an `.rpmnew` and unattended too, through `ai_tools_conf_set_list` after one dated `.bak`: a key is
 rewritten only when every item maps onto a name this host installs (`core` in `AI_TOOLS_FILTERS` onto `filter-base`),
 so a rewritten line always reads back whole, and a key holding any other name stays as written and is named, since only
-the operator knows what it meant. `system bootstrap` runs the same function ahead of its agent choice. `%post`
+the operator knows what it meant. A rewritten `AI_TOOLS_AGENTS` is followed by the entrypoint reconciliation
+`system entrypoints relabel` runs (answering from an unchanged pin, as the unattended callers do): no relabel covered
+those agents while the line enabled none, so an install in that window leaves an entrypoint hardlinked to its platform
+package on that package's type. `system bootstrap` runs the same function ahead of its agent choice. `%post`
 and `install.sh` do not edit the file: each reads `ai_tools_conf_kind_unmigrated` and names this command, `%post`
 among the steps a host still needs and `install.sh` first in its closing steps.
 

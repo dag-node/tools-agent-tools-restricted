@@ -455,6 +455,11 @@ becomes
 It writes a dated backup first, rewrites a key only when every name it holds
 is installed, and leaves a key holding any other name as written, naming it;
 until each list is rewritten no session starts.
+Once it rewrites
+.BR AI_TOOLS_AGENTS ,
+it reconciles the entrypoints of the agents that line now enables, as
+.B system entrypoints relabel
+does.
 This is the one change it makes to that file, and the unattended run makes it
 too.
 Whether or not a copy is waiting, the command also names each

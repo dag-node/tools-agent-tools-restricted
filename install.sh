@@ -2343,7 +2343,7 @@ do_install() {
         say "    ${C_BOLD}sudo ai-tools-admin system post-upgrade${C_RST}"
         say ""
     fi
-    if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
+    if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 && -z "${unmigrated}" ]]; then
         say "  provision the sandbox toolchain (nvm + Node + claude) -- required before launch:"
         say "    ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"
         say ""
@@ -2368,7 +2368,9 @@ do_install() {
     # a non-interactive install skips all of it (a surprising, heavy default), leaving `install.sh check-perms`
     # and `tests/run.sh` available on demand.
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
+        # An unmigrated operator.conf does not enable any agent, so no launcher was linked and the toolchain reads
+        # as unprovisioned when it is not; MSG-N7S2 names the step that host owes instead.
+        if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 && -z "${unmigrated}" ]]; then
             warn MSG-A7X8 "toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail"
             warn "until it is; for a full pass run sudo ai-tools-admin system bootstrap first, then re-test"
             warn "with: sudo ${SCRIPT_DIR}/tests/run.sh all"
