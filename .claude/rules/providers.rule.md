@@ -297,10 +297,15 @@ but stays uninvoked until its declaration is merged ([claude-settings](claude-se
 
 The cost is that reconciling the `.rpmnew` is manual, so it is signposted: each package's `%post` prints the pointer
 whenever one is present, and `sudo ai-tools-admin system post-upgrade` names the options the new version documents
-that the file does not mention and shows the difference. It leaves this file unchanged, and leaves the copy in place
-as the baseline the operator edits from, naming it as theirs to delete. An additive merge could append an option block
-the file lacks, but it could never correct the prose of one already there, so `ai-tools-operator.conf(5)` is the single
-current statement of what an option means and the file points at the man page rather than restating it.
+that the file does not mention, the keys the host sets for itself, and whether the comment prose differs, and gives
+the `diff -u` that compares the two. It prints neither file: a kept `KEY=value` file may hold a credential. It leaves
+this file unchanged and the copy in place as the baseline the operator edits from, and prints the command that removes
+the copy only when every option is mentioned and the prose is the same, since otherwise the copy still holds something
+the file lacks. A copy dated before the installation is named as an earlier version's template. The same treatment
+reaches a kept `*.conf` another package ships under `/etc/ai-tools`, which the command finds by its directory rather
+than by name. An additive merge could append an option block the file lacks, but it could never correct the prose of one
+already there, so `ai-tools-operator.conf(5)` is the single current statement of what an option means and the file
+points at the man page rather than restating it.
 
 ### A config file's header is a pointer
 

@@ -9,9 +9,11 @@
 # MERGED (each shipped declaration the kept file lacks arrives, the permission rules the file was kept for survive,
 # a dated .bak lands first, and every addition is named), operator.conf is REPORTED and byte-identical afterwards,
 # and the sudoers grant is SHOWN and neither written nor dropped -- its fixture here is a grant of everything
-# to everyone, the one a silent adoption would be worst for. The fourth property belongs to every case: a .rpmnew
-# survives the run, because the copy is the baseline an operator merges from, and each case asserts it is still there
-# and that the run named it as theirs to delete.
+# to everyone, the one a silent adoption would be worst for. A kept file the registry does not name is found by its
+# directory and never printed, since one may hold a credential. The removal command is offered only where the file
+# mentions every option the copy documents and carries the same comment prose. The last property belongs to every case:
+# a .rpmnew survives the run, because the copy is the baseline an operator merges from, and each case asserts it is
+# still there and named as theirs to delete.
 #
 # Drives the DEPLOYED helper against fixtures in the testdir through AI_TOOLS_POSTUPGRADE_ROOT, the root-only path hook
 # (like AI_TOOLS_ALLOWLIST): the live control plane is never read, written or listed. Every run is under setsid, so each
@@ -45,7 +47,7 @@ SUDOERS="${ROOT}/etc/sudoers.d/ai-tools"
 # Each case starts from an empty prefix root, so no case inherits another's leftovers.
 reset_root() {
     rm -rf "${ROOT}"
-    mkdir -p "${ROOT}/opt/ai-tools/.claude" "${ROOT}/etc/ai-tools" "${ROOT}/etc/sudoers.d"
+    mkdir -p "${ROOT}/opt/ai-tools/.claude" "${ROOT}/etc/ai-tools/endpoints" "${ROOT}/etc/sudoers.d" "${ROOT}/etc/codex"
 }
 
 # Run the deployed command against the fixture root and echo everything it said.
@@ -162,7 +164,7 @@ cp "${SETTINGS}.rpmnew" "${TESTDIR}/canonical.json"
 jq '.hooks.PostToolUse = [ .hooks.PostToolUse[0] ]' "${TESTDIR}/canonical.json" > "${SETTINGS}"
 out="$(run_pu)"
 if [[ -f "${SETTINGS}.rpmnew" ]] && cmp -s "${SETTINGS}" "${TESTDIR}/canonical.json" \
-        && [[ "${out}" == *"nothing is left to carry over -- remove ${SETTINGS}.rpmnew"* ]]; then
+        && [[ "${out}" == *"nothing is left to carry over"* && "${out}" == *"sudo rm ${SETTINGS}.rpmnew"* ]]; then
     pass "a copy with nothing left to carry over is reported as the operator's to remove"
 else
     fail "removed a .rpmnew, or did not say the merge left nothing to carry over"
@@ -186,12 +188,12 @@ CONF
 cp "${CONF}" "${TESTDIR}/pre.conf"
 out="$(run_pu)"
 
-if grep -qE '^ai-tools-admin: +NEW_OPTION$' <<< "${out}"; then
+if grep -qE '^  operator\.conf: +NEW_OPTION$' <<< "${out}"; then
     pass "an option the kept file never mentions is named"
 else
     fail "the new option was not reported"
 fi
-if ! grep -qE '^ai-tools-admin: +EXISTING_OPTION$' <<< "${out}"; then
+if ! grep -qE '^  operator\.conf: +EXISTING_OPTION$' <<< "${out}"; then
     pass "an option the operator has already commented out is not re-announced"
 else
     fail "re-announced an option the file already mentions"
@@ -205,6 +207,94 @@ if [[ -f "${CONF}.rpmnew" && "${out}" == *"then remove ${CONF}.rpmnew"* ]]; then
     pass "the copy to merge from is kept, with the hand-merge named"
 else
     fail "dropped the .rpmnew an operator still has to merge by hand"
+fi
+
+# ── (E2) operator.conf: the removal is offered only when the file covers every option and the prose ─────
+# Every option mentioned and the same comment prose, only re-wrapped, so the removal command is printed.
+reset_root
+printf '# The accounts enrolled as operators, managed by\n# the admin command.\nOPERATORS="root"\n' > "${CONF}"
+printf '# The accounts enrolled as operators,\n# managed by the admin command.\n#OPERATORS=""\n' > "${CONF}.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"sudo rm ${CONF}.rpmnew"* && "${out}" != *"comments differ"* ]]; then
+    pass "a copy whose options are all mentioned and whose comments are only re-wrapped is offered for removal"
+else
+    fail "a copy adding nothing was not offered for removal: ${out}"
+fi
+if [[ "${out}" == *"kept as set: OPERATORS"* ]]; then
+    pass "the host's own settings are named as kept"
+else
+    fail "the host's own settings were not named"
+fi
+if [[ "${out}" == *"Post-upgrade done -- nothing needs your attention"* ]]; then
+    pass "a run with nothing to carry over closes by saying nothing needs attention"
+else
+    fail "a run with nothing to act on closed with the wrong summary: ${out}"
+fi
+# The same file with one comment reworded: the copy now holds prose the file lacks, so no removal is offered.
+printf '# The accounts that run agent sessions,\n# managed by the admin command.\n#OPERATORS=""\n' > "${CONF}.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"comments differ"* && "${out}" != *"sudo rm"* && "${out}" == *"then remove ${CONF}.rpmnew"* ]]; then
+    pass "a reworded comment withholds the removal and names the difference"
+else
+    fail "a copy carrying new prose was offered for removal: ${out}"
+fi
+if [[ "${out}" == *"Post-upgrade done -- review the warnings and errors manually"* ]]; then
+    pass "a run with something to carry over closes by asking for a manual review"
+else
+    fail "a run with something to act on closed without asking for a review: ${out}"
+fi
+
+# ── (E3) A kept file another package ships: found, reported, and never printed ─────────────────────
+# The registry is base's, so an integration's endpoint file is found by the directory it sits in. It carries a key,
+# so neither its value nor the copy's content may reach the output.
+reset_root
+ENDPOINT="${ROOT}/etc/ai-tools/endpoints/example.conf"
+printf 'EXAMPLE_API_KEY="apikey_secretvalue"\n' > "${ENDPOINT}"
+printf '# Example endpoint.\n#EXAMPLE_API_KEY=""\n#EXAMPLE_TIMEOUT_MS="15000"\n' > "${ENDPOINT}.rpmnew"
+printf 'approval_policy = "never"\n' > "${ROOT}/etc/codex/managed_config.toml"
+printf 'approval_policy = "never"\ncheck_for_update_on_startup = false\n' > "${ROOT}/etc/codex/managed_config.toml.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"${ENDPOINT}"* && "${out}" == *"EXAMPLE_TIMEOUT_MS"* ]]; then
+    pass "a .rpmnew the registry does not name is found and its new option named"
+else
+    fail "an integration's kept config was not reported: ${out}"
+fi
+if [[ "${out}" != *"secretvalue"* && "${out}" != *"check_for_update_on_startup"* ]]; then
+    pass "neither a value nor a copy's content is printed for a discovered file"
+else
+    fail "a discovered file's content reached the output"
+fi
+if [[ "${out}" == *"sudo diff -u ${ROOT}/etc/codex/managed_config.toml "* && -f "${ROOT}/etc/codex/managed_config.toml.rpmnew" ]]; then
+    pass "a file with no treatment is named with the command that compares it, and its copy kept"
+else
+    fail "a file with no treatment was not named, or its copy was dropped"
+fi
+
+# ── (E4) Provenance: a copy dated before this installation is said to be an earlier template ──────────
+reset_root
+printf 'OPERATORS="root"\n' > "${CONF}"
+printf '#OPERATORS=""\n' > "${CONF}.rpmnew"
+touch -d 2020-01-01 "${CONF}.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"dated 2020-01-01 -- older than this installation"* ]]; then
+    pass "a copy older than the installation is named as an earlier version's template"
+else
+    fail "a stale copy was not dated or not marked as older: ${out}"
+fi
+
+# ── (E5) Earlier copies are listed and never removed ──────────────────────────────────────────────
+reset_root
+cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
+printf '{}\n' > "${SETTINGS}.20200101.bak"
+printf 'OPERATORS="root"\n' > "${CONF}"
+printf 'OPERATORS=""\n' > "${CONF}.20200101-2.shipped"
+out="$(run_pu)"
+if [[ "${out}" == *"${SETTINGS}.20200101.bak  (before this installation)"* \
+      && "${out}" == *"${CONF}.20200101-2.shipped  (before this installation)"* \
+      && -f "${SETTINGS}.20200101.bak" && -f "${CONF}.20200101-2.shipped" ]]; then
+    pass "earlier .bak and .shipped copies are listed with their age and left in place"
+else
+    fail "an earlier copy was not listed, or was removed: ${out}"
 fi
 
 # ── (F) The sudoers grant: shown, never adopted ──────────────────────────────────────────────

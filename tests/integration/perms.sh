@@ -80,6 +80,7 @@ check_file /usr/local/lib/ai-tools/keys/claude-code.asc      root              r
 # Shared KEY=value grammar + the trust predicate: 644 root:root -- world-readable, sourced by operator.lib.sh,
 # skip-dirs.lib.sh and providers.lib.sh; does not carry secrets.
 check_file /usr/local/lib/ai-tools/conf.lib.sh               root              root              644
+check_file /usr/local/lib/ai-tools/settings-merge.lib.sh     root              root              644
 # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and nvm-update (both run
 # as the sandbox account) to read the agent manifests; does not carry secrets.
 check_file /usr/local/lib/ai-tools/providers.lib.sh          root              root              644

@@ -223,12 +223,15 @@ readonly CONTROL_PLANE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-pla
 # shellcheck source=/dev/null
 source "${CONTROL_PLANE_LIB}" || die_unsourced "${CONTROL_PLANE_LIB}"
 
-# The shared config grammar, sourced from the SOURCE TREE like the other libs. It carries the config-sidecar handling
-# and the hook-declaration merge this script applies to a KEPT settings.json, so a missing lib would mean an upgrade
-# silently leaving a newly shipped hook undeclared -- fatal here, like the others.
+# The shared config grammar and the hook-declaration merge this script applies to a KEPT settings.json, sourced
+# from the SOURCE TREE like the other libs. A missing merge would mean an upgrade silently leaving a newly shipped hook
+# undeclared -- fatal here, like the others.
 readonly CONF_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/conf.lib.sh
 source "${CONF_LIB}" || die_unsourced "${CONF_LIB}"
+readonly SETTINGS_MERGE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/settings-merge.lib.sh"
+# shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/settings-merge.lib.sh
+source "${SETTINGS_MERGE_LIB}" || die_unsourced "${SETTINGS_MERGE_LIB}"
 
 # Managed-asset seeder (agents/skills), sourced from the SOURCE TREE. Requires msg.lib.sh (sourced with the other libs)
 # for the update confirm; a missing lib is fatal like the others.
@@ -362,7 +365,7 @@ report_new_conf_keys() {
     return 0
 }
 
-# Render the shared hook-declaration merge (conf.lib.sh) in the installer's voice. The decision, the backup,
+# Render the shared hook-declaration merge (settings-merge.lib.sh) in the installer's voice. The decision, the backup,
 # and the baseline copy are the library's; what belongs here is only how the outcome reads in an install log.
 #
 # A kept settings.json is the one control-plane file an upgrade does not overwrite, so without this a newly shipped hook
@@ -387,10 +390,13 @@ reconcile_hook_declarations() {
     # An affirmative outcome, not a warning: the merge is the intended path, and a warning that reports success trains
     # an operator to skim past the ones that matter. It is still not routine -- an operator-owned control-plane file
     # changed -- so every addition is named.
-    ok "${deployed}: merged in the hook declarations this version ships"
+    ok "${deployed}: reconciled the hook declarations with the ones this version ships"
     local line
     for line in "${_ai_tools_conf_merge_added[@]}"; do
         log "  + ${line}"
+    done
+    for line in "${_ai_tools_conf_merge_removed[@]}"; do
+        log "  - ${line} (a repeat of an earlier declaration)"
     done
     [[ -n "${_ai_tools_conf_merge_backup}" ]] && log "  previous file saved as ${_ai_tools_conf_merge_backup}"
     return 0
@@ -852,6 +858,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/entrypoint-verify.lib.sh
     _chk /usr/local/lib/ai-tools/keys/claude-code.asc
     _chk /usr/local/lib/ai-tools/conf.lib.sh
+    _chk /usr/local/lib/ai-tools/settings-merge.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
     _chk /usr/local/lib/ai-tools/ancestor-config.lib.sh
     _chk /usr/local/lib/ai-tools/toolchain.lib.sh
@@ -1243,6 +1250,12 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/conf.lib.sh" \
         /usr/local/lib/ai-tools/conf.lib.sh
+
+    # The settings.json hook-declaration merge: 644 root:root, sourced by install.sh and ai-tools-admin as root.
+    log "/usr/local/lib/ai-tools/settings-merge.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/settings-merge.lib.sh" \
+        /usr/local/lib/ai-tools/settings-merge.lib.sh
 
     # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and nvm-update (both run
     # as the sandbox account) to resolve which agents to provision from the manifests in agents.d. No secrets, no

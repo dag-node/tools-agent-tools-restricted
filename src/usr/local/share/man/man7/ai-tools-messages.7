@@ -1321,11 +1321,6 @@ left ${hardlinked} hardlinked file(s) untouched \-\- an inode with more than one
 .B MSG-R3Q4
 ERROR.
 claude: cannot load the launch gate library \-\- refusing to start
-.SS conf.lib.sh
-.TP
-.B MSG-F9W4
-WARNING.
-jq not found \-\- it is a package dependency; reinstall ai\-tools\-base
 .SS install-selinux.sh
 .TP
 .B MSG-A5N2
@@ -1720,6 +1715,15 @@ enabled with nothing installed: $(printf '%q' "${requested_name}") is enabled in
 .B MSG-Q6H3
 ERROR.
 Refusing the ${operation}: the target is a protected system directory.
+.SS settings-merge.lib.sh
+.TP
+.B MSG-F9W4
+WARNING.
+jq not found \-\- it is a package dependency; reinstall ai\-tools\-base
+.TP
+.B MSG-U9Y9
+WARNING.
+settings\-merge.lib.sh: conf.lib.sh missing or incomplete \-\- hook declarations not merged
 .SS toolchain.lib.sh
 .TP
 .B MSG-G4M8

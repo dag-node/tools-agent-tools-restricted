@@ -97,6 +97,7 @@ readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+readonly SETTINGS_MERGE_LIB="/usr/local/lib/ai-tools/settings-merge.lib.sh"
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 readonly PATH_ORDER_LIB="/usr/local/lib/ai-tools/path-order.lib.sh"
 # Where a provider package drops the command fragment carrying its own domain. The environment override is a test hook
@@ -483,13 +484,16 @@ contributed_dispatch() {
     exec "${ADMIN_COMMANDS_DIR}/${domain}" "$@"
 }
 
-# The shared config grammar, sidecar handling, and hook-declaration merge that `system post-upgrade` drives,
-# and the trust predicate every contributed command is vetted with. Required, not optional: a reconcile that silently
-# skipped its merge would leave a shipped hook uninvoked while reporting success, and a dispatch that could not tell
-# a trusted fragment from a planted one would exec whatever it found. Loaded BEFORE the other libraries, unlike them,
-# because `--help` lists this host's contributed domains and that list is drawn through this predicate.
+# The shared config grammar and sidecar handling that `system post-upgrade` drives, and the trust predicate every
+# contributed command is vetted with. Required, not optional: a reconcile that silently skipped its merge would leave
+# a shipped hook uninvoked while reporting success, and a dispatch that could not tell a trusted fragment from a planted
+# one would exec whatever it found. Loaded BEFORE the other libraries, unlike them, because `--help` lists this host's
+# contributed domains and that list is drawn through this predicate.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 . "${CONF_LIB}" || die_unsourced "${CONF_LIB}"
+# The hook-declaration merge `system post-upgrade` applies to a kept settings.json. Required for the same reason.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/settings-merge.lib.sh
+. "${SETTINGS_MERGE_LIB}" || die_unsourced "${SETTINGS_MERGE_LIB}"
 
 # Provider resolver: the manifest key behind each domain's summary line, and the enabled-integration list
 # `system bootstrap --scope full` iterates. Optional at load and gated at each use -- without it every installed
@@ -1236,11 +1240,17 @@ entrypoints_relabel() {
 #   keyval  reported, never rewritten. An absent key already means its default, so a stale file
 #           costs knowledge rather than behaviour, and its layout is the operator's own prose.
 #   review  shown only. A tool does not merge the sudo grant.
+#   show    a file the registry does not name: named with the command that compares it, never printed, since
+#           a kept config of another package may hold a credential (endpoints/typesafe.conf holds an API key).
 readonly -a POSTUPGRADE_FILES=(
     "/opt/ai-tools/.claude/settings.json|json|Claude Code settings"
     "/etc/ai-tools/operator.conf|keyval|host options"
     "/etc/sudoers.d/ai-tools|review|sudoers grant"
 )
+# The directories the packages of this stack ship a kept config file into. POSTUPGRADE_FILES is base's and cannot name
+# what an agent or integration package ships, so a .rpmnew under one of these that the registry does not name is found
+# here and reported: a KEY=value `*.conf` with the keyval treatment, anything else with `show`.
+readonly -a POSTUPGRADE_DIRS=(/etc/ai-tools /etc/codex /opt/ai-tools/.claude /opt/ai-tools/.codex)
 
 # AI_TOOLS_POSTUPGRADE_ROOT prefixes every path in that registry, so the test suite drives this command against fixtures
 # in its own /tmp testdir instead of the live host's control plane. It is a ROOT-ONLY test hook of the same shape
@@ -1261,18 +1271,63 @@ _pu_diff() {
     "${differ}" -u "$1" "$2" 2>/dev/null | sed 's/^/    /' || true
 }
 
+# _pu_say <level> <text>: one report line about the file being reconciled, prefixed by that file's name (_PU_NAME) so
+# a line names what it is about. The level says whether the operator has anything to do: `ok` is a green check, `info`
+# plain, `act` yellow -- something to carry over or decide -- and `err` red. Colour only on a terminal, like the CLI's
+# own report, so a captured run stays plain text.
+if [[ -t 1 ]]; then
+    readonly _PU_GRN=$'\033[32m' _PU_YEL=$'\033[33m' _PU_RED=$'\033[31m' _PU_DIM=$'\033[2m' _PU_RST=$'\033[0m'
+else
+    readonly _PU_GRN='' _PU_YEL='' _PU_RED='' _PU_DIM='' _PU_RST=''
+fi
+_PU_NAME=""
+# The lines that ask the operator to act, counted so the closing line can say whether anything needs review.
+_PU_ATTENTION=0
+_pu_say() {
+    local level="$1" text="$2"
+    [[ "${level}" == act || "${level}" == err ]] && _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
+    case "${level}" in
+        ok)  printf '  %s: %s✓%s %s\n' "${_PU_NAME}" "${_PU_GRN}" "${_PU_RST}" "${text}" ;;
+        act) printf '  %s:   %s%s%s\n' "${_PU_NAME}" "${_PU_YEL}" "${text}" "${_PU_RST}" ;;
+        err) printf '  %s:   %s%s%s\n' "${_PU_NAME}" "${_PU_RED}" "${text}" "${_PU_RST}" ;;
+        *)   printf '  %s:   %s\n' "${_PU_NAME}" "${text}" ;;
+    esac
+}
+
 # _pu_leave <rpmnew> [merged]: close a file's block by naming what is left to do with the copy. This function prints,
 # and is the only thing any treatment does about the .rpmnew, so the copy survives every run. Each treatment leaves part
 # of the reconciliation to the operator -- the permission rules here, the whole edit for a KEY=value file, the adoption
 # of a sudo grant -- and the copy is the only record of what the package shipped, so deleting it would take away
 # the baseline that edit is made from. It is the operator's file to remove, once the merge they wanted is in place.
-# `merged` says the deployed file now matches the copy byte for byte, so the removal is all that remains.
+# `merged` says nothing is left to carry over, so the removal is all that remains and its command is printed.
 _pu_leave() {
     local rpmnew="$1"
     if [[ "${2:-}" == merged ]]; then
-        log "  nothing is left to carry over -- remove ${rpmnew} when you are ready"
+        _pu_say ok "nothing is left to carry over -- remove the copy when you are ready:"
+        _pu_say info "  sudo rm ${rpmnew}"
     else
-        log "  merge new config changes by hand, then remove ${rpmnew}"
+        _pu_say act "carry over what you want by hand, then remove ${rpmnew}"
+    fi
+}
+
+# _pu_installed_day: the day this command's own file was installed, as YYYYMMDD. A copy dated before it is
+# from an earlier installation. Compared by day because rpm gives every file of one package its build time, and files
+# built in one run can differ by seconds.
+_pu_installed_day() { date -r "${BASH_SOURCE[0]}" +%Y%m%d 2>/dev/null; }
+
+# _pu_provenance <rpmnew>: the one line under a file's headline, naming the copy and its date. A copy dated before this
+# installation -- a from-source install after an RPM one, or a copy left from an earlier upgrade -- is an earlier
+# version's template, which is said beside it.
+_pu_provenance() {
+    local rpmnew="$1" dated day installed
+    dated="$(date -r "${rpmnew}" +%Y-%m-%d 2>/dev/null)" || dated="an unknown date"
+    day="${dated//-/}"
+    installed="$(_pu_installed_day)" || installed=""
+    if [[ -n "${installed}" && "${day}" =~ ^[0-9]{8}$ && "${day}" < "${installed}" ]]; then
+        printf 'package copy: %s, dated %s -- older than this installation, so an earlier version'"'"'s template' \
+            "${rpmnew}" "${dated}"
+    else
+        printf 'package copy: %s, dated %s' "${rpmnew}" "${dated}"
     fi
 }
 
@@ -1282,7 +1337,8 @@ _pu_leave() {
 _pu_json() {
     local deployed="$1" rpmnew="$2" scratch status=0
     ai_tools_conf_require_jq \
-        || { warn MSG-A5Z7 "jq is missing, so this file's JSON cannot be read -- merge it by hand"; return 0; }
+        || { warn MSG-A5Z7 "jq is missing, so this file's JSON cannot be read -- merge it by hand"
+             _PU_ATTENTION=$(( _PU_ATTENTION + 1 )); return 0; }
 
     scratch="$(mktemp -d)" || return 0
     cp -p "${deployed}" "${scratch}/probe" 2>/dev/null || { rm -rf "${scratch}"; return 0; }
@@ -1290,95 +1346,210 @@ _pu_json() {
     rm -rf "${scratch}"
 
     case "${status}" in
-    1)  log "  hook declarations are already current -- nothing to merge"
-        log "  the difference left is in the permission rules, which are yours to tune:"
+    1)  _pu_say ok "hook declarations are already current"
+        _pu_say act "the difference left is in the permission rules, which are yours to tune:"
         _pu_diff "${deployed}" "${rpmnew}"
         _pu_leave "${rpmnew}"
         return 0 ;;
     2)  warn MSG-Q4F6 "cannot merge the hook declarations: ${_ai_tools_conf_merge_reason}"
-        warn "    ${deployed} is unchanged -- copy the \"hooks\" block from ${rpmnew} by hand"
+        _pu_say err "unchanged -- copy the \"hooks\" block from ${rpmnew} by hand"
         return 0 ;;
     esac
 
-    log "  hook declarations this version adds:"
     local line
-    for line in "${_ai_tools_conf_merge_added[@]}"; do log "    + ${line}"; done
-    log "  nothing else changes -- your permission rules stay as written"
-    ai_tools_msg_confirm "  Merge these into ${deployed}?" y || { log "  skipped -- ${deployed} unchanged"; return 0; }
+    if (( ${#_ai_tools_conf_merge_added[@]} > 0 )); then
+        _pu_say act "hook declarations this version adds:"
+        for line in "${_ai_tools_conf_merge_added[@]}"; do _pu_say act "  + ${line}"; done
+    fi
+    if (( ${#_ai_tools_conf_merge_removed[@]} > 0 )); then
+        _pu_say act "hook declarations declared twice, of which the merge keeps the first:"
+        for line in "${_ai_tools_conf_merge_removed[@]}"; do _pu_say act "  - ${line}"; done
+    fi
+    _pu_say info "the permission rules stay as written"
+    ai_tools_msg_confirm "  Merge these into ${deployed}?" y || { _pu_say act "skipped -- ${deployed} unchanged"; return 0; }
 
     status=0
     ai_tools_conf_merge_hook_declarations "${deployed}" "${rpmnew}" || status=$?
     if (( status >= 2 )); then
         warn MSG-X9F8 "the merge failed: ${_ai_tools_conf_merge_reason} -- ${deployed} is unchanged"
+        _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
         return 0
     fi
-    log "  merged -- the previous file is saved as ${_ai_tools_conf_merge_backup}"
+    _pu_say ok "merged -- the previous file is saved as ${_ai_tools_conf_merge_backup}"
 
     # Close against what is left. Once the permission rules match too, the .rpmnew has no difference left to report,
     # so the operator is told the removal is all that remains.
     if command -v diff >/dev/null 2>&1 && diff -q "${deployed}" "${rpmnew}" >/dev/null 2>&1; then
-        log "  ${deployed} now matches the shipped file exactly"
+        _pu_say ok "now matches the shipped file exactly"
         _pu_leave "${rpmnew}" merged
     else
-        log "  the permission rules still differ -- review them before you remove the copy:"
+        _pu_say act "the permission rules still differ -- review them before you remove the copy:"
         _pu_diff "${deployed}" "${rpmnew}"
         _pu_leave "${rpmnew}"
     fi
 }
 
+# _pu_prose <file>: the file's comment prose as one word stream -- comment lines with their `#` removed, the commented
+# defaults (`#KEY=value`, `# KEY=value`) left out as settings, and whitespace collapsed -- so a comment that was only
+# re-wrapped reads as unchanged and a reworded one does not.
+_pu_prose() {
+    sed -n '/^[[:space:]]*#/{/^[[:space:]]*#[[:space:]]\{0,1\}[A-Za-z_][A-Za-z0-9_]*=/d;s/^[[:space:]]*#//;p;}' "$1" \
+        2>/dev/null | tr -s '[:space:]' ' '
+}
+
+# _pu_own_keys <array-name> <deployed> <rpmnew>: the keys the deployed file sets whose value the copy does not set
+# the same way -- the operator's own settings, which is what most of such a difference is. Names only: a kept config may
+# hold a credential, so no value is printed or kept beyond the comparison.
+_pu_own_keys() {
+    local -n _pu_own_out="$1"
+    local deployed="$2" rpmnew="$3" line key live shipped
+    local -a set_keys=()
+    _pu_own_out=()
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ -z "${line}" || "${line}" == '#'* || "${line}" != *=* ]] && continue
+        key="${line%%=*}"; key="${key%"${key##*[![:space:]]}"}"
+        [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && " ${set_keys[*]} " != *" ${key} "* ]] && set_keys+=("${key}")
+    done < "${deployed}"
+    for key in "${set_keys[@]}"; do
+        live="$(ai_tools_conf_get "${deployed}" "${key}")" || true
+        if shipped="$(ai_tools_conf_get "${rpmnew}" "${key}")" && [[ "${shipped}" == "${live}" ]]; then
+            continue
+        fi
+        _pu_own_out+=("${key}")
+    done
+}
+
 # _pu_keyval <deployed> <rpmnew>: report and never write. A KEY=value config is mostly prose -- commented option blocks
 # whose layout is the operator's -- and merging prose would need a convention an operator has to learn before they can
-# predict it. Name the options the new version documents that this file does not mention, show the difference, and leave
-# the edit to them.
+# predict it. Name the options the new version documents that this file does not mention, the operator's own settings,
+# and whether the comments changed, and leave the edit to them. The difference is named as a command and not printed:
+# a kept KEY=value file may hold a credential. The removal is offered only when every option is mentioned and the prose
+# is the same, since otherwise the copy still holds something the live file lacks.
 _pu_keyval() {
-    local deployed="$1" rpmnew="$2" key
-    local -a new_keys=()
+    local deployed="$1" rpmnew="$2" key page
+    local -a new_keys=() own_keys=()
+    local carried=0
     if ai_tools_conf_new_keys new_keys "${deployed}" "${rpmnew}"; then
-        log "  options this version documents that ${deployed} does not mention:"
-        for key in "${new_keys[@]}"; do log "    ${key}"; done
-        log "  each one is optional and an unmentioned key keeps its default, so leaving them out"
-        log "  breaks nothing -- copy the blocks you want; see ai-tools-operator.conf(5)"
+        carried=1
+        _pu_say act "options this version documents that the file does not mention:"
+        for key in "${new_keys[@]}"; do _pu_say act "  ${key}"; done
+        _pu_say info "each is optional, and an unmentioned key keeps its default -- copy the blocks you want"
     else
-        log "  every option this version documents is already mentioned in ${deployed}"
+        _pu_say ok "every option this version documents is mentioned"
     fi
-    log "  the full difference:"
-    _pu_diff "${deployed}" "${rpmnew}"
-    _pu_leave "${rpmnew}"
+    _pu_own_keys own_keys "${deployed}" "${rpmnew}"
+    (( ${#own_keys[@]} == 0 )) || _pu_say ok "set on this host, and kept as set: ${own_keys[*]}"
+
+    page="ai-tools-${deployed##*/}"
+    if [[ "$(_pu_prose "${deployed}")" != "$(_pu_prose "${rpmnew}")" ]]; then
+        carried=1
+        if [[ -r "/usr/local/share/man/man5/${page}.5" ]]; then
+            _pu_say act "the comments differ from this version's -- the current wording is in ${page}(5)"
+        else
+            _pu_say act "the comments differ from this version's"
+        fi
+    fi
+    _pu_say info "compare them:  sudo diff -u ${deployed} ${rpmnew}"
+    if (( carried )); then _pu_leave "${rpmnew}"; else _pu_leave "${rpmnew}" merged; fi
 }
 
 # _pu_review <deployed> <rpmnew>: show and stop. This file is the sudo grant itself.
 _pu_review() {
     local deployed="$1" rpmnew="$2"
+    _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
     ai_tools_msg_warn MSG-H8A2 \
         "This file defines the sudo grant that lets an operator launch the sandbox. It is shown, never merged: check any change yourself with visudo -c before adopting it."
     _pu_diff "${deployed}" "${rpmnew}"
-    log "  adopt the packaged version with:  sudo visudo -c -f ${rpmnew} && sudo cp ${rpmnew} ${deployed}"
+    _pu_say info "adopt the packaged version with:  sudo visudo -c -f ${rpmnew} && sudo cp ${rpmnew} ${deployed}"
     _pu_leave "${rpmnew}"
+}
+
+# _pu_show <deployed> <rpmnew>: a file this command has no treatment for. Named, never printed or merged.
+_pu_show() {
+    local deployed="$1" rpmnew="$2"
+    _pu_say act "this command does not merge this file -- compare them:  sudo diff -u ${deployed} ${rpmnew}"
+    _pu_leave "${rpmnew}"
+}
+
+# _pu_entries <root>: one "<file>|<kind>|<label>" line per file with a .rpmnew waiting -- the registry first, then each
+# one found under POSTUPGRADE_DIRS that the registry does not name.
+_pu_entries() {
+    local root="$1" entry file kind label dir rpmnew
+    local -a named=()
+    for entry in "${POSTUPGRADE_FILES[@]}"; do
+        IFS='|' read -r file kind label <<< "${entry}"
+        named+=("${root}${file}")
+        [[ -f "${root}${file}.rpmnew" && -f "${root}${file}" ]] && printf '%s|%s|%s\n' "${root}${file}" "${kind}" "${label}"
+    done
+    for dir in "${POSTUPGRADE_DIRS[@]}"; do
+        [[ -d "${root}${dir}" ]] || continue
+        while IFS= read -r rpmnew; do
+            file="${rpmnew%.rpmnew}"
+            [[ -f "${file}" && " ${named[*]} " != *" ${file} "* ]] || continue
+            named+=("${file}")
+            if [[ "${file}" == *.conf ]]; then kind=keyval; else kind=show; fi
+            printf '%s|%s|%s\n' "${file}" "${kind}" "${file##*/}"
+        done < <(find "${root}${dir}" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null | sort)
+    done
+}
+
+# _pu_sidecars <root>: list the dated copies the merge and the installer left beside the config files -- a .bak is
+# what a file held before a merge replaced it, a .shipped the baseline left when one could not run -- so an operator
+# learns they exist. Listed, never removed: a .bak is the only copy that restores host tuning a merge got wrong. One
+# dated before this command's own file is from an earlier installation, which is said beside it.
+_pu_sidecars() {
+    local root="$1" dir path stamp installed
+    local -a copies=()
+    installed="$(_pu_installed_day)" || installed=""
+    for dir in "${POSTUPGRADE_DIRS[@]}" /etc/sudoers.d; do
+        [[ -d "${root}${dir}" ]] || continue
+        while IFS= read -r path; do copies+=("${path}"); done < <(find "${root}${dir}" -maxdepth 3 -type f \
+            \( -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.bak' \
+               -o -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.shipped' \) 2>/dev/null | sort)
+    done
+    (( ${#copies[@]} > 0 )) || return 0
+    ai_tools_msg_headline "earlier copies kept beside the config files" 1 \
+        "a .bak is what a file held before a merge replaced it, a .shipped the baseline left when a merge could not run"
+    for path in "${copies[@]}"; do
+        stamp="$(sed -nE 's/.*\.([0-9]{8})(-[0-9]+)?\.(bak|shipped)$/\1/p' <<< "${path}")"
+        if [[ -n "${installed}" && -n "${stamp}" && "${stamp}" < "${installed}" ]]; then
+            printf '  %s  %s(before this installation)%s\n' "${path}" "${_PU_DIM}" "${_PU_RST}"
+        else
+            printf '  %s\n' "${path}"
+        fi
+    done
+    printf '  each is yours to keep or remove -- no command reads one\n'
 }
 
 postupgrade() {
     [[ $# -eq 0 ]] || reject MSG-S9M6 "system post-upgrade: takes no arguments"
-    local entry file kind label found=0
+    local file kind label title found=0
     local root="${AI_TOOLS_POSTUPGRADE_ROOT:-}"
 
-    for entry in "${POSTUPGRADE_FILES[@]}"; do
-        IFS='|' read -r file kind label <<< "${entry}"
-        file="${root}${file}"
-        [[ -f "${file}.rpmnew" && -f "${file}" ]] || continue
+    while IFS='|' read -r file kind label; do
         found=1
-        ai_tools_msg_headline "${label}: ${file}" 1
+        _PU_NAME="${file##*/}"
+        if [[ "${label}" == "${_PU_NAME}" ]]; then title="${_PU_NAME}"; else title="${_PU_NAME} -- ${label}"; fi
+        ai_tools_msg_headline "${title}" 1 "${file}" "$(_pu_provenance "${file}.rpmnew")"
         case "${kind}" in
             json)   _pu_json   "${file}" "${file}.rpmnew" ;;
             keyval) _pu_keyval "${file}" "${file}.rpmnew" ;;
             review) _pu_review "${file}" "${file}.rpmnew" ;;
+            show)   _pu_show   "${file}" "${file}.rpmnew" ;;
         esac
-    done
+    done < <(_pu_entries "${root}")
 
+    _pu_sidecars "${root}"
+    printf '\n'
     if (( found == 0 )); then
-        log "no .rpmnew files are waiting -- every config file this stack owns is reconciled"
-        return 0
+        printf 'Post-upgrade done -- no .rpmnew file is waiting, so every config file this stack owns is reconciled\n'
+    elif (( _PU_ATTENTION > 0 )); then
+        printf 'Post-upgrade done -- review the warnings and errors manually\n'
+    else
+        printf 'Post-upgrade done -- nothing needs your attention\n'
     fi
-    log "done -- this command is idempotent, re-run it at any time"
+    printf '%sthis command is idempotent, re-run it at any time%s\n' "${_PU_DIM}" "${_PU_RST}"
 }
 
 # ── status ───────────────────────────────────────────────────────────────────────────────────

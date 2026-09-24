@@ -194,11 +194,11 @@ the daemon does not inherit the override — the same limitation as `AI_TOOLS_AL
 so every line is still queryable by its per-component tag.
 
 `AI_TOOLS_POSTUPGRADE_ROOT` is the fourth hook of that family and the widest in reach:
-`ai-tools-admin system post-upgrade` reconciles a fixed registry of absolute control-plane paths, and this prefixes
-every one of them, so `unit/postupgrade.sh` drives the real command against a fixture tree in its testdir. It carries
-the same standing as the other three — the helper is reachable only as root, `sudo` strips the name, and a caller
-who could set it may already edit those files outright — and is unset in production, where the registry paths stand
-as written.
+`ai-tools-admin system post-upgrade` reconciles a fixed registry of absolute control-plane paths and the files it finds
+under a fixed set of config directories, and this prefixes every one of them, so `unit/postupgrade.sh` drives the real
+command against a fixture tree in its testdir. It carries the same standing as the other three — the helper is reachable
+only as root, `sudo` strips the name, and a caller who could set it may already edit those files outright — and is unset
+in production, where the registry paths stand as written.
 
 `AI_TOOLS_ADMIN_COMMANDS_DIR` (`ai-tools-admin`) belongs to that family too, and redirects the directory the admin
 dispatch discovers its contributed command domains in, so `unit/admin-commands.sh` drives the real dispatch
@@ -537,13 +537,15 @@ of the contract — control bytes go, every line survives.
 `settings-merge.sh` pins `install.sh`'s hook-declaration reconciler, the step that lets a newly shipped hook reach
 a host whose `settings.json` is kept across an upgrade (see [claude-settings](claude-settings.rule.md)). It edits
 an operator-owned control-plane file and every way it can go wrong is quiet, so the assertions come in three groups —
-what must **arrive** (each shipped declaration the kept file lacks), what must **survive** (the handback declaration,
-the permission arrays, a relaxed deny entry, an operator's own hook), and what must be **said** (the report names every
-addition, since the operator reviews the install log rather than the JSON) — plus the two sidecars, which answer
-different questions and do not substitute for each other: `.bak` is what the operator had, `.shipped` is what they were
-meant to get, written only when the merge could not run. It drives the deployed `conf.lib.sh` directly, like the other
-library unit tests: the decision lives there rather than in `install.sh` precisely so it can be exercised without stubs
-or text extraction, and the installer keeps only the rendering.
+what must **arrive** (each shipped declaration the kept file lacks, and each only once — a group partly declared gains
+its absent command alone, and a repeat an earlier merge left is repaired), what must **survive** (the handback
+declaration, the permission arrays, a relaxed deny entry, an operator's own hook, repeated or not), and what must be
+**said** (the report names every addition and every removal, since the operator reviews the install log rather than
+the JSON) — plus the two sidecars, which answer different questions and do not substitute for each other: `.bak` is
+what the operator had, `.shipped` is what they were meant to get, written only when the merge could not run. It drives
+the deployed `settings-merge.lib.sh` directly, like the other library unit tests: the decision lives there rather than
+in `install.sh` precisely so it can be exercised without stubs or text extraction, and the installer keeps only
+the rendering.
 
 `install-guards.sh` is the other `install.sh` unit test, and it covers the decision that sits before the dispatch:
 which account the install enrols. Every refusal is driven through `--operator`, the one route by which a name reaches
@@ -566,12 +568,16 @@ from dispatch through the registry to each treatment (see [providers](providers.
 and [claude-settings](claude-settings.rule.md)). It asserts which treatment each file got — the settings JSON merged
 with its permission rules intact and a dated `.bak` written first, `operator.conf` reported and byte-identical
 afterwards, the sudoers grant shown and neither written nor dropped (its fixture is a grant of everything to everyone,
-so a silent adoption fails loudly) — plus the property every case shares: the `.rpmnew` survives the run and is named
-as the operator's to delete, the case where the merge leaves the two files matching included. Every run is
-under `setsid`, so each prompt takes its own default: that is the unattended behaviour and what makes an interactive
-command reproducible. The agent-side half of the pair is already deployed: `boundary/access.sh` covers `settings.json`
-and the helper directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`,
-and `boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
+so a silent adoption fails loudly), a kept file the registry does not name found by its directory with neither a value
+nor the copy's content printed, the removal command offered only where the file mentions every option the copy documents
+and carries the same comment prose (a re-wrapped comment is the same prose, a reworded one is not), a copy dated
+before the installation named as such, and earlier `.bak`/`.shipped` copies listed and left in place — plus the property
+every case shares: the `.rpmnew` survives the run and is named as the operator's to delete, the case where the merge
+leaves the two files matching included. Every run is under `setsid`, so each prompt takes its own default: that is
+the unattended behaviour and what makes an interactive command reproducible. The agent-side half of the pair is already
+deployed: `boundary/access.sh` covers `settings.json` and the helper directory, `boundary/providers.sh`
+and `boundary/filters.sh` cover `operator.conf`, and `boundary/sudo.sh` covers the grant, so no input this command reads
+is agent-writable.
 
 `admin-commands.sh` pins the seam that lets a provider package add a domain to `ai-tools-admin` (see
 [providers](providers.rule.md)). What it drives is a dispatch that **execs a file as root**, so every assertion targets

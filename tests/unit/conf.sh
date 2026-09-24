@@ -333,13 +333,6 @@ else
     fail "referenced a nonexistent baseline"
 fi
 
-# jq is a package dependency, so the JSON paths report a broken install rather than degrading.
-if ai_tools_conf_require_jq >/dev/null 2>&1; then
-    pass "the jq gate passes where jq is installed"
-else
-    fail "the jq gate rejected a host that has jq"
-fi
-
 # --- New options in a kept KEY=value config ---------------------------------------------------
 # A kept config never gains a key a new version documents, so an install has to SAY which options the operator has not
 # seen. It must not say it twice: a key already set, or deliberately commented out, has been seen, and re-announcing it

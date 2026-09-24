@@ -61,7 +61,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Namespaces, SELinux transition, preflight, `/tmp`, optional-group management, how the policy ships and why it is separately licensed | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand), `packaging/ai-tools.spec` (`ai-tools-selinux`) | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh`, `owner-only.lib.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
-| Claude Code settings, Bash deny rules ↔ SELinux policy | `opt/ai-tools/agents/*/settings.json` | [claude-settings](.claude/rules/claude-settings.rule.md) |
+| Claude Code settings, Bash deny rules ↔ SELinux policy, the hook-declaration merge a kept file takes on upgrade | `opt/ai-tools/agents/*/settings.json`, `settings-merge.lib.sh` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Token-saving command filters: rewrite rules + output noise stripping | `filters.lib.sh`, `lib/ai-tools/filters.d/**`, `agents/*/filter-hook.sh` | [filters](.claude/rules/filters.rule.md) |
 | Shipped assets: shared skills, subagents, and the per-session orientation text, their placement chain and seeding | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
 | Governance posture: enforced vs dispositional, proportionality, the agent's own conduct and the controls beside it | `usr/share/ai-tools/skills/ai-tools-capable-systems-governance/**` | [governance](.claude/rules/governance.rule.md) |
@@ -302,17 +302,17 @@ not gaps, so a reader tells bounded design from an oversight:
   and [launch](.claude/rules/launch.rule.md). A provider package's own root command is instead a **contributed
   `ai-tools-admin` domain**, an executable at `/usr/local/lib/ai-tools/admin-commands.d/<name>` that the dispatcher
   execs once it and its directory pass the provider trust predicate (`dotnet` is the one installed today). **Shared
-  libraries** live under `/usr/local/lib/ai-tools/` (`conf`, `secret-patterns`, `skip-dirs`, `owner-only`, `safe-paths`,
-  `relabel`, `operator`, `control-plane`, `confinement`, `launch-wrapper`, `npm-verify`, `entrypoint-verify`,
-  `managed-assets`, `providers`, `ancestor-config`, `toolchain`, `selinux-groups`, `filters`, `services`, `msg`, `log`,
-  `path-order`, `agent-installs`, and the claude-code pair `claude-prompt`/`claude-endpoint`), plus `path-order.sh`,
-  the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see [launch](.claude/rules/launch.rule.md)).
-  That directory and its contents are `root`-owned and non-group-writable, and the sandbox group reads them —
-  load-bearing, since the sandbox account sources several of these libraries. Read is open on every one of them
-  and **write** is the boundary: a shared library carries shipped logic or a general list, and an operator's own data
-  stays in that operator's private config instead, so an open read discloses only what already ships (the modes are
-  in [providers](.claude/rules/providers.rule.md); the guarantee is the invariant that the sandbox cannot widen its own
-  surface).
+  libraries** live under `/usr/local/lib/ai-tools/` (`conf`, `settings-merge`, `secret-patterns`, `skip-dirs`,
+  `owner-only`, `safe-paths`, `relabel`, `operator`, `control-plane`, `confinement`, `launch-wrapper`, `npm-verify`,
+  `entrypoint-verify`, `managed-assets`, `providers`, `ancestor-config`, `toolchain`, `selinux-groups`, `filters`,
+  `services`, `msg`, `log`, `path-order`, `agent-installs`, and the claude-code pair `claude-prompt`/`claude-endpoint`),
+  plus `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see
+  [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned and non-group-writable,
+  and the sandbox group reads them — load-bearing, since the sandbox account sources several of these libraries. Read is
+  open on every one of them and **write** is the boundary: a shared library carries shipped logic or a general list,
+  and an operator's own data stays in that operator's private config instead, so an open read discloses only
+  what already ships (the modes are in [providers](.claude/rules/providers.rule.md); the guarantee is the invariant
+  that the sandbox cannot widen its own surface).
 
 ### Documentation register
 
