@@ -1271,6 +1271,26 @@ _pu_diff() {
     "${differ}" -u "$1" "$2" 2>/dev/null | sed 's/^/    /' || true
 }
 
+# _pu_say <level> <text>: one report line about the file being reconciled, prefixed by that file's name (_PU_NAME) so
+# a line names what it is about. The level says whether the operator has anything to do: `ok` is a green check, `info`
+# plain, `act` yellow -- something to carry over or decide -- and `err` red. Colour only on a terminal, like the CLI's
+# own report, so a captured run stays plain text.
+if [[ -t 1 ]]; then
+    readonly _PU_GRN=$'\033[32m' _PU_YEL=$'\033[33m' _PU_RED=$'\033[31m' _PU_DIM=$'\033[2m' _PU_RST=$'\033[0m'
+else
+    readonly _PU_GRN='' _PU_YEL='' _PU_RED='' _PU_DIM='' _PU_RST=''
+fi
+_PU_NAME=""
+_pu_say() {
+    local level="$1" text="$2"
+    case "${level}" in
+        ok)  printf '  %s: %s✓%s %s\n' "${_PU_NAME}" "${_PU_GRN}" "${_PU_RST}" "${text}" ;;
+        act) printf '  %s:   %s%s%s\n' "${_PU_NAME}" "${_PU_YEL}" "${text}" "${_PU_RST}" ;;
+        err) printf '  %s:   %s%s%s\n' "${_PU_NAME}" "${_PU_RED}" "${text}" "${_PU_RST}" ;;
+        *)   printf '  %s:   %s\n' "${_PU_NAME}" "${text}" ;;
+    esac
+}
+
 # _pu_leave <rpmnew> [merged]: close a file's block by naming what is left to do with the copy. This function prints,
 # and is the only thing any treatment does about the .rpmnew, so the copy survives every run. Each treatment leaves part
 # of the reconciliation to the operator -- the permission rules here, the whole edit for a KEY=value file, the adoption
@@ -1280,10 +1300,10 @@ _pu_diff() {
 _pu_leave() {
     local rpmnew="$1"
     if [[ "${2:-}" == merged ]]; then
-        log "  nothing is left to carry over -- remove ${rpmnew} when you are ready:"
-        log "    sudo rm ${rpmnew}"
+        _pu_say ok "nothing is left to carry over -- remove the copy when you are ready:"
+        _pu_say info "  sudo rm ${rpmnew}"
     else
-        log "  carry over what you want by hand, then remove ${rpmnew}"
+        _pu_say act "carry over what you want by hand, then remove ${rpmnew}"
     fi
 }
 
@@ -1322,27 +1342,27 @@ _pu_json() {
     rm -rf "${scratch}"
 
     case "${status}" in
-    1)  log "  hook declarations are already current -- nothing to merge"
-        log "  the difference left is in the permission rules, which are yours to tune:"
+    1)  _pu_say ok "hook declarations are already current"
+        _pu_say act "the difference left is in the permission rules, which are yours to tune:"
         _pu_diff "${deployed}" "${rpmnew}"
         _pu_leave "${rpmnew}"
         return 0 ;;
     2)  warn MSG-Q4F6 "cannot merge the hook declarations: ${_ai_tools_conf_merge_reason}"
-        warn "    ${deployed} is unchanged -- copy the \"hooks\" block from ${rpmnew} by hand"
+        _pu_say err "unchanged -- copy the \"hooks\" block from ${rpmnew} by hand"
         return 0 ;;
     esac
 
     local line
     if (( ${#_ai_tools_conf_merge_added[@]} > 0 )); then
-        log "  hook declarations this version adds:"
-        for line in "${_ai_tools_conf_merge_added[@]}"; do log "    + ${line}"; done
+        _pu_say act "hook declarations this version adds:"
+        for line in "${_ai_tools_conf_merge_added[@]}"; do _pu_say act "  + ${line}"; done
     fi
     if (( ${#_ai_tools_conf_merge_removed[@]} > 0 )); then
-        log "  hook declarations declared twice, of which the merge keeps the first:"
-        for line in "${_ai_tools_conf_merge_removed[@]}"; do log "    - ${line}"; done
+        _pu_say act "hook declarations declared twice, of which the merge keeps the first:"
+        for line in "${_ai_tools_conf_merge_removed[@]}"; do _pu_say act "  - ${line}"; done
     fi
-    log "  nothing else changes -- your permission rules stay as written"
-    ai_tools_msg_confirm "  Merge these into ${deployed}?" y || { log "  skipped -- ${deployed} unchanged"; return 0; }
+    _pu_say info "the permission rules stay as written"
+    ai_tools_msg_confirm "  Merge these into ${deployed}?" y || { _pu_say act "skipped -- ${deployed} unchanged"; return 0; }
 
     status=0
     ai_tools_conf_merge_hook_declarations "${deployed}" "${rpmnew}" || status=$?
@@ -1350,15 +1370,15 @@ _pu_json() {
         warn MSG-X9F8 "the merge failed: ${_ai_tools_conf_merge_reason} -- ${deployed} is unchanged"
         return 0
     fi
-    log "  merged -- the previous file is saved as ${_ai_tools_conf_merge_backup}"
+    _pu_say ok "merged -- the previous file is saved as ${_ai_tools_conf_merge_backup}"
 
     # Close against what is left. Once the permission rules match too, the .rpmnew has no difference left to report,
     # so the operator is told the removal is all that remains.
     if command -v diff >/dev/null 2>&1 && diff -q "${deployed}" "${rpmnew}" >/dev/null 2>&1; then
-        log "  ${deployed} now matches the shipped file exactly"
+        _pu_say ok "now matches the shipped file exactly"
         _pu_leave "${rpmnew}" merged
     else
-        log "  the permission rules still differ -- review them before you remove the copy:"
+        _pu_say act "the permission rules still differ -- review them before you remove the copy:"
         _pu_diff "${deployed}" "${rpmnew}"
         _pu_leave "${rpmnew}"
     fi
@@ -1407,26 +1427,25 @@ _pu_keyval() {
     local carried=0
     if ai_tools_conf_new_keys new_keys "${deployed}" "${rpmnew}"; then
         carried=1
-        log "  options this version documents that ${deployed} does not mention:"
-        for key in "${new_keys[@]}"; do log "    ${key}"; done
-        log "  each one is optional and an unmentioned key keeps its default, so leaving them out"
-        log "  breaks nothing -- copy the blocks you want"
+        _pu_say act "options this version documents that the file does not mention:"
+        for key in "${new_keys[@]}"; do _pu_say act "  ${key}"; done
+        _pu_say info "each is optional, and an unmentioned key keeps its default -- copy the blocks you want"
     else
-        log "  every option this version documents is mentioned in ${deployed}"
+        _pu_say ok "every option this version documents is mentioned"
     fi
     _pu_own_keys own_keys "${deployed}" "${rpmnew}"
-    (( ${#own_keys[@]} == 0 )) || log "  set on this host, and kept as set: ${own_keys[*]}"
+    (( ${#own_keys[@]} == 0 )) || _pu_say ok "set on this host, and kept as set: ${own_keys[*]}"
 
     page="ai-tools-${deployed##*/}"
     if [[ "$(_pu_prose "${deployed}")" != "$(_pu_prose "${rpmnew}")" ]]; then
         carried=1
         if [[ -r "/usr/local/share/man/man5/${page}.5" ]]; then
-            log "  the comments differ from this version's -- the current wording is in ${page}(5)"
+            _pu_say act "the comments differ from this version's -- the current wording is in ${page}(5)"
         else
-            log "  the comments differ from this version's"
+            _pu_say act "the comments differ from this version's"
         fi
     fi
-    log "  compare them:  sudo diff -u ${deployed} ${rpmnew}"
+    _pu_say info "compare them:  sudo diff -u ${deployed} ${rpmnew}"
     if (( carried )); then _pu_leave "${rpmnew}"; else _pu_leave "${rpmnew}" merged; fi
 }
 
@@ -1436,14 +1455,14 @@ _pu_review() {
     ai_tools_msg_warn MSG-H8A2 \
         "This file defines the sudo grant that lets an operator launch the sandbox. It is shown, never merged: check any change yourself with visudo -c before adopting it."
     _pu_diff "${deployed}" "${rpmnew}"
-    log "  adopt the packaged version with:  sudo visudo -c -f ${rpmnew} && sudo cp ${rpmnew} ${deployed}"
+    _pu_say info "adopt the packaged version with:  sudo visudo -c -f ${rpmnew} && sudo cp ${rpmnew} ${deployed}"
     _pu_leave "${rpmnew}"
 }
 
 # _pu_show <deployed> <rpmnew>: a file this command has no treatment for. Named, never printed or merged.
 _pu_show() {
     local deployed="$1" rpmnew="$2"
-    log "  this command does not merge this file -- compare them:  sudo diff -u ${deployed} ${rpmnew}"
+    _pu_say act "this command does not merge this file -- compare them:  sudo diff -u ${deployed} ${rpmnew}"
     _pu_leave "${rpmnew}"
 }
 
@@ -1489,22 +1508,24 @@ _pu_sidecars() {
     for path in "${copies[@]}"; do
         stamp="$(sed -nE 's/.*\.([0-9]{8})(-[0-9]+)?\.(bak|shipped)$/\1/p' <<< "${path}")"
         if [[ -n "${installed}" && -n "${stamp}" && "${stamp}" < "${installed}" ]]; then
-            log "  ${path}  (before this installation)"
+            printf '  %s  %s(before this installation)%s\n' "${path}" "${_PU_DIM}" "${_PU_RST}"
         else
-            log "  ${path}"
+            printf '  %s\n' "${path}"
         fi
     done
-    log "  each is yours to keep or remove -- none is read by any command"
+    printf '  each is yours to keep or remove -- no command reads one\n'
 }
 
 postupgrade() {
     [[ $# -eq 0 ]] || reject MSG-S9M6 "system post-upgrade: takes no arguments"
-    local file kind label found=0
+    local file kind label title found=0
     local root="${AI_TOOLS_POSTUPGRADE_ROOT:-}"
 
     while IFS='|' read -r file kind label; do
         found=1
-        ai_tools_msg_headline "${label}: ${file}" 1 "$(_pu_provenance "${file}.rpmnew")"
+        _PU_NAME="${file##*/}"
+        if [[ "${label}" == "${_PU_NAME}" ]]; then title="${_PU_NAME}"; else title="${_PU_NAME} -- ${label}"; fi
+        ai_tools_msg_headline "${title}" 1 "${file}" "$(_pu_provenance "${file}.rpmnew")"
         case "${kind}" in
             json)   _pu_json   "${file}" "${file}.rpmnew" ;;
             keyval) _pu_keyval "${file}" "${file}.rpmnew" ;;

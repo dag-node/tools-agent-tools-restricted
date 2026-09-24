@@ -164,7 +164,7 @@ cp "${SETTINGS}.rpmnew" "${TESTDIR}/canonical.json"
 jq '.hooks.PostToolUse = [ .hooks.PostToolUse[0] ]' "${TESTDIR}/canonical.json" > "${SETTINGS}"
 out="$(run_pu)"
 if [[ -f "${SETTINGS}.rpmnew" ]] && cmp -s "${SETTINGS}" "${TESTDIR}/canonical.json" \
-        && [[ "${out}" == *"nothing is left to carry over -- remove ${SETTINGS}.rpmnew"* ]]; then
+        && [[ "${out}" == *"nothing is left to carry over"* && "${out}" == *"sudo rm ${SETTINGS}.rpmnew"* ]]; then
     pass "a copy with nothing left to carry over is reported as the operator's to remove"
 else
     fail "removed a .rpmnew, or did not say the merge left nothing to carry over"
@@ -188,12 +188,12 @@ CONF
 cp "${CONF}" "${TESTDIR}/pre.conf"
 out="$(run_pu)"
 
-if grep -qE '^ai-tools-admin: +NEW_OPTION$' <<< "${out}"; then
+if grep -qE '^  operator\.conf: +NEW_OPTION$' <<< "${out}"; then
     pass "an option the kept file never mentions is named"
 else
     fail "the new option was not reported"
 fi
-if ! grep -qE '^ai-tools-admin: +EXISTING_OPTION$' <<< "${out}"; then
+if ! grep -qE '^  operator\.conf: +EXISTING_OPTION$' <<< "${out}"; then
     pass "an option the operator has already commented out is not re-announced"
 else
     fail "re-announced an option the file already mentions"
