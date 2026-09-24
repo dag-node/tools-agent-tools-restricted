@@ -278,4 +278,77 @@ else
     fail "expected 2 baseline copies naming the changed one, found $(count_sidecars "${broken}" shipped)"
 fi
 
+# ── Ask entries a kept file lacks ────────────────────────────────────────────────────────────
+# The check is read-only and keyed on the command being installed, so it is driven against a prefix root holding a stub
+# of the command: the host's own install is neither read nor needed. The shipped file must carry every entry the table
+# lists, or a fresh install would report a gap the package itself left.
+readonly DECIDE_ASK='Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)'
+ask_root="${TESTDIR}/ask-root"
+mkdir -p "${ask_root}/usr/local/lib/ai-tools/typesafe"
+no_ask="${TESTDIR}/no-ask.json"
+jq 'del(.permissions.ask)' "${SHIPPED}" > "${no_ask}"
+
+if gaps="$(ai_tools_conf_ask_gaps "${no_ask}" "${ask_root}")" && [[ -z "${gaps}" ]]; then
+    pass "an entry for a command that is not installed is not reported"
+else
+    fail "reported an ask entry for a command that is not installed: ${gaps}"
+fi
+
+: > "${ask_root}/usr/local/lib/ai-tools/typesafe/decide.mjs"
+cp "${no_ask}" "${TESTDIR}/no-ask.before"
+if gaps="$(ai_tools_conf_ask_gaps "${no_ask}" "${ask_root}")" && [[ "${gaps}" == "${DECIDE_ASK}" ]]; then
+    pass "a kept file lacking the entry for an installed command is reported with the exact entry"
+else
+    fail "the missing ask entry was not reported as the exact entry: ${gaps}"
+fi
+if cmp -s "${no_ask}" "${TESTDIR}/no-ask.before"; then
+    pass "the ask check leaves the file byte-identical"
+else
+    fail "the ask check wrote to the file it checked"
+fi
+
+if gaps="$(ai_tools_conf_ask_gaps "${SHIPPED}" "${ask_root}")" && [[ -z "${gaps}" ]]; then
+    pass "the shipped settings.json carries every ask entry the check requires"
+else
+    fail "the shipped settings.json lacks an ask entry the check requires: ${gaps}"
+fi
+
+not_array="${TESTDIR}/ask-not-array.json"
+jq --arg e "${DECIDE_ASK}" '.permissions.ask = $e' "${SHIPPED}" > "${not_array}"
+if ai_tools_conf_ask_gaps "${not_array}" "${ask_root}" >/dev/null 2>&1 \
+        || ai_tools_conf_ask_gaps "${broken}" "${ask_root}" >/dev/null 2>&1; then
+    fail "an ask list that is not an array, or a file that is not JSON, was reported as checked"
+else
+    pass "an ask list that is not an array and a file that is not JSON each report the check as not run"
+fi
+
+# The fix the reports print is pasted by hand, so each shape the file can be in is pasted the way the first line says --
+# right after the opening bracket its regex ends on -- and the result must parse and close the gap. An empty container
+# is its own case, since there the snippet's trailing comma would leave the file invalid.
+paste_fix() {
+    local file="$1" anchor="$2" out="$3" snippet
+    snippet="$(ai_tools_conf_ask_fix "${file}" "${DECIDE_ASK}" | tail -n +2)" || return 1
+    awk -v re="${anchor}" -v snip="${snippet}" '
+        !done && match($0, re) { print substr($0, 1, RSTART + RLENGTH - 1); print snip
+                                 print substr($0, RSTART + RLENGTH); done = 1; next }
+        { print }' "${file}" > "${out}"
+}
+while IFS='|' read -r label program anchor; do
+    fixture="${TESTDIR}/fix-${label}.json"
+    jq "${program}" "${SHIPPED}" > "${fixture}"
+    if paste_fix "${fixture}" "${anchor}" "${fixture}.pasted" && jq -e . "${fixture}.pasted" >/dev/null 2>&1 \
+            && gaps="$(ai_tools_conf_ask_gaps "${fixture}.pasted" "${ask_root}")" && [[ -z "${gaps}" ]]; then
+        pass "the printed fix, pasted where it says, closes the gap in a file with ${label}"
+    else
+        fail "the printed fix for a file with ${label} does not paste into valid JSON that asks: $(cat "${fixture}.pasted")"
+    fi
+done <<'EOF'
+permissions but no ask list|del(.permissions.ask)|"permissions": [{]
+an empty permissions object|.permissions = {}|"permissions": [{]
+an ask list of its own|.permissions.ask = ["Bash(true *)"]|"ask": [[]
+an empty ask list|.permissions.ask = []|"ask": [[]
+no permissions object|del(.permissions)|^[{]
+nothing but an empty object|{}|^[{]
+EOF
+
 finish

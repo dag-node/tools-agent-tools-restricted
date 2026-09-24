@@ -402,6 +402,26 @@ reconcile_hook_declarations() {
     return 0
 }
 
+# Name each ask entry a kept settings.json lacks for an installed command (settings-merge.lib.sh).
+# reconcile_hook_declarations leaves the permission arrays as written, so the entry is the operator's to add; a warning,
+# and the install continues.
+# $1 deployed settings.json
+report_ask_gaps() {
+    local gaps="" line
+    local -a entries=() fix=()
+    gaps="$(ai_tools_conf_ask_gaps "$1")" || return 0
+    [[ -n "${gaps}" ]] || return 0
+    mapfile -t entries <<< "${gaps}"
+    mapfile -t fix < <(ai_tools_conf_ask_fix "$1" "${entries[@]}")
+    warn MSG-K2P8 "the kept $1 runs these commands without asking, and each sends data off the host:"
+    for line in "${entries[@]}"; do warn "  ${line}"; done
+    if (( ${#fix[@]} > 0 )); then
+        warn "  to have it ask, ${fix[0]}"
+        for line in "${fix[@]:1}"; do warn "      ${line}"; done
+    fi
+    return 0
+}
+
 # Create a directory only if it does not already exist, preserving perms on existing dirs. Applies owner/mode only
 # to newly created directories.
 ensure_dir() {
@@ -2025,6 +2045,7 @@ do_install() {
         seed_result "${settings}" "${settings_existed}" 1 "host-tuned permission rules preserved"
         reconcile_hook_declarations "${settings}" \
             "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
+        report_ask_gaps "${settings}"
     else
         install -o root -g "${SANDBOX_GROUP}" -m 640 \
             "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json" "${settings}"

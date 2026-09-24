@@ -1106,6 +1106,25 @@ if [ "$1" -eq 0 ]; then
     rm -f /opt/ai-tools/bin/claude
 fi
 
+%triggerin -n ai-tools-agents-claude-code-restricted -- ai-tools-integration-typesafe
+# A typesafe decide call sends listing lines off the host, so settings.json asks before each
+# one. A kept settings.json does not gain that entry on upgrade: `ai-tools-admin system
+# post-upgrade` merges hook declarations alone, and a scriptlet does not edit a config file. So
+# name the line to add. rpm runs this when either package is installed or upgraded while
+# the other is installed, with the files of both on disk. Read-only, and a warning only.
+if [ -r /usr/local/lib/ai-tools/settings-merge.lib.sh ] && command -v bash >/dev/null 2>&1; then
+    bash -c '. /usr/local/lib/ai-tools/settings-merge.lib.sh 2>/dev/null || exit 0
+        settings=/opt/ai-tools/.claude/settings.json
+        [ -f "${settings}" ] || exit 0
+        gaps="$(ai_tools_conf_ask_gaps "${settings}")" || { echo "ai-tools: the ask entries in ${settings} were not checked -- jq is missing or the file is not valid JSON"; exit 0; }
+        [ -n "${gaps}" ] || exit 0
+        mapfile -t entries <<< "${gaps}"
+        echo "ai-tools: ${settings} runs these commands without asking, and each one sends data off the host:"
+        for entry in "${entries[@]}"; do echo "    ${entry}"; done
+        ai_tools_conf_ask_fix "${settings}" "${entries[@]}" | { IFS= read -r where && echo "  to have it ask, ${where}"; while IFS= read -r line; do echo "      ${line}"; done; }
+        echo "  then check it with: sudo ai-tools-admin system post-upgrade"' || :
+fi
+
 %post -n ai-tools-agents-codex-restricted
 # Register this agent's SELinux entrypoint file-context and label whatever it matches, as the
 # claude-code scriptlet does: the pattern comes from this package's manifest and names the vendor

@@ -396,7 +396,7 @@ See
 and
 .BR ai-tools-operator.conf (5).
 .TP
-.B system post-upgrade
+.B system post-upgrade \fR[\fB\-\-check \fR[\fB\-\-all\fR] [\fB\-\-format tsv\fR]]
 Reconcile the
 .I FILE.rpmnew
 copies an upgrade leaves beside the configuration files this stack owns.
@@ -433,9 +433,86 @@ template, and the dated
 and
 .I .shipped
 copies kept beside the configuration files are listed.
+Whether or not a copy is waiting, the command names each
+.B permissions.ask
+entry the agent's
+.I settings.json
+lacks for an installed command that sends data off the host, with the line
+to add; it does not write that entry.
 Idempotent, and leaves every file as it is when no
 .I .rpmnew
 file is waiting.
+Exits 0 when nothing is left to act on and 1 otherwise, so a copy identical to
+its file counts as clean.
+.RS
+.TP
+.B \-\-check
+List the findings without asking or writing, one line per finding:
+.IP
+.I CODE
+TAB
+.I PATH
+TAB
+.I FINDING
+TAB
+.I DETAIL
+.IP
+with no heading, colour, or other text.
+.I CODE
+is the finding's message code in
+.BR ai-tools-messages (7),
+and
+.I DETAIL
+is
+.B \-
+where there is none.
+A finding that needs attention makes the command exit 1:
+.B hook\-missing
+and
+.B hook\-repeated
+(a hook declaration the merge would add or remove),
+.B ask\-missing
+(a
+.B permissions.ask
+entry the file lacks),
+.B option\-unmentioned
+(an option the copy documents that the file does not mention),
+.B rpmnew\-differs
+(a difference to carry over by hand),
+.B rpmnew\-review
+(the sudoers grant changed),
+.B rpmnew\-orphan
+(a package copy whose file is gone),
+.B asset\-missing
+(a shipped skill, subagent, or orientation text not seeded),
+.B asset\-unlinked
+(an agent without its link to one), and
+.B error
+(a check that could not run, with the reason as
+.IR DETAIL ).
+With none of these the command prints nothing and exits 0, so a
+.BR cron (8)
+job mails only a host that needs you.
+.TP
+.B \-\-all
+Also list the findings that need no action, without changing the exit status:
+.B rpmnew\-residual
+(a package copy identical to its file),
+.B copy\-kept
+(a dated
+.IR .bak ,
+.IR .shipped ,
+or
+.I .retired
+copy),
+.B asset\-outdated
+(a live asset older than the shipped one), and
+.B asset\-overridden
+(your own file where a shipped asset or its link would be).
+.TP
+.B \-\-format tsv
+The line format, and the default.
+.RE
 .TP
 .B status
 Report this host's health: the installed version, whether the toolchain is
@@ -634,6 +711,15 @@ Reconcile the configuration files an upgrade left behind:
 .RS 4
 .EX
 sudo ai\-tools\-admin system post\-upgrade
+.EE
+.RE
+.PP
+Check each morning from root's crontab, with a mail only when a file needs
+you:
+.PP
+.RS 4
+.EX
+0 7 * * * /usr/sbin/ai\-tools\-admin system post\-upgrade \-\-check
 .EE
 .RE
 .PP

@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/settings-merge.lib.sh
 # The merge that carries this version's hook declarations into an agent's settings.json when an upgrade keeps the file,
-# and the jq gate every JSON path of the reconciliation passes first. Sourced by install.sh
-# and `ai-tools-admin system post-upgrade`, both as root at install time; kept out of conf.lib.sh, which every session
-# launch and every root helper sources and which does not need jq. What the merge adds, removes and leaves as written is
-# in claude-settings.rule.md.
+# the read-only check for the ask entries such a file lacks, and the jq gate every JSON path of the reconciliation
+# passes first. Sourced by install.sh, `ai-tools-admin system post-upgrade` and the agent package's typesafe trigger,
+# all as root at install time; kept out of conf.lib.sh, which every session launch and every root helper sources
+# and which does not need jq. What the merge adds, removes and leaves as written is in claude-settings.rule.md.
 #
 # conf.lib.sh is a hard dependency: it holds the dated sidecars (the .bak kept before a merge replaces the file,
 # the .shipped baseline left when a merge cannot run) and the report this file writes through. A load failure returns
@@ -185,4 +185,81 @@ ai_tools_conf_merge_hook_declarations() {
         [[ -n "${line}" ]] && _ai_tools_conf_merge_removed+=("${line}")
     done <<< "${duplicates}"
     return 0
+}
+
+# ── JSON ask entries ─────────────────────────────────────────────────────────────────────────
+# A command that sends data off the host carries an `ask` entry in the shipped settings.json, so the operator confirms
+# every call (claude-settings.rule.md). The merge leaves the permission arrays as the host wrote them, so a kept file
+# does not gain a newly shipped entry, and after an upgrade the host may hold no shipped copy to compare with. Each
+# entry is therefore listed here as "<command path>|<entry>", and a kept file is checked against this table. The shipped
+# settings.json carries every entry listed here.
+readonly -a _AI_TOOLS_CONF_ASK_GATES=(
+    "/usr/local/lib/ai-tools/typesafe/decide.mjs|Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)"
+)
+
+# ai_tools_conf_ask_gaps <settings> [root] : print each ask entry <settings> does not carry for a command installed
+#   under <root> (default /), one per line. Prints nothing when every installed command asks.
+#     returns 0  checked     the gaps, if any, are on stdout
+#     returns 1  not checked jq is missing, <settings> is not readable JSON, or its permissions.ask is not an array
+#   Read-only: the permission arrays are the host's, so a caller reports the gap and does not write the entry.
+ai_tools_conf_ask_gaps() {
+    local settings="$1" root="${2:-}" have gate command entry
+    ai_tools_conf_require_jq || return 1
+    have="$(jq -r '(.permissions.ask // []) | if type == "array" then .[] else error end' "${settings}" 2>/dev/null)" \
+        || return 1
+    for gate in "${_AI_TOOLS_CONF_ASK_GATES[@]}"; do
+        command="${gate%%|*}"
+        entry="${gate#*|}"
+        [[ -e "${root}${command}" ]] || continue
+        grep -qxF -- "${entry}" <<< "${have}" || printf '%s\n' "${entry}"
+    done
+    return 0
+}
+
+# ai_tools_conf_ask_fix <settings> <entry>... : print where the entries go in <settings> and the JSON to paste there.
+#   stdout: line 1 says where, the lines after it are the snippet, shaped for the file as it stands -- the entries alone
+#   when `permissions.ask` exists, an `"ask"` array when `permissions` exists without one, and a `"permissions"` object
+#   when neither does. Each entry is JSON-encoded. The snippet goes FIRST in its object or array and ends in a comma
+#   unless that container is empty, so the pasted file is valid JSON. Returns 1 when jq is missing, <settings> is not
+#   a readable JSON object, or its `permissions` or `permissions.ask` is present with the wrong type.
+ai_tools_conf_ask_fix() {
+    local settings="$1" shape empty entry comma=","
+    shift
+    ai_tools_conf_require_jq || return 1
+    shape="$(jq -r 'if type != "object" then error
+        elif has("permissions") | not then "none \(length == 0)"
+        elif (.permissions | type) != "object" then error
+        elif (.permissions | has("ask")) | not then "permissions \(.permissions | length == 0)"
+        elif (.permissions.ask | type) != "array" then error
+        else "ask \(.permissions.ask | length == 0)" end' "${settings}" 2>/dev/null)" || return 1
+    empty="${shape#* }"
+    shape="${shape%% *}"
+    [[ "${empty}" == true ]] && comma=""
+    local -a encoded=()
+    for entry in "$@"; do encoded+=("$(jq -n --arg e "${entry}" '$e')"); done
+    case "${shape}" in
+    ask)
+        printf 'paste as the first lines of the "ask" list inside "permissions", right after its [:\n'
+        _ai_tools_conf_ask_items "" "${comma}" "${encoded[@]}" ;;
+    permissions)
+        printf 'paste as the first lines inside "permissions", right after its {:\n'
+        printf '"ask": [\n'
+        _ai_tools_conf_ask_items "  " "" "${encoded[@]}"
+        printf ']%s\n' "${comma}" ;;
+    *)
+        printf 'paste as the first lines of the file, right after its opening {:\n'
+        printf '"permissions": {\n  "ask": [\n'
+        _ai_tools_conf_ask_items "    " "" "${encoded[@]}"
+        printf '  ]\n}%s\n' "${comma}" ;;
+    esac
+}
+
+# _ai_tools_conf_ask_items <indent> <last> <json-string>... : print the items of a JSON array, a comma after each but
+#   the last, which takes <last> ("," when more items follow in the file, "" when none do).
+_ai_tools_conf_ask_items() {
+    local indent="$1" last="$2" i
+    shift 2
+    for (( i = 1; i <= $#; i++ )); do
+        if (( i < $# )); then printf '%s%s,\n' "${indent}" "${!i}"; else printf '%s%s%s\n' "${indent}" "${!i}" "${last}"; fi
+    done
 }

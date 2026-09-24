@@ -312,6 +312,17 @@ than by name. An additive merge could append an option block the file lacks, but
 already there, so `ai-tools-operator.conf(5)` is the single current statement of what an option means and the file
 points at the man page rather than restating it.
 
+The same command answers unattended. It exits 1 while anything it reports needs the operator and 0 otherwise,
+the contract `status` offers, and `--check` prints the findings as data instead of a report: one tab-separated line
+per finding, carrying the finding's message code, the path, the finding and its detail, with no line on a host
+that needs nothing, since `cron` mails whatever a job prints. It reads every predicate the report reads and writes
+nothing, so a merge the interactive run would offer is reported as pending. The findings that need no action —
+an identical copy, a kept `.bak`, `.shipped` or `.retired`, an outdated or overridden skill — are printed under `--all`
+alone and do not change the exit status. Each finding is one situation and carries one code, tied to it
+in `_pu_finding`; `ai-tools-admin(8)` lists them. The check reaches past the `.rpmnew` files to what provisioning places
+on an upgrade: a shipped skill, subagent or orientation text not seeded, or an enabled agent without its link to one,
+needs attention, because a session is not offered that asset.
+
 ### A config file's header is a pointer
 
 Every config file an operator holds keeps its reference in a section 5 page, for one of two reasons. The shipped
@@ -473,10 +484,11 @@ surface **as the agent** and asserts none of it is agent-writable (catching the 
   side), so a report never guesses "shipped" over a file it could not read, nor `edited` over a path that does not hold
   any content. `ai_tools_managed_file_retire <live> <reference>` is the write beside them, the step a from-source
   uninstall takes over each pair: a file still byte-identical to its reference is removed, and every other state —
-  an edit, or a comparison that cannot be made — is moved aside as `<live>.<YYYYMMDD>-<N>.retired` and reported, so the only
-  copy of what a host configured survives the uninstall that no longer ships it. That is `rpm -e`'s treatment
-  of an edited `%config(noreplace)` file, and moving rather than leaving is what keeps a live managed file from naming
-  hook scripts the same uninstall removed. `tests/unit/providers.sh` drives the verdict, the reader and the write.
+  an edit, or a comparison that cannot be made — is moved aside as `<live>.<YYYYMMDD>-<N>.retired` and reported,
+  so the only copy of what a host configured survives the uninstall that no longer ships it. That is `rpm -e`'s
+  treatment of an edited `%config(noreplace)` file, and moving rather than leaving is what keeps a live managed file
+  from naming hook scripts the same uninstall removed. `tests/unit/providers.sh` drives the verdict, the reader
+  and the write.
 - `ai_tools_provider_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` / `baseline` /
   `untrusted`), read-only and side-effect free. The resolvers read it, and so does `ai-tools providers` (see
   [cli](cli.rule.md)), so an operator asking what is enabled and a session being launched consult one implementation.
