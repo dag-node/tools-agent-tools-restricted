@@ -1574,7 +1574,8 @@ postupgrade() {
     fi
     if (( found > 0 )); then
         if command -v meld >/dev/null 2>&1; then
-            printf '%smeld compares a file and its copy side by side:  meld <file> <file>.rpmnew%s\n' "${_PU_DIM}" "${_PU_RST}"
+            printf '%smeld compares a file and its copy side by side:  sudo meld <file> <file>.rpmnew%s\n' "${_PU_DIM}" \
+                "${_PU_RST}"
         else
             printf '%son a host with a desktop, sudo dnf install meld compares a file and its copy side by side%s\n' \
                 "${_PU_DIM}" "${_PU_RST}"
