@@ -571,13 +571,13 @@ afterwards, the sudoers grant shown and neither written nor dropped (its fixture
 so a silent adoption fails loudly), a kept file the registry does not name found by its directory with neither a value
 nor the copy's content printed, the removal command offered only where the file mentions every option the copy documents
 and carries the same comment prose (a re-wrapped comment is the same prose, a reworded one is not), a copy dated
-before the installation named as such, and earlier `.bak`/`.shipped` copies listed and left in place — plus the property
-every case shares: the `.rpmnew` survives the run and is named as the operator's to delete, the case where the merge
-leaves the two files matching included. Every run is under `setsid`, so each prompt takes its own default: that is
-the unattended behaviour and what makes an interactive command reproducible. The agent-side half of the pair is already
-deployed: `boundary/access.sh` covers `settings.json` and the helper directory, `boundary/providers.sh`
-and `boundary/filters.sh` cover `operator.conf`, and `boundary/sudo.sh` covers the grant, so no input this command reads
-is agent-writable.
+before the installation named as such, a copy byte-identical to its file reported as such with its removal offered,
+and earlier `.bak`/`.shipped` copies listed in the order they were made and left in place — plus the property every case
+shares: the `.rpmnew` survives the run and is named as the operator's to delete, the case where the merge leaves the two
+files matching included. Every run is under `setsid`, so each prompt takes its own default: that is the unattended
+behaviour and what makes an interactive command reproducible. The agent-side half of the pair is already deployed:
+`boundary/access.sh` covers `settings.json` and the helper directory, `boundary/providers.sh` and `boundary/filters.sh`
+cover `operator.conf`, and `boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
 
 `admin-commands.sh` pins the seam that lets a provider package add a domain to `ai-tools-admin` (see
 [providers](providers.rule.md)). What it drives is a dispatch that **execs a file as root**, so every assertion targets

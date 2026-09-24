@@ -1271,10 +1271,10 @@ _pu_diff() {
     "${differ}" -u "$1" "$2" 2>/dev/null | sed 's/^/    /' || true
 }
 
-# _pu_say <level> <text>: one report line about the file being reconciled, prefixed by that file's name (_PU_NAME) so
-# a line names what it is about. The level says whether the operator has anything to do: `ok` is a green check, `info`
-# plain, `act` yellow -- something to carry over or decide -- and `err` red. Colour only on a terminal, like the CLI's
-# own report, so a captured run stays plain text.
+# _pu_say <level> <text>: one report line about the file being reconciled, prefixed by that file's name (_PU_NAME)
+# so a line names what it is about. The level says whether the operator has anything to do: `ok` is a green check,
+# `info` plain, `act` yellow -- something to carry over or decide -- and `err` red. Colour only on a terminal, like
+# the CLI's own report, so a captured run stays plain text.
 if [[ -t 1 ]]; then
     readonly _PU_GRN=$'\033[32m' _PU_YEL=$'\033[33m' _PU_RED=$'\033[31m' _PU_DIM=$'\033[2m' _PU_RST=$'\033[0m'
 else
@@ -1494,6 +1494,22 @@ _pu_entries() {
     done
 }
 
+# _pu_sort_copies: read sidecar paths on stdin and print them grouped by file and in the order they were made --
+# by date, then by the day's number, an unnumbered copy (the name an earlier release gave a day's first) counting as 1.
+# A name that carries a date but not in that shape (a copy made by hand) is kept, after the day's numbered copies.
+_pu_sort_copies() {
+    awk 'BEGIN { OFS = "\t" }
+        match($0, /\.[0-9]{8}(-[0-9]+)?\.(bak|shipped)$/) {
+            tail = substr($0, RSTART + 1); base = substr($0, 1, RSTART - 1)
+            day = substr(tail, 1, 8); n = 1
+            if (substr(tail, 9, 1) == "-") { n = substr(tail, 10); sub(/\..*/, "", n) }
+            print base, day, n, $0; next
+        }
+        match($0, /\.[0-9]{8}/) { print substr($0, 1, RSTART - 1), substr($0, RSTART + 1, 8), 9999, $0; next }
+        { print $0, "99999999", 9999, $0 }' \
+        | sort -t $'\t' -k1,1 -k2,2 -k3,3n | cut -f4
+}
+
 # _pu_sidecars <root>: list the dated copies the merge and the installer left beside the config files -- a .bak is
 # what a file held before a merge replaced it, a .shipped the baseline left when one could not run -- so an operator
 # learns they exist. Listed, never removed: a .bak is the only copy that restores host tuning a merge got wrong. One
@@ -1506,7 +1522,7 @@ _pu_sidecars() {
         [[ -d "${root}${dir}" ]] || continue
         while IFS= read -r path; do copies+=("${path}"); done < <(find "${root}${dir}" -maxdepth 3 -type f \
             \( -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.bak' \
-               -o -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.shipped' \) 2>/dev/null | sort)
+               -o -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.shipped' \) 2>/dev/null | _pu_sort_copies)
     done
     (( ${#copies[@]} > 0 )) || return 0
     ai_tools_msg_headline "earlier copies kept beside the config files" 1 \
@@ -1532,6 +1548,13 @@ postupgrade() {
         _PU_NAME="${file##*/}"
         if [[ "${label}" == "${_PU_NAME}" ]]; then title="${_PU_NAME}"; else title="${_PU_NAME} -- ${label}"; fi
         ai_tools_msg_headline "${title}" 1 "${file}" "$(_pu_provenance "${file}.rpmnew")"
+        # A copy byte-identical to the file does not add an option or a line of prose to it, whatever its format, so it
+        # skips the treatments and only its removal is left.
+        if cmp -s "${file}" "${file}.rpmnew"; then
+            _pu_say ok "identical to the package copy"
+            _pu_leave "${file}.rpmnew" merged
+            continue
+        fi
         case "${kind}" in
             json)   _pu_json   "${file}" "${file}.rpmnew" ;;
             keyval) _pu_keyval "${file}" "${file}.rpmnew" ;;
@@ -1548,6 +1571,14 @@ postupgrade() {
         printf 'Post-upgrade done -- review the warnings and errors manually\n'
     else
         printf 'Post-upgrade done -- nothing needs your attention\n'
+    fi
+    if (( found > 0 )); then
+        if command -v meld >/dev/null 2>&1; then
+            printf '%smeld compares a file and its copy side by side:  meld <file> <file>.rpmnew%s\n' "${_PU_DIM}" "${_PU_RST}"
+        else
+            printf '%son a host with a desktop, sudo dnf install meld compares a file and its copy side by side%s\n' \
+                "${_PU_DIM}" "${_PU_RST}"
+        fi
     fi
     printf '%sthis command is idempotent, re-run it at any time%s\n' "${_PU_DIM}" "${_PU_RST}"
 }
