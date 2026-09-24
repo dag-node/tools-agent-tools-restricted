@@ -56,6 +56,22 @@ Present with an
 .B empty
 value \(em distinct from an absent key. An option that reads a list uses this to
 mean "none", where an absent key means "the default".
+.TP
+.BR KEY=yes " (a switch)"
+A switch reads
+.BR yes ,
+.BR true ,
+.B 1
+and
+.B on
+as yes, and
+.BR no ,
+.BR false ,
+.BR 0 ,
+.B off
+and an empty value as no, in any case and quoted or not. Any other value reads
+as no and is reported, so a mistyped switch does not change what a launch does
+without a line saying so.
 .PP
 A line beginning with
 .B #
@@ -147,6 +163,13 @@ so a host that expects confinement cannot start an unconfined session
 unnoticed.
 The key is read only while this file is root-owned and not group- or
 other-writable, so a session cannot set or clear it.
+On a host where SELinux is enforcing and the module is loaded,
+.B sudo ai\-tools\-admin system bootstrap
+offers to set this key and
+.B AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY
+while neither is present; the offer defaults to yes, a run with no terminal
+takes it, and a declined offer writes
+.BR no .
 .TP
 .B AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes
 Entrypoint-verification strictness. Each agent's entrypoint is verified against
@@ -176,6 +199,10 @@ Pin one with
 .BR "sudo ai\-tools\-admin system entrypoints relabel" ,
 which fetches the vendor's signed manifest where there is one and so needs the
 host online.
+.B sudo ai\-tools\-admin system bootstrap
+offers this key on an enforcing host, as it does
+.BR AI_TOOLS_REQUIRE_SELINUX ,
+only while every enabled agent carries a pin.
 .TP
 .BI CLAUDE_SYSTEM_PROMPT_FILE= FILE
 A custom system prompt for Claude Code sessions (requires the

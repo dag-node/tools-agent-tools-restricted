@@ -274,8 +274,8 @@ if command -v getenforce >/dev/null 2>&1; then
     require_selinux=no
     operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
     if ai_tools_conf_is_trusted "${operator_conf}" 2>/dev/null \
-            && ai_tools_conf_read "${operator_conf}" AI_TOOLS_REQUIRE_SELINUX 2>/dev/null; then
-        case "${_ai_tools_conf_value,,}" in yes|true|1|on) require_selinux=yes ;; esac
+            && ai_tools_conf_yes "${operator_conf}" AI_TOOLS_REQUIRE_SELINUX; then
+        require_selinux=yes
     fi
 
     audit info "launch: agent=${agent_name} selinux=${selinux_mode} module=${module_present} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown} require=${require_selinux}"

@@ -186,6 +186,35 @@ check_trust "group-writable directory is refused"    refused "${tdir}"
 # and the requirement they failed. The failure this exists for is an owner that reads as 65534 inside a user namespace
 # with no mapping for root: the file's modes, labels and ownership on disk are all correct there, and a text asserting
 # a permission problem sends the investigation through every one of them first.
+section "conf: ai_tools_conf_yes reads a switch the same way whichever key it is"
+
+# The two launch switches read through this function, so a spelling an operator expects -- 1, "true", On -- has to mean
+# yes, and 0, "false", off has to mean no. A value in neither set reads as no and is reported, since otherwise
+# a mistyped switch changes what a launch does with no line saying so.
+if declare -F ai_tools_conf_yes >/dev/null 2>&1; then
+    yn="${TESTDIR}/switches.conf"
+    printf '%s\n' 'A=yes' 'B="true"' 'C=1' "D='1'" 'E=On' 'F=TRUE' \
+                   'G=no' 'H="false"' 'I=0' 'J="0"' 'K=off' 'L=' 'M=ture' > "${yn}"
+    misread=()
+    for key in A B C D E F; do ai_tools_conf_yes "${yn}" "${key}" 2>/dev/null || misread+=("${key}"); done
+    for key in G H I J K L M ABSENT; do ai_tools_conf_yes "${yn}" "${key}" 2>/dev/null && misread+=("${key}"); done
+    if (( ${#misread[@]} == 0 )); then
+        pass "yes, true, 1, on read as yes and no, false, 0, off, empty, absent and unknown read as no, quoted or not"
+    else
+        fail "misread switches: ${misread[*]}"
+    fi
+    said="$(ai_tools_conf_yes "${yn}" M 2>&1 || true)"
+    assert_msg MSG-D2F9 "${said}" "a value in neither set is reported"
+    said="$(ai_tools_conf_yes "${yn}" G 2>&1 || true)"
+    if [[ -z "${said}" ]]; then
+        pass "a recognized no value is read silently"
+    else
+        fail "a recognized no value was reported: ${said}"
+    fi
+else
+    skip "ai_tools_conf_yes" "the deployed conf.lib.sh predates it -- re-run sudo ./install.sh install"
+fi
+
 section "conf: a refusal reports the owner and mode it read"
 check_reason() {
     local desc="$1" expected="$2" path="$3" got

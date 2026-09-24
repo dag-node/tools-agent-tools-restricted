@@ -176,6 +176,21 @@ ai_tools_conf_read() {
     return "${found}"
 }
 
+# ai_tools_conf_yes <file> <key> : succeed when <key> is set to a yes value -- yes, true, 1 or on, in any case and with
+#   or without quotes, which the grammar has already removed. No, false, 0, off, an empty value, an absent key
+#   and an unreadable file are all no. A value in neither set is no as well, and is reported, so a mistyped switch
+#   does not change what a launch does without a line saying so.
+ai_tools_conf_yes() {
+    local file="$1" key="$2"
+    ai_tools_conf_read "${file}" "${key}" || return 1
+    case "${_ai_tools_conf_value,,}" in
+        yes|true|1|on) return 0 ;;
+        no|false|0|off|"") return 1 ;;
+    esac
+    _ai_tools_conf_warn MSG-D2F9 "switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no value (no, false, 0, off) -- read as no"
+    return 1
+}
+
 # ai_tools_conf_get <file> <key> : print the value of <key>, empty when absent. For a caller that
 #   only wants the string; one that must tell absent from empty calls ai_tools_conf_read.
 ai_tools_conf_get() {

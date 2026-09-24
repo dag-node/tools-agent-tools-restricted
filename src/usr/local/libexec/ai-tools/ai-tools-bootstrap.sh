@@ -343,7 +343,7 @@ seed_managed_assets_step() {
     # conf.lib.sh owns the dated-sidecar stamp the seeder uses to preserve a replaced or withdrawn asset, so it is
     # required here rather than optional: without it those steps decline to act.
     local conflib=/usr/local/lib/ai-tools/conf.lib.sh
-    [[ -d "${pristine}/agents" && -r "${cplib}" ]] \
+    [[ -d "${pristine}/skills" && -r "${cplib}" ]] \
         || { log "managed assets: control plane not present yet -- install it, then re-run to seed agents/skills"; return 0; }
     [[ -r "${lib}" && -r "${msglib}" && -r "${conflib}" ]] \
         || die MSG-D9D3 "control plane present but the managed-asset libs are missing -- reinstall ai-tools"
@@ -390,6 +390,65 @@ seed_managed_assets_step() {
         seeded=1
     done < <(ai_tools_agent_memory_targets)
     (( seeded )) || log "managed assets: no agent config directory to seed yet"
+}
+
+# offer_launch_requirements -- on a host where SELinux is enforcing and the ai_tools module is loaded, offer to require
+# both at every launch: AI_TOOLS_REQUIRE_SELINUX refuses a session the ai_tools_t domain would not confine,
+# and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY refuses an agent binary that does not carry a pin. Each moves a launch toward
+# LESS access, so the confirm defaults to yes and a run with no terminal writes both; a declined offer writes `no`,
+# so the answer is recorded once rather than asked on every run. A key operator.conf already carries, either way, is
+# the operator's declaration and is not asked about. The entrypoint requirement is offered only while every enabled
+# agent carries a pin -- the relabel ahead of this step writes them -- since it would otherwise refuse that agent's next
+# launch. An untrusted operator.conf is neither asked about nor written, as in choose_agents.
+offer_launch_requirements() {
+    local conf="${AI_TOOLS_OPERATOR_CONF}" modules agent key answer
+    local pin_lib=/usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+    local -a keys=() unpinned=() lines=()
+    (( _providers_loaded )) && [[ -f "${conf}" ]] || return 0
+    command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" == Enforcing ]] || return 0
+    # Captured before matching: `grep -q` exits on the match and leaves semodule to die of SIGPIPE mid-listing.
+    modules="$(semodule -l 2>/dev/null)" || return 0
+    grep -qx ai_tools <<< "${modules}" || return 0
+    if ! ai_tools_conf_is_trusted "${conf}" 2>/dev/null; then
+        log "launch requirements: ${conf} is not trusted, so neither requirement is asked about or written"
+        return 0
+    fi
+
+    ai_tools_conf_read "${conf}" AI_TOOLS_REQUIRE_SELINUX || keys+=(AI_TOOLS_REQUIRE_SELINUX)
+    if ! ai_tools_conf_read "${conf}" AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY; then
+        # shellcheck source=SCRIPTDIR/../../lib/ai-tools/entrypoint-verify.lib.sh
+        if source "${pin_lib}" 2>/dev/null && declare -F ai_tools_entrypoint_pin_path >/dev/null 2>&1; then
+            while IFS=$'\t' read -r agent _; do
+                [[ -n "${agent}" && ! -f "$(ai_tools_entrypoint_pin_path "${agent}")" ]] && unpinned+=("${agent}")
+            done < <(ai_tools_enabled_agents 2>/dev/null)
+            if (( ${#unpinned[@]} == 0 )); then
+                keys+=(AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)
+            else
+                log "launch requirements: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is not offered while ${unpinned[*]} carries no pin -- run sudo ai-tools-admin system entrypoints relabel, then re-run this command"
+            fi
+        fi
+    fi
+    (( ${#keys[@]} > 0 )) || return 0
+
+    require_msg_lib
+    for key in "${keys[@]}"; do
+        case "${key}" in
+            AI_TOOLS_REQUIRE_SELINUX)
+                lines+=("  AI_TOOLS_REQUIRE_SELINUX=yes              refuse a session ai_tools_t would not confine") ;;
+            AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)
+                lines+=("  AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes    refuse an agent binary that carries no pin") ;;
+        esac
+    done
+    ai_tools_msg_block "Require confinement at every launch" \
+        "SELinux is enforcing on this host and the ai_tools policy is loaded. Setting these in ${conf} makes a launch refuse where it would otherwise start a session without them:" \
+        "" "${lines[@]}" "" \
+        "Each can be set back to no in that file; ai-tools-operator.conf(5) states what each refuses."
+    if ai_tools_msg_confirm "Require these at every launch?" y; then answer=yes; else answer=no; fi
+    for key in "${keys[@]}"; do
+        ai_tools_conf_set_key "${conf}" "${key}" "${answer}" \
+            || { warn MSG-N8U6 "could not write ${key}=${answer} into ${conf} -- set the line by hand"; continue; }
+        log "set ${key}=${answer} in ${conf}"
+    done
 }
 
 # report_shadowed_operators -- name each enrolled operator whose shell reaches an agent outside /usr/local/bin,
@@ -719,20 +778,20 @@ if command -v loginctl >/dev/null 2>&1; then
     _linger_out="$(loginctl enable-linger "${SANDBOX_USER}" 2>&1)" \
         || warn MSG-V4D9 "could not enable linger for ${SANDBOX_USER} (${_linger_out:-no output})"
 fi
-# Wait for the manager to come up before driving it; XDG_RUNTIME_DIR alone lets `systemctl --user` reach the user
-# manager over its bus, so DBUS_SESSION_BUS_ADDRESS need not be pinned.
+# Wait for the manager to come up before driving it.
 for _i in $(seq 1 30); do
     systemctl is-active "user@${_uid}.service" >/dev/null 2>&1 && break
     sleep 0.5
 done
 # Start the timer now to cover a manager that was already running: the wants symlink alone starts it when the manager
-# next reaches timers.target. Capture the output so the warn on a failed start carries systemctl's own error text.
-if _start_out="$(sudo -u "${SANDBOX_USER}" \
-        XDG_RUNTIME_DIR="/run/user/${_uid}" \
-        bash -c 'systemctl --user daemon-reload && systemctl --user start nvm-update.timer' 2>&1)"; then
+# next reaches timers.target. Root drives that manager over the machine transport (`-M <account>@.host`), the route
+# the system bus authorizes for root; `sudo -u` to the account and its own bus is refused there even while the manager
+# is healthy. Capture the output so the warn on a failed start carries systemctl's own error text.
+if _start_out="$(systemctl --user -M "${SANDBOX_USER}@.host" daemon-reload 2>&1 \
+        && systemctl --user -M "${SANDBOX_USER}@.host" start nvm-update.timer 2>&1)"; then
     log "started nvm-update.timer in ${SANDBOX_USER}'s --user instance"
 else
-    warn MSG-C8M9 "could not start nvm-update.timer (${_start_out:-no output}) -- start it after the control plane is installed"
+    warn MSG-C8M9 "could not start nvm-update.timer (${_start_out:-no output}) -- once the manager runs, start it with: sudo systemctl --user -M ${SANDBOX_USER}@.host start nvm-update.timer"
 fi
 
 log "toolchain ready under ${SANDBOX_HOME}"
@@ -740,6 +799,10 @@ log "toolchain ready under ${SANDBOX_HOME}"
 # Managed agents/skills (control-plane .claude). Seeded/updated here from the pristine datadir copies; skipped cleanly
 # when the control plane is not yet in place.
 seed_managed_assets_step
+
+# Launch requirements (operator.conf). Offered after the relabel in step 3b, which writes the pins the entrypoint
+# requirement reads.
+offer_launch_requirements
 
 # Sandbox git commit identity (control-plane gitconfig). Offered here as the shared interactive step; skipped cleanly
 # when the control plane is not yet in place.
@@ -754,7 +817,11 @@ report_shadowed_operators
 # rather than assuming one order. The CLI is the sentinel because base ships it whichever agents a host installs;
 # an agent's wrapper would read a host that enabled another agent as undeployed.
 if [[ -x /usr/local/bin/ai-tools ]]; then
-    log "next: enrol an operator -- sudo ai-tools-admin operators add <user>"
+    if (( _providers_loaded )) && [[ -n "$(ai_tools_conf_get "${AI_TOOLS_OPERATOR_CONF}" OPERATORS 2>/dev/null)" ]]; then
+        log "next: as an enrolled operator, claim a project and start an agent in it -- ai-tools projects claim <path>"
+    else
+        log "next: enrol an operator -- sudo ai-tools-admin operators add <user>"
+    fi
 else
     log "next: deploy the control plane -- sudo ./install.sh install   (or install the RPM)"
 fi

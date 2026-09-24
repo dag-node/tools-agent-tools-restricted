@@ -608,9 +608,7 @@ ai_tools_entrypoint_verify_required() {
     local operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
     declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 || return 1
     ai_tools_conf_is_trusted "${operator_conf}" 2>/dev/null || return 1
-    ai_tools_conf_read "${operator_conf}" AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY 2>/dev/null || return 1
-    case "${_ai_tools_conf_value,,}" in yes|true|1|on) return 0 ;; esac
-    return 1
+    ai_tools_conf_yes "${operator_conf}" AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY
 }
 
 # ai_tools_entrypoint_check <agent> <entrypoint> : the launch-side gate. Hash the entrypoint and

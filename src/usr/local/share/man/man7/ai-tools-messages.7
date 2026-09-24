@@ -803,7 +803,7 @@ entrypoint relabel did not complete \-\- run 'sudo ai\-tools\-admin system entry
 .TP
 .B MSG-C8M9
 WARNING.
-could not start nvm\-update.timer (${_start_out:\-no output}) \-\- start it after the control plane is installed
+could not start nvm\-update.timer (${_start_out:\-no output}) \-\- once the manager runs, start it with: sudo systemctl \-\-user \-M ${SANDBOX_USER}@.host start nvm\-update.timer
 .TP
 .B MSG-C8W2
 NOTICE.
@@ -840,6 +840,10 @@ operator ${user} who types ${launcher} would run ${winner}, which is an agent ou
 .B MSG-M2N6
 ERROR.
 \-\-agents names an agent with no installed manifest: ${unknown[*]} (installed: ${installed_names[*]:\-none}) \-\- install its ai\-tools\-agents\-* package, then re\-run; nothing was written
+.TP
+.B MSG-N8U6
+WARNING.
+could not write ${key}=${answer} into ${conf} \-\- set the line by hand
 .TP
 .B MSG-P9Q6
 WARNING.
@@ -1321,6 +1325,11 @@ left ${hardlinked} hardlinked file(s) untouched \-\- an inode with more than one
 .B MSG-R3Q4
 ERROR.
 claude: cannot load the launch gate library \-\- refusing to start
+.SS conf.lib.sh
+.TP
+.B MSG-D2F9
+WARNING.
+switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no value (no, false, 0, off) \-\- read as no
 .SS install-selinux.sh
 .TP
 .B MSG-A5N2
