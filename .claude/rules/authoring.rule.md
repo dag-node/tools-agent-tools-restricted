@@ -33,7 +33,8 @@ from how the code is organised; they are not a fixed taxonomy and not a one-file
   and the integration rules by their bare provider name. The generic seam ([providers](providers.rule.md))
   and the generic launch contract ([launch](launch.rule.md)) hold what is true of *every* provider; a provider rule
   holds only what is true of that one, and each side links the other. A fact that would have to be restated
-  for the second provider belongs in the seam, not in a provider rule.
+  for the second provider belongs in the seam, not in a provider rule. A statement that holds for every agent says "an
+  agent" rather than naming the shipped ones, which it stops describing the day another manifest ships.
 - **Avoid a stem that matches a secret pattern.** `ai-tools-chown` quarantines secret-named files the agent writes (see
   [secret-handling](secret-handling.rule.md)): a file whose basename matches `~/.config/ai-tools/secret-patterns` is
   chowned to `<you>:<you> 600` and becomes unreadable to the agent — which silently disables the rule. `secrets.rule.md`
