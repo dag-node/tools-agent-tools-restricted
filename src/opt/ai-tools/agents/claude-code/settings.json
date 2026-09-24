@@ -40,6 +40,9 @@
       "Bash(grep *)",
       "Bash(file *)"
     ],
+    "ask": [
+      "Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)"
+    ],
     "deny": [
       "Bash(git push --force*)",
       "Bash(git push -f *)",

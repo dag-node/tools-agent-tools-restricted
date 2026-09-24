@@ -917,39 +917,39 @@ resolver, so no agent is named, and asserted by **sourcing** each pins file into
 to append to, so a file that stops appending or appends to a renamed array fails rather than silently costing every
 session that agent's environment; claude-code's three by name, with its fragment asserted to carry none of them),
 the shim's sourcing order read as source (the integrations, then every enabled agent's pins, then the launching agent's
-fragment — no refusal the shim can be driven to reveals it), the `settings.json` hook + deny-rule declarations,
-and SELinux labels (the `claude.exe` entrypoint and the handback daemon binary). Every assertion about the shim lives
-in `ai-tools-run.sh` beside it — its input validation, the unit properties it pins, and the session env it sources —
-so a change to the shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh`
-asserts the confinement layer is enforcing: when the `ai_tools` module is loaded the system is `Enforcing` and neither
-`ai_tools_t` nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is optional).
-It also holds the entrypoint assertions that need a labelled host — that each agent's declared file-context rule still
-covers what its package installed, that no link in the exec chain carries a type the confined domain may manage,
-and that the loaded core module audits an in-session exec of the entrypoint, read with `sesearch` and skipped without it
-— and, where the `ai_tools_dotnet` layout module is loaded, the build-output labelling that only libselinux can answer:
-a path under one of the module's directories resolves to `ai_tools_project_build_t` and every other clone path
-to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`), and a `bin/` directory
-created in the sandbox area by `unconfined_t` is born on the build type with no `restorecon`. It closes by reading
-the live type of **every** enrolled operator's `~/.config/ai-tools`: the rule is per account, and a subtree without it
-denies the root helpers the read that resolves a path's owner, so that operator's projects stop being handed back while
-every DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant need a session,
-and `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
+fragment — no refusal the shim can be driven to reveals it), the `settings.json` hook, deny-rule and ask-rule
+declarations, and SELinux labels (the `claude.exe` entrypoint and the handback daemon binary). Every assertion
+about the shim lives in `ai-tools-run.sh` beside it — its input validation, the unit properties it pins, and the session
+env it sources — so a change to the shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoint
+label. `selinux.sh` asserts the confinement layer is enforcing: when the `ai_tools` module is loaded the system is
+`Enforcing` and neither `ai_tools_t` nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent
+(the layer is optional). It also holds the entrypoint assertions that need a labelled host — that each agent's declared
+file-context rule still covers what its package installed, that no link in the exec chain carries a type the confined
+domain may manage, and that the loaded core module audits an in-session exec of the entrypoint, read with `sesearch`
+and skipped without it — and, where the `ai_tools_dotnet` layout module is loaded, the build-output labelling that only
+libselinux can answer: a path under one of the module's directories resolves to `ai_tools_project_build_t` and every
+other clone path to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`),
+and a `bin/` directory created in the sandbox area by `unconfined_t` is born on the build type with no `restorecon`. It
+closes by reading the live type of **every** enrolled operator's `~/.config/ai-tools`: the rule is per account,
+and a subtree without it denies the root helpers the read that resolves a path's owner, so that operator's projects stop
+being handed back while every DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant
+need a session, and `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
 `systemd-analyze verify` on each shipped unit, plus enablement in the correct instance — the `nvm-update` timer
 in the sandbox account's own `--user instance`, the relabel watcher and handback socket in the system instance.
 The handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers with its own
 environment, so the helper reads the **real** allowlist — and the automated suite may not write that allowlist,
-so `hooks.sh` asserts only what the deployed `settings.json` **declares** (the hook entries and the deny rules)
-and the hooks themselves run in the manual script, inside the project it claims. The same file reads codex's
-`requirements.toml` as codex parses it (a TOML parser, so a bare key that landed inside a table is not read as set)
-and pins the sandbox-mode pin, managed hooks only from the root-owned directory, and the four hook declarations
-against the installed bodies. That file is `%config(noreplace)`, so the copy this reads is the one that drifts:
-the approval policy, the login method and each hook's own timeout are therefore read here as well as in unit,
-and the two states are told apart — a key the file does not declare at all is a file predating it and fails
-with the pristine copy named, while a value that differs is the operator's tuning and is noted; `wrapper.sh` closes
-with the codex wrapper in whichever enablement state the host is in, holding the launcher symlink and the resolver's
-enabled set to agreement ([agent-codex](agent-codex.rule.md)). The wrapper test stays hermetic by pointing `HOME`
-at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`) and runs the wrapper under `setsid`, so it never
-touches the real allowlist or fires a claim prompt. Run as root.
+so `hooks.sh` asserts only what the deployed `settings.json` **declares** (the hook entries, the deny rules, and the ask
+rule for the typesafe command where it is installed) and the hooks themselves run in the manual script, inside
+the project it claims. The same file reads codex's `requirements.toml` as codex parses it (a TOML parser, so a bare key
+that landed inside a table is not read as set) and pins the sandbox-mode pin, managed hooks only from the root-owned
+directory, and the four hook declarations against the installed bodies. That file is `%config(noreplace)`, so the copy
+this reads is the one that drifts: the approval policy, the login method and each hook's own timeout are therefore read
+here as well as in unit, and the two states are told apart — a key the file does not declare at all is a file predating
+it and fails with the pristine copy named, while a value that differs is the operator's tuning and is noted;
+`wrapper.sh` closes with the codex wrapper in whichever enablement state the host is in, holding the launcher symlink
+and the resolver's enabled set to agreement ([agent-codex](agent-codex.rule.md)). The wrapper test stays hermetic
+by pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`) and runs the wrapper
+under `setsid`, so it never touches the real allowlist or fires a claim prompt. Run as root.
 
 `cli-flags.sh` holds every `ai-tools` command and every option `ai-tools(1)` documents to what it **achieves**, and its
 rows do not read message text, so the command surface can be respelled with the file unchanged

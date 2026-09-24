@@ -22,11 +22,12 @@ pins set `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, and `DISABLE_AUTOUPDATER=1` 
 
 ## Permission rules — three outcomes
 
-The two arrays sort a Bash command into one of three observable outcomes: **runs without asking** (`allow`), **asks
-first** (unlisted — the default), or **refused** (`deny`). None of this is a capability boundary — whatever runs still
-executes as `SANDBOX_USER` confined by `ai_tools_t`, and a tool absent from the host fails to resolve. The lists manage
-the **operator-visibility surface**: what is silent, what is mediated by a prompt, and what the agent must raise
-with the operator in conversation. JSON does not carry comments, so the per-entry rationale lives here.
+The arrays sort a Bash command into one of three observable outcomes: **runs without asking** (`allow`), **asks first**
+(`ask`, and every unlisted command by default), or **refused** (`deny`). None of this is a capability boundary —
+whatever runs still executes as `SANDBOX_USER` confined by `ai_tools_t`, and a tool absent from the host fails
+to resolve. The lists manage the **operator-visibility surface**: what is silent, what is mediated by a prompt,
+and what the agent must raise with the operator in conversation. JSON does not carry comments, so the per-entry
+rationale lives here.
 
 ### Runs without asking (`allow`)
 
@@ -76,6 +77,21 @@ the allow list and the prompt** (verified empirically: `df` ran silently in a se
 empty, while `ls > file` in the same session prompted — the same analysis reclassifies a redirect as a write).
 An unlisted safe-read therefore does **not** reliably prompt; a read that must stay operator-visible needs a `deny`
 entry, which is why the host-survey group is denied rather than merely unlisted.
+
+### Asks every time (`ask`)
+
+An `ask` entry is the prompt that holds where the default does not. Claude Code prompts for a matching command in every
+permission mode, `bypassPermissions` included; a matching `ask` wins over a matching `allow` in any settings layer,
+so a project's own allow list cannot silence it; and it matches a command inside a pipeline. The list holds one entry:
+
+| Entry | Why |
+|---|---|
+| `Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)` | Each call sends listing lines off the host ([typesafe](typesafe.rule.md)), so the operator sees each one before it goes. The entry ships with base's file whether or not the integration is installed, since `settings.json` is one file; where the command is absent the entry does not match anything. |
+
+A kept `settings.json` does not gain this entry on upgrade: the merge carries hook declarations and leaves
+the permission arrays as the host wrote them ([An upgrade keeps host tuning and still lands this version's
+hooks](#an-upgrade-keeps-host-tuning-and-still-lands-this-versions-hooks)), so an upgraded host adds it by hand. Codex's
+counterpart is a requirements rule marked `prompt` ([agent-codex](agent-codex.rule.md)), which is not shipped.
 
 ### Refused (`deny`)
 
@@ -209,9 +225,8 @@ in [`docs/agents/claude-code.md`](../../docs/agents/claude-code.md).
 
 The project ships this value so that auto mode is not available to approve actions in a person's place. It is
 a control-plane default, overridable per project (see [Control-plane integrity](#control-plane-integrity)). It does not
-cover `bypassPermissions`, which stays the operator's choice. The project ships neither a lock on that mode
-nor a per-command `ask` rule, because codex is pinned never to ask ([agent-codex](agent-codex.rule.md)) and a control is
-not shipped for one agent alone.
+cover `bypassPermissions`, which stays the operator's choice. The project does not lock that mode; the one `ask` entry
+([Asks every time](#asks-every-time-ask)) is the per-command prompt that holds in it.
 
 ## Coupling to optional SELinux groups
 
