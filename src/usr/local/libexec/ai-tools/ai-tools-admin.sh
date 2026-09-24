@@ -1517,8 +1517,8 @@ _pu_ask_gaps() {
     if (( ${#fix[@]} > 0 )); then
         _pu_say info "to have it ask, ${fix[0]}"
         # Printed bare, not through _pu_say, so the snippet copies out of the terminal without a prefix on each line.
-        # Green as a diff's added lines are: every line of it is text to add. Not dim, which this report keeps for asides.
-        printf "      ${_PU_GRN}%s${_PU_RST}\n" "${fix[@]:1}"
+        # Green as a diff's added lines are, and dim because adding them is the operator's choice.
+        printf "      ${_PU_DIM}${_PU_GRN}%s${_PU_RST}\n" "${fix[@]:1}"
     fi
     _pu_say info "this command does not edit the file, since the permission rules are yours -- re-run it to confirm"
 }
@@ -1596,22 +1596,22 @@ postupgrade() {
     _pu_sidecars "${root}"
     printf '\n'
     if (( _PU_ATTENTION > 0 )); then
-        printf 'Post-upgrade done -- review the warnings and errors manually\n'
+        printf 'Post-upgrade done -- review the warnings and errors above\n'
     elif (( found == 0 )); then
         printf 'Post-upgrade done -- no .rpmnew file is waiting, so every config file this stack owns is reconciled\n'
     else
         printf 'Post-upgrade done -- nothing needs your attention\n'
     fi
+    # The comparison command is printed on a line of its own, indented, so it copies whole. It is offered only
+    # when a copy was found, since without one there is nothing to compare.
     if (( found > 0 )); then
-        if command -v meld >/dev/null 2>&1; then
-            printf '%smeld compares a file and its copy side by side:  sudo meld <file> <file>.rpmnew%s\n' "${_PU_DIM}" \
-                "${_PU_RST}"
-        else
-            printf '%son a host with a desktop, sudo dnf install meld compares a file and its copy side by side%s\n' \
+        printf '\nCompare a file with its package copy side by side, and carry over what you want:\n\n'
+        printf '  sudo meld <file> <file>.rpmnew\n\n'
+        command -v meld >/dev/null 2>&1 \
+            || printf '%s- meld is not installed; it needs a desktop session: sudo dnf install meld%s\n' \
                 "${_PU_DIM}" "${_PU_RST}"
-        fi
     fi
-    printf '%sthis command is idempotent, re-run it at any time%s\n' "${_PU_DIM}" "${_PU_RST}"
+    printf '%s- this command is idempotent -- re-run it at any time%s\n' "${_PU_DIM}" "${_PU_RST}"
 }
 
 # ── status ───────────────────────────────────────────────────────────────────────────────────

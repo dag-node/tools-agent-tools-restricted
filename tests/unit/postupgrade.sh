@@ -238,7 +238,7 @@ if [[ "${out}" == *"comments differ"* && "${out}" != *"sudo rm"* && "${out}" == 
 else
     fail "a copy carrying new prose was offered for removal: ${out}"
 fi
-if [[ "${out}" == *"Post-upgrade done -- review the warnings and errors manually"* ]]; then
+if [[ "${out}" == *"Post-upgrade done -- review the warnings and errors above"* ]]; then
     pass "a run with something to carry over closes by asking for a manual review"
 else
     fail "a run with something to act on closed without asking for a review: ${out}"
@@ -309,8 +309,8 @@ if [[ "${out}" == *"identical to the package copy"* && "${out}" == *"sudo rm ${P
 else
     fail "an identical copy was treated as a difference: ${out}"
 fi
-if [[ "${out}" == *meld* ]]; then
-    pass "a run that found a copy names meld for a side-by-side comparison"
+if grep -qx '  sudo meld <file> <file>.rpmnew' <<< "${out}"; then
+    pass "a run that found a copy prints the meld comparison on a line of its own"
 else
     fail "the meld line is missing: ${out}"
 fi
