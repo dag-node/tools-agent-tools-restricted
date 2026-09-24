@@ -131,9 +131,9 @@ _ai_tools_place_asset() {
 # the live root is the caller's. Absent live asset -> seeded. Present + managed + a newer shipped version -> an update
 # confirm defaulting to UPDATE, so Enter and any non-interactive run take the new version (a scriptlet has no tty,
 # and a host that answered "keep" by default stayed on its first-seeded version forever). Present + unmanaged (no
-# marker) -> left untouched and logged: it is the operator's own file. Present + same-or-older version -> no-op.
-# A WITHDRAWN name -> skipped outright, whatever the source root holds; ai_tools_remove_retired_assets is the only pass
-# that acts on one.
+# marker) -> left untouched and logged: it is the operator's own file. An empty directory at a directory asset's name ->
+# seeded, as absent. Present + same-or-older version -> no-op. A WITHDRAWN name -> skipped outright, whatever the source
+# root holds; ai_tools_remove_retired_assets is the only pass that acts on one.
 # $1 src_root  $2 live_root (resolved by the caller)  $3 group  $4.. kinds, each one of
 # AI_TOOLS_ASSET_KINDS; an empty list or an unknown kind is refused with a reason.
 ai_tools_seed_managed_assets() {
@@ -178,6 +178,15 @@ ai_tools_seed_managed_assets() {
             # set only on one path carries the previous asset's value into the other -- which reads as a correct version
             # exactly often enough to look fine.
             new="$(ai_tools_asset_version "${marker}")"
+            # An empty directory at a directory asset's name holds nothing an operator wrote, so it is seeded into as if
+            # absent. Read as the operator's own, it left the asset missing from every session on every later run, since
+            # nothing else ever fills it; a directory holding any entry is still theirs.
+            if [[ -d "${src}" && -d "${dst}" && ! -L "${dst}" ]] \
+                    && [[ -z "$(find "${dst}" -mindepth 1 -print -quit 2>/dev/null)" ]]; then
+                _ai_tools_place_asset "${src%/}" "${dst}" "${group}"
+                _ai_tools_ma_say "${name} seeded (v${new:-?}) into an empty directory"
+                continue
+            fi
             if [[ -e "${dst}" ]]; then
                 if ! ai_tools_asset_is_managed "${dst_marker}"; then
                     _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"

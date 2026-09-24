@@ -192,10 +192,10 @@ package's files first and removing the old package's only at the end of the tran
 the *previous* version's copy of an asset this version withdrew, and without the gate would report it against a file rpm
 is about to delete — or seed it, on a host whose live root lacks it — for the withdrawal pass to undo moments later.
 
-The asset is **moved, not deleted**, to `/opt/ai-tools/retired/<name>.<YYYYMMDD>-<N>.retired` — `ai_tools_conf_sidecar_path`
-(`conf.lib.sh`) is the single home of that stamp, shared with the config sidecars, and the kind token names the event
-that produced the copy. Withdrawal is the one path with no prompt and no baseline, so it fails toward keeping: an asset
-that cannot be moved is left in place and reported rather than destroyed.
+The asset is **moved, not deleted**, to `/opt/ai-tools/retired/<name>.<YYYYMMDD>-<N>.retired` —
+`ai_tools_conf_sidecar_path` (`conf.lib.sh`) is the single home of that stamp, shared with the config sidecars,
+and the kind token names the event that produced the copy. Withdrawal is the one path with no prompt and no baseline,
+so it fails toward keeping: an asset that cannot be moved is left in place and reported rather than destroyed.
 
 `retired/` sits **beside** the shared roots, not inside one. The linker iterates a shared root and would otherwise
 symlink the sidecar into an agent's directory, where whether it loads comes down to how that product decides
@@ -224,6 +224,8 @@ frontmatter carries `x-ai-tools-managed: true`, so an operator's own agent/skill
   baseline an edit could be detected against, and a copy per upgrade would bury the withdrawal copies that do carry
   something unrecoverable;
 - **present + unmanaged** (no marker) → left untouched (the operator's own file);
+- **an empty directory** at a directory asset's name → seeded, as absent: it holds nothing an operator wrote, and read
+  as theirs it would leave the asset missing from every session with nothing to fill it;
 - **present + same-or-older version** → no-op;
 - **a withdrawn name** → skipped outright, before any of the other cases (see [Withdrawing
   an asset](#withdrawing-an-asset)).
