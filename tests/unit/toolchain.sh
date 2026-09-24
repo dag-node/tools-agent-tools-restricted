@@ -126,25 +126,29 @@ assert_msg MSG-M3A5 "${not_enabled_err}" "the untrusted manifest is reported, th
 # An empty enabled set is read as empty only where the configuration asks for no agent. Under a fault the declared set
 # is unknown, and reading it as empty would make every installed agent's package residue for the writer to remove,
 # so each fault row must yield no line from the set or either reader. The declared-empty row is the control: the same
-# empty enabled set, classified `none`, still yields every installed agent. Rows: <operator.conf line> <mode> <expected
-# set>.
-while IFS='|' read -r conf_line conf_mode want; do
-    printf '%s\n' "${conf_line}" > "${CONF}"; chmod "${conf_mode}" "${CONF}"
+# empty enabled set, classified `none`, still yields every installed agent. The fixture's untrusted gamma manifest is
+# itself a fault input, so each row sets its mode: trusted in every row but the one about it, so each fault comes
+# from the input the row names. Rows: <operator.conf line> <mode> <gamma.conf mode> <expected set>.
+while IFS='|' read -r conf_line conf_mode gamma_mode want; do
+    printf '%s\n' "${conf_line}" > "${CONF}"; chmod "${conf_mode}" "${CONF}"; chmod "${gamma_mode}" "${AGENTS_DIR}/gamma.conf"
     got_set="$(ai_tools_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
     got_tree="$(ai_tools_agent_residue "${NVM}" 2>/dev/null | cut -f1 | sort -u | tr '\n' ' ')"
     got_links="$(ai_tools_agent_residue_links "${LINKS}" 2>/dev/null | cut -f1 | tr '\n' ' ')"
+    got_set="${got_set% }" got_tree="${got_tree% }" got_links="${got_links% }"
     if [[ "${got_set}" == "${want}" && "${got_tree}" == "${want}" && "${got_links}" == "${want}" ]]; then
-        pass "operator.conf '${conf_line}' (${conf_mode}): installed-not-enabled, residue and residue links are '${want}'"
+        pass "operator.conf '${conf_line}' (${conf_mode}, gamma.conf ${gamma_mode}): installed-not-enabled, residue and residue links are '${want}'"
     else
-        fail "operator.conf '${conf_line}' (${conf_mode}): expected '${want}' from each, got set '${got_set}', tree '${got_tree}', links '${got_links}'"
+        fail "operator.conf '${conf_line}' (${conf_mode}, gamma.conf ${gamma_mode}): expected '${want}' from each, got set '${got_set}', tree '${got_tree}', links '${got_links}'"
     fi
 done <<'ROWS'
-AI_TOOLS_AGENTS=[acme|0644|
-AI_TOOLS_AGENTS="agent-acme"|0666|
-AI_TOOLS_AGENTS=[agent-nosuch]|0644|
-AI_TOOLS_AGENTS=[acme]|0644|
-AI_TOOLS_AGENTS=[]|0644|acme beta
+AI_TOOLS_AGENTS=[acme|0644|0644|
+AI_TOOLS_AGENTS="agent-acme"|0666|0644|
+AI_TOOLS_AGENTS=[agent-nosuch]|0644|0644|
+AI_TOOLS_AGENTS=[acme]|0644|0644|
+AI_TOOLS_AGENTS=[]|0644|0666|
+AI_TOOLS_AGENTS=[]|0644|0644|acme beta gamma
 ROWS
+chmod 0666 "${AGENTS_DIR}/gamma.conf"
 printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
 
 # ── ai_tools_agent_residue: the tree read ───────────────────────────────────────────────────────
