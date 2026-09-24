@@ -244,6 +244,11 @@ if [[ "${out}" == *"Post-upgrade done -- review the warnings above"* && "${out}"
 else
     fail "a run with something to act on closed without asking for a review: ${out}"
 fi
+if grep -qx '  sudo meld <file> <file>.rpmnew' <<< "${out}"; then
+    pass "a run with a difference left to act on prints the meld comparison on a line of its own"
+else
+    fail "the meld line is missing where a difference is left: ${out}"
+fi
 
 # ── (E3) A kept file another package ships: found, reported, and never printed ─────────────────────
 # The registry is base's, so an integration's endpoint file is found by the directory it sits in. It carries a key,
@@ -298,22 +303,23 @@ else
     fail "an earlier copy was not listed, or was removed: ${out}"
 fi
 
-# ── (E6) A copy identical to the file skips the treatments, and only its removal is left ──────────────────────
+# ── (E6) A copy identical to the file gets no block, only a removal line, and no comparison is offered ──────────
 reset_root
 mkdir -p "${ROOT}/etc/ai-tools/prompts"
 PROMPT="${ROOT}/etc/ai-tools/prompts/prompt.md"
 : > "${PROMPT}"; : > "${PROMPT}.rpmnew"
 out="$(run_pu)"
-if [[ "${out}" == *"identical to the package copy"* && "${out}" == *"sudo rm ${PROMPT}.rpmnew"* \
+if ! grep -qxF "${PROMPT}" <<< "${out}" && [[ "${out}" != *"identical to the package copy"* \
+      && "${out}" == *"remove when ready: sudo rm ${PROMPT}.rpmnew"* \
       && "${out}" == *"nothing needs your attention"* && -f "${PROMPT}.rpmnew" ]]; then
-    pass "an identical copy is reported as such, offered for removal, and kept"
+    pass "an identical copy gets no block, is offered for removal on one line, and is kept"
 else
-    fail "an identical copy was treated as a difference: ${out}"
+    fail "an identical copy was reported as a difference or not offered for removal: ${out}"
 fi
-if grep -qx '  sudo meld <file> <file>.rpmnew' <<< "${out}"; then
-    pass "a run that found a copy prints the meld comparison on a line of its own"
+if [[ "${out}" != *"sudo meld"* ]]; then
+    pass "a run with nothing left to merge does not offer a comparison"
 else
-    fail "the meld line is missing: ${out}"
+    fail "the meld comparison was offered with nothing to merge: ${out}"
 fi
 
 # ── (E7) Earlier copies are listed in the order they were made ───────────────────────────────────

@@ -1573,27 +1573,31 @@ _pu_sidecars() {
 
 postupgrade() {
     [[ $# -eq 0 ]] || reject MSG-S9M6 "system post-upgrade: takes no arguments"
-    local file kind label title found=0
+    local file kind label title found=0 attention_before copy
     local root="${AI_TOOLS_POSTUPGRADE_ROOT:-}"
+    # Files whose copy still differs after their treatment, which is when a side-by-side comparison has something
+    # to show, and copies byte-identical to their file, which have nothing to show and are only named for removal.
+    local -a to_compare=() identical=()
 
     while IFS='|' read -r file kind label; do
         found=1
+        # A copy byte-identical to the file does not add an option or a line of prose to it, whatever its format, so it
+        # does not get a block of its own: it is listed for removal under the closing line.
+        if cmp -s "${file}" "${file}.rpmnew"; then
+            identical+=("${file}.rpmnew")
+            continue
+        fi
         _PU_NAME="${file##*/}"
         if [[ "${label}" == "${_PU_NAME}" ]]; then title="${_PU_NAME}"; else title="${_PU_NAME} -- ${label}"; fi
         ai_tools_msg_headline "${title}" 1 "${file}" "$(_pu_provenance "${file}.rpmnew")"
-        # A copy byte-identical to the file does not add an option or a line of prose to it, whatever its format, so it
-        # skips the treatments and only its removal is left.
-        if cmp -s "${file}" "${file}.rpmnew"; then
-            _pu_say ok "identical to the package copy"
-            _pu_leave "${file}.rpmnew" merged
-            continue
-        fi
+        attention_before="${_PU_ATTENTION}"
         case "${kind}" in
             json)   _pu_json   "${file}" "${file}.rpmnew" ;;
             keyval) _pu_keyval "${file}" "${file}.rpmnew" ;;
             review) _pu_review "${file}" "${file}.rpmnew" ;;
             show)   _pu_show   "${file}" "${file}.rpmnew" ;;
         esac
+        (( _PU_ATTENTION > attention_before )) && ! cmp -s "${file}" "${file}.rpmnew" && to_compare+=("${file}")
     done < <(_pu_entries "${root}")
 
     _pu_ask_gaps "${root}"
@@ -1610,9 +1614,9 @@ postupgrade() {
     else
         printf 'Post-upgrade done -- nothing needs your attention\n'
     fi
-    # The comparison command is printed on a line of its own, indented, so it copies whole. It is offered only
-    # when a copy was found, since without one there is nothing to compare.
-    if (( found > 0 )); then
+    # The comparison command is printed on a line of its own, indented, so it copies whole. It is offered only while
+    # a file still differs from its copy in a way the report asked the operator to act on.
+    if (( ${#to_compare[@]} > 0 )); then
         printf '\n%sCompare a file with its package copy side by side, and carry over what you want:%s\n\n' \
             "${_PU_DIM}" "${_PU_RST}"
         printf '  %ssudo meld <file> <file>.rpmnew%s\n\n' "${_PU_DIM}" "${_PU_RST}"
@@ -1620,6 +1624,9 @@ postupgrade() {
             || printf '%s- meld is not installed; it needs a desktop session: sudo dnf install meld%s\n' \
                 "${_PU_DIM}" "${_PU_RST}"
     fi
+    for copy in "${identical[@]}"; do
+        printf '%s- identical to its file, remove when ready: sudo rm %s%s\n' "${_PU_DIM}" "${copy}" "${_PU_RST}"
+    done
     printf '%s- system post-upgrade is idempotent -- re-run it at any time%s\n' "${_PU_DIM}" "${_PU_RST}"
     if (( _PU_ATTENTION > 0 )); then
         printf '%s- Happy merging!%s\n' "${_PU_DIM}" "${_PU_RST}"
