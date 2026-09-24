@@ -942,22 +942,23 @@ to append to, so a file that stops appending or appends to a renamed array fails
 session that agent's environment; claude-code's three by name, with its fragment asserted to carry none of them),
 the shim's sourcing order read as source (the integrations, then every enabled agent's pins, then the launching agent's
 fragment — no refusal the shim can be driven to reveals it), the `settings.json` hook, deny-rule and ask-rule
-declarations, and SELinux labels (the `claude.exe` entrypoint and the handback daemon binary). Every assertion
-about the shim lives in `ai-tools-run.sh` beside it — its input validation, the unit properties it pins, and the session
-env it sources — so a change to the shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoint
-label. `selinux.sh` asserts the confinement layer is enforcing: when the `ai_tools` module is loaded the system is
-`Enforcing` and neither `ai_tools_t` nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent
-(the layer is optional). It also holds the entrypoint assertions that need a labelled host — that each agent's declared
-file-context rule still covers what its package installed, that no link in the exec chain carries a type the confined
-domain may manage, and that the loaded core module audits an in-session exec of the entrypoint, read with `sesearch`
-and skipped without it — and, where the `ai_tools_dotnet` layout module is loaded, the build-output labelling that only
-libselinux can answer: a path under one of the module's directories resolves to `ai_tools_project_build_t` and every
-other clone path to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`),
-and a `bin/` directory created in the sandbox area by `unconfined_t` is born on the build type with no `restorecon`. It
-closes by reading the live type of **every** enrolled operator's `~/.config/ai-tools`: the rule is per account,
-and a subtree without it denies the root helpers the read that resolves a path's owner, so that operator's projects stop
-being handed back while every DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant
-need a session, and `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
+declarations, and SELinux labels (the `claude.exe` entrypoint — the one the stable launcher resolves to first, then
+every copy a kept version directory holds — and the handback daemon binary). Every assertion about the shim lives
+in `ai-tools-run.sh` beside it — its input validation, the unit properties it pins, and the session env it sources —
+so a change to the shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh`
+asserts the confinement layer is enforcing: when the `ai_tools` module is loaded the system is `Enforcing` and neither
+`ai_tools_t` nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is optional).
+It also holds the entrypoint assertions that need a labelled host — that each agent's declared file-context rule still
+covers what its package installed, that no link in the exec chain carries a type the confined domain may manage,
+and that the loaded core module audits an in-session exec of the entrypoint, read with `sesearch` and skipped without it
+— and, where the `ai_tools_dotnet` layout module is loaded, the build-output labelling that only libselinux can answer:
+a path under one of the module's directories resolves to `ai_tools_project_build_t` and every other clone path
+to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`), and a `bin/` directory
+created in the sandbox area by `unconfined_t` is born on the build type with no `restorecon`. It closes by reading
+the live type of **every** enrolled operator's `~/.config/ai-tools`: the rule is per account, and a subtree without it
+denies the root helpers the read that resolves a path's owner, so that operator's projects stop being handed back while
+every DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant need a session,
+and `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
 `systemd-analyze verify` on each shipped unit, plus enablement in the correct instance — the `nvm-update` timer
 in the sandbox account's own `--user instance`, the relabel watcher and handback socket in the system instance.
 The handback chain cannot use the `AI_TOOLS_ALLOWLIST` override — the live daemon execs helpers with its own
