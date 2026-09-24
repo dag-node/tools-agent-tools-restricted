@@ -532,13 +532,15 @@ ai_tools_conf_new_keys() {
 # from `ai-tools-admin operators add|remove` and the AI_TOOLS_AGENTS list from the toolchain provisioning's agent choice
 # (ai_tools_conf_set_list), and the provisioning's switches (ai_tools_conf_set_key). Setting a key replaces one line
 # and does not splice a block in, which is what ai_tools_conf_new_keys leaves to the operator: the line replaced is
-# the key's own, found by the same match ai_tools_conf_keys counts as a mention, so the template's commented default is
-# rewritten IN PLACE under its comment block and the file keeps the shape the new-key report reads. Every other line is
-# copied byte for byte.
+# the key's own -- its last live assignment, the one a reader takes, or where the file has none, the first commented
+# default ai_tools_conf_keys counts as a mention -- so the template's commented default is rewritten IN PLACE under its
+# comment block and the file keeps the shape the new-key report reads. A live line an operator added after the commented
+# default is the one replaced, since rewriting the default would leave the later line winning the read. Every other line
+# is copied byte for byte.
 
-# ai_tools_conf_set_key <file> <KEY> <value> : write `KEY="value"` into <file>, replacing the first
-#   line that mentions KEY (`KEY=`, `#KEY=`, `# KEY=`, whitespace allowed around the key), or
-#   appending the line when none does. A missing <file> is created at mode 0644; an existing one
+# ai_tools_conf_set_key <file> <KEY> <value> : write `KEY="value"` into <file>, replacing the line
+#   _ai_tools_conf_write_line picks -- the last live `KEY=`, else the first `#KEY=` / `# KEY=` --
+#   or appending the line when none does. A missing <file> is created at mode 0644; an existing one
 #   keeps its owner and mode and is replaced by a rename (_ai_tools_conf_replace_file). Verified by
 #   re-reading the key through ai_tools_conf_read. Returns 0 when the file now holds the value, 1
 #   when it could not be written or does not read back, 2 for a KEY outside the identifier charset
@@ -572,26 +574,36 @@ ai_tools_conf_set_list() {
     [[ "${written[*]-}" == "$*" && ${#written[@]} -eq $# ]]
 }
 
-# _ai_tools_conf_write_line <file> <KEY> <line> : replace the first line of <file> that mentions
-#   KEY (`KEY=`, `#KEY=`, `# KEY=`, whitespace allowed around the key) with <line>, or append <line>
-#   when none does, copying every other line byte for byte. A missing <file> is created at mode
-#   0644; an existing one keeps its owner and mode and is replaced by a rename
+# _ai_tools_conf_write_line <file> <KEY> <line> : replace the last live assignment of KEY in <file>
+#   (`KEY=`, whitespace allowed around the key) with <line> -- or, where there is none, the first
+#   commented default (`#KEY=`, `# KEY=`) -- or append <line> when the file mentions neither,
+#   copying every other line byte for byte. A missing <file> is created at mode 0644; an
+#   existing one keeps its owner and mode and is replaced by a rename
 #   (_ai_tools_conf_replace_file). Returns 1 when the file could not be written. The one line
 #   replacement both public writers share, so they rewrite the same line of the same file.
 _ai_tools_conf_write_line() {
-    local file="$1" key="$2" new_line="$3" tmp line replaced=0
-    tmp="$(mktemp 2>/dev/null)" || return 1
+    local file="$1" key="$2" new_line="$3" tmp line number=0 live=0 commented=0 target
     if [[ -f "${file}" ]]; then
         while IFS= read -r line || [[ -n "${line}" ]]; do
-            if (( ! replaced )) && [[ "${line}" =~ ^[[:space:]]*(\#[[:space:]]?)?${key}[[:space:]]*= ]]; then
-                printf '%s\n' "${new_line}"
-                replaced=1
-            else
-                printf '%s\n' "${line}"
+            number=$(( number + 1 ))
+            if [[ "${line}" =~ ^[[:space:]]*${key}[[:space:]]*= ]]; then
+                live="${number}"
+            elif (( ! commented )) && [[ "${line}" =~ ^[[:space:]]*\#[[:space:]]?${key}[[:space:]]*= ]]; then
+                commented="${number}"
             fi
+        done < "${file}"
+    fi
+    target="${live}"
+    (( target )) || target="${commented}"
+    tmp="$(mktemp 2>/dev/null)" || return 1
+    if [[ -f "${file}" ]]; then
+        number=0
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            number=$(( number + 1 ))
+            if (( number == target )); then printf '%s\n' "${new_line}"; else printf '%s\n' "${line}"; fi
         done < "${file}" > "${tmp}"
     fi
-    (( replaced )) || printf '%s\n' "${new_line}" >> "${tmp}"
+    (( target )) || printf '%s\n' "${new_line}" >> "${tmp}"
     if [[ -f "${file}" ]]; then
         if ! _ai_tools_conf_replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
     elif ! install -m 644 -- "${tmp}" "${file}" 2>/dev/null; then

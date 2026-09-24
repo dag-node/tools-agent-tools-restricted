@@ -410,7 +410,7 @@ Each file gets the treatment its content calls for: the agent's
 has the hook declarations it lacks merged in, with its permission rules left
 as written;
 .BR ai-tools-operator.conf (5)
-is reported and never rewritten;
+is reported, its provider lists aside;
 .I /etc/sudoers.d/ai\-tools
 is shown only.
 A copy under
@@ -438,7 +438,26 @@ template, and the dated
 and
 .I .shipped
 copies kept beside the configuration files are listed.
-Whether or not a copy is waiting, the command names each
+Whether or not a copy is waiting, the command rewrites each provider list in
+.BR ai-tools-operator.conf (5)
+that an earlier release wrote with bare names:
+.B claude\-code
+in
+.B AI_TOOLS_AGENTS
+becomes
+.BR agent\-claude\-code ,
+and
+.B core
+in
+.B AI_TOOLS_FILTERS
+becomes
+.BR filter\-base .
+It writes a dated backup first, rewrites a key only when every name it holds
+is installed, and leaves a key holding any other name as written, naming it;
+until each list is rewritten no session starts.
+This is the one change it makes to that file, and the unattended run makes it
+too.
+Whether or not a copy is waiting, the command also names each
 .B permissions.ask
 entry the agent's
 .I settings.json
@@ -491,7 +510,13 @@ entry the file lacks),
 .B asset\-missing
 (a shipped skill, subagent, or orientation text not seeded),
 .B asset\-unlinked
-(an agent without its link to one), and
+(an agent without its link to one),
+.B list\-unmigrated
+(a provider list the command would rewrite, with the old and the new names as
+.IR DETAIL ),
+.B list\-unmigratable
+(a name in a provider list that does not match any installed manifest or rule
+set, to edit by hand), and
 .B error
 (a check that could not run, with the reason as
 .IR DETAIL ).

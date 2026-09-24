@@ -1667,6 +1667,8 @@ _pu_finding() {
         rpmnew-orphan)      _pu_attention MSG-K8D2 "rpmnew-orphan" "$2" "${3-}" ;;
         asset-missing)      _pu_attention MSG-X6H5 "asset-missing" "$2" "${3-}" ;;
         asset-unlinked)     _pu_attention MSG-N9S4 "asset-unlinked" "$2" "${3-}" ;;
+        list-unmigrated)    _pu_attention MSG-P5K4 "list-unmigrated" "$2" "${3-}" ;;
+        list-unmigratable)  _pu_attention MSG-S3D8 "list-unmigratable" "$2" "${3-}" ;;
         error)              _pu_check_failed MSG-Y3J5 "error" "$2" "${3-}" ;;
         rpmnew-residual)    _pu_aside MSG-J3X7 "rpmnew-residual" "$2" "${3-}" ;;
         copy-kept)          _pu_aside MSG-W8F8 "copy-kept" "$2" "${3-}" ;;
@@ -1681,6 +1683,7 @@ _pu_check() {
     local root="$1" file kind label scratch status key line state path detail
     local -a new_keys=() entries=()
     _PU_FINDINGS=0
+    _pu_kind_findings "${root}"
     while IFS='|' read -r file kind label; do
         if cmp -s "${file}" "${file}.rpmnew"; then _pu_finding rpmnew-residual "${file}.rpmnew"; continue; fi
         case "${kind}" in
@@ -1729,6 +1732,26 @@ _pu_check() {
         < <(_pu_assets "${root}")
     while IFS= read -r path; do _pu_finding copy-kept "${path}"; done < <(_pu_copies "${root}")
     (( _PU_FINDINGS == 0 ))
+}
+
+# _pu_kind_findings <root>: the provider list items operator.conf holds in an earlier release's bare form, read
+# through the plan the rewrite follows (ai_tools_conf_kind_plan, providers.lib.sh): list-unmigrated for a key the run
+# would rewrite, list-unmigratable for an item no run can map. A detection with no plan to read -- providers.lib.sh did
+# not load -- is a check that could not run.
+_pu_kind_findings() {
+    local file="$1/etc/ai-tools/operator.conf" verdict key old new
+    [[ -f "${file}" ]] || return 0
+    if ! declare -F ai_tools_conf_kind_plan >/dev/null 2>&1; then
+        declare -F ai_tools_conf_kind_unmigrated >/dev/null 2>&1 && [[ -n "$(ai_tools_conf_kind_unmigrated "${file}")" ]] \
+            && _pu_finding error "${file}" "provider names not checked: ${PROVIDERS_LIB} did not load"
+        return 0
+    fi
+    while IFS=$'\t' read -r verdict key old new; do
+        case "${verdict}" in
+            migrate) _pu_finding list-unmigrated "${file}" "${key}: [${old// /, }] -> [${new// /, }]" ;;
+            blocked) _pu_finding list-unmigratable "${file}" "${key}: ${old}" ;;
+        esac
+    done < <(ai_tools_conf_kind_plan "${file}")
 }
 
 # _pu_orphans <root>: each package copy whose file is gone, one path per line. rpm parks a copy only beside a file it
@@ -1832,6 +1855,48 @@ _pu_assets() {
     done
 }
 
+# _pu_kind_noun <KEY>: what an item of a kind-prefixed list key names, for a report line.
+_pu_kind_noun() {
+    case "$1" in
+        AI_TOOLS_AGENTS)       printf 'agent' ;;
+        AI_TOOLS_INTEGRATIONS) printf 'integration' ;;
+        *)                     printf 'filter set' ;;
+    esac
+}
+
+# _pu_kind_migrate <root>: rewrite the provider list items operator.conf holds in an earlier release's bare form
+# (ai_tools_conf_kind_migrate, providers.lib.sh), whether or not a .rpmnew waits, and report each key in a block of its
+# own. It runs on every run, the unattended one included: the rewrite changes spelling alone, and until it lands every
+# session start is refused. A key holding a name no installed manifest or rule set matches is left as written and named,
+# since only the operator knows what it meant.
+_pu_kind_migrate() {
+    local file="$1/etc/ai-tools/operator.conf" line verdict key old new opened=0
+    [[ -f "${file}" ]] || return 0
+    if ! declare -F ai_tools_conf_kind_migrate >/dev/null 2>&1; then
+        declare -F ai_tools_conf_kind_unmigrated >/dev/null 2>&1 && [[ -n "$(ai_tools_conf_kind_unmigrated "${file}")" ]] \
+            || return 0
+        _PU_NAME="${file##*/}"
+        ai_tools_msg_headline "${_PU_NAME} -- provider names" 1 "${file}"
+        _pu_say err "provider names were not rewritten: ${PROVIDERS_LIB} did not load -- reinstall ai-tools-base"
+        return 0
+    fi
+    while IFS= read -r line; do
+        IFS=$'\t' read -r verdict key old new <<< "${line}"
+        if (( ! opened )); then
+            opened=1
+            _PU_NAME="${file##*/}"
+            ai_tools_msg_headline "${_PU_NAME} -- provider names" 1 "${file}" \
+                "each provider list item names its kind: agent-<name>, integration-<name>, filter-<name>"
+        fi
+        case "${verdict}" in
+            backup)    _pu_say info "the file as it was is saved as ${key}" ;;
+            rewritten) _pu_say ok "${key}: [${old// /, }] -> [${new// /, }]" ;;
+            blocked)   _pu_say act "${key} holds ${old}, which names no installed $(_pu_kind_noun "${key}") -- the line is left as written and enables nothing; edit it by hand" ;;
+            failed)    _pu_say err "${key} was not rewritten: ${new} -- the line is left as written" ;;
+        esac
+    done < <(ai_tools_conf_kind_migrate "${file}")
+}
+
 # _pu_report: the reconciliation itself, one block per file with a copy waiting, then the closing lines.
 _pu_report() {
     local file kind label title found=0 attention_before copy
@@ -1840,6 +1905,7 @@ _pu_report() {
     # to show, and copies byte-identical to their file, which have nothing to show and are only named for removal.
     local -a to_compare=() identical=()
 
+    _pu_kind_migrate "${root}"
     while IFS='|' read -r file kind label; do
         found=1
         # A copy byte-identical to the file does not add an option or a line of prose to it, whatever its format, so it

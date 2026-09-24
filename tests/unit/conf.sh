@@ -964,6 +964,22 @@ EOF
     else
         fail "set_key over a live key: rc ${rc}, $(grep -c 'AI_TOOLS_AGENTS=' "${sk}") mention(s), value '$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS || true)'"
     fi
+    # A live line an operator wrote after the template's commented default is the one a reader takes, so it is the one
+    # replaced: rewriting the commented default instead would leave the later line winning the read.
+    printf '%s\n' '#K=""' 'OTHER=1' 'K="old"' > "${sk}.below"
+    rc=0; ai_tools_conf_set_key "${sk}.below" K "new" || rc=$?
+    if [[ "${rc}" -eq 0 && "$(tr '\n' '|' < "${sk}.below")" == '#K=""|OTHER=1|K="new"|' ]]; then
+        pass "a live line below a commented default is the one replaced, and the default stays commented"
+    else
+        fail "set_key over a live line below a commented default: rc ${rc}, file '$(tr '\n' '|' < "${sk}.below")'"
+    fi
+    printf '%s\n' 'K="a"' 'K="b"' > "${sk}.twice"
+    rc=0; ai_tools_conf_set_key "${sk}.twice" K "c" || rc=$?
+    if [[ "${rc}" -eq 0 && "$(tr '\n' '|' < "${sk}.twice")" == 'K="a"|K="c"|' ]]; then
+        pass "of two live lines the last, the one a reader takes, is replaced"
+    else
+        fail "set_key over a repeated key: rc ${rc}, file '$(tr '\n' '|' < "${sk}.twice")'"
+    fi
     rc=0; ai_tools_conf_set_key "${sk}" OPERATORS "op two" || rc=$?
     if [[ "${rc}" -eq 0 && "$(sed -n 2p "${sk}")" == 'OPERATORS="op two"' ]]; then
         pass "OPERATORS is rewritten on its own line, in its place"

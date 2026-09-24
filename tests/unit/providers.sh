@@ -555,4 +555,84 @@ else
     skip "shipped manifests" "not a source checkout (no ${shipped_dir})"
 fi
 
+# --- The kind-prefix migration: the one rewrite of an earlier release's list values -------------------------------
+# `system post-upgrade` and `system bootstrap` rewrite a list an earlier release wrote with bare names. What matters is
+# which lines it touches: a key is rewritten only when every item maps onto a name this host installs, so a rewritten
+# line reads back whole, and a key holding any other name stays byte-identical and is named. One .bak is taken
+# before the first write, and every line but the rewritten ones survives. Rows: <operator.conf line> <line afterwards>
+# <outcome words, in order>.
+section "providers: the kind-prefix migration rewrites whole keys only"
+mig_root="${TESTDIR}/migration"
+mkdir -p "${mig_root}/agents.d" "${mig_root}/integrations.d" "${mig_root}/filters.d"
+touch "${mig_root}/agents.d/claude-code.conf" "${mig_root}/agents.d/codex.conf" \
+      "${mig_root}/integrations.d/dotnet.conf" "${mig_root}/filters.d/base.rules" "${mig_root}/filters.d/dotnet.rules"
+mig_conf="${mig_root}/operator.conf"
+migrate() {
+    AI_TOOLS_AGENTS_DIR="${mig_root}/agents.d" AI_TOOLS_INTEGRATIONS_DIR="${mig_root}/integrations.d" \
+        AI_TOOLS_FILTERS_DIR="${mig_root}/filters.d" ai_tools_conf_kind_migrate "$1" 2>/dev/null || true
+}
+while IFS='|' read -r before after outcomes; do
+    rm -f "${mig_root}"/operator.conf*
+    printf '%s\n' '# header' 'OPERATORS=[op]' "${before}" 'SKIP_CACHE_DIRS=[x]' > "${mig_conf}"; chmod 0644 "${mig_conf}"
+    out="$(migrate "${mig_conf}")"
+    got_outcomes="$(cut -f1 <<< "${out}" | tr '\n' ' ')"; got_outcomes="${got_outcomes% }"
+    got_line="$(sed -n 3p "${mig_conf}")"
+    others="$(sed -n '1p;2p;4p' "${mig_conf}" | tr '\n' '|')"
+    if [[ "${got_line}" == "${after}" && "${got_outcomes}" == "${outcomes}" && "${others}" == '# header|OPERATORS=[op]|SKIP_CACHE_DIRS=[x]|' ]]; then
+        pass "migration of '${before}' leaves '${after}' (${outcomes:-no outcome})"
+    else
+        fail "migration of '${before}': line '${got_line}' (expected '${after}'), outcomes '${got_outcomes}' (expected '${outcomes}'), other lines '${others}'"
+    fi
+done <<'ROWS'
+AI_TOOLS_AGENTS=[claude-code, codex]|AI_TOOLS_AGENTS=[agent-claude-code, agent-codex]|backup rewritten
+AI_TOOLS_AGENTS="claude-code agent-codex"|AI_TOOLS_AGENTS=[agent-claude-code, agent-codex]|backup rewritten
+AI_TOOLS_INTEGRATIONS=dotnet|AI_TOOLS_INTEGRATIONS=[integration-dotnet]|backup rewritten
+AI_TOOLS_FILTERS=[core, dotnet]|AI_TOOLS_FILTERS=[filter-base, filter-dotnet]|backup rewritten
+AI_TOOLS_AGENTS=[claude-code, missing]|AI_TOOLS_AGENTS=[claude-code, missing]|blocked
+AI_TOOLS_AGENTS=[integration-dotnet]|AI_TOOLS_AGENTS=[integration-dotnet]|blocked
+AI_TOOLS_AGENTS=[agent-claude-code]|AI_TOOLS_AGENTS=[agent-claude-code]|
+AI_TOOLS_AGENTS=[claude-code|AI_TOOLS_AGENTS=[claude-code|
+ROWS
+
+# Every key in one file: one backup, taken before the first write and holding the file as it was; a blocked key beside
+# rewritten ones stays as written; the plan the check reports matches what the run did.
+rm -f "${mig_root}"/operator.conf*
+printf '%s\n' 'AI_TOOLS_AGENTS=[claude-code]' 'AI_TOOLS_INTEGRATIONS=[typesafe]' 'AI_TOOLS_FILTERS=[core]' > "${mig_conf}"
+chmod 0644 "${mig_conf}"; cp "${mig_conf}" "${mig_root}/as-it-was"
+plan="$(AI_TOOLS_AGENTS_DIR="${mig_root}/agents.d" AI_TOOLS_INTEGRATIONS_DIR="${mig_root}/integrations.d" \
+        AI_TOOLS_FILTERS_DIR="${mig_root}/filters.d" ai_tools_conf_kind_plan "${mig_conf}" | cut -f1,2 | tr '\t\n' ' |')"
+out="$(migrate "${mig_conf}")"
+backups=( "${mig_root}"/operator.conf.*.bak )
+if [[ ${#backups[@]} -eq 1 && -f "${backups[0]}" ]] && cmp -s "${backups[0]}" "${mig_root}/as-it-was"; then
+    pass "one .bak holds the file as it was, for a run that rewrote two keys"
+else
+    fail "backups after a two-key rewrite: ${backups[*]}"
+fi
+if [[ "$(tr '\n' '|' < "${mig_conf}")" == 'AI_TOOLS_AGENTS=[agent-claude-code]|AI_TOOLS_INTEGRATIONS=[typesafe]|AI_TOOLS_FILTERS=[filter-base]|' ]]; then
+    pass "a blocked key beside rewritten ones stays as written"
+else
+    fail "mixed rewrite left '$(tr '\n' '|' < "${mig_conf}")'"
+fi
+if [[ "${plan}" == 'migrate AI_TOOLS_AGENTS|blocked AI_TOOLS_INTEGRATIONS|migrate AI_TOOLS_FILTERS|' ]]; then
+    pass "the plan the check reports names each key the run rewrote or left"
+else
+    fail "plan: '${plan}'"
+fi
+# A second run finds only the blocked key, and does not take a second backup.
+out="$(migrate "${mig_conf}")"
+backups=( "${mig_root}"/operator.conf.*.bak )
+if [[ "$(cut -f1 <<< "${out}" | tr '\n' ' ')" == "blocked " && ${#backups[@]} -eq 1 ]]; then
+    pass "a second run is idempotent: the blocked key is named again, and no second backup is taken"
+else
+    fail "second run: outcomes '$(cut -f1 <<< "${out}" | tr '\n' ' ')', ${#backups[@]} backup(s)"
+fi
+# An untrusted file is not rewritten.
+printf 'AI_TOOLS_AGENTS=[claude-code]\n' > "${mig_conf}"; chmod 0666 "${mig_conf}"
+out="$(migrate "${mig_conf}")"
+if [[ -z "${out}" && "$(cat "${mig_conf}")" == 'AI_TOOLS_AGENTS=[claude-code]' ]]; then
+    pass "an untrusted operator.conf is not rewritten"
+else
+    fail "an untrusted operator.conf was touched: '${out}' / '$(cat "${mig_conf}")'"
+fi
+
 finish

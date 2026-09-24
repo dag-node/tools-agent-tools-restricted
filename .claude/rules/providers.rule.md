@@ -301,15 +301,15 @@ model those functions implement, and the rules they enforce on every caller, are
 
 It owns the one **write of a `KEY=value` file** for the same reason. `ai_tools_conf_set_key <file> <KEY> <value>` writes
 a scalar as `KEY="value"` and `ai_tools_conf_set_list <file> <KEY> <item>...` writes a list as `KEY=[a, b]`, and both go
-through one line replacement: the first line that *mentions* the key — a live `KEY=` or the template's commented `#KEY=`
-default, the same match `ai_tools_conf_keys` counts — is replaced in place under its comment block, the line is appended
-when no mention exists, and the file is written beside itself and renamed so a reader sees the old file or the new one.
-A missing file is created at `0644`. Each writer refuses a key outside the identifier charset, and each refuses
-what would read back as a different setting: `set_key` a value carrying a newline or a double quote, `set_list` an empty
-item or one carrying whitespace, a comma, a bracket, a quote or a `#`. Each verifies by reading the key back.
-`ai-tools-admin operators add|remove` write `OPERATORS` and `ai-tools-bootstrap` writes `AI_TOOLS_AGENTS`
-through the list writer, and the bootstrap's launch switches go through the scalar one; `tests/unit/conf.sh` drives both
-over a template-shaped fixture and asserts every other line byte-identical.
+through one line replacement: the key's last live `KEY=` line — the assignment a reader takes — or, where there is none,
+the template's commented `#KEY=` default, the same match `ai_tools_conf_keys` counts, is replaced in place under its
+comment block, and the line is appended when no mention exists, and the file is written beside itself and renamed
+so a reader sees the old file or the new one. A missing file is created at `0644`. Each writer refuses a key outside
+the identifier charset, and each refuses what would read back as a different setting: `set_key` a value carrying
+a newline or a double quote, `set_list` an empty item or one carrying whitespace, a comma, a bracket, a quote or a `#`.
+Each verifies by reading the key back. `ai-tools-admin operators add|remove` write `OPERATORS` and `ai-tools-bootstrap`
+writes `AI_TOOLS_AGENTS` through the list writer, and the bootstrap's launch switches go through the scalar one;
+`tests/unit/conf.sh` drives both over a template-shaped fixture and asserts every other line byte-identical.
 
 A **switch** — a key whose value is yes or no — is read through `ai_tools_conf_yes`, so every switch accepts the same
 spellings: `yes`, `true`, `1` and `on` read as yes, and `no`, `false`, `0`, `off` and an empty value as no, in any case
@@ -347,13 +347,23 @@ The cost is that reconciling the `.rpmnew` is manual, so it is signposted: each 
 whenever one is present, and `sudo ai-tools-admin system post-upgrade` names the options the new version documents
 that the file does not mention, the keys the host sets for itself, and whether the comment prose differs, and gives
 the `diff -u` that compares the two. It prints neither file: a kept `KEY=value` file may hold a credential. It leaves
-this file unchanged and the copy in place as the baseline the operator edits from, and prints the command that removes
-the copy only when every option is mentioned and the prose is the same, since otherwise the copy still holds something
-the file lacks. A copy dated before the installation is named as an earlier version's template. The same treatment
-reaches a kept `*.conf` another package ships under `/etc/ai-tools`, which the command finds by its directory rather
-than by name. An additive merge could append an option block the file lacks, but it could never correct the prose of one
-already there, so `ai-tools-operator.conf(5)` is the single current statement of what an option means and the file
-points at the man page rather than restating it.
+this file's prose and options as written and the copy in place as the baseline the operator edits from, and prints
+the command that removes the copy only when every option is mentioned and the prose is the same, since otherwise
+the copy still holds something the file lacks. A copy dated before the installation is named as an earlier version's
+template. The same treatment reaches a kept `*.conf` another package ships under `/etc/ai-tools`, which the command
+finds by its directory rather than by name. An additive merge could append an option block the file lacks, but it could
+never correct the prose of one already there, so `ai-tools-operator.conf(5)` is the single current statement
+of what an option means and the file points at the man page rather than restating it.
+
+**The one rewrite it makes is the kind prefix.** A provider list an earlier release wrote with bare names is invalid
+under [the kind prefix](#the-shared-config-grammar-conflibsh), so every session start refuses until it changes;
+and the change is spelling, not a setting. `ai_tools_conf_kind_migrate` (`providers.lib.sh`) makes it on every run,
+with or without an `.rpmnew` and unattended too, through `ai_tools_conf_set_list` after one dated `.bak`: a key is
+rewritten only when every item maps onto a name this host installs (`core` in `AI_TOOLS_FILTERS` onto `filter-base`),
+so a rewritten line always reads back whole, and a key holding any other name stays as written and is named, since only
+the operator knows what it meant. `system bootstrap` runs the same function ahead of its agent choice. `%post`
+and `install.sh` do not edit the file: each reads `ai_tools_conf_kind_unmigrated` and names this command, `%post`
+among the steps a host still needs and `install.sh` first in its closing steps.
 
 The same command answers unattended. It exits 1 while anything it reports needs the operator and 0 otherwise,
 the contract `status` offers, and `--check` prints the findings as data instead of a report: one tab-separated line

@@ -728,6 +728,14 @@ fi
 if [ -f /etc/ai-tools/operator.conf.rpmnew ]; then
     _at_merge=1
 fi
+# A provider list an earlier release wrote with bare names makes every session start refuse until
+# `system post-upgrade` rewrites it. A scriptlet does not edit a config file, so this names the
+# command; the predicate is the one the reader refuses by (conf.lib.sh).
+_at_unmigrated=0
+if command -v bash >/dev/null 2>&1 \
+   && [ -n "$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; ai_tools_conf_kind_unmigrated /etc/ai-tools/operator.conf' 2>/dev/null || :)" ]; then
+    _at_unmigrated=1
+fi
 # Repoint each enrolled operator's guard line where it still names the fragment's former path, then
 # name the operators whose init this scriptlet could not write. The bound on that edit, and what a
 # reading of their shell needs instead, are ai_tools_path_order_repoint's header.
@@ -766,7 +774,7 @@ while IFS= read -r launcher; do
     done < <(ai_tools_agent_installs "${launcher}")
 done < <(ai_tools_path_order_launchers)' 2>/dev/null || :)"
 fi
-if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_path}" ]; then
+if [ "${_at_toolchain}${_at_operator}${_at_merge}${_at_unmigrated}" != "0000" ] || [ -n "${_at_path}" ]; then
     echo "ai-tools-base: steps this host still needs:"
     if [ "${_at_toolchain}" = 1 ]; then
         echo "  sudo ai-tools-admin system bootstrap          # install nvm + Node + the agent you choose (network)"
@@ -774,7 +782,9 @@ if [ "${_at_toolchain}${_at_operator}${_at_merge}" != "000" ] || [ -n "${_at_pat
     if [ "${_at_operator}" = 1 ]; then
         echo "  sudo ai-tools-admin operators add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"
     fi
-    if [ "${_at_merge}" = 1 ]; then
+    if [ "${_at_unmigrated}" = 1 ]; then
+        echo "  sudo ai-tools-admin system post-upgrade       # rewrites operator.conf's provider names; no session starts until then"
+    elif [ "${_at_merge}" = 1 ]; then
         echo "  sudo ai-tools-admin system post-upgrade       # operator.conf.rpmnew is waiting"
     fi
     if [ -n "${_at_path}" ]; then

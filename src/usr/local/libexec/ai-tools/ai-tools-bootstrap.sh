@@ -21,6 +21,9 @@
 # The package of an agent that is installed and NOT in that set is residue: it is removed next, still ahead
 # of the network step, with its launcher link, since every launch refuses while it is in the toolchain (remove_residue).
 #
+# Before any of that it rewrites the provider list items an earlier release wrote bare (migrate_provider_lists),
+# the rewrite `system post-upgrade` makes, so the choice reads the line this release reads.
+#
 # Idempotent: an existing account, nvm install, or Node version is reused, not rebuilt.
 #
 # Run as root (it creates a user and execs npm as @SANDBOX_USER@) through the command that reaches
@@ -306,6 +309,28 @@ choose_agents() {
     log "enabled ${name} in ${AI_TOOLS_OPERATOR_CONF}"
 }
 
+# migrate_provider_lists -- rewrite the provider list items operator.conf holds in an earlier release's bare form
+# (ai_tools_conf_kind_migrate, providers.lib.sh -- the rewrite `system post-upgrade` makes), ahead of choose_agents,
+# so the choice reads a migrated line and `--agents` writes into one. A key holding a name no installed manifest or rule
+# set matches stays as written and is named under the code `system post-upgrade --check` reports it
+# with; an AI_TOOLS_AGENTS left that way reads as no agent, which refuse_unresolved_agents then ends the run on. Gated
+# on the resolver having loaded.
+migrate_provider_lists() {
+    local verdict key old new
+    (( _providers_loaded )) && declare -F ai_tools_conf_kind_migrate >/dev/null 2>&1 || return 0
+    [[ -f "${AI_TOOLS_OPERATOR_CONF}" ]] || return 0
+    while IFS=$'\t' read -r verdict key old new; do
+        case "${verdict}" in
+            backup)    log "provider names: the file as it was is saved as ${key}" ;;
+            rewritten) log "provider names: ${key} [${old// /, }] -> [${new// /, }] in ${AI_TOOLS_OPERATOR_CONF}" ;;
+            blocked)   printf '%s\n' MSG-S3D8 >&2
+                       warn "${key} in ${AI_TOOLS_OPERATOR_CONF} holds ${old}, which names nothing installed -- the line is left as written and enables nothing; edit it by hand" ;;
+            failed)    warn "${key} in ${AI_TOOLS_OPERATOR_CONF} was not rewritten: ${new} -- the line is left as written" ;;
+        esac
+    done < <(ai_tools_conf_kind_migrate "${AI_TOOLS_OPERATOR_CONF}")
+    return 0
+}
+
 # refuse_unresolved_agents -- end the run when the agent set choose_agents left is empty and the configuration did not
 # ask for that: ai_tools_agents_empty_verdict classifies it, and anything but `none` -- an invalid AI_TOOLS_AGENTS,
 # an untrusted operator.conf or manifest, a list none of whose names resolved -- ends the run here, before the residue
@@ -575,6 +600,7 @@ fi
 # Which agents this run provisions, decided and written before the first network step: a name given on the command line,
 # the line already in operator.conf, or the operator's answer to the menu. An unknown `--agents` name ends the run here,
 # with no package installed and no line written.
+migrate_provider_lists
 choose_agents "${REQUESTED_AGENTS}"
 refuse_unresolved_agents
 

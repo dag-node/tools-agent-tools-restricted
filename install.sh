@@ -2332,6 +2332,17 @@ do_install() {
     offer_selinux
 
     section "Install complete -- next steps"
+    # A provider list an earlier release wrote with bare names refuses every session start until `system post-upgrade`
+    # rewrites it. This installer keeps operator.conf as the operator left it, so it names the command first,
+    # in the colour of a step the host still owes; the predicate is the one the reader refuses by (conf.lib.sh).
+    local unmigrated
+    unmigrated="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh && ai_tools_conf_kind_unmigrated /etc/ai-tools/operator.conf' \
+        2>/dev/null || true)"
+    if [[ -n "${unmigrated}" ]]; then
+        say "  ${C_YEL}rewrite the provider names in /etc/ai-tools/operator.conf -- no session starts until then:${C_RST}"
+        say "    ${C_BOLD}sudo ai-tools-admin system post-upgrade${C_RST}"
+        say ""
+    fi
     if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
         say "  provision the sandbox toolchain (nvm + Node + claude) -- required before launch:"
         say "    ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"

@@ -437,8 +437,27 @@ sudo ai\-tools\-admin system post\-upgrade
 .PP
 Against
 .I operator.conf
-that command only reports: it names the new options and shows the difference,
-and every edit stays yours.
+that command reports: it names the new options and shows the difference,
+and every edit stays yours, with one exception.
+A provider list an earlier release wrote with bare names, such as
+.BR AI_TOOLS_AGENTS=[claude\-code] ,
+is invalid in this release, and no session starts until it is rewritten.
+The command rewrites it to
+.BR [agent\-claude\-code] ,
+and
+.B core
+in
+.B AI_TOOLS_FILTERS
+to
+.BR filter\-base ,
+after a dated
+.I .bak
+copy of the file, whether or not an
+.I .rpmnew
+is waiting.
+A key holding a name that does not match any installed manifest or rule set is
+left as written and named,
+for you to edit.
 It leaves the
 .I .rpmnew
 in place as the copy you merge from, and names it so you can delete it once you

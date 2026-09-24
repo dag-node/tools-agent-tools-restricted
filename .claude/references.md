@@ -295,6 +295,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | k8d2 | [MSG-K8D2](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | rpmnew-orphan | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
 | x6h5 | [MSG-X6H5](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | asset-missing | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
 | n9s4 | [MSG-N9S4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | asset-unlinked | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_attention |
+| p5k4 | [MSG-P5K4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | list-unmigrated | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
+| s3d8 | [MSG-S3D8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | list-unmigratable | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh, tests/unit/bootstrap.sh, tests/unit/postupgrade.sh | _pu_attention |
 | y3j5 | [MSG-Y3J5](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | error | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_check_failed |
 | j3x7 | [MSG-J3X7](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | rpmnew-residual | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_aside |
 | w8f8 | [MSG-W8F8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | copy-kept | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_aside |

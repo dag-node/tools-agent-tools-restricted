@@ -527,7 +527,9 @@ name under `/etc/<agent>/` and a name already paired, since the reference is com
 them is driven the same way, and every case there is about which file is destroyed: only one proven byte-identical
 to its reference is removed, an edit and an uncomparable file are moved aside under the dated `.retired` name,
 and a move that cannot be made leaves the file where it is — that last case as the **projects user**, since root ignores
-the directory mode the refusal turns on.
+the directory mode the refusal turns on. Its last section drives the kind-prefix migration over a table of lines: a key
+is rewritten only when every item maps onto an installed name, one `.bak` precedes the first write, every other line
+survives byte for byte, and an untrusted file is not touched.
 
 `claude-prompt.sh` and `claude-endpoint.sh` are the runtime half of the custom system prompt and custom API endpoint
 (see [launch](launch.rule.md) and [providers](providers.rule.md)). Each drives its resolver over a root-only base-dir
@@ -585,14 +587,15 @@ nor the copy's content printed, the removal command offered only where the file 
 and carries the same comment prose (a re-wrapped comment is the same prose, a reworded one is not), a copy dated
 before the installation named as such, a copy byte-identical to its file reported as such with its removal offered,
 earlier `.bak`/`.shipped` copies listed in the order they were made and left in place, and an ask entry the kept
-`settings.json` lacks named with no `.rpmnew` waiting and the file left as written, and `--check` held to one line
-per finding carrying its code, no output and exit 0 on a clean host, the no-action findings under `--all` alone, and no
-write — plus the property every case shares: the `.rpmnew` survives the run and is named as the operator's to delete,
-the case where the merge leaves the two files matching included. Every run is under `setsid`, so each prompt takes its
-own default: that is the unattended behaviour and what makes an interactive command reproducible. The agent-side half
-of the pair is already deployed: `boundary/access.sh` covers `settings.json` and the helper directory,
-`boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`, and `boundary/sudo.sh` covers the grant, so no
-input this command reads is agent-writable.
+`settings.json` lacks named with no `.rpmnew` waiting and the file left as written, a provider list an earlier release
+wrote bare rewritten with no `.rpmnew` waiting while a name no installed manifest or rule set matches stays as written,
+and `--check` held to one line per finding carrying its code, no output and exit 0 on a clean host, the no-action
+findings under `--all` alone, and no write — plus the property every case shares: the `.rpmnew` survives the run and is
+named as the operator's to delete, the case where the merge leaves the two files matching included. Every run is
+under `setsid`, so each prompt takes its own default: that is the unattended behaviour and what makes an interactive
+command reproducible. The agent-side half of the pair is already deployed: `boundary/access.sh` covers `settings.json`
+and the helper directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`,
+and `boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
 
 `admin-commands.sh` pins the seam that lets a provider package add a domain to `ai-tools-admin` (see
 [providers](providers.rule.md)). What it drives is a dispatch that **execs a file as root**, so every assertion targets
