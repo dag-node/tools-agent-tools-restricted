@@ -330,8 +330,9 @@ and no entrypoint provenance on the npm channel. Egress is not controlled by thi
 ## Quirks
 
 - **A `.rpmnew` for either managed file leaves a newly shipped key unread.** Codex reads the live file alone;
-  the `%post` names the parked copy, and the operator carries the keys over by hand. No merge tool exists for these two
-  files (they are TOML, not the JSON `ai-tools-admin system post-upgrade` merges).
+  the `%post` names the parked copy, and the operator carries the keys over by hand.
+  `ai-tools-admin system post-upgrade` names such a copy with the `diff -u` that compares it and does not merge it:
+  the files are TOML, not the JSON it merges.
 - **A mode flag is ignored, not refused.** `--sandbox workspace-write` under the shipped requirements lands
   on `danger-full-access` with no notice, since the profile table lists full access alone. Under a requirements file
   without the `default_permissions` pair, the same flag falls back to a read-only managed profile whose tool calls fail

@@ -398,12 +398,32 @@ as written;
 is reported and never rewritten;
 .I /etc/sudoers.d/ai\-tools
 is shown only.
-Every treatment shows the difference first, confirms, and writes a dated
-backup before changing anything.
+A copy under
+.IR /etc/ai\-tools ,
+.IR /etc/codex ,
+or an agent's configuration directory that none of these names is reported
+too: a
+.I *.conf
+file as
+.BR ai-tools-operator.conf (5)
+is, anything else by the
+.B diff
+command that compares it.
+A reported configuration file is never printed, since one may hold a
+credential; the report names the options it lacks, the keys you set, and
+whether the comments differ.
+The merge confirms and writes a dated backup before changing anything.
 Each file closes by naming its
 .I FILE.rpmnew
-as yours to delete, once you have merged what you want from it by hand.
-Idempotent, and a no-op when no
+as yours to delete, and prints the command that deletes it only when your
+file mentions every option the copy documents and carries the same comments.
+A copy dated before the installation is named as an earlier version's
+template, and the dated
+.I .bak
+and
+.I .shipped
+copies kept beside the configuration files are listed.
+Idempotent, and leaves every file as it is when no
 .I .rpmnew
 file is waiting.
 .TP

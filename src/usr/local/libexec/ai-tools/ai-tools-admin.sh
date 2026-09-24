@@ -1240,11 +1240,17 @@ entrypoints_relabel() {
 #   keyval  reported, never rewritten. An absent key already means its default, so a stale file
 #           costs knowledge rather than behaviour, and its layout is the operator's own prose.
 #   review  shown only. A tool does not merge the sudo grant.
+#   show    a file the registry does not name: named with the command that compares it, never printed, since
+#           a kept config of another package may hold a credential (endpoints/typesafe.conf holds an API key).
 readonly -a POSTUPGRADE_FILES=(
     "/opt/ai-tools/.claude/settings.json|json|Claude Code settings"
     "/etc/ai-tools/operator.conf|keyval|host options"
     "/etc/sudoers.d/ai-tools|review|sudoers grant"
 )
+# The directories the packages of this stack ship a kept config file into. POSTUPGRADE_FILES is base's and cannot name
+# what an agent or integration package ships, so a .rpmnew under one of these that the registry does not name is found
+# here and reported: a KEY=value `*.conf` with the keyval treatment, anything else with `show`.
+readonly -a POSTUPGRADE_DIRS=(/etc/ai-tools /etc/codex /opt/ai-tools/.claude /opt/ai-tools/.codex)
 
 # AI_TOOLS_POSTUPGRADE_ROOT prefixes every path in that registry, so the test suite drives this command against fixtures
 # in its own /tmp testdir instead of the live host's control plane. It is a ROOT-ONLY test hook of the same shape
@@ -1270,13 +1276,35 @@ _pu_diff() {
 # of the reconciliation to the operator -- the permission rules here, the whole edit for a KEY=value file, the adoption
 # of a sudo grant -- and the copy is the only record of what the package shipped, so deleting it would take away
 # the baseline that edit is made from. It is the operator's file to remove, once the merge they wanted is in place.
-# `merged` says the deployed file now matches the copy byte for byte, so the removal is all that remains.
+# `merged` says nothing is left to carry over, so the removal is all that remains and its command is printed.
 _pu_leave() {
     local rpmnew="$1"
     if [[ "${2:-}" == merged ]]; then
-        log "  nothing is left to carry over -- remove ${rpmnew} when you are ready"
+        log "  nothing is left to carry over -- remove ${rpmnew} when you are ready:"
+        log "    sudo rm ${rpmnew}"
     else
-        log "  merge new config changes by hand, then remove ${rpmnew}"
+        log "  carry over what you want by hand, then remove ${rpmnew}"
+    fi
+}
+
+# _pu_installed_day: the day this command's own file was installed, as YYYYMMDD. A copy dated before it is
+# from an earlier installation. Compared by day because rpm gives every file of one package its build time, and files
+# built in one run can differ by seconds.
+_pu_installed_day() { date -r "${BASH_SOURCE[0]}" +%Y%m%d 2>/dev/null; }
+
+# _pu_provenance <rpmnew>: the one line under a file's headline, naming the copy and its date. A copy dated before this
+# installation -- a from-source install after an RPM one, or a copy left from an earlier upgrade -- is an earlier
+# version's template, which is said beside it.
+_pu_provenance() {
+    local rpmnew="$1" dated day installed
+    dated="$(date -r "${rpmnew}" +%Y-%m-%d 2>/dev/null)" || dated="an unknown date"
+    day="${dated//-/}"
+    installed="$(_pu_installed_day)" || installed=""
+    if [[ -n "${installed}" && "${day}" =~ ^[0-9]{8}$ && "${day}" < "${installed}" ]]; then
+        printf 'package copy: %s, dated %s -- older than this installation, so an earlier version'"'"'s template' \
+            "${rpmnew}" "${dated}"
+    else
+        printf 'package copy: %s, dated %s' "${rpmnew}" "${dated}"
     fi
 }
 
@@ -1336,24 +1364,70 @@ _pu_json() {
     fi
 }
 
+# _pu_prose <file>: the file's comment prose as one word stream -- comment lines with their `#` removed, the commented
+# defaults (`#KEY=value`, `# KEY=value`) left out as settings, and whitespace collapsed -- so a comment that was only
+# re-wrapped reads as unchanged and a reworded one does not.
+_pu_prose() {
+    sed -n '/^[[:space:]]*#/{/^[[:space:]]*#[[:space:]]\{0,1\}[A-Za-z_][A-Za-z0-9_]*=/d;s/^[[:space:]]*#//;p;}' "$1" \
+        2>/dev/null | tr -s '[:space:]' ' '
+}
+
+# _pu_own_keys <array-name> <deployed> <rpmnew>: the keys the deployed file sets whose value the copy does not set
+# the same way -- the operator's own settings, which is what most of such a difference is. Names only: a kept config may
+# hold a credential, so no value is printed or kept beyond the comparison.
+_pu_own_keys() {
+    local -n _pu_own_out="$1"
+    local deployed="$2" rpmnew="$3" line key live shipped
+    local -a set_keys=()
+    _pu_own_out=()
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ -z "${line}" || "${line}" == '#'* || "${line}" != *=* ]] && continue
+        key="${line%%=*}"; key="${key%"${key##*[![:space:]]}"}"
+        [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && " ${set_keys[*]} " != *" ${key} "* ]] && set_keys+=("${key}")
+    done < "${deployed}"
+    for key in "${set_keys[@]}"; do
+        live="$(ai_tools_conf_get "${deployed}" "${key}")" || true
+        if shipped="$(ai_tools_conf_get "${rpmnew}" "${key}")" && [[ "${shipped}" == "${live}" ]]; then
+            continue
+        fi
+        _pu_own_out+=("${key}")
+    done
+}
+
 # _pu_keyval <deployed> <rpmnew>: report and never write. A KEY=value config is mostly prose -- commented option blocks
 # whose layout is the operator's -- and merging prose would need a convention an operator has to learn before they can
-# predict it. Name the options the new version documents that this file does not mention, show the difference, and leave
-# the edit to them.
+# predict it. Name the options the new version documents that this file does not mention, the operator's own settings,
+# and whether the comments changed, and leave the edit to them. The difference is named as a command and not printed:
+# a kept KEY=value file may hold a credential. The removal is offered only when every option is mentioned and the prose
+# is the same, since otherwise the copy still holds something the live file lacks.
 _pu_keyval() {
-    local deployed="$1" rpmnew="$2" key
-    local -a new_keys=()
+    local deployed="$1" rpmnew="$2" key page
+    local -a new_keys=() own_keys=()
+    local carried=0
     if ai_tools_conf_new_keys new_keys "${deployed}" "${rpmnew}"; then
+        carried=1
         log "  options this version documents that ${deployed} does not mention:"
         for key in "${new_keys[@]}"; do log "    ${key}"; done
         log "  each one is optional and an unmentioned key keeps its default, so leaving them out"
-        log "  breaks nothing -- copy the blocks you want; see ai-tools-operator.conf(5)"
+        log "  breaks nothing -- copy the blocks you want"
     else
-        log "  every option this version documents is already mentioned in ${deployed}"
+        log "  every option this version documents is mentioned in ${deployed}"
     fi
-    log "  the full difference:"
-    _pu_diff "${deployed}" "${rpmnew}"
-    _pu_leave "${rpmnew}"
+    _pu_own_keys own_keys "${deployed}" "${rpmnew}"
+    (( ${#own_keys[@]} == 0 )) || log "  set on this host, and kept as set: ${own_keys[*]}"
+
+    page="ai-tools-${deployed##*/}"
+    if [[ "$(_pu_prose "${deployed}")" != "$(_pu_prose "${rpmnew}")" ]]; then
+        carried=1
+        if [[ -r "/usr/local/share/man/man5/${page}.5" ]]; then
+            log "  the comments differ from this version's -- the current wording is in ${page}(5)"
+        else
+            log "  the comments differ from this version's"
+        fi
+    fi
+    log "  compare them:  sudo diff -u ${deployed} ${rpmnew}"
+    if (( carried )); then _pu_leave "${rpmnew}"; else _pu_leave "${rpmnew}" merged; fi
 }
 
 # _pu_review <deployed> <rpmnew>: show and stop. This file is the sudo grant itself.
@@ -1366,24 +1440,80 @@ _pu_review() {
     _pu_leave "${rpmnew}"
 }
 
-postupgrade() {
-    [[ $# -eq 0 ]] || reject MSG-S9M6 "system post-upgrade: takes no arguments"
-    local entry file kind label found=0
-    local root="${AI_TOOLS_POSTUPGRADE_ROOT:-}"
+# _pu_show <deployed> <rpmnew>: a file this command has no treatment for. Named, never printed or merged.
+_pu_show() {
+    local deployed="$1" rpmnew="$2"
+    log "  this command does not merge this file -- compare them:  sudo diff -u ${deployed} ${rpmnew}"
+    _pu_leave "${rpmnew}"
+}
 
+# _pu_entries <root>: one "<file>|<kind>|<label>" line per file with a .rpmnew waiting -- the registry first, then each
+# one found under POSTUPGRADE_DIRS that the registry does not name.
+_pu_entries() {
+    local root="$1" entry file kind label dir rpmnew
+    local -a named=()
     for entry in "${POSTUPGRADE_FILES[@]}"; do
         IFS='|' read -r file kind label <<< "${entry}"
-        file="${root}${file}"
-        [[ -f "${file}.rpmnew" && -f "${file}" ]] || continue
+        named+=("${root}${file}")
+        [[ -f "${root}${file}.rpmnew" && -f "${root}${file}" ]] && printf '%s|%s|%s\n' "${root}${file}" "${kind}" "${label}"
+    done
+    for dir in "${POSTUPGRADE_DIRS[@]}"; do
+        [[ -d "${root}${dir}" ]] || continue
+        while IFS= read -r rpmnew; do
+            file="${rpmnew%.rpmnew}"
+            [[ -f "${file}" && " ${named[*]} " != *" ${file} "* ]] || continue
+            named+=("${file}")
+            if [[ "${file}" == *.conf ]]; then kind=keyval; else kind=show; fi
+            printf '%s|%s|%s\n' "${file}" "${kind}" "${file##*/}"
+        done < <(find "${root}${dir}" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null | sort)
+    done
+}
+
+# _pu_sidecars <root>: list the dated copies the merge and the installer left beside the config files -- a .bak is
+# what a file held before a merge replaced it, a .shipped the baseline left when one could not run -- so an operator
+# learns they exist. Listed, never removed: a .bak is the only copy that restores host tuning a merge got wrong. One
+# dated before this command's own file is from an earlier installation, which is said beside it.
+_pu_sidecars() {
+    local root="$1" dir path stamp installed
+    local -a copies=()
+    installed="$(_pu_installed_day)" || installed=""
+    for dir in "${POSTUPGRADE_DIRS[@]}" /etc/sudoers.d; do
+        [[ -d "${root}${dir}" ]] || continue
+        while IFS= read -r path; do copies+=("${path}"); done < <(find "${root}${dir}" -maxdepth 3 -type f \
+            \( -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.bak' \
+               -o -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.shipped' \) 2>/dev/null | sort)
+    done
+    (( ${#copies[@]} > 0 )) || return 0
+    ai_tools_msg_headline "earlier copies kept beside the config files" 1 \
+        "a .bak is what a file held before a merge replaced it, a .shipped the baseline left when a merge could not run"
+    for path in "${copies[@]}"; do
+        stamp="$(sed -nE 's/.*\.([0-9]{8})(-[0-9]+)?\.(bak|shipped)$/\1/p' <<< "${path}")"
+        if [[ -n "${installed}" && -n "${stamp}" && "${stamp}" < "${installed}" ]]; then
+            log "  ${path}  (before this installation)"
+        else
+            log "  ${path}"
+        fi
+    done
+    log "  each is yours to keep or remove -- none is read by any command"
+}
+
+postupgrade() {
+    [[ $# -eq 0 ]] || reject MSG-S9M6 "system post-upgrade: takes no arguments"
+    local file kind label found=0
+    local root="${AI_TOOLS_POSTUPGRADE_ROOT:-}"
+
+    while IFS='|' read -r file kind label; do
         found=1
-        ai_tools_msg_headline "${label}: ${file}" 1
+        ai_tools_msg_headline "${label}: ${file}" 1 "$(_pu_provenance "${file}.rpmnew")"
         case "${kind}" in
             json)   _pu_json   "${file}" "${file}.rpmnew" ;;
             keyval) _pu_keyval "${file}" "${file}.rpmnew" ;;
             review) _pu_review "${file}" "${file}.rpmnew" ;;
+            show)   _pu_show   "${file}" "${file}.rpmnew" ;;
         esac
-    done
+    done < <(_pu_entries "${root}")
 
+    _pu_sidecars "${root}"
     if (( found == 0 )); then
         log "no .rpmnew files are waiting -- every config file this stack owns is reconciled"
         return 0

@@ -289,8 +289,9 @@ outright and its hook declarations are current with no operator step.
 No rpm directive resolves the split on its own, because rpm has no vocabulary for merging one subtree of a file: plain
 `%config` would install the shipped file and move the host's aside to `.rpmsave`, reverting the permission rules
 the file was kept for, while `%config(noreplace)` alone leaves a newly shipped hook declared nowhere. The merge
-therefore runs on request — **`sudo ai-tools-admin system post-upgrade`**, through the same `conf.lib.sh` entry point —
-and the agent package's `%post` prints that pointer whenever a `.rpmnew` is present. No scriptlet edits a config file.
+therefore runs on request — **`sudo ai-tools-admin system post-upgrade`**, through the same `settings-merge.lib.sh`
+entry point — and the agent package's `%post` prints that pointer whenever a `.rpmnew` is present. No scriptlet edits
+a config file.
 
 The command runs the merge on a throwaway copy first, so the list it shows is the exact set of declarations the real
 merge adds rather than a promise of one. It then confirms, writes the dated `.bak`, and names that backup. **The
