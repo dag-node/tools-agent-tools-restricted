@@ -370,10 +370,10 @@ install -d -m 0755 %{buildroot}%{ai_libdir}/session-env.d
 # provider package ships the domain named for itself.
 install -d -m 0755 %{buildroot}%{ai_libdir}/admin-commands.d
 # Token-saving command-filter rule sets, keyed by name the same way: filters.d/<name>.rules. Base
-# owns the directory and ships core.rules, the set every host gets; a package with commands of its
+# owns the directory and ships base.rules, the set every host gets; a package with commands of its
 # own ships one beside it. An agent's filter hook reads them through filters.lib.sh.
 install -d -m 0755 %{buildroot}%{ai_libdir}/filters.d
-install -m 0644 src%{ai_libdir}/filters.d/core.rules %{buildroot}%{ai_libdir}/filters.d/core.rules
+install -m 0644 src%{ai_libdir}/filters.d/base.rules %{buildroot}%{ai_libdir}/filters.d/base.rules
 # Pinned vendor release-signing keys, keyed by agent: keys/<agent>.asc. Base owns the directory
 # and ships none -- the key that signs an agent's releases belongs to that agent's package, the
 # same split as agents.d. entrypoint-verify.lib.sh verifies a release manifest against the key its
@@ -517,7 +517,7 @@ install -m 0644 src%{_unitdir}/ai-tools-relabel.service %{buildroot}%{_unitdir}/
 install -m 0644 src%{ai_libdir}/session-env.d/dotnet.env.sh %{buildroot}%{ai_libdir}/session-env.d/dotnet.env.sh
 install -m 0644 src%{ai_libdir}/integrations.d/dotnet.conf  %{buildroot}%{ai_libdir}/integrations.d/dotnet.conf
 # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET
-# package rather than in the base's core.rules.
+# package rather than in the base's base.rules.
 install -m 0644 src%{ai_libdir}/filters.d/dotnet.rules      %{buildroot}%{ai_libdir}/filters.d/dotnet.rules
 install -m 0750 src%{ai_libdir}/admin-commands.d/dotnet.sh  %{buildroot}%{ai_libdir}/admin-commands.d/dotnet
 # Ghost this helper's operation log alongside the base helpers' (the /var/log/ai-tools dir itself
@@ -1261,7 +1261,7 @@ fi
 %dir %attr(0755, root, root) %{ai_libdir}/session-env.d
 %dir %attr(0755, root, root) %{ai_libdir}/admin-commands.d
 %dir %attr(0755, root, root) %{ai_libdir}/filters.d
-%attr(0644, root, root) %{ai_libdir}/filters.d/core.rules
+%attr(0644, root, root) %{ai_libdir}/filters.d/base.rules
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/ai-tools-run
 %attr(0644, root, root) %{ai_libdir}/path-order.sh
 %{_unitdir}/ai-tools-handback.socket

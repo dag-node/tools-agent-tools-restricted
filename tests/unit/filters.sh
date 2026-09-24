@@ -111,7 +111,7 @@ applies "an action this engine does not implement is refused" \
 mktestdir
 filters_dir="${TESTDIR}/filters.d"; mkdir -p "${filters_dir}"
 export AI_TOOLS_FILTERS_DIR="${filters_dir}"
-printf 'git log\targs\t--stat\t--date=short\ngit status\targs\t-s\t--short\n' > "${filters_dir}/core.rules"
+printf 'git log\targs\t--stat\t--date=short\ngit status\targs\t-s\t--short\n' > "${filters_dir}/base.rules"
 printf '# a comment line\n\ndotnet build\targs\t-v\t--nologo -v q\n' > "${filters_dir}/dotnet.rules"
 chown root:root "${filters_dir}"/*.rules; chmod 644 "${filters_dir}"/*.rules
 
@@ -137,24 +137,24 @@ if [[ "${#_AI_TOOLS_FILTER_RULES[@]}" -eq 3 ]]; then
 else
     fail "loader read ${#_AI_TOOLS_FILTER_RULES[@]} rules, expected 3"
 fi
-rewrites "core rule applies"                'git log --date=short'          'git log'
+rewrites "base rule applies"                'git log --date=short'          'git log'
 rewrites "a provider's rule applies"        'dotnet build --nologo -v q'    'dotnet build'
 rewrites "an unmatched command passes through" PASSTHROUGH                  'cargo build'
 rewrites "a pipeline passes through"        PASSTHROUGH                     'git log | head'
 
-# Longest match wins, and a provider set loaded after core overrides a core rule outright.
+# Longest match wins, and a provider set loaded after base overrides a base rule outright.
 printf 'git\targs\t-\t--no-pager\ngit status\twrap\t-\trtk\n' > "${filters_dir}/zz-later.rules"
 chown root:root "${filters_dir}/zz-later.rules"; chmod 644 "${filters_dir}/zz-later.rules"
 ai_tools_filter_rules_load
 rewrites "longest match wins over a shorter one" 'git log --date=short'     'git log'
-rewrites "a later set overrides a core rule"     'rtk git status'           'git status'
+rewrites "a later set overrides a base rule"     'rtk git status'           'git status'
 rm -f "${filters_dir}/zz-later.rules"
 
 # --- AI_TOOLS_FILTERS: the operator's switch ---------------------------------------------------
 mk_operator     # writes TESTDIR/operator.conf and points the hook at it
 set_filters() { printf 'AI_TOOLS_FILTERS=%s\n' "$1" >> "${AI_TOOLS_OPERATOR_CONF}"; }
 
-set_filters '"filter-core"'
+set_filters '"filter-base"'
 ai_tools_filter_rules_load
 rewrites "a named set applies"                    'git log --date=short'    'git log'
 rewrites "a set left out of the list does not"    PASSTHROUGH               'dotnet build'
@@ -168,7 +168,7 @@ else
 fi
 rewrites "kill switch leaves every command alone" PASSTHROUGH               'git log'
 
-mk_operator; set_filters '"filter-core filter-nonexistent"'
+mk_operator; set_filters '"filter-base filter-nonexistent"'
 ai_tools_filter_rules_load
 rewrites "a named set with no installed file is skipped, not guessed" 'git log --date=short' 'git log'
 
@@ -185,15 +185,15 @@ export AI_TOOLS_OPERATOR_CONF="${TESTDIR}/absent.conf"
 enabled_is "enabled when operator.conf is absent"          0
 mk_operator
 enabled_is "enabled when AI_TOOLS_FILTERS is absent"       0
-set_filters '"filter-core"'
+set_filters '"filter-base"'
 enabled_is "enabled when sets are named"                   0
 # Every spelling of a present, empty list is the one kill switch; a named set, bracketed or not, keeps filtering on.
 for value in '' '""' '[]' '[ , ]'; do
     mk_operator; set_filters "${value}"
     enabled_is "AI_TOOLS_FILTERS=${value} reports disabled"   1
 done
-mk_operator; set_filters '[filter-core, filter-dotnet]'
-enabled_is "AI_TOOLS_FILTERS=[filter-core, filter-dotnet] reports enabled" 0
+mk_operator; set_filters '[filter-base, filter-dotnet]'
+enabled_is "AI_TOOLS_FILTERS=[filter-base, filter-dotnet] reports enabled" 0
 # A name without its filter- prefix, the spelling an earlier release wrote, makes the list invalid: it reads as empty,
 # the kill switch, and the reader's report is not printed, since the hook runs on every Bash call.
 mk_operator; set_filters '[core, dotnet]'
@@ -224,9 +224,9 @@ untrusted() {
     chmod "${restore_mode}" "${path}"; chown "${restore_owner}" "${path}"
 }
 untrusted "a group-writable rules file is refused" \
-    "${filters_dir}/core.rules" 664 root:root 644 root:root
+    "${filters_dir}/base.rules" 664 root:root 644 root:root
 untrusted "a non-root-owned rules file is refused" \
-    "${filters_dir}/core.rules" 644 "${PROJECTS_USER}:${PROJECTS_USER}" 644 root:root
+    "${filters_dir}/base.rules" 644 "${PROJECTS_USER}:${PROJECTS_USER}" 644 root:root
 untrusted "a group-writable filters.d is refused whole" \
     "${filters_dir}" 775 root:root 755 root:root
 untrusted "a non-root-owned filters.d is refused whole" \
@@ -234,12 +234,12 @@ untrusted "a non-root-owned filters.d is refused whole" \
 
 # A symlinked rules file is refused rather than followed: a link planted in a writable directory would otherwise
 # redirect the read at a file its planter chose.
-mv "${filters_dir}/core.rules" "${TESTDIR}/real.rules"
-ln -s "${TESTDIR}/real.rules" "${filters_dir}/core.rules"
+mv "${filters_dir}/base.rules" "${TESTDIR}/real.rules"
+ln -s "${TESTDIR}/real.rules" "${filters_dir}/base.rules"
 ai_tools_filter_rules_load
 rc=0; ai_tools_filter_rewrite 'git log' >/dev/null || rc=$?
 if [[ "${rc}" -ne 0 ]]; then pass "a symlinked rules file is refused, not followed"; else fail "followed a symlinked rules file"; fi
-rm -f "${filters_dir}/core.rules"; mv "${TESTDIR}/real.rules" "${filters_dir}/core.rules"
+rm -f "${filters_dir}/base.rules"; mv "${TESTDIR}/real.rules" "${filters_dir}/base.rules"
 
 # An untrusted operator.conf falls back to the installed sets -- the baseline, which can only ever be root-owned rules
 # -- rather than honouring a switch the sandbox could have written.

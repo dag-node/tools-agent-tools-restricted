@@ -39,8 +39,8 @@
 # verbatim.
 #
 # ── Which rule wins ──────────────────────────────────────────────────────────────────────────
-# The applying rule with the most matched words, and on a tie the one loaded last. The base's own set (core.rules) loads
-# first, so a provider's set can deliberately override a core rule -- how a wrapper like rtk takes over `git log`
+# The applying rule with the most matched words, and on a tie the one loaded last. The base's own set (base.rules) loads
+# first, so a provider's set can deliberately override a base rule -- how a wrapper like rtk takes over `git log`
 # from the native rule.
 #
 # ── Enablement ───────────────────────────────────────────────────────────────────────────────
@@ -174,12 +174,12 @@ _ai_tools_filter_load_file() {
 _ai_tools_filter_installed_sets() {
     local -n _ai_tools_filter_sets_out="$1"
     _ai_tools_filter_sets_out=()
-    [[ -e "${AI_TOOLS_FILTERS_DIR}/core.rules" ]] && _ai_tools_filter_sets_out=(core)
+    [[ -e "${AI_TOOLS_FILTERS_DIR}/base.rules" ]] && _ai_tools_filter_sets_out=(base)
     local rules_file set_name
     for rules_file in "${AI_TOOLS_FILTERS_DIR}"/*.rules; do
         [[ -e "${rules_file}" ]] || continue
         set_name="${rules_file##*/}"; set_name="${set_name%.rules}"
-        [[ "${set_name}" == core ]] || _ai_tools_filter_sets_out+=("${set_name}")
+        [[ "${set_name}" == base ]] || _ai_tools_filter_sets_out+=("${set_name}")
     done
     return 0
 }
@@ -245,7 +245,7 @@ ai_tools_filter_rewrite() {
     for record in "${_AI_TOOLS_FILTER_RULES[@]}"; do
         IFS=$'\t' read -r match action blocking payload <<< "${record}"
         read -ra match_words <<< "${match}"
-        # Longest match wins; `>=` hands a tie to the later rule, which is how a provider set overrides the core set it
+        # Longest match wins; `>=` hands a tie to the later rule, which is how a provider set overrides the base set it
         # loads after.
         (( ${#match_words[@]} >= best_length )) || continue
         ai_tools_filter_apply_rule "${command}" "${match}" "${action}" "${blocking}" "${payload}" \

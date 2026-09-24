@@ -883,7 +883,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/ancestor-config.lib.sh
     _chk /usr/local/lib/ai-tools/toolchain.lib.sh
     _chk /usr/local/lib/ai-tools/filters.lib.sh
-    _chk /usr/local/lib/ai-tools/filters.d/core.rules
+    _chk /usr/local/lib/ai-tools/filters.d/base.rules
     _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
     _chk /usr/local/lib/ai-tools/services.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
@@ -1310,11 +1310,18 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.lib.sh" \
         /usr/local/lib/ai-tools/filters.lib.sh
-    log "/usr/local/lib/ai-tools/filters.d/core.rules"
+    log "/usr/local/lib/ai-tools/filters.d/base.rules"
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/filters.d
     install -o root -g root -m 644 \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/core.rules" \
-        /usr/local/lib/ai-tools/filters.d/core.rules
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/base.rules" \
+        /usr/local/lib/ai-tools/filters.d/base.rules
+    # A from-source install of an earlier release placed the base's set as core.rules, which this run does not
+    # overwrite; every installed set loads while AI_TOOLS_FILTERS is absent, so the superseded file is removed. (The RPM
+    # drops it on upgrade from its own %files.)
+    if [[ -f /usr/local/lib/ai-tools/filters.d/core.rules ]]; then
+        log "removing superseded /usr/local/lib/ai-tools/filters.d/core.rules"
+        rm -f /usr/local/lib/ai-tools/filters.d/core.rules
+    fi
 
     # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by ai-tools-admin (to load
     # a staged group) and selinux/install-selinux.sh (to compile one) so the two never disagree on the group set.
@@ -1398,7 +1405,7 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/dotnet.conf" \
         /usr/local/lib/ai-tools/integrations.d/dotnet.conf
     # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET layer rather than
-    # in the base's core.rules.
+    # in the base's base.rules.
     log "/usr/local/lib/ai-tools/filters.d/dotnet.rules"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/dotnet.rules" \

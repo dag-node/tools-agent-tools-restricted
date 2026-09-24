@@ -30,7 +30,7 @@ the "pure output path" case).
 | layer | path | shipped by |
 |---|---|---|
 | engine — pure rewrite and noise-strip logic | `/usr/local/lib/ai-tools/filters.lib.sh` | `ai-tools-base` |
-| rules — data, parsed never sourced | `/usr/local/lib/ai-tools/filters.d/<name>.rules` | base ships `core.rules`; a package with commands of its own ships its set |
+| rules — data, parsed never sourced | `/usr/local/lib/ai-tools/filters.d/<name>.rules` | base ships `base.rules`; a package with commands of its own ships its set |
 | adapter — one agent's hook JSON | `<agent config>/filter-hook.sh` | that agent's package |
 
 Only the adapter is agent-specific: hook event names and their JSON shapes belong to the agent product, while
@@ -72,8 +72,8 @@ words into a command the engine has not fully parsed could change what runs.
 
 ### Which rule wins
 
-The applying rule with the most matched words, and on a tie the one loaded **last**. `core.rules` loads first,
-so a provider's set overrides a core rule by matching the same words — the seam a wrapper-style tool uses to take
+The applying rule with the most matched words, and on a tie the one loaded **last**. `base.rules` loads first,
+so a provider's set overrides a base rule by matching the same words — the seam a wrapper-style tool uses to take
 a command over from the native rule.
 
 ## The two hook events
@@ -137,7 +137,7 @@ and `tests/boundary/filters.sh` probes the same files **as the agent** and asser
 
 ## The shipped rule sets
 
-`core.rules` (base) covers three commands. `git diff`, `git show`, `git blame`, `find` and `grep` are absent: every
+`base.rules` (base) covers three commands. `git diff`, `git show`, `git blame`, `find` and `grep` are absent: every
 terse mode they have discards content the agent asked for by running them.
 
 | command | payload | what it removes |
