@@ -50,6 +50,7 @@ merge_report() {
     ai_tools_conf_merge_hook_declarations "$1" "$2" || status=$?
     case "${status}" in
     0)  printf 'added: %s\n' "${_ai_tools_conf_merge_added[@]}"
+        printf 'removed: %s\n' "${_ai_tools_conf_merge_removed[@]}"
         [[ -n "${_ai_tools_conf_merge_backup}" ]] \
             && printf 'backup: %s\n' "${_ai_tools_conf_merge_backup}" ;;
     2)  printf 'refused: %s\n' "${_ai_tools_conf_merge_reason}"
@@ -144,6 +145,58 @@ if [[ "$(md5sum < "${current}")" == "${before}" && -z "${quiet}" ]]; then
     pass "an already-current file is left alone and says nothing"
 else
     fail "an already-current file was touched or reported: ${quiet}"
+fi
+
+# --- Each shipped command is declared once ------------------------------------------------------
+# Claude Code runs every declaration, so a repeat runs its hook twice per call. The shape that produced one: a file whose
+# Bash group held the filter alone, merged against a version shipping the filter and the tool-call record in one group.
+# An earlier merge appended that group whole, so the filter arrived a second time; this merge appends only what is
+# absent, and repairs a file an earlier merge already left with the repeat.
+readonly FILTER_POST="/opt/ai-tools/.claude/filter-hook.sh post-tool-use"
+readonly RECORD="/opt/ai-tools/.claude/post-tool-hook.sh record"
+times_declared() { jq --arg e "$2" --arg c "$3" '[.hooks[$e][]?.hooks[]?.command | select(. == $c)] | length' "$1"; }
+mk_filter_only() {
+    jq --arg f "${FILTER_POST}" '.hooks.PostToolUse = [ (.hooks.PostToolUse[] | select(.matcher == "Write|Edit")),
+          {matcher:"Bash", hooks:[{type:"command", command:$f}]} ]' "${SHIPPED}" > "$1"
+}
+
+filter_only="${TESTDIR}/filter-only.json"; mk_filter_only "${filter_only}"
+report="$(merge_report "${filter_only}" "${SHIPPED}")"
+if [[ "$(times_declared "${filter_only}" PostToolUse "${FILTER_POST}")" == 1 \
+      && "$(times_declared "${filter_only}" PostToolUse "${RECORD}")" == 1 ]]; then
+    pass "a group partly declared gains only its absent command, and the declared one is not repeated"
+else
+    fail "merging a partly declared group left filter x$(times_declared "${filter_only}" PostToolUse "${FILTER_POST}"), record x$(times_declared "${filter_only}" PostToolUse "${RECORD}")"
+fi
+
+repeated="${TESTDIR}/repeated.json"; mk_filter_only "${repeated}"
+jq '.hooks.PostToolUse += [ ($shipped[0].hooks.PostToolUse[] | select(.matcher == "Bash")) ]
+    | .hooks.PostToolUse += [{matcher:"Bash", hooks:[{type:"command", command:"/usr/local/bin/site-audit.sh"},
+                                                   {type:"command", command:"/usr/local/bin/site-audit.sh"}]}]' \
+    --slurpfile shipped "${SHIPPED}" "${repeated}" > "${repeated}.t" && mv "${repeated}.t" "${repeated}"
+report="$(merge_report "${repeated}" "${SHIPPED}")"
+if [[ "$(times_declared "${repeated}" PostToolUse "${FILTER_POST}")" == 1 \
+      && "$(times_declared "${repeated}" PostToolUse "${RECORD}")" == 1 ]]; then
+    pass "a file an earlier merge left with a repeated shipped command is repaired to one declaration"
+else
+    fail "the repeated shipped command survived: filter x$(times_declared "${repeated}" PostToolUse "${FILTER_POST}")"
+fi
+if grep -qxF "removed: PostToolUse: ${FILTER_POST}" <<< "${report}"; then
+    pass "the report names the repeat it removed"
+else
+    fail "the repair was not reported: ${report}"
+fi
+if [[ "$(times_declared "${repeated}" PostToolUse /usr/local/bin/site-audit.sh)" == 2 ]]; then
+    pass "an operator's own repeated hook is left as written"
+else
+    fail "the merge removed a repeat of a hook it does not ship"
+fi
+before="$(md5sum < "${repeated}")"
+quiet="$(merge_report "${repeated}" "${SHIPPED}" 2>&1)"
+if [[ "$(md5sum < "${repeated}")" == "${before}" && -z "${quiet}" ]]; then
+    pass "a repaired file is current: a second run leaves it alone"
+else
+    fail "a second run touched the repaired file: ${quiet}"
 fi
 
 # --- Sidecars: two files, two different recoveries --------------------------------------------

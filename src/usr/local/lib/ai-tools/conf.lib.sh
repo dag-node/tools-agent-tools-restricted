@@ -315,9 +315,11 @@ ai_tools_conf_require_jq() {
 # never runs.
 #
 # The merge adds only declarations the file lacks and leaves every other key -- the permission arrays it was kept
-# for, an operator's own hook -- as written. Reporting is the caller's: this sets what happened and returns how it went,
-# so the same decision can be rendered by an installer, a test, or a future agent's tooling without the wording living
-# here.
+# for, an operator's own hook -- as written. It also removes a SHIPPED command declared more than once under the same
+# event and matcher, keeping the first: Claude Code runs every declaration, so a duplicate runs that hook twice per
+# call, and earlier releases of this merge appended a shipped group whole and so duplicated any of its commands the file
+# already declared. Reporting is the caller's: this sets what happened and returns how it went, so the same decision can
+# be rendered by an installer, a test, or a future agent's tooling without the wording living here.
 
 # The shipped hook commands a deployed file does not declare, as "<event>: <command>". The command binds to $command
 # before the membership test: inside index(), `.` is that function's own input -- the $have array -- so an unbound form
@@ -331,36 +333,74 @@ readonly _AI_TOOLS_CONF_HOOKS_MISSING_FILTER='
     | select(($have | index($command)) == null)
     | "\($event.key): \($command)"'
 
-# Append whole matcher groups whose commands are absent, so a group arrives with its matcher intact; a group already
-# fully declared is left alone.
-# shellcheck disable=SC2016  # jq variables, as in the merge program
-readonly _AI_TOOLS_CONF_HOOKS_MERGE_FILTER='
+# dedupe_event($cmds): one event's matcher groups with every repeat of a command in $cmds under the same matcher
+# dropped, the first occurrence in file order kept, and a group the drop empties removed; {groups, removed} with the
+# dropped commands in `removed`. A command outside $cmds -- an operator's own hook -- is never dropped. Defined once and
+# shared by the report and the merge, so what is reported is what is removed.
+# shellcheck disable=SC2016  # jq variables, bound by jq's own `as`
+readonly _AI_TOOLS_CONF_HOOKS_DEDUPE_DEF='
+    def dedupe_event($cmds):
+        reduce (.[]) as $group ({seen: {}, groups: [], removed: []};
+            (($group.matcher // "") | tostring) as $matcher
+            | if ($group | has("hooks") | not) then .groups += [$group]
+              else
+                (reduce ($group.hooks[]) as $hook ({seen: .seen, keep: [], removed: .removed};
+                    ($hook.command // null) as $command
+                    | ($matcher + "\u0000" + ($command | tostring)) as $key
+                    | if $command != null and ($cmds | any(. == $command)) and (.seen[$key] // false)
+                      then .removed += [$command]
+                      else .keep += [$hook] | .seen[$key] = true
+                      end)) as $walk
+                | .seen = $walk.seen | .removed = $walk.removed
+                | if ($walk.keep | length) == 0 and ($group.hooks | length) > 0 then .
+                  else .groups += [$group + {hooks: $walk.keep}] end
+              end);'
+
+# The shipped hook commands a deployed file declares more than once under one event and matcher, as "<event>: <command>"
+# per repeat the merge removes.
+# shellcheck disable=SC2016  # jq variables, bound by `--slurpfile` and jq's own `as`
+readonly _AI_TOOLS_CONF_HOOKS_DUPLICATE_FILTER="${_AI_TOOLS_CONF_HOOKS_DEDUPE_DEF}"'
+    . as $cur
+    | ($shipped[0].hooks // {}) | to_entries[] as $event
+    | [ $event.value[] | (.hooks // [])[] | .command ] as $cmds
+    | ((($cur.hooks // {})[$event.key] // []) | dedupe_event($cmds)).removed[]
+    | "\($event.key): \(.)"'
+
+# Append, under each shipped group's matcher, only that group's commands the event does not declare, so a command
+# already declared elsewhere in the event is not declared again; then drop the repeats dedupe_event finds.
+# shellcheck disable=SC2016  # jq variables, as in the report programs
+readonly _AI_TOOLS_CONF_HOOKS_MERGE_FILTER="${_AI_TOOLS_CONF_HOOKS_DEDUPE_DEF}"'
     ($shipped[0].hooks // {}) as $ship
     | reduce ($ship | to_entries[]) as $event (
         .;
-        ([ ((.hooks // {})[$event.key] // [])[] | (.hooks // [])[] | .command ]) as $have
-        | reduce ($event.value[]) as $group (
+        reduce ($event.value[]) as $group (
             .;
-            if ((([ ($group.hooks // [])[] | .command ]) - $have) | length) == 0
-            then .
-            else .hooks[$event.key] = ((.hooks[$event.key] // []) + [$group])
-            end
+            ([ ((.hooks // {})[$event.key] // [])[] | (.hooks // [])[] | .command ]) as $have
+            | [ ($group.hooks // [])[] | select(.command as $command | ($have | any(. == $command)) | not) ] as $absent
+            | if ($absent | length) == 0 then .
+              else .hooks[$event.key] = ((.hooks[$event.key] // []) + [$group + {hooks: $absent}])
+              end
           )
+        | [ $event.value[] | (.hooks // [])[] | .command ] as $cmds
+        | if (.hooks // {})[$event.key] == null then .
+          else .hooks[$event.key] = (.hooks[$event.key] | dedupe_event($cmds)).groups end
       )'
 
 # ai_tools_conf_merge_hook_declarations <deployed> <shipped> : merge the shipped hook
 #   declarations into <deployed>.
 #     returns 0  merged      _ai_tools_conf_merge_added holds "<event>: <command>" per addition,
+#                            _ai_tools_conf_merge_removed the same per duplicate removed,
 #                            _ai_tools_conf_merge_backup the copy of what the operator had
-#     returns 1  no change   the file already declares everything shipped; no write happens
+#     returns 1  no change   the file declares everything shipped, each once; no write happens
 #     returns 2  refused     the file is byte-identical and _ai_tools_conf_merge_reference holds
 #                            the baseline dropped for a hand merge (empty if even that failed);
 #                            _ai_tools_conf_merge_reason says which check refused
 #   The deployed file is never opened for writing: the merge is built in a temporary file and
 #   validated as JSON before an atomic rename, so a failure at any point leaves the original.
 ai_tools_conf_merge_hook_declarations() {
-    local deployed="$1" shipped="$2" missing="" tmp=""
+    local deployed="$1" shipped="$2" missing="" duplicates="" tmp=""
     _ai_tools_conf_merge_added=()
+    _ai_tools_conf_merge_removed=()
     _ai_tools_conf_merge_backup=""
     _ai_tools_conf_merge_reference=""
     _ai_tools_conf_merge_reason=""
@@ -378,7 +418,10 @@ ai_tools_conf_merge_hook_declarations() {
     missing="$(jq -r --slurpfile shipped "${shipped}" \
         "${_AI_TOOLS_CONF_HOOKS_MISSING_FILTER}" "${deployed}" 2>/dev/null)" \
         || { _refuse "the deployed file's hook declarations could not be read"; return 2; }
-    [[ -n "${missing}" ]] || return 1
+    duplicates="$(jq -r --slurpfile shipped "${shipped}" \
+        "${_AI_TOOLS_CONF_HOOKS_DUPLICATE_FILTER}" "${deployed}" 2>/dev/null)" \
+        || { _refuse "the deployed file's hook declarations could not be read"; return 2; }
+    [[ -n "${missing}" || -n "${duplicates}" ]] || return 1
 
     tmp="$(mktemp "${deployed}.XXXXXX" 2>/dev/null)" || { _refuse "no temporary file could be created"; return 2; }
     if ! jq --slurpfile shipped "${shipped}" \
@@ -399,6 +442,9 @@ ai_tools_conf_merge_hook_declarations() {
     while IFS= read -r line; do
         [[ -n "${line}" ]] && _ai_tools_conf_merge_added+=("${line}")
     done <<< "${missing}"
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && _ai_tools_conf_merge_removed+=("${line}")
+    done <<< "${duplicates}"
     return 0
 }
 

@@ -387,10 +387,13 @@ reconcile_hook_declarations() {
     # An affirmative outcome, not a warning: the merge is the intended path, and a warning that reports success trains
     # an operator to skim past the ones that matter. It is still not routine -- an operator-owned control-plane file
     # changed -- so every addition is named.
-    ok "${deployed}: merged in the hook declarations this version ships"
+    ok "${deployed}: reconciled the hook declarations with the ones this version ships"
     local line
     for line in "${_ai_tools_conf_merge_added[@]}"; do
         log "  + ${line}"
+    done
+    for line in "${_ai_tools_conf_merge_removed[@]}"; do
+        log "  - ${line} (a repeat of an earlier declaration)"
     done
     [[ -n "${_ai_tools_conf_merge_backup}" ]] && log "  previous file saved as ${_ai_tools_conf_merge_backup}"
     return 0

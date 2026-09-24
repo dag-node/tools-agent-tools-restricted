@@ -147,7 +147,7 @@ are pinned strictly rather than reported, because the paths that preserve a host
 and `%config(noreplace)` on upgrade — are also the paths by which a `settings.json` predating them, or edited
 in the permission arrays it invites tuning of, silently loses the gate.
 
-## The tool-call record is declared as its own matcher group
+## The tool-call record is declared under its own matcher
 
 `post-tool-hook.sh` appears twice under `PostToolUse`: argument-less on `Write|Edit` (record then hand back)
 and as `post-tool-hook.sh record` on `Bash` (record only). One widened `Write|Edit|Bash` matcher would express the same
@@ -248,8 +248,12 @@ An install **keeps** an existing `settings.json` by default (`install.sh`'s `kee
 always keeps), because the file carries host tuning a reset would revert — a deny entry relaxed alongside an enabled
 SELinux group, an added `env` key. Kept files then have this version's **hook declarations** merged
 in (`ai_tools_conf_merge_hook_declarations`, in `conf.lib.sh`): each shipped declaration the file does not carry is
-added, every other key — the permission arrays it was kept for, an operator's own hook — is left as written, and each
-addition is named in the install log.
+added under its shipped matcher, every other key — the permission arrays it was kept for, an operator's own hook — is
+left as written, and each addition is named in the install log. A shipped command the file declares more than once
+under one event and matcher is reduced to its first declaration, since Claude Code runs every declaration and a repeat
+runs that hook twice per call; that repairs the repeat an earlier merge left by appending a shipped group whole
+over a file already declaring one of its commands, and each removal is named beside the additions. A repeat of an
+operator's own hook is left as written.
 
 The split follows that layering: hook declarations are control plane that merges additively and that no lower-precedence
 layer may remove, while the permission rules are the host's to tune. The merge is what carries a newly shipped hook
@@ -257,7 +261,8 @@ onto an existing host: its body and data arrive with the package, and this is th
 so the hook runs rather than sitting installed and uninvoked.
 
 Each outcome is reported at the severity it earns, so neither is lost in an install's output: a merge reports at `ok`
-and **names every declaration it added**, which is what makes an edit to an operator-owned file reviewable. A file
+and **names every declaration it added or removed**, which is what makes an edit to an operator-owned file
+reviewable. A file
 already declaring everything shipped is not rewritten.
 
 Two sidecar files serve two different recoveries, and neither substitutes for the other:

@@ -1300,9 +1300,15 @@ _pu_json() {
         return 0 ;;
     esac
 
-    log "  hook declarations this version adds:"
     local line
-    for line in "${_ai_tools_conf_merge_added[@]}"; do log "    + ${line}"; done
+    if (( ${#_ai_tools_conf_merge_added[@]} > 0 )); then
+        log "  hook declarations this version adds:"
+        for line in "${_ai_tools_conf_merge_added[@]}"; do log "    + ${line}"; done
+    fi
+    if (( ${#_ai_tools_conf_merge_removed[@]} > 0 )); then
+        log "  hook declarations declared twice, of which the merge keeps the first:"
+        for line in "${_ai_tools_conf_merge_removed[@]}"; do log "    - ${line}"; done
+    fi
     log "  nothing else changes -- your permission rules stay as written"
     ai_tools_msg_confirm "  Merge these into ${deployed}?" y || { log "  skipped -- ${deployed} unchanged"; return 0; }
 
