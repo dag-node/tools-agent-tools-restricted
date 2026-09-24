@@ -2373,6 +2373,11 @@ do_install() {
             warn "until it is; for a full pass run sudo ai-tools-admin system bootstrap first, then re-test"
             warn "with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
+        if [[ -n "${unmigrated}" ]]; then
+            warn MSG-N7S2 "operator.conf names providers without their kind prefix -- every launch refuses and the"
+            warn "wrapper, launch and symlink checks fail until it is rewritten; run sudo ai-tools-admin system"
+            warn "post-upgrade first, then re-test with: sudo ${SCRIPT_DIR}/tests/run.sh all"
+        fi
         # The section header prints only when the suite runs, so a skip avoids an empty "Verify" heading
         # in the transcript.
         if confirm_boxed "Run test suite" y "Run it now?" \
