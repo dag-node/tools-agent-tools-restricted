@@ -97,6 +97,7 @@ readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+readonly SETTINGS_MERGE_LIB="/usr/local/lib/ai-tools/settings-merge.lib.sh"
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 readonly PATH_ORDER_LIB="/usr/local/lib/ai-tools/path-order.lib.sh"
 # Where a provider package drops the command fragment carrying its own domain. The environment override is a test hook
@@ -483,13 +484,16 @@ contributed_dispatch() {
     exec "${ADMIN_COMMANDS_DIR}/${domain}" "$@"
 }
 
-# The shared config grammar, sidecar handling, and hook-declaration merge that `system post-upgrade` drives,
-# and the trust predicate every contributed command is vetted with. Required, not optional: a reconcile that silently
-# skipped its merge would leave a shipped hook uninvoked while reporting success, and a dispatch that could not tell
-# a trusted fragment from a planted one would exec whatever it found. Loaded BEFORE the other libraries, unlike them,
-# because `--help` lists this host's contributed domains and that list is drawn through this predicate.
+# The shared config grammar and sidecar handling that `system post-upgrade` drives, and the trust predicate every
+# contributed command is vetted with. Required, not optional: a reconcile that silently skipped its merge would leave
+# a shipped hook uninvoked while reporting success, and a dispatch that could not tell a trusted fragment from a planted
+# one would exec whatever it found. Loaded BEFORE the other libraries, unlike them, because `--help` lists this host's
+# contributed domains and that list is drawn through this predicate.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 . "${CONF_LIB}" || die_unsourced "${CONF_LIB}"
+# The hook-declaration merge `system post-upgrade` applies to a kept settings.json. Required for the same reason.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/settings-merge.lib.sh
+. "${SETTINGS_MERGE_LIB}" || die_unsourced "${SETTINGS_MERGE_LIB}"
 
 # Provider resolver: the manifest key behind each domain's summary line, and the enabled-integration list
 # `system bootstrap --scope full` iterates. Optional at load and gated at each use -- without it every installed

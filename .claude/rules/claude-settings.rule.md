@@ -2,6 +2,7 @@
 paths:
   - "src/opt/ai-tools/agents/*/settings.json"
   - "src/etc/claude-code/managed-settings.json"
+  - "src/usr/local/lib/ai-tools/settings-merge.lib.sh"
 ---
 
 # Claude Code settings (`settings.json`)
@@ -247,13 +248,13 @@ and that layer lives in the agent-writable project tree. The layers compose diff
 An install **keeps** an existing `settings.json` by default (`install.sh`'s `keep_existing` prompt; an unattended run
 always keeps), because the file carries host tuning a reset would revert — a deny entry relaxed alongside an enabled
 SELinux group, an added `env` key. Kept files then have this version's **hook declarations** merged
-in (`ai_tools_conf_merge_hook_declarations`, in `conf.lib.sh`): each shipped declaration the file does not carry is
-added under its shipped matcher, every other key — the permission arrays it was kept for, an operator's own hook — is
-left as written, and each addition is named in the install log. A shipped command the file declares more than once
-under one event and matcher is reduced to its first declaration, since Claude Code runs every declaration and a repeat
-runs that hook twice per call; that repairs the repeat an earlier merge left by appending a shipped group whole
-over a file already declaring one of its commands, and each removal is named beside the additions. A repeat of an
-operator's own hook is left as written.
+in (`ai_tools_conf_merge_hook_declarations`, in `settings-merge.lib.sh`): each shipped declaration the file does not
+carry is added under its shipped matcher, every other key — the permission arrays it was kept for, an operator's own
+hook — is left as written, and each addition is named in the install log. A shipped command the file declares more than
+once under one event and matcher is reduced to its first declaration, since Claude Code runs every declaration
+and a repeat runs that hook twice per call; that repairs the repeat an earlier merge left by appending a shipped group
+whole over a file already declaring one of its commands, and each removal is named beside the additions. A repeat
+of an operator's own hook is left as written.
 
 The split follows that layering: hook declarations are control plane that merges additively and that no lower-precedence
 layer may remove, while the permission rules are the host's to tune. The merge is what carries a newly shipped hook

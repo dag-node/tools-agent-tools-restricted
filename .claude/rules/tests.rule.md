@@ -541,11 +541,11 @@ what must **arrive** (each shipped declaration the kept file lacks, and each onl
 its absent command alone, and a repeat an earlier merge left is repaired), what must **survive** (the handback
 declaration, the permission arrays, a relaxed deny entry, an operator's own hook, repeated or not), and what must be
 **said** (the report names every addition and every removal, since the operator reviews the install log rather than
-the JSON) — plus the two sidecars, which answer
-different questions and do not substitute for each other: `.bak` is what the operator had, `.shipped` is what they were
-meant to get, written only when the merge could not run. It drives the deployed `conf.lib.sh` directly, like the other
-library unit tests: the decision lives there rather than in `install.sh` precisely so it can be exercised without stubs
-or text extraction, and the installer keeps only the rendering.
+the JSON) — plus the two sidecars, which answer different questions and do not substitute for each other: `.bak` is
+what the operator had, `.shipped` is what they were meant to get, written only when the merge could not run. It drives
+the deployed `settings-merge.lib.sh` directly, like the other library unit tests: the decision lives there rather than
+in `install.sh` precisely so it can be exercised without stubs or text extraction, and the installer keeps only
+the rendering.
 
 `install-guards.sh` is the other `install.sh` unit test, and it covers the decision that sits before the dispatch:
 which account the install enrols. Every refusal is driven through `--operator`, the one route by which a name reaches

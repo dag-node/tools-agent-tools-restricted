@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/settings-merge.sh
-# Unit test for the hook-declaration merge (conf.lib.sh), the step that lets a NEWLY SHIPPED hook reach a host
+# Unit test for the hook-declaration merge (settings-merge.lib.sh), the step that lets a NEWLY SHIPPED hook reach a host
 # whose settings.json is kept across the upgrade.
 #
 # What makes this worth pinning: the merge edits an operator-owned control-plane file, and every way it can go wrong is
@@ -11,8 +11,8 @@
 # SURVIVE, and what must be REPORTED -- plus the sidecars, which answer different questions (.bak is what the operator
 # had, .shipped is what they were meant to get) and do not substitute for each other.
 #
-# Drives the DEPLOYED library, like the other unit tests: the decision lives in conf.lib.sh precisely so it can be
-# exercised without stubs or text extraction.
+# Drives the DEPLOYED library, like the other unit tests: the decision lives in settings-merge.lib.sh precisely so it
+# can be exercised without stubs or text extraction.
 #
 # No network, no session: fixtures are built in the testdir.
 
@@ -20,23 +20,29 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+readonly LIB="/usr/local/lib/ai-tools/settings-merge.lib.sh"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SHIPPED="${REPO_ROOT}/src/opt/ai-tools/agents/claude-code/settings.json"
 
 section "settings.json hook-declaration merge (unit)"
 
 if [[ ! -r "${LIB}" || ! -r "${SHIPPED}" ]]; then
-    skip "settings merge" "needs the deployed conf.lib.sh and the shipped settings.json"; finish; exit
+    skip "settings merge" "needs the deployed settings-merge.lib.sh and the shipped settings.json"; finish; exit
 fi
 # shellcheck source=/dev/null
 source "${LIB}"
 if ! declare -F ai_tools_conf_merge_hook_declarations >/dev/null 2>&1; then
-    skip "settings merge" "deployed conf.lib.sh predates the merge -- re-run sudo ./install.sh install"
+    skip "settings merge" "deployed settings-merge.lib.sh is incomplete -- re-run sudo ./install.sh install"
     finish; exit
 fi
 if ! command -v jq >/dev/null 2>&1; then
     fail "jq is missing -- it is a package dependency of the agent package"; finish; exit
+fi
+# jq is a package dependency, so the JSON paths report a broken install rather than degrading.
+if ai_tools_conf_require_jq >/dev/null 2>&1; then
+    pass "the jq gate passes where jq is installed"
+else
+    fail "the jq gate rejected a host that has jq"
 fi
 
 mktestdir
@@ -44,7 +50,7 @@ mktestdir
 # Render the library's structured result the way a caller does, so the assertions read what an operator would have been
 # told rather than reaching into the library's variables one by one.
 # shellcheck disable=SC2154  # the _ai_tools_conf_merge_* results are set by the sourced
-# conf.lib.sh, which shellcheck cannot follow through the LIB path variable
+# settings-merge.lib.sh, which shellcheck cannot follow through the LIB path variable
 merge_report() {
     local status=0
     ai_tools_conf_merge_hook_declarations "$1" "$2" || status=$?
@@ -148,10 +154,10 @@ else
 fi
 
 # --- Each shipped command is declared once ------------------------------------------------------
-# Claude Code runs every declaration, so a repeat runs its hook twice per call. The shape that produced one: a file whose
-# Bash group held the filter alone, merged against a version shipping the filter and the tool-call record in one group.
-# An earlier merge appended that group whole, so the filter arrived a second time; this merge appends only what is
-# absent, and repairs a file an earlier merge already left with the repeat.
+# Claude Code runs every declaration, so a repeat runs its hook twice per call. The shape that produced one: a file
+# whose Bash group held the filter alone, merged against a version shipping the filter and the tool-call record in one
+# group. Appending that group whole declares the filter a second time; the merge appends only what is absent,
+# and repairs a file that already carries the repeat.
 readonly FILTER_POST="/opt/ai-tools/.claude/filter-hook.sh post-tool-use"
 readonly RECORD="/opt/ai-tools/.claude/post-tool-hook.sh record"
 times_declared() { jq --arg e "$2" --arg c "$3" '[.hooks[$e][]?.hooks[]?.command | select(. == $c)] | length' "$1"; }
