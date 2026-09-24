@@ -1517,7 +1517,8 @@ _pu_ask_gaps() {
     if (( ${#fix[@]} > 0 )); then
         _pu_say info "to have it ask, ${fix[0]}"
         # Printed bare, not through _pu_say, so the snippet copies out of the terminal without a prefix on each line.
-        printf '      %s\n' "${fix[@]:1}"
+        # Green as a diff's added lines are: every line of it is text to add. Not dim, which this report keeps for asides.
+        printf "      ${_PU_GRN}%s${_PU_RST}\n" "${fix[@]:1}"
     fi
     _pu_say info "this command does not edit the file, since the permission rules are yours -- re-run it to confirm"
 }
