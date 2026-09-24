@@ -309,9 +309,10 @@ mkdir -p "${ROOT}/etc/ai-tools/prompts"
 PROMPT="${ROOT}/etc/ai-tools/prompts/prompt.md"
 : > "${PROMPT}"; : > "${PROMPT}.rpmnew"
 out="$(run_pu)"
-if ! grep -qxF "${PROMPT}" <<< "${out}" && [[ "${out}" != *"identical to the package copy"* \
-      && "${out}" == *"remove when ready: sudo rm ${PROMPT}.rpmnew"* \
-      && "${out}" == *"nothing needs your attention"* && -f "${PROMPT}.rpmnew" ]]; then
+if ! grep -qxF "${PROMPT}" <<< "${out}" && grep -qxF "    sudo rm ${PROMPT}.rpmnew" <<< "${out}" \
+      && [[ "${out}" != *"identical to the package copy"* && "${out}" == *"to remove when you are ready:"* \
+      && "${out}" == *"every config file is reconciled"* && "${out}" != *"nothing needs your attention"* \
+      && -f "${PROMPT}.rpmnew" ]]; then
     pass "an identical copy gets no block, is offered for removal on one line, and is kept"
 else
     fail "an identical copy was reported as a difference or not offered for removal: ${out}"

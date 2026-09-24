@@ -1604,13 +1604,16 @@ postupgrade() {
     _pu_sidecars "${root}"
     printf '\n'
     # The closing line takes the colour of the worst line above it: red for an error, yellow for anything else to act
-    # on.
+    # on. A copy identical to its file is not something to act on, so it does not colour the line; it is named
+    # as reconciled rather than as "nothing to do", since the copies are listed for removal under it.
     if (( _PU_ERRORS > 0 )); then
         printf '%sPost-upgrade done -- review the warnings and errors above%s\n' "${_PU_RED}" "${_PU_RST}"
     elif (( _PU_ATTENTION > 0 )); then
         printf '%sPost-upgrade done -- review the warnings above%s\n' "${_PU_YEL}" "${_PU_RST}"
     elif (( found == 0 )); then
         printf 'Post-upgrade done -- no .rpmnew file is waiting, so every config file this stack owns is reconciled\n'
+    elif (( ${#identical[@]} > 0 )); then
+        printf 'Post-upgrade done -- every config file is reconciled, and its package copy is identical to it\n'
     else
         printf 'Post-upgrade done -- nothing needs your attention\n'
     fi
@@ -1621,17 +1624,18 @@ postupgrade() {
             "${_PU_DIM}" "${_PU_RST}"
         printf '  %ssudo meld <file> <file>.rpmnew%s\n\n' "${_PU_DIM}" "${_PU_RST}"
         command -v meld >/dev/null 2>&1 \
-            || printf '%s- meld is not installed; it needs a desktop session: sudo dnf install meld%s\n' \
+            || printf '%s• meld is not installed; it needs a desktop session: sudo dnf install meld%s\n' \
                 "${_PU_DIM}" "${_PU_RST}"
     fi
-    for copy in "${identical[@]}"; do
-        printf '%s- identical to its file, remove when ready: sudo rm %s%s\n' "${_PU_DIM}" "${copy}" "${_PU_RST}"
-    done
-    printf '%s- system post-upgrade is idempotent -- re-run it at any time%s\n' "${_PU_DIM}" "${_PU_RST}"
+    if (( ${#identical[@]} > 0 )); then
+        printf '%s• package copies identical to their files, to remove when you are ready:%s\n' "${_PU_DIM}" "${_PU_RST}"
+        for copy in "${identical[@]}"; do printf '    %ssudo rm %s%s\n' "${_PU_DIM}" "${copy}" "${_PU_RST}"; done
+    fi
+    printf '%s• system post-upgrade is idempotent -- re-run it at any time%s\n' "${_PU_DIM}" "${_PU_RST}"
     if (( _PU_ATTENTION > 0 )); then
-        printf '%s- Happy merging!%s\n' "${_PU_DIM}" "${_PU_RST}"
+        printf '%s• Happy merging!%s\n' "${_PU_DIM}" "${_PU_RST}"
     else
-        printf "%s- All settings merged. You're good to go.%s\n" "${_PU_DIM}" "${_PU_RST}"
+        printf "%s• All settings merged. You're good to go!%s\n" "${_PU_DIM}" "${_PU_RST}"
     fi
 }
 
