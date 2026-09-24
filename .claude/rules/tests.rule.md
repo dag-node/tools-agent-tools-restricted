@@ -1078,6 +1078,15 @@ as the layout the policy rests on, one check per swap vector.
   the installed code calls live, and it rewrites the host's file. Such a test stubs **every** route to a write — each
   public writer, the rename beneath them, `install` — and asserts the expected one was called, so an older helper fails
   the case instead of writing (`unit/admin-operator-add.sh`).
+- **Strict mode fails without a lint warning** in the shapes the shellcheck rule lists
+  [ref-section-c3u9](shellcheck.rule.md#ref-section-c3u9), and a test runs under the same mode as the code it drives.
+- **A reader that stops early fails the pipeline.** Every test file runs `set -euo pipefail`, and `grep -q` and `head`
+  exit before their producer has written everything, so the producer dies of `SIGPIPE` and `pipefail` reports
+  the pipeline non-zero on input that matched. `if producer | grep -q …` then reports `FAIL`,
+  and `x="$(producer | head -n 1)"` ends the file with no result line, which the runner lists as failed with no `FAIL`
+  line to read. It is a race, so it can pass by hand and fail in a root run. A predicate captures the producer's output
+  first and tests the variable (`grep -q … <<< "${out}"`, `"${out%%$'\n'*}"`), and a file that fails with no `FAIL` line
+  is checked for this shape first.
 - **Setgid bits survive numeric `chmod`.** GNU coreutils `chmod` with an octal mode does not clear a directory's
   setgid/setuid bit; a testdir under a setgid parent inherits it. Assertions on the rwx bits use `perm()` (low 3 octal
   digits), not raw `stat %a`.

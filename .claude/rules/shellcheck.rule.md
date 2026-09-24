@@ -67,7 +67,7 @@ for them.
   the lint-clean equivalent; the `ls -Z` read stays for the enforcing-only paths, where a mechanism change is verified
   on an enforcing host.
 
-## What strict mode does that ShellCheck does not report
+## What strict mode does that ShellCheck does not report <a id="ref-section-c3u9"></a>
 
 Most scripts here run under `set -euo pipefail`, and these shapes lint clean, pass `bash -n`, and end a script or change
 its output without a message. The symptom is a silent no-op, so a path that "does nothing" is traced (`bash -x`,
