@@ -3,8 +3,8 @@ name: ai-tools-technical-docs
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the frontmatter name is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 7
-x-ai-tools-updated: 2026-09-20
+x-ai-tools-version: 8
+x-ai-tools-updated: 2026-09-24
 description: >
   Technical writing standard for every software engineering artifact. Use when writing or
   editing README and usage guides, `CLAUDE.md` / `AGENTS.md`, `*.rule.md`, file and module headers,
@@ -167,7 +167,10 @@ a POSIX ACL entry, a `claim` subcommand. Used as metaphor for what code merely d
 test applies to any borrowed vocabulary: point at the mechanism it names, or choose a plainer word.
 
 Prefer plain verbs — returns, creates, loads, stores, deletes, parses, validates, caches, retries, logs, skips, reads,
-writes, starts, stops, maps, serializes, emits, forwards.
+writes, starts, stops, maps, serializes, emits, forwards. A verb chosen for its register rather than its meaning takes
+the plain one: *verified against* `systemd.exec(5)`, not *corroborated from* it. A reader scans technical prose, often
+in a second language, and the formal word costs them without adding precision. `prose-check.py` does not report this
+class, so the final pass reads for it.
 
 **A term of art in the reader's domain is a domain term, however ordinary it looks.** *maintenance*, *permission*,
 *mask*, *grant*, *traverse*, *weak dependency* have settled meanings in systems and operations prose, so they stay fixed
@@ -676,8 +679,11 @@ and extension included (`ai-tools-handback@.service`), since a reader pastes wha
 searches for it.
 
 A **doc comment's contract line** is already code — `name <arg>... -- what it does`, and the `args:`/`stdout:` fragment
-beside it — so its tokens stay bare. A **man page** takes the fonts `references/man-pages.md` states instead,
-and a **runtime message** is a string rather than prose.
+beside it — so its tokens stay bare. A doc-comment format that has literal markup of its own takes that mark in place
+of backticks — `<c>` and `<see cref="…"/>` in a C# XML doc comment, `{@code …}` in Javadoc — since backticks there put
+a second markup language in one comment, which an IDE renders as neither; `prose-check.py` reads past each as it reads
+past a backticked span. A **man page** takes the fonts `references/man-pages.md` states instead, and a **runtime
+message** is a string rather than prose.
 
 **Shell commands a reader will copy** go on a single line. Backslash continuations do not survive a copy
 out of a terminal, so anything longer than one line ships as a script file the reader runs in one command.
