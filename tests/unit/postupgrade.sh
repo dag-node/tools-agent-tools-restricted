@@ -225,7 +225,7 @@ if [[ "${out}" == *"kept as set: OPERATORS"* ]]; then
 else
     fail "the host's own settings were not named"
 fi
-if [[ "${out}" == *"Post-upgrade done -- nothing needs your attention"* ]]; then
+if [[ "${out}" == *"Post-upgrade done -- nothing needs your attention"* && "${out}" == *"good to go"* ]]; then
     pass "a run with nothing to carry over closes by saying nothing needs attention"
 else
     fail "a run with nothing to act on closed with the wrong summary: ${out}"
@@ -238,7 +238,8 @@ if [[ "${out}" == *"comments differ"* && "${out}" != *"sudo rm"* && "${out}" == 
 else
     fail "a copy carrying new prose was offered for removal: ${out}"
 fi
-if [[ "${out}" == *"Post-upgrade done -- review the warnings and errors above"* ]]; then
+if [[ "${out}" == *"Post-upgrade done -- review the warnings above"* && "${out}" == *"Happy merging!"* \
+      && "${out}" != *"good to go"* ]]; then
     pass "a run with something to carry over closes by asking for a manual review"
 else
     fail "a run with something to act on closed without asking for a review: ${out}"

@@ -1281,11 +1281,14 @@ else
     readonly _PU_GRN='' _PU_YEL='' _PU_RED='' _PU_DIM='' _PU_RST=''
 fi
 _PU_NAME=""
-# The lines that ask the operator to act, counted so the closing line can say whether anything needs review.
+# The lines that ask the operator to act, counted so the closing line can say whether anything needs review,
+# and the errors among them, which colour that line red rather than yellow.
 _PU_ATTENTION=0
+_PU_ERRORS=0
 _pu_say() {
     local level="$1" text="$2"
     [[ "${level}" == act || "${level}" == err ]] && _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
+    [[ "${level}" == err ]] && _PU_ERRORS=$(( _PU_ERRORS + 1 ))
     case "${level}" in
         ok)  printf '  %s: %s✓%s %s\n' "${_PU_NAME}" "${_PU_GRN}" "${_PU_RST}" "${text}" ;;
         act) printf '  %s:   %s%s%s\n' "${_PU_NAME}" "${_PU_YEL}" "${text}" "${_PU_RST}" ;;
@@ -1373,6 +1376,7 @@ _pu_json() {
     if (( status >= 2 )); then
         warn MSG-X9F8 "the merge failed: ${_ai_tools_conf_merge_reason} -- ${deployed} is unchanged"
         _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
+        _PU_ERRORS=$(( _PU_ERRORS + 1 ))
         return 0
     fi
     _pu_say ok "merged -- the previous file is saved as ${_ai_tools_conf_merge_backup}"
@@ -1517,8 +1521,8 @@ _pu_ask_gaps() {
     if (( ${#fix[@]} > 0 )); then
         _pu_say info "to have it ask, ${fix[0]}"
         # Printed bare, not through _pu_say, so the snippet copies out of the terminal without a prefix on each line.
-        # Green as a diff's added lines are, and dim because adding them is the operator's choice.
-        printf "      ${_PU_DIM}${_PU_GRN}%s${_PU_RST}\n" "${fix[@]:1}"
+        # Green as a diff's added lines are: every line of it is text to add.
+        printf "      ${_PU_GRN}%s${_PU_RST}\n" "${fix[@]:1}"
     fi
     _pu_say info "this command does not edit the file, since the permission rules are yours -- re-run it to confirm"
 }
@@ -1595,8 +1599,12 @@ postupgrade() {
     _pu_ask_gaps "${root}"
     _pu_sidecars "${root}"
     printf '\n'
-    if (( _PU_ATTENTION > 0 )); then
-        printf 'Post-upgrade done -- review the warnings and errors above\n'
+    # The closing line takes the colour of the worst line above it: red for an error, yellow for anything else to act
+    # on.
+    if (( _PU_ERRORS > 0 )); then
+        printf '%sPost-upgrade done -- review the warnings and errors above%s\n' "${_PU_RED}" "${_PU_RST}"
+    elif (( _PU_ATTENTION > 0 )); then
+        printf '%sPost-upgrade done -- review the warnings above%s\n' "${_PU_YEL}" "${_PU_RST}"
     elif (( found == 0 )); then
         printf 'Post-upgrade done -- no .rpmnew file is waiting, so every config file this stack owns is reconciled\n'
     else
@@ -1605,13 +1613,19 @@ postupgrade() {
     # The comparison command is printed on a line of its own, indented, so it copies whole. It is offered only
     # when a copy was found, since without one there is nothing to compare.
     if (( found > 0 )); then
-        printf '\nCompare a file with its package copy side by side, and carry over what you want:\n\n'
-        printf '  sudo meld <file> <file>.rpmnew\n\n'
+        printf '\n%sCompare a file with its package copy side by side, and carry over what you want:%s\n\n' \
+            "${_PU_DIM}" "${_PU_RST}"
+        printf '  %ssudo meld <file> <file>.rpmnew%s\n\n' "${_PU_DIM}" "${_PU_RST}"
         command -v meld >/dev/null 2>&1 \
             || printf '%s- meld is not installed; it needs a desktop session: sudo dnf install meld%s\n' \
                 "${_PU_DIM}" "${_PU_RST}"
     fi
-    printf '%s- this command is idempotent -- re-run it at any time%s\n' "${_PU_DIM}" "${_PU_RST}"
+    printf '%s- system post-upgrade is idempotent -- re-run it at any time%s\n' "${_PU_DIM}" "${_PU_RST}"
+    if (( _PU_ATTENTION > 0 )); then
+        printf '%s- Happy merging!%s\n' "${_PU_DIM}" "${_PU_RST}"
+    else
+        printf "%s- All settings merged. You're good to go.%s\n" "${_PU_DIM}" "${_PU_RST}"
+    fi
 }
 
 # ── status ───────────────────────────────────────────────────────────────────────────────────
