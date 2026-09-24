@@ -28,9 +28,9 @@ helper `ai-tools-bootstrap`, which keeps its name and its `/usr/local/libexec/ai
 that helper's work. **It decides which agents it provisions before its first network step** (`choose_agents`): no agent
 manifest ships enabled, so with `AI_TOOLS_AGENTS` absent and at least one trusted manifest installed it draws one
 `ai_tools_msg_pick none` menu — one option per installed agent (`display_name`) and one for none, single-select —
-and writes the chosen name into `operator.conf` through `ai_tools_conf_set_key`; an unanswered menu (no terminal, closed
-input, three misses) or none chosen provisions Node alone under a coded warning naming the line and the re-run, at
-exit 0. `--agents NAME[,NAME...]`, passed through by `ai-tools-admin`, is the unattended form: each name is checked
+and writes the chosen name into `operator.conf` through `ai_tools_conf_set_list`; an unanswered menu (no terminal,
+closed input, three misses) or none chosen provisions Node alone under a coded warning naming the line and the re-run,
+at exit 0. `--agents NAME[,NAME...]`, passed through by `ai-tools-admin`, is the unattended form: each name is checked
 against `ai_tools_installed_agents` and an unknown one refuses the run with the key unwritten. A present key is
 the operator's declaration and is not asked about; one naming more than one agent is answered with a notice, since every
 agent named runs as the one sandbox account, and an untrusted `operator.conf` is neither asked about nor written.

@@ -251,4 +251,29 @@ else
     fail "a non-directory .config should be refused with MSG-Z6V4, got: ${out}"
 fi
 
+# --- The OPERATORS line is written as a list ------------------------------------------------------
+# write_operators hands each enrolled name to the list writer as its own argument, so the line takes the bracketed form
+# and a name is never joined into a string the writer would have to split again. The writer itself is conf.sh's
+# to drive. The helper names the fixed /etc path and this file runs as root, so EVERY route to a write is stubbed --
+# both public writers, the rename beneath them, and `install` -- whichever version of the helper is sourced: a helper
+# that still calls the scalar writer is reported as a failure here, never allowed to rewrite
+# /etc/ai-tools/operator.conf.
+section "ai-tools-admin operators add|remove: OPERATORS is written as a list (unit)"
+out="$(bash -c '
+    set -euo pipefail
+    # shellcheck source=/dev/null
+    source "$1"
+    install() { :; }
+    _ai_tools_conf_replace_file() { printf "REPLACE_FILE\n"; return 1; }
+    ai_tools_conf_set_key() { printf "SET_KEY"; printf " <%s>" "$@"; printf "\n"; }
+    ai_tools_conf_set_list() { printf "SET_LIST"; printf " <%s>" "$@"; printf "\n"; }
+    write_operators alice bob
+' _ "${HELPER}" 2>&1 || true)"
+if [[ "${out}" == *"SET_LIST </etc/ai-tools/operator.conf> <OPERATORS> <alice> <bob>"* \
+        && "${out}" != *SET_KEY* && "${out}" != *REPLACE_FILE* ]]; then
+    pass "write_operators passes each name to the list writer as its own argument"
+else
+    fail "write_operators did not hand the names to ai_tools_conf_set_list one per argument (${HELPER}), got: ${out}"
+fi
+
 finish

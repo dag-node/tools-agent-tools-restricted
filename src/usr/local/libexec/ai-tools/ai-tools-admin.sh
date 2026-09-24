@@ -542,10 +542,10 @@ source /usr/local/lib/ai-tools/msg.lib.sh || die_unsourced /usr/local/lib/ai-too
 export AI_TOOLS_MSG_FULLWIDTH=1
 
 # write_operators <name>...: set the OPERATORS list in operator.conf (root:root 644). Edits ONLY the OPERATORS line
-# in an existing file, through the shared writer (ai_tools_conf_set_key, conf.lib.sh -- the grammar's owner, so the line
-# replaced is the one every reader of the file matches), preserving every other setting the operator maintains there;
-# seeds a minimal file when absent. 644: world-readable (the agent hooks and the root helpers both read it; it is free
-# of secrets) and root-write-only, so the agent cannot rewrite the identity root hands files back to.
+# in an existing file, through the shared writer (ai_tools_conf_set_list, conf.lib.sh -- the grammar's owner,
+# so the line replaced is the one every reader of the file matches), preserving every other setting the operator
+# maintains there; seeds a minimal file when absent. 644: world-readable (the agent hooks and the root helpers both read
+# it; it is free of secrets) and root-write-only, so the agent cannot rewrite the identity root hands files back to.
 write_operators() {
     install -d -o root -g root -m 755 /etc/ai-tools
     if [[ ! -f "${OPERATOR_CONF}" ]]; then
@@ -554,7 +554,7 @@ write_operators() {
         install -o root -g root -m 644 "${tmp}" "${OPERATOR_CONF}"
         rm -f "${tmp}"
     fi
-    ai_tools_conf_set_key "${OPERATOR_CONF}" OPERATORS "$*" \
+    ai_tools_conf_set_list "${OPERATOR_CONF}" OPERATORS "$@" \
         || die MSG-N4H9 "could not write OPERATORS into ${OPERATOR_CONF} -- the enrolment is incomplete; check the file and re-run"
 }
 

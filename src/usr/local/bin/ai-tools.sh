@@ -3677,7 +3677,8 @@ cmd_providers() {
             [[ -n "${integration}" ]] || continue
             declared="$(ai_tools_provider_manifest_field "${integration}" selinux_groups 2>/dev/null || true)"
             [[ -n "${declared}" ]] || continue
-            declared_groups=(); ai_tools_conf_split declared_groups "${declared}"
+            declared_groups=()
+            ai_tools_conf_list_value declared_groups "${declared}" 0 "selinux_groups in the ${integration} manifest"
             missing_stable=""; missing_experimental=""
             for gname in "${declared_groups[@]}"; do
                 ai_tools_selinux_group_valid "${gname}" || continue

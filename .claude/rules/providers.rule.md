@@ -232,6 +232,7 @@ reads the same whichever component reads it:
 KEY=value            quotes optional; whitespace around the key and `=` trimmed
 KEY="a b"            one layer of matched quotes stripped
 KEY=a, b  c          list items separate on commas AND whitespace, freely mixed
+KEY=[a, b]           the bracketed form of the same list; [] is the empty list
 KEY=value   # why    `#` at the start of a value or after whitespace ends it; inside
                      quotes it is literal, so a value containing one is written "a#b"
 KEY=                 PRESENT with an empty value — distinct from an ABSENT key
@@ -239,6 +240,19 @@ KEY=                 PRESENT with an empty value — distinct from an ABSENT key
 
 A repeated key takes its last assignment; a line with no `=` is ignored. Files are **parsed, never sourced**,
 so a malformed or tampered one yields a bad value, never executed code.
+
+A list read **from a file** goes through `ai_tools_conf_list_value` (`ai_tools_conf_list` for a key it reads itself),
+which accepts both forms. A bracketed list is invalid when it has one bracket without the other, when quotes enclose it
+(the parser's `_ai_tools_conf_value_quoted` flag, since a stripped quote layer is otherwise invisible), or when a quote
+or a further bracket sits inside it; an invalid list reads as the **empty** list and is reported under `MSG-D5N5`. Empty
+is the less-access reading for every list that grants something — an empty `OPERATORS` does not enrol any account,
+and an empty `AI_TOOLS_AGENTS` or `AI_TOOLS_INTEGRATIONS` does not enable any provider — where reading it as absent
+would fall back to a baseline that enables more; for `AI_TOOLS_FILTERS` and the `SKIP_*` lists it costs tokens or walk
+time and not access. A manifest value reaches its caller as a string, so a quoted bracket list there is not detected,
+which is acceptable for package data. A **command-line argument** keeps the plain form alone and is split
+by `ai_tools_conf_split`, which does not read brackets: the shell splits `[a, b]` into words and an unquoted `[a,` is
+a glob, so `ai-tools-bootstrap --agents` refuses a bracket by name (`MSG-Y7B6`) rather than reading it as part
+of an agent name.
 
 The **path-list** files share that grammar rather than defining their own. `ai_tools_conf_path_entry` reads one
 `allowed-projects` line — whole-line and end-of-line comments, and one quote layer for a path carrying a space
@@ -259,13 +273,16 @@ three of its writers (the CLI, the `ai-tools-allowlist` root helper, and `instal
 about what a line matches. A writer with its own matcher is a project that stays reachable after a "removal". The state
 model those functions implement, and the rules they enforce on every caller, are in [cli](cli.rule.md).
 
-It owns the one **write of a `KEY=value` file** for the same reason: `ai_tools_conf_set_key <file> <KEY> <value>`
-replaces the first line that *mentions* the key — a live `KEY=` or the template's commented `#KEY=` default, the same
-match `ai_tools_conf_keys` counts — with `KEY="value"`, in place under its comment block, and appends the line when no
-mention exists, writing beside the file and renaming so a reader sees the old file or the new one. A missing file is
-created at `0644`. It refuses a key outside the identifier charset and a value carrying a newline or a double quote,
-either of which would write a different setting than the one asked for. `ai-tools-admin operators add|remove` write
-`OPERATORS` through it and `ai-tools-bootstrap` writes `AI_TOOLS_AGENTS`; `tests/unit/conf.sh` drives it
+It owns the one **write of a `KEY=value` file** for the same reason. `ai_tools_conf_set_key <file> <KEY> <value>` writes
+a scalar as `KEY="value"` and `ai_tools_conf_set_list <file> <KEY> <item>...` writes a list as `KEY=[a, b]`, and both go
+through one line replacement: the first line that *mentions* the key — a live `KEY=` or the template's commented `#KEY=`
+default, the same match `ai_tools_conf_keys` counts — is replaced in place under its comment block, the line is appended
+when no mention exists, and the file is written beside itself and renamed so a reader sees the old file or the new one.
+A missing file is created at `0644`. Each writer refuses a key outside the identifier charset, and each refuses
+what would read back as a different setting: `set_key` a value carrying a newline or a double quote, `set_list` an empty
+item or one carrying whitespace, a comma, a bracket, a quote or a `#`. Each verifies by reading the key back.
+`ai-tools-admin operators add|remove` write `OPERATORS` and `ai-tools-bootstrap` writes `AI_TOOLS_AGENTS`
+through the list writer, and the bootstrap's launch switches go through the scalar one; `tests/unit/conf.sh` drives both
 over a template-shaped fixture and asserts every other line byte-identical.
 
 A **switch** — a key whose value is yes or no — is read through `ai_tools_conf_yes`, so every switch accepts the same
@@ -377,7 +394,7 @@ names it (dotnet). This is the fail-closed default-when-unset rule.
 
 **Every agent manifest ships `default_enable=no`**, so the agents' baseline is empty and which agents a host runs is
 the operator's declaration, written once: `ai-tools-bootstrap` asks which **one** installed agent to enable
-when `AI_TOOLS_AGENTS` is absent and writes the line through `ai_tools_conf_set_key` before its first network step,
+when `AI_TOOLS_AGENTS` is absent and writes the line through `ai_tools_conf_set_list` before its first network step,
 or takes the names from `--agents` after checking each against `ai_tools_installed_agents` (see
 [updater](updater.rule.md)). The pure verdict and the grammar are unchanged; what changed is the shipped data.
 An untrusted `operator.conf` therefore does not enable any agent — one step tighter than a baseline that carried one —

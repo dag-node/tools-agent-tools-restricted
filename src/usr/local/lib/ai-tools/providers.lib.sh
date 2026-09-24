@@ -120,17 +120,21 @@ ai_tools_provider_gate() {
 #   empty, is the allowlist); "no" means absent, unreadable, or UNTRUSTED -- all of which fall
 #   back to the baseline, so a config the agent could have written cannot enable anything its own
 #   package did not already mark default_enable=yes. An untrusted config is reported here rather
-#   than in the pure gate, which stays side-effect free.
+#   than in the pure gate, which stays side-effect free. requested_list holds the names joined by
+#   a space, read through the file-list grammar once here, so an invalid list is reported once per
+#   read and arrives as the empty allowlist -- no provider of that kind enabled.
 _ai_tools_provider_requested() {
     local conf_key="$1"
+    local -a requested_names=()
     requested_active=no; requested_list=""
     case "$(ai_tools_provider_gate "${conf_key}")" in
         untrusted)
             _ai_tools_provider_warn MSG-C4F9 "ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") -- using the default-enabled providers only" ;;
         allowlist)
             requested_active=yes
-            ai_tools_conf_read "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}" || true
-            requested_list="${_ai_tools_conf_value}" ;;
+            ai_tools_conf_list requested_names "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}" || true
+            local IFS=' '
+            requested_list="${requested_names[*]-}" ;;
     esac
     return 0
 }
@@ -211,7 +215,7 @@ ai_tools_enabled_agents() {
 # ai_tools_agents_empty_verdict : for a caller whose ai_tools_enabled_agents printed an empty
 #   set, print one line, "<verdict><TAB><reason>", classifying it:
 #     fault  an input was refused by the trust predicate (operator.conf, the manifest directory, a
-#            manifest), or AI_TOOLS_AGENTS names agents and none of them resolved. A retry reads
+#            manifest), AI_TOOLS_AGENTS is not a valid list, or it names agents and none of them resolved. A retry reads
 #            the same inputs, so a caller maintaining the toolchain ends the run as a failure
 #            rather than treating npm alone as the managed set.
 #     none   the configuration asks for no agent: AI_TOOLS_AGENTS is set and empty, no manifest is
@@ -243,9 +247,11 @@ ai_tools_agents_empty_verdict() {
         return 0
     fi
     if [[ "${gate}" == allowlist ]]; then
-        ai_tools_conf_read "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS || true
-        ai_tools_conf_split requested_names "${_ai_tools_conf_value}"
-        if (( ${#requested_names[@]} > 0 )); then
+        ai_tools_conf_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
+        if (( _ai_tools_conf_list_invalid )); then
+            printf 'fault\tAI_TOOLS_AGENTS in %s is not a valid list, so it enables no agent -- write it as [name, name]\n' \
+                "${AI_TOOLS_OPERATOR_CONF}"
+        elif (( ${#requested_names[@]} > 0 )); then
             printf -v joined '%s ' "${requested_names[@]}"
             printf 'fault\tAI_TOOLS_AGENTS in %s names %sbut no agent resolved: no trusted manifest under %s carries one of those names with an npm_package\n' \
                 "${AI_TOOLS_OPERATOR_CONF}" "${joined}" "${AI_TOOLS_AGENTS_DIR}"
@@ -365,7 +371,7 @@ ai_tools_agent_managed_files() {
     value="$(ai_tools_agent_manifest_field "${agent}" managed_files 2>/dev/null || true)"
     [[ -n "${value}" ]] || return 0
     root="/etc/${agent}"
-    ai_tools_conf_split paths "${value}"
+    ai_tools_conf_list_value paths "${value}" 0 "managed_files in the ${agent} manifest"
     for path in "${paths[@]}"; do
         # The (live, reference) pair is composed rather than declared, so the live path is held to the directory
         # that describes: a plain name directly under /etc/<agent>/. Recomposing the path from its own basename is

@@ -250,6 +250,19 @@ else
     fail "the meld line is missing where a difference is left: ${out}"
 fi
 
+# A host kept from before the bracketed list form: each commented default is a setting, not prose, so a template
+# that writes the same defaults in brackets is still a copy adding nothing, and its removal is offered.
+printf '# Walk skips.\n#SKIP_VCS_DIRS=".git"\n#SKIP_PACKAGE_DIRS="node_modules .venv packages"\nOPERATORS="root"\n' \
+    > "${CONF}"
+printf '# Walk skips.\n#SKIP_VCS_DIRS=[.git]\n#SKIP_PACKAGE_DIRS=[node_modules, .venv, packages]\n#OPERATORS=[]\n' \
+    > "${CONF}.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"sudo rm ${CONF}.rpmnew"* && "${out}" != *"comments differ"* ]]; then
+    pass "commented defaults moved to the bracketed form are not reported as changed prose"
+else
+    fail "a template differing only in the list form of its commented defaults was reported: ${out}"
+fi
+
 # ── (E3) A kept file another package ships: found, reported, and never printed ─────────────────────
 # The registry is base's, so an integration's endpoint file is found by the directory it sits in. It carries a key,
 # so neither its value nor the copy's content may reach the output.

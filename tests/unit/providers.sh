@@ -109,6 +109,27 @@ assert_names "unquoted, comma-separated allowlist"       "claude-code experiment
 printf 'AI_TOOLS_AGENTS = claude-code  experimental   # both agents\n' > "${conf}"
 assert_names "padded value with an inline comment"       "claude-code experimental " "${conf}"
 
+# The bracketed list form reads as the same allowlist, and an invalid list enables NO agent: it reads as the empty
+# allowlist, never as an absent key, which would fall back to the default-enabled baseline. One row per value,
+# the expected names then the value as it follows `AI_TOOLS_AGENTS=`, split on the first tab.
+gating_cases=(
+    $'claude-code experimental \t[claude-code, experimental]'
+    $'claude-code experimental \t[experimental,claude-code]   # both'
+    $'claude-code \t[, claude-code]'
+    $'\t[]'
+    $'\t[claude-code'
+    $'\tclaude-code]'
+    $'\t"[claude-code]"'
+    $'\t[claude-code, "experimental"]'
+)
+for row in "${gating_cases[@]}"; do
+    printf 'AI_TOOLS_AGENTS=%s\n' "${row#*$'\t'}" > "${conf}"
+    assert_names "AI_TOOLS_AGENTS=${row#*$'\t'} enables '${row%%$'\t'*}'" "${row%%$'\t'*}" "${conf}"
+done
+printf 'AI_TOOLS_AGENTS=[claude-code\n' > "${conf}"
+assert_msg MSG-D5N5 "$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)" \
+    "an invalid AI_TOOLS_AGENTS list is reported"
+
 # A requested-but-uninstalled agent is skipped from stdout AND reported on stderr (never guessed).
 printf 'AI_TOOLS_AGENTS="missing"\n' > "${conf}"
 warn_out="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
@@ -227,6 +248,12 @@ assert_empty "every manifest default_enable=no is none"   none  "AI_TOOLS_AGENTS
 printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Claude Code\ndefault_enable=yes\n' \
     > "${agents_dir}/claude-code.conf"
 
+# An allowlist that is not a valid list does not enable any agent, and the operator asked for something: a fault.
+printf 'AI_TOOLS_AGENTS=[claude-code\n' > "${conf}"
+assert_empty "an invalid allowlist is a fault"            fault "is not a valid list"          "${conf}"
+printf 'AI_TOOLS_AGENTS=[]\n' > "${conf}"
+assert_empty "an empty bracketed allowlist is none"       none  "set and empty"                "${conf}"
+
 # The operator asked for agents that did not resolve: a fault, naming what was asked for.
 printf 'AI_TOOLS_AGENTS="missing other"\n' > "${conf}"
 assert_empty "an allowlist that resolved nothing is a fault" fault "names missing other but no agent resolved" "${conf}"
@@ -270,6 +297,11 @@ printf 'AI_TOOLS_INTEGRATIONS=""\n' > "${conf}"
 assert_ints "integrations explicit empty -> none"             ""          "${conf}"
 printf 'AI_TOOLS_INTEGRATIONS=dotnet, baseline  # both\n' > "${conf}"
 assert_ints "integrations comma list with a comment"          "baseline dotnet " "${conf}"
+printf 'AI_TOOLS_INTEGRATIONS=[dotnet, baseline]\n' > "${conf}"
+assert_ints "integrations bracketed list"                     "baseline dotnet " "${conf}"
+# An invalid list reads as the empty allowlist: not even the default-enabled baseline, which absent would enable.
+printf 'AI_TOOLS_INTEGRATIONS=[dotnet\n' > "${conf}"
+assert_ints "integrations invalid list -> none, not the baseline" "" "${conf}"
 
 # The surface-widening case that matters most: an untrusted operator.conf must not be able to turn dotnet
 # (default_enable=no) on.

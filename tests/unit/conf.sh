@@ -35,6 +35,8 @@ if ! source "${LIB}" \
         || ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_split >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_list >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf_list_value >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf_set_list >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_allowlist_has_entry >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the parser functions"; finish; exit
@@ -144,6 +146,100 @@ if ai_tools_conf_list target "${conf}" EMPTY && [[ "${#target[@]}" -eq 0 ]]; the
     pass "present-but-empty key replaces with an empty array (an explicit none)"
 else
     fail "present-but-empty key did not empty the array: got '${target[*]:-}'"
+fi
+
+# --- List values read from a file: the plain form, the bracketed form, and the invalid ones --------------------------
+# One row per value, `<expected items joined by |>` then the value exactly as it follows `K=` in the file, split
+# on the first tab. An invalid value reads as the EMPTY list and is reported under its code, so its expected column is
+# `INVALID`: empty is the less-access reading for a list that enrols or enables something, where absent would fall back
+# to a default that enables more.
+list_cases=(
+    $'a|b|c|\ta, b c'
+    $'a|b|c|\t"a, b c"'
+    $'a|b|\t\'a b\''
+    $'a|b|\t[a, b]'
+    $'a|b|\t[a,b]'
+    $'a|\t[, a]'
+    $'a|\t[a,]'
+    $'a|\t[ a]'
+    $'a|b|\t  [a, b]   # why'
+    $'\t'
+    $'\t""'
+    $'\t[]'
+    $'\t[ ,,  , ]'
+    $'INVALID\t['
+    $'INVALID\ta]'
+    $'INVALID\t"[a]"'
+    $'INVALID\t\'[a]\''
+    $'INVALID\t["a b"]'
+    $'INVALID\t[a, "b"]'
+    $'INVALID\t[a]]'
+    $'INVALID\t[[a]'
+    $'INVALID\t"[a'
+)
+list_conf="${TESTDIR}/list.conf"
+for row in "${list_cases[@]}"; do
+    expected="${row%%$'\t'*}"; value="${row#*$'\t'}"
+    printf 'K=%s\n' "${value}" > "${list_conf}"
+    # Driven under the strict-mode IFS the launcher scripts set, in a subshell so the caller's IFS cannot mask it.
+    # shellcheck disable=SC2154  # _ai_tools_conf_list_invalid is set by conf.lib.sh, sourced at the top of this file
+    said="$( IFS=$'\n\t'; target=(default); ai_tools_conf_list target "${list_conf}" K 2>&1 >/dev/null
+             joined=""; for item in "${target[@]}"; do joined+="${item}|"; done
+             printf '\nITEMS=%s\nINVALID=%s\n' "${joined}" "${_ai_tools_conf_list_invalid}" )"
+    got="$(sed -n 's/^ITEMS=//p' <<< "${said}")"
+    invalid="$(sed -n 's/^INVALID=//p' <<< "${said}")"
+    if [[ "${expected}" == INVALID ]]; then
+        if [[ -z "${got}" && "${invalid}" == 1 ]] && grep -qx MSG-D5N5 <<< "${said}"; then
+            pass "list K=${value} is invalid: read as empty, reported"
+        else
+            fail "list K=${value} should read as empty with MSG-D5N5: got '${got}', invalid=${invalid}"
+        fi
+    elif [[ "${got}" == "${expected}" && "${invalid}" == 0 ]] && ! grep -q '^MSG-' <<< "${said}"; then
+        pass "list K=${value} reads as '${expected}'"
+    else
+        fail "list K=${value}: got '${got}' (invalid=${invalid}) expected '${expected}'"
+    fi
+done
+
+# A command-line argument keeps the plain splitter, which does not read brackets: the caller that takes an argument
+# refuses one carrying a bracket by name, so the splitter reading them would hide that refusal.
+check_split "the argument splitter leaves brackets in the items" "[a|b]|" "[a, b]"
+
+# --- ai_tools_conf_set_list: writes the bracketed form in place and reads it back ------------------------------------
+list_conf="${TESTDIR}/set-list.conf"
+printf '# header\n#K=[]\nOTHER=kept\n' > "${list_conf}"
+set_list_cases=(
+    $'[alpha, beta]\talpha beta'
+    $'[alpha]\talpha'
+    $'[]\t'
+    $'[a.b_c-d, e/f]\ta.b_c-d e/f'
+)
+for row in "${set_list_cases[@]}"; do
+    expected="${row%%$'\t'*}"; items="${row#*$'\t'}"
+    read -ra item_args <<< "${items}"
+    if ai_tools_conf_set_list "${list_conf}" K "${item_args[@]+"${item_args[@]}"}" \
+            && [[ "$(grep -c '^#\?K=' "${list_conf}")" == 1 && "$(sed -n 2p "${list_conf}")" == "K=${expected}" ]] \
+            && [[ "$(sed -n 1p "${list_conf}")" == "# header" && "$(sed -n 3p "${list_conf}")" == "OTHER=kept" ]]; then
+        pass "set_list (${items:-no items}) writes K=${expected} in place of the key's line"
+    else
+        fail "set_list (${items:-no items}): file is now: $(tr '\n' '|' < "${list_conf}")"
+    fi
+done
+# An item that would read back as other items, or end the list, is refused with status 2 and the file left unchanged.
+before="$(cat "${list_conf}")"
+for bad in 'a b' 'a,b' '[a' 'a]' '"a"' "'a'" 'a#b' '' $'a\nb' $'a\tb'; do
+    status=0; ai_tools_conf_set_list "${list_conf}" K ok "${bad}" || status=$?
+    if [[ "${status}" == 2 && "$(cat "${list_conf}")" == "${before}" ]]; then
+        pass "set_list refuses the item $(printf '%q' "${bad}")"
+    else
+        fail "set_list accepted the item $(printf '%q' "${bad}") (status ${status})"
+    fi
+done
+status=0; ai_tools_conf_set_list "${list_conf}" 'BAD KEY' a || status=$?
+if [[ "${status}" == 2 ]]; then
+    pass "set_list refuses a key outside the identifier charset"
+else
+    fail "set_list accepted a key outside the identifier charset (status ${status})"
 fi
 
 # --- Trust predicate: every state a non-root writer could create must be refused --------------

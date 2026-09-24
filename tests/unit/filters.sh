@@ -187,8 +187,14 @@ mk_operator
 enabled_is "enabled when AI_TOOLS_FILTERS is absent"       0
 set_filters '"core"'
 enabled_is "enabled when sets are named"                   0
+# Every spelling of a present, empty list is the one kill switch; a named set, bracketed or not, keeps filtering on.
+for value in '' '""' '[]' '[ , ]'; do
+    mk_operator; set_filters "${value}"
+    enabled_is "AI_TOOLS_FILTERS=${value} reports disabled"   1
+done
+mk_operator; set_filters '[core, dotnet]'
+enabled_is "AI_TOOLS_FILTERS=[core, dotnet] reports enabled" 0
 mk_operator; set_filters ''
-enabled_is "the kill switch reports disabled"              1
 chmod 666 "${AI_TOOLS_OPERATOR_CONF}"
 enabled_is "an untrusted operator.conf leaves filtering on" 0
 chmod 644 "${AI_TOOLS_OPERATOR_CONF}"

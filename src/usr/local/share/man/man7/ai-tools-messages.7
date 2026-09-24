@@ -891,7 +891,7 @@ control plane present but ${cplib} does not resolve the agents' config dirs
 .TP
 .B MSG-J3E6
 ERROR.
-could not write AI_TOOLS_AGENTS=\e"$*\e" into ${AI_TOOLS_OPERATOR_CONF} \-\- set the line by hand, then re\-run: sudo ai\-tools\-admin system bootstrap
+could not write AI_TOOLS_AGENTS (${*}) into ${AI_TOOLS_OPERATOR_CONF} \-\- set the line by hand, then re\-run: sudo ai\-tools\-admin system bootstrap
 .TP
 .B MSG-K2D4
 ERROR.
@@ -936,6 +936,10 @@ no agent chosen \-\- provisioning Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_
 .B MSG-X7Z2
 ERROR.
 run as root (sudo)
+.TP
+.B MSG-Y7B6
+ERROR.
+\-\-agents takes names separated by commas, without brackets: \-\-agents claude\-code,codex \-\- nothing was written
 .SS ai-tools-chown
 .TP
 .B MSG-A6D8
@@ -1390,6 +1394,10 @@ claude: cannot load the launch gate library \-\- refusing to start
 .B MSG-D2F9
 WARNING.
 switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no value (no, false, 0, off) \-\- read as no
+.TP
+.B MSG-D5N5
+WARNING.
+invalid list, read as the empty list \-\- ${label} (${reason}): ${value}; write it as [a, b]
 .SS install-selinux.sh
 .TP
 .B MSG-A5N2

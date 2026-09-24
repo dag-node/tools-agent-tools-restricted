@@ -174,8 +174,8 @@ configure_git_identity() {
 # back ends the run: the provision that followed would install the agents of a line the operator did not get.
 write_agents() {
     install -d -o root -g root -m 755 "${AI_TOOLS_OPERATOR_CONF%/*}"
-    ai_tools_conf_set_key "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS "$*" \
-        || die MSG-J3E6 "could not write AI_TOOLS_AGENTS=\"$*\" into ${AI_TOOLS_OPERATOR_CONF} -- set the line by hand, then re-run: sudo ai-tools-admin system bootstrap"
+    ai_tools_conf_set_list "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS "$@" \
+        || die MSG-J3E6 "could not write AI_TOOLS_AGENTS (${*}) into ${AI_TOOLS_OPERATOR_CONF} -- set the line by hand, then re-run: sudo ai-tools-admin system bootstrap"
 }
 
 # shared_account_notice <name>... : say, once per run, what naming more than one agent shares. Every agent runs
@@ -219,6 +219,12 @@ choose_agents() {
     fi
 
     if [[ -n "${requested}" ]]; then
+        # An argument takes the plain list form alone: the shell has already split `[a, b]` into words, and an unquoted
+        # `[a,` is a glob that can match a file in the current directory, so a bracket is refused by name rather than
+        # read as part of an agent name.
+        if [[ "${requested}" == *[\[\]]* ]]; then
+            die MSG-Y7B6 "--agents takes names separated by commas, without brackets: --agents claude-code,codex -- nothing was written"
+        fi
         # The shared list grammar (commas and whitespace); split inline where the resolver, and so conf.lib.sh, did not
         # load, since every name is then unknown and the refusal that follows has to name them.
         if declare -F ai_tools_conf_split >/dev/null 2>&1; then
@@ -253,7 +259,7 @@ choose_agents() {
     gate="$(ai_tools_provider_gate AI_TOOLS_AGENTS)"
     case "${gate}" in
         allowlist)
-            ai_tools_conf_split requested_names "$(ai_tools_conf_get "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS || true)"
+            ai_tools_conf_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
             (( ${#requested_names[@]} > 1 )) && shared_account_notice "${requested_names[@]}"
             return 0 ;;
         untrusted)
@@ -817,7 +823,9 @@ report_shadowed_operators
 # rather than assuming one order. The CLI is the sentinel because base ships it whichever agents a host installs;
 # an agent's wrapper would read a host that enabled another agent as undeployed.
 if [[ -x /usr/local/bin/ai-tools ]]; then
-    if (( _providers_loaded )) && [[ -n "$(ai_tools_conf_get "${AI_TOOLS_OPERATOR_CONF}" OPERATORS 2>/dev/null)" ]]; then
+    enrolled_operators=()
+    (( _providers_loaded )) && { ai_tools_conf_list enrolled_operators "${AI_TOOLS_OPERATOR_CONF}" OPERATORS 2>/dev/null || true; }
+    if (( ${#enrolled_operators[@]} > 0 )); then
         log "next: as an enrolled operator, claim a project and start an agent in it -- ai-tools projects claim <path>"
     else
         log "next: enrol an operator -- sudo ai-tools-admin operators add <user>"
