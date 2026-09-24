@@ -125,6 +125,14 @@ there with **known content defined in the test**, never reads or writes the oper
 `~/.config/ai-tools/allowed-projects`), and removes everything it created on exit (the harness `EXIT` trap). A test
 never relies on arbitrary pre-existing state, and never touches a path outside its testdir boundary.
 
+**The invoker's process state is not a fixture either.** `run.sh` and the harness do not pin a umask, so a file runs
+under whatever `sudo` hands it — `077` on a host whose `login.defs` sets `UMASK 077` — and `runuser` passes that umask
+to the command it drives unchanged. A test whose fixture another account reads therefore sets that fixture's modes
+explicitly or pins `umask 022` at its top, and one that exercises a verb a umask could change re-drives it
+under the stricter values in the same run (`integration/cli-flags.sh`). A command run as the operator through `runuser`
+reads that operator's `~/.gitconfig` too, so a fixture commit passes `-c commit.gpgsign=false`: with signing
+on, the commit waits on a pinentry prompt the run cannot answer until the per-file timeout kills it.
+
 ### Fixture names and the residue sweep
 
 A test that must create a path **outside** its testdir — in the clone area, the control plane, the cgroup root,
@@ -692,15 +700,17 @@ refuses does not, a version directory outside the semver shape is not read — a
 from the operator's vantage. The writer is driven with `npm` stubbed in the fixture version's own `bin`,
 where the library puts it first on `PATH`: it refuses an enabled agent's package with no npm call, defers a package
 a live process executes from (the `/proc` collector stubbed to say so, the pure predicate driven over its table
-and against this shell's own executable as the live control), issues exactly one uninstall with the version directory
-as the prefix for a removal and names the state directory it leaves, and reports an uninstall that left the directory.
-Like `launcher-target.sh` it needs the executable bit visible and takes the same fallback, and it reads one order
-as source: the updater's removal precedes `install_packages`. `bootstrap.sh` reads the bootstrap's the same way —
-the removal after the agent choice and before the version resolve, the first network step. The two launch tiers are
-driven where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent the fixture manifests install
-and the fixture `operator.conf` does not enable, before the executable resolves and fail-closed on a missing library,
-and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside copies
-of the deployed ones, with the package gone as the control. `cli-agent-set.sh` reports and counts the same link.
+and against this shell's own executable as the live control — which reads `/proc/$$/exe`, a link `ai_tools_t` does not
+grant, so the control fails when the file is run as the agent and belongs to the root run), issues exactly one uninstall
+with the version directory as the prefix for a removal and names the state directory it leaves, and reports an uninstall
+that left the directory. Like `launcher-target.sh` it needs the executable bit visible and takes the same fallback,
+and it reads one order as source: the updater's removal precedes `install_packages`. `bootstrap.sh` reads
+the bootstrap's the same way — the removal after the agent choice and before the version resolve, the first network
+step. The two launch tiers are driven where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent
+the fixture manifests install and the fixture `operator.conf` does not enable, before the executable resolves
+and fail-closed on a missing library, and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1`
+for a synthetic manifest read beside copies of the deployed ones, with the package gone as the control.
+`cli-agent-set.sh` reports and counts the same link.
 
 `audit.sh` pins the kernel-record section of `ai-tools-audit` ([cli](cli.rule.md)). The trail it reports is one **only
 the kernel writes**, so a test cannot produce a record: the helper is sourced (inert by construction), the audit
@@ -1063,6 +1073,22 @@ as the layout the policy rests on, one check per swap vector.
   the word is wrapped, so a grep on a result *message* is unaffected; a grep anchored on the *word* must allow
   the escape, as `run.sh`'s failure summary (`_FAIL_RE`) does. Anchored without it the summary comes back empty
   on a coloured run, while the suite still reports the failure and exits non-zero.
+- **A unit test runs the host's release, not the branch's.** A `unit` file sources the **installed** helper where one is
+  deployed, so a branch's root run reads the previous release's code until `install.sh install` has deployed the branch.
+  Where that helper names a fixed system path (`/etc/ai-tools/operator.conf`), the stubs are the only thing
+  between a root run and the real file: a test that stubs only the writer the branch's code calls leaves the writer
+  the installed code calls live, and it rewrites the host's file. Such a test stubs **every** route to a write — each
+  public writer, the rename beneath them, `install` — and asserts the expected one was called, so an older helper fails
+  the case instead of writing (`unit/admin-operator-add.sh`).
+- **Strict mode fails without a lint warning** in the shapes the shellcheck rule lists
+  [ref-section-c3u9](shellcheck.rule.md#ref-section-c3u9), and a test runs under the same mode as the code it drives.
+- **A reader that stops early fails the pipeline.** Every test file runs `set -euo pipefail`, and `grep -q` and `head`
+  exit before their producer has written everything, so the producer dies of `SIGPIPE` and `pipefail` reports
+  the pipeline non-zero on input that matched. `if producer | grep -q …` then reports `FAIL`,
+  and `x="$(producer | head -n 1)"` ends the file with no result line, which the runner lists as failed with no `FAIL`
+  line to read. It is a race, so it can pass by hand and fail in a root run. A predicate captures the producer's output
+  first and tests the variable (`grep -q … <<< "${out}"`, `"${out%%$'\n'*}"`), and a file that fails with no `FAIL` line
+  is checked for this shape first.
 - **Setgid bits survive numeric `chmod`.** GNU coreutils `chmod` with an octal mode does not clear a directory's
   setgid/setuid bit; a testdir under a setgid parent inherits it. Assertions on the rwx bits use `perm()` (low 3 octal
   digits), not raw `stat %a`.

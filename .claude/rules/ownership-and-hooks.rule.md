@@ -22,6 +22,11 @@ it, which `ai-tools-chown` resolves per path via `operator.lib.sh` (`ai_tools_re
 operators each project's files return to that project's operator. Secret-named files take a different path (see
 [secrets](secret-handling.rule.md)).
 
+Every hook an agent package ships parses its event JSON with `jq`, so the package `Requires: jq`. Where `jq` is absent,
+a hook takes its no-op path without an error: the handback stops returning ownership, the sweeps stop running,
+and the filters stop filtering. The dependency stays on the agent packages that ship hooks; base does not assume `jq`,
+and `npm-verify.lib.sh` parses the audit JSON with `node` for that reason.
+
 ## `ai-tools-chown` acts only on agent-written paths
 
 `ai-tools-chown` acts on a path **only when it is currently `SANDBOX_USER`-owned**. Write/Edit create files and parent

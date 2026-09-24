@@ -287,6 +287,10 @@ not gaps, so a reader tells bounded design from an oversight:
   by provider packages and discovered** — base cannot enumerate integrations it ships without. A contributed command
   passes the same trust predicate as every other provider input. `ai-tools` keeps its `--verb` spelling until the domain
   model behind `projects` settles. Detail in [cli-grammar](.claude/rules/cli-grammar.rule.md).
+- **A new source file states its licence on its first line**, after any shebang: one `SPDX-License-Identifier` comment
+  in the file's own syntax — `AGPL-3.0-only`, or `GPL-2.0-or-later` for the SELinux policy sources — and no copyright
+  line, since `REUSE.toml` holds the copyright for every file. Prose, licence texts, generated data, and compiled
+  modules carry no header; the `REUSE.toml` fallback covers them.
 - **Logging** — components log through `log.lib.sh` to journald (always) and root-only `/var/log/ai-tools/*.log` (root
   writers only). Detail in [logging](.claude/rules/logging.rule.md).
 - **User-facing messages** — refusals, notices, and warnings render through `msg.lib.sh`: wrapped so a line does not end

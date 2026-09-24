@@ -654,7 +654,8 @@ fi
 # (some rpm re-applies %attr after %post); both are idempotent no-ops on a host that kept the bit.
 # NB the container-image (OCI) layer preserves these two writes inconsistently across distros, so
 # the rpm-selftest RE-ASSERTS setgid at runtime (container-selftest.sh) -- this pair is for real
-# hosts, which have no image layer.
+# hosts, which have no image layer. A setgid %%dir added to any package takes the same re-assertion
+# in its own %%post, or it installs without the bit on EL10 (the typesafe state root is one).
 chmod 2750 /var/opt/ai-tools 2>/dev/null || :
 chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # Control-plane git guard + identity for the repo ai-tools-bootstrap captures (the RPM

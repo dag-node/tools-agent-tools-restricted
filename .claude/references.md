@@ -19,6 +19,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | p3k8 | [ref-section-p3k8](rules/launch.rule.md#ref-section-p3k8) | The ordering is read, not assumed | .claude/rules/launch.rule.md | .claude/rules/cli.rule.md |  |
 | f6z3 | MSG-F6Z3 | example | .claude/rules/messaging.rule.md |  |  |
 | y9z4 | [ref-section-y9z4](rules/ownership-and-hooks.rule.md#ref-section-y9z4) | Setgid normalization | .claude/rules/ownership-and-hooks.rule.md | .claude/rules/cli.rule.md |  |
+| c3u9 | [ref-section-c3u9](rules/shellcheck.rule.md#ref-section-c3u9) | What strict mode does that ShellCheck does not report | .claude/rules/shellcheck.rule.md | .claude/rules/tests.rule.md |  |
 | r5r9 | [ref-section-r5r9](rules/stop.rule.md#ref-section-r5r9) | Who may stop what | .claude/rules/stop.rule.md | .claude/rules/cli.rule.md, .claude/rules/launch.rule.md, .claude/rules/safe-paths.rule.md, docs/sessions/stop.md, src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  |
 | e8k5 | [ref-section-e8k5](rules/stop.rule.md#ref-section-e8k5) | Degradation policy: two inversions, one reason | .claude/rules/stop.rule.md | .claude/rules/logging.rule.md, .claude/rules/messaging.rule.md, docs/sessions/stop.md, src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  |
 | b3k5 | [ref-section-b3k5](rules/updater.rule.md#ref-section-b3k5) | A refusal leaves a mark too | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
@@ -88,7 +89,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | e6c4 | [MSG-E6C4](../selinux/install-selinux.sh) | labelling did not complete for ${subject} -- see its lines above | selinux/install-selinux.sh |  | warn |
 | k2w4 | [MSG-K2W4](../selinux/install-selinux.sh) | unrecognized labelling result: ${verdict} ${subject} ${detail} ${wanted} | selinux/install-selinux.sh |  | warn |
 | u3s8 | [MSG-U3S8](../selinux/install-selinux.sh) | an agent path is not correctly labelled (see above) -- the session would be refused, or run UNCONFINED | selinux/install-selinux.sh |  | die |
-| q8w8 | [MSG-Q8W8](../selinux/install-selinux.sh) | no agent resolved from the manifests, so no entrypoint was labelled. | selinux/install-selinux.sh |  | warn |
+| q8w8 | [MSG-Q8W8](../selinux/install-selinux.sh) | no agent resolved from the manifests, so no entrypoint was labelled | selinux/install-selinux.sh |  | warn |
 | k3a8 | [MSG-K3A8](../selinux/install-selinux.sh) | no agent path took a label this run -- see the per-path reason above | selinux/install-selinux.sh |  | warn |
 | s5e4 | [MSG-S5E4](../selinux/install-selinux.sh) | could not label $1 -- is the ai_tools module loaded? | selinux/install-selinux.sh |  | warn |
 | w8j4 | [MSG-W8J4](../selinux/install-selinux.sh) | could not unlabel $1 | selinux/install-selinux.sh |  | warn |
@@ -130,7 +131,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | p8y8 | [MSG-P8Y8](../src/usr/local/bin/ai-tools.sh) | not a claimed project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | q3r9 | [MSG-Q3R9](../src/usr/local/bin/ai-tools.sh) | this project contains ${#nested[@]} other claimed project(s), listed above: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | h3f6 | [MSG-H3F6](../src/usr/local/bin/ai-tools.sh) | the parent directory is not writable by ${OWNER_USER}: ${rm_parent} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
-| s6v2 | [MSG-S6V2](../src/usr/local/bin/ai-tools.sh) | removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | warn |
+| s6v2 | [MSG-S6V2](../src/usr/local/bin/ai-tools.sh) | removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | warn |
 | j4p9 | [MSG-J4P9](../src/usr/local/bin/ai-tools.sh) | a value is required after ${flag} | src/usr/local/bin/ai-tools.sh | packaging/ai-tools.spec | die |
 | z5v5 | [MSG-Z5V5](../src/usr/local/bin/ai-tools.sh) | a value is required after ${flag}, not another option: $1 | src/usr/local/bin/ai-tools.sh | packaging/ai-tools.spec, tests/manual/verify-live-flows.sh | die |
 | h2d4 | [MSG-H2D4](../src/usr/local/bin/ai-tools.sh) | destination already exists: ${dst} | src/usr/local/bin/ai-tools.sh |  | die |
@@ -456,7 +457,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q9y2 | [MSG-Q9Y2](../src/usr/local/libexec/ai-tools/ai-tools-stop.sh) | This host cannot resolve the uid of ${SANDBOX_USER}, so no cgroup can be located | src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  | say_error |
 | k2t7 | [MSG-K2T7](../src/usr/local/libexec/ai-tools/ai-tools-stop.sh) | This host has no cgroup v2 hierarchy, so sessions cannot be enumerated or stopped reliably. | src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  | say_error |
 | w8c6 | [MSG-W8C6](../src/usr/local/libexec/ai-tools/ai-tools-stop.sh) | The sessions were stopped, but ${SANDBOX_USER}'s user manager did not come back, so the next launch has no systemd --user instance to start a session in. Restore it with: | src/usr/local/libexec/ai-tools/ai-tools-stop.sh | tests/unit/stop.sh | say_warn |
-| j3u9 | [MSG-J3U9](../src/usr/local/libexec/ai-tools/ai-tools-stop.sh) | Nothing was stopped. | src/usr/local/libexec/ai-tools/ai-tools-stop.sh | tests/unit/stop.sh | say_notice |
+| j3u9 | [MSG-J3U9](../src/usr/local/libexec/ai-tools/ai-tools-stop.sh) | Nothing was stopped | src/usr/local/libexec/ai-tools/ai-tools-stop.sh | tests/unit/stop.sh | say_notice |
 | f9u5 | [MSG-F9U5](../src/usr/local/libexec/ai-tools/ai-tools-stop.sh) | The final sweep found live cgroups that the per-session checks had verified empty, so a session started while this ran or something re-entered a cgroup after it was emptied. Re-running is safe and is the remedy -- this command is idempotent. To see what is there first: | src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  | say_error |
 | w7d3 | [MSG-W7D3](../src/usr/local/libexec/ai-tools/ai-tools-stop.sh) | Some cgroups survived SIGKILL: ${survivors} of ${#selected_cgroups[@]}. A task only outlives SIGKILL while blocked in an uninterruptible kernel call: it holds no CPU, runs no code and can start nothing new, but only the I/O completing or a reboot clears it. Inspect it with: | src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  | say_error |
 | t6h6 | [MSG-T6H6](../src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh) | unknown option: ${_arg} | src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh |  | warn |

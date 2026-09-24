@@ -347,6 +347,13 @@ Both agent halves **abort unless the calling process is in `ai_tools_t`**: run u
 denial at all, and that empty result reads as success. The procedure for running either is in `selinux/README.md` §2
 and §4.
 
+An agent half does not gate a section on whether an optional group is loaded. That fact lives in the root-only module
+store, and `semodule -l` is refused in a session, so a `semodule -l` gate takes its skip branch every time the half runs
+as the agent, and the section it guards never executes. Each group section exercises its path and reports the outcome:
+a stable group asserts it, an experimental one reports it. A tool a disabled group gates reads as absent rather than
+refused, because `command -v` runs `access(X_OK)`, which the kernel checks as `execute` on the tool's own exec type.
+The report names both readings, since the domain cannot tell them apart.
+
 ## References
 
 - [SELinux Notebook — AV rules](https://github.com/SELinuxProject/selinux-notebook/blob/main/src/avc_rules.md) —

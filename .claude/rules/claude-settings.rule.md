@@ -137,6 +137,8 @@ spending a tool call, and emitting an AVC, on an action the kernel refuses anywa
   to it. (Bare `mount` succeeds — it lists the mount table — so it is denied with the host-survey group instead.)
 - `setenforce`/`semodule`/`semanage` — root-only SELinux management; label repair flows through the root-side relabel
   path, never the agent.
+- `gpg` — the core module does not grant gpg's own exec type, so the session can neither run nor `stat` it
+  and `command -v` prints nothing. `gpgv` is an ordinary binary and runs, and it is the verifier a session uses.
 
 `sudo` is the purest case: it is structurally inoperative under the session's `PR_SET_NO_NEW_PRIVS`, which drops
 the SUID bit (see [confinement](confinement.rule.md)), so its deny entry corresponds to a capability no policy change
@@ -321,9 +323,8 @@ to delete, reporting either the difference still to review or that the two files
 not need a `.shipped` sidecar — the `.rpmnew` is that baseline, and the throwaway copy is where the refused merge's own
 copy lands and is discarded.
 
-`jq` is a hard runtime dependency of every hook this agent ships, not a convenience: each parses its event JSON with it,
-and absent it they take their no-op paths silently — the handback stops returning ownership, the session sweeps stop
-running, and the filters stop filtering. The agent package `Requires: jq` for that reason.
+The merge and every hook this agent ships read JSON with `jq`, which the agent package requires
+([ownership-and-hooks](ownership-and-hooks.rule.md)).
 
 ## Why not
 

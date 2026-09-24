@@ -71,6 +71,20 @@ rather than a provider capability.
 `providers.lib.sh`, and owns both readers — the `ai-tools-run` shim and the `ai-tools-admin` dispatcher; each member
 package ships only its own files into them.
 
+## Agent identity is manifest data
+
+A function that behaves differently per agent reads the difference from that agent's manifest — a field read
+through `providers.lib.sh`, or an argument its caller read from one — and does not branch on an agent's name.
+Agent-specific data, such as the names an entrypoint is invoked under or a state file it keeps, becomes a manifest key,
+so a further agent is a new manifest rather than an edit to every function. The unit suites drive the seam
+through a synthetic manifest named for no shipped agent (`acme`), so a literal agent name in code fails the fixture;
+a test that asserts a shipped manifest's content names that agent as data.
+
+A control an agent's own configuration expresses — a permission rule, a hook behaviour — is built for every agent
+that can express it at a reasonable cost. Where one cannot, the control ships for the others and that agent's rule
+states the gap, so its absence is not read as coverage: every typesafe `decide` call asks the operator first
+under claude-code, and codex, pinned to the `never` approval policy, does not ask ([typesafe](typesafe.rule.md)).
+
 ## The `handback` capability — which side converges ownership
 
 Files the agent writes are born `SANDBOX_USER`-owned, and the ownership handback returns them to the operator (see

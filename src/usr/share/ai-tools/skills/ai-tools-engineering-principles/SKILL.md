@@ -3,8 +3,8 @@ name: ai-tools-engineering-principles
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the frontmatter name is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 4
-x-ai-tools-updated: 2026-09-14
+x-ai-tools-version: 5
+x-ai-tools-updated: 2026-09-24
 description: "Use when introducing a new feature (to set its shape before coding), when validating or reviewing a feature implementation against these defaults, or when choosing an approach, architecture, or how much machinery a problem warrants — in any language. Consult it at both ends: before building a feature and when checking the result. Sets the default engineering judgment: resolve trade-offs in the order security, then performance; write in a pragmatic, low-ceremony style (simple, explicit, terse-but-readable, POCO/DTO-first, no speculative abstraction); fail closed on critical components; sanitize with an allowlist not a blocklist; reach for the lightest mechanism that works; spend context and tokens deliberately (amortize discovery through persistent docs, isolate noisy fan-out work, and never downgrade planning to a weaker model); keep humans in the loop for irreversible or outward-facing actions. For prose style defer to ai-tools-technical-docs. Trigger on 'add/implement a feature', 'design this', 'how should I build/structure this', 'which approach', 'review/validate this implementation', 'is this over-engineered', or any design/architecture decision."
 ---
 
@@ -59,8 +59,10 @@ the code is the best documentation.
   for behaviour, and invariants have to hold.** Where a description disagrees with the code, resolve it toward the code
   and never average two descriptions. Where the *code* contradicts an invariant `CLAUDE.md` or a rule states, that is
   a defect in the code — raise it and leave the invariant standing, because rewriting the invariant to match retires
-  a guarantee by editing prose. A docs-to-code ratio climbing toward parity is a signal the *code* must become
-  self-descriptive (a rename, an extraction, a stronger type) — not that it needs more prose.
+  a guarantee by editing prose. Where the code is right but grants more than the invariant needs, propose the tightening
+  with its cost: prose that only tracks the code ratifies every widening the code has drifted into. A docs-to-code ratio
+  climbing toward parity is a signal the *code* must become self-descriptive (a rename, an extraction, a stronger type)
+  — not that it needs more prose.
 - **Match the surrounding code.** Adopt the file's existing idioms, naming, and comment density rather than importing
   a different house style.
 
@@ -69,7 +71,8 @@ the code is the best documentation.
 - **Fail closed on anything load-bearing.** A critical component that can't load stops the flow with a clear error —
   never a fail-open no-op stub, never "limp along on a broken install." A broken or half-installed state is not a valid
   state to silently accommodate. (Keep behaviour-preserving fallbacks only for pure *output* paths — a logger
-  or formatter — never for a security or correctness gate.)
+  or formatter — never for a security or correctness gate.) Each gate fails closed on its own; a later check downstream
+  does not justify an earlier one failing open.
 - **Sanitize with a fail-closed allowlist, not a blocklist.** Permit a known-safe subset and reject everything else
   by construction. A blocklist is open-ended and never provably complete; an allowlist does not need maintenance to stay
   safe. Prefer the simple, foolproof rule over exhaustive enumeration.
@@ -91,10 +94,27 @@ the code is the best documentation.
   asked. Where the system acts on its own, give it a visible override or review path.
 - **Scope a change to what it requires.** Touch only what the change needs — reconcile the doc passages it actually
   invalidates, don't ride unsolicited cross-cutting refactors or new doc sections along with a fix. Raise a broader idea
-  separately.
-- **Trace, don't guess.** When a call reports success and the expected effect is missing, observe the running behaviour
-  (a trace, an exit code, a log) before theorising — a silent no-op (a swallowed error, a mis-set flag) does not reveal
-  itself by inspection.
+  separately. A small defect found while working is never left alone. Fix it in the same change when the code is already
+  being touched; otherwise raise it in a form that invites a wider search for the same pattern, so the fix is not
+  an isolated one-off.
+- **A check proves its own setup before its verdict.** Do not silence the step that creates the state under test, assert
+  that the state exists, and print a known-good control beside the measurement. An input the check cannot read never
+  reads as the negative answer: test a predicate with its input unreadable and a tool it calls missing, not only
+  with valid input. A check that cannot pass is worse than none, because it teaches the reader to discount it.
+  When a check contradicts independent evidence that the operation succeeded — a trace, the resulting state — examine
+  the check as closely as the code. A verdict about a branch the check did not take is an inference, and is written
+  as one.
+- **Decide which side is wrong against the source of truth, not by which is easier to change.** An existing test
+  that passes and does not cover the code being written holds by default: a change that breaks it is presumed wrong,
+  and the test changes only when it is shown to be wrong or contradicts a truth that outranks it — an invariant,
+  the contract it asserts. A test written for the new code changes with that code's contract, in the same commit,
+  so a reviewer reads the two changes together. When a linter or checker reports a finding the source does not deserve —
+  the source follows the rule the checker states — fix the checker and its stated rule and add the case to its tests,
+  since reshaping the source to dodge the finding makes its formatting load-bearing. A repaired check keeps a case
+  that still fails on the defect it exists to catch.
+- **Trace, don't guess.** When a call claims success but the expected effect is missing, observe the running behaviour
+  (trace, exit status, log) before forming a theory. A silent no-op does not show itself by static inspection. Once
+  the trace has identified the cause, fix that cause. Do not silence the symptom.
 
 ## Routing
 
@@ -111,6 +131,9 @@ the code is the best documentation.
 | A missing security lib silently degrades to a permissive no-op | Fail closed: refuse with a clear error and enough to debug it |
 | Blocklist of "dangerous" characters, extended forever | Allowlist a known-safe subset; reject the rest by construction |
 | A pre-commit hook to police rule↔code drift | Resolve the drift while editing, against the code |
+| `setup 2>/dev/null`, then measure; an unreadable input read as "none found" | Assert the setup, print a control, and report an unreadable input as unknown |
+| Edit a failing test, or split a line, until the check goes green | Settle which side is wrong against the contract or the stated rule; keep a case that fails on the real defect |
+| Change what reports the failure until the report goes away | Trace to the cause and fix it there |
 | Bundle a broad refactor / new doc section into a small fix | Keep the fix scoped; propose the rest separately |
 | `var mgr`, `// increment i`, "Gap A (see chat)" | Descriptive names; comments that give the why, self-contained |
 | Re-grep the same landmarks every session; spawn a cold subagent for two lookups; route planning to a weaker model | Persistent router/headers so discovery is paid once; delegate only fan-out-heavy work, returning a distilled result; cheaper model for discovery only |
