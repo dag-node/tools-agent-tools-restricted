@@ -125,6 +125,14 @@ there with **known content defined in the test**, never reads or writes the oper
 `~/.config/ai-tools/allowed-projects`), and removes everything it created on exit (the harness `EXIT` trap). A test
 never relies on arbitrary pre-existing state, and never touches a path outside its testdir boundary.
 
+**The invoker's process state is not a fixture either.** `run.sh` and the harness do not pin a umask, so a file runs
+under whatever `sudo` hands it — `077` on a host whose `login.defs` sets `UMASK 077` — and `runuser` passes that umask
+to the command it drives unchanged. A test whose fixture another account reads therefore sets that fixture's modes
+explicitly or pins `umask 022` at its top, and one that exercises a verb a umask could change re-drives it
+under the stricter values in the same run (`integration/cli-flags.sh`). A command run as the operator through `runuser`
+reads that operator's `~/.gitconfig` too, so a fixture commit passes `-c commit.gpgsign=false`: with signing
+on, the commit waits on a pinentry prompt the run cannot answer until the per-file timeout kills it.
+
 ### Fixture names and the residue sweep
 
 A test that must create a path **outside** its testdir — in the clone area, the control plane, the cgroup root,
@@ -1063,6 +1071,13 @@ as the layout the policy rests on, one check per swap vector.
   the word is wrapped, so a grep on a result *message* is unaffected; a grep anchored on the *word* must allow
   the escape, as `run.sh`'s failure summary (`_FAIL_RE`) does. Anchored without it the summary comes back empty
   on a coloured run, while the suite still reports the failure and exits non-zero.
+- **A unit test runs the host's release, not the branch's.** A `unit` file sources the **installed** helper where one is
+  deployed, so a branch's root run reads the previous release's code until `install.sh install` has deployed the branch.
+  Where that helper names a fixed system path (`/etc/ai-tools/operator.conf`), the stubs are the only thing
+  between a root run and the real file: a test that stubs only the writer the branch's code calls leaves the writer
+  the installed code calls live, and it rewrites the host's file. Such a test stubs **every** route to a write — each
+  public writer, the rename beneath them, `install` — and asserts the expected one was called, so an older helper fails
+  the case instead of writing (`unit/admin-operator-add.sh`).
 - **Setgid bits survive numeric `chmod`.** GNU coreutils `chmod` with an octal mode does not clear a directory's
   setgid/setuid bit; a testdir under a setgid parent inherits it. Assertions on the rwx bits use `perm()` (low 3 octal
   digits), not raw `stat %a`.
