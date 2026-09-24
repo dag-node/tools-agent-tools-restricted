@@ -65,6 +65,8 @@
       "Bash(semodule *)",
       "Bash(semanage)",
       "Bash(semanage *)",
+      "Bash(gpg)",
+      "Bash(gpg *)",
       "Bash(df)",
       "Bash(df *)",
       "Bash(du)",
