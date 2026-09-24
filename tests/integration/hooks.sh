@@ -143,6 +143,19 @@ else
     else
         pass "settings.json allow and deny lists are disjoint"
     fi
+
+    # (0e) A typesafe decide call is put to the operator every time: each one sends listing lines off the host,
+    # and an `ask` entry is the one prompt that holds in every permission mode (claude-settings.rule.md). Checked
+    # where the integration's command is installed. A kept settings.json does not gain the entry on upgrade -- the merge
+    # carries hook declarations alone -- so its absence fails with the line to add.
+    readonly decide_ask='Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)'
+    if [[ -e /usr/local/lib/ai-tools/typesafe/decide.mjs ]]; then
+        if jq -e --arg e "${decide_ask}" '(.permissions.ask // []) | index($e) != null' "${settings}" >/dev/null 2>&1; then
+            pass "settings.json asks before every typesafe decide call"
+        else
+            fail "settings.json does not ask before a typesafe decide call -- add \"${decide_ask}\" to permissions.ask in ${settings} (an upgrade does not add it to a kept file)"
+        fi
+    fi
 fi
 
 # ── requirements.toml declares codex's hooks + the pin ───────────────────────────

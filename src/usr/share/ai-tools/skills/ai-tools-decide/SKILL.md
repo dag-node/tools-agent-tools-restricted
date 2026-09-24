@@ -45,8 +45,8 @@ which to act on; a log with one error is read directly.
 
 The command exits non-zero with one line on stderr naming the class (`configuration`, `input`, `provider`, `contract`,
 `deadline`) and does not print a result: the listing already in hand is the fallback, and a failed call costs the one
-invocation. Each call sends its listing off the host, and whether the session asks the user first depends on its
-permission mode, so pipe only the lines the task needs.
+invocation. Each call sends its listing off the host, and an agent may put each call to the user first or send it
+without asking, so pipe only the lines the task needs.
 
 A `provider` line naming `status=401` or `status=403` means TypeSafe refused the host's key. Do not run the command
 again in that session: every call would be refused the same way, and each one still sends its listing. Tell the user

@@ -45,9 +45,10 @@ a listing over its bound rather than truncating it. It also refuses a stream
 that is not text — one holding a NUL byte or a run of undecodable bytes —
 so a binary file piped in by mistake does not reach the service.
 
-Whether you see a call before it runs depends on the agent and its permission
-mode ([Misleading agent setting names](../agents/setting-names.md)). Codex,
-which this project pins never to ask, runs it without a prompt. Enabling
+Claude Code asks you before every call, whatever permission mode the session
+runs in. Codex runs it without a prompt: this project pins it to ask only
+about a command one of its rules marks `prompt`, and the shipped rules mark
+none ([Misleading agent setting names](../agents/setting-names.md)). Enabling
 the integration is therefore where you consent: whether a given project's lines
 may leave the host is your decision, which is why the integration is off until
 you name it in `/etc/ai-tools/operator.conf` and set the key. The usage log

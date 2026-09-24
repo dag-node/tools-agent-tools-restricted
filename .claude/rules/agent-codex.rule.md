@@ -168,9 +168,10 @@ between the session and the command. **The two agents arrive there from opposite
 each**, and the comparison is worth stating in those terms rather than as attended against unattended. claude-code ships
 with auto mode off (`disableAutoMode`, [claude-settings](claude-settings.rule.md)), so it asks before a command it is
 not configured to allow; its deny entry is needed because the harness auto-approves a **safe read** without asking,
-and a host-survey command reads as one. Codex is pinned to `allowed_approval_policies = ["never"]`, so it asks in no
-session at all — interactive or `codex exec` alike — and the table is the whole of its per-command mediation. An agent
-that needs one of these raises it in the session with its reasoning, and the operator runs it.
+and a host-survey command reads as one. Codex is pinned to `allowed_approval_policies = ["never"]`, so it asks only
+about a command a requirements rule marks `prompt`, and the shipped rules mark none — interactive or `codex exec` alike
+— so the table is the whole of its per-command mediation. An agent that needs one of these raises it in the session
+with its reasoning, and the operator runs it.
 
 **The table is a narrower instrument than claude-code's, not a stronger one.** A row that matches refuses, on either
 agent; what differs is how much a row matches, and the exact-prefix grammar this section describes next catches **less**
@@ -190,14 +191,14 @@ row wider than claude-code's, since its destructive spellings (`-f`, `-fd`, `-ff
 and an enumeration leaks the one it misses. `unit/codex-package.sh` pins the rows and that no decision reads `allow`;
 `integration/hooks.sh` pins them in the deployed file, which is where an operator's edit is kept across an upgrade.
 
-**A refusal reaches the model and does not wait for anyone.** Since codex asks in no session, the open question was
-what a refusal does where there is nobody to ask — `codex exec`, the shape a scheduled or scripted run takes, is
-where a decision wanting an answer would block until its timeout. Measured on codex 0.155, one `codex exec` turn
-per group: asked to run `git clean -fd`, and asked to run `ps aux`. Each completed at exit 0 with the command not run,
-and the model reported the refusal quoting that row's own `justification` back. So `forbidden` is the decision both
-groups take. The only other decision a requirements rule offers is `prompt`, which puts the command to the operator
-for approval — and in a session pinned never to ask, run by a schedule or a script, there is nobody present to answer
-it. `forbidden` is therefore the one of the two that resolves without a person in the room.
+**A refusal reaches the model and does not wait for anyone.** Since codex asks about no command the shipped rules name,
+the open question was what a refusal does where there is nobody to ask — `codex exec`, the shape a scheduled or scripted
+run takes, is where a decision wanting an answer would block until its timeout. Measured on codex 0.155, one
+`codex exec` turn per group: asked to run `git clean -fd`, and asked to run `ps aux`. Each completed at exit 0
+with the command not run, and the model reported the refusal quoting that row's own `justification` back. So `forbidden`
+is the decision both groups take. The only other decision a requirements rule offers is `prompt`, which puts the command
+to the operator for approval — and in a session pinned never to ask, run by a schedule or a script, there is nobody
+present to answer it. `forbidden` is therefore the one of the two that resolves without a person in the room.
 
 Three properties of the matcher are read off those two runs, and each is why a row is written the way it is. The refusal
 names `/usr/bin/bash -lc '<command>'`, so codex matches the **inner** command rather than the shell invocation carrying
