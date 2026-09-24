@@ -7,6 +7,11 @@ Six settings across the two agents whose names cheerfully announce the opposite
 of what they do here. What each one really means, and the single rule
 that quietly decodes all of them.
 
+> [!WARNING]
+> What each permission mode does, and which one a session starts in, is
+> the agent's own behaviour and changes between releases. Read the agent's
+> official documentation for how these options work today.
+
 A Codex session opens with a banner that has made more than one experienced
 admin pause:
 

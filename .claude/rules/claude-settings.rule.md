@@ -196,23 +196,21 @@ terminal space alone — the session's authority is identical either way — and
 confirming an action sees the reasoning that produced it and the output it produced, which is the difference
 between approving a command string and approving what the command did.
 
-They are the operator-side complement to `disableAutoMode`: that key decides *whether* a human is asked, these decide
-*how much* that human is shown. The catalog of the other UI and behavior keys an operator MAY add is
+They are the operator-side complement to `disableAutoMode`: that key keeps auto mode from approving in a person's place,
+these decide *how much* that person is shown. The catalog of the other UI and behavior keys an operator MAY add is
 in [`docs/agents/claude-code.md`](../../docs/agents/claude-code.md).
 
-## `disableAutoMode` — confirm-by-default
+## `disableAutoMode` — auto mode off
 
 ```json
 "disableAutoMode": "disable"
 ```
 
-`"disable"` removes `auto` from the `Shift+Tab` permission-mode cycle and rejects `--permission-mode auto` at startup,
-so a session takes actions under a confirming permission mode. The value is the literal string `"disable"`; the key
-absent (or any other value) leaves auto mode selectable.
-
-The default keeps a human in the loop for the outward-facing, irreversible actions a session reaches — commits, pushes,
-other state-changing Bash commands — which the sandbox confines but does not gate on confirmation. It is a control-plane
-default, overridable per project (see [Control-plane integrity](#control-plane-integrity)).
+The project ships this value so that auto mode is not available to approve actions in a person's place. It is
+a control-plane default, overridable per project (see [Control-plane integrity](#control-plane-integrity)). It does not
+cover `bypassPermissions`, which stays the operator's choice. The project ships neither a lock on that mode
+nor a per-command `ask` rule, because codex is pinned never to ask ([agent-codex](agent-codex.rule.md)) and a control is
+not shipped for one agent alone.
 
 ## Coupling to optional SELinux groups
 

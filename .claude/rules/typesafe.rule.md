@@ -65,10 +65,12 @@ suite.
 What leaves the host is the task sentence and the listing lines the agent piped. The skill's first rule is
 that a listing is piped and a file's contents are not, and a quarantined secret-named file is `600` to the operator,
 so a session cannot read it to pipe it; the vendor's terms and whether a given project's lines may leave the host are
-the operator's decision, which is why enabling is per host and by name. The command is **unlisted** in each agent's
-shipped `settings.json`, so Claude Code asks before running it: the prompt is the operator's visibility
-of the disclosure. An operator who accepts it may add `Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)`
-to their own settings.
+the operator's decision, which is why enabling is per host and by name. Whether a call is put to the operator first
+depends on the agent and its permission mode ([claude-settings](claude-settings.rule.md),
+[agent-codex](agent-codex.rule.md)), so a per-call prompt is not guaranteed. Enablement is where the operator consents
+to the disclosure, and the usage log is the per-call record, as counts without content. The command is not
+on claude-code's shipped allow list; an operator who does not want its prompt may add
+`Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)` to their own settings.
 
 Two things the integration does not change. Any process of the sandbox account can read the credential file, which is
 the shared-account trust unit `CLAUDE.md` states and this integration inherits. And `--config <file>` lets a caller name

@@ -43,11 +43,15 @@ The task sentence and the listing lines the agent pipes. The skill's first rule
 is to pipe listings and not a file's contents, and the command refuses
 a listing over its bound rather than truncating it. It also refuses a stream
 that is not text — one holding a NUL byte or a run of undecodable bytes —
-so a binary file piped in by mistake does not reach the service. Claude Code
-asks before running the command, since it is not on the shipped allow list;
-the prompt is where you see each call. Whether a given project's lines may
-leave the host is your decision, which is why the integration is off until you
-name it in `/etc/ai-tools/operator.conf` and set the key.
+so a binary file piped in by mistake does not reach the service.
+
+Whether you see a call before it runs depends on the agent and its permission
+mode ([Misleading agent setting names](../agents/setting-names.md)). Codex,
+which this project pins never to ask, runs it without a prompt. Enabling
+the integration is therefore where you consent: whether a given project's lines
+may leave the host is your decision, which is why the integration is off until
+you name it in `/etc/ai-tools/operator.conf` and set the key. The usage log
+records each call afterwards, as counts without content.
 
 ## The credential
 
@@ -69,6 +73,28 @@ release, name it:
 ```ini
 TYPESAFE_MODEL=jev-1.13.0
 ```
+
+> [!WARNING]
+> Every agent session runs as the sandbox account and can therefore read
+> the key in this file. The only way to keep the key out of the sandbox's reach
+> is an authenticating proxy that holds the key outside the sandbox.
+
+## Rotating the key
+
+```bash
+sudoedit /etc/ai-tools/endpoints/typesafe.conf
+printf 'basket.txt:1: apple\n' | sudo -u ai-tools node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --task "which lines name a fruit" --config /etc/ai-tools/endpoints/typesafe.conf
+```
+
+Replace `TYPESAFE_API_KEY`, then send one synthetic line as the sandbox
+account.
+
+- A working key prints the line and a summary that names the model.
+- A refused key prints a single `decide: provider:` line with `status=401`
+  or `status=403` and TypeSafe's reason.
+
+Until the key is fixed, sessions fall back to the full listing. The agent stops
+calling after the first refusal and tells you.
 
 ## Turning it off
 
