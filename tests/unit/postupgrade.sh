@@ -365,22 +365,34 @@ fi
 
 # ── (E9) --check: one tab-separated line per finding, nothing when clean, and no write ───────────────────────
 # It is what cron runs, so a clean host must print nothing at all and exit 0, a finding must be one line a monitor
-# splits on a tab, and a merge the interactive run would make must be reported without being made.
+# splits on a tab -- its code, the path, the finding, the detail -- and a merge the interactive run would make must be
+# reported without being made. The findings that need no action appear under --all alone and leave the exit at 0.
 run_check() {
     local rc=0
-    out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check \
+    out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check "$@" \
         < /dev/null 2>&1)" || rc=$?
     check_rc="${rc}"
 }
+# has_finding <code> <path> <finding> <detail>: the output holds exactly that line.
+has_finding() { grep -qxF "$(printf '%s\t%s\t%s\t%s' "$@")" <<< "${out}"; }
+
 reset_root
 cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
 mkdir -p "${ROOT}/etc/ai-tools/prompts"
 : > "${ROOT}/etc/ai-tools/prompts/prompt.md"; : > "${ROOT}/etc/ai-tools/prompts/prompt.md.rpmnew"
+: > "${SETTINGS}.20200101-1.bak"
 run_check
 if [[ -z "${out}" && "${check_rc}" == 0 ]]; then
-    pass "a clean host, identical copy included, prints nothing and exits 0 under --check"
+    pass "a host with nothing to act on prints nothing and exits 0 under --check"
 else
     fail "a clean host was reported under --check (exit ${check_rc}): ${out}"
+fi
+run_check --all
+if [[ "${check_rc}" == 0 ]] && has_finding MSG-J3X7 "${ROOT}/etc/ai-tools/prompts/prompt.md.rpmnew" rpmnew-residual - \
+        && has_finding MSG-W8F8 "${SETTINGS}.20200101-1.bak" copy-kept -; then
+    pass "--all adds the identical copy and the kept backup, and the exit stays 0"
+else
+    fail "--all did not list the no-action findings, or changed the exit (exit ${check_rc}): ${out}"
 fi
 
 reset_root
@@ -388,18 +400,19 @@ jq 'del(.hooks.PreToolUse) | del(.permissions.ask)' "${SHIPPED_SETTINGS}" > "${S
 cp "${SHIPPED_SETTINGS}" "${SETTINGS}.rpmnew"
 mkdir -p "${ROOT}/usr/local/lib/ai-tools/typesafe"
 : > "${ROOT}/usr/local/lib/ai-tools/typesafe/decide.mjs"
+: > "${ROOT}/etc/codex/gone.toml.rpmnew"
 cp "${SETTINGS}" "${TESTDIR}/pre-check.json"
 shipped_cmd="$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "${SHIPPED_SETTINGS}")"
 run_check
-if [[ "${check_rc}" == 1 ]] && grep -qxF "$(printf 'hook-missing\t%s\tPreToolUse: %s' "${SETTINGS}" "${shipped_cmd}")" \
-        <<< "${out}" && grep -qxF "$(printf 'ask-missing\t%s\tBash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)' \
-        "${SETTINGS}")" <<< "${out}"; then
-    pass "each finding is one tab-separated line naming the finding, the file and the detail, and the run exits 1"
+if [[ "${check_rc}" == 1 ]] && has_finding MSG-F2G7 "${SETTINGS}" hook-missing "PreToolUse: ${shipped_cmd}" \
+        && has_finding MSG-E9V5 "${SETTINGS}" ask-missing 'Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)' \
+        && has_finding MSG-K8D2 "${ROOT}/etc/codex/gone.toml.rpmnew" rpmnew-orphan "the file it belongs to is gone"; then
+    pass "each finding is one line of code, path, finding and detail, and the run exits 1"
 else
-    fail "--check did not report the pending merge and the missing ask entry as findings (exit ${check_rc}): ${out}"
+    fail "--check did not report the pending merge, the missing ask entry and the orphan (exit ${check_rc}): ${out}"
 fi
-if ! grep -qvP '^[a-z-]+\t/[^\t]+\t[^\t]+$' <<< "${out}"; then
-    pass "every line --check prints has the three-field shape and no other text"
+if ! grep -qvP '^MSG-[A-Z][0-9][A-Z][0-9]\t/[^\t]+\t[a-z-]+\t[^\t]+$' <<< "${out}"; then
+    pass "every line --check prints has the four-field shape and no other text"
 else
     fail "--check printed a line outside the finding shape: ${out}"
 fi
@@ -408,6 +421,40 @@ if cmp -s "${SETTINGS}" "${TESTDIR}/pre-check.json" && [[ "$(sidecars "${SETTING
 else
     fail "--check changed settings.json or left a sidecar"
 fi
+
+# A shipped skill whose live copy is an empty directory is not offered to a session, so it needs attention; the same
+# skill seeded at an older version is the operator's choice and appears under --all alone.
+reset_root
+cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
+mkdir -p "${ROOT}/usr/share/ai-tools/skills/ai-tools-demo" "${ROOT}/opt/ai-tools/skills/ai-tools-demo"
+printf -- '---\nname: ai-tools-demo\nx-ai-tools-managed: true\nx-ai-tools-version: 2\n---\n' \
+    > "${ROOT}/usr/share/ai-tools/skills/ai-tools-demo/SKILL.md"
+run_check
+if [[ "${check_rc}" == 1 ]] && has_finding MSG-X6H5 "${ROOT}/opt/ai-tools/skills/ai-tools-demo" asset-missing \
+        "not seeded -- sessions are not offered it"; then
+    pass "a shipped skill whose live directory is empty is reported missing"
+else
+    fail "an empty live skill directory was not reported (exit ${check_rc}): ${out}"
+fi
+sed 's/version: 2/version: 1/' "${ROOT}/usr/share/ai-tools/skills/ai-tools-demo/SKILL.md" \
+    > "${ROOT}/opt/ai-tools/skills/ai-tools-demo/SKILL.md"
+run_check --all
+if has_finding MSG-R6B2 "${ROOT}/opt/ai-tools/skills/ai-tools-demo" asset-outdated "v1 live, v2 shipped" \
+        && ! grep -q asset-missing <<< "${out}"; then
+    pass "a live skill older than the shipped one is listed under --all as outdated"
+else
+    fail "an outdated live skill was not listed under --all: ${out}"
+fi
+
+for bad in "--all" "--format tsv" "--check --format json" "--check --bogus"; do
+    # shellcheck disable=SC2086  # each case is a word list on purpose
+    if bad_out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade ${bad} \
+            < /dev/null 2>&1)"; then
+        fail "system post-upgrade ${bad} was accepted"
+    else
+        assert_msg MSG-S9M6 "${bad_out}" "system post-upgrade ${bad} is refused"
+    fi
+done
 
 # ── (F) The sudoers grant: shown, never adopted ──────────────────────────────────────────────
 reset_root

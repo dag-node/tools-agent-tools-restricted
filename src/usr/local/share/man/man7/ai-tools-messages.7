@@ -313,6 +313,18 @@ the provisioning helper is not installed: ${BOOTSTRAP_BIN} \-\- install ai\-tool
 ERROR.
 a verb outside the command charset: ${fragment} declares $(printf '%q' "${verb}") among its verbs, and a verb is a bare lower\-case word
 .TP
+.B MSG-E8S8
+WARNING.
+hook\-repeated
+.TP
+.B MSG-E9V5
+WARNING.
+ask\-missing
+.TP
+.B MSG-F2G7
+WARNING.
+hook\-missing
+.TP
 .B MSG-F4Z5
 ERROR.
 not executable: ${fragment} \-\- reinstall the package that ships it
@@ -369,9 +381,17 @@ This file defines the sudo grant that lets an operator launch the sandbox. It is
 WARNING.
 provisioning failed \-\- ${integration}: its bootstrap failed, with the cause above and in its own log
 .TP
+.B MSG-J3X7
+NOTICE.
+rpmnew\-residual
+.TP
 .B MSG-J9F9
 WARNING.
 could not remove ${user} from ${OPERATORS_GROUP}
+.TP
+.B MSG-K8D2
+WARNING.
+rpmnew\-orphan
 .TP
 .B MSG-M2N9
 WARNING.
@@ -397,13 +417,25 @@ could not create ${cfg} at 700 ${user}:${group}
 WARNING.
 could not label ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}${AI_TOOLS_FCONTEXT_ERROR:+ \-\- ${AI_TOOLS_FCONTEXT_ERROR}}
 .TP
+.B MSG-N3U8
+WARNING.
+option\-unmentioned
+.TP
 .B MSG-N4H9
 ERROR.
 could not write OPERATORS into ${OPERATOR_CONF} \-\- the enrolment is incomplete; check the file and re\-run
 .TP
+.B MSG-N9S4
+WARNING.
+asset\-unlinked
+.TP
 .B MSG-P2T5
 ERROR.
 selinux groups disable: name the group to unload
+.TP
+.B MSG-P4Q4
+WARNING.
+rpmnew\-differs
 .TP
 .B MSG-P5C5
 WARNING.
@@ -437,6 +469,10 @@ diff is not installed, so the difference is not shown here \-\- install diffutil
 ERROR.
 semodule failed to remove ai_tools_${name}
 .TP
+.B MSG-R6B2
+NOTICE.
+asset\-outdated
+.TP
 .B MSG-R7U6
 WARNING.
 no home directory on this host for ${user}; skipping the config seed
@@ -455,7 +491,7 @@ could not create ${cfg_home} as ${user}:${group}
 .TP
 .B MSG-S9M6
 ERROR.
-system post\-upgrade: takes no argument but \-\-check
+system post\-upgrade: ${refusal}
 .TP
 .B MSG-T4X9
 ERROR.
@@ -517,6 +553,10 @@ one or more integrations did not provision
 ERROR.
 unknown command 'selinux ${resource}' (groups)
 .TP
+.B MSG-W3M8
+NOTICE.
+asset\-overridden
+.TP
 .B MSG-W3T9
 ERROR.
 an incompatible contract: ${fragment} needs contributed\-command interface ${declared_floor}, and this ai\-tools\-admin implements ${ADMIN_COMMAND_API} \-\- a different major is a different contract, so upgrade whichever of the two is behind
@@ -533,6 +573,14 @@ semodule failed to load ${pp}
 ERROR.
 selinux groups disable: one group name at a time
 .TP
+.B MSG-W8F8
+NOTICE.
+copy\-kept
+.TP
+.B MSG-X6H5
+WARNING.
+asset\-missing
+.TP
 .B MSG-X8K6
 ERROR.
 system bootstrap: \-\-agents takes a value (NAME[,NAME...])
@@ -540,6 +588,14 @@ system bootstrap: \-\-agents takes a value (NAME[,NAME...])
 .B MSG-X9F8
 WARNING.
 the merge failed: ${_ai_tools_conf_merge_reason} \-\- ${deployed} is unchanged
+.TP
+.B MSG-Y3J5
+ERROR.
+error
+.TP
+.B MSG-Y3P3
+WARNING.
+rpmnew\-review
 .TP
 .B MSG-Y6F3
 ERROR.

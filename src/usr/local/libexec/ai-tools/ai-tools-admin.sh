@@ -17,7 +17,7 @@
 #   sudo ai-tools-admin system bootstrap --agents codex    # ... enabling the named agent, unattended
 #   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
-#   sudo ai-tools-admin system post-upgrade --check        # report only, for cron: silent and exit 0 when clean
+#   sudo ai-tools-admin system post-upgrade --check        # findings as tab-separated lines; silent, exit 0 when clean
 #   sudo ai-tools-admin status                             # the host's health, read as root
 #   sudo ai-tools-admin dotnet bootstrap                   # a domain a provider package contributes
 #   ```
@@ -206,6 +206,8 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the t
       --agents NAME[,NAME...]        enable the named agents instead of asking which one
     system entrypoints relabel       verify and relabel the agent entrypoints
     system post-upgrade [--check]    reconcile the .rpmnew files an upgrade leaves; --check only reports
+      --all                          with --check: list the findings that need no action too
+      --format tsv                   with --check: the line format (the default)
   Health
     status                           this host's services, entrypoints and live labels
 EOF
@@ -1528,12 +1530,46 @@ _pu_ask_gaps() {
     _pu_say info "this command does not edit the file, since the permission rules are yours -- re-run it to confirm"
 }
 
+# _pu_orphan_report <root>: a block per package copy whose file is gone, naming the two ways to settle it.
+_pu_orphan_report() {
+    local path
+    while IFS= read -r path; do
+        _PU_NAME="${path##*/}"
+        ai_tools_msg_headline "${_PU_NAME} -- a package copy without its file" 1 "${path}"
+        _pu_say act "the file this copy belongs to is gone -- restore it from the copy, or remove the copy:"
+        printf '      sudo cp -p %s %s\n' "${path}" "${path%.rpmnew}"
+        printf '      sudo rm %s\n' "${path}"
+    done < <(_pu_orphans "$1")
+}
+
+# _pu_asset_report <root>: one block for the shared skills, subagents and orientation text whose live copy or agent link
+# is not the one provisioning places. A missing asset or link needs the operator; an outdated or overridden one is named
+# as their choice.
+_pu_asset_report() {
+    local state path detail
+    local -a lines=()
+    mapfile -t lines < <(_pu_assets "$1")
+    (( ${#lines[@]} > 0 )) || return 0
+    _PU_NAME="assets"
+    ai_tools_msg_headline "shared skills, subagents and orientation" 1 "$1/opt/ai-tools"
+    for path in "${lines[@]}"; do
+        IFS=$'\t' read -r state path detail <<< "${path}"
+        case "${state}" in
+            asset-missing|asset-unlinked|error) _pu_say act "${path} -- ${detail}" ;;
+            *)                                  _pu_say info "${path} -- ${detail}" ;;
+        esac
+    done
+    if printf '%s\n' "${lines[@]}" | grep -qE '^(asset-missing|asset-unlinked)'; then
+        _pu_say info "sudo ai-tools-admin system bootstrap seeds and links them again"
+    fi
+}
+
 # _pu_sort_copies: read sidecar paths on stdin and print them grouped by file and in the order they were made --
 # by date, then by the day's number, an unnumbered copy (the name an earlier release gave a day's first) counting as 1.
 # A name that carries a date but not in that shape (a copy made by hand) is kept, after the day's numbered copies.
 _pu_sort_copies() {
     awk 'BEGIN { OFS = "\t" }
-        match($0, /\.[0-9]{8}(-[0-9]+)?\.(bak|shipped)$/) {
+        match($0, /\.[0-9]{8}(-[0-9]+)?\.(bak|shipped|retired)$/) {
             tail = substr($0, RSTART + 1); base = substr($0, 1, RSTART - 1)
             day = substr(tail, 1, 8); n = 1
             if (substr(tail, 9, 1) == "-") { n = substr(tail, 10); sub(/\..*/, "", n) }
@@ -1544,25 +1580,20 @@ _pu_sort_copies() {
         | sort -t $'\t' -k1,1 -k2,2 -k3,3n | cut -f4
 }
 
-# _pu_sidecars <root>: list the dated copies the merge and the installer left beside the config files -- a .bak is
-# what a file held before a merge replaced it, a .shipped the baseline left when one could not run -- so an operator
-# learns they exist. Listed, never removed: a .bak is the only copy that restores host tuning a merge got wrong. One
-# dated before this command's own file is from an earlier installation, which is said beside it.
+# _pu_sidecars <root>: list the dated copies _pu_copies names, so an operator learns they exist. Listed, never removed:
+# a .bak is the only copy that restores host tuning a merge got wrong. One dated before this command's own file is
+# from an earlier installation, which is said beside it.
 _pu_sidecars() {
-    local root="$1" dir path stamp installed
+    local root="$1" path stamp installed
     local -a copies=()
     installed="$(_pu_installed_day)" || installed=""
-    for dir in "${POSTUPGRADE_DIRS[@]}" /etc/sudoers.d; do
-        [[ -d "${root}${dir}" ]] || continue
-        while IFS= read -r path; do copies+=("${path}"); done < <(find "${root}${dir}" -maxdepth 3 -type f \
-            \( -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.bak' \
-               -o -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.shipped' \) 2>/dev/null | _pu_sort_copies)
-    done
+    mapfile -t copies < <(_pu_copies "${root}")
     (( ${#copies[@]} > 0 )) || return 0
     ai_tools_msg_headline "earlier copies kept beside the config files" 1 \
-        "a .bak is what a file held before a merge replaced it, a .shipped the baseline left when a merge could not run"
+        "a .bak is what a file held before a merge replaced it, a .shipped the baseline left when a merge could not run," \
+        "a .retired a managed file or a withdrawn skill set aside"
     for path in "${copies[@]}"; do
-        stamp="$(sed -nE 's/.*\.([0-9]{8})(-[0-9]+)?\.(bak|shipped)$/\1/p' <<< "${path}")"
+        stamp="$(sed -nE 's/.*\.([0-9]{8})(-[0-9]+)?\.(bak|shipped|retired)$/\1/p' <<< "${path}")"
         if [[ -n "${installed}" && -n "${stamp}" && "${stamp}" < "${installed}" ]]; then
             printf '  %s  %s(before this installation)%s\n' "${path}" "${_PU_DIM}" "${_PU_RST}"
         else
@@ -1576,12 +1607,25 @@ _pu_sidecars() {
 # Returns 0 when nothing is left to act on and 1 otherwise, the contract `status` offers, so a caller reads the outcome
 # from the exit status alone.
 postupgrade() {
-    local check=0
-    case "${1-}" in
-        --check) check=1; shift ;;
-    esac
-    [[ $# -eq 0 ]] || reject MSG-S9M6 "system post-upgrade: takes no argument but --check"
+    local check=0 all=0 format=tsv format_given=0 refusal=""
+    while [[ $# -gt 0 && -z "${refusal}" ]]; do
+        case "$1" in
+            --check)  check=1 ;;
+            --all)    all=1 ;;
+            --format) if [[ $# -ge 2 ]]; then format="$2"; format_given=1; shift
+                      else refusal="--format takes a value (tsv)"; fi ;;
+            *)        refusal="unknown argument '$1' (--check [--all] [--format tsv])" ;;
+        esac
+        shift
+    done
+    if [[ -z "${refusal}" ]] && (( ! check && (all || format_given) )); then
+        refusal="--all and --format apply to --check alone"
+    elif [[ -z "${refusal}" && "${format}" != tsv ]]; then
+        refusal="unknown --format '${format}' (tsv)"
+    fi
+    [[ -z "${refusal}" ]] || reject MSG-S9M6 "system post-upgrade: ${refusal}"
     if (( check )); then
+        _PU_ALL="${all}"
         _pu_check "${AI_TOOLS_POSTUPGRADE_ROOT:-}"
         return
     fi
@@ -1589,53 +1633,203 @@ postupgrade() {
     (( _PU_ATTENTION == 0 ))
 }
 
-# _pu_check <root>: one line per finding on stdout, `<finding> TAB <path> TAB <detail>`, and nothing else -- no colour,
-# no heading, no line when the host is clean, so cron mails only a host that needs attention and a monitor splits
-# the line on a tab. A copy identical to its file, and the dated sidecars, are not findings. Returns 1 when it printed
-# a line. The findings are the ones ai-tools-admin(8) lists; each reads the same predicate the report does.
+# ── --check: the findings as data ────────────────────────────────────────────────────────────
+# One line per finding, `<code> TAB <path> TAB <finding> TAB <detail>`, and nothing else -- no colour, no heading,
+# and no line when the host is clean -- so a cron job mails only a host that needs attention and a monitor splits
+# the line on a tab. A finding that needs attention is printed always and makes the run exit 1; the rest are printed
+# only under --all and do not change the exit status. Each finding is one situation, so it carries one message code,
+# and _pu_finding is the one place a finding is tied to its code.
+_PU_ALL=0
+_PU_FINDINGS=0
+
+# _pu_attention <code> <finding> <path> [detail]: a finding that needs attention -- printed, and counted.
+_pu_attention() {
+    printf '%s\t%s\t%s\t%s\n' "$1" "$3" "$2" "${4:--}"
+    _PU_FINDINGS=$(( _PU_FINDINGS + 1 ))
+}
+# _pu_check_failed <code> <finding> <path> <reason>: a check that could not run, which needs attention as well.
+_pu_check_failed() { _pu_attention "$@"; }
+# _pu_aside <code> <finding> <path> [detail]: a finding that needs no action, printed under --all alone.
+_pu_aside() {
+    (( _PU_ALL )) || return 0
+    printf '%s\t%s\t%s\t%s\n' "$1" "$3" "$2" "${4:--}"
+}
+
+# _pu_finding <finding> <path> [detail]: report one finding under its code. ai-tools-admin(8) lists what each means.
+_pu_finding() {
+    case "$1" in
+        hook-missing)       _pu_attention MSG-F2G7 "hook-missing" "$2" "${3-}" ;;
+        hook-repeated)      _pu_attention MSG-E8S8 "hook-repeated" "$2" "${3-}" ;;
+        ask-missing)        _pu_attention MSG-E9V5 "ask-missing" "$2" "${3-}" ;;
+        option-unmentioned) _pu_attention MSG-N3U8 "option-unmentioned" "$2" "${3-}" ;;
+        rpmnew-differs)     _pu_attention MSG-P4Q4 "rpmnew-differs" "$2" "${3-}" ;;
+        rpmnew-review)      _pu_attention MSG-Y3P3 "rpmnew-review" "$2" "${3-}" ;;
+        rpmnew-orphan)      _pu_attention MSG-K8D2 "rpmnew-orphan" "$2" "${3-}" ;;
+        asset-missing)      _pu_attention MSG-X6H5 "asset-missing" "$2" "${3-}" ;;
+        asset-unlinked)     _pu_attention MSG-N9S4 "asset-unlinked" "$2" "${3-}" ;;
+        error)              _pu_check_failed MSG-Y3J5 "error" "$2" "${3-}" ;;
+        rpmnew-residual)    _pu_aside MSG-J3X7 "rpmnew-residual" "$2" "${3-}" ;;
+        copy-kept)          _pu_aside MSG-W8F8 "copy-kept" "$2" "${3-}" ;;
+        asset-outdated)     _pu_aside MSG-R6B2 "asset-outdated" "$2" "${3-}" ;;
+        asset-overridden)   _pu_aside MSG-W3M8 "asset-overridden" "$2" "${3-}" ;;
+    esac
+}
+
+# _pu_check <root>: every finding, through _pu_finding, without asking or writing. Each reads the same predicate
+# the report does. Returns 1 when a finding needs attention.
 _pu_check() {
-    local root="$1" file kind label scratch status key line findings=0
+    local root="$1" file kind label scratch status key line state path detail
     local -a new_keys=() entries=()
-    _pc() { printf '%s\t%s\t%s\n' "$1" "$2" "${3:--}"; findings=$(( findings + 1 )); }
+    _PU_FINDINGS=0
     while IFS='|' read -r file kind label; do
-        cmp -s "${file}" "${file}.rpmnew" && continue
+        if cmp -s "${file}" "${file}.rpmnew"; then _pu_finding rpmnew-residual "${file}.rpmnew"; continue; fi
         case "${kind}" in
         json)
-            if ! ai_tools_conf_require_jq 2>/dev/null; then _pc error "${file}" "jq is not installed"; continue; fi
-            scratch="$(mktemp -d)" || { _pc error "${file}" "no temporary directory"; continue; }
+            if ! ai_tools_conf_require_jq 2>/dev/null; then _pu_finding error "${file}" "jq is not installed"; continue; fi
+            scratch="$(mktemp -d)" || { _pu_finding error "${file}" "no temporary directory"; continue; }
             status=0
             cp -p "${file}" "${scratch}/probe" && ai_tools_conf_merge_hook_declarations "${scratch}/probe" \
                 "${file}.rpmnew" >/dev/null 2>&1 || status=$?
             rm -rf "${scratch}"
             case "${status}" in
-            0)  for line in "${_ai_tools_conf_merge_added[@]}"; do _pc hook-missing "${file}" "${line}"; done
-                for line in "${_ai_tools_conf_merge_removed[@]}"; do _pc hook-repeated "${file}" "${line}"; done ;;
-            1)  _pc rpmnew-differs "${file}" "permission rules" ;;
-            *)  _pc error "${file}" "${_ai_tools_conf_merge_reason:-merge probe failed}" ;;
+            0)  for line in "${_ai_tools_conf_merge_added[@]}"; do _pu_finding hook-missing "${file}" "${line}"; done
+                for line in "${_ai_tools_conf_merge_removed[@]}"; do
+                    _pu_finding hook-repeated "${file}" "${line}"
+                done ;;
+            1)  _pu_finding rpmnew-differs "${file}" "permission rules" ;;
+            *)  _pu_finding error "${file}" "${_ai_tools_conf_merge_reason:-merge probe failed}" ;;
             esac ;;
         keyval)
             if ai_tools_conf_new_keys new_keys "${file}" "${file}.rpmnew"; then
-                for key in "${new_keys[@]}"; do _pc option-unmentioned "${file}" "${key}"; done
+                for key in "${new_keys[@]}"; do _pu_finding option-unmentioned "${file}" "${key}"; done
             fi
             [[ "$(_pu_prose "${file}")" == "$(_pu_prose "${file}.rpmnew")" ]] \
-                || _pc rpmnew-differs "${file}" "comments" ;;
+                || _pu_finding rpmnew-differs "${file}" "comments" ;;
         review)
-            _pc rpmnew-review "${file}" "sudoers grant" ;;
+            _pu_finding rpmnew-review "${file}" "sudoers grant" ;;
         *)
-            _pc rpmnew-differs "${file}" ;;
+            _pu_finding rpmnew-differs "${file}" ;;
         esac
     done < <(_pu_entries "${root}")
+
+    while IFS= read -r path; do _pu_finding rpmnew-orphan "${path}" "the file it belongs to is gone"; done \
+        < <(_pu_orphans "${root}")
 
     file="${root}/opt/ai-tools/.claude/settings.json"
     if [[ -f "${file}" ]]; then
         if line="$(ai_tools_conf_ask_gaps "${file}" "${root}" 2>/dev/null)"; then
             [[ -n "${line}" ]] && mapfile -t entries <<< "${line}"
-            for line in "${entries[@]}"; do _pc ask-missing "${file}" "${line}"; done
+            for line in "${entries[@]}"; do _pu_finding ask-missing "${file}" "${line}"; done
         else
-            _pc error "${file}" "ask entries not checked: jq is missing or the file is not valid JSON"
+            _pu_finding error "${file}" "ask entries not checked: jq is missing or the file is not valid JSON"
         fi
     fi
-    (( findings == 0 ))
+
+    while IFS=$'\t' read -r state path detail; do _pu_finding "${state}" "${path}" "${detail}"; done \
+        < <(_pu_assets "${root}")
+    while IFS= read -r path; do _pu_finding copy-kept "${path}"; done < <(_pu_copies "${root}")
+    (( _PU_FINDINGS == 0 ))
+}
+
+# _pu_orphans <root>: each package copy whose file is gone, one path per line. rpm parks a copy only beside a file it
+# kept, so one of these is a file removed afterwards, and neither the report nor a merge otherwise reaches it.
+_pu_orphans() {
+    local root="$1" entry file kind label dir
+    {
+        for entry in "${POSTUPGRADE_FILES[@]}"; do
+            IFS='|' read -r file kind label <<< "${entry}"
+            [[ -f "${root}${file}.rpmnew" && ! -e "${root}${file}" ]] && printf '%s\n' "${root}${file}.rpmnew"
+        done
+        for dir in "${POSTUPGRADE_DIRS[@]}"; do
+            [[ -d "${root}${dir}" ]] || continue
+            while IFS= read -r file; do
+                [[ -e "${file%.rpmnew}" ]] || printf '%s\n' "${file}"
+            done < <(find "${root}${dir}" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null)
+        done
+    } | sort -u
+}
+
+# _pu_copies <root>: the dated copies this stack keeps as recovery material, in the order they were made -- a .bak
+# beside a config file a merge replaced, a .shipped baseline left when a merge could not run, a .retired managed file
+# an agent package replaced, and a withdrawn skill or subagent under /opt/ai-tools/retired. None is rpm's, and none is
+# read by any command.
+_pu_copies() {
+    local root="$1" dir
+    {
+        for dir in "${POSTUPGRADE_DIRS[@]}" /etc/sudoers.d; do
+            [[ -d "${root}${dir}" ]] || continue
+            find "${root}${dir}" -maxdepth 3 -type f \
+                \( -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.bak' \
+                   -o -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.shipped' \
+                   -o -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.retired' \) 2>/dev/null
+        done
+        [[ -d "${root}/opt/ai-tools/retired" ]] \
+            && find "${root}/opt/ai-tools/retired" -mindepth 1 -maxdepth 1 -name '*.retired' 2>/dev/null
+    } | _pu_sort_copies
+}
+
+# _pu_assets <root>: `<finding> TAB <path> TAB <detail>` for each shipped skill, subagent and orientation text
+# whose live copy or agent link is not the one provisioning places -- the seeding that `system bootstrap` and base's
+# scriptlet run. A live asset that is absent or an empty directory is missing: a session is not offered it. A real file
+# where an agent's link belongs, or a live asset without the managed marker, is the operator's override and is left
+# to them. Checked only where the pristine assets are installed, under <root>.
+_pu_assets() {
+    local root="$1" src_root="$1/usr/share/ai-tools" live_root="$1/opt/ai-tools"
+    local kind glob src name marker dst dst_marker cur new field agent dir link target
+    [[ -d "${src_root}" ]] || return 0
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
+    source /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || true
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/managed-assets.lib.sh
+    source /usr/local/lib/ai-tools/managed-assets.lib.sh 2>/dev/null || true
+    if ! declare -F ai_tools_asset_is_managed >/dev/null 2>&1 \
+            || ! declare -F ai_tools_agent_asset_dirs >/dev/null 2>&1; then
+        printf 'error\t%s\t%s\n' "${live_root}" "shared assets not checked: the asset libraries did not load"
+        return 0
+    fi
+    for kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
+        case "${kind}" in
+            skills)      glob="${src_root}/skills/ai-tools-*/";      field=skills_dir ;;
+            subagents)   glob="${src_root}/subagents/ai-tools-*.md"; field=subagents_dir ;;
+            orientation) glob="${src_root}/orientation/AGENTS.md";  field="" ;;
+            *)           continue ;;
+        esac
+        for src in ${glob}; do
+            [[ -e "${src}" ]] || continue
+            name="$(basename "${src}")"
+            _ai_tools_asset_is_retired "${kind}" "${name}" && continue
+            if [[ -d "${src}" ]]; then marker="${src%/}/SKILL.md"; else marker="${src}"; fi
+            ai_tools_asset_is_managed "${marker}" || continue
+            dst="${live_root}/${kind}/${name}"
+            if [[ -d "${src}" ]]; then dst_marker="${dst}/SKILL.md"; else dst_marker="${dst}"; fi
+            if [[ ! -e "${dst}" ]] || { [[ -d "${dst}" ]] && [[ -z "$(find "${dst}" -mindepth 1 -print -quit)" ]]; }; then
+                printf 'asset-missing\t%s\t%s\n' "${dst}" "not seeded -- sessions are not offered it"
+                continue
+            fi
+            if ! ai_tools_asset_is_managed "${dst_marker}"; then
+                printf 'asset-overridden\t%s\t%s\n' "${dst}" "not ai-tools-managed, so provisioning leaves it"
+                continue
+            fi
+            new="$(ai_tools_asset_version "${marker}")"
+            cur="$(ai_tools_asset_version "${dst_marker}")"
+            [[ -n "${new}" && -n "${cur}" && "${new}" -gt "${cur}" ]] \
+                && printf 'asset-outdated\t%s\t%s\n' "${dst}" "v${cur} live, v${new} shipped"
+            while IFS=$'\t' read -r agent dir; do
+                [[ -n "${agent}" ]] || continue
+                if [[ -n "${field}" ]]; then link="${root}${dir}/${name}"; else link="${root}${dir}"; fi
+                [[ -d "${link%/*}" ]] || continue
+                if [[ -L "${link}" ]]; then
+                    target="$(readlink "${link}")"
+                    [[ "${target}" == "${dst}" || "${target}" == "${CP_HOME}/${kind}/${name}" ]] \
+                        || printf 'asset-unlinked\t%s\t%s\n' "${link}" "${agent}: points at ${target}"
+                elif [[ -e "${link}" ]]; then
+                    printf 'asset-overridden\t%s\t%s\n' "${link}" "${agent}: a file of its own in place of the link"
+                else
+                    printf 'asset-unlinked\t%s\t%s\n' "${link}" "${agent}: no link"
+                fi
+            done < <(if [[ -n "${field}" ]]; then ai_tools_agent_asset_dirs "${field}"
+                     else ai_tools_agent_memory_targets; fi)
+        done
+    done
 }
 
 # _pu_report: the reconciliation itself, one block per file with a copy waiting, then the closing lines.
@@ -1667,7 +1861,9 @@ _pu_report() {
         (( _PU_ATTENTION > attention_before )) && ! cmp -s "${file}" "${file}.rpmnew" && to_compare+=("${file}")
     done < <(_pu_entries "${root}")
 
+    _pu_orphan_report "${root}"
     _pu_ask_gaps "${root}"
+    _pu_asset_report "${root}"
     _pu_sidecars "${root}"
     printf '\n'
     # The closing line takes the colour of the worst line above it: red for an error, yellow for anything else to act

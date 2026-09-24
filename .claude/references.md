@@ -282,7 +282,21 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | x9f8 | [MSG-X9F8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | the merge failed: ${_ai_tools_conf_merge_reason} -- ${deployed} is unchanged | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
 | h8a2 | [MSG-H8A2](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | This file defines the sudo grant that lets an operator launch the sandbox. It is shown, never merged: check any change yourself with visudo -c before adopting it. | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | ai_tools_msg_warn |
 | b2e6 | [MSG-B2E6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | the ask entries in ${settings} were not checked -- jq is missing or the file is not valid JSON | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
-| s9m6 | [MSG-S9M6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | system post-upgrade: takes no argument but --check | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | reject |
+| s9m6 | [MSG-S9M6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | system post-upgrade: ${refusal} | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | reject |
+| f2g7 | [MSG-F2G7](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | hook-missing | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
+| e8s8 | [MSG-E8S8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | hook-repeated | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_attention |
+| e9v5 | [MSG-E9V5](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | ask-missing | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
+| n3u8 | [MSG-N3U8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | option-unmentioned | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_attention |
+| p4q4 | [MSG-P4Q4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | rpmnew-differs | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_attention |
+| y3p3 | [MSG-Y3P3](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | rpmnew-review | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_attention |
+| k8d2 | [MSG-K8D2](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | rpmnew-orphan | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
+| x6h5 | [MSG-X6H5](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | asset-missing | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
+| n9s4 | [MSG-N9S4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | asset-unlinked | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_attention |
+| y3j5 | [MSG-Y3J5](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | error | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_check_failed |
+| j3x7 | [MSG-J3X7](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | rpmnew-residual | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_aside |
+| w8f8 | [MSG-W8F8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | copy-kept | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_aside |
+| r6b2 | [MSG-R6B2](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | asset-outdated | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_aside |
+| w3m8 | [MSG-W3M8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | asset-overridden | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_aside |
 | t6s6 | [MSG-T6S6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | status: takes no arguments | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/admin-commands.sh | reject |
 | v6n9 | [MSG-V6N9](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | the service registry (${SERVICES_LIB}) is unavailable -- reinstall ai-tools-base | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | die |
 | h6j5 | [MSG-H6J5](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | unknown command 'operators ${verb}' (list\|add\|remove) | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | reject |
