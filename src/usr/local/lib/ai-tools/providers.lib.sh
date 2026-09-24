@@ -173,18 +173,36 @@ _ai_tools_skip_agent() {
     _ai_tools_provider_warn MSG-M3A5 "skipping agent $1: $2 $(ai_tools_conf_untrusted_reason "$2")"
 }
 
+# _ai_tools_provider_package <conf-key> <name> : print the package that ships <name>'s manifest, by
+#   the naming the packages follow -- ai-tools-agents-<name>-restricted for an agent,
+#   ai-tools-integration-<name> for an integration (the naming convention providers.rule.md states
+#   for the flat namespace). Derived rather than looked up, since a manifest that is not installed
+#   cannot be asked; a derivation that misses costs the operator a dnf "no match". Returns 1 for
+#   a key outside the two provider kinds.
+_ai_tools_provider_package() {
+    case "$1" in
+        AI_TOOLS_AGENTS)       printf 'ai-tools-agents-%s-restricted' "$2" ;;
+        AI_TOOLS_INTEGRATIONS) printf 'ai-tools-integration-%s' "$2" ;;
+        *)                     return 1 ;;
+    esac
+}
+
 # _ai_tools_warn_uninstalled <manifest-dir> <conf-key> <active> <list> : report each
-#   explicitly-requested (allowlisted) name that has no <name>.conf in the manifest dir -- never
-#   guessed into a package name. The baseline case (no allowlist) can only enable manifests that
-#   exist, so it has no name to warn about.
+#   explicitly-requested (allowlisted) name that has no <name>.conf in the manifest dir, as the
+#   operator writes it, with the package that ships it (_ai_tools_provider_package). The name
+#   does not enable anything until that package is installed. The baseline case (no allowlist)
+#   can only enable manifests that exist, so it has no name to warn about.
 _ai_tools_warn_uninstalled() {
     local dir="$1" conf_key="$2" active="$3" list="$4"
     [[ "${active}" == yes ]] || return 0
     local -a requested_names=(); ai_tools_conf_split requested_names "${list}"
-    local requested_name
+    local requested_name item package
     for requested_name in "${requested_names[@]}"; do
-        [[ -f "${dir}/${requested_name}.conf" ]] || \
-            _ai_tools_provider_warn MSG-X8P4 "enabled with nothing installed: $(printf '%q' "${requested_name}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} -- install its ai-tools package or remove it; skipping"
+        [[ -f "${dir}/${requested_name}.conf" ]] && continue
+        item="$(ai_tools_conf_kind_item "${conf_key}" "${requested_name}" 2>/dev/null)" || item="${requested_name}"
+        if package="$(_ai_tools_provider_package "${conf_key}" "${requested_name}")"; then
+            _ai_tools_provider_warn MSG-X8P4 "enabled with nothing installed: $(printf '%q' "${item}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} -- install it with: sudo dnf install ${package}, or remove it from the line; skipping"
+        fi
     done
     return 0
 }

@@ -152,6 +152,20 @@ else
     fail "uninstalled agent reached stdout: names='${out_names}'"
 fi
 assert_msg MSG-X8P4 "${warn_out}" "the uninstalled agent is reported on stderr, never guessed"
+# The report names the item as the operator wrote it and the package that ships it, derived from the key's kind; one row
+# per kind, the integration read through its own resolver.
+while IFS='|' read -r key item package resolver; do
+    printf '%s=[%s]\n' "${key}" "${item}" > "${conf}"
+    warn_out="$(AI_TOOLS_OPERATOR_CONF="${conf}" "${resolver}" 2>&1 >/dev/null)"
+    if [[ "${warn_out}" == *"${item} is enabled"* && "${warn_out}" == *"sudo dnf install ${package},"* ]]; then
+        pass "an uninstalled ${item} is reported with the package to install, ${package}"
+    else
+        fail "the report for an uninstalled ${item} does not name ${package}: ${warn_out}"
+    fi
+done <<'ROWS'
+AI_TOOLS_AGENTS|agent-missing|ai-tools-agents-missing-restricted|ai_tools_enabled_agents
+AI_TOOLS_INTEGRATIONS|integration-missing|ai-tools-integration-missing|ai_tools_enabled_integrations
+ROWS
 
 # --- Manifest field accessor: what ai-tools-run reads once it has resolved an agent -----------
 # The name becomes a path, so it is allowlisted to plain identifiers: anything else must resolve an empty result rather

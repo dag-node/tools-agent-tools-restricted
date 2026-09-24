@@ -1810,7 +1810,7 @@ could not retire the managed file ${live} \-\- leaving it as it is
 .TP
 .B MSG-X8P4
 WARNING.
-enabled with nothing installed: $(printf '%q' "${requested_name}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} \-\- install its ai\-tools package or remove it; skipping
+enabled with nothing installed: $(printf '%q' "${item}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} \-\- install it with: sudo dnf install ${package}, or remove it from the line; skipping
 .SS safe-paths.lib.sh
 .TP
 .B MSG-Q6H3
