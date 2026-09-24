@@ -359,11 +359,13 @@ report.
 - **`ai-tools-run.sh`** routes its pre-launch refusals and the podman NOTICE.
 - **`session-hook.sh`** frames the interrupted-session `SessionStart` NOTICE (see
   [ownership-and-hooks](ownership-and-hooks.rule.md)).
-- **`ai-tools-bootstrap.sh`** frames two screens with `ai_tools_msg_block`, each over an `ai_tools_msg_pick` menu:
+- **`ai-tools-bootstrap.sh`** frames three screens with `ai_tools_msg_block`. Two sit over an `ai_tools_msg_pick` menu:
   the agent choice (`none` mode — one option per installed agent and one for none, where the caller decides every
   unanswered outcome as no agent, Node alone, exit 0) and the git-identity offer (a default index: adopt the operator's
-  identity / keep the default / edit by hand). It sources the lib from the deployed path, gated on the control plane
-  being present, so it requires it there like every other prompting consumer (see [updater](updater.rule.md)).
+  identity / keep the default / edit by hand). The third, the launch-requirements offer, sits
+  over an `ai_tools_msg_confirm` defaulting to yes, since both switches it writes move a launch toward less access. It
+  sources the lib from the deployed path, gated on the control plane being present, so it requires it there like every
+  other prompting consumer (see [updater](updater.rule.md)).
 - **`install.sh` and `selinux/install-selinux.sh`** frame their interactive prompts uniformly. `install.sh` routes every
   prompt through one helper, `confirm_boxed <title> <y|n> <question> [context-line...]`: a fixed 80-column box
   (`AI_TOOLS_MSG_FULLWIDTH`) titled `<title>` — named for its action (`Review install`, `Existing file`,

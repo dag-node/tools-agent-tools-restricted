@@ -323,6 +323,16 @@ home when they are absent, installs nvm and Node as that account, installs each
 agent enabled in
 .BR ai-tools-operator.conf (5),
 points each launcher at the binary it installed, and enables the update timer.
+On a host where SELinux is enforcing and the
+.B ai_tools
+module is loaded, offers to require both at every launch
+.RB ( AI_TOOLS_REQUIRE_SELINUX
+and
+.B AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY
+in
+.BR ai-tools-operator.conf (5)),
+defaulting to yes, including without a terminal; a key already present is not
+asked about.
 Offers to set the sandbox account's git commit identity, keeping the seeded
 default without a terminal.
 .B Reaches the network,

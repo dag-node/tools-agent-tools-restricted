@@ -381,6 +381,128 @@ else
     unset AI_TOOLS_AGENTS_DIR AI_TOOLS_OPERATOR_CONF
 fi
 
+# ── offer_launch_requirements: both switches, offered only where they hold ───────────────────
+# The step writes two operator.conf keys that turn a launch into a refusal, so what is pinned is where it may ask
+# and what it writes: it asks only on an enforcing host with the ai_tools module loaded, offers the entrypoint switch
+# only while every enabled agent carries a pin (else the next launch of an unpinned agent refuses), leaves a key already
+# present -- either way -- as the operator wrote it, does not write an untrusted file, and records a declined offer
+# as `no` so the next run does not ask again. getenforce, semodule, the confirm and the enabled set are stubbed;
+# the pins are files in a fixture directory, reached through AI_TOOLS_ENTRYPOINT_PIN_DIR. Root, for the trust check.
+section "ai-tools-admin system bootstrap: the launch requirements (unit)"
+
+EV_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
+if [[ "${EUID}" -ne 0 ]]; then
+    skip "launch requirements" "operator.conf is trusted only while root-owned; run as root"
+elif [[ ! -r "${PROVIDERS_LIB}" || ! -r "${MSG_LIB}" || ! -r "${EV_LIB}" ]]; then
+    skip "launch requirements" "the step reads ${PROVIDERS_LIB}, ${MSG_LIB} and ${EV_LIB}, which this host has not deployed"
+else
+    REQ_CONF_DIR="${TESTDIR}/req-etc"
+    REQ_CONF="${REQ_CONF_DIR}/operator.conf"
+    PIN_DIR="${TESTDIR}/pins"
+    BLOCK_MARKER="${TESTDIR}/requirements-block-drawn"
+    install -d -o root -g root -m 755 "${REQ_CONF_DIR}" "${PIN_DIR}"
+
+    seed_req_conf() {
+        rm -f "${BLOCK_MARKER}"
+        printf '%s\n' '# host options' 'OPERATORS="op"' '#AI_TOOLS_REQUIRE_SELINUX=yes' '#AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes' "$@" \
+            > "${REQ_CONF}"
+        chmod 0644 "${REQ_CONF}"; chown root:root "${REQ_CONF}"
+    }
+    pin() { rm -f "${PIN_DIR}"/*; local a; for a in "$@"; do : > "${PIN_DIR}/${a}"; done; }
+    # stub_host <getenforce> <module-listed yes|no> <confirm-status> <agent>... : the host and the answer one case sees.
+    stub_host() {
+        local mode="$1" listed="$2" answer="$3"; shift 3
+        printf '_providers_loaded=1\n'
+        printf 'getenforce() { printf "%%s\\n" "%s"; }\n' "${mode}"
+        if [[ "${listed}" == yes ]]; then
+            printf 'semodule() { printf "%%s\\n" base ai_tools unconfined; }\n'
+        else
+            printf 'semodule() { printf "%%s\\n" base unconfined; }\n'
+        fi
+        printf 'ai_tools_msg_block() { : > "%s"; }\n' "${BLOCK_MARKER}"
+        printf 'ai_tools_msg_confirm() { return %s; }\n' "${answer}"
+        # shellcheck disable=SC2016  # $a expands in the generated stub, not here
+        printf 'ai_tools_enabled_agents() { local a; for a in %s; do printf "%%s\\t@x/%%s\\t%%s\\n" "$a" "$a" "$a"; done; }\n' "$*"
+    }
+    run_offer() {
+        AI_TOOLS_OPERATOR_CONF="${REQ_CONF}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${PIN_DIR}" bash -c '
+            set -euo pipefail
+            source "$1"; source "$2"; source "$3"
+            eval "$5"
+            source "$4"
+            declare -F offer_launch_requirements >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+            rc=0; offer_launch_requirements || rc=$?
+            printf "rc=%s\n" "${rc}"
+        ' _ "${PROVIDERS_LIB}" "${MSG_LIB}" "${EV_LIB}" "${HELPER}" "$1" 2>&1 || true
+    }
+    req_value() { bash -c 'source "$1"; ai_tools_conf_read "$2" "$3" && printf "%s" "${_ai_tools_conf_value}" || printf "<absent>"' \
+        _ "${PROVIDERS_LIB}" "${REQ_CONF}" "$1" 2>/dev/null; }
+
+    # (J) enforcing, module loaded, every agent pinned, the offer accepted: both keys written yes.
+    seed_req_conf; pin alpha beta
+    out="$(run_offer "$(stub_host Enforcing yes 0 alpha beta)")"
+    if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
+        fail "the helper does not define offer_launch_requirements when sourced"
+    else
+        if [[ -e "${BLOCK_MARKER}" && "$(req_value AI_TOOLS_REQUIRE_SELINUX)" == yes \
+              && "$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)" == yes ]] && grep -qx 'rc=0' <<<"${out}"; then
+            pass "an accepted offer on an enforcing host writes both requirements as yes"
+        else
+            fail "accepted offer: selinux=$(req_value AI_TOOLS_REQUIRE_SELINUX) verify=$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY) (${out})"
+        fi
+
+        # (K) declined: both written no, so the next run does not ask again.
+        seed_req_conf; pin alpha
+        out="$(run_offer "$(stub_host Enforcing yes 1 alpha)")"
+        if [[ "$(req_value AI_TOOLS_REQUIRE_SELINUX)" == no && "$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)" == no ]]; then
+            pass "a declined offer records both as no"
+        else
+            fail "declined offer: selinux=$(req_value AI_TOOLS_REQUIRE_SELINUX) verify=$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)"
+        fi
+
+        # (L) a key already set, either way, is the operator's and is not asked about.
+        seed_req_conf 'AI_TOOLS_REQUIRE_SELINUX=no' 'AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=0'; pin alpha
+        out="$(run_offer "$(stub_host Enforcing yes 0 alpha)")"
+        if [[ ! -e "${BLOCK_MARKER}" && "$(req_value AI_TOOLS_REQUIRE_SELINUX)" == no \
+              && "$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)" == 0 ]]; then
+            pass "keys the operator already set are left as written and not asked about"
+        else
+            fail "a present key was asked about or rewritten (${out})"
+        fi
+
+        # (M) an agent without a pin: only the SELinux switch is offered, and the agent is named.
+        seed_req_conf; pin alpha
+        out="$(run_offer "$(stub_host Enforcing yes 0 alpha beta)")"
+        if [[ "$(req_value AI_TOOLS_REQUIRE_SELINUX)" == yes && "$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)" == "<absent>" \
+              && "${out}" == *"while beta carries no pin"* ]]; then
+            pass "the entrypoint switch is withheld while an enabled agent carries no pin, and the agent is named"
+        else
+            fail "unpinned agent: verify=$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY) (${out})"
+        fi
+
+        # (N) not enforcing, or the module not loaded: no offer drawn and no key written.
+        for host in "Permissive yes" "Enforcing no"; do
+            seed_req_conf; pin alpha
+            # shellcheck disable=SC2086  # the pair is two words on purpose
+            out="$(run_offer "$(stub_host ${host} 0 alpha)")"
+            if [[ ! -e "${BLOCK_MARKER}" && "$(req_value AI_TOOLS_REQUIRE_SELINUX)" == "<absent>" ]]; then
+                pass "no offer where confinement is not in force (${host})"
+            else
+                fail "offered or wrote on a host where confinement is not in force (${host}): ${out}"
+            fi
+        done
+
+        # (O) an untrusted operator.conf is neither asked about nor written.
+        seed_req_conf; pin alpha; chmod 0666 "${REQ_CONF}"
+        out="$(run_offer "$(stub_host Enforcing yes 0 alpha)")"
+        if [[ ! -e "${BLOCK_MARKER}" && "$(req_value AI_TOOLS_REQUIRE_SELINUX)" == "<absent>" ]]; then
+            pass "an untrusted operator.conf is not asked about or written"
+        else
+            fail "an untrusted operator.conf was written: ${out}"
+        fi
+    fi
+fi
+
 # ── remove_residue: the order it runs in ─────────────────────────────────────────────────────
 # The removal of a disabled agent's package sits after the agent choice (it reads the set that choice wrote) and ahead
 # of the first network step (the nvm version resolve), so an offline host still cleans up before its npm step fails.

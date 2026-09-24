@@ -48,7 +48,18 @@ so the first launch after a fresh provision is confined without a manual `ai-too
 and captures the initial control plane in a root-private git repo. It is the one network step, so it is an operator
 command rather than an RPM scriptlet (which must succeed offline). It is idempotent: an existing account, nvm install,
 or Node version is reused. It enables `SANDBOX_USER` linger and the `nvm-update.timer` in that instance (best-effort),
-so the maintenance schedule is live once the toolchain exists.
+so the maintenance schedule is live once the toolchain exists. Root starts the timer over the machine transport
+(`systemctl --user -M SANDBOX_USER@.host`), the route the system bus authorizes for root; a `sudo -u` call
+on the account's own bus is refused there even while the manager is healthy ([cli](cli.rule.md)).
+
+**It offers both launch requirements where confinement is in force** (`offer_launch_requirements`). On a host
+where SELinux is enforcing and the `ai_tools` module is loaded, it asks once, through `ai_tools_msg_confirm` defaulting
+to yes, whether to set `AI_TOOLS_REQUIRE_SELINUX` and `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`; the answer is written
+to both through `ai_tools_conf_set_key`, `no` included, so it is asked once rather than on every run. A run with no
+terminal takes the default, since each switch moves a launch toward less access. A key already present, either way, is
+the operator's declaration and is not asked about, and an untrusted `operator.conf` is neither asked about nor written.
+The entrypoint switch is offered only while every enabled agent carries a pin, which the relabel ahead of the step
+writes: offered without one, it would refuse that agent's next launch.
 
 Starting the timer **pre-seeds its `Persistent=` run-stamp** (`$XDG_DATA_HOME/systemd/timers/ stamp-nvm-update.timer`
 under `/opt/ai-tools`, written as `SANDBOX_USER`) so it begins on its next scheduled window rather than an **immediate
@@ -710,9 +721,10 @@ own exit status separates them exactly — `1` for a signature it rejects, `2` f
 and the launch cannot disagree about how strict the host is) turns the *unverifiable* case into a refusal: the launch
 will not start an unpinned entrypoint, and the updater will not activate a release it could not verify. Its default is
 **no**, and that is an air-gap decision — unpinned is also the state of a host with an internal npm mirror and no vendor
-route, and blocking there would quietly freeze its agent forever. Nothing in this layer hard-fails offline: the fetch
-carries a short `--connect-timeout` because it runs inside the relabel, and so inside an rpm `%post` that must succeed
-offline.
+route, and blocking there would quietly freeze its agent forever. `system bootstrap` offers `yes` only where every
+enabled agent already carries a pin, so the offer does not reach a host whose agent could not be verified. Nothing
+in this layer hard-fails offline: the fetch carries a short `--connect-timeout` because it runs inside the relabel,
+and so inside an rpm `%post` that must succeed offline.
 
 ### Why the pin lives in the relabel helper
 

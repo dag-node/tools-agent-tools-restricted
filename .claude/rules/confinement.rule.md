@@ -200,12 +200,14 @@ it as the verdict's sixth `require` input, which turns the two DAC-only *launch*
 not live). Having the operator assert intent rather than the wrapper guess it closes the whole "thinks-enforcing"
 family, the staged-but-not-active residual included, and adds **no** store-read surface.
 
-It is opt-in: the default (key absent, or any value outside the true set `yes|true|1|on`) is `no`, so intentional
-DAC-only hosts are untouched. `require` tightens those two exits alone — the `mislabel`/`manager-domain`/`unverifiable`
-refusals already fail closed and are unchanged, and the `manager-domain` advisory stays advisory under `require`, since
-it targets the `/proc` read rather than a DAC-only launch. The switch is read only while `ai_tools_conf_is_trusted`
-holds for `operator.conf` (root-owned, non-group/other-writable, not a symlink), so the agent can neither set nor clear
-it.
+It is opt-in: the default — the key absent, a no value, or a value `ai_tools_conf_yes` does not recognize, which it
+reports — is `no`, so intentional DAC-only hosts are untouched. `system bootstrap` offers `yes` on a host where SELinux
+is enforcing and the module is loaded, the one state in which requiring it cannot refuse a launch the host was set
+up to allow ([updater](updater.rule.md)). `require` tightens those two exits alone —
+the `mislabel`/`manager-domain`/`unverifiable` refusals already fail closed and are unchanged, and the `manager-domain`
+advisory stays advisory under `require`, since it targets the `/proc` read rather than a DAC-only launch. The switch is
+read only while `ai_tools_conf_is_trusted` holds for `operator.conf` (root-owned, non-group/other-writable, not
+a symlink), so the agent can neither set nor clear it.
 
 `require` is the one input whose read failure resolves toward *more* access: an untrusted or absent file yields `no`,
 which is the default posture, so the two refusals it would otherwise produce — `require-not-enforcing`

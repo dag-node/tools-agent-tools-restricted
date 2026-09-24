@@ -268,6 +268,11 @@ either of which would write a different setting than the one asked for. `ai-tool
 `OPERATORS` through it and `ai-tools-bootstrap` writes `AI_TOOLS_AGENTS`; `tests/unit/conf.sh` drives it
 over a template-shaped fixture and asserts every other line byte-identical.
 
+A **switch** — a key whose value is yes or no — is read through `ai_tools_conf_yes`, so every switch accepts the same
+spellings: `yes`, `true`, `1` and `on` read as yes, and `no`, `false`, `0`, `off` and an empty value as no, in any case
+and quoted or not. Any other value reads as no and is reported under `MSG-D2F9`, so a mistyped switch does not change
+what a launch does without a line saying so.
+
 `ai_tools_conf_read` returns present/absent separately from the value, which is what makes `KEY=` (an explicit "none")
 distinguishable from an omitted key — the distinction [Enablement is fail-closed](#enablement-is-fail-closed) turns on.
 `ai_tools_conf_list` overwrites its target array **only** when the key is present, so an override key overrides
