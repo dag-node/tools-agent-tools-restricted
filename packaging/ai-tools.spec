@@ -1118,9 +1118,11 @@ if [ -r /usr/local/lib/ai-tools/settings-merge.lib.sh ] && command -v bash >/dev
         [ -f "${settings}" ] || exit 0
         gaps="$(ai_tools_conf_ask_gaps "${settings}")" || { echo "ai-tools: the ask entries in ${settings} were not checked -- jq is missing or the file is not valid JSON"; exit 0; }
         [ -n "${gaps}" ] || exit 0
-        echo "ai-tools: ${settings} runs these commands without asking,"
-        echo "  and each one sends data off the host. Add each line to \"permissions.ask\":"
-        while IFS= read -r entry; do echo "    \"${entry}\""; done <<< "${gaps}"' || :
+        mapfile -t entries <<< "${gaps}"
+        echo "ai-tools: ${settings} runs these commands without asking, and each one sends data off the host:"
+        for entry in "${entries[@]}"; do echo "    ${entry}"; done
+        ai_tools_conf_ask_fix "${settings}" "${entries[@]}" | { IFS= read -r where && echo "  to have it ask, ${where}"; while IFS= read -r line; do echo "      ${line}"; done; }
+        echo "  then check it with: sudo ai-tools-admin system post-upgrade"' || :
 fi
 
 %post -n ai-tools-agents-codex-restricted

@@ -215,3 +215,51 @@ ai_tools_conf_ask_gaps() {
     done
     return 0
 }
+
+# ai_tools_conf_ask_fix <settings> <entry>... : print where the entries go in <settings> and the JSON to paste there.
+#   stdout: line 1 says where, the lines after it are the snippet, shaped for the file as it stands -- the entries alone
+#   when `permissions.ask` exists, an `"ask"` array when `permissions` exists without one, and a `"permissions"` object
+#   when neither does. Each entry is JSON-encoded. The snippet goes FIRST in its object or array and ends in a comma
+#   unless that container is empty, so the pasted file is valid JSON. Returns 1 when jq is missing, <settings> is not
+#   a readable JSON object, or its `permissions` or `permissions.ask` is present with the wrong type.
+ai_tools_conf_ask_fix() {
+    local settings="$1" shape empty entry comma=","
+    shift
+    ai_tools_conf_require_jq || return 1
+    shape="$(jq -r 'if type != "object" then error
+        elif has("permissions") | not then "none \(length == 0)"
+        elif (.permissions | type) != "object" then error
+        elif (.permissions | has("ask")) | not then "permissions \(.permissions | length == 0)"
+        elif (.permissions.ask | type) != "array" then error
+        else "ask \(.permissions.ask | length == 0)" end' "${settings}" 2>/dev/null)" || return 1
+    empty="${shape#* }"
+    shape="${shape%% *}"
+    [[ "${empty}" == true ]] && comma=""
+    local -a encoded=()
+    for entry in "$@"; do encoded+=("$(jq -n --arg e "${entry}" '$e')"); done
+    case "${shape}" in
+    ask)
+        printf 'paste as the first lines of the "ask" list inside "permissions", right after its [:\n'
+        _ai_tools_conf_ask_items "" "${comma}" "${encoded[@]}" ;;
+    permissions)
+        printf 'paste as the first lines inside "permissions", right after its {:\n'
+        printf '"ask": [\n'
+        _ai_tools_conf_ask_items "  " "" "${encoded[@]}"
+        printf ']%s\n' "${comma}" ;;
+    *)
+        printf 'paste as the first lines of the file, right after its opening {:\n'
+        printf '"permissions": {\n  "ask": [\n'
+        _ai_tools_conf_ask_items "    " "" "${encoded[@]}"
+        printf '  ]\n}%s\n' "${comma}" ;;
+    esac
+}
+
+# _ai_tools_conf_ask_items <indent> <last> <json-string>... : print the items of a JSON array, a comma after each but
+#   the last, which takes <last> ("," when more items follow in the file, "" when none do).
+_ai_tools_conf_ask_items() {
+    local indent="$1" last="$2" i
+    shift 2
+    for (( i = 1; i <= $#; i++ )); do
+        if (( i < $# )); then printf '%s%s,\n' "${indent}" "${!i}"; else printf '%s%s%s\n' "${indent}" "${!i}" "${last}"; fi
+    done
+}

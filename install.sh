@@ -407,12 +407,18 @@ reconcile_hook_declarations() {
 # and the install continues.
 # $1 deployed settings.json
 report_ask_gaps() {
-    local gaps="" entry
+    local gaps="" line
+    local -a entries=() fix=()
     gaps="$(ai_tools_conf_ask_gaps "$1")" || return 0
     [[ -n "${gaps}" ]] || return 0
+    mapfile -t entries <<< "${gaps}"
+    mapfile -t fix < <(ai_tools_conf_ask_fix "$1" "${entries[@]}")
     warn MSG-K2P8 "the kept $1 runs these commands without asking, and each sends data off the host:"
-    while IFS= read -r entry; do warn "  \"${entry}\""; done <<< "${gaps}"
-    warn "  add each line to \"permissions.ask\" in $1"
+    for line in "${entries[@]}"; do warn "  ${line}"; done
+    if (( ${#fix[@]} > 0 )); then
+        warn "  to have it ask, ${fix[0]}"
+        for line in "${fix[@]:1}"; do warn "      ${line}"; done
+    fi
     return 0
 }
 

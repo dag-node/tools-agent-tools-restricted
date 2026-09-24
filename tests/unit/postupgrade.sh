@@ -337,8 +337,8 @@ jq 'del(.permissions.ask)' "${SHIPPED_SETTINGS}" > "${SETTINGS}"
 cp "${SETTINGS}" "${TESTDIR}/pre.settings"
 out="$(run_pu)"
 if [[ "${out}" == *'"Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)"'* \
-      && "${out}" == *"permissions.ask"* && "${out}" == *"review the warnings"* ]]; then
-    pass "a missing ask entry is named with the line to add, and the run asks for a review"
+      && "${out}" == *'right after its {:'* && "${out}" == *'"ask": ['* && "${out}" == *"review the warnings"* ]]; then
+    pass "a missing ask entry is named with the JSON to paste and where, and the run asks for a review"
 else
     fail "a missing ask entry was not reported: ${out}"
 fi

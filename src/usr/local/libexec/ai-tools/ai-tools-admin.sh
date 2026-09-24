@@ -1499,7 +1499,8 @@ _pu_entries() {
 # and the operator may have removed it since, while the entry stays missing. Reported and not written, since
 # the permission rules are the host's.
 _pu_ask_gaps() {
-    local settings="$1/opt/ai-tools/.claude/settings.json" gaps entry
+    local settings="$1/opt/ai-tools/.claude/settings.json" gaps line
+    local -a entries=() fix=()
     [[ -f "${settings}" ]] || return 0
     if ! gaps="$(ai_tools_conf_ask_gaps "${settings}" "$1")"; then
         warn MSG-B2E6 "the ask entries in ${settings} were not checked -- jq is missing or the file is not valid JSON"
@@ -1507,11 +1508,18 @@ _pu_ask_gaps() {
         return 0
     fi
     [[ -n "${gaps}" ]] || return 0
+    mapfile -t entries <<< "${gaps}"
+    mapfile -t fix < <(ai_tools_conf_ask_fix "${settings}" "${entries[@]}")
     _PU_NAME="${settings##*/}"
     ai_tools_msg_headline "${_PU_NAME} -- commands that run without asking" 1 "${settings}"
     _pu_say act "each of these sends data off the host, and the file does not ask before it runs:"
-    while IFS= read -r entry; do _pu_say act "  \"${entry}\""; done <<< "${gaps}"
-    _pu_say info "add each line to \"permissions.ask\" -- no command writes it, since the permission rules are yours"
+    for line in "${entries[@]}"; do _pu_say act "  ${line}"; done
+    if (( ${#fix[@]} > 0 )); then
+        _pu_say info "to have it ask, ${fix[0]}"
+        # Printed bare, not through _pu_say, so the snippet copies out of the terminal without a prefix on each line.
+        printf '      %s\n' "${fix[@]:1}"
+    fi
+    _pu_say info "this command does not edit the file, since the permission rules are yours -- re-run it to confirm"
 }
 
 # _pu_sort_copies: read sidecar paths on stdin and print them grouped by file and in the order they were made --

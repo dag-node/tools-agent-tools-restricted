@@ -322,4 +322,33 @@ else
     pass "an ask list that is not an array and a file that is not JSON each report the check as not run"
 fi
 
+# The fix the reports print is pasted by hand, so each shape the file can be in is pasted the way the first line says --
+# right after the opening bracket its regex ends on -- and the result must parse and close the gap. An empty container
+# is its own case, since there the snippet's trailing comma would leave the file invalid.
+paste_fix() {
+    local file="$1" anchor="$2" out="$3" snippet
+    snippet="$(ai_tools_conf_ask_fix "${file}" "${DECIDE_ASK}" | tail -n +2)" || return 1
+    awk -v re="${anchor}" -v snip="${snippet}" '
+        !done && match($0, re) { print substr($0, 1, RSTART + RLENGTH - 1); print snip
+                                 print substr($0, RSTART + RLENGTH); done = 1; next }
+        { print }' "${file}" > "${out}"
+}
+while IFS='|' read -r label program anchor; do
+    fixture="${TESTDIR}/fix-${label}.json"
+    jq "${program}" "${SHIPPED}" > "${fixture}"
+    if paste_fix "${fixture}" "${anchor}" "${fixture}.pasted" && jq -e . "${fixture}.pasted" >/dev/null 2>&1 \
+            && gaps="$(ai_tools_conf_ask_gaps "${fixture}.pasted" "${ask_root}")" && [[ -z "${gaps}" ]]; then
+        pass "the printed fix, pasted where it says, closes the gap in a file with ${label}"
+    else
+        fail "the printed fix for a file with ${label} does not paste into valid JSON that asks: $(cat "${fixture}.pasted")"
+    fi
+done <<'EOF'
+permissions but no ask list|del(.permissions.ask)|"permissions": [{]
+an empty permissions object|.permissions = {}|"permissions": [{]
+an ask list of its own|.permissions.ask = ["Bash(true *)"]|"ask": [[]
+an empty ask list|.permissions.ask = []|"ask": [[]
+no permissions object|del(.permissions)|^[{]
+nothing but an empty object|{}|^[{]
+EOF
+
 finish
