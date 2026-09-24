@@ -56,6 +56,18 @@ could split across lines. Plain mode keeps each caller-supplied line whole, so t
 `AI_TOOLS_MSG_PLAIN=1` forces plain even on a tty; `AI_TOOLS_MSG_BOX=1` forces the box even off one (the unit test
 and the session-hook NOTICE use the latter to render a box into captured output).
 
+## Punctuation: an event, a label, or prose
+
+A log line and a one-line notice or warning record an **event**, so they do not end with a stop, and ` -- ` splits two
+clauses where a sentence would take a full stop (`merged -- the previous file is saved as <path>`). A box title
+and a headline are **labels**, and take no stop either. A boxed alert or guidance screen of more than one line is
+**prose**, and keeps sentence punctuation. A trailing `:` reads as a prompt, so a line ends on one only where the next
+line is output it introduces, a diff or a listing. An informational line names the exact path inline, so the reader does
+not need a command on the line after it to find the path.
+
+The suite greps message text as well as codes ([tests](tests.rule.md)), so a reworded message is a code change: grep
+`tests/` for the text before editing it, and a match makes the edit its own commit with a root suite run behind it.
+
 ## Message codes: the identity of a situation
 
 A message that names a **situation** — a refusal, a warning a test asserts, a guidance screen — carries a code, a reftag
