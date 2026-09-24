@@ -339,24 +339,24 @@ _ai_tools_conf_kind_migrate_item() {
 #   Prints nothing for a migrated, missing or untrusted file.
 ai_tools_conf_kind_plan() {
     local file="$1" key item new IFS=$' \t\n'
-    local -a items=() mapped=() blocked=()
+    local -a plan_items=() plan_mapped=() plan_unmapped=()
     local -A planned=()
     while IFS=$'\t' read -r key _; do
         [[ -n "${key}" && -z "${planned[${key}]:-}" ]] || continue
         planned["${key}"]=1
-        ai_tools_conf_list items "${file}" "${key}" 2>/dev/null || continue
-        mapped=(); blocked=()
-        for item in "${items[@]}"; do
+        ai_tools_conf_list plan_items "${file}" "${key}" 2>/dev/null || continue
+        plan_mapped=(); plan_unmapped=()
+        for item in "${plan_items[@]}"; do
             if new="$(_ai_tools_conf_kind_migrate_item "${key}" "${item}")"; then
-                mapped+=("${new}")
+                plan_mapped+=("${new}")
             else
-                blocked+=("${item}")
+                plan_unmapped+=("${item}")
             fi
         done
-        if (( ${#blocked[@]} > 0 )); then
-            for item in "${blocked[@]}"; do printf 'blocked\t%s\t%s\n' "${key}" "${item}"; done
+        if (( ${#plan_unmapped[@]} > 0 )); then
+            for item in "${plan_unmapped[@]}"; do printf 'blocked\t%s\t%s\n' "${key}" "${item}"; done
         else
-            printf 'migrate\t%s\t%s\t%s\n' "${key}" "${items[*]}" "${mapped[*]}"
+            printf 'migrate\t%s\t%s\t%s\n' "${key}" "${plan_items[*]}" "${plan_mapped[*]}"
         fi
     done < <(ai_tools_conf_kind_unmigrated "${file}")
     return 0
