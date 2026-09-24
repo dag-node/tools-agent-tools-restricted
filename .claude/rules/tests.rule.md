@@ -700,15 +700,17 @@ refuses does not, a version directory outside the semver shape is not read — a
 from the operator's vantage. The writer is driven with `npm` stubbed in the fixture version's own `bin`,
 where the library puts it first on `PATH`: it refuses an enabled agent's package with no npm call, defers a package
 a live process executes from (the `/proc` collector stubbed to say so, the pure predicate driven over its table
-and against this shell's own executable as the live control), issues exactly one uninstall with the version directory
-as the prefix for a removal and names the state directory it leaves, and reports an uninstall that left the directory.
-Like `launcher-target.sh` it needs the executable bit visible and takes the same fallback, and it reads one order
-as source: the updater's removal precedes `install_packages`. `bootstrap.sh` reads the bootstrap's the same way —
-the removal after the agent choice and before the version resolve, the first network step. The two launch tiers are
-driven where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent the fixture manifests install
-and the fixture `operator.conf` does not enable, before the executable resolves and fail-closed on a missing library,
-and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside copies
-of the deployed ones, with the package gone as the control. `cli-agent-set.sh` reports and counts the same link.
+and against this shell's own executable as the live control — which reads `/proc/$$/exe`, a link `ai_tools_t` does not
+grant, so the control fails when the file is run as the agent and belongs to the root run), issues exactly one uninstall
+with the version directory as the prefix for a removal and names the state directory it leaves, and reports an uninstall
+that left the directory. Like `launcher-target.sh` it needs the executable bit visible and takes the same fallback,
+and it reads one order as source: the updater's removal precedes `install_packages`. `bootstrap.sh` reads
+the bootstrap's the same way — the removal after the agent choice and before the version resolve, the first network
+step. The two launch tiers are driven where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent
+the fixture manifests install and the fixture `operator.conf` does not enable, before the executable resolves
+and fail-closed on a missing library, and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1`
+for a synthetic manifest read beside copies of the deployed ones, with the package gone as the control.
+`cli-agent-set.sh` reports and counts the same link.
 
 `audit.sh` pins the kernel-record section of `ai-tools-audit` ([cli](cli.rule.md)). The trail it reports is one **only
 the kernel writes**, so a test cannot produce a record: the helper is sourced (inert by construction), the audit
