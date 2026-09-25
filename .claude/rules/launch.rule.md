@@ -403,7 +403,7 @@ per launcher:
 |---|---|---|
 | `wired` | the wrapper, with the guard line in its init | settled |
 | `clear` | the wrapper, with no guard line | right today, and lost to the next thing that prepends to PATH |
-| `shadowed` | an agent outside `/usr/local/bin` | typing that name starts an unconfined agent |
+| `shadowed` | a file other than the wrapper | typing that name starts an unconfined agent |
 | `unknown` | no readable answer | the reading could not be taken — a non-bash login shell, no enabled agent, a probe that did not answer |
 
 `shadowed` outranks `unknown`, since one launcher read as shadowed states what that account gets whatever another probe
@@ -418,7 +418,9 @@ for the ordering — which is exactly the distinction the `wired`-and-still-`sha
 present and something after it prepends to PATH. A reading of **this** shell does not need any privilege, which is
 why `ai-tools status` makes it: the CLI runs in the operator's own login shell, so `command -v` there resolves
 what typing the name would run. The launcher name is admitted only in a launcher's own charset before it reaches
-that command, and the answer only as an absolute path with no whitespace or control byte.
+that command, and the answer only as an absolute path with no whitespace or control byte. An admitted answer is compared
+with the wrapper by file identity (`-ef`), not by path: on a host where `/usr/local/sbin` is a symlink
+to `/usr/local/bin` and ranks first, `command -v` names `/usr/local/sbin/<launcher>`, which is the wrapper.
 
 The consumers read it at the moments the state can change: `operators add` (asks with the stake named, and warns rather
 than passing in silence when a shadowed account declines), `ai-tools status` (re-checks, and counts a shadowed launcher

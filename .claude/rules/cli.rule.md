@@ -334,12 +334,12 @@ an ordinary account read it — a partial view, the file sink being the authorit
 
   The PATH-ordering line is the one reading this report makes that needs **no** privilege and that no other vantage can
   make at all: the CLI runs in the operator's own login shell, so `command -v` there resolves exactly what typing
-  the launcher's name would run. A launcher resolving outside `/usr/local/bin` is an agent that starts **unconfined,
-  as the operator**, so it reads `UNCONFINED`, names `ai-tools-admin operators add <operator>` as the repair, and counts
-  toward the non-zero exit. A launcher reaching the wrapper with no ordering line wired is right today and says
-  so dimly, since that shell is sandboxed until the next thing that prepends to PATH takes it away. A launcher this host
-  does not install a wrapper for, and a name `command -v` does not resolve in this shell, are reported and are not
-  faults — the same rule the unqueryable units follow. The states and the reading behind them are
+  the launcher's name would run. A launcher resolving to a file other than the wrapper is an agent that starts
+  **unconfined, as the operator**, so it reads `UNCONFINED`, names `ai-tools-admin operators add <operator>`
+  as the repair, and counts toward the non-zero exit. A launcher reaching the wrapper with no ordering line wired is
+  right today and says so dimly, since that shell is sandboxed until the next thing that prepends to PATH takes it away.
+  A launcher this host does not install a wrapper for, and a name `command -v` does not resolve in this shell, are
+  reported and are not faults — the same rule the unqueryable units follow. The states and the reading behind them are
   [ref-section-p3k8](launch.rule.md#ref-section-p3k8).
 
   A unit in the sandbox account's own `systemd --user manager` is not queryable from the operator's session at all,
