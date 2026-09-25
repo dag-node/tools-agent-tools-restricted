@@ -126,10 +126,13 @@ if [[ ${#baks[@]} -eq 1 && "${out}" == *"${baks[0]}"* ]]; then
 else
     fail "the run did not name the backup it wrote"
 fi
-if [[ -f "${SETTINGS}.rpmnew" && "${out}" == *"then remove ${SETTINGS}.rpmnew"* ]]; then
-    pass "the copy survives the merge and is named as the operator's to remove"
+# Once the hook arrives, the host's own deny rule is all that differs from the copy. It is the host's, so it is listed as
+# such and not counted, and the copy is left with nothing to carry over -- kept on disk, and named for removal.
+if [[ -f "${SETTINGS}.rpmnew" && "${out}" == *"sudo rm ${SETTINGS}.rpmnew"* \
+      && "${out}" == *"kept as yours"* && "${out}" == *"deny: Bash(hosttuned:*)"* ]]; then
+    pass "the copy survives the merge and is named as the operator's to remove, the host's own rule listed as its"
 else
-    fail "dropped a .rpmnew, or did not name it as the file to remove by hand"
+    fail "dropped a .rpmnew, or did not name it for removal and the host's rule as its own"
 fi
 
 # The command claims to be idempotent, and an operator re-runs it: a second pass does not merge a declaration and does
