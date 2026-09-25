@@ -286,7 +286,7 @@ PY
             local what="$1" key="$2" shipped="$3" got
             got="$(decl "${key}")"
             if [[ -z "${got}" ]]; then
-                fail "requirements.toml declares no ${what} -- a file predating the key, not a tuned one: copy it from /usr/share/ai-tools/codex/requirements.toml"
+                fail "requirements.toml does not declare ${what} -- a file predating the key, not a tuned one: copy it from /usr/share/ai-tools/codex/requirements.toml"
                 codex_keys_ok=false
             elif [[ "${got}" != "${shipped}" ]]; then
                 note "requirements.toml ${what} is '${got}', not the shipped '${shipped}' -- tuned on this host"
