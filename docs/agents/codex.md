@@ -77,7 +77,8 @@ with `sudo`:
 
 An edit survives an upgrade: a package upgrade leaves the live file in place
 and puts the newer copy beside it as `.rpmnew`, and a from-source install keeps
-the file and says whether it matches the shipped one. `ai-tools status` reports
+the file and says whether it matches the shipped one. A file you have not
+edited takes the new release's copy on either route. `ai-tools status` reports
 a managed file that differs from the shipped copy
 under `/usr/share/ai-tools/codex`. Codex reads the live file alone, so a key
 a new release adds is in effect once you carry it over.

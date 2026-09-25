@@ -219,8 +219,10 @@ the live file against its copy through `ai_tools_managed_file_state` ([providers
 that differs prints the two consequences — codex reads the live file alone, so a key this release adds is not in it,
 and what it declares is the host's — with the copy's path, and is not counted toward the exit status, since an edited
 managed file is a supported state; a missing one is counted, since the package is then broken and a reinstall is
-the remedy. `install.sh` says the same at install time, on the kept file's own line. The report is where an operator
-learns a `.rpmnew` was parked, or a from-source install kept an edit, after the install output has scrolled by.
+the remedy. `install.sh` says the same at install time, on the kept file's own line, and gives a live file that is still
+byte-identical to the previous pristine copy this release's copy without asking, as rpm does for an unmodified
+`%config(noreplace)` file: that file was never edited, so no host choice is lost. The report is where an operator learns
+a `.rpmnew` was parked, or a from-source install kept an edit, after the install output has scrolled by.
 
 ## Handback: the shim's sweep is the guarantee, the hooks are the cadence
 
