@@ -55,9 +55,9 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 | Area | Source | Rule |
 |---|---|---|
-| Launch, allowlist gating, sudoers, PATH ordering (the fragment, the reading behind the question, the repoint a rename owes), the wrapper contract and the shared gate library every wrapper runs | `bin/ai-tools-run.sh`, `lib/ai-tools/launch-wrapper.lib.sh`, `allowed-projects`, `sudoers.d/ai-tools`, `lib/ai-tools/path-order.{sh,lib.sh}` | [launch](.claude/rules/launch.rule.md) |
-| **Provider-specific: claude-code** — its wrapper, manifest, entrypoint chain and labelling, custom system prompt, custom API endpoint, session pins, distribution channel | `usr/local/bin/claude.sh`, `lib/ai-tools/claude-{prompt,endpoint}.lib.sh`, `lib/ai-tools/agents.d/claude-code.conf`, `lib/ai-tools/session-env.d/claude-code.{pins.env,env}.sh` | [agent-claude-code](.claude/rules/agent-claude-code.rule.md) |
-| **Provider-specific: codex** — its wrapper, manifest and the re-linked launcher chain, the two managed files codex reads from `/etc/codex` (the mode pin that keeps the host's confinement closed, managed hooks only), the hook adapters, the admin-scope skills link, the session pin, the reduced set | `usr/local/bin/codex.sh`, `lib/ai-tools/agents.d/codex.conf`, `lib/ai-tools/session-env.d/codex.pins.env.sh`, `etc/codex/**`, `opt/ai-tools/agents/codex/**` | [agent-codex](.claude/rules/agent-codex.rule.md) |
+| Launch, allowlist gating, sudoers, PATH ordering (the fragment, the reading behind the question, the repoint a rename owes), the one launch wrapper every agent's command runs, its gate library and the launch-hook loader | `bin/ai-tools-run.sh`, `usr/local/bin/ai-tools-launch.sh`, `lib/ai-tools/launch-wrapper.lib.sh`, `allowed-projects`, `sudoers.d/ai-tools`, `lib/ai-tools/path-order.{sh,lib.sh}` | [launch](.claude/rules/launch.rule.md) |
+| **Provider-specific: claude-code** — its launch hook, manifest, entrypoint chain and labelling, custom system prompt, custom API endpoint, session pins, distribution channel | `lib/ai-tools/launch.d/claude-code.sh`, `lib/ai-tools/claude-{prompt,endpoint}.lib.sh`, `lib/ai-tools/agents.d/claude-code.conf`, `lib/ai-tools/session-env.d/claude-code.{pins.env,env}.sh` | [agent-claude-code](.claude/rules/agent-claude-code.rule.md) |
+| **Provider-specific: codex** — its manifest and the re-linked launcher chain, the two managed files codex reads from `/etc/codex` (the mode pin that keeps the host's confinement closed, managed hooks only), the hook adapters, the admin-scope skills link, the session pin, the reduced set | `lib/ai-tools/agents.d/codex.conf`, `lib/ai-tools/session-env.d/codex.pins.env.sh`, `etc/codex/**`, `opt/ai-tools/agents/codex/**` | [agent-codex](.claude/rules/agent-codex.rule.md) |
 | Namespaces, SELinux transition, preflight, `/tmp`, optional-group management, how the policy ships and why it is separately licensed | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand), `packaging/ai-tools.spec` (`ai-tools-selinux`) | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh`, `owner-only.lib.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
@@ -67,7 +67,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Governance posture: enforced vs dispositional, proportionality, the agent's own conduct and the controls beside it | `usr/share/ai-tools/skills/ai-tools-capable-systems-governance/**` | [governance](.claude/rules/governance.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
 | Toolchain provisioning + Node/claude updater, the residue a disabled agent's package is and its removal, symlink repoint and removal, post-upgrade entrypoint reconciliation (signed-release verification + relabel) | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `toolchain.lib.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-agent.sh`, `entrypoint-verify.lib.sh`, `keys/**`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
-| Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, and the `session-env.d` and `admin-commands.d` seams | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env,admin-commands}.d/**`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
+| Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, and the `session-env.d`, `launch.d` and `admin-commands.d` seams | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env,launch,admin-commands}.d/**`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
 | The dotnet integration (its manifest, session-env fragment, filter rules, and contributed `dotnet` command) and running .NET (CoreCLR) under confinement: the `tmpmap`/`memfdexec`/`localipc`/`buildexec` SELinux groups, the build-output type and the `ai_tools_dotnet` layout module, project-type→group map, denial breakdown, the configuration a build reads from a project's ancestors and the report that names what a session is denied, the manifest keys and `ai-tools-providers(5)` | `lib/ai-tools/integrations.d/dotnet.conf`, `lib/ai-tools/ancestor-config.lib.sh`, `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `lib/ai-tools/admin-commands.d/dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,memfdexec,localipc,buildexec,dotnet}.te`, `share/man/man5/ai-tools-providers.5` | [dotnet](.claude/rules/dotnet.rule.md) |
 | The typesafe integration: its manifest and session-env fragment, the credential file a session is handed the path of, the decide command a session pipes a listing to and the transport that holds an untrusted answer to the documented shape, the `ai-tools-decide` skill the package ships, what a call discloses, and the signed release the command is vendored from | `lib/ai-tools/integrations.d/typesafe.conf`, `lib/ai-tools/session-env.d/typesafe.env.sh`, `etc/ai-tools/endpoints/typesafe.conf`, `lib/ai-tools/typesafe/**`, `tools/generators/typesafe-client.{sh,pin}`, `share/man/man5/ai-tools-typesafe.conf.5`, `usr/share/ai-tools/skills/ai-tools-decide/**` | [typesafe](.claude/rules/typesafe.rule.md) |
 | Management CLI, project lifecycle, relabel, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
@@ -85,9 +85,10 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 Each step's mechanism is in the rule files the [Component map](#component-map) names; the invariant each guarantees:
 
-1. An agent's command (`claude`) resolves to that agent's system wrapper (`/usr/local/bin/claude`), running
-   as the non-root operator who invoked it; it refuses a caller not in the `ai-ops` operators group before doing
-   anything else.
+1. An agent's command (`claude`) resolves to the one launch wrapper (`/usr/local/bin/ai-tools-launch`,
+   through the `/usr/local/bin/claude` symlink the agent's package ships), running as the non-root operator who invoked
+   it; it refuses a caller not in the `ai-ops` operators group before doing anything else, and a command name no enabled
+   agent manifest claims.
 2. The wrapper launches only inside an allowed project, and refuses a `!`-excluded CWD.
 3. It resolves the versioned binary via a single `readlink` hop, validates it, and execs the shared confinement shim
    `ai-tools-run` as `SANDBOX_USER` with the path in `AI_TOOLS_AGENT_EXEC`.
@@ -298,8 +299,9 @@ not gaps, so a reader tells bounded design from an oversight:
   and guidance screens within 80) and emitted plain when piped (so logs and test greps stay line-matchable). Detail
   in [messaging](.claude/rules/messaging.rule.md).
 - **One confinement shim serves every agent.** `/opt/ai-tools/bin/ai-tools-run` is `ai-tools-base`-owned
-  and agent-agnostic; an `ai-tools-agents-*` package ships its wrapper, its manifest, and its session-env fragment,
-  and inherits the single `%ai-ops` sudoers grant rather than adding one. See [launch](.claude/rules/launch.rule.md).
+  and agent-agnostic; an `ai-tools-agents-*` package ships its launcher (a symlink to the one launch wrapper), its
+  manifest, and its session-env fragment, and inherits the single `%ai-ops` sudoers grant rather than adding one. See
+  [launch](.claude/rules/launch.rule.md).
 - **Root sudo-helpers** live under `/usr/local/libexec/ai-tools/`, one fixed-path `ai-tools-<verb>` executable
   per privileged operation; the directory listing is the set, and which route reaches each one — the CLI over `sudo`,
   the handback daemon, a unit — is stated in [cli](.claude/rules/cli.rule.md)

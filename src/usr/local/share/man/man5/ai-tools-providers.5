@@ -157,6 +157,23 @@ Unset for an agent whose npm launcher is the executable itself.
 .B display_name
 What the launch banner and the session unit call the agent.
 .TP
+.B launch_hook
+.B yes
+when the agent package ships a launch hook,
+.BI /usr/local/lib/ai-tools/launch.d/ name .sh ,
+that adds this agent's own arguments to every launch.
+The launcher runs it after the launch checks and refuses the launch when
+the hook is missing, is not root-owned, is writable by group or other, or
+does not complete.
+Any value other than
+.B yes
+or
+.B no
+refuses the launch.
+Default:
+.BR no ,
+and no hook file is read.
+.TP
 .B handback
 .B hooks
 when the agent converges file ownership itself, per tool call and per turn.

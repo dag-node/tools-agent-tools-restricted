@@ -31,7 +31,7 @@ ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
 ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-4-5-20251001
 ```
 
-The next session picks it up (`claude.sh` reads `operator.conf` at launch).
+The next session picks it up (the `claude` launch hook reads `operator.conf` at launch).
 Only these four keys are read and each is validated; a configured-but-invalid
 value **refuses the launch** rather than routing partially. With a custom proxy
 the model names are **labels the proxy maps** to an underlying model, not

@@ -628,6 +628,7 @@ do_selinux_restore() {
         [[ -d "${_cfg}" ]] && restorecon -R "${_cfg}"
     done < <(ai_tools_agent_config_dirs)
     restorecon \
+        /usr/local/bin/ai-tools-launch \
         /usr/local/bin/claude \
         /usr/local/bin/codex \
         /usr/lib/systemd/user/nvm-update.service \
@@ -844,7 +845,9 @@ do_summary() {
     _chk /usr/sbin/ai-tools-admin
     _chk /usr/sbin/ai-tools
     _chk /usr/local/libexec/ai-tools/ai-tools-handback
+    _chk /usr/local/bin/ai-tools-launch
     _chk /usr/local/bin/claude
+    _chk /usr/local/lib/ai-tools/launch.d/claude-code.sh
     _chk /usr/local/bin/ai-tools-handback-client
     _chk /usr/lib/systemd/system/ai-tools-handback.socket
     _chk /usr/lib/systemd/system/ai-tools-handback@.service
@@ -1371,7 +1374,15 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh" \
         /usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh
 
-    # Claude Code-specific resolvers: the custom system prompt (claude.sh, wrapper-side) and the custom API endpoint
+    # Agent launch hooks: launch.d/<agent>.sh, which ai-tools-launch sources for an agent whose manifest declares
+    # launch_hook=yes, once it and this directory pass the trust check -- so both are root-owned and not group-writable.
+    install -d -o root -g root -m 755 /usr/local/lib/ai-tools/launch.d
+    log "/usr/local/lib/ai-tools/launch.d/claude-code.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/launch.d/claude-code.sh" \
+        /usr/local/lib/ai-tools/launch.d/claude-code.sh
+
+    # Claude Code-specific resolvers: the custom system prompt (the launch hook, operator-side) and the custom API endpoint
     # (its own fragment, sandbox-side). Root-owned and non-group-writable so both are trusted enough to source. No
     # secrets (the endpoint's token lives in its own file).
     for _cc_lib in claude-prompt.lib.sh claude-endpoint.lib.sh; do
@@ -1765,20 +1776,20 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man7/ai-tools-messages.7" \
         /usr/local/share/man/man7/ai-tools-messages.7
 
-    # Launch wrapper. Ships system-wide root:root 0755 -- rpm-owned, on every operator's PATH (path-order.sh, wired
-    # into operator dotfiles by ai-tools-admin, ranks /usr/local/bin ahead of the nvm shims, so it shadows nvm's
-    # claude). It runs as the invoking operator, gates on ai-ops membership, and drops to ai-tools via sudo.
-    log "/usr/local/bin/claude"
+    # The launch wrapper, root:root 0755 on every operator's PATH (path-order.sh, wired into operator dotfiles
+    # by ai-tools-admin, ranks /usr/local/bin ahead of the nvm shims, so a launcher shadows nvm's agent of the same
+    # name). Each launcher is a symlink to it; it takes the agent from the name it was invoked as, runs as the invoking
+    # operator, gates on ai-ops membership and an enabled manifest claiming that name, and drops to ai-tools via sudo.
+    # `ln -sfn` replaces a wrapper file an earlier install left at the launcher path with the link.
+    log "/usr/local/bin/ai-tools-launch"
     install_subst 755 root root \
-        "${SCRIPT_DIR}/src/usr/local/bin/claude.sh" \
-        /usr/local/bin/claude
-    # The codex wrapper: the same gate library and the same PATH position, one launcher name further. It shadows
-    # a host's own codex the way the claude wrapper shadows nvm's claude, and a disabled codex has no launcher symlink
-    # for it to resolve, so typing `codex` refuses rather than starting an unconfined one.
-    log "/usr/local/bin/codex"
-    install_subst 755 root root \
-        "${SCRIPT_DIR}/src/usr/local/bin/codex.sh" \
-        /usr/local/bin/codex
+        "${SCRIPT_DIR}/src/usr/local/bin/ai-tools-launch.sh" \
+        /usr/local/bin/ai-tools-launch
+    local _launcher
+    for _launcher in claude codex; do
+        log "/usr/local/bin/${_launcher} -> ai-tools-launch"
+        ln -sfn /usr/local/bin/ai-tools-launch "/usr/local/bin/${_launcher}"
+    done
 
     # Sandbox project area. /var/opt is FHS-correct for variable data paired with an /opt install. Owned
     # root:SANDBOX_GROUP; the inner sandbox-projects dir is setgid (clones born group SANDBOX_GROUP) and group-writable
@@ -1901,7 +1912,7 @@ do_install() {
     # and an EXISTING copy is kept (operator edits survive a re-install, matching the RPM's %config(noreplace)),
     # with owner and mode re-asserted. Both are 640 root:SANDBOX_GROUP: the sandbox account reads them but neither is
     # world-readable -- the endpoint holds a bearer token, and a custom prompt may be proprietary. The operator edits
-    # each with sudo; the dirs stay 755 so claude.sh can stat the prompt file as the operator.
+    # each with sudo; the dirs stay 755 so the launch hook can stat the prompt file as the operator.
     ensure_dir 755 root root /etc/ai-tools/prompts
     local sysprompt=/etc/ai-tools/prompts/claude-system-prompt.md sysprompt_existed=0
     [[ -f "${sysprompt}" ]] && sysprompt_existed=1
@@ -2529,7 +2540,7 @@ do_uninstall() {
     rm -f /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     rm -f /usr/local/share/man/man5/ai-tools-typesafe.conf.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
-    rm -f /usr/local/bin/claude /usr/local/bin/codex
+    rm -f /usr/local/bin/claude /usr/local/bin/codex /usr/local/bin/ai-tools-launch
     # Codex's skills link (retire_managed_files has already taken its managed files). The link is removed only where it
     # is ours (the reverse of the install's four-state check); a host's own /etc/codex/skills, and a /etc/codex holding
     # anything else -- a host's file, or a sidecar this uninstall wrote -- stay, since the rmdir takes only an empty

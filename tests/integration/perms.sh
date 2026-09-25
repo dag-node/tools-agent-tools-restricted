@@ -173,7 +173,7 @@ check_file /opt/ai-tools/integrations/typesafe                  root            
 check_file /usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh root    root              644
 check_file /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh root         root              644
 # The claude-code agent's Claude-specific resolvers: the custom system prompt (wrapper-side) and the custom API endpoint
-# (fragment-side). 644 root:root -- sourced by claude.sh / the fragment, so root-owned and non-group-writable is
+# (fragment-side). 644 root:root -- sourced by the launch hook / the fragment, so root-owned and non-group-writable is
 # what makes them trusted enough to source. No secrets.
 check_file /usr/local/lib/ai-tools/claude-prompt.lib.sh      root              root              644
 check_file /usr/local/lib/ai-tools/claude-endpoint.lib.sh    root              root              644
@@ -226,7 +226,7 @@ check_file /etc/sudoers.d/ai-tools                     root              root   
 check_file /etc/ai-tools/operator.conf                        root              root              644
 # Custom system prompt: an empty, editable default under a dedicated dir. 640 root:ai-tools -- the sandbox account reads
 # it (via etc_t + the group) and the operator edits it with sudo, but a custom prompt is not world-readable (it may
-# carry proprietary instructions). claude.sh only stat()s it as the operator, so no operator read is needed; the dir
+# carry proprietary instructions). the launch hook only stat()s it as the operator, so no operator read is needed; the dir
 # stays 755 so that stat can traverse it.
 check_file /etc/ai-tools/prompts                              root              root              755
 check_file /etc/ai-tools/prompts/claude-system-prompt.md      root              "${SANDBOX_GROUP}" 640
@@ -422,12 +422,18 @@ else
     check_file /usr/local/share/man/man8/ai-tools-admin.8     root root 644
 fi
 # Launch wrapper: 755 root:root -- system-wide on every operator's PATH (path-order.sh ranks /usr/local/bin ahead
-# of the nvm shims, so it shadows nvm's claude). Runs as the invoking operator, gates on ai-ops membership, then drops
-# to the sandbox account via sudo; root-owned so the agent cannot rewrite it.
-check_file /usr/local/bin/claude                              root root 755
-# The codex wrapper: the same shape at the same PATH position, so it shadows a host's own codex the way the claude
-# wrapper shadows nvm's claude. Installed with the package, whether or not the agent is enabled.
-check_file /usr/local/bin/codex                               root root 755
+# of the nvm shims, so a launcher shadows nvm's agent of the same name). Runs as the invoking operator, gates on ai-ops
+# membership, then drops to the sandbox account via sudo; root-owned so the agent cannot rewrite it.
+check_file /usr/local/bin/ai-tools-launch                     root root 755
+# Each agent's launcher is a symlink to it (check_file lstat()s the link, 777 being a symlink's fixed mode, and `-e`
+# catches a dangling one); integration/wrapper.sh asserts where it points. Installed with the agent's package, whether
+# or not the agent is enabled.
+check_file /usr/local/bin/claude                              root root 777
+check_file /usr/local/bin/codex                               root root 777
+# Agent launch hooks: the directory and claude-code's hook, root-owned and not group-writable, the state the launcher's
+# trust check requires before it sources one.
+check_file /usr/local/lib/ai-tools/launch.d                   root root 755
+check_file /usr/local/lib/ai-tools/launch.d/claude-code.sh    root root 644
 # Message formatter: 644 root:root -- world-readable like log.lib.sh; sourced by the operator wrapper/CLI, the agent's
 # hooks, and ai-tools-run, so every principal must read it. No secrets.
 check_file /usr/local/lib/ai-tools/msg.lib.sh                 root root 644

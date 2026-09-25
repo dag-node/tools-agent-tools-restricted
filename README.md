@@ -191,10 +191,11 @@ skill.
 
 ```
 you type `claude`
-  └─ /usr/local/bin/claude                    (wrapper, runs as the invoking operator)
+  └─ /usr/local/bin/claude → ai-tools-launch  (wrapper, runs as the invoking operator)
        ├─ caller ∈ ai-ops group?              refuse a non-operator with a framed message
-       ├─ CWD ∈ allowed-projects?             refuse if not, or if !-excluded
+       ├─ `claude` an enabled agent?          refuse a name no enabled agent claims
        ├─ resolve /opt/ai-tools/bin/claude    (one readlink hop; export as AI_TOOLS_AGENT_EXEC)
+       ├─ CWD ∈ allowed-projects?             refuse if not, or if !-excluded
        ├─ export CWD as AI_TOOLS_PROJECT_DIR    (validated project dir → unit WorkingDirectory)
        └─ exec sudo -u "${SANDBOX_USER}" -- /opt/ai-tools/bin/ai-tools-run
             │                                  (DROPS privilege to the unprivileged sandbox

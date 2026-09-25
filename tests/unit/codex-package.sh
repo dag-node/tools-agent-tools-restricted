@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/codex-package.sh
 # Unit test for the files ai-tools-agents-codex-restricted ships, held to the seams they plug into before any host
-# installs them: the manifest to the readers that parse it, the fragment to the session-env contract, the wrapper
-# to the gate library's three calls, the two managed TOML files to the shape codex was measured to accept, and the two
+# installs them: the manifest to the readers that parse it, the fragment to the session-env contract, the launcher
+# to the shared launch wrapper, the two managed TOML files to the shape codex was measured to accept, and the two
 # hook adapters to the payload shapes codex sends. Each property is one a host would otherwise discover at the first
 # launch:
 #
@@ -12,8 +12,9 @@
 #      a target the pattern does not cover, so a manifest whose two keys drift does not launch.
 #      Driven through the real re-link on a fixture version directory.
 #   2. THE FRAGMENT PINS ONE VARIABLE AND DOES NOTHING ELSE. It runs in ai-tools-run's own shell.
-#   3. THE WRAPPER IS THE GATE LIBRARY'S THREE CALLS IN ORDER, and refuses when the library will
-#      not load, citing the code claude's wrapper defines for the same situation.
+#   3. THE LAUNCHER IS THE SHARED WRAPPER UNDER CODEX'S NAME. Both install routes ship `codex` as a
+#      symlink to ai-tools-launch, and the manifest declares no launch hook, so a codex launch runs
+#      the shared gates and nothing of its own.
 #   4. A BARE KEY SITS AHEAD OF THE FIRST TABLE HEADER. A bare key written after one belongs to that
 #      table and is silently ignored -- the shape two harness runs measured a pin as "accepted"
 #      with. Read with a TOML parser, so the assertion is on what codex reads, not on the text.
@@ -33,7 +34,7 @@ SRC="${ROOT}/src"
 LIB_DIR="${SRC}/usr/local/lib/ai-tools"
 [[ -d "${SRC}" ]] || { LIB_DIR="/usr/local/lib/ai-tools"; SRC=""; }
 
-section "codex package: manifest, fragment, wrapper, managed files, hook adapters (unit)"
+section "codex package: manifest, fragment, launcher, managed files, hook adapters (unit)"
 
 if [[ -z "${SRC}" ]]; then
     skip "codex package" "not a source checkout (no ${ROOT}/src); the package files are read from the tree"
@@ -42,13 +43,14 @@ fi
 
 readonly MANIFEST="${LIB_DIR}/agents.d/codex.conf"
 readonly FRAGMENT="${LIB_DIR}/session-env.d/codex.pins.env.sh"
-readonly WRAPPER="${SRC}/usr/local/bin/codex.sh"
+readonly SPEC="${ROOT}/packaging/ai-tools.spec"
+readonly INSTALLER="${ROOT}/install.sh"
 readonly REQUIREMENTS="${SRC}/etc/codex/requirements.toml"
 readonly MANAGED_CONFIG="${SRC}/etc/codex/managed_config.toml"
 readonly HOOK_SRC_DIR="${SRC}/opt/ai-tools/agents/codex"
 readonly HOOK_LIVE_DIR="/opt/ai-tools/.codex"
 
-for f in "${MANIFEST}" "${FRAGMENT}" "${WRAPPER}" "${REQUIREMENTS}" "${MANAGED_CONFIG}" \
+for f in "${MANIFEST}" "${FRAGMENT}" "${SPEC}" "${REQUIREMENTS}" "${MANAGED_CONFIG}" \
          "${HOOK_SRC_DIR}/post-tool-hook.sh" "${HOOK_SRC_DIR}/session-hook.sh"; do
     if [[ ! -r "${f}" ]]; then
         fail "package file missing from the tree: ${f}"; finish; exit
@@ -242,40 +244,26 @@ fi
     && pass "the fragment's CODEX_HOME and the manifest's config_dir name the same directory" \
     || fail "the fragment's CODEX_HOME and the manifest's config_dir disagree"
 
-# ── 3. The wrapper ────────────────────────────────────────────────────────────────────────────
-section "codex.sh: the gate library's three calls, in order, and the fail-closed load"
-if bash -n "${WRAPPER}" 2>"${TESTDIR}/wrapper.syntax"; then
-    pass "codex.sh parses"
+# ── 3. The launcher ───────────────────────────────────────────────────────────────────────────
+section "codex's launcher: the shared launch wrapper under codex's name, with no launch hook"
+if [[ "$(field launch_hook)" == "" || "$(field launch_hook)" == no ]]; then
+    pass "the manifest declares no launch hook"
 else
-    fail "codex.sh does not parse: $(head -c 200 "${TESTDIR}/wrapper.syntax")"
+    fail "the manifest declares launch_hook=$(field launch_hook), and the package ships no hook"
 fi
-init_line="$(grep -n '^ai_tools_launch_init codex$' "${WRAPPER}" | cut -d: -f1 | head -1)"
-gates_line="$(grep -n '^ai_tools_launch_gates "\$@"$' "${WRAPPER}" | cut -d: -f1 | head -1)"
-session_line="$(grep -n '^ai_tools_launch_session "\$@"$' "${WRAPPER}" | cut -d: -f1 | head -1)"
-if [[ -n "${init_line}" && -n "${gates_line}" && -n "${session_line}" \
-        && "${init_line}" -lt "${gates_line}" && "${gates_line}" -lt "${session_line}" ]]; then
-    pass "init codex -> gates \"\$@\" -> session \"\$@\", in that order, with no resolver between"
+if grep -qxF 'ln -s %{ai_bindir}/ai-tools-launch %{buildroot}%{ai_bindir}/codex' "${SPEC}"; then
+    pass "the RPM ships codex as a symlink to ai-tools-launch"
 else
-    fail "the three library calls are missing or out of order (init ${init_line:-none}, gates ${gates_line:-none}, session ${session_line:-none})"
+    fail "the spec does not ship %{ai_bindir}/codex as a symlink to ai-tools-launch"
 fi
-if ! grep -q 'claude-prompt\|claude-endpoint\|CLAUDE_' "${WRAPPER}"; then
-    pass "the wrapper carries no claude-code launch input"
+# The container images carry the package sources without the source installer, so its route is read where it exists.
+if [[ ! -r "${INSTALLER}" ]]; then
+    skip "install.sh launcher link" "no install.sh in this tree (a package-test image)"
+elif grep -qE '^ *for _launcher in [a-z ]*\bcodex\b' "${INSTALLER}"; then
+    pass "install.sh links codex to ai-tools-launch"
 else
-    fail "the wrapper names a claude-code input: $(grep -n 'claude-prompt\|claude-endpoint\|CLAUDE_' "${WRAPPER}" | head -2 | tr '\n' '|')"
+    fail "install.sh does not link codex among the launchers"
 fi
-# The fail-closed load, driven: a copy whose library path points at an absent file must refuse with the twin code.
-cp "${WRAPPER}" "${TESTDIR}/codex-nolib.sh"
-sed "s|^readonly LAUNCH_LIB=.*|readonly LAUNCH_LIB=\"${TESTDIR}/no-such-lib.sh\"|" "${WRAPPER}" > "${TESTDIR}/codex-nolib.sh"
-out="$(cd "${TESTDIR}" && bash "${TESTDIR}/codex-nolib.sh" --version 2>&1)" && wrc=0 || wrc=$?
-if [[ "${wrc}" -eq 1 ]]; then
-    pass "a wrapper whose gate library will not load exits 1"
-else
-    fail "a wrapper whose gate library will not load exited ${wrc}: $(head -c 200 <<<"${out}")"
-fi
-assert_msg MSG-R3Q4 "${out}" "the refusal cites MSG-R3Q4, the code claude's wrapper defines for the unloadable library"
-grep -q '^codex: cannot load the launch gate library' <<<"${out}" \
-    && pass "the refusal opens with the launcher's own name" \
-    || fail "the refusal does not open with 'codex: cannot load ...': $(head -c 200 <<<"${out}")"
 
 # ── 4. The managed files ──────────────────────────────────────────────────────────────────────
 section "/etc/codex: the two managed files, as codex parses them"

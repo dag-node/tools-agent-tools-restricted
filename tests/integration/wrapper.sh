@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/wrapper.sh
-# Integration: the deployed launch wrapper (/usr/local/bin/claude). The boundary test of this wrapper: it proves
-# the installed wrapper reaches the shared gates (launch-wrapper.lib.sh) in their order -- the ai-ops operator gate,
-# the allowlist gate, and the symlink-existence guard -- against the REAL installed files, hermetically: the gates key
+# Integration: the deployed launch wrapper (/usr/local/bin/ai-tools-launch), reached through the claude launcher
+# symlink as an operator types it. It proves the installed wrapper reaches the shared gates (launch-wrapper.lib.sh)
+# in their order -- the ai-ops operator gate, the launcher gate, the allowlist gate, and the symlink-existence guard --
+# against the REAL installed files, hermetically: the gates key
 # the allowlist off ${HOME}, so the test points HOME at a /tmp testdir with a controlled allowed-projects (no dependency
 # on the operator's real allowlist, and no dependency on whether the install dir is a project). Every wrapper run is
 # detached via setsid so the /dev/tty claim prompt can never fire -- the test never claims a project as a side effect.
@@ -294,12 +295,24 @@ else
         "wrapper refuses to launch in an allowlisted-but-protected system directory (/etc)"
 fi
 
-# ── The codex wrapper: enablement fails closed ───────────────────────────────────
-# The second agent's wrapper runs the same gate library, so its gates are proven by this file's claude cases; what is
-# its own is ENABLEMENT. An agent gets a launcher symlink under /opt/ai-tools/bin only while it is enabled
-# and provisioned, and the wrapper resolves that link before the CWD gate -- so a disabled codex refuses every launch
-# at the launcher gate, whichever directory it is typed in, and an enabled one reaches the allowlist gate exactly
-# as claude does. Which of the two this host is in is read from the same resolver the toolchain provisions
+# ── Every launcher is the one wrapper ────────────────────────────────────────────
+# An agent package ships its launcher as a symlink to ai-tools-launch, so what an operator's shell runs for either name
+# is that file; a regular file at a launcher path would be a wrapper outside the shared gates.
+section "launchers: symlinks to ai-tools-launch (integration)"
+for launcher_path in /usr/local/bin/claude /usr/local/bin/codex; do
+    [[ -e "${launcher_path}" || -L "${launcher_path}" ]] || continue
+    if [[ -L "${launcher_path}" && "${launcher_path}" -ef /usr/local/bin/ai-tools-launch ]]; then
+        pass "${launcher_path} is a symlink to ai-tools-launch"
+    else
+        fail "${launcher_path} is not a symlink to ai-tools-launch ($(stat -c '%F' "${launcher_path}"))"
+    fi
+done
+
+# ── The codex launcher: enablement fails closed ──────────────────────────────────
+# The second launcher is the same wrapper under another name, so its gates are proven by this file's claude cases; what
+# is its own is ENABLEMENT. The launcher gate admits the name only while an enabled manifest claims it, before the CWD
+# gate -- so a disabled codex refuses every launch there, whichever directory it is typed in, and an enabled one
+# reaches the allowlist gate exactly as claude does. Which of the two this host is in is read from the same resolver the toolchain provisions
 # from, and the link and the enabled set must agree: a link for an agent the resolver does not enable is a launcher no
 # enabled manifest claims, which ai-tools-run refuses (integration/ai-tools-run.sh) -- reported here so the two gates
 # are never seen
@@ -349,7 +362,7 @@ else
         if (( codex_enabled )); then
             skip "codex launch through the wrapper" "codex is enabled but not provisioned -- run: sudo ai-tools-admin system bootstrap"
         else
-            assert_msg MSG-S4B3 "${codex_out}" "codex wrapper refuses to launch while codex is disabled (no launcher symlink to resolve)"
+            assert_msg MSG-F8N3 "${codex_out}" "codex refuses to launch while codex is disabled (no enabled manifest claims the name)"
             if gate_refused "${codex_out}"; then
                 fail "codex wrapper reached the allowlist gate for a disabled agent -- the launcher gate must refuse first"
             else

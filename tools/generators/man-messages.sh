@@ -37,14 +37,14 @@ note=NOTICE say_notice=NOTICE notice=NOTICE _ai_tools_toolchain_notice=NOTICE
 ai_tools_msg_notice=NOTICE _pu_aside=NOTICE
 '
 
-# Source file to the component an operator names it by: the four commands that are spelled differently from their file,
-# the two installers, and otherwise the installed basename -- a libexec helper without its .sh, a shared library as it
+# Source file to the component an operator names it by: the commands spelled differently from their file (an agent's
+# launch hook is named for the agent's command), the two installers, and otherwise the installed basename -- a libexec helper without its .sh, a shared library as it
 # is installed.
 COMPONENT_MAP='
 src/usr/local/bin/ai-tools.sh=ai-tools
 src/usr/local/libexec/ai-tools/ai-tools-admin.sh=ai-tools-admin
 src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh=ai-tools-admin dotnet
-src/usr/local/bin/claude.sh=claude
+src/usr/local/lib/ai-tools/launch.d/claude-code.sh=claude
 src/opt/ai-tools/bin/ai-tools-run.sh=ai-tools-run
 install.sh=install.sh
 selinux/install-selinux.sh=install-selinux.sh
