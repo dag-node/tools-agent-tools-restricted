@@ -1451,6 +1451,30 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Fri Sep 25 2026 dagnode <tools@dagnode.com> - 0.21.0-1
+- CHANGE: The 'claude' and 'codex' commands are symlinks to /usr/local/bin/ai-tools-launch, one
+  launch wrapper that takes the agent from the name it was invoked as. A provider manifest may
+  declare launch_hook=yes to add its agent's own launch arguments; see ai-tools-providers(5).
+- NEW: 'sudo ai-tools-admin system post-upgrade' names every key a kept managed file lacks, such as
+  a setting a release adds to /etc/codex/requirements.toml, whether or not an .rpmnew is waiting;
+  --check reports each one as key-missing.
+- NEW: The same report compares settings.json as data: it names a permission rule the release adds
+  and the file lacks (--check: rule-missing), lists the host's own rules as its own, and does not
+  report order or grouping.
+- NEW: Every merge the report leaves to the operator prints
+  'SUDO_EDITOR=meld sudoedit <file> <file>.rpmnew' (vimdiff where meld is not installed), so the
+  merge tool runs as the invoking user with the live file on the left.
+- FIX: Codex 0.157 failed to start on a host without the localipc policy group, because it starts
+  a background app-server first. /etc/codex/requirements.toml turns it off; a host that edited the
+  file receives the setting as requirements.toml.rpmnew, and 'codex --no-daemon' starts a session
+  until it is merged.
+- FIX: install.sh replaces a codex managed file the host never edited with the release's copy, as
+  rpm does, so a from-source host receives a key the release adds.
+- FIX: On a host where /usr/local/sbin links to /usr/local/bin, as on Fedora 44 (the next
+  supported platform), 'ai-tools status', 'operators add', and the bootstrap and install reports
+  listed the sandbox wrapper as an unconfined agent. The report was wrong; sessions started
+  through the wrapper ran confined.
+
 * Fri Sep 25 2026 dagnode <tools@dagnode.com> - 0.20.0-1
 - CHANGE: Each item in AI_TOOLS_AGENTS, AI_TOOLS_INTEGRATIONS and AI_TOOLS_FILTERS names its kind:
   'agent-claude-code', 'integration-dotnet', 'filter-dotnet'. A list written with bare names, as
