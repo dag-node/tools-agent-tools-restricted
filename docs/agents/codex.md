@@ -82,6 +82,26 @@ a managed file that differs from the shipped copy
 under `/usr/share/ai-tools/codex`. Codex reads the live file alone, so a key
 a new release adds is in effect once you carry it over.
 
+### The background app-server
+
+```toml
+[features]
+daemon_auto_start = true
+```
+
+Codex can start a background app-server ahead of each session. It ships
+off, in `/etc/codex/requirements.toml`, and the example turns it on. On a host
+where SELinux is enforcing, the app-server also needs the `localipc` policy
+group loaded, since without it the app-server cannot create its socket
+and every Codex start fails:
+
+```bash
+sudo ai-tools-admin selinux groups enable localipc
+```
+
+That group widens what every session may do, for every agent on the host.
+`sudo ai-tools-admin selinux groups` lists what each group grants.
+
 ## Shared skills and the orientation text
 
 The shared skills reach Codex through `/etc/codex/skills`, which the package
