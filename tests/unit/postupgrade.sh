@@ -157,6 +157,60 @@ else
     fail "a current file was rewritten, backed up, or lost its .rpmnew"
 fi
 
+# ── (C2) settings.json: the rules and settings left once the hooks are current, compared as sets ─────────────
+# The shape an upgraded host shows: two deny rules the package added, one rule of the host's own, the ask list moved
+# ahead of allow, and the two Bash PostToolUse commands split into two groups, as the hook merge leaves them. Only
+# the two missing rules are the operator's to act on; order and grouping are not differences.
+reset_root
+jq '.permissions.deny -= ["Bash(gpg)", "Bash(gpg *)"] | .permissions.deny += ["Bash(hosttuned:*)"]
+    | .permissions = ({ask: .permissions.ask} + .permissions)
+    | .hooks.PostToolUse = [.hooks.PostToolUse[] | if .matcher == "Bash" then (.hooks[] as $h | .hooks = [$h]) else . end]' \
+    "${SHIPPED_SETTINGS}" > "${SETTINGS}"
+cp "${SHIPPED_SETTINGS}" "${SETTINGS}.rpmnew"
+before="$(md5sum < "${SETTINGS}")"
+out="$(run_pu)"
+if [[ "${out}" == *"rules this version ships that the file does not carry"* && "${out}" == *"deny: Bash(gpg)"* \
+      && "${out}" == *"deny: Bash(gpg *)"* && "${out}" == *"kept as yours"* && "${out}" == *"deny: Bash(hosttuned:*)"* \
+      && "${out}" != *"other settings differ"* && "${out}" != *"@@"* \
+      && "${out}" == *"sudoedit ${SETTINGS} ${SETTINGS}.rpmnew"* ]]; then
+    pass "the missing rules are named, the host's own listed as its, and order and hook grouping are not shown"
+else
+    fail "the settings difference was not reported as sets: ${out}"
+fi
+if [[ "$(md5sum < "${SETTINGS}")" == "${before}" && -f "${SETTINGS}.rpmnew" ]]; then
+    pass "the settings file is left as written"
+else
+    fail "the set comparison wrote the settings file or dropped its copy"
+fi
+out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check < /dev/null 2>&1)" \
+    && check_rc=0 || check_rc=$?
+if [[ "${check_rc}" == 1 ]] \
+        && grep -qxF "$(printf '%s\t%s\t%s\t%s' MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg)')" <<< "${out}" \
+        && grep -qxF "$(printf '%s\t%s\t%s\t%s' MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg *)')" <<< "${out}" \
+        && ! grep -qF 'hosttuned' <<< "${out}" && ! grep -qF 'rpmnew-differs' <<< "${out}"; then
+    pass "--check reports each missing rule as rule-missing, and neither the host's rule nor the layout"
+else
+    fail "--check did not report the missing rules alone (exit ${check_rc}): ${out}"
+fi
+
+# A difference in order and layout alone is not one to carry over, and a changed setting outside the rule lists is shown
+# as one.
+jq '.permissions = ({ask: .permissions.ask} + .permissions)' "${SHIPPED_SETTINGS}" > "${SETTINGS}"
+out="$(run_pu)"
+if [[ "${out}" == *"apart from order and layout"* && "${out}" == *"nothing is left to carry over"* ]]; then
+    pass "a file differing only in order is reported as having nothing to carry over"
+else
+    fail "an order-only difference was reported as one to act on: ${out}"
+fi
+jq '.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = 1' "${SHIPPED_SETTINGS}" > "${SETTINGS}"
+out="$(run_pu)"
+if [[ "${out}" == *"other settings differ"* && "${out}" == *"CLAUDE_CODE_MAX_OUTPUT_TOKENS"* \
+      && "${out}" == *"--- ${SETTINGS}"* ]]; then
+    pass "a setting outside the rule lists is shown as a diff labelled with the real files"
+else
+    fail "a changed setting was not shown: ${out}"
+fi
+
 # ── (D) A merge that matches the shipped copy still leaves it to the operator ──────────────────
 reset_root
 jq . "${SHIPPED_SETTINGS}" > "${SETTINGS}.rpmnew"
@@ -283,8 +337,9 @@ if [[ "${out}" != *"secretvalue"* && "${out}" != *"check_for_update_on_startup"*
 else
     fail "a discovered file's content reached the output"
 fi
-if [[ "${out}" == *"sudo diff -u ${ROOT}/etc/codex/managed_config.toml "* && -f "${ROOT}/etc/codex/managed_config.toml.rpmnew" ]]; then
-    pass "a file with no treatment is named with the command that compares it, and its copy kept"
+if [[ "${out}" == *"sudoedit ${ROOT}/etc/codex/managed_config.toml ${ROOT}/etc/codex/managed_config.toml.rpmnew"* \
+      && -f "${ROOT}/etc/codex/managed_config.toml.rpmnew" ]]; then
+    pass "a file with no treatment is named with the sudoedit merge, the file on the left, and its copy kept"
 else
     fail "a file with no treatment was not named, or its copy was dropped"
 fi

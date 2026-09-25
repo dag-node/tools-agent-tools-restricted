@@ -1261,17 +1261,19 @@ readonly -a POSTUPGRADE_DIRS=(/etc/ai-tools /etc/codex /opt/ai-tools/.claude /op
 # and the helper is reachable only as root, so neither an operator nor the agent can set it, and a caller who could is
 # one that may already edit these files outright. Unset in production, where the registry paths are absolute.
 
-# _pu_diff <deployed> <rpmnew>: show what the package would change, indented. Colourized through colordiff when the host
-# has it AND stdout is a terminal: colordiff is an EPEL package on RHEL, so it is used where present and never depended
-# on, and the terminal test keeps escape sequences out of a redirected run, the way every other message this project
-# prints degrades when piped. diff(1) is optional too -- without it the report continues and only the difference itself
-# is missing.
+# _pu_diff <deployed> <rpmnew> [<label> <label>]: show what the package would change, indented, each side named by its
+# label where the files compared are temporary copies. Colourized through colordiff when the host has it AND stdout is
+# a terminal: colordiff is an EPEL package on RHEL, so it is used where present and never depended on, and the terminal
+# test keeps escape sequences out of a redirected run, the way every other message this project prints degrades
+# when piped. diff(1) is optional too -- without it the report continues and only the difference itself is missing.
 _pu_diff() {
     local differ=diff
+    local -a labels=()
     command -v diff >/dev/null 2>&1 \
         || { warn MSG-Q4S8 "diff is not installed, so the difference is not shown here -- install diffutils"; return 0; }
     [[ -t 1 ]] && command -v colordiff >/dev/null 2>&1 && differ=colordiff
-    "${differ}" -u "$1" "$2" 2>/dev/null | sed 's/^/    /' || true
+    [[ -n "${3-}" ]] && labels=(--label "$3" --label "$4")
+    "${differ}" -u "${labels[@]}" "$1" "$2" 2>/dev/null | sed 's/^/    /' || true
 }
 
 # _pu_say <level> <text>: one report line about the file being reconciled, prefixed by that file's name (_PU_NAME)
@@ -1353,9 +1355,7 @@ _pu_json() {
 
     case "${status}" in
     1)  _pu_say ok "hook declarations are already current"
-        _pu_say act "the difference left is in the permission rules, which are yours to tune:"
-        _pu_diff "${deployed}" "${rpmnew}"
-        _pu_leave "${rpmnew}"
+        _pu_settings_rest "${deployed}" "${rpmnew}"
         return 0 ;;
     2)  warn MSG-Q4F6 "cannot merge the hook declarations: ${_ai_tools_conf_merge_reason}"
         _pu_say err "unchanged -- copy the \"hooks\" block from ${rpmnew} by hand"
@@ -1390,9 +1390,56 @@ _pu_json() {
         _pu_say ok "now matches the shipped file exactly"
         _pu_leave "${rpmnew}" merged
     else
-        _pu_say act "the permission rules still differ -- review them before you remove the copy:"
+        _pu_settings_rest "${deployed}" "${rpmnew}"
+    fi
+}
+
+# _pu_settings_rest <deployed> <rpmnew>: report what a settings file differs in once its hook declarations are current.
+# The permission rule lists are compared as sets (ai_tools_conf_permission_gaps) and every other setting with its keys
+# sorted (ai_tools_conf_settings_rest), so a list's order, a key's place in the object, and how hooks are grouped are
+# not reported. A rule the copy carries and the file does not is named for the operator to add; a rule only the file
+# carries is the host's and is listed without being counted; with neither left, the copy does not carry anything
+# the file lacks.
+_pu_settings_rest() {
+    local deployed="$1" rpmnew="$2" gaps kind list rule scratch pending=0
+    local -a missing=() extra=()
+    if ! gaps="$(ai_tools_conf_permission_gaps "${deployed}" "${rpmnew}")"; then
+        _pu_say act "the permission rules were not compared (jq is missing or a file is not valid JSON):"
         _pu_diff "${deployed}" "${rpmnew}"
         _pu_leave "${rpmnew}"
+        return 0
+    fi
+    while IFS=$'\t' read -r kind list rule; do
+        case "${kind}" in
+            missing) missing+=("${list}: ${rule}") ;;
+            extra)   extra+=("${list}: ${rule}") ;;
+        esac
+    done <<< "${gaps}"
+    if (( ${#missing[@]} > 0 )); then
+        _pu_say act "rules this version ships that the file does not carry -- add them unless you removed them on purpose:"
+        for rule in "${missing[@]}"; do _pu_say act "  ${rule}"; done
+        pending=1
+    fi
+    if (( ${#extra[@]} > 0 )); then
+        _pu_say info "rules the file carries that the package copy does not, kept as yours:"
+        for rule in "${extra[@]}"; do _pu_say info "  ${rule}"; done
+    fi
+    scratch="$(mktemp -d)" || scratch=""
+    if [[ -n "${scratch}" ]] && ai_tools_conf_settings_rest "${deployed}" > "${scratch}/file" \
+            && ai_tools_conf_settings_rest "${rpmnew}" > "${scratch}/copy" \
+            && ! cmp -s "${scratch}/file" "${scratch}/copy"; then
+        _pu_say act "other settings differ (key order ignored):"
+        _pu_diff "${scratch}/file" "${scratch}/copy" "${deployed}" "${rpmnew}"
+        pending=1
+    fi
+    [[ -n "${scratch}" ]] && rm -rf "${scratch}"
+    if (( pending )); then
+        _pu_say info "merge into the left (live file); new changes are on the right:"
+        printf '      %s\n' "$(_pu_merge_command "${deployed}" "${rpmnew}")"
+        _pu_leave "${rpmnew}"
+    else
+        _pu_say ok "the rest matches the package copy, apart from order and layout"
+        _pu_leave "${rpmnew}" merged
     fi
 }
 
@@ -1457,7 +1504,8 @@ _pu_keyval() {
             _pu_say act "the comments differ from this version's"
         fi
     fi
-    _pu_say info "compare them:  sudo diff -u ${deployed} ${rpmnew}"
+    _pu_say info "merge into the left (live file); new changes are on the right:"
+    printf '      %s\n' "$(_pu_merge_command "${deployed}" "${rpmnew}")"
     if (( carried )); then _pu_leave "${rpmnew}"; else _pu_leave "${rpmnew}" merged; fi
 }
 
@@ -1475,7 +1523,8 @@ _pu_review() {
 # _pu_show <deployed> <rpmnew>: a file this command has no treatment for. Named, never printed or merged.
 _pu_show() {
     local deployed="$1" rpmnew="$2"
-    _pu_say act "this command does not merge this file -- compare them:  sudo diff -u ${deployed} ${rpmnew}"
+    _pu_say act "this command does not merge this file -- merge into the left (live file); new changes are on the right:"
+    printf '      %s\n' "$(_pu_merge_command "${deployed}" "${rpmnew}")"
     _pu_leave "${rpmnew}"
 }
 
@@ -1574,7 +1623,7 @@ _pu_key_gaps() {
         for key in "${missing[@]}"; do _pu_say act "  ${key}"; done
         # sudoedit writes back an edited right-hand pane too, so the merge runs against a .rpmnew -- the one rpm left,
         # or one recreated here -- and the pristine copy the status reports compare with stays untouched.
-        _pu_say info "merge them from the package copy, keeping your own changes:"
+        _pu_say info "merge into the left (live file); new changes are on the right:"
         # Printed bare, so each command copies out of the terminal whole.
         [[ -f "${live}.rpmnew" ]] || printf '      sudo cp %s %s\n' "${reference}" "${live}.rpmnew"
         printf '      %s\n' "$(_pu_merge_command "${live}" "${live}.rpmnew")"
@@ -1713,6 +1762,7 @@ _pu_finding() {
         hook-missing)       _pu_attention MSG-F2G7 "hook-missing" "$2" "${3-}" ;;
         hook-repeated)      _pu_attention MSG-E8S8 "hook-repeated" "$2" "${3-}" ;;
         ask-missing)        _pu_attention MSG-E9V5 "ask-missing" "$2" "${3-}" ;;
+        rule-missing)       _pu_attention MSG-Z8U4 "rule-missing" "$2" "${3-}" ;;
         key-missing)        _pu_attention MSG-K5H2 "key-missing" "$2" "${3-}" ;;
         option-unmentioned) _pu_attention MSG-N3U8 "option-unmentioned" "$2" "${3-}" ;;
         rpmnew-differs)     _pu_attention MSG-P4Q4 "rpmnew-differs" "$2" "${3-}" ;;
@@ -1751,8 +1801,9 @@ _pu_check() {
             0)  for line in "${_ai_tools_conf_merge_added[@]}"; do _pu_finding hook-missing "${file}" "${line}"; done
                 for line in "${_ai_tools_conf_merge_removed[@]}"; do
                     _pu_finding hook-repeated "${file}" "${line}"
-                done ;;
-            1)  _pu_finding rpmnew-differs "${file}" "permission rules" ;;
+                done
+                _pu_settings_findings "${file}" ;;
+            1)  _pu_settings_findings "${file}" ;;
             *)  _pu_finding error "${file}" "${_ai_tools_conf_merge_reason:-merge probe failed}" ;;
             esac ;;
         keyval)
@@ -1802,6 +1853,26 @@ _pu_check() {
         < <(_pu_assets "${root}")
     while IFS= read -r path; do _pu_finding copy-kept "${path}"; done < <(_pu_copies "${root}")
     (( _PU_FINDINGS == 0 ))
+}
+
+# _pu_settings_findings <file>: the findings _pu_settings_rest reports for a settings file and its .rpmnew -- a rule
+# the copy carries that the file does not, and any other setting that differs -- through the same two readers.
+_pu_settings_findings() {
+    local file="$1" gaps kind list rule scratch
+    if ! gaps="$(ai_tools_conf_permission_gaps "${file}" "${file}.rpmnew")"; then
+        _pu_finding error "${file}" "permission rules not compared: jq is missing or a file is not valid JSON"
+        return 0
+    fi
+    while IFS=$'\t' read -r kind list rule; do
+        [[ "${kind}" == missing ]] && _pu_finding rule-missing "${file}" "${list}: ${rule}"
+    done <<< "${gaps}"
+    scratch="$(mktemp -d)" || return 0
+    if ai_tools_conf_settings_rest "${file}" > "${scratch}/file" \
+            && ai_tools_conf_settings_rest "${file}.rpmnew" > "${scratch}/copy" \
+            && ! cmp -s "${scratch}/file" "${scratch}/copy"; then
+        _pu_finding rpmnew-differs "${file}" "settings"
+    fi
+    rm -rf "${scratch}"
 }
 
 # _pu_kind_findings <root>: the provider list items operator.conf holds in an earlier release's bare form, read

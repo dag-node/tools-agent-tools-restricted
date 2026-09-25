@@ -318,10 +318,14 @@ a config file.
 The command runs the merge on a throwaway copy first, so the list it shows is the exact set of declarations the real
 merge adds rather than a promise of one. It then confirms, writes the dated `.bak`, and names that backup. **The
 `.rpmnew` stays on disk**: the merge covers the hook declarations alone, so what is left — the permission rules,
-which are the host's — is the operator's own edit, made from that copy. The block closes by naming the file as theirs
-to delete, reporting either the difference still to review or that the two files now match. A refusal on this path does
-not need a `.shipped` sidecar — the `.rpmnew` is that baseline, and the throwaway copy is where the refused merge's own
-copy lands and is discarded.
+which are the host's — is the operator's own edit, made from that copy. What is left is compared as data, not as text:
+the permission rule lists as sets (`ai_tools_conf_permission_gaps`) and every other setting with its keys sorted
+(`ai_tools_conf_settings_rest`), so a list's order, a key's place in the object, and how the merge grouped the hooks are
+not reported. A rule the copy carries and the file does not — a deny rule a release added — is named for the operator
+to add and reported by `--check` as `rule-missing`; a rule only the file carries is listed as the host's and not
+counted. The block closes with the `sudoedit` merge, the live file on the left, or, when no difference is left,
+by naming the copy as the operator's to delete. A refusal on this path does not need a `.shipped` sidecar —
+the `.rpmnew` is that baseline, and the throwaway copy is where the refused merge's own copy lands and is discarded.
 
 The merge and every hook this agent ships read JSON with `jq`, which the agent package requires
 ([ownership-and-hooks](ownership-and-hooks.rule.md)).

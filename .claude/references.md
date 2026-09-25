@@ -298,6 +298,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | f2g7 | [MSG-F2G7](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | hook-missing | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
 | e8s8 | [MSG-E8S8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | hook-repeated | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_attention |
 | e9v5 | [MSG-E9V5](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | ask-missing | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
+| z8u4 | [MSG-Z8U4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | rule-missing | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
 | k5h2 | [MSG-K5H2](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | key-missing | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
 | n3u8 | [MSG-N3U8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | option-unmentioned | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_attention |
 | p4q4 | [MSG-P4Q4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | rpmnew-differs | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_attention |

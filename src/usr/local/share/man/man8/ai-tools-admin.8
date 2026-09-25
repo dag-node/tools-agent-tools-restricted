@@ -473,7 +473,7 @@ Likewise it names each key an agent's managed configuration file, such as
 does not set that the copy the package ships under
 .I /usr/share/ai-tools
 does, with the commands that merge the file with its package copy side by
-side, the file on the left, in
+side, the new file on the right, in
 .BR meld (1)
 or
 .BR vimdiff (1)
@@ -515,6 +515,10 @@ A finding that needs attention makes the command exit 1:
 and
 .B hook\-repeated
 (a hook declaration the merge would add or remove),
+.B rule\-missing
+(a permission rule the package copy of
+.I settings.json
+carries that the file does not),
 .B ask\-missing
 (a
 .B permissions.ask

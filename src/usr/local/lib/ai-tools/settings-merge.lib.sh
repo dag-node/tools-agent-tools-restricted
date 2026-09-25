@@ -197,6 +197,41 @@ readonly -a _AI_TOOLS_CONF_ASK_GATES=(
     "/usr/local/lib/ai-tools/typesafe/decide.mjs|Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)"
 )
 
+# ai_tools_conf_permission_gaps <deployed> <shipped> : compare the permission rule lists of two settings files as sets,
+#   for every array-valued key of `permissions`. Prints "missing<TAB><list><TAB><rule>" per rule <shipped> carries
+#   that <deployed> does not, and "extra<TAB><list><TAB><rule>" per rule only <deployed> carries, each group in byte
+#   order. Order within a list and the lists' place in the object are not differences. Returns 1, printing nothing,
+#   when jq is missing or either file is not a JSON object.
+ai_tools_conf_permission_gaps() {
+    ai_tools_conf_require_jq || return 1
+    # shellcheck disable=SC2016  # jq variables, bound by `--slurpfile` and jq's own `as`
+    jq -r --slurpfile shipped "$2" '
+        def lists($o): (($o.permissions // {}) | if type == "object" then . else error end)
+            | with_entries(select(.value | type == "array"));
+        if type != "object" or ($shipped[0] | type) != "object" then error else . end
+        | lists(.) as $have | lists($shipped[0]) as $ship
+        | (($ship | keys) + ($have | keys) | unique)[] as $list
+        | (($ship[$list] // []) | map(tostring)) as $sl
+        | (($have[$list] // []) | map(tostring)) as $hl
+        | (($sl - $hl) | unique[] | "missing\t\($list)\t\(.)"),
+          (($hl - $sl) | unique[] | "extra\t\($list)\t\(.)")
+    ' "$1" 2>/dev/null
+}
+
+# ai_tools_conf_settings_rest <settings> : print <settings> without its hook declarations and its permission rule
+#   lists, keys sorted, so two files that differ only in those, or in key order, print the same text. The hook
+#   declarations are compared by ai_tools_conf_merge_hook_declarations and the rule lists by
+#   ai_tools_conf_permission_gaps. Returns 1 when jq is missing or <settings> is not a JSON object.
+ai_tools_conf_settings_rest() {
+    ai_tools_conf_require_jq || return 1
+    jq -S 'if type != "object" then error else . end
+        | del(.hooks)
+        | if (.permissions | type) == "object"
+          then .permissions |= with_entries(select(.value | type != "array"))
+               | if .permissions == {} then del(.permissions) else . end
+          else . end' "$1" 2>/dev/null
+}
+
 # ai_tools_conf_ask_gaps <settings> [root] : print each ask entry <settings> does not carry for a command installed
 #   under <root> (default /), one per line. Prints nothing when every installed command asks.
 #     returns 0  checked     the gaps, if any, are on stdout
