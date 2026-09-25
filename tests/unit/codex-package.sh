@@ -50,7 +50,7 @@ readonly MANAGED_CONFIG="${SRC}/etc/codex/managed_config.toml"
 readonly HOOK_SRC_DIR="${SRC}/opt/ai-tools/agents/codex"
 readonly HOOK_LIVE_DIR="/opt/ai-tools/.codex"
 
-for f in "${MANIFEST}" "${FRAGMENT}" "${SPEC}" "${INSTALLER}" "${REQUIREMENTS}" "${MANAGED_CONFIG}" \
+for f in "${MANIFEST}" "${FRAGMENT}" "${SPEC}" "${REQUIREMENTS}" "${MANAGED_CONFIG}" \
          "${HOOK_SRC_DIR}/post-tool-hook.sh" "${HOOK_SRC_DIR}/session-hook.sh"; do
     if [[ ! -r "${f}" ]]; then
         fail "package file missing from the tree: ${f}"; finish; exit
@@ -256,7 +256,10 @@ if grep -qxF 'ln -s %{ai_bindir}/ai-tools-launch %{buildroot}%{ai_bindir}/codex'
 else
     fail "the spec does not ship %{ai_bindir}/codex as a symlink to ai-tools-launch"
 fi
-if grep -qE '^ *for _launcher in [a-z ]*\bcodex\b' "${INSTALLER}"; then
+# The container images carry the package sources without the source installer, so its route is read where it exists.
+if [[ ! -r "${INSTALLER}" ]]; then
+    skip "install.sh launcher link" "no install.sh in this tree (a package-test image)"
+elif grep -qE '^ *for _launcher in [a-z ]*\bcodex\b' "${INSTALLER}"; then
     pass "install.sh links codex to ai-tools-launch"
 else
     fail "install.sh does not link codex among the launchers"
