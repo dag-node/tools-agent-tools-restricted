@@ -6,8 +6,9 @@
 #
 # What it must get right is the shape of a host. /bin and /usr/bin are one directory on a usr-merged host, so one file
 # answers to two spellings, and reporting that as two installs tells an operator to remove a file they have only one
-# of; two separate binaries are two things to decide about. The file drives each shape, and the inputs that must report
-# no install: a name outside a launcher's charset, a file without the executable bit, and a directory that does not
+# of; two separate binaries are two things to decide about. The wrapper itself, found under a merged /usr/local/sbin, is
+# not an install at all. The file drives each shape, and the inputs that must report no install: a name outside
+# a launcher's charset, a file without the executable bit, and a directory that does not
 # exist.
 #
 # Pure: the search takes its directories as arguments, so the fixtures are a tree this file builds and no system
@@ -109,6 +110,33 @@ if [[ -z "$(ai_tools_agent_installs 'cl;id' "${SYSDIR}")" && -z "$(ai_tools_agen
     pass "a launcher name outside the charset is not turned into a path"
 else
     fail "built a path from a launcher name that must never reach one"
+fi
+
+# ── (C2) The wrapper itself is not an agent outside the sandbox ─────────────────────────────── Where
+# /usr/local/sbin is a symlink to /usr/local/bin, the searched /usr/local/sbin holds the wrappers under another
+# spelling. A fixture alias of the real wrapper directory reproduces that on any host with the CLI installed: the file
+# found through it is the wrapper and must not be reported, while a copy of the same file is a separate binary and is.
+probe_name="ai-tools"
+if [[ ! -x "${AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR}/${probe_name}" ]]; then
+    skip "wrapper exclusion" "${AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR}/${probe_name} is not installed on this host"
+else
+    ln -s "${AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR}" "${FIXTURE_ROOT}/merged"
+    mkdir -p "${FIXTURE_ROOT}/copy"
+    cp "${AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR}/${probe_name}" "${FIXTURE_ROOT}/copy/${probe_name}"
+    chmod 0755 "${FIXTURE_ROOT}/copy/${probe_name}"
+    if [[ ! -x "${FIXTURE_ROOT}/merged/${probe_name}" ]]; then
+        fail "wrapper-exclusion setup: the alias does not reach ${AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR}/${probe_name}"
+    elif [[ -z "$(ai_tools_agent_installs "${probe_name}" "${FIXTURE_ROOT}/merged")" ]]; then
+        pass "the wrapper reached through a merged alias of its directory is not reported"
+    else
+        fail "reported the sandbox wrapper as an agent outside the sandbox"
+    fi
+    mapfile -t installs < <(ai_tools_agent_installs "${probe_name}" "${FIXTURE_ROOT}/merged" "${FIXTURE_ROOT}/copy")
+    if [[ "${#installs[@]}" -eq 1 && "${installs[0]%%$'\t'*}" == "${FIXTURE_ROOT}/copy/${probe_name}" ]]; then
+        pass "a copy of the wrapper is a separate binary and is reported"
+    else
+        fail "the copy of the wrapper was not reported alone (${installs[*]-none})"
+    fi
 fi
 
 # ── (D) The searched set, and the owner lookup's refusals ────────────────────────────────────
