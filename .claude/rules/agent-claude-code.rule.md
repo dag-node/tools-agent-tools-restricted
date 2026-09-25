@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/usr/local/bin/claude.sh"
+  - "src/usr/local/lib/ai-tools/launch.d/claude-code.sh"
   - "src/usr/local/lib/ai-tools/claude-prompt.lib.sh"
   - "src/usr/local/lib/ai-tools/claude-endpoint.lib.sh"
   - "src/usr/local/lib/ai-tools/agents.d/claude-code.conf"
@@ -11,15 +11,15 @@ paths:
 # The claude-code agent
 
 Everything specific to Claude Code as a provider: what its manifest declares, how its binary is resolved and labelled,
-its launch wrapper, and the two operator-configurable inputs it carries (a custom system prompt and a custom API
-endpoint). The **provider seam** these plug into — manifests, fail-closed enablement, the `session-env.d` contract — is
+its launch hook, and the two operator-configurable inputs it carries (a custom system prompt and a custom API endpoint).
+The **provider seam** these plug into — manifests, fail-closed enablement, the `session-env.d` contract — is
 [providers](providers.rule.md); the **agent-agnostic** launch contract is [launch](launch.rule.md); its Claude Code
 `settings.json` is [claude-settings](claude-settings.rule.md), which stays a rule of its own because it is scoped
 to a different file set and a different question (what the harness may run), not because the two domains are unrelated.
 
-`ai-tools-agents-claude-code-restricted` ships the wrapper, the manifest, the session pins and the session-env fragment,
-the two resolver libraries, and the agent's config directory. It does not add a sudoers rule: it inherits the single
-`%ai-ops` grant on the shared shim.
+`ai-tools-agents-claude-code-restricted` ships the `claude` launcher symlink, the launch hook, the manifest, the session
+pins and the session-env fragment, the two resolver libraries, and the agent's config directory. It does not add
+a sudoers rule: it inherits the single `%ai-ops` grant on the shared shim.
 
 ## What the manifest declares
 
@@ -56,12 +56,12 @@ Which link a component addresses is a deliberate choice per component, not an in
 | component | addresses | why that link |
 |---|---|---|
 | `ai-tools-launcher-symlink` | writes **[1]**, validated as **[2]** | the only writable control-plane link; `/opt/ai-tools/bin` is `0551`, so the sandbox reaches it only through this root helper |
-| `claude.sh` | reads **[1]**, one `readlink` to **[2]** | full resolution would traverse the `700` package directory as the *operator*, an EACCES that aborts the wrapper silently under `set -e` |
+| the launch wrapper | reads **[1]**, one `readlink` to **[2]** | full resolution would traverse the `700` package directory as the *operator*, an EACCES that aborts the wrapper silently under `set -e` |
 | `ai-tools-run` | re-validates **[2]**, execs it | **[2]** is the allowlist shape: an exact `MAJOR.MINOR.PATCH` directory plus one path component an enabled manifest claims |
 | the SELinux transition | fires on **[3]** | `execve` resolves symlinks; the label that matters is the one on the inode that is executed |
 
-The one-hop constraint in `claude.sh` exists solely to avoid that EACCES. It does not carry any coupling to sudoers
-matching, which targets the fixed path `/opt/ai-tools/bin/ai-tools-run`.
+The one-hop constraint in the launch wrapper exists solely to avoid that EACCES. It does not carry any coupling
+to sudoers matching, which targets the fixed path `/opt/ai-tools/bin/ai-tools-run`.
 
 **[3] is a hardlink, not the package's only name for the binary.** The npm package declares the per-platform binaries
 as `optionalDependencies` — one per platform/arch/libc (`@anthropic-ai/claude-code-<platform>-<arch>[-musl]`) —
@@ -136,44 +136,15 @@ The resolved path is only ever *compared* and *reported*, and it is carried into
 an allowlist (`_ai_tools_entrypoint_path_reportable`: absolute, `..`-free, and no whitespace or control byte that could
 split the line or reach the operator's terminal).
 
-## The wrapper (`claude.sh`)
+## The launcher and its launch hook (`launch.d/claude-code.sh`)
 
-`/usr/local/bin/claude`, `root:root 0755`, rpm-owned, running as the invoking operator. `path-order.sh` ranks
-`/usr/local/bin` (Tier 1) ahead of the nvm shims in operator dotfiles, so this shadows any nvm-managed `claude`
-on an operator's PATH ([launch](launch.rule.md)).
-
-It is the shared gate library plus this agent's one launch input: it sources `launch-wrapper.lib.sh` fail-closed
-(`MSG-R3Q4` when it will not load), calls `ai_tools_launch_init claude`, loads `claude-prompt.lib.sh` best-effort, runs
-`ai_tools_launch_gates`, resolves the custom system prompt, and ends in `ai_tools_launch_session`. A launch therefore
-passes these steps in this order, each refusing before the next can matter — every step but 7's prompt resolution is
-the library's:
-
-1. **Required libraries**, fail-closed: `msg.lib.sh` (it carries the yes/no decisions), `safe-paths.lib.sh` (the
-   protected-path guard), and `conf.lib.sh` (without it every allowlist line parses as no entry, which refuses every
-   launch — indistinguishable from "you have no projects" unless the missing component is named). `claude-prompt.lib.sh`
-   loads best-effort; its fail-closed decision is made where the configuration is known (see [Custom system
-   prompt](#custom-system-prompt-claude-promptlibsh)).
-2. **Operator gate** — `ai-ops` membership, read from `id -nG` (this shell's live credential set, the set `sudo`
-   enforces against). The refusal distinguishes three cases because the fix differs: the sandbox account (which must
-   never be an operator), an operator whose shell predates the grant (re-login), and a genuine non-operator.
-3. **Binary resolution** — `-L` on the stable link (not `-e`, which would dereference into the unreadable package
-   directory), one `readlink`, then string-only validation that the target is an absolute, `..`-free path matching
-   the versioned shape.
-4. **Print-and-exit short-circuit** — `--version`/`-v`/`--help`/`-h` as the *sole* argument skips every CWD gate
-   and runs with the sandbox home as `WorkingDirectory`. Such a run stays out of the working tree, so no project grant
-   is implied.
-5. **Protected-paths backstop**, then the **allowlist** (exclusions first, since `!` overrides allows), both
-   on the `realpath`-canonicalized CWD.
-6. **Claim guard** — three gaps detected read-only: group/mode (fatal — the session starts but `posix_spawn` fails
-   `EACCES` on every child), SELinux label (fatal under enforcing), and git `safe.directory` (non-fatal). The library
-   never performs a `chgrp` or a relabel; it detects, offers, and delegates to `ai-tools projects claim`
-   ([cli](cli.rule.md)).
-7. **Prompt resolution** (this file's), then the library's **best-effort service-health warning** (the relabel watcher;
-   the handback socket is the shim's to report — see [launch](launch.rule.md)) and its secret-pattern drift line
-   to journald ([secret-handling](secret-handling.rule.md)).
-8. `exec sudo -u ai-tools -g ai-tools -- /opt/ai-tools/bin/ai-tools-run`, carrying exactly `AI_TOOLS_AGENT_EXEC`
-   and `AI_TOOLS_PROJECT_DIR` through `env_keep`. **No agent identity crosses sudo**; the shim derives it
-   from the launcher name in the path.
+`/usr/local/bin/claude` is this package's symlink to the one launch wrapper, whose gates and their order are
+[launch](launch.rule.md)'s. What is Claude Code's own is one launch input: the manifest declares `launch_hook=yes`,
+so after the gates the wrapper sources `launch.d/claude-code.sh`, whose `ai_tools_launch_hook_args` resolves the custom
+system prompt through `claude-prompt.lib.sh` and appends its arguments ahead of the operator's. The resolver library
+loads best-effort there: a host that does not configure a prompt launches without it, and one that configures a prompt
+refuses when the library will not load (`MSG-U9G5`) or when the prompt cannot be applied (`MSG-A3U4`), per [Custom
+system prompt](#custom-system-prompt-claude-promptlibsh).
 
 ## Custom system prompt (`claude-prompt.lib.sh`)
 
@@ -185,15 +156,15 @@ guidance) or `--system-prompt-file <path>` (mode `replace`).
   `ai_tools_t` domain is granted read on (`etc_t`, via `files_read_etc_files`). A root-owned file elsewhere passes
   the DAC trust check yet is unreadable to the session, so a mis-set path would become a failed launch rather than
   a refused one. The file, its directory, the prompts base, and `operator.conf` each pass `ai_tools_conf_is_trusted`,
-  and the file must be a regular file holding plain text. The wrapper's checks are all `stat`s: it runs as the operator,
-  who by design is not in `SANDBOX_GROUP` and cannot read the `0640` file (an operator holds `sudo` for editing it).
-  The text check (`ai_tools_conf_is_text_file`, a shared predicate) therefore runs in the claude-code session-env
-  fragment as the sandbox account, before the unit exists, and a file that is not plain text refuses the launch there —
-  whether or not the launch overrides the prompt with a flag, which the fragment cannot see.
+  and the file must be a regular file holding plain text. The launch hook's checks are all `stat`s: it runs
+  as the operator, who by design is not in `SANDBOX_GROUP` and cannot read the `0640` file (an operator holds `sudo`
+  for editing it). The text check (`ai_tools_conf_is_text_file`, a shared predicate) therefore runs in the claude-code
+  session-env fragment as the sandbox account, before the unit exists, and a file that is not plain text refuses
+  the launch there — whether or not the launch overrides the prompt with a flag, which the fragment cannot see.
 - Claude Code reads the file **verbatim** — not processed, not comment-stripped — so it holds prompt text only.
   The shipped default is therefore **empty**, `0640 root:SANDBOX_GROUP` (a custom prompt may be proprietary, so not
-  world-readable; the wrapper only `stat`s it as the operator, and the confined binary reads it as the sandbox account).
-  Uncommenting the pointer alone leaves the launch unchanged.
+  world-readable; the launch hook only `stat`s it as the operator, and the confined binary reads it as the sandbox
+  account). Uncommenting the pointer alone leaves the launch unchanged.
 - **`replace` sets the request's `system` field, not the whole model context.** It does not remove the tool definitions
   or the `CLAUDE.md` context Claude Code injects as `<system-reminder>` blocks; those ride in separate request fields.
   "Only the file reaches the model" is not reachable through this flag — shape the final request at the proxy instead.
@@ -206,7 +177,7 @@ guidance) or `--system-prompt-file <path>` (mode `replace`).
 
 ## Custom API endpoint (`claude-endpoint.lib.sh`)
 
-The session-env counterpart, resolved **sandbox-side in the fragment** rather than in the wrapper. `operator.conf`
+The session-env counterpart, resolved **sandbox-side in the fragment** rather than in the launch hook. `operator.conf`
 `CLAUDE_BASE_URL_FILE` points at a dedicated file under `/etc/ai-tools/endpoints/` (`etc_t`, which the confined domain
 reads, as for the prompts base; the file, its directory, and the pointer each pass `ai_tools_conf_is_trusted`),
 from which the resolver reads exactly four recognised keys — `ANTHROPIC_BASE_URL` (required, a validated http(s) URL),

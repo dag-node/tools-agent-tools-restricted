@@ -159,7 +159,7 @@ as_operator "cd '${PROJECT}' && git init -q" || true
 # Drive the claim non-interactively. AI_TOOLS_ASSUME_YES=1 is the CLI's own assume-yes hook, but it only fast-tracks
 # default-YES prompts (here: .git normalization) -- by design (messaging.rule.md), it never pre-answers a default-NO
 # one. The claim's own proceed prompt ("Apply the pending steps IN PLACE?") is default-NO, so it needs the CLI's
-# per-invocation `--yes`, the same flag claude.sh passes for its own delegated claim.
+# per-invocation `--yes`, the same flag the launch wrapper passes for its own delegated claim.
 phase "operator claims the project (allowlist + ACL + safedir + label)" \
     as_operator "AI_TOOLS_ASSUME_YES=1 ai-tools projects claim --yes '${PROJECT}'"
 

@@ -973,6 +973,11 @@ unknown option: ${arg}
 .B MSG-V6P4
 WARNING.
 FATAL: owner\-only.lib.sh defines no residue strip
+.SS ai-tools-launch
+.TP
+.B MSG-R3Q4
+ERROR.
+cannot load the launch gate library \-\- refusing to start
 .SS ai-tools-launcher-symlink
 .TP
 .B MSG-D4X6
@@ -1398,9 +1403,13 @@ WARNING.
 left ${hardlinked} hardlinked file(s) untouched \-\- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with
 .SS claude
 .TP
-.B MSG-R3Q4
+.B MSG-A3U4
 ERROR.
-claude: cannot load the launch gate library \-\- refusing to start
+a custom system prompt is configured but cannot be applied \-\- refusing to launch
+.TP
+.B MSG-U9G5
+ERROR.
+a custom system prompt is configured but its resolver library is unavailable
 .SS conf.lib.sh
 .TP
 .B MSG-D2F9
@@ -1678,6 +1687,10 @@ could not remove ${SCRIPT_DIR} from ${allowlist} \-\- it is still registered
 ERROR.
 the launch gates did not run \-\- refusing to start
 .TP
+.B MSG-C2C9
+ERROR.
+cannot load the provider library \-\- refusing to start
+.TP
 .B MSG-C2M7
 ERROR.
 cannot load the config library \-\- refusing to start
@@ -1690,9 +1703,21 @@ not an ai\-tools operator \-\- ${user} is not a member of the ${OPERATORS_GROUP}
 ERROR.
 approved\-projects allowlist not found
 .TP
+.B MSG-F8N3
+ERROR.
+not the launcher of an agent enabled on this host (enabled: ${joined})
+.TP
+.B MSG-G5V4
+ERROR.
+the ${agent} launch hook did not complete \-\- refusing to start
+.TP
 .B MSG-G8R4
 ERROR.
 resolved path '${AI_TOOLS_LAUNCH_EXEC}' contains parent\-directory references
+.TP
+.B MSG-G9H2
+ERROR.
+the ${agent} launch hook cannot be loaded \-\- refusing to start
 .TP
 .B MSG-H4E2
 ERROR.
@@ -1757,6 +1782,10 @@ excluded by '!' rule in approved projects list: $(pwd)
 .B MSG-W4X4
 ERROR.
 refusing to launch \-\- ${cwd} is not fully claimed for the sandbox
+.TP
+.B MSG-Z6F8
+ERROR.
+invoked under a name that is not a launcher \-\- refusing to start
 .SS nvm-update
 .TP
 .B MSG-G4Q2

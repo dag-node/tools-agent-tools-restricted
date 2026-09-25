@@ -52,7 +52,7 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 #                              unknown with a check hint otherwise -- never a guessed value.
 #   severity = critical      -- down affects a session or the ownership hand-back.
 #              maintenance   -- down only stalls background upkeep (no security or launch impact).
-#   preflight = wrapper      -- the operator launch wrapper (claude.sh) warns about this at launch.
+#   preflight = wrapper      -- the operator launch wrapper (ai-tools-launch) warns about this at launch.
 #               shim         -- ai-tools-run already runs its own dedicated preflight for this
 #                              (the handback-socket NOTICE), so the wrapper does NOT also warn --
 #                              this field is what keeps the socket from being reported twice.
@@ -77,7 +77,7 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 # query) go through that account's `--user manager`, so they name the sandbox account, and this library is deployed
 # with no @SANDBOX_USER@ substitution. The consumer knows the account name and composes both -- see ai-tools'
 # cmd_status, the single place that renders that transport.
-# shellcheck disable=SC2034  # read by this library's accessors and by both consumers (ai-tools, claude.sh)
+# shellcheck disable=SC2034  # read by this library's accessors and by both consumers (ai-tools, ai-tools-launch)
 # The 172800 (48h) grace on both nvm-update records is twice the timer's daily OnCalendar: one missed window is a reboot
 # or a suspended laptop, two is a schedule that has stopped.
 _AI_TOOLS_SERVICES=(

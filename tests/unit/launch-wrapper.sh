@@ -61,22 +61,27 @@ allowlist() {
 link() { rm -f "${links}/claude"; ln -s "$1" "${links}/claude"; }
 
 # run <lib> <user> <cwd> <function> [<arg>...] : source <lib> as <user> from <cwd> with the hooks set, initialise it
-# for the launcher `claude`, call <function> with the arguments, then print the two values the gates publish. Both
+# for the launcher FIXTURE_LAUNCHER (default `claude`), call <function> with the arguments, then print the three values
+# the gates publish. Both
 # streams land in OUT and the status in RC. AI_TOOLS_MSG_PLAIN keeps a refusal's code on its own line; the strict mode
 # and IFS are the wrapper's, so the library runs as it does in one. A case that drives a gate downstream of the CWD gate
 # seeds the project directory that gate would have published through FIXTURE_PROJECT_DIR; the residue cases point
 # the resolver's two hooks at fixture manifests through FIXTURE_AGENTS_DIR and FIXTURE_OPERATOR_CONF (empty, each hook
-# takes its deployed default).
+# takes its deployed default); a locale case sets FIXTURE_LC_ALL, and the launch-hook cases drive a copy of the library
+# whose hook directory is repointed at a fixture.
 run() {
     local lib="$1" user="$2" cwd="$3"; shift 3
     RC=0
     # shellcheck disable=SC2016  # the $1.. are for the inner `bash -c`, not this shell -- do not expand here
     OUT="$(setsid runuser -u "${user}" -- env HOME="${home}" AI_TOOLS_LAUNCHER_DIR="${links}" AI_TOOLS_MSG_PLAIN=1 \
-        FIXTURE_PROJECT_DIR="${FIXTURE_PROJECT_DIR:-}" \
+        FIXTURE_PROJECT_DIR="${FIXTURE_PROJECT_DIR:-}" FIXTURE_LAUNCHER="${FIXTURE_LAUNCHER:-claude}" \
         AI_TOOLS_AGENTS_DIR="${FIXTURE_AGENTS_DIR:-}" AI_TOOLS_OPERATOR_CONF="${FIXTURE_OPERATOR_CONF:-}" \
+        LC_ALL="${FIXTURE_LC_ALL:-}" \
         bash -c 'set -euo pipefail; IFS=$'"'"'\n\t'"'"'; cd "$1" || exit 98; source "$2" || exit 99
-                 ai_tools_launch_init claude; AI_TOOLS_LAUNCH_PROJECT_DIR="${FIXTURE_PROJECT_DIR}"; shift 2; "$@"
-                 printf "EXEC=%s\nPROJECT=%s\n" "${AI_TOOLS_LAUNCH_EXEC}" "${AI_TOOLS_LAUNCH_PROJECT_DIR}"' \
+                 ai_tools_launch_init "${FIXTURE_LAUNCHER}"; AI_TOOLS_LAUNCH_PROJECT_DIR="${FIXTURE_PROJECT_DIR}"
+                 shift 2; "$@"
+                 printf "EXEC=%s\nPROJECT=%s\nAGENT=%s\n" "${AI_TOOLS_LAUNCH_EXEC}" "${AI_TOOLS_LAUNCH_PROJECT_DIR}" \
+                     "${AI_TOOLS_LAUNCH_AGENT}"' \
         _ "${cwd}" "${lib}" "$@" < /dev/null 2>&1)" || RC=$?
 }
 # refused <what> <code> : the last run refused with <code> AND a non-zero status -- a refusal printed at exit 0 is one
@@ -116,6 +121,22 @@ run "${broken_conf}" "${PROJECTS_USER}" "${approved}" true
 refused "init refuses when conf.lib.sh will not load (fail closed)" MSG-C2M7
 run "${LIB}" "${PROJECTS_USER}" "${approved}" true
 passed "init loads the three required libraries on the deployed library"
+
+# ── (0b) Init admits the launcher name only in a launcher's charset ────────────
+# The name is the command line's argv0, so a shape that could carry shell syntax or a path is refused before it names
+# a path or prefixes a message. The match is made in the C locale: in a UTF-8 locale a bracket range takes in letters
+# outside ASCII, which the control run shows.
+FIXTURE_LAUNCHER='cl;id' run "${LIB}" "${PROJECTS_USER}" "${approved}" true
+refused "a launcher name carrying shell syntax is refused at init" MSG-Z6F8
+FIXTURE_LAUNCHER='../claude' run "${LIB}" "${PROJECTS_USER}" "${approved}" true
+refused "a launcher name carrying a path is refused at init" MSG-Z6F8
+utf8_locale="$(locale -a 2>/dev/null | grep -ixE 'en_US\.utf-?8|C\.utf-?8' | head -n 1 || true)"
+if [[ -n "${utf8_locale}" ]] && LC_ALL="${utf8_locale}" bash -c '[[ "é" =~ ^[A-Za-z]+$ ]]'; then
+    FIXTURE_LAUNCHER='clé' FIXTURE_LC_ALL="${utf8_locale}" run "${LIB}" "${PROJECTS_USER}" "${approved}" true
+    refused "a non-ASCII letter is refused under ${utf8_locale}, where a bracket range admits it" MSG-Z6F8
+else
+    skip "non-ASCII launcher name" "no installed UTF-8 locale whose [A-Za-z] admits a non-ASCII letter"
+fi
 
 # ── (1) Operator gate ───────────────────────────────────────────────────────────
 run "${LIB}" "${SANDBOX_USER}" "${approved}" ai_tools_launch_gate_operator
@@ -187,6 +208,32 @@ FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
 passed "prefixed provider lists pass the gate"
 printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${fixture_conf}"
 
+# ── (1d) The launcher gate: the name must be an enabled agent's launcher ──────── Every launcher is one program, so
+# the name decides the agent. The fixture enables acme (launcher claude) and installs beta (launcher beta) disabled.
+FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_launcher
+passed "an enabled agent's launcher passes the gate"
+says "and the gate records the agent that claims it" "AGENT=acme"
+FIXTURE_LAUNCHER=beta FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_launcher
+refused "an installed but disabled agent's launcher is refused" MSG-F8N3
+says "and the refusal names the enabled launchers" "enabled: claude"
+FIXTURE_LAUNCHER=ai-tools-launch FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_launcher
+refused "the launcher program invoked by its own name is refused" MSG-F8N3
+chmod 0664 "${fixture_agents}/acme.conf"
+FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_launcher
+refused "a launcher whose manifest is group-writable is refused (the resolver does not admit it)" MSG-F8N3
+chmod 0644 "${fixture_agents}/acme.conf"
+broken_providers="${TESTDIR}/launch-noproviders.lib.sh"
+sed 's#^readonly PROVIDERS_LIB=.*#readonly PROVIDERS_LIB="/nonexistent/ai-tools/providers.lib.sh"#' \
+    "${LIB}" > "${broken_providers}"
+chmod 644 "${broken_providers}"
+FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${broken_providers}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_launcher
+refused "the launcher gate refuses when providers.lib.sh will not load (fail closed)" MSG-C2C9
+
 # ── (2) Launcher resolution: one hop, validated as the versioned shape ──────────
 rm -f "${links}/claude"
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_resolve_executable
@@ -253,11 +300,126 @@ says "and the screen names the clone" "$(cli_cmd_text ai-tools.projects.clone)"
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_session --version
 refused "the session exec refuses with no resolved executable and project directory" MSG-B6G2
 
+# ── (5b) The agent's launch hook: read only when declared, refused in every other state ── A copy of the library
+# with the hook directory repointed at a fixture, root-owned like the real one; the manifest's launch_hook key is
+# rewritten per case. The probe runs the launcher gate (which records the agent) and then the hook loader, and prints
+# the arguments the hook appended.
+hooks="${TESTDIR}/launch.d"
+mkdir -m 0755 "${hooks}"
+hook_lib="${TESTDIR}/launch-hookdir.lib.sh"
+sed "s#^readonly LAUNCH_HOOK_DIR=.*#readonly LAUNCH_HOOK_DIR=\"${hooks}\"#" "${LIB}" > "${hook_lib}"
+chmod 644 "${hook_lib}"
+# manifest_hook <value|-> : the acme manifest with launch_hook=<value>, or without the key for -.
+manifest_hook() {
+    printf 'npm_package=@acme/experimental\nlauncher=claude\ndefault_enable=no\n' > "${fixture_agents}/acme.conf"
+    [[ "$1" == - ]] || printf 'launch_hook=%s\n' "$1" >> "${fixture_agents}/acme.conf"
+    chmod 0644 "${fixture_agents}/acme.conf"
+}
+# hook_file <body> : the acme hook, root-owned 0644.
+hook_file() { printf '%s\n' "$1" > "${hooks}/acme.sh"; chmod 0644 "${hooks}/acme.sh"; }
+readonly hook_probe='ai_tools_launch_gate_launcher; declare -a probe=(); ai_tools_launch_agent_args probe --typed; printf "ARGS=%s\n" "${probe[*]-}"'
+hook_run() {
+    FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+        run "${hook_lib}" "${PROJECTS_USER}" "${approved}" eval "${hook_probe}"
+}
+appends='ai_tools_launch_hook_args() { local -n _fixture_out="$1"; shift; _fixture_out+=("--hooked"); }'
+hook_file "${appends}"
+
+manifest_hook -
+hook_run
+passed "an agent that does not declare a hook launches"
+if grep -qF -- "--hooked" <<<"${OUT}"; then fail "an undeclared hook was sourced"; else pass "and its launch.d file is not read, though present"; fi
+manifest_hook no
+hook_run
+passed "launch_hook=no reads no hook either"
+manifest_hook yes
+hook_run
+passed "a declared, root-owned hook runs"
+says "and the arguments it appends reach the launch" "--hooked"
+manifest_hook maybe
+hook_run
+refused "a launch_hook value other than yes or no refuses the launch" MSG-G9H2
+manifest_hook yes
+rm -f "${hooks}/acme.sh"
+hook_run
+refused "a declared hook whose file is missing refuses the launch" MSG-G9H2
+hook_file "${appends}"; chmod 0664 "${hooks}/acme.sh"
+hook_run
+refused "a group-writable hook file refuses the launch" MSG-G9H2
+chmod 0644 "${hooks}/acme.sh"; chmod 0775 "${hooks}"
+hook_run
+refused "a group-writable hook directory refuses the launch" MSG-G9H2
+chmod 0755 "${hooks}"
+hook_file '# defines no hook function'
+hook_run
+refused "a hook that does not define ai_tools_launch_hook_args refuses the launch" MSG-G9H2
+hook_file 'ai_tools_launch_hook_args() { return 1; }'
+hook_run
+refused "a hook that returns non-zero refuses the launch" MSG-G5V4
+manifest_hook -
+
 # ── (6) Order: the operator gate answers before the allowlist is read ───────────
 # Driven from the unapproved directory with an argument pair that would keep the CWD gates in the path: a non-operator
 # is refused with the operator code and none of the CWD gate's codes fires.
 run "${LIB}" "${SANDBOX_USER}" "${unapproved}" ai_tools_launch_gates --version --gate-probe
 refused "the gate runner refuses the sandbox account first" MSG-N8Q4
 silent "and does not reach the CWD gate as a non-operator" 'MSG-N2Z7|MSG-C9S6|MSG-K8K2|MSG-R2V6|MSG-W2P3'
+FIXTURE_LAUNCHER=ai-tools-launch run "${LIB}" "${SANDBOX_USER}" "${unapproved}" ai_tools_launch_gates
+refused "a name no agent claims is answered by the operator gate first for a non-operator" MSG-N8Q4
+silent "and the launcher gate does not run ahead of it" 'MSG-F8N3'
+
+# ── (7) ai-tools-launch: the startup hardening, measured ───────────────────────
+# The launcher runs in the operator's environment, so bash must not source $BASH_ENV or import an exported function
+# before the first line runs. A copy with the gate library repointed at a missing file drives the refusal path, which
+# calls `logger`; an exported `logger` function and a BASH_ENV file each leave a marker if they take effect. The control
+# is the same run without -p, which must leave both markers -- otherwise the run proves nothing about -p. The copy is
+# read by bash rather than executed, so a noexec /tmp does not matter, and it is reached through a symlink named claude,
+# as a launcher is.
+launcher_src=/usr/local/bin/ai-tools-launch
+[[ -r "${launcher_src}" ]] || launcher_src="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/local/bin/ai-tools-launch.sh"
+if [[ ! -r "${launcher_src}" ]]; then
+    skip "ai-tools-launch hardening" "launcher not found at ${launcher_src}"
+else
+    if [[ "$(head -n 1 "${launcher_src}")" == '#!/usr/bin/bash -p' ]]; then
+        pass "the launcher names its interpreter by absolute path, in privileged mode"
+    else
+        fail "the launcher's shebang is $(head -n 1 "${launcher_src}"), not #!/usr/bin/bash -p"
+    fi
+    if grep -qxF 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin' "${launcher_src}"; then
+        pass "the launcher pins PATH to the root-owned system directories"
+    else
+        fail "the launcher does not pin PATH"
+    fi
+    wdir="${TESTDIR}/launcher"
+    mkdir -m 0755 "${wdir}"
+    sed 's#^readonly LAUNCH_LIB=.*#readonly LAUNCH_LIB="/nonexistent/ai-tools/launch-wrapper.lib.sh"#' \
+        "${launcher_src}" > "${wdir}/ai-tools-launch"
+    ln -s ai-tools-launch "${wdir}/claude"
+    printf ': > "%s/bash_env.marker"\n' "${wdir}" > "${wdir}/bash_env"
+    chmod 0644 "${wdir}/ai-tools-launch" "${wdir}/bash_env"
+    chown "${PROJECTS_USER}" "${wdir}"
+    # launch_env <interpreter-flags...> : run the copy as the projects user with the two injections set.
+    launch_env() {
+        rm -f "${wdir}"/*.marker
+        RC=0
+        OUT="$(setsid runuser -u "${PROJECTS_USER}" -- env BASH_ENV="${wdir}/bash_env" \
+            "BASH_FUNC_logger%%=() { : > ${wdir}/func.marker; }" /usr/bin/bash "$@" "${wdir}/claude" < /dev/null 2>&1)" \
+            || RC=$?
+    }
+    launch_env
+    if [[ -e "${wdir}/bash_env.marker" && -e "${wdir}/func.marker" ]]; then
+        pass "control: without -p, bash sources BASH_ENV and runs an imported function"
+        launch_env -p
+        refused "the launcher refuses when its gate library will not load (fail closed)" MSG-R3Q4
+        says "and the refusal names the launcher program" "ai-tools-launch: cannot load the launch gate library"
+        if [[ -e "${wdir}/bash_env.marker" || -e "${wdir}/func.marker" ]]; then
+            fail "with -p, the environment's code still ran ($(cd "${wdir}" && ls -- *.marker | tr '\n' ' '))"
+        else
+            pass "with -p, neither BASH_ENV nor an exported function takes effect"
+        fi
+    else
+        fail "control run did not take the injected code, so the -p run would prove nothing (markers: $(cd "${wdir}" && ls -- *.marker 2>/dev/null | tr '\n' ' '))"
+    fi
+fi
 
 finish

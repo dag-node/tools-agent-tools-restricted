@@ -5,6 +5,7 @@ paths:
   - "src/usr/local/lib/ai-tools/agents.d/**"
   - "src/usr/local/lib/ai-tools/integrations.d/**"
   - "src/usr/local/lib/ai-tools/session-env.d/**"
+  - "src/usr/local/lib/ai-tools/launch.d/**"
   - "src/usr/local/lib/ai-tools/admin-commands.d/**"
 ---
 
@@ -323,7 +324,7 @@ and an absent one leaves the caller's default standing (how the `SKIP_*` categor
 in [ownership-and-hooks](ownership-and-hooks.rule.md) keep their built-in defaults).
 
 **Splitting pins `IFS` locally.** The parser is sourced into scripts that set the strict-mode `IFS=$'\n\t'`
-(`nvm-update.sh`, `claude.sh`), where an inherited `IFS` would read `"a b"` as one item — for a provider allowlist
+(`nvm-update.sh`, `ai-tools-launch`), where an inherited `IFS` would read `"a b"` as one item — for a provider allowlist
 that reads as "no such provider", a wrong verdict that disables a configured agent with only a warning.
 `tests/unit/conf.sh` drives the splitter under that IFS.
 
@@ -463,6 +464,7 @@ for the operator, journald for the trail), never silently:
 | a manifest directory | that whole provider kind is refused |
 | one manifest | that one provider is skipped |
 | `session-env.d` or a fragment | that fragment is not sourced |
+| `launch.d` or a declared launch hook | the launch is refused |
 | `admin-commands.d` | no contributed command dispatches at all |
 | one command fragment | that one domain does not dispatch |
 | `/usr/local/lib/ai-tools` itself | no integration env at all (`ai-tools-run`'s bootstrap check) |
@@ -484,8 +486,12 @@ what a confined session receives but what **root executes**, since `ai-tools-adm
 there is root, so the check does not protect a confined reader: the file it would run sits in a directory the sandbox
 account can reach, and a planted or replaced fragment would be a root command of the agent's choosing.
 
-This is enforced from both ends, and both halves are required: `tests/unit/providers.sh`
-and `tests/unit/admin-commands.sh` drive each untrusted state through the resolver and the dispatch and assert each
+The `launch.d` row is the one refusal that stops a launch rather than dropping an addition: a declared hook carries
+an input the operator configured, so launching without it would run a session they did not set up. Its reader is
+the operator's own process, so what the check keeps out is sandbox-planted code running with the operator's identity.
+
+This is enforced from both ends, and both halves are required: `tests/unit/providers.sh`, `tests/unit/admin-commands.sh`
+and `tests/unit/launch-wrapper.sh` drive each untrusted state through the resolver and the dispatch and assert each
 fails closed (catching a host someone has already broken), while `tests/boundary/providers.sh` probes the deployed
 surface **as the agent** and asserts none of it is agent-writable (catching the agent trying to break it).
 
@@ -614,6 +620,22 @@ rather than to any one provider:
 
 The endpoint's own keys, validation, precedence, and the boundary it does *not* claim are
 in [agent-claude-code](agent-claude-code.rule.md).
+
+## The `launch.d` seam
+
+An agent that needs launch-time arguments of its own declares `launch_hook=yes` and ships
+`/usr/local/lib/ai-tools/launch.d/<name>.sh`, which defines `ai_tools_launch_hook_args <array> <arg>...`: it appends
+to the named array, which the launch wrapper places ahead of the operator's arguments, or refuses
+through `ai_tools_launch_die`. The key is the declaration, and the file is read only when the manifest makes it; a file
+present for an agent that does not declare it is not sourced. Where the hook runs in the launch, and the codes its
+loader refuses with, are [launch](launch.rule.md)'s.
+
+A hook runs in the operator's process, before the drop to `SANDBOX_USER`, so it appends to the array and stops there: it
+does not `exec` or write files, it reads configuration only through `conf.lib.sh`, and a check it makes on a file
+the operator cannot read is a `stat`. It is the one seam that is not best-effort: a declared hook that is missing,
+untrusted or does not complete refuses the launch, the same tier as the input it carries. An agent that needs only
+session environment ships a fragment instead, and one that needs neither, as codex does, does not ship a file in either
+directory.
 
 ## The `admin-commands.d` seam
 

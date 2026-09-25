@@ -8,7 +8,7 @@
 #      comments end a value, a present-but-empty key is distinguishable from an absent one. A
 #      drift here silently changes what an operator's config means on every host.
 #   2. IFS INDEPENDENCE: the splitter must yield the same items whatever IFS the sourcing script
-#      runs under. nvm-update.sh and claude.sh legitimately set IFS=$'\n\t'; a splitter that
+#      runs under. nvm-update.sh and ai-tools-launch legitimately set IFS=$'\n\t'; a splitter that
 #      inherited it would read "a b" as ONE item, which for the provider allowlists reads as
 #      "no such provider" -- a wrong verdict that disables a configured agent silently.
 #   3. THE TRUST PREDICATE: the gate behind "the sandbox cannot widen its own surface". A file or

@@ -660,7 +660,7 @@ note_root_failure() {
 # have_tty: true only when a controlling terminal can be opened. `[[ -r /dev/tty ]]` tests the node's permission bits
 # (crw-rw-rw-), not openability, so it reads true even with no controlling terminal (e.g. a systemd unit
 # or under setsid); opening /dev/tty is the only honest probe -- with no controlling tty the open fails ENXIO,
-# so the prompt guards skip cleanly instead of writing to /dev/tty and aborting. Mirrors claude.sh's have_tty.
+# so the prompt guards skip cleanly instead of writing to /dev/tty and aborting. Mirrors launch-wrapper.lib.sh's ai_tools_launch_have_tty.
 have_tty() { { : > /dev/tty; } 2>/dev/null; }
 
 confirm() { ai_tools_msg_confirm "$@"; }
