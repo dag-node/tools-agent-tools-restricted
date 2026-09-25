@@ -1,10 +1,10 @@
-.\" operator.conf(5) -- host configuration of Agent Tools Restricted.
+.\" ai-tools-operator.conf(5) -- host configuration of Agent Tools Restricted.
 .\" @AI_TOOLS_VERSION@ is substituted at deploy time (install.sh install_subst
 .\" and the RPM %prep), like ai-tools(1). The grammar described here is the one
 .\" conf.lib.sh implements for every KEY=value file in the project.
-.TH OPERATOR.CONF 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.TH AI-TOOLS-OPERATOR.CONF 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
 .SH NAME
-operator.conf \- host options for Agent Tools Restricted
+ai-tools-operator.conf \- host options for Agent Tools Restricted
 .SH SYNOPSIS
 .B /etc/ai-tools/operator.conf
 .SH DESCRIPTION
@@ -44,6 +44,56 @@ List items separate on commas
 .B and
 whitespace, freely mixed; runs collapse and empty items are dropped.
 .TP
+.B KEY=[a, b]
+The bracketed form of the same list, which the shipped template uses.
+Inside the brackets items separate on commas and whitespace, so
+.B [a,]
+is the list
+.BR a ,
+and
+.B []
+is the empty list.
+A list item does not contain whitespace, a comma, a bracket or a quote.
+.TP
+.B KEY=[a
+.TQ
+.B KEY=\(dq[a]\(dq
+.TQ
+.B KEY=[a,\ \(dqb\(dq]
+Invalid: one bracket without the other, quotes around the brackets, or a quote
+or a bracket inside them.
+An invalid list reads as the
+.B empty
+list and is reported, never as an absent key, so for
+.BR OPERATORS ,
+.B AI_TOOLS_AGENTS
+and
+.B AI_TOOLS_INTEGRATIONS
+it enrols or enables none.
+.TP
+.B AI_TOOLS_AGENTS=[agent\-claude\-code]
+Each item of
+.BR AI_TOOLS_AGENTS ,
+.B AI_TOOLS_INTEGRATIONS
+and
+.B AI_TOOLS_FILTERS
+carries its kind in front of the name:
+.BI agent\- NAME\fR,\fP
+.BI integration\- NAME
+and
+.BI filter\- NAME\fR,\fP
+where
+.I NAME
+is the basename of the manifest or rule set.
+One word then names one thing: the dotnet integration is
+.B integration\-dotnet
+and its filter set is
+.BR filter\-dotnet .
+An item without its key's prefix makes the list invalid, and
+.B "ai\-tools\-admin system post\-upgrade"
+rewrites one an earlier release wrote bare; see
+.BR Upgrades .
+.TP
 .B KEY=value   # why
 An inline comment. A
 .B #
@@ -54,8 +104,26 @@ literal, so a value containing one is written
 .B KEY=
 Present with an
 .B empty
-value \(em distinct from an absent key. An option that reads a list uses this to
-mean "none", where an absent key means "the default".
+value \(em distinct from an absent key. An option that reads a list uses this,
+and
+.BR KEY=[] ,
+to mean "none", where an absent key means "the default".
+.TP
+.BR KEY=yes " (a switch)"
+A switch reads
+.BR yes ,
+.BR true ,
+.B 1
+and
+.B on
+as yes, and
+.BR no ,
+.BR false ,
+.BR 0 ,
+.B off
+and an empty value as no, in any case and quoted or not. Any other value reads
+as no and is reported, so a mistyped switch does not change what a launch does
+without a line saying so.
 .PP
 A line beginning with
 .B #
@@ -74,13 +142,18 @@ Launching a session is gated by membership of the
 group, which
 .B "ai-tools-admin operators add"
 grants together with the entry here; edit by hand only to review or remove.
+.B Default:
+no account.
 .TP
 .BI AI_TOOLS_AGENTS= "NAME\fR[,\fP NAME\fR...]\fP"
-The coding agents a session may run, by provider name (a manifest basename under
-.IR /usr/local/lib/ai-tools/agents.d ).
-.B Present:
-exactly the names listed \(em an empty value enables none.
-.B Absent:
+The coding agents a session may run, each written
+.BI agent\- NAME
+for a manifest basename under
+.IR /usr/local/lib/ai-tools/agents.d .
+Exactly the names listed;
+.B []
+enables none.
+.B Default:
 no agent.
 Every agent package ships disabled, and
 .B "ai-tools-admin system bootstrap"
@@ -103,27 +176,32 @@ Names are reported at launch, so
 shows the resolved set.
 .TP
 .BI AI_TOOLS_INTEGRATIONS= "NAME\fR[,\fP NAME\fR...]\fP"
-Host-toolchain integrations a session receives, by provider name (a manifest
-basename under
-.IR /usr/local/lib/ai-tools/integrations.d ),
-with the same present/absent rule as
-.BR AI_TOOLS_AGENTS .
+Host-toolchain integrations a session receives, each written
+.BI integration\- NAME
+for a manifest basename under
+.IR /usr/local/lib/ai-tools/integrations.d .
+Exactly the names listed;
+.B []
+enables none.
+.B Default:
+each installed integration whose package ships it enabled
+.RB ( default_enable=yes ).
 An integration that widens host surface ships
 .B default_enable=no
 and is enabled only by naming it here \(em the dotnet integration, for example.
 .TP
 .BI AI_TOOLS_FILTERS= "NAME\fR[,\fP NAME\fR...]\fP"
-The token-saving command-filter rule sets a session applies, by rule-set name (a
-file basename under
-.IR /usr/local/lib/ai-tools/filters.d ).
+The token-saving command-filter rule sets a session applies, each written
+.BI filter\- NAME
+for a rule-set basename under
+.IR /usr/local/lib/ai-tools/filters.d .
 A filter rewrites a matching command so the tool prints less and strips terminal
 control noise from what it printed.
-.B Absent:
+Exactly the sets named, so
+.B []
+turns filtering off entirely.
+.B Default:
 every installed rule set applies.
-.B Present:
-exactly those named, so an
-.B empty
-value turns filtering off entirely.
 Filtering never decides what the agent may run: the permission rules in the
 agent's settings are evaluated on the rewritten command.
 .TP
@@ -135,8 +213,8 @@ policy module is loaded, a session is confined at either setting, and an
 entrypoint carrying the wrong label refuses the launch at either setting.
 This key governs the two states the launch preflight reports as unverified:
 SELinux not enforcing, and the module's file contexts not live.
-.B Absent
-(the default): such a launch proceeds without the SELinux layer, which is
+.B Default
+(key absent): such a launch proceeds without the SELinux layer, which is
 the posture of an intentional DAC-only host; the launch log records
 .BR require=no .
 .B Set:
@@ -147,6 +225,13 @@ so a host that expects confinement cannot start an unconfined session
 unnoticed.
 The key is read only while this file is root-owned and not group- or
 other-writable, so a session cannot set or clear it.
+On a host where SELinux is enforcing and the module is loaded,
+.B sudo ai\-tools\-admin system bootstrap
+offers to set this key and
+.B AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY
+while neither is present; the offer defaults to yes, a run with no terminal
+takes it, and a declined offer writes
+.BR no .
 .TP
 .B AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes
 Entrypoint-verification strictness. Each agent's entrypoint is verified against
@@ -159,8 +244,8 @@ own. A
 refuses the launch at every setting \(em that is the tamper signal. This key
 governs only the other outcome, an entrypoint carrying
 .B no pin at all.
-.B Absent
-(the default): such a launch proceeds, because unpinned is also the state of a
+.B Default
+(key absent): such a launch proceeds, because unpinned is also the state of a
 host that has not yet run a relabel, one whose vendor published no manifest for
 the installed release, and any air\-gapped host.
 .B Set:
@@ -176,6 +261,10 @@ Pin one with
 .BR "sudo ai\-tools\-admin system entrypoints relabel" ,
 which fetches the vendor's signed manifest where there is one and so needs the
 host online.
+.B sudo ai\-tools\-admin system bootstrap
+offers this key on an enforcing host, as it does
+.BR AI_TOOLS_REQUIRE_SELINUX ,
+only while every enabled agent carries a pin.
 .TP
 .BI CLAUDE_SYSTEM_PROMPT_FILE= FILE
 A custom system prompt for Claude Code sessions (requires the
@@ -187,8 +276,8 @@ at launch and passes it to Claude Code as
 (or
 .B --system-prompt-file\fR,\fP
 per the mode).
-.B Absent
-or empty (the default): Claude Code's own default prompt is used.
+.B Default
+(key absent or empty): Claude Code's own default prompt is used.
 .I FILE
 must resolve under
 .IR /etc/ai-tools/prompts/ ,
@@ -219,7 +308,7 @@ How
 .B CLAUDE_SYSTEM_PROMPT_FILE
 is applied.
 .B append
-(the default) layers the file after Claude Code's default prompt, keeping its
+layers the file after Claude Code's default prompt, keeping its
 built-in tool-use and safety guidance;
 .B replace
 drops the default entirely \(em restate whatever tool-use/safety guidance the
@@ -236,6 +325,8 @@ definitions and the
 context (collected from the working directory and its parents) in separate request
 fields, so it does not reduce what the model receives to only this file \(em for a
 non-Anthropic endpoint, shape the final request at the proxy.
+.B Default:
+.BR append .
 .IP
 In either mode the shipped orientation text,
 .IR /opt/ai-tools/orientation/AGENTS.md
@@ -251,8 +342,8 @@ A dedicated file routing Claude Code sessions at a custom API endpoint (requires
 the
 .B ai-tools-agents-claude-code-restricted
 agent).
-.B Absent
-or empty (the default): the default Anthropic endpoint is used.
+.B Default
+(key absent or empty): the default Anthropic endpoint is used.
 .I FILE
 must resolve under
 .IR /etc/ai-tools/endpoints/ ,
@@ -283,9 +374,20 @@ Directory
 (not paths) omitted from the helper walks \(em ownership hand-back sweeps, claim
 normalization, and secret lockdown. Setting a key
 .B replaces
-that category's default rather than adding to it. Skipping bounds how much of a tree those
+that category's default rather than adding to it, and
+.B []
+skips none of that category.
+Skipping bounds how much of a tree those
 walks traverse. It is a cost setting: the agent reaches a skipped directory
 through the ordinary filesystem permissions, exactly as it reaches any other.
+.B Defaults:
+.IP
+.EX
+SKIP_VCS_DIRS=[.git]
+SKIP_PACKAGE_DIRS=[node_modules, .venv, packages]
+SKIP_ARTIFACT_DIRS=[]
+SKIP_CACHE_DIRS=[__pycache__]
+.EE
 .TP
 .BI SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE= "DIRECTORY\fR...\fP"
 Project-relative paths that keep being walked even though their basename matches
@@ -293,6 +395,10 @@ Project-relative paths that keep being walked even though their basename matches
 For a source directory that shares a build-output name, such as a
 .I bin
 directory holding scripts rather than compiled output.
+A list item does not carry whitespace, so a path containing a space cannot be
+listed here.
+.B Default:
+.BR [] .
 .SH FILES
 .TP
 .I /etc/ai-tools/operator.conf
@@ -331,8 +437,27 @@ sudo ai\-tools\-admin system post\-upgrade
 .PP
 Against
 .I operator.conf
-that command only reports: it names the new options and shows the difference,
-and every edit stays yours.
+that command reports: it names the new options and shows the difference,
+and every edit stays yours, with one exception.
+A provider list an earlier release wrote with bare names, such as
+.BR AI_TOOLS_AGENTS=[claude\-code] ,
+is invalid in this release, and no session starts until it is rewritten.
+The command rewrites it to
+.BR [agent\-claude\-code] ,
+and
+.B core
+in
+.B AI_TOOLS_FILTERS
+to
+.BR filter\-base ,
+after a dated
+.I .bak
+copy of the file, whether or not an
+.I .rpmnew
+is waiting.
+A key holding a name that does not match any installed manifest or rule set is
+left as written and named,
+for you to edit.
 It leaves the
 .I .rpmnew
 in place as the copy you merge from, and names it so you can delete it once you
@@ -342,7 +467,7 @@ Enable the dotnet integration and keep every default elsewhere:
 .PP
 .RS 4
 .EX
-AI_TOOLS_INTEGRATIONS="dotnet"
+AI_TOOLS_INTEGRATIONS=[integration\-dotnet]
 .EE
 .RE
 .PP
@@ -350,7 +475,7 @@ Turn command filtering off while diagnosing unexpected command output:
 .PP
 .RS 4
 .EX
-AI_TOOLS_FILTERS=
+AI_TOOLS_FILTERS=[]
 .EE
 .RE
 .SH SEE ALSO

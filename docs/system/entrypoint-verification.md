@@ -249,7 +249,7 @@ across sessions and across operators indefinitely.
 
 ## See also
 
-- `operator.conf(5)` — `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` and the other
-  switches
+- `ai-tools-operator.conf(5)` — `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`
+  and the other switches
 - `docs/projects/index.md` — claiming projects and running sessions
 - `.claude/rules/updater.rule.md` — the mechanism, for contributors

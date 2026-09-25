@@ -131,9 +131,9 @@ _ai_tools_place_asset() {
 # the live root is the caller's. Absent live asset -> seeded. Present + managed + a newer shipped version -> an update
 # confirm defaulting to UPDATE, so Enter and any non-interactive run take the new version (a scriptlet has no tty,
 # and a host that answered "keep" by default stayed on its first-seeded version forever). Present + unmanaged (no
-# marker) -> left untouched and logged: it is the operator's own file. Present + same-or-older version -> no-op.
-# A WITHDRAWN name -> skipped outright, whatever the source root holds; ai_tools_remove_retired_assets is the only pass
-# that acts on one.
+# marker) -> left untouched and logged: it is the operator's own file. An empty directory at a directory asset's name ->
+# seeded, as absent. Present + same-or-older version -> no-op. A WITHDRAWN name -> skipped outright, whatever the source
+# root holds; ai_tools_remove_retired_assets is the only pass that acts on one.
 # $1 src_root  $2 live_root (resolved by the caller)  $3 group  $4.. kinds, each one of
 # AI_TOOLS_ASSET_KINDS; an empty list or an unknown kind is refused with a reason.
 ai_tools_seed_managed_assets() {
@@ -178,6 +178,15 @@ ai_tools_seed_managed_assets() {
             # set only on one path carries the previous asset's value into the other -- which reads as a correct version
             # exactly often enough to look fine.
             new="$(ai_tools_asset_version "${marker}")"
+            # An empty directory at a directory asset's name holds nothing an operator wrote, so it is seeded into as if
+            # absent. Read as the operator's own, it left the asset missing from every session on every later run, since
+            # nothing else ever fills it; a directory holding any entry is still theirs.
+            if [[ -d "${src}" && -d "${dst}" && ! -L "${dst}" ]] \
+                    && [[ -z "$(find "${dst}" -mindepth 1 -print -quit 2>/dev/null)" ]]; then
+                _ai_tools_place_asset "${src%/}" "${dst}" "${group}"
+                _ai_tools_ma_say "${name} seeded (v${new:-?}) into an empty directory"
+                continue
+            fi
             if [[ -e "${dst}" ]]; then
                 if ! ai_tools_asset_is_managed "${dst_marker}"; then
                     _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"
@@ -212,8 +221,8 @@ ai_tools_seed_managed_assets() {
 #
 # The asset is MOVED, not deleted: a withdrawn asset has no shipped counterpart left to compare against, so there is no
 # way to tell a copy an operator edited from an untouched one, and the unrecoverable direction is the one to avoid. It
-# lands in `<live_root>/retired/` as `<name>.<YYYYMMDD>.retired`, through the same stamping helper conf.lib.sh uses
-# for a replaced config -- one home for the `<name>.<YYYYMMDD>[-N].<kind>` shape, and a kind token that says which event
+# lands in `<live_root>/retired/` as `<name>.<YYYYMMDD>-<N>.retired`, through the same stamping helper conf.lib.sh uses
+# for a replaced config -- one home for the `<name>.<YYYYMMDD>-<N>.<kind>` shape, and a kind token that says which event
 # produced the copy. A subagent keeps its `.md`, so one flat directory holds both kinds without collision.
 #
 # That directory sits BESIDE the shared roots rather than inside one, which is what keeps it out of circulation:
@@ -233,7 +242,7 @@ ai_tools_remove_retired_assets() {
     if (( ${#kinds[@]} )); then
         _ai_tools_require_kinds ai_tools_remove_retired_assets "${kinds[@]}" || return 1
     fi
-    local entry kind name path marker retired_dir target
+    local entry kind name
     for entry in "${AI_TOOLS_RETIRED_ASSETS[@]}"; do
         kind="${entry%%/*}"; name="${entry#*/}"
         _ai_tools_require_kinds "ai_tools_remove_retired_assets (AI_TOOLS_RETIRED_ASSETS: ${entry})" \
@@ -245,23 +254,33 @@ ai_tools_remove_retired_assets() {
             done
             (( match )) || continue
         fi
-        path="${live_root}/${kind}/${name}"
-        [[ -e "${path}" ]] || continue
-        marker="${path}"; [[ -d "${path}" ]] && marker="${path}/SKILL.md"
-        if ! ai_tools_asset_is_managed "${marker}"; then
-            _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"
-            continue
-        fi
-        retired_dir="${live_root}/retired"
-        if ! declare -F ai_tools_conf_sidecar_path >/dev/null 2>&1 \
-           || ! install -d -o root -g root -m 700 "${retired_dir}" 2>/dev/null \
-           || ! target="$(ai_tools_conf_sidecar_path "${retired_dir}/${name}" retired)" \
-           || ! mv "${path}" "${target}" 2>/dev/null; then
-            _ai_tools_ma_say "${name} kept (no longer shipped, and could not be moved aside)"
-            continue
-        fi
-        _ai_tools_ma_say "${name} withdrawn (no longer shipped); kept as retired/${target##*/}"
+        ai_tools_withdraw_asset "${live_root}" "${kind}" "${name}" "no longer shipped"
     done
+}
+
+# ai_tools_withdraw_asset <live_root> <kind> <name> [reason] Move ONE live asset aside into <live_root>/retired,
+# under the same marker gate and the same fail-toward-keeping rule as the retired-list pass, which calls this per entry.
+# The other caller is a provider package's final erase: a package that ships a skill withdraws it here, since
+# the retired list names what the PROJECT dropped and a package removal is not that. An absent asset returns 0 without
+# a move. The reason is printed with the outcome ("no longer shipped", "package removed").
+ai_tools_withdraw_asset() {
+    local live_root="$1" kind="$2" name="$3" reason="${4:-no longer shipped}"
+    local path="${live_root}/${kind}/${name}" marker retired_dir target
+    [[ -e "${path}" ]] || return 0
+    marker="${path}"; [[ -d "${path}" ]] && marker="${path}/SKILL.md"
+    if ! ai_tools_asset_is_managed "${marker}"; then
+        _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"
+        return 0
+    fi
+    retired_dir="${live_root}/retired"
+    if ! declare -F ai_tools_conf_sidecar_path >/dev/null 2>&1 \
+       || ! install -d -o root -g root -m 700 "${retired_dir}" 2>/dev/null \
+       || ! target="$(ai_tools_conf_sidecar_path "${retired_dir}/${name}" retired)" \
+       || ! mv "${path}" "${target}" 2>/dev/null; then
+        _ai_tools_ma_say "${name} kept (${reason}, and could not be moved aside)"
+        return 0
+    fi
+    _ai_tools_ma_say "${name} withdrawn (${reason}); kept as retired/${target##*/}"
 }
 
 # _ai_tools_asset_is_stale_copy <shared> <live> : true when <live> is a copy this project placed under the pre-shared

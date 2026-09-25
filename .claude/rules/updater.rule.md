@@ -25,30 +25,46 @@ and the new entrypoint is relabelled for the SELinux transition.
 
 `sudo ai-tools-admin system bootstrap` provisions the toolchain the updater then maintains. The command execs the root
 helper `ai-tools-bootstrap`, which keeps its name and its `/usr/local/libexec/ai-tools` path; what follows is
-that helper's work. **It decides which agents it provisions before its first network step** (`choose_agents`): no agent
-manifest ships enabled, so with `AI_TOOLS_AGENTS` absent and at least one trusted manifest installed it draws one
-`ai_tools_msg_pick none` menu — one option per installed agent (`display_name`) and one for none, single-select —
-and writes the chosen name into `operator.conf` through `ai_tools_conf_set_key`; an unanswered menu (no terminal, closed
-input, three misses) or none chosen provisions Node alone under a coded warning naming the line and the re-run, at
-exit 0. `--agents NAME[,NAME...]`, passed through by `ai-tools-admin`, is the unattended form: each name is checked
+that helper's work. It first rewrites a provider list an earlier release wrote with bare names, the rewrite
+`system post-upgrade` makes ([providers](providers.rule.md)), so what follows reads the line this release reads. **It
+decides which agents it provisions before its first network step** (`choose_agents`): no agent manifest ships enabled,
+so with `AI_TOOLS_AGENTS` absent and at least one trusted manifest installed it draws one `ai_tools_msg_pick none` menu
+— one option per installed agent (`display_name`) and one for none, single-select — and writes the chosen name
+into `operator.conf` through `ai_tools_conf_set_list`; an unanswered menu (no terminal, closed input, three misses)
+or none chosen provisions Node alone under a coded warning naming the line and the re-run, at exit 0.
+`--agents NAME[,NAME...]`, passed through by `ai-tools-admin`, is the unattended form: each name is checked
 against `ai_tools_installed_agents` and an unknown one refuses the run with the key unwritten. A present key is
 the operator's declaration and is not asked about; one naming more than one agent is answered with a notice, since every
 agent named runs as the one sandbox account, and an untrusted `operator.conf` is neither asked about nor written.
-The enabled set is resolved after that write, so the run provisions what it wrote. **Residue goes next, still ahead
-of the network step** (`remove_residue`): the package of every installed agent that set does not name is removed
-as `SANDBOX_USER` through `ai_tools_agent_package_remove`, and its stable launcher link as root once no version
-directory holds the package, so an offline host cleans up before its npm step fails and every launch stops refusing (see
-[A disabled agent's package is residue](#a-disabled-agents-package-is-residue)). It then creates the `SANDBOX_USER`
-account and its `/opt/ai-tools` home if absent, installs nvm, Node (`AI_TOOLS_NODE_MAJOR`, default 22), and each enabled
-agent's npm package as `SANDBOX_USER` (the enabled set resolved via [providers](providers.rule.md)), re-links each
-versioned launcher at the target its manifest declares (see [The versioned launcher and its declared
+The enabled set is resolved after that write, so the run provisions what it wrote. An empty set the configuration did
+not ask for — `ai_tools_agents_empty_verdict` answering anything but `none` — ends the run there under `MSG-M9G5`,
+before anything is installed or removed, the fault the updater ends on ([the empty-set
+classification](#the-run-classifies-itself-ok-skipped-or-failed)). **Residue goes next, still ahead of the network
+step** (`remove_residue`): the package of every installed agent that set does not name is removed as `SANDBOX_USER`
+through `ai_tools_agent_package_remove`, and its stable launcher link as root once no version directory holds
+the package, so an offline host cleans up before its npm step fails and every launch stops refusing (see [A disabled
+agent's package is residue](#a-disabled-agents-package-is-residue)). It then creates the `SANDBOX_USER` account and its
+`/opt/ai-tools` home if absent, installs nvm, Node (`AI_TOOLS_NODE_MAJOR`, default 22), and each enabled agent's npm
+package as `SANDBOX_USER` (the enabled set resolved via [providers](providers.rule.md)), re-links each versioned
+launcher at the target its manifest declares (see [The versioned launcher and its declared
 target](#the-versioned-launcher-and-its-declared-target)), points `/opt/ai-tools/bin/<launcher>` at each versioned
 binary, relabels the freshly installed entrypoint (`ai-tools-relabel-agent`, gated on that helper being deployed,
 so the first launch after a fresh provision is confined without a manual `ai-tools-admin system entrypoints relabel`),
 and captures the initial control plane in a root-private git repo. It is the one network step, so it is an operator
 command rather than an RPM scriptlet (which must succeed offline). It is idempotent: an existing account, nvm install,
 or Node version is reused. It enables `SANDBOX_USER` linger and the `nvm-update.timer` in that instance (best-effort),
-so the maintenance schedule is live once the toolchain exists.
+so the maintenance schedule is live once the toolchain exists. Root starts the timer over the machine transport
+(`systemctl --user -M SANDBOX_USER@.host`), the route the system bus authorizes for root; a `sudo -u` call
+on the account's own bus is refused there even while the manager is healthy ([cli](cli.rule.md)).
+
+**It offers both launch requirements where confinement is in force** (`offer_launch_requirements`). On a host
+where SELinux is enforcing and the `ai_tools` module is loaded, it asks once, through `ai_tools_msg_confirm` defaulting
+to yes, whether to set `AI_TOOLS_REQUIRE_SELINUX` and `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`; the answer is written
+to both through `ai_tools_conf_set_key`, `no` included, so it is asked once rather than on every run. A run with no
+terminal takes the default, since each switch moves a launch toward less access. A key already present, either way, is
+the operator's declaration and is not asked about, and an untrusted `operator.conf` is neither asked about nor written.
+The entrypoint switch is offered only while every enabled agent carries a pin, which the relabel ahead of the step
+writes: offered without one, it would refuse that agent's next launch.
 
 Starting the timer **pre-seeds its `Persistent=` run-stamp** (`$XDG_DATA_HOME/systemd/timers/ stamp-nvm-update.timer`
 under `/opt/ai-tools`, written as `SANDBOX_USER`) so it begins on its next scheduled window rather than an **immediate
@@ -126,11 +142,12 @@ the fate of the operation it reports on, here as in `log.lib.sh` (see [logging](
 `write_stamp` is installed as the script's `EXIT` trap, so the record covers every exit path — a `die`, an uncaught
 `set -e` failure, and a clean run alike — and it is best-effort throughout: it never turns a successful update
 into a failed unit, and a host whose stamp is absent gets a warning naming the reinstall that restores it, while
-the report states the unit as unknown rather than guessing. The whole text goes out in a single write, so the window
-in which a reader could see a partial stamp is negligible; one that lands there anyway does not carry a parseable
-`RESULT` and reads as unknown, never as a wrong verdict. The content is the shared `KEY=value` grammar:
-`RESULT=ok|skipped|failed`, `EXIT_CODE`, `FINISHED` (UTC, ISO-8601), `TRIGGER=unit|manual`, `NODE`, and `REASON`
-on a skip.
+the report states the unit as unknown rather than guessing. The package seeds the stamp empty, and the reports read
+that zero-length file as a unit that has not run yet rather than as one they cannot tell about, until the first run
+rewrites it. The whole text goes out in a single write, so the window in which a reader could see a partial stamp is
+negligible; one that lands there anyway does not carry a parseable `RESULT` and reads as unknown, never as a wrong
+verdict. The content is the shared `KEY=value` grammar: `RESULT=ok|skipped|failed`, `EXIT_CODE`, `FINISHED` (UTC,
+ISO-8601), `TRIGGER=unit|manual`, `NODE`, and `REASON` on a skip.
 
 ### The run classifies itself: ok, skipped, or failed
 
@@ -189,9 +206,11 @@ and the timer's verdict is declined for anything else. Without it a run the oper
 timer as healthy for the whole grace window and, worse, suppress the staleness that is the only way a stopped schedule
 surfaces at all. A run started by hand *through* the manager (`systemctl --user start nvm-update.service`) is
 indistinguishable from a triggered one and counts as `unit`: the inference is bounded to systemd-started runs, not
-to scheduled ones. `NODE` lets `ai-tools status` report the active Node version without reading the `700` toolchain,
-which the operator cannot. `REASON` is written only on a skip and says which transient condition ended the run
-(`offline`), so the report can state why a run made no change instead of leaving the operator to infer it.
+to scheduled ones. `NODE` records the version the run left active; the status reports read the active version
+off the stable launcher links, which every writer of Node repoints, and print `NODE` beside it only where the two
+differ, which says the toolchain changed after this run (see [cli](cli.rule.md)). `REASON` is written only on a skip
+and says which transient condition ended the run (`offline`), so the report can state why a run made no change instead
+of leaving the operator to infer it.
 
 ### What the stamp is trusted for
 
@@ -248,7 +267,10 @@ from the manifests, with no agent name in its code:
   `ai_tools_agent_residue_links <launcher-dir>` prints `name<TAB>launcher` for every such agent whose link exists,
   through `-L` so the read stays out of the tree. Both iterate `ai_tools_installed_not_enabled_agents`, the installed
   set minus the enabled set ([providers](providers.rule.md)): a manifest the trust predicate refuses is not an agent
-  and so not residue, and an enabled agent's package is never residue whatever the tree holds.
+  and so not residue, and an enabled agent's package is never residue whatever the tree holds. An empty enabled set
+  counts only under the `none` verdict: under a `fault` — an invalid `AI_TOOLS_AGENTS`, an untrusted `operator.conf` —
+  the set the operator declared is unknown rather than empty, so the set does not print a line, and every installed
+  agent's package stays where it is instead of reaching the writer.
 - **One writer.** `ai_tools_agent_package_remove <version-dir> <npm_package> [erase]` runs that version's own
   `npm uninstall -g` with the version directory pinned as the prefix (no registry is reached) and prints one word:
   `absent`, `removed`, or `deferred` when a live process executes from the package directory
@@ -388,11 +410,11 @@ relabel the new entrypoint — it runs in the handback domain, which does not ho
 `ai-tools-launcher-symlink --remove <stable-launcher-path>` is its second form, the updater's route to the link
 of a package it removed as residue (the `SYMLINK_REMOVE` verb). The argument is the stable link's own path, exactly
 `/opt/ai-tools/bin/<launcher>` (`MSG-D9K2` otherwise), and the link is removed only for a launcher an **installed**
-manifest claims whose agent the enabled set does **not** carry (`MSG-U2A7` for an enabled agent's link, a name no
-manifest claims, or a path that is not a symlink), so the enabled set cannot be narrowed from the sandbox side by this
-route and the links it can remove are exactly those the launch already refuses on. A link already absent is the wanted
-state, at exit 0. The unlink lands as a change in the watched directory like a repoint does, so the relabel watcher's
-reconcile runs and reports that agent's entrypoint as `none`.
+manifest claims whose agent the enabled set does **not** carry (`MSG-U2A7` for an enabled agent's link, an empty enabled
+set under a `fault` verdict, a name no manifest claims, or a path that is not a symlink), so the enabled set cannot be
+narrowed from the sandbox side by this route and the links it can remove are exactly those the launch already refuses
+on. A link already absent is the wanted state, at exit 0. The unlink lands as a change in the watched directory like
+a repoint does, so the relabel watcher's reconcile runs and reports that agent's entrypoint as `none`.
 
 ## Post-upgrade entrypoint relabel
 
@@ -448,7 +470,7 @@ and `ai-tools-admin status` renders it under the reading only root can make — 
 and comparing it against the pin, which names a changed binary even where no reconciliation has run over it yet (see
 [cli](cli.rule.md)).
 
-### The labelling half leaves a record too
+### The labelling half leaves a record too <a id="ref-section-j9w8"></a>
 
 Each run records what it could do about every enabled agent's labels,
 in `/var/opt/ai-tools/state/entrypoint-label.d/<agent>` — the same `KEY=value` grammar, directory ownership,
@@ -710,9 +732,10 @@ own exit status separates them exactly — `1` for a signature it rejects, `2` f
 and the launch cannot disagree about how strict the host is) turns the *unverifiable* case into a refusal: the launch
 will not start an unpinned entrypoint, and the updater will not activate a release it could not verify. Its default is
 **no**, and that is an air-gap decision — unpinned is also the state of a host with an internal npm mirror and no vendor
-route, and blocking there would quietly freeze its agent forever. Nothing in this layer hard-fails offline: the fetch
-carries a short `--connect-timeout` because it runs inside the relabel, and so inside an rpm `%post` that must succeed
-offline.
+route, and blocking there would quietly freeze its agent forever. `system bootstrap` offers `yes` only where every
+enabled agent already carries a pin, so the offer does not reach a host whose agent could not be verified. Nothing
+in this layer hard-fails offline: the fetch carries a short `--connect-timeout` because it runs inside the relabel,
+and so inside an rpm `%post` that must succeed offline.
 
 ### Why the pin lives in the relabel helper
 

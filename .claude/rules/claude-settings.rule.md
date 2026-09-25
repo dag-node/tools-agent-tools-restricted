@@ -2,6 +2,7 @@
 paths:
   - "src/opt/ai-tools/agents/*/settings.json"
   - "src/etc/claude-code/managed-settings.json"
+  - "src/usr/local/lib/ai-tools/settings-merge.lib.sh"
 ---
 
 # Claude Code settings (`settings.json`)
@@ -21,11 +22,12 @@ pins set `CLAUDE_CONFIG_DIR`, `NODE_COMPILE_CACHE`, and `DISABLE_AUTOUPDATER=1` 
 
 ## Permission rules — three outcomes
 
-The two arrays sort a Bash command into one of three observable outcomes: **runs without asking** (`allow`), **asks
-first** (unlisted — the default), or **refused** (`deny`). None of this is a capability boundary — whatever runs still
-executes as `SANDBOX_USER` confined by `ai_tools_t`, and a tool absent from the host fails to resolve. The lists manage
-the **operator-visibility surface**: what is silent, what is mediated by a prompt, and what the agent must raise
-with the operator in conversation. JSON does not carry comments, so the per-entry rationale lives here.
+The arrays sort a Bash command into one of three observable outcomes: **runs without asking** (`allow`), **asks first**
+(`ask`, and every unlisted command by default), or **refused** (`deny`). None of this is a capability boundary —
+whatever runs still executes as `SANDBOX_USER` confined by `ai_tools_t`, and a tool absent from the host fails
+to resolve. The lists manage the **operator-visibility surface**: what is silent, what is mediated by a prompt,
+and what the agent must raise with the operator in conversation. JSON does not carry comments, so the per-entry
+rationale lives here.
 
 ### Runs without asking (`allow`)
 
@@ -76,6 +78,27 @@ empty, while `ls > file` in the same session prompted — the same analysis recl
 An unlisted safe-read therefore does **not** reliably prompt; a read that must stay operator-visible needs a `deny`
 entry, which is why the host-survey group is denied rather than merely unlisted.
 
+### Asks every time (`ask`)
+
+An `ask` entry is the prompt that holds where the default does not. Claude Code prompts for a matching command in every
+permission mode, `bypassPermissions` included; a matching `ask` wins over a matching `allow` in any settings layer,
+so a project's own allow list cannot silence it; and it matches a command inside a pipeline. The list holds one entry:
+
+| Entry | Why |
+|---|---|
+| `Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)` | Each call sends listing lines off the host ([typesafe](typesafe.rule.md)), so the operator sees each one before it goes. The entry ships with base's file whether or not the integration is installed, since `settings.json` is one file; where the command is absent the entry does not match anything. |
+
+A kept `settings.json` does not gain this entry on upgrade: the merge carries hook declarations and leaves
+the permission arrays as the host wrote them ([An upgrade keeps host tuning and still lands this version's
+hooks](#an-upgrade-keeps-host-tuning-and-still-lands-this-versions-hooks)), so an upgraded host adds it by hand.
+`ai_tools_conf_ask_gaps` (`settings-merge.lib.sh`) names the entry a kept file lacks for an installed command, checked
+against a table there rather than a shipped copy, since a host may hold none after an upgrade. Three paths print it
+as a warning and none writes it: `install.sh` on a kept file, `ai-tools-admin system post-upgrade` whether or not
+a `.rpmnew` is waiting, and the agent package's rpm trigger on the typesafe package, which fires when either is
+installed or upgraded while the other is present, so the line shows in the `dnf` output. `tests/integration/hooks.sh`
+fails on the same gap. Codex's counterpart is a requirements rule marked `prompt` ([agent-codex](agent-codex.rule.md)),
+which is not shipped.
+
 ### Refused (`deny`)
 
 Three groups with distinct criteria.
@@ -114,6 +137,8 @@ spending a tool call, and emitting an AVC, on an action the kernel refuses anywa
   to it. (Bare `mount` succeeds — it lists the mount table — so it is denied with the host-survey group instead.)
 - `setenforce`/`semodule`/`semanage` — root-only SELinux management; label repair flows through the root-side relabel
   path, never the agent.
+- `gpg` — the core module does not grant gpg's own exec type, so the session can neither run nor `stat` it
+  and `command -v` prints nothing. `gpgv` is an ordinary binary and runs, and it is the verifier a session uses.
 
 `sudo` is the purest case: it is structurally inoperative under the session's `PR_SET_NO_NEW_PRIVS`, which drops
 the SUID bit (see [confinement](confinement.rule.md)), so its deny entry corresponds to a capability no policy change
@@ -147,7 +172,7 @@ are pinned strictly rather than reported, because the paths that preserve a host
 and `%config(noreplace)` on upgrade — are also the paths by which a `settings.json` predating them, or edited
 in the permission arrays it invites tuning of, silently loses the gate.
 
-## The tool-call record is declared as its own matcher group
+## The tool-call record is declared under its own matcher
 
 `post-tool-hook.sh` appears twice under `PostToolUse`: argument-less on `Write|Edit` (record then hand back)
 and as `post-tool-hook.sh record` on `Bash` (record only). One widened `Write|Edit|Bash` matcher would express the same
@@ -196,23 +221,20 @@ terminal space alone — the session's authority is identical either way — and
 confirming an action sees the reasoning that produced it and the output it produced, which is the difference
 between approving a command string and approving what the command did.
 
-They are the operator-side complement to `disableAutoMode`: that key decides *whether* a human is asked, these decide
-*how much* that human is shown. The catalog of the other UI and behavior keys an operator MAY add is
+They are the operator-side complement to `disableAutoMode`: that key keeps auto mode from approving in a person's place,
+these decide *how much* that person is shown. The catalog of the other UI and behavior keys an operator MAY add is
 in [`docs/agents/claude-code.md`](../../docs/agents/claude-code.md).
 
-## `disableAutoMode` — confirm-by-default
+## `disableAutoMode` — auto mode off
 
 ```json
 "disableAutoMode": "disable"
 ```
 
-`"disable"` removes `auto` from the `Shift+Tab` permission-mode cycle and rejects `--permission-mode auto` at startup,
-so a session takes actions under a confirming permission mode. The value is the literal string `"disable"`; the key
-absent (or any other value) leaves auto mode selectable.
-
-The default keeps a human in the loop for the outward-facing, irreversible actions a session reaches — commits, pushes,
-other state-changing Bash commands — which the sandbox confines but does not gate on confirmation. It is a control-plane
-default, overridable per project (see [Control-plane integrity](#control-plane-integrity)).
+The project ships this value so that auto mode is not available to approve actions in a person's place. It is
+a control-plane default, overridable per project (see [Control-plane integrity](#control-plane-integrity)). It does not
+cover `bypassPermissions`, which stays the operator's choice. The project does not lock that mode; the one `ask` entry
+([Asks every time](#asks-every-time-ask)) is the per-command prompt that holds in it.
 
 ## Coupling to optional SELinux groups
 
@@ -249,9 +271,13 @@ and that layer lives in the agent-writable project tree. The layers compose diff
 An install **keeps** an existing `settings.json` by default (`install.sh`'s `keep_existing` prompt; an unattended run
 always keeps), because the file carries host tuning a reset would revert — a deny entry relaxed alongside an enabled
 SELinux group, an added `env` key. Kept files then have this version's **hook declarations** merged
-in (`ai_tools_conf_merge_hook_declarations`, in `conf.lib.sh`): each shipped declaration the file does not carry is
-added, every other key — the permission arrays it was kept for, an operator's own hook — is left as written, and each
-addition is named in the install log.
+in (`ai_tools_conf_merge_hook_declarations`, in `settings-merge.lib.sh`): each shipped declaration the file does not
+carry is added under its shipped matcher, every other key — the permission arrays it was kept for, an operator's own
+hook — is left as written, and each addition is named in the install log. A shipped command the file declares more than
+once under one event and matcher is reduced to its first declaration, since Claude Code runs every declaration
+and a repeat runs that hook twice per call; that repairs the repeat an earlier merge left by appending a shipped group
+whole over a file already declaring one of its commands, and each removal is named beside the additions. A repeat
+of an operator's own hook is left as written.
 
 The split follows that layering: hook declarations are control plane that merges additively and that no lower-precedence
 layer may remove, while the permission rules are the host's to tune. The merge is what carries a newly shipped hook
@@ -259,15 +285,15 @@ onto an existing host: its body and data arrive with the package, and this is th
 so the hook runs rather than sitting installed and uninvoked.
 
 Each outcome is reported at the severity it earns, so neither is lost in an install's output: a merge reports at `ok`
-and **names every declaration it added**, which is what makes an edit to an operator-owned file reviewable. A file
-already declaring everything shipped is not rewritten.
+and **names every declaration it added or removed**, which is what makes an edit to an operator-owned file reviewable.
+A file already declaring everything shipped is not rewritten.
 
 Two sidecar files serve two different recoveries, and neither substitutes for the other:
 
 | file | written when | answers |
 |---|---|---|
-| `settings.json.<YYYYMMDD>.bak` | a merge is about to replace the file | "what did I have?" — the only copy that can restore host tuning if a merge produces valid JSON that is nonetheless wrong, the one failure a parse check cannot catch |
-| `settings.json.<YYYYMMDD>.shipped` | a merge could **not** run — absent `jq`, malformed JSON, a result that does not parse | "what was I supposed to get?" — the baseline to merge from by hand, since an RPM-installed host has no source checkout to copy from |
+| `settings.json.<YYYYMMDD>-<N>.bak` | a merge is about to replace the file | "what did I have?" — the only copy that can restore host tuning if a merge produces valid JSON that is nonetheless wrong, the one failure a parse check cannot catch |
+| `settings.json.<YYYYMMDD>-<N>.shipped` | a merge could **not** run — absent `jq`, malformed JSON, a result that does not parse | "what was I supposed to get?" — the baseline to merge from by hand, since an RPM-installed host has no source checkout to copy from |
 
 Each failure direction leaves the deployed file byte-identical and warns, naming which check refused. Both sidecars are
 date-stamped and neither overwrites an earlier copy, and a no-op run writes neither. They differ in what a repeat run
@@ -285,8 +311,9 @@ outright and its hook declarations are current with no operator step.
 No rpm directive resolves the split on its own, because rpm has no vocabulary for merging one subtree of a file: plain
 `%config` would install the shipped file and move the host's aside to `.rpmsave`, reverting the permission rules
 the file was kept for, while `%config(noreplace)` alone leaves a newly shipped hook declared nowhere. The merge
-therefore runs on request — **`sudo ai-tools-admin system post-upgrade`**, through the same `conf.lib.sh` entry point —
-and the agent package's `%post` prints that pointer whenever a `.rpmnew` is present. No scriptlet edits a config file.
+therefore runs on request — **`sudo ai-tools-admin system post-upgrade`**, through the same `settings-merge.lib.sh`
+entry point — and the agent package's `%post` prints that pointer whenever a `.rpmnew` is present. No scriptlet edits
+a config file.
 
 The command runs the merge on a throwaway copy first, so the list it shows is the exact set of declarations the real
 merge adds rather than a promise of one. It then confirms, writes the dated `.bak`, and names that backup. **The
@@ -296,9 +323,8 @@ to delete, reporting either the difference still to review or that the two files
 not need a `.shipped` sidecar — the `.rpmnew` is that baseline, and the throwaway copy is where the refused merge's own
 copy lands and is discarded.
 
-`jq` is a hard runtime dependency of every hook this agent ships, not a convenience: each parses its event JSON with it,
-and absent it they take their no-op paths silently — the handback stops returning ownership, the session sweeps stop
-running, and the filters stop filtering. The agent package `Requires: jq` for that reason.
+The merge and every hook this agent ships read JSON with `jq`, which the agent package requires
+([ownership-and-hooks](ownership-and-hooks.rule.md)).
 
 ## Why not
 

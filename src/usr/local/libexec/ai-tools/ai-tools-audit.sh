@@ -17,17 +17,17 @@
 # as authoritative. A launch refusal is the exception -- it is written by ai-tools-run, which runs AS the sandbox
 # account and therefore reaches journald only, under a tag whose legitimate writer is that same account. Those lines are
 # the session's own account of itself, reportable but not proof, and are shown in a separately titled section rather
-# than mixed into the first (see .claude/rules/logging.rule.md). The third is the KERNEL's: an exec of an agent
-# entrypoint by a confined session, which the SELinux core module audits with an `auditallow` on the one permission
-# that exec takes (execute_no_trans on ai_tools_exec_t by ai_tools_t; selinux/policy/ai_tools.te), so the kernel writes
-# an AVC `granted` record for each one. A session launch enters the domain through a transition, which is a different
+# than mixed into the first (see logging.rule.md). The third is the KERNEL's: an exec of an agent entrypoint
+# by a confined session, which the SELinux core module audits with an `auditallow` on the one permission that exec takes
+# (execute_no_trans on ai_tools_exec_t by ai_tools_t; the policy source ai_tools.te), so the kernel writes an AVC
+# `granted` record for each one. A session launch enters the domain through a transition, which is a different
 # permission, so a launch is not recorded and does not need telling apart. No process of the sandbox account writes
 # that trail and none can suppress a record in it, so it is evidence of the first kind and answers what neither
 # of the others can -- an agent started from inside a session runs in its parent's unit, so the launch and the handbacks
-# both carry the parent's identity (see .claude/rules/launch.rule.md).
+# both carry the parent's identity (see launch.rule.md).
 #
 # WHAT THE CLASSIFICATION IS AND IS NOT. One recorded exec is ordinary: an agent dispatching a tool it bundles
-# through its own binary (claude-code for `rg`, `ugrep` and `bfs`; codex for `apply_patch`), told by a bare argv0. It is
+# through its own binary, told by a bare argv0 (launch.rule.md names the tools the shipped agents reach that way). It is
 # counted and summarized rather than reported as a finding. The argv0 is the caller's to arrange, so the split is
 # a NOISE FILTER and not a control: the record is the evidence, and it is written either way. Every other record is
 # a finding, including one whose exe no installed manifest claims, so a manifest this helper cannot read yields MORE
@@ -38,11 +38,7 @@
 #
 # Usage:  ai-tools-audit [--since <when>]        <when> is anything date(1) parses
 #
-# Deploy:
-#   ```bash
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-audit.sh /usr/local/libexec/ai-tools/ai-tools-audit
-#   ```
+# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 
@@ -69,7 +65,7 @@ warn() {
 # adding to it -- but it uses the sanitizer, which reduces a log line to safe-for-display characters before it reaches
 # the operator's terminal. That is load-bearing here, not decorative: every line this command prints came from a file
 # recording agent-influenced paths, so it is required fail-closed for the same reason ai-tools-chown
-# and ai-tools-lockdown require it (see .claude/rules/logging.rule.md).
+# and ai-tools-lockdown require it (see logging.rule.md).
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 source "${LOG_LIB}" 2>/dev/null || {
@@ -82,10 +78,10 @@ readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
 source "${MSG_LIB}"
 
-# Provider manifests, for the kernel-record section alone: which file is which agent's entrypoint. Loaded
-# BEST-EFFORT, unlike the logger and the renderer, because a failure here is
-# already the safe one -- with no manifest to match, every recorded exec is reported as a finding naming a file no
-# manifest claims, so a library that will not load costs noise rather than coverage.
+# Provider manifests, for the kernel-record section alone: which file is which agent's entrypoint. Loaded BEST-EFFORT,
+# unlike the logger and the renderer, because a failure here is already the safe one -- with no manifest to match, every
+# recorded exec is reported as a finding naming a file no manifest claims, so a library that will not load costs noise
+# rather than coverage.
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source "/usr/local/lib/ai-tools/conf.lib.sh" 2>/dev/null || true
@@ -336,9 +332,9 @@ audit_hex_decode() {
 
 # audit_record_field <field> -- reduce one record field to something safe to print and safe to carry
 # through the pipe-delimited record format, the same treatment every untrusted string reaching a sink or a terminal gets
-# (see .claude/rules/logging.rule.md). ai_tools_log_sanitize is the allowlist -- printable ASCII alone, so a decoded
-# newline, terminal escape or bidi byte becomes `?`; the pipe is replaced after it, since a value carrying one would
-# fabricate a column in the rendered table; and the result is clamped, marked where it was cut.
+# (see logging.rule.md). ai_tools_log_sanitize is the allowlist -- printable ASCII alone, so a decoded newline, terminal
+# escape or bidi byte becomes `?`; the pipe is replaced after it, since a value carrying one would fabricate a column
+# in the rendered table; and the result is clamped, marked where it was cut.
 audit_record_field() {
     local value; value="$(ai_tools_log_sanitize "$1")"
     value="${value//|/?}"
@@ -373,9 +369,9 @@ build_agent_entrypoint_map() {
 # way, and the count render_entrypoint_section prints names what it folded.
 #
 # The two classes, in the order they are decided:
-#   self     a bare argv0 (no `/`) into an agent's own entrypoint: the agent dispatching a tool it bundles, as
-#            claude-code does for `rg`, `ugrep` and `bfs`, and codex for `apply_patch`. An exec that names a PATH
-#            is not this, so starting an entrypoint at its real path stays a finding whichever agent does it.
+#   self     a bare argv0 (no `/`) into an agent's own entrypoint: the agent dispatching a tool it bundles
+#            (launch.rule.md names them per shipped agent). An exec that names a PATH is not this, so starting
+#            an entrypoint at its real path stays a finding whichever agent does it.
 #   finding  everything else, including every exe no manifest claims -- so a manifest this helper cannot read
 #            yields MORE findings rather than fewer.
 #

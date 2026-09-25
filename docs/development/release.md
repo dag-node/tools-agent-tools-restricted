@@ -21,14 +21,15 @@ the tag, so no other input could carry the decision.
 ## Flow
 
 ```
-      feature/ATR-yyMMdd-<name>
+      feat/atr-yyMMdd-<name>
                 |
                 | PR -> develop; the operator merges manually
                 v
              develop <--------------------------------------------.
                 |                                                 |
-                |  every push: shellcheck + rpm-selftest (EL9+10) |
-                |  snapshot RPMs, Release: 0.<run>.git<sha>       |  fixes during
+                |  every push: shellcheck, typesafe-client,       |
+                |  rpm-selftest (EL9+10); snapshot RPMs,          |
+                |  Release: 0.<run>.git<sha>                      |  fixes during
                 |  (workflow artifacts only, never published)     |  stabilization
                 |                                                 |
                 |  tag vX.Y.Z-rc.N on develop                     |
@@ -56,6 +57,15 @@ the tag, so no other input could carry the decision.
       + notify dag-node/rpm -> rpm.dagnode.com
 
 
+      (a published X.Y.Z needs a fix)
+      fix/<id>-<name>, cut from the tag vX.Y.Z
+                |  proven green BEFORE the PR merges
+                |  last commit: VERSION + %changelog for X.Y.Z+1
+                v
+             main -> tag vX.Y.Z+1 -> stable, then merge main back
+                                     into develop
+
+
       (any time, any branch)
       workflow_dispatch -> rehearsal: the full build+sign+verify path runs,
       publish steps are skipped, signed output lands as a workflow artifact
@@ -79,27 +89,82 @@ and a real release always outranks any snapshot.
 
 ```bash
 git switch develop && git pull
-git switch -c feature/ATR-260718-my-change
+git switch -c feat/atr-260718-my-change
 # ...work, commit...
-git push -u origin feature/ATR-260718-my-change   # open a PR targeting develop
+git push -u origin feat/atr-260718-my-change   # open a PR targeting develop
 ```
 
-Branches are cut from `develop` and named `feature/<ticket>-<yyMMdd>-<name>`:
-`<ticket>` is a tracker id where one applies, otherwise the default `ATR`;
-`<yyMMdd>` is the short two-digit-year datestamp the branch was cut (e.g.
-`260729` for 2026-07-29); `<name>` is a short kebab-case summary —
-so `feature/ATR-260729-selinux-optional-groups`. PRs target `develop`,
-and the operator merges them manually. Every push runs `shellcheck`
+Branches are cut from `develop` and named `<type>/<id>-<name>`, lowercase
+throughout and without spaces, so a case-sensitive tool has one spelling
+to match. `<type>` is the Conventional Commits type the branch's commits carry
+— `feat`, `fix`, `docs`, `chore` — so the branch and its commits are spelled
+from one vocabulary. `<id>` is a three-letter project prefix, a dash,
+and a sequence — canonically `ABC-123` where a tracker mints the number,
+and `ATR-260729` where none does, as here, the sequence being the short
+two-digit-year datestamp the branch was cut. Without a tracker the id dates
+the work rather than identifying it: branches cut the same day carry the same
+one, and what separates them is the whole branch name. A branch spells the id
+lowercased; every other reference to it — a PR body, a commit trailer, a wip
+filename — keeps the canonical form. `<name>` is a short kebab-case summary,
+so `feat/atr-260729-selinux-optional-groups`. Use a maximum of 60 characters
+for the whole branch name, type and separators included. PRs target `develop`,
+and the operator merges them manually. A change of one or two commits with no
+`BREAKING CHANGE` footer lands straight on `develop`; a branch and a PR are
+for work large enough that the review round trip pays for itself.
+
+```bash
+git commit -a --fixup=<commit>
+git rebase --autosquash develop
+```
+
+A fix to a commit that has not been pushed goes into that commit. `--fixup`
+records the fix against `<commit>` and the rebase folds it in, so the branch
+reaches review without a `fix` commit for a defect no one else received. Git
+2.44 and later apply `--autosquash` without an interactive rebase. A pushed
+commit takes a `fix` commit of its own.
+
+Give the PR an explicit title, in the same Conventional Commits form
+as a commit subject:
+
+```bash
+gh pr create --title "feat(selinux): ship the optional policy groups compiled"
+```
+
+The merge commit then carries where the work came from on its first line
+and what it does on its second:
+
+```text
+Merge pull request #163 from dag-node/feat/atr-260729-selinux-optional-groups
+feat(selinux): ship the optional policy groups compiled
+```
+
+The type and the id are already on that first line, spelled as the branch
+spells them, so the title's job is the other half — what the change does,
+in about 72 characters, the length a commit subject takes here. GitHub's own
+views join the two lines without a separator, where a repeated branch name
+reads as one run-on string.
+
+Left untyped, the title is GitHub's own: it derives one from the branch name —
+first character uppercased, every other lowercased, each hyphen a space,
+the slash kept — and the merge commit keeps
+`Feat/atr 260729 selinux optional groups` for good.
+
+Every pull request, and every push to `develop` or `main`, runs `shellcheck`
 and the full `rpm-selftest` matrix and uploads snapshot RPMs as workflow
-artifacts, so a build off any commit is inspectable without cutting a release.
-Do not push `v*` tags — a tag ruleset restricts tag creation to maintainers,
+artifacts, so a proposed change is inspectable without cutting a release. Do
+not push `v*` tags — a tag ruleset restricts tag creation to maintainers,
 because under [The one rule that decides everything
 else](#the-one-rule-that-decides-everything-else) a tag *is* a release
 decision.
 
-There are no standing `release/X.Y` branches. Cut one only when stabilization
-must diverge — holding X.Y for release while `develop` moves on to X.Y+1,
-or hotfixing an old minor.
+There are no standing `release/X.Y` branches, and [Patching a released
+version](#patching-a-released-version) needs none: `main` already tracks
+the newest release. Cut one when a consumer cannot move to X.Y+1 — a support
+commitment, a contract, a deployment pinned to a minor. Patches for that line
+are then cut from `release/X.Y` and tagged there, and the fix goes forward
+into `develop` as well so the next minor carries it; `main` goes on tracking
+the newest release. The pipeline does not change for any of it, since
+the channel follows the tag and not the branch.
 
 ## For maintainers: cutting a release
 
@@ -171,6 +236,44 @@ to the next anticipated version. Dev/snapshot RPMs (`Release: 0.<n>.git<sha>`)
 then sort after the last release and before the next one; left at the released
 number, a newer snapshot sorts as an older package.
 
+## Patching a released version
+
+```bash
+git switch -c fix/ATR-260922-agent-package-repair v0.19.0
+# ...fix, commit, prove it...
+git push -u origin fix/ATR-260922-agent-package-repair   # the PR targets main
+```
+
+A fix to something already published is cut from the release **tag** and its PR
+targets `main`, not `develop`, which by then carries the next minor.
+After the merge, tag `vX.Y.Z+1` on `main`: the release job publishes it exactly
+as it does any final tag, and `check-version.sh` holds it to the same
+agreement.
+
+Three rules decide whether that costs one patch or two.
+
+**Prove the fix before the merge, not after.** A patch branch earns the full
+suite green and its own CI run — every push builds the `rpm-selftest` matrix —
+and, where the fix is about the state of an installed host, an install
+on a real one. A branch merged unproven costs a second branch to finish
+the job, and leaves `main` carrying half a fix in between. Tag only once `main`
+is what you mean to ship: the tag is what publishes, so a tag that has to move
+afterwards is the outcome this ordering exists to avoid.
+
+**The `%changelog` commit is the last one on the branch**, as it is for a final
+tag in [2. Finalize](#2-finalize-the-one-merge-to-main). It records
+what the release contains, which is not known until the fix is complete;
+written first, it is amended by every commit after it, and the entry the tag
+carries is whatever the last amendment happened to leave. Put the `VERSION`
+bump in that same commit, so one commit carries the whole release identity.
+
+**Merge `main` back into `develop` as the closing step**, then into any live
+feature branch. `develop` is where the next release is built, so a patch it
+never receives is a fix the next minor silently drops. Expect one conflict
+class: the patch edits a source file that editorial work on `develop` has
+rewritten around, and the two collide in that file's comment header — keep
+`develop`'s wording and the patch's behaviour.
+
 ### If the release job goes red
 
 The job is fail-closed and idempotent: signing or verification failure stops it
@@ -186,7 +289,8 @@ to `main`.
 Signing is mandatory and preflight-checked before anything builds; fork PRs
 never see the signing secret (the release job runs only on tags
 and `workflow_dispatch`); `v*` tag creation is restricted to maintainers
-by a ruleset. Details in [ref-section-a6s8](../rpm-packaging.md#ref-section-a6s8).
+by a ruleset. Details
+in [ref-section-a6s8](../rpm-packaging.md#ref-section-a6s8).
 
 Rehearsal RPMs are signed with the real key, so they carry the distinct Release
 `0.<run>.rehearsal.git<sha>` — a leaked rehearsal artifact can never share

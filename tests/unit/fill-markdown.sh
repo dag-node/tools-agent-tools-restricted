@@ -173,16 +173,21 @@ fi
 detects() {
     local name="$1" found_on="$2" present="$3" broken="$4"
     reflow
-    if ! grep -qzF -- "${present}" "${f}"; then
-        fail "${name}: STALE, the reflowed fixture no longer holds its shape [${found_on}]"
-        return
-    fi
-    python3 - "${f}" "${present}" "${broken}" <<'PY'
+    # The substitution reports its own miss: these strings span lines, and `grep -zF` reads a multi-line pattern as one
+    # pattern per line, so a fixture that had moved would match on any one of them and report as a MISS by the gate.
+    if ! python3 - "${f}" "${present}" "${broken}" <<'PY'
 import pathlib, sys
 path, present, broken = sys.argv[1:]
 path = pathlib.Path(path)
-path.write_text(path.read_text().replace(present, broken, 1))
+text = path.read_text()
+if present not in text:
+    sys.exit(2)
+path.write_text(text.replace(present, broken, 1))
 PY
+    then
+        fail "${name}: STALE, the reflowed fixture no longer holds its shape [${found_on}]"
+        return
+    fi
     if gate; then
         fail "${name}: the gate MISSED the defect [${found_on}]"
     else

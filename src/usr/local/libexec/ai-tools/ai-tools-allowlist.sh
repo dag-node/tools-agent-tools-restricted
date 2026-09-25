@@ -40,11 +40,7 @@
 # re-enable prompt), and they are deliberately not an add/remove pair: the line keeps its position and its comment,
 # so a park-and-restore round trip leaves an ordered, commented allowed-projects exactly as its operator wrote it.
 #
-# Deploy:
-#   ```bash
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh /usr/local/libexec/ai-tools/ai-tools-allowlist
-#   ```
+# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 
@@ -57,8 +53,9 @@ die() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-allowlist: %s\n' "$*" >&2; exit 1
 }
-# note: the same line on stdout, for an action that completed or had nothing to do. It does not exit, so the exit status
-# stays where the action decides it, and it carries the prefix so no call site repeats it.
+# note: the same line on stdout, for an action that completed or found the entry already in the state it asked for. It
+# does not exit, so the exit status stays where the action decides it, and it carries the prefix so no call site repeats
+# it.
 note() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}"; fi

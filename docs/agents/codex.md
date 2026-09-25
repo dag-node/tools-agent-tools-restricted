@@ -9,18 +9,18 @@ files you may edit. The package ships off, like every agent package.
 ## Turn Codex on
 
 ```bash
-sudo ai-tools-admin system bootstrap --agents codex
+sudo ai-tools-admin system bootstrap --agents agent-codex
 ```
 
-The bootstrap writes `codex` into `AI_TOOLS_AGENTS`
+The bootstrap writes `agent-codex` into `AI_TOOLS_AGENTS`
 in `/etc/ai-tools/operator.conf`, the line that names the agents this host runs
 ([Agents](index.md)), installs `@openai/codex` into the sandbox toolchain,
 and the nightly toolchain update maintains it from then on. Without `--agents`
 the bootstrap asks, offering every installed agent. To run Codex beside another
-agent, add its name to the line by hand and re-run the bootstrap; every agent
-named there shares one sandbox account, and [Scope](../about/scope.md) states
-what that shares between them. Once you take an agent off the key, the next
-provisioning run — the nightly update,
+agent, add `agent-<name>` to the line by hand and re-run the bootstrap; every
+agent named there shares one sandbox account, and [Scope](../about/scope.md)
+states what that shares between them. Once you take an agent off the key,
+the next provisioning run — the nightly update,
 or `sudo ai-tools-admin system bootstrap` — removes its package
 from the toolchain, and no session starts until it has. Start a session
 in a claimed project by typing `codex`, as you type `claude`.

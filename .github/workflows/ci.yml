@@ -61,6 +61,21 @@ jobs:
           find src -name '*.sh' -print0 | xargs -0 shellcheck
           shellcheck install.sh
 
+  # The typesafe integration's decide command is vendored from a signed release of
+  # dag-node/typesafe-client-js, whose own CI runs the command's suite. This job re-derives the
+  # committed modules from that release: it downloads the tarball tools/generators/typesafe-client.pin
+  # names, checks its signature and the tag's against the fingerprints the generator pins, and fails
+  # unless every committed module matches the release. A module edited here, or a pin edited to match
+  # it, fails this job; the offline half (tests/unit/typesafe.sh) sees only the first. The release job
+  # needs this job.
+  typesafe-client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Verify the vendored decide command against its signed release
+        run: bash tools/generators/typesafe-client.sh verify
+
   # Builds the RPMs and runs the full admin -> operator -> agent workflow (bootstrap,
   # operator enrolment, project claim, tests/run.sh all, a confined `claude --version`
   # session) inside a throwaway Rocky container with systemd as PID 1. Mirrors
@@ -195,7 +210,7 @@ jobs:
   # see the signing secret.
   release:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: [shellcheck, rpm-selftest]
+    needs: [shellcheck, typesafe-client, rpm-selftest]
     # Pinned like rpm-selftest: this job builds and signs RPMs inside podman containers,
     # so it needs the same known-good podman/crun combo (see that job's note).
     runs-on: ubuntu-22.04

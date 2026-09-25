@@ -54,12 +54,12 @@ source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null || true
 _ai_tools_declared_items() {
     local key="$1" charset="$2" declared item
     declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1 || return 0
-    declare -F ai_tools_conf_split >/dev/null 2>&1 || return 0
+    declare -F ai_tools_conf_list_value >/dev/null 2>&1 || return 0
     local -a items
     while IFS=$'\t' read -r _ declared; do
         [[ -n "${declared}" ]] || continue
         items=()
-        ai_tools_conf_split items "${declared}"
+        ai_tools_conf_list_value items "${declared}" 0 "${key} in an integration manifest"
         for item in "${items[@]}"; do
             [[ "${item}" =~ ${charset} && "${item}" != *..* ]] || continue
             printf '%s\n' "${item}"

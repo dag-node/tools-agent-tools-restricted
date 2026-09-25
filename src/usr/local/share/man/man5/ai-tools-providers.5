@@ -1,6 +1,6 @@
 .\" ai-tools-providers(5) -- the agent and integration manifests of Agent Tools Restricted.
 .\" @AI_TOOLS_VERSION@ is substituted at deploy time (install.sh install_subst and the RPM
-.\" %prep), like operator.conf(5). The keys described here are the ones providers.lib.sh and
+.\" %prep), like ai-tools-operator.conf(5). The keys described here are the ones providers.lib.sh and
 .\" its consumers read; tests/unit/man.sh keeps this page and the shipped manifests in step.
 .TH AI-TOOLS-PROVIDERS 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
 .SH NAME
@@ -23,12 +23,14 @@ The base package reads the manifests and never names a provider itself,
 so a provider is added by installing its package and removed by erasing it.
 .PP
 .I name
-is the token an operator writes in
+is the token an operator writes, after its kind prefix, in
 .B AI_TOOLS_AGENTS
+.RB ( agent\- \fIname\fR)
 or
 .B AI_TOOLS_INTEGRATIONS
+.RB ( integration\- \fIname\fR)
 in
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)
 to enable the provider.
 The two directories share one namespace: a name is unique across both kinds.
 Whether a session receives a provider is decided by that file and by the
@@ -62,10 +64,13 @@ for each.
 One
 .I KEY=value
 per line, in the grammar
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)
 describes under
 .BR GRAMMAR :
-quotes are optional, list items separate on commas and whitespace, and a
+quotes are optional, list items separate on commas and whitespace, a list may be
+written in brackets
+.RB ( [a,\ b] ),
+and a
 .B #
 begins a comment.
 A repeated key takes its last value.
@@ -324,8 +329,8 @@ The provider's command-filter rules.
 .TP
 .I /etc/ai-tools/operator.conf
 Where an operator enables providers; see
-.BR operator.conf (5).
+.BR ai-tools-operator.conf (5).
 .SH SEE ALSO
 .BR ai-tools (1),
 .BR ai-tools-admin (8),
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)

@@ -40,10 +40,10 @@
 # Each journald record carries native fields beside its MESSAGE (AI_TOOLS_SESSION_UNIT, _VERB, _PATH, _RESULT), written
 # as one datagram to the journal socket.  The session unit is the field only this daemon can supply, since a root helper
 # does not run in the session's unit; the SO_PEERCRED uid authorizes a request and this value labels the record
-# afterwards.  See .claude/rules/handback-bridge.rule.md.
+# afterwards.  See handback-bridge.rule.md.
 #
-# Installed 750 root:root as ai-tools-handback, with @SANDBOX_USER@ substituted at install. Deploying from a checkout:
-# docs/install/from-source.md.
+# Installed 750 root:root as ai-tools-handback, with @SANDBOX_USER@ substituted at install. Its domain rule is
+# handback-bridge.rule.md.
 
 import datetime
 import os
@@ -138,9 +138,9 @@ def _peer_user_unit(pid):
     # and under enforcing ai_tools_handback_t holds search+read on ai_tools_t, the domain whose process entry this is
     # (ai_tools.te). A peer outside that domain -- the updater's user-manager unit -- is not covered and yields ''.
     # An unreadable or unmatched cgroup yields '' too, which leaves the field ABSENT rather than guessed -- the value is
-    # attribution, not authorization.
-    # Unbuffered and binary: the default open() probes isatty() to pick a buffering mode, which is a TCGETS ioctl the
-    # policy does not grant on ai_tools_t:file, so every served request would leave an AVC denial in the audit log.
+    # attribution, not authorization. Unbuffered and binary: the default open() probes isatty() to pick a buffering
+    # mode, which is a TCGETS ioctl the policy does not grant on ai_tools_t:file, so every served request would leave
+    # an AVC denial in the audit log.
     # buffering=0 skips the probe; the bytes are decoded here, and a byte that is not UTF-8 becomes U+FFFD, which
     # the unit-name allowlist rejects like any other character outside the set.
     try:

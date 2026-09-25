@@ -14,9 +14,10 @@
 #   sudo ai-tools-admin selinux groups disable <name>      # unload one
 #   sudo ai-tools-admin system bootstrap                   # provision the sandbox account's toolchain
 #   sudo ai-tools-admin system bootstrap --scope full      # ... and every enabled integration
-#   sudo ai-tools-admin system bootstrap --agents codex    # ... enabling the named agent, unattended
+#   sudo ai-tools-admin system bootstrap --agents agent-codex # ... enabling the named agent, unattended
 #   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
+#   sudo ai-tools-admin system post-upgrade --check        # findings as tab-separated lines; silent, exit 0 when clean
 #   sudo ai-tools-admin status                             # the host's health, read as root
 #   sudo ai-tools-admin dotnet bootstrap                   # a domain a provider package contributes
 #   ```
@@ -87,7 +88,7 @@
 # what they want from it. The from-source installer reaches the same end through its own keep-or-reset prompts and dated
 # .bak/.shipped sidecars; this is the RPM-side equivalent.
 #
-# Deploying from a checkout: docs/install/from-source.md.
+# Its domain rules are cli.rule.md (what each command does) and cli-grammar.rule.md (how it is spelled).
 
 set -euo pipefail
 
@@ -97,6 +98,7 @@ readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 readonly SELINUX_GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+readonly SETTINGS_MERGE_LIB="/usr/local/lib/ai-tools/settings-merge.lib.sh"
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 readonly PATH_ORDER_LIB="/usr/local/lib/ai-tools/path-order.lib.sh"
 # Where a provider package drops the command fragment carrying its own domain. The environment override is a test hook
@@ -203,7 +205,9 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the t
     system bootstrap [--scope full]  provision the sandbox account and its toolchain
       --agents NAME[,NAME...]        enable the named agents instead of asking which one
     system entrypoints relabel       verify and relabel the agent entrypoints
-    system post-upgrade              reconcile the .rpmnew files an upgrade leaves
+    system post-upgrade [--check]    reconcile the .rpmnew files an upgrade leaves; --check only reports
+      --all                          with --check: list the findings that need no action too
+      --format tsv                   with --check: the line format (the default)
   Health
     status                           this host's services, entrypoints and live labels
 EOF
@@ -483,13 +487,16 @@ contributed_dispatch() {
     exec "${ADMIN_COMMANDS_DIR}/${domain}" "$@"
 }
 
-# The shared config grammar, sidecar handling, and hook-declaration merge that `system post-upgrade` drives,
-# and the trust predicate every contributed command is vetted with. Required, not optional: a reconcile that silently
-# skipped its merge would leave a shipped hook uninvoked while reporting success, and a dispatch that could not tell
-# a trusted fragment from a planted one would exec whatever it found. Loaded BEFORE the other libraries, unlike them,
-# because `--help` lists this host's contributed domains and that list is drawn through this predicate.
+# The shared config grammar and sidecar handling that `system post-upgrade` drives, and the trust predicate every
+# contributed command is vetted with. Required, not optional: a reconcile that silently skipped its merge would leave
+# a shipped hook uninvoked while reporting success, and a dispatch that could not tell a trusted fragment from a planted
+# one would exec whatever it found. Loaded BEFORE the other libraries, unlike them, because `--help` lists this host's
+# contributed domains and that list is drawn through this predicate.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 . "${CONF_LIB}" || die_unsourced "${CONF_LIB}"
+# The hook-declaration merge `system post-upgrade` applies to a kept settings.json. Required for the same reason.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/settings-merge.lib.sh
+. "${SETTINGS_MERGE_LIB}" || die_unsourced "${SETTINGS_MERGE_LIB}"
 
 # Provider resolver: the manifest key behind each domain's summary line, and the enabled-integration list
 # `system bootstrap --scope full` iterates. Optional at load and gated at each use -- without it every installed
@@ -535,19 +542,19 @@ source /usr/local/lib/ai-tools/msg.lib.sh || die_unsourced /usr/local/lib/ai-too
 export AI_TOOLS_MSG_FULLWIDTH=1
 
 # write_operators <name>...: set the OPERATORS list in operator.conf (root:root 644). Edits ONLY the OPERATORS line
-# in an existing file, through the shared writer (ai_tools_conf_set_key, conf.lib.sh -- the grammar's owner, so the line
-# replaced is the one every reader of the file matches), preserving every other setting the operator maintains there;
-# seeds a minimal file when absent. 644: world-readable (the agent hooks and the root helpers both read it; it is free
-# of secrets) and root-write-only, so the agent cannot rewrite the identity root hands files back to.
+# in an existing file, through the shared writer (ai_tools_conf_set_list, conf.lib.sh -- the grammar's owner,
+# so the line replaced is the one every reader of the file matches), preserving every other setting the operator
+# maintains there; seeds a minimal file when absent. 644: world-readable (the agent hooks and the root helpers both read
+# it; it is free of secrets) and root-write-only, so the agent cannot rewrite the identity root hands files back to.
 write_operators() {
     install -d -o root -g root -m 755 /etc/ai-tools
     if [[ ! -f "${OPERATOR_CONF}" ]]; then
         local tmp; tmp="$(mktemp)"
-        printf '%s\n' "# ai-tools host configuration -- full reference: man 5 operator.conf" > "${tmp}"
+        printf '%s\n' "# ai-tools host configuration -- full reference: man 5 ai-tools-operator.conf" > "${tmp}"
         install -o root -g root -m 644 "${tmp}" "${OPERATOR_CONF}"
         rm -f "${tmp}"
     fi
-    ai_tools_conf_set_key "${OPERATOR_CONF}" OPERATORS "$*" \
+    ai_tools_conf_set_list "${OPERATOR_CONF}" OPERATORS "$@" \
         || die MSG-N4H9 "could not write OPERATORS into ${OPERATOR_CONF} -- the enrolment is incomplete; check the file and re-run"
 }
 
@@ -793,7 +800,7 @@ wire_dedup() {
     # sessions actually get, at the moment the wiring is offered.
     case "${login_shell}" in
         */bash|'') ;;
-        *) log "note: ${user}'s login shell is ${login_shell}, which reads its own init files rather than ${bashrc} or ${bashprof}."
+        *) log "note: ${user}'s login shell is ${login_shell}, which reads its own init files rather than ${bashrc} or ${bashprof}"
            log "      rank ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR} ahead of the nvm shims there too, so that typing ${launcher} reaches the ai-tools wrapper in that shell" ;;
     esac
 
@@ -1053,7 +1060,7 @@ _sel_enable_one() {
     _restore_group_static_labels
     log "group '${name}' enabled"
     log "re-run the SELinux bring-up loop (selinux/avc/) to catch any new denials from the"
-    log "expanded surface before relying on it under enforcing."
+    log "expanded surface before relying on it under enforcing"
 }
 
 sel_disable() {
@@ -1236,11 +1243,17 @@ entrypoints_relabel() {
 #   keyval  reported, never rewritten. An absent key already means its default, so a stale file
 #           costs knowledge rather than behaviour, and its layout is the operator's own prose.
 #   review  shown only. A tool does not merge the sudo grant.
+#   show    a file the registry does not name: named with the command that compares it, never printed, since
+#           a kept config of another package may hold a credential (endpoints/typesafe.conf holds an API key).
 readonly -a POSTUPGRADE_FILES=(
     "/opt/ai-tools/.claude/settings.json|json|Claude Code settings"
     "/etc/ai-tools/operator.conf|keyval|host options"
     "/etc/sudoers.d/ai-tools|review|sudoers grant"
 )
+# The directories the packages of this stack ship a kept config file into. POSTUPGRADE_FILES is base's and cannot name
+# what an agent or integration package ships, so a .rpmnew under one of these that the registry does not name is found
+# here and reported: a KEY=value `*.conf` with the keyval treatment, anything else with `show`.
+readonly -a POSTUPGRADE_DIRS=(/etc/ai-tools /etc/codex /opt/ai-tools/.claude /opt/ai-tools/.codex)
 
 # AI_TOOLS_POSTUPGRADE_ROOT prefixes every path in that registry, so the test suite drives this command against fixtures
 # in its own /tmp testdir instead of the live host's control plane. It is a ROOT-ONLY test hook of the same shape
@@ -1261,18 +1274,66 @@ _pu_diff() {
     "${differ}" -u "$1" "$2" 2>/dev/null | sed 's/^/    /' || true
 }
 
+# _pu_say <level> <text>: one report line about the file being reconciled, prefixed by that file's name (_PU_NAME)
+# so a line names what it is about. The level says whether the operator has anything to do: `ok` is a green check,
+# `info` plain, `act` yellow -- something to carry over or decide -- and `err` red. Colour only on a terminal, like
+# the CLI's own report, so a captured run stays plain text.
+if [[ -t 1 ]]; then
+    readonly _PU_GRN=$'\033[32m' _PU_YEL=$'\033[33m' _PU_RED=$'\033[31m' _PU_DIM=$'\033[2m' _PU_RST=$'\033[0m'
+else
+    readonly _PU_GRN='' _PU_YEL='' _PU_RED='' _PU_DIM='' _PU_RST=''
+fi
+_PU_NAME=""
+# The lines that ask the operator to act, counted so the closing line can say whether anything needs review,
+# and the errors among them, which colour that line red rather than yellow.
+_PU_ATTENTION=0
+_PU_ERRORS=0
+_pu_say() {
+    local level="$1" text="$2"
+    [[ "${level}" == act || "${level}" == err ]] && _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
+    [[ "${level}" == err ]] && _PU_ERRORS=$(( _PU_ERRORS + 1 ))
+    case "${level}" in
+        ok)  printf '  %s: %s✓%s %s\n' "${_PU_NAME}" "${_PU_GRN}" "${_PU_RST}" "${text}" ;;
+        act) printf '  %s:   %s%s%s\n' "${_PU_NAME}" "${_PU_YEL}" "${text}" "${_PU_RST}" ;;
+        err) printf '  %s:   %s%s%s\n' "${_PU_NAME}" "${_PU_RED}" "${text}" "${_PU_RST}" ;;
+        *)   printf '  %s:   %s\n' "${_PU_NAME}" "${text}" ;;
+    esac
+}
+
 # _pu_leave <rpmnew> [merged]: close a file's block by naming what is left to do with the copy. This function prints,
 # and is the only thing any treatment does about the .rpmnew, so the copy survives every run. Each treatment leaves part
 # of the reconciliation to the operator -- the permission rules here, the whole edit for a KEY=value file, the adoption
 # of a sudo grant -- and the copy is the only record of what the package shipped, so deleting it would take away
 # the baseline that edit is made from. It is the operator's file to remove, once the merge they wanted is in place.
-# `merged` says the deployed file now matches the copy byte for byte, so the removal is all that remains.
+# `merged` says nothing is left to carry over, so the removal is all that remains and its command is printed.
 _pu_leave() {
     local rpmnew="$1"
     if [[ "${2:-}" == merged ]]; then
-        log "  nothing is left to carry over -- remove ${rpmnew} when you are ready"
+        _pu_say ok "nothing is left to carry over -- remove the copy when you are ready:"
+        _pu_say info "  sudo rm ${rpmnew}"
     else
-        log "  merge new config changes by hand, then remove ${rpmnew}"
+        _pu_say act "carry over what you want by hand, then remove ${rpmnew}"
+    fi
+}
+
+# _pu_installed_day: the day this command's own file was installed, as YYYYMMDD. A copy dated before it is
+# from an earlier installation. Compared by day because rpm gives every file of one package its build time, and files
+# built in one run can differ by seconds.
+_pu_installed_day() { date -r "${BASH_SOURCE[0]}" +%Y%m%d 2>/dev/null; }
+
+# _pu_provenance <rpmnew>: the one line under a file's headline, naming the copy and its date. A copy dated before this
+# installation -- a from-source install after an RPM one, or a copy left from an earlier upgrade -- is an earlier
+# version's template, which is said beside it.
+_pu_provenance() {
+    local rpmnew="$1" dated day installed
+    dated="$(date -r "${rpmnew}" +%Y-%m-%d 2>/dev/null)" || dated="an unknown date"
+    day="${dated//-/}"
+    installed="$(_pu_installed_day)" || installed=""
+    if [[ -n "${installed}" && "${day}" =~ ^[0-9]{8}$ && "${day}" < "${installed}" ]]; then
+        printf 'package copy: %s, dated %s -- older than this installation, so an earlier version'"'"'s template' \
+            "${rpmnew}" "${dated}"
+    else
+        printf 'package copy: %s, dated %s' "${rpmnew}" "${dated}"
     fi
 }
 
@@ -1282,7 +1343,8 @@ _pu_leave() {
 _pu_json() {
     local deployed="$1" rpmnew="$2" scratch status=0
     ai_tools_conf_require_jq \
-        || { warn MSG-A5Z7 "jq is missing, so this file's JSON cannot be read -- merge it by hand"; return 0; }
+        || { warn MSG-A5Z7 "jq is missing, so this file's JSON cannot be read -- merge it by hand"
+             _PU_ATTENTION=$(( _PU_ATTENTION + 1 )); return 0; }
 
     scratch="$(mktemp -d)" || return 0
     cp -p "${deployed}" "${scratch}/probe" 2>/dev/null || { rm -rf "${scratch}"; return 0; }
@@ -1290,95 +1352,636 @@ _pu_json() {
     rm -rf "${scratch}"
 
     case "${status}" in
-    1)  log "  hook declarations are already current -- nothing to merge"
-        log "  the difference left is in the permission rules, which are yours to tune:"
+    1)  _pu_say ok "hook declarations are already current"
+        _pu_say act "the difference left is in the permission rules, which are yours to tune:"
         _pu_diff "${deployed}" "${rpmnew}"
         _pu_leave "${rpmnew}"
         return 0 ;;
     2)  warn MSG-Q4F6 "cannot merge the hook declarations: ${_ai_tools_conf_merge_reason}"
-        warn "    ${deployed} is unchanged -- copy the \"hooks\" block from ${rpmnew} by hand"
+        _pu_say err "unchanged -- copy the \"hooks\" block from ${rpmnew} by hand"
         return 0 ;;
     esac
 
-    log "  hook declarations this version adds:"
     local line
-    for line in "${_ai_tools_conf_merge_added[@]}"; do log "    + ${line}"; done
-    log "  nothing else changes -- your permission rules stay as written"
-    ai_tools_msg_confirm "  Merge these into ${deployed}?" y || { log "  skipped -- ${deployed} unchanged"; return 0; }
+    if (( ${#_ai_tools_conf_merge_added[@]} > 0 )); then
+        _pu_say act "hook declarations this version adds:"
+        for line in "${_ai_tools_conf_merge_added[@]}"; do _pu_say act "  + ${line}"; done
+    fi
+    if (( ${#_ai_tools_conf_merge_removed[@]} > 0 )); then
+        _pu_say act "hook declarations declared twice, of which the merge keeps the first:"
+        for line in "${_ai_tools_conf_merge_removed[@]}"; do _pu_say act "  - ${line}"; done
+    fi
+    _pu_say info "the permission rules stay as written"
+    ai_tools_msg_confirm "  Merge these into ${deployed}?" y || { _pu_say act "skipped -- ${deployed} unchanged"; return 0; }
 
     status=0
     ai_tools_conf_merge_hook_declarations "${deployed}" "${rpmnew}" || status=$?
     if (( status >= 2 )); then
         warn MSG-X9F8 "the merge failed: ${_ai_tools_conf_merge_reason} -- ${deployed} is unchanged"
+        _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
+        _PU_ERRORS=$(( _PU_ERRORS + 1 ))
         return 0
     fi
-    log "  merged -- the previous file is saved as ${_ai_tools_conf_merge_backup}"
+    _pu_say ok "merged -- the previous file is saved as ${_ai_tools_conf_merge_backup}"
 
     # Close against what is left. Once the permission rules match too, the .rpmnew has no difference left to report,
     # so the operator is told the removal is all that remains.
     if command -v diff >/dev/null 2>&1 && diff -q "${deployed}" "${rpmnew}" >/dev/null 2>&1; then
-        log "  ${deployed} now matches the shipped file exactly"
+        _pu_say ok "now matches the shipped file exactly"
         _pu_leave "${rpmnew}" merged
     else
-        log "  the permission rules still differ -- review them before you remove the copy:"
+        _pu_say act "the permission rules still differ -- review them before you remove the copy:"
         _pu_diff "${deployed}" "${rpmnew}"
         _pu_leave "${rpmnew}"
     fi
 }
 
+# _pu_prose <file>: the file's comment prose as one word stream -- comment lines with their `#` removed, the commented
+# defaults (`#KEY=value`, `# KEY=value`) left out as settings, and whitespace collapsed -- so a comment that was only
+# re-wrapped reads as unchanged and a reworded one does not.
+_pu_prose() {
+    sed -n '/^[[:space:]]*#/{/^[[:space:]]*#[[:space:]]\{0,1\}[A-Za-z_][A-Za-z0-9_]*=/d;s/^[[:space:]]*#//;p;}' "$1" \
+        2>/dev/null | tr -s '[:space:]' ' '
+}
+
+# _pu_own_keys <array-name> <deployed> <rpmnew>: the keys the deployed file sets whose value the copy does not set
+# the same way -- the operator's own settings, which is what most of such a difference is. Names only: a kept config may
+# hold a credential, so no value is printed or kept beyond the comparison.
+_pu_own_keys() {
+    local -n _pu_own_out="$1"
+    local deployed="$2" rpmnew="$3" line key live shipped
+    local -a set_keys=()
+    _pu_own_out=()
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ -z "${line}" || "${line}" == '#'* || "${line}" != *=* ]] && continue
+        key="${line%%=*}"; key="${key%"${key##*[![:space:]]}"}"
+        [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && " ${set_keys[*]} " != *" ${key} "* ]] && set_keys+=("${key}")
+    done < "${deployed}"
+    for key in "${set_keys[@]}"; do
+        live="$(ai_tools_conf_get "${deployed}" "${key}")" || true
+        if shipped="$(ai_tools_conf_get "${rpmnew}" "${key}")" && [[ "${shipped}" == "${live}" ]]; then
+            continue
+        fi
+        _pu_own_out+=("${key}")
+    done
+}
+
 # _pu_keyval <deployed> <rpmnew>: report and never write. A KEY=value config is mostly prose -- commented option blocks
 # whose layout is the operator's -- and merging prose would need a convention an operator has to learn before they can
-# predict it. Name the options the new version documents that this file does not mention, show the difference, and leave
-# the edit to them.
+# predict it. Name the options the new version documents that this file does not mention, the operator's own settings,
+# and whether the comments changed, and leave the edit to them. The difference is named as a command and not printed:
+# a kept KEY=value file may hold a credential. The removal is offered only when every option is mentioned and the prose
+# is the same, since otherwise the copy still holds something the live file lacks.
 _pu_keyval() {
-    local deployed="$1" rpmnew="$2" key
-    local -a new_keys=()
+    local deployed="$1" rpmnew="$2" key page
+    local -a new_keys=() own_keys=()
+    local carried=0
     if ai_tools_conf_new_keys new_keys "${deployed}" "${rpmnew}"; then
-        log "  options this version documents that ${deployed} does not mention:"
-        for key in "${new_keys[@]}"; do log "    ${key}"; done
-        log "  each one is optional and an unmentioned key keeps its default, so leaving them out"
-        log "  breaks nothing -- copy the blocks you want; see operator.conf(5)"
+        carried=1
+        _pu_say act "options this version documents that the file does not mention:"
+        for key in "${new_keys[@]}"; do _pu_say act "  ${key}"; done
+        _pu_say info "each is optional, and an unmentioned key keeps its default -- copy the blocks you want"
     else
-        log "  every option this version documents is already mentioned in ${deployed}"
+        _pu_say ok "every option this version documents is mentioned"
     fi
-    log "  the full difference:"
-    _pu_diff "${deployed}" "${rpmnew}"
-    _pu_leave "${rpmnew}"
+    _pu_own_keys own_keys "${deployed}" "${rpmnew}"
+    (( ${#own_keys[@]} == 0 )) || _pu_say ok "set on this host, and kept as set: ${own_keys[*]}"
+
+    page="ai-tools-${deployed##*/}"
+    if [[ "$(_pu_prose "${deployed}")" != "$(_pu_prose "${rpmnew}")" ]]; then
+        carried=1
+        if [[ -r "/usr/local/share/man/man5/${page}.5" ]]; then
+            _pu_say act "the comments differ from this version's -- the current wording is in ${page}(5)"
+        else
+            _pu_say act "the comments differ from this version's"
+        fi
+    fi
+    _pu_say info "compare them:  sudo diff -u ${deployed} ${rpmnew}"
+    if (( carried )); then _pu_leave "${rpmnew}"; else _pu_leave "${rpmnew}" merged; fi
 }
 
 # _pu_review <deployed> <rpmnew>: show and stop. This file is the sudo grant itself.
 _pu_review() {
     local deployed="$1" rpmnew="$2"
+    _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
     ai_tools_msg_warn MSG-H8A2 \
         "This file defines the sudo grant that lets an operator launch the sandbox. It is shown, never merged: check any change yourself with visudo -c before adopting it."
     _pu_diff "${deployed}" "${rpmnew}"
-    log "  adopt the packaged version with:  sudo visudo -c -f ${rpmnew} && sudo cp ${rpmnew} ${deployed}"
+    _pu_say info "adopt the packaged version with:  sudo visudo -c -f ${rpmnew} && sudo cp ${rpmnew} ${deployed}"
     _pu_leave "${rpmnew}"
 }
 
-postupgrade() {
-    [[ $# -eq 0 ]] || reject MSG-S9M6 "system post-upgrade: takes no arguments"
-    local entry file kind label found=0
-    local root="${AI_TOOLS_POSTUPGRADE_ROOT:-}"
+# _pu_show <deployed> <rpmnew>: a file this command has no treatment for. Named, never printed or merged.
+_pu_show() {
+    local deployed="$1" rpmnew="$2"
+    _pu_say act "this command does not merge this file -- compare them:  sudo diff -u ${deployed} ${rpmnew}"
+    _pu_leave "${rpmnew}"
+}
 
+# _pu_entries <root>: one "<file>|<kind>|<label>" line per file with a .rpmnew waiting -- the registry first, then each
+# one found under POSTUPGRADE_DIRS that the registry does not name.
+_pu_entries() {
+    local root="$1" entry file kind label dir rpmnew
+    local -a named=()
     for entry in "${POSTUPGRADE_FILES[@]}"; do
         IFS='|' read -r file kind label <<< "${entry}"
-        file="${root}${file}"
-        [[ -f "${file}.rpmnew" && -f "${file}" ]] || continue
+        named+=("${root}${file}")
+        [[ -f "${root}${file}.rpmnew" && -f "${root}${file}" ]] && printf '%s|%s|%s\n' "${root}${file}" "${kind}" "${label}"
+    done
+    for dir in "${POSTUPGRADE_DIRS[@]}"; do
+        [[ -d "${root}${dir}" ]] || continue
+        while IFS= read -r rpmnew; do
+            file="${rpmnew%.rpmnew}"
+            [[ -f "${file}" && " ${named[*]} " != *" ${file} "* ]] || continue
+            named+=("${file}")
+            if [[ "${file}" == *.conf ]]; then kind=keyval; else kind=show; fi
+            printf '%s|%s|%s\n' "${file}" "${kind}" "${file##*/}"
+        done < <(find "${root}${dir}" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null | sort)
+    done
+}
+
+# _pu_ask_gaps <root>: name each ask entry the kept settings.json lacks for an installed command, with the line to add.
+# Checked whether or not a .rpmnew is waiting: rpm parks a copy only on the upgrade that changed the shipped file,
+# and the operator may have removed it since, while the entry stays missing. Reported and not written, since
+# the permission rules are the host's.
+_pu_ask_gaps() {
+    local settings="$1/opt/ai-tools/.claude/settings.json" gaps line
+    local -a entries=() fix=()
+    [[ -f "${settings}" ]] || return 0
+    if ! gaps="$(ai_tools_conf_ask_gaps "${settings}" "$1")"; then
+        warn MSG-B2E6 "the ask entries in ${settings} were not checked -- jq is missing or the file is not valid JSON"
+        _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
+        return 0
+    fi
+    [[ -n "${gaps}" ]] || return 0
+    mapfile -t entries <<< "${gaps}"
+    mapfile -t fix < <(ai_tools_conf_ask_fix "${settings}" "${entries[@]}")
+    _PU_NAME="${settings##*/}"
+    ai_tools_msg_headline "${_PU_NAME} -- commands that run without asking" 1 "${settings}"
+    _pu_say act "each of these sends data off the host, and the file does not ask before it runs:"
+    for line in "${entries[@]}"; do _pu_say act "  ${line}"; done
+    if (( ${#fix[@]} > 0 )); then
+        _pu_say info "to have it ask, ${fix[0]}"
+        # Printed bare, not through _pu_say, so the snippet copies out of the terminal without a prefix on each line.
+        # Green as a diff's added lines are: every line of it is text to add.
+        printf "      ${_PU_GRN}%s${_PU_RST}\n" "${fix[@]:1}"
+    fi
+    _pu_say info "this command does not edit the file, since the permission rules are yours -- re-run it to confirm"
+}
+
+# _pu_orphan_report <root>: a block per package copy whose file is gone, naming the two ways to settle it.
+_pu_orphan_report() {
+    local path
+    while IFS= read -r path; do
+        _PU_NAME="${path##*/}"
+        ai_tools_msg_headline "${_PU_NAME} -- a package copy without its file" 1 "${path}"
+        _pu_say act "the file this copy belongs to is gone -- restore it from the copy, or remove the copy:"
+        printf '      sudo cp -p %s %s\n' "${path}" "${path%.rpmnew}"
+        printf '      sudo rm %s\n' "${path}"
+    done < <(_pu_orphans "$1")
+}
+
+# _pu_asset_report <root>: one block for the shared skills, subagents and orientation text whose live copy or agent link
+# is not the one provisioning places. A missing asset or link needs the operator; an outdated or overridden one is named
+# as their choice.
+_pu_asset_report() {
+    local state path detail
+    local -a lines=()
+    mapfile -t lines < <(_pu_assets "$1")
+    (( ${#lines[@]} > 0 )) || return 0
+    _PU_NAME="assets"
+    ai_tools_msg_headline "shared skills, subagents and orientation" 1 "$1/opt/ai-tools"
+    for path in "${lines[@]}"; do
+        IFS=$'\t' read -r state path detail <<< "${path}"
+        case "${state}" in
+            asset-missing|asset-unlinked|error) _pu_say act "${path} -- ${detail}" ;;
+            *)                                  _pu_say info "${path} -- ${detail}" ;;
+        esac
+    done
+    if printf '%s\n' "${lines[@]}" | grep -qE '^(asset-missing|asset-unlinked)'; then
+        _pu_say info "sudo ai-tools-admin system bootstrap seeds and links them again"
+    fi
+}
+
+# _pu_sort_copies: read sidecar paths on stdin and print them grouped by file and in the order they were made --
+# by date, then by the day's number, an unnumbered copy (the name an earlier release gave a day's first) counting as 1.
+# A name that carries a date but not in that shape (a copy made by hand) is kept, after the day's numbered copies.
+_pu_sort_copies() {
+    awk 'BEGIN { OFS = "\t" }
+        match($0, /\.[0-9]{8}(-[0-9]+)?\.(bak|shipped|retired)$/) {
+            tail = substr($0, RSTART + 1); base = substr($0, 1, RSTART - 1)
+            day = substr(tail, 1, 8); n = 1
+            if (substr(tail, 9, 1) == "-") { n = substr(tail, 10); sub(/\..*/, "", n) }
+            print base, day, n, $0; next
+        }
+        match($0, /\.[0-9]{8}/) { print substr($0, 1, RSTART - 1), substr($0, RSTART + 1, 8), 9999, $0; next }
+        { print $0, "99999999", 9999, $0 }' \
+        | sort -t $'\t' -k1,1 -k2,2 -k3,3n | cut -f4
+}
+
+# _pu_sidecars <root>: list the dated copies _pu_copies names, so an operator learns they exist. Listed, never removed:
+# a .bak is the only copy that restores host tuning a merge got wrong. One dated before this command's own file is
+# from an earlier installation, which is said beside it.
+_pu_sidecars() {
+    local root="$1" path stamp installed
+    local -a copies=()
+    installed="$(_pu_installed_day)" || installed=""
+    mapfile -t copies < <(_pu_copies "${root}")
+    (( ${#copies[@]} > 0 )) || return 0
+    ai_tools_msg_headline "earlier copies kept beside the config files" 1 \
+        "a .bak is what a file held before a merge replaced it, a .shipped the baseline left when a merge could not run," \
+        "a .retired a managed file or a withdrawn skill set aside"
+    for path in "${copies[@]}"; do
+        stamp="$(sed -nE 's/.*\.([0-9]{8})(-[0-9]+)?\.(bak|shipped|retired)$/\1/p' <<< "${path}")"
+        if [[ -n "${installed}" && -n "${stamp}" && "${stamp}" < "${installed}" ]]; then
+            printf '  %s  %s(before this installation)%s\n' "${path}" "${_PU_DIM}" "${_PU_RST}"
+        else
+            printf '  %s\n' "${path}"
+        fi
+    done
+    printf '  each is yours to keep or remove -- no command reads one\n'
+}
+
+# postupgrade [--check]: reconcile the copies, or with --check list what needs attention without asking or writing.
+# Returns 0 when nothing is left to act on and 1 otherwise, the contract `status` offers, so a caller reads the outcome
+# from the exit status alone.
+postupgrade() {
+    local check=0 all=0 format=tsv format_given=0 refusal=""
+    while [[ $# -gt 0 && -z "${refusal}" ]]; do
+        case "$1" in
+            --check)  check=1 ;;
+            --all)    all=1 ;;
+            --format) if [[ $# -ge 2 ]]; then format="$2"; format_given=1; shift
+                      else refusal="--format takes a value (tsv)"; fi ;;
+            *)        refusal="unknown argument '$1' (--check [--all] [--format tsv])" ;;
+        esac
+        shift
+    done
+    if [[ -z "${refusal}" ]] && (( ! check && (all || format_given) )); then
+        refusal="--all and --format apply to --check alone"
+    elif [[ -z "${refusal}" && "${format}" != tsv ]]; then
+        refusal="unknown --format '${format}' (tsv)"
+    fi
+    [[ -z "${refusal}" ]] || reject MSG-S9M6 "system post-upgrade: ${refusal}"
+    if (( check )); then
+        _PU_ALL="${all}"
+        _pu_check "${AI_TOOLS_POSTUPGRADE_ROOT:-}"
+        return
+    fi
+    _pu_report
+    (( _PU_ATTENTION == 0 ))
+}
+
+# ── --check: the findings as data ────────────────────────────────────────────────────────────
+# One line per finding, `<code> TAB <path> TAB <finding> TAB <detail>`, and nothing else -- no colour, no heading,
+# and no line when the host is clean -- so a cron job mails only a host that needs attention and a monitor splits
+# the line on a tab. A finding that needs attention is printed always and makes the run exit 1; the rest are printed
+# only under --all and do not change the exit status. Each finding is one situation, so it carries one message code,
+# and _pu_finding is the one place a finding is tied to its code.
+_PU_ALL=0
+_PU_FINDINGS=0
+
+# _pu_attention <code> <finding> <path> [detail]: a finding that needs attention -- printed, and counted.
+_pu_attention() {
+    printf '%s\t%s\t%s\t%s\n' "$1" "$3" "$2" "${4:--}"
+    _PU_FINDINGS=$(( _PU_FINDINGS + 1 ))
+}
+# _pu_check_failed <code> <finding> <path> <reason>: a check that could not run, which needs attention as well.
+_pu_check_failed() { _pu_attention "$@"; }
+# _pu_aside <code> <finding> <path> [detail]: a finding that needs no action, printed under --all alone.
+_pu_aside() {
+    (( _PU_ALL )) || return 0
+    printf '%s\t%s\t%s\t%s\n' "$1" "$3" "$2" "${4:--}"
+}
+
+# _pu_finding <finding> <path> [detail]: report one finding under its code. ai-tools-admin(8) lists what each means.
+_pu_finding() {
+    case "$1" in
+        hook-missing)       _pu_attention MSG-F2G7 "hook-missing" "$2" "${3-}" ;;
+        hook-repeated)      _pu_attention MSG-E8S8 "hook-repeated" "$2" "${3-}" ;;
+        ask-missing)        _pu_attention MSG-E9V5 "ask-missing" "$2" "${3-}" ;;
+        option-unmentioned) _pu_attention MSG-N3U8 "option-unmentioned" "$2" "${3-}" ;;
+        rpmnew-differs)     _pu_attention MSG-P4Q4 "rpmnew-differs" "$2" "${3-}" ;;
+        rpmnew-review)      _pu_attention MSG-Y3P3 "rpmnew-review" "$2" "${3-}" ;;
+        rpmnew-orphan)      _pu_attention MSG-K8D2 "rpmnew-orphan" "$2" "${3-}" ;;
+        asset-missing)      _pu_attention MSG-X6H5 "asset-missing" "$2" "${3-}" ;;
+        asset-unlinked)     _pu_attention MSG-N9S4 "asset-unlinked" "$2" "${3-}" ;;
+        list-unmigrated)    _pu_attention MSG-P5K4 "list-unmigrated" "$2" "${3-}" ;;
+        list-unmigratable)  _pu_attention MSG-S3D8 "list-unmigratable" "$2" "${3-}" ;;
+        error)              _pu_check_failed MSG-Y3J5 "error" "$2" "${3-}" ;;
+        rpmnew-residual)    _pu_aside MSG-J3X7 "rpmnew-residual" "$2" "${3-}" ;;
+        copy-kept)          _pu_aside MSG-W8F8 "copy-kept" "$2" "${3-}" ;;
+        asset-outdated)     _pu_aside MSG-R6B2 "asset-outdated" "$2" "${3-}" ;;
+        asset-overridden)   _pu_aside MSG-W3M8 "asset-overridden" "$2" "${3-}" ;;
+    esac
+}
+
+# _pu_check <root>: every finding, through _pu_finding, without asking or writing. Each reads the same predicate
+# the report does. Returns 1 when a finding needs attention.
+_pu_check() {
+    local root="$1" file kind label scratch status key line state path detail
+    local -a new_keys=() entries=()
+    _PU_FINDINGS=0
+    _pu_kind_findings "${root}"
+    while IFS='|' read -r file kind label; do
+        if cmp -s "${file}" "${file}.rpmnew"; then _pu_finding rpmnew-residual "${file}.rpmnew"; continue; fi
+        case "${kind}" in
+        json)
+            if ! ai_tools_conf_require_jq 2>/dev/null; then _pu_finding error "${file}" "jq is not installed"; continue; fi
+            scratch="$(mktemp -d)" || { _pu_finding error "${file}" "no temporary directory"; continue; }
+            status=0
+            cp -p "${file}" "${scratch}/probe" && ai_tools_conf_merge_hook_declarations "${scratch}/probe" \
+                "${file}.rpmnew" >/dev/null 2>&1 || status=$?
+            rm -rf "${scratch}"
+            case "${status}" in
+            0)  for line in "${_ai_tools_conf_merge_added[@]}"; do _pu_finding hook-missing "${file}" "${line}"; done
+                for line in "${_ai_tools_conf_merge_removed[@]}"; do
+                    _pu_finding hook-repeated "${file}" "${line}"
+                done ;;
+            1)  _pu_finding rpmnew-differs "${file}" "permission rules" ;;
+            *)  _pu_finding error "${file}" "${_ai_tools_conf_merge_reason:-merge probe failed}" ;;
+            esac ;;
+        keyval)
+            if ai_tools_conf_new_keys new_keys "${file}" "${file}.rpmnew"; then
+                for key in "${new_keys[@]}"; do _pu_finding option-unmentioned "${file}" "${key}"; done
+            fi
+            [[ "$(_pu_prose "${file}")" == "$(_pu_prose "${file}.rpmnew")" ]] \
+                || _pu_finding rpmnew-differs "${file}" "comments" ;;
+        review)
+            _pu_finding rpmnew-review "${file}" "sudoers grant" ;;
+        *)
+            _pu_finding rpmnew-differs "${file}" ;;
+        esac
+    done < <(_pu_entries "${root}")
+
+    while IFS= read -r path; do _pu_finding rpmnew-orphan "${path}" "the file it belongs to is gone"; done \
+        < <(_pu_orphans "${root}")
+
+    file="${root}/opt/ai-tools/.claude/settings.json"
+    if [[ -f "${file}" ]]; then
+        if line="$(ai_tools_conf_ask_gaps "${file}" "${root}" 2>/dev/null)"; then
+            [[ -n "${line}" ]] && mapfile -t entries <<< "${line}"
+            for line in "${entries[@]}"; do _pu_finding ask-missing "${file}" "${line}"; done
+        else
+            _pu_finding error "${file}" "ask entries not checked: jq is missing or the file is not valid JSON"
+        fi
+    fi
+
+    while IFS=$'\t' read -r state path detail; do _pu_finding "${state}" "${path}" "${detail}"; done \
+        < <(_pu_assets "${root}")
+    while IFS= read -r path; do _pu_finding copy-kept "${path}"; done < <(_pu_copies "${root}")
+    (( _PU_FINDINGS == 0 ))
+}
+
+# _pu_kind_findings <root>: the provider list items operator.conf holds in an earlier release's bare form, read
+# through the plan the rewrite follows (ai_tools_conf_kind_plan, providers.lib.sh): list-unmigrated for a key the run
+# would rewrite, list-unmigratable for an item no run can map. A detection with no plan to read -- providers.lib.sh did
+# not load -- is a check that could not run.
+_pu_kind_findings() {
+    local file="$1/etc/ai-tools/operator.conf" verdict key old new
+    [[ -f "${file}" ]] || return 0
+    if ! declare -F ai_tools_conf_kind_plan >/dev/null 2>&1; then
+        declare -F ai_tools_conf_kind_unmigrated >/dev/null 2>&1 && [[ -n "$(ai_tools_conf_kind_unmigrated "${file}")" ]] \
+            && _pu_finding error "${file}" "provider names not checked: ${PROVIDERS_LIB} did not load"
+        return 0
+    fi
+    while IFS=$'\t' read -r verdict key old new; do
+        case "${verdict}" in
+            migrate) _pu_finding list-unmigrated "${file}" "${key}: [${old// /, }] -> [${new// /, }]" ;;
+            blocked) _pu_finding list-unmigratable "${file}" "${key}: ${old}" ;;
+        esac
+    done < <(ai_tools_conf_kind_plan "${file}")
+}
+
+# _pu_orphans <root>: each package copy whose file is gone, one path per line. rpm parks a copy only beside a file it
+# kept, so one of these is a file removed afterwards, and neither the report nor a merge otherwise reaches it.
+_pu_orphans() {
+    local root="$1" entry file kind label dir
+    {
+        for entry in "${POSTUPGRADE_FILES[@]}"; do
+            IFS='|' read -r file kind label <<< "${entry}"
+            [[ -f "${root}${file}.rpmnew" && ! -e "${root}${file}" ]] && printf '%s\n' "${root}${file}.rpmnew"
+        done
+        for dir in "${POSTUPGRADE_DIRS[@]}"; do
+            [[ -d "${root}${dir}" ]] || continue
+            while IFS= read -r file; do
+                [[ -e "${file%.rpmnew}" ]] || printf '%s\n' "${file}"
+            done < <(find "${root}${dir}" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null)
+        done
+    } | sort -u
+}
+
+# _pu_copies <root>: the dated copies this stack keeps as recovery material, in the order they were made -- a .bak
+# beside a config file a merge replaced, a .shipped baseline left when a merge could not run, a .retired managed file
+# an agent package replaced, and a withdrawn skill or subagent under /opt/ai-tools/retired. None is rpm's, and none is
+# read by any command.
+_pu_copies() {
+    local root="$1" dir
+    {
+        for dir in "${POSTUPGRADE_DIRS[@]}" /etc/sudoers.d; do
+            [[ -d "${root}${dir}" ]] || continue
+            find "${root}${dir}" -maxdepth 3 -type f \
+                \( -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.bak' \
+                   -o -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.shipped' \
+                   -o -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.retired' \) 2>/dev/null
+        done
+        [[ -d "${root}/opt/ai-tools/retired" ]] \
+            && find "${root}/opt/ai-tools/retired" -mindepth 1 -maxdepth 1 -name '*.retired' 2>/dev/null
+    } | _pu_sort_copies
+}
+
+# _pu_assets <root>: `<finding> TAB <path> TAB <detail>` for each shipped skill, subagent and orientation text
+# whose live copy or agent link is not the one provisioning places -- the seeding that `system bootstrap` and base's
+# scriptlet run. A live asset that is absent or an empty directory is missing: a session is not offered it. A real file
+# where an agent's link belongs, or a live asset without the managed marker, is the operator's override and is left
+# to them. Checked only where the pristine assets are installed, under <root>.
+_pu_assets() {
+    local root="$1" src_root="$1/usr/share/ai-tools" live_root="$1/opt/ai-tools"
+    local kind glob src name marker dst dst_marker cur new field agent dir link target
+    [[ -d "${src_root}" ]] || return 0
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
+    source /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || true
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/managed-assets.lib.sh
+    source /usr/local/lib/ai-tools/managed-assets.lib.sh 2>/dev/null || true
+    if ! declare -F ai_tools_asset_is_managed >/dev/null 2>&1 \
+            || ! declare -F ai_tools_agent_asset_dirs >/dev/null 2>&1; then
+        printf 'error\t%s\t%s\n' "${live_root}" "shared assets not checked: the asset libraries did not load"
+        return 0
+    fi
+    for kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
+        case "${kind}" in
+            skills)      glob="${src_root}/skills/ai-tools-*/";      field=skills_dir ;;
+            subagents)   glob="${src_root}/subagents/ai-tools-*.md"; field=subagents_dir ;;
+            orientation) glob="${src_root}/orientation/AGENTS.md";  field="" ;;
+            *)           continue ;;
+        esac
+        for src in ${glob}; do
+            [[ -e "${src}" ]] || continue
+            name="$(basename "${src}")"
+            _ai_tools_asset_is_retired "${kind}" "${name}" && continue
+            if [[ -d "${src}" ]]; then marker="${src%/}/SKILL.md"; else marker="${src}"; fi
+            ai_tools_asset_is_managed "${marker}" || continue
+            dst="${live_root}/${kind}/${name}"
+            if [[ -d "${src}" ]]; then dst_marker="${dst}/SKILL.md"; else dst_marker="${dst}"; fi
+            if [[ ! -e "${dst}" ]] || { [[ -d "${dst}" ]] && [[ -z "$(find "${dst}" -mindepth 1 -print -quit)" ]]; }; then
+                printf 'asset-missing\t%s\t%s\n' "${dst}" "not seeded -- sessions are not offered it"
+                continue
+            fi
+            if ! ai_tools_asset_is_managed "${dst_marker}"; then
+                printf 'asset-overridden\t%s\t%s\n' "${dst}" "not ai-tools-managed, so provisioning leaves it"
+                continue
+            fi
+            new="$(ai_tools_asset_version "${marker}")"
+            cur="$(ai_tools_asset_version "${dst_marker}")"
+            [[ -n "${new}" && -n "${cur}" && "${new}" -gt "${cur}" ]] \
+                && printf 'asset-outdated\t%s\t%s\n' "${dst}" "v${cur} live, v${new} shipped"
+            while IFS=$'\t' read -r agent dir; do
+                [[ -n "${agent}" ]] || continue
+                if [[ -n "${field}" ]]; then link="${root}${dir}/${name}"; else link="${root}${dir}"; fi
+                [[ -d "${link%/*}" ]] || continue
+                if [[ -L "${link}" ]]; then
+                    target="$(readlink "${link}")"
+                    [[ "${target}" == "${dst}" || "${target}" == "${CP_HOME}/${kind}/${name}" ]] \
+                        || printf 'asset-unlinked\t%s\t%s\n' "${link}" "${agent}: points at ${target}"
+                elif [[ -e "${link}" ]]; then
+                    printf 'asset-overridden\t%s\t%s\n' "${link}" "${agent}: a file of its own in place of the link"
+                else
+                    printf 'asset-unlinked\t%s\t%s\n' "${link}" "${agent}: no link"
+                fi
+            done < <(if [[ -n "${field}" ]]; then ai_tools_agent_asset_dirs "${field}"
+                     else ai_tools_agent_memory_targets; fi)
+        done
+    done
+}
+
+# _pu_kind_noun <KEY>: what an item of a kind-prefixed list key names, for a report line.
+_pu_kind_noun() {
+    case "$1" in
+        AI_TOOLS_AGENTS)       printf 'agent' ;;
+        AI_TOOLS_INTEGRATIONS) printf 'integration' ;;
+        *)                     printf 'filter set' ;;
+    esac
+}
+
+# _pu_kind_migrate <root>: rewrite the provider list items operator.conf holds in an earlier release's bare form
+# (ai_tools_conf_kind_migrate, providers.lib.sh), whether or not a .rpmnew waits, and report each key in a block of its
+# own. It runs on every run, the unattended one included: the rewrite changes spelling alone, and until it lands every
+# session start is refused. A key holding a name no installed manifest or rule set matches is left as written and named,
+# since only the operator knows what it meant.
+#
+# A rewritten AI_TOOLS_AGENTS enables agents that the unmigrated line left enabled nowhere, so no relabel covered them
+# while it stood: an install run in that window restorecon'd the toolchain with no entrypoint rule to apply last,
+# which leaves an entrypoint hardlinked to its platform package on that package's type. The reconciliation
+# `system entrypoints relabel` runs (ai-tools-relabel-agent) therefore follows the rewrite, answering from an unchanged
+# pin as the other unattended callers do. It is skipped under AI_TOOLS_POSTUPGRADE_ROOT, since the suite does not change
+# the host's SELinux policy to test a helper.
+_pu_kind_migrate() {
+    local file="$1/etc/ai-tools/operator.conf" line verdict key old new opened=0 agents_rewritten=0
+    [[ -f "${file}" ]] || return 0
+    if ! declare -F ai_tools_conf_kind_migrate >/dev/null 2>&1; then
+        declare -F ai_tools_conf_kind_unmigrated >/dev/null 2>&1 && [[ -n "$(ai_tools_conf_kind_unmigrated "${file}")" ]] \
+            || return 0
+        _PU_NAME="${file##*/}"
+        ai_tools_msg_headline "${_PU_NAME} -- provider names" 1 "${file}"
+        _pu_say err "provider names were not rewritten: ${PROVIDERS_LIB} did not load -- reinstall ai-tools-base"
+        return 0
+    fi
+    while IFS= read -r line; do
+        IFS=$'\t' read -r verdict key old new <<< "${line}"
+        if (( ! opened )); then
+            opened=1
+            _PU_NAME="${file##*/}"
+            ai_tools_msg_headline "${_PU_NAME} -- provider names" 1 "${file}" \
+                "each provider list item names its kind: agent-<name>, integration-<name>, filter-<name>"
+        fi
+        case "${verdict}" in
+            backup)    _pu_say info "the file as it was is saved as ${key}" ;;
+            rewritten) _pu_say ok "${key}: [${old// /, }] -> [${new// /, }]"
+                       [[ "${key}" == AI_TOOLS_AGENTS ]] && agents_rewritten=1 ;;
+            blocked)   _pu_say act "${key} holds ${old}, which names no installed $(_pu_kind_noun "${key}") -- the line is left as written and enables nothing; edit it by hand" ;;
+            failed)    _pu_say err "${key} was not rewritten: ${new} -- the line is left as written" ;;
+        esac
+    done < <(ai_tools_conf_kind_migrate "${file}")
+    (( agents_rewritten )) && [[ -z "${AI_TOOLS_POSTUPGRADE_ROOT:-}" ]] || return 0
+    if [[ ! -x "${RELABEL_ENTRYPOINT_BIN}" ]]; then
+        _pu_say info "the entrypoints were not reconciled: ${RELABEL_ENTRYPOINT_BIN} is not installed"
+    elif AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 "${RELABEL_ENTRYPOINT_BIN}"; then
+        _pu_say ok "the enabled agents' entrypoints are reconciled (verified and labelled)"
+    else
+        _pu_say err "the entrypoint reconciliation reported a problem above -- re-run it: sudo ai-tools-admin system entrypoints relabel"
+    fi
+}
+
+# _pu_report: the reconciliation itself, one block per file with a copy waiting, then the closing lines.
+_pu_report() {
+    local file kind label title found=0 attention_before copy
+    local root="${AI_TOOLS_POSTUPGRADE_ROOT:-}"
+    # Files whose copy still differs after their treatment, which is when a side-by-side comparison has something
+    # to show, and copies byte-identical to their file, which have nothing to show and are only named for removal.
+    local -a to_compare=() identical=()
+
+    _pu_kind_migrate "${root}"
+    while IFS='|' read -r file kind label; do
         found=1
-        ai_tools_msg_headline "${label}: ${file}" 1
+        # A copy byte-identical to the file does not add an option or a line of prose to it, whatever its format, so it
+        # does not get a block of its own: it is listed for removal under the closing line.
+        if cmp -s "${file}" "${file}.rpmnew"; then
+            identical+=("${file}.rpmnew")
+            continue
+        fi
+        _PU_NAME="${file##*/}"
+        if [[ "${label}" == "${_PU_NAME}" ]]; then title="${_PU_NAME}"; else title="${_PU_NAME} -- ${label}"; fi
+        ai_tools_msg_headline "${title}" 1 "${file}" "$(_pu_provenance "${file}.rpmnew")"
+        attention_before="${_PU_ATTENTION}"
         case "${kind}" in
             json)   _pu_json   "${file}" "${file}.rpmnew" ;;
             keyval) _pu_keyval "${file}" "${file}.rpmnew" ;;
             review) _pu_review "${file}" "${file}.rpmnew" ;;
+            show)   _pu_show   "${file}" "${file}.rpmnew" ;;
         esac
-    done
+        (( _PU_ATTENTION > attention_before )) && ! cmp -s "${file}" "${file}.rpmnew" && to_compare+=("${file}")
+    done < <(_pu_entries "${root}")
 
-    if (( found == 0 )); then
-        log "no .rpmnew files are waiting -- every config file this stack owns is reconciled"
-        return 0
+    _pu_orphan_report "${root}"
+    _pu_ask_gaps "${root}"
+    _pu_asset_report "${root}"
+    _pu_sidecars "${root}"
+    printf '\n'
+    # The closing line takes the colour of the worst line above it: red for an error, yellow for anything else to act
+    # on. A copy identical to its file is not something to act on, so it does not colour the line; it is named
+    # as reconciled rather than as "nothing to do", since the copies are listed for removal under it.
+    if (( _PU_ERRORS > 0 )); then
+        printf '%sPost-upgrade done -- review the warnings and errors above%s\n' "${_PU_RED}" "${_PU_RST}"
+    elif (( _PU_ATTENTION > 0 )); then
+        printf '%sPost-upgrade done -- review the warnings above%s\n' "${_PU_YEL}" "${_PU_RST}"
+    elif (( found == 0 )); then
+        printf 'Post-upgrade done -- no .rpmnew file is waiting, so every config file this stack owns is reconciled\n'
+    elif (( ${#identical[@]} > 0 )); then
+        printf 'Post-upgrade done -- every config file is reconciled, and its package copy is identical to it\n'
+    else
+        printf 'Post-upgrade done -- nothing needs your attention\n'
     fi
-    log "done -- this command is idempotent, re-run it at any time"
+    # The comparison command is printed on a line of its own, indented, so it copies whole. It is offered only while
+    # a file still differs from its copy in a way the report asked the operator to act on.
+    if (( ${#to_compare[@]} > 0 )); then
+        printf '\n%sCompare a file with its package copy side by side, and carry over what you want:%s\n\n' \
+            "${_PU_DIM}" "${_PU_RST}"
+        printf '  %ssudo meld <file> <file>.rpmnew%s\n\n' "${_PU_DIM}" "${_PU_RST}"
+        command -v meld >/dev/null 2>&1 \
+            || printf '%s• meld is not installed; it needs a desktop session: sudo dnf install meld%s\n' \
+                "${_PU_DIM}" "${_PU_RST}"
+    fi
+    if (( ${#identical[@]} > 0 )); then
+        printf '%s• package copies identical to their files, to remove when you are ready:%s\n' "${_PU_DIM}" "${_PU_RST}"
+        for copy in "${identical[@]}"; do printf '    %ssudo rm %s%s\n' "${_PU_DIM}" "${copy}" "${_PU_RST}"; done
+    fi
+    printf '%s• system post-upgrade is idempotent -- re-run it at any time%s\n' "${_PU_DIM}" "${_PU_RST}"
+    if (( _PU_ATTENTION > 0 )); then
+        printf '%s• Happy merging!%s\n' "${_PU_DIM}" "${_PU_RST}"
+    else
+        printf "%s• All settings merged. You're good to go!%s\n" "${_PU_DIM}" "${_PU_RST}"
+    fi
 }
 
 # ── status ───────────────────────────────────────────────────────────────────────────────────
@@ -1389,7 +1992,11 @@ postupgrade() {
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 readonly ENTRYPOINT_VERIFY_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
-readonly LAUNCHER_LINK_DIR="/opt/ai-tools/bin"
+readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
+# AI_TOOLS_LAUNCHER_DIR is the hook the CLI and relabel.lib.sh read for the same directory,
+# so tests/unit/admin-status.sh drives this report against fixture links. It moves a report: this tool is reachable only
+# as root, sudo strips the name, and no access decision here reads it.
+readonly LAUNCHER_LINK_DIR="${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
 
 # st <state> <text>: one report line, state in a bracket token so a scan down the left column finds what needs
 # attention. The vocabulary is the CLI's -- OK, DOWN, FAILED, STALE, SKIPPED, n/a, ? -- because an administrator reads
@@ -1433,9 +2040,13 @@ status_services() {
             # the same rule the operator view follows. The two scopes fail for different reasons and say so: a system
             # unit is unreadable only where there is no systemctl at all, while a sandbox-user one means root reached
             # neither that account's manager (no machine transport, no timeout(1), or no answer inside the probe's
-            # window) nor a last-run stamp.
+            # window) nor a last-run stamp -- or, separable and said as such, a stamp still empty as the package seeded
+            # it: the unit has never run, which is where a freshly provisioned host stands until its first window.
             *)       if [[ "${scope}" == system ]]; then
                          st "?" "${unit}  systemctl is unavailable here"
+                     elif declare -F ai_tools_service_stamp_unwritten >/dev/null 2>&1 \
+                             && ai_tools_service_stamp_unwritten "${stamp}"; then
+                         st "?" "${unit}  no run recorded yet -- its first scheduled run has not happened"
                      else
                          st "?" "${unit}  neither its manager nor a last-run stamp could be read"
                      fi ;;
@@ -1619,6 +2230,42 @@ status_labels() {
     return 0
 }
 
+# status_node_version: the Version section's Node line, from the same verdict the CLI renders
+# (ai_tools_node_version_verdict, toolchain.lib.sh): the active version read off the enabled agents' stable launcher
+# links, and the version the updater's last run recorded shown beside it only where the two differ. Root could read
+# the toolchain itself; the link is read instead so the two reports have one source and one answer. Best-effort: a host
+# with neither a link nor a stamp gets no Node line, and Provisioning says why.
+status_node_version() {
+    local rec stamp_node="" verdict kind version stamp_seen
+    if declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+        while IFS= read -r rec; do
+            stamp_node="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
+            [[ -n "${stamp_node}" && "${stamp_node}" != unknown ]] && break
+            stamp_node=""
+        done < <(ai_tools_service_records)
+    fi
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/toolchain.lib.sh
+    source "${TOOLCHAIN_LIB}" 2>/dev/null || true
+    if declare -F ai_tools_agent_link_node_versions >/dev/null 2>&1 \
+            && declare -F ai_tools_node_version_verdict >/dev/null 2>&1; then
+        verdict="$(ai_tools_agent_link_node_versions "${LAUNCHER_LINK_DIR}" 2>/dev/null \
+                       | ai_tools_node_version_verdict "${stamp_node}")"
+    elif [[ -n "${stamp_node}" ]]; then
+        verdict=$'stamp\t'"${stamp_node}"     # no link reader: the stamp is the only reading left
+    else
+        verdict=none
+    fi
+    IFS=$'\t' read -r kind version stamp_seen <<<"${verdict}"
+    case "${kind}" in
+        active) printf '    %-13s %s%s\n' "node" "${version}" \
+                    "${stamp_seen:+ (active; the last update run saw ${stamp_seen})}" ;;
+        split)  printf '    %-13s %s (the enabled agents'"'"' launchers name different Node versions -- an update may be in progress)\n' \
+                    "node" "${version}" ;;
+        stamp)  printf '    %-13s %s (as of the last toolchain update -- no launcher link names one)\n' "node" "${version}" ;;
+    esac
+    return 0
+}
+
 # status: the host report. Exits non-zero when something is broken, so it is usable from a monitor or a cron check
 # without parsing this output -- the same contract `ai-tools status` offers, and the reason `?` and `n/a` are never
 # counted: a reading this vantage point could not make must not make a healthy host alarm every night.
@@ -1650,16 +2297,7 @@ status() {
 
     heading "Version"
     printf '    %-13s %s\n' "ai-tools" "${AI_TOOLS_VERSION}"
-    # Node's version comes from whichever registry record publishes one, so the loop reads the registry rather than
-    # a unit name, and a host whose updater has not run yet omits the line.
-    local rec node_ver=""
-    while IFS= read -r rec; do
-        node_ver="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
-        [[ -n "${node_ver}" && "${node_ver}" != unknown ]] && break
-        node_ver=""
-    done < <(ai_tools_service_records)
-    [[ -n "${node_ver}" ]] \
-        && printf '    %-13s %s\n' "node" "${node_ver} (as of the last toolchain update)"
+    status_node_version
 
     heading "Provisioning"
     # The launcher directory holding a link is bootstrap's last artifact, and the same sentinel the CLI's own gate keys

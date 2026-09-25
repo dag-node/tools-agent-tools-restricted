@@ -1,10 +1,10 @@
-.\" allowed-projects(5) -- an operator's project allowlist for Agent Tools Restricted.
+.\" ai-tools-allowed-projects(5) -- an operator's project allowlist for Agent Tools Restricted.
 .\" @AI_TOOLS_VERSION@ is substituted at deploy time (install.sh install_subst
 .\" and the RPM %prep), like ai-tools(1). The grammar described here is the one
 .\" conf.lib.sh implements for the path-list files, shared by every reader.
-.TH ALLOWED-PROJECTS 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.TH AI-TOOLS-ALLOWED-PROJECTS 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
 .SH NAME
-allowed-projects \- the project directories an operator's agent sessions may start in
+ai-tools-allowed-projects \- the project directories an operator's agent sessions may start in
 .SH SYNOPSIS
 .B ~/.config/ai-tools/allowed-projects
 .SH DESCRIPTION
@@ -166,9 +166,9 @@ ai\-tools projects disable ~/src/oldapp
 .SH SEE ALSO
 .BR ai\-tools (1),
 .BR ai\-tools\-admin (8),
-.BR operator.conf (5),
+.BR ai-tools-operator.conf (5),
 .BR secret\-patterns (5)
 .PP
 The lifecycle guide covers claiming a tree in place against working in a
 sandbox clone, and what each prompt grants:
-.IR /usr/share/doc/ai\-tools/project\-lifecycle.md .
+.IR /usr/share/doc/ai\-tools/docs/projects/index.md .

@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/conf.lib.sh
 # The one KEY=value grammar every ai-tools config file is read with, the trust predicate that decides whether a file may
-# be read at all, and three things that share the grammar and so live beside it: the dated config sidecars
-# (`<name>.<YYYYMMDD>[-N].{bak,shipped}`, whose stamp ai_tools_conf_sidecar_path is the single home
-# of), the settings.json hook-declaration merge, the one in-place write of a KEY=value file (ai_tools_conf_set_key),
-# and every read AND write of allowed-projects. Sourced (never executed) by operator.lib.sh, skip-dirs.lib.sh,
-# providers.lib.sh, the launch wrapper, the CLI and the root helpers, so a key and an allowlist line read the same
-# whichever component reads them. The grammar, the present/absent distinction the provider gating turns
-# on, and what the trust predicate requires are in providers.rule.md; the allowlist state model is in cli.rule.md.
+# be read at all, and what shares the grammar and so lives beside it: the kind prefix a provider list item carries
+# (ai_tools_conf_kind_list, which filters.lib.sh reads as well as providers.lib.sh), the dated config sidecars
+# (`<name>.<YYYYMMDD>-<N>.{bak,shipped}`, whose stamp ai_tools_conf_sidecar_path is the single home of), the one
+# in-place write of a KEY=value file (ai_tools_conf_set_key for a scalar, ai_tools_conf_set_list for a list), and every
+# read AND write of allowed-projects. The settings.json hook-declaration merge, which writes through the sidecars, is
+# settings-merge.lib.sh. Sourced (never executed) by operator.lib.sh, skip-dirs.lib.sh, providers.lib.sh, the launch
+# wrapper, the CLI and the root helpers, so a key and an allowlist line read the same whichever component reads them.
+# The grammar, the present/absent distinction the provider gating turns on, and what the trust predicate requires are
+# in providers.rule.md; the allowlist state model is in cli.rule.md.
 #
 # Config files are PARSED, never sourced: a malformed or tampered file yields a bad value, never executed code
 # in a privileged script. List splitting pins IFS locally, because the sourcing scripts run under the strict-mode
@@ -132,7 +134,9 @@ _ai_tools_conf_strip_inline_comment() {
 #   the `=`) denotes -- surrounding whitespace trimmed, one matched quote layer stripped, inline
 #   comment removed. A quoted value ends at its closing quote and whatever follows is discarded,
 #   so `#` inside quotes stays literal. An unmatched opening quote is taken verbatim rather than
-#   silently truncating the value at some later character.
+#   silently truncating the value at some later character. Sets _ai_tools_conf_value_quoted to 1
+#   when the value opened with a quote and 0 otherwise, which is what ai_tools_conf_list_value
+#   tells `"[a]"` from `[a]` by once the quotes are gone.
 _ai_tools_conf_parse_value() {
     local value="$1" quote rest
     value="${value#"${value%%[![:space:]]*}"}"
@@ -141,6 +145,8 @@ _ai_tools_conf_parse_value() {
         "'"*) quote="'" ;;
         *)    quote=''  ;;
     esac
+    _ai_tools_conf_value_quoted=0
+    [[ -n "${quote}" ]] && _ai_tools_conf_value_quoted=1
     if [[ -n "${quote}" ]]; then
         rest="${value#?}"
         if [[ "${rest}" == *"${quote}"* ]]; then
@@ -162,6 +168,7 @@ _ai_tools_conf_parse_value() {
 ai_tools_conf_read() {
     local file="$1" wanted="$2" line key found=1
     _ai_tools_conf_value=""
+    _ai_tools_conf_value_quoted=0
     [[ -r "${file}" ]] || return 1
     while IFS= read -r line || [[ -n "${line}" ]]; do
         line="${line#"${line%%[![:space:]]*}"}"
@@ -175,6 +182,21 @@ ai_tools_conf_read() {
     return "${found}"
 }
 
+# ai_tools_conf_yes <file> <key> : succeed when <key> is set to a yes value -- yes, true, 1 or on, in any case and with
+#   or without quotes, which the grammar has already removed. No, false, 0, off, an empty value, an absent key
+#   and an unreadable file are all no. A value in neither set is no as well, and is reported, so a mistyped switch
+#   does not change what a launch does without a line saying so.
+ai_tools_conf_yes() {
+    local file="$1" key="$2"
+    ai_tools_conf_read "${file}" "${key}" || return 1
+    case "${_ai_tools_conf_value,,}" in
+        yes|true|1|on) return 0 ;;
+        no|false|0|off|"") return 1 ;;
+    esac
+    _ai_tools_conf_warn MSG-D2F9 "switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no value (no, false, 0, off) -- read as no"
+    return 1
+}
+
 # ai_tools_conf_get <file> <key> : print the value of <key>, empty when absent. For a caller that
 #   only wants the string; one that must tell absent from empty calls ai_tools_conf_read.
 ai_tools_conf_get() {
@@ -186,7 +208,8 @@ ai_tools_conf_get() {
 
 # ai_tools_conf_split <array-name> <value> : split <value> into the named array on commas and
 #   whitespace, dropping empty items. IFS is set locally, so the result does not depend on the
-#   caller's IFS.
+#   caller's IFS. The splitter for a command-line argument, which does not read brackets; a list
+#   read from a file goes through ai_tools_conf_list_value.
 ai_tools_conf_split() {
     local -n _ai_tools_conf_split_out="$1"
     local raw="${2-}" token
@@ -208,24 +231,164 @@ ai_tools_conf_split() {
 ai_tools_conf_list() {
     local out_name="$1" file="$2" key="$3"
     ai_tools_conf_read "${file}" "${key}" || return 1
-    ai_tools_conf_split "${out_name}" "${_ai_tools_conf_value}"
+    ai_tools_conf_list_value "${out_name}" "${_ai_tools_conf_value}" "${_ai_tools_conf_value_quoted}" \
+        "${key} in ${file}"
+}
+
+# ai_tools_conf_list_value <array-name> <value> [quoted] [label] : split a list value read from
+#   a file into the named array. `[a, b]` is a bracketed list, whose inside splits as
+#   ai_tools_conf_split splits; any other value splits as it stands. A value with one bracket and not
+#   the other, one whose quotes the parser stripped (<quoted> 1, `"[a]"`), and a bracketed one
+#   carrying a quote or a further bracket inside is invalid: the array is set EMPTY, MSG-D5N5 names
+#   <label> on stderr, and _ai_tools_conf_list_invalid is set to 1 (0 otherwise). Empty is the less-access
+#   reading for every list that grants something -- an empty OPERATORS does not enrol any account, an
+#   empty AI_TOOLS_AGENTS does not enable any agent -- where treating the key as absent would fall back to a default
+#   that enables more. Returns 0 either way, since several callers run under `set -e`.
+ai_tools_conf_list_value() {
+    local out_name="$1" value="${2-}" quoted="${3:-0}" label="${4:-a list value}" inner reason=""
+    _ai_tools_conf_list_invalid=0
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    if [[ "${value}" != '['* && "${value}" != *']' ]]; then
+        ai_tools_conf_split "${out_name}" "${value}"
+        return 0
+    fi
+    inner="${value#[}"; inner="${inner%]}"
+    if [[ "${value}" != '['*']' ]]; then
+        reason="it has one bracket and not the other"
+    elif [[ "${quoted}" == 1 ]]; then
+        reason="a bracketed list is written without quotes around it"
+    elif [[ "${inner}" == *[\"\'\[\]]* ]]; then
+        reason="an item inside brackets carries no quote or bracket"
+    fi
+    if [[ -n "${reason}" ]]; then
+        local -n _ai_tools_conf_list_value_out="${out_name}"
+        _ai_tools_conf_list_value_out=()
+        _ai_tools_conf_list_invalid=1
+        _ai_tools_conf_warn MSG-D5N5 "invalid list, read as the empty list -- ${label} (${reason}): ${value}; write it as [a, b]"
+        return 0
+    fi
+    ai_tools_conf_split "${out_name}" "${inner}"
+}
+
+# ── Kind prefixes: what a provider list item names ───────────────────────────────────────────
+# An item of AI_TOOLS_AGENTS, AI_TOOLS_INTEGRATIONS or AI_TOOLS_FILTERS carries its kind as a prefix (agent-claude-code,
+# integration-dotnet, filter-dotnet), so one word names one thing wherever an operator writes it: dotnet is both
+# an integration and a filter set. The prefix lives in operator.conf alone -- a manifest, a fragment and a rules file
+# keep the bare name, since their directory already states the kind -- so the list reader strips it and every consumer
+# receives the bare name. An item without its key's prefix makes the whole list invalid (MSG-X6F2): an earlier release
+# wrote bare names, and `ai-tools-admin system post-upgrade` rewrites them (ai_tools_conf_kind_migrate,
+# providers.lib.sh). _ai_tools_conf_kind_table is the one place a key is tied to its prefix.
+
+# _ai_tools_conf_kind_table : print "KEY<TAB>prefix" per list key that carries a kind prefix.
+_ai_tools_conf_kind_table() {
+    printf '%s\t%s\n' AI_TOOLS_AGENTS agent- AI_TOOLS_INTEGRATIONS integration- AI_TOOLS_FILTERS filter-
+}
+
+# ai_tools_conf_kind_prefix <KEY> : print the kind prefix <KEY>'s items carry. Returns 1, printing
+#   nothing, for a key outside the table.
+ai_tools_conf_kind_prefix() {
+    local key prefix
+    while IFS=$'\t' read -r key prefix; do
+        [[ "${key}" == "${1-}" ]] && { printf '%s' "${prefix}"; return 0; }
+    done < <(_ai_tools_conf_kind_table)
+    return 1
+}
+
+# _ai_tools_conf_kind_bare <prefix> <item> : print the bare name when <item> is <prefix> followed by
+#   a plain name (the charset a manifest basename takes, no `..`); return 1 otherwise.
+_ai_tools_conf_kind_bare() {
+    local prefix="$1" item="$2" bare
+    [[ "${item}" == "${prefix}"* ]] || return 1
+    bare="${item#"${prefix}"}"
+    [[ "${bare}" =~ ^[A-Za-z0-9._-]+$ && "${bare}" != *..* ]] || return 1
+    printf '%s' "${bare}"
+}
+
+# ai_tools_conf_kind_list <array-name> <file> <KEY> : ai_tools_conf_list for a key in the kind table,
+#   which then requires every item to carry the key's prefix and sets the array to the BARE names,
+#   in order. An item that does not makes the whole list invalid: the array is set EMPTY,
+#   _ai_tools_conf_list_invalid and _ai_tools_conf_list_unprefixed are set to 1, and MSG-X6F2 names
+#   the key, the items and the command that rewrites them on stderr -- the less-access reading
+#   ai_tools_conf_list_value gives a malformed list, for the same reason. Returns 1, leaving the
+#   array untouched, for an absent key, so a caller's baseline stands; 2 for a key outside the table.
+ai_tools_conf_kind_list() {
+    local out_name="$1" file="$2" key="$3" prefix item bare
+    local -a _ai_tools_conf_kind_list_raw=() _ai_tools_conf_kind_list_bare=() unprefixed=()
+    _ai_tools_conf_list_invalid=0 _ai_tools_conf_list_unprefixed=0
+    prefix="$(ai_tools_conf_kind_prefix "${key}")" || return 2
+    ai_tools_conf_list _ai_tools_conf_kind_list_raw "${file}" "${key}" || return 1
+    local -n _ai_tools_conf_kind_list_out="${out_name}"
+    if (( _ai_tools_conf_list_invalid )); then
+        _ai_tools_conf_kind_list_out=()
+        return 0
+    fi
+    for item in "${_ai_tools_conf_kind_list_raw[@]}"; do
+        if bare="$(_ai_tools_conf_kind_bare "${prefix}" "${item}")"; then
+            _ai_tools_conf_kind_list_bare+=("${bare}")
+        else
+            unprefixed+=("${item}")
+        fi
+    done
+    if (( ${#unprefixed[@]} > 0 )); then
+        _ai_tools_conf_kind_list_out=()
+        _ai_tools_conf_list_invalid=1
+        _ai_tools_conf_list_unprefixed=1
+        _ai_tools_conf_warn MSG-X6F2 "invalid list, read as the empty list -- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai-tools-admin system post-upgrade"
+        return 0
+    fi
+    _ai_tools_conf_kind_list_out=("${_ai_tools_conf_kind_list_bare[@]+"${_ai_tools_conf_kind_list_bare[@]}"}")
+    return 0
+}
+
+# ai_tools_conf_kind_item <KEY> <name> : print <name> as <KEY> holds it -- with the key's prefix
+#   added to a bare name, and a name already carrying it printed as given. The writer's side of
+#   ai_tools_conf_kind_list. Returns 1, printing nothing, for a key outside the table or a name
+#   that is not a plain name once the prefix is added.
+ai_tools_conf_kind_item() {
+    local key="$1" name="$2" prefix
+    prefix="$(ai_tools_conf_kind_prefix "${key}")" || return 1
+    [[ "${name}" == "${prefix}"* ]] || name="${prefix}${name}"
+    _ai_tools_conf_kind_bare "${prefix}" "${name}" >/dev/null || return 1
+    printf '%s' "${name}"
+}
+
+# ai_tools_conf_kind_unmigrated <file> : print "KEY<TAB>item" for every item a key in the kind table
+#   holds without that key's prefix, in table order and then list order -- the items that make
+#   ai_tools_conf_kind_list refuse the list. The one detection predicate: the base package's %post,
+#   install.sh, `system post-upgrade --check` and both launch tiers read it. Read-only. A missing or
+#   untrusted <file>, an absent key and a list the grammar refuses print nothing, since each already
+#   has a report of its own.
+ai_tools_conf_kind_unmigrated() {
+    local file="$1" key prefix item
+    local -a items=()
+    [[ -f "${file}" ]] && ai_tools_conf_is_trusted "${file}" || return 0
+    while IFS=$'\t' read -r key prefix; do
+        ai_tools_conf_list items "${file}" "${key}" 2>/dev/null || continue
+        (( _ai_tools_conf_list_invalid )) && continue
+        for item in "${items[@]+"${items[@]}"}"; do
+            _ai_tools_conf_kind_bare "${prefix}" "${item}" >/dev/null || printf '%s\t%s\n' "${key}" "${item}"
+        done
+    done < <(_ai_tools_conf_kind_table)
+    return 0
 }
 
 # ── Sidecar files: what an upgrade preserves when it touches an operator's config ────────────
 # An install that rewrites a config the operator owns leaves two kinds of copy behind, and they answer different
 # questions -- neither substitutes for the other:
 #
-#   <name>.<YYYYMMDD>.bak       what the operator HAD. The only thing that restores their
+#   <name>.<YYYYMMDD>-<N>.bak   what the operator HAD. The only thing that restores their
 #                               settings if a rewrite is valid but wrong, which no syntax check
 #                               catches. Written only when a file is about to change.
-#   <name>.<YYYYMMDD>.shipped   what they were SUPPOSED to get. Written when the merge could not
+#   <name>.<YYYYMMDD>-<N>.shipped  what they were SUPPOSED to get. Written when the merge could not
 #                               run, or when the file is one this project refuses to rewrite
 #                               unattended, so the hand merge has a source -- a host installed
 #                               from the RPM has no checkout to copy from.
 #
 # The date stamp makes them survive successive runs: each install adds a copy rather than overwriting the evidence
-# of the last. A same-day second copy takes a `-N` counter, so a .bak is never overwritten -- an operator who ran
-# the installer twice in a day is exactly the one who needs the first copy.
+# of the last. Every copy takes a `-N` counter, starting at 1, so a .bak is never overwritten -- an operator who ran
+# the installer twice in a day is exactly the one who needs the first copy -- and the day's copies sort in the order
+# they were made.
 #
 # The two kinds accumulate differently, because they record different things. A .bak records that a run replaced
 # the file, so each one is distinct evidence and every rewrite writes one. A .shipped records the baseline that was
@@ -236,21 +399,22 @@ ai_tools_conf_list() {
 # ai_tools_conf_sidecar_path <path> <kind> : print an UNUSED sidecar path for <path>. Returns 1
 #   without printing when the day's namespace is exhausted, so a caller never silently reuses a
 #   name. Pure except for the existence tests. Public because it is the single home of the
-#   `<path>.<YYYYMMDD>[-N].<kind>` convention: managed-assets.lib.sh stamps a replaced shipped
+#   `<path>.<YYYYMMDD>-<N>.<kind>` convention: managed-assets.lib.sh stamps a replaced shipped
 #   asset the same way this file stamps a replaced config, and <path> may be a directory there,
 #   while providers.lib.sh stamps a managed file an uninstall moved aside. The kind names the event
 #   that produced the copy -- `bak` beside a file a merge replaced, `retired` where the live path
 #   is gone -- so a reader tells the two recoveries apart by the name alone.
 ai_tools_conf_sidecar_path() {
-    local file="$1" kind="$2" stamp candidate index
+    local file="$1" kind="$2" stamp index taken=0
     stamp="$(date +%Y%m%d)" || return 1
-    candidate="${file}.${stamp}.${kind}"
-    [[ -e "${candidate}" ]] || { printf '%s' "${candidate}"; return 0; }
-    for (( index = 2; index < 100; index++ )); do
-        candidate="${file}.${stamp}-${index}.${kind}"
-        [[ -e "${candidate}" ]] || { printf '%s' "${candidate}"; return 0; }
+    # The next number is one past the highest the day already holds, so a copy made later never sorts before one made
+    # earlier. An unnumbered copy, the name an earlier release gave the day's first, counts as 1.
+    [[ -e "${file}.${stamp}.${kind}" ]] && taken=1
+    for (( index = 1; index < 100; index++ )); do
+        [[ -e "${file}.${stamp}-${index}.${kind}" ]] && taken="${index}"
     done
-    return 1
+    (( taken < 99 )) || return 1
+    printf '%s' "${file}.${stamp}-$(( taken + 1 )).${kind}"
 }
 
 # _ai_tools_conf_match_perms <target> <model> : give <target> the owner and mode of <model>, so a
@@ -294,112 +458,6 @@ ai_tools_conf_reference() {
     cp "${shipped}" "${target}" 2>/dev/null || return 1
     _ai_tools_conf_match_perms "${target}" "${deployed}"
     printf '%s' "${target}"
-}
-
-# ai_tools_conf_require_jq : succeed when jq is callable. jq is a package dependency, so its
-#   absence is a broken install rather than a host variation -- this reports and fails instead of
-#   degrading, and callers of the JSON paths gate on it. Deliberately NOT checked when this
-#   library is sourced: the KEY=value grammar does not need jq, and this file is sourced on every
-#   launch (by ai-tools-run, as the sandbox account) and by every root helper, so a source-time
-#   failure would stop a session for a reason unrelated to what it asked for.
-ai_tools_conf_require_jq() {
-    command -v jq >/dev/null 2>&1 && return 0
-    _ai_tools_conf_warn MSG-F9W4 "jq not found -- it is a package dependency; reinstall ai-tools-base"
-    return 1
-}
-
-# ── JSON hook declarations ───────────────────────────────────────────────────────────────────
-# An agent's settings file is kept across an upgrade, because it carries host tuning a reset would revert. Its HOOK
-# DECLARATIONS are not tuning though: they are control plane that merges additively and that no lower-precedence layer
-# may remove, so a version that ships a new hook has to get that declaration into a kept file or the hook it installed
-# never runs.
-#
-# The merge adds only declarations the file lacks and leaves every other key -- the permission arrays it was kept
-# for, an operator's own hook -- as written. Reporting is the caller's: this sets what happened and returns how it went,
-# so the same decision can be rendered by an installer, a test, or a future agent's tooling without the wording living
-# here.
-
-# The shipped hook commands a deployed file does not declare, as "<event>: <command>". The command binds to $command
-# before the membership test: inside index(), `.` is that function's own input -- the $have array -- so an unbound form
-# asks whether the array contains itself and does not report a gap wherever the event already declares a hook.
-# shellcheck disable=SC2016  # jq variables, bound by `--slurpfile` and jq's own `as`
-readonly _AI_TOOLS_CONF_HOOKS_MISSING_FILTER='
-    . as $cur
-    | ($shipped[0].hooks // {}) | to_entries[] as $event
-    | ([ (($cur.hooks // {})[$event.key] // [])[] | (.hooks // [])[] | .command ]) as $have
-    | $event.value[] | (.hooks // [])[] | .command as $command
-    | select(($have | index($command)) == null)
-    | "\($event.key): \($command)"'
-
-# Append whole matcher groups whose commands are absent, so a group arrives with its matcher intact; a group already
-# fully declared is left alone.
-# shellcheck disable=SC2016  # jq variables, as in the merge program
-readonly _AI_TOOLS_CONF_HOOKS_MERGE_FILTER='
-    ($shipped[0].hooks // {}) as $ship
-    | reduce ($ship | to_entries[]) as $event (
-        .;
-        ([ ((.hooks // {})[$event.key] // [])[] | (.hooks // [])[] | .command ]) as $have
-        | reduce ($event.value[]) as $group (
-            .;
-            if ((([ ($group.hooks // [])[] | .command ]) - $have) | length) == 0
-            then .
-            else .hooks[$event.key] = ((.hooks[$event.key] // []) + [$group])
-            end
-          )
-      )'
-
-# ai_tools_conf_merge_hook_declarations <deployed> <shipped> : merge the shipped hook
-#   declarations into <deployed>.
-#     returns 0  merged      _ai_tools_conf_merge_added holds "<event>: <command>" per addition,
-#                            _ai_tools_conf_merge_backup the copy of what the operator had
-#     returns 1  no change   the file already declares everything shipped; no write happens
-#     returns 2  refused     the file is byte-identical and _ai_tools_conf_merge_reference holds
-#                            the baseline dropped for a hand merge (empty if even that failed);
-#                            _ai_tools_conf_merge_reason says which check refused
-#   The deployed file is never opened for writing: the merge is built in a temporary file and
-#   validated as JSON before an atomic rename, so a failure at any point leaves the original.
-ai_tools_conf_merge_hook_declarations() {
-    local deployed="$1" shipped="$2" missing="" tmp=""
-    _ai_tools_conf_merge_added=()
-    _ai_tools_conf_merge_backup=""
-    _ai_tools_conf_merge_reference=""
-    _ai_tools_conf_merge_reason=""
-
-    _refuse() {
-        _ai_tools_conf_merge_reason="$1"
-        _ai_tools_conf_merge_reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true
-        return 2
-    }
-
-    [[ -f "${deployed}" && -f "${shipped}" ]] || { _ai_tools_conf_merge_reason="missing file"; return 2; }
-    ai_tools_conf_require_jq || { _refuse "jq is not installed"; return 2; }
-    jq -e . "${deployed}" >/dev/null 2>&1 || { _refuse "the deployed file is not valid JSON"; return 2; }
-
-    missing="$(jq -r --slurpfile shipped "${shipped}" \
-        "${_AI_TOOLS_CONF_HOOKS_MISSING_FILTER}" "${deployed}" 2>/dev/null)" \
-        || { _refuse "the deployed file's hook declarations could not be read"; return 2; }
-    [[ -n "${missing}" ]] || return 1
-
-    tmp="$(mktemp "${deployed}.XXXXXX" 2>/dev/null)" || { _refuse "no temporary file could be created"; return 2; }
-    if ! jq --slurpfile shipped "${shipped}" \
-            "${_AI_TOOLS_CONF_HOOKS_MERGE_FILTER}" "${deployed}" > "${tmp}" 2>/dev/null \
-            || ! jq -e . "${tmp}" >/dev/null 2>&1; then
-        rm -f "${tmp}"
-        _refuse "the merged result was not valid JSON"
-        return 2
-    fi
-
-    # Keep what the operator had before replacing it: this is the only copy that restores host tuning if a merge is
-    # valid JSON yet wrong, which the JSON check cannot catch.
-    _ai_tools_conf_merge_backup="$(ai_tools_conf_backup "${deployed}")" || true
-    _ai_tools_conf_match_perms "${tmp}" "${deployed}"
-    mv -f "${tmp}" "${deployed}" || { rm -f "${tmp}"; _refuse "the merged file could not be moved into place"; return 2; }
-
-    local line
-    while IFS= read -r line; do
-        [[ -n "${line}" ]] && _ai_tools_conf_merge_added+=("${line}")
-    done <<< "${missing}"
-    return 0
 }
 
 # ── KEY=value files: report new keys, never rewrite ──────────────────────────────────────────
@@ -470,44 +528,88 @@ ai_tools_conf_new_keys() {
 }
 
 # ── KEY=value files: set one key in place ────────────────────────────────────────────────────
-# The one rewrite this project makes to operator.conf is a single key's value -- OPERATORS
-# from `ai-tools-admin operators add|remove`, AI_TOOLS_AGENTS from the toolchain provisioning's agent choice. Setting
-# a key replaces one line and does not splice a block in, which is what ai_tools_conf_new_keys leaves to the operator:
-# the line replaced is the key's own, found by the same match ai_tools_conf_keys counts as a mention, so the template's
-# commented default is rewritten IN PLACE under its comment block and the file keeps the shape the new-key report reads.
-# Every other line is copied byte for byte.
+# The one rewrite this project makes to operator.conf is a single key's value -- the OPERATORS list
+# from `ai-tools-admin operators add|remove` and the AI_TOOLS_AGENTS list from the toolchain provisioning's agent choice
+# (ai_tools_conf_set_list), and the provisioning's switches (ai_tools_conf_set_key). Setting a key replaces one line
+# and does not splice a block in, which is what ai_tools_conf_new_keys leaves to the operator: the line replaced is
+# the key's own -- its last live assignment, the one a reader takes, or where the file has none, the first commented
+# default ai_tools_conf_keys counts as a mention -- so the template's commented default is rewritten IN PLACE under its
+# comment block and the file keeps the shape the new-key report reads. A live line an operator added after the commented
+# default is the one replaced, since rewriting the default would leave the later line winning the read. Every other line
+# is copied byte for byte.
 
-# ai_tools_conf_set_key <file> <KEY> <value> : write `KEY="value"` into <file>, replacing the first
-#   line that mentions KEY (`KEY=`, `#KEY=`, `# KEY=`, whitespace allowed around the key), or
-#   appending the line when none does. A missing <file> is created at mode 0644; an existing one
+# ai_tools_conf_set_key <file> <KEY> <value> : write `KEY="value"` into <file>, replacing the line
+#   _ai_tools_conf_write_line picks -- the last live `KEY=`, else the first `#KEY=` / `# KEY=` --
+#   or appending the line when none does. A missing <file> is created at mode 0644; an existing one
 #   keeps its owner and mode and is replaced by a rename (_ai_tools_conf_replace_file). Verified by
 #   re-reading the key through ai_tools_conf_read. Returns 0 when the file now holds the value, 1
 #   when it could not be written or does not read back, 2 for a KEY outside the identifier charset
 #   or a value carrying a newline or a double quote -- either would end the line or the quoted
 #   value early and write a different setting than the one asked for.
 ai_tools_conf_set_key() {
-    local file="$1" key="$2" value="$3" tmp line replaced=0
+    local file="$1" key="$2" value="$3"
     [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 2
     [[ "${value}" != *$'\n'* && "${value}" != *'"'* ]] || return 2
-    tmp="$(mktemp 2>/dev/null)" || return 1
+    _ai_tools_conf_write_line "${file}" "${key}" "${key}=\"${value}\"" || return 1
+    ai_tools_conf_read "${file}" "${key}" && [[ "${_ai_tools_conf_value}" == "${value}" ]]
+}
+
+# ai_tools_conf_set_list <file> <KEY> [item]... : write `KEY=[a, b]` into <file> (`KEY=[]` for no
+#   items), replacing the same line ai_tools_conf_set_key replaces and keeping the file's owner and
+#   mode the same way. Verified by reading the list back through ai_tools_conf_list. Returns 0 when
+#   the file now holds the items in order, 1 when it could not be written or does not read back, 2 for
+#   a KEY outside the identifier charset or an item that is empty or carries whitespace, a comma,
+#   a bracket, a quote or a `#` -- each would split into other items, or end the list, on the read.
+ai_tools_conf_set_list() {
+    local file="$1" key="$2" item joined=""
+    shift 2
+    [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 2
+    for item in "$@"; do
+        [[ -n "${item}" && "${item}" != *[[:space:],\[\]\"\'#]* ]] || return 2
+        joined+="${joined:+, }${item}"
+    done
+    _ai_tools_conf_write_line "${file}" "${key}" "${key}=[${joined}]" || return 1
+    local -a written=()
+    ai_tools_conf_list written "${file}" "${key}" || return 1
+    [[ "${written[*]-}" == "$*" && ${#written[@]} -eq $# ]]
+}
+
+# _ai_tools_conf_write_line <file> <KEY> <line> : replace the last live assignment of KEY in <file>
+#   (`KEY=`, whitespace allowed around the key) with <line> -- or, where there is none, the first
+#   commented default (`#KEY=`, `# KEY=`) -- or append <line> when the file mentions neither,
+#   copying every other line byte for byte. A missing <file> is created at mode 0644; an
+#   existing one keeps its owner and mode and is replaced by a rename
+#   (_ai_tools_conf_replace_file). Returns 1 when the file could not be written. The one line
+#   replacement both public writers share, so they rewrite the same line of the same file.
+_ai_tools_conf_write_line() {
+    local file="$1" key="$2" new_line="$3" tmp line number=0 live=0 commented=0 target
     if [[ -f "${file}" ]]; then
         while IFS= read -r line || [[ -n "${line}" ]]; do
-            if (( ! replaced )) && [[ "${line}" =~ ^[[:space:]]*(\#[[:space:]]?)?${key}[[:space:]]*= ]]; then
-                printf '%s="%s"\n' "${key}" "${value}"
-                replaced=1
-            else
-                printf '%s\n' "${line}"
+            number=$(( number + 1 ))
+            if [[ "${line}" =~ ^[[:space:]]*${key}[[:space:]]*= ]]; then
+                live="${number}"
+            elif (( ! commented )) && [[ "${line}" =~ ^[[:space:]]*\#[[:space:]]?${key}[[:space:]]*= ]]; then
+                commented="${number}"
             fi
+        done < "${file}"
+    fi
+    target="${live}"
+    (( target )) || target="${commented}"
+    tmp="$(mktemp 2>/dev/null)" || return 1
+    if [[ -f "${file}" ]]; then
+        number=0
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            number=$(( number + 1 ))
+            if (( number == target )); then printf '%s\n' "${new_line}"; else printf '%s\n' "${line}"; fi
         done < "${file}" > "${tmp}"
     fi
-    (( replaced )) || printf '%s="%s"\n' "${key}" "${value}" >> "${tmp}"
+    (( target )) || printf '%s\n' "${new_line}" >> "${tmp}"
     if [[ -f "${file}" ]]; then
         if ! _ai_tools_conf_replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
     elif ! install -m 644 -- "${tmp}" "${file}" 2>/dev/null; then
         rm -f -- "${tmp}"; return 1
     fi
     rm -f -- "${tmp}"
-    ai_tools_conf_read "${file}" "${key}" && [[ "${_ai_tools_conf_value}" == "${value}" ]]
 }
 
 # ── Path-list files (allowed-projects) ───────────────────────────────────────────────────────
@@ -818,7 +920,7 @@ ai_tools_conf_allowlist_enable() {
 
 # ai_tools_conf_allowlist_seed : print the header a fresh allowed-projects carries. It does not
 #   name any project, so a session cannot start anywhere until the CLI or the operator adds an
-#   entry. The reference is allowed-projects(5).
+#   entry. The reference is ai-tools-allowed-projects(5).
 ai_tools_conf_allowlist_seed() {
     printf '%s\n' \
         "# Project directories the ai-tools sandbox may work in, one per line." \
@@ -834,7 +936,7 @@ ai_tools_conf_allowlist_seed() {
         "# Managed by the ai-tools CLI: projects claim, projects create and" \
         "# projects clone register a project; projects disable and projects" \
         "# enable park and restore one; projects list reviews the file." \
-        "# Full reference: man 5 allowed-projects" \
+        "# Full reference: man 5 ai-tools-allowed-projects" \
         ""
 }
 
@@ -842,7 +944,7 @@ ai_tools_conf_allowlist_seed() {
 #   carries the header alone, which leaves the built-in baseline in secret-patterns.lib.sh in
 #   force -- so seeding this file changes what is classified as a secret only once the operator
 #   writes a pattern into it. The replace rule stays in the header whatever the page says, since
-#   it is the one fact a reader needs before writing a line. The reference is secret-patterns(5).
+#   it is the one fact a reader needs before writing a line. The reference is ai-tools-secret-patterns(5).
 ai_tools_conf_secret_patterns_seed() {
     printf '%s\n' \
         "# Secret-name patterns for the ai-tools sandbox, one basename glob" \
@@ -858,6 +960,6 @@ ai_tools_conf_secret_patterns_seed() {
         "#" \
         "#   .env              *.pem             appsettings.*.json" \
         "#" \
-        "# Full reference: man 5 secret-patterns" \
+        "# Full reference: man 5 ai-tools-secret-patterns" \
         ""
 }

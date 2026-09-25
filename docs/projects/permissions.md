@@ -28,11 +28,8 @@ so a file you wrote yourself, which you already own, is not a path it acts on.
 A secret-named file is the one exception, and goes to you alone
 ([Lockdown](lockdown.md)).
 
-`ai-tools projects handback` is the on-demand form of that same pass,
-for what a session left behind: the writes of a session that was killed,
-and the `.git` tree the per-turn passes skip. The project stays claimed
-and the agent keeps its access; only the owner on those files moves ([Project
-lifecycle](index.md)).
+`ai-tools projects handback` runs that same pass on demand, for what a killed
+session left behind ([Project lifecycle](index.md)).
 
 ## You and the agent co-write one tree
 

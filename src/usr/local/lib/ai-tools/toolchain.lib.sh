@@ -20,8 +20,11 @@
 # Two residue readers, one per principal, since the tree is 0750 and only the sandbox account traverses it:
 # the operator's wrapper and `ai-tools status` read the stable launcher link as the proxy for a provisioned package
 # (ai_tools_agent_residue_links), and the shim, the provisioners and the updater read the tree itself
-# (ai_tools_agent_residue). Agent identity enters every function as a manifest record read through providers.lib.sh,
-# never as a name this file knows, so a third agent package is covered without an edit here.
+# (ai_tools_agent_residue). The same link names the Node version directory it points into, so it is also the operator's
+# read of which Node the toolchain is on (ai_tools_agent_link_node_versions), and the pure verdict both status reports
+# render their Node line from sits beside it. Agent identity enters every function as a manifest record read
+# through providers.lib.sh, never as a name this file knows, so a third agent package is covered without an edit
+# here.
 #
 # Sourced, not executed. Deployed 644 root:root: it reads manifests every account can already read, and the account
 # that runs the writer owns the tree the writer edits. providers.lib.sh is REQUIRED -- without the enabled and installed
@@ -60,6 +63,7 @@ _ai_tools_toolchain_notice() {
 if ! source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_installed_agents >/dev/null 2>&1 \
         || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_agents_empty_verdict >/dev/null 2>&1 \
         || ! declare -F ai_tools_launcher_target_valid >/dev/null 2>&1 \
         || ! declare -F ai_tools_agent_manifest_field >/dev/null 2>&1; then
     _ai_tools_toolchain_warn "toolchain.lib.sh: providers.lib.sh missing or incomplete -- no toolchain reader defined"
@@ -77,12 +81,20 @@ readonly _AI_TOOLS_NPM_PACKAGE_RE='^(@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+$'
 #   trusted manifest is installed and whose name the enabled set does not carry, in manifest-filename
 #   order. The set both residue readers iterate. An untrusted manifest is not an installed agent
 #   (providers.lib.sh skips and reports it), so it is not residue either: what it would provision
-#   is unknown, and the launch refuses its launcher on its own. Data-only stdout.
+#   is unknown, and the launch refuses its launcher on its own. An empty enabled set that
+#   ai_tools_agents_empty_verdict does not classify as `none` -- an invalid AI_TOOLS_AGENTS, an
+#   untrusted operator.conf, a list none of whose names resolved -- does not print a line: the set
+#   the operator declared is unknown rather than empty, and reading it as empty would make every
+#   installed agent's package residue for the writer to remove. Data-only stdout.
 ai_tools_installed_not_enabled_agents() {
-    local name npm_package launcher enabled=" "
+    local name npm_package launcher enabled=" " verdict=""
     while IFS=$'\t' read -r name _ _; do
         [[ -n "${name}" ]] && enabled+="${name} "
     done < <(ai_tools_enabled_agents 2>/dev/null)
+    if [[ "${enabled}" == " " ]]; then
+        IFS=$'\t' read -r verdict _ < <(ai_tools_agents_empty_verdict 2>/dev/null) || true
+        [[ "${verdict}" == none ]] || return 0
+    fi
     while IFS=$'\t' read -r name npm_package launcher; do
         [[ -n "${name}" ]] || continue
         [[ "${enabled}" == *" ${name} "* ]] && continue
@@ -128,6 +140,66 @@ ai_tools_agent_residue_links() {
         [[ "${launcher}" =~ ^[A-Za-z0-9._-]+$ ]] || continue
         [[ -L "${launcher_dir}/${launcher}" ]] && printf '%s\t%s\n' "${name}" "${launcher}"
     done < <(ai_tools_installed_not_enabled_agents)
+    return 0
+}
+
+# ai_tools_agent_link_node_versions <launcher-dir> : print "name<TAB>launcher<TAB>version" for every ENABLED
+#   agent whose stable launcher symlink in <launcher-dir> names a Node version directory: the target,
+#   read back with readlink(1) and not followed, matched against
+#   .../versions/node/v<MAJOR>.<MINOR>.<PATCH>/bin/<launcher>, the shape ai-tools-launcher-symlink
+#   writes and ai-tools-run accepts. This is the operator's read of which Node the toolchain is on:
+#   every path that changes Node repoints the link (the bootstrap as root, the updater through
+#   the handback bridge), so the read is current whichever of them wrote it, and it is
+#   unprivileged -- the same one-hop read the launch wrapper makes, with the 0750 tree never entered.
+#   A missing link and a target of another shape each yield no line. Data-only stdout.
+ai_tools_agent_link_node_versions() {
+    local launcher_dir="${1:-}" name launcher target
+    [[ -n "${launcher_dir}" ]] || return 0
+    while IFS=$'\t' read -r name _ launcher; do
+        [[ -n "${name}" && -n "${launcher}" ]] || continue
+        [[ "${launcher}" =~ ^[A-Za-z0-9._-]+$ ]] || continue
+        [[ -L "${launcher_dir}/${launcher}" ]] || continue
+        target="$(readlink -- "${launcher_dir}/${launcher}" 2>/dev/null)" || continue
+        [[ "${target}" =~ ^/.*/versions/node/(v[0-9]+\.[0-9]+\.[0-9]+)/bin/"${launcher}"$ ]] || continue
+        printf '%s\t%s\t%s\n' "${name}" "${launcher}" "${BASH_REMATCH[1]}"
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    return 0
+}
+
+# ai_tools_node_version_verdict <stamp-node> : read ai_tools_agent_link_node_versions lines on stdin and
+#   print the one line both status reports render their Node line from. The active version comes
+#   from the links; <stamp-node> is what the updater's last-run stamp recorded (already clamped
+#   by ai_tools_service_stamp_field, `unknown` read as none), shown only where it differs, since that
+#   is the one fact a link cannot carry: the toolchain changed after the updater last ran.
+#     active<TAB><version>              every link names this version, and the stamp agrees or is absent
+#     active<TAB><version><TAB><stamp>  every link names this version; the stamp recorded another
+#     split<TAB>name=version ...        the links disagree: an update between two repoints, or a provisioning
+#                                       that left one agent on an older version
+#     stamp<TAB><stamp>                 no link names a version; the stamp does
+#     none                              neither
+#   Pure -- no I/O, ALWAYS returns 0 -- so tests/unit/toolchain.sh drives the table.
+ai_tools_node_version_verdict() {
+    local stamp_node="${1:-}" name version active="" pairs="" split=0
+    [[ "${stamp_node}" == unknown ]] && stamp_node=""
+    while IFS=$'\t' read -r name _ version; do
+        [[ -n "${name}" && -n "${version}" ]] || continue
+        pairs+="${pairs:+ }${name}=${version}"
+        if [[ -z "${active}" ]]; then active="${version}"
+        elif [[ "${version}" != "${active}" ]]; then split=1; fi
+    done
+    if (( split )); then
+        printf 'split\t%s\n' "${pairs}"
+    elif [[ -n "${active}" ]]; then
+        if [[ -n "${stamp_node}" && "${stamp_node}" != "${active}" ]]; then
+            printf 'active\t%s\t%s\n' "${active}" "${stamp_node}"
+        else
+            printf 'active\t%s\n' "${active}"
+        fi
+    elif [[ -n "${stamp_node}" ]]; then
+        printf 'stamp\t%s\n' "${stamp_node}"
+    else
+        printf 'none\n'
+    fi
     return 0
 }
 

@@ -67,6 +67,23 @@ for them.
   the lint-clean equivalent; the `ls -Z` read stays for the enforcing-only paths, where a mechanism change is verified
   on an enforcing host.
 
+## What strict mode does that ShellCheck does not report <a id="ref-section-c3u9"></a>
+
+Most scripts here run under `set -euo pipefail`, and these shapes lint clean, pass `bash -n`, and end a script or change
+its output without a message. The symptom is a silent no-op, so a path that "does nothing" is traced (`bash -x`,
+the exit status) and a suspected line is tried alone in `bash -c 'set -euo pipefail; …'` before it is edited.
+
+- **An assignment takes its command substitution's status.** `x="$(cmd | grep …)"` ends the script when `cmd` fails
+  or `grep` does not match, before the `[[ -n "${x}" ]] || die` on the next line can report it; `local x="$(…)"` takes
+  `local`'s status and hides the failure instead. `shopt -p <option>` is the common case: it exits non-zero whenever
+  the option is off. Where the next line is the check, the substitution ends in `|| true` (`secret-patterns.lib.sh`,
+  `nvm-update.sh`'s version lookup).
+- **A redirection on a bare `exec` stays in force.** `exec {fd}< file 2>/dev/null` sends the shell's own stderr
+  to `/dev/null` for the rest of the script; `{ exec {fd}< file; } 2>/dev/null` scopes it to the open
+  (`ai-tools-chown.sh`).
+- **An `EXIT` trap runs after the function that set it returns.** A trap expanding that function's `local` then aborts
+  under `set -u`, at cleanup and before the cleanup runs, so a path a trap removes is a script global.
+
 ## Design notes
 
 - **Fix in preference to suppress.** A finding that names an avoidable foot-gun is rewritten. `SC2015` (`A && B || C`)

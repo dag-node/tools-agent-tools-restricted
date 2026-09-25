@@ -31,8 +31,7 @@
 #
 # Installed 0750 root:root at /usr/local/lib/ai-tools/admin-commands.d/dotnet, in a 0755 root:root directory: the agent
 # must not read or run a root command, and ai-tools-admin refuses the whole directory when either is writable by anyone
-# else. Deploying from a checkout:
-# docs/install/from-source.md.
+# else. Its domain rule is dotnet.rule.md.
 
 set -euo pipefail
 
@@ -104,7 +103,7 @@ ai-tools-admin dotnet -- the .NET toolchain: its sandbox state and shared tools
     dotnet status                       host SDKs and runtimes, and the sandbox state
 
   The .NET SDK is the host's own; this integration ships no runtime. A session gets
-  it once 'dotnet' is named in AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}.
+  it once 'integration-dotnet' is named in AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}.
 EOF
 }
 
@@ -223,7 +222,7 @@ bootstrap() {
         log "SELinux labelling skipped: no enforcing ai-tools policy on this host (DAC governs)"
     fi
     log "dotnet integration ready: writable NuGet cache ${NUGET_DIR}, shared tools ${TOOLS_DIR}"
-    log "enable it for sessions by adding 'dotnet' to AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}"
+    log "enable it for sessions by adding 'integration-dotnet' to AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}"
 }
 
 tools_install() {
@@ -278,7 +277,7 @@ status() {
     if dotnet_enabled; then
         log "session enablement: dotnet ENABLED in ${OPERATOR_CONF}"
     else
-        log "session enablement: dotnet NOT enabled -- add it to AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}"
+        log "session enablement: dotnet NOT enabled -- add integration-dotnet to AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}"
     fi
     selinux_status
 }
@@ -305,7 +304,7 @@ selinux_status() {
     fi
     declared="$(manifest_field selinux_groups || true)"
     [[ -n "${declared}" ]] || return 0
-    ai_tools_conf_split names "${declared}"
+    ai_tools_conf_list_value names "${declared}" 0 "selinux_groups in the dotnet manifest"
     for name in "${names[@]}"; do
         ai_tools_selinux_group_valid "${name}" || continue
         if ai_tools_selinux_group_loaded "${name}"; then

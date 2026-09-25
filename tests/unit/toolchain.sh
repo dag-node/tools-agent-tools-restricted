@@ -10,11 +10,14 @@
 # launch start beside an entrypoint a session can exec at its real path. So residue is asserted to be EXACTLY
 # the installed-not-enabled-present set: an enabled agent's package does not appear in it, a manifest the trust
 # predicate refuses does not (the resolver skips it, and its launcher is refused on its own), a manifest without
-# an npm_package does not, and a version directory outside the semver shape is not read. The writer is driven with npm
-# stubbed in the fixture version's own bin: it refuses an enabled agent's package under its code and does not call npm,
-# defers a package a live process executes from (the collector stubbed to say so), issues exactly one uninstall
-# for a removal and reports the state directory the removal leaves, and reports an uninstall that left the directory
-# in place. The erase form removes an enabled agent's package too, since it runs while the manifest is being erased.
+# an npm_package does not, and a version directory outside the semver shape is not read. An empty enabled set yields
+# residue only where the configuration asks for no agent: under a fault verdict (an invalid list, an untrusted
+# operator.conf, names none of which resolved) every reader prints nothing, with a declared-empty list as the control
+# that still yields every installed agent. The writer is driven with npm stubbed in the fixture version's own bin: it
+# refuses an enabled agent's package under its code and does not call npm, defers a package a live process executes
+# from (the collector stubbed to say so), issues exactly one uninstall for a removal and reports the state directory
+# the removal leaves, and reports an uninstall that left the directory in place. The erase form removes an enabled
+# agent's package too, since it runs while the manifest is being erased.
 #
 # Fixtures are a synthetic manifest set (the acme/beta pair unit/providers.sh uses) read through the resolver's two
 # root-only hooks, so no shipped agent is named; they are root-owned 0644 in 0755 directories, which the trust predicate
@@ -82,7 +85,7 @@ manifest beta  @acme/beta         beta  config_dir=.beta
 manifest gamma @acme/gamma        gamma
 printf 'launcher=nopkg\ndefault_enable=no\n' > "${AGENTS_DIR}/nopkg.conf"; chmod 0644 "${AGENTS_DIR}/nopkg.conf"
 chmod 0666 "${AGENTS_DIR}/gamma.conf"      # untrusted: not an agent, so never residue
-printf 'AI_TOOLS_AGENTS="acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
+printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
 
 # package <version> <package> : the package directory npm leaves, with a marker file inside.
 package() {
@@ -120,6 +123,34 @@ not_enabled="$(ai_tools_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr 
 not_enabled_err="$(ai_tools_installed_not_enabled_agents 2>&1 >/dev/null)"
 assert_msg MSG-M3A5 "${not_enabled_err}" "the untrusted manifest is reported, through the resolver's own code"
 
+# An empty enabled set is read as empty only where the configuration asks for no agent. Under a fault the declared set
+# is unknown, and reading it as empty would make every installed agent's package residue for the writer to remove,
+# so each fault row must yield no line from the set or either reader. The declared-empty row is the control: the same
+# empty enabled set, classified `none`, still yields every installed agent. The fixture's untrusted gamma manifest is
+# itself a fault input, so each row sets its mode: trusted in every row but the one about it, so each fault comes
+# from the input the row names. Rows: <operator.conf line> <mode> <gamma.conf mode> <expected set>.
+while IFS='|' read -r conf_line conf_mode gamma_mode want; do
+    printf '%s\n' "${conf_line}" > "${CONF}"; chmod "${conf_mode}" "${CONF}"; chmod "${gamma_mode}" "${AGENTS_DIR}/gamma.conf"
+    got_set="$(ai_tools_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+    got_tree="$(ai_tools_agent_residue "${NVM}" 2>/dev/null | cut -f1 | sort -u | tr '\n' ' ')"
+    got_links="$(ai_tools_agent_residue_links "${LINKS}" 2>/dev/null | cut -f1 | tr '\n' ' ')"
+    got_set="${got_set% }" got_tree="${got_tree% }" got_links="${got_links% }"
+    if [[ "${got_set}" == "${want}" && "${got_tree}" == "${want}" && "${got_links}" == "${want}" ]]; then
+        pass "operator.conf '${conf_line}' (${conf_mode}, gamma.conf ${gamma_mode}): installed-not-enabled, residue and residue links are '${want}'"
+    else
+        fail "operator.conf '${conf_line}' (${conf_mode}, gamma.conf ${gamma_mode}): expected '${want}' from each, got set '${got_set}', tree '${got_tree}', links '${got_links}'"
+    fi
+done <<'ROWS'
+AI_TOOLS_AGENTS=[acme|0644|0644|
+AI_TOOLS_AGENTS="agent-acme"|0666|0644|
+AI_TOOLS_AGENTS=[agent-nosuch]|0644|0644|
+AI_TOOLS_AGENTS=[acme]|0644|0644|
+AI_TOOLS_AGENTS=[]|0644|0666|
+AI_TOOLS_AGENTS=[]|0644|0644|acme beta gamma
+ROWS
+chmod 0666 "${AGENTS_DIR}/gamma.conf"
+printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
+
 # ── ai_tools_agent_residue: the tree read ───────────────────────────────────────────────────────
 residue="$(ai_tools_agent_residue "${NVM}" 2>/dev/null)"
 expected=$'beta\t@acme/beta\t'"${NVM}/versions/node/v1.2.3"$'\n'$'beta\t@acme/beta\t'"${NVM}/versions/node/v2.0.0"
@@ -138,11 +169,11 @@ grep -q 'notaversion' <<<"${residue}" && fail "a non-semver version directory wa
     && pass "an absent toolchain holds no residue" || fail "an absent toolchain printed residue"
 
 # The same tree with beta enabled too: no residue, whatever the tree holds.
-printf 'AI_TOOLS_AGENTS="acme beta"\n' > "${CONF}"
+printf 'AI_TOOLS_AGENTS="agent-acme agent-beta"\n' > "${CONF}"
 [[ -z "$(ai_tools_agent_residue "${NVM}" 2>/dev/null)" ]] \
     && pass "a package is residue only while its agent is not enabled" \
     || fail "residue reported with every installed agent enabled"
-printf 'AI_TOOLS_AGENTS="acme"\n' > "${CONF}"
+printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"
 
 # ── ai_tools_agent_residue_links: the operator's read ──────────────────────────────────────────
 links="$(ai_tools_agent_residue_links "${LINKS}" 2>/dev/null)"
@@ -153,6 +184,50 @@ rm -f "${LINKS}/beta"
 [[ -z "$(ai_tools_agent_residue_links "${LINKS}" 2>/dev/null)" ]] \
     && pass "no link, no residue from the operator's vantage" || fail "residue links reported with the link gone"
 ln -s /nonexistent/beta "${LINKS}/beta"
+
+# ── ai_tools_agent_link_node_versions: the Node version a link names ───────────────────────────
+# The failure to fail in is a version read where none is warranted: a disabled agent's link, a target outside
+# the versioned shape, or a target naming another launcher must each yield no line, since the line is what both status
+# reports print as the toolchain's Node. acme is the enabled agent here, beta is installed and not enabled.
+relink() { ln -sfn "$2" "${LINKS}/$1"; }
+relink acme /x/.nvm/versions/node/v1.2.3/bin/acme
+relink beta /x/.nvm/versions/node/v1.2.3/bin/beta
+got="$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)"
+[[ "${got}" == $'acme\tacme\tv1.2.3' ]] \
+    && pass "the link reader names the enabled agent's version, and not the disabled agent's" \
+    || fail "link node versions: got '$(tr '\n' '|' <<<"${got}")' expected 'acme<TAB>acme<TAB>v1.2.3'"
+relink acme /nonexistent/acme
+[[ -z "$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
+    && pass "a target outside the versioned shape yields no version" || fail "an unversioned target yielded a version"
+relink acme /x/.nvm/versions/node/v1.2.3/bin/other
+[[ -z "$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
+    && pass "a versioned target naming another launcher yields no version" || fail "a foreign launcher's target yielded a version"
+relink acme /x/.nvm/versions/node/1.2.3/bin/acme
+[[ -z "$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
+    && pass "a version directory without its v prefix yields no version" || fail "an unprefixed version directory yielded a version"
+rm -f "${LINKS}/acme"
+[[ -z "$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
+    && pass "no link, no version" || fail "a version was read with the link gone"
+ln -s /nonexistent/acme "${LINKS}/acme"
+ln -sfn /nonexistent/beta "${LINKS}/beta"
+
+# ── ai_tools_node_version_verdict: the pure decision the two Node lines render ─────────────────
+# Driven over its table: the stamp's version is carried only where it differs from the links', two links naming
+# different versions read as split and name both, and the stamp is the reading only where no link gives one.
+verdict_is() {
+    local what="$1" stamp="$2" want="$3" got
+    got="$(printf '%b' "$4" | ai_tools_node_version_verdict "${stamp}")"
+    [[ "${got}" == "${want}" ]] && pass "${what}" || fail "${what}: got '$(printf '%q' "${got}")' expected '$(printf '%q' "${want}")'"
+}
+verdict_is "one link, no stamp: active"                       ''      $'active\tv1.2.3'          'a\tla\tv1.2.3\n'
+verdict_is "one link, the stamp agrees: active, stamp elided" v1.2.3  $'active\tv1.2.3'          'a\tla\tv1.2.3\n'
+verdict_is "one link, the stamp differs: both carried"        v1.2.2  $'active\tv1.2.3\tv1.2.2'  'a\tla\tv1.2.3\n'
+verdict_is "an unknown stamp reads as none"                   unknown $'active\tv1.2.3'          'a\tla\tv1.2.3\n'
+verdict_is "two links agreeing: one active version"           ''      $'active\tv1.2.3'          'a\tla\tv1.2.3\nb\tlb\tv1.2.3\n'
+verdict_is "two links disagreeing: split, each named"         v1.2.3  $'split\ta=v1.2.3 b=v2.0.0' 'a\tla\tv1.2.3\nb\tlb\tv2.0.0\n'
+verdict_is "no link, a stamp: the stamp's reading"            v1.2.2  $'stamp\tv1.2.2'           ''
+verdict_is "no link, no stamp: none"                          ''      'none'                     ''
+verdict_is "a line without a version is not a link reading"   ''      'none'                     'a\tla\t\n'
 
 # ── ai_tools_path_in_use: the pure predicate ───────────────────────────────────────────────────
 ai_tools_path_in_use /x/pkg /usr/bin/bash /x/pkg/bin/node \

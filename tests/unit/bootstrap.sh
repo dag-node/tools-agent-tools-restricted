@@ -186,10 +186,11 @@ fi
 # direction: an unanswered menu, "none" chosen, and an untrusted config each leave the key unwritten and the run at exit
 # 0 (Node alone); an unknown `--agents` name refuses with the key unwritten; a present key is not asked about and a key
 # naming more than one agent gets the shared-account notice once; the chosen or given names land in the file
-# the resolver reads. The manifests are a synthetic pair (no shipped agent is named, so a literal name in the code path
-# fails here), root-owned because the resolver trusts root-owned manifests alone -- so this section runs as root
-# and skips otherwise. The menu is stubbed: a drawn menu would block on /dev/tty, and which index it returns is
-# the library's own test (unit/msg.sh).
+# the resolver reads; and the step after the choice ends the run on an empty set the configuration did not ask
+# for, the state in which the residue removal would otherwise read every installed agent as disabled. The manifests are
+# a synthetic pair (no shipped agent is named, so a literal name in the code path fails here), root-owned because
+# the resolver trusts root-owned manifests alone -- so this section runs as root and skips otherwise. The menu is
+# stubbed: a drawn menu would block on /dev/tty, and which index it returns is the library's own test (unit/msg.sh).
 section "ai-tools-admin system bootstrap: the agent choice (unit)"
 
 PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
@@ -242,7 +243,8 @@ else
             printf "rc=%s\n" "${rc}"
         ' _ "${PROVIDERS_LIB}" "${MSG_LIB}" "${HELPER}" "$1" "$2" 2>&1 || true
     }
-    key_value() { AI_TOOLS_OPERATOR_CONF="${CONF}" bash -c 'source "$1"; ai_tools_conf_get "$2" AI_TOOLS_AGENTS' _ "${PROVIDERS_LIB}" "${CONF}" 2>/dev/null || true; }
+    # key_value : the names AI_TOOLS_AGENTS holds, read through the list grammar and joined by a space.
+    key_value() { bash -c 'source "$1"; names=(); ai_tools_conf_kind_list names "$2" AI_TOOLS_AGENTS; printf "%s" "${names[*]-}"' _ "${PROVIDERS_LIB}" "${CONF}" 2>/dev/null || true; }
     key_present() { grep -qE '^[[:space:]]*AI_TOOLS_AGENTS[[:space:]]*=' "${CONF}"; }
 
     # ── (H) An unanswered menu does not enable an agent and does not fail the run ─────────────
@@ -276,6 +278,11 @@ else
         else
             fail "the write did not land in place: $(tr '\n' '|' < "${CONF}")"
         fi
+        if grep -qx 'AI_TOOLS_AGENTS=\[agent-beta\]' "${CONF}"; then
+            pass "the chosen agent is written in the bracketed list form, with its kind prefix"
+        else
+            fail "the key is not written as AI_TOOLS_AGENTS=[agent-beta]: $(grep AI_TOOLS_AGENTS "${CONF}")"
+        fi
         if ! grep -q 'MSG-C8W2' <<<"${out}"; then
             pass "one agent chosen draws no shared-account notice"
         else
@@ -293,7 +300,7 @@ else
         fi
 
         # ── (J) A present key is the operator's declaration: no menu ─────────────────────────
-        seed_conf 'AI_TOOLS_AGENTS="acme"'
+        seed_conf 'AI_TOOLS_AGENTS="agent-acme"'
         out="$(run_choose "$(stub_pick 2)" "")"
         if grep -qx 'rc=0' <<<"${out}" && [[ ! -e "${PICK_MARKER}" && "$(key_value)" == "acme" ]]; then
             pass "a key naming one agent is left as written and no menu is drawn"
@@ -307,13 +314,22 @@ else
         fi
 
         # ── (K) A key naming more than one agent gets the notice, once, and no menu ──────────
-        seed_conf 'AI_TOOLS_AGENTS="acme beta"'
+        seed_conf 'AI_TOOLS_AGENTS="agent-acme agent-beta"'
         out="$(run_choose "$(stub_pick 2)" "")"
         assert_msg MSG-C8W2 "${out}" "a key naming two agents draws the shared-account notice"
         if [[ "$(grep -c '^MSG-C8W2$' <<<"${out}")" -eq 1 && ! -e "${PICK_MARKER}" && "$(key_value)" == "acme beta" ]]; then
             pass "the notice is printed once, the key is left as written, no menu is drawn"
         else
             fail "two-agent key: notices=$(grep -c '^MSG-C8W2$' <<<"${out}"), drawn=$([[ -e "${PICK_MARKER}" ]] && echo yes || echo no), key '$(key_value)'"
+        fi
+
+        # The bracketed form of the same key is the same declaration.
+        seed_conf 'AI_TOOLS_AGENTS=[agent-acme, agent-beta]'
+        out="$(run_choose "$(stub_pick 2)" "")"
+        if [[ "$(grep -c '^MSG-C8W2$' <<<"${out}")" -eq 1 && ! -e "${PICK_MARKER}" && "$(key_value)" == "acme beta" ]]; then
+            pass "a bracketed key naming two agents is read the same: one notice, no menu"
+        else
+            fail "bracketed two-agent key: notices=$(grep -c '^MSG-C8W2$' <<<"${out}"), key '$(key_value)'"
         fi
 
         # ── (L) `--agents` writes the names given, notice once, no menu ───────────────────────
@@ -329,12 +345,20 @@ else
         else
             fail "--agents naming two agents drew the notice $(grep -c '^MSG-C8W2$' <<<"${out}") time(s)"
         fi
-        seed_conf 'AI_TOOLS_AGENTS="acme beta"'
+        seed_conf 'AI_TOOLS_AGENTS="agent-acme agent-beta"'
         out="$(run_choose "$(stub_pick 2)" "acme")"
         if grep -qx 'rc=0' <<<"${out}" && [[ "$(key_value)" == "acme" ]] && ! grep -q 'MSG-C8W2' <<<"${out}"; then
             pass "--agents replaces a present key with the names given, and one name draws no notice"
         else
             fail "--agents acme over a two-agent key: key '$(key_value)' (${out})"
+        fi
+        # Both spellings are accepted on the command line, and the file takes the prefixed one either way.
+        seed_conf
+        out="$(run_choose "$(stub_pick 2)" "agent-beta,acme")"
+        if grep -qx 'rc=0' <<<"${out}" && grep -qx 'AI_TOOLS_AGENTS=\[agent-beta, agent-acme\]' "${CONF}"; then
+            pass "--agents agent-beta,acme is written as [agent-beta, agent-acme]"
+        else
+            fail "--agents agent-beta,acme: $(grep AI_TOOLS_AGENTS "${CONF}") (${out})"
         fi
 
         # ── (M) An unknown `--agents` name refuses with the key unwritten ────────────────────
@@ -354,6 +378,16 @@ else
         seed_conf
         out="$(run_choose "$(stub_pick 2)" ",")"
         assert_msg MSG-X8K6 "${out}" "a value naming no agent is refused as a valueless --agents"
+        # An argument takes the plain list form alone: a bracket is refused by name, with the key unwritten.
+        for value in '[acme,beta]' '[acme' 'acme]' '[acme, beta]'; do
+            seed_conf
+            out="$(run_choose "$(stub_pick 2)" "${value}")"
+            if grep -qx MSG-Y7B6 <<<"${out}" && ! grep -q '^rc=' <<<"${out}" && ! key_present; then
+                pass "--agents ${value} is refused as a bracketed argument, the key unwritten"
+            else
+                fail "--agents ${value}: not refused under MSG-Y7B6 with the key unwritten (${out})"
+            fi
+        done
 
         # ── (O) An untrusted operator.conf is neither asked about nor written ────────────────
         seed_conf
@@ -377,30 +411,235 @@ else
         fi
         out="$(AI_TOOLS_AGENTS_DIR="${empty_dir}" run_choose "$(stub_pick 1)" "acme")"
         assert_msg MSG-M2N6 "${out}" "--agents on a host with no manifest is refused, naming none installed"
+
+        # ── (R) A list an earlier release wrote bare is rewritten before the choice reads it ─ migrate_provider_lists
+        # is the rewrite `system post-upgrade` makes: a list every name of which is installed takes the prefix
+        # and the choice then reads it as written; a list naming anything else stays as written, under the code
+        # the check reports it with.
+        run_migrate() {
+            bash -c '
+                set -euo pipefail
+                # shellcheck source=/dev/null
+                source "$1"
+                # shellcheck source=/dev/null
+                source "$2"
+                declare -F migrate_provider_lists >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+                _providers_loaded=1
+                migrate_provider_lists
+                printf "rc=0\n"
+            ' _ "${PROVIDERS_LIB}" "${HELPER}" 2>&1 || true
+        }
+        seed_conf 'AI_TOOLS_AGENTS=[acme, beta]'
+        out="$(run_migrate)"
+        if grep -qx 'rc=0' <<<"${out}" && grep -qx 'AI_TOOLS_AGENTS=\[agent-acme, agent-beta\]' "${CONF}" \
+                && [[ "$(key_value)" == "acme beta" ]]; then
+            pass "a bare list of installed agents is rewritten with the prefix, and reads back as the same agents"
+        else
+            fail "migrating [acme, beta]: $(grep AI_TOOLS_AGENTS "${CONF}") (${out})"
+        fi
+        seed_conf 'AI_TOOLS_AGENTS=[acme, ghost]'
+        out="$(run_migrate)"
+        if grep -qx MSG-S3D8 <<<"${out}" && grep -qx 'AI_TOOLS_AGENTS=\[acme, ghost\]' "${CONF}"; then
+            pass "a list naming an agent with no manifest stays as written, under MSG-S3D8"
+        else
+            fail "migrating [acme, ghost]: $(grep AI_TOOLS_AGENTS "${CONF}") (${out})"
+        fi
+
+        # ── (Q) An agent set the configuration did not ask to be empty ends the run ──────────
+        # The step after the choice: an invalid list, an untrusted file and a list none of whose names resolved each end
+        # the run under its code, before the residue removal could read the empty set; a declared-empty list, an absent
+        # key and a resolving list each continue. Rows: <operator.conf line> <mode> <ends|continues>.
+        run_refuse() {
+            bash -c '
+                set -euo pipefail
+                # shellcheck source=/dev/null
+                source "$1"
+                # shellcheck source=/dev/null
+                source "$2"
+                declare -F refuse_unresolved_agents >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+                _providers_loaded=1
+                refuse_unresolved_agents
+                printf "rc=0\n"
+            ' _ "${PROVIDERS_LIB}" "${HELPER}" 2>&1 || true
+        }
+        while IFS='|' read -r conf_line conf_mode want; do
+            seed_conf "${conf_line}"; chmod "${conf_mode}" "${CONF}"
+            out="$(run_refuse)"
+            if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
+                fail "the helper does not define refuse_unresolved_agents when sourced"; break
+            elif [[ "${want}" == ends ]] && grep -qx MSG-M9G5 <<<"${out}" && ! grep -q '^rc=' <<<"${out}"; then
+                pass "operator.conf '${conf_line}' (${conf_mode}) ends the run under MSG-M9G5"
+            elif [[ "${want}" == continues ]] && grep -qx 'rc=0' <<<"${out}" && ! grep -q MSG-M9G5 <<<"${out}"; then
+                pass "operator.conf '${conf_line}' (${conf_mode}) continues the run"
+            else
+                fail "operator.conf '${conf_line}' (${conf_mode}): expected the run to ${want%s} (${out})"
+            fi
+        done <<'ROWS'
+AI_TOOLS_AGENTS=[acme|0644|ends
+AI_TOOLS_AGENTS="agent-acme"|0666|ends
+AI_TOOLS_AGENTS=[agent-nosuch]|0644|ends
+AI_TOOLS_AGENTS=[acme]|0644|ends
+AI_TOOLS_AGENTS=[]|0644|continues
+#AI_TOOLS_AGENTS=""|0644|continues
+AI_TOOLS_AGENTS=[agent-acme]|0644|continues
+ROWS
+        chmod 0644 "${CONF}"
     fi
     unset AI_TOOLS_AGENTS_DIR AI_TOOLS_OPERATOR_CONF
 fi
 
+# ── offer_launch_requirements: both switches, offered only where they hold ───────────────────
+# The step writes two operator.conf keys that turn a launch into a refusal, so what is pinned is where it may ask
+# and what it writes: it asks only on an enforcing host with the ai_tools module loaded, offers the entrypoint switch
+# only while every enabled agent carries a pin (else the next launch of an unpinned agent refuses), leaves a key already
+# present -- either way -- as the operator wrote it, does not write an untrusted file, and records a declined offer
+# as `no` so the next run does not ask again. getenforce, semodule, the confirm and the enabled set are stubbed;
+# the pins are files in a fixture directory, reached through AI_TOOLS_ENTRYPOINT_PIN_DIR. Root, for the trust check.
+section "ai-tools-admin system bootstrap: the launch requirements (unit)"
+
+EV_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
+if [[ "${EUID}" -ne 0 ]]; then
+    skip "launch requirements" "operator.conf is trusted only while root-owned; run as root"
+elif [[ ! -r "${PROVIDERS_LIB}" || ! -r "${MSG_LIB}" || ! -r "${EV_LIB}" ]]; then
+    skip "launch requirements" "the step reads ${PROVIDERS_LIB}, ${MSG_LIB} and ${EV_LIB}, which this host has not deployed"
+else
+    REQ_CONF_DIR="${TESTDIR}/req-etc"
+    REQ_CONF="${REQ_CONF_DIR}/operator.conf"
+    PIN_DIR="${TESTDIR}/pins"
+    BLOCK_MARKER="${TESTDIR}/requirements-block-drawn"
+    install -d -o root -g root -m 755 "${REQ_CONF_DIR}" "${PIN_DIR}"
+
+    seed_req_conf() {
+        rm -f "${BLOCK_MARKER}"
+        printf '%s\n' '# host options' 'OPERATORS="op"' '#AI_TOOLS_REQUIRE_SELINUX=yes' '#AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes' "$@" \
+            > "${REQ_CONF}"
+        chmod 0644 "${REQ_CONF}"; chown root:root "${REQ_CONF}"
+    }
+    pin() { rm -f "${PIN_DIR}"/*; local a; for a in "$@"; do : > "${PIN_DIR}/${a}"; done; }
+    # stub_host <getenforce> <module-listed yes|no> <confirm-status> <agent>... : the host and the answer one case sees.
+    stub_host() {
+        local mode="$1" listed="$2" answer="$3"; shift 3
+        printf '_providers_loaded=1\n'
+        printf 'getenforce() { printf "%%s\\n" "%s"; }\n' "${mode}"
+        if [[ "${listed}" == yes ]]; then
+            printf 'semodule() { printf "%%s\\n" base ai_tools unconfined; }\n'
+        else
+            printf 'semodule() { printf "%%s\\n" base unconfined; }\n'
+        fi
+        printf 'ai_tools_msg_block() { : > "%s"; }\n' "${BLOCK_MARKER}"
+        printf 'ai_tools_msg_confirm() { return %s; }\n' "${answer}"
+        # shellcheck disable=SC2016  # $a expands in the generated stub, not here
+        printf 'ai_tools_enabled_agents() { local a; for a in %s; do printf "%%s\\t@x/%%s\\t%%s\\n" "$a" "$a" "$a"; done; }\n' "$*"
+    }
+    run_offer() {
+        AI_TOOLS_OPERATOR_CONF="${REQ_CONF}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${PIN_DIR}" bash -c '
+            set -euo pipefail
+            source "$1"; source "$2"; source "$3"
+            eval "$5"
+            source "$4"
+            declare -F offer_launch_requirements >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+            rc=0; offer_launch_requirements || rc=$?
+            printf "rc=%s\n" "${rc}"
+        ' _ "${PROVIDERS_LIB}" "${MSG_LIB}" "${EV_LIB}" "${HELPER}" "$1" 2>&1 || true
+    }
+    req_value() { bash -c 'source "$1"; ai_tools_conf_read "$2" "$3" && printf "%s" "${_ai_tools_conf_value}" || printf "<absent>"' \
+        _ "${PROVIDERS_LIB}" "${REQ_CONF}" "$1" 2>/dev/null; }
+
+    # (J) enforcing, module loaded, every agent pinned, the offer accepted: both keys written yes.
+    seed_req_conf; pin alpha beta
+    out="$(run_offer "$(stub_host Enforcing yes 0 alpha beta)")"
+    if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
+        fail "the helper does not define offer_launch_requirements when sourced"
+    else
+        if [[ -e "${BLOCK_MARKER}" && "$(req_value AI_TOOLS_REQUIRE_SELINUX)" == yes \
+              && "$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)" == yes ]] && grep -qx 'rc=0' <<<"${out}"; then
+            pass "an accepted offer on an enforcing host writes both requirements as yes"
+        else
+            fail "accepted offer: selinux=$(req_value AI_TOOLS_REQUIRE_SELINUX) verify=$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY) (${out})"
+        fi
+
+        # (K) declined: both written no, so the next run does not ask again.
+        seed_req_conf; pin alpha
+        out="$(run_offer "$(stub_host Enforcing yes 1 alpha)")"
+        if [[ "$(req_value AI_TOOLS_REQUIRE_SELINUX)" == no && "$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)" == no ]]; then
+            pass "a declined offer records both as no"
+        else
+            fail "declined offer: selinux=$(req_value AI_TOOLS_REQUIRE_SELINUX) verify=$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)"
+        fi
+
+        # (L) a key already set, either way, is the operator's and is not asked about.
+        seed_req_conf 'AI_TOOLS_REQUIRE_SELINUX=no' 'AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=0'; pin alpha
+        out="$(run_offer "$(stub_host Enforcing yes 0 alpha)")"
+        if [[ ! -e "${BLOCK_MARKER}" && "$(req_value AI_TOOLS_REQUIRE_SELINUX)" == no \
+              && "$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)" == 0 ]]; then
+            pass "keys the operator already set are left as written and not asked about"
+        else
+            fail "a present key was asked about or rewritten (${out})"
+        fi
+
+        # (M) an agent without a pin: only the SELinux switch is offered, and the agent is named.
+        seed_req_conf; pin alpha
+        out="$(run_offer "$(stub_host Enforcing yes 0 alpha beta)")"
+        if [[ "$(req_value AI_TOOLS_REQUIRE_SELINUX)" == yes && "$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)" == "<absent>" \
+              && "${out}" == *"while beta carries no pin"* ]]; then
+            pass "the entrypoint switch is withheld while an enabled agent carries no pin, and the agent is named"
+        else
+            fail "unpinned agent: verify=$(req_value AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY) (${out})"
+        fi
+
+        # (N) not enforcing, or the module not loaded: no offer drawn and no key written.
+        for host in "Permissive yes" "Enforcing no"; do
+            seed_req_conf; pin alpha
+            # shellcheck disable=SC2086  # the pair is two words on purpose
+            out="$(run_offer "$(stub_host ${host} 0 alpha)")"
+            if [[ ! -e "${BLOCK_MARKER}" && "$(req_value AI_TOOLS_REQUIRE_SELINUX)" == "<absent>" ]]; then
+                pass "no offer where confinement is not in force (${host})"
+            else
+                fail "offered or wrote on a host where confinement is not in force (${host}): ${out}"
+            fi
+        done
+
+        # (O) an untrusted operator.conf is neither asked about nor written.
+        seed_req_conf; pin alpha; chmod 0666 "${REQ_CONF}"
+        out="$(run_offer "$(stub_host Enforcing yes 0 alpha)")"
+        if [[ ! -e "${BLOCK_MARKER}" && "$(req_value AI_TOOLS_REQUIRE_SELINUX)" == "<absent>" ]]; then
+            pass "an untrusted operator.conf is not asked about or written"
+        else
+            fail "an untrusted operator.conf was written: ${out}"
+        fi
+    fi
+fi
+
 # ── remove_residue: the order it runs in ─────────────────────────────────────────────────────
 # The removal of a disabled agent's package sits after the agent choice (it reads the set that choice wrote) and ahead
-# of the first network step (the nvm version resolve), so an offline host still cleans up before its npm step fails.
-# That is a property of the SCRIPT's provisioning sequence, which the sourced-guard keeps this file from running, so it
-# is read as source order, the way unit/launcher-target.sh reads the re-link's; the routine itself is driven
+# of the first network step (the nvm version resolve), so an offline host still cleans up before its npm step fails;
+# the refusal of an unresolved set sits between the choice and the removal, which reads the set it would refuse. That is
+# a property of the SCRIPT's provisioning sequence, which the sourced-guard keeps this file from running, so it is read
+# as source order, the way unit/launcher-target.sh reads the re-link's; the routine itself is driven
 # in unit/toolchain.sh. Outside a checkout there is no script to read and the section skips.
 section "ai-tools-admin system bootstrap: the residue removal's place in the sequence (unit)"
 SCRIPT="${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh"
 if [[ ! -d "${ROOT}/.git" || ! -r "${SCRIPT}" ]]; then
     skip "the removal precedes the network step" "not a checkout, so the helper cannot be read from the repository"
 else
+    migrate_line="$(grep -n -m1 -E '^migrate_provider_lists$' "${SCRIPT}" | cut -d: -f1)"
     choose_line="$(grep -n -m1 -E '^choose_agents "\$\{REQUESTED_AGENTS\}"' "${SCRIPT}" | cut -d: -f1)"
+    refuse_line="$(grep -n -m1 -E '^refuse_unresolved_agents$' "${SCRIPT}" | cut -d: -f1)"
     remove_line="$(grep -n -m1 -E '^remove_residue$' "${SCRIPT}" | cut -d: -f1)"
     resolve_line="$(grep -n -m1 -E '^NVM_VERSION="\$\(resolve_nvm_version\)"' "${SCRIPT}" | cut -d: -f1)"
-    if [[ -z "${choose_line}" || -z "${remove_line}" || -z "${resolve_line}" ]]; then
-        fail "the agent choice, the removal or the version resolve is no longer where this reads it (choice -> ${choose_line:-none}, removal -> ${remove_line:-none}, resolve -> ${resolve_line:-none})"
-    elif (( choose_line < remove_line && remove_line < resolve_line )); then
-        pass "the residue removal runs after the agent choice and before the first network step"
+    if [[ -z "${migrate_line}" ]]; then
+        fail "the provider-list migration is no longer where this reads it"
+    elif (( migrate_line < choose_line )); then
+        pass "the provider-list migration runs before the agent choice reads the list"
     else
-        fail "the residue removal is out of place: choice at ${choose_line}, removal at ${remove_line}, resolve at ${resolve_line}"
+        fail "the provider-list migration (${migrate_line}) runs after the agent choice (${choose_line})"
+    fi
+    if [[ -z "${choose_line}" || -z "${refuse_line}" || -z "${remove_line}" || -z "${resolve_line}" ]]; then
+        fail "the agent choice, the unresolved-set refusal, the removal or the version resolve is no longer where this reads it (choice -> ${choose_line:-none}, refusal -> ${refuse_line:-none}, removal -> ${remove_line:-none}, resolve -> ${resolve_line:-none})"
+    elif (( choose_line < refuse_line && refuse_line < remove_line && remove_line < resolve_line )); then
+        pass "the unresolved-set refusal follows the agent choice, and the residue removal follows it, before the first network step"
+    else
+        fail "out of place: choice at ${choose_line}, refusal at ${refuse_line}, removal at ${remove_line}, resolve at ${resolve_line}"
     fi
 fi
 

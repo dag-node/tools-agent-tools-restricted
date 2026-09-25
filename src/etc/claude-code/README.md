@@ -35,8 +35,8 @@ The next session picks it up (`claude.sh` reads `operator.conf` at launch).
 Only these four keys are read and each is validated; a configured-but-invalid
 value **refuses the launch** rather than routing partially. With a custom proxy
 the model names are **labels the proxy maps** to an underlying model, not
-necessarily real Anthropic model ids. See `operator.conf(5)` and the endpoint
-file's own comments.
+necessarily real Anthropic model ids. See `ai-tools-operator.conf(5)`
+and the endpoint file's own comments.
 
 To set the same variables **host-wide** for every Claude Code user on the box
 (not just the sandbox), put them in this file's `env` block instead. This layer

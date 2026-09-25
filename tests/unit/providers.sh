@@ -97,20 +97,53 @@ assert_names() {
 assert_names "no config -> baseline (claude-code only)"   "claude-code " /nonexistent
 printf 'OPERATORS="x"\n' > "${conf}"
 assert_names "config without AI_TOOLS_AGENTS -> baseline" "claude-code " "${conf}"
-printf 'AI_TOOLS_AGENTS="claude-code experimental"\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS="agent-claude-code agent-experimental"\n' > "${conf}"
 assert_names "allowlist both -> both provisioned"        "claude-code experimental " "${conf}"
 printf 'AI_TOOLS_AGENTS=""\n' > "${conf}"
 assert_names "explicit empty allowlist -> no agents"     "" "${conf}"
 
 # The shared grammar applies to the gating keys too: quotes optional, commas or whitespace between names, an inline
 # comment ending the value.
-printf 'AI_TOOLS_AGENTS=claude-code, experimental\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS=agent-claude-code, agent-experimental\n' > "${conf}"
 assert_names "unquoted, comma-separated allowlist"       "claude-code experimental " "${conf}"
-printf 'AI_TOOLS_AGENTS = claude-code  experimental   # both agents\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS = agent-claude-code  agent-experimental   # both agents\n' > "${conf}"
 assert_names "padded value with an inline comment"       "claude-code experimental " "${conf}"
 
+# The bracketed list form reads as the same allowlist, and an invalid list enables NO agent: it reads as the empty
+# allowlist, never as an absent key, which would fall back to the default-enabled baseline. One row per value,
+# the expected names then the value as it follows `AI_TOOLS_AGENTS=`, split on the first tab.
+gating_cases=(
+    $'claude-code experimental \t[agent-claude-code, agent-experimental]'
+    $'claude-code experimental \t[agent-experimental,agent-claude-code]   # both'
+    $'claude-code \t[, agent-claude-code]'
+    $'\t[]'
+    $'\t[agent-claude-code'
+    $'\tagent-claude-code]'
+    $'\t"[agent-claude-code]"'
+    $'\t[agent-claude-code, "agent-experimental"]'
+    $'\t[claude-code, agent-experimental]'
+    $'\t[integration-claude-code]'
+    $'\t[agent-]'
+    $'\tagent-../claude-code'
+)
+for row in "${gating_cases[@]}"; do
+    printf 'AI_TOOLS_AGENTS=%s\n' "${row#*$'\t'}" > "${conf}"
+    assert_names "AI_TOOLS_AGENTS=${row#*$'\t'} enables '${row%%$'\t'*}'" "${row%%$'\t'*}" "${conf}"
+done
+printf 'AI_TOOLS_AGENTS=[agent-claude-code\n' > "${conf}"
+assert_msg MSG-D5N5 "$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)" \
+    "an invalid AI_TOOLS_AGENTS list is reported"
+# A name without its kind prefix, the spelling an earlier release wrote, is reported under its own code, which names
+# the command that rewrites it.
+printf 'AI_TOOLS_AGENTS=[claude-code]\n' > "${conf}"
+unprefixed_err="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
+assert_msg MSG-X6F2 "${unprefixed_err}" "an unprefixed AI_TOOLS_AGENTS item is reported"
+[[ "${unprefixed_err}" == *"system post-upgrade"* ]] \
+    && pass "the unprefixed-item report names system post-upgrade" \
+    || fail "the unprefixed-item report does not name system post-upgrade: ${unprefixed_err}"
+
 # A requested-but-uninstalled agent is skipped from stdout AND reported on stderr (never guessed).
-printf 'AI_TOOLS_AGENTS="missing"\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS="agent-missing"\n' > "${conf}"
 warn_out="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
 out_names="$(resolve "${conf}" | cut -f1 | tr '\n' ' ')"
 if [[ -z "${out_names}" ]]; then
@@ -119,6 +152,20 @@ else
     fail "uninstalled agent reached stdout: names='${out_names}'"
 fi
 assert_msg MSG-X8P4 "${warn_out}" "the uninstalled agent is reported on stderr, never guessed"
+# The report names the item as the operator wrote it and the package that ships it, derived from the key's kind; one row
+# per kind, the integration read through its own resolver.
+while IFS='|' read -r key item package resolver; do
+    printf '%s=[%s]\n' "${key}" "${item}" > "${conf}"
+    warn_out="$(AI_TOOLS_OPERATOR_CONF="${conf}" "${resolver}" 2>&1 >/dev/null)"
+    if [[ "${warn_out}" == *"${item} is enabled"* && "${warn_out}" == *"sudo dnf install ${package},"* ]]; then
+        pass "an uninstalled ${item} is reported with the package to install, ${package}"
+    else
+        fail "the report for an uninstalled ${item} does not name ${package}: ${warn_out}"
+    fi
+done <<'ROWS'
+AI_TOOLS_AGENTS|agent-missing|ai-tools-agents-missing-restricted|ai_tools_enabled_agents
+AI_TOOLS_INTEGRATIONS|integration-missing|ai-tools-integration-missing|ai_tools_enabled_integrations
+ROWS
 
 # --- Manifest field accessor: what ai-tools-run reads once it has resolved an agent -----------
 # The name becomes a path, so it is allowlisted to plain identifiers: anything else must resolve an empty result rather
@@ -147,7 +194,7 @@ chmod 0644 "${agents_dir}/claude-code.conf"
 
 # --- IFS independence: the resolver runs inside scripts that set the strict-mode IFS ----------
 section "providers: resolution is independent of the caller's IFS"
-printf 'AI_TOOLS_AGENTS="claude-code experimental"\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS="agent-claude-code agent-experimental"\n' > "${conf}"
 # A SUBSHELL with IFS=$'\n\t' -- exactly what nvm-update.sh sets -- so the assertion cannot be masked by this file's own
 # IFS. Without a locally-pinned IFS in the splitter the whole value reads as one name and BOTH agents drop out with only
 # a stderr warning.
@@ -158,7 +205,7 @@ if [[ "${ifs_names}" == "claude-code experimental " ]]; then
 else
     fail "IFS-dependent split: under IFS=\$'\\n\\t' got '${ifs_names}' expected 'claude-code experimental '"
 fi
-printf 'AI_TOOLS_AGENTS=claude-code,experimental\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS=agent-claude-code,agent-experimental\n' > "${conf}"
 ifs_names="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>/dev/null \
               | cut -f1 | sort | tr '\n' ' ' )"
 if [[ "${ifs_names}" == "claude-code experimental " ]]; then
@@ -174,7 +221,7 @@ section "providers: untrusted inputs fail closed"
 
 # An operator.conf the agent could have written must not be able to opt a default_enable=no provider in: it is ignored
 # entirely, falling back to the baseline.
-printf 'AI_TOOLS_AGENTS="claude-code experimental"\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS="agent-claude-code agent-experimental"\n' > "${conf}"
 chown "${PROJECTS_USER}" "${conf}"
 assert_names "non-root-owned operator.conf ignored -> baseline only" "claude-code " "${conf}"
 chown root:root "${conf}"
@@ -227,8 +274,16 @@ assert_empty "every manifest default_enable=no is none"   none  "AI_TOOLS_AGENTS
 printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Claude Code\ndefault_enable=yes\n' \
     > "${agents_dir}/claude-code.conf"
 
+# An allowlist that is not a valid list does not enable any agent, and the operator asked for something: a fault.
+printf 'AI_TOOLS_AGENTS=[agent-claude-code\n' > "${conf}"
+assert_empty "an invalid allowlist is a fault"            fault "is not a valid list"          "${conf}"
+printf 'AI_TOOLS_AGENTS=[claude-code, codex]\n' > "${conf}"
+assert_empty "an unprefixed allowlist is a fault naming post-upgrade" fault "system post-upgrade" "${conf}"
+printf 'AI_TOOLS_AGENTS=[]\n' > "${conf}"
+assert_empty "an empty bracketed allowlist is none"       none  "set and empty"                "${conf}"
+
 # The operator asked for agents that did not resolve: a fault, naming what was asked for.
-printf 'AI_TOOLS_AGENTS="missing other"\n' > "${conf}"
+printf 'AI_TOOLS_AGENTS="agent-missing agent-other"\n' > "${conf}"
 assert_empty "an allowlist that resolved nothing is a fault" fault "names missing other but no agent resolved" "${conf}"
 
 # A refused input is a fault whatever the configuration says, and the reason names the path and what the predicate read
@@ -240,7 +295,7 @@ assert_empty "two refused inputs are both named on one line" fault "2 input(s) f
 chmod 0755 "${agents_dir}"
 assert_empty "an untrusted manifest is a fault"           fault "${agents_dir}/claude-code.conf: owner=0 mode=666" /nonexistent
 chmod 0644 "${agents_dir}/claude-code.conf"
-printf 'AI_TOOLS_AGENTS="claude-code"\n' > "${conf}"; chmod 0666 "${conf}"
+printf 'AI_TOOLS_AGENTS="agent-claude-code"\n' > "${conf}"; chmod 0666 "${conf}"
 assert_empty "an untrusted operator.conf is a fault"      fault "${conf}: owner=0 mode=666"    "${conf}"
 chmod 0644 "${conf}"
 # The caller parses this under IFS=$'\n\t'; the TAB is what keeps verdict and reason apart there.
@@ -264,16 +319,21 @@ assert_ints() {
 }
 # Baseline: only default_enable=yes; dotnet (surface-widening, default_enable=no) stays OFF.
 assert_ints "integrations baseline -> only default_enable=yes" "baseline " /nonexistent
-printf 'AI_TOOLS_INTEGRATIONS="dotnet"\n' > "${conf}"
+printf 'AI_TOOLS_INTEGRATIONS="integration-dotnet"\n' > "${conf}"
 assert_ints "integrations allowlist opts dotnet in"           "dotnet "   "${conf}"
 printf 'AI_TOOLS_INTEGRATIONS=""\n' > "${conf}"
 assert_ints "integrations explicit empty -> none"             ""          "${conf}"
-printf 'AI_TOOLS_INTEGRATIONS=dotnet, baseline  # both\n' > "${conf}"
+printf 'AI_TOOLS_INTEGRATIONS=integration-dotnet, integration-baseline  # both\n' > "${conf}"
 assert_ints "integrations comma list with a comment"          "baseline dotnet " "${conf}"
+printf 'AI_TOOLS_INTEGRATIONS=[integration-dotnet, integration-baseline]\n' > "${conf}"
+assert_ints "integrations bracketed list"                     "baseline dotnet " "${conf}"
+# An invalid list reads as the empty allowlist: not even the default-enabled baseline, which absent would enable.
+printf 'AI_TOOLS_INTEGRATIONS=[integration-dotnet\n' > "${conf}"
+assert_ints "integrations invalid list -> none, not the baseline" "" "${conf}"
 
 # The surface-widening case that matters most: an untrusted operator.conf must not be able to turn dotnet
 # (default_enable=no) on.
-printf 'AI_TOOLS_INTEGRATIONS="dotnet"\n' > "${conf}"; chmod 0666 "${conf}"
+printf 'AI_TOOLS_INTEGRATIONS="integration-dotnet"\n' > "${conf}"; chmod 0666 "${conf}"
 assert_ints "untrusted conf cannot enable a default=no integration" "baseline " "${conf}"
 chmod 0644 "${conf}"
 
@@ -507,6 +567,86 @@ if [[ -d "${shipped_dir}" ]]; then
     fi
 else
     skip "shipped manifests" "not a source checkout (no ${shipped_dir})"
+fi
+
+# --- The kind-prefix migration: the one rewrite of an earlier release's list values -------------------------------
+# `system post-upgrade` and `system bootstrap` rewrite a list an earlier release wrote with bare names. What matters is
+# which lines it touches: a key is rewritten only when every item maps onto a name this host installs, so a rewritten
+# line reads back whole, and a key holding any other name stays byte-identical and is named. One .bak is taken
+# before the first write, and every line but the rewritten ones survives. Rows: <operator.conf line> <line afterwards>
+# <outcome words, in order>.
+section "providers: the kind-prefix migration rewrites whole keys only"
+mig_root="${TESTDIR}/migration"
+mkdir -p "${mig_root}/agents.d" "${mig_root}/integrations.d" "${mig_root}/filters.d"
+touch "${mig_root}/agents.d/claude-code.conf" "${mig_root}/agents.d/codex.conf" \
+      "${mig_root}/integrations.d/dotnet.conf" "${mig_root}/filters.d/base.rules" "${mig_root}/filters.d/dotnet.rules"
+mig_conf="${mig_root}/operator.conf"
+migrate() {
+    AI_TOOLS_AGENTS_DIR="${mig_root}/agents.d" AI_TOOLS_INTEGRATIONS_DIR="${mig_root}/integrations.d" \
+        AI_TOOLS_FILTERS_DIR="${mig_root}/filters.d" ai_tools_conf_kind_migrate "$1" 2>/dev/null || true
+}
+while IFS='|' read -r before after outcomes; do
+    rm -f "${mig_root}"/operator.conf*
+    printf '%s\n' '# header' 'OPERATORS=[op]' "${before}" 'SKIP_CACHE_DIRS=[x]' > "${mig_conf}"; chmod 0644 "${mig_conf}"
+    out="$(migrate "${mig_conf}")"
+    got_outcomes="$(cut -f1 <<< "${out}" | tr '\n' ' ')"; got_outcomes="${got_outcomes% }"
+    got_line="$(sed -n 3p "${mig_conf}")"
+    others="$(sed -n '1p;2p;4p' "${mig_conf}" | tr '\n' '|')"
+    if [[ "${got_line}" == "${after}" && "${got_outcomes}" == "${outcomes}" && "${others}" == '# header|OPERATORS=[op]|SKIP_CACHE_DIRS=[x]|' ]]; then
+        pass "migration of '${before}' leaves '${after}' (${outcomes:-no outcome})"
+    else
+        fail "migration of '${before}': line '${got_line}' (expected '${after}'), outcomes '${got_outcomes}' (expected '${outcomes}'), other lines '${others}'"
+    fi
+done <<'ROWS'
+AI_TOOLS_AGENTS=[claude-code, codex]|AI_TOOLS_AGENTS=[agent-claude-code, agent-codex]|backup rewritten
+AI_TOOLS_AGENTS="claude-code agent-codex"|AI_TOOLS_AGENTS=[agent-claude-code, agent-codex]|backup rewritten
+AI_TOOLS_INTEGRATIONS=dotnet|AI_TOOLS_INTEGRATIONS=[integration-dotnet]|backup rewritten
+AI_TOOLS_FILTERS=[core, dotnet]|AI_TOOLS_FILTERS=[filter-base, filter-dotnet]|backup rewritten
+AI_TOOLS_AGENTS=[claude-code, missing]|AI_TOOLS_AGENTS=[claude-code, missing]|blocked
+AI_TOOLS_AGENTS=[integration-dotnet]|AI_TOOLS_AGENTS=[integration-dotnet]|blocked
+AI_TOOLS_AGENTS=[agent-claude-code]|AI_TOOLS_AGENTS=[agent-claude-code]|
+AI_TOOLS_AGENTS=[claude-code|AI_TOOLS_AGENTS=[claude-code|
+ROWS
+
+# Every key in one file: one backup, taken before the first write and holding the file as it was; a blocked key beside
+# rewritten ones stays as written; the plan the check reports matches what the run did.
+rm -f "${mig_root}"/operator.conf*
+printf '%s\n' 'AI_TOOLS_AGENTS=[claude-code]' 'AI_TOOLS_INTEGRATIONS=[typesafe]' 'AI_TOOLS_FILTERS=[core]' > "${mig_conf}"
+chmod 0644 "${mig_conf}"; cp "${mig_conf}" "${mig_root}/as-it-was"
+plan="$(AI_TOOLS_AGENTS_DIR="${mig_root}/agents.d" AI_TOOLS_INTEGRATIONS_DIR="${mig_root}/integrations.d" \
+        AI_TOOLS_FILTERS_DIR="${mig_root}/filters.d" ai_tools_conf_kind_plan "${mig_conf}" | cut -f1,2 | tr '\t\n' ' |')"
+out="$(migrate "${mig_conf}")"
+backups=( "${mig_root}"/operator.conf.*.bak )
+if [[ ${#backups[@]} -eq 1 && -f "${backups[0]}" ]] && cmp -s "${backups[0]}" "${mig_root}/as-it-was"; then
+    pass "one .bak holds the file as it was, for a run that rewrote two keys"
+else
+    fail "backups after a two-key rewrite: ${backups[*]}"
+fi
+if [[ "$(tr '\n' '|' < "${mig_conf}")" == 'AI_TOOLS_AGENTS=[agent-claude-code]|AI_TOOLS_INTEGRATIONS=[typesafe]|AI_TOOLS_FILTERS=[filter-base]|' ]]; then
+    pass "a blocked key beside rewritten ones stays as written"
+else
+    fail "mixed rewrite left '$(tr '\n' '|' < "${mig_conf}")'"
+fi
+if [[ "${plan}" == 'migrate AI_TOOLS_AGENTS|blocked AI_TOOLS_INTEGRATIONS|migrate AI_TOOLS_FILTERS|' ]]; then
+    pass "the plan the check reports names each key the run rewrote or left"
+else
+    fail "plan: '${plan}'"
+fi
+# A second run finds only the blocked key, and does not take a second backup.
+out="$(migrate "${mig_conf}")"
+backups=( "${mig_root}"/operator.conf.*.bak )
+if [[ "$(cut -f1 <<< "${out}" | tr '\n' ' ')" == "blocked " && ${#backups[@]} -eq 1 ]]; then
+    pass "a second run is idempotent: the blocked key is named again, and no second backup is taken"
+else
+    fail "second run: outcomes '$(cut -f1 <<< "${out}" | tr '\n' ' ')', ${#backups[@]} backup(s)"
+fi
+# An untrusted file is not rewritten.
+printf 'AI_TOOLS_AGENTS=[claude-code]\n' > "${mig_conf}"; chmod 0666 "${mig_conf}"
+out="$(migrate "${mig_conf}")"
+if [[ -z "${out}" && "$(cat "${mig_conf}")" == 'AI_TOOLS_AGENTS=[claude-code]' ]]; then
+    pass "an untrusted operator.conf is not rewritten"
+else
+    fail "an untrusted operator.conf was touched: '${out}' / '$(cat "${mig_conf}")'"
 fi
 
 finish

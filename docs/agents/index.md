@@ -10,7 +10,7 @@ on, and where one agent's own settings and environment variables are listed.
 
 ```bash
 sudo ai-tools-admin system bootstrap                 # asks which agent, and writes the line
-sudo ai-tools-admin system bootstrap --agents codex  # the unattended form
+sudo ai-tools-admin system bootstrap --agents agent-<name> # agent-claude-code | agent-codex
 sudo sed -i 's/^#\?AI_TOOLS_REQUIRE_SELINUX=.*/AI_TOOLS_REQUIRE_SELINUX=yes/' /etc/ai-tools/operator.conf
 sudo sed -i 's/^#\?AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=.*/AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes/' /etc/ai-tools/operator.conf
 ```
@@ -18,21 +18,21 @@ sudo sed -i 's/^#\?AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=.*/AI_TOOLS_REQUIRE_ENTRYP
 `AI_TOOLS_AGENTS` in `/etc/ai-tools/operator.conf` names the agents this host
 runs, and no agent is on until it is named there. An installed agent package
 puts its files on the host and stays off; the first bootstrap asks which one
-installed agent to enable, writes its name on that line, installs the agent's
-npm package into the sandbox toolchain, and the nightly update keeps it
-current. A run with no terminal, or one answered with none, provisions Node
-alone and says which line to set; `--agents <name>` makes the choice without
-asking. The file is root-owned, so which agents run is decided with `sudo`
-and from nowhere else: a session cannot add one, and an agent package
-that widens what the host exposes stays off until you name it.
-`ai-tools providers` lists what is installed and which of it is enabled.
+installed agent to enable, writes it on that line as `agent-<name>`, installs
+the agent's npm package into the sandbox toolchain, and the nightly update
+keeps it current. A run with no terminal, or one answered with none, provisions
+Node alone and says which line to set; `--agents agent-<name>` makes the choice
+without asking, the unattended form. The file is root-owned, so which agents
+run is decided with `sudo` and from nowhere else: a session cannot add one,
+and an agent package that widens what the host exposes stays off until you name
+it. `ai-tools providers` lists what is installed and which of it is enabled.
 
-A second agent is a deliberate step, taken by hand: add its name to the line
-and re-run the bootstrap. Every agent named there runs as the one sandbox
-account and reads what the others store, a login or a token and the session
-history among them, and a session of one can start another's binary inside
-itself. Read [Scope](../about/scope.md) before naming a second agent;
-the bootstrap says the same once, on a line naming more than one.
+A second agent is a deliberate step, taken by hand: add `agent-<name>`
+to the line and re-run the bootstrap. Every agent named there runs as the one
+sandbox account and reads what the others store, a login or a token
+and the session history among them, and a session of one can start another's
+binary inside itself. Read [Scope](../about/scope.md) before naming a second
+agent; the bootstrap says the same once, on a line naming more than one.
 
 The third and fourth lines are optional and recommended.
 With `AI_TOOLS_REQUIRE_SELINUX=yes` a session starts only where SELinux is

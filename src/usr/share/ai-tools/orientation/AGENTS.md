@@ -1,6 +1,6 @@
 <!--
 x-ai-tools-managed: true
-x-ai-tools-version: 3
+x-ai-tools-version: 4
 -->
 
 # Sandbox boundaries
@@ -10,9 +10,11 @@ not a broken environment. These are boundaries sessions have repeatedly misdiagn
 
 - Refused here, whatever the purpose: `sudo`, `su`, `id`, `ps`, `df`, `du`, `getent`, `readlink`, `rpm`, `dnf`, `yum`,
   `mount`, `umount`, `systemctl`, `journalctl`, `getenforce`, `setenforce`, `semanage`, `semodule`, `matchpathcon`,
-  `ausearch`, `auditctl`, `aureport`, and the destructive git forms (`push --force`, `reset --hard`, `clean -f`).
+  `gpg`, `ausearch`, `auditctl`, `aureport`, and the destructive git forms (`push --force`, `reset --hard`, `clean -f`).
   A match anywhere in a compound command rejects the whole command. Do not retry or disguise a denied command; surface
   it if the work needs one.
+- Treat a tool that the confinement hides or blocks as refused, not missing: `command -v` prints nothing and `ls` may
+  say "Permission denied". `gpg` is refused while `gpgv` is allowed.
 - Scripts in a project or in `/tmp` may not execute directly. Invoke the interpreter: `bash <script>`,
   `python3 <script>`.
 - Project files you create become operator-owned during the session. ACLs preserve your read/write access;

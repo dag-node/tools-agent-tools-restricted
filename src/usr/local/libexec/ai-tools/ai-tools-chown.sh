@@ -16,8 +16,7 @@
 #   Not a sudo target -- ai-tools has no sudo rights (the session runs under NNP,
 #   which drops sudo's SUID bit).
 #
-# Installed 750 root:root, so only root runs it. Deploying from a checkout:
-# docs/install/from-source.md.
+# Installed 750 root:root, so only root runs it. Its domain rule is ownership-and-hooks.rule.md.
 
 set -euo pipefail
 

@@ -22,9 +22,10 @@ kinds share the mechanism:
 ## Manifests
 
 Each installed member package ships one manifest, `/usr/local/lib/ai-tools/{agents,integrations}.d/ <name>.conf`,
-`644 root:root`. `<name>` (the basename) is the token an operator writes in `AI_TOOLS_AGENTS` / `AI_TOOLS_INTEGRATIONS`.
-It is `KEY=value` data — **parsed, never sourced**, the same posture as `operator.conf`/`skip-dirs.lib.sh`,
-so a malformed or tampered manifest cannot execute code in the privileged scripts that read it:
+`644 root:root`. `<name>` (the basename) is the name an operator writes, after its kind prefix, in `AI_TOOLS_AGENTS`
+(`agent-<name>`) / `AI_TOOLS_INTEGRATIONS` (`integration-<name>`). It is `KEY=value` data — **parsed, never sourced**,
+the same posture as `operator.conf`/`skip-dirs.lib.sh`, so a malformed or tampered manifest cannot execute code
+in the privileged scripts that read it:
 
 - agents: `npm_package` (the registry package), `launcher` (the bin symlinked at `/opt/ai-tools/bin/<launcher>`,
   and the name `ai-tools-run` matches an executable against to decide whether it may launch), optionally
@@ -70,6 +71,20 @@ rather than a provider capability.
 `ai-tools-base` owns the four directories (`agents.d`, `integrations.d`, `session-env.d`, `admin-commands.d`), ships
 `providers.lib.sh`, and owns both readers — the `ai-tools-run` shim and the `ai-tools-admin` dispatcher; each member
 package ships only its own files into them.
+
+## Agent identity is manifest data
+
+A function that behaves differently per agent reads the difference from that agent's manifest — a field read
+through `providers.lib.sh`, or an argument its caller read from one — and does not branch on an agent's name.
+Agent-specific data, such as the names an entrypoint is invoked under or a state file it keeps, becomes a manifest key,
+so a further agent is a new manifest rather than an edit to every function. The unit suites drive the seam
+through a synthetic manifest named for no shipped agent (`acme`), so a literal agent name in code fails the fixture;
+a test that asserts a shipped manifest's content names that agent as data.
+
+A control an agent's own configuration expresses — a permission rule, a hook behaviour — is built for every agent
+that can express it at a reasonable cost. Where one cannot, the control ships for the others and that agent's rule
+states the gap, so its absence is not read as coverage: every typesafe `decide` call asks the operator first
+under claude-code, and codex, pinned to the `never` approval policy, does not ask ([typesafe](typesafe.rule.md)).
 
 ## The `handback` capability — which side converges ownership
 
@@ -232,6 +247,7 @@ reads the same whichever component reads it:
 KEY=value            quotes optional; whitespace around the key and `=` trimmed
 KEY="a b"            one layer of matched quotes stripped
 KEY=a, b  c          list items separate on commas AND whitespace, freely mixed
+KEY=[a, b]           the bracketed form of the same list; [] is the empty list
 KEY=value   # why    `#` at the start of a value or after whitespace ends it; inside
                      quotes it is literal, so a value containing one is written "a#b"
 KEY=                 PRESENT with an empty value — distinct from an ABSENT key
@@ -239,6 +255,30 @@ KEY=                 PRESENT with an empty value — distinct from an ABSENT key
 
 A repeated key takes its last assignment; a line with no `=` is ignored. Files are **parsed, never sourced**,
 so a malformed or tampered one yields a bad value, never executed code.
+
+A list read **from a file** goes through `ai_tools_conf_list_value` (`ai_tools_conf_list` for a key it reads itself),
+which accepts both forms. A bracketed list is invalid when it has one bracket without the other, when quotes enclose it
+(the parser's `_ai_tools_conf_value_quoted` flag, since a stripped quote layer is otherwise invisible), or when a quote
+or a further bracket sits inside it; an invalid list reads as the **empty** list and is reported under `MSG-D5N5`. Empty
+is the less-access reading for every list that grants something — an empty `OPERATORS` does not enrol any account,
+and an empty `AI_TOOLS_AGENTS` or `AI_TOOLS_INTEGRATIONS` does not enable any provider — where reading it as absent
+would fall back to a baseline that enables more; for `AI_TOOLS_FILTERS` and the `SKIP_*` lists it costs tokens or walk
+time and not access. A manifest value reaches its caller as a string, so a quoted bracket list there is not detected,
+which is acceptable for package data. A **command-line argument** keeps the plain form alone and is split
+by `ai_tools_conf_split`, which does not read brackets: the shell splits `[a, b]` into words and an unquoted `[a,` is
+a glob, so `ai-tools-bootstrap --agents` refuses a bracket by name (`MSG-Y7B6`) rather than reading it as part
+of an agent name.
+
+**A provider list item carries its kind.** Each item of `AI_TOOLS_AGENTS`, `AI_TOOLS_INTEGRATIONS`
+and `AI_TOOLS_FILTERS` is written `agent-<name>`, `integration-<name>` or `filter-<name>`, so one word names one thing
+wherever an operator writes it — the dotnet integration and its filter set share a basename. The prefix lives
+in `operator.conf` values alone: a manifest, a fragment, a rules file and a contributed command keep the bare name,
+since the directory already states the kind. `ai_tools_conf_kind_list` is the reader: it takes a key from the one table
+that ties a key to its prefix, requires every item to carry that prefix, and hands its caller the bare names, so every
+resolver and every consumer past it is unchanged. An item without its key's prefix makes the list invalid,
+the `MSG-D5N5` direction — empty, under its own code `MSG-X6F2`, which names the command that rewrites a bare name.
+`ai_tools_conf_kind_item` is the writer's side (`--agents` accepts either spelling and writes the prefixed one),
+and `ai_tools_conf_kind_unmigrated` is the one detection predicate every report of an unmigrated list reads.
 
 The **path-list** files share that grammar rather than defining their own. `ai_tools_conf_path_entry` reads one
 `allowed-projects` line — whole-line and end-of-line comments, and one quote layer for a path carrying a space
@@ -259,14 +299,22 @@ three of its writers (the CLI, the `ai-tools-allowlist` root helper, and `instal
 about what a line matches. A writer with its own matcher is a project that stays reachable after a "removal". The state
 model those functions implement, and the rules they enforce on every caller, are in [cli](cli.rule.md).
 
-It owns the one **write of a `KEY=value` file** for the same reason: `ai_tools_conf_set_key <file> <KEY> <value>`
-replaces the first line that *mentions* the key — a live `KEY=` or the template's commented `#KEY=` default, the same
-match `ai_tools_conf_keys` counts — with `KEY="value"`, in place under its comment block, and appends the line when no
-mention exists, writing beside the file and renaming so a reader sees the old file or the new one. A missing file is
-created at `0644`. It refuses a key outside the identifier charset and a value carrying a newline or a double quote,
-either of which would write a different setting than the one asked for. `ai-tools-admin operators add|remove` write
-`OPERATORS` through it and `ai-tools-bootstrap` writes `AI_TOOLS_AGENTS`; `tests/unit/conf.sh` drives it
-over a template-shaped fixture and asserts every other line byte-identical.
+It owns the one **write of a `KEY=value` file** for the same reason. `ai_tools_conf_set_key <file> <KEY> <value>` writes
+a scalar as `KEY="value"` and `ai_tools_conf_set_list <file> <KEY> <item>...` writes a list as `KEY=[a, b]`, and both go
+through one line replacement: the key's last live `KEY=` line — the assignment a reader takes — or, where there is none,
+the template's commented `#KEY=` default, the same match `ai_tools_conf_keys` counts, is replaced in place under its
+comment block, and the line is appended when no mention exists, and the file is written beside itself and renamed
+so a reader sees the old file or the new one. A missing file is created at `0644`. Each writer refuses a key outside
+the identifier charset, and each refuses what would read back as a different setting: `set_key` a value carrying
+a newline or a double quote, `set_list` an empty item or one carrying whitespace, a comma, a bracket, a quote or a `#`.
+Each verifies by reading the key back. `ai-tools-admin operators add|remove` write `OPERATORS` and `ai-tools-bootstrap`
+writes `AI_TOOLS_AGENTS` through the list writer, and the bootstrap's launch switches go through the scalar one;
+`tests/unit/conf.sh` drives both over a template-shaped fixture and asserts every other line byte-identical.
+
+A **switch** — a key whose value is yes or no — is read through `ai_tools_conf_yes`, so every switch accepts the same
+spellings: `yes`, `true`, `1` and `on` read as yes, and `no`, `false`, `0`, `off` and an empty value as no, in any case
+and quoted or not. Any other value reads as no and is reported under `MSG-D2F9`, so a mistyped switch does not change
+what a launch does without a line saying so.
 
 `ai_tools_conf_read` returns present/absent separately from the value, which is what makes `KEY=` (an explicit "none")
 distinguishable from an omitted key — the distinction [Enablement is fail-closed](#enablement-is-fail-closed) turns on.
@@ -297,10 +345,39 @@ but stays uninvoked until its declaration is merged ([claude-settings](claude-se
 
 The cost is that reconciling the `.rpmnew` is manual, so it is signposted: each package's `%post` prints the pointer
 whenever one is present, and `sudo ai-tools-admin system post-upgrade` names the options the new version documents
-that the file does not mention and shows the difference. It leaves this file unchanged, and leaves the copy in place
-as the baseline the operator edits from, naming it as theirs to delete. An additive merge could append an option block
-the file lacks, but it could never correct the prose of one already there, so `operator.conf(5)` is the single current
-statement of what an option means and the file points at the man page rather than restating it.
+that the file does not mention, the keys the host sets for itself, and whether the comment prose differs, and gives
+the `diff -u` that compares the two. It prints neither file: a kept `KEY=value` file may hold a credential. It leaves
+this file's prose and options as written and the copy in place as the baseline the operator edits from, and prints
+the command that removes the copy only when every option is mentioned and the prose is the same, since otherwise
+the copy still holds something the file lacks. A copy dated before the installation is named as an earlier version's
+template. The same treatment reaches a kept `*.conf` another package ships under `/etc/ai-tools`, which the command
+finds by its directory rather than by name. An additive merge could append an option block the file lacks, but it could
+never correct the prose of one already there, so `ai-tools-operator.conf(5)` is the single current statement
+of what an option means and the file points at the man page rather than restating it.
+
+**The one rewrite it makes is the kind prefix.** A provider list an earlier release wrote with bare names is invalid
+under [the kind prefix](#the-shared-config-grammar-conflibsh), so every session start refuses until it changes;
+and the change is spelling, not a setting. `ai_tools_conf_kind_migrate` (`providers.lib.sh`) makes it on every run,
+with or without an `.rpmnew` and unattended too, through `ai_tools_conf_set_list` after one dated `.bak`: a key is
+rewritten only when every item maps onto a name this host installs (`core` in `AI_TOOLS_FILTERS` onto `filter-base`),
+so a rewritten line always reads back whole, and a key holding any other name stays as written and is named, since only
+the operator knows what it meant. A rewritten `AI_TOOLS_AGENTS` is followed by the entrypoint reconciliation
+`system entrypoints relabel` runs (answering from an unchanged pin, as the unattended callers do): no relabel covered
+those agents while the line enabled none, so an install in that window leaves an entrypoint hardlinked to its platform
+package on that package's type. `system bootstrap` runs the same function ahead of its agent choice. `%post`
+and `install.sh` do not edit the file: each reads `ai_tools_conf_kind_unmigrated` and names this command, `%post`
+among the steps a host still needs and `install.sh` first in its closing steps.
+
+The same command answers unattended. It exits 1 while anything it reports needs the operator and 0 otherwise,
+the contract `status` offers, and `--check` prints the findings as data instead of a report: one tab-separated line
+per finding, carrying the finding's message code, the path, the finding and its detail, with no line on a host
+that needs nothing, since `cron` mails whatever a job prints. It reads every predicate the report reads and writes
+nothing, so a merge the interactive run would offer is reported as pending. The findings that need no action —
+an identical copy, a kept `.bak`, `.shipped` or `.retired`, an outdated or overridden skill — are printed under `--all`
+alone and do not change the exit status. Each finding is one situation and carries one code, tied to it
+in `_pu_finding`; `ai-tools-admin(8)` lists them. The check reaches past the `.rpmnew` files to what provisioning places
+on an upgrade: a shipped skill, subagent or orientation text not seeded, or an enabled agent without its link to one,
+needs attention, because a session is not offered that asset.
 
 ### A config file's header is a pointer
 
@@ -311,11 +388,11 @@ and `secret-patterns`, are seeded once, by `ai-tools-admin operators add` (the t
 and no upgrade rewrites them: the header an operator's file carries is the one that shipped on the day that account was
 enrolled, for as long as the account exists. A header written into any of the four therefore states what the file is,
 the one rule a reader needs before writing a line, example lines or one brief line per option beside its commented
-default, and the page that holds the reference — `operator.conf(5)`, `custom-claude-endpoint.conf(5)`,
-`allowed-projects(5)`, `secret-patterns(5)` — and the grammar, the semantics and the worked examples live in the page,
-which the package replaces on every upgrade. A commented default (`#KEY=`) stays in a template: it is a setting, and it
-is what `ai_tools_conf_keys` counts as *mentioned*, which keeps `system post-upgrade` from announcing every option
-as new.
+default, and the page that holds the reference — `ai-tools-operator.conf(5)`, `ai-tools-custom-claude-endpoint.conf(5)`,
+`ai-tools-allowed-projects(5)`, `ai-tools-secret-patterns(5)` — and the grammar, the semantics and the worked examples
+live in the page, which the package replaces on every upgrade. A commented default (`#KEY=`) stays in a template: it is
+a setting, and it is what `ai_tools_conf_keys` counts as *mentioned*, which keeps `system post-upgrade` from announcing
+every option as new.
 
 A config header is read in a terminal, which does not reflow it, so it holds to 72 columns, ragged right, with no
 comment line ending on an article, a conjunction, a preposition, or a wh-word — the words `msg.lib.sh` carries
@@ -356,7 +433,7 @@ names it (dotnet). This is the fail-closed default-when-unset rule.
 
 **Every agent manifest ships `default_enable=no`**, so the agents' baseline is empty and which agents a host runs is
 the operator's declaration, written once: `ai-tools-bootstrap` asks which **one** installed agent to enable
-when `AI_TOOLS_AGENTS` is absent and writes the line through `ai_tools_conf_set_key` before its first network step,
+when `AI_TOOLS_AGENTS` is absent and writes the line through `ai_tools_conf_set_list` before its first network step,
 or takes the names from `--agents` after checking each against `ai_tools_installed_agents` (see
 [updater](updater.rule.md)). The pure verdict and the grammar are unchanged; what changed is the shipped data.
 An untrusted `operator.conf` therefore does not enable any agent — one step tighter than a baseline that carried one —
@@ -463,10 +540,11 @@ surface **as the agent** and asserts none of it is agent-writable (catching the 
   side), so a report never guesses "shipped" over a file it could not read, nor `edited` over a path that does not hold
   any content. `ai_tools_managed_file_retire <live> <reference>` is the write beside them, the step a from-source
   uninstall takes over each pair: a file still byte-identical to its reference is removed, and every other state —
-  an edit, or a comparison that cannot be made — is moved aside as `<live>.<YYYYMMDD>.retired` and reported, so the only
-  copy of what a host configured survives the uninstall that no longer ships it. That is `rpm -e`'s treatment
-  of an edited `%config(noreplace)` file, and moving rather than leaving is what keeps a live managed file from naming
-  hook scripts the same uninstall removed. `tests/unit/providers.sh` drives the verdict, the reader and the write.
+  an edit, or a comparison that cannot be made — is moved aside as `<live>.<YYYYMMDD>-<N>.retired` and reported,
+  so the only copy of what a host configured survives the uninstall that no longer ships it. That is `rpm -e`'s
+  treatment of an edited `%config(noreplace)` file, and moving rather than leaving is what keeps a live managed file
+  from naming hook scripts the same uninstall removed. `tests/unit/providers.sh` drives the verdict, the reader
+  and the write.
 - `ai_tools_provider_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` / `baseline` /
   `untrusted`), read-only and side-effect free. The resolvers read it, and so does `ai-tools providers` (see
   [cli](cli.rule.md)), so an operator asking what is enabled and a session being launched consult one implementation.
@@ -620,10 +698,12 @@ unattended. Those are behaviour rather than text, so they are contracted here an
 
 ## The integration this project ships
 
-`dotnet` (`ai-tools-integration-dotnet`) is the one member package of the integration kind. It uses every seam this rule
-states — a manifest with `default_enable=no`, a session-env fragment, a filter rule set, and a contributed `dotnet`
-domain — and what each of those does for .NET, together with the SELinux groups the runtime needs under enforcing, is
-in [dotnet](dotnet.rule.md).
+`dotnet` (`ai-tools-integration-dotnet`) uses every seam this rule states — a manifest with `default_enable=no`,
+a session-env fragment, a filter rule set, and a contributed `dotnet` domain — and what each of those does for .NET,
+together with the SELinux groups the runtime needs under enforcing, is in [dotnet](dotnet.rule.md). `typesafe`
+(`ai-tools-integration-typesafe`) uses the manifest and the fragment alone: the fragment hands a session two paths
+and the command reads a credential from one of them at call time, which is the seam's credential pattern with the read
+moved from the fragment into the command ([typesafe](typesafe.rule.md)).
 
 ## Boundaries
 

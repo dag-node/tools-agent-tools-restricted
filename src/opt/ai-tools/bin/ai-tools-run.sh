@@ -118,6 +118,25 @@ if [[ " $(id -nG "@SANDBOX_USER@" 2>/dev/null) " == *" ai-ops "* ]]; then
            'remove it:  sudo gpasswd -d @SANDBOX_USER@ ai-ops'
 fi
 
+# ── The provider lists this release reads ────────────────────────────────────────────────────
+# A provider list item an earlier release wrote without its kind prefix makes the list read as empty
+# (ai_tools_conf_kind_list, conf.lib.sh): an unmigrated AI_TOOLS_AGENTS would reach the agent resolution as "no agent is
+# enabled", the wrong remedy, and an unmigrated AI_TOOLS_INTEGRATIONS or AI_TOOLS_FILTERS would start a session without
+# its integrations or its filters. So every launch refuses until `system post-upgrade` rewrites the lists; the wrapper
+# refused under the same code first, which makes this the boundary and the wrapper the diagnostician.
+unmigrated_items=""
+while IFS=$'\t' read -r unmigrated_key unmigrated_item; do
+    [[ -n "${unmigrated_key}" ]] && unmigrated_items+="${unmigrated_items:+, }${unmigrated_key} ${unmigrated_item}"
+done < <(ai_tools_conf_kind_unmigrated "${AI_TOOLS_OPERATOR_CONF}" 2>/dev/null)
+if [[ -n "${unmigrated_items}" ]]; then
+    audit warning "REFUSED: operator.conf names a provider without its kind prefix: ${unmigrated_items}"
+    # The code is the wrapper's, cited here so both tiers of one situation carry one token (messaging.rule.md).
+    printf '%s\n' MSG-V3Q5 >&2
+    refuse "no session starts while operator.conf names a provider without its kind prefix: ${unmigrated_items}" \
+           'an earlier release wrote these names bare; rewrite them with:' \
+           '  sudo ai-tools-admin system post-upgrade'
+fi
+
 # ── Agent resolution and executable validation ───────────────────────────────────────────────
 # The executable is accepted only when it is the launcher of an ENABLED, installed agent, at a semver-shaped version
 # directory inside the sandbox's own Node toolchain. The launcher set is an allowlist built from root-owned manifests,
@@ -274,8 +293,8 @@ if command -v getenforce >/dev/null 2>&1; then
     require_selinux=no
     operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
     if ai_tools_conf_is_trusted "${operator_conf}" 2>/dev/null \
-            && ai_tools_conf_read "${operator_conf}" AI_TOOLS_REQUIRE_SELINUX 2>/dev/null; then
-        case "${_ai_tools_conf_value,,}" in yes|true|1|on) require_selinux=yes ;; esac
+            && ai_tools_conf_yes "${operator_conf}" AI_TOOLS_REQUIRE_SELINUX; then
+        require_selinux=yes
     fi
 
     audit info "launch: agent=${agent_name} selinux=${selinux_mode} module=${module_present} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown} require=${require_selinux}"

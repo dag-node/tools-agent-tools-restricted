@@ -16,13 +16,18 @@
 # it, reported and left as it was: a file holding an escape sequence, and a symlink. Pinned on
 # the Emacs side: a file named like one of its options is a file to fill, and a file-local
 # `eval:` form is never run. Where the checker is present its `--wrap` mode is the oracle for the
-# filled paragraph. A repo dev tool, not a deployed artifact, so the test runs from the checkout;
-# skipped without Emacs.
+# filled paragraph. The last section is the reflow gate (tools/formatters/verify-reflow.py) over
+# this filler's output, where its reading of a source file is pinned: a comment marker is a line
+# prefix, so the fill passes and each class only a source file carries is reported -- a dropped
+# marker, a merged pair of comment paragraphs, a rewrapped fence inside a comment, a changed code
+# line. A repo dev tool, not a deployed artifact, so the test runs from the checkout; skipped
+# without Emacs.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TOOL="${ROOT}/tools/formatters/fill-comments.sh"
+GATE="${ROOT}/tools/formatters/verify-reflow.py"
 PC="${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
 section "fill-comments: the comment wrap formatter (unit)"
 
@@ -335,6 +340,87 @@ if [[ ! -e "${marker}" ]] && (( $(wc -l < "${lv}") > 7 )); then
     pass "a file-local eval form is not run, and the paragraph beside it is filled"
 else
     fail "the local-variable form ran, or the fill did not: marker $([[ -e "${marker}" ]] && echo present || echo absent), $(wc -l < "${lv}") lines"
+fi
+
+# (9) The reflow gate over this filler's output. A comment marker is a line prefix there, as a blockquote's `>` is
+# on a page: the filler carries it onto every line it makes, so the gate reads past it and reports a marker the filler
+# DROPPED, which turns a comment line into a code line. The gate's own fixture is a page, which reaches none of that,
+# so this section injects the classes only a source file carries.
+if [[ ! -r "${GATE}" ]] || ! command -v python3 >/dev/null 2>&1; then
+    skip "the reflow gate" "gate not found at ${GATE}, or python3 not available"
+else
+    mkdir -p "${TESTDIR}/base"
+    cp "${TESTDIR}/before.sh" "${TESTDIR}/base/sample.sh"
+    refill() {  # refill: the fixture, freshly copied from its base, through the filler at 72
+        cp "${TESTDIR}/before.sh" "${f}"
+        bash "${TOOL}" --width 72 "${f}" >/dev/null 2>&1
+    }
+    gate() {  # gate: exit 0 when the gate passes the fixture against its base, leaving the report in OUT
+        OUT="$(cd "${TESTDIR}" && python3 "${GATE}" --against "${TESTDIR}/base" sample.sh 2>&1)"
+    }
+    if refill && gate; then
+        pass "a filled source file passes the gate"
+    else
+        fail "the gate reports the filled fixture: $(head -3 <<<"${OUT}")"
+    fi
+    # detects <class> <present> <broken>: PASS when the gate reports <broken> substituted into the filled fixture.
+    # <present> is text the fill leaves stable, and the substitution reports its own miss, so a fixture that has moved
+    # reports as STALE and only the gate's silence reports as a MISS. The check is the substitution's because these
+    # strings span lines: `grep -zF` reads a multi-line pattern as one pattern per line and matches on any of them.
+    detects() {
+        local name="$1" present="$2" broken="$3"
+        refill
+        if ! python3 - "${f}" "${present}" "${broken}" <<'PY'
+import pathlib, sys
+path, present, broken = sys.argv[1:]
+path = pathlib.Path(path)
+text = path.read_text()
+if present not in text:
+    sys.exit(2)
+path.write_text(text.replace(present, broken, 1))
+PY
+        then
+            fail "${name}: STALE, the filled fixture no longer holds its shape"
+            return
+        fi
+        if gate; then
+            fail "${name}: the gate MISSED the defect"
+        else
+            pass "${name}: reported by the gate"
+        fi
+    }
+    detects "comment marker dropped on a continuation line" \
+        $'# The helper reads the list from the operator whose allowlist covers\n# the path' \
+        $'# The helper reads the list from the operator whose allowlist covers\nthe path'
+    detects "a word changed inside a comment" "The helper reads the list" "The helper takes the list"
+    detects "two comment paragraphs merged" \
+        $'#\n#   name          what it holds' '#   name          what it holds'
+    detects "a fenced block inside a comment rewrapped" \
+        $'# sudo ai-tools-admin operators add alice\n' $'# sudo ai-tools-admin operators\n# add alice\n'
+    detects "a code line changed" $'\nx=1\n' $'\nx=2\n'
+    # An aligned run is code to the filler -- a line holding a column of three or more spaces, which is the reading
+    # ai-tools-fill--skip-line states -- so the gate reads the same shape rather than Markdown's four-space indent,
+    # which a comment's own leading indentation is not.
+    detects "an aligned column rewrapped into prose" \
+        $'#   name          what it holds\n#   comment-width' $'#   name what it holds comment-width'
+
+    # (10) What the gate must NOT report, which is where a page's rules cost a source file: comment prose renders
+    # nowhere, and this tree wraps `+` between two names and a mode in parentheses onto a line start by filling alone.
+    # A gate reading those as a list marker fails a fill that did its job, and a run whose every finding is noise is
+    # a run nobody reads.
+    mkdir -p "${TESTDIR}/quiet-base"
+    printf '%s\n' '#!/usr/bin/env bash' \
+        '# The fragments the reader loads are the manifest directory + operator.conf via the root-only override, and' \
+        '# a directory left at 0700) is refused.' > "${TESTDIR}/quiet-base/quiet.sh"
+    printf '%s\n' '#!/usr/bin/env bash' \
+        '# The fragments the reader loads are the manifest directory' \
+        '# + operator.conf via the root-only override, and a directory left at' \
+        '# 0700) is refused.' > "${TESTDIR}/quiet.sh"
+    if ( cd "${TESTDIR}" && python3 "${GATE}" --against "${TESTDIR}/quiet-base" quiet.sh >/dev/null 2>&1 ); then
+        pass "a wrap landing on \`+\` or \`0700)\` is a fill, not a finding"
+    else
+        fail "the gate read wrapped prose as a block marker: $(cd "${TESTDIR}" && python3 "${GATE}" --against "${TESTDIR}/quiet-base" quiet.sh 2>&1 | head -3)"
+    fi
 fi
 
 finish

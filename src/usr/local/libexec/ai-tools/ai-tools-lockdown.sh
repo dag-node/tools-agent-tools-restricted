@@ -11,8 +11,8 @@
 # for the same reason -- the mode alone does not hold.
 #
 # A second pass then seals the paths the operator sealed by MODE: every path already owner-only under the target,
-# whatever its name, gets the same residue stripped, so a directory or file sealed after the claim does not wait for
-# the next claim to be cleaned up. The target directory itself is not sealed (the enumeration states why). That pass
+# whatever its name, gets the same residue stripped, so a directory or file sealed after the claim does not wait
+# for the next claim to be cleaned up. The target directory itself is not sealed (the enumeration states why). That pass
 # only ever removes the sandbox's reach, so unlike the lock it runs without a confirmation.
 #
 # Unlike ai-tools-chown (reactive: fires per agent-written path and acts only on ai-tools-owned paths), this is
@@ -27,7 +27,7 @@
 #       ```
 #
 # Installed 750 root:root, so only root runs it -- which is why the CLI cannot pre-check the path and sudo reaches it
-# instead. Deploying from a checkout: docs/install/from-source.md.
+# instead. Its domain rule is secret-handling.rule.md.
 
 set -euo pipefail
 
@@ -152,7 +152,7 @@ ai_tools_assert_safe_target "${target}" "lockdown" || exit 3
 ai_tools_resolve_owner "${target}" \
     || die MSG-K8Z6 "this directory is not in allowed projects for current operator: ${target}"
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
-# The owner's own private group, spelled per docs/naming-conventions.md -- the same target ai-tools-chown gives
+# The owner's own private group (secret-handling.rule.md states the target) -- the same one ai-tools-chown gives
 # an agent-written secret, so a secret ends up identically owned whether it was locked down proactively or quarantined
 # on write.
 readonly OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"

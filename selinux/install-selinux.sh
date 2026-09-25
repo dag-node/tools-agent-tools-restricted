@@ -194,7 +194,7 @@ require_devel() {
     warn "  which is not installed. A checkout compiles every module it loads (the RPM"
     warn "  ships them compiled), so install it and re-run:"
     warn "      sudo dnf install selinux-policy-devel"
-    warn "  See ${DIR}/README.md for the policy build/bring-up workflow."
+    warn "  See ${DIR}/README.md for the policy build/bring-up workflow"
     exit 1
 }
 
@@ -597,8 +597,8 @@ verify_agent_labels() {
                       warn MSG-R2N4 "stale manifest for ${subject}: its installed entrypoint is"
                       warn "    ${detail}"
                       warn "    -- not covered by the file-context rule its manifest declares,"
-                      warn "    so no relabel can label it and every launch will fail closed."
-                      warn "    Update the agent package; its manifest is stale." ;;
+                      warn "    so no relabel can label it and every launch will fail closed"
+                      warn "    Update the agent package; its manifest is stale" ;;
                 none) warn MSG-S4K9 "no path to label for ${subject}: ${detail} is not installed" ;;
                 skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms, so only
@@ -627,8 +627,8 @@ verify_agent_labels() {
     # A non-empty report that labelled no file has already printed its own per-path none/skip reason.
     if [[ "${labelled}" -eq 0 ]]; then
         if [[ -z "${report}" ]]; then
-            warn MSG-Q8W8 "no agent resolved from the manifests, so no entrypoint was labelled."
-            warn "  Nothing here grants ai_tools_exec_t, so a session refuses to launch until it is."
+            warn MSG-Q8W8 "no agent resolved from the manifests, so no entrypoint was labelled"
+            warn "  Nothing here grants ai_tools_exec_t, so a session refuses to launch until it is"
             warn "  Check which agents are enabled:  ai-tools providers"
             warn "  and that a manifest is installed: ls -l /usr/local/lib/ai-tools/agents.d/"
             warn "  Re-apply once one resolves:      sudo ai-tools-admin system entrypoints relabel"
@@ -732,7 +732,7 @@ _label_conf() {
             # transaction held.
             *) warn MSG-W3Q4 "could not set ai_tools_conf_t on ${dir}${AI_TOOLS_FCONTEXT_ERROR:+ -- ${AI_TOOLS_FCONTEXT_ERROR}}"
                warn "    type undefined? the module must be LOADED first --"
-               warn "    run 'install' (loads the module), not just 'relabel'." ;;
+               warn "    run 'install' (loads the module), not just 'relabel'" ;;
         esac
     done < <(_operator_conf_dirs)
 }

@@ -3,12 +3,13 @@
 # /usr/local/libexec/ai-tools/ai-tools-relabel
 # Apply (or revert) the ai_tools_project_t SELinux label on ONE approved project directory, so the confined agent
 # (ai_tools_t) can read and write it. This is the privileged half of project claiming: `semanage fcontext` needs root,
-# which the unprivileged `ai-tools` CLI does not have, so `projects claim` / `projects create` invoke this via sudo.
-# There is NO sudoers NOPASSWD grant for it (by design): sudo prompts for the projects user's password, the same pattern
-# as ai-tools-lockdown.
+# which the unprivileged `ai-tools` CLI does not have, so `projects claim` (and `projects create` through it) invoke
+# this via sudo to label, `projects unclaim` and `projects remove` invoke it with `--remove` to revert,
+# and `projects list` prints the revert for a stale entry. There is NO sudoers NOPASSWD grant for it (by design): sudo
+# prompts for the projects user's password, the same pattern as ai-tools-lockdown.
 #
-# The labelling body lives in the shared relabel.lib.sh (single source of truth, also used
-# by selinux/install-selinux.sh's allowlist sweep). This helper only validates the target and dispatches.
+# The labelling body lives in the shared relabel.lib.sh (single source of truth, also used by the policy installer
+# install-selinux.sh's allowlist sweep). This helper only validates the target and dispatches.
 #
 # Labelling a path requires it to be in the operator's allowed-projects allowlist: only approved projects may carry
 # the agent-accessible type. Reverting (`--remove`) is lenient -- it cleans up a path that may already have been
@@ -20,11 +21,7 @@
 #       sudo ai-tools-relabel --remove <dir>   # revert <dir> to its default type
 #       ```
 #
-# Deploy:
-#   ```bash
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-relabel.sh /usr/local/libexec/ai-tools/ai-tools-relabel
-#   ```
+# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 
@@ -158,6 +155,6 @@ else
            ai_tools_log_structured info "labelled project ${dir} ai_tools_project_t" \
                "AI_TOOLS_RESULT=ok" ;;
         2) echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}" ;;
-        *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? run: sudo selinux/install-selinux.sh install)" ;;
+        *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;
     esac
 fi

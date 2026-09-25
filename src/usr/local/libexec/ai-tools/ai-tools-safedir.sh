@@ -15,11 +15,7 @@
 #
 # Usage:  ai-tools-safedir [--remove] [<absolute-project-path>]
 #
-# Deploy:
-#   ```bash
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-safedir.sh /usr/local/libexec/ai-tools/ai-tools-safedir
-#   ```
+# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 
@@ -149,7 +145,7 @@ if ${REMOVE}; then
 fi
 
 # ADD. The path must be a real directory an operator's allowlist covers. Each refusal is reported as well as recorded:
-# a direct `sudo ai-tools-safedir` that registered nothing would otherwise exit 0 with no account of itself,
+# a direct `sudo ai-tools-safedir` that declined the path would otherwise exit 0 with no account of itself,
 # and the CLI's own report says only that the step ran.
 canonical="$(realpath -e -- "${TARGET}" 2>/dev/null)" || {
     warn MSG-N4D4 "no such directory ${TARGET} -- not registering safe.directory"

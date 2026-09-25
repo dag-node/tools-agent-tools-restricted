@@ -18,11 +18,7 @@
 # Runs as root via sudo under `ai-tools projects handback` (no-NOPASSWD, like ai-tools-setfacl); root is required
 # to chown files the projects user does not own.
 #
-# Deploy:
-#   ```bash
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh /usr/local/libexec/ai-tools/ai-tools-reclaim
-#   ```
+# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 
@@ -30,9 +26,9 @@ set -euo pipefail
 # instead of at each site. A leading message code (msg.lib.sh states the form) is printed on its own line ahead
 # of the message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since this helper reports
 # before msg.lib.sh is loaded. The reports that are not one situation -- the pre-scan sample and its count -- print raw
-# below, and carry no code. The code it printed is left in _warn_code, for a site that also records the situation
-# through log.lib.sh: the log call passes the variable, so the code literal stays at the emit call the reference index
-# reads as its definition (messaging.rule.md).
+# where they are made, and carry no code. The code it printed is left in _warn_code, for a site that also records
+# the situation through log.lib.sh: the log call passes the variable, so the code literal stays at the emit call
+# the reference index reads as its definition (messaging.rule.md).
 _warn_code=""
 warn() {
     local IFS=' ' code=""

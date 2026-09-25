@@ -40,7 +40,7 @@ for each record and lists them; it also says plainly when it could not make
 the reading — no audit daemon running, the policy not loaded, or a policy older
 than the rule — rather than showing an empty window.
 
-Both agents also re-run their own binary to reach a tool they bundle — codex
+An agent also re-runs its own binary to reach a tool it bundles — Codex
 to apply an edit, Claude Code to search files — and those records are counted
 in one line rather than listed individually. That split reads the name
 the caller passed, so treat the count as noise reduction and the records

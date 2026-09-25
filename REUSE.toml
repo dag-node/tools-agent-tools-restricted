@@ -23,6 +23,14 @@ precedence = "closest"
 SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
 SPDX-License-Identifier = "GPL-2.0-or-later"
 
+# The typesafe client's changelog, vendored from its signed release with the modules; the modules
+# carry their own SPDX header, and REUSE does not read a LICENSE file as a covered file.
+[[annotations]]
+path = "src/usr/local/lib/ai-tools/typesafe/CHANGELOG.md"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
+SPDX-License-Identifier = "MIT"
+
 # Assets intentionally released under CC0-1.0. The maintainer applies CC0 to any copyright and
 # related rights he holds in them. Assets held under other terms stay outside this directory.
 [[annotations]]

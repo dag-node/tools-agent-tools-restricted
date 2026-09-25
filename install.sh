@@ -223,12 +223,15 @@ readonly CONTROL_PLANE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-pla
 # shellcheck source=/dev/null
 source "${CONTROL_PLANE_LIB}" || die_unsourced "${CONTROL_PLANE_LIB}"
 
-# The shared config grammar, sourced from the SOURCE TREE like the other libs. It carries the config-sidecar handling
-# and the hook-declaration merge this script applies to a KEPT settings.json, so a missing lib would mean an upgrade
-# silently leaving a newly shipped hook undeclared -- fatal here, like the others.
+# The shared config grammar and the hook-declaration merge this script applies to a KEPT settings.json, sourced
+# from the SOURCE TREE like the other libs. A missing merge would mean an upgrade silently leaving a newly shipped hook
+# undeclared -- fatal here, like the others.
 readonly CONF_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/conf.lib.sh
 source "${CONF_LIB}" || die_unsourced "${CONF_LIB}"
+readonly SETTINGS_MERGE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/settings-merge.lib.sh"
+# shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/settings-merge.lib.sh
+source "${SETTINGS_MERGE_LIB}" || die_unsourced "${SETTINGS_MERGE_LIB}"
 
 # Managed-asset seeder (agents/skills), sourced from the SOURCE TREE. Requires msg.lib.sh (sourced with the other libs)
 # for the update confirm; a missing lib is fatal like the others.
@@ -362,7 +365,7 @@ report_new_conf_keys() {
     return 0
 }
 
-# Render the shared hook-declaration merge (conf.lib.sh) in the installer's voice. The decision, the backup,
+# Render the shared hook-declaration merge (settings-merge.lib.sh) in the installer's voice. The decision, the backup,
 # and the baseline copy are the library's; what belongs here is only how the outcome reads in an install log.
 #
 # A kept settings.json is the one control-plane file an upgrade does not overwrite, so without this a newly shipped hook
@@ -387,12 +390,35 @@ reconcile_hook_declarations() {
     # An affirmative outcome, not a warning: the merge is the intended path, and a warning that reports success trains
     # an operator to skim past the ones that matter. It is still not routine -- an operator-owned control-plane file
     # changed -- so every addition is named.
-    ok "${deployed}: merged in the hook declarations this version ships"
+    ok "${deployed}: reconciled the hook declarations with the ones this version ships"
     local line
     for line in "${_ai_tools_conf_merge_added[@]}"; do
         log "  + ${line}"
     done
+    for line in "${_ai_tools_conf_merge_removed[@]}"; do
+        log "  - ${line} (a repeat of an earlier declaration)"
+    done
     [[ -n "${_ai_tools_conf_merge_backup}" ]] && log "  previous file saved as ${_ai_tools_conf_merge_backup}"
+    return 0
+}
+
+# Name each ask entry a kept settings.json lacks for an installed command (settings-merge.lib.sh).
+# reconcile_hook_declarations leaves the permission arrays as written, so the entry is the operator's to add; a warning,
+# and the install continues.
+# $1 deployed settings.json
+report_ask_gaps() {
+    local gaps="" line
+    local -a entries=() fix=()
+    gaps="$(ai_tools_conf_ask_gaps "$1")" || return 0
+    [[ -n "${gaps}" ]] || return 0
+    mapfile -t entries <<< "${gaps}"
+    mapfile -t fix < <(ai_tools_conf_ask_fix "$1" "${entries[@]}")
+    warn MSG-K2P8 "the kept $1 runs these commands without asking, and each sends data off the host:"
+    for line in "${entries[@]}"; do warn "  ${line}"; done
+    if (( ${#fix[@]} > 0 )); then
+        warn "  to have it ask, ${fix[0]}"
+        for line in "${fix[@]:1}"; do warn "      ${line}"; done
+    fi
     return 0
 }
 
@@ -829,11 +855,11 @@ do_summary() {
     _chk /usr/lib/systemd/system/ai-tools-relabel.service
     _chk /usr/local/bin/ai-tools
     _chk /usr/local/share/man/man1/ai-tools.1
-    _chk /usr/local/share/man/man5/operator.conf.5
+    _chk /usr/local/share/man/man5/ai-tools-operator.conf.5
     _chk /usr/local/share/man/man5/ai-tools-providers.5
-    _chk /usr/local/share/man/man5/allowed-projects.5
-    _chk /usr/local/share/man/man5/secret-patterns.5
-    _chk /usr/local/share/man/man5/custom-claude-endpoint.conf.5
+    _chk /usr/local/share/man/man5/ai-tools-allowed-projects.5
+    _chk /usr/local/share/man/man5/ai-tools-secret-patterns.5
+    _chk /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     _chk /usr/local/share/man/man7/ai-tools-messages.7
     _chk /usr/local/share/man/man8/ai-tools-admin.8
     _chk /var/opt/ai-tools
@@ -852,11 +878,12 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/entrypoint-verify.lib.sh
     _chk /usr/local/lib/ai-tools/keys/claude-code.asc
     _chk /usr/local/lib/ai-tools/conf.lib.sh
+    _chk /usr/local/lib/ai-tools/settings-merge.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
     _chk /usr/local/lib/ai-tools/ancestor-config.lib.sh
     _chk /usr/local/lib/ai-tools/toolchain.lib.sh
     _chk /usr/local/lib/ai-tools/filters.lib.sh
-    _chk /usr/local/lib/ai-tools/filters.d/core.rules
+    _chk /usr/local/lib/ai-tools/filters.d/base.rules
     _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
     _chk /usr/local/lib/ai-tools/services.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
@@ -880,6 +907,11 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/integrations.d/dotnet.conf
     _chk /usr/local/lib/ai-tools/filters.d/dotnet.rules
     _chk /usr/local/lib/ai-tools/admin-commands.d/dotnet
+    _chk /usr/local/lib/ai-tools/session-env.d/typesafe.env.sh
+    _chk /usr/local/lib/ai-tools/integrations.d/typesafe.conf
+    _chk /usr/local/lib/ai-tools/typesafe/decide.mjs
+    _chk /etc/ai-tools/endpoints/typesafe.conf
+    _chk /usr/local/share/man/man5/ai-tools-typesafe.conf.5
     _chk /usr/local/lib/ai-tools/control-plane.lib.sh
     _chk /usr/local/lib/ai-tools/managed-assets.lib.sh
     _chk /usr/local/lib/ai-tools/relabel.lib.sh
@@ -1239,6 +1271,12 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/conf.lib.sh" \
         /usr/local/lib/ai-tools/conf.lib.sh
 
+    # The settings.json hook-declaration merge: 644 root:root, sourced by install.sh and ai-tools-admin as root.
+    log "/usr/local/lib/ai-tools/settings-merge.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/settings-merge.lib.sh" \
+        /usr/local/lib/ai-tools/settings-merge.lib.sh
+
     # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and nvm-update (both run
     # as the sandbox account) to resolve which agents to provision from the manifests in agents.d. No secrets, no
     # tokens.
@@ -1272,11 +1310,18 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.lib.sh" \
         /usr/local/lib/ai-tools/filters.lib.sh
-    log "/usr/local/lib/ai-tools/filters.d/core.rules"
+    log "/usr/local/lib/ai-tools/filters.d/base.rules"
     install -d -o root -g root -m 755 /usr/local/lib/ai-tools/filters.d
     install -o root -g root -m 644 \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/core.rules" \
-        /usr/local/lib/ai-tools/filters.d/core.rules
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/base.rules" \
+        /usr/local/lib/ai-tools/filters.d/base.rules
+    # A from-source install of an earlier release placed the base's set as core.rules, which this run does not
+    # overwrite; every installed set loads while AI_TOOLS_FILTERS is absent, so the superseded file is removed. (The RPM
+    # drops it on upgrade from its own %files.)
+    if [[ -f /usr/local/lib/ai-tools/filters.d/core.rules ]]; then
+        log "removing superseded /usr/local/lib/ai-tools/filters.d/core.rules"
+        rm -f /usr/local/lib/ai-tools/filters.d/core.rules
+    fi
 
     # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by ai-tools-admin (to load
     # a staged group) and selinux/install-selinux.sh (to compile one) so the two never disagree on the group set.
@@ -1360,7 +1405,7 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/dotnet.conf" \
         /usr/local/lib/ai-tools/integrations.d/dotnet.conf
     # Its command-filter rules (SDK verbosity), which are .NET knowledge and so ship with the .NET layer rather than
-    # in the base's core.rules.
+    # in the base's base.rules.
     log "/usr/local/lib/ai-tools/filters.d/dotnet.rules"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/filters.d/dotnet.rules" \
@@ -1374,6 +1419,29 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh" \
         /usr/local/lib/ai-tools/admin-commands.d/dotnet
+
+    # typesafe integration: the decide command (JavaScript node reads as the sandbox account and does not execute,
+    # so 644 root:root in a 755 tree), its session-env fragment and manifest. The credential file is seeded
+    # with the other endpoint file, and the state root the usage log lands in is created here on the RPM's terms: base's
+    # integrations root 0750, this integration's directory 2770 root:SANDBOX_GROUP.
+    log "/usr/local/lib/ai-tools/typesafe (the decide command)"
+    rm -rf /usr/local/lib/ai-tools/typesafe
+    cp -rT "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/typesafe" /usr/local/lib/ai-tools/typesafe
+    chown -R root:root /usr/local/lib/ai-tools/typesafe
+    find /usr/local/lib/ai-tools/typesafe -type d -exec chmod 755 {} +
+    find /usr/local/lib/ai-tools/typesafe -type f -exec chmod 644 {} +
+    log "/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh" \
+        /usr/local/lib/ai-tools/session-env.d/typesafe.env.sh
+    log "/usr/local/lib/ai-tools/integrations.d/typesafe.conf"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/typesafe.conf" \
+        /usr/local/lib/ai-tools/integrations.d/typesafe.conf
+    log "/opt/ai-tools/integrations/typesafe (state root: the usage log)"
+    ensure_dir "${CP_DIR_MODES[integrations]}" root "${SANDBOX_GROUP}" /opt/ai-tools/integrations
+    ensure_dir 2770 root "${SANDBOX_GROUP}" /opt/ai-tools/integrations/typesafe
+    chmod 2770 /opt/ai-tools/integrations/typesafe
 
     # SELinux policy modules: compiled from this checkout and staged under the canonical package dir (see
     # stage_selinux_modules). Loading and labelling the core is offer_selinux's step, later; this lays the modules
@@ -1630,13 +1698,26 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man8/ai-tools-admin.8" \
         /usr/local/share/man/man8/ai-tools-admin.8
 
-    # operator.conf(5). Documents the shared KEY=value grammar and every host option, so an operator reading the config
-    # has a manual rather than only its inline comments.
-    log "/usr/local/share/man/man5/operator.conf.5"
+    # Every section-5 page carries the ai-tools- prefix, so it cannot shadow a page some other package installs
+    # under the same generic name -- /usr/local/share/man and /usr/share/man are both on the default MANDATORY_MANPATH,
+    # and `man typesafe.conf` on a host that installs a vendor page would otherwise resolve to whichever the search
+    # order reaches first. Migration: remove the unprefixed names a from-source install placed, which the new run does
+    # not overwrite because it writes different paths. (The RPM drops them on upgrade from its own %files.)
     install -d -o root -g root -m 755 /usr/local/share/man/man5
+    local stale_page
+    for stale_page in operator.conf allowed-projects secret-patterns custom-claude-endpoint.conf typesafe.conf; do
+        if [[ -f "/usr/local/share/man/man5/${stale_page}.5" ]]; then
+            log "removing superseded /usr/local/share/man/man5/${stale_page}.5"
+            rm -f "/usr/local/share/man/man5/${stale_page}.5" "/usr/local/share/man/man5/${stale_page}.5.gz"
+        fi
+    done
+
+    # ai-tools-operator.conf(5). Documents the shared KEY=value grammar and every host option, so an operator reading
+    # the config has a manual rather than only its inline comments.
+    log "/usr/local/share/man/man5/ai-tools-operator.conf.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/operator.conf.5" \
-        /usr/local/share/man/man5/operator.conf.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-operator.conf.5" \
+        /usr/local/share/man/man5/ai-tools-operator.conf.5
 
     # ai-tools-providers(5). The provider manifests under agents.d and integrations.d and every key they take,
     # so a manifest's own header can stay a pointer.
@@ -1645,27 +1726,34 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-providers.5" \
         /usr/local/share/man/man5/ai-tools-providers.5
 
-    # allowed-projects(5). The operator's project allowlist: its grammar, what an entry and an exclusion mean,
+    # ai-tools-allowed-projects(5). The operator's project allowlist: its grammar, what an entry and an exclusion mean,
     # and the entry states. The seeded file's header is written once and never rewritten, so it points here rather than
     # carrying the reference.
-    log "/usr/local/share/man/man5/allowed-projects.5"
+    log "/usr/local/share/man/man5/ai-tools-allowed-projects.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/allowed-projects.5" \
-        /usr/local/share/man/man5/allowed-projects.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-allowed-projects.5" \
+        /usr/local/share/man/man5/ai-tools-allowed-projects.5
 
-    # secret-patterns(5). The operator's secret-name patterns: the glob grammar, what a match does,
+    # ai-tools-secret-patterns(5). The operator's secret-name patterns: the glob grammar, what a match does,
     # and the replace-the-baseline rule. Seeded once like the allowlist, so its header points here too.
-    log "/usr/local/share/man/man5/secret-patterns.5"
+    log "/usr/local/share/man/man5/ai-tools-secret-patterns.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/secret-patterns.5" \
-        /usr/local/share/man/man5/secret-patterns.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-secret-patterns.5" \
+        /usr/local/share/man/man5/ai-tools-secret-patterns.5
 
-    # custom-claude-endpoint.conf(5). The endpoint file's four options, their validation and their precedence,
+    # ai-tools-custom-claude-endpoint.conf(5). The endpoint file's four options, their validation and their precedence,
     # so the %config(noreplace) template can stay a pointer.
-    log "/usr/local/share/man/man5/custom-claude-endpoint.conf.5"
+    log "/usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/custom-claude-endpoint.conf.5" \
-        /usr/local/share/man/man5/custom-claude-endpoint.conf.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5" \
+        /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
+
+    # ai-tools-typesafe.conf(5). The typesafe integration's credential file: its four options and what the decide
+    # command refuses, so the seeded template can stay a pointer.
+    log "/usr/local/share/man/man5/ai-tools-typesafe.conf.5"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-typesafe.conf.5" \
+        /usr/local/share/man/man5/ai-tools-typesafe.conf.5
 
     # ai-tools-messages(7). Every message code the tree emits, with its severity and the component that emits it,
     # so `journalctl AI_TOOLS_MSG=<code>` and a code read off a terminal both resolve to a message. Section 7 because it
@@ -1836,6 +1924,20 @@ do_install() {
             "${SCRIPT_DIR}/src/etc/ai-tools/endpoints/custom-claude-endpoint.conf" "${endpointf}"
         seed_result "${endpointf}" "${endpointf_existed}" 0 "inert default"
     fi
+    # The typesafe integration's credential file, in the same directory and on the same terms: 640 root:SANDBOX_GROUP
+    # (the decide command reads the key as the sandbox account), kept when it exists, and shipped with the key commented
+    # so a from-source install does not make a request until the operator sets it. ai-tools-typesafe.conf(5) is its
+    # reference.
+    local typesafef=/etc/ai-tools/endpoints/typesafe.conf typesafef_existed=0
+    [[ -f "${typesafef}" ]] && typesafef_existed=1
+    if keep_existing "${typesafef}" "Discards your TypeSafe API key and model pin."; then
+        chown "root:${SANDBOX_GROUP}" "${typesafef}"; chmod 640 "${typesafef}"
+        seed_result "${typesafef}" "${typesafef_existed}" 1 "edited in place by the operator"
+    else
+        install -o root -g "${SANDBOX_GROUP}" -m 640 \
+            "${SCRIPT_DIR}/src/etc/ai-tools/endpoints/typesafe.conf" "${typesafef}"
+        seed_result "${typesafef}" "${typesafef_existed}" 0 "inert default (key commented)"
+    fi
 
     # Codex's two managed files, at the fixed path codex reads them from: requirements.toml pins the session
     # to the host's confinement (codex does not add a sandbox of its own) and declares the handback hooks as the only
@@ -1950,6 +2052,7 @@ do_install() {
         seed_result "${settings}" "${settings_existed}" 1 "host-tuned permission rules preserved"
         reconcile_hook_declarations "${settings}" \
             "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
+        report_ask_gaps "${settings}"
     else
         install -o root -g "${SANDBOX_GROUP}" -m 640 \
             "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json" "${settings}"
@@ -2206,11 +2309,11 @@ do_install() {
         # The symlink is in place, so the timer starts with the manager at next boot. Say what is not running now
         # and what to check, rather than pointing at a nologin account.
         warn MSG-M7K6 "the systemd --user manager of ${SANDBOX_USER} did not come up -- the auto-update timer"
-        warn "  is enabled but not running, so toolchain updates wait for the next boot."
+        warn "  is enabled but not running, so toolchain updates wait for the next boot"
         warn "  Check:  sudo systemctl status user@${sandbox_uid}.service"
         warn "  Then:   sudo systemctl start user@${sandbox_uid}.service"
         warn "  A session launch needs that instance too (ai-tools-run wraps each session in a"
-        warn "  transient --user unit), so bring it up before the first claude run."
+        warn "  transient --user unit), so bring it up before the first claude run"
     fi
 
     log "reload systemd and enable ai-tools-handback.socket + ai-tools-relabel.path"
@@ -2229,7 +2332,18 @@ do_install() {
     offer_selinux
 
     section "Install complete -- next steps"
-    if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
+    # A provider list an earlier release wrote with bare names refuses every session start until `system post-upgrade`
+    # rewrites it. This installer keeps operator.conf as the operator left it, so it names the command first,
+    # in the colour of a step the host still owes; the predicate is the one the reader refuses by (conf.lib.sh).
+    local unmigrated
+    unmigrated="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh && ai_tools_conf_kind_unmigrated /etc/ai-tools/operator.conf' \
+        2>/dev/null || true)"
+    if [[ -n "${unmigrated}" ]]; then
+        say "  ${C_YEL}rewrite the provider names in /etc/ai-tools/operator.conf -- no session starts until then:${C_RST}"
+        say "    ${C_BOLD}sudo ai-tools-admin system post-upgrade${C_RST}"
+        say ""
+    fi
+    if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 && -z "${unmigrated}" ]]; then
         say "  provision the sandbox toolchain (nvm + Node + claude) -- required before launch:"
         say "    ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"
         say ""
@@ -2244,7 +2358,7 @@ do_install() {
     say "    ${C_BOLD}/etc/ai-tools/operator.conf${C_RST}                  ${C_DIM}# host options, each documented inline${C_RST}"
     say "    ${C_BOLD}man ai-tools${C_RST}                                 ${C_DIM}# the CLI${C_RST}"
     say "    ${C_BOLD}man ai-tools-admin${C_RST}                           ${C_DIM}# the root-only host commands${C_RST}"
-    say "    ${C_BOLD}man 5 operator.conf${C_RST}                          ${C_DIM}# every host option${C_RST}"
+    say "    ${C_BOLD}man 5 ai-tools-operator.conf${C_RST}                 ${C_DIM}# every host option${C_RST}"
     say ""
     suggest_lint_tools
 
@@ -2254,10 +2368,17 @@ do_install() {
     # a non-interactive install skips all of it (a surprising, heavy default), leaving `install.sh check-perms`
     # and `tests/run.sh` available on demand.
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 ]]; then
+        # An unmigrated operator.conf does not enable any agent, so no launcher was linked and the toolchain reads
+        # as unprovisioned when it is not; MSG-N7S2 names the step that host owes instead.
+        if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 && -z "${unmigrated}" ]]; then
             warn MSG-A7X8 "toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail"
             warn "until it is; for a full pass run sudo ai-tools-admin system bootstrap first, then re-test"
             warn "with: sudo ${SCRIPT_DIR}/tests/run.sh all"
+        fi
+        if [[ -n "${unmigrated}" ]]; then
+            warn MSG-N7S2 "operator.conf names providers without their kind prefix -- every launch refuses and the"
+            warn "wrapper, launch and symlink checks fail until it is rewritten; run sudo ai-tools-admin system"
+            warn "post-upgrade first, then re-test with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
         # The section header prints only when the suite runs, so a skip avoids an empty "Verify" heading
         # in the transcript.
@@ -2401,11 +2522,12 @@ do_uninstall() {
     rm -f /usr/local/bin/ai-tools-handback-client
     rm -f /usr/local/bin/ai-tools
     rm -f /usr/local/share/man/man1/ai-tools.1
-    rm -f /usr/local/share/man/man5/operator.conf.5
+    rm -f /usr/local/share/man/man5/ai-tools-operator.conf.5
     rm -f /usr/local/share/man/man5/ai-tools-providers.5
-    rm -f /usr/local/share/man/man5/allowed-projects.5
-    rm -f /usr/local/share/man/man5/secret-patterns.5
-    rm -f /usr/local/share/man/man5/custom-claude-endpoint.conf.5
+    rm -f /usr/local/share/man/man5/ai-tools-allowed-projects.5
+    rm -f /usr/local/share/man/man5/ai-tools-secret-patterns.5
+    rm -f /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
+    rm -f /usr/local/share/man/man5/ai-tools-typesafe.conf.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude /usr/local/bin/codex
     # Codex's skills link (retire_managed_files has already taken its managed files). The link is removed only where it

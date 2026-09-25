@@ -7,6 +7,11 @@ Six settings across the two agents whose names cheerfully announce the opposite
 of what they do here. What each one really means, and the single rule
 that quietly decodes all of them.
 
+> [!WARNING]
+> What each permission mode does, and which one a session starts in, is
+> the agent's own behaviour and changes between releases. Read the agent's
+> official documentation for how these options work today.
+
 A Codex session opens with a banner that has made more than one experienced
 admin pause:
 
@@ -43,7 +48,7 @@ one, about reach.
 | Setting | Reads as | Means here |
 |---|---|---|
 | `sandbox: danger-full-access` (Codex) | the sandbox is off and anything goes | Codex does not add any sandbox of its own, which is exactly what leaves the host's confinement in charge. Codex's own sandbox is bubblewrap; that needs a user namespace this host refuses. Switching the vendor sandbox "on" is the change that would have to open that refusal. |
-| `approval: never` (Codex) | no command is ever approved | Codex never asks you before acting. Maximally permissive inside its layer, not restrictive. The refused-command table is what mediates instead. |
+| `approval: never` (Codex) | no command is ever approved | Codex asks you about a command only where a rule in its requirements marks it `prompt`, and the shipped rules mark none. Maximally permissive inside its layer, not restrictive. The refused-command table is what mediates instead. |
 | `read-only` in `allowed_sandbox_modes` (Codex) | sessions may run read-only | It is listed because Codex refuses the whole list without it. A session that selects it still lands on the managed default. |
 | `decision = "forbidden"` (Codex) | one of several outcomes, some of them permissive | A rule takes `forbidden` or `prompt`, with `allow` absent from the grammar, so the table can only narrow a session and no row anywhere can grant anything. |
 | `disableAutoMode: "disable"` (Claude Code) | a double negative — auto mode disabled, or the disabling itself disabled? | Auto mode is off. It is removed from the `Shift+Tab` cycle and `--permission-mode auto` is rejected, so the session confirms its actions. |

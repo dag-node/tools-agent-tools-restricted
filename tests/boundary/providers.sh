@@ -103,6 +103,10 @@ not_writable /usr/local/lib/ai-tools/integrations.d/dotnet.conf \
     "flip the dotnet integration to enabled-by-default"
 not_writable /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh \
     "inject environment and PATH into its own session"
+not_writable /usr/local/lib/ai-tools/integrations.d/typesafe.conf \
+    "flip the typesafe integration to enabled-by-default"
+not_writable /usr/local/lib/ai-tools/session-env.d/typesafe.env.sh \
+    "point the decide command at a credential file of its own"
 not_writable /usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh \
     "repoint its own config directory or re-enable the in-session updater"
 # The pins reach every session of the account and the fragment reaches claude-code sessions alone; writable,

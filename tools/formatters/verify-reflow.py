@@ -3,8 +3,8 @@
 """Prove that a reflow changed line breaks and left the text alone.
 
 ```bash
-python3 tools/formatters/verify-reflow.py --base <revision> [--repo P] [--] <path>...
-python3 tools/formatters/verify-reflow.py --against <dir> [--] <path>...
+python3 tools/formatters/verify-reflow.py --base <revision> [--repo P] [--prose | --source] [--] <path>...
+python3 tools/formatters/verify-reflow.py --against <dir> [--prose | --source] [--] <path>...
 ```
 
 Reads each path at the base (a git revision, or the same relative path under `--against`) and in
@@ -19,15 +19,36 @@ of hunk by hunk:
    its own character at its own length or longer) rather than a toggle, since a toggle reads
    the ```` ```bash ```` inside a `~~~markdown` block as a close and agrees with a filler that
    made the same mistake.
-2. The TOKEN STREAM: every line split on whitespace, so a changed, dropped, added, or reordered
-   word is reported with its position.
-3. The BLOCK SIGNATURES: the leading whitespace, quote prefix and list marker of the first line
-   of every blank-separated block, how many of its lines carry another quote prefix, and how
-   many open with a block marker. Their count catches a merged or split paragraph, which the
-   token stream cannot see because every token survives; their values catch a dropped indent, a
-   dropped quote prefix, a respaced marker, or a list item or heading a wrap invented by moving
-   its marker to a line start, none of which it can see because it splits on whitespace and
-   reads past a `>`.
+2. The TOKEN STREAM: every line split on whitespace past its line prefix, so a changed, dropped,
+   added, or reordered word is reported with its position.
+3. The BLOCK SIGNATURES: the leading whitespace, line prefix and list marker of the first line
+   of every blank-separated block, how many of its lines carry another prefix, and how many open
+   with a block marker. Their count catches a merged or split paragraph, which the token stream
+   cannot see because every token survives; their values catch a dropped indent, a dropped
+   prefix, a respaced marker, or a list item or heading a wrap invented by moving its marker to a
+   line start, none of which it can see because it splits on whitespace and reads past a prefix.
+
+A LINE PREFIX is the structure a filler carries onto every new line it makes: a blockquote's `>`
+on a page, and a comment marker in a source file, where the prose a filler wraps is the text the
+marker opens. A prefix is read past for the token stream and recorded in the block signature, so
+the gate reads a marker that landed on another line as the fill it is, and reports a marker a
+filler dropped — which turns a comment line into a code line. How a path is read follows the
+checker's extension rule: a page and a man page are read whole as prose, every other path as
+source. `--prose` and `--source` override it, since that rule fails silently in one direction —
+a document copy whose name lost its extension reads as source, where its `#` headings would be
+read as comment markers.
+
+Three of the block rules then read a comment as the comment filler does, since a comment reaches
+its reader as written and a page's rules would report the fill itself:
+
+- what stays verbatim is a line holding a column of three or more spaces — an aligned table, a
+  signature, an example — rather than a four-space indented block, since a comment's leading
+  indentation is the language's own and a code line is left to the token stream;
+- the markers counted are a bullet and a table row, where a page also counts `+`, a
+  parenthesized number, a heading and an HTML comment, each of which a wrap lands on a line
+  start by filling ordinary prose;
+- `prose-check: ignore` marks the line where it opens the comment's text, where a page carries
+  it at the end of the line it marks.
 
 Exits 0 when every path passes and 1 otherwise, printing the path, the check that failed, and the
 position. A path the base does not hold is reported as skipped rather than as a pass. Both copies
@@ -56,6 +77,15 @@ IGNORE_MARKER = "prose-check: ignore"
 # A blockquote's prefix is structure, not a token: a filled quote carries it on every new line, so the tokens are read
 # past it and the block signature records it instead.
 QUOTE = re.compile(r"^(\s*(?:>\s?)+)(.*)$")
+# A line comment's marker is that same structure in a source file. The set is the checker's own LINE_COMMENT -- a `#`
+# that does not open a shebang, and `//` -- so both tools read one comment the same way.
+LINE_COMMENT = re.compile(r"^(\s*(?:#(?!!)|//+)\s?)(.*)$")
+# The extensions the checker reads whole as prose. Every other path is read as source.
+PROSE_WHOLE_FILE = (".md", ".1", ".5", ".7", ".8")
+# A comment line holding a column of three or more spaces: an aligned table, a signature, an example. This is
+# the comment filler's own reading of a line to leave as written (`ai-tools-fill--skip-line`), and it stands
+# where a page has its four-space indented block -- a comment's leading indentation is the language's own.
+COLUMNED = re.compile(r"[^ \t] {3,}[^ \t]")
 ALERT = re.compile(r"^\[![A-Z]+\]\s*$")
 # A list marker with the spaces after it: its width is the item's content indent, so a marker respaced is a structure
 # change and is part of the block signature.
@@ -63,25 +93,40 @@ ITEM = re.compile(r"^\s*([-*+] +|\d+[.)] +)\S")
 # A token that opens a block at a line start. A wrap that moves one there invents the block, and the token stream cannot
 # see it, so the count of such lines is part of each block's signature.
 MARKER_LINE = re.compile(r"^\s*(?:[-*+] |\d+[.)] |#{1,6} |\||`{3,}|~{3,}|<!--)")
+# The same for a comment, which reaches its reader as written: a bullet and a table row are the shapes a filler must
+# keep, and the rest are read as the ordinary prose they are. A tree's comments put `+` between two names and a mode
+# in parentheses (`0700)`) at a line start by wrapping alone, so counting those reports a fill that did its job.
+SOURCE_MARKER_LINE = re.compile(r"^\s*(?:[-*] |\||`{3,}|~{3,})")
 
 Signature = tuple[str, int, int]
 Partition = tuple[list[str], list[str], list[Signature]]
 
 
-def quote_parts(line: str) -> tuple[str, str]:
-    """(quote prefix, the rest) of `line`; the prefix is empty outside a blockquote."""
-    match = QUOTE.match(line)
-    return (match.group(1), match.group(2)) if match else ("", line)
+def line_parts(line: str, source: bool) -> tuple[str, str, bool]:
+    """(line prefix, the text after it, whether a comment marker opened it) of `line`.
+
+    The prefix is a source file's comment marker followed by any blockquote prefix inside it, and
+    is empty on a code line and outside a blockquote.
+    """
+    prefix, marked = "", False
+    if source:
+        comment = LINE_COMMENT.match(line)
+        if comment:
+            prefix, line, marked = comment.group(1), comment.group(2), True
+    quote = QUOTE.match(line)
+    if quote:
+        prefix, line = prefix + quote.group(1), quote.group(2)
+    return prefix, line, marked
 
 
-def partition(text: str) -> Partition:
-    """`text` as (protected lines, tokens, block signatures).
+def partition(text: str, source: bool = False) -> Partition:
+    """`text` as (protected lines, tokens, block signatures), read as source where `source`.
 
-    A block signature is the leading whitespace, quote prefix and list marker of a
-    blank-separated block's first line, the count of its lines carrying a different quote prefix,
-    and the count of its lines opening with a block marker, so a quote prefix a filler dropped on
-    a continuation line, a marker it respaced, or a list item, heading, row or fence a wrap
-    invented mid-block is a difference here.
+    A block signature is the leading whitespace, line prefix and list marker of a blank-separated
+    block's first line, the count of its lines carrying a different prefix, and the count of its
+    lines opening with a block marker, so a prefix a filler dropped on a continuation line, a
+    marker it respaced, or a list item, heading, row or fence a wrap invented mid-block is a
+    difference here.
     """
     protected: list[str] = []
     tokens: list[str] = []
@@ -100,12 +145,15 @@ def partition(text: str) -> Partition:
         front = min(front + 1, len(lines))
         protected.extend(lines[:front])
     for line in lines[front:]:
-        quote, rest = quote_parts(line)
+        prefix, rest, marked = line_parts(line, source)
+        # A comment's prose begins after its marker, so a source file's indents, blank lines and blocks are read
+        # from the text the marker opens; a page and a code line carry no marker and are read as they stand.
+        body = rest if marked else line
         mark = FENCE_MARK.match(rest)
         if fence is None and not mark:  # a fence and its content leave the state alone
             if ITEM.match(rest):
                 listed = True
-            elif line.strip() and len(line) - len(line.lstrip(" ")) < 2:
+            elif body.strip() and len(body) - len(body.lstrip(" ")) < 2:
                 listed = False
         if fence is not None:
             protected.append(line)
@@ -120,22 +168,30 @@ def partition(text: str) -> Partition:
         elif COMMENT_OPEN.match(line):
             protected.append(line)
             in_comment = COMMENT_CLOSE not in line
-        elif TABLE.match(rest) or IGNORE_MARKER in line or ALERT.match(rest.strip()):
+        # The ignore marker is a directive where it opens a comment's text, and prose where a sentence names it. A page
+        # carries it at the end of a line it marks, so only a source file reads the position.
+        elif TABLE.match(rest) or ALERT.match(rest.strip()) or (
+                rest.startswith(IGNORE_MARKER) if source else IGNORE_MARKER in line):
             protected.append(line)
-        elif in_code or (block is None and not listed and line.startswith("    ")):
+        elif source and marked and COLUMNED.search(rest):
+            protected.append(line)
+        elif not source and (in_code or (block is None and not listed and line.startswith("    "))):
             protected.append(line)
             in_code = True
-        if not line.strip():
+        if not body.strip():
             block, in_code = None, False
             continue
-        if block is None:
+        # In a source file a prefix change opens a block too: a comment paragraph and the code under it are separate
+        # text, often with no blank line between them. On a page a line that drops the quote prefix is a lazy
+        # continuation of the same block, so the count of those is what the signature records instead.
+        if block is None or (source and prefix != block[1]):
             item = ITEM.match(rest)
-            head = line[:len(line) - len(line.lstrip(" "))] + quote + (item.group(1) if item else "")
-            block = [head, quote, 0, 0]
+            head = body[:len(body) - len(body.lstrip(" "))] + prefix + (item.group(1) if item else "")
+            block = [head, prefix, 0, 0]
             blocks.append(block)
-        elif quote != block[1]:
+        elif prefix != block[1]:
             block[2] += 1
-        block[3] += bool(MARKER_LINE.match(rest))
+        block[3] += bool((SOURCE_MARKER_LINE if source else MARKER_LINE).match(rest))
         tokens.extend(rest.split())
     return protected, tokens, [(head, lazy, markers) for head, _, lazy, markers in blocks]
 
@@ -176,15 +232,20 @@ def base_text(repo: pathlib.Path, revision: str | None, against: pathlib.Path | 
 
 
 def verify(repo: pathlib.Path, revision: str | None, against: pathlib.Path | None,
-           path: str) -> tuple[str, str] | None:
-    """(check, detail) for the first failing check on `path`, or None when the reflow is pure."""
+           path: str, force: bool | None = None) -> tuple[str, str] | None:
+    """(check, detail) for the first failing check on `path`, or None when the reflow is pure.
+
+    `force` reads the path as source (True) or as prose (False), where None leaves the extension
+    to decide.
+    """
+    source = not path.endswith(PROSE_WHOLE_FILE) if force is None else force
     try:
         tree = inside(repo, path)
         base = base_text(repo, revision, against, path)
         if base is None:
             return "skipped", f"the base does not hold {path}"
-        before = partition(base)
-        after = partition(text_file.read(str(tree))[0])
+        before = partition(base, source)
+        after = partition(text_file.read(str(tree))[0], source)
     except text_file.Refused as exc:
         return "refused", exc.reason
     except OSError as exc:
@@ -212,6 +273,11 @@ def main(argv: list[str] | None = None) -> int:
                       help="the revision the reflow started from")
     base.add_argument("--against", metavar="DIR", help="read the base copies under DIR instead")
     parser.add_argument("--repo", default=".", help="the tree holding the reflowed paths")
+    reading = parser.add_mutually_exclusive_group()
+    reading.add_argument("--prose", dest="force", action="store_const", const=False,
+                         help="read every line as prose, whatever the extension")
+    reading.add_argument("--source", dest="force", action="store_const", const=True,
+                         help="read a comment marker as a line prefix, whatever the extension")
     parser.add_argument("paths", nargs="+", metavar="PATH")
     args = parser.parse_args(argv)
     repo = pathlib.Path(args.repo).resolve()
@@ -219,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
 
     failed = skipped = passed = 0
     for path in args.paths:
-        result = verify(repo, args.revision, against, path)
+        result = verify(repo, args.revision, against, path, args.force)
         if result is None:
             passed += 1
         elif result[0] == "skipped":

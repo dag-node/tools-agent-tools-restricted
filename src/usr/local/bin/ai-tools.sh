@@ -43,7 +43,7 @@
 # statement of the workflow is
 # /var/opt/ai-tools/README.md.
 #
-# Deploying from a checkout: docs/install/from-source.md.
+# Its domain rules are cli.rule.md (what each command does) and cli-grammar.rule.md (how it is spelled).
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -531,6 +531,10 @@ source "${ANCESTOR_CONFIG_LIB}" 2>/dev/null || true
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/services.lib.sh
 source "${SERVICES_LIB}" 2>/dev/null || true
+# The toolchain readers `status` makes from the operator's vantage (toolchain.lib.sh): a disabled agent's remaining
+# launcher link, and the Node version the enabled agents' links name. Loaded by the sections that read it,
+# through toolchain_lib_loaded, since only `status` reads it.
+readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
 # The account whose `systemd --user` units the registry may read live. Naming it does not by itself enable the probe:
 # _ai_tools_service_systemctl still requires root and a working machine transport, and refuses this CLI run
 # as an operator. So an operator's report is unchanged, while `sudo ai-tools status` completes the reads that need root
@@ -1244,7 +1248,8 @@ clone_is_private() {
 # fcontext rule in selinux/policy/ai_tools.fc maps every directory under sandbox-projects/ to ai_tools_project_t,
 # so a plain restorecon labels it -- no per-project semanage and no root: the projects user runs as unconfined_t,
 # which the policy grants relabel to ai_tools_project_t. No-op when SELinux is disabled (or the module is not loaded,
-# in which case the label stays the default and the operator must run selinux/install-selinux.sh install).
+# in which case the label stays the default until the operator installs ai-tools-selinux, or from a checkout runs
+# selinux/install-selinux.sh install).
 relabel_clone() {
     local d="$1"
     command -v restorecon >/dev/null 2>&1 || return 0
@@ -2994,7 +2999,7 @@ cmd_project_remove() {
     # "and two cleanup steps failed". So the check mark is reserved for a clean run, and a run with failures closes
     # by stating both facts and exits non-zero, which is also what lets a script tell the two apart.
     if (( ROOT_STEP_FAILURES )); then
-        warn MSG-S6V2 "removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run."
+        warn MSG-S6V2 "removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run"
         say  "  Each is named above with the command that completes it. Registry entries left"
         say  "  behind now point at a path that no longer exists; this lists every entry that"
         say  "  needs attention, across all your projects:"
@@ -3492,17 +3497,17 @@ cmd_audit() {
 # the whole contract: the command accepts neither a target nor an authorization input, so this side has no decision left
 # to make. What a stop reaches follows from membership of the sandbox account's cgroup slice, which only the root helper
 # can read, and every remaining decision is a security decision that must not be made twice in two places. Option
-# grammar is all that lives here. Why the command is shaped this way: docs/sessions/stop.md.
+# grammar is all that lives here. Why the command is shaped this way: stop.rule.md.
 #
 # The helper's EXIT STATUS propagates unchanged, so a caller reads one set of codes whichever side refused. They are
 # listed in ai-tools(1) and are not restated here, so the two cannot drift.
 #
 # die_stop_usage -- refuse a `stop` command line in the HELPER's exit-code space (2 = usage), not the CLI's own (die
 # exits 1). Because cmd_stop propagates the helper's status, 2 is what a caller reading `stop`'s exit code is told
-# a usage error is -- in ai-tools(1) and docs/sessions/stop.md alike -- and WHICH SIDE refused is an implementation
-# detail of the ordering, not something the caller asked about. Exiting 1 here would report the same mistake as one code
-# from the CLI and another from a direct root call, and 1 already means "a process survived SIGKILL". It splits
-# a leading code off exactly as die() does, so a `stop` refusal carries one.
+# a usage error is (ai-tools(1)) -- and WHICH SIDE refused is an implementation detail of the ordering, not something
+# the caller asked about. Exiting 1 here would report the same mistake as one code from the CLI and another
+# from a direct root call, and 1 already means "a process survived SIGKILL". It splits a leading code off exactly
+# as die() does, so a `stop` refusal carries one.
 die_stop_usage() {
     local code=""
     if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
@@ -3676,7 +3681,8 @@ cmd_providers() {
             [[ -n "${integration}" ]] || continue
             declared="$(ai_tools_provider_manifest_field "${integration}" selinux_groups 2>/dev/null || true)"
             [[ -n "${declared}" ]] || continue
-            declared_groups=(); ai_tools_conf_split declared_groups "${declared}"
+            declared_groups=()
+            ai_tools_conf_list_value declared_groups "${declared}" 0 "selinux_groups in the ${integration} manifest"
             missing_stable=""; missing_experimental=""
             for gname in "${declared_groups[@]}"; do
                 ai_tools_selinux_group_valid "${gname}" || continue
@@ -4028,10 +4034,9 @@ status_provisioning() {
 # non-zero for a residue line, and for a library that will not load: the report then has no reading of whether a launch
 # is refused, which is a broken install like a missing registry.
 status_residue() {
-    local toolchain_lib=/usr/local/lib/ai-tools/toolchain.lib.sh agent launcher rc=0
-    # shellcheck source=SCRIPTDIR/../lib/ai-tools/toolchain.lib.sh
-    if ! source "${toolchain_lib}" 2>/dev/null || ! declare -F ai_tools_agent_residue_links >/dev/null 2>&1; then
-        say "  ${C_YEL}cannot check the toolchain for a disabled agent's package${C_RST} -- cannot load ${toolchain_lib}; reinstall the ai-tools package"
+    local agent launcher rc=0
+    if ! toolchain_lib_loaded; then
+        say "  ${C_YEL}cannot check the toolchain for a disabled agent's package${C_RST} -- cannot load ${TOOLCHAIN_LIB}; reinstall the ai-tools package"
         return 1
     fi
     while IFS=$'\t' read -r agent launcher; do
@@ -4041,6 +4046,55 @@ status_residue() {
         rc=1
     done < <(ai_tools_agent_residue_links "${LAUNCHER_DIR}" 2>/dev/null)
     return "${rc}"
+}
+
+# toolchain_lib_loaded -- source toolchain.lib.sh and succeed once its readers are defined. The library is
+# include-guarded, so each section that reads it calls this and the second call is a no-op; it requires providers.lib.sh
+# and returns non-zero WITHOUT defining a reader when that is missing, so the probe is on the readers rather than
+# on the source's own status.
+toolchain_lib_loaded() {
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/toolchain.lib.sh
+    source "${TOOLCHAIN_LIB}" 2>/dev/null || true
+    declare -F ai_tools_agent_residue_links >/dev/null 2>&1 \
+        && declare -F ai_tools_agent_link_node_versions >/dev/null 2>&1 \
+        && declare -F ai_tools_node_version_verdict >/dev/null 2>&1
+}
+
+# status_node_version -- the Version section's Node line. The active version is read from the enabled agents' stable
+# launcher links (ai_tools_agent_link_node_versions): every path that changes Node repoints them, so the line is right
+# after a bootstrap as much as after an update, and the read is unprivileged -- one readlink hop, the read the launch
+# wrapper makes. The updater's stamp records the version its last run left active and is shown only where it differs,
+# the one fact the link cannot carry: the toolchain changed after the updater last ran. Which case applies is
+# ai_tools_node_version_verdict's, so this and ai-tools-admin cannot disagree; a host with neither a link nor a stamp
+# gets no Node line, and Provisioning says why. Never counted: no case here is a fault.
+status_node_version() {
+    local rec stamp_node="" verdict kind version stamp_seen
+    if declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+        while IFS= read -r rec; do
+            stamp_node="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
+            [[ -n "${stamp_node}" && "${stamp_node}" != unknown ]] && break
+            stamp_node=""
+        done < <(ai_tools_service_records)
+    fi
+    if toolchain_lib_loaded; then
+        verdict="$(ai_tools_agent_link_node_versions "${LAUNCHER_DIR}" 2>/dev/null \
+                       | ai_tools_node_version_verdict "${stamp_node}")"
+    elif [[ -n "${stamp_node}" ]]; then
+        verdict=$'stamp\t'"${stamp_node}"     # no link reader: the stamp is the only reading left
+    else
+        verdict=none
+    fi
+    IFS=$'\t' read -r kind version stamp_seen <<<"${verdict}"
+    case "${kind}" in
+        active) if [[ -n "${stamp_seen}" ]]; then
+                    say "  node ${version} ${C_DIM}(active; the last update run saw ${stamp_seen})${C_RST}"
+                else
+                    say "  node ${version}"
+                fi ;;
+        split)  say "  node ${C_YEL}${version}${C_RST} ${C_DIM}(the enabled agents' launchers name different Node versions -- an update may be in progress)${C_RST}" ;;
+        stamp)  say "  node ${version} ${C_DIM}(as of the last toolchain update -- no launcher link names one)${C_RST}" ;;
+    esac
+    return 0
 }
 
 # status_managed_files <agent> -- one line per managed file the agent's manifest names (managed_files,
@@ -4074,17 +4128,8 @@ cmd_status() {
     section "Version"
     say "  ai-tools ${AI_TOOLS_VERSION}"
     # The agent version lives in the sandbox toolchain the operator cannot read, so it stays a pointer. Node does not
-    # have to: the updater records the version it left active in its stamp, so read it from whichever registry record
-    # publishes one -- no unit is named here, and a host whose updater has not run yet simply keeps the pointer.
-    local rec node_ver=""
-    if declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
-        while IFS= read -r rec; do
-            node_ver="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
-            [[ -n "${node_ver}" && "${node_ver}" != unknown ]] && break
-            node_ver=""
-        done < <(ai_tools_service_records)
-    fi
-    [[ -n "${node_ver}" ]] && say "  node ${node_ver} ${C_DIM}(as of the last toolchain update)${C_RST}"
+    # have to: its version is in the launcher link's target (status_node_version).
+    status_node_version
     # One pointer per enabled agent whose wrapper this host installs (an agent without one is the PATH ordering
     # section's to report). Through ai_tools_cmd_display, so the command printed here is the one that reaches
     # the sandbox: it renders the bare name only while this shell resolves it to the wrapper, and the absolute path
@@ -4161,10 +4206,18 @@ cmd_status() {
             absent) printf '  %-28s %sn/a (not installed)%s\n' "${unit}" "${C_DIM}" "${C_RST}" ;;
             # 'unknown' is not a problem report -- it says only that this vantage point cannot tell. It stays a single
             # line carrying the one command that CAN tell, so a healthy host's report does not grow a diagnostic block
-            # per unit it simply cannot query.
+            # per unit it simply cannot query. One reading is separable here: a stamp still empty as the package seeded
+            # it means the unit has never run, the state a freshly provisioned host is in until its first scheduled
+            # window, so the line says that and keeps the check command beside it.
             *)      if [[ "${scope}" == sandbox-user ]]; then
-                        printf '  %-28s %s? (sandbox --user unit -- check: sudo systemctl --user -M %s@.host status %s)%s\n' \
-                            "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
+                        if declare -F ai_tools_service_stamp_unwritten >/dev/null 2>&1 \
+                                && ai_tools_service_stamp_unwritten "${stamp}"; then
+                            printf '  %-28s %s? (no run recorded yet -- its first scheduled run has not happened; check: sudo systemctl --user -M %s@.host status %s)%s\n' \
+                                "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
+                        else
+                            printf '  %-28s %s? (sandbox --user unit -- check: sudo systemctl --user -M %s@.host status %s)%s\n' \
+                                "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
+                        fi
                     else
                         printf '  %-28s %s? (systemctl unavailable)%s\n' "${unit}" "${C_DIM}" "${C_RST}"
                     fi ;;
@@ -4571,8 +4624,8 @@ require_sudo_access() {
         # zero-argument form (the trailing ""), because the probe does not pass an operand. An entry here would only
         # ever produce "grant present", so it stays out and the verb reaches sudo directly, which reports a missing
         # drop-in itself. The pin also means `stop`'s FLAGGED forms fall outside the rule and meet sudo's ordinary
-        # prompt (deliberate; docs/sessions/stop.md). This probe could not report that either: it asks about the helper,
-        # while what a flag changes is whether the rule matches the command
+        # prompt (deliberate; stop.rule.md). This probe could not report that either: it asks about the helper, while
+        # what a flag changes is whether the rule matches the command
         # line.
         *) return 0 ;;
     esac

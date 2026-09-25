@@ -60,7 +60,7 @@ Two root commands finish the setup, and they are independent of each other:
 runs, installs the toolchain with that agent's package, and enables the update
 timer, and `sudo ai-tools-admin operators add <account>` enrols an account
 as an operator ([Operators](../operators/index.md)). No agent is on until you
-pick one; an unattended provision passes the choice as `--agents <name>`
+pick one; an unattended provision passes the choice as `--agents agent-<name>`
 ([Agents](../agents/index.md)). Only then does a project get claimed
 for that operator ([Projects](../projects/index.md)) —
 `ai-tools projects create` for a new tree, which does not ask any questions

@@ -34,11 +34,7 @@
 # @SANDBOX_GROUP@ (it arrived by rename, inheriting neither the setgid group nor the default ACL) -- so a re-claim's
 # drift scan (acl_drift_scan in the CLI) finds the tree settled.
 #
-# Deploy:
-#   ```bash
-#   sudo install -o root -g root -m 750 \
-#       src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh /usr/local/libexec/ai-tools/ai-tools-setfacl
-#   ```
+# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 
@@ -46,10 +42,10 @@ set -euo pipefail
 # instead of at each site. A leading message code (msg.lib.sh states the form) is printed on its own line ahead
 # of the message, the shape tests/lib/harness.sh's assert_msg reads. Matched inline, since this helper reports
 # before msg.lib.sh is loaded. Each refusal exits at its own site: this helper's statuses are 2 (usage), 3 (an unusable
-# library) and 0 (nothing to apply), so there is no one status for a die() to carry. The printed text is left
-# in _warn_text, and the code it printed in _warn_code, for a site that also records the situation through log.lib.sh:
-# the log call passes the variable, so the code literal stays at the emit call the reference index reads as its
-# definition (messaging.rule.md).
+# library) and 0 (a completed walk, and a target it declines silently), so there is no one status for a die() to carry.
+# The printed text is left in _warn_text, and the code it printed in _warn_code, for a site that also records
+# the situation through log.lib.sh: the log call passes the variable, so the code literal stays at the emit call
+# the reference index reads as its definition (messaging.rule.md).
 _warn_text="" _warn_code=""
 warn() {
     local IFS=' ' code=""
@@ -114,21 +110,6 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
-# Secret-name matcher (defense in depth): never apply the group ACL to a path whose basename looks like a secret (e.g.
-# .env), so a private file is not re-exposed to the agent group even if the operator forgot to '!'-exclude it. We run
-# as root, so we can read the 640 root:root lib. Best-effort -- the '!' allowlist exclusions remain the authoritative
-# control; if the matcher cannot load, fall back to them.
-readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-_secret_loaded=false
-# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
-if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
-    _secret_loaded=true
-fi
-_is_secret_name() {
-    ${_secret_loaded} || return 1
-    ai_tools_is_secret_basename "$(basename -- "$1")"
-}
-
 # Without setfacl (or on a filesystem without ACL support) there is no ACL to apply -- warn once and exit cleanly
 # (best-effort, mirrors the other helpers' fail-soft). The claim reports the step as applied either way, so the operator
 # is told on stderr as well as in the log: a tree with no ACL is one the agent reaches only through the group it was
@@ -167,6 +148,23 @@ ai_tools_assert_safe_target "${canonical}" "ACL grant" || exit 3
 # only on paths the resolved operator or the sandbox account hold.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
+
+# Secret-name matcher (defense in depth): the walk skips every path whose basename matches the secret patterns
+# (_is_secret_name), so a private file such as .env is not re-exposed to the agent group even if the operator forgot
+# to '!'-exclude it. Loaded AFTER the owner resolve, because the loader builds the file path from PROJECTS_HOME: a load
+# ahead of the resolve reads the built-in baseline and marks the set loaded, so the operator's own secret-patterns file
+# is never read. Best-effort -- the '!' allowlist exclusions remain the authoritative control; if the matcher cannot
+# load, fall back to them.
+readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
+_secret_loaded=false
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
+if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
+    _secret_loaded=true
+fi
+_is_secret_name() {
+    ${_secret_loaded} || return 1
+    ai_tools_is_secret_basename "$(basename -- "$1")"
+}
 
 # This run grants one project for one operator, so the operator and the project ride as per-run log context
 # (logging.rule.md).

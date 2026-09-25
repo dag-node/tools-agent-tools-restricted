@@ -18,9 +18,10 @@ ai-tools.spec  (one source RPM, BuildArch: noarch)
  ├─ ai-tools                    Requires: ai-tools-base; Recommends: both umbrellas
  ├─ ai-tools-base               the provider-agnostic foundation
  ├─ ai-tools-selinux            the confinement policy  (GPL-2.0-or-later; base Recommends it)
- ├─ ai-tools-integration        Recommends: ai-tools-integration-{nodejs,dotnet}
+ ├─ ai-tools-integration        Recommends: ai-tools-integration-{nodejs,dotnet,typesafe}
  │   ├─ ai-tools-integration-nodejs               Requires: ai-tools-base
- │   └─ ai-tools-integration-dotnet               Requires: ai-tools-base  (host dotnet; no dotnet RPM dep)
+ │   ├─ ai-tools-integration-dotnet               Requires: ai-tools-base  (host dotnet; no dotnet RPM dep)
+ │   └─ ai-tools-integration-typesafe             Requires: ai-tools-integration-nodejs
  └─ ai-tools-agents             Recommends: ai-tools-agents-claude-code-restricted
      └─ ai-tools-agents-claude-code-restricted    Requires: ai-tools-integration-nodejs
 ```
@@ -37,12 +38,15 @@ the documented DAC-only posture rather than a broken install.
 The `ai-tools-integration` umbrella groups the host-toolchain layers the agent
 builds against: `ai-tools-integration-nodejs` adds nvm-managed Node
 and the auto-update timer, `ai-tools-integration-dotnet` adds the session-env
-glue for a host-managed .NET toolchain (inert without one), and further
-language/runtime integrations join as `ai-tools-integration-*` siblings.
-The `ai-tools-agents` umbrella groups the sandboxed agents:
-`ai-tools-agents-claude-code-restricted` is the Claude Code provider layer,
-and other providers join as `ai-tools-agents-*` siblings on the same base
-and integration layers, so the base is shared rather than duplicated.
+glue for a host-managed .NET toolchain (inert without one),
+`ai-tools-integration-typesafe` adds a command a session hands a long listing
+to and a credential file that is inert until an operator sets the key
+([Decide](sessions/decide.md)), and further integrations join
+as `ai-tools-integration-*` siblings. The `ai-tools-agents` umbrella groups
+the sandboxed agents: `ai-tools-agents-claude-code-restricted` is the Claude
+Code provider layer, and other providers join as `ai-tools-agents-*` siblings
+on the same base and integration layers, so the base is shared rather than
+duplicated.
 
 The `ai-tools` metapackage `Requires` the base (the mandatory foundation)
 and weakly `Recommends` both umbrellas, each of which weakly `Recommends` its
@@ -123,6 +127,7 @@ between versions.
 | `ai-tools-selinux` | the compiled SELinux policy modules in `/usr/share/selinux/packages/ai-tools/` — the core `ai_tools.pp` (the `ai_tools_t` domain and the handback/helper types), each STABLE optional group, and each integration's layout module, every one compiled at package build against the building distribution's policy headers; the `%post`/`%postun` scriptlets that load the core and unload every loaded `ai_tools*` module on erase; the GPL licence text |
 | `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-launcher-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-agent`) |
 | `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`), manifest (`integrations.d/dotnet.conf`) and the `dotnet` domain of `ai-tools-admin` (`admin-commands.d/dotnet`), which provisions a writable NuGet cache + read-only shared tools under its own `/opt/ai-tools/integrations/dotnet` state root, covered by the base's single fcontext rule for that tree. No .NET runtime — the host's dotnet is used |
+| `ai-tools-integration-typesafe` | the decide command (`/usr/local/lib/ai-tools/typesafe`, JavaScript the sandbox's Node runs, with no runtime dependency), its session-env fragment (`session-env.d/typesafe.env.sh`) and manifest (`integrations.d/typesafe.conf`), the credential file `/etc/ai-tools/endpoints/typesafe.conf` (`%config(noreplace)`, shipped with the key commented) and its `ai-tools-typesafe.conf(5)` page, the `/opt/ai-tools/integrations/typesafe` state root the usage log lands in, and the pristine copy of the `ai-tools-decide` skill, which its `%post` seeds and links and its `%postun` withdraws |
 | `ai-tools-agents-claude-code-restricted` | the `claude` launch wrapper; `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; its agent manifest (`agents.d/claude-code.conf`, naming the npm package, launcher, display name, handback capability, config directory, and the SELinux entrypoint file-context for `claude.exe`); its own config directory `/opt/ai-tools/.claude`, the shipped Claude-format agents seeded into it, its session pins and session-env fragment (`session-env.d/claude-code.pins.env.sh`, `session-env.d/claude-code.env.sh`); the scriptlets that register that file-context on install and drop it on erase. Confinement itself is base-owned, so this package does not ship a shim and does not need a sudoers rule of its own |
 
 The handback daemon is a verb dispatcher over a helper table; the generic verbs

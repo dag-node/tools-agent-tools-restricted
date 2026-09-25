@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/settings-merge.sh
-# Unit test for the hook-declaration merge (conf.lib.sh), the step that lets a NEWLY SHIPPED hook reach a host
+# Unit test for the hook-declaration merge (settings-merge.lib.sh), the step that lets a NEWLY SHIPPED hook reach a host
 # whose settings.json is kept across the upgrade.
 #
 # What makes this worth pinning: the merge edits an operator-owned control-plane file, and every way it can go wrong is
@@ -11,8 +11,8 @@
 # SURVIVE, and what must be REPORTED -- plus the sidecars, which answer different questions (.bak is what the operator
 # had, .shipped is what they were meant to get) and do not substitute for each other.
 #
-# Drives the DEPLOYED library, like the other unit tests: the decision lives in conf.lib.sh precisely so it can be
-# exercised without stubs or text extraction.
+# Drives the DEPLOYED library, like the other unit tests: the decision lives in settings-merge.lib.sh precisely so it
+# can be exercised without stubs or text extraction.
 #
 # No network, no session: fixtures are built in the testdir.
 
@@ -20,23 +20,29 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
 
-readonly LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+readonly LIB="/usr/local/lib/ai-tools/settings-merge.lib.sh"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SHIPPED="${REPO_ROOT}/src/opt/ai-tools/agents/claude-code/settings.json"
 
 section "settings.json hook-declaration merge (unit)"
 
 if [[ ! -r "${LIB}" || ! -r "${SHIPPED}" ]]; then
-    skip "settings merge" "needs the deployed conf.lib.sh and the shipped settings.json"; finish; exit
+    skip "settings merge" "needs the deployed settings-merge.lib.sh and the shipped settings.json"; finish; exit
 fi
 # shellcheck source=/dev/null
 source "${LIB}"
 if ! declare -F ai_tools_conf_merge_hook_declarations >/dev/null 2>&1; then
-    skip "settings merge" "deployed conf.lib.sh predates the merge -- re-run sudo ./install.sh install"
+    skip "settings merge" "deployed settings-merge.lib.sh is incomplete -- re-run sudo ./install.sh install"
     finish; exit
 fi
 if ! command -v jq >/dev/null 2>&1; then
     fail "jq is missing -- it is a package dependency of the agent package"; finish; exit
+fi
+# jq is a package dependency, so the JSON paths report a broken install rather than degrading.
+if ai_tools_conf_require_jq >/dev/null 2>&1; then
+    pass "the jq gate passes where jq is installed"
+else
+    fail "the jq gate rejected a host that has jq"
 fi
 
 mktestdir
@@ -44,12 +50,13 @@ mktestdir
 # Render the library's structured result the way a caller does, so the assertions read what an operator would have been
 # told rather than reaching into the library's variables one by one.
 # shellcheck disable=SC2154  # the _ai_tools_conf_merge_* results are set by the sourced
-# conf.lib.sh, which shellcheck cannot follow through the LIB path variable
+# settings-merge.lib.sh, which shellcheck cannot follow through the LIB path variable
 merge_report() {
     local status=0
     ai_tools_conf_merge_hook_declarations "$1" "$2" || status=$?
     case "${status}" in
     0)  printf 'added: %s\n' "${_ai_tools_conf_merge_added[@]}"
+        printf 'removed: %s\n' "${_ai_tools_conf_merge_removed[@]}"
         [[ -n "${_ai_tools_conf_merge_backup}" ]] \
             && printf 'backup: %s\n' "${_ai_tools_conf_merge_backup}" ;;
     2)  printf 'refused: %s\n' "${_ai_tools_conf_merge_reason}"
@@ -146,6 +153,58 @@ else
     fail "an already-current file was touched or reported: ${quiet}"
 fi
 
+# --- Each shipped command is declared once ------------------------------------------------------
+# Claude Code runs every declaration, so a repeat runs its hook twice per call. The shape that produced one: a file
+# whose Bash group held the filter alone, merged against a version shipping the filter and the tool-call record in one
+# group. Appending that group whole declares the filter a second time; the merge appends only what is absent,
+# and repairs a file that already carries the repeat.
+readonly FILTER_POST="/opt/ai-tools/.claude/filter-hook.sh post-tool-use"
+readonly RECORD="/opt/ai-tools/.claude/post-tool-hook.sh record"
+times_declared() { jq --arg e "$2" --arg c "$3" '[.hooks[$e][]?.hooks[]?.command | select(. == $c)] | length' "$1"; }
+mk_filter_only() {
+    jq --arg f "${FILTER_POST}" '.hooks.PostToolUse = [ (.hooks.PostToolUse[] | select(.matcher == "Write|Edit")),
+          {matcher:"Bash", hooks:[{type:"command", command:$f}]} ]' "${SHIPPED}" > "$1"
+}
+
+filter_only="${TESTDIR}/filter-only.json"; mk_filter_only "${filter_only}"
+report="$(merge_report "${filter_only}" "${SHIPPED}")"
+if [[ "$(times_declared "${filter_only}" PostToolUse "${FILTER_POST}")" == 1 \
+      && "$(times_declared "${filter_only}" PostToolUse "${RECORD}")" == 1 ]]; then
+    pass "a group partly declared gains only its absent command, and the declared one is not repeated"
+else
+    fail "merging a partly declared group left filter x$(times_declared "${filter_only}" PostToolUse "${FILTER_POST}"), record x$(times_declared "${filter_only}" PostToolUse "${RECORD}")"
+fi
+
+repeated="${TESTDIR}/repeated.json"; mk_filter_only "${repeated}"
+jq '.hooks.PostToolUse += [ ($shipped[0].hooks.PostToolUse[] | select(.matcher == "Bash")) ]
+    | .hooks.PostToolUse += [{matcher:"Bash", hooks:[{type:"command", command:"/usr/local/bin/site-audit.sh"},
+                                                   {type:"command", command:"/usr/local/bin/site-audit.sh"}]}]' \
+    --slurpfile shipped "${SHIPPED}" "${repeated}" > "${repeated}.t" && mv "${repeated}.t" "${repeated}"
+report="$(merge_report "${repeated}" "${SHIPPED}")"
+if [[ "$(times_declared "${repeated}" PostToolUse "${FILTER_POST}")" == 1 \
+      && "$(times_declared "${repeated}" PostToolUse "${RECORD}")" == 1 ]]; then
+    pass "a file an earlier merge left with a repeated shipped command is repaired to one declaration"
+else
+    fail "the repeated shipped command survived: filter x$(times_declared "${repeated}" PostToolUse "${FILTER_POST}")"
+fi
+if grep -qxF "removed: PostToolUse: ${FILTER_POST}" <<< "${report}"; then
+    pass "the report names the repeat it removed"
+else
+    fail "the repair was not reported: ${report}"
+fi
+if [[ "$(times_declared "${repeated}" PostToolUse /usr/local/bin/site-audit.sh)" == 2 ]]; then
+    pass "an operator's own repeated hook is left as written"
+else
+    fail "the merge removed a repeat of a hook it does not ship"
+fi
+before="$(md5sum < "${repeated}")"
+quiet="$(merge_report "${repeated}" "${SHIPPED}" 2>&1)"
+if [[ "$(md5sum < "${repeated}")" == "${before}" && -z "${quiet}" ]]; then
+    pass "a repaired file is current: a second run leaves it alone"
+else
+    fail "a second run touched the repaired file: ${quiet}"
+fi
+
 # --- Sidecars: two files, two different recoveries --------------------------------------------
 # Both are date-stamped and neither overwrites an earlier copy, so an operator who ran the installer twice keeps
 # the first -- the run they usually want back.
@@ -161,7 +220,7 @@ if [[ -n "${backup_path}" && "$(cat "${backup_path}")" == "${original}" ]]; then
 else
     fail "no faithful, named backup of the pre-merge file: '${backup_path}'"
 fi
-if [[ "${backup_path}" == *.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].bak ]]; then
+if [[ "${backup_path}" =~ \.[0-9]{8}-[0-9]+\.bak$ ]]; then
     pass "the backup is date-stamped, so successive installs do not overwrite each other"
 else
     fail "the backup is not date-stamped: ${backup_path}"
@@ -218,5 +277,78 @@ if [[ "$(count_sidecars "${broken}" shipped)" == 2 ]] && cmp -s "${reference_pat
 else
     fail "expected 2 baseline copies naming the changed one, found $(count_sidecars "${broken}" shipped)"
 fi
+
+# ── Ask entries a kept file lacks ────────────────────────────────────────────────────────────
+# The check is read-only and keyed on the command being installed, so it is driven against a prefix root holding a stub
+# of the command: the host's own install is neither read nor needed. The shipped file must carry every entry the table
+# lists, or a fresh install would report a gap the package itself left.
+readonly DECIDE_ASK='Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)'
+ask_root="${TESTDIR}/ask-root"
+mkdir -p "${ask_root}/usr/local/lib/ai-tools/typesafe"
+no_ask="${TESTDIR}/no-ask.json"
+jq 'del(.permissions.ask)' "${SHIPPED}" > "${no_ask}"
+
+if gaps="$(ai_tools_conf_ask_gaps "${no_ask}" "${ask_root}")" && [[ -z "${gaps}" ]]; then
+    pass "an entry for a command that is not installed is not reported"
+else
+    fail "reported an ask entry for a command that is not installed: ${gaps}"
+fi
+
+: > "${ask_root}/usr/local/lib/ai-tools/typesafe/decide.mjs"
+cp "${no_ask}" "${TESTDIR}/no-ask.before"
+if gaps="$(ai_tools_conf_ask_gaps "${no_ask}" "${ask_root}")" && [[ "${gaps}" == "${DECIDE_ASK}" ]]; then
+    pass "a kept file lacking the entry for an installed command is reported with the exact entry"
+else
+    fail "the missing ask entry was not reported as the exact entry: ${gaps}"
+fi
+if cmp -s "${no_ask}" "${TESTDIR}/no-ask.before"; then
+    pass "the ask check leaves the file byte-identical"
+else
+    fail "the ask check wrote to the file it checked"
+fi
+
+if gaps="$(ai_tools_conf_ask_gaps "${SHIPPED}" "${ask_root}")" && [[ -z "${gaps}" ]]; then
+    pass "the shipped settings.json carries every ask entry the check requires"
+else
+    fail "the shipped settings.json lacks an ask entry the check requires: ${gaps}"
+fi
+
+not_array="${TESTDIR}/ask-not-array.json"
+jq --arg e "${DECIDE_ASK}" '.permissions.ask = $e' "${SHIPPED}" > "${not_array}"
+if ai_tools_conf_ask_gaps "${not_array}" "${ask_root}" >/dev/null 2>&1 \
+        || ai_tools_conf_ask_gaps "${broken}" "${ask_root}" >/dev/null 2>&1; then
+    fail "an ask list that is not an array, or a file that is not JSON, was reported as checked"
+else
+    pass "an ask list that is not an array and a file that is not JSON each report the check as not run"
+fi
+
+# The fix the reports print is pasted by hand, so each shape the file can be in is pasted the way the first line says --
+# right after the opening bracket its regex ends on -- and the result must parse and close the gap. An empty container
+# is its own case, since there the snippet's trailing comma would leave the file invalid.
+paste_fix() {
+    local file="$1" anchor="$2" out="$3" snippet
+    snippet="$(ai_tools_conf_ask_fix "${file}" "${DECIDE_ASK}" | tail -n +2)" || return 1
+    awk -v re="${anchor}" -v snip="${snippet}" '
+        !done && match($0, re) { print substr($0, 1, RSTART + RLENGTH - 1); print snip
+                                 print substr($0, RSTART + RLENGTH); done = 1; next }
+        { print }' "${file}" > "${out}"
+}
+while IFS='|' read -r label program anchor; do
+    fixture="${TESTDIR}/fix-${label}.json"
+    jq "${program}" "${SHIPPED}" > "${fixture}"
+    if paste_fix "${fixture}" "${anchor}" "${fixture}.pasted" && jq -e . "${fixture}.pasted" >/dev/null 2>&1 \
+            && gaps="$(ai_tools_conf_ask_gaps "${fixture}.pasted" "${ask_root}")" && [[ -z "${gaps}" ]]; then
+        pass "the printed fix, pasted where it says, closes the gap in a file with ${label}"
+    else
+        fail "the printed fix for a file with ${label} does not paste into valid JSON that asks: $(cat "${fixture}.pasted")"
+    fi
+done <<'EOF'
+permissions but no ask list|del(.permissions.ask)|"permissions": [{]
+an empty permissions object|.permissions = {}|"permissions": [{]
+an ask list of its own|.permissions.ask = ["Bash(true *)"]|"ask": [[]
+an empty ask list|.permissions.ask = []|"ask": [[]
+no permissions object|del(.permissions)|^[{]
+nothing but an empty object|{}|^[{]
+EOF
 
 finish

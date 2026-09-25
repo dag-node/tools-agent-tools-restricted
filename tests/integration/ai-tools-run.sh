@@ -360,6 +360,35 @@ else
     rm -rf "${residue_version_dir}"
 fi
 
+section "ai-tools-run: a provider name written without its kind prefix refuses every launch"
+
+# The list reader reads a list holding a bare name as empty, so the shim refuses on the item itself, under the code
+# the wrapper defines, before it resolves the enabled agents. Driven with a fixture operator.conf through the root-only
+# AI_TOOLS_OPERATOR_CONF hook; the control names this host's enabled agents with the prefix and asserts the NEXT
+# refusal, so a refusal that never read the lists cannot pass as this one.
+[[ -n "${TESTDIR:-}" ]] || mktestdir
+lists_conf="${TESTDIR}/lists-operator.conf"
+printf 'AI_TOOLS_AGENTS=[claude-code]\nAI_TOOLS_FILTERS=[core]\n' > "${lists_conf}"
+chmod 0644 "${lists_conf}"
+out="$(run_crun AI_TOOLS_OPERATOR_CONF="${lists_conf}" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
+refused "ai-tools-run refuses every launch while operator.conf names a provider without its kind prefix" MSG-V3Q5 "${rc}" "${out}"
+if grep -q 'AI_TOOLS_AGENTS claude-code' <<<"${out}" && grep -q 'system post-upgrade' <<<"${out}"; then
+    pass "the refusal names the bare item and the command that rewrites it"
+else
+    fail "the refusal does not name the item and post-upgrade: $(head -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+enabled_items=""
+while IFS=$'\t' read -r enabled_name _; do
+    [[ -n "${enabled_name}" ]] && enabled_items+="${enabled_items:+, }agent-${enabled_name}"
+done < <(bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_enabled_agents' 2>/dev/null)
+if [[ -z "${enabled_items}" ]]; then
+    skip "the migrated control" "no agent is enabled on this host"
+else
+    printf 'AI_TOOLS_AGENTS=[%s]\n' "${enabled_items}" > "${lists_conf}"
+    out="$(run_crun AI_TOOLS_OPERATOR_CONF="${lists_conf}" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
+    refused "with the list migrated the same launch reaches the executable check instead" MSG-Z2J9 "${rc}" "${out}"
+fi
+
 section "ai-tools-run: the verified entrypoint is the one exec'd"
 
 # The shim checks the RESOLVED entrypoint (label preflight, and the identity re-check) and must hand systemd that same

@@ -124,8 +124,8 @@ is answered accurately rather than through one representative. `projects push`, 
 verbs reach no helper that can refuse the command, and are not probed. Neither is `stop`, the privileged verb
 an operator without a general grant can already run through the `%ai-ops` rule for its helper: probing it answers "grant
 present" every time, so the entry would carry no information. (That rule covers the bare form only, so `stop`'s flagged
-forms do meet sudo's ordinary prompt — see [docs/sessions/stop.md](../../docs/sessions/stop.md). The probe could not
-have reported that either: it asks about a helper, not about a command line.)
+forms do meet sudo's ordinary prompt — [ref-section-r5r9](stop.rule.md#ref-section-r5r9). The probe could not have
+reported that either: it asks about a helper, not about a command line.)
 
 The probe is `sudo -n -l <helper>`, which cannot prompt. An operator holding a general grant gets exit 0 and the command
 echoed back, whether or not a credential is cached — listing an allowed command is not itself password-gated on a stock
@@ -271,132 +271,66 @@ an ordinary account read it — a partial view, the file sink being the authorit
   not name any toolchain: the manifest declares the set, the registry supplies the words, and the same read is
   what `ai-tools-admin <integration> status` reports. The .NET set is in [dotnet](dotnet.rule.md).
 - `audit [--since <when>]` — report what has refused, been rejected, been stranded, or been flagged since a given time,
-  through the `ai-tools-audit` root helper (`sudo`, no NOPASSWD). The detections it reports already existed and were
-  already recorded; what they lacked was a reader. The verb is the lightest thing that supplies one — one command
-  with a consumer, not an alerting stack.
+  through the `ai-tools-audit` root helper (`sudo`, no NOPASSWD; the root carve-out in `ROOT_ALLOWED_VERBS` exists
+  for it, and it runs ahead of the bootstrap gate — see [Bootstrap preflight](#bootstrap-preflight)). The detections it
+  reports already existed and were already recorded; the verb supplies the reader. How a finding is decided (a line
+  at `NOTICE` or higher in the root-only file sink, so a helper that adds a warning is reported from the day it ships),
+  why the records are read raw, how each field is sanitized, and how repeats collapse under severity are the helper's
+  own mechanism, stated in its header and beside the code.
 
-  **Every finding comes from the sink's severity field, not from a per-case pattern.** The root-only file sink already
-  encodes severity in its line format (`<ts> <LEVEL> [<pid>] <msg>`), so a finding is a line at `NOTICE` or higher.
-  `NOTICE` is in scope deliberately: `ai-tools-chown` records a breached secret at that level, and a leaked credential
-  is the most actionable thing the command can surface. A helper that adds a warning is therefore reported
-  from the moment it ships, with no pattern here to update.
+  **Three trails, and the report keeps them apart.** The root-only file sink is evidence. A launch refusal reaches only
+  journald, under the sandbox account's own tag, so it is shown in a section of its own to reconcile against the first
+  rather than to rely on alone — the split [logging](logging.rule.md) states. The third is the kernel's record
+  of an agent entrypoint exec'd from inside a running session, which no process of the sandbox account can write
+  or remove; the `auditallow` that records it, and the one ordinary exec the report counts rather than itemizes, are
+  [ref-section-f2p3](launch.rule.md#ref-section-f2p3). The section states which reading it made — findings
+  where the core module carries the rule, a coded notice naming the remedy where SELinux is disabled, the module is not
+  loaded or predates the rule, or the host does not run an audit daemon — and only findings count toward the exit
+  status; a reading the helper could not make is a diagnostic, the same rule `status` follows for a `?`.
 
-  **Three sources, not equal, and the report says so.** `/var/log/ai-tools/*.log` is `700 root:root`, root writers only,
-  so the sandbox account can neither read nor append to it: those lines are **evidence**. Launch refusals are
-  the exception — `ai-tools-run` runs *as* the sandbox account and reaches only journald, under a tag whose legitimate
-  writer is that same account — so they are shown in a section of their own as the session's own account of itself,
-  to reconcile against the first rather than to rely on alone (see [logging](logging.rule.md)). This is the split
-  that keeps an agent-writable trail from being presented as proof.
-
-  **The third is the kernel's, and it is what makes the section tamper-proof rather than merely root-owned.** An agent
-  entrypoint exec'd from inside a running session is recorded by the `auditallow` the core SELinux module carries
-  on that one access ([launch](launch.rule.md)), and no process of the sandbox account can write that trail or remove
-  a record from it. The AVC line is the predicate: a block is a record only where that rule's own `granted` line is
-  in it, whatever the syscall number, so a denial or another domain's record is dropped and an exec
-  through `execveat(2)` is not a way past the report. The helper resolves the exec'd file to an agent through every
-  **installed** manifest's `entrypoint_fcontext`, enabled or not — a disabled agent whose package is still in the tree
-  is the case the section exists for — and counts, rather than itemizes, the one ordinary exec: a bare `argv0`
-  into an agent's own entrypoint, which is that agent reaching a tool it bundles. The count names what it folded, and it
-  is a noise filter, not a control, since a caller chooses its own `argv0`. Reading the manifests is best-effort:
-  with no manifest to match, every record is reported as a file no manifest claims, so a failure there costs noise
-  rather than coverage.
-
-  **The records are read raw, and that is a security choice rather than a convenience.** A path and an argv are
-  the agent's to compose, and the audit format already answers that: auditd hex-encodes an untrusted string holding
-  a space, a quote or a control byte, so every field arrives as one token on one line. `ausearch -i` would decode those
-  to their literal bytes **before** the helper saw them, so an `argv0` carrying a newline would arrive as an extra line
-  — and a line beginning `type=SYSCALL` is one the parser reads, which would let a session name its own record's `exe`
-  and have its exec reported as another agent's expected dispatch. Decoding after the line structure is fixed keeps
-  a record's fields data rather than input. Each decoded field then takes the treatment every untrusted string reaching
-  a sink or a terminal gets ([logging](logging.rule.md)): the printable-ASCII allowlist, so a terminal escape or a bidi
-  byte becomes `?`; the record separator replaced, since a value carrying one would fabricate a column; and a clamp
-  that **marks** where it cut, so a truncated value does not read as a complete one.
-
-  **The section states which reading it made**, because a window with no finding means one thing where the rule is
-  in force and another where it is not: the findings where the core module is loaded and, where `sesearch` is installed,
-  carries the `auditallow`; a coded notice naming the remedy where SELinux is disabled or the module is not loaded
-  (install the policy) or where the loaded module predates the rule (upgrade or rebuild it); and a coded notice
-  where the host does not run an audit daemon at all, since the record then lands in the kernel log and not in the trail
-  `ausearch` reads. The module list is captured before it is matched, for the SIGPIPE reason
-  `ai_tools_selinux_group_loaded` states. Only the findings count toward the non-zero exit; a reading the helper could
-  not make is a diagnostic, the same rule `status` follows for a `?`.
-
-  **It reports events, never current state.** Each line is something that *happened* between two points in time;
-  a condition recorded here may have been resolved since. That distinction is load-bearing and the report states it,
-  because the failure mode is specific and easy: a dated `ERROR` read as a standing fault sends an operator to fix
-  something already fixed, and erodes trust in the trail on the first false alarm. Confirming what is true *now* is
-  `status`'s job (and `ai-tools-admin system entrypoints relabel`'s), and the report closes by naming them rather than
-  implying it answered that question itself. The command deliberately does **not** re-verify a finding: knowing
-  how to re-check each condition is exactly the per-detection knowledge it refuses to carry.
-
-  **Repeats collapse, and severity leads.** A recurring condition writes one line per occurrence, so an uncollapsed
-  report buries the finding that needs acting on under one already understood — the same reason `INFO` is out of scope.
-  Findings are grouped by their message with digit runs normalized, so occurrences differing only in a pid or a count
-  fold into one line carrying the number of times it happened and the most recent example in full; the count states
-  exactly what was folded. Ordering is severity first, recency second — the two questions being asked: what is worst,
-  and is it still happening.
-
-  Exits **non-zero when anything is reported**, so it runs unattended from cron or a login banner without parsing its
-  output — the same contract `status` offers. A `--since` value `date(1)` cannot parse is refused rather than treated
-  as "everything", so a typo does not silently become a reassuring wall of old findings.
+  **It reports events, never current state.** Each line is something that *happened* between two points in time,
+  and a condition recorded here may have been resolved since, so the report closes by naming `status` (and
+  `ai-tools-admin system entrypoints relabel`) as what answers *now* rather than re-verifying a finding itself: knowing
+  how to re-check each condition is the per-detection knowledge it refuses to carry. Exits **non-zero when anything is
+  reported**, so it runs unattended from cron or a login banner without parsing its output — the same contract `status`
+  offers. A `--since` value `date(1)` does not parse is refused, so a typo does not become a reassuring wall of old
+  findings.
 - `stop` — terminate every running agent session and everything it spawned, through the `ai-tools-stop` root helper,
   which `%ai-ops` grants NOPASSWD in its bare form (the one rule in the drop-in whose passwordlessness is its purpose:
-  an unattended detector cannot answer a prompt — [docs/sessions/stop.md](../../docs/sessions/stop.md)). The only verb
+  an unattended detector cannot answer a prompt — [ref-section-r5r9](stop.rule.md#ref-section-r5r9)). The only verb
   that acts on a session **already running**; every other control here changes what the *next* launch gets. It is
   **not** the session-lifecycle command — `/exit` inside a session is, and it lets the session run its own `SessionEnd`
   handback. The CLI half is deliberately thin — option grammar only — because every remaining decision is a security
-  decision that must not be made twice in two places.
-
-  Four properties a contributor has to hold on to; the reasoning for each is
-  in **[docs/sessions/stop.md](../../docs/sessions/stop.md)**, which is this component's single source of truth:
-
-  - **Sessions are found and killed by cgroup**, never by process tree, and liveness is read from the kernel. systemd
-    supplies one thing only — a unit's `WorkingDirectory` — and that is **display**: it labels a row and fills
-    in the path a `projects handback` is named with, without selecting any target. The report's split between agent
-    sessions and the account's own plumbing (its user manager, dbus, login session scopes) is display in that same sense
-    and carries the same caveat — the class comes from a unit name, which inside a delegated subtree is the delegatee's
-    to choose. It splits the two counts, orders the table, and decides which rows carry a `projects handback` line; both
-    classes are killed identically.
-  - **It does not take a target or an authorization input.** There is no per-project form, because every way
-    to attribute a session to a project is written by the account being stopped. A path is **refused (exit 2), not
-    ignored** — which is also what keeps targeted stopping addable later without changing what an existing command line
-    means. `--all` is accepted and inert.
-  - **Every cgroup under the account is swept, including its own `systemd --user` and `init.scope`.** An exemption is
-    a cgroup a session can move into on a DAC-only host. The manager is **restarted afterwards**
-    (`restore_user_manager`), as a step that runs after verification and is reported on its own — it never changes
-    what the command says about the stop. One consequence to keep: a **rerun is therefore not silent**, since
-    the restored manager is back inside the swept slice. The command is idempotent in *end state*, not in what it
-    reports, and buying a silent rerun would cost either an exemption or a name-decided sweep.
-  - **Two project conventions are inverted here**, both because the safe direction for this one component is *act*:
-    the confirmation defaults YES ([messaging](messaging.rule.md)), and no library is required nor `set -e` used
-    ([logging](logging.rule.md)). No project library is load-bearing at all: with no target to vet or authorize,
-    `safe-paths.lib.sh` and `operator.lib.sh` are not loaded ([safe-paths](safe-paths.rule.md)). The second inversion is
-    about *abandonment*, not about one shell option — `set -u` is on, and it ends a run just as abruptly, so a value
-    a caller may not have passed is defaulted where it is read rather than left to abort a stop that was already asked
-    for.
+  decision that must not be made twice in two places: `cmd_stop` passes each recognised option through, takes neither
+  a target nor an authorization input, and refuses a path with exit 2, in the helper's exit-code space. What the helper
+  does with that, the invariants it rests on, and the two project conventions it inverts are in [stop](stop.rule.md),
+  which owns the component.
 
   A stop cannot run the agent's `SessionEnd` hook, so the in-flight turn's writes may still be sandbox-owned
   and the clean-exit marker is left for the next `SessionStart` ([ownership-and-hooks](ownership-and-hooks.rule.md));
-  the command names a `projects handback` for each project it terminated a session in. On a shared host one operator's
-  stop ends every operator's sessions — a stated consequence, not an oversight, since `--all` does not take
-  an authorization input either. Everything is recorded to `stop.log` and journald, including which path gave consent
-  and which pass ended each session. Exit codes are in `ai-tools(1)`.
-- `status` — read-only health report: the installed `ai-tools` version, a version pointer per enabled agent
-  whose wrapper is installed, which enabled agents are provisioned (one line each, from the read the bootstrap gate
-  makes — see [Bootstrap preflight](#bootstrap-preflight)) and, under each, every managed file its manifest names
-  whose live copy is not the shipped one (`managed_files`, [providers](providers.rule.md): an edited file is reported
-  with its two consequences and not counted, a missing one is counted, since the package is then broken), then each
-  installed agent that is not enabled and still has its launcher link (residue, counted: no launch starts until
-  the provisioning run it names removes the package), **where this shell finds each enabled agent's launcher**, then
-  each managed systemd unit (`ai-tools-handback.socket`, `ai-tools-relabel.path` and the `ai-tools-relabel.service` it
-  triggers, and the sandbox account's `nvm-update.timer` and `nvm-update.service`) as OK / SKIPPED / STALE / DOWN /
-  FAILED / not-installed, with the consequence and the exact remedy for anything broken, and a closing **More** block
-  that points at the sibling reports (`providers`, `projects list`, `--help`) without repeating their detail — so it
-  reads as a hub. It resolves through `services.lib.sh` — the **same registry** the launch wrapper's pre-launch health
-  warning reads (`claude.sh`, see [launch](launch.rule.md)) — so the status view and the launch warning never disagree
-  on which units matter or how to fix one. `status` is the one command that **bypasses the bootstrap gate** (see
-  [Bootstrap preflight](#bootstrap-preflight)): a diagnostic must run when things may be broken, so it reports
-  the unprovisioned state rather than being blocked by it.
+  the command names a `projects handback` for each project it terminated a session in. Everything is recorded
+  to `stop.log` and journald, including which path gave consent and which pass ended each session. Exit codes are
+  in `ai-tools(1)`.
+- `status` — read-only health report: the installed `ai-tools` version, the Node version the enabled agents' stable
+  launcher links point into (the link's target read one hop with `readlink` and never followed, the read the launch
+  wrapper makes; every path that changes Node repoints the link, so the line is current after a bootstrap
+  as after an update, with the version the updater's last run recorded shown beside it only where the two differ —
+  the one fact a link cannot carry, that the toolchain changed after that run — and links naming different versions
+  reported as such; the decision is `ai_tools_node_version_verdict` in `toolchain.lib.sh`, so this report
+  and `ai-tools-admin status` render one answer), a version pointer per enabled agent whose wrapper is installed,
+  which enabled agents are provisioned (one line each, from the read the bootstrap gate makes — see [Bootstrap
+  preflight](#bootstrap-preflight)) and, under each, every managed file its manifest names whose live copy is not
+  the shipped one (`managed_files`, [providers](providers.rule.md): an edited file is reported with its two consequences
+  and not counted, a missing one is counted, since the package is then broken), then each installed agent that is not
+  enabled and still has its launcher link (residue, counted: no launch starts until the provisioning run it names
+  removes the package), **where this shell finds each enabled agent's launcher**, then each managed systemd unit
+  the `services.lib.sh` registry names as OK / SKIPPED / STALE / DOWN / FAILED / not-installed, with the consequence
+  and the exact remedy for anything broken, and a closing **More** block that points at the sibling reports
+  (`providers`, `projects list`, `--help`) without repeating their detail — so it reads as a hub. That registry is
+  the **same one** the launch wrapper's pre-launch health warning reads (`claude.sh`, see [launch](launch.rule.md)),
+  so the status view and the launch warning never disagree on which units matter or how to fix one, and the rows live
+  there alone. `status` runs ahead of the bootstrap gate, as the other diagnostics do (see [Bootstrap
+  preflight](#bootstrap-preflight)), so it reports the unprovisioned state rather than being blocked by it.
 
   The PATH-ordering line is the one reading this report makes that needs **no** privilege and that no other vantage can
   make at all: the CLI runs in the operator's own login shell, so `command -v` there resolves exactly what typing
@@ -427,20 +361,23 @@ an ordinary account read it — a partial view, the file sink being the authorit
   directory. A stamped unit's OK carries the time of that run, not a claim that it is running now, and a `FAILED`
   carries the run's exit code. The `?` line is not a problem report — it says only that this vantage point cannot tell —
   so it stays a single line naming the one command that can, and the multi-command diagnostic block is reserved
-  for a unit reported broken.
+  for a unit reported broken. One state is separated from it in both reports: a stamp still empty as the package seeded
+  it (`ai_tools_service_stamp_unwritten`) reads `no run recorded yet`, since that is where a freshly provisioned host
+  stands until the updater's first window, and a `?` there would send an operator to check a unit that is fine.
 
   **A stamp is read for two properties, and one stamp can serve two units.** `RESULT` answers *did the last run
   succeed*; its **age** answers *are runs still happening* — a distinct question a `RESULT` cannot express, since
   a schedule that quietly stops firing leaves every recorded run successful and would otherwise read as a permanent,
-  increasingly wrong OK. Past the record's `max_age` (48h for `nvm-update`, twice its daily `OnCalendar`) the unit
-  reports **`STALE`**. The registry's `stamp_mode` field selects which property a record reads: `result` for the unit
-  that ran, `fired` for the one that triggered it — so `nvm-update.timer` derives a verdict of its own from the *same*
-  stamp on recency alone (a systemd-started run, successful or not, proves the timer fired), instead of the `?` it could
-  otherwise only report. A failing service therefore does not also condemn the working schedule that started it. Only
-  a systemd-started run counts, read from the stamp's `TRIGGER` (see [updater](updater.rule.md)): a run the operator did
-  by hand is no evidence about a schedule, and counting one would both report a dead timer as healthy and suppress
-  the staleness that is the only way a stopped schedule shows up. An unknown age does not produce a `STALE` verdict
-  either: no `max_age`, an unparseable date, or a stamp dated in the future all decline the judgment.
+  increasingly wrong OK. Past the record's `max_age` — set per unit in the registry, at a multiple of the unit's own
+  schedule — the unit reports **`STALE`**. The registry's `stamp_mode` field selects which property a record reads:
+  `result` for the unit that ran, `fired` for the one that triggered it — so `nvm-update.timer` derives a verdict of its
+  own from the *same* stamp on recency alone (a systemd-started run, successful or not, proves the timer fired), instead
+  of the `?` it could otherwise only report. A failing service therefore does not also condemn the working schedule
+  that started it. Only a systemd-started run counts, read from the stamp's `TRIGGER` (see [updater](updater.rule.md)):
+  a run the operator did by hand is no evidence about a schedule, and counting one would both report a dead timer
+  as healthy and suppress the staleness that is the only way a stopped schedule shows up. An unknown age does not
+  produce a `STALE` verdict either: no `max_age`, an unparseable date, or a stamp dated in the future all decline
+  the judgment.
 
   Times render **relative first** (`last run 3 days ago`), coarsening with distance, because the age is
   what the operator acts on. Every unit line feeds one predicate, `ai_tools_service_needs_attention`
@@ -468,10 +405,10 @@ an ordinary account read it — a partial view, the file sink being the authorit
   the reconcile command, which re-reads the entrypoint and prints how to replace it.
 
   The **labelling** is reported beneath it, from a second record the same helper writes
-  (`state/entrypoint-label.d/<agent>`, see [updater](updater.rule.md)): `labelled` with its age, `NOT LABELLED`
-  with the class of failure, `not labelled` for a host with no entrypoint to label (the SELinux layer inactive,
-  or an agent the toolchain has not provisioned), or `?` where no reconciliation has been recorded. Only a recorded
-  failure counts toward the exit status, since it is the one state that stops the next launch.
+  ([ref-section-j9w8](updater.rule.md#ref-section-j9w8)): `labelled` with its age, `NOT LABELLED` with the class
+  of failure, `not labelled` for a host with no entrypoint to label (the SELinux layer inactive, or an agent
+  the toolchain has not provisioned), or `?` where no reconciliation has been recorded. Only a recorded failure counts
+  toward the exit status, since it is the one state that stops the next launch.
 
   **One reason token is read rather than printed**, and it is the one whose remedy differs in kind: `incomplete-package`
   says the agent's package does not hold the executable its manifest declares, which no relabel can supply, so the line
@@ -481,16 +418,13 @@ an ordinary account read it — a partial view, the file sink being the authorit
 
   **The two halves are reported together because they fail independently.** Verification and labelling run in the same
   helper, in that order, and the first can succeed while the second does not — leaving the pin line freshly green,
-  written by the very run whose labelling failed. Reported alone it reads as an all-clear rather than as half a story.
-
-  What is reported is the last run's **outcome**, not the live label. Reading an entrypoint's actual context means
-  `stat`ing a file under `/opt/ai-tools/.nvm`, which `ai-tools-bootstrap` creates `0750 SANDBOX_USER:SANDBOX_GROUP` —
-  the operator is not in that group and cannot traverse it, and `matchpathcon` computes only what a label *should* be,
-  not what it is. So the record carries the same caveat as the rest of this report: it is an event.
-  `ai-tools-admin status` reads the label itself (`ai_tools_agent_label_report`, read-only — no rule registered, no
-  `restorecon`, no policy-store lock), and `ai-tools-admin system entrypoints relabel` both confirms and repairs it.
-  A mislabel that arises after the recorded run still stops the next launch with the fault and the command that clears
-  it.
+  written by the very run whose labelling failed, which reported alone reads as an all-clear. What is reported is
+  the last run's **outcome**, not the live label: the operator can observe neither the label nor the run that applies
+  it, which is why the record exists (stated with it), so it carries the same caveat as the rest of this report — it is
+  an event. `ai-tools-admin status` reads the label itself (see [The root
+  vantage](#the-root-vantage-ai-tools-admin-status)), and `ai-tools-admin system entrypoints relabel` both confirms
+  and repairs it. A mislabel that arises after the recorded run still stops the next launch with the fault
+  and the command that clears it.
 
   **The unit that does the labelling is reported too, and answers a different question.** `ai-tools-relabel.service` is
   in the registry beside the `.path` that triggers it, because a healthy watcher says only that a run *started* —
@@ -551,7 +485,7 @@ outliving its parser.
 ## The root vantage: `ai-tools-admin status`
 
 `status` and `ai-tools-admin status` are **one resource read from two vantages**, not two reports. The root command
-reports the same host and adds the three readings the operator's prints as `?`:
+reports the same host and adds the readings the operator's prints as `?`:
 
 | reading | what blocks the operator | what root does |
 |---|---|---|
@@ -573,7 +507,7 @@ recorded, so a binary changed since — by an out-of-band `npm install`, or by a
 here without running the reconcile, and it is named even where no reconciliation has run over that agent at all.
 The verdict is `ai_tools_entrypoint_check`'s, so this report and the launch cannot disagree about what a mismatch is.
 
-The third reading is the one no other command gives. `status` reports what the last reconciliation *achieved*, an event
+The label reading is the one no other command gives. `status` reports what the last reconciliation *achieved*, an event
 that may be hours old; `ai_tools_agent_label_report` reports the type each path carries **now**, so a label that drifted
 since — an out-of-band `restorecon`, a package that reinstalled the binary — is visible without running the reconcile.
 It is **read-only**, which is what makes it safe to call from a report, and its whole difference
@@ -729,26 +663,27 @@ to create it, in both directions:
   to the editor it was written in.
 
 Neither refusal touches the hand-edited workflow: an operator may still park a nested project themselves, and delete
-the `!` themselves. The tool declines to guess, and declines toward less access. The full state model, the cases,
-and the alternatives rejected (a marker comment, a prompt, a structured `projects.*` registry) are in the design note
-that accompanies this work.
+the `!` themselves. The tool declines to guess, and declines toward less access. Three ways of modelling the ambiguous
+case are rejected: a marker comment on the `!` line, which is absent on every hand-parked entry and, once edited
+or copied, is a claim the tool trusts and the file cannot back; a prompt asking the operator to classify, which puts
+a question the file cannot answer; and a structured per-project registry, which adds a second parser or a second source
+of truth to the launch gate.
 
 ### One implementation of a registry change
 
-Three components write this file — the CLI (the operator's own), `ai-tools-allowlist` (another operator's, for `--for`),
-`install.sh` (de-registering its own checkout) — and all three call the same functions in `conf.lib.sh`: `_state`,
+Every component that edits an entry — the CLI (the operator's own), `ai-tools-allowlist` (another operator's,
+for `--for`), `install.sh` (de-registering its own checkout) — calls the same functions in `conf.lib.sh`: `_state`,
 `_add`, `_remove`, `_enable`, `_disable`. Each verifies by re-reading the file and separates *applied* (0) from *could
 not write* (1) from *does not apply from this state* (2). Two rules live there rather than in any caller, so no writer
 can skip them: `_add` **refuses** a disabled path (appending under a winning `!` is the duplicate-pair bug),
-and `_remove` takes **both** line kinds, so de-registering a parked project leaves no `!` behind to park whatever is
-claimed at that path next. `_add` also opens a line of its own for the entry it writes: the readers keep a hand-edited
-last line that runs to EOF, so an entry appended straight on would join two paths into a third naming no project, taking
-the preceding entry off the gate. `_enable` additionally collapses an existing duplicate pair to one live entry,
-in the earliest position it held.
+and `_remove` takes **both** line kinds, so de-registering a parked project does not leave a `!` behind to park whatever
+is claimed at that path next. `_add` also opens a line of its own for the entry it writes: the readers keep
+a hand-edited last line that runs to EOF, so an entry appended straight on would join two paths into a third naming no
+project, taking the preceding entry off the gate. `_enable` additionally collapses an existing duplicate pair to one
+live entry, in the earliest position it held.
 
-Before this, the same edit existed three times — an append here, a hand-escaped `sed -i` there, a read-transform-rename
-in the third, each with its own idea of what a match is. For a file that is the launch gate, a writer that matches lines
-differently from the reader is a project that stays reachable after a "removal".
+For a file that is the launch gate, a writer matching lines differently from the reader would leave a project reachable
+after a removal; one shared implementation of the match is what rules that out.
 
 ## Two project models
 
@@ -756,18 +691,14 @@ differently from the reader is a project that stays reachable after a "removal".
 (`ai_tools_t`) reaches it only if the tree carries the `ai_tools_project_t` SELinux label, so claim applies that label
 via the root helper `ai-tools-relabel`, and `projects unclaim` reverts it. The label primitive (semanage fcontext +
 restorecon) lives in the shared `relabel.lib.sh`, sourced by both `ai-tools-relabel` and `install-selinux.sh`,
-so the CLI and the policy installer apply one implementation. The relabel is **forced** (`restorecon -FR`): a file
-created in a labelled directory inherits `ai_tools_project_t` on its own, but a file brought in carrying an explicit
-foreign context — a context-preserving copy (`cp -a`, `tar --selinux`) of a system path, or any customizable type — is
-one a plain `restorecon` preserves, and only `-F` resets it to the project type. `restorecon` writes only a file
-whose context differs, so forcing is idempotent on an already-labelled tree (a walk, no writes) and the installer's
-per-install sweep re-asserts the label cheaply while still correcting such drift — the state the confined agent must be
-able to read, or its startup workspace walk denies on every foreign-labelled path. Claim sets group `SANDBOX_GROUP` +
-the setgid bit on the project's directories (via `ai-tools-setgid`, so the agent traverses the tree and new files
-inherit the group), applies the group-permission ACL for existing files (via `ai-tools-setfacl`), and pins repo-local
-`core.filemode=true`. A separate default-yes prompt offers to normalize the `.git` tree (`ai-tools-setfacl --with-git`:
-group `SANDBOX_GROUP` + setgid on its dirs + the same ACL) so the operator's own commits stay agent-readable — `.git`
-being the one heavy tree the per-session passes skip yet both parties write (see
+so the CLI and the policy installer apply one implementation. The relabel is **forced** (`restorecon -FR`), so a file
+brought in carrying an explicit foreign context is reset to the project type the confined agent can read;
+`ai_tools_label_project`'s contract states why, and why forcing stays idempotent on a labelled tree. Claim sets group
+`SANDBOX_GROUP` + the setgid bit on the project's directories (via `ai-tools-setgid`, so the agent traverses the tree
+and new files inherit the group), applies the group-permission ACL for existing files (via `ai-tools-setfacl`), and pins
+repo-local `core.filemode=true`. A separate default-yes prompt offers to normalize the `.git` tree
+(`ai-tools-setfacl --with-git`: group `SANDBOX_GROUP` + setgid on its dirs + the same ACL) so the operator's own commits
+stay agent-readable — `.git` being the one heavy tree the per-session passes skip yet both parties write (see
 [ownership-and-hooks](ownership-and-hooks.rule.md)). Claim inspects current state and runs only the missing steps,
 so a re-run is a quiet no-op and existing projects retrofit the ACL/`filemode`/`.git` normalization on the next claim.
 `projects create` is part of this model rather than a third one: it makes the directory and then runs the same claim
@@ -775,15 +706,15 @@ on it.
 
 **The project root must be held by the resolved operator or the sandbox account, and a claim refuses otherwise.**
 `ai-tools-setgid` and `ai-tools-setfacl` — the two helpers that grant the agent its access — act only on those two
-owners (the *Owner guard*), while the registries, the `safe.directory` entry and the SELinux label apply regardless.
-A tree held by anyone else therefore took every step that registers a project, and none of the steps that grant access
-to one, and the claim closed with its `✓` over an agent that cannot enter the tree. The commonest route to it is a claim
-for someone else — `mkdir ~/proj && ai-tools projects claim --for svc ~/proj` resolves the owner to `svc`, so every
-inode fails the guard. `require_claimable_owner` checks the root before the first registry write and refuses, naming
-the `chown` that fixes it; transferring a tree recursively needs an authority this CLI does not hold, and is
-deliberately not built (a repair path would need a privileged helper). The helpers report the same condition from their
-side: each walk counts what its owner guard skipped and says so, with the project root called out on its own
-([ownership-and-hooks](ownership-and-hooks.rule.md)).
+owners, the owner guard [ref-section-y9z4](ownership-and-hooks.rule.md#ref-section-y9z4), while the registries,
+the `safe.directory` entry and the SELinux label apply regardless. A tree held by anyone else would therefore take every
+step that registers a project and none of the steps that grant access to one, and close with a `✓` over a tree the agent
+has no group or ACL entry into. The commonest route to it is a claim for someone else —
+`mkdir ~/proj && ai-tools projects claim --for svc ~/proj` resolves the owner to `svc`, so every inode fails the guard.
+`require_claimable_owner` checks the root before the first registry write and refuses, naming the `chown` that fixes it;
+transferring a tree recursively needs an authority this CLI does not hold, and is deliberately not built (a repair path
+would need a privileged helper). The helpers report the same condition from their side, the project root called
+out on its own.
 
 **Remove** (`projects remove`) deletes the directory as well. Its authorization is an **exact** `allowed-projects` entry
 — allow or parked, since a `!` records "not right now" rather than "not mine", and requiring the operator to re-enable
@@ -929,29 +860,24 @@ never be the only thing standing between a caller and a tree. Mechanism, and why
 differently, live in that helper's header. For each selected project it removes the SELinux label and both registries —
 or, under `--keep-entry`, parks the allowlist line in place instead of deleting it — and (default-yes confirm) runs
 `ai-tools-unclaim` to hand the filesystem back — the hand-back running **before** the allowlist entry is dropped,
-so the helper still sees the target listed (see the *Owner guard*). For every eligible path that helper clears the agent
-ACL **and** the default ACL (`setfacl -b`), changes the group owner to a target group (the invoking user's own group
-by default; any other user can be named, handing the tree to that user's group), and removes group write (`660→640`,
-`770→750`, `400` stays `400`) — additionally clearing the setgid bit claim added on **directories** (numeric `chmod`
-cannot, so symbolic `g-s` is used), returning them to plain perms. The agent loses access via both the group owner
-and the named ACL entry, while the new group owner keeps read/traverse. `.git`, skipped by the main walk like the other
-heavy trees, is reverted by its own pass — for the same reason claim normalizes it (both parties write it) —
-so the unclaim fully revokes git-history access too.
+so the helper still sees the target listed (see the *Owner guard*). The helper clears the claim's ACL entries
+and the default ACL, regroups the tree to the target group (`--group` names a group outright; the prompt asks for a user
+and takes that user's primary group), and removes group write and the setgid bit claim added on directories,
+so the agent loses access through both the group owner and the named ACL entry while the new group keeps read
+and traverse; the per-path reversal, and the `.git` pass that revokes git-history access the same way claim granted it,
+are stated in the helper's header.
 
-**Hardlinked files are refused, in both modes.** A regular file with more than one name is left untouched:
-`chgrp`/`chmod` act on the *inode*, which the second name reaches from outside the tree, so acting would change a path
-the pass never authorized — and for the common case, `git clone --local` (which hardlinks `.git/objects` to the source
-repo), it would rewrite the **origin's** objects. This is the one refusal in the project that leaves *more* access than
-acting would, since the inode keeps its group and the agent therefore keeps those files after the project is
-deregistered. It is accepted rather than resolved — the alternative reaches outside the authorized tree — and paid
-for in disclosure: the count is reported to the terminal with what it leaves behind
-and the `find … -links +1 -group SANDBOX_GROUP` that lists the files, so the operator can decide about them deliberately
-instead of inferring the gap from two counts.
+**Hardlinked files are refused, in both modes**, and the count is reported with the `find` line that lists them,
+so the operator decides about those files deliberately. `chgrp`/`chmod` act on the *inode*, which a second name reaches
+from outside the tree, so acting would change a path the pass never authorized — for `git clone --local` it would
+rewrite the **origin's** objects. It is the one refusal in the project that leaves *more* access than acting would,
+since the inode keeps its group and the agent keeps those files after the project is deregistered: accepted rather than
+resolved, and paid for in disclosure. The guard is the helper's, stated in its header.
 
-**Owner guard (claim and unclaim).** The root helpers `ai-tools-setgid`, `ai-tools-setfacl`, and `ai-tools-unclaim` act
-**only** on paths owned by the projects user or the sandbox account; a path owned by any third party (root, another
-developer) is left untouched, on top of the secret-name and `!`-exclusion skips. `ai-tools-unclaim` additionally refuses
-a target that does not resolve **at or under a registered project** (`allowed-projects`) — a silent no-op, matching
+**Owner guard (claim and unclaim).** `ai-tools-unclaim` holds the same owner guard as the claim-side walks
+([ref-section-y9z4](ownership-and-hooks.rule.md#ref-section-y9z4)): a path owned by a third party (root, another
+developer) is left untouched, on top of the secret-name and `!`-exclusion skips. It additionally refuses a target
+that does not resolve **at or under a registered project** (`allowed-projects`) — a silent no-op, matching
 `ai-tools-setgid`/`-setfacl` — so it never rewrites a tree outside the allowlist. This is why the CLI runs the hand-back
 before dropping the entry: the helper is the last-line backstop for "unclaim never modifies permissions on an unlisted
 directory", and the CLI's classification is the front-line gate. This is the claim-side partner to `ai-tools-chown`'s

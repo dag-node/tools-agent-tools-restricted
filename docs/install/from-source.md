@@ -273,7 +273,7 @@ each agent's package leaves that toolchain with the manifest that names it,
 so after a reinstall `sudo ai-tools-admin system bootstrap` installs the agents
 you enable again. An agent's managed file you edited — codex's
 `/etc/codex/requirements.toml`, for one — is moved aside
-as `<file>.<YYYYMMDD>.retired` rather than deleted, and the run names each
+as `<file>.<YYYYMMDD>-<N>.retired` rather than deleted, and the run names each
 sidecar it wrote; a file still matching the copy the package shipped is
 removed. That is what `rpm -e` does with an edited `%config(noreplace)` file,
 and it matters here for a second reason: such a file points at hook scripts
@@ -307,8 +307,13 @@ which `sudo ./install.sh check-perms` runs):
 | `src/usr/local/lib/ai-tools/skip-dirs.lib.sh` | `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/ancestor-config.lib.sh` | `/usr/local/lib/ai-tools/ancestor-config.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/filters.lib.sh` | `/usr/local/lib/ai-tools/filters.lib.sh` (root) |
-| `src/usr/local/lib/ai-tools/filters.d/core.rules` | `/usr/local/lib/ai-tools/filters.d/core.rules` (root) |
+| `src/usr/local/lib/ai-tools/filters.d/base.rules` | `/usr/local/lib/ai-tools/filters.d/base.rules` (root) |
 | `src/usr/local/lib/ai-tools/filters.d/dotnet.rules` | `/usr/local/lib/ai-tools/filters.d/dotnet.rules` (root) |
+| `src/usr/local/lib/ai-tools/integrations.d/typesafe.conf` | `/usr/local/lib/ai-tools/integrations.d/typesafe.conf` (root) |
+| `src/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh` | `/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh` (root) |
+| `src/usr/local/lib/ai-tools/typesafe/` | `/usr/local/lib/ai-tools/typesafe/` (root; the decide command) |
+| `src/etc/ai-tools/endpoints/typesafe.conf` | `/etc/ai-tools/endpoints/typesafe.conf` (root:ai-tools, kept when it exists) |
+| `src/usr/local/share/man/man5/ai-tools-typesafe.conf.5` | `/usr/local/share/man/man5/ai-tools-typesafe.conf.5` (root) |
 | `src/usr/local/bin/claude.sh` | `/usr/local/bin/claude` (root) |
 | `src/opt/ai-tools/bin/ai-tools-run.sh` | `/opt/ai-tools/bin/ai-tools-run` |
 | `src/opt/ai-tools/agents/claude-code/post-tool-hook.sh` | `/opt/ai-tools/.claude/post-tool-hook.sh` |

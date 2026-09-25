@@ -56,6 +56,18 @@ could split across lines. Plain mode keeps each caller-supplied line whole, so t
 `AI_TOOLS_MSG_PLAIN=1` forces plain even on a tty; `AI_TOOLS_MSG_BOX=1` forces the box even off one (the unit test
 and the session-hook NOTICE use the latter to render a box into captured output).
 
+## Punctuation: an event, a label, or prose
+
+A log line and a one-line notice or warning record an **event**, so they do not end with a stop, and ` -- ` splits two
+clauses where a sentence would take a full stop (`merged -- the previous file is saved as <path>`). A box title
+and a headline are **labels**, and take no stop either. A boxed alert or guidance screen of more than one line is
+**prose**, and keeps sentence punctuation. A trailing `:` reads as a prompt, so a line ends on one only where the next
+line is output it introduces, a diff or a listing. An informational line names the exact path inline, so the reader does
+not need a command on the line after it to find the path.
+
+The suite greps message text as well as codes ([tests](tests.rule.md)), so a reworded message is a code change: grep
+`tests/` for the text before editing it, and a match makes the edit its own commit with a root suite run behind it.
+
 ## Message codes: the identity of a situation
 
 A message that names a **situation** — a refusal, a warning a test asserts, a guidance screen — carries a code, a reftag
@@ -256,7 +268,7 @@ break a command across lines (see *Quirks*).
 
 Because the no-terminal path is legitimate here rather than degraded, that helper records **which** path gave consent
 (`flag`, `prompt`, `fallback-prompt`, `no-tty`) rather than only the answer. Full reasoning:
-[docs/sessions/stop.md](../../docs/sessions/stop.md).
+[ref-section-e8k5](stop.rule.md#ref-section-e8k5).
 
 ## `ai_tools_msg_challenge` — the typed-name challenge
 
@@ -359,11 +371,13 @@ report.
 - **`ai-tools-run.sh`** routes its pre-launch refusals and the podman NOTICE.
 - **`session-hook.sh`** frames the interrupted-session `SessionStart` NOTICE (see
   [ownership-and-hooks](ownership-and-hooks.rule.md)).
-- **`ai-tools-bootstrap.sh`** frames two screens with `ai_tools_msg_block`, each over an `ai_tools_msg_pick` menu:
+- **`ai-tools-bootstrap.sh`** frames three screens with `ai_tools_msg_block`. Two sit over an `ai_tools_msg_pick` menu:
   the agent choice (`none` mode — one option per installed agent and one for none, where the caller decides every
   unanswered outcome as no agent, Node alone, exit 0) and the git-identity offer (a default index: adopt the operator's
-  identity / keep the default / edit by hand). It sources the lib from the deployed path, gated on the control plane
-  being present, so it requires it there like every other prompting consumer (see [updater](updater.rule.md)).
+  identity / keep the default / edit by hand). The third, the launch-requirements offer, sits
+  over an `ai_tools_msg_confirm` defaulting to yes, since both switches it writes move a launch toward less access. It
+  sources the lib from the deployed path, gated on the control plane being present, so it requires it there like every
+  other prompting consumer (see [updater](updater.rule.md)).
 - **`install.sh` and `selinux/install-selinux.sh`** frame their interactive prompts uniformly. `install.sh` routes every
   prompt through one helper, `confirm_boxed <title> <y|n> <question> [context-line...]`: a fixed 80-column box
   (`AI_TOOLS_MSG_FULLWIDTH`) titled `<title>` — named for its action (`Review install`, `Existing file`,

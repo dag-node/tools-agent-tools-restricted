@@ -129,7 +129,7 @@ phase "ai-tools-selinux ships exactly the derived policy module set" \
 # No agent ships enabled and this run has no terminal to choose one on, so the agent the later phases launch is named
 # here through the unattended form, which writes AI_TOOLS_AGENTS before the toolchain is installed.
 phase "system bootstrap (nvm + Node + claude; linger + timer)" \
-    ai-tools-admin system bootstrap --agents claude-code
+    ai-tools-admin system bootstrap --agents agent-claude-code
 
 phase "claude launcher symlink resolves to the nvm-installed binary" \
     bash -c 'test -L /opt/ai-tools/bin/claude && readlink -f /opt/ai-tools/bin/claude | grep -q "/versions/node/"'

@@ -5,6 +5,8 @@
 v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Platform: EL 9 | EL
 10](https://img.shields.io/badge/platform-EL%209%20%7C%20EL%2010-blue.svg)](#requirements)
+[![Website:
+tools.dagnode.com](https://img.shields.io/badge/website-tools.dagnode.com-blue.svg)](https://tools.dagnode.com/agents)
 
 **Confine coding agents to a locked-down system account — so they never inherit
 your keys, sudo rights, or secrets.**
@@ -70,12 +72,33 @@ and [docs/install/index.md](docs/install/index.md) for why the key goes
 on first.
 
 ```bash
+# Repository
 sudo rpm --import https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
 sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
-sudo dnf install ai-tools ai-tools-selinux   # the whole stack + SELinux confinement
+
+# Sandbox
+sudo dnf install ai-tools-selinux ai-tools-agents-claude-code-restricted  # Claude Code
+sudo dnf install ai-tools-selinux ai-tools-agents-codex-restricted        # Codex
+sudo dnf install ai-tools-integration-dotnet                              # .NET projects
+sudo dnf install ai-tools-integration-typesafe                            # TypeSafe for RLCD
 ```
 
-Then finish setup. The first two commands are independent of each other
+Run the line for the agent you want: each one is a complete install on its own,
+and naming more than one agent package puts several agents on the host —
+[Scope](docs/about/scope.md) covers what they then share. An agent package
+requires `ai-tools-base` and `ai-tools-integration-nodejs`, so the sandbox
+account, the CLI, and the Node toolchain come with it; `ai-tools-selinux` is
+named beside it because it is a `Recommends`, and a minimal image installing
+without weak dependencies would otherwise come up unconfined. The `ai-tools`
+metapackage takes every agent and every integration in one command instead.
+`ai-tools providers` lists what is installed and which of it is enabled.
+
+Then finish setup. An installed agent package puts its wrapper, hooks,
+and manifest on the host and leaves the agent itself off: `system bootstrap`
+asks which installed agent to enable, records the answer in `AI_TOOLS_AGENTS`
+(`/etc/ai-tools/operator.conf`, root-owned), and only then fetches that agent's
+npm package into the sandbox toolchain — `--agents agent-<name>` makes
+the choice without asking. The first two commands are independent of each other
 and both run before the third:
 
 ```bash
@@ -209,6 +232,8 @@ in [docs/install/from-source.md](docs/install/from-source.md).
 
 ## Community
 
+- **Project website** —
+  [tools.dagnode.com/agents](https://tools.dagnode.com/agents).
 - **Bugs and feature requests** — [GitHub
   Issues](https://github.com/dag-node/tools-agent-tools-restricted/issues).
   The templates ask for the environment details and journald excerpts that make
@@ -229,8 +254,8 @@ Licensed under the **GNU Affero General Public License v3.0 only**
 
 **The agents are separate.** This license covers this repository's own source —
 the sandboxing, install, and CLI machinery. `ai-tools-admin system bootstrap`
-installs each enabled agent's package from npm at your own bootstrap step;
-each agent is its vendor's product under its own terms, which this repository
+installs each enabled agent's package from npm at your own bootstrap step; each
+agent is its vendor's product under its own terms, which this repository
 neither vendors nor redistributes. [Agents](docs/agents/index.md) names each
 package.
 

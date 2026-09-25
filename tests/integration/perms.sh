@@ -80,6 +80,7 @@ check_file /usr/local/lib/ai-tools/keys/claude-code.asc      root              r
 # Shared KEY=value grammar + the trust predicate: 644 root:root -- world-readable, sourced by operator.lib.sh,
 # skip-dirs.lib.sh and providers.lib.sh; does not carry secrets.
 check_file /usr/local/lib/ai-tools/conf.lib.sh               root              root              644
+check_file /usr/local/lib/ai-tools/settings-merge.lib.sh     root              root              644
 # Provider/agent resolver: 644 root:root -- world-readable, sourced by ai-tools-bootstrap and nvm-update (both run
 # as the sandbox account) to read the agent manifests; does not carry secrets.
 check_file /usr/local/lib/ai-tools/providers.lib.sh          root              root              644
@@ -139,10 +140,10 @@ check_file /usr/local/lib/ai-tools/session-env.d              root              
 check_file /usr/local/lib/ai-tools/admin-commands.d          root              root              755
 # The command-filter rule-set directory carries the same reasoning one step further out: its files decide what every
 # command in a session becomes, so a non-root writer here could reshape the commands the agent runs and the transcript
-# the operator reads. Base owns the directory and core.rules; a package with commands of its own drops a rule set beside
+# the operator reads. Base owns the directory and base.rules; a package with commands of its own drops a rule set beside
 # them.
 check_file /usr/local/lib/ai-tools/filters.d                 root              root              755
-check_file /usr/local/lib/ai-tools/filters.d/core.rules      root              root              644
+check_file /usr/local/lib/ai-tools/filters.d/base.rules      root              root              644
 # Agent manifest, shipped by ai-tools-agents-claude-code-restricted (not base): 644 root:root, parsed data naming
 # the Claude npm package + launcher.
 check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              root              644
@@ -154,6 +155,18 @@ check_file /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh  root            
 # helper, so the agent can neither read nor run it, and root-owned so the dispatch's trust check admits it.
 check_file /usr/local/lib/ai-tools/admin-commands.d/dotnet      root            root              750
 check_file /usr/local/lib/ai-tools/filters.d/dotnet.rules       root            root              644
+# typesafe integration data (shipped by ai-tools-integration-typesafe): the manifest and fragment on the same terms
+# as dotnet's, and the decide command vendored from its signed release -- JavaScript node reads as the sandbox account,
+# so 644 root:root in a 755 root:root tree: node reads the files and does not execute them, and root alone writes them,
+# so the agent cannot change what a call sends.
+check_file /usr/local/lib/ai-tools/integrations.d/typesafe.conf root            root              644
+check_file /usr/local/lib/ai-tools/session-env.d/typesafe.env.sh root           root              644
+check_file /usr/local/lib/ai-tools/typesafe                     root            root              755
+check_file /usr/local/lib/ai-tools/typesafe/decide.mjs          root            root              644
+check_file /usr/local/lib/ai-tools/typesafe/transport.mjs      root            root              644
+check_file /usr/local/lib/ai-tools/typesafe/LICENSE            root            root              644
+# Its state root: the one path a call writes (the usage log), agent-writable and setgid so the log is group-owned.
+check_file /opt/ai-tools/integrations/typesafe                  root              "${SANDBOX_GROUP}" 2770
 # The claude-code agent's session pins and its own session-env fragment, shipped by its agent package. ai-tools-run
 # sources the pins into every session of the account after the integrations and the fragment last, into claude-code
 # sessions alone -- and 644 root:root is what makes each trusted enough to source at all.
@@ -222,6 +235,8 @@ check_file /etc/ai-tools/prompts/claude-system-prompt.md      root              
 # in ai-tools). Its directory is a plain 755 root:root.
 check_file /etc/ai-tools/endpoints                            root              root              755
 check_file /etc/ai-tools/endpoints/custom-claude-endpoint.conf root             "${SANDBOX_GROUP}" 640
+# The typesafe integration's credential file: an API key, so the same 640 root:ai-tools as the endpoint file.
+check_file /etc/ai-tools/endpoints/typesafe.conf               root             "${SANDBOX_GROUP}" 640
 # PATH ordering fragment: 644 root:root -- world-readable, sourced by the operator shells ai-tools-admin wires.
 # install.sh deploys it here and never into /etc/profile.d, so an unwired account keeps its stock PATH.
 check_file /usr/local/lib/ai-tools/path-order.lib.sh          root              root              644
@@ -366,30 +381,35 @@ if [[ -e /usr/local/share/man/man1/ai-tools.1.gz ]]; then
 else
     check_file /usr/local/share/man/man1/ai-tools.1           root root 644
 fi
-if [[ -e /usr/local/share/man/man5/operator.conf.5.gz ]]; then
-    check_file /usr/local/share/man/man5/operator.conf.5.gz   root root 644
+if [[ -e /usr/local/share/man/man5/ai-tools-operator.conf.5.gz ]]; then
+    check_file /usr/local/share/man/man5/ai-tools-operator.conf.5.gz   root root 644
 else
-    check_file /usr/local/share/man/man5/operator.conf.5      root root 644
+    check_file /usr/local/share/man/man5/ai-tools-operator.conf.5      root root 644
 fi
 if [[ -e /usr/local/share/man/man5/ai-tools-providers.5.gz ]]; then
     check_file /usr/local/share/man/man5/ai-tools-providers.5.gz root root 644
 else
     check_file /usr/local/share/man/man5/ai-tools-providers.5    root root 644
 fi
-if [[ -e /usr/local/share/man/man5/allowed-projects.5.gz ]]; then
-    check_file /usr/local/share/man/man5/allowed-projects.5.gz   root root 644
+if [[ -e /usr/local/share/man/man5/ai-tools-allowed-projects.5.gz ]]; then
+    check_file /usr/local/share/man/man5/ai-tools-allowed-projects.5.gz   root root 644
 else
-    check_file /usr/local/share/man/man5/allowed-projects.5      root root 644
+    check_file /usr/local/share/man/man5/ai-tools-allowed-projects.5      root root 644
 fi
-if [[ -e /usr/local/share/man/man5/secret-patterns.5.gz ]]; then
-    check_file /usr/local/share/man/man5/secret-patterns.5.gz    root root 644
+if [[ -e /usr/local/share/man/man5/ai-tools-secret-patterns.5.gz ]]; then
+    check_file /usr/local/share/man/man5/ai-tools-secret-patterns.5.gz    root root 644
 else
-    check_file /usr/local/share/man/man5/secret-patterns.5       root root 644
+    check_file /usr/local/share/man/man5/ai-tools-secret-patterns.5       root root 644
 fi
-if [[ -e /usr/local/share/man/man5/custom-claude-endpoint.conf.5.gz ]]; then
-    check_file /usr/local/share/man/man5/custom-claude-endpoint.conf.5.gz root root 644
+if [[ -e /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5.gz ]]; then
+    check_file /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5.gz root root 644
 else
-    check_file /usr/local/share/man/man5/custom-claude-endpoint.conf.5    root root 644
+    check_file /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5    root root 644
+fi
+if [[ -e /usr/local/share/man/man5/ai-tools-typesafe.conf.5.gz ]]; then
+    check_file /usr/local/share/man/man5/ai-tools-typesafe.conf.5.gz root root 644
+else
+    check_file /usr/local/share/man/man5/ai-tools-typesafe.conf.5    root root 644
 fi
 if [[ -e /usr/local/share/man/man7/ai-tools-messages.7.gz ]]; then
     check_file /usr/local/share/man/man7/ai-tools-messages.7.gz  root root 644

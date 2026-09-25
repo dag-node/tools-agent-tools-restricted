@@ -164,7 +164,7 @@ projects remove has no \-\-force: a registry entry is what authorizes a deletion
 .TP
 .B MSG-S6V2
 WARNING.
-removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run.
+removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run
 .TP
 .B MSG-T4A8
 ERROR.
@@ -249,6 +249,10 @@ system bootstrap: unknown scope '${scope}' (minimal|full)
 ERROR.
 semodule not found \-\- install policycoreutils
 .TP
+.B MSG-B2E6
+WARNING.
+the ask entries in ${settings} were not checked \-\- jq is missing or the file is not valid JSON
+.TP
 .B MSG-B5K9
 ERROR.
 a malformed interface floor: ${fragment} declares $(printf '%q' "${declared_floor}"), which is not <major>.<minor>
@@ -309,6 +313,18 @@ the provisioning helper is not installed: ${BOOTSTRAP_BIN} \-\- install ai\-tool
 ERROR.
 a verb outside the command charset: ${fragment} declares $(printf '%q' "${verb}") among its verbs, and a verb is a bare lower\-case word
 .TP
+.B MSG-E8S8
+WARNING.
+hook\-repeated
+.TP
+.B MSG-E9V5
+WARNING.
+ask\-missing
+.TP
+.B MSG-F2G7
+WARNING.
+hook\-missing
+.TP
 .B MSG-F4Z5
 ERROR.
 not executable: ${fragment} \-\- reinstall the package that ships it
@@ -365,9 +381,17 @@ This file defines the sudo grant that lets an operator launch the sandbox. It is
 WARNING.
 provisioning failed \-\- ${integration}: its bootstrap failed, with the cause above and in its own log
 .TP
+.B MSG-J3X7
+NOTICE.
+rpmnew\-residual
+.TP
 .B MSG-J9F9
 WARNING.
 could not remove ${user} from ${OPERATORS_GROUP}
+.TP
+.B MSG-K8D2
+WARNING.
+rpmnew\-orphan
 .TP
 .B MSG-M2N9
 WARNING.
@@ -393,17 +417,33 @@ could not create ${cfg} at 700 ${user}:${group}
 WARNING.
 could not label ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}${AI_TOOLS_FCONTEXT_ERROR:+ \-\- ${AI_TOOLS_FCONTEXT_ERROR}}
 .TP
+.B MSG-N3U8
+WARNING.
+option\-unmentioned
+.TP
 .B MSG-N4H9
 ERROR.
 could not write OPERATORS into ${OPERATOR_CONF} \-\- the enrolment is incomplete; check the file and re\-run
+.TP
+.B MSG-N9S4
+WARNING.
+asset\-unlinked
 .TP
 .B MSG-P2T5
 ERROR.
 selinux groups disable: name the group to unload
 .TP
+.B MSG-P4Q4
+WARNING.
+rpmnew\-differs
+.TP
 .B MSG-P5C5
 WARNING.
 could not seed ${file}
+.TP
+.B MSG-P5K4
+WARNING.
+list\-unmigrated
 .TP
 .B MSG-P9K2
 WARNING.
@@ -433,9 +473,17 @@ diff is not installed, so the difference is not shown here \-\- install diffutil
 ERROR.
 semodule failed to remove ai_tools_${name}
 .TP
+.B MSG-R6B2
+NOTICE.
+asset\-outdated
+.TP
 .B MSG-R7U6
 WARNING.
 no home directory on this host for ${user}; skipping the config seed
+.TP
+.B MSG-S3D8
+WARNING.
+list\-unmigratable
 .TP
 .B MSG-S3E9
 ERROR.
@@ -451,7 +499,7 @@ could not create ${cfg_home} as ${user}:${group}
 .TP
 .B MSG-S9M6
 ERROR.
-system post\-upgrade: takes no arguments
+system post\-upgrade: ${refusal}
 .TP
 .B MSG-T4X9
 ERROR.
@@ -513,6 +561,10 @@ one or more integrations did not provision
 ERROR.
 unknown command 'selinux ${resource}' (groups)
 .TP
+.B MSG-W3M8
+NOTICE.
+asset\-overridden
+.TP
 .B MSG-W3T9
 ERROR.
 an incompatible contract: ${fragment} needs contributed\-command interface ${declared_floor}, and this ai\-tools\-admin implements ${ADMIN_COMMAND_API} \-\- a different major is a different contract, so upgrade whichever of the two is behind
@@ -529,6 +581,14 @@ semodule failed to load ${pp}
 ERROR.
 selinux groups disable: one group name at a time
 .TP
+.B MSG-W8F8
+NOTICE.
+copy\-kept
+.TP
+.B MSG-X6H5
+WARNING.
+asset\-missing
+.TP
 .B MSG-X8K6
 ERROR.
 system bootstrap: \-\-agents takes a value (NAME[,NAME...])
@@ -536,6 +596,14 @@ system bootstrap: \-\-agents takes a value (NAME[,NAME...])
 .B MSG-X9F8
 WARNING.
 the merge failed: ${_ai_tools_conf_merge_reason} \-\- ${deployed} is unchanged
+.TP
+.B MSG-Y3J5
+ERROR.
+error
+.TP
+.B MSG-Y3P3
+WARNING.
+rpmnew\-review
 .TP
 .B MSG-Y6F3
 ERROR.
@@ -803,11 +871,11 @@ entrypoint relabel did not complete \-\- run 'sudo ai\-tools\-admin system entry
 .TP
 .B MSG-C8M9
 WARNING.
-could not start nvm\-update.timer (${_start_out:\-no output}) \-\- start it after the control plane is installed
+could not start nvm\-update.timer (${_start_out:\-no output}) \-\- once the manager runs, start it with: sudo systemctl \-\-user \-M ${SANDBOX_USER}@.host start nvm\-update.timer
 .TP
 .B MSG-C8W2
 NOTICE.
-AI_TOOLS_AGENTS names more than one agent ($*): every agent named runs as the one sandbox account, so a login or token one agent stores and the session history it keeps are readable by every session of every agent named, and a session of one can start another's binary inside itself \-\- see AI_TOOLS_AGENTS in operator.conf(5)
+AI_TOOLS_AGENTS names more than one agent ($*): every agent named runs as the one sandbox account, so a login or token one agent stores and the session history it keeps are readable by every session of every agent named, and a session of one can start another's binary inside itself \-\- see AI_TOOLS_AGENTS in ai\-tools\-operator.conf(5)
 .TP
 .B MSG-D9D3
 ERROR.
@@ -831,7 +899,7 @@ control plane present but ${cplib} does not resolve the agents' config dirs
 .TP
 .B MSG-J3E6
 ERROR.
-could not write AI_TOOLS_AGENTS=\e"$*\e" into ${AI_TOOLS_OPERATOR_CONF} \-\- set the line by hand, then re\-run: sudo ai\-tools\-admin system bootstrap
+could not write AI_TOOLS_AGENTS (${*}) into ${AI_TOOLS_OPERATOR_CONF} \-\- set the line by hand, then re\-run: sudo ai\-tools\-admin system bootstrap
 .TP
 .B MSG-K2D4
 ERROR.
@@ -840,6 +908,14 @@ operator ${user} who types ${launcher} would run ${winner}, which is an agent ou
 .B MSG-M2N6
 ERROR.
 \-\-agents names an agent with no installed manifest: ${unknown[*]} (installed: ${installed_names[*]:\-none}) \-\- install its ai\-tools\-agents\-* package, then re\-run; nothing was written
+.TP
+.B MSG-M9G5
+ERROR.
+no agent resolved: ${reason:\-the classification printed nothing} \-\- no package was installed or removed; correct it, then re\-run: sudo ai\-tools\-admin system bootstrap
+.TP
+.B MSG-N8U6
+WARNING.
+could not write ${key}=${answer} into ${conf} \-\- set the line by hand
 .TP
 .B MSG-P9Q6
 WARNING.
@@ -872,6 +948,10 @@ no agent chosen \-\- provisioning Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_
 .B MSG-X7Z2
 ERROR.
 run as root (sudo)
+.TP
+.B MSG-Y7B6
+ERROR.
+\-\-agents takes names separated by commas, without brackets: \-\-agents agent\-claude\-code,agent\-codex \-\- nothing was written
 .SS ai-tools-chown
 .TP
 .B MSG-A6D8
@@ -1024,7 +1104,7 @@ takes a single path
 .TP
 .B MSG-M2D2
 ERROR.
-failed to label ${dir} (is the ai_tools policy module loaded? run: sudo selinux/install\-selinux.sh install)
+failed to label ${dir} (is the ai_tools policy module loaded? install ai\-tools\-selinux, or from a checkout run: sudo selinux/install\-selinux.sh install)
 .TP
 .B MSG-N3A5
 ERROR.
@@ -1254,7 +1334,7 @@ The final sweep found live cgroups that the per\-session checks had verified emp
 .TP
 .B MSG-J3U9
 NOTICE.
-Nothing was stopped.
+Nothing was stopped
 .TP
 .B MSG-K2T7
 ERROR.
@@ -1323,9 +1403,17 @@ ERROR.
 claude: cannot load the launch gate library \-\- refusing to start
 .SS conf.lib.sh
 .TP
-.B MSG-F9W4
+.B MSG-D2F9
 WARNING.
-jq not found \-\- it is a package dependency; reinstall ai\-tools\-base
+switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no value (no, false, 0, off) \-\- read as no
+.TP
+.B MSG-D5N5
+WARNING.
+invalid list, read as the empty list \-\- ${label} (${reason}): ${value}; write it as [a, b]
+.TP
+.B MSG-X6F2
+WARNING.
+invalid list, read as the empty list \-\- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai\-tools\-admin system post\-upgrade
 .SS install-selinux.sh
 .TP
 .B MSG-A5N2
@@ -1378,7 +1466,7 @@ the shipped module set is empty \-\- is the group registry readable?
 .TP
 .B MSG-Q8W8
 WARNING.
-no agent resolved from the manifests, so no entrypoint was labelled.
+no agent resolved from the manifests, so no entrypoint was labelled
 .TP
 .B MSG-R2N4
 WARNING.
@@ -1473,6 +1561,10 @@ an agent outside the sandbox is installed at ${install_path}
 WARNING.
 systemctl \-\-user $* failed by both the machine transport and the account's own
 .TP
+.B MSG-K2P8
+WARNING.
+the kept $1 runs these commands without asking, and each sends data off the host:
+.TP
 .B MSG-K4W7
 ERROR.
 error: run with sudo
@@ -1492,6 +1584,10 @@ the systemd \-\-user manager of ${SANDBOX_USER} did not come up \-\- the auto\-u
 .B MSG-N2W3
 ERROR.
 sudoers syntax check failed
+.TP
+.B MSG-N7S2
+WARNING.
+operator.conf names providers without their kind prefix \-\- every launch refuses and the
 .TP
 .B MSG-P2N3
 WARNING.
@@ -1650,6 +1746,10 @@ cannot load the launch safety library \-\- refusing to start
 ERROR.
 cannot load the toolchain library \-\- refusing to start
 .TP
+.B MSG-V3Q5
+ERROR.
+no session starts while operator.conf names a provider without its kind prefix: ${joined}
+.TP
 .B MSG-W2P3
 ERROR.
 excluded by '!' rule in approved projects list: $(pwd)
@@ -1714,12 +1814,21 @@ could not retire the managed file ${live} \-\- leaving it as it is
 .TP
 .B MSG-X8P4
 WARNING.
-enabled with nothing installed: $(printf '%q' "${requested_name}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} \-\- install its ai\-tools package or remove it; skipping
+enabled with nothing installed: $(printf '%q' "${item}") is enabled in operator.conf (${conf_key}) but no manifest is installed under ${dir} \-\- install it with: sudo dnf install ${package}, or remove it from the line; skipping
 .SS safe-paths.lib.sh
 .TP
 .B MSG-Q6H3
 ERROR.
 Refusing the ${operation}: the target is a protected system directory.
+.SS settings-merge.lib.sh
+.TP
+.B MSG-F9W4
+WARNING.
+jq not found \-\- it is a package dependency; reinstall ai\-tools\-base
+.TP
+.B MSG-U9Y9
+WARNING.
+settings\-merge.lib.sh: conf.lib.sh missing or incomplete \-\- hook declarations not merged
 .SS toolchain.lib.sh
 .TP
 .B MSG-G4M8
@@ -1746,4 +1855,4 @@ could not remove ${package_dir} (npm uninstall left it in place) \-\- every laun
 .BR ai-tools-admin (8),
 .BR ai-tools-providers (5),
 .BR journalctl (1),
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)

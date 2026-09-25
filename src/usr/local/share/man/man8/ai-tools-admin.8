@@ -48,7 +48,7 @@ Enrolment writes two facts:
 a name in
 .B OPERATORS
 in
-.BR operator.conf (5),
+.BR ai-tools-operator.conf (5),
 from which the root helpers resolve who owns a path, and membership of the
 .B ai-ops
 group, which the
@@ -97,7 +97,7 @@ you: a scriptlet has to succeed offline and inside a build chroot.
 .PP
 No agent ships enabled.
 On a host whose
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)
 does not yet name one, the command asks which one installed agent to enable
 and writes
 .B AI_TOOLS_AGENTS
@@ -110,7 +110,7 @@ installs Node alone and names the line to set.
 .PP
 It is idempotent, so it is also the command to re-run after enabling another
 agent in
-.BR operator.conf (5):
+.BR ai-tools-operator.conf (5):
 an existing account, nvm install or Node version is reused rather than rebuilt.
 A scheduled timer maintains the toolchain afterwards.
 .PP
@@ -149,7 +149,7 @@ and what dispatches are one list.
 prints that domain's own commands.
 .PP
 Installing a provider is what makes its commands exist; enabling it in
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)
 is what gives a session the provider itself.
 .PP
 Two things are checked before any of them runs.
@@ -300,7 +300,7 @@ Works for any loaded group, stable or experimental.
 .B system bootstrap \fR[\fB\-\-scope full\fR] [\fB\-\-agents \fINAMES\fR]
 Provision the sandbox account and the toolchain the enabled agents run on.
 Decides first which agents that is: where
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)
 does not name any, it lists every installed agent and asks which one to enable,
 writes
 .B AI_TOOLS_AGENTS
@@ -321,8 +321,18 @@ account and its
 .I /opt/ai-tools
 home when they are absent, installs nvm and Node as that account, installs each
 agent enabled in
-.BR operator.conf (5),
+.BR ai-tools-operator.conf (5),
 points each launcher at the binary it installed, and enables the update timer.
+On a host where SELinux is enforcing and the
+.B ai_tools
+module is loaded, offers to require both at every launch
+.RB ( AI_TOOLS_REQUIRE_SELINUX
+and
+.B AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY
+in
+.BR ai-tools-operator.conf (5)),
+defaulting to yes, including without a terminal; a key already present is not
+asked about.
 Offers to set the sandbox account's git commit identity, keeping the seeded
 default without a terminal.
 .B Reaches the network,
@@ -330,16 +340,21 @@ for the nvm installer and the npm packages.
 Idempotent: a re-run reuses an existing account, nvm install and Node version,
 and provisions whatever is newly enabled.
 Which agents it installs comes from
-.BR operator.conf (5)
+.BR ai-tools-operator.conf (5)
 and the installed manifests, so it names none of them itself.
 .RS
 .TP
 .BI "\-\-agents " "NAME\fR[,\fP NAME\fR...]\fP"
-Enable the named agents without asking: each
+Enable the named agents without asking.
+Each is written
+.BI agent\- NAME\fR,\fP
 .I NAME
-is a manifest basename under
+being a manifest basename under
 .IR /usr/local/lib/ai-tools/agents.d ,
-checked against the installed manifests before the line is written, and a name
+and lands in the file in that form; the bare
+.I NAME
+is accepted too.
+Each is checked against the installed manifests before the line is written, and a name
 with no manifest refuses the run with the file unchanged.
 More than one name is accepted and draws the same notice a hand-written line
 naming several does.
@@ -355,7 +370,7 @@ does \(em is the toolchain and the enabled agents.
 additionally runs the
 .B bootstrap
 of every integration enabled in
-.BR operator.conf (5),
+.BR ai-tools-operator.conf (5),
 through the domain each one contributes, so a host is provisioned end to end in
 one command.
 Each integration is attempted and every failure named before the command exits
@@ -382,11 +397,11 @@ This command always re-fetches the vendor's signed manifest, where the
 unattended callers may answer from an unchanged pin.
 Takes no argument: the entrypoints come from the installed agent manifests.
 See
-.I /usr/share/doc/ai\-tools/entrypoint\-verification.md
+.I /usr/share/doc/ai\-tools/docs/system/entrypoint\-verification.md
 and
-.BR operator.conf (5).
+.BR ai-tools-operator.conf (5).
 .TP
-.B system post-upgrade
+.B system post-upgrade \fR[\fB\-\-check \fR[\fB\-\-all\fR] [\fB\-\-format tsv\fR]]
 Reconcile the
 .I FILE.rpmnew
 copies an upgrade leaves beside the configuration files this stack owns.
@@ -394,38 +409,166 @@ Each file gets the treatment its content calls for: the agent's
 .I settings.json
 has the hook declarations it lacks merged in, with its permission rules left
 as written;
-.BR operator.conf (5)
-is reported and never rewritten;
+.BR ai-tools-operator.conf (5)
+is reported, its provider lists aside;
 .I /etc/sudoers.d/ai\-tools
 is shown only.
-Every treatment shows the difference first, confirms, and writes a dated
-backup before changing anything.
+A copy under
+.IR /etc/ai\-tools ,
+.IR /etc/codex ,
+or an agent's configuration directory that none of these names is reported
+too: a
+.I *.conf
+file as
+.BR ai-tools-operator.conf (5)
+is, anything else by the
+.B diff
+command that compares it.
+A reported configuration file is never printed, since one may hold a
+credential; the report names the options it lacks, the keys you set, and
+whether the comments differ.
+The merge confirms and writes a dated backup before changing anything.
 Each file closes by naming its
 .I FILE.rpmnew
-as yours to delete, once you have merged what you want from it by hand.
-Idempotent, and a no-op when no
+as yours to delete, and prints the command that deletes it only when your
+file mentions every option the copy documents and carries the same comments.
+A copy dated before the installation is named as an earlier version's
+template, and the dated
+.I .bak
+and
+.I .shipped
+copies kept beside the configuration files are listed.
+Whether or not a copy is waiting, the command rewrites each provider list in
+.BR ai-tools-operator.conf (5)
+that an earlier release wrote with bare names:
+.B claude\-code
+in
+.B AI_TOOLS_AGENTS
+becomes
+.BR agent\-claude\-code ,
+and
+.B core
+in
+.B AI_TOOLS_FILTERS
+becomes
+.BR filter\-base .
+It writes a dated backup first, rewrites a key only when every name it holds
+is installed, and leaves a key holding any other name as written, naming it;
+until each list is rewritten no session starts.
+Once it rewrites
+.BR AI_TOOLS_AGENTS ,
+it reconciles the entrypoints of the agents that line now enables, as
+.B system entrypoints relabel
+does.
+This is the one change it makes to that file, and the unattended run makes it
+too.
+Whether or not a copy is waiting, the command also names each
+.B permissions.ask
+entry the agent's
+.I settings.json
+lacks for an installed command that sends data off the host, with the line
+to add; it does not write that entry.
+Idempotent, and leaves every file as it is when no
 .I .rpmnew
 file is waiting.
+Exits 0 when nothing is left to act on and 1 otherwise, so a copy identical to
+its file counts as clean.
+.RS
+.TP
+.B \-\-check
+List the findings without asking or writing, one line per finding:
+.IP
+.I CODE
+TAB
+.I PATH
+TAB
+.I FINDING
+TAB
+.I DETAIL
+.IP
+with no heading, colour, or other text.
+.I CODE
+is the finding's message code in
+.BR ai-tools-messages (7),
+and
+.I DETAIL
+is
+.B \-
+where there is none.
+A finding that needs attention makes the command exit 1:
+.B hook\-missing
+and
+.B hook\-repeated
+(a hook declaration the merge would add or remove),
+.B ask\-missing
+(a
+.B permissions.ask
+entry the file lacks),
+.B option\-unmentioned
+(an option the copy documents that the file does not mention),
+.B rpmnew\-differs
+(a difference to carry over by hand),
+.B rpmnew\-review
+(the sudoers grant changed),
+.B rpmnew\-orphan
+(a package copy whose file is gone),
+.B asset\-missing
+(a shipped skill, subagent, or orientation text not seeded),
+.B asset\-unlinked
+(an agent without its link to one),
+.B list\-unmigrated
+(a provider list the command would rewrite, with the old and the new names as
+.IR DETAIL ),
+.B list\-unmigratable
+(a name in a provider list that does not match any installed manifest or rule
+set, to edit by hand), and
+.B error
+(a check that could not run, with the reason as
+.IR DETAIL ).
+With none of these the command prints nothing and exits 0, so a
+.BR cron (8)
+job mails only a host that needs you.
+.TP
+.B \-\-all
+Also list the findings that need no action, without changing the exit status:
+.B rpmnew\-residual
+(a package copy identical to its file),
+.B copy\-kept
+(a dated
+.IR .bak ,
+.IR .shipped ,
+or
+.I .retired
+copy),
+.B asset\-outdated
+(a live asset older than the shipped one), and
+.B asset\-overridden
+(your own file where a shipped asset or its link would be).
+.TP
+.B \-\-format tsv
+The line format, and the default.
+.RE
 .TP
 .B status
 Report this host's health: the installed version, whether the toolchain is
 provisioned, each managed
 .BR systemd (1)
 unit, and \(em per enabled agent \(em both halves of the entrypoint
-reconciliation: whether the binary is pinned to a checksum its vendor signed,
+reconciliation: whether the binary matches the checksum pinned for it,
 and what SELinux type its paths carry.
 .RS
 .PP
 It is the same report
 .B "ai\-tools status"
-gives an operator, completed with the three readings that vantage point lacks
+gives an operator, completed with the readings that vantage point lacks
 the privilege for and prints as
 .BR ? :
 the sandbox account's own
 .B "systemd \-\-user"
 units, read live over the machine transport; the entrypoint pin, which sits in
-a state directory a non-operator cannot traverse; and the SELinux type each
-agent path carries, inside a toolchain only root can enter.
+a state directory a non-operator cannot traverse; whether the installed binary
+still matches that pin, hashed inside a toolchain only root can enter; and the
+SELinux type each agent path carries there.
 Every verdict comes from the registry both reports read, so the two differ in
 what each is allowed to see and never in what either says about the same unit.
 .PP
@@ -498,7 +641,7 @@ installs.
 Defaults to 22.
 .PP
 Host settings are not environment variables: they live in
-.BR operator.conf (5),
+.BR ai-tools-operator.conf (5),
 which is root-owned so that a session cannot widen what it is given.
 .SH FILES
 .TP
@@ -554,14 +697,16 @@ Provision a host unattended, enabling one agent without the menu:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system bootstrap \-\-agents codex
+sudo ai\-tools\-admin system bootstrap \-\-agents agent\-codex
 .EE
 .RE
 .PP
-Provision a second agent after the first run \(em add its name to
+Provision a second agent after the first run \(em add it, as
+.BI agent\- NAME\fR,\fP
+to
 .B AI_TOOLS_AGENTS
 in
-.BR operator.conf (5),
+.BR ai-tools-operator.conf (5),
 then re-run the same command:
 .PP
 .RS 4
@@ -606,6 +751,15 @@ sudo ai\-tools\-admin system post\-upgrade
 .EE
 .RE
 .PP
+Check each morning from root's crontab, with a mail only when a file needs
+you:
+.PP
+.RS 4
+.EX
+0 7 * * * /usr/sbin/ai\-tools\-admin system post\-upgrade \-\-check
+.EE
+.RE
+.PP
 Put the agent entrypoints back in order after a toolchain update, when a launch
 refuses over the label:
 .PP
@@ -617,15 +771,15 @@ sudo ai\-tools\-admin system entrypoints relabel
 .SH SEE ALSO
 .BR ai\-tools (1),
 .BR allowed\-projects (5),
-.BR operator.conf (5),
+.BR ai-tools-operator.conf (5),
 .BR secret\-patterns (5),
 .BR semodule (8),
 .BR sudoers (5).
 .PP
 Running agents under service accounts on one host \(em what an account does
 on its own, what every operator shares, and what stays private to each:
-.I /usr/share/doc/ai\-tools/multi\-operator.md
+.I /usr/share/doc/ai\-tools/docs/operators/service\-accounts.md
 .PP
 How an entrypoint is verified against its vendor's signed release, what the pin
 holds, and what a launch does with each outcome:
-.I /usr/share/doc/ai\-tools/entrypoint\-verification.md
+.I /usr/share/doc/ai\-tools/docs/system/entrypoint\-verification.md

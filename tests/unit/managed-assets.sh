@@ -167,6 +167,31 @@ else
     fail "an unmanaged live asset was overwritten or not reported: ${out}"
 fi
 
+# An empty directory at a skill's name holds nothing an operator wrote: it is seeded into, where reading it
+# as the operator's own left the skill missing from every session with nothing to fill it. A directory holding any entry
+# without the marker is still theirs.
+reset_roots
+write_skill "${SHIPPED}" ai-tools-aaa-updated 6
+mkdir -p "${LIVE}/skills/ai-tools-aaa-updated"
+out="$(AI_TOOLS_ASSUME_YES=1 seed 2>&1)" || true
+if [[ "$(asset_version "${LIVE}/skills/ai-tools-aaa-updated/SKILL.md")" == "6" ]] \
+   && grep -q 'ai-tools-aaa-updated seeded (v6) into an empty directory' <<<"${out}"; then
+    pass "an empty live directory at a skill's name is seeded into and reported as such"
+else
+    fail "an empty live skill directory was not seeded: ${out}"
+fi
+reset_roots
+write_skill "${SHIPPED}" ai-tools-aaa-updated 6
+mkdir -p "${LIVE}/skills/ai-tools-aaa-updated"
+printf 'mine\n' > "${LIVE}/skills/ai-tools-aaa-updated/notes.md"
+out="$(AI_TOOLS_ASSUME_YES=1 seed 2>&1)" || true
+if [[ ! -e "${LIVE}/skills/ai-tools-aaa-updated/SKILL.md" && -f "${LIVE}/skills/ai-tools-aaa-updated/notes.md" ]] \
+   && grep -q "kept (operator's own" <<<"${out}"; then
+    pass "a live directory holding a file without the marker is still the operator's own"
+else
+    fail "a non-empty unmarked live directory was claimed: ${out}"
+fi
+
 # A same-or-older shipped version is a no-op, so an operator is not told about a non-event.
 reset_roots
 write_skill "${SHIPPED}" ai-tools-aaa-updated 3
