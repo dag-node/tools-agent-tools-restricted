@@ -369,10 +369,17 @@ the way back, and an operator told only "excluded" is left to work out which of 
 
 ## PATH ordering
 
-Every agent wrapper lives in `/usr/local/bin`, which `path-order.sh` (`/usr/local/lib/ai-tools/path-order.sh`,
-`644 root:root`) ranks Tier 1, ahead of the nvm shims it leaves in Tier 4. First match wins, so typing a launcher name
-always enters the sandboxed path and the nvm-managed binary of the same name stays shadowed. The tiers
-and the first-match-wins ordering behind them are in that file's header.
+Every agent wrapper lives in `/usr/local/bin`. `nvm` prepends its versioned `bin` to the front of PATH
+from the operator's own `~/.bashrc`, so an agent that operator installed with `npm i -g` resolves ahead of the wrapper
+and starts unconfined, as them. `path-order.sh` (`/usr/local/lib/ai-tools/path-order.sh`, `644 root:root`) runs
+after that init and ranks `/usr/local/bin` in Tier 1, ahead of the nvm `bin` it leaves in Tier 4. First match wins,
+so typing a launcher name reaches the wrapper and the nvm-managed binary of the same name stays shadowed.
+
+The fragment's header lists the tiers and states only its behaviour, because operators read it before adding it to their
+dotfiles. This rule records the rationale for two ordering choices omitted there: `/usr/local/sbin` and `/usr/local/bin`
+lead Tier 1, matching EL's order. On systems where `/usr/sbin` links to `/usr/bin`, another order could resolve
+a distribution-provided binary before an identically named binary in `/usr/local/bin`. `~/.local/bin` ranks ahead
+of `~/.dotnet/tools` because the user curates the former, while NuGet populates the latter.
 
 The fragment is sourced per-account: `ai-tools-admin operators add` offers to add the guard line to the operator's
 `~/.bashrc` and `~/.bash_profile` **after** their nvm init, the one position where the ordering holds (the fragment must
