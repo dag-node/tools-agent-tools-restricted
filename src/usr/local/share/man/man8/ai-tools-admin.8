@@ -468,6 +468,17 @@ entry the agent's
 .I settings.json
 lacks for an installed command that sends data off the host, with the line
 to add; it does not write that entry.
+Likewise it names each key an agent's managed configuration file, such as
+.IR /etc/codex/requirements.toml ,
+does not set that the copy the package ships under
+.I /usr/share/ai-tools
+does, with the command that merges the two in
+.BR meld (1)
+or
+.BR vimdiff (1)
+through
+.BR sudoedit (8);
+it does not edit the file.
 Idempotent, and leaves every file as it is when no
 .I .rpmnew
 file is waiting.
@@ -504,6 +515,8 @@ and
 (a
 .B permissions.ask
 entry the file lacks),
+.B key\-missing
+(a key a managed configuration file does not set that its shipped copy does),
 .B option\-unmentioned
 (an option the copy documents that the file does not mention),
 .B rpmnew\-differs

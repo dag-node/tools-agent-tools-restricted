@@ -527,6 +527,52 @@ ai_tools_agent_managed_files() {
     return 0
 }
 
+# _ai_tools_toml_keys <file> : print the dotted key each assignment in <file> sets, one per line: `table.key` under
+#   a `[table]` header, the key alone ahead of the first. An assignment inside an array of tables (`[[...]]`) is not
+#   printed, since such an entry is not addressed by a key, and the continuation lines of a value spanning several lines
+#   are passed over. It reads the shape the shipped managed files are written in, not the whole TOML grammar.
+_ai_tools_toml_keys() {
+    LC_ALL=C awk '
+        # The bracket depth a value leaves open, counted outside quoted strings and ahead of a comment.
+        function depth_of(s,   i, c, d, q) {
+            d = 0; q = 0
+            for (i = 1; i <= length(s); i++) {
+                c = substr(s, i, 1)
+                if (c == "\"") q = !q
+                else if (!q && c == "#") break
+                else if (!q && (c == "[" || c == "{")) d++
+                else if (!q && (c == "]" || c == "}")) d--
+            }
+            return d
+        }
+        { line = $0; sub(/^[ \t]+/, "", line) }
+        pending > 0 { pending += depth_of(line); next }
+        line == "" || line ~ /^#/ { next }
+        line ~ /^\[\[/ { in_array = 1; next }
+        line ~ /^\[/ {
+            in_array = 0; table = line
+            sub(/^\[[ \t]*/, "", table); sub(/[ \t]*\].*$/, "", table)
+            next
+        }
+        match(line, /^("[^"]*"|[A-Za-z0-9_.-]+)[ \t]*=/) {
+            key = substr(line, 1, RLENGTH); sub(/[ \t]*=$/, "", key)
+            if (!in_array) print (table == "" ? key : table "." key)
+            pending = depth_of(substr(line, RLENGTH + 1))
+        }
+    ' "$1"
+}
+
+# ai_tools_managed_file_missing_keys <live> <reference> : print each dotted key <reference> sets that <live> does not,
+#   one per line in byte order -- a key a release added to a managed file the host kept, which codex does not read
+#   until it is carried over. Returns 1, printing nothing, when either path is not a readable regular file.
+ai_tools_managed_file_missing_keys() {
+    local live="$1" reference="$2"
+    [[ -f "${live}" && -r "${live}" && ! -L "${live}" && -f "${reference}" && -r "${reference}" \
+        && ! -L "${reference}" ]] || return 1
+    LC_ALL=C comm -13 <(_ai_tools_toml_keys "${live}" | LC_ALL=C sort -u) \
+        <(_ai_tools_toml_keys "${reference}" | LC_ALL=C sort -u)
+}
+
 # ai_tools_enabled_integrations : print one enabled AND installed integration name per line, in
 #   manifest-filename order. An integration carries only default_enable; its session env lives in
 #   session-env.d/<name>.env.sh, which ai-tools-run sources by name -- after applying the same trust

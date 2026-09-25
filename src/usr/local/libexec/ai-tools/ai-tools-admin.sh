@@ -1530,6 +1530,54 @@ _pu_ask_gaps() {
     _pu_say info "this command does not edit the file, since the permission rules are yours -- re-run it to confirm"
 }
 
+# _pu_managed_pairs <root>: "<live>\t<reference>" per managed file an installed agent's manifest declares
+# (ai_tools_agent_managed_files), both paths under <root>. The manifests are read under <root> as well, so the unit
+# suite drives the check against fixture manifests. Returns 1, printing nothing, when the provider library did not load.
+_pu_managed_pairs() {
+    local root="$1" agent live reference
+    declare -F ai_tools_agent_managed_files >/dev/null 2>&1 || return 1
+    # shellcheck disable=SC2034  # read by the provider functions this one calls, which see it through dynamic scope
+    local AI_TOOLS_AGENTS_DIR="${root}${AI_TOOLS_AGENTS_DIR}"
+    while IFS=$'\t' read -r agent _ _; do
+        [[ -n "${agent}" ]] || continue
+        while IFS=$'\t' read -r live reference; do
+            printf '%s\t%s\n' "${root}${live}" "${root}${reference}"
+        done < <(ai_tools_agent_managed_files "${agent}" 2>/dev/null)
+    done < <(ai_tools_installed_agents 2>/dev/null)
+}
+
+# _pu_merge_command <live> <reference>: the command that merges a managed file with its shipped copy. sudoedit copies
+# the file for the invoking user and installs the result when the editor exits, so the merge tool runs as that user
+# rather than as root; meld where it is installed, vimdiff otherwise.
+_pu_merge_command() {
+    local tool=vimdiff
+    command -v meld >/dev/null 2>&1 && tool=meld
+    printf 'SUDO_EDITOR="%s %s" sudoedit %s' "${tool}" "$2" "$1"
+}
+
+# _pu_key_gaps <root>: name each key an agent's managed file does not set that its shipped copy does, with the command
+# that merges the file with that copy. Checked whether or not a .rpmnew is waiting, for the reason _pu_ask_gaps states,
+# and not written: the file is the host's, and a key arrives with the comment that explains it, which a key-by-key edit
+# would not carry over.
+_pu_key_gaps() {
+    local root="$1" live reference keys key
+    local -a missing=()
+    while IFS=$'\t' read -r live reference; do
+        [[ -f "${live}" && -f "${reference}" ]] || continue
+        cmp -s "${live}" "${reference}" && continue
+        keys="$(ai_tools_managed_file_missing_keys "${live}" "${reference}")" || continue
+        [[ -n "${keys}" ]] || continue
+        mapfile -t missing <<< "${keys}"
+        _PU_NAME="${live##*/}"
+        ai_tools_msg_headline "${_PU_NAME} -- keys this release ships that the file does not set" 1 "${live}"
+        for key in "${missing[@]}"; do _pu_say act "  ${key}"; done
+        _pu_say info "merge them from the shipped copy, keeping your own changes:"
+        # Printed bare, so the command copies out of the terminal whole.
+        printf '      %s\n' "$(_pu_merge_command "${live}" "${reference}")"
+        _pu_say info "this command does not edit the file, since its contents are yours -- re-run it to confirm"
+    done < <(_pu_managed_pairs "${root}")
+}
+
 # _pu_orphan_report <root>: a block per package copy whose file is gone, naming the two ways to settle it.
 _pu_orphan_report() {
     local path
@@ -1661,6 +1709,7 @@ _pu_finding() {
         hook-missing)       _pu_attention MSG-F2G7 "hook-missing" "$2" "${3-}" ;;
         hook-repeated)      _pu_attention MSG-E8S8 "hook-repeated" "$2" "${3-}" ;;
         ask-missing)        _pu_attention MSG-E9V5 "ask-missing" "$2" "${3-}" ;;
+        key-missing)        _pu_attention MSG-K5H2 "key-missing" "$2" "${3-}" ;;
         option-unmentioned) _pu_attention MSG-N3U8 "option-unmentioned" "$2" "${3-}" ;;
         rpmnew-differs)     _pu_attention MSG-P4Q4 "rpmnew-differs" "$2" "${3-}" ;;
         rpmnew-review)      _pu_attention MSG-Y3P3 "rpmnew-review" "$2" "${3-}" ;;
@@ -1726,6 +1775,23 @@ _pu_check() {
         else
             _pu_finding error "${file}" "ask entries not checked: jq is missing or the file is not valid JSON"
         fi
+    fi
+
+    local live reference
+    if declare -F ai_tools_managed_file_missing_keys >/dev/null 2>&1; then
+        while IFS=$'\t' read -r live reference; do
+            [[ -f "${live}" && -f "${reference}" ]] || continue
+            cmp -s "${live}" "${reference}" && continue
+            if line="$(ai_tools_managed_file_missing_keys "${live}" "${reference}")"; then
+                entries=()
+                [[ -n "${line}" ]] && mapfile -t entries <<< "${line}"
+                for line in "${entries[@]}"; do _pu_finding key-missing "${live}" "${line}"; done
+            else
+                _pu_finding error "${live}" "keys not checked: the file or its shipped copy is not readable"
+            fi
+        done < <(_pu_managed_pairs "${root}")
+    else
+        _pu_finding error "${root}/etc" "managed-file keys not checked: ${PROVIDERS_LIB} did not load"
     fi
 
     while IFS=$'\t' read -r state path detail; do _pu_finding "${state}" "${path}" "${detail}"; done \
@@ -1945,6 +2011,7 @@ _pu_report() {
 
     _pu_orphan_report "${root}"
     _pu_ask_gaps "${root}"
+    _pu_key_gaps "${root}"
     _pu_asset_report "${root}"
     _pu_sidecars "${root}"
     printf '\n'

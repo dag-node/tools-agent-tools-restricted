@@ -500,6 +500,64 @@ else
     fi
 fi
 
+# The keys a kept managed file does not set that its shipped copy does, which `system post-upgrade` names: a release
+# that adds a key to a %config(noreplace) file reaches an edited host only when the operator carries it over. The reader
+# covers the shape the shipped files take, so what it must get right is which assignments count as keys: a table key
+# and a top-level one, a dotted key standing for a table key, and not an entry inside an array of tables, a continuation
+# line of a multi-line value, or a bracket inside a comment, each of which would report a key that is not missing
+# or hide one that is.
+section "providers: keys a managed file lacks against its shipped copy"
+if ! declare -F ai_tools_managed_file_missing_keys >/dev/null 2>&1; then
+    skip "managed-file keys" "ai_tools_managed_file_missing_keys not defined (install this branch first)"
+else
+    mk="${TESTDIR}/managed-keys"; mkdir -p "${mk}"
+    cat > "${mk}/ref.toml" <<'TOML'
+# a header comment carrying a [bracket]
+top = 1
+multi = [
+  "a",
+  "b = c",
+]
+[features]
+daemon_auto_start = false
+[[rules.prefix_rules]]
+pattern = [
+  { token = "git" },
+]
+decision = "forbidden"
+[hooks]
+managed_dir = "/x" # a comment opening a [bracket
+other = 1
+TOML
+    printf 'top = 1\n' > "${mk}/live.toml"
+    got="$(ai_tools_managed_file_missing_keys "${mk}/live.toml" "${mk}/ref.toml" | paste -sd' ')"
+    if [[ "${got}" == "features.daemon_auto_start hooks.managed_dir hooks.other multi" ]]; then
+        pass "the missing keys are the table and top-level assignments, not array-of-tables entries or continuations"
+    else
+        fail "missing keys read as '${got}'"
+    fi
+    printf 'top = 1\nmulti = []\nfeatures.daemon_auto_start = true\n[hooks]\nmanaged_dir = "/y"\nother = 2\n' \
+        > "${mk}/dotted.toml"
+    got="$(ai_tools_managed_file_missing_keys "${mk}/dotted.toml" "${mk}/ref.toml")"
+    if [[ -z "${got}" ]]; then
+        pass "a dotted key sets the table key it names, and a different value is not a missing key"
+    else
+        fail "a file setting every key was reported missing '${got}'"
+    fi
+    if [[ -z "$(ai_tools_managed_file_missing_keys "${mk}/ref.toml" "${mk}/ref.toml")" ]]; then
+        pass "a file identical to its shipped copy lacks no key"
+    else
+        fail "a file identical to its shipped copy was reported missing keys"
+    fi
+    ln -s "${mk}/live.toml" "${mk}/link.toml"
+    if ! ai_tools_managed_file_missing_keys "${mk}/absent.toml" "${mk}/ref.toml" >/dev/null \
+            && ! ai_tools_managed_file_missing_keys "${mk}/link.toml" "${mk}/ref.toml" >/dev/null; then
+        pass "a missing or symlinked file is reported as not checked (status 1), not as lacking every key"
+    else
+        fail "an unreadable file read as checked"
+    fi
+fi
+
 # --- The installed set: what the toolchain provisioning offers, and checks a name against ------
 # ai_tools_installed_agents lists every trusted manifest naming an npm_package whatever operator.conf says, since
 # the agent choice is made BEFORE the key exists. The same trust rules as the enabled-set reader, driven

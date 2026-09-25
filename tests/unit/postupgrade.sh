@@ -376,6 +376,50 @@ else
     fail "a current file was reported as missing an ask entry: ${out}"
 fi
 
+# ── (E8b) A key a managed file lacks against its shipped copy: named with the merge command, left as written ─────
+# An agent's managed files are the ones its manifest declares, with the shipped copy under /usr/share/ai-tools; both,
+# and the manifest, are read under the prefix root. A fixture agent declares one file whose shipped copy carries a key
+# the kept file does not set, as a release adds one to a %config(noreplace) file.
+reset_root
+mkdir -p "${ROOT}/usr/local/lib/ai-tools/agents.d" "${ROOT}/usr/share/ai-tools/acme" "${ROOT}/etc/acme"
+chmod 0755 "${ROOT}/usr/local/lib/ai-tools/agents.d"
+printf 'npm_package=@acme/agent\nlauncher=acme\ndefault_enable=no\nmanaged_files=/etc/acme/req.toml\n' \
+    > "${ROOT}/usr/local/lib/ai-tools/agents.d/acme.conf"
+chmod 0644 "${ROOT}/usr/local/lib/ai-tools/agents.d/acme.conf"
+printf 'pin = 1\n\n# why the feature is off\n[features]\nauto_start = false\n' > "${ROOT}/usr/share/ai-tools/acme/req.toml"
+printf 'pin = 2\n' > "${ROOT}/etc/acme/req.toml"
+cp "${ROOT}/etc/acme/req.toml" "${TESTDIR}/pre.req"
+out="$(run_pu)"
+if [[ "${out}" == *"req.toml -- keys this release ships that the file does not set"* \
+      && "${out}" == *"features.auto_start"* && "${out}" == *"sudoedit ${ROOT}/etc/acme/req.toml"* \
+      && "${out}" == *"${ROOT}/usr/share/ai-tools/acme/req.toml"* && "${out}" == *"review the warnings"* ]]; then
+    pass "a key the kept file lacks is named, with the sudoedit merge against the shipped copy"
+else
+    fail "a missing managed-file key was not reported: ${out}"
+fi
+if cmp -s "${ROOT}/etc/acme/req.toml" "${TESTDIR}/pre.req" && [[ "$(sidecars "${ROOT}/etc/acme/req.toml")" == 0 ]]; then
+    pass "the managed file is left byte-identical and gains no sidecar"
+else
+    fail "the key check wrote to the managed file"
+fi
+out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check < /dev/null 2>&1)" \
+    && check_rc=0 || check_rc=$?
+if [[ "${check_rc}" -eq 1 ]] \
+        && grep -qxF "$(printf '%s\t%s\t%s\t%s' MSG-K5H2 "${ROOT}/etc/acme/req.toml" key-missing features.auto_start)" \
+            <<< "${out}" \
+        && ! grep -qF "${ROOT}/etc/acme/req.toml"$'\t'key-missing$'\t'pin <<< "${out}"; then
+    pass "--check reports the missing key as key-missing under its code, not the key set to another value, and exits 1"
+else
+    fail "--check did not report the missing key alone (exit ${check_rc}): ${out}"
+fi
+printf 'pin = 2\n[features]\nauto_start = true\n' > "${ROOT}/etc/acme/req.toml"
+out="$(run_pu)"
+if [[ "${out}" != *"keys this release ships"* ]]; then
+    pass "a file that sets every key is not reported, whatever its values"
+else
+    fail "a file setting every key was reported: ${out}"
+fi
+
 # ── (E9) --check: one tab-separated line per finding, nothing when clean, and no write ───────────────────────
 # It is what cron runs, so a clean host must print nothing at all and exit 0, a finding must be one line a monitor
 # splits on a tab -- its code, the path, the finding, the detail -- and a merge the interactive run would make must be

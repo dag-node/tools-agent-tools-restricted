@@ -327,8 +327,10 @@ and no entrypoint provenance on the npm channel. Egress is not controlled by thi
 
 - **A `.rpmnew` for either managed file leaves a newly shipped key unread.** Codex reads the live file alone;
   the `%post` names the parked copy, and the operator carries the keys over by hand.
-  `ai-tools-admin system post-upgrade` names such a copy with the `diff -u` that compares it and does not merge it:
-  the files are TOML, not the JSON it merges.
+  `ai-tools-admin system post-upgrade` names such a copy with the `diff -u` that compares it and does not merge it,
+  since the files are TOML, not the JSON it merges. Whether or not a copy is waiting, it also names each key the live
+  file lacks against the shipped copy under `/usr/share/ai-tools/codex`, with a `sudoedit` merge through `meld`
+  or `vimdiff` ([providers](providers.rule.md)).
 - **A mode flag is ignored, not refused.** `--sandbox workspace-write` under the shipped requirements lands
   on `danger-full-access` with no notice, since the profile table lists full access alone. Under a requirements file
   without the `default_permissions` pair, the same flag falls back to a read-only managed profile whose tool calls fail
