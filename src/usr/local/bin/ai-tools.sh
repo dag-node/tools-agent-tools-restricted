@@ -3785,9 +3785,9 @@ status_sandbox_unit_commands() {
 # stays open to a non-operator, whom the state directory's mode keeps out. status_path_order -- where THIS shell finds
 # each enabled agent's launcher. The one reading this report can make for free and no other vantage can make at all:
 # the CLI runs in the operator's own login shell, so `command -v claude` resolves exactly what typing `claude` would
-# run. A launcher resolving outside /usr/local/bin starts UNCONFINED, as the operator, so it counts toward the report's
-# exit status and names the command that repairs it. What each state means is launch.rule.md's PATH ordering section;
-# what this report says about each is cli.rule.md.
+# run. A launcher resolving to a file other than the wrapper starts UNCONFINED, as the operator, so it counts toward
+# the report's exit status and names the command that repairs it. What each state means is launch.rule.md's PATH
+# ordering section; what this report says about each is cli.rule.md.
 #
 # Best-effort like the rest of this report: without the library or the provider resolver this vantage has no launcher
 # to resolve, so the section is omitted rather than guessed at.

@@ -24,10 +24,14 @@ _AI_TOOLS_AGENT_INSTALLS_LIB_LOADED=1
 # leads because the agent's other distribution channel -- its own package rather than the npm one this stack installs --
 # puts it there.
 readonly AI_TOOLS_AGENT_INSTALL_DIRS=(/bin /usr/bin /usr/sbin /sbin /usr/local/sbin /opt/bin)
+# The wrappers' directory. A candidate that is the same file as the wrapper of its name is not reported:
+# where /usr/local/sbin is a symlink to /usr/local/bin (Fedora's merged layout), /usr/local/sbin/<launcher> is
+# the wrapper.
+readonly AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR=/usr/local/bin
 
 # ai_tools_agent_installs <launcher> [<dir>...] Print "<path>\t<other spellings of the same file>" per distinct
-# executable of that name in <dir>... (default: AI_TOOLS_AGENT_INSTALL_DIRS). `-ef` is what makes a usr-merged host's
-# /bin/claude and /usr/bin/claude one install rather than two.
+# executable of that name in <dir>... (default: AI_TOOLS_AGENT_INSTALL_DIRS), leaving out the wrapper itself. `-ef` is
+# what makes a usr-merged host's /bin/claude and /usr/bin/claude one install rather than two.
 #
 # The launcher name becomes a path, so it is admitted only in a launcher's own charset; a name outside it does not
 # produce any line.
@@ -42,6 +46,7 @@ ai_tools_agent_installs() {
     for dir in "${dirs[@]}"; do
         candidate="${dir}/${launcher}"
         [[ -x "${candidate}" && ! -d "${candidate}" ]] || continue
+        [[ "${candidate}" -ef "${AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR}/${launcher}" ]] && continue
         seen=""
         for idx in "${!paths[@]}"; do
             [[ "${candidate}" -ef "${paths[idx]}" ]] || continue

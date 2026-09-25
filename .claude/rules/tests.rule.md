@@ -646,31 +646,35 @@ the versioned shape — so the two reports cannot name different Node versions f
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
 [launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools status` re-checks
 with, and `ai-tools-admin system bootstrap` reports from. What gives it teeth is the direction each answer sends
-an operator: a launcher resolving outside `/usr/local/bin` means typing its name starts an **unconfined** agent,
+an operator: a launcher resolving to a file other than the wrapper means typing its name starts an **unconfined** agent,
 so a verdict reading that state as fine would turn the one question standing between an operator and an unsandboxed
 session into a formality, while one reporting a shadow whenever a probe could not be read would teach them to ignore it.
 The truth table is therefore driven whole, in both directions, and so are the two inputs that reach a shell
 or a terminal — the launcher name interpolated into a command run as another account, and the path that command prints
-back. The repoint a rename owes a deployed host is the other half: it is the one edit this project makes
-to an operator's shell init without asking, so what is asserted is the bound on it — one path token, inside a line this
-project wrote, with the rest of the file byte-identical, a file naming neither path untouched, the mode preserved, no
-sidecar written, and a second pass a no-op. The decision is pure and the probing separate (the split `confinement.sh`
-drives), so the file drives the table with no account to probe and **without root**; the two impure readers are driven
-with their dependencies stubbed as shell functions, which is also how the publishing contract is asserted from a real
-caller under `set -u`. The per-operator report is pinned with them, in both directions: a shadowed account is named
-with its launcher and the binary that wins the PATH search, and an account in any other state — one whose reading could
-not be taken included — is named by no line, so the report names an account only where typing the launcher starts
-an agent outside the wrapper.
+back. The answer is compared with the wrapper by file identity, so the fixture holds the wrapper reached
+through a merged `sbin -> bin` alias, which must read as the wrapper, beside a copy and another binary, which must not.
+The repoint a rename owes a deployed host is the other half: it is the one edit this project makes to an operator's
+shell init without asking, so what is asserted is the bound on it — one path token, inside a line this project wrote,
+with the rest of the file byte-identical, a file naming neither path untouched, the mode preserved, no sidecar written,
+and a second pass a no-op. The decision is pure and the probing separate (the split `confinement.sh` drives),
+so the file drives the table with no account to probe and **without root**; the two impure readers are driven with their
+dependencies stubbed as shell functions, which is also how the publishing contract is asserted from a real caller
+under `set -u`. The per-operator report is pinned with them, in both directions: a shadowed account is named with its
+launcher and the binary that wins the PATH search, and an account in any other state — one whose reading could not be
+taken included — is named by no line, so the report names an account only where typing the launcher starts an agent
+outside the wrapper.
 
 `agent-installs.sh` pins which agents a host carries besides the sandbox's (`agent-installs.lib.sh`), the reading
 `install.sh` and the `ai-tools-base` `%post` report from. What it holds is the shape of a host: on a usr-merged host
 `/bin` and `/usr/bin` are one directory, so one file answers to two spellings and must report as one install
-with the other spelling beside it, while two separate binaries are two things to decide about. The inputs that must
-yield no line are driven with them — a launcher name outside the charset, a file without the executable bit, a directory
-that is absent, and a path no package owns, which is what the owner lookup gives a host without rpm. The search takes
-its directories as arguments, so the fixtures are a tree the file builds; it needs the executable bit to be **visible**
-there, which a noexec mount and a label that withholds execute each hide, so it probes the directory the fixtures live
-in and falls back to one beside the operator's home.
+with the other spelling beside it, while two separate binaries are two things to decide about. Where `/usr/local/sbin`
+is merged into `/usr/local/bin`, the file found there is the wrapper and reports nothing, while a copy of it is
+a separate binary and does. The inputs that must yield no line are driven with them — a launcher name outside
+the charset, a file without the executable bit, a directory that is absent, and a path no package owns, which is
+what the owner lookup gives a host without rpm. The search takes its directories as arguments, so the fixtures are
+a tree the file builds; it needs the executable bit to be **visible** there, which a noexec mount and a label
+that withholds execute each hide, so it probes the directory the fixtures live in and falls back to one beside
+the operator's home.
 
 **A test that sources the CLI copies its arguments aside and clears the positionals first.** `ai-tools` carries
 a sourced-guard, so `unit/sandbox.sh`, `unit/cli-agent-set.sh` and `unit/unclaim.sh` load it to reach its pure helpers

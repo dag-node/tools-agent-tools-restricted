@@ -292,11 +292,9 @@ the agent-writable-exec-root bound and removes the reinstall-re-mints-the-entryp
 needs the `runtime` field the provider seam already names, an exact-path containment rule for a host-packaged binary
 ([providers](providers.rule.md)), and a packaging split. Not built.
 
-**The PATH ordering is needed whatever the channel.** `nvm` prepends its versioned `bin` to the front of PATH
-from the operator's own `~/.bashrc`, so any agent that operator installed with `npm i -g` resolves ahead
-of `/usr/local/bin` until `path-order.sh` runs after that init and puts the root-owned directories back in front
-([launch](launch.rule.md)). A distro package does not settle it either: `/usr/bin` loses to whatever prepended last,
-exactly as `/usr/local/bin` does.
+**The PATH ordering is needed whatever the channel** ([launch](launch.rule.md) states why the nvm init makes it
+necessary). A distro package does not settle it: `/usr/bin` loses to whatever prepended last, exactly
+as `/usr/local/bin` does.
 
 **What the channel decides is whether a second agent is reachable at all.** Under npm the agent lands in the toolchain
 the sandbox account owns, `0750` at `/opt/ai-tools/.nvm/...`, whose mode denies an operator the traverse: this stack
