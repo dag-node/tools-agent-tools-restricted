@@ -596,8 +596,10 @@ nor the copy's content printed, the removal command offered only where the file 
 and carries the same comment prose (a re-wrapped comment is the same prose, a reworded one is not), a copy dated
 before the installation named as such, a copy byte-identical to its file reported as such with its removal offered,
 earlier `.bak`/`.shipped` copies listed in the order they were made and left in place, and an ask entry the kept
-`settings.json` lacks named with no `.rpmnew` waiting and the file left as written, a provider list an earlier release
-wrote bare rewritten with no `.rpmnew` waiting while a name no installed manifest or rule set matches stays as written,
+`settings.json` lacks named with no `.rpmnew` waiting and the file left as written, a key an agent's managed file lacks
+against its shipped copy named with the `sudoedit` merge and the file left as written, the rules a kept `settings.json`
+lacks named while a reordered list, a moved key and regrouped hooks are not, a provider list an earlier release wrote
+bare rewritten with no `.rpmnew` waiting while a name no installed manifest or rule set matches stays as written,
 and `--check` held to one line per finding carrying its code, no output and exit 0 on a clean host, the no-action
 findings under `--all` alone, and no write — plus the property every case shares: the `.rpmnew` survives the run and is
 named as the operator's to delete, the case where the merge leaves the two files matching included. Every run is
