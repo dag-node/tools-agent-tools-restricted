@@ -188,6 +188,7 @@ print("default_permissions\t%s" % doc.get("default_permissions", ""))
 hooks = doc.get("hooks", {})
 print("approval_policies\t%s" % "|".join(doc.get("allowed_approval_policies", [])))
 print("login_methods\t%s" % "|".join(doc.get("allowed_login_methods", [])))
+print("daemon_auto_start\t%s" % str(doc.get("features", {}).get("daemon_auto_start", "")).lower())
 print("managed_dir\t%s" % hooks.get("managed_dir", ""))
 for event in ("SessionStart", "PostToolUse", "Stop", "SessionEnd"):
     entries = [h for e in hooks.get(event, []) for h in e.get("hooks", [])]
@@ -293,7 +294,8 @@ PY
         }
         codex_key_row "an approval policy" approval_policies never
         codex_key_row "a login method"     login_methods     chatgpt
-        ${codex_keys_ok} && pass "requirements.toml constrains both the approval policy and the login method"
+        codex_key_row "the background app-server switch" daemon_auto_start false
+        ${codex_keys_ok} && pass "requirements.toml constrains the approval policy, the login method and the background app-server"
         # (c6) Each hook's timeout, which is what bounds the handback that hook drives. An event that does not declare
         # a timeout runs under codex's own default, so the per-turn sweep can be cut short with no line saying
         # so; that is the drift this catches, while a value an operator changed is reported. SessionEnd is capped at 3 s

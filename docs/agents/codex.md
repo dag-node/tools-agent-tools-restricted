@@ -72,7 +72,7 @@ with `sudo`:
 
 | File | Holds |
 |---|---|
-| `/etc/codex/requirements.toml` | what Codex holds every session to: the sandbox-mode pin, the approval policy, the login method, the hooks that hand files back, and the commands refused outright |
+| `/etc/codex/requirements.toml` | what Codex holds every session to: the sandbox-mode pin, the approval policy, the login method, no background app-server, the hooks that hand files back, and the commands refused outright |
 | `/etc/codex/managed_config.toml` | the defaults applied ahead of any user config: telemetry and the update check off, a quiet TUI, and two commented keys for a custom instructions file and a custom API endpoint |
 
 An edit survives an upgrade: a package upgrade leaves the live file in place

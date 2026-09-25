@@ -138,8 +138,11 @@ and the `[allowed_permission_profiles]` table name full access alone, so a sessi
 a `--sandbox` flag, a `-c` override, a profile, a relocated `CODEX_HOME` — lands on the managed default with no notice;
 `allowed_approval_policies = ["never"]`; `allowed_login_methods = ["chatgpt"]` bounds the account type
 to the subscription login (an API key through a root-placed `auth.json` is the optional path); `[marketplaces]` is
-restricted with no allowed source; and `allow_managed_hooks_only = true` with the `[hooks]` table makes the package's
-hooks the only hooks — a user `hooks.json` does not run.
+restricted with no allowed source; `[features] daemon_auto_start = false` keeps codex from starting a background
+app-server ahead of the session, whose socket in the session's `/tmp` the confined domain creates only with the optional
+`localipc` group loaded, so on a host without it every start failed (0.157 turned the feature
+on); and `allow_managed_hooks_only = true` with the `[hooks]` table makes the package's hooks the only hooks — a user
+`hooks.json` does not run.
 
 Its `[rules]` table is the **per-command deny layer**, codex's counterpart to `settings.json`'s deny groups
 ([claude-settings](claude-settings.rule.md)), and it carries **two** of that layer's three groups, held to the same
