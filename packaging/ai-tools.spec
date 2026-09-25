@@ -1440,6 +1440,57 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Fri Sep 25 2026 dagnode <tools@dagnode.com> - 0.20.0-1
+- CHANGE: Each item in AI_TOOLS_AGENTS, AI_TOOLS_INTEGRATIONS and AI_TOOLS_FILTERS names its kind:
+  'agent-claude-code', 'integration-dotnet', 'filter-dotnet'. A list written with bare names, as
+  every earlier release wrote it, refuses every launch: after upgrading, run
+  'sudo ai-tools-admin system post-upgrade', which rewrites the lines after a dated .bak and
+  relabels the agents' entrypoints.
+- CHANGE: The command-filter set every host gets is renamed from 'core' to 'base'. The same
+  post-upgrade run rewrites 'core' in AI_TOOLS_FILTERS to 'filter-base'.
+- CHANGE: Every manual page this project installs is named ai-tools-<topic>, so 'man operator.conf'
+  is 'man ai-tools-operator.conf', and no page shadows another package's page of the same name.
+- SECURITY: Claude Code asks before every TypeSafe decide call, in every permission mode, since each
+  call sends listing lines off the host. A settings.json kept on upgrade does not gain the entry:
+  dnf, install.sh and 'system post-upgrade' say so and print the JSON to paste.
+- SECURITY: Claiming and unclaiming a project read the operator's own secret patterns
+  (~/.config/ai-tools/secret-patterns). Both read the built-in patterns alone, so a file matching
+  only an operator-added pattern was given the sandbox's access at claim.
+- SECURITY: 'sudo ai-tools-admin system bootstrap' offers to set AI_TOOLS_REQUIRE_SELINUX and
+  AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY where SELinux is enforcing with the module loaded; the offer
+  defaults to yes, a run without a terminal takes it, and a key already set is left alone. Every
+  operator.conf switch accepts yes/true/1/on and no/false/0/off; another value reads as no and is
+  reported.
+- NEW: ai-tools-integration-typesafe lets a session hand a long listing -- a grep, a 'git log',
+  a build log -- to TypeSafe's classifier with its task in one sentence, and keep only the lines
+  that bear on it. It is off until AI_TOOLS_INTEGRATIONS names 'integration-typesafe' and a key is
+  set in /etc/ai-tools/endpoints/typesafe.conf.
+- NEW: 'sudo ai-tools-admin system post-upgrade --check' prints one line per finding and nothing on
+  a clean host, and the command exits 1 while anything needs attention, so a cron job mails only
+  the hosts that do.
+- NEW: 'system post-upgrade' reports the kept config copies of every package, and a shipped skill
+  or orientation text that was not seeded. It names the options a KEY=value file lacks instead of
+  printing a diff that could hold a credential, and offers to remove a copy once the file lacks
+  none of its options.
+- NEW: A list value in operator.conf or a provider manifest may be written KEY=[a, b]. A malformed
+  list reads as empty and is reported, so a typo enables less rather than the default set.
+- NEW: An enabled agent or integration whose package is not installed is reported with the
+  'dnf install' command that installs it.
+- FIX: An AI_TOOLS_AGENTS line that did not parse made 'system bootstrap' remove every agent's
+  package; the bootstrap now stops before installing or removing a package and names the cause.
+- FIX: Merging a kept settings.json declared a shipped hook twice, so a host that kept one from
+  before 0.12.0 ran the output filter twice per Bash call. The next install or post-upgrade repairs
+  the file.
+- FIX: 'system bootstrap' seeds the shared skills, subagents and orientation text on a host
+  already provisioned, where it skipped them, and into an empty directory left at a skill's name.
+  It also starts the update timer, which its earlier call was refused.
+- FIX: 'ai-tools status' and 'sudo ai-tools-admin status' name the Node version the launcher links,
+  where after a bootstrap they named the one the last nightly update recorded.
+- FIX: A missing SELinux policy names the ai-tools-selinux package as its remedy, ahead of the
+  source-checkout installer a packaged host does not have.
+- DOCS: /etc/ai-tools/operator.conf and ai-tools-operator.conf(5) state each option's default, so an
+  edited operator.conf gets an .rpmnew beside it, which 'system post-upgrade' reports.
+
 * Tue Sep 22 2026 dagnode <tools@dagnode.com> - 0.19.1-1
 - FIX: An agent package installed without its platform-specific binary is repaired rather than
   carried forward. The nightly update reinstalls a package that does not hold the executable its
