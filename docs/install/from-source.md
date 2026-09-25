@@ -314,7 +314,8 @@ which `sudo ./install.sh check-perms` runs):
 | `src/usr/local/lib/ai-tools/typesafe/` | `/usr/local/lib/ai-tools/typesafe/` (root; the decide command) |
 | `src/etc/ai-tools/endpoints/typesafe.conf` | `/etc/ai-tools/endpoints/typesafe.conf` (root:ai-tools, kept when it exists) |
 | `src/usr/local/share/man/man5/ai-tools-typesafe.conf.5` | `/usr/local/share/man/man5/ai-tools-typesafe.conf.5` (root) |
-| `src/usr/local/bin/claude.sh` | `/usr/local/bin/claude` (root) |
+| `src/usr/local/bin/ai-tools-launch.sh` | `/usr/local/bin/ai-tools-launch` (root), linked as `/usr/local/bin/claude` and `/usr/local/bin/codex` |
+| `src/usr/local/lib/ai-tools/launch.d/claude-code.sh` | `/usr/local/lib/ai-tools/launch.d/claude-code.sh` (root) |
 | `src/opt/ai-tools/bin/ai-tools-run.sh` | `/opt/ai-tools/bin/ai-tools-run` |
 | `src/opt/ai-tools/agents/claude-code/post-tool-hook.sh` | `/opt/ai-tools/.claude/post-tool-hook.sh` |
 | `src/opt/ai-tools/agents/claude-code/session-hook.sh` | `/opt/ai-tools/.claude/session-hook.sh` |
