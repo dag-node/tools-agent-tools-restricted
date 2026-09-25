@@ -1992,7 +1992,11 @@ _pu_report() {
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 readonly ENTRYPOINT_VERIFY_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
-readonly LAUNCHER_LINK_DIR="/opt/ai-tools/bin"
+readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
+# AI_TOOLS_LAUNCHER_DIR is the hook the CLI and relabel.lib.sh read for the same directory,
+# so tests/unit/admin-status.sh drives this report against fixture links. It moves a report: this tool is reachable only
+# as root, sudo strips the name, and no access decision here reads it.
+readonly LAUNCHER_LINK_DIR="${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
 
 # st <state> <text>: one report line, state in a bracket token so a scan down the left column finds what needs
 # attention. The vocabulary is the CLI's -- OK, DOWN, FAILED, STALE, SKIPPED, n/a, ? -- because an administrator reads
@@ -2036,9 +2040,13 @@ status_services() {
             # the same rule the operator view follows. The two scopes fail for different reasons and say so: a system
             # unit is unreadable only where there is no systemctl at all, while a sandbox-user one means root reached
             # neither that account's manager (no machine transport, no timeout(1), or no answer inside the probe's
-            # window) nor a last-run stamp.
+            # window) nor a last-run stamp -- or, separable and said as such, a stamp still empty as the package seeded
+            # it: the unit has never run, which is where a freshly provisioned host stands until its first window.
             *)       if [[ "${scope}" == system ]]; then
                          st "?" "${unit}  systemctl is unavailable here"
+                     elif declare -F ai_tools_service_stamp_unwritten >/dev/null 2>&1 \
+                             && ai_tools_service_stamp_unwritten "${stamp}"; then
+                         st "?" "${unit}  no run recorded yet -- its first scheduled run has not happened"
                      else
                          st "?" "${unit}  neither its manager nor a last-run stamp could be read"
                      fi ;;
@@ -2222,6 +2230,42 @@ status_labels() {
     return 0
 }
 
+# status_node_version: the Version section's Node line, from the same verdict the CLI renders
+# (ai_tools_node_version_verdict, toolchain.lib.sh): the active version read off the enabled agents' stable launcher
+# links, and the version the updater's last run recorded shown beside it only where the two differ. Root could read
+# the toolchain itself; the link is read instead so the two reports have one source and one answer. Best-effort: a host
+# with neither a link nor a stamp gets no Node line, and Provisioning says why.
+status_node_version() {
+    local rec stamp_node="" verdict kind version stamp_seen
+    if declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+        while IFS= read -r rec; do
+            stamp_node="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
+            [[ -n "${stamp_node}" && "${stamp_node}" != unknown ]] && break
+            stamp_node=""
+        done < <(ai_tools_service_records)
+    fi
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/toolchain.lib.sh
+    source "${TOOLCHAIN_LIB}" 2>/dev/null || true
+    if declare -F ai_tools_agent_link_node_versions >/dev/null 2>&1 \
+            && declare -F ai_tools_node_version_verdict >/dev/null 2>&1; then
+        verdict="$(ai_tools_agent_link_node_versions "${LAUNCHER_LINK_DIR}" 2>/dev/null \
+                       | ai_tools_node_version_verdict "${stamp_node}")"
+    elif [[ -n "${stamp_node}" ]]; then
+        verdict=$'stamp\t'"${stamp_node}"     # no link reader: the stamp is the only reading left
+    else
+        verdict=none
+    fi
+    IFS=$'\t' read -r kind version stamp_seen <<<"${verdict}"
+    case "${kind}" in
+        active) printf '    %-13s %s%s\n' "node" "${version}" \
+                    "${stamp_seen:+ (active; the last update run saw ${stamp_seen})}" ;;
+        split)  printf '    %-13s %s (the enabled agents'"'"' launchers name different Node versions -- an update may be in progress)\n' \
+                    "node" "${version}" ;;
+        stamp)  printf '    %-13s %s (as of the last toolchain update -- no launcher link names one)\n' "node" "${version}" ;;
+    esac
+    return 0
+}
+
 # status: the host report. Exits non-zero when something is broken, so it is usable from a monitor or a cron check
 # without parsing this output -- the same contract `ai-tools status` offers, and the reason `?` and `n/a` are never
 # counted: a reading this vantage point could not make must not make a healthy host alarm every night.
@@ -2253,16 +2297,7 @@ status() {
 
     heading "Version"
     printf '    %-13s %s\n' "ai-tools" "${AI_TOOLS_VERSION}"
-    # Node's version comes from whichever registry record publishes one, so the loop reads the registry rather than
-    # a unit name, and a host whose updater has not run yet omits the line.
-    local rec node_ver=""
-    while IFS= read -r rec; do
-        node_ver="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
-        [[ -n "${node_ver}" && "${node_ver}" != unknown ]] && break
-        node_ver=""
-    done < <(ai_tools_service_records)
-    [[ -n "${node_ver}" ]] \
-        && printf '    %-13s %s\n' "node" "${node_ver} (as of the last toolchain update)"
+    status_node_version
 
     heading "Provisioning"
     # The launcher directory holding a link is bootstrap's last artifact, and the same sentinel the CLI's own gate keys

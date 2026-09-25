@@ -531,6 +531,10 @@ source "${ANCESTOR_CONFIG_LIB}" 2>/dev/null || true
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/services.lib.sh
 source "${SERVICES_LIB}" 2>/dev/null || true
+# The toolchain readers `status` makes from the operator's vantage (toolchain.lib.sh): a disabled agent's remaining
+# launcher link, and the Node version the enabled agents' links name. Loaded by the sections that read it,
+# through toolchain_lib_loaded, since only `status` reads it.
+readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
 # The account whose `systemd --user` units the registry may read live. Naming it does not by itself enable the probe:
 # _ai_tools_service_systemctl still requires root and a working machine transport, and refuses this CLI run
 # as an operator. So an operator's report is unchanged, while `sudo ai-tools status` completes the reads that need root
@@ -4030,10 +4034,9 @@ status_provisioning() {
 # non-zero for a residue line, and for a library that will not load: the report then has no reading of whether a launch
 # is refused, which is a broken install like a missing registry.
 status_residue() {
-    local toolchain_lib=/usr/local/lib/ai-tools/toolchain.lib.sh agent launcher rc=0
-    # shellcheck source=SCRIPTDIR/../lib/ai-tools/toolchain.lib.sh
-    if ! source "${toolchain_lib}" 2>/dev/null || ! declare -F ai_tools_agent_residue_links >/dev/null 2>&1; then
-        say "  ${C_YEL}cannot check the toolchain for a disabled agent's package${C_RST} -- cannot load ${toolchain_lib}; reinstall the ai-tools package"
+    local agent launcher rc=0
+    if ! toolchain_lib_loaded; then
+        say "  ${C_YEL}cannot check the toolchain for a disabled agent's package${C_RST} -- cannot load ${TOOLCHAIN_LIB}; reinstall the ai-tools package"
         return 1
     fi
     while IFS=$'\t' read -r agent launcher; do
@@ -4043,6 +4046,55 @@ status_residue() {
         rc=1
     done < <(ai_tools_agent_residue_links "${LAUNCHER_DIR}" 2>/dev/null)
     return "${rc}"
+}
+
+# toolchain_lib_loaded -- source toolchain.lib.sh and succeed once its readers are defined. The library is
+# include-guarded, so each section that reads it calls this and the second call is a no-op; it requires providers.lib.sh
+# and returns non-zero WITHOUT defining a reader when that is missing, so the probe is on the readers rather than
+# on the source's own status.
+toolchain_lib_loaded() {
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/toolchain.lib.sh
+    source "${TOOLCHAIN_LIB}" 2>/dev/null || true
+    declare -F ai_tools_agent_residue_links >/dev/null 2>&1 \
+        && declare -F ai_tools_agent_link_node_versions >/dev/null 2>&1 \
+        && declare -F ai_tools_node_version_verdict >/dev/null 2>&1
+}
+
+# status_node_version -- the Version section's Node line. The active version is read from the enabled agents' stable
+# launcher links (ai_tools_agent_link_node_versions): every path that changes Node repoints them, so the line is right
+# after a bootstrap as much as after an update, and the read is unprivileged -- one readlink hop, the read the launch
+# wrapper makes. The updater's stamp records the version its last run left active and is shown only where it differs,
+# the one fact the link cannot carry: the toolchain changed after the updater last ran. Which case applies is
+# ai_tools_node_version_verdict's, so this and ai-tools-admin cannot disagree; a host with neither a link nor a stamp
+# gets no Node line, and Provisioning says why. Never counted: no case here is a fault.
+status_node_version() {
+    local rec stamp_node="" verdict kind version stamp_seen
+    if declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+        while IFS= read -r rec; do
+            stamp_node="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
+            [[ -n "${stamp_node}" && "${stamp_node}" != unknown ]] && break
+            stamp_node=""
+        done < <(ai_tools_service_records)
+    fi
+    if toolchain_lib_loaded; then
+        verdict="$(ai_tools_agent_link_node_versions "${LAUNCHER_DIR}" 2>/dev/null \
+                       | ai_tools_node_version_verdict "${stamp_node}")"
+    elif [[ -n "${stamp_node}" ]]; then
+        verdict=$'stamp\t'"${stamp_node}"     # no link reader: the stamp is the only reading left
+    else
+        verdict=none
+    fi
+    IFS=$'\t' read -r kind version stamp_seen <<<"${verdict}"
+    case "${kind}" in
+        active) if [[ -n "${stamp_seen}" ]]; then
+                    say "  node ${version} ${C_DIM}(active; the last update run saw ${stamp_seen})${C_RST}"
+                else
+                    say "  node ${version}"
+                fi ;;
+        split)  say "  node ${C_YEL}${version}${C_RST} ${C_DIM}(the enabled agents' launchers name different Node versions -- an update may be in progress)${C_RST}" ;;
+        stamp)  say "  node ${version} ${C_DIM}(as of the last toolchain update -- no launcher link names one)${C_RST}" ;;
+    esac
+    return 0
 }
 
 # status_managed_files <agent> -- one line per managed file the agent's manifest names (managed_files,
@@ -4076,17 +4128,8 @@ cmd_status() {
     section "Version"
     say "  ai-tools ${AI_TOOLS_VERSION}"
     # The agent version lives in the sandbox toolchain the operator cannot read, so it stays a pointer. Node does not
-    # have to: the updater records the version it left active in its stamp, so read it from whichever registry record
-    # publishes one -- no unit is named here, and a host whose updater has not run yet simply keeps the pointer.
-    local rec node_ver=""
-    if declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
-        while IFS= read -r rec; do
-            node_ver="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
-            [[ -n "${node_ver}" && "${node_ver}" != unknown ]] && break
-            node_ver=""
-        done < <(ai_tools_service_records)
-    fi
-    [[ -n "${node_ver}" ]] && say "  node ${node_ver} ${C_DIM}(as of the last toolchain update)${C_RST}"
+    # have to: its version is in the launcher link's target (status_node_version).
+    status_node_version
     # One pointer per enabled agent whose wrapper this host installs (an agent without one is the PATH ordering
     # section's to report). Through ai_tools_cmd_display, so the command printed here is the one that reaches
     # the sandbox: it renders the bare name only while this shell resolves it to the wrapper, and the absolute path
@@ -4163,10 +4206,18 @@ cmd_status() {
             absent) printf '  %-28s %sn/a (not installed)%s\n' "${unit}" "${C_DIM}" "${C_RST}" ;;
             # 'unknown' is not a problem report -- it says only that this vantage point cannot tell. It stays a single
             # line carrying the one command that CAN tell, so a healthy host's report does not grow a diagnostic block
-            # per unit it simply cannot query.
+            # per unit it simply cannot query. One reading is separable here: a stamp still empty as the package seeded
+            # it means the unit has never run, the state a freshly provisioned host is in until its first scheduled
+            # window, so the line says that and keeps the check command beside it.
             *)      if [[ "${scope}" == sandbox-user ]]; then
-                        printf '  %-28s %s? (sandbox --user unit -- check: sudo systemctl --user -M %s@.host status %s)%s\n' \
-                            "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
+                        if declare -F ai_tools_service_stamp_unwritten >/dev/null 2>&1 \
+                                && ai_tools_service_stamp_unwritten "${stamp}"; then
+                            printf '  %-28s %s? (no run recorded yet -- its first scheduled run has not happened; check: sudo systemctl --user -M %s@.host status %s)%s\n' \
+                                "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
+                        else
+                            printf '  %-28s %s? (sandbox --user unit -- check: sudo systemctl --user -M %s@.host status %s)%s\n' \
+                                "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
+                        fi
                     else
                         printf '  %-28s %s? (systemctl unavailable)%s\n' "${unit}" "${C_DIM}" "${C_RST}"
                     fi ;;

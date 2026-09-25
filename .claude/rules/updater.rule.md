@@ -142,11 +142,12 @@ the fate of the operation it reports on, here as in `log.lib.sh` (see [logging](
 `write_stamp` is installed as the script's `EXIT` trap, so the record covers every exit path — a `die`, an uncaught
 `set -e` failure, and a clean run alike — and it is best-effort throughout: it never turns a successful update
 into a failed unit, and a host whose stamp is absent gets a warning naming the reinstall that restores it, while
-the report states the unit as unknown rather than guessing. The whole text goes out in a single write, so the window
-in which a reader could see a partial stamp is negligible; one that lands there anyway does not carry a parseable
-`RESULT` and reads as unknown, never as a wrong verdict. The content is the shared `KEY=value` grammar:
-`RESULT=ok|skipped|failed`, `EXIT_CODE`, `FINISHED` (UTC, ISO-8601), `TRIGGER=unit|manual`, `NODE`, and `REASON`
-on a skip.
+the report states the unit as unknown rather than guessing. The package seeds the stamp empty, and the reports read
+that zero-length file as a unit that has not run yet rather than as one they cannot tell about, until the first run
+rewrites it. The whole text goes out in a single write, so the window in which a reader could see a partial stamp is
+negligible; one that lands there anyway does not carry a parseable `RESULT` and reads as unknown, never as a wrong
+verdict. The content is the shared `KEY=value` grammar: `RESULT=ok|skipped|failed`, `EXIT_CODE`, `FINISHED` (UTC,
+ISO-8601), `TRIGGER=unit|manual`, `NODE`, and `REASON` on a skip.
 
 ### The run classifies itself: ok, skipped, or failed
 
@@ -205,9 +206,11 @@ and the timer's verdict is declined for anything else. Without it a run the oper
 timer as healthy for the whole grace window and, worse, suppress the staleness that is the only way a stopped schedule
 surfaces at all. A run started by hand *through* the manager (`systemctl --user start nvm-update.service`) is
 indistinguishable from a triggered one and counts as `unit`: the inference is bounded to systemd-started runs, not
-to scheduled ones. `NODE` lets `ai-tools status` report the active Node version without reading the `700` toolchain,
-which the operator cannot. `REASON` is written only on a skip and says which transient condition ended the run
-(`offline`), so the report can state why a run made no change instead of leaving the operator to infer it.
+to scheduled ones. `NODE` records the version the run left active; the status reports read the active version
+off the stable launcher links, which every writer of Node repoints, and print `NODE` beside it only where the two
+differ, which says the toolchain changed after this run (see [cli](cli.rule.md)). `REASON` is written only on a skip
+and says which transient condition ended the run (`offline`), so the report can state why a run made no change instead
+of leaving the operator to infer it.
 
 ### What the stamp is trusted for
 
