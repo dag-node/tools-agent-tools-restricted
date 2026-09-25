@@ -660,7 +660,7 @@ note_root_failure() {
 # have_tty: true only when a controlling terminal can be opened. `[[ -r /dev/tty ]]` tests the node's permission bits
 # (crw-rw-rw-), not openability, so it reads true even with no controlling terminal (e.g. a systemd unit
 # or under setsid); opening /dev/tty is the only honest probe -- with no controlling tty the open fails ENXIO,
-# so the prompt guards skip cleanly instead of writing to /dev/tty and aborting. Mirrors claude.sh's have_tty.
+# so the prompt guards skip cleanly instead of writing to /dev/tty and aborting. Mirrors launch-wrapper.lib.sh's ai_tools_launch_have_tty.
 have_tty() { { : > /dev/tty; } 2>/dev/null; }
 
 confirm() { ai_tools_msg_confirm "$@"; }
@@ -3785,9 +3785,9 @@ status_sandbox_unit_commands() {
 # stays open to a non-operator, whom the state directory's mode keeps out. status_path_order -- where THIS shell finds
 # each enabled agent's launcher. The one reading this report can make for free and no other vantage can make at all:
 # the CLI runs in the operator's own login shell, so `command -v claude` resolves exactly what typing `claude` would
-# run. A launcher resolving outside /usr/local/bin starts UNCONFINED, as the operator, so it counts toward the report's
-# exit status and names the command that repairs it. What each state means is launch.rule.md's PATH ordering section;
-# what this report says about each is cli.rule.md.
+# run. A launcher resolving to a file other than the wrapper starts UNCONFINED, as the operator, so it counts toward
+# the report's exit status and names the command that repairs it. What each state means is launch.rule.md's PATH
+# ordering section; what this report says about each is cli.rule.md.
 #
 # Best-effort like the rest of this report: without the library or the provider resolver this vantage has no launcher
 # to resolve, so the section is omitted rather than guessed at.

@@ -327,19 +327,20 @@ an ordinary account read it — a partial view, the file sink being the authorit
   the `services.lib.sh` registry names as OK / SKIPPED / STALE / DOWN / FAILED / not-installed, with the consequence
   and the exact remedy for anything broken, and a closing **More** block that points at the sibling reports
   (`providers`, `projects list`, `--help`) without repeating their detail — so it reads as a hub. That registry is
-  the **same one** the launch wrapper's pre-launch health warning reads (`claude.sh`, see [launch](launch.rule.md)),
-  so the status view and the launch warning never disagree on which units matter or how to fix one, and the rows live
-  there alone. `status` runs ahead of the bootstrap gate, as the other diagnostics do (see [Bootstrap
-  preflight](#bootstrap-preflight)), so it reports the unprovisioned state rather than being blocked by it.
+  the **same one** the launch wrapper's pre-launch health warning reads (`ai-tools-launch`, see
+  [launch](launch.rule.md)), so the status view and the launch warning never disagree on which units matter
+  or how to fix one, and the rows live there alone. `status` runs ahead of the bootstrap gate, as the other diagnostics
+  do (see [Bootstrap preflight](#bootstrap-preflight)), so it reports the unprovisioned state rather than being blocked
+  by it.
 
   The PATH-ordering line is the one reading this report makes that needs **no** privilege and that no other vantage can
   make at all: the CLI runs in the operator's own login shell, so `command -v` there resolves exactly what typing
-  the launcher's name would run. A launcher resolving outside `/usr/local/bin` is an agent that starts **unconfined,
-  as the operator**, so it reads `UNCONFINED`, names `ai-tools-admin operators add <operator>` as the repair, and counts
-  toward the non-zero exit. A launcher reaching the wrapper with no ordering line wired is right today and says
-  so dimly, since that shell is sandboxed until the next thing that prepends to PATH takes it away. A launcher this host
-  does not install a wrapper for, and a name `command -v` does not resolve in this shell, are reported and are not
-  faults — the same rule the unqueryable units follow. The states and the reading behind them are
+  the launcher's name would run. A launcher resolving to a file other than the wrapper is an agent that starts
+  **unconfined, as the operator**, so it reads `UNCONFINED`, names `ai-tools-admin operators add <operator>`
+  as the repair, and counts toward the non-zero exit. A launcher reaching the wrapper with no ordering line wired is
+  right today and says so dimly, since that shell is sandboxed until the next thing that prepends to PATH takes it away.
+  A launcher this host does not install a wrapper for, and a name `command -v` does not resolve in this shell, are
+  reported and are not faults — the same rule the unqueryable units follow. The states and the reading behind them are
   [ref-section-p3k8](launch.rule.md#ref-section-p3k8).
 
   A unit in the sandbox account's own `systemd --user manager` is not queryable from the operator's session at all,

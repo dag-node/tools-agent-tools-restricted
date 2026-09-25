@@ -52,7 +52,7 @@ readonly AI_TOOLS_PATH_ORDER_GUARD='[[ -f /usr/local/lib/ai-tools/path-order.sh 
 #
 #   wired |                  winners                  | verdict  | status
 #   ------+-------------------------------------------+----------+--------
-#     -   | any winner outside /usr/local/bin         | shadowed |      1
+#     -   | any winner other than the wrapper         | shadowed |      1
 #     -   | no shadow, any "?"                        | unknown  |      2
 #   yes   | every winner is the wrapper or empty      | wired    |      0
 #   no    | every winner is the wrapper or empty      | clear    |      0
@@ -96,6 +96,15 @@ ai_tools_path_order_readable() {
     [[ "${1-}" == /* && "${1}" != *[[:space:][:cntrl:]]* ]]
 }
 
+# ai_tools_path_order_as_wrapper <winner> <wrapper> Print <wrapper> when <winner> is the same file (`-ef`: same device
+# and inode), else <winner>. A launcher is judged by the file it executes, not by the directory name the PATH reached it
+# through: where /usr/local/sbin is a symlink to /usr/local/bin (Fedora's merged layout), `command -v` answers
+# /usr/local/sbin/<launcher>, which is the wrapper. A copy of the wrapper, another binary, and a path that cannot be
+# stat'ed keep their own path, and so read as shadowed.
+ai_tools_path_order_as_wrapper() {
+    if [[ "$1" -ef "$2" ]]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi
+}
+
 # ai_tools_path_order_guard_present <file>... Echo "yes" when one of the named init files already sources the fragment,
 # else "no". Matched on the fragment's path rather than on the whole guard line, so a line an operator reformatted
 # or wrote themselves counts as wired.
@@ -111,23 +120,24 @@ ai_tools_path_order_guard_present() {
 }
 
 # ai_tools_path_order_winner_here <launcher> Where <launcher> resolves on THIS process's PATH -- the operator's own,
-# when the CLI runs from their shell. Prints the path, an empty line when this host does not install a wrapper
-# of that name, or "?" when the name or the answer fails its admission check.
+# when the CLI runs from their shell. Prints the path (the wrapper's own when it resolves to the wrapper file), an empty
+# line when this host does not install a wrapper of that name, or "?" when the name or the answer fails its admission
+# check.
 ai_tools_path_order_winner_here() {
     local launcher="$1" winner
     ai_tools_path_order_launcher_valid "${launcher}" || { printf '?\n'; return 0; }
     [[ -x "${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher}" ]] || { printf '\n'; return 0; }
     winner="$(command -v -- "${launcher}" 2>/dev/null)" || winner=""
     [[ -z "${winner}" ]] && { printf '\n'; return 0; }
-    ai_tools_path_order_readable "${winner}" || winner="?"
-    printf '%s\n' "${winner}"
+    ai_tools_path_order_readable "${winner}" || { printf '?\n'; return 0; }
+    ai_tools_path_order_as_wrapper "${winner}" "${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher}"
 }
 
 # ai_tools_path_order_winner_for_user <user> <launcher> The same reading for ANOTHER account, taken from a login shell
 # of its own: that account's init files are what decide its sessions, and grepping them answers for the guard line
 # instead of for the ordering. Requires root (runuser), and is bounded by a timeout because the dotfiles it runs belong
-# to the account. Prints the path, an empty line when this host does not install a wrapper of that name, or "?"
-# when the reading could not be taken.
+# to the account. Prints the path (the wrapper's own when it resolves to the wrapper file), an empty line when this host
+# does not install a wrapper of that name, or "?" when the reading could not be taken.
 #
 # The command runs AS the operator, so it carries only the access that account already has, and its output is admitted
 # only in the shape a path has: a login shell prints its own banner, so the last line is taken and then validated.
@@ -141,8 +151,8 @@ ai_tools_path_order_winner_for_user() {
     winner="$(timeout 10 runuser -l "${user}" -c "command -v -- ${launcher}" 2>/dev/null \
         | tail -n 1)" || winner=""
     [[ -z "${winner}" ]] && { printf '?\n'; return 0; }
-    ai_tools_path_order_readable "${winner}" || winner="?"
-    printf '%s\n' "${winner}"
+    ai_tools_path_order_readable "${winner}" || { printf '?\n'; return 0; }
+    ai_tools_path_order_as_wrapper "${winner}" "${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher}"
 }
 
 # ai_tools_path_order_launchers
@@ -242,8 +252,8 @@ ai_tools_path_order_repoint_user() {
 }
 
 # ai_tools_path_order_shadowed_operators <user>... Print "<user><TAB><launcher><TAB><winner>" for each named account
-# whose shell reaches an agent somewhere other than /usr/local/bin, and no line for an account in any other state. Root
-# only, since each reading is taken from a login shell of the account.
+# whose shell reaches an agent other than the wrapper, and no line for an account in any other state. Root only, since
+# each reading is taken from a login shell of the account.
 #
 # It exists for `ai-tools-admin system bootstrap`, which reports what a freshly provisioned host still owes and does not
 # hold a loop of its own. An account this reading could not be taken for is left unnamed, because a report that guessed

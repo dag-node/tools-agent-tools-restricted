@@ -1,6 +1,7 @@
 ---
 paths:
   - "src/opt/ai-tools/bin/ai-tools-run.sh"
+  - "src/usr/local/bin/ai-tools-launch.sh"
   - "src/usr/local/lib/ai-tools/launch-wrapper.lib.sh"
   - "src/etc/sudoers.d/ai-tools"
   - "src/usr/local/lib/ai-tools/path-order.sh"
@@ -13,27 +14,29 @@ paths:
 The agent wrapper → `ai-tools-run` → session handoff: the gating contract every wrapper owes, and placing the session
 in a transient systemd unit. Kernel confinement of that unit (namespaces, SELinux transition, `/tmp`) lives
 in [confinement](confinement.rule.md); ownership handback in [ownership-and-hooks](ownership-and-hooks.rule.md). One
-agent's wrapper and its agent-specific inputs live in that agent's own rule —
+agent's launch hook and its agent-specific inputs live in that agent's own rule —
 [agent-claude-code](agent-claude-code.rule.md) for Claude Code.
 
 ## The wrapper contract (agent-side)
 
-Each `ai-tools-agents-*` package ships one wrapper into `/usr/local/bin`, `root:root 0755`, rpm-owned, running
-as the invoking operator. `path-order.sh`, wired into the operator's dotfiles by `ai-tools-admin operators add`, ranks
-`/usr/local/bin` (Tier 1) ahead of the nvm shims, so a wrapper shadows the nvm-managed launcher of the same name
-on the operator's PATH.
+Every agent's command runs one wrapper, `/usr/local/bin/ai-tools-launch` (`ai-tools-base`, `root:root 0755`), running
+as the invoking operator. An `ai-tools-agents-*` package ships its launcher as a symlink to it,
+`/usr/local/bin/<launcher>`, and the name the wrapper was invoked as (`$0`) selects the agent. `path-order.sh`, wired
+into the operator's dotfiles by `ai-tools-admin operators add`, ranks `/usr/local/bin` (Tier 1) ahead of the nvm shims,
+so a launcher shadows the nvm-managed one of the same name on the operator's PATH. The wrapper's startup hardening —
+the interpreter by absolute path in privileged mode, PATH pinned — is stated in its header.
 
 The gates are one implementation, `/usr/local/lib/ai-tools/launch-wrapper.lib.sh` (`644 root:root`,
-`ai-tools-base`-owned), and a wrapper is three calls into it: `ai_tools_launch_init <launcher>`, which loads
-`msg.lib.sh`, `safe-paths.lib.sh` and `conf.lib.sh` fail-closed and records the launcher name every message
-and the stable symlink carry; `ai_tools_launch_gates "$@"`, which runs the numbered gates in their order;
-and `ai_tools_launch_session <arg>...`, the pre-launch notices and the `exec`. Whatever a wrapper adds sits
-between the gates and the session (its agent-specific launch inputs, see [Operator-configured launch
-inputs](#operator-configured-launch-inputs)), so a second agent's wrapper is those three calls alone, and a change
-to a gate lands for every agent at once. The wrapper's own inline check is the one guard the library cannot carry: it
-refuses (`MSG-R3Q4`) when the library will not load or lacks the functions it calls, in the plain form, since
-the message library is loaded by the library it could not load. `ai_tools_launch_session` refuses (`MSG-B6G2`) when it
-is reached without the gates' two results, so a wrapper cannot skip to the `exec`. Whatever else a wrapper does, these
+`ai-tools-base`-owned), and the wrapper is four calls into it: `ai_tools_launch_init <name>`, which loads `msg.lib.sh`,
+`safe-paths.lib.sh` and `conf.lib.sh` fail-closed and admits the name only in a launcher's charset, matched in the C
+locale (`MSG-Z6F8`); `ai_tools_launch_gates "$@"`, which runs the numbered gates in their order;
+`ai_tools_launch_agent_args`, the agent's launch hook ([Operator-configured launch
+inputs](#operator-configured-launch-inputs)); and `ai_tools_launch_session <arg>...`, the pre-launch notices
+and the `exec`. A new agent therefore ships a manifest and a symlink, and a launch hook only for launch-time arguments
+of its own; a change to a gate lands for every agent at once. The wrapper's own inline check is the one guard
+the library cannot carry: it refuses (`MSG-R3Q4`) when the library will not load or lacks the functions it calls,
+in the plain form, since the message library is loaded by the library it could not load. `ai_tools_launch_session`
+refuses (`MSG-B6G2`) when it is reached without the gates' two results, so the wrapper cannot skip to the `exec`. These
 gates are what the security model rests on, and every one of them refuses toward *less* access:
 
 1. **Operator gate first** — a caller not in the `ai-ops` operators group is refused before anything else happens,
@@ -46,18 +49,20 @@ gates are what the security model rests on, and every one of them refuses toward
    or `AI_TOOLS_FILTERS` would start a session without them; the refusal names each item and `system post-upgrade`,
    which rewrites them. `ai-tools-run` refuses under the same code, the shim the boundary and this gate
    the diagnostician.
-3. **Residue gate** — a launch is refused (`MSG-H4E2`) while any agent the host installed but did not enable still has
+3. **Launcher gate** — the invoked name must be the launcher of an enabled agent manifest, read
+   through `ai_tools_enabled_agents` ([providers](providers.rule.md)), and the gate records that agent; any other name,
+   `ai-tools-launch` itself included, is refused (`MSG-F8N3`), and a provider library that will not load refuses too
+   (`MSG-C2C9`). Every launcher is one program, so the name is what selects the agent before `sudo`; the gate runs
+   after the operator gate, so its refusal, which lists the enabled launchers, does not reach a non-operator,
+   and after the provider-list gate, so an unmigrated list is not reported as "not enabled". `ai-tools-run` re-derives
+   the agent from the resolved path after the drop.
+4. **Residue gate** — a launch is refused (`MSG-H4E2`) while any agent the host installed but did not enable still has
    its stable launcher link, the operator-side evidence that its package is in the sandbox toolchain
    (`ai_tools_agent_residue_links`, [updater](updater.rule.md)); the refusal names the agent and the provisioning run
    that removes the package, and a toolchain library that will not load refuses too (`MSG-U9K8`). It refuses every
    agent's launch, the enabled one included, and does not remove a package: `ai-tools-run` reads the tree itself
    and refuses under the same code, which makes the shim the boundary and this gate the diagnostician that answers
    before `sudo`.
-4. **Protected-paths backstop, then the allowlist**, both on the `realpath -e`-canonicalized CWD. A session starts only
-   inside an allowed project and never in a CWD carved out by a `!` exclusion. Every allowlist entry is canonicalized
-   before matching and the match is exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle a CWD past
-   the gate and a sibling sharing a name prefix does not match. `ai-tools-chown` parses the same list the same way,
-   so the launch gate and the ownership handback agree on what is in-project.
 5. **Binary resolution to the versioned shape** — the stable symlink `/opt/ai-tools/bin/<launcher>` is resolved one
    `readlink` hop and the target validated as an absolute, `..`-free path of the shape
    `${AI_TOOLS_NVM_DIR}/versions/node/*/bin/<launcher>`, then exported as `AI_TOOLS_AGENT_EXEC`. This validation is
@@ -69,17 +74,22 @@ gates are what the security model rests on, and every one of them refuses toward
 6. **Print-and-exit short-circuit** — `--version`/`-v`/`--help`/`-h` as the *sole* argument skips the CWD gates
    (backstop, allowlist, claim): such a run stays out of the working tree, so no project grant is implied. It still
    launches the same validated binary confined as `SANDBOX_USER`, with the sandbox home as `WorkingDirectory`.
-7. **`exec sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/ai-tools-run`**, carrying exactly
-   `AI_TOOLS_AGENT_EXEC` and `AI_TOOLS_PROJECT_DIR` through `env_keep`.
+7. **Protected-paths backstop, then the allowlist**, both on the `realpath -e`-canonicalized CWD. A session starts only
+   inside an allowed project and never in a CWD carved out by a `!` exclusion. Every allowlist entry is canonicalized
+   before matching and the match is exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle a CWD past
+   the gate and a sibling sharing a name prefix does not match. `ai-tools-chown` parses the same list the same way,
+   so the launch gate and the ownership handback agree on what is in-project.
+8. **Claim guard** — the project's ownership, label and `safe.directory` gaps, detected read-only.
 
-A wrapper **detects and delegates; it never repairs.** Ownership, label, and `safe.directory` gaps are reported
+The agent's launch hook then appends its arguments, and the launch ends
+in **`exec sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/ai-tools-run`**, carrying exactly
+`AI_TOOLS_AGENT_EXEC` and `AI_TOOLS_PROJECT_DIR` through `env_keep`.
+
+The wrapper **detects and delegates; it never repairs.** Ownership, label, and `safe.directory` gaps are reported
 read-only by the library's claim guard, which follows the CWD gate, and fixed by `ai-tools projects claim` (see
-[cli](cli.rule.md)) — the library performs neither a `chgrp` nor a relabel, and no wrapper carries a repair of its own.
-Each gate's refusal set is driven in `tests/unit/launch-wrapper.sh`; each wrapper keeps an integration test
-that the installed wrapper reaches the gates in this order (`tests/integration/wrapper.sh` for claude).
-
-Agent-specific inputs a wrapper may additionally resolve (a custom system prompt, an API endpoint) are that agent's rule
-to document, not this one's.
+[cli](cli.rule.md)) — the library performs neither a `chgrp` nor a relabel. Each gate's refusal set is driven
+in `tests/unit/launch-wrapper.sh`, and `tests/integration/wrapper.sh` drives the installed wrapper through its launcher
+symlinks to show it reaches the gates in this order.
 
 ## The `ai-tools-run` service shim (launch mechanics)
 
@@ -291,15 +301,22 @@ that has not, runs it. That is conduct, not a control.
 
 ## Operator-configured launch inputs
 
-A wrapper may resolve agent-specific configuration from `operator.conf` and prepend it to the operator's `"$@"`
-before the final `exec`. These inputs are **not confinement**, so they take a distinct fail-closed tier
-from the confinement libraries (`safe-paths`/`conf`/`msg`, which fail *every* launch closed): an unconfigured host
-launches untouched, while a configured-but-unhonourable input **refuses the launch** rather than silently reverting
-to the default the operator did not ask for. Whatever the input, the enforced property is that its sources are
-root-owned and pass `ai_tools_conf_is_trusted`, so the sandbox can neither set one nor plant a file a resolver would
-honour.
+An agent that needs launch-time arguments of its own declares `launch_hook=yes` in its manifest and ships
+`/usr/local/lib/ai-tools/launch.d/<agent>.sh`, which defines `ai_tools_launch_hook_args <array> "$@"`; the seam's
+contract is [providers](providers.rule.md)'s. `ai_tools_launch_agent_args` runs it after the gates and appends what it
+returns ahead of the operator's `"$@"`. The hook is sourced into the operator's own process, so only a declared hook is
+read, and only while the file and `launch.d` pass `ai_tools_conf_is_trusted`; a declaration other than `yes` or `no`,
+a hook that is missing, untrusted or does not define the function refuses (`MSG-G9H2`), and a hook that returns non-zero
+refuses (`MSG-G5V4`). The directory is a constant with no environment override, so no caller redirects which code
+the wrapper sources.
 
-Claude Code's two — a custom system prompt (wrapper-side) and a custom API endpoint (resolved sandbox-side in its
+These inputs are **not confinement**, so they take a distinct fail-closed tier from the confinement libraries
+(`safe-paths`/`conf`/`msg`, which fail *every* launch closed): an unconfigured host launches untouched, while
+a configured-but-unhonourable input **refuses the launch** rather than silently reverting to the default the operator
+did not ask for. Whatever the input, the enforced property is that its sources are root-owned and pass
+`ai_tools_conf_is_trusted`, so the sandbox can neither set one nor plant a file a resolver would honour.
+
+Claude Code's two — a custom system prompt (its launch hook) and a custom API endpoint (resolved sandbox-side in its
 session-env fragment) — are in [agent-claude-code](agent-claude-code.rule.md).
 
 ## Why `/opt/ai-tools`, not `/home`
@@ -369,10 +386,17 @@ the way back, and an operator told only "excluded" is left to work out which of 
 
 ## PATH ordering
 
-Every agent wrapper lives in `/usr/local/bin`, which `path-order.sh` (`/usr/local/lib/ai-tools/path-order.sh`,
-`644 root:root`) ranks Tier 1, ahead of the nvm shims it leaves in Tier 4. First match wins, so typing a launcher name
-always enters the sandboxed path and the nvm-managed binary of the same name stays shadowed. The tiers
-and the first-match-wins ordering behind them are in that file's header.
+Every agent wrapper lives in `/usr/local/bin`. `nvm` prepends its versioned `bin` to the front of PATH
+from the operator's own `~/.bashrc`, so an agent that operator installed with `npm i -g` resolves ahead of the wrapper
+and starts unconfined, as them. `path-order.sh` (`/usr/local/lib/ai-tools/path-order.sh`, `644 root:root`) runs
+after that init and ranks `/usr/local/bin` in Tier 1, ahead of the nvm `bin` it leaves in Tier 4. First match wins,
+so typing a launcher name reaches the wrapper and the nvm-managed binary of the same name stays shadowed.
+
+The fragment's header lists the tiers and states only its behaviour, because operators read it before adding it to their
+dotfiles. This rule records the rationale for two ordering choices omitted there: `/usr/local/sbin` and `/usr/local/bin`
+lead Tier 1, matching EL's order. On systems where `/usr/sbin` links to `/usr/bin`, another order could resolve
+a distribution-provided binary before an identically named binary in `/usr/local/bin`. `~/.local/bin` ranks ahead
+of `~/.dotnet/tools` because the user curates the former, while NuGet populates the latter.
 
 The fragment is sourced per-account: `ai-tools-admin operators add` offers to add the guard line to the operator's
 `~/.bashrc` and `~/.bash_profile` **after** their nvm init, the one position where the ordering holds (the fragment must
@@ -403,7 +427,7 @@ per launcher:
 |---|---|---|
 | `wired` | the wrapper, with the guard line in its init | settled |
 | `clear` | the wrapper, with no guard line | right today, and lost to the next thing that prepends to PATH |
-| `shadowed` | an agent outside `/usr/local/bin` | typing that name starts an unconfined agent |
+| `shadowed` | a file other than the wrapper | typing that name starts an unconfined agent |
 | `unknown` | no readable answer | the reading could not be taken — a non-bash login shell, no enabled agent, a probe that did not answer |
 
 `shadowed` outranks `unknown`, since one launcher read as shadowed states what that account gets whatever another probe
@@ -418,7 +442,9 @@ for the ordering — which is exactly the distinction the `wired`-and-still-`sha
 present and something after it prepends to PATH. A reading of **this** shell does not need any privilege, which is
 why `ai-tools status` makes it: the CLI runs in the operator's own login shell, so `command -v` there resolves
 what typing the name would run. The launcher name is admitted only in a launcher's own charset before it reaches
-that command, and the answer only as an absolute path with no whitespace or control byte.
+that command, and the answer only as an absolute path with no whitespace or control byte. An admitted answer is compared
+with the wrapper by file identity (`-ef`), not by path: on a host where `/usr/local/sbin` is a symlink
+to `/usr/local/bin` and ranks first, `command -v` names `/usr/local/sbin/<launcher>`, which is the wrapper.
 
 The consumers read it at the moments the state can change: `operators add` (asks with the stake named, and warns rather
 than passing in silence when a shadowed account declines), `ai-tools status` (re-checks, and counts a shadowed launcher

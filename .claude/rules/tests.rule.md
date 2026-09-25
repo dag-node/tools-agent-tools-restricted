@@ -431,8 +431,14 @@ directory, a sibling sharing a name prefix, a carved-out subdirectory and a path
 and an allowlisted protected directory, and passes an approved directory reached directly or through a symlink
 with the canonical path published; the claim guard refuses an approved directory the sandbox group does not own when no
 terminal can answer its confirm; the session exec refuses without the gates' results; and the gate runner answers
-the sandbox account before it reads the allowlist. The installed wrapper's own test is `integration/wrapper.sh`,
-which proves the deployed wrapper reaches those gates in that order.
+the sandbox account before it reads the allowlist. Every launcher is one program, so the name is an input: init refuses
+one outside a launcher's charset, a non-ASCII letter included under a UTF-8 locale where a bracket range admits it,
+and the launcher gate refuses a name no enabled manifest claims, the launcher program's own among them. The hook loader
+is driven through a copy of the library with its hook directory repointed: an undeclared hook is not read though
+present, and every other state refuses. The launcher's startup hardening is measured against a control: the same run
+without `-p` takes a `BASH_ENV` file and an exported function, so their absence with `-p` is evidence rather than
+an untaken branch. The installed wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper
+reaches those gates in that order through its launcher symlinks.
 
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
@@ -590,8 +596,10 @@ nor the copy's content printed, the removal command offered only where the file 
 and carries the same comment prose (a re-wrapped comment is the same prose, a reworded one is not), a copy dated
 before the installation named as such, a copy byte-identical to its file reported as such with its removal offered,
 earlier `.bak`/`.shipped` copies listed in the order they were made and left in place, and an ask entry the kept
-`settings.json` lacks named with no `.rpmnew` waiting and the file left as written, a provider list an earlier release
-wrote bare rewritten with no `.rpmnew` waiting while a name no installed manifest or rule set matches stays as written,
+`settings.json` lacks named with no `.rpmnew` waiting and the file left as written, a key an agent's managed file lacks
+against its shipped copy named with the `sudoedit` merge and the file left as written, the rules a kept `settings.json`
+lacks named while a reordered list, a moved key and regrouped hooks are not, a provider list an earlier release wrote
+bare rewritten with no `.rpmnew` waiting while a name no installed manifest or rule set matches stays as written,
 and `--check` held to one line per finding carrying its code, no output and exit 0 on a clean host, the no-action
 findings under `--all` alone, and no write — plus the property every case shares: the `.rpmnew` survives the run and is
 named as the operator's to delete, the case where the merge leaves the two files matching included. Every run is
@@ -646,31 +654,35 @@ the versioned shape — so the two reports cannot name different Node versions f
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
 [launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools status` re-checks
 with, and `ai-tools-admin system bootstrap` reports from. What gives it teeth is the direction each answer sends
-an operator: a launcher resolving outside `/usr/local/bin` means typing its name starts an **unconfined** agent,
+an operator: a launcher resolving to a file other than the wrapper means typing its name starts an **unconfined** agent,
 so a verdict reading that state as fine would turn the one question standing between an operator and an unsandboxed
 session into a formality, while one reporting a shadow whenever a probe could not be read would teach them to ignore it.
 The truth table is therefore driven whole, in both directions, and so are the two inputs that reach a shell
 or a terminal — the launcher name interpolated into a command run as another account, and the path that command prints
-back. The repoint a rename owes a deployed host is the other half: it is the one edit this project makes
-to an operator's shell init without asking, so what is asserted is the bound on it — one path token, inside a line this
-project wrote, with the rest of the file byte-identical, a file naming neither path untouched, the mode preserved, no
-sidecar written, and a second pass a no-op. The decision is pure and the probing separate (the split `confinement.sh`
-drives), so the file drives the table with no account to probe and **without root**; the two impure readers are driven
-with their dependencies stubbed as shell functions, which is also how the publishing contract is asserted from a real
-caller under `set -u`. The per-operator report is pinned with them, in both directions: a shadowed account is named
-with its launcher and the binary that wins the PATH search, and an account in any other state — one whose reading could
-not be taken included — is named by no line, so the report names an account only where typing the launcher starts
-an agent outside the wrapper.
+back. The answer is compared with the wrapper by file identity, so the fixture holds the wrapper reached
+through a merged `sbin -> bin` alias, which must read as the wrapper, beside a copy and another binary, which must not.
+The repoint a rename owes a deployed host is the other half: it is the one edit this project makes to an operator's
+shell init without asking, so what is asserted is the bound on it — one path token, inside a line this project wrote,
+with the rest of the file byte-identical, a file naming neither path untouched, the mode preserved, no sidecar written,
+and a second pass a no-op. The decision is pure and the probing separate (the split `confinement.sh` drives),
+so the file drives the table with no account to probe and **without root**; the two impure readers are driven with their
+dependencies stubbed as shell functions, which is also how the publishing contract is asserted from a real caller
+under `set -u`. The per-operator report is pinned with them, in both directions: a shadowed account is named with its
+launcher and the binary that wins the PATH search, and an account in any other state — one whose reading could not be
+taken included — is named by no line, so the report names an account only where typing the launcher starts an agent
+outside the wrapper.
 
 `agent-installs.sh` pins which agents a host carries besides the sandbox's (`agent-installs.lib.sh`), the reading
 `install.sh` and the `ai-tools-base` `%post` report from. What it holds is the shape of a host: on a usr-merged host
 `/bin` and `/usr/bin` are one directory, so one file answers to two spellings and must report as one install
-with the other spelling beside it, while two separate binaries are two things to decide about. The inputs that must
-yield no line are driven with them — a launcher name outside the charset, a file without the executable bit, a directory
-that is absent, and a path no package owns, which is what the owner lookup gives a host without rpm. The search takes
-its directories as arguments, so the fixtures are a tree the file builds; it needs the executable bit to be **visible**
-there, which a noexec mount and a label that withholds execute each hide, so it probes the directory the fixtures live
-in and falls back to one beside the operator's home.
+with the other spelling beside it, while two separate binaries are two things to decide about. Where `/usr/local/sbin`
+is merged into `/usr/local/bin`, the file found there is the wrapper and reports nothing, while a copy of it is
+a separate binary and does. The inputs that must yield no line are driven with them — a launcher name outside
+the charset, a file without the executable bit, a directory that is absent, and a path no package owns, which is
+what the owner lookup gives a host without rpm. The search takes its directories as arguments, so the fixtures are
+a tree the file builds; it needs the executable bit to be **visible** there, which a noexec mount and a label
+that withholds execute each hide, so it probes the directory the fixtures live in and falls back to one beside
+the operator's home.
 
 **A test that sources the CLI copies its arguments aside and clears the positionals first.** `ai-tools` carries
 a sourced-guard, so `unit/sandbox.sh`, `unit/cli-agent-set.sh` and `unit/unclaim.sh` load it to reach its pure helpers
@@ -748,17 +760,17 @@ rather than assumed. The live half is `integration/selinux.sh` (`sesearch` over 
 installs them ([agent-codex](agent-codex.rule.md)): the manifest through the readers that parse it, with its
 `launcher_target` and `entrypoint_fcontext` asserted to agree by pattern and, where the executable bit is visible,
 through the real re-link on a fixture version directory; the pins file's one pin, with no fragment beside it;
-the wrapper's three library calls in order and its fail-closed load, driven on a copy whose library path points
-at an absent file; the two managed TOML files as a TOML parser reads them, so a bare key that landed inside a table —
-the shape two harness runs measured a pin as "accepted" with — fails here, with every declared hook naming a script
-the package ships and the commented operator keys placed ahead of the first table; and the two hook adapters
-on the measured payload key sets, the `apply_patch` parser included — over each of the three keys the patch text has
-arrived under, since the parser reads them in turn and only the tool name keeps `command` off the `Bash` branch. It
-reads the checkout, builds its fixtures, and runs without root; the session hook is driven only in the modes that reach
-no root helper, since a `session-start` on a fresh process would call the live handback daemon. Its enablement section
-is the one part that needs root: it drives the real resolver over a copy of the manifest — disabled
-with `AI_TOOLS_AGENTS` unset, enabled when named, skipped with its refusal reported once the copy is group-writable —
-and the resolver trusts root-owned inputs alone, so unprivileged it skips and says so.
+the `codex` launcher as the shared wrapper under its name, a symlink in both install routes with no launch hook
+declared; the two managed TOML files as a TOML parser reads them, so a bare key that landed inside a table — the shape
+two harness runs measured a pin as "accepted" with — fails here, with every declared hook naming a script the package
+ships and the commented operator keys placed ahead of the first table; and the two hook adapters on the measured payload
+key sets, the `apply_patch` parser included — over each of the three keys the patch text has arrived under, since
+the parser reads them in turn and only the tool name keeps `command` off the `Bash` branch. It reads the checkout,
+builds its fixtures, and runs without root; the session hook is driven only in the modes that reach no root helper,
+since a `session-start` on a fresh process would call the live handback daemon. Its enablement section is the one part
+that needs root: it drives the real resolver over a copy of the manifest — disabled with `AI_TOOLS_AGENTS` unset,
+enabled when named, skipped with its refusal reported once the copy is group-writable — and the resolver trusts
+root-owned inputs alone, so unprivileged it skips and says so.
 
 `session-env.sh` holds every shipped pins file (`session-env.d/<name>.pins.env.sh`) to the pins contract
 ([providers](providers.rule.md)), which is a disclosure question: the shim sources a pins file into every agent's
@@ -983,10 +995,11 @@ directory, and the four hook declarations against the installed bodies. That fil
 this reads is the one that drifts: the approval policy, the login method and each hook's own timeout are therefore read
 here as well as in unit, and the two states are told apart — a key the file does not declare at all is a file predating
 it and fails with the pristine copy named, while a value that differs is the operator's tuning and is noted;
-`wrapper.sh` closes with the codex wrapper in whichever enablement state the host is in, holding the launcher symlink
-and the resolver's enabled set to agreement ([agent-codex](agent-codex.rule.md)). The wrapper test stays hermetic
-by pointing `HOME` at a `/tmp` testdir (the wrapper keys its allowlist off `${HOME}`) and runs the wrapper
-under `setsid`, so it never touches the real allowlist or fires a claim prompt. Run as root.
+`wrapper.sh` asserts each installed launcher is a symlink to `ai-tools-launch`, and closes with the codex launcher
+in whichever enablement state the host is in, holding the stable launcher symlink and the resolver's enabled set
+to agreement ([agent-codex](agent-codex.rule.md)). The wrapper test stays hermetic by pointing `HOME` at a `/tmp`
+testdir (the wrapper keys its allowlist off `${HOME}`) and runs the wrapper under `setsid`, so it never touches the real
+allowlist or fires a claim prompt. Run as root.
 
 `cli-flags.sh` holds every `ai-tools` command and every option `ai-tools(1)` documents to what it **achieves**, and its
 rows do not read message text, so the command surface can be respelled with the file unchanged
@@ -1070,22 +1083,23 @@ vantage whose answer is about the domain. The probe is read-only in both places,
 runtime state. `providers.sh` asserts the deployed half of "the sandbox cannot widen its own surface": none
 of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four provider directories, the manifests, fragments
 and contributed commands in them, codex's `/etc/codex` and the two managed files in it, or the `ai-tools-run` shim
-and the `bin` directory holding it is agent-writable — nor either launch wrapper and the libraries every wrapper loads
-(`launch-wrapper`, `safe-paths`, `msg`), which is the one cross-principal escalation in the chain, a wrapper running
-**as the operator** before any drop to the sandbox account — while the NuGet restore cache the dotnet integration needs
-**is** — both directions matter, since a read-only cache breaks the integration as surely as a writable tools dir breaks
-the boundary. `admin-commands.d` and the `dotnet` command in it are the highest-privilege pair in that list:
-what a writable one would buy is not a wider session but a command `ai-tools-admin` runs as root. It is the counterpart
-to `unit/providers.sh` and `unit/admin-commands.sh`, which assert the runtime refusals; this one asserts the agent
-cannot reach the state those refusals exist to catch. `filters.sh` is the same pair for the command filters: the engine,
-`filters.d` and the rule sets in it, `operator.conf`, and the agent-side hook body are all asserted non-agent-writable —
-the engine because it is sourced as the agent on every Bash call, the rule sets because they decide what every command
-in a session becomes. These probe **DAC and account state** from the sandbox account's vantage — they run as the sandbox
-*user*, not inside the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
-boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`. A property the **type layout
-alone** enforces is therefore not assertable here, and reads as its DAC answer: the agent's inability to write its own
-entrypoint is one (DAC permits it — the account owns that tree), so it is asserted in `integration/selinux.sh`
-as the layout the policy rests on, one check per swap vector.
+and the `bin` directory holding it is agent-writable — nor the launch wrapper, the launcher links, the launch hooks
+and `launch.d`, and the libraries the wrapper loads (`launch-wrapper`, `safe-paths`, `msg`), which is the one
+cross-principal escalation in the chain, code running **as the operator** before any drop to the sandbox account — while
+the NuGet restore cache the dotnet integration needs **is** — both directions matter, since a read-only cache breaks
+the integration as surely as a writable tools dir breaks the boundary. `admin-commands.d` and the `dotnet` command in it
+are the highest-privilege pair in that list: what a writable one would buy is not a wider session but a command
+`ai-tools-admin` runs as root. It is the counterpart to `unit/providers.sh` and `unit/admin-commands.sh`, which assert
+the runtime refusals; this one asserts the agent cannot reach the state those refusals exist to catch. `filters.sh` is
+the same pair for the command filters: the engine, `filters.d` and the rule sets in it, `operator.conf`,
+and the agent-side hook body are all asserted non-agent-writable — the engine because it is sourced as the agent
+on every Bash call, the rule sets because they decide what every command in a session becomes. These probe **DAC
+and account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside the `ai_tools_t`
+SELinux domain (a launched session), so they assert the filesystem/credential boundary; the SELinux enforcing posture is
+asserted separately in `integration/selinux.sh`. A property the **type layout alone** enforces is therefore not
+assertable here, and reads as its DAC answer: the agent's inability to write its own entrypoint is one (DAC permits it —
+the account owns that tree), so it is asserted in `integration/selinux.sh` as the layout the policy rests on, one check
+per swap vector.
 
 ## Quirks
 

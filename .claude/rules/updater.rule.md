@@ -77,7 +77,7 @@ toolchain, so recording "last run = now" is truthful; the next run is the next s
 and `install.sh` both seed the stamp before starting the timer (the RPM/dev flows), and each also runs from a neutral
 CWD so the `sudo -u SANDBOX_USER` steps do not inherit an operator directory the account cannot traverse back into.
 
-It closes by **naming each enrolled operator whose shell reaches an agent outside `/usr/local/bin`**, read per account
+It closes by **naming each enrolled operator whose shell reaches an agent other than the wrapper**, read per account
 from a login shell of that account — which needs the root this command already holds (see the PATH ordering section
 of [launch](launch.rule.md)). The reading runs last, so it covers the wrapper and the agents this run has just
 installed, and a host is not reported ready while typing the launcher name would start an unconfined session

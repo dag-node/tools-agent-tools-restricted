@@ -1,6 +1,5 @@
 ---
 paths:
-  - "src/usr/local/bin/codex.sh"
   - "src/usr/local/lib/ai-tools/agents.d/codex.conf"
   - "src/usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh"
   - "src/etc/codex/**"
@@ -10,20 +9,20 @@ paths:
 # The codex agent
 
 Everything specific to Codex as a provider: what its manifest declares, how its launcher chain ends on the vendor
-binary, its launch wrapper, the two managed files codex reads from `/etc/codex`, its hooks, and where the shared skills
+binary, its launcher, the two managed files codex reads from `/etc/codex`, its hooks, and where the shared skills
 and the orientation text reach it. The **provider seam** these plug into — manifests, fail-closed enablement,
 the `session-env.d` contract, the `launcher_target` re-link — is [providers](providers.rule.md); the **agent-agnostic**
 launch contract is [launch](launch.rule.md); the ownership handback and the sweep are
 [ownership-and-hooks](ownership-and-hooks.rule.md). The claude-code counterpart of every item here is
 [agent-claude-code](agent-claude-code.rule.md), and where the two differ the difference is stated in this rule.
 
-`ai-tools-agents-codex-restricted` ships the wrapper, the manifest, the session pins, the two managed files
-with a pristine copy of each, the two hooks, and the agent's config directory. Like every agent package it ships
+`ai-tools-agents-codex-restricted` ships the `codex` launcher symlink, the manifest, the session pins, the two managed
+files with a pristine copy of each, the two hooks, and the agent's config directory. Like every agent package it ships
 `default_enable=no`: `codex` is provisioned and launched once `AI_TOOLS_AGENTS` names it, which the bootstrap writes
 for the agent an operator chooses ([providers](providers.rule.md)). It does not add a sudoers rule: it inherits
 the single `%ai-ops` grant on the shared shim. `install.sh` lays down the same files from the source tree, beside
 the claude-code ones, and runs what the package's `%post` runs — the `3770` mode of the config directory, the skills
-link, the orientation link — so a from-source host carries the package whole; its `uninstall` removes the wrapper,
+link, the orientation link — so a from-source host carries the package whole; its `uninstall` removes the launcher,
 the hooks, the managed files and the pristine copies, and the skills link where it is managed, leaving the agent's state
 under `.codex` as it leaves claude's.
 
@@ -114,22 +113,13 @@ claude-code dispatches `rg`, `ugrep` and `bfs` through its own entrypoint the sa
 ([agent-claude-code](agent-claude-code.rule.md)), so this is one shape both agents have rather than a property either
 declares.
 
-## The wrapper (`codex.sh`)
+## The launcher
 
-`/usr/local/bin/codex`, `root:root 0755`, rpm-owned, running as the invoking operator. It is the shared gate library
-alone: it sources `launch-wrapper.lib.sh` fail-closed, calls `ai_tools_launch_init codex`, runs
-`ai_tools_launch_gates "$@"`, and ends in `ai_tools_launch_session "$@"`. The gate order — required libraries,
-the operator gate, binary resolution, the print-and-exit short-circuit, the protected-paths backstop and the allowlist,
-the claim guard, the service-health warning, the `exec` — is the library's and is stated once
-in [launch](launch.rule.md). Codex has no launch input of its own: a custom system prompt and a custom endpoint are keys
-of `managed_config.toml`, read by codex itself, so no resolver sits between the gates and the session and the operator's
-arguments go through as typed.
-
-The one refusal the wrapper carries itself — the gate library will not load — cites `MSG-R3Q4`, the code claude's
-wrapper defines for the same situation: one situation, two wrappers, one token to search
-([messaging](messaging.rule.md)). `path-order.lib.sh` reads every enabled agent's launcher, so an operator's shell
-that would find another `codex` ahead of `/usr/local/bin` is reported for this launcher exactly as for `claude`
-([launch](launch.rule.md)).
+`/usr/local/bin/codex` is this package's symlink to the one launch wrapper, whose gates and their order are
+[launch](launch.rule.md)'s. The manifest does not declare a launch hook: a custom system prompt and a custom endpoint
+are keys of `managed_config.toml`, read by codex itself, so the operator's arguments go through as typed.
+`path-order.lib.sh` reads every enabled agent's launcher, so an operator's shell that would find another `codex` ahead
+of `/usr/local/bin` is reported for this launcher exactly as for `claude` ([launch](launch.rule.md)).
 
 ## The two managed files (`/etc/codex`)
 
@@ -148,8 +138,11 @@ and the `[allowed_permission_profiles]` table name full access alone, so a sessi
 a `--sandbox` flag, a `-c` override, a profile, a relocated `CODEX_HOME` — lands on the managed default with no notice;
 `allowed_approval_policies = ["never"]`; `allowed_login_methods = ["chatgpt"]` bounds the account type
 to the subscription login (an API key through a root-placed `auth.json` is the optional path); `[marketplaces]` is
-restricted with no allowed source; and `allow_managed_hooks_only = true` with the `[hooks]` table makes the package's
-hooks the only hooks — a user `hooks.json` does not run.
+restricted with no allowed source; `[features] daemon_auto_start = false` keeps codex from starting a background
+app-server ahead of the session, whose socket in the session's `/tmp` the confined domain creates only with the optional
+`localipc` group loaded, so on a host without it every start failed (0.157 turned the feature
+on); and `allow_managed_hooks_only = true` with the `[hooks]` table makes the package's hooks the only hooks — a user
+`hooks.json` does not run.
 
 Its `[rules]` table is the **per-command deny layer**, codex's counterpart to `settings.json`'s deny groups
 ([claude-settings](claude-settings.rule.md)), and it carries **two** of that layer's three groups, held to the same
@@ -226,8 +219,10 @@ the live file against its copy through `ai_tools_managed_file_state` ([providers
 that differs prints the two consequences — codex reads the live file alone, so a key this release adds is not in it,
 and what it declares is the host's — with the copy's path, and is not counted toward the exit status, since an edited
 managed file is a supported state; a missing one is counted, since the package is then broken and a reinstall is
-the remedy. `install.sh` says the same at install time, on the kept file's own line. The report is where an operator
-learns a `.rpmnew` was parked, or a from-source install kept an edit, after the install output has scrolled by.
+the remedy. `install.sh` says the same at install time, on the kept file's own line, and gives a live file that is still
+byte-identical to the previous pristine copy this release's copy without asking, as rpm does for an unmodified
+`%config(noreplace)` file: that file was never edited, so no host choice is lost. The report is where an operator learns
+a `.rpmnew` was parked, or a from-source install kept an edit, after the install output has scrolled by.
 
 ## Handback: the shim's sweep is the guarantee, the hooks are the cadence
 
@@ -314,11 +309,11 @@ that the manifest, the pins, `/etc/codex` and both managed files are not writabl
 and not writable; `tests/integration/hooks.sh` reads `requirements.toml` as codex does and pins the pin, managed hooks
 only, the four hook declarations against the installed bodies, and the refused git verbs;
 and `tests/integration/wrapper.sh` drives `/usr/local/bin/codex` in whichever state the host is in — refused
-at the launcher gate while codex is disabled, since a disabled agent has no launcher symlink, and refused
-at the allowlist gate once it is enabled and provisioned — while holding the launcher symlink and the enabled set
-to agreement. The rows that need a codex session — a turn under the pin, a hook-written file handed back, the sweep-only
-path, a skill listed through `/etc/codex/skills` — run through the package's own path on a host whose operator enabled
-codex, the way the claude chain runs in `tests/manual/verify-live-flows.sh`.
+at the launcher gate while codex is disabled, since no enabled manifest claims the name, and refused at the allowlist
+gate once it is enabled and provisioned — while holding the launcher symlink and the enabled set to agreement. The rows
+that need a codex session — a turn under the pin, a hook-written file handed back, the sweep-only path, a skill listed
+through `/etc/codex/skills` — run through the package's own path on a host whose operator enabled codex, the way
+the claude chain runs in `tests/manual/verify-live-flows.sh`.
 
 ## The reduced set
 
@@ -332,8 +327,10 @@ and no entrypoint provenance on the npm channel. Egress is not controlled by thi
 
 - **A `.rpmnew` for either managed file leaves a newly shipped key unread.** Codex reads the live file alone;
   the `%post` names the parked copy, and the operator carries the keys over by hand.
-  `ai-tools-admin system post-upgrade` names such a copy with the `diff -u` that compares it and does not merge it:
-  the files are TOML, not the JSON it merges.
+  `ai-tools-admin system post-upgrade` names such a copy with the `sudoedit` merge that opens it beside the live file
+  and does not merge it itself, since the files are TOML, not the JSON it merges. Whether or not a copy is waiting, it
+  also names each key the live file lacks against the shipped copy under `/usr/share/ai-tools/codex`, with a `sudoedit`
+  merge through `meld` or `vimdiff` ([providers](providers.rule.md)).
 - **A mode flag is ignored, not refused.** `--sandbox workspace-write` under the shipped requirements lands
   on `danger-full-access` with no notice, since the profile table lists full access alone. Under a requirements file
   without the `default_permissions` pair, the same flag falls back to a read-only managed profile whose tool calls fail

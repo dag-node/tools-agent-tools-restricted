@@ -1,14 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/launch-wrapper.lib.sh
-# The launch gates every agent's /usr/local/bin/<launcher> wrapper runs, in one library (644 root:root, owned
-# by ai-tools-base, sandbox-account tokens substituted at install). A wrapper sources it fail-closed, then calls
-# ai_tools_launch_init <launcher>, ai_tools_launch_gates "$@", resolves whatever agent-specific launch inputs it
-# carries, and ends in ai_tools_launch_session, which execs the shared confinement shim /opt/ai-tools/bin/ai-tools-run
-# as the sandbox account via sudo. Everything here runs as the invoking operator, before the drop, and every refusal
-# moves to less access: a library that will not load, a caller outside ai-ops, a disabled agent's package still
-# in the toolchain, a launcher symlink that does not resolve to the versioned shape, a CWD outside the allowlist
-# or inside a protected directory, and an incompletely claimed project each stop the launch through ai_tools_launch_die.
+# The launch checks every agent's launch runs, as the invoking operator before the drop to the sandbox account. Its one
+# caller is /usr/local/bin/ai-tools-launch. Each check that fails stops the launch through ai_tools_launch_die, so every
+# refusal moves to less access; ai_tools_launch_gates holds the order. Shipped 644 root:root by ai-tools-base, with
+# the sandbox-account tokens substituted at install.
 # The gate order, what each refusal distinguishes, and the two variables the exec carries through sudo are
 # in launch.rule.md; the wrapper contract each agent package holds to is stated there too.
 #
@@ -28,22 +24,26 @@ readonly AI_TOOLS_CLI="/usr/local/bin/ai-tools"
 readonly OPERATORS_GROUP="ai-ops"
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
-# shellcheck disable=SC2034  # read by a wrapper's own launch-input resolvers (claude.sh's custom system prompt)
+# shellcheck disable=SC2034  # read by an agent's launch hook (launch.d/claude-code.sh's custom system prompt)
 readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
+readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
+readonly LAUNCH_HOOK_DIR="/usr/local/lib/ai-tools/launch.d"
 # The claim guard's read-only inputs: the sandbox account's gitconfig (root-owned 644, so the safe.directory gap is read
 # here as the operator) and the root helper that writes an entry into it (the same one the CLI's reg_safedir uses; see
 # ai-tools-safedir's header for the model).
 readonly GITCONFIG="/opt/ai-tools/.gitconfig"
 readonly SAFEDIR_BIN="/usr/local/libexec/ai-tools/ai-tools-safedir"
 
-# Set by ai_tools_launch_init: the launcher name the wrapper was invoked as, which prefixes every message and names
-# the stable symlink. Set by the gates: the resolved versioned executable and the canonicalized project directory,
-# the two values ai_tools_launch_session exports across sudo.
+# Set by ai_tools_launch_init: the launcher name the launch was invoked as, which prefixes every message and names
+# the stable symlink. Set by the gates: the agent whose enabled manifest claims that launcher, the resolved versioned
+# executable, and the canonicalized project directory; the last two are what ai_tools_launch_session exports across
+# sudo.
 AI_TOOLS_LAUNCH_NAME=""
+AI_TOOLS_LAUNCH_AGENT=""
 AI_TOOLS_LAUNCH_EXEC=""
 AI_TOOLS_LAUNCH_PROJECT_DIR=""
 
@@ -92,15 +92,24 @@ ai_tools_launch_die() {
 }
 
 # ai_tools_launch_init <launcher> -- record the launcher name and load the three required libraries, fail-closed.
+# The name comes from the command line the operator typed (ai-tools-launch passes its own argv0), so it is admitted
+# only in a launcher's charset before it prefixes a message or names a path; any other shape is refused under the
+# launcher's own name. Whether it names an ENABLED agent is ai_tools_launch_gate_launcher's question, after the operator
+# gate.
 # msg.lib.sh carries the yes/no decisions and the framed refusal every later gate emits, so with it missing the refusal
 # is printed plain and the launch stops; safe-paths.lib.sh is the launch path's front-line guard, verified once die is
 # available; conf.lib.sh reads the allowlist, and without ai_tools_conf_path_entry every line parses as no entry,
 # which refuses every launch -- fail-closed, but indistinguishable from "you have no projects", so refusing here names
 # the missing component. Each failure is logged to journald (via logger: the wrapper does not source log.lib, and it may
 # share the broken directory).
+# _ai_tools_launch_name_valid <name> -- 0 when <name> is in a launcher's charset, matched in the C locale so a range
+# does not take in letters outside ASCII.
+_ai_tools_launch_name_valid() { local LC_ALL=C; [[ "${1-}" =~ ^[A-Za-z0-9._-]+$ ]]; }
+
 ai_tools_launch_init() {
-    AI_TOOLS_LAUNCH_NAME="$1"
-    local name="${AI_TOOLS_LAUNCH_NAME}"
+    local requested="${1-}" name
+    if _ai_tools_launch_name_valid "${requested}"; then name="${requested}"; else name="ai-tools-launch"; fi
+    AI_TOOLS_LAUNCH_NAME="${name}"
     # shellcheck source=SCRIPTDIR/msg.lib.sh
     if ! source "${MSG_LIB}" 2>/dev/null; then
         command -v logger >/dev/null 2>&1 \
@@ -119,6 +128,11 @@ ai_tools_launch_init() {
     # whose PATH does not.
     CLI_CMD="$(ai_tools_cmd_display "${AI_TOOLS_CLI}")"
     readonly CLI_CMD
+    if [[ "${name}" != "${requested}" ]]; then
+        ai_tools_launch_die MSG-Z6F8 "invoked under a name that is not a launcher -- refusing to start" \
+            "       a launcher name holds letters, digits, dot, underscore and dash; start the agent" \
+            "       by its launcher name"
+    fi
 
     # A silent no-op stub would start the wrapper with the protected-path guard OFF -- the quiet degradation that lets
     # a broken or mis-permissioned install (e.g. a lib dir an operator cannot traverse) pass unnoticed. Source it, then
@@ -185,6 +199,44 @@ ai_tools_launch_gate_operator() {
                 "         sudo ai-tools-admin operators add ${user}"
         fi
     fi
+}
+
+# ai_tools_launch_gate_launcher -- refuse a launcher name that no enabled agent manifest claims, and record the agent
+# that claims it in AI_TOOLS_LAUNCH_AGENT. Every /usr/local/bin/<launcher> is the one ai-tools-launch, so the name
+# decides which agent this launch is for; ai-tools-run re-derives the agent from the resolved path after the drop,
+# and this gate is the diagnostician that answers before sudo. It reads the enabled set through the provider resolver,
+# whose trust checks refuse an untrusted operator.conf, manifest directory or manifest (reported on stderr), so an input
+# the resolver refuses yields no agent and a refusal here. The provider library is required: without it no launcher
+# can be matched, and refusing names the missing component.
+ai_tools_launch_gate_launcher() {
+    local name="${AI_TOOLS_LAUNCH_NAME}" agent launcher
+    local -a enabled=()
+    # shellcheck source=SCRIPTDIR/providers.lib.sh
+    if ! source "${PROVIDERS_LIB}" 2>/dev/null \
+            || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
+            || ! declare -F ai_tools_agent_manifest_field >/dev/null 2>&1; then
+        command -v logger >/dev/null 2>&1 \
+            && logger -t "${name}" -p user.err \
+                "required provider library ${PROVIDERS_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
+        ai_tools_launch_die MSG-C2C9 "cannot load the provider library -- refusing to start" \
+            "       ${PROVIDERS_LIB}" \
+            "       Without it the enabled agents cannot be read, so no launcher can be matched to one." \
+            "       Check that /usr/local/lib/ai-tools is traversable and its libraries are present," \
+            "       then reinstall the package if needed."
+    fi
+    while IFS=$'\t' read -r agent _ launcher; do
+        [[ -n "${agent}" ]] || continue
+        if [[ "${launcher}" == "${name}" ]]; then
+            AI_TOOLS_LAUNCH_AGENT="${agent}"
+            return 0
+        fi
+        enabled+=("${launcher}")
+    done < <(ai_tools_enabled_agents)
+    local joined="none"
+    (( ${#enabled[@]} )) && printf -v joined '%s, ' "${enabled[@]}" && joined="${joined%, }"
+    ai_tools_launch_die MSG-F8N3 "not the launcher of an agent enabled on this host (enabled: ${joined})" \
+        "       an agent is enabled by AI_TOOLS_AGENTS in ${OPERATOR_CONF}; after changing it, run:" \
+        "         sudo ai-tools-admin system bootstrap"
 }
 
 # ai_tools_launch_gate_lists -- refuse every launch while operator.conf holds a provider list item an earlier release
@@ -531,13 +583,16 @@ ai_tools_launch_claim_guard() {
 }
 
 # ai_tools_launch_gates "$@" -- run the gates in the order the security model rests on. The operator gate answers
-# before any other read, the residue gate before the launcher is resolved (a print-and-exit run execs the shim too,
+# before any other read, the provider-list gate before the launcher gate reads the enabled set (an unmigrated list
+# would read as "not enabled" and name the wrong remedy), the launcher gate before any path is built from the name,
+# the residue gate before the launcher is resolved (a print-and-exit run execs the shim too,
 # which refuses residue on its own), the launcher is resolved before the print-and-exit short-circuit can exec it,
 # and the CWD gates run only for a real project launch. A wrapper calls this once with its arguments and does not
 # reorder or omit a gate.
 ai_tools_launch_gates() {
     ai_tools_launch_gate_operator
     ai_tools_launch_gate_lists
+    ai_tools_launch_gate_launcher
     ai_tools_launch_gate_residue
     ai_tools_launch_resolve_executable
     ai_tools_launch_print_and_exit "$@"
@@ -612,6 +667,46 @@ _ai_tools_launch_notices() {
             done
         fi
     fi
+}
+
+# ai_tools_launch_agent_args <array> <arg>... -- append the launching agent's own launch arguments to the array named
+# <array>, from the launch hook its manifest declares. An agent that does not declare `launch_hook=yes` takes none,
+# and its launch.d file is not read even where one exists, so a hook is code an agent package ships and its root-owned
+# manifest asks for. A declared hook is sourced only while the file and the directory holding it pass
+# ai_tools_conf_is_trusted, and must define ai_tools_launch_hook_args, which appends to the array or refuses through
+# ai_tools_launch_die; every other state -- the file missing or untrusted, the function absent, a declaration other than
+# yes or no, the hook returning non-zero -- refuses the launch, since a hook carries an input the operator configured
+# and launching without it would run a session they did not set up.
+ai_tools_launch_agent_args() {
+    local array_name="$1"; shift
+    local agent="${AI_TOOLS_LAUNCH_AGENT}" declared hook reason=""
+    # No agent means the gates did not run; ai_tools_launch_session refuses that state under its own code.
+    [[ -n "${agent}" ]] || return 0
+    declared="$(ai_tools_agent_manifest_field "${agent}" launch_hook 2>/dev/null)" || declared=""
+    [[ -z "${declared}" || "${declared}" == no ]] && return 0
+    hook="${LAUNCH_HOOK_DIR}/${agent}.sh"
+    if [[ "${declared}" != yes ]]; then
+        reason="the manifest declares launch_hook=${declared}, and the key takes yes or no"
+    elif ! _ai_tools_launch_name_valid "${agent}"; then
+        reason="the agent name is not one a file can carry"
+    elif [[ ! -f "${hook}" ]]; then
+        reason="the manifest declares it, and the file is missing"
+    elif ! ai_tools_conf_is_trusted "${LAUNCH_HOOK_DIR}" || ! ai_tools_conf_is_trusted "${hook}"; then
+        reason="it or its directory is not root-owned, or is writable by group or other"
+    else
+        # shellcheck source=/dev/null
+        source "${hook}" 2>/dev/null || true
+        declare -F ai_tools_launch_hook_args >/dev/null 2>&1 \
+            || reason="it does not define ai_tools_launch_hook_args"
+    fi
+    if [[ -n "${reason}" ]]; then
+        ai_tools_launch_die MSG-G9H2 "the ${agent} launch hook cannot be loaded -- refusing to start" \
+            "       ${hook}" \
+            "       ${reason}; reinstall the agent package"
+    fi
+    ai_tools_launch_hook_args "${array_name}" "$@" \
+        || ai_tools_launch_die MSG-G5V4 "the ${agent} launch hook did not complete -- refusing to start" \
+            "       ${hook}"
 }
 
 # ai_tools_launch_session <arg>... -- emit the pre-launch notices, then exec the confined session with the arguments.

@@ -314,6 +314,9 @@ ln -s %{ai_libexecdir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
 install -d -m 0755 %{buildroot}%{ai_bindir}
 install -m 0755 src%{ai_bindir}/ai-tools.sh                 %{buildroot}%{ai_bindir}/ai-tools
 install -m 0750 src%{ai_bindir}/ai-tools-handback-client.py %{buildroot}%{ai_bindir}/ai-tools-handback-client
+# The one launch wrapper every agent's command runs: each agent package ships its launcher name as
+# a symlink to it, and the wrapper takes the agent from the name it was invoked as.
+install -m 0755 src%{ai_bindir}/ai-tools-launch.sh          %{buildroot}%{ai_bindir}/ai-tools-launch
 # ai-tools(1) man page; the man1 dir is owned by the filesystem package, so only the page
 # ships. brp-compress may gzip it (hence the %%files glob).
 install -d -m 0755 %{buildroot}%{ai_mandir}/man1
@@ -364,6 +367,9 @@ done
 install -d -m 0755 %{buildroot}%{ai_libdir}/agents.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/integrations.d
 install -d -m 0755 %{buildroot}%{ai_libdir}/session-env.d
+# Agent launch hooks, keyed by name the same way: launch.d/<name>.sh, which ai-tools-launch sources
+# for an agent whose manifest declares launch_hook=yes, once it and this directory are root-owned.
+install -d -m 0755 %{buildroot}%{ai_libdir}/launch.d
 # Contributed ai-tools-admin command domains, keyed by name the same way: admin-commands.d/<name>,
 # an executable ai-tools-admin execs after checking that it and this directory are root-owned and
 # not group- or other-writable. Base owns the directory and does not put a file in it; each
@@ -549,11 +555,12 @@ install -d -m 2770 %{buildroot}/opt/ai-tools/integrations/typesafe
 # This agent's payload lives at src/opt/ai-tools/agents/claude-code/ -- named for its MANIFEST,
 # not for the .claude directory it installs into, because that destination is manifest data
 # (config_dir). A second agent adds a sibling directory named for its own manifest.
-# The wrapper ships root:root 0755 in /usr/local/bin (Tier 1 in path-order.sh, wired into
-# operator dotfiles by ai-tools-admin, so it shadows the nvm-managed claude on every
-# operator's PATH); it runs as the invoking operator, gates on ai-ops membership, then drops
-# to the sandbox account via sudo.
-install -m 0755 src%{ai_bindir}/claude.sh                  %{buildroot}%{ai_bindir}/claude
+# The launcher is a symlink to the base's ai-tools-launch in /usr/local/bin (Tier 1 in
+# path-order.sh, wired into operator dotfiles by ai-tools-admin, so it shadows the nvm-managed
+# claude on every operator's PATH); it runs as the invoking operator, gates on ai-ops membership,
+# then drops to the sandbox account via sudo. The launch hook adds the custom system prompt.
+ln -s %{ai_bindir}/ai-tools-launch %{buildroot}%{ai_bindir}/claude
+install -m 0644 src%{ai_libdir}/launch.d/claude-code.sh %{buildroot}%{ai_libdir}/launch.d/claude-code.sh
 # This agent's config directory, the one its manifest declares (config_dir=.claude).
 install -d -m 0770 %{buildroot}/opt/ai-tools/.claude
 install -m 0750 src/opt/ai-tools/agents/claude-code/post-tool-hook.sh %{buildroot}/opt/ai-tools/.claude/post-tool-hook.sh
@@ -575,16 +582,16 @@ install -m 0644 src%{ai_libdir}/keys/claude-code.asc %{buildroot}%{ai_libdir}/ke
 install -m 0644 src%{ai_libdir}/session-env.d/claude-code.pins.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.pins.env.sh
 install -m 0644 src%{ai_libdir}/session-env.d/claude-code.env.sh %{buildroot}%{ai_libdir}/session-env.d/claude-code.env.sh
 # Claude Code-specific resolvers (the base owns the lib directory; the agent ships these into it):
-# the custom system prompt (claude.sh, wrapper-side) and the custom API endpoint (the fragment
-# its own fragment, sandbox-side). Both split their pure logic out for unit testing.
+# the custom system prompt (the launch hook, operator-side) and the custom API endpoint (its own
+# session-env fragment, sandbox-side). Both split their pure logic out for unit testing.
 install -m 0644 src%{ai_libdir}/claude-prompt.lib.sh   %{buildroot}%{ai_libdir}/claude-prompt.lib.sh
 install -m 0644 src%{ai_libdir}/claude-endpoint.lib.sh %{buildroot}%{ai_libdir}/claude-endpoint.lib.sh
 # The empty default custom system prompt and the endpoints directory with its inert endpoint
 # template; the operator edits each in place, both %config(noreplace) so those edits survive an
 # upgrade. Both files are 0640 root:ai-tools: the sandbox account reads them (the fragment reads the
-# endpoint, and claude.sh hands the prompt path to the confined binary) while neither is world-
-# readable -- the endpoint holds a bearer token, and a custom prompt may be proprietary. The dirs
-# stay 0755 so claude.sh can stat the prompt file as the operator.
+# endpoint, and the launch hook hands the prompt path to the confined binary) while neither is
+# world-readable -- the endpoint holds a bearer token, and a custom prompt may be proprietary. The
+# dirs stay 0755 so the launch hook can stat the prompt file as the operator.
 install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools/prompts
 install -m 0640 src%{_sysconfdir}/ai-tools/prompts/claude-system-prompt.md \
     %{buildroot}%{_sysconfdir}/ai-tools/prompts/claude-system-prompt.md
@@ -595,8 +602,9 @@ install -m 0640 src%{_sysconfdir}/ai-tools/endpoints/custom-claude-endpoint.conf
 # ── agents-codex: launch wrapper + managed files + hooks ────────────────────
 # The sibling of the claude-code layer, laid out the same way: the payload lives at
 # src/opt/ai-tools/agents/codex/ (named for its manifest) and installs into the directory that
-# manifest declares (config_dir=.codex). The wrapper is the shared gate library alone.
-install -m 0755 src%{ai_bindir}/codex.sh                   %{buildroot}%{ai_bindir}/codex
+# manifest declares (config_dir=.codex). The launcher is a symlink to ai-tools-launch, and codex
+# declares no launch hook.
+ln -s %{ai_bindir}/ai-tools-launch %{buildroot}%{ai_bindir}/codex
 install -d -m 0770 %{buildroot}/opt/ai-tools/.codex
 install -m 0750 src/opt/ai-tools/agents/codex/post-tool-hook.sh %{buildroot}/opt/ai-tools/.codex/post-tool-hook.sh
 install -m 0750 src/opt/ai-tools/agents/codex/session-hook.sh   %{buildroot}/opt/ai-tools/.codex/session-hook.sh
@@ -1230,6 +1238,7 @@ fi
 %{_sbindir}/ai-tools-admin
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-handback
 %attr(0755, root, root) %{ai_bindir}/ai-tools
+%attr(0755, root, root) %{ai_bindir}/ai-tools-launch
 %{_sbindir}/ai-tools
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-operator.conf.5*
@@ -1269,6 +1278,7 @@ fi
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
 %dir %attr(0755, root, root) %{ai_libdir}/session-env.d
+%dir %attr(0755, root, root) %{ai_libdir}/launch.d
 %dir %attr(0755, root, root) %{ai_libdir}/admin-commands.d
 %dir %attr(0755, root, root) %{ai_libdir}/filters.d
 %attr(0644, root, root) %{ai_libdir}/filters.d/base.rules
@@ -1405,7 +1415,8 @@ fi
 %attr(0644, root, root) %{ai_libdir}/session-env.d/claude-code.env.sh
 %attr(0644, root, root) %{ai_libdir}/claude-prompt.lib.sh
 %attr(0644, root, root) %{ai_libdir}/claude-endpoint.lib.sh
-%attr(0755, root, root) %{ai_bindir}/claude
+%{ai_bindir}/claude
+%attr(0644, root, root) %{ai_libdir}/launch.d/claude-code.sh
 # Custom system prompt: an inert, editable default under a dedicated /etc/ai-tools/prompts. The
 # custom API endpoint: a dedicated /etc/ai-tools/endpoints holding the endpoint file, which is
 # 0640 root:ai-tools because it may carry a bearer token (not world-readable, unlike operator.conf).
@@ -1426,7 +1437,7 @@ fi
 %attr(0750, root, ai-tools) /opt/ai-tools/.codex/session-hook.sh
 %attr(0644, root, root) %{ai_libdir}/agents.d/codex.conf
 %attr(0644, root, root) %{ai_libdir}/session-env.d/codex.pins.env.sh
-%attr(0755, root, root) %{ai_bindir}/codex
+%{ai_bindir}/codex
 # Codex's managed files, at the fixed path codex reads them from. World-readable data, not secrets:
 # they hold the pin and the hook declarations, and no file under /etc/codex carries a guarantee. The
 # skills link the %post places is deliberately NOT listed: a listed path would be written over

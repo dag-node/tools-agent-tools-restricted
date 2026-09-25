@@ -3,8 +3,8 @@
 # where an operator's shell finds an agent launcher, the reading `ai-tools-admin operators add` asks
 # with, ai-tools.status re-checks with, and `ai-tools-admin system bootstrap` reports from.
 #
-# What makes it worth pinning is the direction each answer sends an operator. A launcher resolving outside
-# /usr/local/bin means typing its name starts an UNCONFINED agent, so a verdict that read that state as fine would turn
+# What makes it worth pinning is the direction each answer sends an operator. A launcher resolving to a file other than
+# the wrapper means typing its name starts an UNCONFINED agent, so a verdict that read that state as fine would turn
 # the one question standing between an operator and an unsandboxed session into a formality -- while a verdict
 # that cried shadow on an unreadable probe would teach them to ignore it. So the truth table is driven whole, in both
 # directions, and the two inputs that reach a shell or a terminal -- the launcher name interpolated into a command run
@@ -195,6 +195,70 @@ elif [[ -z "$(ai_tools_path_order_winner_here "${missing}")" ]]; then
     pass "a launcher with no wrapper installed reads as nothing to order"
 else
     fail "reported an ordering for a launcher this host ships no wrapper for"
+fi
+
+# ── (D2) The wrapper is judged by the file it executes ─────────────────────────────────────── Where
+# /usr/local/sbin is a symlink to /usr/local/bin and ranks first, `command -v` names the wrapper under the sbin
+# spelling. Reading that as a string reports the sandbox wrapper as an unconfined agent, and reading every look-alike
+# as the wrapper would hide a real one -- so the fixture holds the merged alias, a symlink and a hardlink (which execute
+# the wrapper) and a copy and another binary (which do not), and a path that does not exist.
+mkdir "${TESTDIR}/id" "${TESTDIR}/id/bin" "${TESTDIR}/id/realsbin" "${TESTDIR}/id/home"
+printf '#!/bin/sh\n' > "${TESTDIR}/id/bin/claude"
+printf '#!/bin/sh\n# another agent\n' > "${TESTDIR}/id/bin/other"
+ln -s bin "${TESTDIR}/id/sbin"
+ln -s ../bin/claude "${TESTDIR}/id/home/claude-link"
+ln -s ../bin/other "${TESTDIR}/id/home/other-link"
+cp "${TESTDIR}/id/bin/claude" "${TESTDIR}/id/realsbin/claude"
+id_wrapper="${TESTDIR}/id/bin/claude"
+hardlinked=0
+ln "${id_wrapper}" "${TESTDIR}/id/home/claude-hard" 2>/dev/null && hardlinked=1
+if [[ -L "${TESTDIR}/id/sbin" && -f "${TESTDIR}/id/sbin/claude" && -f "${TESTDIR}/id/realsbin/claude" \
+      && -L "${TESTDIR}/id/home/claude-link" ]]; then
+    pass "identity fixture: bin/claude, sbin -> bin, a copy in a real sbin, symlinks to the wrapper and to another file"
+else
+    fail "identity fixture was not created -- the rows below are not evidence"
+fi
+
+# as_wrapper_reads <expected: wrapper|own> <what> <winner>
+as_wrapper_reads() {
+    local want="$1" what="$2" winner="$3" got expected
+    got="$(ai_tools_path_order_as_wrapper "${winner}" "${id_wrapper}")"
+    if [[ "${want}" == wrapper ]]; then expected="${id_wrapper}"; else expected="${winner}"; fi
+    if [[ "${got}" == "${expected}" ]]; then pass "${what}"; else fail "${what} (got ${got})"; fi
+}
+as_wrapper_reads wrapper "control: the wrapper's own path reads as the wrapper" "${id_wrapper}"
+as_wrapper_reads wrapper "the wrapper reached through a merged sbin -> bin reads as the wrapper" \
+    "${TESTDIR}/id/sbin/claude"
+as_wrapper_reads wrapper "a symlink to the wrapper reads as the wrapper -- it executes the wrapper" \
+    "${TESTDIR}/id/home/claude-link"
+if (( hardlinked )); then
+    as_wrapper_reads wrapper "a hardlink to the wrapper reads as the wrapper" "${TESTDIR}/id/home/claude-hard"
+else
+    skip "hardlink reading" "this filesystem refused a hardlink"
+fi
+as_wrapper_reads own "a copy of the wrapper in a real sbin keeps its own path, and so reads as shadowed" \
+    "${TESTDIR}/id/realsbin/claude"
+as_wrapper_reads own "a symlink to another binary keeps its own path" "${TESTDIR}/id/home/other-link"
+as_wrapper_reads own "a path that does not exist keeps its own path, never the wrapper's" \
+    "${TESTDIR}/id/nowhere/claude"
+
+# The live probe, through a PATH alias of the real wrapper directory: the same shape the merged layout gives
+# `command -v`, on any host that installs the CLI. /usr/local/bin is on an exec mount, so `command -v` resolves
+# through the alias even where the fixture lives on a noexec /tmp.
+probe_name="ai-tools"
+ln -s "${WRAPPER}" "${TESTDIR}/id/alias"
+if [[ ! -x "${WRAPPER}/${probe_name}" ]]; then
+    skip "merged-alias probe" "${WRAPPER}/${probe_name} is not installed on this host"
+else
+    raw="$(PATH="${TESTDIR}/id/alias:/usr/bin:/bin" command -v -- "${probe_name}")"
+    got="$(PATH="${TESTDIR}/id/alias:/usr/bin:/bin" ai_tools_path_order_winner_here "${probe_name}")"
+    if [[ "${raw}" != "${TESTDIR}/id/alias/${probe_name}" ]]; then
+        fail "merged-alias setup: command -v answered ${raw}, not the alias spelling"
+    elif [[ "${got}" == "${WRAPPER}/${probe_name}" ]]; then
+        pass "command -v answers the alias spelling and the probe reads it as ${WRAPPER}/${probe_name}"
+    else
+        fail "the probe read the wrapper reached through an alias as ${got}"
+    fi
 fi
 
 # ── (E) What a caller is handed ──────────────────────────────────────────────────────────────

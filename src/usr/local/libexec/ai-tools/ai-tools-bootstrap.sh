@@ -518,7 +518,7 @@ offer_launch_requirements() {
     done
 }
 
-# report_shadowed_operators -- name each enrolled operator whose shell reaches an agent outside /usr/local/bin,
+# report_shadowed_operators -- name each enrolled operator whose shell reaches an agent other than the wrapper,
 # so a host is not called ready while typing the launcher name starts an UNCONFINED session as that operator
 # (path-order.lib.sh).
 #

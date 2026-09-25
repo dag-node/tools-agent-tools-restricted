@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/claude-prompt.sh
-# Unit test for the custom-system-prompt resolver (claude-prompt.lib.sh), the wrapper-side logic claude.sh applies
-# before it execs a session. The guarantee under test is one instance of "the sandbox cannot widen its own surface":
-# a prompt file the sandbox account could influence, or a configured prompt that cannot be honoured, must NOT be
-# silently passed to Claude Code -- it either leaves the prompt empty (unconfigured) or REFUSES the launch
+# Unit test for the custom-system-prompt resolver (claude-prompt.lib.sh), the operator-side logic the claude launch hook
+# applies before it execs a session. The guarantee under test is one instance of "the sandbox cannot widen its own
+# surface": a prompt file the sandbox account could influence, or a configured prompt that cannot be honoured, must NOT
+# be silently passed to Claude Code -- it either leaves the prompt empty (unconfigured) or REFUSES the launch
 # (configured-but-invalid), never a fall-back to a prompt the operator did not set. This drives the resolver into each
 # bad state and asserts it moves to no-injection or a refusal, never to injecting an untrusted or wrong prompt.
 # The agent-side half (the files are not agent-writable) lives in tests/boundary/access.sh.

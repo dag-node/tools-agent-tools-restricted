@@ -152,10 +152,18 @@ not_writable /opt/ai-tools/bin \
 # with that operator's identity, credentials and home -- everything the confinement exists to keep it away from --
 # so the modes in integration/perms.sh are not the only place this is asserted; here it is probed from the vantage
 # of the account that would have to write one.
+not_writable /usr/local/bin/ai-tools-launch \
+    "run its own code as the operator, before any session is confined"
 not_writable /usr/local/bin/claude \
     "run its own code as the operator, before any session is confined"
 not_writable /usr/local/bin/codex \
     "run its own code as the operator, before any session is confined"
+# An agent's launch hook is sourced into that same operator process, so the directory and the hook in it are the same
+# stake: the runtime half of this pair is the hook loader's trust refusal (unit/launch-wrapper.sh).
+not_writable /usr/local/lib/ai-tools/launch.d \
+    "plant a launch hook that runs as the operator"
+not_writable /usr/local/lib/ai-tools/launch.d/claude-code.sh \
+    "rewrite a launch hook that runs as the operator"
 
 # The two libraries every wrapper loads fail-closed, sourced in that same operator-owned process. safe-paths carries
 # the protected-paths backstop and msg carries the yes/no decisions, so either one writable is both a refusal the agent

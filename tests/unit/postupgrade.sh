@@ -126,10 +126,13 @@ if [[ ${#baks[@]} -eq 1 && "${out}" == *"${baks[0]}"* ]]; then
 else
     fail "the run did not name the backup it wrote"
 fi
-if [[ -f "${SETTINGS}.rpmnew" && "${out}" == *"then remove ${SETTINGS}.rpmnew"* ]]; then
-    pass "the copy survives the merge and is named as the operator's to remove"
+# Once the hook arrives, the host's own deny rule is all that differs from the copy. It is the host's, so it is listed as
+# such and not counted, and the copy is left with nothing to carry over -- kept on disk, and named for removal.
+if [[ -f "${SETTINGS}.rpmnew" && "${out}" == *"sudo rm ${SETTINGS}.rpmnew"* \
+      && "${out}" == *"kept as yours"* && "${out}" == *"deny: Bash(hosttuned:*)"* ]]; then
+    pass "the copy survives the merge and is named as the operator's to remove, the host's own rule listed as its"
 else
-    fail "dropped a .rpmnew, or did not name it as the file to remove by hand"
+    fail "dropped a .rpmnew, or did not name it for removal and the host's rule as its own"
 fi
 
 # The command claims to be idempotent, and an operator re-runs it: a second pass does not merge a declaration and does
@@ -155,6 +158,60 @@ if [[ "${out}" == *"already current"* && "$(md5sum < "${SETTINGS}")" == "${befor
     pass "a file already declaring everything shipped is left byte-identical"
 else
     fail "a current file was rewritten, backed up, or lost its .rpmnew"
+fi
+
+# ── (C2) settings.json: the rules and settings left once the hooks are current, compared as sets ─────────────
+# The shape an upgraded host shows: two deny rules the package added, one rule of the host's own, the ask list moved
+# ahead of allow, and the two Bash PostToolUse commands split into two groups, as the hook merge leaves them. Only
+# the two missing rules are the operator's to act on; order and grouping are not differences.
+reset_root
+jq '.permissions.deny -= ["Bash(gpg)", "Bash(gpg *)"] | .permissions.deny += ["Bash(hosttuned:*)"]
+    | .permissions = ({ask: .permissions.ask} + .permissions)
+    | .hooks.PostToolUse = [.hooks.PostToolUse[] | if .matcher == "Bash" then (.hooks[] as $h | .hooks = [$h]) else . end]' \
+    "${SHIPPED_SETTINGS}" > "${SETTINGS}"
+cp "${SHIPPED_SETTINGS}" "${SETTINGS}.rpmnew"
+before="$(md5sum < "${SETTINGS}")"
+out="$(run_pu)"
+if [[ "${out}" == *"rules this version ships that the file does not carry"* && "${out}" == *"deny: Bash(gpg)"* \
+      && "${out}" == *"deny: Bash(gpg *)"* && "${out}" == *"kept as yours"* && "${out}" == *"deny: Bash(hosttuned:*)"* \
+      && "${out}" != *"other settings differ"* && "${out}" != *"@@"* \
+      && "${out}" == *"sudoedit ${SETTINGS} ${SETTINGS}.rpmnew"* ]]; then
+    pass "the missing rules are named, the host's own listed as its, and order and hook grouping are not shown"
+else
+    fail "the settings difference was not reported as sets: ${out}"
+fi
+if [[ "$(md5sum < "${SETTINGS}")" == "${before}" && -f "${SETTINGS}.rpmnew" ]]; then
+    pass "the settings file is left as written"
+else
+    fail "the set comparison wrote the settings file or dropped its copy"
+fi
+out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check < /dev/null 2>&1)" \
+    && check_rc=0 || check_rc=$?
+if [[ "${check_rc}" == 1 ]] \
+        && grep -qxF "$(printf '%s\t%s\t%s\t%s' MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg)')" <<< "${out}" \
+        && grep -qxF "$(printf '%s\t%s\t%s\t%s' MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg *)')" <<< "${out}" \
+        && ! grep -qF 'hosttuned' <<< "${out}" && ! grep -qF 'rpmnew-differs' <<< "${out}"; then
+    pass "--check reports each missing rule as rule-missing, and neither the host's rule nor the layout"
+else
+    fail "--check did not report the missing rules alone (exit ${check_rc}): ${out}"
+fi
+
+# A difference in order and layout alone is not one to carry over, and a changed setting outside the rule lists is shown
+# as one.
+jq '.permissions = ({ask: .permissions.ask} + .permissions)' "${SHIPPED_SETTINGS}" > "${SETTINGS}"
+out="$(run_pu)"
+if [[ "${out}" == *"apart from order and layout"* && "${out}" == *"nothing is left to carry over"* ]]; then
+    pass "a file differing only in order is reported as having nothing to carry over"
+else
+    fail "an order-only difference was reported as one to act on: ${out}"
+fi
+jq '.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = 1' "${SHIPPED_SETTINGS}" > "${SETTINGS}"
+out="$(run_pu)"
+if [[ "${out}" == *"other settings differ"* && "${out}" == *"CLAUDE_CODE_MAX_OUTPUT_TOKENS"* \
+      && "${out}" == *"--- ${SETTINGS}"* ]]; then
+    pass "a setting outside the rule lists is shown as a diff labelled with the real files"
+else
+    fail "a changed setting was not shown: ${out}"
 fi
 
 # ── (D) A merge that matches the shipped copy still leaves it to the operator ──────────────────
@@ -244,8 +301,8 @@ if [[ "${out}" == *"Post-upgrade done -- review the warnings above"* && "${out}"
 else
     fail "a run with something to act on closed without asking for a review: ${out}"
 fi
-if grep -qx '  sudo meld <file> <file>.rpmnew' <<< "${out}"; then
-    pass "a run with a difference left to act on prints the meld comparison on a line of its own"
+if grep -qxE '  SUDO_EDITOR=(meld|vimdiff) sudoedit <file> <file>.rpmnew' <<< "${out}"; then
+    pass "a run with a difference left to act on prints the sudoedit comparison, the file on the left, on a line of its own"
 else
     fail "the meld line is missing where a difference is left: ${out}"
 fi
@@ -283,8 +340,9 @@ if [[ "${out}" != *"secretvalue"* && "${out}" != *"check_for_update_on_startup"*
 else
     fail "a discovered file's content reached the output"
 fi
-if [[ "${out}" == *"sudo diff -u ${ROOT}/etc/codex/managed_config.toml "* && -f "${ROOT}/etc/codex/managed_config.toml.rpmnew" ]]; then
-    pass "a file with no treatment is named with the command that compares it, and its copy kept"
+if [[ "${out}" == *"sudoedit ${ROOT}/etc/codex/managed_config.toml ${ROOT}/etc/codex/managed_config.toml.rpmnew"* \
+      && -f "${ROOT}/etc/codex/managed_config.toml.rpmnew" ]]; then
+    pass "a file with no treatment is named with the sudoedit merge, the file on the left, and its copy kept"
 else
     fail "a file with no treatment was not named, or its copy was dropped"
 fi
@@ -330,7 +388,7 @@ if ! grep -qxF "${PROMPT}" <<< "${out}" && grep -qxF "    sudo rm ${PROMPT}.rpmn
 else
     fail "an identical copy was reported as a difference or not offered for removal: ${out}"
 fi
-if [[ "${out}" != *"sudo meld"* ]]; then
+if [[ "${out}" != *"sudoedit <file>"* ]]; then
     pass "a run with nothing left to merge does not offer a comparison"
 else
     fail "the meld comparison was offered with nothing to merge: ${out}"
@@ -374,6 +432,61 @@ if [[ "${out}" != *"without asking"* && "${out}" == *"no .rpmnew"* ]]; then
     pass "a file carrying every ask entry is not reported"
 else
     fail "a current file was reported as missing an ask entry: ${out}"
+fi
+
+# ── (E8b) A key a managed file lacks against its shipped copy: named with the merge command, left as written ─────
+# An agent's managed files are the ones its manifest declares, with the shipped copy under /usr/share/ai-tools; both,
+# and the manifest, are read under the prefix root. A fixture agent declares one file whose shipped copy carries a key
+# the kept file does not set, as a release adds one to a %config(noreplace) file.
+reset_root
+mkdir -p "${ROOT}/usr/local/lib/ai-tools/agents.d" "${ROOT}/usr/share/ai-tools/acme" "${ROOT}/etc/acme"
+chmod 0755 "${ROOT}/usr/local/lib/ai-tools/agents.d"
+printf 'npm_package=@acme/agent\nlauncher=acme\ndefault_enable=no\nmanaged_files=/etc/acme/req.toml\n' \
+    > "${ROOT}/usr/local/lib/ai-tools/agents.d/acme.conf"
+chmod 0644 "${ROOT}/usr/local/lib/ai-tools/agents.d/acme.conf"
+printf 'pin = 1\n\n# why the feature is off\n[features]\nauto_start = false\n' > "${ROOT}/usr/share/ai-tools/acme/req.toml"
+printf 'pin = 2\n' > "${ROOT}/etc/acme/req.toml"
+cp "${ROOT}/etc/acme/req.toml" "${TESTDIR}/pre.req"
+out="$(run_pu)"
+if [[ "${out}" == *"req.toml -- keys this release ships that the file does not set"* \
+      && "${out}" == *"features.auto_start"* \
+      && "${out}" == *"sudo cp ${ROOT}/usr/share/ai-tools/acme/req.toml ${ROOT}/etc/acme/req.toml.rpmnew"* \
+      && "${out}" == *"sudoedit ${ROOT}/etc/acme/req.toml ${ROOT}/etc/acme/req.toml.rpmnew"* \
+      && "${out}" == *"review the warnings"* ]]; then
+    pass "a key the kept file lacks is named, with the package copy recreated and merged, the file on the left"
+else
+    fail "a missing managed-file key was not reported: ${out}"
+fi
+if cmp -s "${ROOT}/etc/acme/req.toml" "${TESTDIR}/pre.req" && [[ "$(sidecars "${ROOT}/etc/acme/req.toml")" == 0 ]]; then
+    pass "the managed file is left byte-identical and gains no sidecar"
+else
+    fail "the key check wrote to the managed file"
+fi
+out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check < /dev/null 2>&1)" \
+    && check_rc=0 || check_rc=$?
+if [[ "${check_rc}" -eq 1 ]] \
+        && grep -qxF "$(printf '%s\t%s\t%s\t%s' MSG-K5H2 "${ROOT}/etc/acme/req.toml" key-missing features.auto_start)" \
+            <<< "${out}" \
+        && ! grep -qF "${ROOT}/etc/acme/req.toml"$'\t'key-missing$'\t'pin <<< "${out}"; then
+    pass "--check reports the missing key as key-missing under its code, not the key set to another value, and exits 1"
+else
+    fail "--check did not report the missing key alone (exit ${check_rc}): ${out}"
+fi
+cp "${ROOT}/usr/share/ai-tools/acme/req.toml" "${ROOT}/etc/acme/req.toml.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"sudoedit ${ROOT}/etc/acme/req.toml ${ROOT}/etc/acme/req.toml.rpmnew"* \
+      && "${out}" != *"sudo cp ${ROOT}/usr/share/ai-tools/acme/req.toml"* ]]; then
+    pass "with a .rpmnew waiting, the merge uses it and does not recreate one"
+else
+    fail "the merge did not use the waiting .rpmnew: ${out}"
+fi
+rm -f "${ROOT}/etc/acme/req.toml.rpmnew"
+printf 'pin = 2\n[features]\nauto_start = true\n' > "${ROOT}/etc/acme/req.toml"
+out="$(run_pu)"
+if [[ "${out}" != *"keys this release ships"* ]]; then
+    pass "a file that sets every key is not reported, whatever its values"
+else
+    fail "a file setting every key was reported: ${out}"
 fi
 
 # ── (E9) --check: one tab-separated line per finding, nothing when clean, and no write ───────────────────────

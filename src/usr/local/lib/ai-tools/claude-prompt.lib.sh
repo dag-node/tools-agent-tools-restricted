@@ -2,14 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/claude-prompt.lib.sh
 # Resolves the Claude Code launch arguments that carry an operator-configured custom system prompt, from operator.conf's
-# CLAUDE_SYSTEM_PROMPT_FILE / CLAUDE_SYSTEM_PROMPT_MODE keys. Sourced (never executed) by claude.sh just before it execs
-# the session; the pure resolution is split from the wrapper so tests/unit/claude-prompt.sh drives it apart from a real
-# launch. Claude Code-specific (the four --{,append-}system-prompt{,-file} flags are its own), so it ships
-# with the agent wrapper rather than in the agent-agnostic shim, and the keys are prefixed CLAUDE_ for the same
+# CLAUDE_SYSTEM_PROMPT_FILE / CLAUDE_SYSTEM_PROMPT_MODE keys. Sourced (never executed) by the claude launch hook
+# (launch.d/claude-code.sh) before the launch execs the session; the pure resolution is split from the wrapper
+# so tests/unit/claude-prompt.sh drives it apart from a real launch. Claude Code-specific (the four
+# --{,append-}system-prompt{,-file} flags are its own), so it ships with the agent wrapper rather than
+# in the agent-agnostic shim, and the keys are prefixed CLAUDE_ for the same
 # reason.
 #
 # Fail closed WHEN CONFIGURED: an unconfigured host launches with Claude Code's default prompt, and a configured prompt
-# that cannot be honoured makes the resolver return non-zero and claude.sh refuse the launch -- launching
+# that cannot be honoured makes the resolver return non-zero and the launch hook refuse the launch -- launching
 # with the default instead would be a wrong result, not a safe degradation. A per-invocation
 # --{,append-}system-prompt{,-file} flag steps the standing default aside with no refusal. What a configured prompt must
 # satisfy, and why the base is /etc/ai-tools/prompts/ (the one etc_t place the confined domain reads), are
@@ -17,14 +18,14 @@
 # account, so each path component and operator.conf itself pass ai_tools_conf_is_trusted: the sandbox account cannot
 # swap the prompt between resolution and read.
 
-# Include-guarded: claude.sh and the unit test may both source this and its dependencies.
+# Include-guarded: the launch hook and the unit test may both source this and its dependencies.
 if [[ -n "${_AI_TOOLS_CLAUDE_PROMPT_LIB:-}" ]]; then
     return 0
 fi
 readonly _AI_TOOLS_CLAUDE_PROMPT_LIB=1
 
 # The shared KEY=value grammar (ai_tools_conf_read) and the trust predicate (ai_tools_conf_is_trusted). Include-guarded,
-# so a re-source in a shell that already has it is a no-op. claude.sh loads and verifies it before this lib,
+# so a re-source in a shell that already has it is a no-op. the launch wrapper loads and verifies it before this lib,
 # so in production it is already present; sourced here too so the unit test can drive this lib directly.
 if [[ -z "${_AI_TOOLS_CONF_LIB:-}" ]]; then
     # shellcheck source=SCRIPTDIR/conf.lib.sh
@@ -106,8 +107,8 @@ ai_tools_claude_resolve_prompt_args() {
     _ai_tools_claude_prompt_out=()
 
     # Without the grammar parser this lib cannot tell configured from unconfigured, so it cannot promise the baseline is
-    # safe -- fail closed. In production conf.lib is a hard, verified dependency of claude.sh loaded before this lib,
-    # so this only fires on a broken install.
+    # safe -- fail closed. In production conf.lib is a hard, verified dependency of the launch wrapper loaded
+    # before this lib, so this only fires on a broken install.
     if ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
             || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1; then
         _ai_tools_claude_warn "the config library is unavailable, so a custom system prompt cannot be resolved"
