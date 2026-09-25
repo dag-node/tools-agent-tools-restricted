@@ -138,8 +138,11 @@ and the `[allowed_permission_profiles]` table name full access alone, so a sessi
 a `--sandbox` flag, a `-c` override, a profile, a relocated `CODEX_HOME` — lands on the managed default with no notice;
 `allowed_approval_policies = ["never"]`; `allowed_login_methods = ["chatgpt"]` bounds the account type
 to the subscription login (an API key through a root-placed `auth.json` is the optional path); `[marketplaces]` is
-restricted with no allowed source; and `allow_managed_hooks_only = true` with the `[hooks]` table makes the package's
-hooks the only hooks — a user `hooks.json` does not run.
+restricted with no allowed source; `[features] daemon_auto_start = false` keeps codex from starting a background
+app-server ahead of the session, whose socket in the session's `/tmp` the confined domain creates only with the optional
+`localipc` group loaded, so on a host without it every start failed (0.157 turned the feature
+on); and `allow_managed_hooks_only = true` with the `[hooks]` table makes the package's hooks the only hooks — a user
+`hooks.json` does not run.
 
 Its `[rules]` table is the **per-command deny layer**, codex's counterpart to `settings.json`'s deny groups
 ([claude-settings](claude-settings.rule.md)), and it carries **two** of that layer's three groups, held to the same
@@ -216,8 +219,10 @@ the live file against its copy through `ai_tools_managed_file_state` ([providers
 that differs prints the two consequences — codex reads the live file alone, so a key this release adds is not in it,
 and what it declares is the host's — with the copy's path, and is not counted toward the exit status, since an edited
 managed file is a supported state; a missing one is counted, since the package is then broken and a reinstall is
-the remedy. `install.sh` says the same at install time, on the kept file's own line. The report is where an operator
-learns a `.rpmnew` was parked, or a from-source install kept an edit, after the install output has scrolled by.
+the remedy. `install.sh` says the same at install time, on the kept file's own line, and gives a live file that is still
+byte-identical to the previous pristine copy this release's copy without asking, as rpm does for an unmodified
+`%config(noreplace)` file: that file was never edited, so no host choice is lost. The report is where an operator learns
+a `.rpmnew` was parked, or a from-source install kept an edit, after the install output has scrolled by.
 
 ## Handback: the shim's sweep is the guarantee, the hooks are the cadence
 

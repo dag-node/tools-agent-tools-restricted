@@ -1,7 +1,8 @@
 # /etc/codex/requirements.toml -- what codex enforces on every session
 # the sandbox launches: the sandbox-mode pin, the approval policy, the
-# login method, the hooks in its [hooks] table as the only hooks, and
-# the destructive git verbs its [rules] table refuses.
+# login method, no background app-server, the hooks in its [hooks]
+# table as the only hooks, and the destructive git verbs its [rules]
+# table refuses.
 # Shipped by ai-tools-agents-codex-restricted as 0644 root:root and
 # kept across an upgrade; a newer copy lands beside it as
 # requirements.toml.rpmnew.
@@ -30,6 +31,15 @@ default_permissions = ":danger-full-access"
 
 [marketplaces]
 restrict_to_allowed_sources = true
+
+# No background app-server. Codex 0.157 starts one ahead of every
+# session unless this feature is off, listening on a socket in the
+# session's /tmp; the confined domain creates a socket there only with
+# the optional localipc policy group loaded, so on a host without it
+# every start fails. Off, codex runs as the one foreground process
+# the session unit supervises.
+[features]
+daemon_auto_start = false
 
 # The per-command refusals, and a gate rather than a boundary: what
 # the session may reach is DAC and ai_tools_t. A requirements rule can

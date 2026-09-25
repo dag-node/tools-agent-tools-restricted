@@ -1956,17 +1956,27 @@ do_install() {
     # and no file under /etc/codex holds a guarantee, so a host copy can only reduce what a session does. An EXISTING
     # copy is kept (the RPM's %config(noreplace)), with owner and mode re-asserted; a kept copy that differs
     # from the shipped one is said so, because codex reads the live file alone and a key this version adds is not in it.
+    # A live copy byte-identical to the previous release's pristine one was never edited, so it takes this release's
+    # copy without a prompt, as rpm replaces an unmodified %config(noreplace) file; the comparison reads the pristine
+    # copy before this run overwrites it.
     ensure_dir 755 root root /etc/codex
     # A pristine copy of each goes to the datadir as well: the reference `ai-tools status` compares the live file
     # against (the manifest's managed_files key), beside the pristine skills and subagents.
     install -d -o root -g root -m 755 /usr/share/ai-tools/codex
-    local _codex_managed _codex_src _codex_existed _codex_detail
+    local _codex_managed _codex_src _codex_existed _codex_detail _codex_unedited
     for _codex_managed in requirements.toml managed_config.toml; do
         _codex_src="${SCRIPT_DIR}/src/etc/codex/${_codex_managed}"
+        _codex_unedited=0
+        [[ -f "/etc/codex/${_codex_managed}" && -f "/usr/share/ai-tools/codex/${_codex_managed}" ]] \
+            && cmp -s "/etc/codex/${_codex_managed}" "/usr/share/ai-tools/codex/${_codex_managed}" \
+            && _codex_unedited=1
         install -o root -g root -m 644 "${_codex_src}" "/usr/share/ai-tools/codex/${_codex_managed}"
         _codex_existed=0
         [[ -f "/etc/codex/${_codex_managed}" ]] && _codex_existed=1
-        if keep_existing "/etc/codex/${_codex_managed}" \
+        if (( _codex_unedited )); then
+            install -o root -g root -m 644 "${_codex_src}" "/etc/codex/${_codex_managed}"
+            seed_result "/etc/codex/${_codex_managed}" 1 0 "unedited, so it takes the shipped copy"
+        elif keep_existing "/etc/codex/${_codex_managed}" \
                 "Discards the host's edits to codex's ${_codex_managed}; reverts to the shipped pin and hooks."; then
             chown root:root "/etc/codex/${_codex_managed}"; chmod 644 "/etc/codex/${_codex_managed}"
             _codex_detail="matches the shipped copy"

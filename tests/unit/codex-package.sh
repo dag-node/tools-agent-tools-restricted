@@ -304,6 +304,7 @@ PY
     req default_permissions '":danger-full-access"' "default_permissions names the pin's profile"
     req 'allowed_permission_profiles.:danger-full-access' 'true' "the profile table lists full access alone"
     req marketplaces.restrict_to_allowed_sources 'true' "marketplaces restricted with no allowed source"
+    req features.daemon_auto_start 'false' "features.daemon_auto_start = false: no background app-server"
     req hooks.managed_dir "\"${HOOK_LIVE_DIR}\"" "hooks.managed_dir is the agent's config directory"
     # The per-command refusals. A pattern is an exact argv prefix, so what a row is read as is the tokens in order;
     # a decision outside prompt/forbidden is what codex refuses, and the direction this file holds is that no row

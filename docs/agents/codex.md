@@ -72,15 +72,36 @@ with `sudo`:
 
 | File | Holds |
 |---|---|
-| `/etc/codex/requirements.toml` | what Codex holds every session to: the sandbox-mode pin, the approval policy, the login method, the hooks that hand files back, and the commands refused outright |
+| `/etc/codex/requirements.toml` | what Codex holds every session to: the sandbox-mode pin, the approval policy, the login method, no background app-server, the hooks that hand files back, and the commands refused outright |
 | `/etc/codex/managed_config.toml` | the defaults applied ahead of any user config: telemetry and the update check off, a quiet TUI, and two commented keys for a custom instructions file and a custom API endpoint |
 
 An edit survives an upgrade: a package upgrade leaves the live file in place
 and puts the newer copy beside it as `.rpmnew`, and a from-source install keeps
-the file and says whether it matches the shipped one. `ai-tools status` reports
+the file and says whether it matches the shipped one. A file you have not
+edited takes the new release's copy on either route. `ai-tools status` reports
 a managed file that differs from the shipped copy
 under `/usr/share/ai-tools/codex`. Codex reads the live file alone, so a key
 a new release adds is in effect once you carry it over.
+
+### The background app-server
+
+```toml
+[features]
+daemon_auto_start = true
+```
+
+Codex can start a background app-server ahead of each session. It ships
+off, in `/etc/codex/requirements.toml`, and the example turns it on. On a host
+where SELinux is enforcing, the app-server also needs the `localipc` policy
+group loaded, since without it the app-server cannot create its socket
+and every Codex start fails:
+
+```bash
+sudo ai-tools-admin selinux groups enable localipc
+```
+
+That group widens what every session may do, for every agent on the host.
+`sudo ai-tools-admin selinux groups` lists what each group grants.
 
 ## Shared skills and the orientation text
 
