@@ -311,21 +311,26 @@ an ordinary account read it — a partial view, the file sink being the authorit
   the command names a `projects handback` for each project it terminated a session in. Everything is recorded
   to `stop.log` and journald, including which path gave consent and which pass ended each session. Exit codes are
   in `ai-tools(1)`.
-- `status` — read-only health report: the installed `ai-tools` version, a version pointer per enabled agent
-  whose wrapper is installed, which enabled agents are provisioned (one line each, from the read the bootstrap gate
-  makes — see [Bootstrap preflight](#bootstrap-preflight)) and, under each, every managed file its manifest names
-  whose live copy is not the shipped one (`managed_files`, [providers](providers.rule.md): an edited file is reported
-  with its two consequences and not counted, a missing one is counted, since the package is then broken), then each
-  installed agent that is not enabled and still has its launcher link (residue, counted: no launch starts until
-  the provisioning run it names removes the package), **where this shell finds each enabled agent's launcher**, then
-  each managed systemd unit the `services.lib.sh` registry names as OK / SKIPPED / STALE / DOWN / FAILED /
-  not-installed, with the consequence and the exact remedy for anything broken, and a closing **More** block that points
-  at the sibling reports (`providers`, `projects list`, `--help`) without repeating their detail — so it reads as a hub.
-  That registry is the **same one** the launch wrapper's pre-launch health warning reads (`claude.sh`, see
-  [launch](launch.rule.md)), so the status view and the launch warning never disagree on which units matter
-  or how to fix one, and the rows live there alone. `status` runs ahead of the bootstrap gate, as the other diagnostics
-  do (see [Bootstrap preflight](#bootstrap-preflight)), so it reports the unprovisioned state rather than being blocked
-  by it.
+- `status` — read-only health report: the installed `ai-tools` version, the Node version the enabled agents' stable
+  launcher links point into (the link's target read one hop with `readlink` and never followed, the read the launch
+  wrapper makes; every path that changes Node repoints the link, so the line is current after a bootstrap
+  as after an update, with the version the updater's last run recorded shown beside it only where the two differ —
+  the one fact a link cannot carry, that the toolchain changed after that run — and links naming different versions
+  reported as such; the decision is `ai_tools_node_version_verdict` in `toolchain.lib.sh`, so this report
+  and `ai-tools-admin status` render one answer), a version pointer per enabled agent whose wrapper is installed,
+  which enabled agents are provisioned (one line each, from the read the bootstrap gate makes — see [Bootstrap
+  preflight](#bootstrap-preflight)) and, under each, every managed file its manifest names whose live copy is not
+  the shipped one (`managed_files`, [providers](providers.rule.md): an edited file is reported with its two consequences
+  and not counted, a missing one is counted, since the package is then broken), then each installed agent that is not
+  enabled and still has its launcher link (residue, counted: no launch starts until the provisioning run it names
+  removes the package), **where this shell finds each enabled agent's launcher**, then each managed systemd unit
+  the `services.lib.sh` registry names as OK / SKIPPED / STALE / DOWN / FAILED / not-installed, with the consequence
+  and the exact remedy for anything broken, and a closing **More** block that points at the sibling reports
+  (`providers`, `projects list`, `--help`) without repeating their detail — so it reads as a hub. That registry is
+  the **same one** the launch wrapper's pre-launch health warning reads (`claude.sh`, see [launch](launch.rule.md)),
+  so the status view and the launch warning never disagree on which units matter or how to fix one, and the rows live
+  there alone. `status` runs ahead of the bootstrap gate, as the other diagnostics do (see [Bootstrap
+  preflight](#bootstrap-preflight)), so it reports the unprovisioned state rather than being blocked by it.
 
   The PATH-ordering line is the one reading this report makes that needs **no** privilege and that no other vantage can
   make at all: the CLI runs in the operator's own login shell, so `command -v` there resolves exactly what typing
@@ -356,7 +361,9 @@ an ordinary account read it — a partial view, the file sink being the authorit
   directory. A stamped unit's OK carries the time of that run, not a claim that it is running now, and a `FAILED`
   carries the run's exit code. The `?` line is not a problem report — it says only that this vantage point cannot tell —
   so it stays a single line naming the one command that can, and the multi-command diagnostic block is reserved
-  for a unit reported broken.
+  for a unit reported broken. One state is separated from it in both reports: a stamp still empty as the package seeded
+  it (`ai_tools_service_stamp_unwritten`) reads `no run recorded yet`, since that is where a freshly provisioned host
+  stands until the updater's first window, and a `?` there would send an operator to check a unit that is fine.
 
   **A stamp is read for two properties, and one stamp can serve two units.** `RESULT` answers *did the last run
   succeed*; its **age** answers *are runs still happening* — a distinct question a `RESULT` cannot express, since

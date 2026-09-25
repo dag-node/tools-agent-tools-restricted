@@ -112,6 +112,15 @@ ai_tools_service_stamp_field() {
     return 0
 }
 
+# ai_tools_service_stamp_unwritten <stamp-path>  -- succeed when the stamp is a readable regular file (not a symlink)
+# that is EMPTY: the state the package seeds it in and the unit's first run replaces, so a reader tells "no run has
+# happened yet" from "the record cannot be read". Absent, a symlink, unreadable, or holding any content fails,
+# so a corrupt stamp keeps reading as unknown. No output.
+ai_tools_service_stamp_unwritten() {
+    local stamp="${1:-}"
+    [[ -n "${stamp}" && ! -L "${stamp}" && -f "${stamp}" && -r "${stamp}" && ! -s "${stamp}" ]]
+}
+
 # The sandbox account whose `systemd --user manager` a live probe may reach, or empty for none. This library is deployed
 # with NO @SANDBOX_USER@ substitution -- the account name belongs to the consumer, which is also why a sandbox-user
 # unit's remedy commands are composed by the consumer -- so a consumer that knows the name declares it here once,

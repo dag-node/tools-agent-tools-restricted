@@ -415,7 +415,9 @@ record directories, so the label line under each pin reads from a fixture too �
 the opposite of a refusal: a pin a reconciliation declined to re-record is left standing and reads, on its own,
 as a verification that succeeded. So the tier line is asserted as a control, then the mark replacing it and counting
 toward the exit status, then a mark saying anything but `stale` leaving the line as it was — the record grammar
-deciding, rather than the file's presence.
+deciding, rather than the file's presence. Its closing section drives the Version section's Node line against fixture
+links: the version a link points into is the one named, two links naming different versions are reported as such,
+and a link outside the versioned shape claims none.
 
 `launch-wrapper.sh` drives the gate library every agent's wrapper runs (`launch-wrapper.lib.sh`, see
 [launch](launch.rule.md)), one gate at a time and each in its fail direction, as the account the case is
@@ -636,6 +638,11 @@ it; the one case that must answer from the default runs under `setsid`, which is
 the default is yes. The two refusals complete the set: a declined prompt and a `~/.config` that is a file each report
 their code and return non-zero, which is what makes `op_add` refuse.
 
+`admin-status.sh` pins the root report's Node line to the same verdict the CLI renders: the helper is sourced
+with the resolver's hooks and `AI_TOOLS_LAUNCHER_DIR` at fixtures, and the line is asserted to name the version a link
+points into, to report links that disagree with each agent named, and to claim no version for a link outside
+the versioned shape — so the two reports cannot name different Node versions for one host.
+
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
 [launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools status` re-checks
 with, and `ai-tools-admin system bootstrap` reports from. What gives it teeth is the direction each answer sends
@@ -719,7 +726,10 @@ install and the fixture `operator.conf` does not enable, before the executable r
 library, and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside
 copies of the deployed ones, with the package gone as the control. The same file drives the shim's provider-list refusal
 through a fixture `operator.conf`, with this host's enabled agents written prefixed as the control. `cli-agent-set.sh`
-reports and counts the same link.
+reports and counts the same link. The link's third reading, the Node version its target names, is driven in the same
+file in its fail direction — a disabled agent's link, a target outside the versioned shape, one naming another launcher,
+and an absent link each yield no version — and the pure verdict both status reports render their Node line from is
+driven over its table, the stamp's version carried only where it differs from the links'.
 
 `audit.sh` pins the kernel-record section of `ai-tools-audit` ([cli](cli.rule.md)). The trail it reports is one **only
 the kernel writes**, so a test cannot produce a record: the helper is sourced (inert by construction), the audit
@@ -781,12 +791,14 @@ distribution package at `/usr/bin/claude` and `/bin/claude`.
 pre-launch warning share. Two properties carry weight beyond the accessors. The **last-run stamp** is the one input here
 a non-root writer controls and it is rendered to the operator's terminal, so every way a hostile or corrupt value could
 reach that terminal — a symlinked stamp, a control byte or escape sequence, an over-long or unanchored line — is driven
-and must read as *no value*, degrading the unit to `unknown` rather than to a wrong verdict. And the age reader takes
-the key it reads (default `FINISHED`), because the entrypoint pin records a `VERIFIED` time in the same grammar and both
-must age through one implementation — so the default is pinned too, a regression there silently turning every existing
-caller's age unknown. And the **freshness** mapping exists for a failure a `RESULT` cannot express — every recorded run
-succeeds while the schedule driving them has stopped — so the file asserts that a successful run goes `stale` past
-`max_age`, that a failed one stays `failed` at any age, that an unknown or future-dated age never manufactures staleness
+and must read as *no value*, degrading the unit to `unknown` rather than to a wrong verdict; the one state separated
+from that is a zero-length stamp, the file as the package seeded it, which the reports render as a unit that has not run
+yet, while a symlink to one, an absent file and any content stay unseparated. And the age reader takes the key it reads
+(default `FINISHED`), because the entrypoint pin records a `VERIFIED` time in the same grammar and both must age
+through one implementation — so the default is pinned too, a regression there silently turning every existing caller's
+age unknown. And the **freshness** mapping exists for a failure a `RESULT` cannot express — every recorded run succeeds
+while the schedule driving them has stopped — so the file asserts that a successful run goes `stale` past `max_age`,
+that a failed one stays `failed` at any age, that an unknown or future-dated age never manufactures staleness
 out of an absence, and that `fired` mode reads recency alone, letting one stamp yield two verdicts (a healthy trigger
 beside the failed run it started). The same "the trigger is not the run" split appears for **system** units:
 a `Type=oneshot` service is inactive whenever it is healthy, so the file drives its three states from unit properties —

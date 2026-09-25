@@ -223,4 +223,41 @@ else
     fail "a non-stale mark changed the rendering (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
 fi
 
+# ── (6) The Version section's Node line reads the launcher link, not the updater's record ── The link is repointed
+# by every path that changes Node, so the line is right after a bootstrap as after an update, and it is the read
+# the launch banner makes; the updater's stamp is the host's real one here and is read alongside, so what is asserted is
+# the link's version being the one named, and the absence of any version where no link names one.
+# shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
+if runuser -u "${PROJECTS_USER}" -- bash -c \
+        'cli="$1"; set --; source "${cli}" >/dev/null 2>&1; declare -F status_node_version >/dev/null 2>&1' _ "${CLI}"; then
+    # vlink <launcher> <version> : a stable link in the shape ai-tools-launcher-symlink writes, dangling on purpose.
+    vlink() { ln -sfn "/nonexistent/.nvm/versions/node/${2}/bin/${1}" "${LINKS}/${1}"; }
+    reset_fixtures; rm -f "${PINS}"/* "${STALES}"/* "${LABELS}"/*; manifest alpha la yes; vlink la v9.9.9
+    rc=0; out="$(call status_node_version)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qF 'node v9.9.9' <<<"${out}"; then
+        pass "the Node line names the version the enabled agent's launcher link points into"
+    else
+        fail "Node line from one link (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+
+    reset_fixtures; manifest alpha la yes; manifest beta lb yes; vlink la v9.9.9; vlink lb v9.9.8
+    rc=0; out="$(call status_node_version)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qF 'alpha=v9.9.9 beta=v9.9.8' <<<"${out}" \
+            && grep -q 'different Node versions' <<<"${out}"; then
+        pass "links naming different versions are reported as such, each agent named"
+    else
+        fail "Node line from disagreeing links (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+
+    reset_fixtures; manifest alpha la yes; link la
+    rc=0; out="$(call status_node_version)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && ! grep -q 'node v9' <<<"${out}" && ! grep -q 'active' <<<"${out}"; then
+        pass "a link outside the versioned shape names no version, and the line does not claim one"
+    else
+        fail "Node line from an unversioned link (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+else
+    skip "status node line" "status_node_version absent from ${CLI} (older CLI)"
+fi
+
 finish

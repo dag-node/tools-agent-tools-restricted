@@ -185,6 +185,50 @@ rm -f "${LINKS}/beta"
     && pass "no link, no residue from the operator's vantage" || fail "residue links reported with the link gone"
 ln -s /nonexistent/beta "${LINKS}/beta"
 
+# ── ai_tools_agent_link_node_versions: the Node version a link names ───────────────────────────
+# The failure to fail in is a version read where none is warranted: a disabled agent's link, a target outside
+# the versioned shape, or a target naming another launcher must each yield no line, since the line is what both status
+# reports print as the toolchain's Node. acme is the enabled agent here, beta is installed and not enabled.
+relink() { ln -sfn "$2" "${LINKS}/$1"; }
+relink acme /x/.nvm/versions/node/v1.2.3/bin/acme
+relink beta /x/.nvm/versions/node/v1.2.3/bin/beta
+got="$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)"
+[[ "${got}" == $'acme\tacme\tv1.2.3' ]] \
+    && pass "the link reader names the enabled agent's version, and not the disabled agent's" \
+    || fail "link node versions: got '$(tr '\n' '|' <<<"${got}")' expected 'acme<TAB>acme<TAB>v1.2.3'"
+relink acme /nonexistent/acme
+[[ -z "$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
+    && pass "a target outside the versioned shape yields no version" || fail "an unversioned target yielded a version"
+relink acme /x/.nvm/versions/node/v1.2.3/bin/other
+[[ -z "$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
+    && pass "a versioned target naming another launcher yields no version" || fail "a foreign launcher's target yielded a version"
+relink acme /x/.nvm/versions/node/1.2.3/bin/acme
+[[ -z "$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
+    && pass "a version directory without its v prefix yields no version" || fail "an unprefixed version directory yielded a version"
+rm -f "${LINKS}/acme"
+[[ -z "$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
+    && pass "no link, no version" || fail "a version was read with the link gone"
+ln -s /nonexistent/acme "${LINKS}/acme"
+ln -sfn /nonexistent/beta "${LINKS}/beta"
+
+# ── ai_tools_node_version_verdict: the pure decision the two Node lines render ─────────────────
+# Driven over its table: the stamp's version is carried only where it differs from the links', two links naming
+# different versions read as split and name both, and the stamp is the reading only where no link gives one.
+verdict_is() {
+    local what="$1" stamp="$2" want="$3" got
+    got="$(printf '%b' "$4" | ai_tools_node_version_verdict "${stamp}")"
+    [[ "${got}" == "${want}" ]] && pass "${what}" || fail "${what}: got '$(printf '%q' "${got}")' expected '$(printf '%q' "${want}")'"
+}
+verdict_is "one link, no stamp: active"                       ''      $'active\tv1.2.3'          'a\tla\tv1.2.3\n'
+verdict_is "one link, the stamp agrees: active, stamp elided" v1.2.3  $'active\tv1.2.3'          'a\tla\tv1.2.3\n'
+verdict_is "one link, the stamp differs: both carried"        v1.2.2  $'active\tv1.2.3\tv1.2.2'  'a\tla\tv1.2.3\n'
+verdict_is "an unknown stamp reads as none"                   unknown $'active\tv1.2.3'          'a\tla\tv1.2.3\n'
+verdict_is "two links agreeing: one active version"           ''      $'active\tv1.2.3'          'a\tla\tv1.2.3\nb\tlb\tv1.2.3\n'
+verdict_is "two links disagreeing: split, each named"         v1.2.3  $'split\ta=v1.2.3 b=v2.0.0' 'a\tla\tv1.2.3\nb\tlb\tv2.0.0\n'
+verdict_is "no link, a stamp: the stamp's reading"            v1.2.2  $'stamp\tv1.2.2'           ''
+verdict_is "no link, no stamp: none"                          ''      'none'                     ''
+verdict_is "a line without a version is not a link reading"   ''      'none'                     'a\tla\t\n'
+
 # ── ai_tools_path_in_use: the pure predicate ───────────────────────────────────────────────────
 ai_tools_path_in_use /x/pkg /usr/bin/bash /x/pkg/bin/node \
     && pass "an executable under the directory is in use" || fail "an executable under the directory read as not in use"

@@ -280,6 +280,30 @@ stamp_rejects "an unanchored line (key not at line start)"    'NOTRESULT=ok'
 stamp_rejects "an over-long value"                            "RESULT=$(printf 'o%.0s' {1..80})"
 stamp_rejects "an empty file"                                 ''
 
+# One reading is separated from "unreadable": a stamp of zero length is the file as the package seeded it,
+# before the unit's first run, so a report can say "no run yet", a statement about the host, where "cannot tell" is one
+# about the reader. Every other state -- absent, a symlink to an empty file, any content (a lone newline included) --
+# stays unseparated, so a corrupt stamp keeps reading as unknown.
+if declare -F ai_tools_service_stamp_unwritten >/dev/null 2>&1; then
+    : > "${STAMP}"
+    ai_tools_service_stamp_unwritten "${STAMP}" \
+        && pass "an empty regular stamp reads as never written" || fail "an empty stamp did not read as never written"
+    ln -sfn "${STAMP}" "${TESTDIR}/stamp-link"
+    ! ai_tools_service_stamp_unwritten "${TESTDIR}/stamp-link" \
+        && pass "a symlink to an empty stamp is not read as never written" || fail "a symlink read as never written"
+    rm -f "${TESTDIR}/stamp-link"
+    ! ai_tools_service_stamp_unwritten "${TESTDIR}/no-such-stamp" \
+        && pass "an absent stamp is not read as never written" || fail "an absent stamp read as never written"
+    mk_stamp ''
+    ! ai_tools_service_stamp_unwritten "${STAMP}" \
+        && pass "a stamp holding a newline is content, not the seeded file" || fail "a newline-only stamp read as never written"
+    mk_stamp 'RESULT=ok'
+    ! ai_tools_service_stamp_unwritten "${STAMP}" \
+        && pass "a written stamp is not read as never written" || fail "a written stamp read as never written"
+else
+    skip "stamp unwritten" "ai_tools_service_stamp_unwritten not defined by ${LIB} (older library)"
+fi
+
 # A syntactically valid but unrecognised result word is a different failure: the field reads fine, and it is the STATE
 # resolver that must fall through to unknown rather than guess a verdict.
 mk_stamp 'RESULT=maybe'
