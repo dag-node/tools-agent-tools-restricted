@@ -244,8 +244,8 @@ if [[ "${out}" == *"Post-upgrade done -- review the warnings above"* && "${out}"
 else
     fail "a run with something to act on closed without asking for a review: ${out}"
 fi
-if grep -qx '  sudo meld <file> <file>.rpmnew' <<< "${out}"; then
-    pass "a run with a difference left to act on prints the meld comparison on a line of its own"
+if grep -qxE '  SUDO_EDITOR=(meld|vimdiff) sudoedit <file> <file>.rpmnew' <<< "${out}"; then
+    pass "a run with a difference left to act on prints the sudoedit comparison, the file on the left, on a line of its own"
 else
     fail "the meld line is missing where a difference is left: ${out}"
 fi
@@ -330,7 +330,7 @@ if ! grep -qxF "${PROMPT}" <<< "${out}" && grep -qxF "    sudo rm ${PROMPT}.rpmn
 else
     fail "an identical copy was reported as a difference or not offered for removal: ${out}"
 fi
-if [[ "${out}" != *"sudo meld"* ]]; then
+if [[ "${out}" != *"sudoedit <file>"* ]]; then
     pass "a run with nothing left to merge does not offer a comparison"
 else
     fail "the meld comparison was offered with nothing to merge: ${out}"
@@ -391,9 +391,11 @@ printf 'pin = 2\n' > "${ROOT}/etc/acme/req.toml"
 cp "${ROOT}/etc/acme/req.toml" "${TESTDIR}/pre.req"
 out="$(run_pu)"
 if [[ "${out}" == *"req.toml -- keys this release ships that the file does not set"* \
-      && "${out}" == *"features.auto_start"* && "${out}" == *"sudoedit ${ROOT}/etc/acme/req.toml"* \
-      && "${out}" == *"${ROOT}/usr/share/ai-tools/acme/req.toml"* && "${out}" == *"review the warnings"* ]]; then
-    pass "a key the kept file lacks is named, with the sudoedit merge against the shipped copy"
+      && "${out}" == *"features.auto_start"* \
+      && "${out}" == *"sudo cp ${ROOT}/usr/share/ai-tools/acme/req.toml ${ROOT}/etc/acme/req.toml.rpmnew"* \
+      && "${out}" == *"sudoedit ${ROOT}/etc/acme/req.toml ${ROOT}/etc/acme/req.toml.rpmnew"* \
+      && "${out}" == *"review the warnings"* ]]; then
+    pass "a key the kept file lacks is named, with the package copy recreated and merged, the file on the left"
 else
     fail "a missing managed-file key was not reported: ${out}"
 fi
@@ -412,6 +414,15 @@ if [[ "${check_rc}" -eq 1 ]] \
 else
     fail "--check did not report the missing key alone (exit ${check_rc}): ${out}"
 fi
+cp "${ROOT}/usr/share/ai-tools/acme/req.toml" "${ROOT}/etc/acme/req.toml.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"sudoedit ${ROOT}/etc/acme/req.toml ${ROOT}/etc/acme/req.toml.rpmnew"* \
+      && "${out}" != *"sudo cp ${ROOT}/usr/share/ai-tools/acme/req.toml"* ]]; then
+    pass "with a .rpmnew waiting, the merge uses it and does not recreate one"
+else
+    fail "the merge did not use the waiting .rpmnew: ${out}"
+fi
+rm -f "${ROOT}/etc/acme/req.toml.rpmnew"
 printf 'pin = 2\n[features]\nauto_start = true\n' > "${ROOT}/etc/acme/req.toml"
 out="$(run_pu)"
 if [[ "${out}" != *"keys this release ships"* ]]; then

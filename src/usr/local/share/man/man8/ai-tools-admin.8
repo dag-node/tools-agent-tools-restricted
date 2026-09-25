@@ -472,13 +472,17 @@ Likewise it names each key an agent's managed configuration file, such as
 .IR /etc/codex/requirements.toml ,
 does not set that the copy the package ships under
 .I /usr/share/ai-tools
-does, with the command that merges the two in
+does, with the commands that merge the file with its package copy side by
+side, the file on the left, in
 .BR meld (1)
 or
 .BR vimdiff (1)
 through
-.BR sudoedit (8);
-it does not edit the file.
+.BR sudoedit (8),
+so the merge tool runs as you rather than as root; where no
+.I .rpmnew
+is waiting, the first command recreates it from the shipped copy.
+It does not edit the file.
 Idempotent, and leaves every file as it is when no
 .I .rpmnew
 file is waiting.

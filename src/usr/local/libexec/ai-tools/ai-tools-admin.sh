@@ -1546,13 +1546,14 @@ _pu_managed_pairs() {
     done < <(ai_tools_installed_agents 2>/dev/null)
 }
 
-# _pu_merge_command <live> <reference>: the command that merges a managed file with its shipped copy. sudoedit copies
-# the file for the invoking user and installs the result when the editor exits, so the merge tool runs as that user
-# rather than as root; meld where it is installed, vimdiff otherwise.
+# _pu_merge_command <file> <copy>: the command that merges a file with its package copy side by side, the file
+# on the left. sudoedit reads each as root into a temporary copy the invoking user owns, runs the merge tool
+# as that user on both, and writes a copy back only when it changed, so the tool never runs as root; an edit made
+# to the right-hand pane lands in the package copy, which is disposable. meld where it is installed, vimdiff otherwise.
 _pu_merge_command() {
     local tool=vimdiff
     command -v meld >/dev/null 2>&1 && tool=meld
-    printf 'SUDO_EDITOR="%s %s" sudoedit %s' "${tool}" "$2" "$1"
+    printf 'SUDO_EDITOR=%s sudoedit %s %s' "${tool}" "$1" "$2"
 }
 
 # _pu_key_gaps <root>: name each key an agent's managed file does not set that its shipped copy does, with the command
@@ -1571,10 +1572,13 @@ _pu_key_gaps() {
         _PU_NAME="${live##*/}"
         ai_tools_msg_headline "${_PU_NAME} -- keys this release ships that the file does not set" 1 "${live}"
         for key in "${missing[@]}"; do _pu_say act "  ${key}"; done
-        _pu_say info "merge them from the shipped copy, keeping your own changes:"
-        # Printed bare, so the command copies out of the terminal whole.
-        printf '      %s\n' "$(_pu_merge_command "${live}" "${reference}")"
-        _pu_say info "this command does not edit the file, since its contents are yours -- re-run it to confirm"
+        # sudoedit writes back an edited right-hand pane too, so the merge runs against a .rpmnew -- the one rpm left,
+        # or one recreated here -- and the pristine copy the status reports compare with stays untouched.
+        _pu_say info "merge them from the package copy, keeping your own changes:"
+        # Printed bare, so each command copies out of the terminal whole.
+        [[ -f "${live}.rpmnew" ]] || printf '      sudo cp %s %s\n' "${reference}" "${live}.rpmnew"
+        printf '      %s\n' "$(_pu_merge_command "${live}" "${live}.rpmnew")"
+        _pu_say info "then remove ${live}.rpmnew -- this command does not edit the file, since its contents are yours"
     done < <(_pu_managed_pairs "${root}")
 }
 
@@ -2034,9 +2038,9 @@ _pu_report() {
     if (( ${#to_compare[@]} > 0 )); then
         printf '\n%sCompare a file with its package copy side by side, and carry over what you want:%s\n\n' \
             "${_PU_DIM}" "${_PU_RST}"
-        printf '  %ssudo meld <file> <file>.rpmnew%s\n\n' "${_PU_DIM}" "${_PU_RST}"
+        printf '  %s%s%s\n\n' "${_PU_DIM}" "$(_pu_merge_command '<file>' '<file>.rpmnew')" "${_PU_RST}"
         command -v meld >/dev/null 2>&1 \
-            || printf '%s• meld is not installed; it needs a desktop session: sudo dnf install meld%s\n' \
+            || printf '%s• meld is not installed; for a side-by-side view in a desktop session: sudo dnf install meld%s\n' \
                 "${_PU_DIM}" "${_PU_RST}"
     fi
     if (( ${#identical[@]} > 0 )); then
