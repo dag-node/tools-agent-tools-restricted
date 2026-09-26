@@ -80,8 +80,8 @@ which HTTPS egress already permits and which does not reach the root-owned key. 
 by it or readable by other, neither the command nor the transport that decides where a request goes is writable,
 the state root is — and their runtime halves are the refusals the client repository's suite drives.
 `tests/integration/typesafe.sh` drives the installed command: the installed files against the pin, each refusal class
-as the sandbox account against a host that does not resolve, and, with `AI_TOOLS_TEST_TYPESAFE_LIVE=1`, live calls
-over synthetic listings. No SELinux policy is added: HTTPS egress, the read of `/etc/ai-tools`, and writes
+as the sandbox account against a local endpoint that refuses the connection, and, with `AI_TOOLS_TEST_TYPESAFE_LIVE=1`,
+live calls over synthetic listings. No SELinux policy is added: HTTPS egress, the read of `/etc/ai-tools`, and writes
 under the integration state root are granted to the base domain.
 
 ## No runtime dependency: the shipped JavaScript is a pinned, signed release
