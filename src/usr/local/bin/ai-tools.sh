@@ -1842,15 +1842,15 @@ cmd_project_claim() {
     # rather than lost among the steps that did run. The ways to settle a not-fixed path follow the records.
     claim_drift_records() {
         (( ${#label_drift[@]} || ${#drift[@]} )) || return 0
-        local _record _path _from _to _i _outcome _left=false
+        local _record _path _from _to _i _outcome _left=false _left_label=false _left_group=false
         say "  interior drift:"
         for _record in "${label_drift[@]}"; do
             IFS=$'\t' read -r _path _from _to <<< "${_record}"
-            if ${label_applied}; then _outcome=fixed; else _outcome=not-fixed; _left=true; fi
+            if ${label_applied}; then _outcome=fixed; else _outcome=not-fixed; _left=true; _left_label=true; fi
             outcome_record "${_outcome}" label "${_path}" "${_from} -> ${_to}"
         done
         for _i in "${!drift[@]}"; do
-            if ${drift_applied}; then _outcome=fixed; else _outcome=not-fixed; _left=true; fi
+            if ${drift_applied}; then _outcome=fixed; else _outcome=not-fixed; _left=true; _left_group=true; fi
             outcome_record "${_outcome}" group "${drift[_i]}" "${drift_before[_i]}"
         done
         ${_left} || return 0
@@ -1867,9 +1867,23 @@ cmd_project_claim() {
             say "      ${_mixed} path(s) were fixed for one kind only -- the agent still cannot open them;"
             say "      re-run the claim and answer yes to the other question to share them"
         fi
-        say "      ${C_DIM}to share a not-fixed path with the agent, re-run the claim and answer yes;${C_RST}"
-        say "      ${C_DIM}to keep it out of the agent's reach, chmod 600 it, or add a line ! followed by${C_RST}"
-        say "      ${C_DIM}its path to allowed-projects -- a re-claim then no longer reports it${C_RST}"
+        # The ways to settle not-fixed paths, the per-path ones included: the claim's repairs act on every path they
+        # reach, so a subset is chosen with commands the file's owner runs. A path's owner may set its label
+        # (restorecon, no sudo), so a relabel of a few paths is one command each; the group repair has no per-path form,
+        # since the owner is not in the sandbox group, so the paths to keep are sealed or carved out first.
+        # Under `--for` those files belong to the target operator, and the commands are theirs to run.
+        local _who="you"
+        [[ -n "${FOR_OPERATOR}" ]] && _who="${OWNER_USER}"
+        say "      ${C_DIM}to share them all with the agent, re-run the claim and answer yes${C_RST}"
+        say "      ${C_DIM}to keep one out of its reach, as ${_who}: chmod 600 <path>${C_RST}"
+        say "      ${C_DIM}to stop a re-claim asking about one, as ${_who}: add a line !<path> to allowed-projects${C_RST}"
+        if ${_left_label}; then
+            say "      ${C_DIM}to relabel only some, as ${_who}: restorecon -F <path>${C_RST}"
+        fi
+        if ${_left_group}; then
+            say "      ${C_DIM}to repair the group for only some, chmod 600 or add a ! line for the others,${C_RST}"
+            say "      ${C_DIM}then re-run the claim and answer yes${C_RST}"
+        fi
     }
 
     # ── Review block: the flow headline, the pending-step overview, and the drift reports, so the proceed confirm

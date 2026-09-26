@@ -93,9 +93,18 @@ Say no to the group and ACL, and keep the file as it is, when:
 
 A `!` line for the file in `allowed-projects` keeps a re-claim from asking
 about it again (`man 5 ai-tools-allowed-projects`). It does not stop a later
-relabel from resetting the file's SELinux type. The claim does not ask
-about a file with no group or other bits (`600`, `700`): it leaves such a file
-out of both scans.
+relabel from resetting the file's SELinux type.
+
+Each question covers every file in its list. To act on only some of them,
+relabel those yourself — you own them, so it does not need sudo:
+
+```bash
+restorecon -F ~/src/api/data/report.csv
+```
+
+For the group and ACL, `chmod 600` the files to leave out, or give them a `!`
+line, then re-claim and answer yes. The claim does not ask about a file with no
+group or other bits (`600`, `700`): it leaves such a file out of both scans.
 
 A moved-in file under a build or dependency directory (`node_modules`, `bin`,
 `obj`) keeps its group: the claim does not walk those directories. The notice
