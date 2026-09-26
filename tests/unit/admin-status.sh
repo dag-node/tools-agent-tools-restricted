@@ -29,7 +29,8 @@ if [[ ! -r "${HELPER}" ]]; then
     skip "admin status node line" "helper not readable (neither installed nor in a checkout)"; finish; exit
 fi
 # shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
-if ! bash -c 'set --; source "$1" >/dev/null 2>&1; declare -F status_node_version >/dev/null 2>&1' _ "${HELPER}"; then
+if ! bash -c 'helper="$1"; set --; source "${helper}" >/dev/null 2>&1; declare -F status_node_version >/dev/null 2>&1' \
+        _ "${HELPER}"; then
     skip "admin status node line" "helper not sourceable or status_node_version absent (older helper?)"; finish; exit
 fi
 
