@@ -1049,10 +1049,11 @@ not, and reads the switch back from the helper's own inactive line after the run
 
 `typesafe.sh` holds the installed decide command to the release it is vendored from and to its refusals. The installed
 directory must hold exactly the files the pin lists, so a module a release adds cannot be left out and one it drops
-cannot linger. Each refusal class is driven as the sandbox account against a host that does not resolve, so none
-of those cases can send a listing off the host, and each out-of-range value is paired with an in-range one that passes
-the configuration check. Live calls run only when `AI_TOOLS_TEST_TYPESAFE_LIVE=1` is set, since each sends its listing
-with the host's key, and they assert the integration's contract; which lines the classifier kept is reported as a note.
+cannot linger. Each refusal class is driven as the sandbox account against `localhost` on a closed port, so none
+of those cases can send a listing off the host and the provider class does not wait on the host's resolver, and each
+out-of-range value is paired with an in-range one that passes the configuration check. Live calls run only
+when `AI_TOOLS_TEST_TYPESAFE_LIVE=1` is set, since each sends its listing with the host's key, and they assert
+the integration's contract; which lines the classifier kept is reported as a note.
 
 `perms.sh` is the **single source** for the deployed-artifact permission assertions (every installed file
 and directory's owner/group/mode): `install.sh` does not carry a parallel checker — `sudo ./install.sh check-perms`
