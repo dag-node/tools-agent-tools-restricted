@@ -1945,8 +1945,13 @@ _pu_assets() {
     source /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/managed-assets.lib.sh
     source /usr/local/lib/ai-tools/managed-assets.lib.sh 2>/dev/null || true
+    # The sanitizer is required: a link's target is a string the sandbox account can write, since an agent's config
+    # directory is group-writable, and this report prints it on root's terminal.
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
+    source /usr/local/lib/ai-tools/log.lib.sh 2>/dev/null || true
     if ! declare -F ai_tools_asset_is_managed >/dev/null 2>&1 \
-            || ! declare -F ai_tools_agent_asset_dirs >/dev/null 2>&1; then
+            || ! declare -F ai_tools_agent_asset_dirs >/dev/null 2>&1 \
+            || ! declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
         printf 'error\t%s\t%s\n' "${live_root}" "shared assets not checked: the asset libraries did not load"
         return 0
     fi
@@ -1984,7 +1989,8 @@ _pu_assets() {
                 if [[ -L "${link}" ]]; then
                     target="$(readlink "${link}")"
                     [[ "${target}" == "${dst}" || "${target}" == "${CP_HOME}/${kind}/${name}" ]] \
-                        || printf 'asset-unlinked\t%s\t%s\n' "${link}" "${agent}: points at ${target}"
+                        || printf 'asset-unlinked\t%s\t%s\n' "${link}" \
+                               "${agent}: points at $(ai_tools_log_sanitize "${target}")"
                 elif [[ -e "${link}" ]]; then
                     printf 'asset-overridden\t%s\t%s\n' "${link}" "${agent}: a file of its own in place of the link"
                 else
