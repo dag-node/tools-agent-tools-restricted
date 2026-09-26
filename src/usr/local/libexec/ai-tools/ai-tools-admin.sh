@@ -2218,6 +2218,41 @@ status_services() {
     return 0
 }
 
+# status_provisioning: per enabled agent, whether its stable launcher link exists -- bootstrap's last artifact
+# for that agent, and the link the CLI's bootstrap gate reads, so the two reports answer alike. The link is tested
+# per launcher, since the launcher directory also holds the base package's own files and is never empty on an installed
+# host. Counted as the CLI counts it (cli.rule.md): an unprovisioned agent and an empty enabled set are reported and not
+# counted, since an unfinished install is what the section exists to say; enabled agents that cannot be read are
+# a broken install and are counted.
+status_provisioning() {
+    heading "Provisioning"
+    if ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+        st FAILED "cannot read the enabled agents -- ${PROVIDERS_LIB} did not load; reinstall ai-tools-base"
+        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        return 0
+    fi
+    local agent launcher reason
+    local -a agents=()
+    mapfile -t agents < <(ai_tools_enabled_agents 2>/dev/null)
+    if (( ${#agents[@]} == 0 )); then
+        reason=""
+        declare -F ai_tools_agents_empty_verdict >/dev/null 2>&1 \
+            && IFS=$'\t' read -r _ reason <<< "$(ai_tools_agents_empty_verdict)"
+        st "n/a" "no agent enabled${reason:+ -- ${reason}}"
+        return 0
+    fi
+    for agent in "${agents[@]}"; do
+        IFS=$'\t' read -r agent _ launcher <<< "${agent}"
+        if [[ -n "${launcher}" && -L "${LAUNCHER_LINK_DIR}/${launcher}" ]]; then
+            st OK "${agent} provisioned (${launcher})"
+        else
+            st MISSING "${agent} has no launcher in ${LAUNCHER_LINK_DIR} -- it is not provisioned"
+            detail "sudo ai-tools-admin system bootstrap"
+        fi
+    done
+    return 0
+}
+
 # status_managed_files: per enabled agent, each managed file its manifest names (managed_files, ai-tools-providers(5))
 # whose live copy is not the shipped one -- the same reading `ai-tools status` makes, rendered in this tool's table.
 # The package never overwrites such a file, so this line is where an operator learns it differs. An edited file is
@@ -2447,16 +2482,7 @@ status() {
     printf '    %-13s %s\n' "ai-tools" "${AI_TOOLS_VERSION}"
     status_node_version
 
-    heading "Provisioning"
-    # The launcher directory holding a link is bootstrap's last artifact, and the same sentinel the CLI's own gate keys
-    # on, so both answer this question the same way.
-    if compgen -G "${LAUNCHER_LINK_DIR}/*" >/dev/null 2>&1; then
-        st OK "the toolchain is provisioned"
-    else
-        st MISSING "no launcher in ${LAUNCHER_LINK_DIR} -- the toolchain is not provisioned"
-        detail "sudo ai-tools-admin system bootstrap"
-        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
-    fi
+    status_provisioning
     status_managed_files
 
     status_services
