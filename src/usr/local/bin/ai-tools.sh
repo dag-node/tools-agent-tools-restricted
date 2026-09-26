@@ -1854,6 +1854,19 @@ cmd_project_claim() {
             outcome_record "${_outcome}" group "${drift[_i]}" "${drift_before[_i]}"
         done
         ${_left} || return 0
+        # A path on both lists is reachable only when both repairs applied: its permissions and its type each refuse
+        # the agent on their own. One fixed and one not -- declined, or a step that did not apply -- leaves it as closed
+        # as before, which neither record says alone.
+        local -A _labelled=()
+        local _mixed=0
+        for _record in "${label_drift[@]}"; do _labelled["${_record%%$'\t'*}"]=1; done
+        if [[ "${label_applied}" != "${drift_applied}" ]]; then
+            for _path in "${drift[@]}"; do [[ -n "${_labelled[${_path}]:-}" ]] && _mixed=$(( _mixed + 1 )); done
+        fi
+        if (( _mixed )); then
+            say "      ${_mixed} path(s) were fixed for one kind only -- the agent still cannot open them;"
+            say "      re-run the claim and answer yes to the other question to share them"
+        fi
         say "      ${C_DIM}to share a not-fixed path with the agent, re-run the claim and answer yes;${C_RST}"
         say "      ${C_DIM}to keep it out of the agent's reach, chmod 600 it, or add a line ! followed by${C_RST}"
         say "      ${C_DIM}its path to allowed-projects -- a re-claim then no longer reports it${C_RST}"
@@ -2032,8 +2045,14 @@ cmd_project_claim() {
     reg_reach "${d}"
 
     # ── Apply block: the approved steps run back to back, each reporting one result line; the closing ✓ is the claim's
-    # completion. ──
-    headline "Applying claim steps" "${d}"
+    # completion. The headline opens only over a step that runs: with every repair declined there is none, and an empty
+    # block would read as work done. ──
+    local apply_steps=false
+    if [[ "${safedir}" != true || "${owngap}" == true ]] || ${need_filemode} || ${need_acl} || ${do_git} \
+            || ${need_label} || ${do_drift} || ${do_label_drift}; then
+        apply_steps=true
+    fi
+    if ${apply_steps}; then headline "Applying claim steps" "${d}"; fi
 
     # A failed step asks once before the next is attempted (note_root_failure). Stopping is the safe direction here --
     # fewer steps applied -- and costs the operator no work, since the claim is idempotent and a re-run does exactly
@@ -2080,7 +2099,13 @@ cmd_project_claim() {
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         exit 1
     fi
-    ok "claimed ${d}"
+    # `no change applied` is said only where no step that writes could have run: no registry entry, no secret scan, no
+    # traverse grant offered, and no Apply step. Any other run keeps the plain line, which does not say either way.
+    if ! ${apply_steps} && [[ "${listed}" == true ]] && ! ${need_gate} && (( ${#REACH_GRANT[@]} == 0 )); then
+        ok "claimed ${d} -- no change applied"
+    else
+        ok "claimed ${d}"
+    fi
     ai_tools_log_structured info "claimed project ${d}" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }

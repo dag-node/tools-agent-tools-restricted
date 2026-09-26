@@ -78,7 +78,10 @@ own, right under the list of files it found:
   and the group the file had loses it.
 
 After the claim, each file is listed as `fixed` or `not-fixed`, one line
-per file, with the kind and what it was before.
+per file, with the kind and what it was before. The agent can open a file
+listed under each kind only once it is fixed for each; where you answered yes
+to one question and no to the other, the claim says how many files that leaves
+closed.
 
 Say no to the group and ACL, and keep the file as it is, when:
 

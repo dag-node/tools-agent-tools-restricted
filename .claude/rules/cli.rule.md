@@ -794,7 +794,10 @@ After the Apply block the claim prints one **outcome record** per drifted path â
 `<outcome> TAB <kind> TAB <path> TAB <detail>`, `fixed` or `not-fixed`, `label` or `group`, uncoloured and with the path
 sanitized â€” so a path the claim left as it was is named rather than lost among the steps that ran. The ways to settle
 a not-fixed path follow them: re-claim and answer yes to share it, or `chmod 600` it or add a `!` line for it to keep it
-out of reach, which a re-claim then no longer reports.
+out of reach, which a re-claim then no longer reports. A path on both lists is reachable only once both repairs applied,
+since its permissions and its type each refuse the agent on their own, so where exactly one applied the claim adds one
+line counting those paths. With every repair declined and no other step pending, the Apply block does not open
+and the closing line carries `no change applied`, which it prints only where no step that writes could have run.
 
 **Configuration the build reads from a project's ancestors.** A build toolchain collects configuration by walking
 from the project directory toward `/`, so a file it opens in an ancestor that the sandbox account is denied fails
