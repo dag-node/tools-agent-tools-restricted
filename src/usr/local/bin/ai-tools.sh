@@ -439,6 +439,9 @@ if ! source "${LOG_LIB}" 2>/dev/null; then
     ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
     ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
     ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
+    # Not a logger but the display sanitizer the drift records print paths through, so it keeps working, byte for byte
+    # the library's: printable ASCII kept, every other byte replaced.
+    ai_tools_log_sanitize() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
 fi
 
 # Shared message formatter -- die()/warn() frame their text in the paste-safe '#' alert box (50 columns)
@@ -1029,6 +1032,43 @@ acl_drift_scan() {
         ! -group "${SANDBOX_GROUP}" -perm /077 -print 2>/dev/null
 }
 
+# label_drift_scan <dir>  -- print `<path> TAB <current type> TAB <type the policy gives it>` for each path inside
+# a claimed tree whose SELinux type differs from the one the claim's relabel would apply. A file created in a labelled
+# directory inherits the project type; one moved in (`mv`, `cp -a`, `tar --selinux`) keeps the type it had,
+# which the confined session is refused. The expected type is asked of the policy rather than of a list of names: a dry
+# run of the relabel the claim performs (`restorecon -n -F`, which reads the world-readable file contexts and does not
+# need privilege) reports every path it would change, so the per-project rules and every loaded module's types are
+# covered, a type a later module adds included. Only a TYPE difference is reported -- `-F` also reports the SELinux user
+# (a file the operator created carries `unconfined_u`), which does not decide access. Owner-only paths and `!`-excluded
+# subtrees are left out, as acl_drift_scan leaves them: a path out of the agent's reach by intent does not make
+# the claim ask for a relabel. Prints nothing where restorecon is absent. The line format is `restorecon`'s
+# `Would relabel <path> from <context> to <context>`; a context does not contain a space, so both are cut from the right
+# and a path holding ` from ` or ` to ` survives.
+label_drift_scan() {
+    local dir="$1" line rest path from to from_type to_type excl mode skip
+    command -v restorecon >/dev/null 2>&1 || return 0
+    local -a exclusions=()
+    mapfile -t exclusions < <(allowlist_exclusions)
+    while IFS= read -r line; do
+        [[ "${line}" == "Would relabel "* ]] || continue
+        rest="${line#Would relabel }"
+        to="${rest##* to }";     rest="${rest% to *}"
+        from="${rest##* from }"; path="${rest% from *}"
+        IFS=: read -r _ _ from_type _ <<< "${from}"
+        IFS=: read -r _ _ to_type _ <<< "${to}"
+        [[ -n "${from_type}" && "${from_type}" != "${to_type}" ]] || continue
+        skip=false
+        for excl in "${exclusions[@]}"; do
+            # The exclusion is the pattern (a '!' line may be a glob); the path is matched literally.
+            [[ "${path}" == ${excl} || "${path}" == ${excl}/* ]] && { skip=true; break; }
+        done
+        ${skip} && continue
+        mode="$(stat -c '%a' -- "${path}" 2>/dev/null)" || continue
+        (( (8#${mode} & 077) == 0 )) && continue
+        printf '%s\t%s\t%s\n' "${path}" "${from_type}" "${to_type}"
+    done < <(restorecon -n -v -R -F -- "${dir}" 2>&1)
+}
+
 # sealed_setgid_scan <dir>  -- list owner-only directories inside a claimed tree whose setgid bit carries a THIRD-party
 # group: neither SANDBOX_GROUP nor the group of the directory's own owner. When the claim walks seal a path they clear
 # a setgid bit belonging to one of those two, since a claimed tree has no other legitimately; any further group reads
@@ -1512,19 +1552,22 @@ claim_setfacl() {
 #
 # The flow is a sequence of SELF-CONTAINED blocks, each opened by a headline box and closed by its own confirm/result,
 # in this order:
-#   1. Review    -- the pending-step overview (every later block announced), the drift
-#                   reports, and -- when a heavy step (chgrp, ACL, relabel, drift repair)
-#                   is pending -- the default-NO proceed confirm that covers exactly the
-#                   steps listed.
-#   2. Secret lockdown -- BEFORE any access-granting step, whenever one is pending or
+#   1. Review    -- the pending-step overview (every later block announced), the notices,
+#                   and -- when a heavy step (chgrp, ACL, relabel) is pending -- the
+#                   default-NO proceed confirm that covers exactly the steps listed.
+#   2. Interior drift -- on a re-claim, one block per kind found: the SELinux type
+#                   (label_drift_scan; default-YES, answered by `--yes`) and the group/ACL
+#                   (acl_drift_scan; default-NO, not answered by `--yes`), each its list
+#                   and then its question.
+#   3. Secret lockdown -- BEFORE any access-granting step, whenever one is pending or
 #                   this is a first claim (see secret_gate); fails the claim closed.
-#   3. .git history  -- separate default-YES opt-in (ai-tools-setfacl --with-git).
-#   4. Reachability  -- separate default-NO opt-in for traverse-only ancestor ACLs.
-#   5. Apply     -- the approved steps back to back, one result line each, closed by
-#                   the final "claimed" ✓.
-# A re-claim with ownership in place also scans for interior drift (acl_drift_scan: shared-looking paths brought
-# into the tree without inheriting the group/ACL) and folds the group+ACL re-apply into the proceed confirm and secret
-# gate -- repair never runs unconfirmed. A first claim skips the report: its normal walk repairs the whole tree.
+#   4. .git history  -- separate default-YES opt-in (ai-tools-setfacl --with-git).
+#   5. Reachability  -- separate default-NO opt-in for traverse-only ancestor ACLs.
+#   6. Apply     -- the approved steps back to back, one result line each, then one
+#                   outcome record per drifted path (fixed / not-fixed), closed by the
+#                   final "claimed" ✓.
+# A first claim skips the drift scans: its normal walks repair the whole tree.
+
 # path_detail_lines <path...>  -- print each path prefixed with its owner:group and mode, the columns that show
 # at a glance why a path is flagged (the foreign or agent group) and whether its mode is what the operator expects.
 # Shared by the claim's drift report and the unclaim's residue report: both answer the same question about a path,
@@ -1538,31 +1581,48 @@ path_detail_lines() {
     done
 }
 
-# offer_full_listing <label> <path...>  -- after a truncated sample, offer the full list with ownership and mode.
-# Default yes: it is read-only and the point of asking is that the list is long, so Enter shows it and a piped/delegated
-# run prints it too (grep-able).
-offer_full_listing() {
-    local _label="$1"; shift
-    confirm "      List all $# ${_label} with ownership and mode?" y || return 0
-    path_detail_lines "$@"
-}
-
-# path_listing <label> <path...>  -- report a set of paths: in FULL when there are few enough that the whole list is
-# shorter than a sample plus the question about it, otherwise a three-path sample and an offer to see the rest. One
-# decision in one place, because getting it wrong is invisible in the code and glaring on screen: sampling four paths
-# prints three, says "... and 1 more", asks a question, and then prints all four again -- seven lines and a prompt
-# to show four paths. SAMPLE is the sample size; the full-list cut-off is twice it, the point past which the sample is
-# genuinely saving the reader something.
+# item_listing <label> <printer> <item...>  -- report a set of items through <printer>, a function printing one line
+# per item it is given: in FULL when there are few enough that the whole list is shorter than a sample plus the question
+# about it, otherwise a three-item sample and an offer to see the rest. One decision in one place, because getting it
+# wrong is invisible in the code and glaring on screen: sampling four items prints three, says "... and 1 more", asks
+# a question, and then prints all four again -- seven lines and a prompt to show four items. SAMPLE is the sample size;
+# the full-list cut-off is twice it, the point past which the sample is genuinely saving the reader something. The offer
+# defaults to yes: it is read-only and the point of asking is that the list is long, so Enter shows it and a piped
+# or delegated run prints it too (grep-able). It prints the items the sample did not, so no line is shown twice.
+# A caller that asks a question about the set asks it after this returns, so the question follows the last line
+# of the list rather than scrolling out of view before it.
 readonly PATH_LISTING_SAMPLE=3
-path_listing() {
-    local _label="$1"; shift
+item_listing() {
+    local _label="$1" _printer="$2"; shift 2
     if (( $# <= 2 * PATH_LISTING_SAMPLE )); then
-        path_detail_lines "$@"
+        "${_printer}" "$@"
         return 0
     fi
-    path_detail_lines "${@:1:PATH_LISTING_SAMPLE}"
+    "${_printer}" "${@:1:PATH_LISTING_SAMPLE}"
     say "        ${C_DIM}... and $(( $# - PATH_LISTING_SAMPLE )) more${C_RST}"
-    offer_full_listing "${_label}" "$@"
+    confirm "      List the other $(( $# - PATH_LISTING_SAMPLE )) ${_label}?" y || return 0
+    "${_printer}" "${@:PATH_LISTING_SAMPLE+1}"
+}
+
+# path_listing <label> <path...>  -- item_listing over paths, each shown with its ownership and mode.
+path_listing() { item_listing "$1 with ownership and mode" path_detail_lines "${@:2}"; }
+
+# label_drift_lines <record...>  -- print each label_drift_scan record as the type its path carries, the type the policy
+# gives it, and the path.
+label_drift_lines() {
+    local _record _path _from _to
+    for _record in "$@"; do
+        IFS=$'\t' read -r _path _from _to <<< "${_record}"
+        printf '        %s%s -> %s  %s%s\n' "${C_DIM}" "${_from}" "${_to}" "$(ai_tools_log_sanitize "${_path}")" "${C_RST}"
+    done
+}
+
+# outcome_record <outcome> <kind> <path> <detail>  -- one line recording what a run did about one path:
+# `<outcome> TAB <kind> TAB <path> TAB <detail>`, uncoloured, so a script splits it on tabs and a grep for an outcome
+# finds every path it names. The path is printed through the display sanitizer, since a path under a claimed tree may be
+# one the agent named, and that keeps a tab or a newline in it from splitting the record.
+outcome_record() {
+    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$(ai_tools_log_sanitize "$3")" "${4:--}"
 }
 
 # under_skip_listed_name <base> <path>  -- 0 when <path> sits under a skip-listed directory NAME (build output,
@@ -1716,6 +1776,21 @@ cmd_project_claim() {
         done
         drift=("${_keep[@]}")
     fi
+    # What each drifted path is before a repair, for the outcome records: a repair rewrites exactly those columns.
+    local -a drift_before=()
+    local _hit _hit_detail
+    for _hit in "${drift[@]}"; do
+        _hit_detail="$(stat -c '%U:%G %a' -- "${_hit}" 2>/dev/null)" || _hit_detail='?'
+        drift_before+=("${_hit_detail}")
+    done
+
+    # Interior label drift: the same blind spot for the SELinux type. The root label is what project_state reads,
+    # so a path moved in under a labelled root keeps the type it came with (label_drift_scan). Scanned only
+    # where the root is labelled -- otherwise the whole-tree relabel is pending anyway.
+    local -a label_drift=()
+    if [[ "${listed}" == true && "${labelled}" == true ]]; then
+        mapfile -t label_drift < <(label_drift_scan "${d}" | head -n 200)
+    fi
 
     # A setgid bit on a sealed dir that belongs to some third group is the one piece of residue the claim walks decline
     # to remove, so it is surfaced here rather than left to the helper's stderr, where it scrolls past under the Apply
@@ -1762,12 +1837,63 @@ cmd_project_claim() {
         say "      ${C_DIM}ownership only: ai-tools projects handback --full${C_RST}"
     }
 
+    # claim_drift_records: after the Apply block, one outcome_record per drifted path -- `fixed` where its repair ran
+    # and succeeded, `not-fixed` where it was declined or did not apply -- so a path the claim left as it was is named
+    # rather than lost among the steps that did run. The ways to settle a not-fixed path follow the records.
+    claim_drift_records() {
+        (( ${#label_drift[@]} || ${#drift[@]} )) || return 0
+        local _record _path _from _to _i _outcome _left=false _left_label=false _left_group=false
+        say "  interior drift:"
+        for _record in "${label_drift[@]}"; do
+            IFS=$'\t' read -r _path _from _to <<< "${_record}"
+            if ${label_applied}; then _outcome=fixed; else _outcome=not-fixed; _left=true; _left_label=true; fi
+            outcome_record "${_outcome}" label "${_path}" "${_from} -> ${_to}"
+        done
+        for _i in "${!drift[@]}"; do
+            if ${drift_applied}; then _outcome=fixed; else _outcome=not-fixed; _left=true; _left_group=true; fi
+            outcome_record "${_outcome}" group "${drift[_i]}" "${drift_before[_i]}"
+        done
+        ${_left} || return 0
+        # A path on both lists is reachable only when both repairs applied: its permissions and its type each refuse
+        # the agent on their own. One fixed and one not -- declined, or a step that did not apply -- leaves it as closed
+        # as before, which neither record says alone.
+        local -A _labelled=()
+        local _mixed=0
+        for _record in "${label_drift[@]}"; do _labelled["${_record%%$'\t'*}"]=1; done
+        if [[ "${label_applied}" != "${drift_applied}" ]]; then
+            for _path in "${drift[@]}"; do [[ -n "${_labelled[${_path}]:-}" ]] && _mixed=$(( _mixed + 1 )); done
+        fi
+        if (( _mixed )); then
+            say "      ${_mixed} path(s) were fixed for one kind only -- the agent still cannot open them;"
+            say "      re-run the claim and answer yes to the other question to share them"
+        fi
+        # The ways to settle not-fixed paths, the per-path ones included: the claim's repairs act on every path they
+        # reach, so a subset is chosen with commands the file's owner runs. A path's owner may set its label
+        # (restorecon, no sudo), so a relabel of a few paths is one command each; the group repair has no per-path form,
+        # since the owner is not in the sandbox group, so the paths to keep are sealed or carved out first.
+        # Under `--for` those files belong to the target operator, and the commands are theirs to run.
+        local _who="you"
+        [[ -n "${FOR_OPERATOR}" ]] && _who="${OWNER_USER}"
+        say "      ${C_DIM}to share them all with the agent, re-run the claim and answer yes${C_RST}"
+        say "      ${C_DIM}to keep one out of its reach, as ${_who}: chmod 600 <path>${C_RST}"
+        say "      ${C_DIM}to stop a re-claim asking about one, as ${_who}: add a line !<path> to allowed-projects${C_RST}"
+        if ${_left_label}; then
+            say "      ${C_DIM}to relabel only some, as ${_who}: restorecon -F <path>${C_RST}"
+        fi
+        if ${_left_group}; then
+            say "      ${C_DIM}to repair the group for only some, chmod 600 or add a ! line for the others,${C_RST}"
+            say "      ${C_DIM}then re-run the claim and answer yes${C_RST}"
+        fi
+    }
+
     # ── Review block: the flow headline, the pending-step overview, and the drift reports, so the proceed confirm
     # that closes it covers exactly what was just shown. Every later block is announced here with a `you will be asked`
     # marker. ──
     local heavy=false
     local -a head=("${d}")
-    if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label} || (( ${#drift[@]} )); then
+    # Drift repair is not one of the heavy steps: each kind is its own question, asked under its own list once
+    # the proceed confirm is answered, so the answer follows the paths it is about.
+    if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label}; then
         heavy=true
     fi
     # NOT said on a pristine tree: every sentence of it is false for one. There are no previous permissions to modify,
@@ -1800,7 +1926,7 @@ cmd_project_claim() {
 
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
             && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
-            && (( ${#drift[@]} == 0 )); then
+            && (( ${#drift[@]} == 0 && ${#label_drift[@]} == 0 )); then
         skip_listed_note
         sealed_setgid_note
         ancestor_config_note
@@ -1813,16 +1939,19 @@ cmd_project_claim() {
 
     # The gate runs whenever any pending step widens the agent's access -- the setgid group change, the group ACL, drift
     # repair, .git normalization, the SELinux label -- and on every first claim (a tree can be group-accessible
-    # by setgid inheritance yet never scanned). Only pure registry additions (safedir, filemode) skip it.
+    # by setgid inheritance yet never scanned). Only pure registry additions (safedir, filemode) skip it. Drift repair
+    # counts once its question is answered yes, so here it only decides whether the overview announces the gate.
     local need_gate=false
     if [[ "${listed}" != true || "${owngap}" == true ]] \
-            || ${need_acl} || ${need_git} || ${need_label} || (( ${#drift[@]} )); then
+            || ${need_acl} || ${need_git} || ${need_label}; then
         need_gate=true
     fi
     # The gate's whole job is to find secret-named files before access is granted. A tree whose only file is the README
     # this command wrote a moment ago provably has none, and the scan is not free: ai-tools-lockdown has no NOPASSWD
     # rule, so it costs the operator a sudo PASSWORD prompt to search a directory the tool itself just created.
     if ${fresh}; then need_gate=false; fi
+    local gate_announced="${need_gate}"
+    (( ${#drift[@]} || ${#label_drift[@]} )) && gate_announced=true
 
     say ""
     say "  pending:"
@@ -1832,24 +1961,17 @@ cmd_project_claim() {
     [[ "${owngap}"  == true  ]] && say "    - set group ${SANDBOX_GROUP} + setgid on the project directories"
     ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
-    (( ${#drift[@]} )) && say "    - re-apply group ${SANDBOX_GROUP} + ACL to ${#drift[@]} drifted path(s) -- details below"
-    ${need_gate} && say "    - scan for secret-named files and lock them down -- you will confirm"
+    (( ${#label_drift[@]} )) \
+        && say "    - relabel the tree: ${#label_drift[@]} path(s) inside it carry a foreign SELinux type -- you will be asked"
+    (( ${#drift[@]} )) \
+        && say "    - re-apply group ${SANDBOX_GROUP} + ACL to ${#drift[@]} drifted path(s) -- you will be asked (default no)"
+    ${gate_announced} && say "    - scan for secret-named files and lock them down -- you will confirm"
     if ${need_git}; then
         if ${fresh}; then say "    - normalize .git so the agent can access git history"
         else say "    - normalize .git so the agent can access git history -- you will be asked"; fi
     fi
     (( ${#REACH_GRANT[@]} )) && say "    - grant traverse-only access on ${#REACH_GRANT[@]} parent path(s) -- you will be asked"
 
-    if (( ${#drift[@]} )); then
-        headline_warn "WARNING: interior permission drift" \
-            "${#drift[@]} path(s) inside the tree carry a foreign group yet stay group-accessible (they arrived without inheriting the project group or ACL)."
-        path_listing "path(s)" "${drift[@]}"
-        # The cap is a property of the SCAN, not of this listing, so it is said whether the paths were sampled or shown
-        # in full.
-        if (( ${#drift[@]} >= 200 )); then
-            say "        ${C_DIM}(scan capped at 200 paths)${C_RST}"
-        fi
-    fi
     skip_listed_note
     sealed_setgid_note
     ancestor_config_note
@@ -1864,6 +1986,40 @@ cmd_project_claim() {
     if ${heavy} && ! ${fresh}; then
         ${ASSUME_YES} || confirm "Apply the pending steps above IN PLACE?" n \
             || die "aborted"
+    fi
+
+    # ── Interior drift: one block per kind, each its list and then its question, so the answer follows the paths it is
+    # about. The defaults differ because the costs do (cli.rule.md, Interior drift). A relabel leaves owner, group
+    # and mode as they are, so the agent reaches a relabelled path only where its permissions already let the sandbox
+    # account in; it defaults to yes and `--yes` answers it. A group/ACL repair moves a path from the group it has
+    # to the sandbox group, which is wrong for a file shared with a team or read by a service's group, so it defaults
+    # to no, and `--yes` does not answer it: the launch wrapper that passes `--yes` does not show the operator these
+    # paths. A declined repair is reported as not fixed; the claim goes on. ──
+    local do_label_drift=false do_drift=false
+    if (( ${#label_drift[@]} )); then
+        headline_warn "Interior drift: SELinux type" \
+            "${#label_drift[@]} path(s) inside the tree carry a type other than the one this project's file-context rules give them -- moved in with mv, cp -a or tar --selinux, or relabelled by another tool. The agent is refused them whatever their permissions say." \
+            "Relabelling resets every path in the tree to the project's types. A type another service needs here -- a Podman :Z volume, a directory httpd serves -- is reset as well, and that service loses its access."
+        item_listing "path(s) with their types" label_drift_lines "${label_drift[@]}"
+        # The cap is a property of the SCAN, not of this listing, so it is said whether the paths were sampled or shown
+        # in full.
+        (( ${#label_drift[@]} >= 200 )) && say "        ${C_DIM}(scan capped at 200 paths)${C_RST}"
+        if ${ASSUME_YES} || confirm "Relabel the tree so these ${#label_drift[@]} path(s) get the project's types?" y; then
+            do_label_drift=true
+        fi
+    fi
+    if (( ${#drift[@]} )); then
+        headline_warn "Interior drift: group and ACL" \
+            "${#drift[@]} path(s) inside the tree carry a foreign group yet stay group-accessible -- they arrived without inheriting the project group or ACL." \
+            "Re-applying moves each to group ${SANDBOX_GROUP} with the project ACL: the agent gets the access its group bits grant, and the group it has now loses it. Keep a file shared with a team group or read by a service's group as it is."
+        path_listing "path(s)" "${drift[@]}"
+        (( ${#drift[@]} >= 200 )) && say "        ${C_DIM}(scan capped at 200 paths)${C_RST}"
+        if confirm "Re-apply group ${SANDBOX_GROUP} and the project ACL to these ${#drift[@]} path(s)?" n; then
+            do_drift=true
+        fi
+    fi
+    if ${do_label_drift} || ${do_drift}; then
+        ${fresh} || need_gate=true
     fi
 
     # Allowlist first: ai-tools-lockdown only scans an allowlisted path. Rolled back on a failed gate.
@@ -1903,13 +2059,19 @@ cmd_project_claim() {
     reg_reach "${d}"
 
     # ── Apply block: the approved steps run back to back, each reporting one result line; the closing ✓ is the claim's
-    # completion. ──
-    headline "Applying claim steps" "${d}"
+    # completion. The headline opens only over a step that runs: with every repair declined there is none, and an empty
+    # block would read as work done. ──
+    local apply_steps=false
+    if [[ "${safedir}" != true || "${owngap}" == true ]] || ${need_filemode} || ${need_acl} || ${do_git} \
+            || ${need_label} || ${do_drift} || ${do_label_drift}; then
+        apply_steps=true
+    fi
+    if ${apply_steps}; then headline "Applying claim steps" "${d}"; fi
 
     # A failed step asks once before the next is attempted (note_root_failure). Stopping is the safe direction here --
     # fewer steps applied -- and costs the operator no work, since the claim is idempotent and a re-run does exactly
     # what is still missing.
-    local stopped=false
+    local stopped=false drift_applied=false label_applied=false
     if [[ "${safedir}" != true ]]; then
         reg_safedir "${d}" || note_root_failure || stopped=true
     fi
@@ -1917,17 +2079,26 @@ cmd_project_claim() {
     if ! ${stopped}; then
         if [[ "${owngap}" == true ]]; then
             reg_ownership "${d}" || note_root_failure || stopped=true
-        elif (( ${#drift[@]} )); then
+        elif ${do_drift}; then
             reg_ownership "${d}" force || note_root_failure || stopped=true
         fi
     fi
-    if ! ${stopped} && { ${need_acl} || ${do_git} || (( ${#drift[@]} )); }; then
-        claim_setfacl "${d}" "${do_git}" || note_root_failure || stopped=true
+    if ! ${stopped} && { ${need_acl} || ${do_git} || ${do_drift}; }; then
+        if claim_setfacl "${d}" "${do_git}"; then
+            if ${do_drift}; then drift_applied=true; fi
+        else
+            note_root_failure || stopped=true
+        fi
     fi
-    if ! ${stopped} && ${need_label}; then
-        claim_relabel "${d}" || note_root_failure || stopped=true
+    if ! ${stopped} && { ${need_label} || ${do_label_drift}; }; then
+        if claim_relabel "${d}"; then
+            label_applied=true
+        else
+            note_root_failure || stopped=true
+        fi
     fi
     say ""
+    claim_drift_records
 
     # A claim whose access-granting steps did not apply has NOT claimed anything, and must not say it has. This is
     # the owner guard's rule at the other end of the flow: no ✓ over a project the agent cannot work in. The registry
@@ -1942,7 +2113,13 @@ cmd_project_claim() {
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         exit 1
     fi
-    ok "claimed ${d}"
+    # `no change applied` is said only where no step that writes could have run: no registry entry, no secret scan, no
+    # traverse grant offered, and no Apply step. Any other run keeps the plain line, which does not say either way.
+    if ! ${apply_steps} && [[ "${listed}" == true ]] && ! ${need_gate} && (( ${#REACH_GRANT[@]} == 0 )); then
+        ok "claimed ${d} -- no change applied"
+    else
+        ok "claimed ${d}"
+    fi
     ai_tools_log_structured info "claimed project ${d}" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }

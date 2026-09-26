@@ -497,12 +497,14 @@ while the help keeps its own spelling, and the difference is deliberate. What it
 its parser does not take, or dropping it where the parser does. A wrong font renders as cleanly as a right one, so none
 of the four is visible without a check.
 
-`sandbox.sh` closes with `tree_is_pristine`, which is not a sandbox helper but belongs to the same class: a pure
+`sandbox.sh` also carries `tree_is_pristine`, which is not a sandbox helper but belongs to the same class: a pure
 decision with a security consequence. `projects create` skips the secret scan, the git-history prompt and the proceed
 confirm when it returns 0, so every way it could wrongly say yes is a way to grant an agent access to a tree no scan has
 covered — which is why the claim re-derives it from the tree rather than trusting the caller's hint, and why the cases
 driven here are the states that must read as **not** pristine (any file beyond the README, one nested deeper, any
-commit).
+commit). It closes with `label_drift_scan`, the re-claim's SELinux half, over a canned `restorecon` transcript: the scan
+must ask for a dry run, since it runs unprivileged ahead of the question, and must keep a type difference while dropping
+a difference in the SELinux user alone, an owner-only file and a carved-out path.
 
 `conf.sh` and `providers.sh` are the library pair behind the provider seam (see [providers](providers.rule.md)).
 `conf.sh` pins the shared `KEY=value` grammar every `operator.conf` key and every manifest is read with — quotes

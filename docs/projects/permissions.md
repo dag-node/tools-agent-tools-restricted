@@ -55,3 +55,57 @@ it left that way.
 What each mode becomes at a claim and after an unclaim is in [Project
 lifecycle](index.md), with the caveat that `ls -l` shows the ACL **mask**
 in the group column: use `getfacl -e` to read effective access.
+
+## Files you move into a claimed project
+
+```bash
+mv ~/Downloads/report.csv ~/src/api/data/
+ai-tools projects claim ~/src/api
+```
+
+A file you move in keeps what it had where it came from: its group, its mode
+and its SELinux type. A file created inside the project takes the project's
+instead. A re-claim finds the moved-in files and asks about each kind on its
+own, right under the list of files it found:
+
+- **SELinux type**, default yes. The relabel gives the files the project's
+  type, and their permissions still decide whether the agent can open them. It
+  resets every file in the project, so a directory another service uses —
+  a Podman `:Z` volume, a directory a web server serves — loses the type
+  that service needs. Keep such a directory outside the project.
+- **Group and ACL**, default no. Yes moves each file to the `ai-tools` group
+  with the project ACL: the agent gets the access its group bits grant,
+  and the group the file had loses it.
+
+After the claim, each file is listed as `fixed` or `not-fixed`, one line
+per file, with the kind and what it was before. The agent can open a file
+listed under each kind only once it is fixed for each; where you answered yes
+to one question and no to the other, the claim says how many files that leaves
+closed.
+
+Say no to the group and ACL, and keep the file as it is, when:
+
+| The file | Example | Keep it that way with |
+|---|---|---|
+| is shared with a team | `you:devteam 640` on a shared host | a `!` line |
+| is read by a service's group | `you:wheel`, a daemon's group | a `!` line |
+| is private but not sealed | an export with your own group, `640` | `chmod 600` |
+
+A `!` line for the file in `allowed-projects` keeps a re-claim from asking
+about it again (`man 5 ai-tools-allowed-projects`). It does not stop a later
+relabel from resetting the file's SELinux type.
+
+Each question covers every file in its list. To act on only some of them,
+relabel those yourself — you own them, so it does not need sudo:
+
+```bash
+restorecon -F ~/src/api/data/report.csv
+```
+
+For the group and ACL, `chmod 600` the files to leave out, or give them a `!`
+line, then re-claim and answer yes. The claim does not ask about a file with no
+group or other bits (`600`, `700`): it leaves such a file out of both scans.
+
+A moved-in file under a build or dependency directory (`node_modules`, `bin`,
+`obj`) keeps its group: the claim does not walk those directories. The notice
+names the `operator.conf` settings that open one to the claim.

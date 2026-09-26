@@ -756,23 +756,53 @@ in `ai-tools(1)` where reaching it is deliberate. The flow does not carry any in
 the launch wrapper's choice screen and `--help`/docs present the sandbox-clone alternative; the one exception is
 the *Reachability* blocked case, where an in-place claim genuinely cannot work.
 
-**Interior drift.** Root-level state cannot see paths inside a claimed tree that lack the group/ACL — brought
-in by rename (which keeps the old group and does not pick up the project's ACL entries; creation under the setgid +
-default-ACL parents inherits both), or sitting under a skip-listed directory name the claim walks leave alone.
-A **re-claim whose ownership is already in place** therefore scans the tree (`acl_drift_scan`, read-only
-and unprivileged) for shared-looking paths with a foreign group — owner-only paths (`600`/`700`, e.g. locked-down
-secrets) and `!`-excluded subtrees stay unreported as out-of-reach by intent, the same predicate `ai-tools-setfacl`
-skips on, so the scan never reports a path the repair would decline to touch (see
-[secret-handling](secret-handling.rule.md)). A first claim (or one with the setgid step still pending) skips the report:
-its normal walk repairs the whole tree, and every path would trivially match the predicate. The scan splits the hits
-on the shared skip list (`skip-dirs.lib.sh`, which the CLI sources): repairable hits become a pending step whose repair
-(setgid walk + ACL walk) runs only behind the same default-NO confirm and secret gate as a first claim. The ACL walk
-(`ai-tools-setfacl`) settles the drift itself: alongside the ACL it normalizes a drifted path's primary group
-to `SANDBOX_GROUP` (same predicate as the scan), so the next claim reports the tree clean instead of re-flagging
-the same paths. Hits under skip-listed names get an informational block naming the remedies that do reach them — narrow
-the category override in `operator.conf`, list the path in `SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE` (a source dir
-sharing a skipped build-output name), then re-claim; or `ai-tools projects handback --full` for ownership alone.
-Declining plus a `!` exclusion (or `chmod 700`) records an intentional carve-out so it is not re-reported.
+**Interior drift.** Root-level state cannot see a path inside a claimed tree that lacks what the claim gave the rest
+of it, and a rename is how one arrives: `mv` keeps a file's group, its ACL-less mode and its SELinux type,
+where creation under the setgid, default-ACL, labelled parents inherits all three. A **re-claim** therefore scans
+for two kinds, each read-only and unprivileged, and each leaves out owner-only paths (`600`/`700`, e.g. locked-down
+secrets) and `!`-excluded subtrees as out of reach by intent (see [secret-handling](secret-handling.rule.md)):
+
+- **Group and ACL** (`acl_drift_scan`, when ownership is in place): shared-looking paths with a foreign group,
+  the predicate `ai-tools-setfacl` skips on, so the scan never reports a path the repair would decline to touch.
+  The hits split on the shared skip list (`skip-dirs.lib.sh`): the claim walks leave a skip-listed directory's contents
+  alone, so hits there get an informational block naming the remedies that reach them — narrow the category override
+  in `operator.conf`, list the path in `SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE`, then re-claim;
+  or `ai-tools projects handback --full` for ownership alone. The repair (setgid walk + ACL walk) settles a path itself:
+  `ai-tools-setfacl` normalizes a drifted path's primary group to `SANDBOX_GROUP` alongside the ACL, so the next claim
+  reports the tree clean.
+- **SELinux type** (`label_drift_scan`, when the root is labelled): the paths whose type is not the one the claim's
+  relabel would apply. The expected type is asked of the policy, not of a list of type names — a dry run of that relabel
+  (`restorecon -n -F`, unprivileged, reading the world-readable file contexts) — so the per-project rules and every
+  loaded module's types are covered, a module added later included. Only a type difference counts; `-F` also reports
+  the SELinux user, which does not decide access. The relabel walks the whole tree regardless of the skip list, so a hit
+  under a skip-listed name is repairable and reported with the rest.
+
+A first claim (or one with the setgid step pending, or an unlabelled root) skips the matching scan: its normal walk
+repairs the whole tree, and every path would trivially match.
+
+**Each kind is its own question, asked under its own list**, after the proceed confirm, so the answer follows the paths
+it is about, and the two defaults differ because the costs do. A relabel leaves owner, group and mode alone, so it gives
+the agent a path only where its permissions already admit the sandbox account; it defaults to **yes**, and `--yes`
+answers it. It does reset every path in the tree, so a type another service needs inside a project — a Podman `:Z`
+volume, a directory httpd serves — is lost to that service; the block says so, and each hit is listed with its current
+type. A group/ACL repair moves a path from the group it holds to `SANDBOX_GROUP`, which is wrong for a file shared
+with a team group or read by a service's group, so it defaults to **no**, and `--yes` does not answer it: the launch
+wrapper that passes `--yes` does not show the operator these paths. Either repair answered yes joins the secret gate
+like any other access-granting step. A declined repair does not stop the claim.
+
+After the Apply block the claim prints one **outcome record** per drifted path —
+`<outcome> TAB <kind> TAB <path> TAB <detail>`, `fixed` or `not-fixed`, `label` or `group`, uncoloured and with the path
+sanitized — so a path the claim left as it was is named rather than lost among the steps that ran. The ways to settle
+a not-fixed path follow them, each a command the file's owner runs — the invoker, or the target operator under `--for`:
+re-claim and answer yes to share every one; `chmod 600` to keep one out of the agent's reach; a `!` line to stop
+a re-claim asking about one, which does not keep a later relabel from resetting its type. Choosing a subset has no
+per-path form in the claim, whose repairs act on every path they reach: the owner may set a path's label,
+so `restorecon -F <path>` relabels only the paths named, while the group repair, which needs the sandbox group the owner
+is not in, is narrowed by sealing or carving out the paths to keep before answering yes. A path on both lists is
+reachable only once both repairs applied, since its permissions and its type each refuse the agent on their own,
+so where exactly one applied the claim adds one line counting those paths. With every repair declined and no other step
+pending, the Apply block does not open and the closing line carries `no change applied`, which it prints only where no
+step that writes could have run.
 
 **Configuration the build reads from a project's ancestors.** A build toolchain collects configuration by walking
 from the project directory toward `/`, so a file it opens in an ancestor that the sandbox account is denied fails
