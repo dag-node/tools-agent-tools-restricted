@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/sandbox.sh
 # Unit test for the pure decisions behind the ai-tools.sh flows -- the ai-tools.projects.clone pair, the precondition
-# ai-tools.projects.create's skipped prompts rest on (tree_is_pristine), and the exclusion reader the claim-time scans
-# prune their walks with (allowlist_exclusions, at the end).
+# ai-tools.projects.create's skipped prompts rest on (tree_is_pristine), the exclusion reader the claim-time scans prune
+# their walks with (allowlist_exclusions), and the re-claim's SELinux drift reader (label_drift_scan, at the end).
 #
 # The ai-tools.projects.clone pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
@@ -198,6 +198,61 @@ if [[ "${excl_got}" == "${excl_want}" ]]; then
     pass "allowlist_exclusions prints each '!' entry read through the shared grammar (comment, quotes)"
 else
     fail "allowlist_exclusions printed '${excl_got}' (want '${excl_want}')"
+fi
+
+# ── label_drift_scan ──────────────────────────────────────────────────────────────────────────
+# The re-claim's SELinux half reads a dry run of the relabel the claim performs, so restorecon is stubbed with a canned
+# transcript and the scan is judged on which lines it keeps. The stub records its arguments, and the dry-run flag is
+# asserted among them: the scan runs unprivileged and reports, and a stub that saw no `-n` would mean a claim
+# that relabels while it is still asking. Kept: a type difference, and a path holding " from " and " to " with an MLS
+# range in its context. Dropped: a difference in the SELinux user alone, an owner-only file, a path under a '!'
+# carve-out, and a line other than a relabel line.
+section "label_drift_scan: the paths a re-claim asks to relabel (unit)"
+
+ld_work="${TESTDIR}/label-drift"
+ld_tree="${ld_work}/p"
+mkdir -p "${ld_tree}/excl"
+for ld_name in moved useronly "name from a to b" excl/x; do
+    : > "${ld_tree}/${ld_name}"; chmod 0640 "${ld_tree}/${ld_name}"
+done
+: > "${ld_tree}/private"; chmod 0600 "${ld_tree}/private"
+printf '%s\n' "${ld_tree}" "!${ld_tree}/excl" > "${ld_work}/allowed-projects"
+{
+    printf 'Would relabel %s from %s to %s\n' \
+        "${ld_tree}/moved" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
+        "${ld_tree}/useronly" unconfined_u:object_r:ai_tools_project_t:s0 system_u:object_r:ai_tools_project_t:s0 \
+        "${ld_tree}/private" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
+        "${ld_tree}/excl/x" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
+        "${ld_tree}/name from a to b" system_u:object_r:container_file_t:s0:c1,c2 system_u:object_r:ai_tools_project_t:s0
+    printf 'restorecon: a warning line that is not a relabel line\n'
+} > "${ld_work}/transcript"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ld_work}"
+
+ld_rc=0
+# shellcheck disable=SC2016  # the $1..$3 are for the inner `bash -c`, not this shell -- do not expand here
+ld_got="$(runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${ld_work}/allowed-projects" bash -c \
+    'cli="$1"; transcript="$2"; tree="$3"; set --
+     source "${cli}" >/dev/null 2>&1 || exit 99
+     declare -F label_drift_scan >/dev/null || exit 98
+     restorecon() { printf "%s\n" "$*" > "${transcript}.args"; cat "${transcript}"; }
+     label_drift_scan "${tree}"' _ "${CLI}" "${ld_work}/transcript" "${ld_tree}")" || ld_rc=$?
+ld_want="$(printf '%s\t%s\t%s\n' "${ld_tree}/moved" user_home_t ai_tools_project_t \
+    "${ld_tree}/name from a to b" container_file_t ai_tools_project_t)"
+if [[ "${ld_rc}" -eq 98 ]]; then
+    skip "label_drift_scan" "the installed CLI predates it"
+elif [[ "${ld_rc}" -ne 0 ]]; then
+    fail "label_drift_scan could not be driven (exit ${ld_rc})"
+else
+    if [[ " $(cat "${ld_work}/transcript.args" 2>/dev/null) " == *" -n "* ]]; then
+        pass "label_drift_scan asks restorecon for a dry run"
+    else
+        fail "label_drift_scan called restorecon without -n: '$(cat "${ld_work}/transcript.args" 2>/dev/null)'"
+    fi
+    if [[ "${ld_got}" == "${ld_want}" ]]; then
+        pass "label_drift_scan keeps type differences and drops user-only, owner-only and carved-out paths"
+    else
+        fail "label_drift_scan printed '$(tr '\t\n' '>|' <<<"${ld_got}")' (want '$(tr '\t\n' '>|' <<<"${ld_want}")')"
+    fi
 fi
 
 finish

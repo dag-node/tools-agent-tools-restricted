@@ -149,8 +149,21 @@ Claim a real project in place so the agent works your actual tree: register it
 (allowlist and git safe.directory), scan for and lock down secret-named files
 .I before
 any access is granted, set the shared group and ACL, and apply the SELinux
-project label. Idempotent \(em a re-claim runs only the missing steps and
-repairs interior permission drift behind the same confirm. Access to the
+project label. Idempotent \(em a re-claim runs only the missing steps. It also
+finds files moved into the project that kept their SELinux type, or their group
+and missing ACL, and asks about each kind under its list: the relabel defaults
+to yes and
+.B \-y
+answers it; the group and ACL repair defaults to no and
+.B \-y
+does not answer it. Each such file is then printed as one line,
+.IR outcome\ kind\ path\ detail ,
+tab-separated, with
+.I outcome
+.B fixed
+or
+.BR not\-fixed .
+Access to the
 repository's git history
 .RB ( .git )
 is a separate opt-in prompt.
