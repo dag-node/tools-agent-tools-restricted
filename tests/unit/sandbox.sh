@@ -202,11 +202,11 @@ fi
 
 # ── label_drift_scan ──────────────────────────────────────────────────────────────────────────
 # The re-claim's SELinux half reads a dry run of the relabel the claim performs, so restorecon is stubbed with a canned
-# transcript and the scan is judged on which lines it keeps. The stub records its arguments, and the dry-run flag is
-# asserted among them: the scan runs unprivileged and reports, and a stub that saw no `-n` would mean a claim
-# that relabels while it is still asking. Kept: a type difference, and a path holding " from " and " to " with an MLS
-# range in its context. Dropped: a difference in the SELinux user alone, an owner-only file, a path under a '!'
-# carve-out, and a line other than a relabel line.
+# transcript and the scan is judged on which lines it keeps. The stub records its arguments each followed by a space,
+# not as "$*", which joins them with the CLI's IFS (a newline); the dry-run flag is asserted among them: the scan runs
+# unprivileged and reports, and a stub that saw no `-n` would mean a claim that relabels while it is still asking. Kept:
+# a type difference, and a path holding " from " and " to " with an MLS range in its context. Dropped: a difference
+# in the SELinux user alone, an owner-only file, a path under a '!' carve-out, and a line other than a relabel line.
 section "label_drift_scan: the paths a re-claim asks to relabel (unit)"
 
 ld_work="${TESTDIR}/label-drift"
@@ -234,7 +234,7 @@ ld_got="$(runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${ld_work}/al
     'cli="$1"; transcript="$2"; tree="$3"; set --
      source "${cli}" >/dev/null 2>&1 || exit 99
      declare -F label_drift_scan >/dev/null || exit 98
-     restorecon() { printf "%s\n" "$*" > "${transcript}.args"; cat "${transcript}"; }
+     restorecon() { printf "%s " "$@" > "${transcript}.args"; cat "${transcript}"; }
      label_drift_scan "${tree}"' _ "${CLI}" "${ld_work}/transcript" "${ld_tree}")" || ld_rc=$?
 ld_want="$(printf '%s\t%s\t%s\n' "${ld_tree}/moved" user_home_t ai_tools_project_t \
     "${ld_tree}/name from a to b" container_file_t ai_tools_project_t)"
