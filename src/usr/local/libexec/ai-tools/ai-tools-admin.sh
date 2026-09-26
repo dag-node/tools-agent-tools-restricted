@@ -1945,8 +1945,13 @@ _pu_assets() {
     source /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/managed-assets.lib.sh
     source /usr/local/lib/ai-tools/managed-assets.lib.sh 2>/dev/null || true
+    # The sanitizer is required: a link's target is a string the sandbox account can write, since an agent's config
+    # directory is group-writable, and this report prints it on root's terminal.
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
+    source /usr/local/lib/ai-tools/log.lib.sh 2>/dev/null || true
     if ! declare -F ai_tools_asset_is_managed >/dev/null 2>&1 \
-            || ! declare -F ai_tools_agent_asset_dirs >/dev/null 2>&1; then
+            || ! declare -F ai_tools_agent_asset_dirs >/dev/null 2>&1 \
+            || ! declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
         printf 'error\t%s\t%s\n' "${live_root}" "shared assets not checked: the asset libraries did not load"
         return 0
     fi
@@ -1984,7 +1989,8 @@ _pu_assets() {
                 if [[ -L "${link}" ]]; then
                     target="$(readlink "${link}")"
                     [[ "${target}" == "${dst}" || "${target}" == "${CP_HOME}/${kind}/${name}" ]] \
-                        || printf 'asset-unlinked\t%s\t%s\n' "${link}" "${agent}: points at ${target}"
+                        || printf 'asset-unlinked\t%s\t%s\n' "${link}" \
+                               "${agent}: points at $(ai_tools_log_sanitize "${target}")"
                 elif [[ -e "${link}" ]]; then
                     printf 'asset-overridden\t%s\t%s\n' "${link}" "${agent}: a file of its own in place of the link"
                 else
@@ -2209,6 +2215,41 @@ status_services() {
         remedy="$(ai_tools_service_field "${rec}" 6)"
         [[ -n "${remedy}" ]] && detail "${remedy}"
     done < <(ai_tools_service_records)
+    return 0
+}
+
+# status_provisioning: per enabled agent, whether its stable launcher link exists -- bootstrap's last artifact
+# for that agent, and the link the CLI's bootstrap gate reads, so the two reports answer alike. The link is tested
+# per launcher, since the launcher directory also holds the base package's own files and is never empty on an installed
+# host. Counted as the CLI counts it (cli.rule.md): an unprovisioned agent and an empty enabled set are reported and not
+# counted, since an unfinished install is what the section exists to say; enabled agents that cannot be read are
+# a broken install and are counted.
+status_provisioning() {
+    heading "Provisioning"
+    if ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+        st FAILED "cannot read the enabled agents -- ${PROVIDERS_LIB} did not load; reinstall ai-tools-base"
+        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        return 0
+    fi
+    local agent launcher reason
+    local -a agents=()
+    mapfile -t agents < <(ai_tools_enabled_agents 2>/dev/null)
+    if (( ${#agents[@]} == 0 )); then
+        reason=""
+        declare -F ai_tools_agents_empty_verdict >/dev/null 2>&1 \
+            && IFS=$'\t' read -r _ reason <<< "$(ai_tools_agents_empty_verdict)"
+        st "n/a" "no agent enabled${reason:+ -- ${reason}}"
+        return 0
+    fi
+    for agent in "${agents[@]}"; do
+        IFS=$'\t' read -r agent _ launcher <<< "${agent}"
+        if [[ -n "${launcher}" && -L "${LAUNCHER_LINK_DIR}/${launcher}" ]]; then
+            st OK "${agent} provisioned (${launcher})"
+        else
+            st MISSING "${agent} has no launcher in ${LAUNCHER_LINK_DIR} -- it is not provisioned"
+            detail "sudo ai-tools-admin system bootstrap"
+        fi
+    done
     return 0
 }
 
@@ -2441,16 +2482,7 @@ status() {
     printf '    %-13s %s\n' "ai-tools" "${AI_TOOLS_VERSION}"
     status_node_version
 
-    heading "Provisioning"
-    # The launcher directory holding a link is bootstrap's last artifact, and the same sentinel the CLI's own gate keys
-    # on, so both answer this question the same way.
-    if compgen -G "${LAUNCHER_LINK_DIR}/*" >/dev/null 2>&1; then
-        st OK "the toolchain is provisioned"
-    else
-        st MISSING "no launcher in ${LAUNCHER_LINK_DIR} -- the toolchain is not provisioned"
-        detail "sudo ai-tools-admin system bootstrap"
-        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
-    fi
+    status_provisioning
     status_managed_files
 
     status_services

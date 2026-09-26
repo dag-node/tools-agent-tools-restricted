@@ -649,7 +649,9 @@ their code and return non-zero, which is what makes `op_add` refuse.
 `admin-status.sh` pins the root report's Node line to the same verdict the CLI renders: the helper is sourced
 with the resolver's hooks and `AI_TOOLS_LAUNCHER_DIR` at fixtures, and the line is asserted to name the version a link
 points into, to report links that disagree with each agent named, and to claim no version for a link outside
-the versioned shape — so the two reports cannot name different Node versions for one host.
+the versioned shape — so the two reports cannot name different Node versions for one host. Its Provisioning section is
+driven against the same fixtures: an enabled agent without its link reads as missing although the launcher directory
+holds a base file, which is the state every installed host is in, and a present link reads as provisioned.
 
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
 [launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools status` re-checks

@@ -5,7 +5,8 @@
 # links through the same verdict `ai-tools status` renders (ai_tools_node_version_verdict, toolchain.lib.sh), so the two
 # reports name one version for one host. What is asserted is the root report's rendering of that verdict against fixture
 # links -- the version a link points into, the split line where two links disagree, and no claimed version where no link
-# names one -- with the updater's stamp being the host's own and read alongside.
+# names one -- with the updater's stamp being the host's own and read alongside. The Provisioning section is read
+# the same way, per enabled agent's link, beside a base file that makes the launcher directory non-empty on every host.
 #
 # The helper is SOURCED rather than run (its root check and its dispatch are guarded for that), in a fresh shell
 # per case because the helper and the harness both declare SANDBOX_USER readonly, with the resolver's two hooks
@@ -28,7 +29,8 @@ if [[ ! -r "${HELPER}" ]]; then
     skip "admin status node line" "helper not readable (neither installed nor in a checkout)"; finish; exit
 fi
 # shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
-if ! bash -c 'set --; source "$1" >/dev/null 2>&1; declare -F status_node_version >/dev/null 2>&1' _ "${HELPER}"; then
+if ! bash -c 'helper="$1"; set --; source "${helper}" >/dev/null 2>&1; declare -F status_node_version >/dev/null 2>&1' \
+        _ "${HELPER}"; then
     skip "admin status node line" "helper not sourceable or status_node_version absent (older helper?)"; finish; exit
 fi
 
@@ -77,6 +79,40 @@ if [[ "${rc}" -eq 0 ]] && ! grep -q 'v9' <<<"${out}" && ! grep -q 'active' <<<"$
     pass "a link outside the versioned shape names no version, and the line does not claim one"
 else
     fail "Node line from an unversioned link (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+
+section "ai-tools-admin status: Provisioning reads each enabled agent's launcher link (unit)"
+
+# call_provisioning : as call, running status_provisioning and printing the count it leaves in STATUS_PROBLEMS.
+# shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
+call_provisioning() {
+    env AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
+        bash -c 'helper="$1"; set --; source "${helper}" >/dev/null 2>&1 || exit 99
+                 declare -F status_provisioning >/dev/null || exit 98
+                 status_provisioning; printf "problems=%s\n" "${STATUS_PROBLEMS}"' _ "${HELPER}" 2>&1
+}
+
+# The base package installs its own files in the launcher directory, so a directory that is not empty says nothing
+# about any agent: the fixture holds such a file and no agent link.
+reset_fixtures; manifest alpha la; : > "${LINKS}/ai-tools-run"
+rc=0; out="$(call_provisioning)" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "admin status provisioning" "status_provisioning absent (older helper?)"
+elif grep -qE '^ +\[MISSING\] +alpha has no launcher' <<<"${out}" && ! grep -qF '[OK]' <<<"${out}" \
+        && grep -qx 'problems=0' <<<"${out}"; then
+    pass "an enabled agent without its link is reported missing, beside base files, and not counted"
+else
+    fail "provisioning with base files and no agent link (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+
+reset_fixtures; manifest alpha la; : > "${LINKS}/ai-tools-run"; vlink la v9.9.9
+rc=0; out="$(call_provisioning)" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "admin status provisioning" "status_provisioning absent (older helper?)"
+elif grep -qE '^ +\[OK\] +alpha provisioned \(la\)' <<<"${out}" && grep -qx 'problems=0' <<<"${out}"; then
+    pass "an enabled agent whose launcher link exists is reported provisioned"
+else
+    fail "provisioning with the agent link (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
 fi
 
 finish

@@ -572,6 +572,23 @@ else
     fail "an outdated live skill was not listed under --all: ${out}"
 fi
 
+# An agent's config directory is group-writable, so the sandbox account can plant the skill link itself, and its target
+# is printed on root's terminal. A target carrying a terminal escape reaches the report with the control bytes replaced.
+# The link path comes from the host's enabled agent manifests, so the case runs where one declares a skills directory.
+cp "${ROOT}/usr/share/ai-tools/skills/ai-tools-demo/SKILL.md" "${ROOT}/opt/ai-tools/skills/ai-tools-demo/SKILL.md"
+mkdir -p "${ROOT}/opt/ai-tools/.claude/skills"
+ln -sfn $'/tmp/planted\e]0;title\a' "${ROOT}/opt/ai-tools/.claude/skills/ai-tools-demo"
+run_check
+if ! grep -q asset-unlinked <<< "${out}"; then
+    skip "a planted skill link's target" "no enabled agent on this host declares a skills directory at /opt/ai-tools/.claude"
+elif [[ "${out}" != *$'\e'* && "${out}" != *$'\a'* ]] \
+        && has_finding MSG-N9S4 "${ROOT}/opt/ai-tools/.claude/skills/ai-tools-demo" asset-unlinked \
+            "claude-code: points at /tmp/planted?]0;title?"; then
+    pass "a planted skill link's target is printed with its control bytes replaced"
+else
+    fail "a planted skill link's target reached the report unsanitized: $(printf '%q' "${out}")"
+fi
+
 for bad in "--all" "--format tsv" "--check --format json" "--check --bogus"; do
     # shellcheck disable=SC2086  # each case is a word list on purpose
     if bad_out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade ${bad} \
