@@ -231,13 +231,16 @@ _ai_tools_ev_record_path() {
 #   ONLY, and refused rather than left to fail on EACCES, so a caller can tell "not permitted" from
 #   "the directory is missing". Written to a temp file and renamed, so a reader never sees a partial
 #   record. World-readable: what these records hold is a published checksum and a label outcome,
-#   neither a secret, and the launch shim reads the pin as the sandbox account. The 0750 directory
-#   is the boundary, not the file mode.
+#   neither a secret, and the launch shim reads the pin as the sandbox account. A missing directory
+#   is created at the mode the package ships it with, 0755 root:root. Path resolution needs search
+#   permission on every ancestor, so only the accounts /var/opt/ai-tools/state admits (0750
+#   root:SANDBOX_GROUP, plus the ai-ops ACL) reach it, and they reach it through its other bits:
+#   0750 would leave the shim unable to read the pin, which reads as unpinned.
 _ai_tools_ev_write_record() {
     local path="${1:-}" dir="${2:-}" tmp
     [[ "${EUID:-$(id -u)}" -eq 0 ]] || { _ai_tools_ev_warn "refusing to write ${path} as non-root"; return 1; }
     [[ -d "${dir}" ]] \
-        || install -d -m 0750 -o root -g root "${dir}" 2>/dev/null \
+        || install -d -m 0755 -o root -g root "${dir}" 2>/dev/null \
         || { _ai_tools_ev_warn "cannot create ${dir}"; return 1; }
     tmp="$(mktemp "${path}.XXXXXX" 2>/dev/null)" || return 1
     cat > "${tmp}" 2>/dev/null || { rm -f -- "${tmp}"; return 1; }

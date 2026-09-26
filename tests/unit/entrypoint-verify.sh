@@ -223,6 +223,15 @@ else
         fail "the label record did not read back as RESULT=failed with its reason and a LABELLED age"
     fi
 
+    # The record directory did not exist before that write, so the writer created it. It must take the mode the package
+    # ships it with: the launch shim reads the pin as the sandbox account, and a directory closed to that account reads
+    # as no pin at all.
+    if [[ "$(stat -c '%a %U:%G' "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}" 2>/dev/null)" == "755 root:root" ]]; then
+        pass "a record directory the writer creates is 0755 root:root, the mode the package ships"
+    else
+        fail "the writer created its record directory as $(stat -c '%a %U:%G' "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}" 2>/dev/null)"
+    fi
+
     # A reason is a token, never prose: the accessors' charset clamp does not admit spaces, so a value carrying any
     # would read as absent and the record would lose the field silently. It is dropped at write time instead, leaving
     # a record whose every field can be read back.
