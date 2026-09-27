@@ -863,6 +863,7 @@ do_summary() {
     _chk /usr/local/share/man/man5/ai-tools-allowed-projects.5
     _chk /usr/local/share/man/man5/ai-tools-secret-patterns.5
     _chk /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
+    _chk /usr/local/share/man/man5/ai-tools-records.5
     _chk /usr/local/share/man/man7/ai-tools-messages.7
     _chk /usr/local/share/man/man8/ai-tools-admin.8
     _chk /var/opt/ai-tools
@@ -889,6 +890,8 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/filters.d/base.rules
     _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
     _chk /usr/local/lib/ai-tools/services.lib.sh
+    _chk /usr/local/lib/ai-tools/records-base.lib.sh
+    _chk /usr/local/lib/ai-tools/records-tsv.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
@@ -1341,6 +1344,17 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/services.lib.sh" \
         /usr/local/lib/ai-tools/services.lib.sh
 
+    # Record streams: 644 root:root -- the model and report state, and the TSV wire format, sourced by every report
+    # a machine consumer reads (ai-tools-records(5)). Pure data plus encoding, no secrets, no msg.lib dependency.
+    log "/usr/local/lib/ai-tools/records-base.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/records-base.lib.sh" \
+        /usr/local/lib/ai-tools/records-base.lib.sh
+    log "/usr/local/lib/ai-tools/records-tsv.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/records-tsv.lib.sh" \
+        /usr/local/lib/ai-tools/records-tsv.lib.sh
+
     # Agent manifests: the agents.d directory (0755 root:root) plus each agent's <name>.conf (644, parsed data naming
     # its npm package + launcher). This from-source installer deploys the full stack, so it lays down the claude-code
     # manifest here (the RPM ships it in the agent subpackage). No secrets, no tokens.
@@ -1758,6 +1772,13 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5" \
         /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
+
+    # ai-tools-records(5). The record stream a report writes for a machine consumer: the columns, the byte escape,
+    # the identity recipe and the exit contract, with a reference decoder, so a consumer is written from the page.
+    log "/usr/local/share/man/man5/ai-tools-records.5"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-records.5" \
+        /usr/local/share/man/man5/ai-tools-records.5
 
     # ai-tools-typesafe.conf(5). The typesafe integration's credential file: its four options and what the decide
     # command refuses, so the seeded template can stay a pointer.
@@ -2548,6 +2569,7 @@ do_uninstall() {
     rm -f /usr/local/share/man/man5/ai-tools-allowed-projects.5
     rm -f /usr/local/share/man/man5/ai-tools-secret-patterns.5
     rm -f /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
+    rm -f /usr/local/share/man/man5/ai-tools-records.5
     rm -f /usr/local/share/man/man5/ai-tools-typesafe.conf.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude /usr/local/bin/codex /usr/local/bin/ai-tools-launch
