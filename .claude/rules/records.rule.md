@@ -93,6 +93,7 @@ comments, rendered with `groff -man -Tascii -P-cbou` and dedented — over the s
 the reader rules over whole streams, the item framing, the published identity vectors, every severity fold, an invalid
 row under `set -euo pipefail`, a write to a closed pipe, and the rules of [Rules for a report calling
 the libraries](#rules-for-a-report-calling-the-libraries) and [Caps](#caps-a-deliberate-stop-stays-apart-from-a-failure)
-through a fixture collector. `man`, `groff` and `python3` are dependencies there: a missing one fails rather than skips.
-The installed copies are covered by `tests/integration/perms.sh`, and each consumer's own suite drives the real
-collectors.
+through a fixture collector. `groff`, `python3` and `sha256sum` are dependencies there: a missing one fails rather than
+skips, so the page's decoder is checked on every platform the suite runs on, and the container selftest images install
+`groff-base` for it. The installed copies are covered by `tests/integration/perms.sh`, and each consumer's own suite
+drives the real collectors.

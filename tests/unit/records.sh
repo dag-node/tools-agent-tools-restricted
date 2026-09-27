@@ -26,8 +26,9 @@
 #
 # It loads the CHECKOUT's libraries by path, not the installed copies, and prints the two paths as its first output:
 # after an install the installed copy would otherwise pass while the checkout's code changes. The installed copy is
-# covered by tests/integration/perms.sh and by the consumer suites. man, groff and python3 are dependencies: a missing
-# one fails rather than skips. Runs unprivileged.
+# covered by tests/integration/perms.sh and by the consumer suites. groff, python3 and sha256sum are dependencies:
+# a missing one fails rather than skips, so the page's decoder is checked on every platform the suite runs on (the
+# container selftest images install groff-base for it). Runs unprivileged.
 
 # shellcheck disable=SC2154  # every output variable in this file is assigned by a library's `printf -v`
 # shellcheck disable=SC2015  # `check && pass || fail`: pass returns 0, so fail runs only on a failed check
@@ -51,7 +52,7 @@ if ! source "${TSV_LIB}" \
     fail "could not source ${TSV_LIB} or it does not define its functions"; finish; exit
 fi
 pass "records-tsv.lib.sh sources records-base.lib.sh and both define their functions"
-for tool in man groff python3 sha256sum; do
+for tool in groff python3 sha256sum; do
     command -v "${tool}" >/dev/null 2>&1 || { fail "${tool} is a dependency of this test and is not installed"; finish; exit; }
 done
 mktestdir

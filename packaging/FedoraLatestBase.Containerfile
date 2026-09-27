@@ -36,6 +36,8 @@ ARG RPM_RELEASE=""
 # which ships microdnf/dnf5), selinux-policy-devel + policycoreutils for the policy compile among
 # them. dbus-broker backs the sandbox account's `systemd --user manager`, rpm-build/createrepo_c
 # build and serve the local repo, and the util-linux/procps-ng/libselinux tools back the selftest.
+# groff-base renders the decoder block of ai-tools-records(5) for tests/unit/records.sh, which fails
+# without it rather than skipping, so the page is checked on every platform.
 # One Fedora packaging difference from EL: fedora-minimal splits script(1) out of util-linux into
 # util-linux-script, and the selftest runs `claude --version` under `script` to give it a PTY, so it
 # is named explicitly here (EL's util-linux bundles it). Kept in step with ELBase's install layer.
@@ -43,7 +45,7 @@ RUN microdnf -y install \
         dnf rpm-build rpm-sign gnupg2 systemd-rpm-macros make sed tar gzip findutils createrepo_c \
         selinux-policy-devel policycoreutils \
         systemd dbus-broker sudo shadow-utils passwd util-linux util-linux-script procps-ng \
-        libselinux-utils git curl which glibc-langpack-en \
+        libselinux-utils git curl which glibc-langpack-en groff-base \
     && microdnf clean all
 
 # Source tree for `make rpm` + the test suite, copied exactly as ELBase does (a .containerignore at
