@@ -308,11 +308,11 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | n9s4 | [MSG-N9S4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | asset-unlinked | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
 | p5k4 | [MSG-P5K4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | list-unmigrated | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_attention |
 | s3d8 | [MSG-S3D8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | list-unmigratable | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh, tests/unit/bootstrap.sh, tests/unit/postupgrade.sh | _pu_attention |
-| y3j5 | [MSG-Y3J5](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | error | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_check_failed |
-| j3x7 | [MSG-J3X7](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | rpmnew-residual | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_aside |
-| w8f8 | [MSG-W8F8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | copy-kept | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_aside |
-| r6b2 | [MSG-R6B2](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | asset-outdated | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_aside |
-| w3m8 | [MSG-W3M8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | asset-overridden | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_aside |
+| y3j5 | [MSG-Y3J5](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | error | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_unreadable |
+| j3x7 | [MSG-J3X7](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | rpmnew-residual | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_info |
+| w8f8 | [MSG-W8F8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | copy-kept | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_info |
+| r6b2 | [MSG-R6B2](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | asset-outdated | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/postupgrade.sh | _pu_info |
+| w3m8 | [MSG-W3M8](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | asset-overridden | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | _pu_info |
 | t6s6 | [MSG-T6S6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | status: takes no arguments | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/admin-commands.sh | reject |
 | v6n9 | [MSG-V6N9](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | the service registry (${SERVICES_LIB}) is unavailable -- reinstall ai-tools-base | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | die |
 | h6j5 | [MSG-H6J5](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | unknown command 'operators ${verb}' (list\|add\|remove) | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | reject |

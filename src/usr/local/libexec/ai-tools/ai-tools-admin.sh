@@ -17,7 +17,7 @@
 #   sudo ai-tools-admin system bootstrap --agents agent-codex # ... enabling the named agent, unattended
 #   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
-#   sudo ai-tools-admin system post-upgrade --check        # findings as tab-separated lines; silent, exit 0 when clean
+#   sudo ai-tools-admin system post-upgrade --check        # findings as a record stream; silent, exit 0 when clean
 #   sudo ai-tools-admin status                             # the host's health, read as root
 #   sudo ai-tools-admin dotnet bootstrap                   # a domain a provider package contributes
 #   ```
@@ -101,6 +101,7 @@ readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 readonly SETTINGS_MERGE_LIB="/usr/local/lib/ai-tools/settings-merge.lib.sh"
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 readonly PATH_ORDER_LIB="/usr/local/lib/ai-tools/path-order.lib.sh"
+readonly RECORDS_TSV_LIB="/usr/local/lib/ai-tools/records-tsv.lib.sh"
 # Where a provider package drops the command fragment carrying its own domain. The environment override is a test hook
 # of the same standing as AI_TOOLS_POSTUPGRADE_ROOT: sudo strips the name, so tests/unit/admin-commands.sh drives
 # the dispatch against a fixture tree. `--help` lists the domains through it ahead of the root check, so a non-root
@@ -497,6 +498,10 @@ contributed_dispatch() {
 # The hook-declaration merge `system post-upgrade` applies to a kept settings.json. Required for the same reason.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/settings-merge.lib.sh
 . "${SETTINGS_MERGE_LIB}" || die_unsourced "${SETTINGS_MERGE_LIB}"
+# The record stream `system post-upgrade --check` writes and the exit status every report here ends with. Required:
+# a check that could not write its stream would exit 0 over a host it did not read. Sources records-base.lib.sh itself.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/records-tsv.lib.sh
+. "${RECORDS_TSV_LIB}" || die_unsourced "${RECORDS_TSV_LIB}"
 
 # Provider resolver: the manifest key behind each domain's summary line, and the enabled-integration list
 # `system bootstrap --scope full` iterates. Optional at load and gated at each use -- without it every installed
@@ -1531,7 +1536,7 @@ _pu_show() {
 # _pu_entries <root>: one "<file>|<kind>|<label>" line per file with a .rpmnew waiting -- the registry first, then each
 # one found under POSTUPGRADE_DIRS that the registry does not name.
 _pu_entries() {
-    local root="$1" entry file kind label dir rpmnew
+    local root="$1" entry file kind label dir rpmnew fd pid
     local -a named=()
     for entry in "${POSTUPGRADE_FILES[@]}"; do
         IFS='|' read -r file kind label <<< "${entry}"
@@ -1540,14 +1545,20 @@ _pu_entries() {
     done
     for dir in "${POSTUPGRADE_DIRS[@]}"; do
         [[ -d "${root}${dir}" ]] || continue
-        while IFS= read -r rpmnew; do
+        exec {fd}< <(find "${root}${dir}" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null | sort); pid=$!
+        while IFS= read -r -u "${fd}" rpmnew; do
             file="${rpmnew%.rpmnew}"
             [[ -f "${file}" && " ${named[*]} " != *" ${file} "* ]] || continue
             named+=("${file}")
             if [[ "${file}" == *.conf ]]; then kind=keyval; else kind=show; fi
             printf '%s|%s|%s\n' "${file}" "${kind}" "${file##*/}"
-        done < <(find "${root}${dir}" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null | sort)
+        done
+        exec {fd}<&-
+        # A directory the walk could not read is a .rpmnew this collector may have missed, so the collector fails rather
+        # than reporting the files it did find as the whole set.
+        wait "${pid}" || return 1
     done
+    return 0
 }
 
 # _pu_ask_gaps <root>: name each ask entry the kept settings.json lacks for an installed command, with the line to add.
@@ -1654,7 +1665,7 @@ _pu_asset_report() {
     _PU_NAME="assets"
     ai_tools_msg_headline "shared skills, subagents and orientation" 1 "$1/opt/ai-tools"
     for path in "${lines[@]}"; do
-        IFS=$'\t' read -r state path detail <<< "${path}"
+        IFS=$'\t' read -r state _ path detail <<< "${path}"
         case "${state}" in
             asset-missing|asset-unlinked|error) _pu_say act "${path} -- ${detail}" ;;
             *)                                  _pu_say info "${path} -- ${detail}" ;;
@@ -1704,9 +1715,11 @@ _pu_sidecars() {
     printf '  each is yours to keep or remove -- no command reads one\n'
 }
 
-# postupgrade [--check]: reconcile the copies, or with --check list what needs attention without asking or writing.
-# Returns 0 when nothing is left to act on and 1 otherwise, the contract `status` offers, so a caller reads the outcome
-# from the exit status alone.
+# postupgrade [--check [--all] [--format tsv]]: reconcile the copies, or with `--check` write what needs attention
+# as a record stream without asking or writing. Returns 0 when no file is left to act on, AI_TOOLS_EXIT_FINDINGS while
+# one is, and 1 when a merge the run was asked to make did not happen (the two `err` lines _pu_json counts), so a caller
+# reads the outcome from the exit status alone; under `--check` the status is the report state's, which adds
+# AI_TOOLS_EXIT_UNREADABLE for a source the check could not read (ai-tools-records(5), EXIT STATUS).
 postupgrade() {
     local check=0 all=0 format=tsv format_given=0 refusal=""
     while [[ $# -gt 0 && -z "${refusal}" ]]; do
@@ -1727,132 +1740,200 @@ postupgrade() {
     [[ -z "${refusal}" ]] || reject MSG-S9M6 "system post-upgrade: ${refusal}"
     if (( check )); then
         _PU_ALL="${all}"
-        _pu_check "${AI_TOOLS_POSTUPGRADE_ROOT:-}"
-        return
+        _pu_run_check "${AI_TOOLS_POSTUPGRADE_ROOT:-}"
+        ai_tools_records_get_exit_status || return $?
+        return 0
     fi
     _pu_report
-    (( _PU_ATTENTION == 0 ))
+    (( _PU_ERRORS == 0 )) || return 1
+    (( _PU_ATTENTION == 0 )) || return "${AI_TOOLS_EXIT_FINDINGS}"
+    return 0
 }
 
-# ── --check: the findings as data ────────────────────────────────────────────────────────────
-# One line per finding, `<code> TAB <path> TAB <finding> TAB <detail>`, and nothing else -- no colour, no heading,
-# and no line when the host is clean -- so a cron job mails only a host that needs attention and a monitor splits
-# the line on a tab. A finding that needs attention is printed always and makes the run exit 1; the rest are printed
-# only under --all and do not change the exit status. Each finding is one situation, so it carries one message code,
-# and _pu_finding is the one place a finding is tied to its code.
+# ── `--check`: the findings as a record stream ───────────────────────────────────────────────
+# One record per finding, in the stream ai-tools-records(5) states -- no colour, no heading, and no output at all
+# on a host with no finding -- so a cron job mails only a host that needs attention and a monitor reads the header
+# and the rows. Each finding is one situation, so it carries one message code, and _pu_write_finding is the one table
+# tying a finding to its code and its severity: `attention` makes the run exit AI_TOOLS_EXIT_FINDINGS, `unreadable` (the
+# `error` finding, a check that could not run) AI_TOOLS_EXIT_UNREADABLE, and `info` is written under `--all` alone
+# and leaves the exit as it is. The caller names the subject-type, since an asset reported missing has no path to stat,
+# and the item is the components the collector's own granularity gives -- the event and the command of a hook, the list
+# and the rule of a permission rule, a key, and for an `error` one token naming the check -- so two findings on one file
+# keep two ids. No row carries an operator: every subject is under /etc or /opt/ai-tools, host-wide.
+#
+# The collectors feed the check through `< <(...)`, and _pu_run_check saves each one's PID on the statement that opens
+# it and waits for it once its output is read (records.rule.md), so a collector that exits non-zero is an `error` row
+# on the root it walked rather than a shorter set read as complete. They keep the line and `|` framing the interactive
+# report reads them with, which holds for a path the packages install and does not for a name the sandbox account plants
+# under an agent's config directory with a line feed in it: such a name splits into two rows and removes none, so it
+# adds findings to a run and does not make one read as clean.
 _PU_ALL=0
-_PU_FINDINGS=0
+_PU_CODE=""
+_PU_SEVERITY=""
 
-# _pu_attention <code> <finding> <path> [detail]: a finding that needs attention -- printed, and counted.
-_pu_attention() {
-    printf '%s\t%s\t%s\t%s\n' "$1" "$3" "$2" "${4:--}"
-    _PU_FINDINGS=$(( _PU_FINDINGS + 1 ))
-}
-# _pu_check_failed <code> <finding> <path> <reason>: a check that could not run, which needs attention as well.
-_pu_check_failed() { _pu_attention "$@"; }
-# _pu_aside <code> <finding> <path> [detail]: a finding that needs no action, printed under --all alone.
-_pu_aside() {
-    (( _PU_ALL )) || return 0
-    printf '%s\t%s\t%s\t%s\n' "$1" "$3" "$2" "${4:--}"
-}
+# _pu_attention / _pu_unreadable / _pu_info <code> <finding>: the code and severity a finding token carries,
+# into _PU_CODE and _PU_SEVERITY -- one word per severity, and the code first, so the message index reads each table
+# line as the definition it is and the messages page derives the severity from the word.
+_pu_attention()  { _PU_CODE="$1"; _PU_SEVERITY=attention; }
+_pu_unreadable() { _PU_CODE="$1"; _PU_SEVERITY=unreadable; }
+_pu_info()       { _PU_CODE="$1"; _PU_SEVERITY=info; }
 
-# _pu_finding <finding> <path> [detail]: report one finding under its code. ai-tools-admin(8) lists what each means.
-_pu_finding() {
-    case "$1" in
-        hook-missing)       _pu_attention MSG-F2G7 "hook-missing" "$2" "${3-}" ;;
-        hook-repeated)      _pu_attention MSG-E8S8 "hook-repeated" "$2" "${3-}" ;;
-        ask-missing)        _pu_attention MSG-E9V5 "ask-missing" "$2" "${3-}" ;;
-        rule-missing)       _pu_attention MSG-Z8U4 "rule-missing" "$2" "${3-}" ;;
-        key-missing)        _pu_attention MSG-K5H2 "key-missing" "$2" "${3-}" ;;
-        option-unmentioned) _pu_attention MSG-N3U8 "option-unmentioned" "$2" "${3-}" ;;
-        rpmnew-differs)     _pu_attention MSG-P4Q4 "rpmnew-differs" "$2" "${3-}" ;;
-        rpmnew-review)      _pu_attention MSG-Y3P3 "rpmnew-review" "$2" "${3-}" ;;
-        rpmnew-orphan)      _pu_attention MSG-K8D2 "rpmnew-orphan" "$2" "${3-}" ;;
-        asset-missing)      _pu_attention MSG-X6H5 "asset-missing" "$2" "${3-}" ;;
-        asset-unlinked)     _pu_attention MSG-N9S4 "asset-unlinked" "$2" "${3-}" ;;
-        list-unmigrated)    _pu_attention MSG-P5K4 "list-unmigrated" "$2" "${3-}" ;;
-        list-unmigratable)  _pu_attention MSG-S3D8 "list-unmigratable" "$2" "${3-}" ;;
-        error)              _pu_check_failed MSG-Y3J5 "error" "$2" "${3-}" ;;
-        rpmnew-residual)    _pu_aside MSG-J3X7 "rpmnew-residual" "$2" "${3-}" ;;
-        copy-kept)          _pu_aside MSG-W8F8 "copy-kept" "$2" "${3-}" ;;
-        asset-outdated)     _pu_aside MSG-R6B2 "asset-outdated" "$2" "${3-}" ;;
-        asset-overridden)   _pu_aside MSG-W3M8 "asset-overridden" "$2" "${3-}" ;;
+# _pu_write_finding <finding> <subject-type> <subject> <detail> [<component>...]: write one record, or none
+# for an `info` finding without `--all`. ai-tools-admin(8) lists what each finding means. A token this table does not
+# carry, and an empty item component, are defects of this file: each is written as an `error` row, so the run reads
+# AI_TOOLS_EXIT_UNREADABLE rather than silently short.
+_pu_write_finding() {
+    local finding="$1" subject_type="$2" subject="$3" detail="$4" item
+    shift 4
+    case "${finding}" in
+        hook-missing)       _pu_attention MSG-F2G7 "hook-missing" ;;
+        hook-repeated)      _pu_attention MSG-E8S8 "hook-repeated" ;;
+        ask-missing)        _pu_attention MSG-E9V5 "ask-missing" ;;
+        rule-missing)       _pu_attention MSG-Z8U4 "rule-missing" ;;
+        key-missing)        _pu_attention MSG-K5H2 "key-missing" ;;
+        option-unmentioned) _pu_attention MSG-N3U8 "option-unmentioned" ;;
+        rpmnew-differs)     _pu_attention MSG-P4Q4 "rpmnew-differs" ;;
+        rpmnew-review)      _pu_attention MSG-Y3P3 "rpmnew-review" ;;
+        rpmnew-orphan)      _pu_attention MSG-K8D2 "rpmnew-orphan" ;;
+        asset-missing)      _pu_attention MSG-X6H5 "asset-missing" ;;
+        asset-unlinked)     _pu_attention MSG-N9S4 "asset-unlinked" ;;
+        list-unmigrated)    _pu_attention MSG-P5K4 "list-unmigrated" ;;
+        list-unmigratable)  _pu_attention MSG-S3D8 "list-unmigratable" ;;
+        error)              _pu_unreadable MSG-Y3J5 "error" ;;
+        rpmnew-residual)    _pu_info MSG-J3X7 "rpmnew-residual" ;;
+        copy-kept)          _pu_info MSG-W8F8 "copy-kept" ;;
+        asset-outdated)     _pu_info MSG-R6B2 "asset-outdated" ;;
+        asset-overridden)   _pu_info MSG-W3M8 "asset-overridden" ;;
+        *)  _pu_write_finding error "${subject_type}" "${subject}" "no code for the finding '${finding}'" finding-table
+            return 0 ;;
     esac
+    if ! ai_tools_records_tsv_frame_item_components item "$@"; then
+        _pu_write_finding error "${subject_type}" "${subject}" "an empty item component for ${finding}" finding-table
+        return 0
+    fi
+    [[ "${_PU_SEVERITY}" != info ]] || (( _PU_ALL )) || return 0
+    ai_tools_records_tsv_write_record "" "${_PU_CODE}" "${_PU_SEVERITY}" "${finding}" "${subject_type}" "" "${item}" \
+        "${subject}" "${detail}"
 }
 
-# _pu_check <root>: every finding, through _pu_finding, without asking or writing. Each reads the same predicate
-# the report does. Returns 1 when a finding needs attention.
-_pu_check() {
-    local root="$1" file kind label scratch status key line state path detail
+# _pu_hook_finding <finding> <file> <line>: a hook declaration the merge names as "<event>: <command>", written
+# with the event and the command as its item components. A line without that shape is an `error` row, not a guess.
+_pu_hook_finding() {
+    if [[ "$3" != *": "* ]]; then
+        _pu_write_finding error file "$2" "a hook declaration the merge named could not be read: $3" hook-merge
+        return 0
+    fi
+    _pu_write_finding "$1" file "$2" "$3" "${3%%: *}" "${3#*: }"
+}
+
+# _pu_wait_collector <pid> <subject-type> <subject> <source>: wait for a collector opened with `< <(...)`, and write
+# an `error` row naming it when it exited non-zero. Called in the report's own shell, after the collector's output is
+# read, with the PID saved on the statement that opened it.
+_pu_wait_collector() {
+    local status=0
+    wait "$1" || status=$?
+    (( status == 0 )) || _pu_write_finding error "$2" "$3" "the ${4} collector exited ${status}" "$4"
+}
+
+# _pu_run_check <root>: every finding, through _pu_write_finding, without asking or writing. Each reads the same
+# predicate the report does. The caller reads the outcome off the report state, ai_tools_records_get_exit_status.
+_pu_run_check() {
+    local root="$1" file kind label scratch status key line state stype path detail live reference fd pid
     local -a new_keys=() entries=()
-    _PU_FINDINGS=0
+    ai_tools_records_begin_report
     _pu_kind_findings "${root}"
-    while IFS='|' read -r file kind label; do
-        if cmp -s "${file}" "${file}.rpmnew"; then _pu_finding rpmnew-residual "${file}.rpmnew"; continue; fi
+    exec {fd}< <(_pu_entries "${root}"); pid=$!
+    while IFS='|' read -r -u "${fd}" file kind label; do
+        if cmp -s "${file}" "${file}.rpmnew"; then _pu_write_finding rpmnew-residual file "${file}.rpmnew" ""; continue; fi
         case "${kind}" in
         json)
-            if ! ai_tools_conf_require_jq 2>/dev/null; then _pu_finding error "${file}" "jq is not installed"; continue; fi
-            scratch="$(mktemp -d)" || { _pu_finding error "${file}" "no temporary directory"; continue; }
+            if ! ai_tools_conf_require_jq 2>/dev/null; then
+                _pu_write_finding error file "${file}" "jq is not installed" jq
+                continue
+            fi
+            scratch="$(mktemp -d)" || { _pu_write_finding error file "${file}" "no temporary directory" mktemp; continue; }
             status=0
             cp -p "${file}" "${scratch}/probe" && ai_tools_conf_merge_hook_declarations "${scratch}/probe" \
                 "${file}.rpmnew" >/dev/null 2>&1 || status=$?
             rm -rf "${scratch}"
             case "${status}" in
-            0)  for line in "${_ai_tools_conf_merge_added[@]}"; do _pu_finding hook-missing "${file}" "${line}"; done
+            0)  for line in "${_ai_tools_conf_merge_added[@]}"; do _pu_hook_finding hook-missing "${file}" "${line}"; done
                 for line in "${_ai_tools_conf_merge_removed[@]}"; do
-                    _pu_finding hook-repeated "${file}" "${line}"
+                    _pu_hook_finding hook-repeated "${file}" "${line}"
                 done
                 _pu_settings_findings "${file}" ;;
             1)  _pu_settings_findings "${file}" ;;
-            *)  _pu_finding error "${file}" "${_ai_tools_conf_merge_reason:-merge probe failed}" ;;
+            *)  _pu_write_finding error file "${file}" "${_ai_tools_conf_merge_reason:-merge probe failed}" hook-merge ;;
             esac ;;
         keyval)
             if ai_tools_conf_new_keys new_keys "${file}" "${file}.rpmnew"; then
-                for key in "${new_keys[@]}"; do _pu_finding option-unmentioned "${file}" "${key}"; done
+                for key in "${new_keys[@]}"; do _pu_write_finding option-unmentioned file "${file}" "${key}" "${key}"; done
             fi
             [[ "$(_pu_prose "${file}")" == "$(_pu_prose "${file}.rpmnew")" ]] \
-                || _pu_finding rpmnew-differs "${file}" "comments" ;;
+                || _pu_write_finding rpmnew-differs file "${file}" "comments" ;;
         review)
-            _pu_finding rpmnew-review "${file}" "sudoers grant" ;;
+            _pu_write_finding rpmnew-review file "${file}" "sudoers grant" ;;
         *)
-            _pu_finding rpmnew-differs "${file}" ;;
+            _pu_write_finding rpmnew-differs file "${file}" "" ;;
         esac
-    done < <(_pu_entries "${root}")
+    done
+    exec {fd}<&-
+    _pu_wait_collector "${pid}" directory "${root:-/}" entries
 
-    while IFS= read -r path; do _pu_finding rpmnew-orphan "${path}" "the file it belongs to is gone"; done \
-        < <(_pu_orphans "${root}")
+    exec {fd}< <(_pu_orphans "${root}"); pid=$!
+    while IFS= read -r -u "${fd}" path; do
+        _pu_write_finding rpmnew-orphan file "${path}" "the file it belongs to is gone"
+    done
+    exec {fd}<&-
+    _pu_wait_collector "${pid}" directory "${root:-/}" orphans
 
     file="${root}/opt/ai-tools/.claude/settings.json"
     if [[ -f "${file}" ]]; then
         if line="$(ai_tools_conf_ask_gaps "${file}" "${root}" 2>/dev/null)"; then
             [[ -n "${line}" ]] && mapfile -t entries <<< "${line}"
-            for line in "${entries[@]}"; do _pu_finding ask-missing "${file}" "${line}"; done
+            for line in "${entries[@]}"; do _pu_write_finding ask-missing file "${file}" "${line}" "${line}"; done
         else
-            _pu_finding error "${file}" "ask entries not checked: jq is missing or the file is not valid JSON"
+            _pu_write_finding error file "${file}" "ask entries not checked: jq is missing or the file is not valid JSON" \
+                ask-entries
         fi
     fi
 
-    local live reference
     if declare -F ai_tools_managed_file_missing_keys >/dev/null 2>&1; then
-        while IFS=$'\t' read -r live reference; do
+        exec {fd}< <(_pu_managed_pairs "${root}"); pid=$!
+        while IFS=$'\t' read -r -u "${fd}" live reference; do
             [[ -f "${live}" && -f "${reference}" ]] || continue
             cmp -s "${live}" "${reference}" && continue
             if line="$(ai_tools_managed_file_missing_keys "${live}" "${reference}")"; then
                 entries=()
                 [[ -n "${line}" ]] && mapfile -t entries <<< "${line}"
-                for line in "${entries[@]}"; do _pu_finding key-missing "${live}" "${line}"; done
+                for line in "${entries[@]}"; do _pu_write_finding key-missing file "${live}" "${line}" "${line}"; done
             else
-                _pu_finding error "${live}" "keys not checked: the file or its shipped copy is not readable"
+                _pu_write_finding error file "${live}" "keys not checked: the file or its shipped copy is not readable" \
+                    managed-keys
             fi
-        done < <(_pu_managed_pairs "${root}")
+        done
+        exec {fd}<&-
+        _pu_wait_collector "${pid}" directory "${root}/etc" managed-pairs
     else
-        _pu_finding error "${root}/etc" "managed-file keys not checked: ${PROVIDERS_LIB} did not load"
+        _pu_write_finding error directory "${root}/etc" "managed-file keys not checked: ${PROVIDERS_LIB} did not load" \
+            managed-keys
     fi
 
-    while IFS=$'\t' read -r state path detail; do _pu_finding "${state}" "${path}" "${detail}"; done \
-        < <(_pu_assets "${root}")
-    while IFS= read -r path; do _pu_finding copy-kept "${path}"; done < <(_pu_copies "${root}")
-    (( _PU_FINDINGS == 0 ))
+    exec {fd}< <(_pu_assets "${root}"); pid=$!
+    while IFS=$'\t' read -r -u "${fd}" state stype path detail; do
+        if [[ "${state}" == error ]]; then
+            _pu_write_finding error "${stype}" "${path}" "${detail}" shared-assets
+        else
+            _pu_write_finding "${state}" "${stype}" "${path}" "${detail}"
+        fi
+    done
+    exec {fd}<&-
+    _pu_wait_collector "${pid}" directory "${root}/opt/ai-tools" assets
+
+    exec {fd}< <(_pu_copies "${root}"); pid=$!
+    while IFS= read -r -u "${fd}" path; do _pu_write_finding copy-kept file "${path}" ""; done
+    exec {fd}<&-
+    _pu_wait_collector "${pid}" directory "${root:-/}" copies
 }
 
 # _pu_settings_findings <file>: the findings _pu_settings_rest reports for a settings file and its .rpmnew -- a rule
@@ -1860,45 +1941,51 @@ _pu_check() {
 _pu_settings_findings() {
     local file="$1" gaps kind list rule scratch
     if ! gaps="$(ai_tools_conf_permission_gaps "${file}" "${file}.rpmnew")"; then
-        _pu_finding error "${file}" "permission rules not compared: jq is missing or a file is not valid JSON"
+        _pu_write_finding error file "${file}" "permission rules not compared: jq is missing or a file is not valid JSON" \
+            permission-rules
         return 0
     fi
     while IFS=$'\t' read -r kind list rule; do
-        [[ "${kind}" == missing ]] && _pu_finding rule-missing "${file}" "${list}: ${rule}"
+        [[ "${kind}" == missing ]] && _pu_write_finding rule-missing file "${file}" "${list}: ${rule}" "${list}" "${rule}"
     done <<< "${gaps}"
     scratch="$(mktemp -d)" || return 0
     if ai_tools_conf_settings_rest "${file}" > "${scratch}/file" \
             && ai_tools_conf_settings_rest "${file}.rpmnew" > "${scratch}/copy" \
             && ! cmp -s "${scratch}/file" "${scratch}/copy"; then
-        _pu_finding rpmnew-differs "${file}" "settings"
+        _pu_write_finding rpmnew-differs file "${file}" "settings"
     fi
     rm -rf "${scratch}"
 }
 
 # _pu_kind_findings <root>: the provider list items operator.conf holds in an earlier release's bare form, read
 # through the plan the rewrite follows (ai_tools_conf_kind_plan, providers.lib.sh): list-unmigrated for a key the run
-# would rewrite, list-unmigratable for an item no run can map. A detection with no plan to read -- providers.lib.sh did
-# not load -- is a check that could not run.
+# would rewrite, list-unmigratable for an item no run can map, one row per item. A detection with no plan to read --
+# providers.lib.sh did not load -- is a check that could not run.
 _pu_kind_findings() {
-    local file="$1/etc/ai-tools/operator.conf" verdict key old new
+    local file="$1/etc/ai-tools/operator.conf" verdict key old new fd pid
     [[ -f "${file}" ]] || return 0
     if ! declare -F ai_tools_conf_kind_plan >/dev/null 2>&1; then
         declare -F ai_tools_conf_kind_unmigrated >/dev/null 2>&1 && [[ -n "$(ai_tools_conf_kind_unmigrated "${file}")" ]] \
-            && _pu_finding error "${file}" "provider names not checked: ${PROVIDERS_LIB} did not load"
+            && _pu_write_finding error file "${file}" "provider names not checked: ${PROVIDERS_LIB} did not load" \
+                provider-names
         return 0
     fi
-    while IFS=$'\t' read -r verdict key old new; do
+    exec {fd}< <(ai_tools_conf_kind_plan "${file}"); pid=$!
+    while IFS=$'\t' read -r -u "${fd}" verdict key old new; do
         case "${verdict}" in
-            migrate) _pu_finding list-unmigrated "${file}" "${key}: [${old// /, }] -> [${new// /, }]" ;;
-            blocked) _pu_finding list-unmigratable "${file}" "${key}: ${old}" ;;
+            migrate) _pu_write_finding list-unmigrated file "${file}" "${key}: [${old// /, }] -> [${new// /, }]" "${key}" ;;
+            blocked) _pu_write_finding list-unmigratable file "${file}" "${key}: ${old}" "${key}" "${old}" ;;
         esac
-    done < <(ai_tools_conf_kind_plan "${file}")
+    done
+    exec {fd}<&-
+    _pu_wait_collector "${pid}" file "${file}" kind-plan
 }
 
 # _pu_orphans <root>: each package copy whose file is gone, one path per line. rpm parks a copy only beside a file it
-# kept, so one of these is a file removed afterwards, and neither the report nor a merge otherwise reaches it.
+# kept, so one of these is a file removed afterwards, and neither the report nor a merge otherwise reaches it. Exits
+# non-zero when a directory walk failed, since a copy it did not see is then not known to be absent.
 _pu_orphans() {
-    local root="$1" entry file kind label dir
+    local root="$1" entry file kind label dir fd pid
     {
         for entry in "${POSTUPGRADE_FILES[@]}"; do
             IFS='|' read -r file kind label <<< "${entry}"
@@ -1906,17 +1993,21 @@ _pu_orphans() {
         done
         for dir in "${POSTUPGRADE_DIRS[@]}"; do
             [[ -d "${root}${dir}" ]] || continue
-            while IFS= read -r file; do
+            exec {fd}< <(find "${root}${dir}" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null); pid=$!
+            while IFS= read -r -u "${fd}" file; do
                 [[ -e "${file%.rpmnew}" ]] || printf '%s\n' "${file}"
-            done < <(find "${root}${dir}" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null)
+            done
+            exec {fd}<&-
+            wait "${pid}" || exit 1
         done
+        exit 0
     } | sort -u
 }
 
 # _pu_copies <root>: the dated copies this stack keeps as recovery material, in the order they were made -- a .bak
 # beside a config file a merge replaced, a .shipped baseline left when a merge could not run, a .retired managed file
 # an agent package replaced, and a withdrawn skill or subagent under /opt/ai-tools/retired. None is rpm's, and none is
-# read by any command.
+# read by any command. Exits non-zero when a directory walk failed, for the reason _pu_orphans states.
 _pu_copies() {
     local root="$1" dir
     {
@@ -1925,21 +2016,25 @@ _pu_copies() {
             find "${root}${dir}" -maxdepth 3 -type f \
                 \( -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.bak' \
                    -o -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.shipped' \
-                   -o -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.retired' \) 2>/dev/null
+                   -o -name '*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*.retired' \) 2>/dev/null || exit 1
         done
-        [[ -d "${root}/opt/ai-tools/retired" ]] \
-            && find "${root}/opt/ai-tools/retired" -mindepth 1 -maxdepth 1 -name '*.retired' 2>/dev/null
+        if [[ -d "${root}/opt/ai-tools/retired" ]]; then
+            find "${root}/opt/ai-tools/retired" -mindepth 1 -maxdepth 1 -name '*.retired' 2>/dev/null || exit 1
+        fi
+        exit 0
     } | _pu_sort_copies
 }
 
-# _pu_assets <root>: `<finding> TAB <path> TAB <detail>` for each shipped skill, subagent and orientation text
-# whose live copy or agent link is not the one provisioning places -- the seeding that `system bootstrap` and base's
-# scriptlet run. A live asset that is absent or an empty directory is missing: a session is not offered it. A real file
-# where an agent's link belongs, or a live asset without the managed marker, is the operator's override and is left
-# to them. Checked only where the pristine assets are installed, under <root>.
+# _pu_assets <root>: `<finding> TAB <subject-type> TAB <path> TAB <detail>` for each shipped skill, subagent
+# and orientation text whose live copy or agent link is not the one provisioning places -- the seeding
+# that `system bootstrap` and base's scriptlet run. The subject-type follows the asset kind, `directory` for a skill
+# and `file` otherwise, since a missing asset has no path to stat and a link stands for the asset it points at. A live
+# asset that is absent or an empty directory is missing: a session is not offered it. A real file where an agent's link
+# belongs, or a live asset without the managed marker, is the operator's override and is left to them. Checked only
+# where the pristine assets are installed, under <root>.
 _pu_assets() {
     local root="$1" src_root="$1/usr/share/ai-tools" live_root="$1/opt/ai-tools"
-    local kind glob src name marker dst dst_marker cur new field agent dir link target
+    local kind glob src name marker dst dst_marker cur new field agent dir link target stype
     [[ -d "${src_root}" ]] || return 0
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
     source /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || true
@@ -1952,14 +2047,14 @@ _pu_assets() {
     if ! declare -F ai_tools_asset_is_managed >/dev/null 2>&1 \
             || ! declare -F ai_tools_agent_asset_dirs >/dev/null 2>&1 \
             || ! declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
-        printf 'error\t%s\t%s\n' "${live_root}" "shared assets not checked: the asset libraries did not load"
+        printf 'error\tdirectory\t%s\t%s\n' "${live_root}" "shared assets not checked: the asset libraries did not load"
         return 0
     fi
     for kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
         case "${kind}" in
-            skills)      glob="${src_root}/skills/ai-tools-*/";      field=skills_dir ;;
-            subagents)   glob="${src_root}/subagents/ai-tools-*.md"; field=subagents_dir ;;
-            orientation) glob="${src_root}/orientation/AGENTS.md";  field="" ;;
+            skills)      glob="${src_root}/skills/ai-tools-*/";      field=skills_dir;    stype="directory" ;;
+            subagents)   glob="${src_root}/subagents/ai-tools-*.md"; field=subagents_dir; stype="file" ;;
+            orientation) glob="${src_root}/orientation/AGENTS.md";  field="";            stype="file" ;;
             *)           continue ;;
         esac
         for src in ${glob}; do
@@ -1971,17 +2066,17 @@ _pu_assets() {
             dst="${live_root}/${kind}/${name}"
             if [[ -d "${src}" ]]; then dst_marker="${dst}/SKILL.md"; else dst_marker="${dst}"; fi
             if [[ ! -e "${dst}" ]] || { [[ -d "${dst}" ]] && [[ -z "$(find "${dst}" -mindepth 1 -print -quit)" ]]; }; then
-                printf 'asset-missing\t%s\t%s\n' "${dst}" "not seeded -- sessions are not offered it"
+                printf 'asset-missing\t%s\t%s\t%s\n' "${stype}" "${dst}" "not seeded -- sessions are not offered it"
                 continue
             fi
             if ! ai_tools_asset_is_managed "${dst_marker}"; then
-                printf 'asset-overridden\t%s\t%s\n' "${dst}" "not ai-tools-managed, so provisioning leaves it"
+                printf 'asset-overridden\t%s\t%s\t%s\n' "${stype}" "${dst}" "not ai-tools-managed, so provisioning leaves it"
                 continue
             fi
             new="$(ai_tools_asset_version "${marker}")"
             cur="$(ai_tools_asset_version "${dst_marker}")"
             [[ -n "${new}" && -n "${cur}" && "${new}" -gt "${cur}" ]] \
-                && printf 'asset-outdated\t%s\t%s\n' "${dst}" "v${cur} live, v${new} shipped"
+                && printf 'asset-outdated\t%s\t%s\t%s\n' "${stype}" "${dst}" "v${cur} live, v${new} shipped"
             while IFS=$'\t' read -r agent dir; do
                 [[ -n "${agent}" ]] || continue
                 if [[ -n "${field}" ]]; then link="${root}${dir}/${name}"; else link="${root}${dir}"; fi
@@ -1989,17 +2084,19 @@ _pu_assets() {
                 if [[ -L "${link}" ]]; then
                     target="$(readlink "${link}")"
                     [[ "${target}" == "${dst}" || "${target}" == "${CP_HOME}/${kind}/${name}" ]] \
-                        || printf 'asset-unlinked\t%s\t%s\n' "${link}" \
+                        || printf 'asset-unlinked\t%s\t%s\t%s\n' "${stype}" "${link}" \
                                "${agent}: points at $(ai_tools_log_sanitize "${target}")"
                 elif [[ -e "${link}" ]]; then
-                    printf 'asset-overridden\t%s\t%s\n' "${link}" "${agent}: a file of its own in place of the link"
+                    printf 'asset-overridden\t%s\t%s\t%s\n' "${stype}" "${link}" \
+                        "${agent}: a file of its own in place of the link"
                 else
-                    printf 'asset-unlinked\t%s\t%s\n' "${link}" "${agent}: no link"
+                    printf 'asset-unlinked\t%s\t%s\t%s\n' "${stype}" "${link}" "${agent}: no link"
                 fi
             done < <(if [[ -n "${field}" ]]; then ai_tools_agent_asset_dirs "${field}"
                      else ai_tools_agent_memory_targets; fi)
         done
     done
+    return 0
 }
 
 # _pu_kind_noun <KEY>: what an item of a kind-prefixed list key names, for a report line.
