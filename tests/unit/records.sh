@@ -232,12 +232,18 @@ if [[ "${begins}" == 1 && "${ends}" == 1 ]]; then
 else
     fail "ai-tools-records(5) carries ${begins} begin and ${ends} end markers"
 fi
-awk '/^\.\\" records-decoder-begin$/{f=1; next} /^\.\\" records-decoder-end$/{f=0} f' "${PAGE}" > "${TESTDIR}/decoder.roff"
+# The block is rendered under a .TH of its own: groff 1.22.4 (EL 9) defines .EX and .EE while .TH runs, so a block
+# rendered without one is filled there and the Python arrives as one run-on line, while groff 1.23 defines them at load.
+# The header and footer lines that .TH adds carry the sentinel name and are dropped before the dedent.
+{
+    printf '.TH RECORDS-DECODER 5 "" "" ""\n'
+    awk '/^\.\\" records-decoder-begin$/{f=1; next} /^\.\\" records-decoder-end$/{f=0} f' "${PAGE}"
+} > "${TESTDIR}/decoder.roff"
 groff -man -Tascii -P-cbou "${TESTDIR}/decoder.roff" 2>"${TESTDIR}/groff.err" > "${TESTDIR}/decoder.rendered" || true
 python3 - "${TESTDIR}/decoder.rendered" "${TESTDIR}/decoder.py" <<'EOF'
 import sys, textwrap
-src = textwrap.dedent(open(sys.argv[1]).read())
-open(sys.argv[2], 'w').write(src)
+lines = [l for l in open(sys.argv[1]).read().splitlines(True) if 'RECORDS-DECODER(5)' not in l]
+open(sys.argv[2], 'w').write(textwrap.dedent(''.join(lines)))
 EOF
 if [[ -s "${TESTDIR}/decoder.py" ]] && grep -q '^def decode_field' "${TESTDIR}/decoder.py"; then
     pass "the rendered decoder is non-empty and defines decode_field"
