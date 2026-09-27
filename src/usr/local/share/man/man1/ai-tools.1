@@ -469,10 +469,10 @@ something survived
 .BR SIGKILL ,
 .B 2
 usage \(em an unknown option, or a path,
-.B 4
-declined at the confirmation,
 .B 5
-the helper could not run. The request, the answer to the confirmation, each session ended
+the helper could not run,
+.B 6
+declined at the confirmation. The request, the answer to the confirmation, each session ended
 and which pass ended it are all recorded in
 .I /var/log/ai\-tools/stop.log
 and journald. What each outcome means, and what a stop leaves in place:
@@ -738,6 +738,13 @@ every elevated helper refuses it, whatever the allowlist says.
 could not run at all: it was not invoked as root, the sandbox account has no
 uid, or the host has no cgroup v2 hierarchy.
 No session was signalled.
+.TP
+.B 6
+You declined at the confirmation, so the requested action was not performed.
+.B stop
+returns this for a deliberate
+.I n
+at its prompt; no session was signalled.
 .TP
 .B 130
 .B stop

@@ -574,16 +574,17 @@ check_question 0 3 "Terminate the 3 unit(s) of the ${SANDBOX_USER} account's own
 check_question 2 3 "the 2 agent session(s) listed above, and 3 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
 unset -f ai_tools_msg_confirm check_question
 
-# And a deliberate decline stops the stop, at exit 4, with no process signalled. The renderer's answer is stubbed
-# because a real `n` needs a terminal to type it into; what is under test is that the answer is honoured, which is
-# the wiring between the two.
+# And a deliberate decline stops the stop, at exit 6 -- the code ai-tools(1) reserves for an operator's explicit
+# decline, apart from 4 (findings) and 5 (the helper could not run) -- with no process signalled. The renderer's answer
+# is stubbed because a real `n` needs a terminal to type it into; what is under test is that the answer is honoured,
+# which is the wiring between the two.
 point_at "${CG2}" 4242
 ai_tools_msg_confirm() { return 1; }
 run_main false
-if (( MAIN_STATUS == 4 )); then
-    pass "a deliberate decline stops the stop (exit 4)"
+if (( MAIN_STATUS == 6 )); then
+    pass "a deliberate decline stops the stop (exit 6)"
 else
-    fail "decline: expected exit 4, got ${MAIN_STATUS}: ${MAIN_OUTPUT}"
+    fail "decline: expected exit 6, got ${MAIN_STATUS}: ${MAIN_OUTPUT}"
 fi
 assert_msg MSG-J3U9 "${MAIN_OUTPUT}" "the decline says nothing was stopped, through the notice emitter"
 unset -f ai_tools_msg_confirm
