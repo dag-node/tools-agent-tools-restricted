@@ -687,6 +687,58 @@ audit_case "sesearch failing is unreadable, not no-rule: exit 5" 5 "${AUDIT_EXIT
 audit_case "kernel auditing switched off is an observed absence: exit 0" 0 "${AUDIT_EXITS}" \
     'auditctl() { printf "enabled 0 failure 1 pid 0\n"; }' "${CLEAN_HEADLINE}"
 
+# ── 9. The ausearch window is formatted in the locale and zone the search parses it in ────────────────────────
+# ausearch(8) parses `-ts <date> <time>` in the locale's `%x`/`%X` under LC_TIME, with no ISO 8601 input and no offset.
+# The helper formats both words with the C locale under UTC and runs the search under the same, so the words name one
+# instant. The setup control comes first: under Europe/Prague the two instants an hour apart across the autumn fall-back
+# render to the same wall-clock word, which is the ambiguity the pin exists to remove. The stub records the arguments
+# and the environment the search ran with.
+section "the ausearch window: the C locale and UTC on both the formatting and the search"
+
+dst_first="$(date -u -d '2026-10-25T00:30:00Z' +%s)"
+dst_second="$(date -u -d '2026-10-25T01:30:00Z' +%s)"
+if [[ "$(TZ=Europe/Prague date -d "@${dst_first}" '+%H:%M:%S')" == "02:30:00" \
+        && "$(TZ=Europe/Prague date -d "@${dst_second}" '+%H:%M:%S')" == "02:30:00" ]]; then
+    pass "control: under Europe/Prague both instants render as 02:30:00, so a wall-clock word cannot tell them apart"
+    auditctl() { printf 'enabled 1 failure 1 pid 812\n'; }
+    getenforce() { printf 'Enforcing\n'; }
+    semodule() { printf 'ai_tools\n'; }
+    sesearch() { printf 'auditallow ai_tools_t ai_tools_exec_t:file { execute_no_trans };\n'; }
+    build_agent_entrypoint_map() { AGENT_NAMES=(); AGENT_PATTERNS=(); }
+    ausearch() {
+        printf 'date=%s time=%s LC_ALL=%s TZ=%s\n' "$4" "$5" "${LC_ALL:-unset}" "${TZ:-unset}" > "${TESTDIR}/ausearch-call"
+        printf '<no matches>\n' >&2; return 1
+    }
+    # window_words <epoch> : run the collector under a Prague zone and print what the search was called with.
+    window_words() {
+        # shellcheck disable=SC2034  # read by collect_entrypoint_findings in the sourced helper
+        CUTOFF_EPOCH="$1"
+        UNREADABLE_READINGS=()
+        TZ=Europe/Prague collect_entrypoint_findings
+        cat "${TESTDIR}/ausearch-call"
+    }
+    first_call="$(window_words "${dst_first}")"
+    second_call="$(window_words "${dst_second}")"
+    if [[ "${first_call}" == "date=10/25/26 time=00:30:00 LC_ALL=C TZ=UTC" ]]; then
+        pass "the window is the C locale's %x and %X of the instant in UTC, and the search runs under LC_ALL=C TZ=UTC"
+    else
+        fail "the window was formatted as: ${first_call}"
+    fi
+    if [[ "${second_call}" == "date=10/25/26 time=01:30:00 LC_ALL=C TZ=UTC" && "${first_call}" != "${second_call}" ]]; then
+        pass "the instant an hour later takes a different word, so the fall-back hour names one instant"
+    else
+        fail "the second instant was formatted as: ${second_call}"
+    fi
+    if (( ${#UNREADABLE_READINGS[@]} == 0 )); then
+        pass "a search reporting <no matches> over the window leaves every reading made"
+    else
+        fail "the window search was read as unreadable: ${UNREADABLE_READINGS[*]}"
+    fi
+    unset -f auditctl getenforce semodule sesearch build_agent_entrypoint_map ausearch window_words
+else
+    skip "ausearch window across the fall-back" "Europe/Prague is not in this host's zone database"
+fi
+
 # A non-root caller cannot read the trail at all: the reading could not be made, at the exit that says so.
 id() { printf '1000\n'; }
 rc=0; out="$( (assert_root) 2>&1 )" || rc=$?
