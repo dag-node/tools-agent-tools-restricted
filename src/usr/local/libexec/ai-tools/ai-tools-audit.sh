@@ -655,8 +655,17 @@ render_entrypoint_section() {
 #
 # `-m AVC` selects every event holding an AVC record in the window -- every domain's denials among them --
 # and the parser keeps the ones this section's rule wrote. ausearch takes a timestamp as TWO argv words
-# (`-ts <date> <time>`) and refuses the single token, which is why the window is formatted as a pair. Its exit is read
-# after its output, with ausearch's PID saved on the statement that opened it (records.rule.md): it exits 1 both
+# (`-ts <date> <time>`) and refuses the single token, which is why the window is formatted as a pair. ausearch(8) STATES
+# THE SHAPE OF EACH: the date in the locale's `%x` ("check the format of your locale by running date '+%x'"), influenced
+# by LC_TIME, and the time on the 24-hour clock, with no AM or PM. It offers no ISO 8601 input and no offset, so this is
+# the one boundary where a date leaves this helper in a shape other than `YYYY-MM-DD`: both words are FORMATTED
+# with the locale's own `%x` and `%X` under the one locale AND time zone the search runs in, C and UTC, where they are
+# `%m/%d/%y` and `%H:%M:%S`, and the two sides agree by construction. The zone is pinned because the words carry no
+# offset: a wall-clock hour the autumn fall-back repeats names two instants an hour apart, and mktime picks one.
+# A spelled-out `%m/%d/%Y` is the en_US shape and is refused under C, and the host locale's `%X` carries an AM/PM suffix
+# under en_US. Every stamp the report prints or streams stays ISO 8601: the window headline, the `LAST SEEN` column,
+# the kernel record's `audit_event_timestamp`, and ai-tools-records(5)'s `observed-at`/`occurred-at` in UTC. Its exit is
+# read after its output, with ausearch's PID saved on the statement that opened it (records.rule.md): it exits 1 both
 # for a window without a record and for an argument or read error, so exit 1 is an empty window only
 # where the `<no matches>` line was seen, on either stream; every other non-zero exit is a search that failed.
 collect_entrypoint_findings() {
@@ -671,9 +680,9 @@ collect_entrypoint_findings() {
     esac
     build_agent_entrypoint_map
     local since_date since_time fd pid rc line no_matches=no
-    since_date="$(date -d "@${CUTOFF_EPOCH}" '+%m/%d/%Y')"
-    since_time="$(date -d "@${CUTOFF_EPOCH}" '+%H:%M:%S')"
-    exec {fd}< <(LC_ALL=C ausearch -m AVC -ts "${since_date}" "${since_time}" 2>"${STDERR_CAPTURE}"); pid=$!
+    since_date="$(LC_ALL=C TZ=UTC date -d "@${CUTOFF_EPOCH}" '+%x')"
+    since_time="$(LC_ALL=C TZ=UTC date -d "@${CUTOFF_EPOCH}" '+%X')"
+    exec {fd}< <(LC_ALL=C TZ=UTC ausearch -m AVC -ts "${since_date}" "${since_time}" 2>"${STDERR_CAPTURE}"); pid=$!
     while IFS= read -r line; do
         case "${line%%|*}" in
             self)
