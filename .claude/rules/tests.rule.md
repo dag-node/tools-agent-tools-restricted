@@ -415,9 +415,12 @@ record directories, so the label line under each pin reads from a fixture too �
 the opposite of a refusal: a pin a reconciliation declined to re-record is left standing and reads, on its own,
 as a verification that succeeded. So the tier line is asserted as a control, then the mark replacing it and counting
 toward the exit status, then a mark saying anything but `stale` leaving the line as it was — the record grammar
-deciding, rather than the file's presence. Its closing section drives the Version section's Node line against fixture
+deciding, rather than the file's presence. A further section drives the Version section's Node line against fixture
 links: the version a link points into is the one named, two links naming different versions are reported as such,
-and a link outside the versioned shape claims none.
+and a link outside the versioned shape claims none. Its closing section drives `cmd_status` whole, the host-reading
+sections stubbed to a known answer, over the exit fold `ai-tools-records(5)` states: a section that read a fault exits
+4, the service registry's readers removed after the CLI loaded them exits 5 under its code with the later sections still
+printed, a section returning its unreadable status exits 5, and a fault beside an unreadable reading exits 5.
 
 `launch-wrapper.sh` drives the gate library every agent's wrapper runs (`launch-wrapper.lib.sh`, see
 [launch](launch.rule.md)), one gate at a time and each in its fail direction, as the account the case is
@@ -655,7 +658,11 @@ with the resolver's hooks and `AI_TOOLS_LAUNCHER_DIR` at fixtures, and the line 
 points into, to report links that disagree with each agent named, and to claim no version for a link outside
 the versioned shape — so the two reports cannot name different Node versions for one host. Its Provisioning section is
 driven against the same fixtures: an enabled agent without its link reads as missing although the launcher directory
-holds a base file, which is the state every installed host is in, and a present link reads as provisioned.
+holds a base file, which is the state every installed host is in, and a present link reads as provisioned. Its closing
+section drives `status` whole with the host-reading sections stubbed, over the same exit fold the CLI's test pins:
+a counted fault exits 4, the service registry's readers removed after the library loaded (its include guard keeps
+`status`'s own re-source from restoring them) exits 5 under `MSG-V6N9` with the later sections still printed,
+and a fault beside that exits 5.
 
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
 [launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools status` re-checks
@@ -759,8 +766,12 @@ composes (`argv0`, the path) is asserted to stay data: a counterfeit record line
 and an over-long value each end up neutralized or marked. And each host state reports as itself, by message code,
 so an empty window reads as "no such exec" only where the rule is in force. The classification runs over a synthetic
 agent pair, and the manifest map is built through the real resolver where root allows and stubbed elsewhere, asserted
-rather than assumed. The live half is `integration/selinux.sh` (`sesearch` over the loaded policy) and the boundary half
-`boundary/access.sh` (the audit log and the policy store are out of the sandbox account's reach).
+rather than assumed. Its last section drives `main` whole, in a fresh shell per case with the trail at a fixture
+directory and every host tool a function, over the outcome matrix: a finding exits 4, a reading that could not be made
+exits 5 with the reading named and no clean headline — driven both before any observation (a missing log directory)
+and after one (a finding beside an entry that is not a readable file) — and each observed absence leaves the exit at 0.
+The live half is `integration/selinux.sh` (`sesearch` over the loaded policy) and the boundary half `boundary/access.sh`
+(the audit log and the policy store are out of the sandbox account's reach).
 
 `codex-package.sh` pins the files `ai-tools-agents-codex-restricted` ships to the seams they plug into, before any host
 installs them ([agent-codex](agent-codex.rule.md)): the manifest through the readers that parse it, with its

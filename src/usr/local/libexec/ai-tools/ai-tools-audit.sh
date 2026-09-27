@@ -36,7 +36,22 @@
 # Root-only: the file sink is unreadable to anyone else, so there is no trail for a non-root caller to do here. Reached
 # through `sudo ai-tools audit` with no NOPASSWD grant, like ai-tools-lockdown and ai-tools-reclaim.
 #
+# A READING THAT COULD NOT BE MADE IS SAID, NEVER READ AS EMPTY. Each source is read with its exit status, its stdout
+# and its stderr apart (records.rule.md), and a source that ran and failed is told from one whose result is empty
+# by what each tool documents: grep exits 1 on no match and 2 on a read error; journalctl exits 0 over an empty window;
+# ausearch exits 1 for no match and for an error alike, so its `<no matches>` line is what separates them. A capability
+# the host does not have (no journald, no audit daemon, no SELinux, no sandbox account) is the reading, and is printed
+# as such; a tool that is present and fails, a log directory whose listing fails, a `*.log` entry other than a readable
+# file, and a record whose timestamp date(1) refuses are each a reading that could not be made. Every such reading is
+# named on the page, the run exits 5, and the clean headline is not printed.
+#
 # Usage:  ai-tools-audit [--since <when>]        <when> is anything date(1) parses
+#
+# Exit (ai-tools-records(5), EXIT STATUS):
+#         0 every source was read and the window does not hold a finding
+#         2 usage (an unknown option, or a `--since` value date(1) does not parse)
+#         4 a finding in the window, every source read
+#         5 a source could not be read, or the caller is not root: the report is incomplete
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
@@ -78,6 +93,16 @@ readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
 source "${MSG_LIB}"
 
+# The exit statuses this report ends with, and the fold that computes one from the readings it made
+# (ai_tools_records_accumulate_severity, ai_tools_records_get_exit_status). REQUIRED: a report that could not state its
+# own exit contract would exit 0 over a host it did not read.
+readonly RECORDS_BASE_LIB="/usr/local/lib/ai-tools/records-base.lib.sh"
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/records-base.lib.sh
+source "${RECORDS_BASE_LIB}" 2>/dev/null || {
+    warn MSG-H2B7 "cannot load ${RECORDS_BASE_LIB} -- refusing to report without its exit contract"
+    exit 1
+}
+
 # Provider manifests, for the kernel-record section alone: which file is which agent's entrypoint. Loaded BEST-EFFORT,
 # unlike the logger and the renderer, because a failure here is already the safe one -- with no manifest to match, every
 # recorded exec is reported as a finding naming a file no manifest claims, so a library that will not load costs noise
@@ -104,14 +129,42 @@ parse_command_line() {
     readonly SINCE
 }
 
-# assert_root -- refuse a non-root caller. Named apart from the shell's own `require_root` idiom so that sourcing this
+# assert_root -- refuse a non-root caller, at the exit that says the reading could not be made: the trail is 700
+# root:root, so no other caller can read it. Named apart from the shell's own `require_root` idiom so that sourcing this
 # file into a test harness does not displace the harness's function of that name.
 assert_root() {
     [[ "$(id -u)" == "0" ]] || {
         ai_tools_msg_error MSG-K9C5 "ai-tools-audit must run as root: the trail it reads is 700 root:root" \
             "run it as: sudo ai-tools audit"
-        exit 1
+        exit "${AI_TOOLS_EXIT_UNREADABLE}"
     }
+}
+
+# ── Readings that could not be made ──────────────────────────────────────────────────────────
+# UNREADABLE_READINGS names each reading a collector could not make. The collectors run in the report's own shell,
+# so note_unreadable folds the severity where the exit status is computed (records.rule.md); main prints the list ahead
+# of the findings it did read, and the run exits AI_TOOLS_EXIT_UNREADABLE.
+UNREADABLE_READINGS=()
+note_unreadable() {
+    UNREADABLE_READINGS+=( "$1" )
+    ai_tools_records_accumulate_severity unreadable
+}
+
+# Where a captured command writes its stderr, so a tool's own message reaches the page beside its exit status. One file
+# per run, made on first use (a test that sources this helper sets STDERR_CAPTURE itself); main removes it.
+STDERR_CAPTURE="${STDERR_CAPTURE:-}"
+ensure_stderr_capture() {
+    [[ -n "${STDERR_CAPTURE}" ]] && return 0
+    STDERR_CAPTURE="$(mktemp)" || {
+        warn MSG-T8S2 "cannot create a temporary file to capture a tool's stderr"
+        exit "${AI_TOOLS_EXIT_UNREADABLE}"
+    }
+}
+# captured_stderr -- PRINT the stderr the last captured command wrote, on one line, reduced for display and clamped.
+captured_stderr() {
+    local text
+    text="$(tr '\n' ' ' < "${STDERR_CAPTURE}" 2>/dev/null || true)"
+    ai_tools_log_sanitize "${text:0:200}"
 }
 
 # resolve_window -- normalize the window once, into CUTOFF_EPOCH and SINCE_DISPLAY. A value date(1) cannot parse is
@@ -129,49 +182,100 @@ resolve_window() {
 }
 
 # ── The authoritative source: the root-only file sink ────────────────────────────────────────
-# collect_file_findings -- PRINT one `<component>|<timestamp>|<level>|<message>` per finding. Two passes by design:
-# a cheap severity grep over the whole file, then a date comparison only on the lines that survived it. Findings are
-# rare, so the expensive half runs on almost no line.
+# collect_file_findings -- fill FILE_FINDINGS with one `<component>|<timestamp>|<level>|<message>` per finding.
+# The directory is checked before it is listed: an unexpanded glob over a directory that is missing or refuses a listing
+# would read as a host with no log file, which is the one misreading this source must not make. An entry other than
+# a readable file is a reading that could not be made, and so is a file grep could not search.
 collect_file_findings() {
-    local log_file component line entry_timestamp entry_level entry_epoch entry_message
-    for log_file in "${AI_TOOLS_LOG_DIR}"/*.log; do
-        [[ -f "${log_file}" && -r "${log_file}" ]] || continue
-        component="$(basename -- "${log_file}" .log)"
-        while IFS= read -r line; do
-            # `<ts> <LEVEL> [<pid>] <message>` -- anything else is not a record this format produced and is left alone
-            # rather than guessed at.
-            [[ "${line}" =~ ^([^[:space:]]+)[[:space:]]+(${FINDING_LEVELS})[[:space:]]+\[[0-9]+\][[:space:]]+(.*)$ ]] || continue
-            entry_timestamp="${BASH_REMATCH[1]}"
-            entry_level="${BASH_REMATCH[2]}"
-            entry_message="${BASH_REMATCH[3]}"
-            entry_epoch="$(date -d "${entry_timestamp}" +%s 2>/dev/null)" || continue
-            (( entry_epoch >= CUTOFF_EPOCH )) || continue
-            printf '%s|%s|%s|%s\n' "${component}" "${entry_timestamp}" "${entry_level}" \
-                "$(ai_tools_log_sanitize "${entry_message}")"
-        done < <(grep -E "[[:space:]](${FINDING_LEVELS})[[:space:]]" "${log_file}" 2>/dev/null || true)
+    FILE_FINDINGS=()
+    local log_dir="${AI_TOOLS_LOG_DIR}" log_file
+    if [[ ! -d "${log_dir}" ]]; then
+        note_unreadable "the log directory ${log_dir} does not exist"; return 0
+    fi
+    if [[ ! -r "${log_dir}" || ! -x "${log_dir}" ]]; then
+        note_unreadable "the log directory ${log_dir} cannot be listed"; return 0
+    fi
+    local -a log_files=()
+    shopt -s nullglob
+    log_files=( "${log_dir}"/*.log )
+    shopt -u nullglob
+    for log_file in "${log_files[@]+"${log_files[@]}"}"; do
+        collect_file_findings_from "${log_file}"
     done
+    return 0
+}
+
+# collect_file_findings_from <log_file> -- append that file's findings to FILE_FINDINGS. Two passes by design: a cheap
+# severity grep over the whole file, then a date comparison only on the lines that survived it. Findings are rare,
+# so the expensive half runs on almost no line. grep's exit is read after its output: 1 with an empty stderr is a file
+# without such a line; 2, or anything on stderr, is a search that failed.
+collect_file_findings_from() {
+    local log_file="$1" component fd pid rc line entry_timestamp entry_level entry_epoch entry_message
+    if [[ ! -f "${log_file}" || ! -r "${log_file}" ]]; then
+        note_unreadable "${log_file} is not a readable file"; return 0
+    fi
+    component="$(basename -- "${log_file}" .log)"
+    exec {fd}< <(grep -E "[[:space:]](${FINDING_LEVELS})[[:space:]]" "${log_file}" 2>"${STDERR_CAPTURE}"); pid=$!
+    while IFS= read -r -u "${fd}" line; do
+        # `<ts> <LEVEL> [<pid>] <message>` -- anything else is not a record this format produced and is left alone
+        # rather than guessed at.
+        [[ "${line}" =~ ^([^[:space:]]+)[[:space:]]+(${FINDING_LEVELS})[[:space:]]+\[[0-9]+\][[:space:]]+(.*)$ ]] || continue
+        entry_timestamp="${BASH_REMATCH[1]}"
+        entry_level="${BASH_REMATCH[2]}"
+        entry_message="${BASH_REMATCH[3]}"
+        # A record of this format whose stamp date(1) refuses has no place in the window: the trail's own record is
+        # unreadable, which is said rather than dropped.
+        entry_epoch="$(date -d "${entry_timestamp}" +%s 2>/dev/null)" || {
+            note_unreadable "${log_file}: a record carries a timestamp date(1) cannot read: $(ai_tools_log_sanitize "${entry_timestamp:0:40}")"
+            continue
+        }
+        (( entry_epoch >= CUTOFF_EPOCH )) || continue
+        FILE_FINDINGS+=( "${component}|${entry_timestamp}|${entry_level}|$(ai_tools_log_sanitize "${entry_message}")" )
+    done
+    exec {fd}<&-
+    wait "${pid}" && rc=0 || rc=$?
+    if (( rc > 1 )) || [[ -s "${STDERR_CAPTURE}" ]]; then
+        note_unreadable "${log_file} could not be searched (grep exited ${rc}: $(captured_stderr))"
+    fi
+    return 0
 }
 
 # ── The secondary source: launch refusals, which only journald can hold ──────────────────────
-# collect_launch_refusals -- PRINT one `launch|<timestamp>|WARNING|<message>` per REFUSED line ai-tools-run recorded,
-# in the same shape as a file finding so it collapses through the same renderer: a refusal that recurs on every launch
-# attempt would otherwise flood the report exactly as the handback lines did. Filtered by the sandbox account's uid
-# as every documented query is: the tag alone does not establish identity, and here the legitimate writer IS the account
-# under scrutiny -- which is exactly why these are reported apart from the file sink's evidence.
+# collect_launch_refusals -- fill LAUNCH_REFUSALS with one `launch|<timestamp>|WARNING|<message>` per REFUSED line
+# ai-tools-run recorded, in the same shape as a file finding so it collapses through the same renderer: a refusal
+# that recurs on every launch attempt would otherwise flood the report exactly as the handback lines did. Filtered
+# by the sandbox account's uid as every documented query is: the tag alone does not establish identity, and here
+# the legitimate writer IS the account under scrutiny -- which is exactly why these are reported apart from the file
+# sink's evidence.
+#
+# No journalctl is a host without the source, and no sandbox account is a host on which no session ran, so no refusal
+# exists: each is the reading, and the exit is untouched. A getent that failed for another reason, and a journalctl
+# that exited non-zero, are readings that could not be made. journalctl's short-iso line is
+# `<iso-stamp> <host> <tag>[<pid>]: <message>`; the stamp keeps its `T`, which the renderer splits the date out on.
 collect_launch_refusals() {
-    local sandbox_uid line entry_timestamp entry_message
+    LAUNCH_REFUSALS=()
     command -v journalctl >/dev/null 2>&1 || return 0
-    sandbox_uid="$(id -u "${SANDBOX_USER}" 2>/dev/null)" || return 0
-    while IFS= read -r line; do
-        [[ "${line}" =~ ^([0-9-]+[[:space:]][0-9:]+)[[:space:]]+(.*)$ ]] || continue
+    local sandbox_uid rc fd pid line entry_timestamp entry_message
+    sandbox_uid="$(LC_ALL=C getent passwd "${SANDBOX_USER}" 2>"${STDERR_CAPTURE}" | cut -d: -f3)" && rc=0 || rc=$?
+    case "${rc}" in
+        0) [[ -n "${sandbox_uid}" ]] || { note_unreadable "the sandbox account ${SANDBOX_USER} resolved to no uid"; return 0; } ;;
+        2) return 0 ;;
+        *) note_unreadable "the sandbox account ${SANDBOX_USER} could not be resolved (getent exited ${rc}: $(captured_stderr))"
+           return 0 ;;
+    esac
+    exec {fd}< <(journalctl -q -t ai-tools-run "_UID=${sandbox_uid}" --since "@${CUTOFF_EPOCH}" --no-pager \
+                    --output=short-iso --output-fields=MESSAGE 2>"${STDERR_CAPTURE}"); pid=$!
+    while IFS= read -r -u "${fd}" line; do
+        [[ "${line}" == *'REFUSED:'* ]] || continue
+        [[ "${line}" =~ ^([^[:space:]]+)[[:space:]]+[^[:space:]]+[[:space:]]+[^:]+:[[:space:]]+(.*)$ ]] || continue
         entry_timestamp="${BASH_REMATCH[1]}"
         entry_message="${BASH_REMATCH[2]}"
-        printf 'launch|%s|WARNING|%s\n' "${entry_timestamp}" \
-            "$(ai_tools_log_sanitize "${entry_message}")"
-    done < <(journalctl -t ai-tools-run _UID="${sandbox_uid}" \
-                --since "@${CUTOFF_EPOCH}" --no-pager \
-                --output=short-iso --output-fields=MESSAGE 2>/dev/null \
-             | grep -F 'REFUSED:' | sed -E 's/^([^ ]+) [^ ]+ [^:]+: /\1 /' || true)
+        LAUNCH_REFUSALS+=( "launch|${entry_timestamp}|WARNING|$(ai_tools_log_sanitize "${entry_message}")" )
+    done
+    exec {fd}<&-
+    wait "${pid}" && rc=0 || rc=$?
+    (( rc == 0 )) || note_unreadable "journald could not be read (journalctl exited ${rc}: $(captured_stderr))"
+    return 0
 }
 
 # ── Report ───────────────────────────────────────────────────────────────────────────────────
@@ -237,40 +341,52 @@ readonly ENTRYPOINT_EXEC_OBJECT_TYPE='ai_tools_exec_t'
 readonly ENTRYPOINT_EXEC_PERMISSION='execute_no_trans'
 readonly SELINUX_CORE_MODULE='ai_tools'
 
-# entrypoint_exec_state -- PRINT which of four states this host is in, which decides what the section can say:
+# entrypoint_exec_state -- PRINT which of five states this host is in, which decides what the section can say:
 #   no-auditd    no ausearch/auditctl, kernel auditing switched off, or no daemon writing the log: the records
 #                have nowhere to land that this helper reads
-#   no-selinux   SELinux disabled, or the core module not loaded: no policy rule writes the records
+#   no-selinux   no getenforce or semodule, SELinux disabled, or the core module not loaded: no policy rule writes
+#                the records
 #   no-rule      the loaded core module does not carry the auditallow for the exec (an older build), read with sesearch
 #   loaded       the rule is in force, so an empty window means no such exec happened
-# The diagnostic states are not findings (the reading was not made, and a missing detector is a host condition), so they
-# leave the exit status alone -- the same rule `status` follows for a reading it could not make.
+#   unreadable <reason>
+#                a tool the reading needs is present and failed, so none of the four other states was observed
+# The three absence states are printed only where the absence is what was observed, and they leave the exit status
+# alone: a missing detector is a host condition, the same rule `status` follows for a reading its vantage cannot make.
+# A tool that ran and failed is not an absence, and reads as `unreadable`, which main folds into exit 5.
 entrypoint_exec_state() {
+    ensure_stderr_capture
     if ! command -v ausearch >/dev/null 2>&1 || ! command -v auditctl >/dev/null 2>&1; then
         printf 'no-auditd\n'; return 0
     fi
-    local audit_status
-    audit_status="$(auditctl -s 2>/dev/null)" || audit_status=""
-    if [[ -z "${audit_status}" ]] \
-            || [[ "${audit_status}" =~ (^|[[:space:]])enabled[[:space:]]+0($|[[:space:]]) ]] \
+    local audit_status rc
+    audit_status="$(auditctl -s 2>"${STDERR_CAPTURE}")" && rc=0 || rc=$?
+    if (( rc != 0 )) || [[ -z "${audit_status}" ]]; then
+        printf 'unreadable auditctl -s exited %s: %s\n' "${rc}" "$(captured_stderr)"; return 0
+    fi
+    if [[ "${audit_status}" =~ (^|[[:space:]])enabled[[:space:]]+0($|[[:space:]]) ]] \
             || [[ "${audit_status}" =~ (^|[[:space:]])pid[[:space:]]+0($|[[:space:]]) ]]; then
         printf 'no-auditd\n'; return 0
     fi
+    command -v getenforce >/dev/null 2>&1 || { printf 'no-selinux\n'; return 0; }
     local mode
-    mode="$(getenforce 2>/dev/null)" || mode=""
+    mode="$(getenforce 2>"${STDERR_CAPTURE}")" && rc=0 || rc=$?
+    (( rc == 0 )) || { printf 'unreadable getenforce exited %s: %s\n' "${rc}" "$(captured_stderr)"; return 0; }
     [[ "${mode}" == Enforcing || "${mode}" == Permissive ]] || { printf 'no-selinux\n'; return 0; }
     # THE LISTINGS ARE CAPTURED, NOT PIPED. `semodule -l | grep -q` loses the answer on a host with more modules than
     # a pipe buffer holds: grep exits at the match, the writer dies of SIGPIPE writing the rest, and `pipefail` turns
     # that into "no match" -- reporting a loaded module as absent. semodule prints a module's name alone
     # or with a version column, by release; either is the module being loaded.
+    command -v semodule >/dev/null 2>&1 || { printf 'no-selinux\n'; return 0; }
     local modules
-    modules="$(semodule -l 2>/dev/null)" || modules=""
+    modules="$(semodule -l 2>"${STDERR_CAPTURE}")" && rc=0 || rc=$?
+    (( rc == 0 )) || { printf 'unreadable semodule -l exited %s: %s\n' "${rc}" "$(captured_stderr)"; return 0; }
     grep -qE "^${SELINUX_CORE_MODULE}([[:space:]]|$)" <<<"${modules}" || { printf 'no-selinux\n'; return 0; }
     # sesearch (setools) is optional; without it the module's presence is the reading.
     if command -v sesearch >/dev/null 2>&1; then
         local rules
         rules="$(sesearch --auditallow -s "${ENTRYPOINT_EXEC_SUBJECT_TYPE}" -t "${ENTRYPOINT_EXEC_OBJECT_TYPE}" \
-                    -c file -p "${ENTRYPOINT_EXEC_PERMISSION}" 2>/dev/null)" || rules=""
+                    -c file -p "${ENTRYPOINT_EXEC_PERMISSION}" 2>"${STDERR_CAPTURE}")" && rc=0 || rc=$?
+        (( rc == 0 )) || { printf 'unreadable sesearch exited %s: %s\n' "${rc}" "$(captured_stderr)"; return 0; }
         grep -q '^auditallow ' <<<"${rules}" || { printf 'no-rule\n'; return 0; }
     fi
     printf 'loaded\n'
@@ -390,21 +506,6 @@ classify_entrypoint_exec() {
     printf 'finding %s\n' "${agent}"
 }
 
-# collect_entrypoint_execs -- PRINT one `<class>|<component>|<timestamp>|<level>|<message>` per recorded exec,
-# where class partitions the two outcomes and the remaining four fields are the shape render_findings reads. Findings
-# therefore collapse and sort exactly as the other two sources' do.
-#
-# `-m AVC` selects every event holding an AVC record in the window -- every domain's denials among them --
-# and the parser keeps the ones this section's rule wrote. ausearch takes a timestamp as TWO argv words
-# (`-ts <date> <time>`) and refuses the single token, which is why the window is formatted as a pair.
-collect_entrypoint_execs() {
-    local since_date since_time
-    since_date="$(date -d "@${CUTOFF_EPOCH}" '+%m/%d/%Y')"
-    since_time="$(date -d "@${CUTOFF_EPOCH}" '+%H:%M:%S')"
-    parse_entrypoint_exec_records \
-        < <(ausearch -m AVC -ts "${since_date}" "${since_time}" 2>/dev/null || true)
-}
-
 # avc_line_records_entrypoint_exec <line> -- succeed when a raw `type=AVC` line is the auditallow's own record:
 # `granted`, the permission inside the braces, the subject type in `scontext=` and the object type in `tcontext=`, each
 # read as the TYPE component of a `user:role:type[:level]` context so a user or role prefix does not decide. A denial,
@@ -433,11 +534,15 @@ avc_line_records_entrypoint_exec() {
 # is checked inside the exec family alone, and holding the block to execve's own number would drop an execveat(2),
 # which is the same exec reached through a descriptor. A block the AVC line admits and no other line describes is still
 # a record, with the file and the pids unknown -- fewer fields, and the finding still reported. The lines of an event
-# arrive in whichever order ausearch prints them, so each field is read wherever it turns up.
+# arrive in whichever order ausearch prints them, so each field is read wherever it turns up. ausearch's own
+# `<no matches>` line is passed on as a `no-matches|` record, so the consumer can tell an empty window from a search
+# that failed with the same exit status.
 parse_entrypoint_exec_records() {
     local line exe="" argv0="" pid="" ppid="" timestamp="" avc_path="" matched=no
     while IFS= read -r line; do
         case "${line}" in
+            '<no matches>')
+                printf 'no-matches|\n' ;;
             ----*)
                 [[ "${matched}" == yes ]] \
                     && emit_entrypoint_exec_record "${exe:-?}" "${argv0}" "${pid}" "${ppid}" "${timestamp}"
@@ -497,6 +602,11 @@ audit_event_timestamp() {
 render_entrypoint_section() {
     printf '\n  %s\n' "In-session entrypoint execs -- the kernel's record of the SELinux auditallow"
     case "${ENTRYPOINT_EXEC_STATE}" in
+        unreadable*)
+            # Named in main's list of readings that could not be made, which is what carries the exit; the section says
+            # only what it could not read, and does not offer a remedy it cannot know.
+            printf '  %s\n' "no reading was made: ${ENTRYPOINT_EXEC_STATE#unreadable }"
+            return 0 ;;
         no-auditd)
             printf '  %s\n' "no reading was made: this host keeps no audit log for the kernel to write to"
             ai_tools_msg_notice MSG-C6E6 \
@@ -542,14 +652,28 @@ render_entrypoint_section() {
 # collect_entrypoint_findings -- fill ENTRYPOINT_EXEC_STATE, ENTRYPOINT_EXEC_FINDINGS, the folded count
 # (ENTRYPOINT_SELF_EXEC_COUNT) and ENTRYPOINT_SELF_EXEC_NAMES -- what each counted dispatch was, so the count names
 # what it folded away.
+#
+# `-m AVC` selects every event holding an AVC record in the window -- every domain's denials among them --
+# and the parser keeps the ones this section's rule wrote. ausearch takes a timestamp as TWO argv words
+# (`-ts <date> <time>`) and refuses the single token, which is why the window is formatted as a pair. Its exit is read
+# after its output, with ausearch's PID saved on the statement that opened it (records.rule.md): it exits 1 both
+# for a window without a record and for an argument or read error, so exit 1 is an empty window only
+# where the `<no matches>` line was seen, on either stream; every other non-zero exit is a search that failed.
 collect_entrypoint_findings() {
     ENTRYPOINT_EXEC_FINDINGS=()
     ENTRYPOINT_SELF_EXEC_NAMES=()
     ENTRYPOINT_SELF_EXEC_COUNT=0
     ENTRYPOINT_EXEC_STATE="$(entrypoint_exec_state)"
-    [[ "${ENTRYPOINT_EXEC_STATE}" == loaded ]] || return 0
+    case "${ENTRYPOINT_EXEC_STATE}" in
+        loaded) ;;
+        unreadable*) note_unreadable "the kernel record: ${ENTRYPOINT_EXEC_STATE#unreadable }"; return 0 ;;
+        *) return 0 ;;
+    esac
     build_agent_entrypoint_map
-    local line
+    local since_date since_time fd pid rc line no_matches=no
+    since_date="$(date -d "@${CUTOFF_EPOCH}" '+%m/%d/%Y')"
+    since_time="$(date -d "@${CUTOFF_EPOCH}" '+%H:%M:%S')"
+    exec {fd}< <(LC_ALL=C ausearch -m AVC -ts "${since_date}" "${since_time}" 2>"${STDERR_CAPTURE}"); pid=$!
     while IFS= read -r line; do
         case "${line%%|*}" in
             self)
@@ -557,37 +681,67 @@ collect_entrypoint_findings() {
                 ENTRYPOINT_SELF_EXEC_NAMES+=( "${line##*|}" ) ;;
             finding)
                 ENTRYPOINT_EXEC_FINDINGS+=( "${line#*|}" ) ;;
+            no-matches)
+                no_matches=yes ;;
         esac
-    done < <(collect_entrypoint_execs)
+    done < <(parse_entrypoint_exec_records <&"${fd}")
+    exec {fd}<&-
+    wait "${pid}" && rc=0 || rc=$?
+    [[ "$(tr -d '\n' < "${STDERR_CAPTURE}" 2>/dev/null || true)" == '<no matches>' ]] && no_matches=yes
+    case "${rc}" in
+        0) ;;
+        1) [[ "${no_matches}" == yes ]] \
+               || note_unreadable "the audit log could not be searched (ausearch exited 1 without reporting an empty window: $(captured_stderr))" ;;
+        *) note_unreadable "the audit log could not be searched (ausearch exited ${rc}: $(captured_stderr))" ;;
+    esac
     return 0
 }
 
+# main -- read the three sources, then render. The exit is the report state's (ai-tools-records(5), EXIT STATUS): 4
+# where any source holds a finding, 5 where any reading could not be made, whichever findings were read beside it, and 0
+# only where every reading was made and none holds a finding. The clean headline is therefore printed on that one path
+# alone; an incomplete run opens by naming what it could not read, so a section that reads clean after it is not taken
+# for a clean window.
 main() {
-    mapfile -t FILE_FINDINGS < <(collect_file_findings)
-    mapfile -t LAUNCH_REFUSALS < <(collect_launch_refusals)
+    ai_tools_records_begin_report
+    ensure_stderr_capture
+    trap 'rm -f -- "${STDERR_CAPTURE}"' EXIT
+    collect_file_findings
+    collect_launch_refusals
     collect_entrypoint_findings
-    readonly FILE_FINDING_COUNT=${#FILE_FINDINGS[@]}
-    readonly LAUNCH_REFUSAL_COUNT=${#LAUNCH_REFUSALS[@]}
-    readonly ENTRYPOINT_FINDING_COUNT=${#ENTRYPOINT_EXEC_FINDINGS[@]}
+    FILE_FINDING_COUNT=${#FILE_FINDINGS[@]}
+    LAUNCH_REFUSAL_COUNT=${#LAUNCH_REFUSALS[@]}
+    ENTRYPOINT_FINDING_COUNT=${#ENTRYPOINT_EXEC_FINDINGS[@]}
+    UNREADABLE_COUNT=${#UNREADABLE_READINGS[@]}
+    (( FILE_FINDING_COUNT + LAUNCH_REFUSAL_COUNT + ENTRYPOINT_FINDING_COUNT == 0 )) \
+        || ai_tools_records_accumulate_severity attention
 
-    if (( FILE_FINDING_COUNT == 0 && LAUNCH_REFUSAL_COUNT == 0 && ENTRYPOINT_FINDING_COUNT == 0 )); then
+    DISTINCT_FINDING_COUNT=0
+    if (( FILE_FINDING_COUNT > 0 )); then
+        DISTINCT_FINDING_COUNT="$(printf '%s\n' "${FILE_FINDINGS[@]}" | render_findings | wc -l)"
+    fi
+    local summary="${DISTINCT_FINDING_COUNT} distinct finding(s) from ${FILE_FINDING_COUNT} recorded line(s), ${LAUNCH_REFUSAL_COUNT} launch refusal(s), and ${ENTRYPOINT_FINDING_COUNT} in-session entrypoint exec(s), since ${SINCE_DISPLAY}."
+
+    if (( UNREADABLE_COUNT > 0 )); then
+        ai_tools_msg_headline "Audit (incomplete)" 1 \
+            "${UNREADABLE_COUNT} reading(s) could not be made since ${SINCE_DISPLAY}, so a section below that holds no finding is not a clean window."
+        ai_tools_msg_warn MSG-W5C8 \
+            "the audit could not read every source it reports from -- the readings it could not make are listed below"
+        printf '    %s\n' "${UNREADABLE_READINGS[@]}"
+        (( FILE_FINDING_COUNT + LAUNCH_REFUSAL_COUNT + ENTRYPOINT_FINDING_COUNT == 0 )) \
+            || printf '\n  %s\n' "What was read: ${summary}"
+    elif (( FILE_FINDING_COUNT == 0 && LAUNCH_REFUSAL_COUNT == 0 && ENTRYPOINT_FINDING_COUNT == 0 )); then
         ai_tools_msg_headline "Audit" 1 \
             "Nothing refused, rejected, stranded or flagged since ${SINCE_DISPLAY}."
         printf '  %s\n' "trail: ${AI_TOOLS_LOG_DIR}/*.log (root-only)"
         # Printed on the clean path too: a window with no finding means one thing where the policy rule is in force
         # and another where it is not, and the difference is the operator's to know.
         render_entrypoint_section
+        ai_tools_records_get_exit_status || return $?
         return 0
+    else
+        ai_tools_msg_headline "Audit" 1 "${summary}"
     fi
-
-    DISTINCT_FINDING_COUNT=0
-    if (( FILE_FINDING_COUNT > 0 )); then
-        DISTINCT_FINDING_COUNT="$(printf '%s\n' "${FILE_FINDINGS[@]}" | render_findings | wc -l)"
-    fi
-    readonly DISTINCT_FINDING_COUNT
-
-    ai_tools_msg_headline "Audit" 1 \
-        "${DISTINCT_FINDING_COUNT} distinct finding(s) from ${FILE_FINDING_COUNT} recorded line(s), ${LAUNCH_REFUSAL_COUNT} launch refusal(s), and ${ENTRYPOINT_FINDING_COUNT} in-session entrypoint exec(s), since ${SINCE_DISPLAY}."
 
     if (( FILE_FINDING_COUNT > 0 )); then
         printf '\n  %s\n' "Recorded findings -- ${AI_TOOLS_LOG_DIR}/*.log, root writers only"
@@ -611,11 +765,14 @@ main() {
 
     render_entrypoint_section
 
-    printf '\n  %s\n' "Current state is a different question, asked elsewhere:"
-    printf '    %-45s %s\n' "ai-tools status"                                 "service health and verification, live"
-    printf '    %-45s %s\n' "sudo ai-tools-admin system entrypoints relabel"  "re-verify and relabel the entrypoints"
-    printf '    %-45s %s\n' "journalctl -t ai-tools-chown _UID=0"             "the full ownership trail"
-    return 1
+    if (( FILE_FINDING_COUNT + LAUNCH_REFUSAL_COUNT + ENTRYPOINT_FINDING_COUNT > 0 )); then
+        printf '\n  %s\n' "Current state is a different question, asked elsewhere:"
+        printf '    %-45s %s\n' "ai-tools status"                                 "service health and verification, live"
+        printf '    %-45s %s\n' "sudo ai-tools-admin system entrypoints relabel"  "re-verify and relabel the entrypoints"
+        printf '    %-45s %s\n' "journalctl -t ai-tools-chown _UID=0"             "the full ownership trail"
+    fi
+    ai_tools_records_get_exit_status || return $?
+    return 0
 }
 
 # ── Entry point ──────────────────────────────────────────────────────────────────────────────
@@ -630,7 +787,8 @@ fi
 parse_command_line "$@"
 assert_root
 resolve_window
-# main's status IS the command's contract -- non-zero means findings -- so it is propagated explicitly rather than left
-# to `set -e`, which would end the shell at the call and make the status an artifact of the shell option.
+# main's status IS the command's contract -- 4 for findings, 5 for a reading that could not be made -- so it is
+# propagated explicitly rather than left to `set -e`, which would end the shell at the call and make the status
+# an artifact of the shell option.
 main || exit $?
 exit 0

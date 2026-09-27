@@ -18,9 +18,10 @@ and what the last relabel recorded for its paths. Each prints `?` where its
 caller cannot reach the answer, so running the second as root fills
 in the sandbox account's own `systemd --user` units, the entrypoint pin,
 whether the installed binary still matches that pin, and the SELinux label each
-path carries now. Both exit non-zero when something needs attention, so either
-runs from `cron` or a monitor without its output being parsed. The exit codes
-are in `man ai-tools` and `man ai-tools-admin`.
+path carries now. Both exit 4 when something needs attention and 5
+when a reading could not be made, so either runs from `cron` or a monitor
+without its output being parsed. The exit codes are in `man ai-tools`
+and `man ai-tools-admin`.
 
 `sudo ai-tools audit` is the other starting point — it reads the trails
 and reports what refused, was rejected, was stranded, or was flagged

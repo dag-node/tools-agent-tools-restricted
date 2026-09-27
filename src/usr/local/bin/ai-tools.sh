@@ -534,6 +534,11 @@ source "${ANCESTOR_CONFIG_LIB}" 2>/dev/null || true
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/services.lib.sh
 source "${SERVICES_LIB}" 2>/dev/null || true
+# The exit statuses `status` ends with and the fold that computes one (records-base.lib.sh, ai-tools-records(5)). Loaded
+# inside cmd_status, the one command that reads it, and required there: a report whose exit contract did not load
+# refuses, so it does not exit 0 over a host it did not read. Loading it here would make a broken install refuse `stop`,
+# which must reach the incident ladder's last rung on exactly such a host.
+readonly RECORDS_BASE_LIB="/usr/local/lib/ai-tools/records-base.lib.sh"
 # The toolchain readers `status` makes from the operator's vantage (toolchain.lib.sh): a disabled agent's remaining
 # launcher link, and the Node version the enabled agents' links name. Loaded by the sections that read it,
 # through toolchain_lib_loaded, since only `status` reads it.
@@ -663,7 +668,8 @@ note_root_failure() {
 # have_tty: true only when a controlling terminal can be opened. `[[ -r /dev/tty ]]` tests the node's permission bits
 # (crw-rw-rw-), not openability, so it reads true even with no controlling terminal (e.g. a systemd unit
 # or under setsid); opening /dev/tty is the only honest probe -- with no controlling tty the open fails ENXIO,
-# so the prompt guards skip cleanly instead of writing to /dev/tty and aborting. Mirrors launch-wrapper.lib.sh's ai_tools_launch_have_tty.
+# so the prompt guards skip cleanly instead of writing to /dev/tty and aborting. Mirrors launch-wrapper.lib.sh's
+# ai_tools_launch_have_tty.
 have_tty() { { : > /dev/tty; } 2>/dev/null; }
 
 confirm() { ai_tools_msg_confirm "$@"; }
@@ -3945,11 +3951,13 @@ status_sandbox_unit_commands() {
 # SKIPPED / STALE / DOWN / FAILED / n/a / ?) and, for anything not plainly healthy, its consequence and the exact
 # commands that inspect and fix it. Reuses services.lib.sh -- the SAME registry the launch-time warning reads --
 # so the status view and the launch warning never disagree. Informational (no operator gate), like
-# `projects list`/`providers list`. status_entrypoint_pins  -- report, per enabled agent, whether its entrypoint carries
-# a verified checksum, and under it (status_entrypoint_label) what the last reconciliation could do about that agent's
-# labels. The entrypoint itself lives in a 0750 toolchain the operator cannot read, so both lines report root-written
-# records placed where they can. Without them the only signals are a warning in a journal the operator cannot reach
-# and, eventually, a refused launch.
+# `projects list`/`providers list`. The exit is the report state's (ai-tools-records(5)): 4 where a section read
+# a fault, 5 where a section could not make a reading it promises (a library base ships did not load), and a `?`
+# or `n/a` line -- a reading this vantage cannot make -- leaves it at 0. status_entrypoint_pins  -- report, per enabled
+# agent, whether its entrypoint carries a verified checksum, and under it (status_entrypoint_label) what the last
+# reconciliation could do about that agent's labels. The entrypoint itself lives in a 0750 toolchain the operator cannot
+# read, so both lines report root-written records placed where they can. Without them the only signals are a warning
+# in a journal the operator cannot reach and, eventually, a refused launch.
 #
 # The pin is written in the same KEY=value stamp grammar as the updater's last-run record, so it is read
 # through the SAME accessors -- charset-clamped fields and one age implementation - rather than a second reader
@@ -4181,11 +4189,13 @@ status_entrypoint_label() {
 # and when an installed agent that is not enabled still has its link (status_residue), the state every launch is refused
 # in.
 status_provisioning() {
-    local rec agent_name launcher reason faults=0
+    local rec agent_name launcher reason faults=0 unreadable
     section "Provisioning"
+    # The resolver not loading is a broken install, a reading this section could not make: STATUS_UNREADABLE,
+    # so the report exits 5 rather than counting it among the faults it did read.
     if ! resolve_enabled_agents; then
         say "  ${C_YEL}cannot read the enabled agents${C_RST} -- ${ENABLED_AGENTS_ERROR}"
-        return 1
+        return "${STATUS_UNREADABLE}"
     fi
     if (( ${#ENABLED_AGENTS[@]} == 0 )); then
         IFS=$'\t' read -r _ reason <<<"$(ai_tools_agents_empty_verdict)"
@@ -4200,21 +4210,25 @@ status_provisioning() {
         fi
         status_managed_files "${agent_name}" || faults=$(( faults + 1 ))
     done
-    status_residue || faults=$(( faults + 1 ))
+    status_residue || {
+        unreadable=$?
+        if (( unreadable == STATUS_UNREADABLE )); then return "${STATUS_UNREADABLE}"; fi
+        faults=$(( faults + 1 ))
+    }
     (( faults == 0 ))
 }
 
 # status_residue -- one line per agent this host installed, did not enable, and still holds the stable launcher link
 # of: the operator-side read of a package left in the sandbox toolchain (ai_tools_agent_residue_links,
 # toolchain.lib.sh), which the launch wrapper refuses every launch on from the same link and the shim from the tree.
-# Counted, since the host is in the state where no session starts, and the line names the run that clears it. Returns
-# non-zero for a residue line, and for a library that will not load: the report then has no reading of whether a launch
-# is refused, which is a broken install like a missing registry.
+# Counted, since the host is in the state where no session starts, and the line names the run that clears it. Returns 1
+# for a residue line, and STATUS_UNREADABLE for a library that will not load: the report then has no reading of whether
+# a launch is refused, which is a broken install like a missing registry.
 status_residue() {
     local agent launcher rc=0
     if ! toolchain_lib_loaded; then
         say "  ${C_YEL}cannot check the toolchain for a disabled agent's package${C_RST} -- cannot load ${TOOLCHAIN_LIB}; reinstall the ai-tools package"
-        return 1
+        return "${STATUS_UNREADABLE}"
     fi
     while IFS=$'\t' read -r agent launcher; do
         [[ -n "${agent}" ]] || continue
@@ -4299,8 +4313,28 @@ status_managed_files() {
     return "${rc}"
 }
 
+# A section reports a reading it could not make by returning this, apart from 1, which is a fault it read. cmd_status
+# folds the first as `unreadable` and the second as `attention`, so the sections stay free of the records library
+# and drivable on their own.
+readonly STATUS_UNREADABLE=2
+
+# status_fold <section status> -- fold one section's return into the report state: STATUS_UNREADABLE as `unreadable`,
+# any other non-zero as `attention`. Called as `section || status_fold $?`, where `$?` is the section's status.
+status_fold() {
+    if (( $1 == STATUS_UNREADABLE )); then
+        ai_tools_records_accumulate_severity unreadable
+    else
+        ai_tools_records_accumulate_severity attention
+    fi
+}
+
 cmd_status() {
-    local problems=0
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/records-base.lib.sh
+    if ! source "${RECORDS_BASE_LIB}" 2>/dev/null \
+            || ! declare -F ai_tools_records_get_exit_status >/dev/null 2>&1; then
+        die MSG-B9A2 "cannot load ${RECORDS_BASE_LIB}, which states this report's exit codes -- reinstall the ai-tools package"
+    fi
+    ai_tools_records_begin_report
 
     section "Version"
     say "  ai-tools ${AI_TOOLS_VERSION}"
@@ -4322,18 +4356,44 @@ cmd_status() {
         done
     fi
 
-    status_provisioning || problems=$(( problems + 1 ))
+    status_provisioning || status_fold $?
 
     section "Services"
-    # A missing registry is a broken install, not an unknowable state, so this is one of the conditions `status` exits
-    # non-zero on rather than reporting a clean bill it cannot support.
+    # A missing registry is a broken install, not an unknowable state: a reading this report could not make, which exits
+    # 5, since a clean bill would have no reading behind it. The sections after it are still read, so the page carries
+    # every reading that could be made beside the one that could not.
     if ! declare -F ai_tools_service_records >/dev/null 2>&1 \
             || ! declare -F ai_tools_service_state_of >/dev/null 2>&1 \
             || ! declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
-        warn "service registry unavailable (${SERVICES_LIB}) -- cannot report service health"
-        return 1
+        warn MSG-X5Z8 "service registry unavailable (${SERVICES_LIB}) -- cannot report service health; reinstall the ai-tools package"
+        ai_tools_records_accumulate_severity unreadable
+    else
+        status_services
     fi
-    local unit scope stamp mode state age when exit_code reason remedy
+
+    status_path_order      || status_fold $?
+    status_entrypoint_pins || status_fold $?
+
+    # Pointers, not duplication: name the sibling read-only reports (which own their own detail) and where the full
+    # command list lives, so `status` is a hub without re-implementing `providers list` or
+    # `--help`.
+    section "More"
+    say "  ai-tools providers   installed agents/integrations and which are enabled"
+    say "  ai-tools projects    registered projects (in place and sandbox clones)"
+    say "  ai-tools --help      the full command list"
+
+    # The exit is the report state's (ai-tools-records(5), EXIT STATUS): 4 when something is broken, 5 when a reading
+    # could not be made, so `status` is usable unattended (a cron check, a monitor) without parsing this output.
+    # 'unknown' and 'n/a' are not faults and do not count -- an unqueryable unit must not make a healthy host alarm
+    # every night.
+    ai_tools_records_get_exit_status || return $?
+    return 0
+}
+
+# status_services -- each unit the registry names, with its consequence and remedy where one needs attention. Runs
+# in the report's own shell so its fold reaches the report state; requires the registry readers cmd_status checked.
+status_services() {
+    local rec unit scope stamp mode state age when exit_code reason remedy
     while IFS= read -r rec; do
         unit="$(ai_tools_service_field "${rec}" 1)"
         scope="$(ai_tools_service_field "${rec}" 2)"
@@ -4403,7 +4463,7 @@ cmd_status() {
         # A sandbox-user unit's are composed here rather than stored in the registry: they name the sandbox ACCOUNT,
         # and services.lib.sh is deployed with no @SANDBOX_USER@ pass.
         if ai_tools_service_needs_attention "${state}"; then
-            problems=$(( problems + 1 ))
+            ai_tools_records_accumulate_severity attention
             say "      $(ai_tools_service_field "${rec}" 5)"
             if [[ "${scope}" == sandbox-user ]]; then
                 status_sandbox_unit_commands "${unit}"
@@ -4414,22 +4474,7 @@ cmd_status() {
             fi
         fi
     done < <(ai_tools_service_records)
-
-    status_path_order      || problems=$(( problems + 1 ))
-    status_entrypoint_pins || problems=$(( problems + 1 ))
-
-    # Pointers, not duplication: name the sibling read-only reports (which own their own detail) and where the full
-    # command list lives, so `status` is a hub without re-implementing `providers list` or
-    # `--help`.
-    section "More"
-    say "  ai-tools providers   installed agents/integrations and which are enabled"
-    say "  ai-tools projects    registered projects (in place and sandbox clones)"
-    say "  ai-tools --help      the full command list"
-
-    # Exit non-zero when something is broken, so `status` is usable unattended (a cron check, a monitor) without parsing
-    # this output. 'unknown' and 'n/a' are not faults and do not count -- an unqueryable unit must not make a healthy
-    # host alarm every night.
-    [[ "${problems}" -eq 0 ]]
+    return 0
 }
 
 # cmd_project_list  -- print each allowlist entry as project, sandbox, or exclude, with its git safe.directory status,
