@@ -612,9 +612,13 @@ Read-only: it reads the labels and does not relabel, register a file-context
 rule, or take the policy-store lock, so it does not change the state it reports
 on.
 It does not take an argument.
-Exits non-zero when anything needs attention, so it runs from a monitor or a
+Exits 4 when anything needs attention and 5 when a library the package ships did
+not load, so a section could not make a reading it promises (see
+.BR "EXIT STATUS" );
+either way it runs from a monitor or a
 .BR cron (8)
-job without parsing its output; a reading it could not make is reported as
+job without parsing its output. A probe this vantage may fail without the host
+being broken is reported as
 .B ?
 and never counted, so an unqueryable unit does not alarm a healthy host.
 .RE
@@ -643,13 +647,14 @@ a domain named with no command after it.
 .TP
 .B 4
 A report found something that needs attention and read every source
-.RB ( "system post\-upgrade" ,
+.RB ( status ", and " "system post\-upgrade"
 with or without
 .BR \-\-check ).
 .TP
 .B 5
 A report could not read one of its sources, so its findings are incomplete
-.RB ( "system post\-upgrade \-\-check" ).
+.RB ( status ": a library the package ships did not load; " "system post\-upgrade \-\-check" ).
+The page names the reading it could not make.
 Each is an exit status
 .BR ai-tools-records (5)
 states.

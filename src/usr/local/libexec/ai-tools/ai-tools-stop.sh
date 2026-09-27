@@ -69,9 +69,11 @@
 # Exit:   0 stopped and verified gone (or no session was running)
 #         1 something survived SIGKILL -- the only outcome that is not a stop
 #         2 usage (an unknown option, or a path -- this command does not take a target)
-#         4 declined at the confirmation (a deliberate `n`; never a degraded path)
 #         5 this helper could not run (no cgroup2 hierarchy, no sandbox uid) -- distinct from 1,
 #           so a caller can tell a broken tool from a surviving process
+#         6 declined at the confirmation (a deliberate `n`; never a degraded path) -- the code
+#           ai-tools(1) reserves for an operator's explicit decline, spelled here rather than read
+#           from a library, since no project library is load-bearing in this helper
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is stop.rule.md.
 
@@ -953,7 +955,7 @@ main() {
         log_event notice \
             "${CALLER} declined the stop of ${agent_count} agent session(s) and ${plumbing_count} account unit(s) in ${scope} -- nothing stopped" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=declined"
-        return 4
+        return 6
     fi
 
     local index outcome survivors=0 class_note

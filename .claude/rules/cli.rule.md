@@ -285,16 +285,31 @@ an ordinary account read it — a partial view, the file sink being the authorit
   or remove; the `auditallow` that records it, and the one ordinary exec the report counts rather than itemizes, are
   [ref-section-f2p3](launch.rule.md#ref-section-f2p3). The section states which reading it made — findings
   where the core module carries the rule, a coded notice naming the remedy where SELinux is disabled, the module is not
-  loaded or predates the rule, or the host does not run an audit daemon — and only findings count toward the exit
-  status; a reading the helper could not make is a diagnostic, the same rule `status` follows for a `?`.
+  loaded or predates the rule, or the host does not run an audit daemon — and an absence the helper observed leaves
+  the exit alone, the same rule `status` follows for a `?`. A tool that is present and failed reads as `unreadable`,
+  a reading that could not be made, and the run exits 5.
+
+  **Each source is read with its exit status, stdout and stderr apart, and a source whose result is empty is told
+  from one that failed by what its tool documents** ([records](records.rule.md) holds the collector shape). `grep` exits
+  1 on no match and 2 on a read error; `journalctl` exits 0 over an empty window; `ausearch` exits 1 for no match
+  and for an error alike, so its `<no matches>` line is what separates them, and an exit 1 without it is reported
+  as unreadable. The log directory is checked before it is listed, since an unexpanded glob over a directory that is
+  missing or refuses a listing would read as a host with no log file; a `*.log` entry other than a readable file
+  and a record whose timestamp `date(1)` refuses are each a reading that could not be made. The observed absences — no
+  `journalctl`, no sandbox account (`getent` exit 2: no session ran), no audit daemon, no SELinux, no `sesearch` — are
+  printed as the reading each is, and leave the exit alone.
 
   **It reports events, never current state.** Each line is something that *happened* between two points in time,
   and a condition recorded here may have been resolved since, so the report closes by naming `status` (and
   `ai-tools-admin system entrypoints relabel`) as what answers *now* rather than re-verifying a finding itself: knowing
-  how to re-check each condition is the per-detection knowledge it refuses to carry. Exits **non-zero when anything is
-  reported**, so it runs unattended from cron or a login banner without parsing its output — the same contract `status`
-  offers. A `--since` value `date(1)` does not parse is refused, so a typo does not become a reassuring wall of old
-  findings.
+  how to re-check each condition is the per-detection knowledge it refuses to carry. Exits **4 when anything is reported
+  and 5 when a reading could not be made** — the codes `ai-tools-records(5)` states, folded
+  through `records-base.lib.sh` and required at load, so a helper whose exit contract did not load refuses and does not
+  exit 0 — so it runs unattended from cron or a login banner without parsing its output, the same contract `status`
+  offers. An incomplete run opens by naming each reading it could not make and never prints the clean headline,
+  so a section that reads clean after it is not taken for a clean window; the findings it did read follow the list.
+  A non-root caller is refused at 5, since the trail is `700 root:root` and no reading is possible. A `--since` value
+  `date(1)` does not parse is refused at 2, so a typo does not become a reassuring wall of old findings.
 - `stop` — terminate every running agent session and everything it spawned, through the `ai-tools-stop` root helper,
   which `%ai-ops` grants NOPASSWD in its bare form (the one rule in the drop-in whose passwordlessness is its purpose:
   an unattended detector cannot answer a prompt — [ref-section-r5r9](stop.rule.md#ref-section-r5r9)). The only verb
@@ -383,8 +398,18 @@ an ordinary account read it — a partial view, the file sink being the authorit
   Times render **relative first** (`last run 3 days ago`), coarsening with distance, because the age is
   what the operator acts on. Every unit line feeds one predicate, `ai_tools_service_needs_attention`
   (`down`/`failed`/`stale`, not `unknown`), which is both what the scanner collects and what `status`'s **exit status**
-  reports — non-zero when anything is broken, so the command is usable from a monitor or cron without parsing its
-  output. An unqueryable unit is not a fault and does not alarm.
+  reports — 4 when anything is broken, so the command is usable from a monitor or cron without parsing its output.
+  An unqueryable unit is not a fault and does not alarm.
+
+  **The exit is the report state's** (`ai-tools-records(5)`, folded through `records-base.lib.sh`, which `cmd_status`
+  loads and requires): 4 where a section read a fault, 5 where a section could not make a reading it promises, and 0
+  otherwise. Each section returns 1 for a fault and `STATUS_UNREADABLE` for a reading it could not make,
+  and `status_fold` turns the two into the fold, so the sections stay free of the library and drivable on their own.
+  What exits 5 is a library base ships that did not load — the service registry, the provider resolver, the toolchain
+  readers — a broken install, reported under a code and still followed by every later section, so the page carries each
+  reading it could make beside the one it could not. A `?` or `n/a` line is a reading **this vantage** cannot make —
+  an operator reading a sandbox-user unit, a pin the account cannot traverse to — and is neither: it leaves the exit
+  at 0, since a probe the vantage may fail without the host being broken must not make a nightly `status` alarm.
 
   **Both halves of the entrypoint reconciliation are reported, from the records it writes.** Neither the binary nor its
   label can be inspected from this account, so each half leaves a root-owned record where the operator can read it.
@@ -514,9 +539,11 @@ since — an out-of-band `restorecon`, a package that reinstalled the binary —
 It is **read-only**, which is what makes it safe to call from a report, and its whole difference
 from `ai_tools_label_agent_paths`; that function's header states which calls each one makes.
 
-The report is otherwise the same contract as `status`: it exits non-zero when something needs attention, so it runs
-unattended without parsing its output, and `?` and `n/a` do not count toward that status — a reading this vantage could
-not make must not alarm a healthy host.
+The report is otherwise the same contract as `status`: it exits 4 when something needs attention and 5 when a library
+base ships did not load, so a section could not make a reading it promises — the two counts `STATUS_PROBLEMS`
+and `STATUS_UNREADABLE`, folded through `records-base.lib.sh` at the end — so it runs unattended without parsing its
+output, and `?` and `n/a` do not count toward that status: a reading this vantage cannot make must not alarm a healthy
+host. A registry that did not load is reported under its code and the later sections still print.
 
 ## Acting for another operator (`--for`)
 

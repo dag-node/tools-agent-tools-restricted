@@ -469,10 +469,10 @@ something survived
 .BR SIGKILL ,
 .B 2
 usage \(em an unknown option, or a path,
-.B 4
-declined at the confirmation,
 .B 5
-the helper could not run. The request, the answer to the confirmation, each session ended
+the helper could not run,
+.B 6
+declined at the confirmation. The request, the answer to the confirmation, each session ended
 and which pass ended it are all recorded in
 .I /var/log/ai\-tools/stop.log
 and journald. What each outcome means, and what a stop leaves in place:
@@ -522,8 +522,11 @@ Launch refusals are reported in a section of their own, because
 .B ai\-tools\-run
 runs as the sandbox account and can reach only journald \(em they are the session's own
 account of itself, to reconcile against the file trail rather than to rely on alone.
-Exits non-zero when anything is reported, so it can be run unattended from a cron job
-or a login banner without parsing its output.
+Exits 4 when anything is reported and 5 when a source could not be read (see
+.BR "EXIT STATUS" ),
+so it can be run unattended from a cron job or a login banner without parsing its
+output; an incomplete run names the reading it could not make instead of reporting
+a clean window.
 .RS
 .PP
 A third section reports what the kernel recorded: an agent's binary started from
@@ -559,11 +562,17 @@ because running it starts an agent as you with none of the sandbox, and names
 .B "ai\-tools\-admin operators add"
 as the repair.
 .PP
-Exits non-zero when anything is reported broken \(em a shadowed launcher
-included \(em so it can be run unattended from a monitor or a cron job. SKIPPED
+Exits 4 when anything is reported broken \(em a shadowed launcher
+included \(em and 5 when a reading it promises could not be made because a
+library the package ships did not load (see
+.BR "EXIT STATUS" ),
+so it can be run unattended from a monitor or a cron job. SKIPPED
 is not broken: it reports a run that correctly declined to act, such as an
 update that could not reach the package registry, and turns STALE if the
-condition persists.
+condition persists. A
+.B ?
+line is a probe this account may fail without the host being broken, and does
+not change the exit.
 .RE
 .SH OPTIONS
 .TP
@@ -733,11 +742,29 @@ argument, which it refuses rather than accepts and ignores.
 The target is a protected path \(em a system directory or a home root \(em and
 every elevated helper refuses it, whatever the allowlist says.
 .TP
+.B 4
+A report read every source and found something that needs attention
+.RB ( status ", " audit ).
+The codes 4 and 5 are the ones
+.BR ai-tools-records (5)
+states for every report in this project.
+.TP
 .B 5
+A report could not make a reading it promises, so its findings are incomplete
+.RB ( status ": a library the package ships did not load; " audit ": a log file,
+the journal or the audit log could not be read, or the caller is not root).
+The page names the reading it could not make.
 .B stop
-could not run at all: it was not invoked as root, the sandbox account has no
-uid, or the host has no cgroup v2 hierarchy.
-No session was signalled.
+returns the same code for its own case: it could not run at all, because it was
+not invoked as root, the sandbox account has no uid, or the host has no cgroup v2
+hierarchy. No session was signalled.
+.TP
+.B 6
+You declined at the confirmation, so the requested action was not performed.
+.B stop
+returns this for a deliberate
+.I n
+at its prompt; no session was signalled.
 .TP
 .B 130
 .B stop

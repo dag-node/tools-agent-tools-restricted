@@ -2250,9 +2250,14 @@ st()      { printf '    %-13s %s\n' "[$1]" "$2"; }
 detail()  { printf '                  %s\n' "$*"; }
 heading() { printf '\n  %s\n\n' "$*"; }
 
+# The two counts status() folds into its exit (ai-tools-records(5)): STATUS_PROBLEMS, a fault a section read,
+# and STATUS_UNREADABLE, a reading a section could not make because a library base ships did not load. A `?` line is
+# neither: it is a probe this vantage may fail without the host being broken, and does not count.
+STATUS_PROBLEMS=0
+STATUS_UNREADABLE=0
+
 # status_services: every unit in the shared registry, with its consequence and remedy where one needs attention. Renders
 # to stdout and counts the units needing attention in STATUS_PROBLEMS.
-STATUS_PROBLEMS=0
 status_services() {
     heading "Services"
     local rec unit scope stamp mode state age when exit_code reason remedy uid
@@ -2319,13 +2324,13 @@ status_services() {
 # for that agent, and the link the CLI's bootstrap gate reads, so the two reports answer alike. The link is tested
 # per launcher, since the launcher directory also holds the base package's own files and is never empty on an installed
 # host. Counted as the CLI counts it (cli.rule.md): an unprovisioned agent and an empty enabled set are reported and not
-# counted, since an unfinished install is what the section exists to say; enabled agents that cannot be read are
-# a broken install and are counted.
+# counted, since an unfinished install is what the section exists to say; a resolver that did not load is a reading this
+# section could not make, so the report exits 5.
 status_provisioning() {
     heading "Provisioning"
     if ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
-        st FAILED "cannot read the enabled agents -- ${PROVIDERS_LIB} did not load; reinstall ai-tools-base"
-        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        st UNREADABLE "cannot read the enabled agents -- ${PROVIDERS_LIB} did not load; reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
     local agent launcher reason
@@ -2354,10 +2359,15 @@ status_provisioning() {
 # whose live copy is not the shipped one -- the same reading `ai-tools status` makes, rendered in this tool's table.
 # The package never overwrites such a file, so this line is where an operator learns it differs. An edited file is
 # a supported state and is not counted; a missing one is, since the package is then broken. Prints no line for a file
-# matching the shipped copy.
+# matching the shipped copy. Without the resolver status_provisioning has already said so; a resolver that loaded
+# without its managed-files reader is a reading this section could not make.
 status_managed_files() {
     declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0
-    declare -F ai_tools_agent_managed_files >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_agent_managed_files >/dev/null 2>&1; then
+        st UNREADABLE "managed files: ${PROVIDERS_LIB} did not load its managed-files reader; reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
     local agent live reference state
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
@@ -2388,12 +2398,17 @@ status_managed_files() {
 # state -- an air-gapped host, a release published without a manifest -- so it is reported and left uncounted.
 status_entrypoints() {
     heading "Entrypoints"
-    # Three libraries answer this section between them, and a partial load must report that rather than reach
+    # Four libraries answer this section between them, and a partial load must report that rather than reach
     # an undefined function -- which under `set -e` would abort the whole report over the section it could not give.
+    # Each ships with base, so a missing one is a reading this section could not make, not a `?`.
     if ! declare -F ai_tools_enabled_agents      >/dev/null 2>&1 \
             || ! declare -F ai_tools_agent_manifest_field  >/dev/null 2>&1 \
-            || ! declare -F ai_tools_entrypoint_pin_path   >/dev/null 2>&1; then
-        st "?" "the provider or entrypoint libraries are unavailable -- no agent could be resolved"
+            || ! declare -F ai_tools_entrypoint_pin_path   >/dev/null 2>&1 \
+            || ! declare -F ai_tools_service_stamp_field   >/dev/null 2>&1 \
+            || ! declare -F ai_tools_service_stamp_age     >/dev/null 2>&1 \
+            || ! declare -F ai_tools_service_fmt_age       >/dev/null 2>&1; then
+        st UNREADABLE "the provider, entrypoint or service libraries did not load -- no agent could be resolved; reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
 
@@ -2485,9 +2500,11 @@ entrypoint_stale_mark() {
 # agent's pin and its labels read together.
 status_labels() {
     # Base ships this library beside this tool, so a missing report means a broken or half-upgraded install rather than
-    # an optional piece -- said as a reading that could not be made, since that is what it is from the reader's side.
+    # an optional piece -- a reading that could not be made, counted as such, since that is what it is from the reader's
+    # side.
     if ! declare -F ai_tools_agent_label_report >/dev/null 2>&1; then
-        st "?" "live labels: ${RELABEL_LIB} did not load its report -- reinstall ai-tools-base"
+        st UNREADABLE "live labels: ${RELABEL_LIB} did not load its report -- reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
     local report verdict agent what path actual wanted rc=0
@@ -2546,34 +2563,40 @@ status_node_version() {
     return 0
 }
 
-# status: the host report. Exits non-zero when something is broken, so it is usable from a monitor or a cron check
-# without parsing this output -- the same contract `ai-tools status` offers, and the reason `?` and `n/a` are never
-# counted: a reading this vantage point could not make must not make a healthy host alarm every night.
+# status: the host report. The exit is the report state's (ai-tools-records(5)): 4 when a section read a fault, 5
+# when a section could not make a reading it promises, so it is usable from a monitor or a cron check without parsing
+# this output -- the same contract `ai-tools status` offers, and the reason `?` and `n/a` are never counted: a reading
+# this vantage point cannot make must not make a healthy host alarm every night.
 status() {
     [[ $# -eq 0 ]] || reject MSG-T6S6 "status: takes no arguments"
     STATUS_PROBLEMS=0
+    STATUS_UNREADABLE=0
+    ai_tools_records_begin_report
     # Ahead of the library load, so a report that cannot be given still says what was asked for: the refusal then reads
     # as this command failing rather than as an unattributed error.
     printf '\nai-tools host status\n'
 
     # Loaded here rather than beside the other libraries: each is read by one command, and relabel.lib.sh pulls
     # in the provider and control-plane libraries behind it. `operators add` loads that one the same way, inside
-    # the command that needs it. Each is best-effort and its section reports what it could not read, EXCEPT the service
-    # registry -- without it there is no report to give, and a clean bill this tool cannot support is worse than
-    # a refusal.
+    # the command that needs it. Each is best-effort and its section reports what it could not read. The service
+    # registry is the one whose absence is reported here, since the Services section cannot open without it: a reading
+    # that could not be made, so the run exits 5 and the other sections still print what they read.
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/services.lib.sh
     source "${SERVICES_LIB}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
     source "${RELABEL_LIB}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/entrypoint-verify.lib.sh
     source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null || true
+    local services_readable=yes
     if ! declare -F ai_tools_service_records   >/dev/null 2>&1 \
             || ! declare -F ai_tools_service_state_of >/dev/null 2>&1 \
             || ! declare -F ai_tools_service_fmt_age  >/dev/null 2>&1; then
-        die MSG-V6N9 "the service registry (${SERVICES_LIB}) is unavailable -- reinstall ai-tools-base"
+        warn MSG-V6N9 "the service registry (${SERVICES_LIB}) is unavailable -- reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        services_readable=no
     fi
     # Root reaching the sandbox account's own manager is what this report adds over the operator's.
-    ai_tools_service_sandbox_account "${SANDBOX_USER}"
+    declare -F ai_tools_service_sandbox_account >/dev/null 2>&1 && ai_tools_service_sandbox_account "${SANDBOX_USER}"
 
     heading "Version"
     printf '    %-13s %s\n' "ai-tools" "${AI_TOOLS_VERSION}"
@@ -2582,7 +2605,12 @@ status() {
     status_provisioning
     status_managed_files
 
-    status_services
+    if [[ "${services_readable}" == yes ]]; then
+        status_services
+    else
+        heading "Services"
+        st UNREADABLE "the service registry did not load, so no unit could be read"
+    fi
     status_entrypoints
 
     # Pointers, not duplication: the reports that own the detail this one deliberately does not.
@@ -2594,7 +2622,10 @@ status() {
         "sudo ai-tools-admin --help           every command this host has"
     printf '\n'
 
-    [[ "${STATUS_PROBLEMS}" -eq 0 ]]
+    (( STATUS_PROBLEMS == 0 )) || ai_tools_records_accumulate_severity attention
+    (( STATUS_UNREADABLE == 0 )) || ai_tools_records_accumulate_severity unreadable
+    ai_tools_records_get_exit_status || return $?
+    return 0
 }
 
 # ── dispatch ─────────────────────────────────────────────────────────────────────────────────

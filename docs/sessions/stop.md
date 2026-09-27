@@ -143,8 +143,8 @@ in the trail afterwards:
 | 0 | stopped and verified gone, or no session was running | reclaim the projects it names ([After a stop: reclaim](#after-a-stop-reclaim)) |
 | 1 | something survived `SIGKILL` | see [A process survived](#a-process-survived-exit-1) |
 | 2 | usage — an unknown option, or a path (this command does not take a target) | run `ai-tools stop` |
-| 4 | you declined at the confirmation | no session was stopped |
 | 5 | the helper could not run (no cgroup v2, no sandbox account) | a broken host, not a failed stop |
+| 6 | you declined at the confirmation | no session was stopped |
 | 130 | the run was interrupted by a signal | some sessions may be partially stopped; run it again |
 
 Exit 0 means precisely this: every session that existed when the command

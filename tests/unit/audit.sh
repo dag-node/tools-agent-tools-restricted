@@ -55,6 +55,9 @@ if [[ ! -r "${AUDIT_HELPER}" ]]; then
 fi
 
 mktestdir
+# The helper captures each tool's stderr into one file it makes on first use; a sourcing test names it, so the file
+# lands in the test directory and leaves with it.
+export STDERR_CAPTURE="${TESTDIR}/stderr-capture"
 
 # The harness and the helper both name the sandbox account SANDBOX_USER and both declare it readonly, so that one
 # failure is expected on source; every other byte on stderr is not, and is asserted to be absent rather than discarded
@@ -562,5 +565,189 @@ if grep -q 'beta entrypoint started from inside a session' <<<"${out}"; then
 else
     fail "the finding is absent from the section: $(tr '\n' '|' <<<"${out}")"
 fi
+
+# ── 8. The exit status: a finding exits 4, a reading that could not be made exits 5 and is named ──────────────
+# Each case runs `main` in a fresh shell that sources the helper with the trail pointed at a fixture directory (the
+# logger reads AI_TOOLS_LOG_DIR once, at source) and every host tool stubbed as a function, so a case decides one
+# reading and the host decides none. What is asserted is the exit status ai-tools-records(5) states for each row
+# of the outcome matrix, and that an incomplete run names the reading it could not make instead of printing the clean
+# headline -- a failure before any observation and one after a valid observation are both driven.
+section "exit status: findings exit 4, a reading that could not be made exits 5 and is named"
+
+AUDIT_EXITS="${TESTDIR}/audit-exits"
+# A host whose sources all answer: the rule in force, an empty journal, an empty audit window reported as ausearch
+# reports one, and a sandbox account. Each case overrides the one stub it is about.
+STUBS_OK='
+journalctl() { return 0; }
+getent() { printf "ai-tools:x:4242:4242::/opt/ai-tools:/sbin/nologin\n"; }
+ausearch() { printf "<no matches>\n" >&2; return 1; }
+auditctl() { printf "enabled 1 failure 1 pid 812\n"; }
+getenforce() { printf "Enforcing\n"; }
+semodule() { printf "ai_tools\n"; }
+sesearch() { printf "auditallow ai_tools_t ai_tools_exec_t:file { execute_no_trans };\n"; }
+build_agent_entrypoint_map() { AGENT_NAMES=(); AGENT_PATTERNS=(); }
+'
+# run_audit <log_dir> <extra stubs> : run main over the fixture trail; AUDIT_RC and AUDIT_OUT carry the result.
+# shellcheck disable=SC2016  # the $1/$2/$3 are for the inner `bash -c`, not this shell -- do not expand here
+run_audit() {
+    AUDIT_RC=0
+    AUDIT_OUT="$(env AI_TOOLS_LOG_DIR="$1" AI_TOOLS_MSG_PLAIN=1 STDERR_CAPTURE="${TESTDIR}/audit-stderr" \
+        bash -c 'helper="$1"; stubs="$2"; extra="$3"; set --; source "${helper}" 2>/dev/null
+                 eval "${stubs}"; eval "${extra}"; SINCE="2 days ago"; resolve_window; main' \
+        _ "${AUDIT_HELPER}" "${STUBS_OK}" "${2:-}" 2>&1)" || AUDIT_RC=$?
+}
+# audit_case <desc> <expected rc> <log_dir> <extra stubs> [<must contain> [<must not contain>]]
+audit_case() {
+    local desc="$1" want="$2" log_dir="$3" extra="$4" must="${5:-}" must_not="${6:-}"
+    run_audit "${log_dir}" "${extra}"
+    if [[ "${AUDIT_RC}" -ne "${want}" ]]; then
+        fail "${desc}: exit ${AUDIT_RC}, expected ${want}: $(tr '\n' '|' <<<"${AUDIT_OUT}" | head -c 400)"
+    elif [[ -n "${must}" ]] && ! grep -qF -- "${must}" <<<"${AUDIT_OUT}"; then
+        fail "${desc}: exit ${want} but the page lacks '${must}': $(tr '\n' '|' <<<"${AUDIT_OUT}" | head -c 400)"
+    elif [[ -n "${must_not}" ]] && grep -qF -- "${must_not}" <<<"${AUDIT_OUT}"; then
+        fail "${desc}: exit ${want} but the page carries '${must_not}': $(tr '\n' '|' <<<"${AUDIT_OUT}" | head -c 400)"
+    else
+        pass "${desc}"
+    fi
+}
+reset_trail() { rm -rf "${AUDIT_EXITS}"; mkdir -p "${AUDIT_EXITS}"; }
+now_stamp="$(date -Is)"
+CLEAN_HEADLINE='Nothing refused, rejected, stranded or flagged'
+
+# Complete readings: 0 with no finding, 4 with one.
+reset_trail
+audit_case "a readable directory with no log file is a host that has not written yet: exit 0" 0 "${AUDIT_EXITS}" '' \
+    "${CLEAN_HEADLINE}"
+printf '%s INFO    [1] restored ownership of /tmp/x\n' "${now_stamp}" > "${AUDIT_EXITS}/chown.log"
+audit_case "a trail holding INFO alone exits 0 with the clean headline" 0 "${AUDIT_EXITS}" '' "${CLEAN_HEADLINE}"
+printf '%s NOTICE  [1] secret-named file written by agent considered breached: /p/.env\n' "${now_stamp}" \
+    >> "${AUDIT_EXITS}/chown.log"
+audit_case "a finding in the window exits 4, every source read" 4 "${AUDIT_EXITS}" '' "breached" "${CLEAN_HEADLINE}"
+
+# A failure BEFORE any observation: the directory itself. An unexpanded glob read this as an empty trail.
+audit_case "a missing log directory exits 5 and is named; no clean headline" 5 "${AUDIT_EXITS}/absent" '' \
+    "does not exist" "${CLEAN_HEADLINE}"
+run_audit "${AUDIT_EXITS}/absent" ''
+assert_msg MSG-W5C8 "${AUDIT_OUT}" "an incomplete audit is reported under its code"
+
+# A failure AFTER a valid observation: the finding is still listed, and the run is still incomplete.
+ln -s "${AUDIT_EXITS}/no-such-file" "${AUDIT_EXITS}/handback.log"
+audit_case "a finding beside a *.log entry that is not a readable file: exit 5, the finding still listed" 5 \
+    "${AUDIT_EXITS}" '' "breached"
+run_audit "${AUDIT_EXITS}" ''
+if grep -qF 'handback.log is not a readable file' <<<"${AUDIT_OUT}" && grep -qF 'What was read' <<<"${AUDIT_OUT}"; then
+    pass "the incomplete page names the entry it could not read and marks the findings as what was read"
+else
+    fail "the incomplete page does not name the unreadable entry: $(tr '\n' '|' <<<"${AUDIT_OUT}" | head -c 400)"
+fi
+rm -f "${AUDIT_EXITS}/handback.log"
+
+# A record of this format whose stamp date(1) refuses is the trail's own record, unreadable -- not dropped.
+reset_trail
+printf 'not-a-date WARNING [7] rejected peer\n' > "${AUDIT_EXITS}/handback.log"
+audit_case "a record whose timestamp date(1) cannot read exits 5 and names the file" 5 "${AUDIT_EXITS}" '' \
+    "timestamp date(1) cannot read"
+
+# journald: no journalctl and no sandbox account are hosts without the source; a tool that ran and failed is not.
+reset_trail
+audit_case "journalctl exiting non-zero exits 5 and names journald" 5 "${AUDIT_EXITS}" \
+    'journalctl() { printf "Failed to add match\n" >&2; return 1; }' "journald could not be read"
+audit_case "no sandbox account (getent exit 2) is a host on which no session ran: exit 0" 0 "${AUDIT_EXITS}" \
+    'getent() { return 2; }' "${CLEAN_HEADLINE}"
+audit_case "getent failing for another reason exits 5" 5 "${AUDIT_EXITS}" \
+    'getent() { printf "nss failure\n" >&2; return 1; }' "could not be resolved"
+# The short-iso line journalctl writes -- `<iso-stamp> <host> <tag>[<pid>]: <message>` -- is what the reader parses.
+audit_case "a REFUSED line in journalctl's short-iso shape is a launch refusal: exit 4" 4 "${AUDIT_EXITS}" \
+    'journalctl() { printf "2026-09-27T10:00:00+0200 host ai-tools-run[123]: REFUSED: not in allowed projects: /x\n"; }' \
+    "REFUSED: not in allowed projects"
+run_audit "${AUDIT_EXITS}" \
+    'journalctl() { printf "2026-09-27T10:00:00+0200 host ai-tools-run[123]: REFUSED: not in allowed projects: /x\n"; }'
+if grep -qF 'Launch refusals' <<<"${AUDIT_OUT}" && grep -qE '2026-09-27 +launch' <<<"${AUDIT_OUT}"; then
+    pass "the refusal renders in its own section, dated from the ISO stamp"
+else
+    fail "the launch refusal did not render as expected: $(tr '\n' '|' <<<"${AUDIT_OUT}" | head -c 400)"
+fi
+
+# The kernel record: ausearch exits 1 for an empty window and for a failure alike, so the `<no matches>` line decides,
+# on whichever stream it arrives; a tool the state probe needs that ran and failed is `unreadable`, not an absence.
+audit_case "ausearch reporting <no matches> on stdout is an empty window: exit 0" 0 "${AUDIT_EXITS}" \
+    'ausearch() { printf "<no matches>\n"; return 1; }' "${CLEAN_HEADLINE}"
+audit_case "ausearch exit 1 with another message is a failed search: exit 5" 5 "${AUDIT_EXITS}" \
+    'ausearch() { printf "Error opening /var/log/audit/audit.log\n" >&2; return 1; }' "audit log could not be searched"
+audit_case "ausearch exit 1 with nothing on either stream is ambiguous: exit 5" 5 "${AUDIT_EXITS}" \
+    'ausearch() { return 1; }' "without reporting an empty window"
+audit_case "auditctl -s failing is an unreadable kernel record, not no-auditd: exit 5" 5 "${AUDIT_EXITS}" \
+    'auditctl() { printf "You must be root\n" >&2; return 4; }' "auditctl -s exited 4"
+audit_case "getenforce failing is unreadable, not no-selinux: exit 5" 5 "${AUDIT_EXITS}" \
+    'getenforce() { return 1; }' "getenforce exited 1"
+audit_case "semodule -l failing is unreadable, not no-selinux: exit 5" 5 "${AUDIT_EXITS}" \
+    'semodule() { printf "store locked\n" >&2; return 1; }' "semodule -l exited 1"
+audit_case "sesearch failing is unreadable, not no-rule: exit 5" 5 "${AUDIT_EXITS}" \
+    'sesearch() { return 1; }' "sesearch exited 1"
+audit_case "kernel auditing switched off is an observed absence: exit 0" 0 "${AUDIT_EXITS}" \
+    'auditctl() { printf "enabled 0 failure 1 pid 0\n"; }' "${CLEAN_HEADLINE}"
+
+# ── 9. The ausearch window is formatted in the locale and zone the search parses it in ────────────────────────
+# ausearch(8) parses `-ts <date> <time>` in the locale's `%x`/`%X` under LC_TIME, with no ISO 8601 input and no offset.
+# The helper formats both words with the C locale under UTC and runs the search under the same, so the words name one
+# instant. The setup control comes first: under Europe/Prague the two instants an hour apart across the autumn fall-back
+# render to the same wall-clock word, which is the ambiguity the pin exists to remove. The stub records the arguments
+# and the environment the search ran with.
+section "the ausearch window: the C locale and UTC on both the formatting and the search"
+
+dst_first="$(date -u -d '2026-10-25T00:30:00Z' +%s)"
+dst_second="$(date -u -d '2026-10-25T01:30:00Z' +%s)"
+if [[ "$(TZ=Europe/Prague date -d "@${dst_first}" '+%H:%M:%S')" == "02:30:00" \
+        && "$(TZ=Europe/Prague date -d "@${dst_second}" '+%H:%M:%S')" == "02:30:00" ]]; then
+    pass "control: under Europe/Prague both instants render as 02:30:00, so a wall-clock word cannot tell them apart"
+    auditctl() { printf 'enabled 1 failure 1 pid 812\n'; }
+    getenforce() { printf 'Enforcing\n'; }
+    semodule() { printf 'ai_tools\n'; }
+    sesearch() { printf 'auditallow ai_tools_t ai_tools_exec_t:file { execute_no_trans };\n'; }
+    build_agent_entrypoint_map() { AGENT_NAMES=(); AGENT_PATTERNS=(); }
+    ausearch() {
+        printf 'date=%s time=%s LC_ALL=%s TZ=%s\n' "$4" "$5" "${LC_ALL:-unset}" "${TZ:-unset}" > "${TESTDIR}/ausearch-call"
+        printf '<no matches>\n' >&2; return 1
+    }
+    # window_words <epoch> : run the collector under a Prague zone and print what the search was called with.
+    window_words() {
+        # shellcheck disable=SC2034  # read by collect_entrypoint_findings in the sourced helper
+        CUTOFF_EPOCH="$1"
+        UNREADABLE_READINGS=()
+        TZ=Europe/Prague collect_entrypoint_findings
+        cat "${TESTDIR}/ausearch-call"
+    }
+    first_call="$(window_words "${dst_first}")"
+    second_call="$(window_words "${dst_second}")"
+    if [[ "${first_call}" == "date=10/25/26 time=00:30:00 LC_ALL=C TZ=UTC" ]]; then
+        pass "the window is the C locale's %x and %X of the instant in UTC, and the search runs under LC_ALL=C TZ=UTC"
+    else
+        fail "the window was formatted as: ${first_call}"
+    fi
+    if [[ "${second_call}" == "date=10/25/26 time=01:30:00 LC_ALL=C TZ=UTC" && "${first_call}" != "${second_call}" ]]; then
+        pass "the instant an hour later takes a different word, so the fall-back hour names one instant"
+    else
+        fail "the second instant was formatted as: ${second_call}"
+    fi
+    if (( ${#UNREADABLE_READINGS[@]} == 0 )); then
+        pass "a search reporting <no matches> over the window leaves every reading made"
+    else
+        fail "the window search was read as unreadable: ${UNREADABLE_READINGS[*]}"
+    fi
+    unset -f auditctl getenforce semodule sesearch build_agent_entrypoint_map ausearch window_words
+else
+    skip "ausearch window across the fall-back" "Europe/Prague is not in this host's zone database"
+fi
+
+# A non-root caller cannot read the trail at all: the reading could not be made, at the exit that says so.
+id() { printf '1000\n'; }
+rc=0; out="$( (assert_root) 2>&1 )" || rc=$?
+unset -f id
+if [[ "${rc}" -eq 5 ]]; then
+    pass "a non-root caller is refused at exit 5, the code for a reading that could not be made"
+else
+    fail "a non-root caller exited ${rc}, expected 5: ${out}"
+fi
+assert_msg MSG-K9C5 "${out}" "the root refusal keeps its code"
 
 finish

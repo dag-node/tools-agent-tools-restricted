@@ -36,6 +36,12 @@ consumer reads a run as clean because of a token the library did not know. A rep
 `ai_tools_records_get_exit_status || exit $?`, or on a command that changes the host the combination
 `ai-tools-records(5)` states under EXIT STATUS (1 over 5 over 4).
 
+A report that prints for a person and does not write a stream takes the same fold for its exit alone: `ai-tools status`,
+`ai-tools-admin status` and `ai-tools audit` source `records-base.lib.sh`, note `attention` for each fault they read
+and `unreadable` for each reading they could not make, and end on `ai_tools_records_get_exit_status`. Their page names
+every reading that could not be made, so exit 5 is never a page that reads clean. Which readings each command counts,
+and which it leaves at 0, are in [cli](cli.rule.md).
+
 ## Rules for a report calling the libraries
 
 - **State changes run in the report's own shell.** Every `ai_tools_records_*` call that changes state — `begin_report`,

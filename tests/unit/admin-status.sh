@@ -115,4 +115,52 @@ else
     fail "provisioning with the agent link (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
 fi
 
+# ── The exit status: 0 clean, 4 for a fault a section read, 5 for a reading a section could not make ──────────────
+# `status` is driven whole, with the sections that read this host stubbed to a known answer (no unit in the registry, no
+# entrypoint section), so each case changes one reading: a section that counts a fault, and the service registry's
+# readers removed after the library was loaded -- its include guard keeps status()'s own re-source from restoring them,
+# which is the shape a half-upgraded install takes. A `?` line stays uncounted, which the Provisioning cases already
+# pin.
+section "ai-tools-admin status: the exit status follows ai-tools-records(5) (unit)"
+
+# call_status <pre> : source the helper with the hooks set, run <pre> in that shell, then `status`; the exit status is
+# the function's, since the sourced helper's `set -e` ends the shell on a non-zero return.
+# shellcheck disable=SC2016  # the $1/$2/$3 are for the inner `bash -c`, not this shell -- do not expand here
+call_status() {
+    env AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
+        bash -c 'helper="$1"; lib="$2"; pre="$3"; set --; source "${helper}" >/dev/null 2>&1 || exit 99
+                 declare -F status >/dev/null || exit 98
+                 source "${lib}" 2>/dev/null || true
+                 status_entrypoints() { :; }; ai_tools_service_records() { :; }
+                 eval "${pre}"; status' _ "${HELPER}" "${SERVICES_LIB}" "$1" 2>&1
+}
+reset_fixtures; manifest alpha la; vlink la v9.9.9
+rc=0; out="$(call_status ':')" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "admin status exit" "status absent (older helper?)"
+elif [[ "${rc}" -eq 0 ]]; then
+    pass "a report whose every section read clean exits 0"
+else
+    fail "clean report exited ${rc}: $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+rc=0; out="$(call_status 'status_services() { heading Services; STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )); }')" || rc=$?
+if [[ "${rc}" -eq 4 ]]; then
+    pass "a section that read a fault makes the report exit 4"
+else
+    fail "a counted fault exited ${rc}, expected 4: $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+rc=0; out="$(call_status 'unset -f ai_tools_service_records')" || rc=$?
+if [[ "${rc}" -eq 5 ]] && grep -qx 'MSG-V6N9' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}" \
+        && grep -qF 'ai-tools providers' <<<"${out}"; then
+    pass "a service registry that did not load exits 5, is named under its code, and the later sections still print"
+else
+    fail "a missing registry exited ${rc}, expected 5 with MSG-V6N9 and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+rc=0; out="$(call_status 'unset -f ai_tools_service_records; status_provisioning() { heading Provisioning; STATUS_PROBLEMS=1; }')" || rc=$?
+if [[ "${rc}" -eq 5 ]]; then
+    pass "a fault read beside a reading that could not be made exits 5: unreadable wins the fold"
+else
+    fail "fault plus unreadable exited ${rc}, expected 5"
+fi
+
 finish

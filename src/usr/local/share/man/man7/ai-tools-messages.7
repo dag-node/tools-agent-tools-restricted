@@ -70,6 +70,10 @@ ERROR.
 ERROR.
 unknown option for stop: ${argument}
 .TP
+.B MSG-B9A2
+ERROR.
+cannot load ${RECORDS_BASE_LIB}, which states this report's exit codes \-\- reinstall the ai\-tools package
+.TP
 .B MSG-C4Y4
 ERROR.
 root is not an operator
@@ -211,6 +215,10 @@ Documented in
 .B MSG-W4S7
 ERROR.
 this is an excluded path inside a claimed project, not a disabled project: ${d}
+.TP
+.B MSG-X5Z8
+WARNING.
+service registry unavailable (${SERVICES_LIB}) \-\- cannot report service health; reinstall the ai\-tools package
 .TP
 .B MSG-X6U2
 ERROR.
@@ -554,7 +562,7 @@ ERROR.
 cannot source ${1}
 .TP
 .B MSG-V6N9
-ERROR.
+WARNING.
 the service registry (${SERVICES_LIB}) is unavailable \-\- reinstall ai\-tools\-base
 .TP
 .B MSG-V8V7
@@ -844,6 +852,10 @@ no audit daemon on this host, so an agent started from inside a session leaves n
 WARNING.
 an agent entrypoint was started from inside a running session, which no launch gate saw
 .TP
+.B MSG-H2B7
+WARNING.
+cannot load ${RECORDS_BASE_LIB} \-\- refusing to report without its exit contract
+.TP
 .B MSG-K9C5
 ERROR.
 ai\-tools\-audit must run as root: the trail it reads is 700 root:root
@@ -860,9 +872,17 @@ unknown option: $1
 WARNING.
 cannot load ${LOG_LIB} \-\- refusing to print log text unsanitized
 .TP
+.B MSG-T8S2
+WARNING.
+cannot create a temporary file to capture a tool's stderr
+.TP
 .B MSG-V8Z9
 NOTICE.
 the SELinux rule that records an agent started from inside a session is not in force, so no such start is recorded
+.TP
+.B MSG-W5C8
+WARNING.
+the audit could not read every source it reports from \-\- the readings it could not make are listed below
 .TP
 .B MSG-Y3M7
 ERROR.

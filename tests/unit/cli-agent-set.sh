@@ -260,4 +260,61 @@ else
     skip "status node line" "status_node_version absent from ${CLI} (older CLI)"
 fi
 
+# ── (7) The exit status of `status` follows ai-tools-records(5): 4 for a fault a section read, 5 for a reading
+# a section could not make ── cmd_status is driven whole, with the sections that read this host stubbed to a known
+# answer (no unit in the registry, a clean PATH ordering, no pins), so each case changes one reading. The registry's
+# readers are removed after the CLI loaded them, which is the shape a half-upgraded install takes; the later sections
+# still print, so the page carries every reading it could make beside the one it could not.
+# shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
+if runuser -u "${PROJECTS_USER}" -- bash -c \
+        'cli="$1"; set --; source "${cli}" >/dev/null 2>&1; declare -F status_fold >/dev/null 2>&1' _ "${CLI}"; then
+    # call_status <pre> : as call, running <pre> in the sourced shell before cmd_status; the CLI's own `set -e` ends
+    # the shell with cmd_status's return, which is the status under test.
+    # shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+    call_status() {
+        runuser -u "${PROJECTS_USER}" -- env \
+            AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
+            AI_TOOLS_ENTRYPOINT_PIN_DIR="${PINS}" AI_TOOLS_ENTRYPOINT_STALE_DIR="${STALES}" \
+            AI_TOOLS_ENTRYPOINT_LABEL_DIR="${LABELS}" \
+            AI_TOOLS_MSG_PLAIN=1 \
+            bash -c 'cli="$1"; pre="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
+                     ai_tools_service_records() { :; }; status_path_order() { return 0; }
+                     status_entrypoint_pins() { return 0; }
+                     eval "${pre}"; cmd_status' _ "${CLI}" "$1" 2>&1
+    }
+    reset_fixtures; rm -f "${PINS}"/* "${STALES}"/* "${LABELS}"/*; manifest alpha la yes; link la
+    rc=0; out="$(call_status ':')" || rc=$?
+    if [[ "${rc}" -eq 0 ]]; then
+        pass "a report whose every section read clean exits 0"
+    else
+        fail "clean status exited ${rc}: $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+    rc=0; out="$(call_status 'status_path_order() { return 1; }')" || rc=$?
+    if [[ "${rc}" -eq 4 ]]; then
+        pass "a section that read a fault makes status exit 4"
+    else
+        fail "a counted fault exited ${rc}, expected 4: $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+    rc=0; out="$(call_status 'unset -f ai_tools_service_records')" || rc=$?
+    if [[ "${rc}" -eq 5 ]] && grep -qx 'MSG-X5Z8' <<<"${out}" && grep -qF 'ai-tools providers' <<<"${out}"; then
+        pass "a service registry that did not load exits 5, is named under its code, and the later sections still print"
+    else
+        fail "a missing registry exited ${rc}, expected 5 with MSG-X5Z8 and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+    fi
+    rc=0; out="$(call_status 'status_provisioning() { return "${STATUS_UNREADABLE}"; }')" || rc=$?
+    if [[ "${rc}" -eq 5 ]]; then
+        pass "a section reporting a reading it could not make (its unreadable return) exits 5"
+    else
+        fail "an unreadable section exited ${rc}, expected 5: $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+    rc=0; out="$(call_status 'status_path_order() { return 1; }; unset -f ai_tools_service_records')" || rc=$?
+    if [[ "${rc}" -eq 5 ]]; then
+        pass "a fault read beside a reading that could not be made exits 5: unreadable wins the fold"
+    else
+        fail "fault plus unreadable exited ${rc}, expected 5"
+    fi
+else
+    skip "status exit" "status_fold absent from ${CLI} (older CLI)"
+fi
+
 finish

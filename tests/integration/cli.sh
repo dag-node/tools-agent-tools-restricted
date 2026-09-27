@@ -750,8 +750,8 @@ if command -v runuser >/dev/null 2>&1; then
     # instead of hanging on a developer's password prompt -- the asymmetry being that a container with no tty would fail
     # while an interactive run stalls indefinitely. -w because setsid FORKS when it is already a process-group leader,
     # and the bare form then returns 0 rather than the command's status, which would quietly pass every rc-based
-    # assertion in it.
-    # run_for <key> <args...>: the command the key names, as the operator, against the fixture registry.
+    # assertion in it. run_for <key> <args...>: the command the key names, as the operator, against the fixture
+    # registry.
     run_for() {
         local -a argv
         cli_cmd "$1" || exit 2
@@ -814,8 +814,8 @@ else
     # Written after the chown, so the fixture stays root's and the gate honours its AI_TOOLS_AGENTS line.
     mk_operator_conf "${pd_conf}" "${PROJECTS_USER}"
 
-    # pd_cli <key> <args...> : run the command the key names as the operator against the fixture registry,
-    # under setsid so every prompt takes its non-interactive default (the re-enable confirm defaults NO).
+    # pd_cli <key> <args...> : run the command the key names as the operator against the fixture registry, under setsid
+    # so every prompt takes its non-interactive default (the re-enable confirm defaults NO).
     pd_cli() {
         local -a argv
         cli_cmd "$1" || exit 2
@@ -1015,13 +1015,15 @@ else
     printf '%s WARNING [2] rejected peer uid=1234 (not the sandbox account)\n' "${audit_now}" \
         > "${audit_dir}/handback.log"
 
-    # (1) Findings present -> reported, and the exit status is non-zero so cron//etc/profile.d
-    #     can act on it without parsing the output.
+    # (1) Findings present -> reported, at exit 4, the code ai-tools-records(5) gives a report that read every
+    #     source and found something, so cron and /etc/profile.d act on it without parsing the output. This run
+    #     reads the host's real journal and audit log beside the seeded trail, so a 5 here is one of those sources
+    #     failing to read on this host -- a finding about the host, reported as such.
     out="$(AI_TOOLS_LOG_DIR="${audit_dir}" "${audit_bin}" --since '2 days ago' 2>&1)" && rc=0 || rc=$?
-    if [[ ${rc} -ne 0 ]] && grep -q 'breached' <<<"${out}" && grep -q 'rejected peer' <<<"${out}"; then
-        pass "ai-tools.audit reports findings from every root-only log and exits non-zero"
+    if [[ ${rc} -eq 4 ]] && grep -q 'breached' <<<"${out}" && grep -q 'rejected peer' <<<"${out}"; then
+        pass "ai-tools.audit reports findings from every root-only log and exits 4"
     else
-        fail "ai-tools.audit did not report the seeded findings (rc=${rc}): ${out}"
+        fail "ai-tools.audit did not report the seeded findings at exit 4 (rc=${rc}): ${out}"
     fi
 
     # (2) Severity is the selector, so routine INFO churn must not surface. An audit command
@@ -1067,12 +1069,24 @@ else
         fail "ai-tools.audit did not lead with the ERROR: $(grep -E '^\s+(ERROR|WARNING|NOTICE)\s' <<<"${out}" | head -3)"
     fi
 
-    # (4) A clean window exits zero, so a healthy host does not alarm every night.
+    # (4) A clean window exits zero, so a healthy host does not alarm every night. This is also where the host's own
+    #     journalctl answers a query with no matching entry: the helper reads a non-zero exit there as a source it could
+    #     not read (exit 5), so a 5 on a healthy host is the documented rule failing on this host's systemd.
     out="$(AI_TOOLS_LOG_DIR="${audit_dir}" "${audit_bin}" --since '+1 hour' 2>&1)" && rc=0 || rc=$?
     if [[ ${rc} -eq 0 ]] && grep -qi 'nothing refused' <<<"${out}"; then
         pass "ai-tools.audit exits zero and says so when the window holds no findings"
     else
         fail "ai-tools.audit did not report a clean window (rc=${rc}): ${out}"
+    fi
+
+    # (4b) A log directory that does not exist is a reading the helper could not make: exit 5 and the directory named,
+    #      and no clean headline. Driven on the deployed helper as root, where the unexpanded glob once read
+    #      as an empty trail.
+    out="$(AI_TOOLS_LOG_DIR="${audit_dir}/absent" "${audit_bin}" --since '2 days ago' 2>&1)" && rc=0 || rc=$?
+    if [[ ${rc} -eq 5 ]] && grep -q 'does not exist' <<<"${out}" && ! grep -qi 'nothing refused' <<<"${out}"; then
+        pass "ai-tools.audit exits 5 and names a log directory it could not read"
+    else
+        fail "ai-tools.audit over a missing log directory (rc=${rc}): ${out}"
     fi
 
     # (5) An unparseable --since is REFUSED, never widened to "everything": a typo that silently
