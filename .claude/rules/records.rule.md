@@ -51,7 +51,9 @@ consumer reads a run as clean because of a token the library did not know. A rep
   field `ENC`-encoded, fields tab-separated, one record per line feed. The consumer decodes each field
   with `ai_tools_records_tsv_decode_field`, and a record that does not decode, or has the wrong field count, is
   an `error` row. A collector that reads paths reads them NUL-separated (`find -print0`, `read -d ''`), so a name
-  holding a line feed reaches the encoder whole.
+  holding a line feed reaches the encoder whole. The post-upgrade collectors are the exception: they keep the line
+  and `|` framing the interactive report reads them with, and their header states what a planted name costs — extra
+  rows, which add findings to a run and do not make one read as clean.
 - **A line an upstream tool prints that the parser does not recognize is an `error` row, not a guess.** Line output
   (`restorecon -v`) is ambiguous for a path holding a line feed, which is why a claim verifies each path it reports
   on its own rather than trusting the scan's text.

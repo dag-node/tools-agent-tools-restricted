@@ -55,6 +55,46 @@ run_pu() {
     setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade < /dev/null 2>&1 || true
 }
 
+# ── `--check`: the findings as the record stream ai-tools-records(5) states ──────────────────
+# It is what cron runs, so a clean host must print no output at all and exit 0, a finding must be one row of the stream
+# -- read here by column name off the header, so a column appended later leaves the reader as it is -- and a merge
+# the interactive run would make must be reported without being made. A finding that needs attention exits 4, a source
+# the check could not read exits 5, and the findings that need no action appear under `--all` alone and leave the exit
+# at 0. The column registry is read from the library the helper reads, the installed one first.
+RECORDS_BASE_LIB="/usr/local/lib/ai-tools/records-base.lib.sh"
+[[ -r "${RECORDS_BASE_LIB}" ]] || RECORDS_BASE_LIB="${REPO_ROOT}/src/usr/local/lib/ai-tools/records-base.lib.sh"
+# shellcheck source=../../src/usr/local/lib/ai-tools/records-base.lib.sh
+source "${RECORDS_BASE_LIB}"
+run_check() {
+    local rc=0
+    out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check "$@" \
+        < /dev/null 2>&1)" || rc=$?
+    check_rc="${rc}"
+}
+# has_finding <code> <subject> <finding> <detail> [<item>]: the stream holds a row with those fields. The item is
+# compared as written on the wire (two components joined by the literal `\t` the framing writes) and left unchecked
+# when not given; the values are passed through the environment, since `awk -v` would read that `\t` as a tab.
+# The fixture values are printable ASCII without a backslash, so a field on the wire is its value.
+has_finding() {
+    HF_CODE="$1" HF_SUBJECT="$2" HF_FINDING="$3" HF_DETAIL="$4" HF_ITEM="${5-}" HF_CHECK_ITEM="$#" awk -F '\t' '
+        NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
+        $col["code"] == ENVIRON["HF_CODE"] && $col["subject"] == ENVIRON["HF_SUBJECT"] \
+            && $col["finding"] == ENVIRON["HF_FINDING"] && $col["detail"] == ENVIRON["HF_DETAIL"] \
+            && (ENVIRON["HF_CHECK_ITEM"] < 5 || $col["item"] == ENVIRON["HF_ITEM"]) { found = 1 }
+        END { exit !found }' <<< "${out}"
+}
+# stream_is_well_formed: the first line is the header the column registry declares, and every other line is one row
+# in the shape a post-upgrade finding takes -- eleven fields, an empty occurred-at and operator, a 16-hex id, a severity
+# and subject-type this report writes, and an absolute subject.
+stream_is_well_formed() {
+    local header rows
+    header="$(printf '%s\t' "${AI_TOOLS_RECORDS_COLUMNS[@]%%:*}")"; header="${header%$'\t'}"
+    rows="$(tail -n +2 <<< "${out}")"
+    [[ "${out%%$'\n'*}" == "${header}" ]] \
+        && ! grep -qvP '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\t\tMSG-[A-Z]\d[A-Z]\d\t[0-9a-f]{16}\t(attention|unreadable|info)\t[a-z-]+\t(file|directory)\t\t[^\t]*\t/[^\t]+\t[^\t]*$' \
+            <<< "${rows}"
+}
+
 # The sidecars the run left beside a file, as a count -- a keyval file must gain none.
 sidecars() {
     local file="$1" found=()
@@ -185,13 +225,12 @@ if [[ "$(md5sum < "${SETTINGS}")" == "${before}" && -f "${SETTINGS}.rpmnew" ]]; 
 else
     fail "the set comparison wrote the settings file or dropped its copy"
 fi
-out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check < /dev/null 2>&1)" \
-    && check_rc=0 || check_rc=$?
-if [[ "${check_rc}" == 1 ]] \
-        && grep -qxF "$(printf '%s\t%s\t%s\t%s' MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg)')" <<< "${out}" \
-        && grep -qxF "$(printf '%s\t%s\t%s\t%s' MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg *)')" <<< "${out}" \
+run_check
+if [[ "${check_rc}" == 4 ]] \
+        && has_finding MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg)' 'deny\tBash(gpg)' \
+        && has_finding MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg *)' 'deny\tBash(gpg *)' \
         && ! grep -qF 'hosttuned' <<< "${out}" && ! grep -qF 'rpmnew-differs' <<< "${out}"; then
-    pass "--check reports each missing rule as rule-missing, and neither the host's rule nor the layout"
+    pass "--check reports each missing rule as rule-missing with the list and the rule as its item, and neither the host's rule nor the layout"
 else
     fail "--check did not report the missing rules alone (exit ${check_rc}): ${out}"
 fi
@@ -462,13 +501,11 @@ if cmp -s "${ROOT}/etc/acme/req.toml" "${TESTDIR}/pre.req" && [[ "$(sidecars "${
 else
     fail "the key check wrote to the managed file"
 fi
-out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check < /dev/null 2>&1)" \
-    && check_rc=0 || check_rc=$?
-if [[ "${check_rc}" -eq 1 ]] \
-        && grep -qxF "$(printf '%s\t%s\t%s\t%s' MSG-K5H2 "${ROOT}/etc/acme/req.toml" key-missing features.auto_start)" \
-            <<< "${out}" \
-        && ! grep -qF "${ROOT}/etc/acme/req.toml"$'\t'key-missing$'\t'pin <<< "${out}"; then
-    pass "--check reports the missing key as key-missing under its code, not the key set to another value, and exits 1"
+run_check
+if [[ "${check_rc}" == 4 ]] \
+        && has_finding MSG-K5H2 "${ROOT}/etc/acme/req.toml" key-missing features.auto_start features.auto_start \
+        && ! has_finding MSG-K5H2 "${ROOT}/etc/acme/req.toml" key-missing pin; then
+    pass "--check reports the missing key as key-missing under its code, not the key set to another value, and exits 4"
 else
     fail "--check did not report the missing key alone (exit ${check_rc}): ${out}"
 fi
@@ -489,19 +526,7 @@ else
     fail "a file setting every key was reported: ${out}"
 fi
 
-# ── (E9) --check: one tab-separated line per finding, nothing when clean, and no write ───────────────────────
-# It is what cron runs, so a clean host must print nothing at all and exit 0, a finding must be one line a monitor
-# splits on a tab -- its code, the path, the finding, the detail -- and a merge the interactive run would make must be
-# reported without being made. The findings that need no action appear under --all alone and leave the exit at 0.
-run_check() {
-    local rc=0
-    out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check "$@" \
-        < /dev/null 2>&1)" || rc=$?
-    check_rc="${rc}"
-}
-# has_finding <code> <path> <finding> <detail>: the output holds exactly that line.
-has_finding() { grep -qxF "$(printf '%s\t%s\t%s\t%s' "$@")" <<< "${out}"; }
-
+# ── (E9) `--check`: one row per finding, no output when clean, and no write ──────────────────────────────────
 reset_root
 cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
 mkdir -p "${ROOT}/etc/ai-tools/prompts"
@@ -514,9 +539,9 @@ else
     fail "a clean host was reported under --check (exit ${check_rc}): ${out}"
 fi
 run_check --all
-if [[ "${check_rc}" == 0 ]] && has_finding MSG-J3X7 "${ROOT}/etc/ai-tools/prompts/prompt.md.rpmnew" rpmnew-residual - \
-        && has_finding MSG-W8F8 "${SETTINGS}.20200101-1.bak" copy-kept -; then
-    pass "--all adds the identical copy and the kept backup, and the exit stays 0"
+if [[ "${check_rc}" == 0 ]] && has_finding MSG-J3X7 "${ROOT}/etc/ai-tools/prompts/prompt.md.rpmnew" rpmnew-residual "" "" \
+        && has_finding MSG-W8F8 "${SETTINGS}.20200101-1.bak" copy-kept "" "" && stream_is_well_formed; then
+    pass "--all adds the identical copy and the kept backup as info rows with an empty item, and the exit stays 0"
 else
     fail "--all did not list the no-action findings, or changed the exit (exit ${check_rc}): ${out}"
 fi
@@ -530,17 +555,19 @@ mkdir -p "${ROOT}/usr/local/lib/ai-tools/typesafe"
 cp "${SETTINGS}" "${TESTDIR}/pre-check.json"
 shipped_cmd="$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "${SHIPPED_SETTINGS}")"
 run_check
-if [[ "${check_rc}" == 1 ]] && has_finding MSG-F2G7 "${SETTINGS}" hook-missing "PreToolUse: ${shipped_cmd}" \
+if [[ "${check_rc}" == 4 ]] \
+        && has_finding MSG-F2G7 "${SETTINGS}" hook-missing "PreToolUse: ${shipped_cmd}" 'PreToolUse\t'"${shipped_cmd}" \
         && has_finding MSG-E9V5 "${SETTINGS}" ask-missing 'Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)' \
-        && has_finding MSG-K8D2 "${ROOT}/etc/codex/gone.toml.rpmnew" rpmnew-orphan "the file it belongs to is gone"; then
-    pass "each finding is one line of code, path, finding and detail, and the run exits 1"
+            'Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)' \
+        && has_finding MSG-K8D2 "${ROOT}/etc/codex/gone.toml.rpmnew" rpmnew-orphan "the file it belongs to is gone" ""; then
+    pass "each finding is one row under its code, with the hook's event and command and the ask entry as items, and the run exits 4"
 else
     fail "--check did not report the pending merge, the missing ask entry and the orphan (exit ${check_rc}): ${out}"
 fi
-if ! grep -qvP '^MSG-[A-Z][0-9][A-Z][0-9]\t/[^\t]+\t[a-z-]+\t[^\t]+$' <<< "${out}"; then
-    pass "every line --check prints has the four-field shape and no other text"
+if stream_is_well_formed; then
+    pass "the stream is the declared header and one eleven-field row per finding, with no other text"
 else
-    fail "--check printed a line outside the finding shape: ${out}"
+    fail "--check printed a line outside the stream's shape: ${out}"
 fi
 if cmp -s "${SETTINGS}" "${TESTDIR}/pre-check.json" && [[ "$(sidecars "${SETTINGS}")" == 0 ]]; then
     pass "--check writes nothing: the file is byte-identical and gains no backup"
@@ -556,9 +583,9 @@ mkdir -p "${ROOT}/usr/share/ai-tools/skills/ai-tools-demo" "${ROOT}/opt/ai-tools
 printf -- '---\nname: ai-tools-demo\nx-ai-tools-managed: true\nx-ai-tools-version: 2\n---\n' \
     > "${ROOT}/usr/share/ai-tools/skills/ai-tools-demo/SKILL.md"
 run_check
-if [[ "${check_rc}" == 1 ]] && has_finding MSG-X6H5 "${ROOT}/opt/ai-tools/skills/ai-tools-demo" asset-missing \
-        "not seeded -- sessions are not offered it"; then
-    pass "a shipped skill whose live directory is empty is reported missing"
+if [[ "${check_rc}" == 4 ]] && has_finding MSG-X6H5 "${ROOT}/opt/ai-tools/skills/ai-tools-demo" asset-missing \
+        "not seeded -- sessions are not offered it" && grep -q $'\tasset-missing\tdirectory\t' <<< "${out}"; then
+    pass "a shipped skill whose live directory is empty is reported missing, as a directory"
 else
     fail "an empty live skill directory was not reported (exit ${check_rc}): ${out}"
 fi
@@ -632,11 +659,11 @@ kinds_env=(AI_TOOLS_AGENTS_DIR="${TESTDIR}/kinds/agents.d" AI_TOOLS_INTEGRATIONS
 check_rc=0
 out="$(setsid env "${kinds_env[@]}" AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check \
     < /dev/null 2>&1)" || check_rc=$?
-if [[ "${check_rc}" == 1 ]] \
-        && has_finding MSG-P5K4 "${CONF}" list-unmigrated 'AI_TOOLS_AGENTS: [acme] -> [agent-acme]' \
-        && has_finding MSG-S3D8 "${CONF}" list-unmigratable 'AI_TOOLS_INTEGRATIONS: nosuch' \
-        && has_finding MSG-P5K4 "${CONF}" list-unmigrated 'AI_TOOLS_FILTERS: [core] -> [filter-base]'; then
-    pass "--check names each list it would rewrite and each name it cannot, and exits 1"
+if [[ "${check_rc}" == 4 ]] \
+        && has_finding MSG-P5K4 "${CONF}" list-unmigrated 'AI_TOOLS_AGENTS: [acme] -> [agent-acme]' AI_TOOLS_AGENTS \
+        && has_finding MSG-S3D8 "${CONF}" list-unmigratable 'AI_TOOLS_INTEGRATIONS: nosuch' 'AI_TOOLS_INTEGRATIONS\tnosuch' \
+        && has_finding MSG-P5K4 "${CONF}" list-unmigrated 'AI_TOOLS_FILTERS: [core] -> [filter-base]' AI_TOOLS_FILTERS; then
+    pass "--check names each list it would rewrite by key and each name it cannot by key and name, and exits 4"
 else
     fail "--check over bare provider lists (exit ${check_rc}): ${out}"
 fi
@@ -660,11 +687,50 @@ fi
 check_rc=0
 out="$(setsid env "${kinds_env[@]}" AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check \
     < /dev/null 2>&1)" || check_rc=$?
-if [[ "${check_rc}" == 1 && "$(grep -c . <<< "${out}")" == 1 ]] \
+if [[ "${check_rc}" == 4 && "$(grep -c . <<< "${out}")" == 2 ]] \
         && has_finding MSG-S3D8 "${CONF}" list-unmigratable 'AI_TOOLS_INTEGRATIONS: nosuch'; then
     pass "after the run --check names only the name left to edit by hand"
 else
     fail "--check after the run (exit ${check_rc}): ${out}"
+fi
+
+# ── (I) `--check`: a collector that fails is an error row, and the run exits 5 ───────────────
+# The check reads each collector through a process substitution and waits for it, so a collector's exit is what says
+# the reading was complete. `cut` is the last stage of the copies collector and the only step on the check's path
+# that runs it, so a `cut` that fails drives one collector failure. The stub needs a directory where its executable bit
+# is visible, which a noexec /tmp hides: the testdir is used when it qualifies and a directory beside the operator's
+# home otherwise, the fallback unit/agent-installs.sh takes for the same reason.
+x_bit_visible() {
+    local probe="$1/.x-probe.$$" ok=1
+    printf '' > "${probe}" 2>/dev/null || return 1
+    chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
+    [[ -x "${probe}" ]] && ok=0
+    rm -f "${probe}"
+    return "${ok}"
+}
+STUBS="${TESTDIR}/stubs"
+mkdir -p "${STUBS}"
+if ! x_bit_visible "${STUBS}"; then
+    mk_fixture_dir STUBS "${PROJECTS_HOME}" pustubs 2>/dev/null || STUBS=""
+    [[ -n "${STUBS}" ]] && chmod 0755 "${STUBS}"
+fi
+if [[ -z "${STUBS}" ]] || ! x_bit_visible "${STUBS}"; then
+    skip "--check on a failing collector" "no directory here reports a 0755 file as executable (a noexec mount)"
+else
+    printf '#!/bin/sh\nexit 7\n' > "${STUBS}/cut"
+    chmod 0755 "${STUBS}/cut"
+    reset_root
+    cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
+    check_rc=0
+    out="$(setsid env PATH="${STUBS}:${PATH}" AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade \
+        --check < /dev/null 2>&1)" || check_rc=$?
+    if [[ "${check_rc}" == 5 && "$(grep -c . <<< "${out}")" == 2 ]] \
+            && has_finding MSG-Y3J5 "${ROOT}" error "the copies collector exited 7" copies \
+            && grep -q $'\tunreadable\terror\tdirectory\t' <<< "${out}"; then
+        pass "a collector that exits non-zero is one unreadable error row naming it, and the run exits 5"
+    else
+        fail "a failing collector was not reported as unreadable (exit ${check_rc}): ${out}"
+    fi
 fi
 
 # ── (G) Dispatch ─────────────────────────────────────────────────────────────────────────────

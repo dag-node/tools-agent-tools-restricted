@@ -486,31 +486,32 @@ It does not edit the file.
 Idempotent, and leaves every file as it is when no
 .I .rpmnew
 file is waiting.
-Exits 0 when nothing is left to act on and 1 otherwise, so a copy identical to
-its file counts as clean.
+Exits 0 when no file is left to act on, 4 while one is, and 1 when a merge it
+was asked to make failed; a copy identical to its file counts as clean.
 .RS
 .TP
 .B \-\-check
-List the findings without asking or writing, one line per finding:
-.IP
-.I CODE
-TAB
-.I PATH
-TAB
-.I FINDING
-TAB
-.I DETAIL
-.IP
-with no heading, colour, or other text.
-.I CODE
-is the finding's message code in
-.BR ai-tools-messages (7),
-and
-.I DETAIL
-is
-.B \-
-where there is none.
-A finding that needs attention makes the command exit 1:
+Write the findings without asking or writing, as the record stream
+.BR ai-tools-records (5)
+states: a header row, then one tab-separated row per finding, and no output
+at all on a host with no finding.
+Exits 0 with no row, 4 when a row needs attention, and 5 when a source could
+not be read, so a
+.BR cron (8)
+job mails only a host that needs you.
+Each row's
+.I subject
+is the file or directory the finding is about,
+.I item
+names what inside it the row is about (a hook's event and command, a
+permission list and rule, a key, a provider list's key and name) and is empty
+where the subject is the whole finding, and
+.I detail
+is display prose.
+No row carries an
+.IR operator :
+every subject is host-wide.
+A finding that needs attention makes the command exit 4:
 .B hook\-missing
 and
 .B hook\-repeated
@@ -542,13 +543,17 @@ entry the file lacks),
 .IR DETAIL ),
 .B list\-unmigratable
 (a name in a provider list that does not match any installed manifest or rule
-set, to edit by hand), and
+set, to edit by hand).
+An
 .B error
-(a check that could not run, with the reason as
-.IR DETAIL ).
-With none of these the command prints nothing and exits 0, so a
-.BR cron (8)
-job mails only a host that needs you.
+row (a check that could not run, or a collector that failed, with the check
+named as
+.I ITEM
+and the reason as
+.IR DETAIL )
+makes it exit 5: the rows before it stay valid, and the reading is
+incomplete.
+With none of these the command prints nothing and exits 0.
 .TP
 .B \-\-all
 Also list the findings that need no action, without changing the exit status:
@@ -567,7 +572,7 @@ copy),
 (your own file where a shipped asset or its link would be).
 .TP
 .B \-\-format tsv
-The line format, and the default.
+The stream format, and the default.
 .RE
 .TP
 .B status
@@ -635,6 +640,19 @@ The operation failed.
 .B 2
 The command line was rejected \(em an unknown command, a missing argument, or
 a domain named with no command after it.
+.TP
+.B 4
+A report found something that needs attention and read every source
+.RB ( "system post\-upgrade" ,
+with or without
+.BR \-\-check ).
+.TP
+.B 5
+A report could not read one of its sources, so its findings are incomplete
+.RB ( "system post\-upgrade \-\-check" ).
+Each is an exit status
+.BR ai-tools-records (5)
+states.
 Nothing was changed.
 .SH ENVIRONMENT
 .TP
@@ -773,11 +791,24 @@ sudo ai\-tools\-admin system post\-upgrade
 .RE
 .PP
 Check each morning from root's crontab, with a mail only when a file needs
-you:
+you; the script keeps the stream when the exit says the reading found
+something or could not complete:
 .PP
 .RS 4
 .EX
 0 7 * * * /usr/sbin/ai\-tools\-admin system post\-upgrade \-\-check
+.EE
+.RE
+.PP
+.RS 4
+.EX
+ai\-tools\-admin system post\-upgrade \-\-check > /var/tmp/post\-upgrade.tsv
+case $? in
+    0) rm \-f /var/tmp/post\-upgrade.tsv ;;
+    4) logger \-t post\-upgrade "findings left; see the stream" ;;
+    5) logger \-t post\-upgrade "reading incomplete; see the stream" ;;
+    *) logger \-t post\-upgrade "the command failed" ;;
+esac
 .EE
 .RE
 .PP

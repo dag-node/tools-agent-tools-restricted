@@ -370,16 +370,20 @@ package on that package's type. `system bootstrap` runs the same function ahead 
 and `install.sh` do not edit the file: each reads `ai_tools_conf_kind_unmigrated` and names this command, `%post`
 among the steps a host still needs and `install.sh` first in its closing steps.
 
-The same command answers unattended. It exits 1 while anything it reports needs the operator and 0 otherwise,
-the contract `status` offers, and `--check` prints the findings as data instead of a report: one tab-separated line
-per finding, carrying the finding's message code, the path, the finding and its detail, with no line on a host
-that needs nothing, since `cron` mails whatever a job prints. It reads every predicate the report reads and writes
-nothing, so a merge the interactive run would offer is reported as pending. The findings that need no action —
-an identical copy, a kept `.bak`, `.shipped` or `.retired`, an outdated or overridden skill — are printed under `--all`
-alone and do not change the exit status. Each finding is one situation and carries one code, tied to it
-in `_pu_finding`; `ai-tools-admin(8)` lists them. The check reaches past the `.rpmnew` files to what provisioning places
-on an upgrade: a shipped skill, subagent or orientation text not seeded, or an enabled agent without its link to one,
-needs attention, because a session is not offered that asset.
+The same command answers unattended. It exits 4 while anything it reports needs the operator, 1 when a merge it was
+asked to make did not happen, and 0 otherwise, and `--check` writes the findings as the record stream
+`ai-tools-records(5)` states ([records](records.rule.md)): a header row, then one row per finding carrying its message
+code, its severity, the file or directory it is about, the item inside it the collector's own granularity gives (a
+hook's event and command, a permission list and rule, a key), and its detail, with no output on a host with no finding,
+since `cron` mails whatever a job prints. It reads every predicate the report reads and writes nothing, so a merge
+the interactive run would offer is reported as pending. Its exit is the stream's: 4 with a finding that needs attention,
+5 when a check could not run or a collector exited non-zero — each an `error` row naming the check — and 0 with neither.
+The findings that need no action — an identical copy, a kept `.bak`, `.shipped` or `.retired`, an outdated or overridden
+skill — are written under `--all` alone, at severity `info`, and do not change the exit status. Each finding is one
+situation and carries one code, tied to it with its severity in `_pu_write_finding`; `ai-tools-admin(8)` lists them.
+The check reaches past the `.rpmnew` files to what provisioning places on an upgrade: a shipped skill, subagent
+or orientation text not seeded, or an enabled agent without its link to one, needs attention, because a session is not
+offered that asset.
 
 ### A config file's header is a pointer
 
