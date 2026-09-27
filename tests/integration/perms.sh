@@ -125,6 +125,10 @@ check_file /usr/local/lib/ai-tools/filters.lib.sh            root              r
 # Service-health registry: 644 root:root -- world-readable, sourced by the operator launch wrapper and the CLI
 # (ai-tools.status); read-only data, no secrets.
 check_file /usr/local/lib/ai-tools/services.lib.sh           root              root              644
+# Record streams: 644 root:root -- the model and the TSV wire format every machine-read report sources; read-only data
+# plus encoding, no secrets.
+check_file /usr/local/lib/ai-tools/records-base.lib.sh       root              root              644
+check_file /usr/local/lib/ai-tools/records-tsv.lib.sh        root              root              644
 # The three provider directories, owned by ai-tools-base (each member package drops only its own files into them). 0755
 # root:root is SECURITY-LOAD-BEARING, not housekeeping: these decide which agents get provisioned and what env a session
 # gets, and a group- or other-writable directory would let a non-root writer unlink and replace a root-owned manifest
@@ -405,6 +409,11 @@ if [[ -e /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5.gz ]];
     check_file /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5.gz root root 644
 else
     check_file /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5    root root 644
+fi
+if [[ -e /usr/local/share/man/man5/ai-tools-records.5.gz ]]; then
+    check_file /usr/local/share/man/man5/ai-tools-records.5.gz root root 644
+else
+    check_file /usr/local/share/man/man5/ai-tools-records.5    root root 644
 fi
 if [[ -e /usr/local/share/man/man5/ai-tools-typesafe.conf.5.gz ]]; then
     check_file /usr/local/share/man/man5/ai-tools-typesafe.conf.5.gz root root 644
