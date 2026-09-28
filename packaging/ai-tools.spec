@@ -1281,6 +1281,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/settings-merge.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
 %attr(0644, root, root) %{ai_libdir}/ancestor-config.lib.sh
+%attr(0644, root, root) %{ai_libdir}/sandbox-exec.lib.sh
 %attr(0644, root, root) %{ai_libdir}/toolchain.lib.sh
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
 %attr(0644, root, root) %{ai_libdir}/filters.lib.sh
