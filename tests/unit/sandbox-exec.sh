@@ -48,8 +48,15 @@ if [[ "${EUID}" -ne 0 ]]; then
     rc=0; out="$(ai_tools_as_sandbox ai-tools id 2>&1)" || rc=$?
     [[ "${rc}" -eq 1 && "${out}" == *"needs root"* ]] \
         && pass "a caller that is not root is refused, and nothing runs" || fail "non-root call: rc ${rc}: ${out}"
-    ai_tools_is_sandbox_account && fail "an unprivileged caller reads as the sandbox account" \
-        || pass "an unprivileged caller that is not the sandbox account is not one"
+    # The identity check against this process: yes only where the invoker is the resolved sandbox account, which
+    # a development run as that account is.
+    if [[ -n "$(ai_tools_sandbox_uid)" && "${EUID}" -eq "$(ai_tools_sandbox_uid)" ]]; then
+        ai_tools_is_sandbox_account && pass "the sandbox account, running this file itself, reads as itself" \
+            || fail "the sandbox account running this file does not read as itself"
+    else
+        ai_tools_is_sandbox_account && fail "an unprivileged caller that is not the sandbox account reads as it" \
+            || pass "an unprivileged caller that is not the sandbox account is not one"
+    fi
     skip "the sandbox child's properties" "needs root, which runuser does"
     finish; exit
 fi
@@ -152,22 +159,37 @@ count_marked() {
     esac
 }
 
+# wait_marked <marker> <count> <helper-pid> : poll until <count> marked processes are alive, the helper has exited,
+# or seven seconds have passed, and print the count seen last. The helper's start -- the scope's bus call, runuser's PAM
+# session, the trampoline -- takes what a loaded host gives it, so a count taken at a fixed moment is not a control.
+wait_marked() {
+    local marker="$1" want="$2" helper="$3" seen=0 polls=0
+    while (( polls < 35 )); do
+        seen="$(count_marked "${marker}")" || seen=-1
+        (( seen >= want )) && break
+        kill -0 "${helper}" 2>/dev/null || break
+        sleep 0.2
+        polls=$(( polls + 1 ))
+    done
+    printf '%s' "${seen}"
+}
+
 # The bound: a command that outlives it is ended with every process of its run, and the call says so. The child execs
 # into a sleep and first starts a grandchild sleep in a subshell, each carrying this run's marker as its argv[0]
 # (`exec -a`), so `pgrep -f` finds exactly these; the case asserts the two are alive before the bound and gone after it.
-# The helper runs in the background so the processes can be counted while it waits.
+# The helper runs in the background so the processes can be counted while it waits, under a bound wide enough
+# for the start.
 marker="ai-tools-test-sandbox-exec-$$"
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-AI_TOOLS_AS_SANDBOX_TIMEOUT=4 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
+AI_TOOLS_AS_SANDBOX_TIMEOUT=10 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
     '( exec -a "$1" sleep 300 ) & exec -a "$1" sleep 300' _ "${marker}" >/dev/null 2>"${TESTDIR}/bound-err" &
 helper_pid=$!
-sleep 2
-alive_before="$(count_marked "${marker}")" || alive_before=-1
+alive_before="$(wait_marked "${marker}" 2 "${helper_pid}")"
 rc=0; wait "${helper_pid}" || rc=$?
 sleep 1
 alive_after="$(count_marked "${marker}")" || alive_after=-1
 if [[ "${alive_before}" -lt 2 ]]; then
-    fail "control: the bound case started ${alive_before} marked process(es), so its cleanup is not measured"
+    fail "control: the bound case started ${alive_before} marked process(es) before the helper returned ${rc}, so its cleanup is not measured: $(<"${TESTDIR}/bound-err")"
 elif [[ "${rc}" -ne 124 ]]; then
     fail "a command past the bound returned ${rc}, want 124: $(<"${TESTDIR}/bound-err")"
 else
@@ -200,17 +222,16 @@ pkill -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null || true
 # before the bound, from a background helper as in the first bound case.
 marker="ai-tools-test-sandbox-exec-escape-$$"
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-AI_TOOLS_AS_SANDBOX_TIMEOUT=4 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
+AI_TOOLS_AS_SANDBOX_TIMEOUT=10 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
     'setsid -f bash -c "exec -a \"\$1\" sleep 300" _ "$1"; exec -a "$1" sleep 300' _ "${marker}" \
     >/dev/null 2>"${TESTDIR}/escape-err" &
 helper_pid=$!
-sleep 2
-alive_before="$(count_marked "${marker}")" || alive_before=-1
+alive_before="$(wait_marked "${marker}" 2 "${helper_pid}")"
 rc=0; wait "${helper_pid}" || rc=$?
 sleep 1
 alive_after="$(count_marked "${marker}")" || alive_after=-1
 if [[ "${alive_before}" -lt 2 ]]; then
-    fail "control: the escape case started ${alive_before} marked process(es), so the scope's reach is not measured"
+    fail "control: the escape case started ${alive_before} marked process(es) before the helper returned ${rc}, so the scope's reach is not measured: $(<"${TESTDIR}/escape-err")"
 elif [[ "${rc}" -eq 124 && "${alive_after}" -eq 0 ]]; then
     pass "a descendant that opened its own session is ended at the bound with the rest of the run"
 else
