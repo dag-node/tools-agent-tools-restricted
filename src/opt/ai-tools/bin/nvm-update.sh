@@ -124,11 +124,22 @@ write_stamp() {
         [[ "${node_version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || node_version=unknown
     fi
 
+    # A run that ended because the clock is behind keeps the previous run's FINISHED: the time this run would write is
+    # the wrong one, and the previous is the last reading that was true, so the stamp ages into STALE as it should
+    # instead of dating a run that never happened.
+    local finished
+    finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    if [[ "${reason}" == clock ]]; then
+        local previous
+        previous="$(sed -n 's/^FINISHED=//p' "${NVM_UPDATE_STAMP}" 2>/dev/null | head -n1)"
+        [[ -n "${previous}" ]] && finished="${previous}"
+    fi
+
     # Composed whole, then written in ONE call: REASON is present only on a skip, and building the text first keeps
     # that conditional line from splitting the write into two -- the single write is what keeps the window
     # in which a reader could see a partial stamp negligible.
     printf -v text '# nvm-update last-run stamp -- written by %s, read by "ai-tools status".\nRESULT=%s\nEXIT_CODE=%d\nFINISHED=%s\nTRIGGER=%s\nNODE=%s\n' \
-        "${AI_TOOLS_BIN}/nvm-update.sh" "${result}" "${rc}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "${AI_TOOLS_BIN}/nvm-update.sh" "${result}" "${rc}" "${finished}" \
         "${trigger}" "${node_version}"
     [[ -n "${reason}" ]] && text+="REASON=${reason}"$'\n'
     printf '%s' "${text}" >"${NVM_UPDATE_STAMP}" 2>/dev/null \
@@ -136,6 +147,14 @@ write_stamp() {
     return 0
 }
 trap 'write_stamp "$?"' EXIT
+
+# The KEY=value library (conf.lib.sh), for the clock reading main makes before anything else
+# (ai_tools_conf_clock_behind). Best-effort source, the posture NPM_VERIFY_LIB and ENTRYPOINT_VERIFY_LIB take: a missing
+# one is a broken install, and main reports the check as not made where the function is absent, rather than skipping it
+# in silence.
+readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/conf.lib.sh
+source "${CONF_LIB}" 2>/dev/null || true
 
 # npm signature verifier (npm-verify.lib.sh). Best-effort source: the lib is root-owned, so a missing one is a broken
 # install, not agent action -- degrade to "unable to verify" (a warn, never a blocked update), matching the check's own
@@ -402,6 +421,19 @@ main() {
     local node_alias="${NVM_NODE_ALIAS:-default}"
     local major="${NVM_NODE_MAJOR:-22}"
     local nvm_dir="${HOME}/.nvm"   # HOME=/opt/ai-tools when running as ai-tools
+
+    # The clock, before anything is downloaded or written: a file this host wrote dated after now says the clock is
+    # behind (a host with no battery-backed clock boots into an earlier time until it reaches a time source), and every
+    # record this run would leave -- the stamp's FINISHED, the pin's VERIFIED, the journal -- would carry the wrong
+    # time. Transient, like an unreachable registry: the unit retries, the stamp says why (REASON=clock,
+    # with the previous run's FINISHED kept rather than a wrong one written), and the toolchain is left alone.
+    local clock_behind_lines=""
+    if ! declare -F ai_tools_conf_clock_behind >/dev/null 2>&1; then
+        warn "the clock was not checked: ${CONF_LIB} did not load -- reinstall ai-tools-base"
+    elif ! clock_behind_lines="$(ai_tools_conf_clock_behind "$0" "${NVM_UPDATE_STAMP}" \
+                "${AI_TOOLS_ENTRYPOINT_PIN_DIR:-/var/opt/ai-tools/state/entrypoint-pin.d}"/* 2>/dev/null)"; then
+        skip clock "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than a file this host wrote (${clock_behind_lines//$'\n'/; }) -- set the clock first (timedatectl set-time, or chronyc makestep once a time source is reachable); nothing was changed"
+    fi
 
     [[ -s "${nvm_dir}/nvm.sh" ]] || die "nvm not found at ${nvm_dir}/nvm.sh"
     # shellcheck source=/dev/null

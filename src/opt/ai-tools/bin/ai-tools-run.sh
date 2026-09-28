@@ -118,6 +118,23 @@ if [[ " $(id -nG "@SANDBOX_USER@" 2>/dev/null) " == *" ai-ops "* ]]; then
            'remove it:  sudo gpasswd -d @SANDBOX_USER@ ai-ops'
 fi
 
+# ── The clock ────────────────────────────────────────────────────────────────────────────────
+# Every record this launch leaves -- the audit line, the unit's journal, the handback stamps -- carries the system
+# clock, and a host with no battery-backed clock boots into an earlier time until it reaches a time source. A file this
+# host wrote that is dated after now says the clock is behind (ai_tools_conf_clock_behind), so the launch is refused
+# until it is set. Read here as the sandbox account against the files it can reach -- this shim, the config library,
+# the updater's stamp and the entrypoint pins -- so the refusal does not rest on the wrapper's read of the same.
+clock_behind_lines=""
+if ! clock_behind_lines="$(ai_tools_conf_clock_behind "$0" "${AI_TOOLS_LIB_DIR}/conf.lib.sh" \
+        /var/opt/ai-tools/state/nvm-update.status \
+        "${AI_TOOLS_ENTRYPOINT_PIN_DIR:-/var/opt/ai-tools/state/entrypoint-pin.d}"/* 2>/dev/null)"; then
+    audit warning "REFUSED: the system clock is behind a file this host wrote: ${clock_behind_lines//$'\n'/; }"
+    refuse MSG-Z9C8 "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than a file this host wrote -- refusing to launch" \
+           "${clock_behind_lines//$'\t'/  }" \
+           'every record of the session would carry a wrong time; set the clock first:' \
+           "  sudo timedatectl set-time 'YYYY-MM-DD HH:MM:SS'   (or chronyc makestep, once a time source is reachable)"
+fi
+
 # ── The provider lists this release reads ────────────────────────────────────────────────────
 # A provider list item an earlier release wrote without its kind prefix makes the list read as empty
 # (ai_tools_conf_kind_list, conf.lib.sh): an unmigrated AI_TOOLS_AGENTS would reach the agent resolution as "no agent is
@@ -406,8 +423,8 @@ declare -a session_path_entries=()
 #
 # This runs as @SANDBOX_USER@ and decides what the agent's own session gets, so every file -- and the directory holding
 # it, since a group-writable directory lets a non-root writer replace a root-owned file inside it -- must pass
-# ai_tools_conf_is_trusted; where a file fails it, the file is skipped and logged, never sourced. Fragments and pins
-# are additive, so skipping one costs the session that provider's environment and leaves every other property intact.
+# ai_tools_conf_is_trusted; where a file fails it, the file is skipped and logged, never sourced. Fragments and pins are
+# additive, so skipping one costs the session that provider's environment and leaves every other property intact.
 source_session_env_fragment() {   # <provider> [pins]  -- <provider>.env.sh, or <provider>.pins.env.sh
     local provider_name="$1" fragment_path="${SESSION_ENV_DIR}/$1${2:+.$2}.env.sh"
     [[ -e "${fragment_path}" ]] || return 0

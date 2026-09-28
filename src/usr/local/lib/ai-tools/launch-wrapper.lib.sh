@@ -264,7 +264,29 @@ ai_tools_launch_gate_lists() {
 # gate is the diagnostician that answers before sudo, naming the agent and the provisioning run that removes
 # the package. The library the reader lives in is required like the three ai_tools_launch_init loads: a wrapper
 # that cannot read it cannot tell residue from a clean toolchain, and the shim bare-sources the same file, so refusing
-# here names the cause.
+# here names the cause. ai_tools_launch_gate_clock -- refuse while the system clock is behind a file this host wrote
+# (ai_tools_conf_clock_behind, conf.lib.sh): every record a session leaves -- the audit lines, the handback stamps,
+# the journal -- would carry a wrong time, and a host with no battery-backed clock boots into an earlier time until it
+# reaches a time source. The files read are the ones every host writes at a known moment and the operator can stat: this
+# library and the wrapper (written at install), the operator's allowlist (at the last claim), the updater's last-run
+# stamp (daily on a healthy host), and the entrypoint pins (at the last reconcile). The refusal names the file
+# and the command that sets the clock; there is no override, since the fix is the clock itself. ai-tools-run makes
+# the same read as the sandbox account, against the files it can reach, so the boundary does not rest on this
+# diagnostician. A clock that is ahead is not visible this way, and this gate does not claim to see it.
+ai_tools_launch_gate_clock() {
+    local pin_dir="${AI_TOOLS_ENTRYPOINT_PIN_DIR:-/var/opt/ai-tools/state/entrypoint-pin.d}" behind when path
+    local -a lines=()
+    behind="$(ai_tools_conf_clock_behind "${BASH_SOURCE[0]}" "$0" "${HOME}/.config/ai-tools/allowed-projects" \
+        /var/opt/ai-tools/state/nvm-update.status "${pin_dir}"/* 2>/dev/null)" && return 0
+    while IFS=$'\t' read -r when path; do
+        [[ -n "${path}" ]] && lines+=("         ${when}  ${path}")
+    done <<< "${behind}"
+    ai_tools_launch_die MSG-U8K6 "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than a file this host wrote -- refusing to start" \
+        "${lines[@]}" \
+        "       every record of a session would carry a wrong time; set the clock first:" \
+        "         sudo timedatectl set-time 'YYYY-MM-DD HH:MM:SS'   (or chronyc makestep, once a time source is reachable)"
+}
+
 ai_tools_launch_gate_residue() {
     local name="${AI_TOOLS_LAUNCH_NAME}" link_dir="${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}" agent launcher joined
     local -a residue=()
@@ -591,6 +613,7 @@ ai_tools_launch_claim_guard() {
 # reorder or omit a gate.
 ai_tools_launch_gates() {
     ai_tools_launch_gate_operator
+    ai_tools_launch_gate_clock
     ai_tools_launch_gate_lists
     ai_tools_launch_gate_launcher
     ai_tools_launch_gate_residue

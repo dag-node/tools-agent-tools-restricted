@@ -1296,6 +1296,10 @@ AI_TOOLS_AGENT_EXEC contains parent\-directory references
 .B MSG-Z2J9
 ERROR.
 invalid or absent AI_TOOLS_AGENT_EXEC \-\- cannot launch
+.TP
+.B MSG-Z9C8
+ERROR.
+the system clock reads $(date '+%Y\-%m\-%d %H:%M:%S'), earlier than a file this host wrote \-\- refusing to launch
 .SS ai-tools-safedir
 .TP
 .B MSG-F4Y6
@@ -1834,6 +1838,10 @@ cannot resolve working directory
 .B MSG-U6A9
 ERROR.
 cannot load the launch safety library \-\- refusing to start
+.TP
+.B MSG-U8K6
+ERROR.
+the system clock reads $(date '+%Y\-%m\-%d %H:%M:%S'), earlier than a file this host wrote \-\- refusing to start
 .TP
 .B MSG-U9K8
 ERROR.

@@ -216,6 +216,21 @@ out="$(run_crun AI_TOOLS_AGENT_EXEC=/opt/ai-tools/.nvm/versions/node/v1.2.3/../b
 # By code: the traversal refusal must be the executable's, not the project directory's.
 refused "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC with parent-directory references" MSG-N4P3 "${rc}" "${out}"
 
+# (2b) A file this host wrote dated after the system clock refuses the launch ahead of the executable check: the shim
+# reads the entrypoint pins among the files it can reach, so a pin directory holding a future-dated record, reached
+# through the root-only AI_TOOLS_ENTRYPOINT_PIN_DIR hook, is the fixture. Readable by the sandbox account, which makes
+# the read.
+clock_pins="$(mktemp -d)"; chmod 0755 "${clock_pins}"
+printf 'AGENT=acme\n' > "${clock_pins}/acme"; chmod 0644 "${clock_pins}/acme"; touch -d '+2 days' "${clock_pins}/acme"
+out="$(run_crun AI_TOOLS_ENTRYPOINT_PIN_DIR="${clock_pins}" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
+refused "ai-tools-run refuses while the clock is behind a file this host wrote, before the executable check" MSG-Z9C8 "${rc}" "${out}"
+if grep -qF "${clock_pins}/acme" <<<"${out}" && grep -qF 'timedatectl set-time' <<<"${out}" && ! grep -q 'MSG-Z2J9' <<<"${out}"; then
+    pass "the clock refusal names the file and the command that sets the clock, and the executable check did not run"
+else
+    fail "clock refusal: ${out}"
+fi
+rm -rf "${clock_pins}"
+
 # (3)/(4) With a VALID AI_TOOLS_AGENT_EXEC, a bad AI_TOOLS_PROJECT_DIR is refused before launch. Needs the real
 # versioned target (so AI_TOOLS_AGENT_EXEC passes); skip if it cannot be resolved.
 real="$(readlink -- /opt/ai-tools/bin/claude 2>/dev/null || true)"
