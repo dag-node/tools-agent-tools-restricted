@@ -728,7 +728,8 @@ brought in carrying an explicit foreign context is reset to the project type the
 `SANDBOX_GROUP` + the setgid bit on the project's directories (via `ai-tools-setgid`, so the agent traverses the tree
 and new files inherit the group), applies the group-permission ACL for existing files (via `ai-tools-setfacl`), and pins
 repo-local `core.filemode=true`. The ACL's entries are built by one pure function in `project-permissions.lib.sh`,
-which takes the operator and the sandbox group as arguments. A separate default-yes prompt offers to normalize
+which takes the operator and the sandbox group as arguments; the per-path checks a re-claim reads its drift with live
+beside it, so the check and the repair read one specification. A separate default-yes prompt offers to normalize
 the `.git` tree (`ai-tools-setfacl --with-git`: group `SANDBOX_GROUP` + setgid on its dirs + the same ACL)
 so the operator's own commits stay agent-readable — `.git` being the one heavy tree the per-session passes skip yet both
 parties write (see [ownership-and-hooks](ownership-and-hooks.rule.md)). Claim inspects current state and runs only
