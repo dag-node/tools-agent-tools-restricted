@@ -28,8 +28,8 @@ fi
 for bogus in \
     "/etc/passwd" \
     "/opt/ai-tools/.nvm/versions/node/v22.0.0/../../../../bin/sh" \
-    "/opt/ai-tools/.nvm/versions/node/notaversion/bin/claude" \
-    "/opt/ai-tools/.nvm/versions/node/v22.0.0/lib/claude"
+    "/opt/ai-tools/.nvm/versions/node/notaversion/bin/acme" \
+    "/opt/ai-tools/.nvm/versions/node/v22.0.0/lib/acme"
 do
     if out="$("${helper}" "${bogus}" 2>&1)"; then
         fail "helper accepted a target outside the versioned-launcher shape: ${bogus}"
@@ -43,9 +43,18 @@ done
 # existence and its target: on a host with no enabled agent every one refuses as unclaimed (the harness's
 # provisioned_agent read), so one skip names that state and the command that ends it.
 if ! provisioned_agent; then skip_unprovisioned "launcher symlink helper (claimed-launcher cases)"; finish; exit; fi
+# The helper is agent-agnostic, so these cases take the first provisioned agent rather than naming one.
+IFS=$'\t' read -r agent launcher < <(provisioned_launchers) || true
+
+# is_versioned_launcher <path> <launcher>: succeed when <path> is exactly
+# /opt/ai-tools/.nvm/versions/node/v<MAJOR>.<MINOR>.<PATCH>/bin/<launcher>, the shape the helper accepts.
+is_versioned_launcher() {
+    local version_dir="${1%/bin/"$2"}"
+    [[ "$1" == "${version_dir}/bin/$2" && "${version_dir}" =~ ^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
 
 # (B) Refuse a correctly-shaped but non-existent version, for a launcher that IS claimed.
-if out="$("${helper}" "/opt/ai-tools/.nvm/versions/node/v0.0.0/bin/claude" 2>&1)"; then
+if out="$("${helper}" "/opt/ai-tools/.nvm/versions/node/v0.0.0/bin/${launcher}" 2>&1)"; then
     fail "helper accepted a versioned path that does not exist (v0.0.0)"
 else
     assert_msg MSG-T8B9 "${out}" "helper refuses a versioned path that does not exist"
@@ -54,8 +63,8 @@ fi
 # (C) Refuse a correctly-shaped path whose launcher NO enabled agent manifest claims -- the allowlist half. `node` is
 # a real binary in that same directory, which makes it the case that matters: shape alone would accept it, and accepting
 # it would put a stable control-plane link on a binary no agent package declared.
-cur="$(readlink "${bin_dir}/claude" 2>/dev/null || true)"
-if [[ ! "${cur}" =~ ^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/claude$ ]]; then
+cur="$(readlink "${bin_dir}/${launcher}" 2>/dev/null || true)"
+if ! is_versioned_launcher "${cur}" "${launcher}"; then
     skip "unclaimed-launcher refusal" "no resolvable versioned launcher symlink to derive a sibling from"
 else
     sibling="${cur%/*}/node"
@@ -82,23 +91,22 @@ fi
 # so the residue sweep lists it by name and one already present is a FAILURE rather than a skip: skipping would let
 # residue silently cost the coverage.
 #
-# The target deliberately does NOT sit where claude-code's entrypoint_fcontext would match ([^/]+ spans the version
-# directory, so a fixture under `lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe` would be ACCEPTED and would
-# repoint the live link at it).
+# The target deliberately does NOT sit where the agent's entrypoint_fcontext would match ([^/]+ spans the version
+# directory, so a fixture at the path the manifest declares would be ACCEPTED and would repoint the live link at it).
 fake_version_dir="/opt/ai-tools/.nvm/versions/node/v0.0.2"
-before="$(readlink "${bin_dir}/claude" 2>/dev/null || true)"
+before="$(readlink "${bin_dir}/${launcher}" 2>/dev/null || true)"
 if [[ -e "${fake_version_dir}" ]]; then
     fail "${fake_version_dir} already exists -- residue of an earlier run; run \`tests/run.sh residue\` and rerun"
 else
     _cleanup+=("${fake_version_dir}")
     mkdir -p "${fake_version_dir}/bin" "${fake_version_dir}/opt"
-    printf '#!/bin/sh\nexit 0\n' > "${fake_version_dir}/opt/claude.exe"
-    chmod 0755 "${fake_version_dir}/opt/claude.exe"
+    printf '#!/bin/sh\nexit 0\n' > "${fake_version_dir}/opt/entrypoint"
+    chmod 0755 "${fake_version_dir}/opt/entrypoint"
 
     # (E1) Inside the version directory, so containment holds -- but at a path no declared entrypoint rule covers. Such
     # a file does not take ai_tools_exec_t, so a link to it fails every launch closed at the label preflight.
-    ln -sfn "${fake_version_dir}/opt/claude.exe" "${fake_version_dir}/bin/claude"
-    if out="$("${helper}" "${fake_version_dir}/bin/claude" 2>&1)"; then
+    ln -sfn "${fake_version_dir}/opt/entrypoint" "${fake_version_dir}/bin/${launcher}"
+    if out="$("${helper}" "${fake_version_dir}/bin/${launcher}" 2>&1)"; then
         fail "helper accepted a target the declared entrypoint_fcontext does not cover"
     else
         assert_msg MSG-D4X6 "${out}" \
@@ -107,8 +115,8 @@ else
 
     # (E2) Escapes the version directory: a real, executable target in a version directory the toolchain did not
     # installed is what a repointed link would look like.
-    ln -sfn /bin/sh "${fake_version_dir}/bin/claude"
-    if out="$("${helper}" "${fake_version_dir}/bin/claude" 2>&1)"; then
+    ln -sfn /bin/sh "${fake_version_dir}/bin/${launcher}"
+    if out="$("${helper}" "${fake_version_dir}/bin/${launcher}" 2>&1)"; then
         fail "helper accepted a target resolving outside its own version directory"
     else
         assert_msg MSG-P2R8 "${out}" \
@@ -124,22 +132,22 @@ else
     mktestdir
     fixture_agents="${TESTDIR}/agents.d"
     mkdir -m 0755 "${fixture_agents}"
-    alternation='/opt/ai-tools/\.nvm/versions/node/[^/]+/opt/claude\.exe|/nowhere'
+    alternation='/opt/ai-tools/\.nvm/versions/node/[^/]+/opt/entrypoint|/nowhere'
     # The line is replaced in bash, not through a sed replacement: sed reads the pattern's `\.` as an escaped dot
     # and writes a bare one, so the copy would declare a pattern the shipped manifest does not.
     while IFS= read -r manifest_line; do
         [[ "${manifest_line}" == entrypoint_fcontext=* ]] && manifest_line="entrypoint_fcontext=${alternation}"
         printf '%s\n' "${manifest_line}"
-    done < /usr/local/lib/ai-tools/agents.d/claude-code.conf > "${fixture_agents}/claude-code.conf"
-    chmod 0644 "${fixture_agents}/claude-code.conf"
-    ln -sfn "${fake_version_dir}/opt/claude.exe" "${fake_version_dir}/bin/claude"
+    done < "/usr/local/lib/ai-tools/agents.d/${agent}.conf" > "${fixture_agents}/${agent}.conf"
+    chmod 0644 "${fixture_agents}/${agent}.conf"
+    ln -sfn "${fake_version_dir}/opt/entrypoint" "${fake_version_dir}/bin/${launcher}"
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
     read_back="$(env AI_TOOLS_AGENTS_DIR="${fixture_agents}" bash -c \
-        'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_agent_manifest_field claude-code entrypoint_fcontext' \
-        2>/dev/null || true)"
+        'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_agent_manifest_field "$1" entrypoint_fcontext' \
+        _ "${agent}" 2>/dev/null || true)"
     if [[ "${read_back}" != "${alternation}" ]]; then
         fail "the fixture manifest does not read back through the resolver (got '${read_back}'), so the case cannot be driven"
-    elif out="$(env AI_TOOLS_AGENTS_DIR="${fixture_agents}" "${helper}" "${fake_version_dir}/bin/claude" 2>&1)"; then
+    elif out="$(env AI_TOOLS_AGENTS_DIR="${fixture_agents}" "${helper}" "${fake_version_dir}/bin/${launcher}" 2>&1)"; then
         fail "helper accepted a target under an entrypoint_fcontext carrying an alternation"
     else
         assert_msg MSG-D4X6 "${out}" \
@@ -152,18 +160,25 @@ else
     fi
 
     # No refusal may have touched the locked directory -- not the live link, and not a link of its own.
-    if [[ "$(readlink "${bin_dir}/claude" 2>/dev/null || true)" == "${before}" ]]; then
-        pass "the refusals left ${bin_dir}/claude exactly as it was"
+    if [[ "$(readlink "${bin_dir}/${launcher}" 2>/dev/null || true)" == "${before}" ]]; then
+        pass "the refusals left ${bin_dir}/${launcher} exactly as it was"
     else
-        fail "${bin_dir}/claude changed across the refused repoints"
+        fail "${bin_dir}/${launcher} changed across the refused repoints"
     fi
     rm -rf -- "${fake_version_dir}"
 fi
 
 # (D) Idempotent happy path: target the link's current versioned target. The end state is invariant -- exit 0, link
-# unchanged -- whether the helper repoints (relabel pending) or skips (entrypoint already labelled).
-if [[ "${cur}" =~ ^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/claude$ && -e "${cur}" ]]; then
-    if out="$("${helper}" "${cur}" 2>&1)" && [[ "$(readlink "${bin_dir}/claude")" == "${cur}" ]]; then
+# unchanged -- whether the helper repoints (relabel pending) or skips (entrypoint already labelled). Driven
+# for the first agent whose entrypoint is ready: the helper refuses a target the declared rule does not cover, which is
+# the state entrypoint_ready reads, and integration/selinux.sh reports it.
+IFS=$'\t' read -r _ ready_launcher < <(ready_launchers) || true
+cur=""
+[[ -n "${ready_launcher:-}" ]] && cur="$(readlink "${bin_dir}/${ready_launcher}" 2>/dev/null || true)"
+if [[ -z "${ready_launcher:-}" ]]; then
+    skip_entrypoint_unready "helper idempotent on its current valid target"
+elif is_versioned_launcher "${cur}" "${ready_launcher}" && [[ -e "${cur}" ]]; then
+    if out="$("${helper}" "${cur}" 2>&1)" && [[ "$(readlink "${bin_dir}/${ready_launcher}")" == "${cur}" ]]; then
         pass "helper leaves the symlink at its current valid target (idempotent)"
     else
         fail "helper failed on its current valid target ${cur}"
@@ -191,7 +206,7 @@ fi
 # in the live launcher directory (the residue sweep lists that directory), registered for teardown.
 section "ai-tools-launcher-symlink: the removal form"
 
-for bogus in "/etc/passwd" "/opt/ai-tools/bin/../bin/claude" "/opt/ai-tools/.nvm/versions/node/v22.0.0/bin/claude"; do
+for bogus in "/etc/passwd" "/opt/ai-tools/bin/../bin/${launcher}" "/opt/ai-tools/.nvm/versions/node/v22.0.0/bin/${launcher}"; do
     if out="$("${helper}" --remove "${bogus}" 2>&1)"; then
         fail "helper --remove accepted a path that is not a stable launcher path: ${bogus}"
     else

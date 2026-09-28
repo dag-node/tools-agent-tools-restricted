@@ -319,10 +319,17 @@ rc_not0() { [[ "${rc}" -ne 0 ]]; }
 # the ordering rule that a refused command does not prompt for sudo first.
 quiet_rc()      { [[ "${rc}" -eq "$1" ]] && cli_log_empty; }
 quiet_refusal() { [[ "${rc}" -ne 0 ]] && cli_log_empty; }
-# quiet_report <max-rc>: a report that RAN and reached no helper. A report closes at 0 or at 1 with something broken
-# to say, so the status is bounded rather than fixed -- and bounding it is what separates a report from a command
-# that never started, which leaves the same empty call log.
-quiet_report()  { [[ "${rc}" -le "$1" ]] && cli_log_empty; }
+# quiet_report <rc>...: a report that RAN and reached no helper. A report closes at one of the statuses
+# ai-tools-records(5) gives every report -- 0, 4 with findings, 5 with a reading it could not make -- and which of them
+# depends on the host, so the status is one of a set rather than fixed. The set is what separates a report
+# from a command that never started, which leaves the same empty call log.
+quiet_report()  {
+    local allowed
+    for allowed in "$@"; do
+        [[ "${rc}" -eq "${allowed}" ]] && { cli_log_empty; return; }
+    done
+    return 1
+}
 st_is()   { [[ "$(st "$1")" == "$2" ]]; }
 st_for_is() { [[ "$(st_for "$1")" == "$2" ]]; }
 not_called() { ! cli_called "$1"; }
@@ -362,9 +369,9 @@ drive_rows() {
     fi
     # Both reports are asserted to have RUN as well as to have reached no helper. An empty call log is also what a row
     # whose command never started leaves behind, so on its own it passes for the wrong reason -- which is how a key this
-    # table no longer holds reads as a green row. `status` exits 1 to report an unhealthy host, so the assertion is
-    # on the pair of statuses a report can close with.
-    drive cli ai-tools.status;    expect "the host report runs and reaches no helper"     quiet_report 1
+    # table no longer holds reads as a green row. `status` exits 4 to report findings on this host and 5 for a reading
+    # it could not make, so the assertion is on the statuses a report can close with.
+    drive cli ai-tools.status;    expect "the host report runs and reaches no helper"     quiet_report 0 4 5
     drive cli ai-tools.providers; expect "the provider report runs and reaches no helper" quiet_report 0
 
     cli_stub_reset

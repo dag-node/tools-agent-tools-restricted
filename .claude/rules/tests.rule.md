@@ -34,8 +34,20 @@ everywhere it decides a file: `provisioned_agent` (`lib/harness.sh`) succeeds wh
 link exists, the read the CLI's bootstrap gate, the wrapper's launcher gate and the shim's enabled-set check each make,
 and a file that drives any of them past that gate skips through `skip_unprovisioned` at the first case that needs it.
 An unprovisioned host therefore reports one skip per file naming the provisioning command, where the same state would
-otherwise fail every later case under a code the case did not ask about. The suite is root, so an assertion that holds
-only for an unprivileged caller — the stop helper's own root check, a cgroup file whose mode root reads through, a probe
+otherwise fail every later case under a code the case did not ask about. `entrypoint_ready <agent>` is the second such
+predicate: the agent's launcher resolves to a file its `entrypoint_fcontext` matches, carrying `ai_tools_exec_t`
+where confinement is expected, the state the launch preflight, the launcher-symlink helper and the handback `SYMLINK`
+verb each require. A case that needs one of them to accept the entrypoint skips through `skip_entrypoint_unready`,
+so an entrypoint outside its declared rule fails once, in `integration/selinux.sh`'s declared-rule section, rather than
+in every file that reaches those gates.
+
+**A case driving an agent-agnostic mechanism takes its agent from the enabled set.** The shim, the launcher-symlink
+helper and the handback verbs read agent identity from the manifests ([providers](providers.rule.md)), so a case
+exercising them reads `provisioned_launchers` or `ready_launchers` (`agent<TAB>launcher` per enabled agent, the second
+filtered through `entrypoint_ready`) rather than naming a shipped agent, and a fixture needing a name the resolver does
+not have to install takes the synthetic `acme`. A case asserting what one agent's package ships — its manifest fields,
+its pins file, its hooks — names that agent, as data. The suite is root, so an assertion that holds only
+for an unprivileged caller — the stop helper's own root check, a cgroup file whose mode root reads through, a probe
 the services library withholds from non-root — is driven as the projects user through `runuser`, and the CLI's help is
 read as that user too, since the CLI refuses root before it prints. A skip that every full install emits is a check
 in the wrong place. An optional host feature outside this project's install (`pam_namespace` polyinstantiation
