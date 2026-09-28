@@ -284,7 +284,7 @@ ai_tools_agent_incomplete() {
 #   an unlabelled file. A stat per entry, so a root caller reads it as data. A name outside the launcher charset is
 #   not printed, since the directory is the sandbox account's; it is counted on stderr instead.
 ai_tools_toolchain_bin_copies() {
-    local version_dir="${1:-}" entry name unnamed=0
+    local version_dir="${1:-}" entry name invalid_name_count=0
     [[ -d "${version_dir}/bin" ]] || return 0
     for entry in "${version_dir}/bin"/*; do
         [[ -f "${entry}" && ! -L "${entry}" ]] || continue
@@ -293,10 +293,10 @@ ai_tools_toolchain_bin_copies() {
         if [[ "${name}" =~ ^[A-Za-z0-9._-]+$ ]]; then
             printf '%s\n' "${name}"
         else
-            unnamed=$(( unnamed + 1 ))
+            invalid_name_count=$(( invalid_name_count + 1 ))
         fi
     done
-    (( unnamed == 0 )) || _ai_tools_toolchain_warn "${version_dir}/bin holds ${unnamed} regular file(s) whose name is outside [A-Za-z0-9._-] -- not reported by name"
+    (( invalid_name_count == 0 )) || _ai_tools_toolchain_warn "${version_dir}/bin holds ${invalid_name_count} regular file(s) whose name is outside [A-Za-z0-9._-] -- not reported by name"
     return 0
 }
 
@@ -322,12 +322,12 @@ ai_tools_toolchain_relink_copies() {
 
     # name -> target, relative to the version directory. Packages first, so an agent's declared target overrides
     # the shim npm links.
-    local -A target_of=()
-    local name rel agent launcher declared
+    local -A launcher_targets=()
+    local name relative_target_path agent launcher declared
     if [[ -x "${version_dir}/bin/node" ]]; then
-        while IFS=$'\t' read -r name rel; do
-            [[ "${name}" =~ ^[A-Za-z0-9._-]+$ ]] && ai_tools_launcher_target_valid "${rel}" 2>/dev/null \
-                && target_of["${name}"]="${rel}"
+        while IFS=$'\t' read -r name relative_target_path; do
+            [[ "${name}" =~ ^[A-Za-z0-9._-]+$ ]] && ai_tools_launcher_target_valid "${relative_target_path}" 2>/dev/null \
+                && launcher_targets["${name}"]="${relative_target_path}"
         done < <("${version_dir}/bin/node" -e '
             const fs = require("fs"), path = require("path");
             const root = path.join(process.argv[1], "lib", "node_modules");
@@ -350,25 +350,27 @@ ai_tools_toolchain_relink_copies() {
         [[ -n "${agent}" && -n "${launcher}" ]] || continue
         declared="$(ai_tools_agent_manifest_field "${agent}" launcher_target 2>/dev/null || true)"
         [[ -n "${declared}" ]] && ai_tools_launcher_target_valid "${declared}" 2>/dev/null \
-            && target_of["${launcher}"]="${declared}"
+            && launcher_targets["${launcher}"]="${declared}"
     done < <(ai_tools_enabled_agents 2>/dev/null)
 
-    local version_real target_path tmp outcome
+    local version_real target_path temporary_link_path outcome
     version_real="$(realpath -e -- "${version_dir}" 2>/dev/null)" || return 1
     for name in "${copies[@]}"; do
-        rel="${target_of[${name}]:-}"
+        relative_target_path="${launcher_targets[${name}]:-}"
         target_path=""
-        [[ -n "${rel}" ]] && target_path="$(realpath -e -- "${version_dir}/${rel}" 2>/dev/null || true)"
+        [[ -n "${relative_target_path}" ]] \
+            && target_path="$(realpath -e -- "${version_dir}/${relative_target_path}" 2>/dev/null || true)"
         if [[ -z "${target_path}" || "${target_path}" != "${version_real}/"* || ! -f "${target_path}" ]]; then
             outcome=unknown
         elif ! cmp -s -- "${version_dir}/bin/${name}" "${target_path}"; then
             outcome=differs
         else
-            tmp="$(mktemp -u "${version_dir}/bin/.${name}.XXXXXX" 2>/dev/null)" || tmp=""
-            if [[ -n "${tmp}" ]] && ln -s "../${rel}" "${tmp}" 2>/dev/null && mv -Tf "${tmp}" "${version_dir}/bin/${name}" 2>/dev/null; then
+            temporary_link_path="$(mktemp -u "${version_dir}/bin/.${name}.XXXXXX" 2>/dev/null)" || temporary_link_path=""
+            if [[ -n "${temporary_link_path}" ]] && ln -s "../${relative_target_path}" "${temporary_link_path}" 2>/dev/null \
+                    && mv -Tf "${temporary_link_path}" "${version_dir}/bin/${name}" 2>/dev/null; then
                 outcome=relinked
             else
-                [[ -n "${tmp}" ]] && rm -f -- "${tmp}"
+                [[ -n "${temporary_link_path}" ]] && rm -f -- "${temporary_link_path}"
                 outcome=failed
             fi
         fi
@@ -476,19 +478,19 @@ ai_tools_agent_package_remove() {
     # was asked about whatever prefix the environment or an .npmrc would otherwise resolve. npm and the tree it runs
     # from are the sandbox account's, so what it prints is held rather than passed through: it is not printed
     # on success, and on a failure its first error line, sanitized, in the report.
-    local npm_output npm_said
+    local npm_output npm_error_summary
     npm_output="$(PATH="${version_dir}/bin:${PATH}" npm uninstall -g --prefix "${version_dir}" "${npm_package}" 2>&1)" \
         || true
     if [[ -e "${package_dir}" || -L "${package_dir}" ]]; then
-        npm_said="$(grep -m1 -E 'ERR!|^[A-Za-z]*Error' <<<"${npm_output}" || head -n1 <<<"${npm_output}")"
-        if [[ -z "${npm_said}" ]]; then
-            npm_said="npm printed no error"
+        npm_error_summary="$(grep -m1 -E 'ERR!|^[A-Za-z]*Error' <<<"${npm_output}" || head -n1 <<<"${npm_output}")"
+        if [[ -z "${npm_error_summary}" ]]; then
+            npm_error_summary="npm printed no error"
         elif declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
-            npm_said="npm: $(ai_tools_log_sanitize "${npm_said:0:200}")"
+            npm_error_summary="npm: $(ai_tools_log_sanitize "${npm_error_summary:0:200}")"
         else
-            npm_said="npm's error is not shown: log.lib.sh, which sanitizes it, did not load"
+            npm_error_summary="npm's error is not shown: log.lib.sh, which sanitizes it, did not load"
         fi
-        _ai_tools_toolchain_warn MSG-X8F9 "could not remove ${package_dir} (npm uninstall left it in place; ${npm_said}) -- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re-run: sudo ai-tools-admin system bootstrap"
+        _ai_tools_toolchain_warn MSG-X8F9 "could not remove ${package_dir} (npm uninstall left it in place; ${npm_error_summary}) -- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re-run: sudo ai-tools-admin system bootstrap"
         return 1
     fi
     printf 'removed'

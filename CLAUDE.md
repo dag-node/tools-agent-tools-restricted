@@ -213,12 +213,14 @@ The invariants the agent operates under:
   marked `default_enable=no` because it widens host surface can therefore only be turned on by an operator editing
   a root-owned file. See [providers](.claude/rules/providers.rule.md).
 - **Root and the operator do not execute what the sandbox can write.** No root or operator process executes or sources
-  a file `SANDBOX_USER` can write — its toolchain, an agent's binaries, anything under its home — nor runs a trusted
-  binary under an environment or configuration that account controls: an `execve` runs whatever that account put there,
-  whatever the arguments. Such a file is read as data, or run as `SANDBOX_USER` through the one helper that gives
-  the child no controlling terminal and a clean environment, and what it prints reaches a terminal or the journal
-  through the shared allowlist sanitizer. The test suite, which runs as root, holds to the same rule. See
-  [ref-section-s9t9](.claude/rules/updater.rule.md#ref-section-s9t9).
+  a file `SANDBOX_USER` can write — its toolchain, an agent's binaries, its caches, whatever under its home that
+  account owns, as distinct from the root-owned control plane placed there — nor runs a trusted binary under
+  an environment or configuration that account controls: an `execve` runs whatever that account put there, whatever
+  the arguments. Such a file is read as data, or run as `SANDBOX_USER` through the one helper that refuses any other
+  target account and gives the child no controlling terminal, no inherited descriptor, a clean environment
+  and a bound on its run, and what it prints reaches a terminal or the journal through the shared allowlist sanitizer.
+  A function that executes such a file requires that identity of its own process. The test suite, which runs as root,
+  holds to the same rule. See [ref-section-s9t9](.claude/rules/updater.rule.md#ref-section-s9t9).
 - **Rewriting a command does not widen what it may do.** A `PreToolUse` filter narrows how much a command prints (see
   [filters](.claude/rules/filters.rule.md)); it does not return a permission decision, so the harness re-runs its full
   permission pipeline on the **rewritten** command — an `allow` entry must still match it and a `deny` entry still

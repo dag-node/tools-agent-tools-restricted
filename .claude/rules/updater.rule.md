@@ -735,11 +735,11 @@ and an entrypoint outside any package each read as no version rather than as an 
 root's, and a caller that names the package it asked about is answered only where the manifest's `name` matches.
 The host's `python3` reads the file, never the tree's `node`: it opens the path without following a symlink, checks
 the opened descriptor to be a regular file of at most 64 KiB, parses the bytes it read from that descriptor as JSON,
-and takes the top-level `version` alone, so a symlink, a fifo, a swapped file or a nested `version` field does not yield a version. The value admits
-`MAJOR.MINOR.PATCH` with an optional `-`/`+` suffix of alphanumerics, dots and hyphens, never containing `..` — the clamp
-matters because that value reaches a terminal, a journal line, a pin record and the `{version}` slot
-of a release-manifest URL, from a file the sandbox account owns. The boundary is deeper than one agent's layout: Claude
-Code's entrypoint sits at `<pkg>/bin/claude.exe`, codex's vendored binary
+and takes the top-level `version` alone, so a symlink, a fifo, a swapped file or a nested `version` field does not
+yield a version. The value admits `MAJOR.MINOR.PATCH` with an optional `-`/`+` suffix of alphanumerics, dots
+and hyphens, never containing `..` — the clamp matters because that value reaches a terminal, a journal line, a pin
+record and the `{version}` slot of a release-manifest URL, from a file the sandbox account owns. The boundary is deeper
+than one agent's layout: Claude Code's entrypoint sits at `<pkg>/bin/claude.exe`, codex's vendored binary
 at `<pkg>/vendor/<target-triple>/bin/codex`, and the platform package spells its version `0.154.0-linux-x64`. The launch
 banner reads the same function, so the pin and the banner cannot disagree about what version a binary is. An unreadable
 version is recorded as `unknown`, and the observing caller substitutes that same token before comparing, so the two
