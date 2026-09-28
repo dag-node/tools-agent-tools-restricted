@@ -179,6 +179,13 @@ if ! command -v runuser >/dev/null 2>&1; then
     skip "ai-tools-run revalidation" "runuser unavailable"; finish; exit
 fi
 
+# Every case up to the source-order section drives the shim as the agent, and the shim refuses ahead of the executable
+# check while no agent is enabled (the harness's provisioned_agent read): one skip names that state and the command
+# that ends it.
+if ! provisioned_agent; then
+    skip_unprovisioned "ai-tools-run launch refusals (re-validation, residue, the migrated control)"
+else
+
 # Run ai-tools-run AS the agent with a clean, explicitly-set AI_TOOLS_AGENT_EXEC/AI_TOOLS_PROJECT_DIR (`env -u` clears
 # any inherited value first, so the case is deterministic). timeout backstops the design guarantee that every case exits
 # at validation, never reaching the launch.
@@ -388,6 +395,8 @@ else
     out="$(run_crun AI_TOOLS_OPERATOR_CONF="${lists_conf}" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
     refused "with the list migrated the same launch reaches the executable check instead" MSG-Z2J9 "${rc}" "${out}"
 fi
+
+fi  # provisioned agent
 
 section "ai-tools-run: the verified entrypoint is the one exec'd"
 

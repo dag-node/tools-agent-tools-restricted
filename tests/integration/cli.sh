@@ -125,6 +125,10 @@ else
     fi
 fi
 
+# Every section from here on drives a project verb past the CLI's bootstrap gate, which refuses while no enabled agent
+# has a launcher link (the harness's provisioned_agent read): one skip names that state and the command that ends it.
+if ! provisioned_agent; then skip_unprovisioned "CLI project verbs"; finish; exit; fi
+
 # (4) Operator preflight: a user NOT in OPERATORS is refused on an operator-acting command, BEFORE any registry write.
 # Point the CLI at a temp operator.conf listing a bogus operator (not the projects user) and run ai-tools.projects.claim
 # as the projects user -- require_operator must refuse.

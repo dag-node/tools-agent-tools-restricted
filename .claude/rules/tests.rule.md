@@ -29,13 +29,17 @@ is the point of it. `note` records a fact about the run that is not a verdict �
 drove — and does not increment the counter, so it stays out of the notice. `AI_TOOLS_TEST_STRICT=1` then fails a run
 only where a check was left unrun.
 
-A skip records a state the host is in, not the vantage the suite runs from. The suite is root, so an assertion
-that holds only for an unprivileged caller — the stop helper's own root check, a cgroup file whose mode root reads
-through, a probe the services library withholds from non-root — is driven as the projects user through `runuser`,
-and the CLI's help is read as that user too, since the CLI refuses root before it prints. A skip that every full install
-emits is a check in the wrong place. An optional host feature outside this project's install (`pam_namespace`
-polyinstantiation of `/tmp`) is reported only where it is present; where it is absent, the default, the file does not
-print a line for it.
+A skip records a state the host is in, not the vantage the suite runs from. One state is read by one predicate
+everywhere it decides a file: `provisioned_agent` (`lib/harness.sh`) succeeds when an enabled agent's stable launcher
+link exists, the read the CLI's bootstrap gate, the wrapper's launcher gate and the shim's enabled-set check each make,
+and a file that drives any of them past that gate skips through `skip_unprovisioned` at the first case that needs it.
+An unprovisioned host therefore reports one skip per file naming the provisioning command, where the same state would
+otherwise fail every later case under a code the case did not ask about. The suite is root, so an assertion that holds
+only for an unprivileged caller — the stop helper's own root check, a cgroup file whose mode root reads through, a probe
+the services library withholds from non-root — is driven as the projects user through `runuser`, and the CLI's help is
+read as that user too, since the CLI refuses root before it prints. A skip that every full install emits is a check
+in the wrong place. An optional host feature outside this project's install (`pam_namespace` polyinstantiation
+of `/tmp`) is reported only where it is present; where it is absent, the default, the file does not print a line for it.
 
 ```
 tests/
