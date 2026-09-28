@@ -159,17 +159,32 @@ count_marked() {
     esac
 }
 
-# wait_marked <marker> <count> <helper-pid> : poll until <count> marked processes are alive, the helper has exited,
-# or seven seconds have passed, and print the count seen last. The helper's start -- the scope's bus call, runuser's PAM
-# session, the trampoline -- takes what a loaded host gives it, so a count taken at a fixed moment is not a control.
+# The command receives its arguments byte for byte: a scope's own expansion of `${NAME}` and `$NAME` (off on the systemd
+# shipped today, announced as on by default later) is switched off, so a snippet carrying `$1` or `${HOME}` reaches bash
+# unchanged rather than emptied by systemd-run before privilege drops.
+out="$(ai_tools_as_sandbox "${SANDBOX_USER}" printf '%s|%s|%s' '$1' '${HOME}' '${X:-d}' 2>/dev/null)"
+[[ "${out}" == '$1|${HOME}|${X:-d}' ]] && pass "arguments shaped like variables reach the command unexpanded" \
+    || fail "systemd-run rewrote the arguments: '${out}'"
+
+# How long a start takes here -- the scope's bus call, runuser's PAM session, the trampoline -- measured on a command
+# that exits at once, since a loaded host gives it seconds where this one gives it a fraction. The bound, drain
+# and escape cases size their bound from it, so a slow start does not read as a cleanup failure, and a fast one is
+# not waited for longer than it takes.
+started=${SECONDS}
+ai_tools_as_sandbox "${SANDBOX_USER}" /usr/bin/true >/dev/null 2>&1 || true
+start_latency=$(( SECONDS - started ))
+bound_seconds=$(( start_latency * 2 + 6 ))
+note "start latency" "${start_latency}s for a command that exits at once; the bound cases use a ${bound_seconds}s bound"
+
+# wait_marked <marker> <count> <helper-pid> : poll until <count> marked processes are alive or the helper has exited,
+# and print the count seen last. The helper's own bound is what ends the poll where the processes never appear.
 wait_marked() {
-    local marker="$1" want="$2" helper="$3" seen=0 polls=0
-    while (( polls < 35 )); do
+    local marker="$1" want="$2" helper="$3" seen=0
+    while :; do
         seen="$(count_marked "${marker}")" || seen=-1
         (( seen >= want )) && break
         kill -0 "${helper}" 2>/dev/null || break
         sleep 0.2
-        polls=$(( polls + 1 ))
     done
     printf '%s' "${seen}"
 }
@@ -177,11 +192,10 @@ wait_marked() {
 # The bound: a command that outlives it is ended with every process of its run, and the call says so. The child execs
 # into a sleep and first starts a grandchild sleep in a subshell, each carrying this run's marker as its argv[0]
 # (`exec -a`), so `pgrep -f` finds exactly these; the case asserts the two are alive before the bound and gone after it.
-# The helper runs in the background so the processes can be counted while it waits, under a bound wide enough
-# for the start.
+# The helper runs in the background so the processes can be counted while it waits.
 marker="ai-tools-test-sandbox-exec-$$"
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-AI_TOOLS_AS_SANDBOX_TIMEOUT=10 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
+AI_TOOLS_AS_SANDBOX_TIMEOUT="${bound_seconds}" ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
     '( exec -a "$1" sleep 300 ) & exec -a "$1" sleep 300' _ "${marker}" >/dev/null 2>"${TESTDIR}/bound-err" &
 helper_pid=$!
 alive_before="$(wait_marked "${marker}" 2 "${helper_pid}")"
@@ -205,15 +219,15 @@ pkill -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null || true
 marker="ai-tools-test-sandbox-exec-drain-$$"
 started=${SECONDS}
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-rc=0; AI_TOOLS_AS_SANDBOX_TIMEOUT=3 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
+rc=0; AI_TOOLS_AS_SANDBOX_TIMEOUT="${bound_seconds}" ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
     '( exec -a "$1" sleep 300 ) & exit 0' _ "${marker}" >/dev/null 2>"${TESTDIR}/drain-err" || rc=$?
 elapsed=$(( SECONDS - started ))
 sleep 1
 alive_after="$(count_marked "${marker}")" || alive_after=-1
-if [[ "${rc}" -eq 124 && "${elapsed}" -le 20 && "${alive_after}" -eq 0 ]]; then
+if [[ "${rc}" -eq 124 && "${elapsed}" -le $(( bound_seconds + 20 )) && "${alive_after}" -eq 0 ]]; then
     pass "a child that exited leaving a process on its output pipe is ended at the bound (${elapsed}s), and the call returns 124"
 else
-    fail "exited child with an open pipe: rc ${rc} (want 124), ${elapsed}s (want <= 20), ${alive_after} left: $(<"${TESTDIR}/drain-err")"
+    fail "exited child with an open pipe: rc ${rc} (want 124), ${elapsed}s (want <= $(( bound_seconds + 20 ))), ${alive_after} left: $(<"${TESTDIR}/drain-err")"
 fi
 pkill -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null || true
 
@@ -222,7 +236,7 @@ pkill -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null || true
 # before the bound, from a background helper as in the first bound case.
 marker="ai-tools-test-sandbox-exec-escape-$$"
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-AI_TOOLS_AS_SANDBOX_TIMEOUT=10 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
+AI_TOOLS_AS_SANDBOX_TIMEOUT="${bound_seconds}" ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
     'setsid -f bash -c "exec -a \"\$1\" sleep 300" _ "$1"; exec -a "$1" sleep 300' _ "${marker}" \
     >/dev/null 2>"${TESTDIR}/escape-err" &
 helper_pid=$!

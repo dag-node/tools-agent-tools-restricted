@@ -96,12 +96,21 @@ _ai_tools_sandbox_exec_tool_path() {
 #   process. A scope is the boundary a descendant cannot leave: a process that opens a session of its own stays
 #   in the scope's cgroup, so ending the scope ends it. A run without one is refused, since the session setsid opens
 #   is a boundary a descendant's own setsid leaves.
+#   systemd-run expands `${NAME}` in a command's arguments where its `--expand-environment` switch is on -- off for
+#   a scope in the systemd shipped today, on by default in a later release, its manual says -- which would rewrite
+#   a bash snippet this helper carries before privilege drops; the switch is passed as `no` wherever systemd-run
+#   knows it, so the command receives its arguments byte for byte.
+_AI_TOOLS_SANDBOX_EXEC_RUN_OPTIONS=()
 _ai_tools_sandbox_exec_scope_available() {
     if [[ -z "${_AI_TOOLS_SANDBOX_EXEC_SCOPE_AVAILABLE:-}" ]]; then
         _AI_TOOLS_SANDBOX_EXEC_SCOPE_AVAILABLE=no
-        [[ -x /usr/bin/systemd-run && -x /usr/bin/systemctl && -x /usr/bin/true ]] \
-            && /usr/bin/systemd-run --scope --quiet --collect -- /usr/bin/true >/dev/null 2>&1 \
-            && _AI_TOOLS_SANDBOX_EXEC_SCOPE_AVAILABLE=yes
+        if [[ -x /usr/bin/systemd-run && -x /usr/bin/systemctl && -x /usr/bin/true ]]; then
+            /usr/bin/systemd-run --help 2>/dev/null | grep -q -- '--expand-environment' \
+                && _AI_TOOLS_SANDBOX_EXEC_RUN_OPTIONS=(--expand-environment=no)
+            /usr/bin/systemd-run --scope --quiet --collect "${_AI_TOOLS_SANDBOX_EXEC_RUN_OPTIONS[@]}" -- \
+                /usr/bin/true >/dev/null 2>&1 \
+                && _AI_TOOLS_SANDBOX_EXEC_SCOPE_AVAILABLE=yes
+        fi
     fi
     [[ "${_AI_TOOLS_SANDBOX_EXEC_SCOPE_AVAILABLE}" == yes ]]
 }
@@ -194,7 +203,8 @@ ai_tools_as_sandbox() {
     local scope_unit="ai-tools-sandbox-exec-$$-${RANDOM}${RANDOM}.scope" job_control_was_enabled=0
     [[ -o monitor ]] && job_control_was_enabled=1
     set +m
-    /usr/bin/systemd-run --scope --quiet --collect --unit="${scope_unit%.scope}" -- \
+    /usr/bin/systemd-run --scope --quiet --collect "${_AI_TOOLS_SANDBOX_EXEC_RUN_OPTIONS[@]}" \
+        --unit="${scope_unit%.scope}" -- \
         "${setsid_path}" --wait "${runuser_path}" -u "${account}" -- \
         "${env_path}" -i HOME="${sandbox_home}" PATH=/usr/bin:/bin LANG=C.UTF-8 \
         "${bash_path}" -c "${close_descriptors_then_exec}" _ "$@" \

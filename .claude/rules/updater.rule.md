@@ -133,11 +133,13 @@ routes to the toolchain, and no third:
   before it execs the command, so a socket, a lock or a root-only file does not reach it; the environment is `env -i`
   with `HOME`, `PATH=/usr/bin:/bin` and `LANG=C.UTF-8`; and stdout and stderr stay apart, each
   through `ai_tools_log_sanitize_stream` ([logging](logging.rule.md)), or withheld where `log.lib.sh` did not load.
-  Every host tool the helper runs comes from the system binary directories and never from the caller's `PATH`. A run is
-  bounded: past `AI_TOOLS_AS_SANDBOX_TIMEOUT` seconds (a whole number, 1800 where unset or malformed) every process
-  of the run receives `SIGTERM` then `SIGKILL`, and the call returns 124 under `MSG-W8B7`, so a hung child ends its step
-  and not the run. The deadline holds through the draining of the child's output, so a descendant the child left holding
-  its output open is ended the same way rather than waited for. The run is a transient systemd scope, the boundary
+  Every host tool the helper runs comes from the system binary directories and never from the caller's `PATH`,
+  and the command receives its arguments byte for byte: `systemd-run`'s own `${NAME}` expansion is switched off wherever
+  it knows the switch, so a snippet the helper carries is not rewritten before privilege drops. A run is bounded: past
+  `AI_TOOLS_AS_SANDBOX_TIMEOUT` seconds (a whole number, 1800 where unset or malformed) every process of the run
+  receives `SIGTERM` then `SIGKILL`, and the call returns 124 under `MSG-W8B7`, so a hung child ends its step and not
+  the run. The deadline holds through the draining of the child's output, so a descendant the child left holding its
+  output open is ended the same way rather than waited for. The run is a transient systemd scope, the boundary
   a descendant cannot leave whatever session it opens; where the system manager does not answer the helper's probe,
   the run is refused under `MSG-Q2K6` rather than made inside the weaker boundary a session is, since a descendant's own
   `setsid` leaves that one. Otherwise the command's own status is returned. `ai-tools-bootstrap` requires it and refuses
