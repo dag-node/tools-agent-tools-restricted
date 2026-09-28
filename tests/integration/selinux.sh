@@ -345,6 +345,11 @@ else
         [[ -n "${entry}" && -n "${pkg}" ]] || continue
         # The package root is the path up to the FIRST /lib/node_modules/<npm_package>/, which is where npm installs it;
         # an entrypoint nested under a platform-specific dependency (codex) sits further down the same prefix.
+        # An entrypoint outside that prefix has no package root to enumerate; the declared-rule section reports it.
+        if [[ "${entry}" != */lib/node_modules/"${pkg}"/* ]]; then
+            skip "${agent} package entry-type enumeration" "the launcher resolves to ${entry}, outside ${pkg}'s package tree"
+            continue
+        fi
         root="${entry%%/lib/node_modules/"${pkg}"/*}/lib/node_modules/${pkg}"
         if [[ ! -d "${root}" ]]; then
             skip "${agent} package entry-type enumeration" "no package tree at ${root}"

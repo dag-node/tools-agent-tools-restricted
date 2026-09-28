@@ -162,7 +162,11 @@ fi
 
 # (D) Idempotent happy path: target the link's current versioned target. The end state is invariant -- exit 0, link
 # unchanged -- whether the helper repoints (relabel pending) or skips (entrypoint already labelled).
-if [[ "${cur}" =~ ^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/claude$ && -e "${cur}" ]]; then
+if [[ "${cur}" =~ ^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/claude$ && -e "${cur}" ]] \
+        && ! entrypoint_ready claude-code; then
+    # The helper refuses a target the declared rule does not cover, which is the state entrypoint_ready reads.
+    skip_entrypoint_unready "helper idempotent on its current valid target" claude-code
+elif [[ "${cur}" =~ ^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/claude$ && -e "${cur}" ]]; then
     if out="$("${helper}" "${cur}" 2>&1)" && [[ "$(readlink "${bin_dir}/claude")" == "${cur}" ]]; then
         pass "helper leaves the symlink at its current valid target (idempotent)"
     else

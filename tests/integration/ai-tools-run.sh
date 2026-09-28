@@ -300,32 +300,40 @@ else
     # on this host. mktemp, not a fixed name under /tmp: this runs as root in a world-writable directory,
     # where a predictable path is one another user can pre-create or symlink. 0755 because the shim reads the pin
     # AS the sandbox account, which must traverse in.
-    pin_dir="$(mktemp -d)"
-    _cleanup+=("${pin_dir}")
-    chmod 0755 "${pin_dir}"
-    # A well-formed pin for a checksum this entrypoint cannot have: the shape is valid, so the refusal comes
-    # from the COMPARISON rather than from the reader rejecting a malformed record.
-    printf 'AGENT=claude-code\nVERSION=0.0.0\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' 0 \
-        > "${pin_dir}/claude-code"
-    chmod 0644 "${pin_dir}/claude-code"
-    out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
-    refused "ai-tools-run refuses an entrypoint that does not match its pin" MSG-H7S2 "${rc}" "${out}"
-
-    # The same refusal against an OBSERVED pin. The tier decides what the pin CLAIMS, never whether a mismatch refuses:
-    # a host whose agent has no vendor manifest is covered against a change to its binary, which is the whole reason
-    # the weaker tier is worth writing. The pin this case starts from carries no KIND (the shape every pin had
-    # before the tier existed), so this case is the one that would regress if the launch gate ever started reading
-    # the tier.
-    printf 'AGENT=claude-code\nVERSION=0.0.0\nSHA256=%064d\nKIND=observed\nVERIFIED=1970-01-01T00:00:00Z\n' 0 \
-        > "${pin_dir}/claude-code"
-    out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
-    refused "ai-tools-run refuses a mismatch against an observed pin too" MSG-H7S2 "${rc}" "${out}"
-    # And the refusal names the tier it read, so an operator is not sent looking for a vendor signature behind a pin
-    # root recorded by hashing what was installed.
-    if grep -q 'root recorded' <<<"${out}"; then
-        pass "the refusal names the observed tier's claim rather than a vendor signature"
+    #
+    # The pin gate is the last one the shim runs, so it is reached only through a label preflight that accepts
+    # the entrypoint; on a host where it does not, the preflight answers first and these cases would assert the wrong
+    # refusal.
+    if ! entrypoint_ready claude-code; then
+        skip_entrypoint_unready "ai-tools-run pin refusals (verified and observed tiers)" claude-code
     else
-        fail "the refusal over an observed pin still claims a vendor signed the checksum: ${out}"
+        pin_dir="$(mktemp -d)"
+        _cleanup+=("${pin_dir}")
+        chmod 0755 "${pin_dir}"
+        # A well-formed pin for a checksum this entrypoint cannot have: the shape is valid, so the refusal comes
+        # from the COMPARISON rather than from the reader rejecting a malformed record.
+        printf 'AGENT=claude-code\nVERSION=0.0.0\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' 0 \
+            > "${pin_dir}/claude-code"
+        chmod 0644 "${pin_dir}/claude-code"
+        out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
+        refused "ai-tools-run refuses an entrypoint that does not match its pin" MSG-H7S2 "${rc}" "${out}"
+
+        # The same refusal against an OBSERVED pin. The tier decides what the pin CLAIMS, never whether a mismatch
+        # refuses: a host whose agent has no vendor manifest is covered against a change to its binary, which is
+        # the whole reason the weaker tier is worth writing. The pin this case starts from carries no KIND (the shape
+        # every pin had before the tier existed), so this case is the one that would regress if the launch gate ever
+        # started reading the tier.
+        printf 'AGENT=claude-code\nVERSION=0.0.0\nSHA256=%064d\nKIND=observed\nVERIFIED=1970-01-01T00:00:00Z\n' 0 \
+            > "${pin_dir}/claude-code"
+        out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
+        refused "ai-tools-run refuses a mismatch against an observed pin too" MSG-H7S2 "${rc}" "${out}"
+        # And the refusal names the tier it read, so an operator is not sent looking for a vendor signature behind a pin
+        # root recorded by hashing what was installed.
+        if grep -q 'root recorded' <<<"${out}"; then
+            pass "the refusal names the observed tier's claim rather than a vendor signature"
+        else
+            fail "the refusal over an observed pin still claims a vendor signed the checksum: ${out}"
+        fi
     fi
 
     # The complementary property -- an UNPINNED entrypoint must NOT be refused, or an air-gapped host would stop

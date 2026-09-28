@@ -128,6 +128,10 @@ elif [[ ! -x "${_client}" || ! -S "${_sock}" ]]; then
     skip "handback SYMLINK verb end-to-end" "client or socket unavailable"
 elif [[ -z "${_tgt}" ]]; then
     skip "handback SYMLINK verb end-to-end" "cannot read /opt/ai-tools/bin/claude target"
+elif ! entrypoint_ready claude-code; then
+    # The helper behind the verb refuses a target the declared rule does not cover, so the verb cannot succeed here;
+    # the case asserting what /opt/ai-tools/bin/claude resolves to reports the cause.
+    skip_entrypoint_unready "handback SYMLINK verb end-to-end" claude-code
 elif runuser -u "${SANDBOX_USER}" -- "${_client}" SYMLINK "${_tgt}" >/dev/null 2>&1; then
     pass "handback SYMLINK verb OK (socket reach + getattr on entrypoint)"
     _symlink_ok=1
