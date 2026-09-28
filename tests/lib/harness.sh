@@ -114,6 +114,25 @@ toml_python() {
     return 1
 }
 
+# provisioned_agent: succeed when an enabled agent's stable launcher symlink exists (under AI_TOOLS_LAUNCHER_DIR,
+# the locked bin directory by default) -- the read the CLI's bootstrap gate, the wrapper's launcher gate and the shim's
+# enabled-set check each make through the deployed resolver. A file that drives any of them past that gate asks this
+# first and skips through skip_unprovisioned, so a host with no agent enabled or provisioned reports one skip per file
+# naming the one remedy, where every case would otherwise refuse under a code it did not ask about. Read in a child
+# shell: the resolver pulls conf.lib.sh, which several files source themselves.
+provisioned_agent() {
+    bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null || exit 1
+        declare -F ai_tools_enabled_agents >/dev/null 2>&1 || exit 1
+        while IFS=$'"'"'\t'"'"' read -r _ _ launcher; do
+            [[ -n "${launcher}" && -L "$1/${launcher}" ]] && exit 0
+        done < <(ai_tools_enabled_agents 2>/dev/null)
+        exit 1' _ "${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
+}
+# skip_unprovisioned <what>: the one skip line for that state, naming the command that provisions.
+skip_unprovisioned() {
+    skip "$1" "host not provisioned: no enabled agent has a launcher link under ${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin} -- run: sudo ai-tools-admin system bootstrap"
+}
+
 # The unprivileged project user (and the sandbox account) the helpers collaborate with, derived from the invocation --
 # never hard-coded. Three cases, because not every suite needs root: under sudo it is the operator who invoked it; run
 # DIRECTLY as an unprivileged user (which the pure library suites support -- they stub what they drive and build

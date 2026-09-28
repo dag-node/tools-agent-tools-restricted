@@ -39,6 +39,11 @@ do
     fi
 done
 
+# Every case from here on names a launcher an enabled manifest claims, which the helper reads before the path's
+# existence and its target: on a host with no enabled agent every one refuses as unclaimed (the harness's
+# provisioned_agent read), so one skip names that state and the command that ends it.
+if ! provisioned_agent; then skip_unprovisioned "launcher symlink helper (claimed-launcher cases)"; finish; exit; fi
+
 # (B) Refuse a correctly-shaped but non-existent version, for a launcher that IS claimed.
 if out="$("${helper}" "/opt/ai-tools/.nvm/versions/node/v0.0.0/bin/claude" 2>&1)"; then
     fail "helper accepted a versioned path that does not exist (v0.0.0)"

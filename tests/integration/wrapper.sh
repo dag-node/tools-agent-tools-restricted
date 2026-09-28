@@ -73,10 +73,10 @@ else
     pass "wrapper short-circuits at the ai-ops gate before the allowlist check"
 fi
 
-# The allowlist-gate cases (1)-(3) exercise the wrapper PAST its symlink guard, which needs the provisioned toolchain's
-# bin/claude symlink; without it every run stops at "claude symlink not found" before the gate under test.
-if [[ ! -L "/opt/ai-tools/bin/claude" ]]; then
-    skip "wrapper allowlist-gate cases (1)-(3)" "toolchain not provisioned -- run: sudo ai-tools-admin system bootstrap"
+# The allowlist-gate cases (1)-(3) exercise the wrapper PAST its launcher gate, which needs an enabled agent's stable
+# launcher link (the harness's provisioned_agent read); without one every run stops there, before the gate under test.
+if ! provisioned_agent; then
+    skip_unprovisioned "wrapper allowlist-gate cases (1)-(3)"
 else
 
 # (1) An unapproved cwd is blocked at the allowlist gate. With no tty the wrapper never
@@ -285,14 +285,19 @@ fi
 # The operator gate runs first, so if this environment's operator is not in ai-ops the run is intercepted there -- skip
 # rather than misreport.
 section "Wrapper consults the protected-paths backstop (defense in depth)"
-printf '%s\n' "/etc" > "${home}/.config/ai-tools/allowed-projects"
-pp_out="$(run_wrapper /etc)"
-if grep -qxE 'MSG-C7C9|MSG-R7Z3' <<<"${pp_out}"; then
-    # Either operator-gate refusal an enrolled-but-not-here operator can draw.
-    skip "wrapper protected-path consult" "operator gate intercepts (test operator not in ai-ops here)"
+if ! provisioned_agent; then
+    # The launcher gate precedes the CWD gates, so with no enabled agent the run stops there.
+    skip_unprovisioned "wrapper protected-path consult"
 else
-    assert_msg MSG-Q6H3 "${pp_out}" \
-        "wrapper refuses to launch in an allowlisted-but-protected system directory (/etc)"
+    printf '%s\n' "/etc" > "${home}/.config/ai-tools/allowed-projects"
+    pp_out="$(run_wrapper /etc)"
+    if grep -qxE 'MSG-C7C9|MSG-R7Z3' <<<"${pp_out}"; then
+        # Either operator-gate refusal an enrolled-but-not-here operator can draw.
+        skip "wrapper protected-path consult" "operator gate intercepts (test operator not in ai-ops here)"
+    else
+        assert_msg MSG-Q6H3 "${pp_out}" \
+            "wrapper refuses to launch in an allowlisted-but-protected system directory (/etc)"
+    fi
 fi
 
 # ── Every launcher is the one wrapper ────────────────────────────────────────────
