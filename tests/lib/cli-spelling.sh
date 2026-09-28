@@ -112,6 +112,7 @@ cli_flag() {
         branch)         printf -- '--branch' ;;
         dir)            printf -- '--dir' ;;
         all)            printf -- '--all' ;;
+        format)         printf -- '--format' ;;
         *) printf 'cli-spelling: unknown flag key: %s\n' "$1" >&2; return 1 ;;
     esac
 }

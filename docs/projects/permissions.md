@@ -72,16 +72,30 @@ own, right under the list of files it found:
   type, and their permissions still decide whether the agent can open them. It
   resets every file in the project, so a directory another service uses —
   a Podman `:Z` volume, a directory a web server serves — loses the type
-  that service needs. Keep such a directory outside the project.
+  that service needs. Keep such a directory outside the project. A claim run
+  without a terminal, from cron or a systemd unit, relabels only with `-y`.
 - **Group and ACL**, default no. Yes moves each file to the `ai-tools` group
   with the project ACL: the agent gets the access its group bits grant,
   and the group the file had loses it.
 
-After the claim, each file is listed as `fixed` or `not-fixed`, one line
-per file, with the kind and what it was before. The agent can open a file
-listed under each kind only once it is fixed for each; where you answered yes
-to one question and no to the other, the claim says how many files that leaves
-closed.
+After the claim, each file is checked again and listed on one line
+with the kind and what it was before:
+
+| Outcome | Meaning |
+|---|---|
+| `fixed` | the file now has what the claim gives it |
+| `not-fixed` | it does not — you said no, or the repair did not take |
+| `unverified` | the claim could not read the file's state |
+| `gone` | the file no longer exists |
+
+The claim exits 4 when a file is left `not-fixed` and 5 when one is
+`unverified`, so a script can tell a clean claim from one that left work.
+`ai-tools projects claim --format tsv` writes the same outcomes as a record
+stream (`man 5 ai-tools-records`) for a script to read.
+
+The agent can open a file listed under each kind only once it is fixed
+for each; where you answered yes to one question and no to the other, the claim
+says how many files that leaves closed.
 
 Say no to the group and ACL, and keep the file as it is, when:
 

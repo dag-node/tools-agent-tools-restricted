@@ -314,6 +314,8 @@ drive() {
     trace_row "${label}"
 }
 rc_is()   { [[ "${rc}" -eq "$1" ]]; }
+# out_is_stream: stdout is empty or opens with the record header ai-tools-records(5) states.
+out_is_stream() { [[ -z "${out}" || "${out%%$'\n'*}" == observed-at$'\t'* ]]; }
 rc_not0() { [[ "${rc}" -ne 0 ]]; }
 # quiet_rc <n> / quiet_refusal: the exit status AND an empty call log -- a refusal that did not reach a helper, which is
 # the ordering rule that a refused command does not prompt for sudo first.
@@ -424,8 +426,21 @@ drive_rows() {
     cli_stub_reset
 
     drive cli ai-tools.projects.claim --bogus "${R}/pa"
-    expect "claim refuses an unknown option"                          rc_not0
-    expect "the refused claim reaches no helper"                      cli_log_empty
+    expect "claim refuses an unknown option with exit 2, no helper"   quiet_rc 2
+    cli_stub_reset; drive cli ai-tools.projects.claim "${R}/pa" "${R}/pb"
+    expect "claim refuses two paths with exit 2, no helper"           quiet_rc 2
+
+    # `--format tsv`: stdout carries the record stream and no page line. A first claim scans for no drift, so its stream
+    # is empty and the page went to stderr.
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pf"
+    expect "claim --format tsv exits 0 on a first claim"              rc_is 0
+    expect "claim --format tsv registers the project"                 st_is "${R}/pf" listed
+    expect "claim --format tsv writes no page line to stdout"         out_is_stream
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f format)" json "${R}/pa"
+    expect "claim refuses a --format other than tsv with exit 2"      quiet_rc 2
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f format)"
+    expect "claim refuses --format without a value with exit 2"       quiet_rc 2
+    expect "the refused --format writes nothing to stdout"            out_is_stream
 
     # ── C. Create ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.create"

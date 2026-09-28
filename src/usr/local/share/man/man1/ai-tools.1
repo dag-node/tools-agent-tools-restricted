@@ -144,7 +144,7 @@ brand-new directory for, and no git history to expose in a repository with no co
 The one question that can still appear is the traverse grant on a parent directory,
 which widens access on the project's ancestors and is answered only by a person at a terminal.
 .TP
-.B projects claim \fR[\fB\-y\fR] [\fIDIRECTORY\fR]
+.B projects claim \fR[\fB\-y\fR] [\fB\-\-format tsv\fR] [\fIDIRECTORY\fR]
 Claim a real project in place so the agent works your actual tree: register it
 (allowlist and git safe.directory), scan for and lock down secret-named files
 .I before
@@ -156,17 +156,37 @@ to yes and
 .B \-y
 answers it; the group and ACL repair defaults to no and
 .B \-y
-does not answer it. Each such file is then printed as one line,
+does not answer it. Without a terminal the relabel runs only with
+.BR \-y ,
+and
+.B AI_TOOLS_ASSUME_YES
+does not answer it, since it resets every type in the tree.
+After the claim's steps, each such file is checked on its own and printed as one line,
 .IR outcome\ kind\ path\ detail ,
 tab-separated, with
 .I outcome
-.B fixed
-or
-.BR not\-fixed .
+one of
+.BR fixed ,
+.BR not\-fixed ,
+.B unverified
+(the check could not be read), or
+.B gone
+(the file no longer exists).
+The claim exits 4 when a file is left not fixed and 5 when a check could not be read
+(see
+.BR "EXIT STATUS" ).
 Access to the
 repository's git history
 .RB ( .git )
 is a separate opt-in prompt.
+.RS
+.TP
+.B \-\-format tsv
+Write those outcomes as the record stream
+.BR ai-tools-records (5)
+states, one row per file, and no other line on standard output: every other
+line the claim prints goes to standard error, and its questions still ask on the terminal.
+.RE
 .TP
 .B projects unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI GROUP\fR] [\fIDIRECTORY\fR]
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
@@ -732,7 +752,9 @@ unregistered by then, so what remains is out of the agent's reach and can be
 deleted by hand.
 .TP
 .B 2
-The command line was rejected.
+The command line was rejected: an unknown option, or
+.B "projects claim"
+given two directories.
 .B stop
 returns this for a
 .I DIRECTORY
@@ -744,7 +766,10 @@ every elevated helper refuses it, whatever the allowlist says.
 .TP
 .B 4
 A report read every source and found something that needs attention
-.RB ( status ", " audit ).
+.RB ( status ", " audit ),
+or
+.B "projects claim"
+left a file that drifted as it was, or stopped a scan at 200 files.
 The codes 4 and 5 are the ones
 .BR ai-tools-records (5)
 states for every report in this project.
@@ -752,7 +777,8 @@ states for every report in this project.
 .B 5
 A report could not make a reading it promises, so its findings are incomplete
 .RB ( status ": a library the package ships did not load; " audit ": a log file,
-the journal or the audit log could not be read, or the caller is not root).
+the journal or the audit log could not be read, or the caller is not root;
+.BR "projects claim" ": a drifted file's state, or a scan of the tree, could not be read).
 The page names the reading it could not make.
 .B stop
 returns the same code for its own case: it could not run at all, because it was
@@ -781,6 +807,9 @@ without prompting, for unattended runs.
 A question defaulting to
 .I no
 still prompts, so this never turns a refusal into consent.
+The relabel
+.B "projects claim"
+offers for files that kept a foreign SELinux type is not answered by it either.
 .PP
 Operator-wide settings are not environment variables: they live in
 .BR ai-tools-operator.conf (5),
