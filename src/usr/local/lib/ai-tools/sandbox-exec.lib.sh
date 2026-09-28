@@ -73,16 +73,55 @@ _ai_tools_sandbox_exec_timeout_seconds() {
     printf '%s' "${timeout_seconds}"
 }
 
-# _ai_tools_sandbox_exec_tool_path <name> : print the absolute path of a host tool this helper execs as root, resolved
-#   through the caller's PATH and admitted only under the system binary directories; non-zero and a warning otherwise.
+# The directories a host tool this library runs is taken from, in order, and never the caller's PATH: a PATH entry such
+# as `/usr/bin/../../tmp/x` passes a prefix check and names a directory an unprivileged writer holds.
+readonly _AI_TOOLS_SANDBOX_EXEC_SYSTEM_PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+# _ai_tools_sandbox_exec_tool_path <name> : print the absolute path of a host tool this helper execs, looked up
+#   in the system binary directories alone; non-zero and a warning where none of them holds an executable of that name.
 _ai_tools_sandbox_exec_tool_path() {
-    local tool_name="$1" tool_path
-    tool_path="$(command -v -- "${tool_name}" 2>/dev/null)" || tool_path=""
-    case "${tool_path}" in
-        /usr/bin/*|/usr/sbin/*|/bin/*|/sbin/*) printf '%s' "${tool_path}"; return 0 ;;
-    esac
-    _ai_tools_sandbox_exec_warn "ai_tools_as_sandbox: ${tool_name} is not at a system path (found $(printf '%q' "${tool_path:-nothing}")) -- not run"
+    local tool_name="$1" directory
+    for directory in /usr/sbin /usr/bin /sbin /bin; do
+        if [[ -f "${directory}/${tool_name}" && -x "${directory}/${tool_name}" ]]; then
+            printf '%s' "${directory}/${tool_name}"
+            return 0
+        fi
+    done
+    _ai_tools_sandbox_exec_warn "ai_tools_as_sandbox: ${tool_name} is not in the system binary directories -- not run"
     return 1
+}
+
+# _ai_tools_sandbox_exec_scope_available : return 0 when a transient scope can be opened for a run -- systemd-run
+#   and systemctl at their system paths, and the system manager answering a probe run -- with the answer kept for this
+#   process. A scope is the boundary a descendant cannot leave: a process that opens a session of its own stays
+#   in the scope's cgroup, so ending the scope ends it. Without a manager (a container, a chroot) the boundary is
+#   the session setsid opens, which a descendant's own setsid leaves.
+_ai_tools_sandbox_exec_scope_available() {
+    if [[ -z "${_AI_TOOLS_SANDBOX_EXEC_SCOPE_AVAILABLE:-}" ]]; then
+        _AI_TOOLS_SANDBOX_EXEC_SCOPE_AVAILABLE=no
+        [[ -x /usr/bin/systemd-run && -x /usr/bin/systemctl && -x /usr/bin/true ]] \
+            && /usr/bin/systemd-run --scope --quiet --collect -- /usr/bin/true >/dev/null 2>&1 \
+            && _AI_TOOLS_SANDBOX_EXEC_SCOPE_AVAILABLE=yes
+    fi
+    [[ "${_AI_TOOLS_SANDBOX_EXEC_SCOPE_AVAILABLE}" == yes ]]
+}
+
+# _ai_tools_sandbox_exec_end_boundary <scope-unit> <child-pid> <session-confirmed> : SIGTERM, then SIGKILL five
+#   seconds later, to every process of a run: the scope's cgroup where one was opened; else the session the child
+#   opened, by its id, where the child was seen as that session's leader; else the child alone.
+_ai_tools_sandbox_exec_end_boundary() {
+    local scope_unit="$1" child_pid="$2" session_confirmed="$3" signal
+    for signal in TERM KILL; do
+        if [[ -n "${scope_unit}" ]]; then
+            /usr/bin/systemctl kill --signal="SIG${signal}" "${scope_unit}" >/dev/null 2>&1 || true
+        elif (( session_confirmed )); then
+            pkill "-${signal}" -s "${child_pid}" 2>/dev/null || true
+        else
+            kill "-${signal}" "${child_pid}" 2>/dev/null || true
+        fi
+        [[ "${signal}" == TERM ]] && sleep 5
+    done
+    return 0
 }
 
 # _ai_tools_sandbox_exec_session_id_of <pid> : print the session id of a live process, read from /proc, or an empty
@@ -111,12 +150,17 @@ _ai_tools_sandbox_exec_session_id_of() {
 #       sets with a leading `env NAME=value`;
 #     - its stdout and its stderr kept apart, since a caller may read stdout as a wire format, each through
 #       ai_tools_log_sanitize_stream, or withheld with a line on stderr where log.lib.sh did not load;
-#     - a bound on its run (_ai_tools_sandbox_exec_timeout_seconds): past it, every process of the session setsid
-#       opened gets SIGTERM, then SIGKILL, and the call returns 124 under MSG-W8B7, so a hung child ends the step
-#       rather than the run.
-#   Returns the command's own status; returns 1 without running anything when the caller is not root (runuser needs
-#   root), <account> is not the sandbox account, a host tool is off the system path, or no command was given.
+#     - a bound on its run (_ai_tools_sandbox_exec_timeout_seconds), held through the draining of its output: past
+#       it, every process of the run gets SIGTERM, then SIGKILL, and the call returns 124 under MSG-W8B7, so a hung
+#       child -- or a descendant it left holding its output open -- ends the step rather than the run. The run is
+#       a transient systemd scope where the system manager answers, which a descendant cannot leave; elsewhere it is
+#       the session setsid opened, which a descendant's own setsid leaves, and the message says which held.
+#   Every host tool -- setsid, runuser, env, bash, and the pkill, sleep and getent beside them -- comes from the system
+#   binary directories, never from the caller's PATH. Returns the command's own status; returns 1 without running
+#   anything when the caller is not root (runuser needs root), <account> is not the sandbox account, a host tool is
+#   absent from those directories, or no command was given.
 ai_tools_as_sandbox() {
+    local PATH="${_AI_TOOLS_SANDBOX_EXEC_SYSTEM_PATH}"
     local account="${1:-}"
     shift || true
     if [[ "${EUID:-$(id -u)}" -ne 0 || $# -eq 0 ]]; then
@@ -160,48 +204,76 @@ ai_tools_as_sandbox() {
         output_withheld=1
     fi
 
-    # Job control off for the start, so the child is not a process-group leader and setsid execs in place: the child's
-    # pid is then the id of the session it opens, which is what the bound kills by.
-    local job_control_was_enabled=0
+    # The boundary the bound ends: a transient scope where the manager answers, else the session setsid opens. Job
+    # control off for the start, so the child is not a process-group leader and setsid execs in place: the child's pid
+    # is then the id of the session it opens, which the session boundary kills by. `systemd-run --scope` registers its
+    # own pid in the scope and execs the command, so the child's pid is the same in either mode.
+    local scope_unit="" job_control_was_enabled=0
+    _ai_tools_sandbox_exec_scope_available && scope_unit="ai-tools-sandbox-exec-$$-${RANDOM}${RANDOM}.scope"
     [[ -o monitor ]] && job_control_was_enabled=1
     set +m
-    "${setsid_path}" --wait "${runuser_path}" -u "${account}" -- \
-        "${env_path}" -i HOME="${sandbox_home}" PATH=/usr/bin:/bin LANG=C.UTF-8 \
-        "${bash_path}" -c "${close_descriptors_then_exec}" _ "$@" \
-        <&"${stdin_fd}" >&"${stdout_fd}" 2>&"${stderr_fd}" &
+    if [[ -n "${scope_unit}" ]]; then
+        /usr/bin/systemd-run --scope --quiet --collect --unit="${scope_unit%.scope}" -- \
+            "${setsid_path}" --wait "${runuser_path}" -u "${account}" -- \
+            "${env_path}" -i HOME="${sandbox_home}" PATH=/usr/bin:/bin LANG=C.UTF-8 \
+            "${bash_path}" -c "${close_descriptors_then_exec}" _ "$@" \
+            <&"${stdin_fd}" >&"${stdout_fd}" 2>&"${stderr_fd}" &
+    else
+        "${setsid_path}" --wait "${runuser_path}" -u "${account}" -- \
+            "${env_path}" -i HOME="${sandbox_home}" PATH=/usr/bin:/bin LANG=C.UTF-8 \
+            "${bash_path}" -c "${close_descriptors_then_exec}" _ "$@" \
+            <&"${stdin_fd}" >&"${stdout_fd}" 2>&"${stderr_fd}" &
+    fi
     local child_pid=$!
     (( job_control_was_enabled )) && set -m
 
-    local timeout_seconds elapsed_seconds=0 timed_out=0 session_id
+    # One deadline for the run and the draining of its output. The child is polled once a second; its session id is read
+    # while it lives, since the id outlives the leader and is what the session boundary is ended by.
+    local timeout_seconds deadline timed_out=0 session_confirmed=0
     timeout_seconds="$(_ai_tools_sandbox_exec_timeout_seconds)"
+    deadline=$(( SECONDS + timeout_seconds ))
     while kill -0 "${child_pid}" 2>/dev/null; do
-        if (( elapsed_seconds >= timeout_seconds )); then
+        if (( SECONDS >= deadline )); then
             timed_out=1
-            session_id="$(_ai_tools_sandbox_exec_session_id_of "${child_pid}")"
-            if [[ "${session_id}" == "${child_pid}" ]]; then
-                pkill -TERM -s "${child_pid}" 2>/dev/null || true
-                sleep 5
-                pkill -KILL -s "${child_pid}" 2>/dev/null || true
-            else
-                # The session is not the child's own (setsid forked), so only the child is reachable by pid.
-                kill -TERM "${child_pid}" 2>/dev/null || true
-                sleep 5
-                kill -KILL "${child_pid}" 2>/dev/null || true
-            fi
+            _ai_tools_sandbox_exec_end_boundary "${scope_unit}" "${child_pid}" "${session_confirmed}"
             break
         fi
+        (( session_confirmed )) \
+            || [[ "$(_ai_tools_sandbox_exec_session_id_of "${child_pid}")" != "${child_pid}" ]] \
+            || session_confirmed=1
         sleep 1
-        elapsed_seconds=$(( elapsed_seconds + 1 ))
     done
     local command_exit_status=0
     wait "${child_pid}" 2>/dev/null || command_exit_status=$?
 
+    # The sanitizers end at EOF, which comes when the last holder of each pipe closes it: this shell's copies now,
+    # and whatever the child left running with the pipe as its output. That leftover is held to the same deadline --
+    # past it the boundary is ended, and a sanitizer still open after that is ended too, so the call returns.
     exec {stdout_fd}>&- {stderr_fd}>&-
     (( stdin_fd == 0 )) || exec {stdin_fd}<&-
-    [[ -n "${stdout_sanitizer_pid}" ]] && { wait "${stdout_sanitizer_pid}" "${stderr_sanitizer_pid}" 2>/dev/null || true; }
+    local sanitizer_pid leftover_held_output=0
+    for sanitizer_pid in ${stdout_sanitizer_pid} ${stderr_sanitizer_pid}; do
+        while kill -0 "${sanitizer_pid}" 2>/dev/null; do
+            if (( SECONDS >= deadline )); then
+                if (( ! timed_out )); then
+                    timed_out=1
+                    leftover_held_output=1
+                    _ai_tools_sandbox_exec_end_boundary "${scope_unit}" "${child_pid}" "${session_confirmed}"
+                fi
+                kill -0 "${sanitizer_pid}" 2>/dev/null && kill -TERM "${sanitizer_pid}" 2>/dev/null
+                break
+            fi
+            sleep 0.2
+        done
+        wait "${sanitizer_pid}" 2>/dev/null || true
+    done
     (( output_withheld )) && _ai_tools_sandbox_exec_warn "output of $(printf '%q' "$1") withheld: log.lib.sh, which sanitizes it, did not load"
     if (( timed_out )); then
-        _ai_tools_sandbox_exec_warn MSG-W8B7 "ended a command that ran past ${timeout_seconds}s as ${account}: $(printf '%q' "$1") -- the step did not complete; re-run it, or set AI_TOOLS_AS_SANDBOX_TIMEOUT=<seconds> for a slower host"
+        local boundary_name="the session it opened"
+        [[ -n "${scope_unit}" ]] && boundary_name="its scope ${scope_unit}"
+        local what_ran_over="ran past"
+        (( leftover_held_output )) && what_ran_over="exited, then a process it left behind held its output open past"
+        _ai_tools_sandbox_exec_warn MSG-W8B7 "ended a command as ${account} that ${what_ran_over} ${timeout_seconds}s, with every process of ${boundary_name}: $(printf '%q' "$1") -- the step did not complete; re-run it, or set AI_TOOLS_AS_SANDBOX_TIMEOUT=<seconds> for a slower host"
         return 124
     fi
     return "${command_exit_status}"

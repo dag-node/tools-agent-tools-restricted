@@ -60,7 +60,13 @@ if [[ -z "${sandbox_uid}" ]]; then
     rc=0; out="$(ai_tools_as_sandbox "${SANDBOX_USER}" id 2>&1)" || rc=$?
     [[ "${rc}" -eq 1 && "${out}" == *"is not the sandbox account"* ]] \
         && pass "an account the library cannot resolve refuses every run" || fail "unresolved account: rc ${rc}: ${out}"
-    skip "the sandbox child's properties" "the library at ${LIB} names no account this host has (a source-tree copy)"
+    # The installed copy names the account the installer substituted; one still holding the token was installed without
+    # substitution and refuses every provisioning step, which is a defect and not a state to skip through.
+    if [[ "${LIB}" == /usr/local/lib/ai-tools/* ]]; then
+        fail "the installed ${LIB} names no account this host has -- the account token was not substituted at install"
+    else
+        skip "the sandbox child's properties" "the library at ${LIB} names no account this host has (a source-tree copy)"
+    fi
     finish; exit
 fi
 
@@ -133,23 +139,47 @@ rc=0; ai_tools_as_sandbox "${SANDBOX_USER}" bash -c 'exit 7' >/dev/null 2>&1 || 
 out="$(ai_tools_as_sandbox "${SANDBOX_USER}" cat <<<'from a heredoc' 2>/dev/null)"
 [[ "${out}" == 'from a heredoc' ]] && pass "stdin the caller gives passes" || fail "stdin: '${out}'"
 
-# The bound: a command that outlives it is ended with every process of its session, and the call says so. The child
-# starts a grandchild that would outlive a kill of the child alone, and the marker names this run so a stray sleep
-# of another run is not read.
+# The bound: a command that outlives it is ended with every process of its run, and the call says so. The child execs
+# into a sleep and first starts a grandchild sleep in a subshell, each carrying this run's marker as its argv[0]
+# (`exec -a`), so `pgrep -f` finds exactly these; the case asserts the two are alive before the bound and gone after it.
+# The helper runs in the background so the processes can be counted while it waits.
 marker="ai-tools-test-sandbox-exec-$$"
-rc=0; out="$(AI_TOOLS_AS_SANDBOX_TIMEOUT=2 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
-    "sleep 300 '${marker}' & sleep 300 '${marker}'" 2>&1)" || rc=$?
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+AI_TOOLS_AS_SANDBOX_TIMEOUT=4 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
+    '( exec -a "$1" sleep 300 ) & exec -a "$1" sleep 300' _ "${marker}" >/dev/null 2>"${TESTDIR}/bound-err" &
+helper_pid=$!
+sleep 2
+alive_before="$(pgrep -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null | wc -l)"
+rc=0; wait "${helper_pid}" || rc=$?
 sleep 1
-if [[ "${rc}" -ne 124 ]]; then
-    fail "a command past the bound returned ${rc}, want 124: ${out}"
+alive_after="$(pgrep -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null | wc -l)"
+if [[ "${alive_before}" -lt 2 ]]; then
+    fail "control: the bound case started ${alive_before} marked process(es), so its cleanup is not measured"
+elif [[ "${rc}" -ne 124 ]]; then
+    fail "a command past the bound returned ${rc}, want 124: $(<"${TESTDIR}/bound-err")"
 else
-    assert_msg MSG-W8B7 "${out}" "a command past the bound is reported under its code"
-    if pgrep -u "${SANDBOX_USER}" -f "${marker}" >/dev/null 2>&1; then
-        fail "a process of the ended session survives the bound"
-        pkill -u "${SANDBOX_USER}" -f "${marker}" || true
-    else
-        pass "no process of the ended session survives the bound, the grandchild included"
-    fi
+    assert_msg MSG-W8B7 "$(<"${TESTDIR}/bound-err")" "a command past the bound is reported under its code"
+    [[ "${alive_after}" -eq 0 ]] && pass "no process of the ended run survives the bound, the grandchild included" \
+        || fail "${alive_after} process(es) of the ended run survive the bound"
 fi
+pkill -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null || true
+
+# The bound holds through the draining of the output: the child exits at once and leaves a grandchild holding the output
+# pipe, so a wait for that pipe's end alone would last as long as the grandchild. The call must return within the bound
+# and a grace, as 124, with the grandchild gone.
+marker="ai-tools-test-sandbox-exec-drain-$$"
+started=${SECONDS}
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+rc=0; AI_TOOLS_AS_SANDBOX_TIMEOUT=3 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
+    '( exec -a "$1" sleep 300 ) & exit 0' _ "${marker}" >/dev/null 2>"${TESTDIR}/drain-err" || rc=$?
+elapsed=$(( SECONDS - started ))
+sleep 1
+alive_after="$(pgrep -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null | wc -l)"
+if [[ "${rc}" -eq 124 && "${elapsed}" -le 20 && "${alive_after}" -eq 0 ]]; then
+    pass "a child that exited leaving a process on its output pipe is ended at the bound (${elapsed}s), and the call returns 124"
+else
+    fail "exited child with an open pipe: rc ${rc} (want 124), ${elapsed}s (want <= 20), ${alive_after} left: $(<"${TESTDIR}/drain-err")"
+fi
+pkill -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null || true
 
 finish

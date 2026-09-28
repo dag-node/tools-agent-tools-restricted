@@ -1436,10 +1436,11 @@ do_install() {
 
     # The execution boundary (sandbox-exec.lib.sh): the one route by which a root process runs a file the sandbox
     # account can write, and the identity check the toolchain writers require. 644 root:root: shipped logic
-    # and the substituted account name, sourced by the bootstrap, the updater, the toolchain library and this
-    # installer's uninstall.
+    # and the account name, which install_subst substitutes here as the spec does at build -- a copy holding the token
+    # does not name an account and refuses every run -- sourced by the bootstrap, the updater, the toolchain library
+    # and this installer's uninstall.
     log "/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
-    install -o root -g root -m 644 \
+    install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sandbox-exec.lib.sh" \
         /usr/local/lib/ai-tools/sandbox-exec.lib.sh
 

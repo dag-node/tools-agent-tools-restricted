@@ -117,8 +117,12 @@ routes to the toolchain, and no third:
 - **Read it as data.** The installed Node version is `ai_tools_nvm_default_version` over the `default` alias
   and the version directories, an agent's version `ai_tools_entrypoint_installed_version` over its `package.json`,
   and the active version the target of a stable launcher link. Each read admits a clamped shape, since the bytes are
-  the account's: the alias reader validates the first line whole before it selects among real version directories,
-  and the manifest reader checks the descriptor it opened for a regular file within a size cap before parsing.
+  the account's. Both readers open the file through the host's `/usr/bin/python3` in isolated mode (`-I`: the current
+  directory is off the import path, so a `json.py` in a project the reader was run from is not what it imports), without
+  following a symlink, and check the descriptor they opened for a regular file within a size cap; the alias reader then
+  matches the bytes whole (a NUL, a space or a second line refuses) before any becomes a shell value, and the manifest
+  reader parses them as JSON and takes the top-level `version` alone. The verdict over npm's signature audit is parsed
+  the same way, so no reader executes the tree's `node`.
 - **Run it as the account, through `ai_tools_as_sandbox`** (`sandbox-exec.lib.sh`, a library of its own with no provider
   dependency, so a bootstrap provisioning Node alone loads it whole), the one route a root caller takes to a command
   that executes a file of the toolchain. The caller names the account it means, and the helper refuses a name that does
@@ -129,13 +133,17 @@ routes to the toolchain, and no third:
   before it execs the command, so a socket, a lock or a root-only file does not reach it; the environment is `env -i`
   with `HOME`, `PATH=/usr/bin:/bin` and `LANG=C.UTF-8`; and stdout and stderr stay apart, each
   through `ai_tools_log_sanitize_stream` ([logging](logging.rule.md)), or withheld where `log.lib.sh` did not load.
-  A run is bounded: past `AI_TOOLS_AS_SANDBOX_TIMEOUT` seconds (a whole number, 1800 where unset or malformed) every
-  process of the session `setsid` opened receives `SIGTERM` then `SIGKILL`, and the call returns 124 under `MSG-W8B7`,
-  so a hung child ends its step and not the run. Otherwise the command's own status is returned. `ai-tools-bootstrap`
-  requires it and refuses the run under `MSG-E2X2` without it; its link repair, its residue removal, its nvm/Node/agent
-  install and its signature check go through it, and so does `install.sh`'s package erase at uninstall.
-  `ai_tools_is_sandbox_account`, beside it, is the check a function that sources `nvm.sh` or runs `npm` makes of its own
-  process.
+  Every host tool the helper runs comes from the system binary directories and never from the caller's `PATH`. A run is
+  bounded: past `AI_TOOLS_AS_SANDBOX_TIMEOUT` seconds (a whole number, 1800 where unset or malformed) every process
+  of the run receives `SIGTERM` then `SIGKILL`, and the call returns 124 under `MSG-W8B7`, so a hung child ends its step
+  and not the run. The deadline holds through the draining of the child's output, so a descendant the child left holding
+  its output open is ended the same way rather than waited for. The run is a transient systemd scope where the system
+  manager answers a probe, which a descendant cannot leave, and otherwise the session `setsid` opened,
+  which a descendant's own `setsid` leaves; the message names which held. Otherwise the command's own status is
+  returned. `ai-tools-bootstrap` requires it and refuses the run under `MSG-E2X2` without it; its link repair, its
+  residue removal, its nvm/Node/agent install and its signature check go through it, and so does `install.sh`'s package
+  erase at uninstall. `ai_tools_is_sandbox_account`, beside it, is the check a function that sources `nvm.sh` or runs
+  `npm` makes of its own process.
 
 A step that runs as the account and executes only root-owned code — the launcher re-link through `providers.lib.sh`,
 the stamp's `mkdir` and `touch` — does not run a file the account can write, and keeps its plain `sudo -u`. `nvm-update`
