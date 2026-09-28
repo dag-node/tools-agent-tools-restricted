@@ -893,6 +893,10 @@ WARNING.
 \-\-since needs a value
 .SS ai-tools-bootstrap
 .TP
+.B MSG-C6E2
+ERROR.
+the toolchain is not the sandbox account's (the paths above), so the install step, which runs as ${user}, cannot read it \-\- restore the account's ownership, then re\-run:  sudo chown \-Rh ${user}:${group} ${foreign[*]}
+.TP
 .B MSG-C7C8
 WARNING.
 entrypoint relabel did not complete \-\- run 'sudo ai\-tools\-admin system entrypoints relabel' before launching claude
@@ -948,6 +952,14 @@ could not write ${key}=${answer} into ${conf} \-\- set the line by hand
 .B MSG-P9Q6
 WARNING.
 signature\-verification library not deployed yet \-\- skipping the check; the nvm\-update timer verifies on its first run
+.TP
+.B MSG-R5Z3
+ERROR.
+offline, and no toolchain is installed under ${NVM_DIR}: the nvm and Node download needs the network \-\- connect this host, then re\-run: sudo ai\-tools\-admin system bootstrap
+.TP
+.B MSG-S8B6
+WARNING.
+network: no answer from ${unreachable[*]} \-\- this run applies what needs no download (the account and its home, the launcher links, the labels, the units, the managed assets) and skips the nvm, Node and npm install; connect this host and re\-run to install or update the toolchain
 .TP
 .B MSG-T7H8
 ERROR.
