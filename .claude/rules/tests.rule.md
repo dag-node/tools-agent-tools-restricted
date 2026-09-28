@@ -538,7 +538,9 @@ driven here are the states that must read as **not** pristine (any file beyond t
 commit). It closes with `label_drift_scan`, the re-claim's SELinux half, over a canned `restorecon` transcript: the scan
 must ask for a forced, non-recursive dry run over a NUL list, since it runs unprivileged ahead of the question, must
 keep a type difference while dropping a difference in the SELinux user alone, an owner-only file and a carved-out path,
-and must read a stray line among the records as an incomplete scan that still reports the drift it read.
+and must read a stray line among the records as an incomplete scan that still reports the drift it read. Its last
+section drives the checks the claim runs after its Apply block: a clean batch reads the present path fixed, a batch
+that fails reads it unverified and never fixed, and a removed path reads gone on both sides.
 
 `project-permissions.sh` pins the checks that scan and the claim's verification rest on, unprivileged
 and against the checkout: every way `restorecon`'s output can be incomplete is asserted to read unknown, not `match`,
@@ -1101,6 +1103,14 @@ for it. Fixture paths, account names and the generated clone names are written a
 left out, so two traces from the same host compare with `diff`: one recorded on `develop`, one on the branch
 after `install.sh` deployed it, and an empty diff is the statement that every outcome a row or the digest observes is
 unchanged. A difference the ticket lists in advance is expected; any other is a regression.
+
+The claim's record stream is read whole: a first claim and a usage error leave stdout exactly empty, and a re-claim
+over a claimed fixture with one file moved in writes the header and rows of eleven fields, the file's `group-not-fixed`
+among them, with its page on stderr. The exits follow the fold: 4 for the declined repair, 5 for a walk that meets
+a directory the projects user cannot enter, and 1 over both when a root step fails (`cli_stub_fail` makes one helper
+exit 1). Without a terminal the relabel runs only with `--yes`, whatever `AI_TOOLS_ASSUME_YES` holds, driven
+over a fixture root `chcon`'d to the project type and skipped where SELinux is off or the fixture path has no default
+label.
 
 The file pins its own umask. A umask is process state the CLI inherits through `runuser` (whose PAM stack carries no
 `pam_umask`), so the rows and the trace run under 022 whatever the host's login default, which is what makes a trace

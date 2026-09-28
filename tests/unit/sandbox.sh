@@ -3,7 +3,8 @@
 # tests/unit/sandbox.sh
 # Unit test for the pure decisions behind the ai-tools.sh flows -- the ai-tools.projects.clone pair, the precondition
 # ai-tools.projects.create's skipped prompts rest on (tree_is_pristine), the exclusion reader the claim-time scans prune
-# their walks with (allowlist_exclusions), and the re-claim's SELinux drift scan (label_drift_scan, at the end).
+# their walks with (allowlist_exclusions), the re-claim's SELinux drift scan (label_drift_scan), and the checks
+# the claim runs after its Apply block (claim_verify_label, claim_verify_group, at the end).
 #
 # The ai-tools.projects.clone pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
@@ -273,5 +274,51 @@ else
         fail "label_drift_scan over a transcript with a stray line printed '$(tr '\t\n' '>|' <<<"${ld_got}")'"
     fi
 fi
+
+# ── claim_verify_label / claim_verify_group ───────────────────────────────────────────────────
+# The checks after the Apply block, driven through the sourced CLI with restorecon a stub: a path removed
+# before the check reads gone, a batch that fails reads the paths still present unverified and the ones now absent gone
+# -- never fixed -- and a clean batch reads fixed. The group side reads a moved-in file not fixed and a removed one
+# gone.
+section "claim_verify_label / claim_verify_group: the checks after the Apply block (unit)"
+
+cv_work="${TESTDIR}/verify"
+mkdir -p "${cv_work}/scratch"
+: > "${cv_work}/present"; chmod 0640 "${cv_work}/present"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${cv_work}"
+
+# cv_run <restorecon-status>: print the label outcomes, then the group outcomes, for the present path and a path
+# that does not exist.
+cv_run() {
+    # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
+    runuser -u "${PROJECTS_USER}" -- bash -c \
+        'cli="$1"; work="$2"; status="$3"; user="$4"; set --
+         source "${cli}" >/dev/null 2>&1 || exit 99
+         declare -F claim_verify_label >/dev/null || exit 98
+         claim_load_libraries >/dev/null 2>&1 || exit 97
+         CLAIM_WORK="${work}/scratch" OWNER_USER="${user}"
+         restorecon() { return "${status}"; }
+         declare -a paths=("${work}/present" "${work}/absent") label=() group=() details=()
+         claim_verify_label paths label
+         claim_verify_group paths group details
+         printf "%s " "${label[@]}"; printf "| "; printf "%s " "${group[@]}"' \
+        _ "${CLI}" "${cv_work}" "$1" "${PROJECTS_USER}"
+}
+
+cv_is() {  # cv_is <what> <restorecon-status> <want>
+    local got rc=0
+    got="$(cv_run "$2")" || rc=$?
+    if (( rc == 98 || rc == 97 )); then
+        skip "claim_verify: $1" "the installed CLI predates the per-path checks"
+    elif (( rc != 0 )); then
+        fail "claim_verify: $1 could not be driven (exit ${rc})"
+    elif [[ "${got}" == "$3" ]]; then
+        pass "claim_verify: $1 -> ${got}"
+    else
+        fail "claim_verify: $1 -> '${got}', want '$3'"
+    fi
+}
+cv_is "a clean batch" 0 "fixed gone | not-fixed gone "
+cv_is "a batch that exits 1" 1 "unverified gone | not-fixed gone "
 
 finish

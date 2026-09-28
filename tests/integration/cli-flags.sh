@@ -153,14 +153,16 @@ make_fixtures() {
 # ── Drivers and readers ───────────────────────────────────────────────────────────
 # run_in <cwd> <args...>: the deployed CLI as the projects user, shim first on PATH, every registry pointed
 # at a fixture, under setsid so no prompt can block. Output captured with stderr, or with stderr written to the file
-# RUN_STDERR names when it is set.  The inner shell expands $1 and $@ itself, which is why they sit in single quotes.
+# RUN_STDERR names when it is set; RUN_EXTRA_ENV adds NAME=value pairs to the environment.  The inner shell expands $1
+# and $@ itself, which is why they sit in single quotes.
 # shellcheck disable=SC2016
+RUN_EXTRA_ENV=()
 run_in() {
     local cwd="$1"; shift
     local -a command=(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}"
         PATH="${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin"
         AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_ALLOWLIST="${AL}" AI_TOOLS_GITCONFIG="${GC}"
-        AI_TOOLS_SANDBOX_ROOT="${SBROOT}"
+        AI_TOOLS_SANDBOX_ROOT="${SBROOT}" "${RUN_EXTRA_ENV[@]}"
         bash -c 'cd "$1" && shift && exec setsid -w "$@"' _ "${cwd}" "${CLI}" "$@")
     if [[ -n "${RUN_STDERR:-}" ]]; then
         "${command[@]}" 2>"${RUN_STDERR}"
@@ -326,12 +328,24 @@ drive() {
     trace_row "${label}"
 }
 rc_is()   { [[ "${rc}" -eq "$1" ]]; }
-# out_is_stream: stdout is empty or opens with the record header ai-tools-records(5) states.
-out_is_stream() { [[ -z "${out}" || "${out%%$'\n'*}" == observed-at$'\t'* ]]; }
+# The record-stream readers, over a row driven through cli_stdout. out_is_empty: stdout is exactly empty.
+# out_is_records: stdout is the header ai-tools-records(5) states, then at least one row, every row eleven tab-separated
+# fields with a severity from the page's set. out_has_row <finding>: some row carries <finding>. err_has <text>:
+# the stderr the row kept apart holds <text>.
+readonly RECORD_HEADER=$'observed-at\toccurred-at\tcode\trecord-id\tseverity\tfinding\tsubject-type\toperator\titem\tsubject\tdetail'
+out_is_empty() { [[ -z "${out}" ]]; }
+out_is_records() {
+    [[ "${out%%$'\n'*}" == "${RECORD_HEADER}" ]] || return 1
+    awk -F'\t' 'NR > 1 { rows++; if (NF != 11 || $5 !~ /^(ok|info|attention|unreadable)$/) bad = 1 }
+                 END { exit (bad || rows < 1) }' <<< "${out}"
+}
+out_has_row() { awk -F'\t' -v f="$1" 'NR > 1 && $6 == f { found = 1 } END { exit !found }' <<< "${out}"; }
+err_has() { grep -qF -- "$1" "${R}/.stderr"; }
 rc_not0() { [[ "${rc}" -ne 0 ]]; }
 # quiet_rc <n> / quiet_refusal: the exit status AND an empty call log -- a refusal that did not reach a helper, which is
 # the ordering rule that a refused command does not prompt for sudo first.
 quiet_rc()      { [[ "${rc}" -eq "$1" ]] && cli_log_empty; }
+cli_log_lacks() { ! cli_called "$1"; }
 quiet_refusal() { [[ "${rc}" -ne 0 ]] && cli_log_empty; }
 # quiet_report <rc>...: a report that RAN and reached no helper. A report closes at one of the statuses
 # ai-tools-records(5) gives every report -- 0, 4 with findings, 5 with a reading it could not make -- and which of them
@@ -447,12 +461,80 @@ drive_rows() {
     cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pf"
     expect "claim --format tsv exits 0 on a first claim"              rc_is 0
     expect "claim --format tsv registers the project"                 st_is "${R}/pf" listed
-    expect "claim --format tsv writes no page line to stdout"         out_is_stream
+    expect "claim --format tsv writes nothing to stdout on a first claim" out_is_empty
+    expect "claim --format tsv writes its page to stderr"             err_has "Claim project"
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f format)" json "${R}/pa"
     expect "claim refuses a --format other than tsv with exit 2"      quiet_rc 2
     cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)"
     expect "claim refuses --format without a value with exit 2"       quiet_rc 2
-    expect "the refused --format writes nothing to stdout"            out_is_stream
+    expect "the refused --format writes nothing to stdout"            out_is_empty
+
+    # ── B2. Claim: drift rows and exits ──────────────────────────────────────────────
+    # A re-claim over a project already carrying the claim's group, setgid and default ACL, with one file moved in (the
+    # projects user's own group, 640): the group scan finds it, no terminal declines the repair, and the per-path check
+    # reads it not fixed. The fixture's root is left unlabelled, so the relabel is a pending step the stub applies,
+    # and `--yes` answers the proceed prompt.
+    section "ai-tools.projects.claim: drift rows and exits"
+    claimed_fixture() {  # claimed_fixture <dir>: a project the claim has already applied its group and ACL to
+        mkdir -p "$1"; printf '# fixture\n' > "$1/README.md"
+        chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "$1"
+        chmod 2770 "$1"; chmod 0660 "$1/README.md"
+        setfacl -m "g:${SANDBOX_GROUP}:rwX" -d -m "g:${SANDBOX_GROUP}:rwX" "$1"
+        : > "$1/moved-in.txt"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "$1/moved-in.txt"; chmod 0640 "$1/moved-in.txt"
+    }
+    claimed_fixture "${R}/ph"
+    seed "${R}/ph"; seed_gc "${R}/ph"
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/ph"
+    expect "a declined group repair exits 4"                          rc_is 4
+    expect "the stream is the header and whole rows"                  out_is_records
+    expect "the stream carries the file as group-not-fixed"           out_has_row group-not-fixed
+    expect "the page went to stderr"                                  err_has "Claim project"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/ph"
+    expect "the same claim on the page exits 4"                       rc_is 4
+
+    # A root step that fails outranks the rows: the safe.directory entry is missing, so its helper runs on every host,
+    # and it exits 1; the claim exits 1 with the file still reported not fixed.
+    seed_gc
+    cli_stub_reset; cli_stub_fail ai-tools-safedir
+    drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/ph"
+    expect "a failed root step exits 1 over the drift left"           rc_is 1
+    expect "the failed claim still writes its rows"                   out_has_row group-not-fixed
+    cli_stub_reset; seed_gc "${R}/ph"
+
+    # A walk that fails to read part of the tree: a root-owned 0700 directory, which the projects user lacks search
+    # permission on, makes the group walk write to stderr, which the claim reports as an `error` row and exit 5 rather
+    # than as a complete scan of a smaller tree.
+    claimed_fixture "${R}/pk"
+    mkdir -p "${R}/pk/locked"; chown root:root "${R}/pk/locked"; chmod 0700 "${R}/pk/locked"
+    seed "${R}/pk"; seed_gc "${R}/pk"
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pk"
+    expect "an unreadable directory in the tree exits 5"              rc_is 5
+    expect "the unread walk is an error row"                          out_has_row error
+    chmod 0755 "${R}/pk/locked"
+
+    # The unattended relabel: a root carrying the project type, so the label scan runs, with its own type other than
+    # the one the policy gives its path, so it is drift. Without a terminal only `--yes` relabels,
+    # and AI_TOOLS_ASSUME_YES does not, with or without it.
+    claimed_fixture "${R}/pl"; rm -f "${R}/pl/moved-in.txt"
+    seed "${R}/pl"; seed_gc "${R}/pl"
+    # The fixture's path needs a default label for the dry run to compare against: under /tmp the policy gives none.
+    if ! command -v restorecon >/dev/null 2>&1 || [[ "$(getenforce 2>/dev/null)" == Disabled ]] \
+            || [[ "$(matchpathcon -n "${R}/pl" 2>/dev/null)" != *:*:*:* ]] \
+            || ! chcon -t ai_tools_project_t "${R}/pl" 2>/dev/null; then
+        skip "ai-tools.projects.claim unattended relabel" \
+            "SELinux is disabled, ${R} has no default label, or chcon to ai_tools_project_t failed"
+    else
+        cli_stub_reset; drive cli ai-tools.projects.claim "${R}/pl"
+        expect "no terminal, no --yes: the relabel is not run"        cli_log_lacks ai-tools-relabel
+        cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+        expect "no terminal, --yes: the relabel runs"                 cli_called ai-tools-relabel
+        cli_stub_reset; RUN_EXTRA_ENV=(AI_TOOLS_ASSUME_YES=1); drive cli ai-tools.projects.claim "${R}/pl"
+        expect "AI_TOOLS_ASSUME_YES without --yes: not run"           cli_log_lacks ai-tools-relabel
+        cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+        expect "AI_TOOLS_ASSUME_YES with --yes: the relabel runs"     cli_called ai-tools-relabel
+        RUN_EXTRA_ENV=()
+    fi
+    cli_stub_reset
 
     # ── C. Create ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.create"
