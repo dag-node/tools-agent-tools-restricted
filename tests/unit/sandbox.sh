@@ -302,7 +302,7 @@ cv_run() {
          claim_verify_label paths label
          claim_verify_group paths group details
          printf "%s " "${label[@]}"; printf "| "; printf "%s " "${group[@]}"' \
-        _ "${CLI}" "${cv_work}" "$1" "${PROJECTS_USER}"
+        _ "${CLI}" "${cv_work}" "$1" "${PROJECTS_USER}" 2> "${cv_work}/stderr"
 }
 
 cv_is() {  # cv_is <what> <restorecon-status> <want>
@@ -311,7 +311,8 @@ cv_is() {  # cv_is <what> <restorecon-status> <want>
     if (( rc == 98 || rc == 97 )); then
         skip "claim_verify: $1" "the installed CLI predates the per-path checks"
     elif (( rc != 0 )); then
-        fail "claim_verify: $1 could not be driven (exit ${rc})"
+        # The inner shell's stderr names what stopped it; its last lines ride the result line.
+        fail "claim_verify: $1 could not be driven (exit ${rc}): $(tail -n 3 "${cv_work}/stderr" 2>/dev/null | tr '\n' '|')"
     elif [[ "${got}" == "$3" ]]; then
         pass "claim_verify: $1 -> ${got}"
     else

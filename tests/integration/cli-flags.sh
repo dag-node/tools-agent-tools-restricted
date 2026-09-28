@@ -341,6 +341,8 @@ out_is_records() {
 }
 out_has_row() { awk -F'\t' -v f="$1" 'NR > 1 && $6 == f { found = 1 } END { exit !found }' <<< "${out}"; }
 err_has() { grep -qF -- "$1" "${R}/.stderr"; }
+# out_has_text <text>: the row's captured output holds <text>.
+out_has_text() { grep -qF -- "$1" <<< "${out}"; }
 rc_not0() { [[ "${rc}" -ne 0 ]]; }
 # quiet_rc <n> / quiet_refusal: the exit status AND an empty call log -- a refusal that did not reach a helper, which is
 # the ordering rule that a refused command does not prompt for sudo first.
@@ -518,18 +520,26 @@ drive_rows() {
     claimed_fixture "${R}/pl"; rm -f "${R}/pl/moved-in.txt"
     seed "${R}/pl"; seed_gc "${R}/pl"
     # The fixture's path needs a default label for the dry run to compare against: under /tmp the policy gives none.
+    # getenforce and restorecon live in /usr/sbin, which run_in's PATH leaves out, so these rows add it: without it
+    # the CLI reads the host as having no SELinux and never runs the label scan.
     if ! command -v restorecon >/dev/null 2>&1 || [[ "$(getenforce 2>/dev/null)" == Disabled ]] \
             || [[ "$(matchpathcon -n "${R}/pl" 2>/dev/null)" != *:*:*:* ]] \
             || ! chcon -t ai_tools_project_t "${R}/pl" 2>/dev/null; then
         skip "ai-tools.projects.claim unattended relabel" \
             "SELinux is disabled, ${R} has no default label, or chcon to ai_tools_project_t failed"
     else
+        local sbin_path="${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin"
+        RUN_EXTRA_ENV=(PATH="${sbin_path}")
         cli_stub_reset; drive cli ai-tools.projects.claim "${R}/pl"
+        expect "the label scan saw the root's foreign type"           out_has_text "Interior drift: SELinux type"
         expect "no terminal, no --yes: the relabel is not run"        cli_log_lacks ai-tools-relabel
+        expect "the unrelabelled root leaves exit 4"                  rc_is 4
         cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
         expect "no terminal, --yes: the relabel runs"                 cli_called ai-tools-relabel
-        cli_stub_reset; RUN_EXTRA_ENV=(AI_TOOLS_ASSUME_YES=1); drive cli ai-tools.projects.claim "${R}/pl"
+        cli_stub_reset; RUN_EXTRA_ENV=(PATH="${sbin_path}" AI_TOOLS_ASSUME_YES=1)
+        drive cli ai-tools.projects.claim "${R}/pl"
         expect "AI_TOOLS_ASSUME_YES without --yes: not run"           cli_log_lacks ai-tools-relabel
+        expect "AI_TOOLS_ASSUME_YES without --yes still saw the drift" out_has_text "Interior drift: SELinux type"
         cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
         expect "AI_TOOLS_ASSUME_YES with --yes: the relabel runs"     cli_called ai-tools-relabel
         RUN_EXTRA_ENV=()
