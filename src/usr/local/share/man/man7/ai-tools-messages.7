@@ -1469,6 +1469,10 @@ could not derive the shipped module set (policy/shipped\-modules.sh)
 WARNING.
 labelling did not complete for ${subject} \-\- see its lines above
 .TP
+.B MSG-F2V5
+WARNING.
+compiled module ${pp} was built for policy module version ${reading%% *}, and this host reads ${reading#* }: recompiling it from source
+.TP
 .B MSG-F9G3
 WARNING.
 integration ${integration} declares layout module ${module}, which has no source under ${POLICY_DIR}
@@ -1476,6 +1480,10 @@ integration ${integration} declares layout module ${module}, which has no source
 .B MSG-H5V4
 ERROR.
 selinux: cannot source required library ${1}
+.TP
+.B MSG-J7J5
+ERROR.
+compiled module ${pp} was built for policy module version ${reading%% *}, and this host reads ${reading#* }: semodule refuses it. Install the toolchain and recompile it here: sudo dnf install selinux\-policy\-devel && sudo $0 rebuild
 .TP
 .B MSG-J9B3
 WARNING.

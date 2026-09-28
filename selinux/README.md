@@ -156,10 +156,13 @@ sudo ./install-selinux.sh install
 ```
 
 This compiles and loads `ai_tools.pp` (enforcing) — a later run rebuilds it
-when a `.te`, `.if`, or `.fc` is newer than the earlier build, through `make` —
-stages the shipped set for `ai-tools-admin`, labels each agent's config
-directory (`ai_tools_home_t`) and the `claude.exe` entrypoint, and labels every
-project in `~/.config/ai-tools/allowed-projects` as `ai_tools_project_t`.
+when a `.te`, `.if`, or `.fc` is newer than the earlier build, through `make`,
+and recompiles it outright when the earlier build was made on a host
+whose policy module version this one does not read (a checkout copied
+from another distribution) — stages the shipped set for `ai-tools-admin`,
+labels each agent's config directory (`ai_tools_home_t`) and the `claude.exe`
+entrypoint, and labels every project in `~/.config/ai-tools/allowed-projects`
+as `ai_tools_project_t`.
 
 Verify:
 

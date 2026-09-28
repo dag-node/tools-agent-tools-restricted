@@ -36,8 +36,9 @@ fi
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
         || ! declare -F ai_tools_selinux_group_valid >/dev/null 2>&1 \
-        || ! declare -F ai_tools_selinux_group_name  >/dev/null 2>&1; then
-    fail "could not source ${LIB} or it does not define the accessors"; finish; exit
+        || ! declare -F ai_tools_selinux_group_name  >/dev/null 2>&1 \
+        || ! declare -F ai_tools_selinux_pp_loadable >/dev/null 2>&1; then
+    fail "could not source ${LIB} or it does not define the accessors and the module-version predicate"; finish; exit
 fi
 
 # --- The package-dir constant is the canonical location both the RPM and install.sh populate ---
@@ -162,6 +163,105 @@ if ai_tools_selinux_group_loaded definitelynotloaded; then
 else
     pass "group_loaded reports an absent module as absent"
 fi
+
+# --- A compiled module's version is read from its header and held against the range this host reads ---
+# libsepol refuses a .pp built for a module version outside its range (an EL10 build is version 24; EL9 reads 4-21),
+# and make reads mtimes alone, so install-selinux.sh reads the version before handing a .pp to make or semodule. Each
+# fixture is the policydb section's header -- magic, tag length, tag, policy type, version -- behind package-header
+# bytes, since the section's offset varies with the module; a real build in the checkout is read beside them
+# as the control that the reader parses libsepol's own output. The version read is asserted against fixtures whose bytes
+# this file writes; whether the checkout's build loads on this host is a host state, reported and not judged.
+# `checkmodule` is stubbed as a shell function for the range, as `semodule` is for the loaded probe, after the real one
+# (where present) has been read once.
+mktestdir
+le32() { printf '%b' "$(printf '\\x%02x\\x%02x\\x%02x\\x%02x' $(( $1 & 255 )) $(( ($1 >> 8) & 255 )) $(( ($1 >> 16) & 255 )) $(( ($1 >> 24) & 255 )))"; }
+# pp_fixture <path> <version> [magic]: a module package whose policydb section carries <version>.
+pp_fixture() {
+    { printf 'PKGHDR'; le32 "${3:-4185718669}"; le32 15; printf 'SE Linux Module'; le32 2; le32 "$2"; printf 'rules'; } > "$1"
+}
+pp_fixture "${TESTDIR}/v24.pp" 24
+pp_fixture "${TESTDIR}/v21.pp" 21
+pp_fixture "${TESTDIR}/v3.pp" 3
+pp_fixture "${TESTDIR}/corrupt-header.pp" 24 1
+printf 'SE Linux Module mentioned in a text file\n' > "${TESTDIR}/tag-in-text.pp"
+for v in 24 21; do
+    if [[ "$(ai_tools_selinux_pp_module_version "${TESTDIR}/v${v}.pp")" == "${v}" ]]; then
+        pass "pp_module_version reads ${v} from a module built for version ${v}"
+    else
+        fail "pp_module_version read '$(ai_tools_selinux_pp_module_version "${TESTDIR}/v${v}.pp")' from a module built for version ${v}"
+    fi
+done
+for bad in corrupt-header tag-in-text missing; do
+    if out="$(ai_tools_selinux_pp_module_version "${TESTDIR}/${bad}.pp")"; then
+        fail "pp_module_version accepted ${bad}.pp and printed '${out}'"
+    elif [[ -n "${out}" ]]; then
+        fail "pp_module_version failed on ${bad}.pp but printed '${out}'"
+    else
+        pass "pp_module_version fails without output on ${bad}.pp"
+    fi
+done
+real_pp="${ROOT}/selinux/policy/ai_tools.pp"
+if [[ -f "${real_pp}" ]]; then
+    if [[ "$(ai_tools_selinux_pp_module_version "${real_pp}")" =~ ^[0-9]+$ ]]; then
+        pass "pp_module_version reads a number from the checkout's own build (control)"
+    else
+        fail "pp_module_version could not read the checkout's own build ${real_pp}"
+    fi
+else
+    skip "pp_module_version on a real build" "no compiled ai_tools.pp in the checkout"
+fi
+if command -v checkmodule >/dev/null 2>&1; then
+    if range="$(ai_tools_selinux_host_module_versions)" && [[ "${range}" =~ ^([0-9]+)\ ([0-9]+)$ ]] \
+            && (( BASH_REMATCH[1] <= BASH_REMATCH[2] )); then
+        pass "host_module_versions reads the range this host's checkmodule prints: ${range}"
+    else
+        fail "host_module_versions read '${range:-}' from checkmodule -V"
+    fi
+    if [[ -f "${real_pp}" ]]; then
+        if reading="$(ai_tools_selinux_pp_loadable "${real_pp}")"; then
+            note "the checkout's build loads on this host" "${reading}"
+        else
+            note "the checkout's build is outside this host's range" "${reading:-unread}"
+        fi
+    fi
+else
+    skip "host_module_versions on the real checkmodule" "checkmodule not installed (checkpolicy)"
+fi
+checkmodule() { [[ "${1:-}" == -V ]] && printf 'Module versions 4-21\n'; }
+if reading="$(ai_tools_selinux_pp_loadable "${TESTDIR}/v21.pp")" && [[ "${reading}" == "21 4-21" ]]; then
+    pass "pp_loadable accepts a module at the top of the range and prints '${reading}'"
+else
+    fail "pp_loadable on a version-21 module against 4-21: status $?, printed '${reading:-}'"
+fi
+for v in 24 3; do
+    verdict=0; reading="$(ai_tools_selinux_pp_loadable "${TESTDIR}/v${v}.pp")" || verdict=$?
+    if (( verdict == 1 )) && [[ "${reading}" == "${v} 4-21" ]]; then
+        pass "pp_loadable refuses a version-${v} module against 4-21 with status 1 and prints '${reading}'"
+    else
+        fail "pp_loadable on a version-${v} module against 4-21: status ${verdict}, printed '${reading}'"
+    fi
+done
+verdict=0; reading="$(ai_tools_selinux_pp_loadable "${TESTDIR}/corrupt-header.pp")" || verdict=$?
+if (( verdict == 2 )) && [[ -z "${reading}" ]]; then
+    pass "pp_loadable reports 2 without output where the module's version cannot be read"
+else
+    fail "pp_loadable on an unreadable module: status ${verdict}, printed '${reading}'"
+fi
+checkmodule() { printf 'checkmodule: unexpected output\n'; }
+verdict=0; reading="$(ai_tools_selinux_pp_loadable "${TESTDIR}/v21.pp")" || verdict=$?
+if (( verdict == 2 )) && [[ -z "${reading}" ]]; then
+    pass "pp_loadable reports 2 without output where checkmodule prints no range"
+else
+    fail "pp_loadable with no range read: status ${verdict}, printed '${reading}'"
+fi
+checkmodule() { return 127; }
+verdict=0; reading="$(ai_tools_selinux_pp_loadable "${TESTDIR}/v21.pp")" || verdict=$?
+if (( verdict == 2 )) && [[ -z "${reading}" ]]; then
+    pass "pp_loadable reports 2 without output where checkmodule is absent"
+else
+    fail "pp_loadable with checkmodule absent: status ${verdict}, printed '${reading}'"
+fi
+unset -f checkmodule
 
 # --- Lockstep with the shipped set + the source tree + git (real checkout only) ---
 # This half needs the .te SOURCES, the derivation script, and git track-state, all present only in a source checkout.

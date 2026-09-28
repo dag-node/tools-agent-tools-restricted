@@ -6,8 +6,9 @@
 # (selinux/install-selinux.sh, which COMPILES a group from its .te/.fc), by the installed operator helper
 # (ai-tools-admin selinux, which LOADS a compiled .pp from the package directory),
 # and by selinux/policy/shipped-modules.sh (which derives the set a release ships from the stability field), so none
-# of them drifts on which groups exist or what they mean. Read-only data plus pure predicates -- no I/O and no root
-# operation of its own; the caller owns semodule/make. Include-guarded, so a double source no-ops.
+# of them drifts on which groups exist or what they mean. Read-only data plus predicates that read and do not write:
+# the module store through `semodule -l`, a compiled module's header, and the module version range `checkmodule -V`
+# prints; the caller owns semodule/make. Include-guarded, so a double source no-ops.
 #
 # Deploy:
 #   ```bash
@@ -112,6 +113,50 @@ ai_tools_selinux_module_loaded() {
     local modules
     modules="$(semodule -l 2>/dev/null || true)"
     grep -qx "$1" <<<"${modules}"
+}
+
+# ai_tools_selinux_pp_module_version <file>: print the policy module version a compiled .pp was built for -- the header
+# field libsepol compares with its own range before it reads the rest -- and succeed; fail without output where <file>
+# is unreadable or not a module package. A module compiled on one distribution and loaded on another fails on this field
+# alone (EL10 builds version 24, EL9 reads up to 21), so a caller reads it ahead of semodule. The policydb section is
+# found by its tag rather than at a fixed offset: the package header before it holds one offset per section,
+# and the section count varies with the module. The magic and the tag length are checked around the tag, so a tag
+# appearing inside a string in some other file does not read as a version. Fields are little-endian, which `od` reads
+# in host order; every host this project supports is little-endian.
+ai_tools_selinux_pp_module_version() {
+    local file="$1" offset magic length version
+    [[ -f "${file}" && -r "${file}" ]] || return 1
+    offset="$(LC_ALL=C grep -obam1 'SE Linux Module' -- "${file}" 2>/dev/null | cut -d: -f1)" || true
+    [[ "${offset}" =~ ^[0-9]+$ ]] && (( offset >= 8 )) || return 1
+    magic="$(od -An -tu4 -j "$(( offset - 8 ))" -N 4 -- "${file}" 2>/dev/null | tr -d ' ')"
+    length="$(od -An -tu4 -j "$(( offset - 4 ))" -N 4 -- "${file}" 2>/dev/null | tr -d ' ')"
+    # After the 15-byte tag: the policy type (base or non-base module), then the version this reads.
+    version="$(od -An -tu4 -j "$(( offset + 19 ))" -N 4 -- "${file}" 2>/dev/null | tr -d ' ')"
+    # POLICYDB_MOD_MAGIC 0xf97cff8d, as an unsigned little-endian word.
+    [[ "${magic}" == 4185718669 && "${length}" == 15 && "${version}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s' "${version}"
+}
+
+# ai_tools_selinux_host_module_versions: print the range of policy module versions this host's libsepol reads,
+# as `<min> <max>`, from the line `checkmodule -V` prints; fail without output where checkmodule is absent (it ships
+# with checkpolicy, which selinux-policy-devel requires) or the line takes another shape.
+ai_tools_selinux_host_module_versions() {
+    local line
+    line="$(checkmodule -V 2>/dev/null)" || return 1
+    [[ "${line}" =~ Module\ versions\ ([0-9]+)-([0-9]+) ]] || return 1
+    printf '%s %s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+}
+
+# ai_tools_selinux_pp_loadable <file>: 0 when the compiled module's version is within the range this host reads and 1
+# when it is outside it, printing `<version> <min>-<max>` either way; 2 without output where the module's version
+# or the host's range could not be read. A caller treats 2 as unverified, not as either answer.
+ai_tools_selinux_pp_loadable() {
+    local version range min max
+    version="$(ai_tools_selinux_pp_module_version "$1")" || return 2
+    range="$(ai_tools_selinux_host_module_versions)" || return 2
+    min="${range% *}"; max="${range#* }"
+    printf '%s %s-%s' "${version}" "${min}" "${max}"
+    (( version >= min && version <= max ))
 }
 
 # ai_tools_selinux_group_former_module <name>: print the module name a group's rules were loaded under before; empty

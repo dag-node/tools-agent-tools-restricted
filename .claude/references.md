@@ -73,12 +73,14 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | s3y6 | [MSG-S3Y6](../install.sh) | no usable operator named -- re-run the install and name one that exists | install.sh |  | die |
 | h5v4 | [MSG-H5V4](../selinux/install-selinux.sh) | selinux: cannot source required library ${1} | selinux/install-selinux.sh |  | refuse_early |
 | y7q5 | [MSG-Y7Q5](../selinux/install-selinux.sh) | building ${1:-this policy module} needs the selinux-policy-devel toolchain, | selinux/install-selinux.sh |  | warn |
+| j7j5 | [MSG-J7J5](../selinux/install-selinux.sh) | compiled module ${pp} was built for policy module version ${reading%% *}, and this host reads ${reading#* }: semodule refuses it. Install the toolchain and recompile it here: sudo dnf install selinux-policy-devel && sudo $0 rebuild | selinux/install-selinux.sh |  | die |
 | e2a4 | [MSG-E2A4](../selinux/install-selinux.sh) | could not derive the shipped module set (policy/shipped-modules.sh) | selinux/install-selinux.sh |  | die |
 | q3q6 | [MSG-Q3Q6](../selinux/install-selinux.sh) | the shipped module set is empty -- is the group registry readable? | selinux/install-selinux.sh |  | die |
 | r9b9 | [MSG-R9B9](../selinux/install-selinux.sh) | could not replace '${former}' -- it stays loaded with its former rule set; | selinux/install-selinux.sh |  | warn |
 | n8q3 | [MSG-N8Q3](../selinux/install-selinux.sh) | integration ${integration} declares a layout module name that is not ai_tools_<name>: ${module} | selinux/install-selinux.sh |  | warn |
 | f9g3 | [MSG-F9G3](../selinux/install-selinux.sh) | integration ${integration} declares layout module ${module}, which has no source under ${POLICY_DIR} | selinux/install-selinux.sh |  | warn |
 | d3g7 | [MSG-D3G7](../selinux/install-selinux.sh) | could not load layout module ${module}; build output is typed at relabel time only | selinux/install-selinux.sh |  | warn |
+| f2v5 | [MSG-F2V5](../selinux/install-selinux.sh) | compiled module ${pp} was built for policy module version ${reading%% *}, and this host reads ${reading#* }: recompiling it from source | selinux/install-selinux.sh |  | warn |
 | n5v4 | [MSG-N5V4](../selinux/install-selinux.sh) | ENFORCING MISMATCH -- domain(s) are permissive but .te expects enforcing: | selinux/install-selinux.sh |  | warn |
 | v8u7 | [MSG-V8U7](../selinux/install-selinux.sh) | policy-store writes are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE} | selinux/install-selinux.sh |  | warn |
 | j9b3 | [MSG-J9B3](../selinux/install-selinux.sh) | could not read the operator list (${OPERATOR_LIB}); labelling ${PROJECTS_USER}'s config only | selinux/install-selinux.sh |  | warn |
