@@ -724,11 +724,13 @@ SCRIPT="${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh"
 if [[ ! -d "${ROOT}/.git" || ! -r "${SCRIPT}" ]]; then
     skip "the removal precedes the network step" "not a checkout, so the helper cannot be read from the repository"
 else
-    migrate_line="$(grep -n -m1 -E '^migrate_provider_lists$' "${SCRIPT}" | cut -d: -f1)"
-    choose_line="$(grep -n -m1 -E '^choose_agents "\$\{REQUESTED_AGENTS\}"' "${SCRIPT}" | cut -d: -f1)"
-    refuse_line="$(grep -n -m1 -E '^refuse_unresolved_agents$' "${SCRIPT}" | cut -d: -f1)"
-    remove_line="$(grep -n -m1 -E '^remove_residue$' "${SCRIPT}" | cut -d: -f1)"
-    resolve_line="$(grep -n -m1 -E '^NVM_VERSION="\$\(resolve_nvm_version\)"' "${SCRIPT}" | cut -d: -f1)"
+    # Each read ends in `|| true`: under pipefail a grep that matches nothing would end the file here, before the line
+    # after it names what moved.
+    migrate_line="$(grep -n -m1 -E '^migrate_provider_lists$' "${SCRIPT}" | cut -d: -f1)" || true
+    choose_line="$(grep -n -m1 -E '^choose_agents "\$\{REQUESTED_AGENTS\}"' "${SCRIPT}" | cut -d: -f1)" || true
+    refuse_line="$(grep -n -m1 -E '^refuse_unresolved_agents$' "${SCRIPT}" | cut -d: -f1)" || true
+    remove_line="$(grep -n -m1 -E '^remove_residue$' "${SCRIPT}" | cut -d: -f1)" || true
+    resolve_line="$(grep -n -m1 -E '^NVM_VERSION="\$\(resolve_nvm_version\)"' "${SCRIPT}" | cut -d: -f1)" || true
     if [[ -z "${migrate_line}" ]]; then
         fail "the provider-list migration is no longer where this reads it"
     elif (( migrate_line < choose_line )); then
@@ -745,9 +747,9 @@ else
     fi
     # The two preflight checks sit after the refusal and before the residue step, which reads the tree as the account;
     # the install step is gated on the network check's answer.
-    ownership_line="$(grep -n -m1 -E '^preflight_toolchain_ownership ' "${SCRIPT}" | cut -d: -f1)"
-    network_line="$(grep -n -m1 -E '^preflight_network ' "${SCRIPT}" | cut -d: -f1)"
-    install_line="$(grep -n -m1 -E '^\(\( _online \)\) && sudo -u ' "${SCRIPT}" | cut -d: -f1)"
+    ownership_line="$(grep -n -m1 -E '^preflight_toolchain_ownership ' "${SCRIPT}" | cut -d: -f1)" || true
+    network_line="$(grep -n -m1 -E '^preflight_network ' "${SCRIPT}" | cut -d: -f1)" || true
+    install_line="$(grep -n -m1 -E '^\(\( _online \)\) && ai_tools_as_sandbox ' "${SCRIPT}" | cut -d: -f1)" || true
     if [[ -z "${ownership_line}" || -z "${network_line}" || -z "${install_line}" ]]; then
         fail "the ownership check, the network check or the gated install is no longer where this reads it (ownership -> ${ownership_line:-none}, network -> ${network_line:-none}, install -> ${install_line:-none})"
     elif (( refuse_line < ownership_line && ownership_line < network_line && network_line < remove_line && resolve_line < install_line )); then

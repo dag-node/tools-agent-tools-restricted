@@ -917,6 +917,10 @@ AI_TOOLS_AGENTS names more than one agent ($*): every agent named runs as the on
 ERROR.
 control plane present but the managed\-asset libs are missing \-\- reinstall ai\-tools
 .TP
+.B MSG-E2X2
+ERROR.
+cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it \-\- reinstall ai\-tools\-base, then re\-run: sudo ai\-tools\-admin system bootstrap
+.TP
 .B MSG-F3Y2
 ERROR.
 npm signature verification FAILED (possible registry tampering) \-\- aborting before wiring the launcher; the installed package is left unactivated
@@ -927,7 +931,7 @@ control plane present but ${msglib} missing \-\- reinstall ai\-tools
 .TP
 .B MSG-H6A8
 WARNING.
-could not verify npm signatures (offline or unsupported) \-\- proceeding; the toolchain is installed but unverified
+could not verify npm signatures (the npm\-verify line states why) \-\- proceeding; the toolchain is installed but unverified
 .TP
 .B MSG-H9S6
 ERROR.
@@ -976,6 +980,10 @@ incomplete package for ${_agent}: ${_package} is installed and ${_version_dir} d
 .B MSG-U6F2
 WARNING.
 control\-plane git capture incomplete
+.TP
+.B MSG-V2W3
+WARNING.
+a regular file where npm keeps a symlink was left as it is at ${version}/bin/${name} (${outcome}) \-\- remove it by hand as the sandbox account if nothing installed it on purpose
 .TP
 .B MSG-V4D9
 WARNING.
@@ -1208,6 +1216,10 @@ wrong type on ${subject}: it is '${detail}', NOT ${wanted}
 WARNING.
 entrypoint verifier unavailable (${ENTRYPOINT_VERIFY_LIB}) \-\- entrypoints will not be pinned
 .TP
+.B MSG-J3A6
+ERROR.
+a copied toolchain link stops this relabel: ${copied} agent(s) resolve their launcher to a copy of the entrypoint rather than to it, so the file a session execs cannot be labelled; the toolchain run restores the links: sudo ai\-tools\-admin system bootstrap, then rerun
+.TP
 .B MSG-K4D7
 WARNING.
 could not record ${agent}'s stale pin for ai\-tools status \-\- the reports will render its pin as current
@@ -1235,6 +1247,10 @@ an agent's file\-context rule could not be applied (see above)
 .B MSG-S6C5
 ERROR.
 no usable path rules declared by ${agent} \-\- nothing dropped
+.TP
+.B MSG-S6V5
+WARNING.
+copied link for ${subject}: its launcher resolves to
 .TP
 .B MSG-S9Z3
 ERROR.
@@ -1497,6 +1513,10 @@ compiled module ${pp} was built for policy module version ${reading%% *}, and th
 WARNING.
 integration ${integration} declares layout module ${module}, which has no source under ${POLICY_DIR}
 .TP
+.B MSG-G9M3
+WARNING.
+incomplete package for ${subject}: its launcher resolves to
+.TP
 .B MSG-H5V4
 ERROR.
 selinux: cannot source required library ${1}
@@ -1524,6 +1544,10 @@ ENFORCING MISMATCH \-\- domain(s) are permissive but .te expects enforcing:
 .B MSG-N8Q3
 WARNING.
 integration ${integration} declares a layout module name that is not ai_tools_<name>: ${module}
+.TP
+.B MSG-P8W5
+WARNING.
+copied toolchain link for ${subject}: its launcher resolves to
 .TP
 .B MSG-Q3Q6
 ERROR.
@@ -1629,6 +1653,10 @@ an agent outside the sandbox is installed at ${install_path}
 .B MSG-G6H3
 WARNING.
 systemctl \-\-user $* failed by both the machine transport and the account's own
+.TP
+.B MSG-J2H9
+WARNING.
+the ${node_version}/bin directory holds copies where npm keeps symlinks (${copied_bins}) \-\- a transfer of the tree replaced the links with their targets, so launcher symlinks are skipped
 .TP
 .B MSG-J8F2
 WARNING.
@@ -1867,6 +1895,14 @@ invoked under a name that is not a launcher \-\- refusing to start
 .B MSG-G4Q2
 WARNING.
 could not remove ${AI_TOOLS_BIN}/${launcher} via handback SYMLINK_REMOVE \-\- the ${agent} package is gone and every launch stays refused until the link is; remove it as root: rm \-f ${AI_TOOLS_BIN}/${launcher}
+.TP
+.B MSG-T2F4
+ERROR.
+cannot confirm this runs as the sandbox account: ${SANDBOX_EXEC_LIB} did not load \-\- reinstall ai\-tools\-base
+.TP
+.B MSG-U5C4
+ERROR.
+refusing to run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"): this script sources nvm.sh and runs npm from the sandbox toolchain, which only the sandbox account runs \-\- start it in that account's user instance (sudo systemctl \-\-user \-M ai\-tools@ start nvm\-update.service) or provision through sudo ai\-tools\-admin system bootstrap
 .SS providers.lib.sh
 .TP
 .B MSG-A3S3
@@ -1925,6 +1961,15 @@ enabled with nothing installed: $(printf '%q' "${item}") is enabled in operator.
 .B MSG-Q6H3
 ERROR.
 Refusing the ${operation}: the target is a protected system directory.
+.SS sandbox-exec.lib.sh
+.TP
+.B MSG-Q2K6
+WARNING.
+cannot open a transient scope for a run as ${account} (systemd\-run \-\-scope did not start a probe: no system manager answers here) \-\- a run outside one could leave a process behind, so $(printf '%q' "$1") was not run
+.TP
+.B MSG-W8B7
+WARNING.
+ended a command as ${account} that ${what_ran_over} ${timeout_seconds}s, with every process of its scope ${scope_unit}: $(printf '%q' "$1") \-\- the step did not complete; re\-run it, or set AI_TOOLS_AS_SANDBOX_TIMEOUT=<seconds> for a slower host
 .SS settings-merge.lib.sh
 .TP
 .B MSG-F9W4
@@ -1944,6 +1989,10 @@ removed the ${agent} package from the sandbox toolchain, and left its state dire
 WARNING.
 cannot remove $(printf '%q' "${npm_package}") from $(printf '%q' "${version_dir}"): not an npm package name in a version directory \-\- leaving the toolchain as it is
 .TP
+.B MSG-P6P2
+WARNING.
+the sandbox toolchain is run by the sandbox account alone \-\- $1 was not run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"); a root caller runs it through ai_tools_as_sandbox (sandbox\-exec.lib.sh)
+.TP
 .B MSG-X2B7
 WARNING.
 deferring the removal of ${npm_package} from ${version_dir##*/}: a live session executes from it \-\- it is removed on the next provisioning or update run, and no session starts until then
@@ -1954,7 +2003,7 @@ refusing to remove ${npm_package} from ${version_dir##*/}: ${name} is enabled in
 .TP
 .B MSG-X8F9
 WARNING.
-could not remove ${package_dir} (npm uninstall left it in place) \-\- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re\-run: sudo ai\-tools\-admin system bootstrap
+could not remove ${package_dir} (npm uninstall left it in place; ${npm_error_summary}) \-\- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re\-run: sudo ai\-tools\-admin system bootstrap
 .SH SEE ALSO
 .BR ai-tools (1),
 .BR ai-tools-admin (8),

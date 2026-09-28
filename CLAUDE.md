@@ -212,6 +212,15 @@ The invariants the agent operates under:
   writer replace a root-owned file inside it — is honored only while it passes `ai_tools_conf_is_trusted`. A provider
   marked `default_enable=no` because it widens host surface can therefore only be turned on by an operator editing
   a root-owned file. See [providers](.claude/rules/providers.rule.md).
+- **Root and the operator do not execute what the sandbox can write.** No root or operator process executes or sources
+  a file `SANDBOX_USER` can write — its toolchain, an agent's binaries, its caches, whatever under its home that
+  account owns, as distinct from the root-owned control plane placed there — nor runs a trusted binary under
+  an environment or configuration that account controls: an `execve` runs whatever that account put there, whatever
+  the arguments. Such a file is read as data, or run as `SANDBOX_USER` through the one helper that refuses any other
+  target account and gives the child no controlling terminal, no inherited descriptor, a clean environment
+  and a bound on its run, and what it prints reaches a terminal or the journal through the shared allowlist sanitizer.
+  A function that executes such a file requires that identity of its own process. The test suite, which runs as root,
+  holds to the same rule. See [ref-section-s9t9](.claude/rules/updater.rule.md#ref-section-s9t9).
 - **Rewriting a command does not widen what it may do.** A `PreToolUse` filter narrows how much a command prints (see
   [filters](.claude/rules/filters.rule.md)); it does not return a permission decision, so the harness re-runs its full
   permission pipeline on the **rewritten** command — an `allow` entry must still match it and a `deny` entry still
@@ -311,15 +320,16 @@ not gaps, so a reader tells bounded design from an oversight:
   execs once it and its directory pass the provider trust predicate (`dotnet` is the one installed today). **Shared
   libraries** live under `/usr/local/lib/ai-tools/` (`conf`, `settings-merge`, `secret-patterns`, `skip-dirs`,
   `owner-only`, `safe-paths`, `relabel`, `operator`, `control-plane`, `confinement`, `launch-wrapper`, `npm-verify`,
-  `entrypoint-verify`, `managed-assets`, `providers`, `ancestor-config`, `toolchain`, `selinux-groups`, `filters`,
-  `services`, `msg`, `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, and the claude-code pair
-  `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires
-  into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned
-  and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account sources several
-  of these libraries. Read is open on every one of them and **write** is the boundary: a shared library carries shipped
-  logic or a general list, and an operator's own data stays in that operator's private config instead, so an open read
-  discloses only what already ships (the modes are in [providers](.claude/rules/providers.rule.md); the guarantee is
-  the invariant that the sandbox cannot widen its own surface).
+  `entrypoint-verify`, `managed-assets`, `providers`, `ancestor-config`, `sandbox-exec`, `toolchain`, `selinux-groups`,
+  `filters`, `services`, `msg`, `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`,
+  and the claude-code pair `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment
+  `ai-tools-admin` wires into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its
+  contents are `root`-owned and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox
+  account sources several of these libraries. Read is open on every one of them and **write** is the boundary: a shared
+  library carries shipped logic or a general list, and an operator's own data stays in that operator's private config
+  instead, so an open read discloses only what already ships (the modes are
+  in [providers](.claude/rules/providers.rule.md); the guarantee is the invariant that the sandbox cannot widen its own
+  surface).
 
 ### Documentation register
 

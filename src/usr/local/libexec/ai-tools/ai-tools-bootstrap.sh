@@ -59,27 +59,33 @@ readonly NODE_MAJOR="${AI_TOOLS_NODE_MAJOR:-22}"
 
 # A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
 # tests/lib/harness.sh's assert_msg reads. Matched inline: this helper reports before the control plane,
-# and so the library, exists.
+# and so the library, exists. Every message passes the log allowlist (ai_tools_log_sanitize) at the emit, once
+# log.lib.sh is loaded: a message names paths and outcomes read from the sandbox account's tree, and the allowlist is
+# what keeps a byte from there off the terminal. Before the load -- the argument parse alone -- a message holds
+# the operator's own argv.
+sanitize_message_text() {
+    if declare -F ai_tools_log_sanitize >/dev/null 2>&1; then ai_tools_log_sanitize "$*"; else printf '%s' "$*"; fi
+}
 die() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
-    printf 'ai-tools-bootstrap: error: %s\n' "$*" >&2; exit 1
+    printf 'ai-tools-bootstrap: error: %s\n' "$(sanitize_message_text "$*")" >&2; exit 1
 }
-log() { printf 'ai-tools-bootstrap: %s\n' "$*"; }
+log() { printf 'ai-tools-bootstrap: %s\n' "$(sanitize_message_text "$*")"; }
 # warn carries the severity itself, so no message text spells one out, and it writes to stderr like every other helper's
 # -- a provisioning step that did not complete is not part of the progress narrative log() prints, and nothing reads
 # this helper's stdout.
 warn() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
-    printf 'ai-tools-bootstrap: warn: %s\n' "$*" >&2
+    printf 'ai-tools-bootstrap: warn: %s\n' "$(sanitize_message_text "$*")" >&2
 }
 # notice states a consequence of the configuration this run read or wrote, for the operator at the terminal, at a lower
 # severity than warn: the run is complete and the host is as asked for.
 notice() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
-    printf 'ai-tools-bootstrap: notice: %s\n' "$*" >&2
+    printf 'ai-tools-bootstrap: notice: %s\n' "$(sanitize_message_text "$*")" >&2
 }
 # err reports a fault in the HOST that this command found and does not own: the provisioning it was asked for completed,
 # so it says so at the severity the state deserves and leaves the exit status to the steps that provision. die is
@@ -356,6 +362,40 @@ refuse_unresolved_agents() {
     die MSG-M9G5 "no agent resolved: ${reason:-the classification printed nothing} -- no package was installed or removed; correct it, then re-run: sudo ai-tools-admin system bootstrap"
 }
 
+# restore_toolchain_links: in each Node version directory, put back the symlinks npm keeps in bin/ where a transfer
+# of the tree left a regular-file copy of the target (toolchain.lib.sh, ai_tools_toolchain_bin_copies). With such a copy
+# npm does not start, and an agent's launcher resolves to a file no entrypoint rule labels, so this runs ahead
+# of the residue step, which needs npm, and before anything reads the launcher chain. The copies are found with a stat,
+# as root; the repair runs node from the tree, so it runs as the sandbox account through ai_tools_as_sandbox,
+# and replaces a copy only where its bytes equal the target's. A copy it leaves is reported by name and outcome.
+# A version directory is read only at the shape nvm writes, `vX.Y.Z`: the name reaches the terminal, and anything else
+# under versions/node is the account's and not a version.
+restore_toolchain_links() {
+    local version_dir version outcomes name outcome relinked=0
+    [[ -d "${NVM_DIR}/versions/node" ]] || return 0
+    declare -F ai_tools_toolchain_bin_copies >/dev/null 2>&1 || return 0
+    for version_dir in "${NVM_DIR}"/versions/node/v*; do
+        version="${version_dir##*/}"
+        [[ -d "${version_dir}" && "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+        [[ -n "$(ai_tools_toolchain_bin_copies "${version_dir}" 2>/dev/null)" ]] || continue
+        # shellcheck disable=SC2016  # the inner shell expands these, not this one
+        outcomes="$(ai_tools_as_sandbox "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" bash -c \
+            '. "$1" 2>/dev/null; ai_tools_toolchain_relink_copies "$2"' _ "${_toolchain_lib}" "${version_dir}" \
+            || true)"
+        while IFS=$'\t' read -r name outcome; do
+            [[ -n "${name}" ]] || continue
+            if [[ "${outcome}" == relinked ]]; then
+                relinked=$(( relinked + 1 ))
+                log "${version}: restored the bin/${name} symlink a copy had replaced"
+            else
+                warn MSG-V2W3 "a regular file where npm keeps a symlink was left as it is at ${version}/bin/${name} (${outcome}) -- remove it by hand as the sandbox account if nothing installed it on purpose"
+            fi
+        done <<<"${outcomes}"
+    done
+    (( relinked == 0 )) || notice "restored ${relinked} toolchain link(s) that a copy of the tree had replaced with their targets"
+    return 0
+}
+
 # remove_residue -- remove every installed, not enabled agent's package from the sandbox toolchain, and its stable
 # launcher link with it, ahead of the first network step: a package of an agent the operator did not name keeps
 # an entrypoint a session can exec, so every launch refuses while it is there, and this command is the remedy those
@@ -378,8 +418,8 @@ remove_residue() {
     fi
     # One line per residue package, "agent<TAB>version-dir<TAB>outcome", from the account that owns the tree.
     # The heredoc is single-quoted, so the inner shell expands the variables from the env passed in.
-    outcomes="$(sudo -u "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" NVM_DIR="${NVM_DIR}" TOOLCHAIN_LIB="${toolchain_lib}" \
-        bash -s <<'EOSU'
+    outcomes="$(ai_tools_as_sandbox "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" NVM_DIR="${NVM_DIR}" \
+        TOOLCHAIN_LIB="${toolchain_lib}" bash -s <<'EOSU'
 set -euo pipefail
 . "${TOOLCHAIN_LIB}"
 while IFS=$'\t' read -r agent package version_dir; do
@@ -643,6 +683,23 @@ else
     log "provider resolver unavailable -- provisioning Node only; re-run after the control plane and an ai-tools-agents-* package are installed to provision agents"
 fi
 
+# The execution boundary (sandbox-exec.lib.sh): ai_tools_as_sandbox, the one route by which this root helper runs a file
+# the sandbox account can write -- nvm, npm, and what they run -- with no controlling terminal, no inherited descriptor,
+# a clean environment, a bound on its run and its output sanitized; the toolchain library for the default-alias reader;
+# and the log allowlist every message here passes. REQUIRED: the first is defined whatever the provider requirement
+# inside the toolchain library decides, and without these three a toolchain step would run sandbox code with root's
+# terminal or print its bytes raw, so the run ends.
+_sandbox_exec_lib=/usr/local/lib/ai-tools/sandbox-exec.lib.sh
+_toolchain_lib=/usr/local/lib/ai-tools/toolchain.lib.sh
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/sandbox-exec.lib.sh
+source "${_sandbox_exec_lib}" 2>/dev/null || true
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/toolchain.lib.sh
+source "${_toolchain_lib}" 2>/dev/null || true
+if ! declare -F ai_tools_as_sandbox >/dev/null 2>&1 || ! declare -F ai_tools_nvm_default_version >/dev/null 2>&1 \
+        || ! declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
+    die MSG-E2X2 "cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
+fi
+
 # Which agents this run provisions, decided and written before the first network step: a name given on the command line,
 # the line already in operator.conf, or the operator's answer to the menu. An unknown `--agents` name ends the run here,
 # with no package installed and no line written.
@@ -663,8 +720,10 @@ _online=1
 preflight_network "${_network_urls[@]}" || _online=0
 (( _ownership_ok )) || die "the toolchain's ownership must be restored before this run can read it (see above) -- no package was installed or removed"
 
+# Links a transfer of the tree replaced with copies are restored first, since the residue step runs npm.
 # What the toolchain holds for an agent that is installed and not in the set just decided is residue, removed here --
 # ahead of the network step, so an offline host still cleans up -- and every launch refuses until it is gone.
+restore_toolchain_links
 remove_residue
 
 # Concrete tag (latest, pinned, or fallback). Constrained to v + digits/dots before it reaches the download URL piped
@@ -724,7 +783,7 @@ elif [[ ${#_agent_packages[@]} -gt 0 ]]; then
 else
     log "installing nvm ${NVM_VERSION} + Node ${NODE_MAJOR} (no agents enabled) as ${SANDBOX_USER} (network)"
 fi
-(( _online )) && sudo -u "${SANDBOX_USER}" env \
+(( _online )) && ai_tools_as_sandbox "${SANDBOX_USER}" env \
     NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" PROFILE=/dev/null \
     NVM_VERSION="${NVM_VERSION}" NODE_MAJOR="${NODE_MAJOR}" \
     AGENT_PACKAGES="${_agent_packages[*]}" \
@@ -760,9 +819,9 @@ EOSU
 #     before the verification (2b) and the stable symlink (3), so each reads the chain in its
 #     final shape. The library reports a refusal and leaves npm's link in place: that agent's
 #     launch then fails closed at the label preflight until its manifest and its package agree.
-#     The active Node version is read once here and reused by step 3.
-_node_version="$(sudo -u "${SANDBOX_USER}" env NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" \
-        bash -c '. "${NVM_DIR}/nvm.sh"; nvm version default' 2>/dev/null || true)"
+#     The active Node version is read once here and reused by step 3, as data: nvm's default alias
+#     and the installed version directories (ai_tools_nvm_default_version), not by sourcing nvm.sh.
+_node_version="$(ai_tools_nvm_default_version "${NVM_DIR}")"
 
 # What the install did NOT complete (toolchain.lib.sh), reported here -- before the re-link and the relabel, each
 # of which fails because of it and the second of which names this very command as its remedy. An install npm reports
@@ -804,7 +863,8 @@ fi
 _verify_lib=/usr/local/lib/ai-tools/npm-verify.lib.sh
 if [[ -r "${_verify_lib}" ]]; then
     _vrc=0
-    sudo -u "${SANDBOX_USER}" env \
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    ai_tools_as_sandbox "${SANDBOX_USER}" env \
         NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" VERIFY_LIB="${_verify_lib}" \
         bash -c '
             set -euo pipefail
@@ -816,7 +876,7 @@ if [[ -r "${_verify_lib}" ]]; then
     case "${_vrc}" in
         0) log "npm registry signatures verified for the installed toolchain" ;;
         1) die MSG-F3Y2 "npm signature verification FAILED (possible registry tampering) -- aborting before wiring the launcher; the installed package is left unactivated" ;;
-        *) warn MSG-H6A8 "could not verify npm signatures (offline or unsupported) -- proceeding; the toolchain is installed but unverified" ;;
+        *) warn MSG-H6A8 "could not verify npm signatures (the npm-verify line states why) -- proceeding; the toolchain is installed but unverified" ;;
     esac
 else
     warn MSG-P9Q6 "signature-verification library not deployed yet -- skipping the check; the nvm-update timer verifies on its first run"

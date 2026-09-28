@@ -358,7 +358,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf settings-merge skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify managed-assets providers ancestor-config toolchain selinux-groups filters services path-order agent-installs records-base records-tsv; do
+for l in log msg conf settings-merge skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify managed-assets providers ancestor-config sandbox-exec toolchain selinux-groups filters services path-order agent-installs records-base records-tsv; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -1124,14 +1124,15 @@ fi
 # here. The npm package this agent installed into the sandbox toolchain goes the same way, with its
 # launcher link: once the manifest is gone no reader knows the package name, and a package left
 # behind keeps an entrypoint a session can exec (toolchain.lib.sh). Run AS the sandbox account, the
-# tree's owner, offline (npm uninstall does not reach a registry), and best-effort (`|| :`), so
+# tree's owner, through ai_tools_as_sandbox (sandbox-exec.lib.sh: no terminal, no inherited
+# descriptor, a clean environment), offline (npm uninstall does not reach a registry), and best-effort (`|| :`), so
 # the erase completes whatever it prints; a removal deferred under a live session is left for
 # the next update run.
 if [ "$1" -eq 0 ]; then
     [ -x %{ai_libexecdir}/ai-tools-relabel-agent ] \
         && %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
-    if [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
-        runuser -u ai-tools -- bash -c '. /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm claude-code' 2>&1 | sed 's/^/ai-tools: /' || :
+    if [ -r /usr/local/lib/ai-tools/sandbox-exec.lib.sh ] && [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
+        bash -c '. /usr/local/lib/ai-tools/sandbox-exec.lib.sh; ai_tools_as_sandbox ai-tools bash -c ". /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm claude-code"' 2>&1 | sed 's/^/ai-tools: /' || :
     fi
     rm -f /opt/ai-tools/bin/claude
 fi
@@ -1214,8 +1215,8 @@ if [ "$1" -eq 0 ]; then
     fi
     # The npm package and its launcher link, as the claude-code %%preun removes its own (the
     # reasoning is there): as the sandbox account, offline, best-effort.
-    if [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
-        runuser -u ai-tools -- bash -c '. /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm codex' 2>&1 | sed 's/^/ai-tools: /' || :
+    if [ -r /usr/local/lib/ai-tools/sandbox-exec.lib.sh ] && [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
+        bash -c '. /usr/local/lib/ai-tools/sandbox-exec.lib.sh; ai_tools_as_sandbox ai-tools bash -c ". /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm codex"' 2>&1 | sed 's/^/ai-tools: /' || :
     fi
     rm -f /opt/ai-tools/bin/codex
 fi
@@ -1280,6 +1281,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/settings-merge.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
 %attr(0644, root, root) %{ai_libdir}/ancestor-config.lib.sh
+%attr(0644, root, root) %{ai_libdir}/sandbox-exec.lib.sh
 %attr(0644, root, root) %{ai_libdir}/toolchain.lib.sh
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
 %attr(0644, root, root) %{ai_libdir}/filters.lib.sh

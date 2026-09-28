@@ -49,9 +49,23 @@ not have to install takes the synthetic `acme`. A case asserting what one agent'
 its pins file, its hooks — names that agent, as data. The suite is root, so an assertion that holds only
 for an unprivileged caller — the stop helper's own root check, a cgroup file whose mode root reads through, a probe
 the services library withholds from non-root — is driven as the projects user through `runuser`, and the CLI's help is
-read as that user too, since the CLI refuses root before it prints. A skip that every full install emits is a check
-in the wrong place. An optional host feature outside this project's install (`pam_namespace` polyinstantiation
-of `/tmp`) is reported only where it is present; where it is absent, the default, the file does not print a line for it.
+read as that user too, since the CLI refuses root before it prints.
+
+**The suite does not execute a file the sandbox account can write.** The toolchain's `node` and `npm`, an agent's
+binaries and anything under the sandbox home are that account's to replace, so a root `execve` of one runs whatever
+the account put there, whatever the arguments. A case that needs one of them — a JSON parse through `node`, a command's
+`--version` — runs it as the sandbox account through the harness's `as_sandbox`, which is `ai_tools_as_sandbox`
+([updater](updater.rule.md): no controlling terminal, no inherited descriptor, a clean environment, each stream
+through the allowlist, a bound on the run), and what a result line quotes of it reaches the terminal
+through the harness's `_san`. A library function that executes such a file requires that identity of its own process,
+so a case that drives one as root asserts the refusal and drives the write through `as_sandbox` over a fixture
+the account owns. Reading such a file as data (`readlink`, `stat`, a checksum, a bounded `sed` of a `package.json`) is
+not execution, and root does it freely. A line-based lint for the rule was measured and rejected: over the tree it
+reports heredoc bodies already inside `sudo -u`, arrays and fixture text, and no root execution.
+
+A skip that every full install emits is a check in the wrong place. An optional host feature outside this project's
+install (`pam_namespace` polyinstantiation of `/tmp`) is reported only where it is present; where it is absent,
+the default, the file does not print a line for it.
 
 ```
 tests/
@@ -771,6 +785,18 @@ reports and counts the same link. The link's third reading, the Node version its
 file in its fail direction — a disabled agent's link, a target outside the versioned shape, one naming another launcher,
 and an absent link each yield no version — and the pure verdict both status reports render their Node line from is
 driven over its table, the stamp's version carried only where it differs from the links'.
+
+`sandbox-exec.sh` pins the execution boundary (`sandbox-exec.lib.sh`, see [updater](updater.rule.md)), the one route
+by which a root process runs a file the sandbox account can write, and every assertion is a way that route could hand
+the account more than the command: each refusal is driven — a caller that is not root, `root` or an operator named
+as the target, a name outside the account charset, a bound that is not a whole number of seconds — and the child's
+properties are read from inside the child, against a control where one is needed: it runs as the account, `/dev/tty`
+does not open although the suite's process holds one, a descriptor the suite opened is closed where a plain `runuser`
+child inherits it, an exported variable does not arrive, each stream passes the allowlist with a tab kept, the command's
+own status and stdin pass, and a command past the bound returns 124 under its code with no process of its session left,
+a grandchild included. The identity check is driven from every vantage the suite has: root, the projects user
+through `runuser`, and the account itself from inside the child. The library holds the account name the installer
+substituted, so against a source-tree copy the child cases skip with the reason named.
 
 `audit.sh` pins the kernel-record section of `ai-tools-audit` ([cli](cli.rule.md)). The trail it reports is one **only
 the kernel writes**, so a test cannot produce a record: the helper is sourced (inert by construction), the audit

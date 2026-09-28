@@ -355,9 +355,85 @@ ai_tools_entrypoint_pin_write() {
     } | _ai_tools_ev_write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
 }
 
-# ai_tools_entrypoint_installed_version <entrypoint> : print the version the package around <entrypoint> declares,
-#   or an empty string. Walks up from the entrypoint's own directory to the nearest `package.json` and reads
-#   the `version` field out of a bounded read of it.
+# _ai_tools_ev_package_root <entrypoint> : print the directory of the npm package holding <entrypoint>, or return
+#   non-zero. The package is the nearest ancestor the path enters through `node_modules/<name>`
+#   or `node_modules/@<scope>/<name>`, within six directories of the entrypoint -- deep enough for an entrypoint several
+#   directories inside its package (Claude Code's is `<pkg>/bin/claude.exe`, codex's vendored binary
+#   `<pkg>/vendor/<target-triple>/bin/codex`). A path that does not reach such a boundary -- a copy of the binary
+#   at the version directory's `bin/`, left where a copy of the tree replaced npm's symlink with its target --
+#   does not hold a package, so nvm's own `package.json` at the toolchain root is never read as an agent's.
+_ai_tools_ev_package_root() {
+    local dir="${1%/*}" parent parent_name _hop
+    for _hop in 1 2 3 4 5 6; do
+        [[ "${dir}" == */node_modules/* ]] || return 1
+        parent="${dir%/*}"
+        parent_name="${parent##*/}"
+        if [[ "${parent_name}" == node_modules ]] || [[ "${parent_name}" == @* && "${parent%/*}" == */node_modules ]]; then
+            printf '%s' "${dir}"
+            return 0
+        fi
+        dir="${parent}"
+    done
+    return 1
+}
+
+# _ai_tools_ev_package_fields <package.json> : print `version<TAB>name` from the manifest's top level, or return
+#   non-zero. The host's /usr/bin/python3 reads it (never the tree's node, which the sandbox account can rewrite),
+#   in isolated mode (`-I`): the current directory is off the import path, so a `json.py` in a project the reader was
+#   run from is not what `import json` loads, and no PYTHON* variable of the caller's environment reaches it. The file
+#   is opened without following a symlink, the descriptor is checked to be a regular file of at most 64 KiB, and that
+#   descriptor is what is read -- so a symlink, a fifo, or a file swapped in after the check is not the input --
+#   then parsed as JSON, with the top-level `version` alone taken and a document that is not an object refused.
+#   The version comes first, since it is never empty while the name may be. A tab, a newline and any byte outside
+#   printable ASCII in either field become `?`, so the two fields stay two.
+_ai_tools_ev_package_fields() {
+    [[ -x /usr/bin/python3 ]] || return 1
+    /usr/bin/python3 -I - "$1" <<'PY'
+import json, os, stat, sys
+
+path = sys.argv[1]
+size_cap = 65536
+try:
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+except OSError:
+    sys.exit(1)
+try:
+    info = os.fstat(descriptor)
+    if not stat.S_ISREG(info.st_mode) or info.st_size > size_cap:
+        sys.exit(1)
+    data = b""
+    while len(data) <= size_cap:
+        chunk = os.read(descriptor, size_cap)
+        if not chunk:
+            break
+        data += chunk
+finally:
+    os.close(descriptor)
+try:
+    document = json.loads(data.decode("utf-8"))
+except (ValueError, UnicodeDecodeError):
+    sys.exit(1)
+if not isinstance(document, dict) or not isinstance(document.get("version"), str):
+    sys.exit(1)
+name = document.get("name")
+if not isinstance(name, str):
+    name = ""
+
+
+def printable(text):
+    return "".join(c if " " <= c <= "~" else "?" for c in text)
+
+
+print(printable(document["version"]) + "\t" + printable(name))
+PY
+}
+
+# ai_tools_entrypoint_installed_version <entrypoint> [<npm-package>] : print the version the package holding
+#   <entrypoint> declares, or an empty string. The package is the one _ai_tools_ev_package_root finds, and its own
+#   `package.json` is the one read: a package without a manifest prints an empty string rather than the version
+#   of a package enclosing it. Where <npm-package> is given, the manifest's `name` must equal it, so a caller that knows
+#   which package it asked about is not answered for another. One reader serves every agent's layout, so the two
+#   callers -- the pin and the launch banner -- cannot disagree about what version an entrypoint is.
 #
 #   The value comes from a file the SANDBOX account owns and reaches the operator's terminal, the journal and a pin
 #   record, so it is admitted only in a clamped shape: `MAJOR.MINOR.PATCH`, optionally with a `-`/`+` suffix
@@ -365,32 +441,17 @@ ai_tools_entrypoint_pin_write() {
 #   (_ai_tools_ev_field_ok). That admits a platform package's own spelling
 #   (`0.154.0-linux-x64`) while excluding every character an escape sequence or a path traversal needs -- the suffix
 #   matters because the version also fills the `{version}` slot of a release-manifest URL.
-#
-#   The walk is bounded and deeper than the package layout of a single agent, because an entrypoint can sit several
-#   directories inside its package: Claude Code's is `<pkg>/bin/claude.exe`, while codex's vendored binary is
-#   `<pkg>/vendor/<target-triple>/bin/codex`. One reader serves both, so the two callers -- the pin and the launch
-#   banner -- cannot disagree about what version an entrypoint is.
 ai_tools_entrypoint_installed_version() {
-    local dir="${1:-}" declared
-    [[ -n "${dir}" ]] || return 0
-    dir="${dir%/*}"
-    local _hop
-    for _hop in 1 2 3 4 5 6; do
-        [[ -n "${dir}" ]] || break
-        if [[ -f "${dir}/package.json" && -r "${dir}/package.json" ]]; then
-            # Bounded read of a regular file: the version sits in the first bytes, and a fifo swapped into the path must
-            # never block a launch.
-            declared="$(head -c 65536 -- "${dir}/package.json" 2>/dev/null \
-                | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-            if [[ "${declared}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ && "${declared}" != *..* ]] \
-                    && _ai_tools_ev_field_ok "${declared}"; then
-                printf '%s' "${declared}"
-                return 0
-            fi
-        fi
-        dir="${dir%/*}"
-    done
-    return 0
+    local entrypoint="${1:-}" expected_name="${2:-}" package_root fields declared_name declared_version
+    [[ -n "${entrypoint}" ]] || return 0
+    package_root="$(_ai_tools_ev_package_root "${entrypoint}")" || return 0
+    fields="$(_ai_tools_ev_package_fields "${package_root}/package.json" 2>/dev/null)" || return 0
+    IFS=$'\t' read -r declared_version declared_name <<<"${fields}"
+    [[ -z "${expected_name}" || "${declared_name}" == "${expected_name}" ]] || return 0
+    [[ "${declared_version}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ && "${declared_version}" != *..* ]] \
+        || return 0
+    _ai_tools_ev_field_ok "${declared_version}" || return 0
+    printf '%s' "${declared_version}"
 }
 
 # ai_tools_entrypoint_package_dir <entrypoint> <npm-package> : print the installed package directory

@@ -97,6 +97,25 @@ require_root() {
     [[ "${EUID}" -eq 0 ]] || { echo "error: run with sudo" >&2; exit 1; }
 }
 
+# as_sandbox <command> [arg...]: run a command as the sandbox account through the one route root takes to a file
+# that account can write -- sandbox-exec.lib.sh's ai_tools_as_sandbox: no controlling terminal, no inherited descriptor,
+# a clean environment (a case passes what the command needs with a leading `env NAME=value`), each stream
+# through the log allowlist, and a bound on the run. The installed library, else the checkout's; without either the call
+# fails and says so, since a plain runuser would hand the child root's terminal and environment.
+as_sandbox() {
+    if ! declare -F ai_tools_as_sandbox >/dev/null 2>&1; then
+        local candidate
+        for candidate in /usr/local/lib/ai-tools/sandbox-exec.lib.sh \
+                "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/local/lib/ai-tools/sandbox-exec.lib.sh"; do
+            # shellcheck source=/dev/null
+            [[ -r "${candidate}" ]] && source "${candidate}" && break
+        done
+        declare -F ai_tools_as_sandbox >/dev/null 2>&1 \
+            || { printf 'as_sandbox: sandbox-exec.lib.sh is neither installed nor in the checkout\n' >&2; return 1; }
+    fi
+    ai_tools_as_sandbox "${SANDBOX_USER}" "$@"
+}
+
 # toml_python: print the name of an interpreter that parses TOML -- tomllib in the standard library (Python 3.11+),
 # or the tomli backport it was taken from (python3-tomli in EL9's AppStream, for the 3.9 there) -- trying the stock
 # python3 first, then the versioned interpreters EL9 ships beside it; fail without output where none can. Two checks

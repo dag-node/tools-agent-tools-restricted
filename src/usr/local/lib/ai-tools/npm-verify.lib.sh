@@ -42,32 +42,68 @@
 #      matching the best-effort posture of the rest of the updater
 # Detail (which package failed) goes to stderr, which both callers route to the journal. The functions print no secret
 # and take no agent-supplied argument.
+#
+# ── What npm prints is untrusted ─────────────────────────────────────────────
+# npm, the tree it reads and the audit JSON it writes are the sandbox account's, so a package name or an error line
+# from them reaches a terminal or the journal only through the shared allowlist sanitizer: log.lib.sh's
+# ai_tools_log_sanitize for npm's own error line, and the same printable-ASCII allowlist inside the verdict's node
+# parser for the package names. log.lib.sh loads best-effort from this library's directory; without it npm's error line
+# is left out of the report rather than printed raw.
 
 [[ -n "${_AI_TOOLS_NPM_VERIFY_LIB_LOADED:-}" ]] && return 0
 readonly _AI_TOOLS_NPM_VERIFY_LIB_LOADED=1
+# shellcheck source=SCRIPTDIR/log.lib.sh
+source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
+# The identity check the probe makes of its own process (ai_tools_is_sandbox_account): best-effort source,
+# and an identity it cannot confirm refuses the probe.
+# shellcheck source=SCRIPTDIR/sandbox-exec.lib.sh
+source "${BASH_SOURCE[0]%/*}/sandbox-exec.lib.sh" 2>/dev/null || true
 
 # ai_tools_npm_verdict <audit-json>: pure decision over `npm audit signatures --json` output. Echoes a verdict token
-# (OK|INVALID|MISSING|EMPTY|UNKNOWN) and returns the status contract contract. node parses the JSON (node is
-# the toolchain's own runtime; jq is not assumed) and is used read-only on the passed string -- no filesystem, no npm,
-# no privilege. A parse failure or empty input yields a non-OK verdict, so a format change never reads as a false OK.
+# (OK|INVALID|MISSING|EMPTY|UNKNOWN) and returns the status contract. The host's /usr/bin/python3 parses the JSON
+# in isolated mode, read-only on the passed string -- no filesystem, no npm, no privilege, and no executable
+# of the toolchain, so the verdict runs under any account without executing what the sandbox account can write. OK
+# requires the shape npm's verifier writes (`lib/utils/verify-signatures.js`: an object whose `invalid` and `missing`
+# are both arrays) with both arrays empty; empty input yields EMPTY, and a parse failure or a document of any other
+# shape -- `{}`, a number, an object whose fields are not arrays -- yields UNKNOWN, so a format change is read as "could
+# not verify" and not as a clean audit. The audit is npm's own report over a tree the sandbox account can rewrite, npm
+# included, so it is not the trusted check against a hostile toolchain: the entrypoint pin is
+# (entrypoint-verify.lib.sh), and this verdict covers the registry-signature question alone.
 ai_tools_npm_verdict() {
     local audit_json="${1:-}"
     [[ -n "${audit_json}" ]] || { printf 'EMPTY'; return 2; }
-    command -v node >/dev/null 2>&1 || { printf 'UNKNOWN'; return 2; }
+    [[ -x /usr/bin/python3 ]] || { printf 'UNKNOWN'; return 2; }
 
     local token
-    token="$(printf '%s' "${audit_json}" | node -e '
-        const fs = require("fs");
-        let inv = [], mis = [];
-        try {
-            const j = JSON.parse(fs.readFileSync(0, "utf8"));
-            inv = j.invalid || []; mis = j.missing || [];
-        } catch (_) { process.stdout.write("PARSEFAIL"); process.exit(0); }
-        const name = x => (x && x.name) ? (x.name + "@" + (x.version || "?")) : String(x);
-        if (inv.length) process.stderr.write("npm-verify: invalid signature: "   + inv.map(name).join(", ") + "\n");
-        if (mis.length) process.stderr.write("npm-verify: unsigned (no registry signature): " + mis.map(name).join(", ") + "\n");
-        process.stdout.write(inv.length ? "INVALID" : (mis.length ? "MISSING" : "OK"));
-    ')" || token="PARSEFAIL"
+    token="$(printf '%s' "${audit_json}" | /usr/bin/python3 -I -c '
+import json, sys
+
+
+def printable(value):
+    return "".join(c if " " <= c <= "~" else "?" for c in str(value))
+
+
+def name_of(entry):
+    if isinstance(entry, dict) and entry.get("name"):
+        return printable(str(entry["name"]) + "@" + str(entry.get("version") or "?"))
+    return printable(entry)
+
+
+try:
+    document = json.loads(sys.stdin.read())
+except ValueError:
+    document = None
+if (not isinstance(document, dict) or not isinstance(document.get("invalid"), list)
+        or not isinstance(document.get("missing"), list)):
+    sys.stdout.write("PARSEFAIL")
+    sys.exit(0)
+invalid, missing = document["invalid"], document["missing"]
+if invalid:
+    sys.stderr.write("npm-verify: invalid signature: " + ", ".join(name_of(e) for e in invalid) + "\n")
+if missing:
+    sys.stderr.write("npm-verify: unsigned (no registry signature): " + ", ".join(name_of(e) for e in missing) + "\n")
+sys.stdout.write("INVALID" if invalid else ("MISSING" if missing else "OK"))
+')" || token="PARSEFAIL"
 
     case "${token}" in
         OK)       printf 'OK';      return 0 ;;
@@ -83,15 +119,34 @@ ai_tools_npm_verdict() {
 ai_tools_verify_npm_signatures() {
     local _p='npm-verify:'
 
-    # Fail-closed identity backstop: this must run as the sandbox account (the owner of the tree it audits), never root
-    # -- as root `npm root -g` is root's global prefix, so a run would verify the wrong tree and could report a false
-    # OK. Refuse rather than mislead.
-    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-        printf '%s refusing to run as root -- must run as the sandbox account\n' "${_p}" >&2
+    # Fail-closed identity backstop: this must run as the sandbox account, the owner of the tree it audits. As root
+    # `npm root -g` is root's global prefix, so a run would verify the wrong tree and could report a false OK, and root
+    # or an operator would execute npm from the tree with its own authority. Refuse rather than mislead; an identity
+    # sandbox-exec.lib.sh could not confirm refuses too.
+    if ! declare -F ai_tools_is_sandbox_account >/dev/null 2>&1 || ! ai_tools_is_sandbox_account; then
+        printf '%s refusing to run as %s -- must run as the sandbox account\n' "${_p}" \
+            "$(id -un 2>/dev/null || printf 'uid %s' "${EUID}")" >&2
         return 2
     fi
     command -v npm  >/dev/null 2>&1 || { printf '%s npm not found -- cannot verify signatures\n'  "${_p}" >&2; return 2; }
     command -v node >/dev/null 2>&1 || { printf '%s node not found -- cannot verify signatures\n' "${_p}" >&2; return 2; }
+
+    # npm is itself a package in the tree it audits, and one that does not start gives every later query in this
+    # function an empty result, which would read as an empty tree. Its own first error line is reported instead,
+    # sanitized (the header states
+    # why).
+    local npm_error
+    if ! npm_error="$(npm --version 2>&1 >/dev/null)"; then
+        npm_error="$(grep -m1 -E '^[A-Za-z]*Error' <<<"${npm_error}" || head -n1 <<<"${npm_error}")"
+        if declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
+            npm_error="$(ai_tools_log_sanitize "${npm_error:0:200}")"
+        else
+            npm_error="its error is not shown: log.lib.sh, which sanitizes it, did not load"
+        fi
+        printf '%s npm does not start (%s) -- the toolchain npm is broken, so signatures cannot be verified\n' \
+            "${_p}" "${npm_error:-no message}" >&2
+        return 2
+    fi
 
     local global_nm
     global_nm="$(npm root -g 2>/dev/null)" || true

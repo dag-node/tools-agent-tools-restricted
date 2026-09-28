@@ -490,8 +490,10 @@ fi
 if ! declare -F ai_tools_entrypoint_installed_version >/dev/null 2>&1; then
     skip "installed version" "the installed ${LIB} carries no version reader -- reinstall to cover it"
 else
-    mk_pkg() {  # mk_pkg <relative entrypoint path> <version> ; prints the entrypoint path
-        local rel="$1" version="$2" root="${TESTDIR}/pkg/${3:-p}" pkgdir
+    # The packages sit under lib/node_modules, the layout npm installs a global package in: the walk does not read
+    # a package.json outside a node_modules path.
+    mk_pkg() {  # mk_pkg <relative entrypoint path> <version> [name] ; prints the entrypoint path
+        local rel="$1" version="$2" root="${TESTDIR}/pkg/lib/node_modules/${3:-p}" pkgdir
         pkgdir="${root}/$(dirname "${rel}")"
         mkdir -p "${pkgdir}"
         : > "${root}/${rel}"
@@ -574,14 +576,134 @@ ROWS
 
     # A package.json the walk never reaches yields an empty string, which the caller turns into `unknown` rather than
     # comparing an empty value against a recorded one.
-    deep="${TESTDIR}/pkg/deep/a/b/c/d/e/f/g"
+    deep="${TESTDIR}/pkg/lib/node_modules/deep/a/b/c/d/e/f/g"
     mkdir -p "${deep}"
     : > "${deep}/entry"
-    printf '{"version":"9.9.9"}\n' > "${TESTDIR}/pkg/deep/package.json"
+    printf '{"version":"9.9.9"}\n' > "${TESTDIR}/pkg/lib/node_modules/deep/package.json"
     if [[ -z "$(ai_tools_entrypoint_installed_version "${deep}/entry" || true)" ]]; then
         pass "a package.json beyond the bounded walk yields no version"
     else
         fail "the walk ran past its bound"
+    fi
+
+    # The package boundary: an entrypoint inside a nested package that has no manifest of its own does not report
+    # a version, the enclosing package's included. The control is the enclosing package's own entrypoint, which does
+    # read.
+    outer="${TESTDIR}/pkg/lib/node_modules/outer"
+    mkdir -p "${outer}/bin" "${outer}/node_modules/inner/bin"
+    : > "${outer}/bin/entry" "${outer}/node_modules/inner/bin/entry"
+    printf '{"name":"outer","version":"1.0.0"}\n' > "${outer}/package.json"
+    if [[ "$(ai_tools_entrypoint_installed_version "${outer}/bin/entry" || true)" != 1.0.0 ]]; then
+        fail "control: the enclosing package's own entrypoint did not read 1.0.0"
+    elif [[ -z "$(ai_tools_entrypoint_installed_version "${outer}/node_modules/inner/bin/entry" || true)" ]]; then
+        pass "a nested package without a manifest reports no version, not the enclosing package's"
+    else
+        fail "a nested package read '$(ai_tools_entrypoint_installed_version "${outer}/node_modules/inner/bin/entry" || true)' from the package enclosing it"
+    fi
+    # A scoped package is a boundary too.
+    scoped="${TESTDIR}/pkg/lib/node_modules/@acme/tool"
+    mkdir -p "${scoped}/vendor/bin"
+    : > "${scoped}/vendor/bin/entry"
+    printf '{"name":"@acme/tool","version":"3.4.5"}\n' > "${scoped}/package.json"
+    if [[ "$(ai_tools_entrypoint_installed_version "${scoped}/vendor/bin/entry" || true)" == 3.4.5 ]]; then
+        pass "a scoped package's manifest is the one read for an entrypoint under it"
+    else
+        fail "a scoped package's version did not read: '$(ai_tools_entrypoint_installed_version "${scoped}/vendor/bin/entry" || true)'"
+    fi
+
+    # The manifest is parsed, not grepped: the top-level version is the one taken where a nested one follows it
+    # in compact JSON, and a document that is not an object or a version that is not a string does not yield a version.
+    while IFS='|' read -r manifest want what; do
+        [[ -n "${what}" ]] || continue
+        parsed="${TESTDIR}/pkg/lib/node_modules/parsed$(printf '%s' "${what}" | tr -cd '[:lower:]')"
+        mkdir -p "${parsed}/bin"
+        : > "${parsed}/bin/entry"
+        printf '%s\n' "${manifest}" > "${parsed}/package.json"
+        got="$(ai_tools_entrypoint_installed_version "${parsed}/bin/entry" || true)"
+        [[ "${got}" == "${want}" ]] && pass "manifest ${what} -> '${want}'" || fail "manifest ${what}: got '${got}', want '${want}'"
+    done <<'ROWS'
+{"name":"p","version":"1.2.3","dependencies":{"q":{"version":"9.9.9"}}}|1.2.3|with a nested version after the top-level one
+{"name":"p","engines":{"version":"9.9.9"},"version":"1.2.3"}|1.2.3|with a nested version before the top-level one
+["1.2.3"]||that is an array
+{"name":"p","version":123}||whose version is a number
+{"name":"p"}||without a version
+{"version":"1.2.3"}|1.2.3|without a name, which is optional
+not json||that is not JSON
+ROWS
+
+    # The reader's interpreter runs in isolated mode: a `json.py` in the directory it is run from -- a project
+    # the operator ran the status from -- is not what it imports. The fixture module writes a marker where it is
+    # imported, and the control asserts the fixture would be imported by a plain interpreter run from there.
+    shadow="${TESTDIR}/shadow"
+    mkdir -p "${shadow}"
+    printf 'import os\nopen(os.environ["AI_TOOLS_TEST_SHADOW_MARK"], "w").write("shadowed")\n' > "${shadow}/json.py"
+    ep="$(mk_pkg bin/shadowed 5.6.7 shadowed)"
+    export AI_TOOLS_TEST_SHADOW_MARK="${TESTDIR}/shadow-mark"
+    rm -f "${AI_TOOLS_TEST_SHADOW_MARK}"
+    (cd "${shadow}" && printf 'import json\n' | /usr/bin/python3 - >/dev/null 2>&1) || true
+    if [[ ! -e "${AI_TOOLS_TEST_SHADOW_MARK}" ]]; then
+        fail "control: a plain interpreter run from the fixture directory did not import the fixture module"
+    else
+        rm -f "${AI_TOOLS_TEST_SHADOW_MARK}"
+        got="$(cd "${shadow}" && ai_tools_entrypoint_installed_version "${ep}" || true)"
+        if [[ "${got}" == 5.6.7 && ! -e "${AI_TOOLS_TEST_SHADOW_MARK}" ]]; then
+            pass "the reader run from a directory holding a json.py imports the standard library, not the fixture"
+        else
+            fail "run from a directory holding a json.py: read '${got}', fixture imported: $([[ -e "${AI_TOOLS_TEST_SHADOW_MARK}" ]] && echo yes || echo no)"
+        fi
+    fi
+    unset AI_TOOLS_TEST_SHADOW_MARK
+
+    # The name check: a caller naming the package it asked about is answered for that package alone.
+    ep="$(mk_pkg bin/named 4.5.6 named)"
+    if [[ "$(ai_tools_entrypoint_installed_version "${ep}" x || true)" == 4.5.6 \
+            && -z "$(ai_tools_entrypoint_installed_version "${ep}" other || true)" ]]; then
+        pass "a package name given is required of the manifest, and another name yields no version"
+    else
+        fail "the name check: matching '$(ai_tools_entrypoint_installed_version "${ep}" x || true)', other '$(ai_tools_entrypoint_installed_version "${ep}" other || true)'"
+    fi
+
+    # What the reader opens: a symlink at package.json is not followed, and a fifo there does not block a launch.
+    linked="${TESTDIR}/pkg/lib/node_modules/linked"
+    mkdir -p "${linked}/bin"
+    : > "${linked}/bin/entry"
+    printf '{"name":"elsewhere","version":"7.7.7"}\n' > "${TESTDIR}/elsewhere.json"
+    ln -s "${TESTDIR}/elsewhere.json" "${linked}/package.json"
+    if [[ -z "$(ai_tools_entrypoint_installed_version "${linked}/bin/entry" || true)" ]]; then
+        pass "a symlinked package.json is not followed"
+    else
+        fail "a symlinked package.json was read"
+    fi
+    piped="${TESTDIR}/pkg/lib/node_modules/piped"
+    mkdir -p "${piped}/bin"
+    : > "${piped}/bin/entry"
+    if ! mkfifo "${piped}/package.json" 2>/dev/null; then
+        skip "a fifo at package.json" "this run cannot create a fifo in its testdir (a confined session cannot)"
+    else
+        rc=0; got="$(timeout 10 bash -c 'source "$1"; ai_tools_entrypoint_installed_version "$2"' _ "${LIB}" "${piped}/bin/entry" 2>/dev/null)" || rc=$?
+        if [[ "${rc}" -eq 0 && -z "${got}" ]]; then
+            pass "a fifo at package.json yields no version and does not block"
+        else
+            fail "a fifo at package.json: rc ${rc} (124 is the timeout), got '${got}'"
+        fi
+        rm -f "${piped}/package.json"
+    fi
+
+    # A copy of the entrypoint at the version directory's bin/, where npm keeps a symlink into the package: the walk
+    # ends at the first directory outside node_modules, so the package.json at the toolchain root (nvm's, with nvm's
+    # version) is not read as the agent's. The control is the same file inside its package, which does read.
+    toolchain="${TESTDIR}/copied"
+    mkdir -p "${toolchain}/versions/node/v1.2.3/bin" "${toolchain}/versions/node/v1.2.3/lib/node_modules/agent/bin"
+    printf '{"name":"nvm","version":"0.40.3"}\n' > "${toolchain}/package.json"
+    printf '{"name":"agent","version":"2.1.274"}\n' > "${toolchain}/versions/node/v1.2.3/lib/node_modules/agent/package.json"
+    : > "${toolchain}/versions/node/v1.2.3/lib/node_modules/agent/bin/entry"
+    : > "${toolchain}/versions/node/v1.2.3/bin/entry"
+    if [[ "$(ai_tools_entrypoint_installed_version "${toolchain}/versions/node/v1.2.3/lib/node_modules/agent/bin/entry" || true)" != 2.1.274 ]]; then
+        fail "control: the entrypoint inside its package did not read 2.1.274, so the copy case proves nothing"
+    elif [[ -z "$(ai_tools_entrypoint_installed_version "${toolchain}/versions/node/v1.2.3/bin/entry" || true)" ]]; then
+        pass "a copy of the entrypoint outside its package yields no version, not the toolchain root's"
+    else
+        fail "a copy outside the package read '$(ai_tools_entrypoint_installed_version "${toolchain}/versions/node/v1.2.3/bin/entry" || true)' from a package.json above node_modules"
     fi
 fi
 

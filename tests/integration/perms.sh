@@ -87,6 +87,9 @@ check_file /usr/local/lib/ai-tools/providers.lib.sh          root              r
 # Unreadable ancestor configuration: 644 root:root -- world-readable, sourced by the claim CLI and the launch wrapper
 # (both as the operator); it reports paths and does not change any file, so it does not carry any secrets.
 check_file /usr/local/lib/ai-tools/ancestor-config.lib.sh    root              root              644
+# The execution boundary: 644 root:root, the one route by which a root process runs a file the sandbox account can
+# write; holds shipped logic and the substituted account name, does not read any operator data.
+check_file /usr/local/lib/ai-tools/sandbox-exec.lib.sh       root              root              644
 # The residue readers and the package removal: 644 root:root, sourced by the wrapper (as the operator), the shim,
 # the updater and the bootstrap's sandbox-account step; reads manifests, edits a tree its caller owns.
 check_file /usr/local/lib/ai-tools/toolchain.lib.sh          root              root              644

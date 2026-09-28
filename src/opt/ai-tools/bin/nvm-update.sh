@@ -156,6 +156,35 @@ readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/conf.lib.sh
 source "${CONF_LIB}" 2>/dev/null || true
 
+# The logger (log.lib.sh), for the allowlist sanitizer npm's output passes through (npm_output). Best-effort source:
+# without it that output is withheld rather than written to the journal raw, since npm, the packages' install scripts
+# and the tree they run from are the sandbox account's.
+readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/log.lib.sh
+source "${LOG_LIB}" 2>/dev/null || true
+
+# The identity this script requires of itself (sandbox-exec.lib.sh, ai_tools_is_sandbox_account): it sources nvm.sh
+# and runs npm from the tree, which runs whatever the sandbox account put there, so it runs as that account alone. Root
+# and an operator are refused here, ahead of every read of the tree, with the routes that run it as the account named;
+# a library that did not load leaves the identity unconfirmed, which refuses too.
+readonly SANDBOX_EXEC_LIB="/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/sandbox-exec.lib.sh
+source "${SANDBOX_EXEC_LIB}" 2>/dev/null || true
+if ! declare -F ai_tools_is_sandbox_account >/dev/null 2>&1; then
+    die MSG-T2F4 "cannot confirm this runs as the sandbox account: ${SANDBOX_EXEC_LIB} did not load -- reinstall ai-tools-base"
+elif ! ai_tools_is_sandbox_account; then
+    die MSG-U5C4 "refusing to run as $(id -un 2>/dev/null || printf 'uid %s' "${EUID}"): this script sources nvm.sh and runs npm from the sandbox toolchain, which only the sandbox account runs -- start it in that account's user instance (sudo systemctl --user -M ai-tools@ start nvm-update.service) or provision through sudo ai-tools-admin system bootstrap"
+fi
+# npm_output: pass npm's output (stdin) through ai_tools_log_sanitize_stream, or withhold it with one line saying so.
+npm_output() {
+    if declare -F ai_tools_log_sanitize_stream >/dev/null 2>&1; then
+        ai_tools_log_sanitize_stream
+    else
+        cat >/dev/null
+        printf '%s\n' "(npm's output withheld: ${LOG_LIB}, which sanitizes it, did not load)"
+    fi
+}
+
 # npm signature verifier (npm-verify.lib.sh). Best-effort source: the lib is root-owned, so a missing one is a broken
 # install, not agent action -- degrade to "unable to verify" (a warn, never a blocked update), matching the check's own
 # can't-verify posture. The lib refuses to run as root; this updater runs as the sandbox account, which is the required
@@ -178,7 +207,7 @@ verify_toolchain_signatures() {
     case "${rc}" in
         0) log "npm registry signatures verified for the installed toolchain" ;;
         1) die "npm signature verification FAILED (possible registry tampering) -- refusing to activate the new toolchain; the previous version stays in use" ;;
-        *) warn "could not verify npm signatures (offline or unsupported) -- proceeding; the toolchain is updated but unverified" ;;
+        *) warn "could not verify npm signatures (the npm-verify line states why) -- proceeding; the toolchain is updated but unverified" ;;
     esac
 }
 
@@ -398,13 +427,16 @@ install_packages() {
     for pkg in "$@"; do
         if [[ -n "${repair_csv}" && ",${repair_csv}," == *",${pkg},"* ]]; then
             log "  reinstalling ${pkg} -- the entrypoint its manifest declares is not in this toolchain"
-            npm install -g --allow-scripts="${allow_csv}" "${pkg}" || warn "  npm install failed for ${pkg} -- skipping"
+            npm install -g --allow-scripts="${allow_csv}" "${pkg}" 2>&1 | npm_output \
+                || warn "  npm install failed for ${pkg} -- skipping"
         elif npm list -g --depth=0 "${pkg}" &>/dev/null; then
             log "  updating ${pkg}"
-            npm update -g --allow-scripts="${allow_csv}" "${pkg}" || warn "  npm update failed for ${pkg} -- skipping"
+            npm update -g --allow-scripts="${allow_csv}" "${pkg}" 2>&1 | npm_output \
+                || warn "  npm update failed for ${pkg} -- skipping"
         else
             log "  installing ${pkg}"
-            npm install -g --allow-scripts="${allow_csv}" "${pkg}" || warn "  npm install failed for ${pkg} -- skipping"
+            npm install -g --allow-scripts="${allow_csv}" "${pkg}" 2>&1 | npm_output \
+                || warn "  npm install failed for ${pkg} -- skipping"
         fi
     done
 }
@@ -444,6 +476,24 @@ main() {
     [[ -n "${current_version}" && "${current_version}" != "N/A" ]] \
         || die "nvm alias '${node_alias}' not set"
 
+    # A transfer of the tree can leave a regular-file copy in bin/ where npm keeps a symlink, and npm does not start
+    # from such a copy; every later step of main runs it. The repair (toolchain.lib.sh) replaces only a copy whose bytes
+    # equal its target, and runs here as the tree's owner. Best-effort: a library that does not load leaves the tree
+    # as it is.
+    # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/toolchain.lib.sh
+    if source /usr/local/lib/ai-tools/toolchain.lib.sh 2>/dev/null \
+            && declare -F ai_tools_toolchain_relink_copies >/dev/null 2>&1; then
+        local copied_name copied_outcome
+        while IFS=$'\t' read -r copied_name copied_outcome; do
+            [[ -n "${copied_name}" ]] || continue
+            if [[ "${copied_outcome}" == relinked ]]; then
+                log "${current_version}: restored the bin/${copied_name} symlink a copy had replaced"
+            else
+                warn "${current_version}: bin/${copied_name} is a regular file where npm keeps a symlink, left as it is (${copied_outcome})"
+            fi
+        done < <(ai_tools_toolchain_relink_copies "${nvm_dir}/versions/node/${current_version}")
+    fi
+
     # The timer invokes this with no argument, so resolve the latest LTS in the vMAJOR series here -- the same
     # `sort -V | tail -1` highest-semver selection the prune logic keys on. An explicit argument overrides the lookup.
     if [[ -z "${target_version}" ]]; then
@@ -467,8 +517,11 @@ main() {
 
     if [[ "${current_version}" != "${target_version}" ]]; then
         log "Installing ${target_version}"
-        nvm install "${target_version}" --no-progress
-        nvm reinstall-packages "${current_version}"
+        # One subshell for the two, piped through npm_output: reinstall-packages runs npm installs under the version
+        # `nvm install` activated, and that activation lives in the subshell a pipeline runs its left side in. The alias
+        # and the use that follow run here, so this shell takes the new version.
+        { nvm install "${target_version}" --no-progress && nvm reinstall-packages "${current_version}"; } 2>&1 \
+            | npm_output
         nvm alias "${node_alias}" "${target_version}"
         nvm use "${node_alias}"
     fi

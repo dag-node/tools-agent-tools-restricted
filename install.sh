@@ -660,16 +660,31 @@ bootstrap_launcher_symlinks() {
         return
     fi
 
-    local node_version
-    # cd / first: this `sudo -u` step inherits the installer's CWD, and run from an operator dir the sandbox account
-    # cannot traverse (e.g. a 0700 home), nvm/npm's internal getcwd warns.
-    node_version="$(sudo -u "${SANDBOX_USER}" bash -c \
-        "cd / && source '${ai_nvm_dir}/nvm.sh' --no-use && nvm version default 2>/dev/null" \
-        2>/dev/null || true)"
+    local node_version=""
+    # Read as data -- nvm's default alias and the installed version directories -- through the library this run
+    # deployed, so this root process does not source nvm.sh, which the sandbox account can rewrite.
+    # shellcheck source=src/usr/local/lib/ai-tools/toolchain.lib.sh
+    source /usr/local/lib/ai-tools/toolchain.lib.sh 2>/dev/null || true
+    if declare -F ai_tools_nvm_default_version >/dev/null 2>&1; then
+        node_version="$(ai_tools_nvm_default_version "${ai_nvm_dir}")"
+    fi
 
     if [[ -z "${node_version}" || "${node_version}" == "N/A" ]]; then
         warn MSG-E5S3 "nvm 'default' alias not set -- launcher symlinks skipped"
         warn "  provision the toolchain: sudo ai-tools-admin system bootstrap"
+        return
+    fi
+
+    # Copies where npm keeps symlinks -- a tree transferred without them -- make every link this step would write
+    # resolve to an unlabelled file, and npm does not start. Read with a stat; the repair runs node from the tree,
+    # which this root process does not, so it is bootstrap's (updater.rule.md).
+    local copied_bins=""
+    if declare -F ai_tools_toolchain_bin_copies >/dev/null 2>&1; then
+        copied_bins="$(ai_tools_toolchain_bin_copies "${ai_nvm_dir}/versions/node/${node_version}" 2>/dev/null | paste -sd' ')"
+    fi
+    if [[ -n "${copied_bins}" ]]; then
+        warn MSG-J2H9 "the ${node_version}/bin directory holds copies where npm keeps symlinks (${copied_bins}) -- a transfer of the tree replaced the links with their targets, so launcher symlinks are skipped"
+        warn "  restore them: sudo ai-tools-admin system bootstrap"
         return
     fi
 
@@ -1001,6 +1016,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/settings-merge.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
     _chk /usr/local/lib/ai-tools/ancestor-config.lib.sh
+    _chk /usr/local/lib/ai-tools/sandbox-exec.lib.sh
     _chk /usr/local/lib/ai-tools/toolchain.lib.sh
     _chk /usr/local/lib/ai-tools/filters.lib.sh
     _chk /usr/local/lib/ai-tools/filters.d/base.rules
@@ -1417,6 +1433,16 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/ancestor-config.lib.sh" \
         /usr/local/lib/ai-tools/ancestor-config.lib.sh
+
+    # The execution boundary (sandbox-exec.lib.sh): the one route by which a root process runs a file the sandbox
+    # account can write, and the identity check the toolchain writers require. 644 root:root: shipped logic
+    # and the account name, which install_subst substitutes here as the spec does at build -- a copy holding the token
+    # does not name an account and refuses every run -- sourced by the bootstrap, the updater, the toolchain library
+    # and this installer's uninstall.
+    log "/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sandbox-exec.lib.sh" \
+        /usr/local/lib/ai-tools/sandbox-exec.lib.sh
 
     # The residue readers and the one package removal (toolchain.lib.sh): 644 root:root like the resolver it requires,
     # sourced by the launch wrapper (as the operator), ai-tools-run, nvm-update and the bootstrap's sandbox-account
@@ -2632,12 +2658,17 @@ remove_agent_packages() {
     local agents_dir=/usr/local/lib/ai-tools/agents.d
     [[ -r "${tclib}" && -d "${agents_dir}" && -d /opt/ai-tools/.nvm/versions/node ]] || return 0
     id "${SANDBOX_USER}" >/dev/null 2>&1 || return 0
+    # ai_tools_as_sandbox runs the erase: npm is the sandbox account's to rewrite, so it runs as that account with no
+    # terminal of this process's and its output sanitized.
+    # shellcheck source=src/usr/local/lib/ai-tools/toolchain.lib.sh
+    source "${tclib}" 2>/dev/null || true
+    declare -F ai_tools_as_sandbox >/dev/null 2>&1 || return 0
     local manifest agent launcher version_dir outcome erased
     for manifest in "${agents_dir}"/*.conf; do
         [[ -e "${manifest}" ]] || continue
         agent="${manifest##*/}"; agent="${agent%.conf}"
         # shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
-        erased="$(runuser -u "${SANDBOX_USER}" -- bash -c \
+        erased="$(ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
             'set -euo pipefail; . "$1"; ai_tools_agent_package_erase /opt/ai-tools/.nvm "$2"' _ "${tclib}" "${agent}" \
             || true)"
         while IFS=$'\t' read -r version_dir outcome; do
