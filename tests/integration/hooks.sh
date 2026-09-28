@@ -164,7 +164,8 @@ fi
 # the per-turn handback (the shim's session-end sweep still hands back -- the manifest declares handback=none)
 # and, without the pin, send codex after a bubblewrap sandbox the session unit refuses. Pinned here as codex parses it,
 # since a bare key that landed after a table header belongs to that table and reads as accepted while codex ignores it.
-# Needs python3's tomllib (3.11+); skips the content check without it. Absent where the codex package is not installed.
+# Needs an interpreter that parses TOML (tomllib or the tomli backport, the harness's toml_python); skips the content
+# check without one. Absent where the codex package is not installed.
 readonly codex_requirements="/etc/codex/requirements.toml"
 readonly codex_hook="/opt/ai-tools/.codex/post-tool-hook.sh"
 readonly codex_sweep="/opt/ai-tools/.codex/session-hook.sh"
@@ -173,13 +174,17 @@ if [[ ! -e "${codex_requirements}" ]]; then
     skip "${codex_requirements}" "not deployed on this host (the codex package is absent)"
 elif [[ ! -r "${codex_requirements}" ]]; then
     fail "${codex_requirements} is unreadable -- codex refuses to start on it"
-elif ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import tomllib' 2>/dev/null; then
-    skip "requirements.toml content" "python3 with tomllib (3.11+) not available to parse ${codex_requirements}"
+elif ! TOML_PY="$(toml_python)"; then
+    skip "requirements.toml content" "no python parses TOML (tomllib or tomli) for ${codex_requirements} -- on EL9: dnf install python3-tomli"
 else
     # One parse, printed as KEY<TAB>value lines; a hook event's value is its commands joined by '|'. A file codex would
     # refuse (a parse error) fails here with the parser's message.
-    codex_decl="$(python3 - "${codex_requirements}" <<'PY' 2>&1
-import sys, tomllib
+    codex_decl="$("${TOML_PY}" - "${codex_requirements}" <<'PY' 2>&1
+import sys
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 with open(sys.argv[1], "rb") as f:
     doc = tomllib.load(f)
 print("managed_only\t%s" % str(doc.get("allow_managed_hooks_only", "")).lower())
