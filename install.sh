@@ -1016,6 +1016,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/settings-merge.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
     _chk /usr/local/lib/ai-tools/ancestor-config.lib.sh
+    _chk /usr/local/lib/ai-tools/sandbox-exec.lib.sh
     _chk /usr/local/lib/ai-tools/toolchain.lib.sh
     _chk /usr/local/lib/ai-tools/filters.lib.sh
     _chk /usr/local/lib/ai-tools/filters.d/base.rules
@@ -1432,6 +1433,15 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/ancestor-config.lib.sh" \
         /usr/local/lib/ai-tools/ancestor-config.lib.sh
+
+    # The execution boundary (sandbox-exec.lib.sh): the one route by which a root process runs a file the sandbox
+    # account can write, and the identity check the toolchain writers require. 644 root:root: shipped logic
+    # and the substituted account name, sourced by the bootstrap, the updater, the toolchain library and this
+    # installer's uninstall.
+    log "/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sandbox-exec.lib.sh" \
+        /usr/local/lib/ai-tools/sandbox-exec.lib.sh
 
     # The residue readers and the one package removal (toolchain.lib.sh): 644 root:root like the resolver it requires,
     # sourced by the launch wrapper (as the operator), ai-tools-run, nvm-update and the bootstrap's sandbox-account

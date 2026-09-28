@@ -62,9 +62,14 @@ _ai_tools_toolchain_notice() {
     return 0
 }
 
-# The two functions ahead of the provider requirement read no manifest, so they are defined whatever it decides:
-# a bootstrap that provisions Node alone, with no resolver loaded, still runs every toolchain step through
-# ai_tools_as_sandbox.
+# The execution boundary: ai_tools_as_sandbox, the one route by which a root caller runs a file the sandbox account can
+# write, and ai_tools_is_sandbox_account, which this library's writers require of their own process. Its own library,
+# ahead of the provider requirement and independent of it, so a bootstrap provisioning Node alone still runs every
+# toolchain step through it.
+# shellcheck source=SCRIPTDIR/sandbox-exec.lib.sh
+source "${BASH_SOURCE[0]%/*}/sandbox-exec.lib.sh" 2>/dev/null || true
+
+# The reader ahead of the provider requirement does not read a manifest, so it is defined whatever it decides.
 # ai_tools_nvm_default_version <nvm-dir> : print the version directory name (`v22.23.3`) nvm's `default` alias selects
 #   among the installed versions, or an empty string. Read as data -- the alias file, then the version directories --
 #   so a root caller learns the version without sourcing nvm.sh, which is the sandbox account's to rewrite
@@ -86,47 +91,6 @@ ai_tools_nvm_default_version() {
         best="$(printf '%s\n%s\n' "${best}" "${candidate}" | sed '/^$/d' | sort -V | tail -n1)"
     done
     printf '%s' "${best}"
-}
-
-# ai_tools_as_sandbox <account> <command> [arg...] : run <command> as the sandbox account <account> for a root caller,
-#   the one route by which a root process runs a file that account can write (the invariant in CLAUDE.md, its mechanism
-#   in updater.rule.md). The child gets:
-#     - no controlling terminal (setsid): a process sharing root's terminal can open /dev/tty and inject input into it
-#       with TIOCSTI where the kernel permits, whatever its own descriptors point at;
-#     - no terminal on stdin: a terminal is replaced with /dev/null, while a heredoc or a pipe the caller gives passes;
-#     - a clean environment (`env -i`): HOME, a PATH of /usr/bin:/bin and LANG=C.UTF-8, and whatever the command itself
-#       sets with a leading `env NAME=value`;
-#     - its stdout and its stderr kept apart, since a caller may read stdout as a wire format, each through
-#       ai_tools_log_sanitize_stream, or withheld with a line on stderr where log.lib.sh did not load.
-#   Returns the command's own status; returns 1 without running anything when the caller is not root (runuser needs
-#   root) or <account> is not a plain account name.
-ai_tools_as_sandbox() {
-    local account="${1:-}"
-    shift || true
-    if [[ "${EUID:-$(id -u)}" -ne 0 || ! "${account}" =~ ^[a-z_][a-z0-9_-]*$ || $# -eq 0 ]]; then
-        _ai_tools_toolchain_warn "ai_tools_as_sandbox: needs root, a plain account name and a command -- not run"
-        return 1
-    fi
-    local home
-    home="$(getent passwd "${account}" 2>/dev/null | cut -d: -f6)"
-    [[ -n "${home}" ]] || home=/
-    local stdin_source=/dev/stdin
-    [[ -t 0 ]] && stdin_source=/dev/null
-    local rc=0
-    if declare -F ai_tools_log_sanitize_stream >/dev/null 2>&1; then
-        # Both streams through process substitutions rather than a pipeline, so the status is the command's own whatever
-        # the caller's pipefail; a caller reading stdout with $(...) waits for its sanitizer, which holds the pipe open
-        # until it has written the last line.
-        setsid --wait runuser -u "${account}" -- env -i HOME="${home}" PATH=/usr/bin:/bin LANG=C.UTF-8 "$@" \
-            <"${stdin_source}" > >(ai_tools_log_sanitize_stream) 2> >(ai_tools_log_sanitize_stream >&2) || rc=$?
-    else
-        setsid --wait runuser -u "${account}" -- env -i HOME="${home}" PATH=/usr/bin:/bin LANG=C.UTF-8 "$@" \
-            <"${stdin_source}" >/dev/null 2>&1 || rc=$?
-        _ai_tools_toolchain_warn "output of $(printf '%q' "$1") withheld: log.lib.sh, which sanitizes it, did not load"
-    fi
-    # The sanitizers run as process substitutions; wait for them, so their lines land before the caller's next one.
-    wait 2>/dev/null || true
-    return "${rc}"
 }
 
 # The provider resolver: the installed and enabled sets, and each manifest's fields. REQUIRED, and probed rather than
@@ -331,8 +295,9 @@ ai_tools_toolchain_bin_copies() {
 #     failed    the write did not complete: left as it was
 #   The target is the enabled agent's `launcher_target` where its manifest declares one for that launcher, and otherwise
 #   the `bin` entry of the global package declaring the name, read from the packages' package.json by that version's
-#   own node. Only a byte-identical copy is replaced, so the link lands on the file the copy already held. Refuses root:
-#   it runs node from the tree, which only the sandbox account runs (updater.rule.md, "Root runs none of the toolchain").
+#   own node. Only a byte-identical copy is replaced, so the link lands on the file the copy already held. Refuses
+#   root: it runs node from the tree, which only the sandbox account runs (updater.rule.md, "Root runs none
+#   of the toolchain").
 ai_tools_toolchain_relink_copies() {
     local version_dir="${1:-}"
     if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then

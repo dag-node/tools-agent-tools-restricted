@@ -318,15 +318,16 @@ not gaps, so a reader tells bounded design from an oversight:
   execs once it and its directory pass the provider trust predicate (`dotnet` is the one installed today). **Shared
   libraries** live under `/usr/local/lib/ai-tools/` (`conf`, `settings-merge`, `secret-patterns`, `skip-dirs`,
   `owner-only`, `safe-paths`, `relabel`, `operator`, `control-plane`, `confinement`, `launch-wrapper`, `npm-verify`,
-  `entrypoint-verify`, `managed-assets`, `providers`, `ancestor-config`, `toolchain`, `selinux-groups`, `filters`,
-  `services`, `msg`, `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, and the claude-code pair
-  `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires
-  into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned
-  and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account sources several
-  of these libraries. Read is open on every one of them and **write** is the boundary: a shared library carries shipped
-  logic or a general list, and an operator's own data stays in that operator's private config instead, so an open read
-  discloses only what already ships (the modes are in [providers](.claude/rules/providers.rule.md); the guarantee is
-  the invariant that the sandbox cannot widen its own surface).
+  `entrypoint-verify`, `managed-assets`, `providers`, `ancestor-config`, `sandbox-exec`, `toolchain`, `selinux-groups`,
+  `filters`, `services`, `msg`, `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`,
+  and the claude-code pair `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment
+  `ai-tools-admin` wires into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its
+  contents are `root`-owned and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox
+  account sources several of these libraries. Read is open on every one of them and **write** is the boundary: a shared
+  library carries shipped logic or a general list, and an operator's own data stays in that operator's private config
+  instead, so an open read discloses only what already ships (the modes are
+  in [providers](.claude/rules/providers.rule.md); the guarantee is the invariant that the sandbox cannot widen its own
+  surface).
 
 ### Documentation register
 

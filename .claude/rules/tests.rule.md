@@ -783,6 +783,18 @@ file in its fail direction — a disabled agent's link, a target outside the ver
 and an absent link each yield no version — and the pure verdict both status reports render their Node line from is
 driven over its table, the stamp's version carried only where it differs from the links'.
 
+`sandbox-exec.sh` pins the execution boundary (`sandbox-exec.lib.sh`, see [updater](updater.rule.md)), the one route
+by which a root process runs a file the sandbox account can write, and every assertion is a way that route could hand
+the account more than the command: each refusal is driven — a caller that is not root, `root` or an operator named
+as the target, a name outside the account charset, a bound that is not a whole number of seconds — and the child's
+properties are read from inside the child, against a control where one is needed: it runs as the account, `/dev/tty`
+does not open although the suite's process holds one, a descriptor the suite opened is closed where a plain `runuser`
+child inherits it, an exported variable does not arrive, each stream passes the allowlist with a tab kept, the command's
+own status and stdin pass, and a command past the bound returns 124 under its code with no process of its session left,
+a grandchild included. The identity check is driven from every vantage the suite has: root, the projects user
+through `runuser`, and the account itself from inside the child. The library holds the account name the installer
+substituted, so against a source-tree copy the child cases skip with the reason named.
+
 `audit.sh` pins the kernel-record section of `ai-tools-audit` ([cli](cli.rule.md)). The trail it reports is one **only
 the kernel writes**, so a test cannot produce a record: the helper is sourced (inert by construction), the audit
 and SELinux tools are stubbed as shell functions, and fixture records drive the parser. Three properties carry

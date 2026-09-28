@@ -919,7 +919,7 @@ control plane present but the managed\-asset libs are missing \-\- reinstall ai\
 .TP
 .B MSG-E2X2
 ERROR.
-cannot run the sandbox toolchain: ${_toolchain_lib} did not load, and it is what runs that account's files without root's terminal \-\- reinstall ai\-tools\-base, then re\-run: sudo ai\-tools\-admin system bootstrap
+cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it \-\- reinstall ai\-tools\-base, then re\-run: sudo ai\-tools\-admin system bootstrap
 .TP
 .B MSG-F3Y2
 ERROR.
@@ -983,7 +983,7 @@ control\-plane git capture incomplete
 .TP
 .B MSG-V2W3
 WARNING.
-a regular file where npm keeps a symlink was left as it is at ${version_dir##*/}/bin/${name} (${outcome}) \-\- remove it by hand as the sandbox account if nothing installed it on purpose
+a regular file where npm keeps a symlink was left as it is at ${version}/bin/${name} (${outcome}) \-\- remove it by hand as the sandbox account if nothing installed it on purpose
 .TP
 .B MSG-V4D9
 WARNING.
@@ -1953,6 +1953,11 @@ enabled with nothing installed: $(printf '%q' "${item}") is enabled in operator.
 .B MSG-Q6H3
 ERROR.
 Refusing the ${operation}: the target is a protected system directory.
+.SS sandbox-exec.lib.sh
+.TP
+.B MSG-W8B7
+WARNING.
+ended a command that ran past ${timeout_seconds}s as ${account}: $(printf '%q' "$1") \-\- the step did not complete; re\-run it, or set AI_TOOLS_AS_SANDBOX_TIMEOUT=<seconds> for a slower host
 .SS settings-merge.lib.sh
 .TP
 .B MSG-F9W4

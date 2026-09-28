@@ -60,6 +60,12 @@ not_writable /usr/local/lib/ai-tools/providers.lib.sh \
 not_writable /usr/local/lib/ai-tools/toolchain.lib.sh \
     "pass a disabled agent's package as clean, or remove an enabled agent's"
 
+# The execution boundary, sourced by root -- the bootstrap, the installer's uninstall -- ahead of every toolchain step
+# it runs as the sandbox account. Writable, the agent rewrites what root runs before the drop: the one library
+# whose corruption puts the agent's code in a root process.
+not_writable /usr/local/lib/ai-tools/sandbox-exec.lib.sh \
+    "rewrite the route by which root runs the toolchain, before the drop to the sandbox account"
+
 # The library every agent's launch wrapper sources as the operator for the gates a launch passes: the operator gate,
 # the launcher resolution, the allowlist and the claim guard. Writable, the agent rewrites what the wrapper accepts
 # before the drop -- ai-tools-run re-validates the executable, but the allowlist and the claim guard are decided here.

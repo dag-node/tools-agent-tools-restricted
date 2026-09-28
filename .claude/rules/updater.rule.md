@@ -2,6 +2,7 @@
 paths:
   - "src/opt/ai-tools/bin/nvm-update.sh"
   - "src/usr/local/lib/ai-tools/toolchain.lib.sh"
+  - "src/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
   - "src/usr/local/lib/ai-tools/npm-verify.lib.sh"
   - "src/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
   - "src/usr/local/lib/ai-tools/keys/**"
@@ -117,15 +118,23 @@ routes to the toolchain, and no third:
   and the version directories, an agent's version `ai_tools_entrypoint_installed_version` over its `package.json`,
   and the active version the target of a stable launcher link. Each read is bounded and admits a clamped shape, since
   the bytes are the account's.
-- **Run it as the account, through `ai_tools_as_sandbox`** (`toolchain.lib.sh`), the one route a root caller takes
-  to a command that executes a file of the toolchain. The helper runs the command under `setsid` and `runuser`,
-  so the child has no controlling terminal: a process sharing root's terminal can open `/dev/tty` and insert input
-  into it with `TIOCSTI` where the kernel permits it, whatever its own descriptors point at. A terminal on stdin is
-  replaced with `/dev/null`, the environment is `env -i` with `HOME`, `PATH=/usr/bin:/bin` and `LANG=C.UTF-8`,
-  and stdout and stderr stay apart, each through `ai_tools_log_sanitize_stream` ([logging](logging.rule.md)),
-  or withheld where `log.lib.sh` did not load. The command's own status is returned. `ai-tools-bootstrap` requires it
-  and refuses the run under `MSG-E2X2` without it; its residue removal, its nvm/Node/agent install and its signature
-  check go through it, and so does `install.sh`'s package erase at uninstall.
+- **Run it as the account, through `ai_tools_as_sandbox`** (`sandbox-exec.lib.sh`, a library of its own with no provider
+  dependency, so a bootstrap provisioning Node alone loads it whole), the one route a root caller takes to a command
+  that executes a file of the toolchain. The caller names the account it means, and the helper refuses a name that does
+  not resolve to the sandbox account's own uid, uid 0 among them. It runs the command under `setsid` and `runuser`
+  from their system paths, so the child has no controlling terminal: a process sharing root's terminal can open
+  `/dev/tty` and insert input into it with `TIOCSTI` where the kernel permits it, whatever its own descriptors point at.
+  A terminal on stdin is replaced with `/dev/null`; the host's `bash` closes every descriptor above 2 the caller held
+  before it execs the command, so a socket, a lock or a root-only file does not reach it; the environment is `env -i`
+  with `HOME`, `PATH=/usr/bin:/bin` and `LANG=C.UTF-8`; and stdout and stderr stay apart, each
+  through `ai_tools_log_sanitize_stream` ([logging](logging.rule.md)), or withheld where `log.lib.sh` did not load.
+  A run is bounded: past `AI_TOOLS_AS_SANDBOX_TIMEOUT` seconds (a whole number, 1800 where unset or malformed) every
+  process of the session `setsid` opened receives `SIGTERM` then `SIGKILL`, and the call returns 124 under `MSG-W8B7`,
+  so a hung child ends its step and not the run. Otherwise the command's own status is returned. `ai-tools-bootstrap`
+  requires it and refuses the run under `MSG-E2X2` without it; its link repair, its residue removal, its nvm/Node/agent
+  install and its signature check go through it, and so does `install.sh`'s package erase at uninstall.
+  `ai_tools_is_sandbox_account`, beside it, is the check a function that sources `nvm.sh` or runs `npm` makes of its own
+  process.
 
 A step that runs as the account and executes only root-owned code — the launcher re-link through `providers.lib.sh`,
 the stamp's `mkdir` and `touch` — does not run a file the account can write, and keeps its plain `sudo -u`. `nvm-update`
