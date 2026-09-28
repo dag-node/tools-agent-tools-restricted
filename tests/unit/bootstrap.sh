@@ -610,6 +610,108 @@ else
     fi
 fi
 
+# ── the preflight: the toolchain's ownership, and a route to the download hosts ──────────────
+# Two readings taken before the first step that reads the toolchain as the sandbox account or reaches the network, each
+# driven in its fail direction. The ownership check runs over a fixture home whose files the invoker owns: read
+# for that owner it is clean, read for an account that owns none of them every path is foreign, so the case holds
+# whoever runs the suite. What is asserted is the shape of the report -- the subtree, an owner:group sample, the chown
+# that restores the account -- and the status, since the run ends on it. The network check is driven over a stubbed curl
+# that records its arguments: an answer of any status is a route, so the probe must not pass `--fail`, and the host
+# that did not answer is the one named.
+section "ai-tools-admin system bootstrap: the preflight (unit)"
+
+# run_preflight <stub-code> <function> <arg>... : drive one function in its own bash, the stubs defined ahead
+# of the helper (it defines neither curl nor find, so they stand), with the function's status on a last `rc=` line.
+run_preflight() {
+    bash -c '
+        set -euo pipefail
+        eval "$2"
+        # shellcheck source=/dev/null
+        source "$1"
+        fn="$3"; shift 3
+        declare -F "${fn}" >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+        rc=0; "${fn}" "$@" || rc=$?
+        printf "rc=%s\n" "${rc}"
+    ' _ "${HELPER}" "$1" "$2" "${@:3}" 2>&1 || true
+}
+
+PF_HOME="${TESTDIR}/home"
+install -d -m 0750 "${PF_HOME}/.nvm/versions/node" "${PF_HOME}/.npm"
+printf '# nvm\n' > "${PF_HOME}/.nvm/nvm.sh"
+: > "${PF_HOME}/.npm/anonymous-cli-metrics.json"
+pf_owner="$(stat -c %U "${PF_HOME}/.nvm/nvm.sh")"; pf_group="$(stat -c %G "${PF_HOME}/.nvm/nvm.sh")"
+
+out="$(run_preflight "" preflight_toolchain_ownership "${PF_HOME}" "${pf_owner}" "${pf_group}")"
+if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
+    fail "the helper does not define preflight_toolchain_ownership when sourced"
+elif grep -qx 'rc=0' <<<"${out}" && ! grep -q 'MSG-C6E2' <<<"${out}"; then
+    pass "a toolchain the account owns throughout passes the ownership check in silence"
+else
+    fail "a clean toolchain: ${out}"
+fi
+if id nobody >/dev/null 2>&1; then
+    out="$(run_preflight "" preflight_toolchain_ownership "${PF_HOME}" nobody nobody)"
+    assert_msg MSG-C6E2 "${out}" "a toolchain another account owns is reported under its code"
+    if grep -qx 'rc=1' <<<"${out}" && grep -q "under ${PF_HOME}/.nvm are not owned by nobody:nobody: ${pf_owner}:${pf_group} ${PF_HOME}/.nvm" <<<"${out}"; then
+        pass "the report names the subtree, the expected owner, and an owner:group sample, and returns 1"
+    else
+        fail "ownership report: ${out}"
+    fi
+    if grep -qF "sudo chown -Rh nobody:nobody ${PF_HOME}/.nvm ${PF_HOME}/.npm" <<<"${out}"; then
+        pass "the remedy is the chown over every subtree with a foreign path, and nothing was chowned"
+    else
+        fail "the remedy does not name the chown over the affected subtrees: ${out}"
+    fi
+    if [[ "$(stat -c %U "${PF_HOME}/.nvm/nvm.sh")" == "${pf_owner}" ]]; then
+        pass "the check reports and does not change an owner"
+    else
+        fail "the check changed the owner of ${PF_HOME}/.nvm/nvm.sh"
+    fi
+else
+    skip "a toolchain another account owns" "no 'nobody' account to read the fixture for"
+fi
+out="$(run_preflight "" preflight_toolchain_ownership "${TESTDIR}/no-such-home" nobody nobody)"
+if grep -qx 'rc=0' <<<"${out}" && ! grep -q 'MSG-C6E2' <<<"${out}"; then
+    pass "a home with no toolchain subtree yet (a first run) is not read"
+else
+    fail "an absent toolchain: ${out}"
+fi
+
+CURL_LOG="${TESTDIR}/curl-args"
+stub_curl() {  # stub_curl <substring-of-an-unreachable-url> : record every call; answer 7 for that URL, 0 otherwise
+    # shellcheck disable=SC2016  # $* expands in the generated stub, not here
+    printf 'curl() { printf "%%s\\n" "$*" >> "%s"; [[ -n "%s" && "${*: -1}" == *"%s"* ]] && return 7; return 0; }\n' \
+        "${CURL_LOG}" "$1" "$1"
+}
+rm -f "${CURL_LOG}"
+out="$(run_preflight "$(stub_curl "")" preflight_network https://registry.npmjs.org/ https://nodejs.org/dist/)"
+if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
+    fail "the helper does not define preflight_network when sourced"
+elif grep -qx 'rc=0' <<<"${out}" && ! grep -q 'MSG-S8B6' <<<"${out}"; then
+    pass "every host answering passes the network check in silence"
+else
+    fail "hosts answering: ${out}"
+fi
+if [[ "$(grep -c . "${CURL_LOG}")" -eq 2 ]] && ! grep -qE -- '(^| )(-f|--fail)( |$)' "${CURL_LOG}" \
+        && grep -q -- '--head' "${CURL_LOG}" && grep -q -- '--max-time' "${CURL_LOG}"; then
+    pass "each host is asked once, for a HEAD within a timeout, and an error status still counts as an answer (no --fail)"
+else
+    fail "the probe's shape: $(tr '\n' '|' < "${CURL_LOG}")"
+fi
+rm -f "${CURL_LOG}"
+out="$(run_preflight "$(stub_curl nodejs.org)" preflight_network https://registry.npmjs.org/ https://nodejs.org/dist/)"
+assert_msg MSG-S8B6 "${out}" "a host that does not answer is reported under the offline code"
+if grep -qx 'rc=1' <<<"${out}" && grep -q 'no answer from https://nodejs.org/dist/ --' <<<"${out}"; then
+    pass "the offline warning names the host that did not answer alone, and returns 1"
+else
+    fail "offline warning: ${out}"
+fi
+if grep -qF 'skips the nvm, Node and npm install' <<<"${out}" && grep -qF 'applies what needs no download' <<<"${out}"; then
+    pass "the offline warning states what the run still applies and what it skips"
+else
+    fail "the offline warning does not state the offline run's scope: ${out}"
+fi
+
 # ── remove_residue: the order it runs in ─────────────────────────────────────────────────────
 # The removal of a disabled agent's package sits after the agent choice (it reads the set that choice wrote) and ahead
 # of the first network step (the nvm version resolve), so an offline host still cleans up before its npm step fails;
@@ -640,6 +742,18 @@ else
         pass "the unresolved-set refusal follows the agent choice, and the residue removal follows it, before the first network step"
     else
         fail "out of place: choice at ${choose_line}, refusal at ${refuse_line}, removal at ${remove_line}, resolve at ${resolve_line}"
+    fi
+    # The two preflight checks sit after the refusal and before the residue step, which reads the tree as the account;
+    # the install step is gated on the network check's answer.
+    ownership_line="$(grep -n -m1 -E '^preflight_toolchain_ownership ' "${SCRIPT}" | cut -d: -f1)"
+    network_line="$(grep -n -m1 -E '^preflight_network ' "${SCRIPT}" | cut -d: -f1)"
+    install_line="$(grep -n -m1 -E '^\(\( _online \)\) && sudo -u ' "${SCRIPT}" | cut -d: -f1)"
+    if [[ -z "${ownership_line}" || -z "${network_line}" || -z "${install_line}" ]]; then
+        fail "the ownership check, the network check or the gated install is no longer where this reads it (ownership -> ${ownership_line:-none}, network -> ${network_line:-none}, install -> ${install_line:-none})"
+    elif (( refuse_line < ownership_line && ownership_line < network_line && network_line < remove_line && resolve_line < install_line )); then
+        pass "the ownership and network checks follow the refusal and precede the residue step, and the install is gated on the network answer"
+    else
+        fail "out of place: refusal at ${refuse_line}, ownership at ${ownership_line}, network at ${network_line}, removal at ${remove_line}, install at ${install_line}"
     fi
 fi
 

@@ -24,6 +24,13 @@
 # Before any of that it rewrites the provider list items an earlier release wrote bare (migrate_provider_lists),
 # the rewrite `system post-upgrade` makes, so the choice reads the line this release reads.
 #
+# Two preflight checks sit between the agent choice and the first step that reads the toolchain: the tree's ownership
+# as the sandbox account reads it (a tree copied from another host as root ends the run here, with the chown named,
+# where nvm would otherwise end it on "Permission denied" alone), and a route to the download hosts. Without one this is
+# an OFFLINE run: every step that does not need a download is applied -- the account and its home, the launcher links,
+# the relabel, the units, the managed assets, the prompts -- and the nvm/Node/npm install is skipped over a toolchain
+# already installed, or ends the run where none is.
+#
 # Idempotent: an existing account, nvm install, or Node version is reused, not rebuilt.
 #
 # Run as root (it creates a user and execs npm as @SANDBOX_USER@) through the command that reaches
@@ -547,9 +554,48 @@ report_shadowed_operators() {
         "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}")
 }
 
+# preflight_toolchain_ownership <home> <user> <group> -- report every path under the toolchain subtrees (.nvm, .npm,
+# .cache, .local under <home>) that <user>:<group> does not own, and return 1 when there is one. The subtrees are
+# the sandbox account's: nvm and npm write there as that account, and the install step sources nvm.sh as it, so a path
+# another owner holds -- a tree copied from another host as root -- ends that step on nvm's own "Permission denied"
+# with no line naming the cause. Read as root, which traverses the 0750 tree; a subtree that does not exist yet (a first
+# run) is not read. The remedy is printed and not applied: the tree's ownership is the operator's to restore,
+# and a chown this command made on its own would hand the account every file a copy left in its home.
+preflight_toolchain_ownership() {
+    local home="$1" user="$2" group="$3" sub count sample
+    local -a foreign=()
+    for sub in .nvm .npm .cache .local; do
+        [[ -d "${home}/${sub}" ]] || continue
+        count="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '.' 2>/dev/null | wc -c)"
+        (( count > 0 )) || continue
+        sample="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '%u:%g %p\n' 2>/dev/null | head -n 3 | tr '\n' ';')"
+        foreign+=("${home}/${sub}")
+        err "toolchain ownership: ${count} path(s) under ${home}/${sub} are not owned by ${user}:${group}: ${sample%;}"
+    done
+    (( ${#foreign[@]} == 0 )) && return 0
+    err MSG-C6E2 "the toolchain is not the sandbox account's (the paths above), so the install step, which runs as ${user}, cannot read it -- restore the account's ownership, then re-run:  sudo chown -Rh ${user}:${group} ${foreign[*]}"
+    return 1
+}
+
+# preflight_network <url>... -- return 0 when every URL answers over HTTPS within the timeout, whatever its status,
+# and 1 after warning which did not. An answer of any status proves the route; a resolve failure, a refused connection
+# or a timeout is what an offline host reports, and each is one curl exit status short of an HTTP reply. The caller
+# decides what an offline run still does.
+preflight_network() {
+    local url
+    local -a unreachable=()
+    for url in "$@"; do
+        curl -sS -o /dev/null --head --max-time 10 "${url}" >/dev/null 2>&1 || unreachable+=("${url}")
+    done
+    (( ${#unreachable[@]} == 0 )) && return 0
+    warn MSG-S8B6 "network: no answer from ${unreachable[*]} -- this run applies what needs no download (the account and its home, the launcher links, the labels, the units, the managed assets) and skips the nvm, Node and npm install; connect this host and re-run to install or update the toolchain"
+    return 1
+}
+
 # Executed, this provisions a host and needs root. Sourced -- by tests/unit/bootstrap.sh, which drives
-# report_shadowed_operators with its readings stubbed and choose_agents over fixture manifests -- it defines its
-# functions and stops here: every statement from the argument parse on provisions.
+# report_shadowed_operators with its readings stubbed, choose_agents over fixture manifests, and the two preflight
+# checks over a fixture tree and a stubbed curl -- it defines its functions and stops here: every statement
+# from the argument parse on provisions.
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 0
 fi
@@ -604,6 +650,19 @@ migrate_provider_lists
 choose_agents "${REQUESTED_AGENTS}"
 refuse_unresolved_agents
 
+# What the steps that read the toolchain and reach the network need, read before either runs: the tree's ownership
+# as the account that sources nvm.sh reads it, and a route to the hosts the install downloads from (the nvm installer
+# only where nvm is not installed yet). A tree another owner holds ends the run here, with the chown named, since
+# the residue step and the install step both read it as the account; a host that reaches none of those makes this
+# an offline run, which applies every step that does not need a download and skips the install (step 2).
+_ownership_ok=1
+preflight_toolchain_ownership "${SANDBOX_HOME}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || _ownership_ok=0
+_network_urls=(https://registry.npmjs.org/ https://nodejs.org/dist/)
+[[ -s "${NVM_DIR}/nvm.sh" ]] || _network_urls+=(https://raw.githubusercontent.com/nvm-sh/nvm/)
+_online=1
+preflight_network "${_network_urls[@]}" || _online=0
+(( _ownership_ok )) || die "the toolchain's ownership must be restored before this run can read it (see above) -- no package was installed or removed"
+
 # What the toolchain holds for an agent that is installed and not in the set just decided is residue, removed here --
 # ahead of the network step, so an offline host still cleans up -- and every launch refuses until it is gone.
 remove_residue
@@ -651,13 +710,21 @@ fi
 #    The heredoc is single-quoted, so the variables are expanded by the inner shell from the env
 #    passed via `env`, never by this script. PROFILE=/dev/null directs nvm's installer to append
 #    its init lines to a discard sink instead of the root-owned home profile. Existing nvm/Node
-#    are reused (idempotent); all writes land within the pre-created .nvm/.npm subtrees.
-if [[ ${#_agent_packages[@]} -gt 0 ]]; then
+#    are reused (idempotent); all writes land within the pre-created .nvm/.npm subtrees. An offline
+#    run (preflight_network read no route) reuses a toolchain that is installed as it is, and ends
+#    here where none is: the download is the one step this command cannot make without the network.
+if (( ! _online )); then
+    if [[ -s "${NVM_DIR}/nvm.sh" && -d "${NVM_DIR}/versions/node" ]]; then
+        log "offline: the toolchain installed under ${NVM_DIR} is reused as it is -- nvm, Node and the agents' packages are not installed or updated this run"
+    else
+        die MSG-R5Z3 "offline, and no toolchain is installed under ${NVM_DIR}: the nvm and Node download needs the network -- connect this host, then re-run: sudo ai-tools-admin system bootstrap"
+    fi
+elif [[ ${#_agent_packages[@]} -gt 0 ]]; then
     log "installing nvm ${NVM_VERSION} + Node ${NODE_MAJOR} + ${_agent_packages[*]} as ${SANDBOX_USER} (network)"
 else
     log "installing nvm ${NVM_VERSION} + Node ${NODE_MAJOR} (no agents enabled) as ${SANDBOX_USER} (network)"
 fi
-sudo -u "${SANDBOX_USER}" env \
+(( _online )) && sudo -u "${SANDBOX_USER}" env \
     NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" PROFILE=/dev/null \
     NVM_VERSION="${NVM_VERSION}" NODE_MAJOR="${NODE_MAJOR}" \
     AGENT_PACKAGES="${_agent_packages[*]}" \
