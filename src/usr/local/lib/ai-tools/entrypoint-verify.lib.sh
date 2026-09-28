@@ -361,7 +361,7 @@ ai_tools_entrypoint_pin_write() {
 #   directories inside its package (Claude Code's is `<pkg>/bin/claude.exe`, codex's vendored binary
 #   `<pkg>/vendor/<target-triple>/bin/codex`). A path that does not reach such a boundary -- a copy of the binary
 #   at the version directory's `bin/`, left where a copy of the tree replaced npm's symlink with its target --
-#   holds no package, so nvm's own `package.json` at the toolchain root is never read as an agent's.
+#   does not hold a package, so nvm's own `package.json` at the toolchain root is never read as an agent's.
 _ai_tools_ev_package_root() {
     local dir="${1%/*}" parent parent_name _hop
     for _hop in 1 2 3 4 5 6; do
@@ -377,15 +377,18 @@ _ai_tools_ev_package_root() {
     return 1
 }
 
-# _ai_tools_ev_package_fields <package.json> : print `name<TAB>version` from the manifest's top level, or return
-#   non-zero. The host's python3 reads it (never the tree's node, which the sandbox account can rewrite): the file is
-#   opened without following a symlink, the descriptor is checked to be a regular file of at most 64 KiB, and that
+# _ai_tools_ev_package_fields <package.json> : print `version<TAB>name` from the manifest's top level, or return
+#   non-zero. The host's /usr/bin/python3 reads it (never the tree's node, which the sandbox account can rewrite),
+#   in isolated mode (`-I`): the current directory is off the import path, so a `json.py` in a project the reader was
+#   run from is not what `import json` loads, and no PYTHON* variable of the caller's environment reaches it. The file
+#   is opened without following a symlink, the descriptor is checked to be a regular file of at most 64 KiB, and that
 #   descriptor is what is read -- so a symlink, a fifo, or a file swapped in after the check is not the input --
 #   then parsed as JSON, with the top-level `version` alone taken and a document that is not an object refused.
-#   A tab, a newline and any byte outside printable ASCII in either field become `?`, so the two fields stay two.
+#   The version comes first, since it is never empty while the name may be. A tab, a newline and any byte outside
+#   printable ASCII in either field become `?`, so the two fields stay two.
 _ai_tools_ev_package_fields() {
-    command -v python3 >/dev/null 2>&1 || return 1
-    python3 - "$1" <<'PY'
+    [[ -x /usr/bin/python3 ]] || return 1
+    /usr/bin/python3 -I - "$1" <<'PY'
 import json, os, stat, sys
 
 path = sys.argv[1]
@@ -421,7 +424,7 @@ def printable(text):
     return "".join(c if " " <= c <= "~" else "?" for c in text)
 
 
-print(printable(name) + "\t" + printable(document["version"]))
+print(printable(document["version"]) + "\t" + printable(name))
 PY
 }
 
@@ -443,7 +446,7 @@ ai_tools_entrypoint_installed_version() {
     [[ -n "${entrypoint}" ]] || return 0
     package_root="$(_ai_tools_ev_package_root "${entrypoint}")" || return 0
     fields="$(_ai_tools_ev_package_fields "${package_root}/package.json" 2>/dev/null)" || return 0
-    IFS=$'\t' read -r declared_name declared_version <<<"${fields}"
+    IFS=$'\t' read -r declared_version declared_name <<<"${fields}"
     [[ -z "${expected_name}" || "${declared_name}" == "${expected_name}" ]] || return 0
     [[ "${declared_version}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ && "${declared_version}" != *..* ]] \
         || return 0

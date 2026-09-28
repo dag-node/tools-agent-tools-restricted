@@ -60,37 +60,50 @@ source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
 source "${BASH_SOURCE[0]%/*}/sandbox-exec.lib.sh" 2>/dev/null || true
 
 # ai_tools_npm_verdict <audit-json>: pure decision over `npm audit signatures --json` output. Echoes a verdict token
-# (OK|INVALID|MISSING|EMPTY|UNKNOWN) and returns the status contract contract. node parses the JSON (node is
-# the toolchain's own runtime; jq is not assumed) and is used read-only on the passed string -- no filesystem, no npm,
-# no privilege. OK requires the shape npm's verifier writes (`lib/utils/verify-signatures.js`: an object whose `invalid`
-# and `missing` are both arrays) with both arrays empty; empty input, a parse failure, and a document of any other shape
-# -- `{}`, a number, an object whose fields are not arrays -- yield UNKNOWN, so a format change is read as "could not
-# verify" and not as a clean audit. The audit is npm's own report over a tree the sandbox account can rewrite, npm
+# (OK|INVALID|MISSING|EMPTY|UNKNOWN) and returns the status contract. The host's /usr/bin/python3 parses the JSON
+# in isolated mode, read-only on the passed string -- no filesystem, no npm, no privilege, and no executable
+# of the toolchain, so the verdict runs under any account without executing what the sandbox account can write. OK
+# requires the shape npm's verifier writes (`lib/utils/verify-signatures.js`: an object whose `invalid` and `missing`
+# are both arrays) with both arrays empty; empty input yields EMPTY, and a parse failure or a document of any other
+# shape -- `{}`, a number, an object whose fields are not arrays -- yields UNKNOWN, so a format change is read as "could
+# not verify" and not as a clean audit. The audit is npm's own report over a tree the sandbox account can rewrite, npm
 # included, so it is not the trusted check against a hostile toolchain: the entrypoint pin is
 # (entrypoint-verify.lib.sh), and this verdict covers the registry-signature question alone.
 ai_tools_npm_verdict() {
     local audit_json="${1:-}"
     [[ -n "${audit_json}" ]] || { printf 'EMPTY'; return 2; }
-    command -v node >/dev/null 2>&1 || { printf 'UNKNOWN'; return 2; }
+    [[ -x /usr/bin/python3 ]] || { printf 'UNKNOWN'; return 2; }
 
     local token
-    token="$(printf '%s' "${audit_json}" | node -e '
-        const fs = require("fs");
-        let inv = [], mis = [];
-        try {
-            const j = JSON.parse(fs.readFileSync(0, "utf8"));
-            if (j === null || typeof j !== "object" || Array.isArray(j)
-                || !Array.isArray(j.invalid) || !Array.isArray(j.missing)) {
-                process.stdout.write("PARSEFAIL"); process.exit(0);
-            }
-            inv = j.invalid; mis = j.missing;
-        } catch (_) { process.stdout.write("PARSEFAIL"); process.exit(0); }
-        const safe = v => String(v).replace(/[^\x20-\x7e]/g, "?");
-        const name = x => safe((x && x.name) ? (x.name + "@" + (x.version || "?")) : x);
-        if (inv.length) process.stderr.write("npm-verify: invalid signature: "   + inv.map(name).join(", ") + "\n");
-        if (mis.length) process.stderr.write("npm-verify: unsigned (no registry signature): " + mis.map(name).join(", ") + "\n");
-        process.stdout.write(inv.length ? "INVALID" : (mis.length ? "MISSING" : "OK"));
-    ')" || token="PARSEFAIL"
+    token="$(printf '%s' "${audit_json}" | /usr/bin/python3 -I -c '
+import json, sys
+
+
+def printable(value):
+    return "".join(c if " " <= c <= "~" else "?" for c in str(value))
+
+
+def name_of(entry):
+    if isinstance(entry, dict) and entry.get("name"):
+        return printable(str(entry["name"]) + "@" + str(entry.get("version") or "?"))
+    return printable(entry)
+
+
+try:
+    document = json.loads(sys.stdin.read())
+except ValueError:
+    document = None
+if (not isinstance(document, dict) or not isinstance(document.get("invalid"), list)
+        or not isinstance(document.get("missing"), list)):
+    sys.stdout.write("PARSEFAIL")
+    sys.exit(0)
+invalid, missing = document["invalid"], document["missing"]
+if invalid:
+    sys.stderr.write("npm-verify: invalid signature: " + ", ".join(name_of(e) for e in invalid) + "\n")
+if missing:
+    sys.stderr.write("npm-verify: unsigned (no registry signature): " + ", ".join(name_of(e) for e in missing) + "\n")
+sys.stdout.write("INVALID" if invalid else ("MISSING" if missing else "OK"))
+')" || token="PARSEFAIL"
 
     case "${token}" in
         OK)       printf 'OK';      return 0 ;;

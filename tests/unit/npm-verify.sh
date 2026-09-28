@@ -13,10 +13,9 @@
 # to verify" and does not touch a path). The real end-to-end audit is covered as the sandbox account, out of this
 # root-run unit suite.
 #
-# `node` (the pure verdict's JSON parser) is real, and on most hosts the only one is the sandbox toolchain's
-# (toolchain_node). That binary is the sandbox account's to rewrite, so root never executes it: as root the verdict runs
-# as the sandbox account through the harness's as_sandbox, with that one node's directory on its PATH. Run as root
-# via sudo.
+# The pure verdict's JSON parser is the host's /usr/bin/python3 in isolated mode, so the verdict does not execute a file
+# of the sandbox toolchain and runs under whatever account the suite has. Run as root via sudo for the identity cases
+# and the probe that runs as the sandbox account.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -24,44 +23,14 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 readonly LIB="/usr/local/lib/ai-tools/npm-verify.lib.sh"
 section "npm-verify: signature-verification verdict truth table (unit)"
 
-# toolchain_node: PRINT the path to the sandbox toolchain's node, or an empty string. node is the pure verdict's JSON
-# parser but it lives ONLY in the sandbox account's nvm tree, never on root's PATH -- and this suite runs as root,
-# so resolving it from PATH alone skips the whole file on a fully provisioned host and strict mode then flags it as no
-# coverage. Resolve it the way the launch wrapper resolves the agent binary: one readlink hop through a stable launcher
-# symlink, whose target's bin directory belongs to the ACTIVE Node version. Falls back to the highest installed version
-# (the same `sort -V | tail -1` selection nvm-update.sh makes), then to PATH.
-toolchain_node() {
-    local link target cand
-    for link in /opt/ai-tools/bin/*; do
-        [[ -L "${link}" ]] || continue
-        target="$(readlink -f -- "${link}" 2>/dev/null)" || continue
-        cand="$(dirname -- "${target}")/node"
-        [[ -x "${cand}" ]] && { printf '%s' "${cand}"; return 0; }
-    done
-    cand="$(printf '%s\n' /opt/ai-tools/.nvm/versions/node/v*/bin/node | sort -V | tail -1)"
-    [[ -x "${cand}" ]] && { printf '%s' "${cand}"; return 0; }
-    command -v node 2>/dev/null || return 0
-}
-
 if [[ ! -r "${LIB}" ]]; then
     skip "npm-verify" "library not readable at ${LIB}"; finish; exit
 fi
-NODE_BIN="$(toolchain_node)"
-if [[ -z "${NODE_BIN}" ]]; then
-    skip "npm-verify" "node not available (the pure verdict's JSON parser)"; finish; exit
-fi
-# as_verdict_account <json>: ai_tools_npm_verdict run by an account that may execute NODE_BIN -- this one when it is not
-# root, the sandbox account when it is, since NODE_BIN may be the sandbox's to rewrite and root never runs it. The token
-# goes to stdout and the verdict's status is the function's.
+# as_verdict_account <json>: ai_tools_npm_verdict in a shell of its own, so the token goes to stdout and the verdict's
+# status is the function's.
 as_verdict_account() {
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
-    local verdict_script='source "$1" && ai_tools_npm_verdict "$2"'
-    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-        as_sandbox env PATH="$(dirname -- "${NODE_BIN}"):/usr/bin:/bin" \
-            bash -c "${verdict_script}" _ "${LIB}" "$1"
-    else
-        PATH="$(dirname -- "${NODE_BIN}"):${PATH}" bash -c "${verdict_script}" _ "${LIB}" "$1"
-    fi
+    bash -c 'source "$1" && ai_tools_npm_verdict "$2"' _ "${LIB}" "$1"
 }
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
@@ -146,12 +115,21 @@ npm_error_probe() {
              node() { :; }
              source "$1"; ai_tools_verify_npm_signatures' _ "${LIB}"
 }
+# The verifier requires the sandbox identity, so the probe runs through as_sandbox as root, directly where the suite
+# itself runs as that account, and skips from any other account.
+probe_ran=0
 if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
     rc=0; out="$(as_sandbox bash -c "$(declare -f npm_error_probe); LIB='${LIB}' npm_error_probe" 2>&1)" || rc=$?
-else
+    probe_ran=1
+elif ai_tools_is_sandbox_account 2>/dev/null; then
     rc=0; out="$(npm_error_probe 2>&1)" || rc=$?
+    probe_ran=1
+else
+    skip "an npm that does not start" "the probe runs as the sandbox account, which needs root or that account"
 fi
-if [[ "${rc}" -eq 2 && "${out}" == *"npm does not start (Error: Cannot find module '../lib/cli.js'?[0m)"* ]]; then
+if (( ! probe_ran )); then
+    :
+elif [[ "${rc}" -eq 2 && "${out}" == *"npm does not start (Error: Cannot find module '../lib/cli.js'?[0m)"* ]]; then
     pass "an npm that does not start is named with its own error line, at rc 2, the escape byte replaced by ?"
 else
     fail "an npm that does not start read as rc ${rc}: $(tr '\n\033' '|?' <<<"${out}")"

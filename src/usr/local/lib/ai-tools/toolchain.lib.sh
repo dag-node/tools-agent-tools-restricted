@@ -83,19 +83,48 @@ _ai_tools_toolchain_require_sandbox() {
 }
 
 # The reader ahead of the provider requirement does not read a manifest, so it is defined whatever it decides.
+# _ai_tools_toolchain_alias_value <alias-file> : print the alias an nvm alias file holds, or return non-zero. The host's
+#   /usr/bin/python3 reads it in isolated mode (the current directory off the import path): the file is opened without
+#   following a symlink, the descriptor is checked to be a regular file of at most 64 bytes, and the bytes read
+#   from that descriptor must match the alias shape whole, one optional line feed included -- a NUL, a space,
+#   a second line or a keyword is refused before any byte becomes a shell value.
+_ai_tools_toolchain_alias_value() {
+    [[ -x /usr/bin/python3 ]] || return 1
+    /usr/bin/python3 -I - "$1" <<'PY'
+import os, re, stat, sys
+
+path = sys.argv[1]
+try:
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+except OSError:
+    sys.exit(1)
+try:
+    info = os.fstat(descriptor)
+    if not stat.S_ISREG(info.st_mode) or info.st_size > 64:
+        sys.exit(1)
+    data = os.read(descriptor, 65)
+finally:
+    os.close(descriptor)
+match = re.fullmatch(rb"(v?[0-9]+(?:\.[0-9]+){0,2})\n?", data)
+if match is None:
+    sys.exit(1)
+sys.stdout.write(match.group(1).decode("ascii"))
+PY
+}
+
 # ai_tools_nvm_default_version <nvm-dir> : print the version directory name (`v22.23.3`) nvm's `default` alias selects
 #   among the installed versions, or an empty string. Read as data -- the alias file, then the version directories --
 #   so a root caller learns the version without sourcing nvm.sh, which is the sandbox account's to rewrite
 #   (updater.rule.md). The alias holds what nvm wrote: an exact `vX.Y.Z`, or a prefix of one (`22`, `v22.23`), which
-#   selects the highest installed match, as `nvm version default` does. The first line is validated whole, before any
-#   normalization, so a line the account put there -- `2 2`, `22;rm -rf /` -- is refused rather than read as `22`;
-#   `node`, `lts/*` and every other nvm keyword are outside the admitted shape too (ai-tools-bootstrap writes a bare
-#   major). Each prints nothing, which the callers report as an unset alias. A candidate is a real directory:
-#   a regular file or a symlink named like a version is not one.
+#   selects the highest installed match, as `nvm version default` does. The file's bytes are validated whole, as bytes,
+#   before any of them becomes a shell value: a line the account put there -- `2 2`, `22;rm -rf /`, `2<NUL>2`, which
+#   a command substitution would read as `22` -- is refused; `node`, `lts/*` and every other nvm keyword are outside
+#   the admitted shape too (ai-tools-bootstrap writes a bare major). Each prints nothing, which the callers report
+#   as an unset alias. A candidate is a real directory: a regular file or a symlink named like a version is not one.
 ai_tools_nvm_default_version() {
     local nvm_dir="${1:-}" alias_line prefix candidate best=""
-    [[ -n "${nvm_dir}" && -f "${nvm_dir}/alias/default" && ! -L "${nvm_dir}/alias/default" ]] || return 0
-    alias_line="$(head -c 64 -- "${nvm_dir}/alias/default" 2>/dev/null | head -n1 || true)"
+    [[ -n "${nvm_dir}" ]] || return 0
+    alias_line="$(_ai_tools_toolchain_alias_value "${nvm_dir}/alias/default")" || return 0
     [[ "${alias_line}" =~ ^v?[0-9]+(\.[0-9]+){0,2}$ ]] || return 0
     prefix="v${alias_line#v}"
     for candidate in "${nvm_dir}"/versions/node/v*; do

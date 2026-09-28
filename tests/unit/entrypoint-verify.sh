@@ -587,7 +587,8 @@ ROWS
     fi
 
     # The package boundary: an entrypoint inside a nested package that has no manifest of its own does not report
-    # a version, the enclosing package's included. The control is the enclosing package's own entrypoint, which does read.
+    # a version, the enclosing package's included. The control is the enclosing package's own entrypoint, which does
+    # read.
     outer="${TESTDIR}/pkg/lib/node_modules/outer"
     mkdir -p "${outer}/bin" "${outer}/node_modules/inner/bin"
     : > "${outer}/bin/entry" "${outer}/node_modules/inner/bin/entry"
@@ -626,8 +627,32 @@ ROWS
 ["1.2.3"]||that is an array
 {"name":"p","version":123}||whose version is a number
 {"name":"p"}||without a version
+{"version":"1.2.3"}|1.2.3|without a name, which is optional
 not json||that is not JSON
 ROWS
+
+    # The reader's interpreter runs in isolated mode: a `json.py` in the directory it is run from -- a project
+    # the operator ran the status from -- is not what it imports. The fixture module writes a marker where it is
+    # imported, and the control asserts the fixture would be imported by a plain interpreter run from there.
+    shadow="${TESTDIR}/shadow"
+    mkdir -p "${shadow}"
+    printf 'import os\nopen(os.environ["AI_TOOLS_TEST_SHADOW_MARK"], "w").write("shadowed")\n' > "${shadow}/json.py"
+    ep="$(mk_pkg bin/shadowed 5.6.7 shadowed)"
+    export AI_TOOLS_TEST_SHADOW_MARK="${TESTDIR}/shadow-mark"
+    rm -f "${AI_TOOLS_TEST_SHADOW_MARK}"
+    (cd "${shadow}" && printf 'import json\n' | /usr/bin/python3 - >/dev/null 2>&1) || true
+    if [[ ! -e "${AI_TOOLS_TEST_SHADOW_MARK}" ]]; then
+        fail "control: a plain interpreter run from the fixture directory did not import the fixture module"
+    else
+        rm -f "${AI_TOOLS_TEST_SHADOW_MARK}"
+        got="$(cd "${shadow}" && ai_tools_entrypoint_installed_version "${ep}" || true)"
+        if [[ "${got}" == 5.6.7 && ! -e "${AI_TOOLS_TEST_SHADOW_MARK}" ]]; then
+            pass "the reader run from a directory holding a json.py imports the standard library, not the fixture"
+        else
+            fail "run from a directory holding a json.py: read '${got}', fixture imported: $([[ -e "${AI_TOOLS_TEST_SHADOW_MARK}" ]] && echo yes || echo no)"
+        fi
+    fi
+    unset AI_TOOLS_TEST_SHADOW_MARK
 
     # The name check: a caller naming the package it asked about is answered for that package alone.
     ep="$(mk_pkg bin/named 4.5.6 named)"

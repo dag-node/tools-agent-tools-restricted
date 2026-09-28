@@ -490,7 +490,13 @@ lts/*||an nvm keyword
 22;rm -rf /||a line carrying a shell metacharacter
 2 2||a line with a space is refused whole, not read as 22
  22||a leading space is refused whole
+22
+23||a second line is refused whole
 ROWS
+# A NUL byte, which a command substitution drops -- `2<NUL>2` read that way is `22` -- is refused as a byte.
+printf '2\0002\n' > "${alias_nvm}/alias/default"
+got="$(ai_tools_nvm_default_version "${alias_nvm}")"
+[[ -z "${got}" ]] && pass "alias with a NUL byte is refused whole, not read as 22" || fail "alias with a NUL byte read '${got}'"
 # A candidate is a real directory: a regular file and a symlink named like a newer version do not win.
 : > "${alias_nvm}/versions/node/v22.99.99"
 ln -s "${alias_nvm}/versions/node/v22.23.3" "${alias_nvm}/versions/node/v22.99.98"
