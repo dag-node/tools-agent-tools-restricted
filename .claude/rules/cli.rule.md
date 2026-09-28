@@ -809,10 +809,16 @@ secrets) and `!`-excluded subtrees as out of reach by intent (see [secret-handli
   relabel would apply. The expected type is asked of the policy, not of a list of type names — a dry run of that relabel
   (`restorecon -n -F`, unprivileged, reading the world-readable file contexts) — so the per-project rules and every
   loaded module's types are covered, a module added later included. Only a type difference counts; `-F` also reports
-  the SELinux user, which does not decide access. Its walk is the relabel's scope (`restorecon -FR`): every directory,
-  `.git` and skip-listed names included, crossing mount points, with the `!` exclusions and owner-only paths filtered
-  out afterwards. Every walked name without a line feed goes into one non-recursive batch, so each record belongs
-  to a listed path, and a name holding one is checked on its own.
+  the SELinux user and the MLS range, and a difference in those alone reads as a match. That rests on the loaded policy,
+  which this project's module does not change: on the file classes, the targeted policy's constraints compare the user
+  only for `create`, `relabelfrom` and `relabelto` — which user a new or relabelled object may carry — and not
+  for a read, write or execute of an existing file, and `ai_tools_t` does not carry `mcs_constrained_type`,
+  so a category on a file does not deny it — `seinfo -a mcs_constrained_type -x` and `seinfo --constrain` read both
+  on a host. Counting them would report every file an operator creates, which carries `unconfined_u` where the project
+  rule gives `system_u`, and a relabel resets both anyway. Its walk is the relabel's scope (`restorecon -FR`): every
+  directory, `.git` and skip-listed names included, crossing mount points, with the `!` exclusions and owner-only paths
+  filtered out afterwards. Every walked name without a line feed goes into one non-recursive batch, so each record
+  belongs to a listed path, and a name holding one is checked on its own.
 
 **A scan reports what it could not read.** Both walks are NUL-separated, so a name holding a tab or a line feed arrives
 whole, and each runs its tools with stdout and stderr apart. A walk that exits non-zero or writes to stderr, a batch
