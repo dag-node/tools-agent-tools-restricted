@@ -370,13 +370,18 @@ ai_tools_entrypoint_pin_write() {
 #   directories inside its package: Claude Code's is `<pkg>/bin/claude.exe`, while codex's vendored binary is
 #   `<pkg>/vendor/<target-triple>/bin/codex`. One reader serves both, so the two callers -- the pin and the launch
 #   banner -- cannot disagree about what version an entrypoint is.
+#
+#   The walk stays inside `node_modules`: a directory whose path does not continue past a `node_modules/` component
+#   ends it. An entrypoint outside any package -- a copy of the binary at the version directory's `bin/`, left where
+#   a copy of the tree replaced npm's symlink with its target -- otherwise climbs to the first `package.json` among its ancestors,
+#   nvm's own at the toolchain root, and reports nvm's version as the agent's.
 ai_tools_entrypoint_installed_version() {
     local dir="${1:-}" declared
     [[ -n "${dir}" ]] || return 0
     dir="${dir%/*}"
     local _hop
     for _hop in 1 2 3 4 5 6; do
-        [[ -n "${dir}" ]] || break
+        [[ "${dir}" == */node_modules/* ]] || break
         if [[ -f "${dir}/package.json" && -r "${dir}/package.json" ]]; then
             # Bounded read of a regular file: the version sits in the first bytes, and a fifo swapped into the path must
             # never block a launch.

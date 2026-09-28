@@ -490,8 +490,10 @@ fi
 if ! declare -F ai_tools_entrypoint_installed_version >/dev/null 2>&1; then
     skip "installed version" "the installed ${LIB} carries no version reader -- reinstall to cover it"
 else
-    mk_pkg() {  # mk_pkg <relative entrypoint path> <version> ; prints the entrypoint path
-        local rel="$1" version="$2" root="${TESTDIR}/pkg/${3:-p}" pkgdir
+    # The packages sit under lib/node_modules, the layout npm installs a global package in: the walk does not read
+    # a package.json outside a node_modules path.
+    mk_pkg() {  # mk_pkg <relative entrypoint path> <version> [name] ; prints the entrypoint path
+        local rel="$1" version="$2" root="${TESTDIR}/pkg/lib/node_modules/${3:-p}" pkgdir
         pkgdir="${root}/$(dirname "${rel}")"
         mkdir -p "${pkgdir}"
         : > "${root}/${rel}"
@@ -574,14 +576,31 @@ ROWS
 
     # A package.json the walk never reaches yields an empty string, which the caller turns into `unknown` rather than
     # comparing an empty value against a recorded one.
-    deep="${TESTDIR}/pkg/deep/a/b/c/d/e/f/g"
+    deep="${TESTDIR}/pkg/lib/node_modules/deep/a/b/c/d/e/f/g"
     mkdir -p "${deep}"
     : > "${deep}/entry"
-    printf '{"version":"9.9.9"}\n' > "${TESTDIR}/pkg/deep/package.json"
+    printf '{"version":"9.9.9"}\n' > "${TESTDIR}/pkg/lib/node_modules/deep/package.json"
     if [[ -z "$(ai_tools_entrypoint_installed_version "${deep}/entry" || true)" ]]; then
         pass "a package.json beyond the bounded walk yields no version"
     else
         fail "the walk ran past its bound"
+    fi
+
+    # A copy of the entrypoint at the version directory's bin/, where npm keeps a symlink into the package: the walk
+    # ends at the first directory outside node_modules, so the package.json at the toolchain root (nvm's, with nvm's
+    # version) is not read as the agent's. The control is the same file inside its package, which does read.
+    toolchain="${TESTDIR}/copied"
+    mkdir -p "${toolchain}/versions/node/v1.2.3/bin" "${toolchain}/versions/node/v1.2.3/lib/node_modules/agent/bin"
+    printf '{"name":"nvm","version":"0.40.3"}\n' > "${toolchain}/package.json"
+    printf '{"name":"agent","version":"2.1.274"}\n' > "${toolchain}/versions/node/v1.2.3/lib/node_modules/agent/package.json"
+    : > "${toolchain}/versions/node/v1.2.3/lib/node_modules/agent/bin/entry"
+    : > "${toolchain}/versions/node/v1.2.3/bin/entry"
+    if [[ "$(ai_tools_entrypoint_installed_version "${toolchain}/versions/node/v1.2.3/lib/node_modules/agent/bin/entry" || true)" != 2.1.274 ]]; then
+        fail "control: the entrypoint inside its package did not read 2.1.274, so the copy case proves nothing"
+    elif [[ -z "$(ai_tools_entrypoint_installed_version "${toolchain}/versions/node/v1.2.3/bin/entry" || true)" ]]; then
+        pass "a copy of the entrypoint outside its package yields no version, not the toolchain root's"
+    else
+        fail "a copy outside the package read '$(ai_tools_entrypoint_installed_version "${toolchain}/versions/node/v1.2.3/bin/entry" || true)' from a package.json above node_modules"
     fi
 fi
 
