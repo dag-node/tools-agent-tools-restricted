@@ -29,8 +29,13 @@ the interpreter by absolute path in privileged mode, PATH pinned — is stated i
 The gates are one implementation, `/usr/local/lib/ai-tools/launch-wrapper.lib.sh` (`644 root:root`,
 `ai-tools-base`-owned), and the wrapper is four calls into it: `ai_tools_launch_init <name>`, which loads `msg.lib.sh`,
 `safe-paths.lib.sh` and `conf.lib.sh` fail-closed and admits the name only in a launcher's charset, matched in the C
-locale (`MSG-Z6F8`); `ai_tools_launch_gates "$@"`, which runs the numbered gates in their order;
-`ai_tools_launch_agent_args`, the agent's launch hook ([Operator-configured launch
+locale (`MSG-Z6F8`); `ai_tools_launch_gates "$@"`, which runs the numbered gates in their order — the operator gate
+first, then the clock gate (`ai_tools_launch_gate_clock`, `MSG-U8K6`: a file this host wrote dated after the system
+clock, read by `ai_tools_conf_clock_behind` over the library, the wrapper, the operator's allowlist, the updater's stamp
+and the entrypoint pins, says the clock is behind, and every record a session leaves would carry the wrong time,
+so the launch is refused naming the file and the command that sets the clock; `ai-tools-run` makes the same read
+as the sandbox account under `MSG-Z9C8`, so the boundary does not rest on the wrapper's), then the list, launcher,
+residue and CWD gates; `ai_tools_launch_agent_args`, the agent's launch hook ([Operator-configured launch
 inputs](#operator-configured-launch-inputs)); and `ai_tools_launch_session <arg>...`, the pre-launch notices
 and the `exec`. A new agent therefore ships a manifest and a symlink, and a launch hook only for launch-time arguments
 of its own; a change to a gate lands for every agent at once. The wrapper's own inline check is the one guard

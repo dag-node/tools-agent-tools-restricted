@@ -369,17 +369,18 @@ an ordinary account read it — a partial view, the file sink being the authorit
   — whether the unit **file** is installed — and it is checked first, so a unit an optional package never shipped (the
   `nvm-update` pair without the nodejs integration) reads as not-installed rather than as one this host cannot see,
   and a stamp an uninstall left behind cannot make a gone unit look present. A run that **correctly declined to act**
-  reads `SKIPPED` with its reason (the updater against an unreachable registry, see [updater](updater.rule.md)): it is
-  dim rather than yellow and does not count as a fault, so a disconnected laptop does not make `status` exit non-zero
-  every night — while the same stamp still ages into `STALE` if the condition persists, which is where a toolchain
-  that has genuinely stopped advancing surfaces. The account's own `~/.config/systemd/user` is not searched: it sits
-  inside a home the operator cannot traverse, and every unit the registry names ships to the system-wide user-unit
-  directory. A stamped unit's OK carries the time of that run, not a claim that it is running now, and a `FAILED`
-  carries the run's exit code. The `?` line is not a problem report — it says only that this vantage point cannot tell —
-  so it stays a single line naming the one command that can, and the multi-command diagnostic block is reserved
-  for a unit reported broken. One state is separated from it in both reports: a stamp still empty as the package seeded
-  it (`ai_tools_service_stamp_unwritten`) reads `no run recorded yet`, since that is where a freshly provisioned host
-  stands until the updater's first window, and a `?` there would send an operator to check a unit that is fine.
+  reads `SKIPPED` with its reason (the updater against an unreachable registry, or under a clock behind a file it wrote,
+  see [updater](updater.rule.md)): it is dim rather than yellow and does not count as a fault, so a disconnected laptop
+  does not make `status` exit non-zero every night — while the same stamp still ages into `STALE` if the condition
+  persists, which is where a toolchain that has genuinely stopped advancing surfaces. The account's own
+  `~/.config/systemd/user` is not searched: it sits inside a home the operator cannot traverse, and every unit
+  the registry names ships to the system-wide user-unit directory. A stamped unit's OK carries the time of that run, not
+  a claim that it is running now, and a `FAILED` carries the run's exit code. The `?` line is not a problem report — it
+  says only that this vantage point cannot tell — so it stays a single line naming the one command that can,
+  and the multi-command diagnostic block is reserved for a unit reported broken. One state is separated from it in both
+  reports: a stamp still empty as the package seeded it (`ai_tools_service_stamp_unwritten`) reads
+  `no run recorded yet`, since that is where a freshly provisioned host stands until the updater's first window,
+  and a `?` there would send an operator to check a unit that is fine.
 
   **A stamp is read for two properties, and one stamp can serve two units.** `RESULT` answers *did the last run
   succeed*; its **age** answers *are runs still happening* — a distinct question a `RESULT` cannot express, since

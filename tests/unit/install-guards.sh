@@ -166,6 +166,66 @@ else
     fail "uncommitted tree: rc=${GATE_RC}: ${GATE_OUT}"
 fi
 
+# (13a) The version gate, driven through the same action over the same fixture: the checkout's packaging/VERSION
+# against the AI_TOOLS_VERSION line of a fixture "installed CLI" reached through AI_TOOLS_INSTALLED_CLI. Each direction
+# is driven -- a newer installation refuses and names the flag, the flag admits it with the warning that states
+# what the next post-upgrade will read, an equal and an older installation pass in silence, and an installation
+# whose version cannot be read passes with the line saying so. `--allow-uncommitted` keeps the source-tree gate
+# out of the way, since these runs share the fixture with the cases that dirty it.
+mkdir -p "${FIX}/packaging"; printf '0.21.0\n' > "${FIX}/packaging/VERSION"
+INSTALLED_CLI="${TESTDIR}/installed-cli"
+run_version_gate() {  # run_version_gate <installed version line> [arg...]
+    local line="$1"; shift
+    printf '#!/usr/bin/env bash\n%s\n' "${line}" > "${INSTALLED_CLI}"
+    set +e
+    GATE_OUT="$(AI_TOOLS_INSTALLED_CLI="${INSTALLED_CLI}" SUDO_USER="${PROJECTS_USER}" setsid -w bash "${FIX}/install.sh" check-tree --allow-uncommitted "$@" 2>&1)"
+    GATE_RC=$?
+    set -e
+}
+run_version_gate 'AI_TOOLS_VERSION="0.22.0"'
+assert_msg MSG-W6B3 "${GATE_OUT}" "a checkout older than the installed version is refused"
+if (( GATE_RC != 0 )) && grep -q '0.21.0' <<<"${GATE_OUT}" && grep -q '0.22.0' <<<"${GATE_OUT}" \
+        && grep -qE "sudo (dnf remove 'ai-tools-\*'|\./install\.sh uninstall)" <<<"${GATE_OUT}" \
+        && grep -q -- '--allow-downgrade' <<<"${GATE_OUT}"; then
+    pass "the refusal names both versions, the removal by the installed version's own tool, and the in-place flag after it"
+else
+    fail "downgrade refusal: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+if grep -q 'sudo dnf remove' <<<"${GATE_OUT}"; then
+    if rpm -q ai-tools-base >/dev/null 2>&1; then
+        pass "the removal named is dnf's, since ai-tools-base is an rpm on this host"
+    else
+        fail "the refusal names dnf on a host where ai-tools-base is not an rpm"
+    fi
+elif rpm -q ai-tools-base >/dev/null 2>&1; then
+    fail "the refusal names the from-source uninstall on a host where ai-tools-base is an rpm"
+else
+    pass "the removal named is the installed version's own install.sh uninstall, since ai-tools-base is not an rpm here"
+fi
+run_version_gate 'AI_TOOLS_VERSION="0.22.0"' --allow-downgrade
+assert_msg MSG-W7G8 "${GATE_OUT}" "--allow-downgrade admits the older checkout with a warning"
+if (( GATE_RC == 0 )) && ! grep -q 'MSG-W6B3' <<<"${GATE_OUT}" && grep -q 'system post-upgrade' <<<"${GATE_OUT}"; then
+    pass "the admitted downgrade passes and the warning names what the next post-upgrade reads"
+else
+    fail "admitted downgrade: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+for line in 'AI_TOOLS_VERSION="0.21.0"' 'AI_TOOLS_VERSION="0.20.5"' 'AI_TOOLS_VERSION="dev"' 'AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"'; do
+    run_version_gate "${line}"
+    if (( GATE_RC == 0 )) && ! grep -qE 'MSG-W6B3|MSG-W7G8' <<<"${GATE_OUT}" && grep -q 'version       : 0.21.0' <<<"${GATE_OUT}"; then
+        pass "an installation reading ${line#AI_TOOLS_VERSION=} passes the version gate, the version line printed"
+    else
+        fail "installed ${line}: rc=${GATE_RC}: ${GATE_OUT}"
+    fi
+done
+rm -f "${INSTALLED_CLI}"
+run_version_gate ''
+rm -f "${INSTALLED_CLI}"
+if (( GATE_RC == 0 )) && grep -q 'no installed version to order against' <<<"${GATE_OUT}"; then
+    pass "no installed CLI passes the version gate, saying there is nothing to order against"
+else
+    fail "no installed CLI: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+
 # (13) A path the sandbox account owns is marked: that is a session's write no one has committed.
 chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${FIX}/untracked.txt"
 run_gate

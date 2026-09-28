@@ -1328,19 +1328,21 @@ _pu_leave() {
 # built in one run can differ by seconds.
 _pu_installed_day() { date -r "${BASH_SOURCE[0]}" +%Y%m%d 2>/dev/null; }
 
-# _pu_provenance <rpmnew>: the one line under a file's headline, naming the copy and its date. A copy dated before this
-# installation -- a from-source install after an RPM one, or a copy left from an earlier upgrade -- is an earlier
-# version's template, which is said beside it.
+# _pu_provenance <copy>: the one line under a file's headline, naming the copy, which route left it (the package's
+# .rpmnew, or the installer's .shipped from a from-source install) and its date. A copy dated before this installation
+# -- a from-source install after an RPM one, or a copy left from an earlier upgrade -- is an earlier version's template,
+# which is said beside it.
 _pu_provenance() {
-    local rpmnew="$1" dated day installed
-    dated="$(date -r "${rpmnew}" +%Y-%m-%d 2>/dev/null)" || dated="an unknown date"
+    local copy="$1" dated day installed route="package copy"
+    [[ "${copy}" == *.shipped ]] && route="installer copy"
+    dated="$(date -r "${copy}" +%Y-%m-%d 2>/dev/null)" || dated="an unknown date"
     day="${dated//-/}"
     installed="$(_pu_installed_day)" || installed=""
     if [[ -n "${installed}" && "${day}" =~ ^[0-9]{8}$ && "${day}" < "${installed}" ]]; then
-        printf 'package copy: %s, dated %s -- older than this installation, so an earlier version'"'"'s template' \
-            "${rpmnew}" "${dated}"
+        printf '%s: %s, dated %s -- older than this installation, so an earlier version'"'"'s template' \
+            "${route}" "${copy}" "${dated}"
     else
-        printf 'package copy: %s, dated %s' "${rpmnew}" "${dated}"
+        printf '%s: %s, dated %s' "${route}" "${copy}" "${dated}"
     fi
 }
 
@@ -1533,28 +1535,58 @@ _pu_show() {
     _pu_leave "${rpmnew}"
 }
 
-# _pu_entries <root>: one "<file>|<kind>|<label>" line per file with a .rpmnew waiting -- the registry first, then each
-# one found under POSTUPGRADE_DIRS that the registry does not name.
+# _pu_clock_lines <array-name> <entry>...: fill the named array with "<when>  <path>" for every file or copy
+# among the entries dated after the system clock (ai_tools_conf_clock_behind), and fail when there is one. The copy
+# a file is compared with is the newest by date, so under a clock that is behind the comparison picks the wrong copy
+# and the report would send the operator to merge from it: both runs ask this first and, with a finding, name the clock
+# as the first thing to correct and make no comparison.
+_pu_clock_lines() {
+    local -n _pu_clock_out="$1"
+    shift
+    local entry file kind label copy when path
+    local -a paths=()
+    _pu_clock_out=()
+    for entry in "$@"; do
+        IFS='|' read -r file kind label copy <<< "${entry}"
+        paths+=("${file}" "${copy}")
+    done
+    (( ${#paths[@]} > 0 )) || return 0
+    while IFS=$'\t' read -r when path; do
+        [[ -n "${path}" ]] && _pu_clock_out+=("${when}  ${path}")
+    done < <(ai_tools_conf_clock_behind "${paths[@]}" || true)
+    (( ${#_pu_clock_out[@]} == 0 ))
+}
+
+# _pu_entries <root>: one "<file>|<kind>|<label>|<copy>" line per file with a baseline copy waiting -- the registry
+# first, then each one found under POSTUPGRADE_DIRS that the registry does not name. The copy is the newest beside
+# the file of the package's .rpmnew and the installer's .shipped (ai_tools_conf_latest_copy), so a host whose install
+# routes alternated is compared with the baseline that reached it last, whichever route brought it.
 _pu_entries() {
-    local root="$1" entry file kind label dir rpmnew fd pid
+    local root="$1" entry file kind label dir copy fd pid
     local -a named=()
     for entry in "${POSTUPGRADE_FILES[@]}"; do
         IFS='|' read -r file kind label <<< "${entry}"
         named+=("${root}${file}")
-        [[ -f "${root}${file}.rpmnew" && -f "${root}${file}" ]] && printf '%s|%s|%s\n' "${root}${file}" "${kind}" "${label}"
+        [[ -f "${root}${file}" ]] && copy="$(ai_tools_conf_latest_copy "${root}${file}")" \
+            && printf '%s|%s|%s|%s\n' "${root}${file}" "${kind}" "${label}" "${copy}"
     done
     for dir in "${POSTUPGRADE_DIRS[@]}"; do
         [[ -d "${root}${dir}" ]] || continue
-        exec {fd}< <(find "${root}${dir}" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null | sort); pid=$!
-        while IFS= read -r -u "${fd}" rpmnew; do
-            file="${rpmnew%.rpmnew}"
+        exec {fd}< <(find "${root}${dir}" -maxdepth 3 -type f \( -name '*.rpmnew' -o -name '*.shipped' \) 2>/dev/null | sort); pid=$!
+        while IFS= read -r -u "${fd}" copy; do
+            case "${copy}" in
+                *.rpmnew)  file="${copy%.rpmnew}" ;;
+                *.shipped) file="$(sed -E 's/\.[0-9]{8}(-[0-9]+)?\.shipped$//' <<< "${copy}")"
+                           [[ "${file}" != "${copy}" ]] || continue ;;
+            esac
             [[ -f "${file}" && " ${named[*]} " != *" ${file} "* ]] || continue
             named+=("${file}")
+            copy="$(ai_tools_conf_latest_copy "${file}")" || continue
             if [[ "${file}" == *.conf ]]; then kind=keyval; else kind=show; fi
-            printf '%s|%s|%s\n' "${file}" "${kind}" "${file##*/}"
+            printf '%s|%s|%s|%s\n' "${file}" "${kind}" "${file##*/}" "${copy}"
         done
         exec {fd}<&-
-        # A directory the walk could not read is a .rpmnew this collector may have missed, so the collector fails rather
+        # A directory the walk could not read is a copy this collector may have missed, so the collector fails rather
         # than reporting the files it did find as the whole set.
         wait "${pid}" || return 1
     done
@@ -1692,19 +1724,22 @@ _pu_sort_copies() {
         | sort -t $'\t' -k1,1 -k2,2 -k3,3n | cut -f4
 }
 
-# _pu_sidecars <root>: list the dated copies _pu_copies names, so an operator learns they exist. Listed, never removed:
-# a .bak is the only copy that restores host tuning a merge got wrong. One dated before this command's own file is
-# from an earlier installation, which is said beside it.
+# _pu_sidecars <root> [<reference>...]: list the dated copies _pu_copies names, so an operator learns they exist,
+# leaving out each <reference> -- a .shipped _pu_report compared a file with, which has a block of its own. Listed,
+# never removed: a .bak is the only copy that restores host tuning a merge got wrong. One dated before this command's
+# own file is from an earlier installation, which is said beside it.
 _pu_sidecars() {
     local root="$1" path stamp installed
-    local -a copies=()
+    shift
+    local -a copies=() references=("$@")
     installed="$(_pu_installed_day)" || installed=""
     mapfile -t copies < <(_pu_copies "${root}")
     (( ${#copies[@]} > 0 )) || return 0
     ai_tools_msg_headline "earlier copies kept beside the config files" 1 \
-        "a .bak is what a file held before a merge replaced it, a .shipped the baseline left when a merge could not run," \
+        "a .bak is what a file held before a merge replaced it, a .shipped a baseline an earlier from-source install left," \
         "a .retired a managed file or a withdrawn skill set aside"
     for path in "${copies[@]}"; do
+        [[ " ${references[*]+"${references[*]}"} " != *" ${path} "* ]] || continue
         stamp="$(sed -nE 's/.*\.([0-9]{8})(-[0-9]+)?\.(bak|shipped|retired)$/\1/p' <<< "${path}")"
         if [[ -n "${installed}" && -n "${stamp}" && "${stamp}" < "${installed}" ]]; then
             printf '  %s  %s(before this installation)%s\n' "${path}" "${_PU_DIM}" "${_PU_RST}"
@@ -1712,7 +1747,7 @@ _pu_sidecars() {
             printf '  %s\n' "${path}"
         fi
     done
-    printf '  each is yours to keep or remove -- no command reads one\n'
+    printf '  each is yours to keep or remove -- this command reads only the newest copy beside a file, above\n'
 }
 
 # postupgrade [--check [--all] [--format tsv]]: reconcile the copies, or with `--check` write what needs attention
@@ -1839,12 +1874,26 @@ _pu_wait_collector() {
 # predicate the report does. The caller reads the outcome off the report state, ai_tools_records_get_exit_status.
 _pu_run_check() {
     local root="$1" file kind label scratch status key line state stype path detail live reference fd pid
-    local -a new_keys=() entries=()
+    local -a new_keys=() entries=() files_with_baseline=()
     ai_tools_records_begin_report
     _pu_kind_findings "${root}"
     exec {fd}< <(_pu_entries "${root}"); pid=$!
-    while IFS='|' read -r -u "${fd}" file kind label; do
-        if cmp -s "${file}" "${file}.rpmnew"; then _pu_write_finding rpmnew-residual file "${file}.rpmnew" ""; continue; fi
+    mapfile -t -u "${fd}" files_with_baseline
+    exec {fd}<&-
+    _pu_wait_collector "${pid}" directory "${root:-/}" entries
+    # A file or copy dated after the clock: the comparison would pick the wrong copy, so each is an `error` row --
+    # a check that could not run -- and the run does not compare a file.
+    local -a clock_lines=()
+    if ! _pu_clock_lines clock_lines "${files_with_baseline[@]+"${files_with_baseline[@]}"}"; then
+        for line in "${clock_lines[@]}"; do
+            _pu_write_finding error file "${line#*  }" "dated ${line%%  *}, after the system clock -- set the clock before acting on this report" clock
+        done
+        files_with_baseline=()
+    fi
+    local entry
+    for entry in "${files_with_baseline[@]+"${files_with_baseline[@]}"}"; do
+        IFS='|' read -r file kind label copy <<< "${entry}"
+        if cmp -s "${file}" "${copy}"; then _pu_write_finding rpmnew-residual file "${copy}" ""; continue; fi
         case "${kind}" in
         json)
             if ! ai_tools_conf_require_jq 2>/dev/null; then
@@ -1854,22 +1903,22 @@ _pu_run_check() {
             scratch="$(mktemp -d)" || { _pu_write_finding error file "${file}" "no temporary directory" mktemp; continue; }
             status=0
             cp -p "${file}" "${scratch}/probe" && ai_tools_conf_merge_hook_declarations "${scratch}/probe" \
-                "${file}.rpmnew" >/dev/null 2>&1 || status=$?
+                "${copy}" >/dev/null 2>&1 || status=$?
             rm -rf "${scratch}"
             case "${status}" in
             0)  for line in "${_ai_tools_conf_merge_added[@]}"; do _pu_hook_finding hook-missing "${file}" "${line}"; done
                 for line in "${_ai_tools_conf_merge_removed[@]}"; do
                     _pu_hook_finding hook-repeated "${file}" "${line}"
                 done
-                _pu_settings_findings "${file}" ;;
-            1)  _pu_settings_findings "${file}" ;;
+                _pu_settings_findings "${file}" "${copy}" ;;
+            1)  _pu_settings_findings "${file}" "${copy}" ;;
             *)  _pu_write_finding error file "${file}" "${_ai_tools_conf_merge_reason:-merge probe failed}" hook-merge ;;
             esac ;;
         keyval)
-            if ai_tools_conf_new_keys new_keys "${file}" "${file}.rpmnew"; then
+            if ai_tools_conf_new_keys new_keys "${file}" "${copy}"; then
                 for key in "${new_keys[@]}"; do _pu_write_finding option-unmentioned file "${file}" "${key}" "${key}"; done
             fi
-            [[ "$(_pu_prose "${file}")" == "$(_pu_prose "${file}.rpmnew")" ]] \
+            [[ "$(_pu_prose "${file}")" == "$(_pu_prose "${copy}")" ]] \
                 || _pu_write_finding rpmnew-differs file "${file}" "comments" ;;
         review)
             _pu_write_finding rpmnew-review file "${file}" "sudoers grant" ;;
@@ -1877,8 +1926,6 @@ _pu_run_check() {
             _pu_write_finding rpmnew-differs file "${file}" "" ;;
         esac
     done
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" directory "${root:-/}" entries
 
     exec {fd}< <(_pu_orphans "${root}"); pid=$!
     while IFS= read -r -u "${fd}" path; do
@@ -1936,11 +1983,11 @@ _pu_run_check() {
     _pu_wait_collector "${pid}" directory "${root:-/}" copies
 }
 
-# _pu_settings_findings <file>: the findings _pu_settings_rest reports for a settings file and its .rpmnew -- a rule
-# the copy carries that the file does not, and any other setting that differs -- through the same two readers.
+# _pu_settings_findings <file> <copy>: the findings _pu_settings_rest reports for a settings file and its baseline copy
+# -- a rule the copy carries that the file does not, and any other setting that differs -- through the same two readers.
 _pu_settings_findings() {
-    local file="$1" gaps kind list rule scratch
-    if ! gaps="$(ai_tools_conf_permission_gaps "${file}" "${file}.rpmnew")"; then
+    local file="$1" copy="$2" gaps kind list rule scratch
+    if ! gaps="$(ai_tools_conf_permission_gaps "${file}" "${copy}")"; then
         _pu_write_finding error file "${file}" "permission rules not compared: jq is missing or a file is not valid JSON" \
             permission-rules
         return 0
@@ -1950,7 +1997,7 @@ _pu_settings_findings() {
     done <<< "${gaps}"
     scratch="$(mktemp -d)" || return 0
     if ai_tools_conf_settings_rest "${file}" > "${scratch}/file" \
-            && ai_tools_conf_settings_rest "${file}.rpmnew" > "${scratch}/copy" \
+            && ai_tools_conf_settings_rest "${copy}" > "${scratch}/copy" \
             && ! cmp -s "${scratch}/file" "${scratch}/copy"; then
         _pu_write_finding rpmnew-differs file "${file}" "settings"
     fi
@@ -2166,32 +2213,47 @@ _pu_report() {
     local -a to_compare=() identical=()
 
     _pu_kind_migrate "${root}"
-    while IFS='|' read -r file kind label; do
+    local -a references=() entries=() clock_lines=()
+    local entry line
+    mapfile -t entries < <(_pu_entries "${root}")
+    # A file or copy dated after the clock says the clock is behind, and the copy this run would compare a file with is
+    # the newest by date: the block names the clock as the first thing to correct, and this run does not compare a file.
+    if ! _pu_clock_lines clock_lines "${entries[@]+"${entries[@]}"}"; then
+        _PU_NAME="clock"
+        ai_tools_msg_headline "the system clock is behind a file this command orders by date" 1 "${clock_lines[@]}"
+        warn MSG-S5S2 "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than the file(s) above -- the copy a file is compared with is the newest by date, so set the clock first (timedatectl set-time, or chronyc makestep once a time source is reachable), then re-run this command; no file was compared"
+        _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
         found=1
+        entries=()
+    fi
+    for entry in "${entries[@]+"${entries[@]}"}"; do
+        IFS='|' read -r file kind label copy <<< "${entry}"
+        found=1
+        references+=("${copy}")
         # A copy byte-identical to the file does not add an option or a line of prose to it, whatever its format, so it
         # does not get a block of its own: it is listed for removal under the closing line.
-        if cmp -s "${file}" "${file}.rpmnew"; then
-            identical+=("${file}.rpmnew")
+        if cmp -s "${file}" "${copy}"; then
+            identical+=("${copy}")
             continue
         fi
         _PU_NAME="${file##*/}"
         if [[ "${label}" == "${_PU_NAME}" ]]; then title="${_PU_NAME}"; else title="${_PU_NAME} -- ${label}"; fi
-        ai_tools_msg_headline "${title}" 1 "${file}" "$(_pu_provenance "${file}.rpmnew")"
+        ai_tools_msg_headline "${title}" 1 "${file}" "$(_pu_provenance "${copy}")"
         attention_before="${_PU_ATTENTION}"
         case "${kind}" in
-            json)   _pu_json   "${file}" "${file}.rpmnew" ;;
-            keyval) _pu_keyval "${file}" "${file}.rpmnew" ;;
-            review) _pu_review "${file}" "${file}.rpmnew" ;;
-            show)   _pu_show   "${file}" "${file}.rpmnew" ;;
+            json)   _pu_json   "${file}" "${copy}" ;;
+            keyval) _pu_keyval "${file}" "${copy}" ;;
+            review) _pu_review "${file}" "${copy}" ;;
+            show)   _pu_show   "${file}" "${copy}" ;;
         esac
-        (( _PU_ATTENTION > attention_before )) && ! cmp -s "${file}" "${file}.rpmnew" && to_compare+=("${file}")
-    done < <(_pu_entries "${root}")
+        (( _PU_ATTENTION > attention_before )) && ! cmp -s "${file}" "${copy}" && to_compare+=("${file}")
+    done
 
     _pu_orphan_report "${root}"
     _pu_ask_gaps "${root}"
     _pu_key_gaps "${root}"
     _pu_asset_report "${root}"
-    _pu_sidecars "${root}"
+    _pu_sidecars "${root}" "${references[@]+"${references[@]}"}"
     printf '\n'
     # The closing line takes the colour of the worst line above it: red for an error, yellow for anything else to act
     # on. A copy identical to its file is not something to act on, so it does not colour the line; it is named
@@ -2201,24 +2263,24 @@ _pu_report() {
     elif (( _PU_ATTENTION > 0 )); then
         printf '%sPost-upgrade done -- review the warnings above%s\n' "${_PU_YEL}" "${_PU_RST}"
     elif (( found == 0 )); then
-        printf 'Post-upgrade done -- no .rpmnew file is waiting, so every config file this stack owns is reconciled\n'
+        printf 'Post-upgrade done -- no package or installer copy is waiting, so every config file this stack owns is reconciled\n'
     elif (( ${#identical[@]} > 0 )); then
-        printf 'Post-upgrade done -- every config file is reconciled, and its package copy is identical to it\n'
+        printf 'Post-upgrade done -- every config file is reconciled, and its baseline copy is identical to it\n'
     else
         printf 'Post-upgrade done -- nothing needs your attention\n'
     fi
     # The comparison command is printed on a line of its own, indented, so it copies whole. It is offered only while
     # a file still differs from its copy in a way the report asked the operator to act on.
     if (( ${#to_compare[@]} > 0 )); then
-        printf '\n%sCompare a file with its package copy side by side, and carry over what you want:%s\n\n' \
+        printf '\n%sCompare a file with its baseline copy side by side, and carry over what you want:%s\n\n' \
             "${_PU_DIM}" "${_PU_RST}"
-        printf '  %s%s%s\n\n' "${_PU_DIM}" "$(_pu_merge_command '<file>' '<file>.rpmnew')" "${_PU_RST}"
+        printf '  %s%s%s\n\n' "${_PU_DIM}" "$(_pu_merge_command '<file>' '<copy>')" "${_PU_RST}"
         command -v meld >/dev/null 2>&1 \
             || printf '%s• meld is not installed; for a side-by-side view in a desktop session: sudo dnf install meld%s\n' \
                 "${_PU_DIM}" "${_PU_RST}"
     fi
     if (( ${#identical[@]} > 0 )); then
-        printf '%s• package copies identical to their files, to remove when you are ready:%s\n' "${_PU_DIM}" "${_PU_RST}"
+        printf '%s• baseline copies identical to their files, to remove when you are ready:%s\n' "${_PU_DIM}" "${_PU_RST}"
         for copy in "${identical[@]}"; do printf '    %ssudo rm %s%s\n' "${_PU_DIM}" "${copy}" "${_PU_RST}"; done
     fi
     printf '%s• system post-upgrade is idempotent -- re-run it at any time%s\n' "${_PU_DIM}" "${_PU_RST}"

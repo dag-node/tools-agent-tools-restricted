@@ -402,9 +402,17 @@ and
 .BR ai-tools-operator.conf (5).
 .TP
 .B system post-upgrade \fR[\fB\-\-check \fR[\fB\-\-all\fR] [\fB\-\-format tsv\fR]]
-Reconcile the
+Reconcile the baseline copies left beside the configuration files this stack
+owns: the
 .I FILE.rpmnew
-copies an upgrade leaves beside the configuration files this stack owns.
+an rpm upgrade parks, and the
+.I FILE.DATE\-N.shipped
+a from-source install leaves beside a kept file that differs from its copy.
+Where a file has a copy of each kind, the newer one by modification time is
+the reference, and each file's block names which route left it.
+A file or copy dated after the system clock means the clock is behind, so the
+command names the clock as the first thing to set and does not compare
+a file until it is.
 Each file gets the treatment its content calls for: the agent's
 .I settings.json
 has the hook declarations it lacks merged in, with its permission rules left
@@ -428,8 +436,7 @@ A reported configuration file is never printed, since one may hold a
 credential; the report names the options it lacks, the keys you set, and
 whether the comments differ.
 The merge confirms and writes a dated backup before changing anything.
-Each file closes by naming its
-.I FILE.rpmnew
+Each file closes by naming its reference copy
 as yours to delete, and prints the command that deletes it only when your
 file mentions every option the copy documents and carries the same comments.
 A copy dated before the installation is named as an earlier version's
@@ -483,9 +490,8 @@ so the merge tool runs as you rather than as root; where no
 .I .rpmnew
 is waiting, the first command recreates it from the shipped copy.
 It does not edit the file.
-Idempotent, and leaves every file as it is when no
-.I .rpmnew
-file is waiting.
+Idempotent, and leaves every file as it is when no baseline copy
+is waiting.
 Exits 0 when no file is left to act on, 4 while one is, and 1 when a merge it
 was asked to make failed; a copy identical to its file counts as clean.
 .RS

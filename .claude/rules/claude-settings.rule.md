@@ -293,7 +293,7 @@ Two sidecar files serve two different recoveries, and neither substitutes for th
 | file | written when | answers |
 |---|---|---|
 | `settings.json.<YYYYMMDD>-<N>.bak` | a merge is about to replace the file | "what did I have?" — the only copy that can restore host tuning if a merge produces valid JSON that is nonetheless wrong, the one failure a parse check cannot catch |
-| `settings.json.<YYYYMMDD>-<N>.shipped` | a merge could **not** run — absent `jq`, malformed JSON, a result that does not parse | "what was I supposed to get?" — the baseline to merge from by hand, since an RPM-installed host has no source checkout to copy from |
+| `settings.json.<YYYYMMDD>-<N>.shipped` | a kept file differs from the shipped copy beyond its hooks (a rule it lacks, another setting), and when a merge could **not** run — absent `jq`, malformed JSON, a result that does not parse | "what was I supposed to get?" — the baseline to merge from by hand, and the copy `system post-upgrade` compares the file with on a host no rpm parks a `.rpmnew` on |
 
 Each failure direction leaves the deployed file byte-identical and warns, naming which check refused. Both sidecars are
 date-stamped and neither overwrites an earlier copy, and a no-op run writes neither. They differ in what a repeat run
@@ -303,6 +303,22 @@ the file when its content matches and dates a new one only for a baseline the di
 the installer therefore holds one `.shipped` per **different** baseline it was offered. The suffix is deliberately not
 `.rpmnew` — no rpm transaction produced it, and rpm's suffix would both claim a provenance it lacks and hand the file
 to the tooling that sweeps rpm leftovers.
+
+**A kept file's permission rules are compared on both routes, against one reference.** `install.sh` names, on the kept
+file, the rules the shipped copy carries that the file does not and whether any other setting differs
+(`ai_tools_conf_permission_gaps`, `ai_tools_conf_settings_rest`), and leaves the shipped copy beside it as the dated
+`.shipped` baseline where it found a difference. `system post-upgrade` then compares the file with **the newest copy
+beside it** of either kind, the package's `.rpmnew` or the installer's `.shipped` (`ai_tools_conf_latest_copy`,
+by modification time, the package copy winning a tie), so a host whose install routes alternated — an rpm upgrade
+over a from-source install, a from-source install over an rpm — is compared with the baseline that reached it last,
+and each block names which route left the copy it read. That order is a reading of the clock, so both runs ask
+`ai_tools_conf_clock_behind` first: a file or copy dated after now says the clock is behind (a host with no
+battery-backed clock boots into an earlier time until it reaches a time source), and the run then names the clock
+as the first thing to correct and does not compare a file — `--check` writes an `error` row and exits 5 — while
+the installer names the gaps and does not leave a stamped copy, since one dated under such a clock would sort
+before the copies it supersedes. The version gate keeps that order true: an older checkout over a newer installation is
+refused unless `--allow-downgrade` states the decision, since a downgrade's baseline would be the newest copy while
+the file still carries the newer version's hook declarations.
 
 **On an RPM host the same merge runs on request.** `settings.json` is `%config(noreplace)`, so an upgrade keeps a file
 the host edited and parks this version's copy as `settings.json.rpmnew`. A file the host never edited is replaced
@@ -317,7 +333,7 @@ a config file.
 
 The command runs the merge on a throwaway copy first, so the list it shows is the exact set of declarations the real
 merge adds rather than a promise of one. It then confirms, writes the dated `.bak`, and names that backup. **The
-`.rpmnew` stays on disk**: the merge covers the hook declarations alone, so what is left — the permission rules,
+reference copy stays on disk**: the merge covers the hook declarations alone, so what is left — the permission rules,
 which are the host's — is the operator's own edit, made from that copy. What is left is compared as data, not as text:
 the permission rule lists as sets (`ai_tools_conf_permission_gaps`) and every other setting with its keys sorted
 (`ai_tools_conf_settings_rest`), so a list's order, a key's place in the object, and how the merge grouped the hooks are
@@ -325,7 +341,8 @@ not reported. A rule the copy carries and the file does not — a deny rule a re
 to add and reported by `--check` as `rule-missing`; a rule only the file carries is listed as the host's and not
 counted. The block closes with the `sudoedit` merge, the live file on the left, or, when no difference is left,
 by naming the copy as the operator's to delete. A refusal on this path does not need a `.shipped` sidecar —
-the `.rpmnew` is that baseline, and the throwaway copy is where the refused merge's own copy lands and is discarded.
+the reference copy is that baseline, and the throwaway copy is where the refused merge's own copy lands and is
+discarded.
 
 The merge and every hook this agent ships read JSON with `jq`, which the agent package requires
 ([ownership-and-hooks](ownership-and-hooks.rule.md)).

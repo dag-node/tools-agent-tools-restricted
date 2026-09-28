@@ -380,10 +380,11 @@ ai_tools_conf_kind_unmigrated() {
 #   <name>.<YYYYMMDD>-<N>.bak   what the operator HAD. The only thing that restores their
 #                               settings if a rewrite is valid but wrong, which no syntax check
 #                               catches. Written only when a file is about to change.
-#   <name>.<YYYYMMDD>-<N>.shipped  what they were SUPPOSED to get. Written when the merge could not
-#                               run, or when the file is one this project refuses to rewrite
-#                               unattended, so the hand merge has a source -- a host installed
-#                               from the RPM has no checkout to copy from.
+#   <name>.<YYYYMMDD>-<N>.shipped  what they were SUPPOSED to get. Written by a from-source install
+#                               that keeps a file differing from this version's, and when a merge
+#                               could not run, so the hand merge has a source and a later
+#                               `system post-upgrade` has the baseline an rpm would have parked
+#                               as <name>.rpmnew.
 #
 # The date stamp makes them survive successive runs: each install adds a copy rather than overwriting the evidence
 # of the last. Every copy takes a `-N` counter, starting at 1, so a .bak is never overwritten -- an operator who ran
@@ -395,6 +396,13 @@ ai_tools_conf_kind_unmigrated() {
 # on offer, so ai_tools_conf_reference reuses an existing copy whose content already matches and dates a new one only
 # for a baseline the directory does not hold. A host re-running the installer against an unchanged source tree therefore
 # keeps one copy per DIFFERENT baseline it was offered, rather than one per run.
+#
+# A host meets both baselines when its install routes alternate -- an rpm upgrade over a from-source install leaves
+# a .rpmnew beside an older .shipped, and the reverse leaves a newer .shipped beside an older .rpmnew -- so a reader
+# that reconciles a kept file takes ONE reference, the newest copy of either kind (ai_tools_conf_latest_copy),
+# and compares the live file with the baseline that reached the host last. That order is a reading of the clock,
+# so a reader asks ai_tools_conf_clock_behind first: a file dated after now means the clock is behind, and the reader
+# names the clock as the first thing to correct instead of ordering the copies under it.
 
 # ai_tools_conf_sidecar_path <path> <kind> : print an UNUSED sidecar path for <path>. Returns 1
 #   without printing when the day's namespace is exhausted, so a caller never silently reuses a
@@ -458,6 +466,46 @@ ai_tools_conf_reference() {
     cp "${shipped}" "${target}" 2>/dev/null || return 1
     _ai_tools_conf_match_perms "${target}" "${deployed}"
     printf '%s' "${target}"
+}
+
+# ai_tools_conf_latest_copy <deployed> : print the newest baseline beside <deployed> -- the package
+#   copy <deployed>.rpmnew or an installer copy <deployed>.<YYYYMMDD>[-N].shipped, whichever was
+#   modified last -- and succeed; fail without output where neither exists. The package copy wins
+#   a tie. Modification time is the one reading both kinds carry: rpm gives a parked copy its
+#   package's build time and the installer gives its copy the time it was written, so the copy
+#   that reached the host last is the newest, whichever route brought it.
+ai_tools_conf_latest_copy() {
+    local deployed="$1" candidate mtime best="" best_time=-1
+    for candidate in "${deployed}.rpmnew" \
+            "${deployed}".[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].shipped \
+            "${deployed}".[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-*.shipped; do
+        [[ -f "${candidate}" ]] || continue
+        mtime="$(stat -c %Y "${candidate}" 2>/dev/null)" || continue
+        if (( mtime > best_time )); then best="${candidate}"; best_time="${mtime}"; fi
+    done
+    [[ -n "${best}" ]] || return 1
+    printf '%s' "${best}"
+}
+
+# ai_tools_conf_clock_behind <path>... : print "<YYYY-MM-DD HH:MM:SS>\t<path>" for every existing path
+#   whose modification time is after the system clock, and fail when there is one; succeed without
+#   output otherwise. A file dated after now says the clock is behind -- a host without a battery-backed
+#   clock boots into an earlier time and stays there until it reaches a time source -- and every ordering
+#   of files by date made under it is wrong, so a caller that orders copies by date, or stamps a new
+#   one, asks this first and names the clock as the first thing to correct. Where `date` does not
+#   print a clock at all the function succeeds, so an unreadable clock is not reported as behind.
+ai_tools_conf_clock_behind() {
+    local now path mtime when behind=0
+    now="$(date +%s 2>/dev/null)" || return 0
+    for path in "$@"; do
+        [[ -f "${path}" ]] || continue
+        mtime="$(stat -c %Y "${path}" 2>/dev/null)" || continue
+        (( mtime > now )) || continue
+        when="$(date -d "@${mtime}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" || when="${mtime}"
+        printf '%s\t%s\n' "${when}" "${path}"
+        behind=1
+    done
+    (( behind == 0 ))
 }
 
 # ── KEY=value files: report new keys, never rewrite ──────────────────────────────────────────
