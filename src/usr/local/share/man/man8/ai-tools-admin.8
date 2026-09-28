@@ -408,8 +408,11 @@ owns: the
 an rpm upgrade parks, and the
 .I FILE.DATE\-N.shipped
 a from-source install leaves beside a kept file that differs from its copy.
-Where a file has both, the newer one by modification time is the reference,
-and each file's block names which route left it.
+Where a file has a copy of each kind, the newer one by modification time is
+the reference, and each file's block names which route left it.
+A file or copy dated after the system clock means the clock is behind, so the
+command names the clock as the first thing to set and does not compare
+a file until it is.
 Each file gets the treatment its content calls for: the agent's
 .I settings.json
 has the hook declarations it lacks merged in, with its permission rules left

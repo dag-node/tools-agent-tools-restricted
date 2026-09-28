@@ -558,6 +558,25 @@ printf 'SRC2\n' > "${lc}.20250102.shipped"; touch -d 2027-01-01 "${lc}.20250102.
 latest_is "${lc}.20250102.shipped" "the unnumbered day form of an installer copy is read too"
 rm -f "${lc}" "${lc}".*
 
+# That order is a reading of the clock, so a file dated after now is reported as the clock being behind: printed
+# with its date, the status failing, and a set of files dated in the past passes in silence. A path that is not a file
+# is not read.
+printf 'LIVE\n' > "${lc}"; printf 'RPM\n' > "${lc}.rpmnew"; touch -d 2024-01-01 "${lc}.rpmnew"
+if ai_tools_conf_clock_behind "${lc}" "${lc}.rpmnew" "${lc}.absent" >/dev/null; then
+    pass "files dated in the past do not read as a clock that is behind"
+else
+    fail "a past-dated file read as a clock that is behind"
+fi
+touch -d '+2 days' "${lc}.rpmnew"
+if ! behind="$(ai_tools_conf_clock_behind "${lc}" "${lc}.rpmnew")" \
+        && [[ "${behind}" == *$'\t'"${lc}.rpmnew" && "${behind}" != *"${lc}"$'\t'* ]] \
+        && [[ "${behind%%$'\t'*}" =~ ^20[0-9]{2}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
+    pass "a file dated after now reads as a clock that is behind, printed with its date, and the others are not listed"
+else
+    fail "future-dated file: $(ai_tools_conf_clock_behind "${lc}" "${lc}.rpmnew" || true)"
+fi
+rm -f "${lc}" "${lc}".*
+
 # Absent inputs produce no copy and no path -- a caller must never act on a name that was not made.
 if ! ai_tools_conf_backup "${TESTDIR}/absent" >/dev/null 2>&1; then
     pass "no backup is invented for a file that is not there"

@@ -505,6 +505,10 @@ operators remove: name the user to withdraw
 ERROR.
 compiled module ${pp} not found \-\- reinstall ai\-tools\-selinux, or from a checkout: sudo selinux/install\-selinux.sh build
 .TP
+.B MSG-S5S2
+WARNING.
+the system clock reads $(date '+%Y\-%m\-%d %H:%M:%S'), earlier than the file(s) above \-\- the copy a file is compared with is the newest by date, so set the clock first (timedatectl set\-time, or chronyc makestep once a time source is reachable), then re\-run this command; no file was compared
+.TP
 .B MSG-S9G3
 WARNING.
 could not create ${cfg_home} as ${user}:${group}
@@ -1581,6 +1585,10 @@ SELinux or the ai_tools module is not active \-\- no agent paths to label
 .B MSG-A7X8
 WARNING.
 toolchain not provisioned \-\- the wrapper/handback/SELinux checks skip or fail
+.TP
+.B MSG-B5V5
+WARNING.
+the system clock reads $(date '+%Y\-%m\-%d %H:%M:%S'), earlier than a file this install compares by date \-\- set the clock first (timedatectl set\-time, or chronyc makestep once a time source is reachable), then re\-run; no baseline copy is written beside ${deployed} this run:
 .TP
 .B MSG-C2X3
 WARNING.

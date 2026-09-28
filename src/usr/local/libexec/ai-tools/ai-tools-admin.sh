@@ -1535,6 +1535,28 @@ _pu_show() {
     _pu_leave "${rpmnew}"
 }
 
+# _pu_clock_lines <array-name> <entry>...: fill the named array with "<when>  <path>" for every file or copy
+# among the entries dated after the system clock (ai_tools_conf_clock_behind), and fail when there is one. The copy
+# a file is compared with is the newest by date, so under a clock that is behind the comparison picks the wrong copy
+# and the report would send the operator to merge from it: both runs ask this first and, with a finding, name the clock
+# as the first thing to correct and make no comparison.
+_pu_clock_lines() {
+    local -n _pu_clock_out="$1"
+    shift
+    local entry file kind label copy when path
+    local -a paths=()
+    _pu_clock_out=()
+    for entry in "$@"; do
+        IFS='|' read -r file kind label copy <<< "${entry}"
+        paths+=("${file}" "${copy}")
+    done
+    (( ${#paths[@]} > 0 )) || return 0
+    while IFS=$'\t' read -r when path; do
+        [[ -n "${path}" ]] && _pu_clock_out+=("${when}  ${path}")
+    done < <(ai_tools_conf_clock_behind "${paths[@]}" || true)
+    (( ${#_pu_clock_out[@]} == 0 ))
+}
+
 # _pu_entries <root>: one "<file>|<kind>|<label>|<copy>" line per file with a baseline copy waiting -- the registry
 # first, then each one found under POSTUPGRADE_DIRS that the registry does not name. The copy is the newest beside
 # the file of the package's .rpmnew and the installer's .shipped (ai_tools_conf_latest_copy), so a host whose install
@@ -1852,11 +1874,25 @@ _pu_wait_collector() {
 # predicate the report does. The caller reads the outcome off the report state, ai_tools_records_get_exit_status.
 _pu_run_check() {
     local root="$1" file kind label scratch status key line state stype path detail live reference fd pid
-    local -a new_keys=() entries=()
+    local -a new_keys=() entries=() files_with_baseline=()
     ai_tools_records_begin_report
     _pu_kind_findings "${root}"
     exec {fd}< <(_pu_entries "${root}"); pid=$!
-    while IFS='|' read -r -u "${fd}" file kind label copy; do
+    mapfile -t -u "${fd}" files_with_baseline
+    exec {fd}<&-
+    _pu_wait_collector "${pid}" directory "${root:-/}" entries
+    # A file or copy dated after the clock: the comparison would pick the wrong copy, so each is an `error` row --
+    # a check that could not run -- and the run does not compare a file.
+    local -a clock_lines=()
+    if ! _pu_clock_lines clock_lines "${files_with_baseline[@]+"${files_with_baseline[@]}"}"; then
+        for line in "${clock_lines[@]}"; do
+            _pu_write_finding error file "${line#*  }" "dated ${line%%  *}, after the system clock -- set the clock before acting on this report" clock
+        done
+        files_with_baseline=()
+    fi
+    local entry
+    for entry in "${files_with_baseline[@]+"${files_with_baseline[@]}"}"; do
+        IFS='|' read -r file kind label copy <<< "${entry}"
         if cmp -s "${file}" "${copy}"; then _pu_write_finding rpmnew-residual file "${copy}" ""; continue; fi
         case "${kind}" in
         json)
@@ -1890,8 +1926,6 @@ _pu_run_check() {
             _pu_write_finding rpmnew-differs file "${file}" "" ;;
         esac
     done
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" directory "${root:-/}" entries
 
     exec {fd}< <(_pu_orphans "${root}"); pid=$!
     while IFS= read -r -u "${fd}" path; do
@@ -2179,8 +2213,21 @@ _pu_report() {
     local -a to_compare=() identical=()
 
     _pu_kind_migrate "${root}"
-    local -a references=()
-    while IFS='|' read -r file kind label copy; do
+    local -a references=() entries=() clock_lines=()
+    local entry line
+    mapfile -t entries < <(_pu_entries "${root}")
+    # A file or copy dated after the clock says the clock is behind, and the copy this run would compare a file with is
+    # the newest by date: the block names the clock as the first thing to correct, and this run does not compare a file.
+    if ! _pu_clock_lines clock_lines "${entries[@]+"${entries[@]}"}"; then
+        _PU_NAME="clock"
+        ai_tools_msg_headline "the system clock is behind a file this command orders by date" 1 "${clock_lines[@]}"
+        warn MSG-S5S2 "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than the file(s) above -- the copy a file is compared with is the newest by date, so set the clock first (timedatectl set-time, or chronyc makestep once a time source is reachable), then re-run this command; no file was compared"
+        _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
+        found=1
+        entries=()
+    fi
+    for entry in "${entries[@]+"${entries[@]}"}"; do
+        IFS='|' read -r file kind label copy <<< "${entry}"
         found=1
         references+=("${copy}")
         # A copy byte-identical to the file does not add an option or a line of prose to it, whatever its format, so it
@@ -2200,7 +2247,7 @@ _pu_report() {
             show)   _pu_show   "${file}" "${copy}" ;;
         esac
         (( _PU_ATTENTION > attention_before )) && ! cmp -s "${file}" "${copy}" && to_compare+=("${file}")
-    done < <(_pu_entries "${root}")
+    done
 
     _pu_orphan_report "${root}"
     _pu_ask_gaps "${root}"

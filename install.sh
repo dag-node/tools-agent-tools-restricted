@@ -393,6 +393,22 @@ seed_result() {
     log "${path} ${verb}${detail:+ (${detail})}"
 }
 
+# clock_allows_baseline <deployed> <shipped> -- succeed when the system clock is not behind the deployed file,
+# the shipped copy, or a copy already beside the deployed file (ai_tools_conf_clock_behind), and warn and fail
+# otherwise. A baseline copy is stamped with today's date and ordered against the others by date, so one written
+# under a clock that is behind would sort before the copies it supersedes and send the next post-upgrade to the wrong
+# one: the caller then names the gaps and does not leave a copy, and the clock is named as the first thing to correct.
+clock_allows_baseline() {
+    local deployed="$1" shipped="$2" behind
+    if behind="$(ai_tools_conf_clock_behind "${deployed}" "${shipped}" "${deployed}".*.shipped "${deployed}.rpmnew")"; then
+        return 0
+    fi
+    warn MSG-B5V5 "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than a file this install compares by date -- set the clock first (timedatectl set-time, or chronyc makestep once a time source is reachable), then re-run; no baseline copy is written beside ${deployed} this run:"
+    local line
+    while IFS= read -r line; do [[ -n "${line}" ]] && warn "    ${line//$'\t'/  }"; done <<< "${behind}"
+    return 1
+}
+
 # Announce the options a kept KEY=value config does not mention yet, and leave the shipped baseline beside it to copy
 # the documentation from. Unlike the hook declarations, this NEVER rewrites the file: with the present/absent grammar
 # an absent key already means its default, so a stale config costs the operator the knowledge that an option exists
@@ -409,7 +425,8 @@ report_new_conf_keys() {
     for key in "${new_keys[@]}"; do
         warn "  ${key}"
     done
-    reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true
+    clock_allows_baseline "${deployed}" "${shipped}" \
+        && { reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true; }
     if [[ -n "${reference}" ]]; then
         warn "  documented in ${reference} -- copy the blocks you want;"
         warn "  each is optional and an unmentioned key keeps its default"
@@ -479,7 +496,8 @@ report_settings_gaps() {
     fi
     [[ -n "${scratch}" ]] && rm -rf "${scratch}"
     (( ${#missing_rules[@]} > 0 || differs )) || return 0
-    reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true
+    clock_allows_baseline "${deployed}" "${shipped}" \
+        && { reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true; }
     warn MSG-J8F2 "the kept ${deployed} differs from this version's beyond its hooks:"
     if (( ${#missing_rules[@]} > 0 )); then
         warn "  rules this version ships that the file does not carry -- add them unless you removed them on purpose:"

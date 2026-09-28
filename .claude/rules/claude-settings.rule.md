@@ -311,9 +311,14 @@ file, the rules the shipped copy carries that the file does not and whether any 
 beside it** of either kind, the package's `.rpmnew` or the installer's `.shipped` (`ai_tools_conf_latest_copy`,
 by modification time, the package copy winning a tie), so a host whose install routes alternated — an rpm upgrade
 over a from-source install, a from-source install over an rpm — is compared with the baseline that reached it last,
-and each block names which route left the copy it read. The version gate keeps that order true: an older checkout
-over a newer installation is refused unless `--allow-downgrade` states the decision, since a downgrade's baseline would
-be the newest copy while the file still carries the newer version's hook declarations.
+and each block names which route left the copy it read. That order is a reading of the clock, so both runs ask
+`ai_tools_conf_clock_behind` first: a file or copy dated after now says the clock is behind (a host with no
+battery-backed clock boots into an earlier time until it reaches a time source), and the run then names the clock
+as the first thing to correct and does not compare a file — `--check` writes an `error` row and exits 5 — while
+the installer names the gaps and does not leave a stamped copy, since one dated under such a clock would sort
+before the copies it supersedes. The version gate keeps that order true: an older checkout over a newer installation is
+refused unless `--allow-downgrade` states the decision, since a downgrade's baseline would be the newest copy while
+the file still carries the newer version's hook declarations.
 
 **On an RPM host the same merge runs on request.** `settings.json` is `%config(noreplace)`, so an upgrade keeps a file
 the host edited and parks this version's copy as `settings.json.rpmnew`. A file the host never edited is replaced

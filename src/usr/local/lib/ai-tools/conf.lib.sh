@@ -400,7 +400,9 @@ ai_tools_conf_kind_unmigrated() {
 # A host meets both baselines when its install routes alternate -- an rpm upgrade over a from-source install leaves
 # a .rpmnew beside an older .shipped, and the reverse leaves a newer .shipped beside an older .rpmnew -- so a reader
 # that reconciles a kept file takes ONE reference, the newest copy of either kind (ai_tools_conf_latest_copy),
-# and compares the live file with the baseline that reached the host last.
+# and compares the live file with the baseline that reached the host last. That order is a reading of the clock,
+# so a reader asks ai_tools_conf_clock_behind first: a file dated after now means the clock is behind, and the reader
+# names the clock as the first thing to correct instead of ordering the copies under it.
 
 # ai_tools_conf_sidecar_path <path> <kind> : print an UNUSED sidecar path for <path>. Returns 1
 #   without printing when the day's namespace is exhausted, so a caller never silently reuses a
@@ -483,6 +485,27 @@ ai_tools_conf_latest_copy() {
     done
     [[ -n "${best}" ]] || return 1
     printf '%s' "${best}"
+}
+
+# ai_tools_conf_clock_behind <path>... : print "<YYYY-MM-DD HH:MM:SS>\t<path>" for every existing path
+#   whose modification time is after the system clock, and fail when there is one; succeed without
+#   output otherwise. A file dated after now says the clock is behind -- a host without a battery-backed
+#   clock boots into an earlier time and stays there until it reaches a time source -- and every ordering
+#   of files by date made under it is wrong, so a caller that orders copies by date, or stamps a new
+#   one, asks this first and names the clock as the first thing to correct. Where `date` does not
+#   print a clock at all the function succeeds, so an unreadable clock is not reported as behind.
+ai_tools_conf_clock_behind() {
+    local now path mtime when behind=0
+    now="$(date +%s 2>/dev/null)" || return 0
+    for path in "$@"; do
+        [[ -f "${path}" ]] || continue
+        mtime="$(stat -c %Y "${path}" 2>/dev/null)" || continue
+        (( mtime > now )) || continue
+        when="$(date -d "@${mtime}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" || when="${mtime}"
+        printf '%s\t%s\n' "${when}" "${path}"
+        behind=1
+    done
+    (( behind == 0 ))
 }
 
 # ── KEY=value files: report new keys, never rewrite ──────────────────────────────────────────

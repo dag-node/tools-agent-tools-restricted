@@ -293,6 +293,31 @@ else
     fail "--check did not read the installer copy as the reference (exit ${check_rc}): ${out}"
 fi
 
+# ── (C4) A file dated after the clock stops the comparison and names the clock first ──────────
+# The copy compared is the newest by date, so under a clock that is behind -- a host with no battery-backed clock,
+# booted offline -- the comparison picks the wrong copy. A copy dated after now is therefore reported as the clock being
+# behind: the interactive run names it and the file to set, does not compare a file, and needs attention; `--check`
+# writes an `error` row, a reading that could not be made, and exits 5.
+reset_root
+jq '.permissions.deny -= ["Bash(gpg)"]' "${SHIPPED_SETTINGS}" > "${SETTINGS}"
+cp "${SHIPPED_SETTINGS}" "${SETTINGS}.rpmnew"; touch -d '+2 days' "${SETTINGS}.rpmnew"
+out="$(run_pu)"
+assert_msg MSG-S5S2 "${out}" "a copy dated after the system clock is reported as the clock being behind"
+if [[ "${out}" == *"${SETTINGS}.rpmnew"* && "${out}" == *"set the clock first"* \
+      && "${out}" != *"rules this version ships"* && "${out}" != *"package copy: ${SETTINGS}.rpmnew"* ]]; then
+    pass "the report names the future-dated copy and the clock, and compares no file"
+else
+    fail "a comparison ran under a clock that is behind: ${out}"
+fi
+run_check
+if [[ "${check_rc}" == 5 ]] && has_finding MSG-Y3J5 "${SETTINGS}.rpmnew" error \
+        "dated $(date -d "@$(stat -c %Y "${SETTINGS}.rpmnew")" '+%Y-%m-%d %H:%M:%S'), after the system clock -- set the clock before acting on this report" clock \
+        && ! grep -qF 'rule-missing' <<< "${out}"; then
+    pass "--check writes an error row for the future-dated copy, no rule finding, and exits 5"
+else
+    fail "--check under a clock that is behind (exit ${check_rc}): ${out}"
+fi
+
 # ── (D) A merge that matches the shipped copy still leaves it to the operator ──────────────────
 reset_root
 jq . "${SHIPPED_SETTINGS}" > "${SETTINGS}.rpmnew"
