@@ -69,6 +69,19 @@ _ai_tools_toolchain_notice() {
 # shellcheck source=SCRIPTDIR/sandbox-exec.lib.sh
 source "${BASH_SOURCE[0]%/*}/sandbox-exec.lib.sh" 2>/dev/null || true
 
+# _ai_tools_toolchain_require_sandbox <function> : return 0 when this process runs as the sandbox account; otherwise
+#   report under MSG-P6P2 and return 1. Every function here that executes a file of the tree -- npm, node -- calls it
+#   first: root or an operator running one would execute what the sandbox account put there with its own authority
+#   (updater.rule.md). The answer is ai_tools_is_sandbox_account's (sandbox-exec.lib.sh); where that library did not
+#   load the identity is unconfirmed, which refuses too.
+_ai_tools_toolchain_require_sandbox() {
+    if declare -F ai_tools_is_sandbox_account >/dev/null 2>&1 && ai_tools_is_sandbox_account; then
+        return 0
+    fi
+    _ai_tools_toolchain_warn MSG-P6P2 "the sandbox toolchain is run by the sandbox account alone -- $1 was not run as $(id -un 2>/dev/null || printf 'uid %s' "${EUID}"); a root caller runs it through ai_tools_as_sandbox (sandbox-exec.lib.sh)"
+    return 1
+}
+
 # The reader ahead of the provider requirement does not read a manifest, so it is defined whatever it decides.
 # ai_tools_nvm_default_version <nvm-dir> : print the version directory name (`v22.23.3`) nvm's `default` alias selects
 #   among the installed versions, or an empty string. Read as data -- the alias file, then the version directories --
@@ -297,15 +310,11 @@ ai_tools_toolchain_bin_copies() {
 #     failed    the write did not complete: left as it was
 #   The target is the enabled agent's `launcher_target` where its manifest declares one for that launcher, and otherwise
 #   the `bin` entry of the global package declaring the name, read from the packages' package.json by that version's
-#   own node. Only a byte-identical copy is replaced, so the link lands on the file the copy already held. Refuses
-#   root: it runs node from the tree, which only the sandbox account runs (updater.rule.md, "Root runs none
-#   of the toolchain").
+#   own node. Only a byte-identical copy is replaced, so the link lands on the file the copy already held. Runs
+#   as the sandbox account alone (_ai_tools_toolchain_require_sandbox): it runs node from the tree.
 ai_tools_toolchain_relink_copies() {
     local version_dir="${1:-}"
-    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-        _ai_tools_toolchain_warn "ai_tools_toolchain_relink_copies runs node from the toolchain, so it refuses root -- run it through ai_tools_as_sandbox"
-        return 1
-    fi
+    _ai_tools_toolchain_require_sandbox ai_tools_toolchain_relink_copies || return 1
     [[ -d "${version_dir}/bin" && -d "${version_dir}/lib/node_modules" ]] || return 0
     local -a copies=()
     mapfile -t copies < <(ai_tools_toolchain_bin_copies "${version_dir}")
@@ -434,10 +443,12 @@ _ai_tools_toolchain_state_notice() {
 #   agent (MSG-X7Z9: a provisioning run must not remove what it maintains, so the direction is
 #   less access only) unless the third argument is `erase`, the form an agent package's own erase
 #   takes while its manifest still names the package; when <npm_package> falls outside npm's
-#   package-name charset or <version-dir> is not a directory (MSG-J5W4); and when the uninstall
-#   leaves the directory in place (MSG-X8F9).
+#   package-name charset or <version-dir> is not a directory (MSG-J5W4); when the uninstall
+#   leaves the directory in place (MSG-X8F9); and when the caller is not the sandbox account
+#   (MSG-P6P2), since the write runs npm from the tree.
 ai_tools_agent_package_remove() {
     local version_dir="${1:-}" npm_package="${2:-}" mode="${3:-}" package_dir agent name
+    _ai_tools_toolchain_require_sandbox ai_tools_agent_package_remove || return 1
     if [[ -z "${version_dir}" || ! -d "${version_dir}" ]] || ! [[ "${npm_package}" =~ ${_AI_TOOLS_NPM_PACKAGE_RE} ]]; then
         _ai_tools_toolchain_warn MSG-J5W4 "cannot remove $(printf '%q' "${npm_package}") from $(printf '%q' "${version_dir}"): not an npm package name in a version directory -- leaving the toolchain as it is"
         return 1
@@ -489,10 +500,12 @@ ai_tools_agent_package_remove() {
 #   directory of <nvm-dir>, enabled or not -- the erase-time form, for an agent package's %preun
 #   and `install.sh uninstall`, run while the manifest that names the package is still on disk.
 #   Prints "version-dir<TAB>outcome" per version directory holding the package (the writer's
-#   words), and returns non-zero when any removal failed. Prints nothing for an agent whose
-#   manifest does not name a package, or whose package no version directory holds.
+#   words), and returns non-zero when any removal failed, or when the caller is not the sandbox
+#   account (MSG-P6P2). Prints nothing for an agent whose manifest does not name a package,
+#   or whose package no version directory holds.
 ai_tools_agent_package_erase() {
     local nvm_dir="${1:-}" agent="${2:-}" npm_package version_dir outcome rc=0
+    _ai_tools_toolchain_require_sandbox ai_tools_agent_package_erase || return 1
     npm_package="$(ai_tools_agent_manifest_field "${agent}" npm_package 2>/dev/null || true)"
     [[ -n "${npm_package}" && -n "${nvm_dir}" && -d "${nvm_dir}/versions/node" ]] || return 0
     [[ "${npm_package}" =~ ${_AI_TOOLS_NPM_PACKAGE_RE} ]] || return 1

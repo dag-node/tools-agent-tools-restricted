@@ -54,11 +54,14 @@ read as that user too, since the CLI refuses root before it prints.
 **The suite does not execute a file the sandbox account can write.** The toolchain's `node` and `npm`, an agent's
 binaries and anything under the sandbox home are that account's to replace, so a root `execve` of one runs whatever
 the account put there, whatever the arguments. A case that needs one of them — a JSON parse through `node`, a command's
-`--version` — runs it as the sandbox account through `runuser`, and what it prints reaches the terminal
-through the harness's `_san`. Reading such a file as data (`readlink`, `stat`, a checksum, a bounded `sed`
-of a `package.json`) is not execution, and root does it freely. A line-based lint for the rule was measured
-and rejected: over the tree it reports heredoc bodies already inside `sudo -u`, arrays and fixture text, and no root
-execution.
+`--version` — runs it as the sandbox account through the harness's `as_sandbox`, which is `ai_tools_as_sandbox`
+([updater](updater.rule.md): no controlling terminal, no inherited descriptor, a clean environment, each stream
+through the allowlist, a bound on the run), and what a result line quotes of it reaches the terminal
+through the harness's `_san`. A library function that executes such a file requires that identity of its own process,
+so a case that drives one as root asserts the refusal and drives the write through `as_sandbox` over a fixture
+the account owns. Reading such a file as data (`readlink`, `stat`, a checksum, a bounded `sed` of a `package.json`) is
+not execution, and root does it freely. A line-based lint for the rule was measured and rejected: over the tree it
+reports heredoc bodies already inside `sudo -u`, arrays and fixture text, and no root execution.
 
 A skip that every full install emits is a check in the wrong place. An optional host feature outside this project's
 install (`pam_namespace` polyinstantiation of `/tmp`) is reported only where it is present; where it is absent,

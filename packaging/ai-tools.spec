@@ -1124,14 +1124,15 @@ fi
 # here. The npm package this agent installed into the sandbox toolchain goes the same way, with its
 # launcher link: once the manifest is gone no reader knows the package name, and a package left
 # behind keeps an entrypoint a session can exec (toolchain.lib.sh). Run AS the sandbox account, the
-# tree's owner, offline (npm uninstall does not reach a registry), and best-effort (`|| :`), so
+# tree's owner, through ai_tools_as_sandbox (sandbox-exec.lib.sh: no terminal, no inherited
+# descriptor, a clean environment), offline (npm uninstall does not reach a registry), and best-effort (`|| :`), so
 # the erase completes whatever it prints; a removal deferred under a live session is left for
 # the next update run.
 if [ "$1" -eq 0 ]; then
     [ -x %{ai_libexecdir}/ai-tools-relabel-agent ] \
         && %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
-    if [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
-        runuser -u ai-tools -- bash -c '. /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm claude-code' 2>&1 | sed 's/^/ai-tools: /' || :
+    if [ -r /usr/local/lib/ai-tools/sandbox-exec.lib.sh ] && [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
+        bash -c '. /usr/local/lib/ai-tools/sandbox-exec.lib.sh; ai_tools_as_sandbox ai-tools bash -c ". /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm claude-code"' 2>&1 | sed 's/^/ai-tools: /' || :
     fi
     rm -f /opt/ai-tools/bin/claude
 fi
@@ -1214,8 +1215,8 @@ if [ "$1" -eq 0 ]; then
     fi
     # The npm package and its launcher link, as the claude-code %%preun removes its own (the
     # reasoning is there): as the sandbox account, offline, best-effort.
-    if [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
-        runuser -u ai-tools -- bash -c '. /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm codex' 2>&1 | sed 's/^/ai-tools: /' || :
+    if [ -r /usr/local/lib/ai-tools/sandbox-exec.lib.sh ] && [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
+        bash -c '. /usr/local/lib/ai-tools/sandbox-exec.lib.sh; ai_tools_as_sandbox ai-tools bash -c ". /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm codex"' 2>&1 | sed 's/^/ai-tools: /' || :
     fi
     rm -f /opt/ai-tools/bin/codex
 fi

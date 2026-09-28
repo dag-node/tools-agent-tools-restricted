@@ -54,6 +54,10 @@
 readonly _AI_TOOLS_NPM_VERIFY_LIB_LOADED=1
 # shellcheck source=SCRIPTDIR/log.lib.sh
 source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
+# The identity check the probe makes of its own process (ai_tools_is_sandbox_account): best-effort source,
+# and an identity it cannot confirm refuses the probe.
+# shellcheck source=SCRIPTDIR/sandbox-exec.lib.sh
+source "${BASH_SOURCE[0]%/*}/sandbox-exec.lib.sh" 2>/dev/null || true
 
 # ai_tools_npm_verdict <audit-json>: pure decision over `npm audit signatures --json` output. Echoes a verdict token
 # (OK|INVALID|MISSING|EMPTY|UNKNOWN) and returns the status contract contract. node parses the JSON (node is
@@ -102,11 +106,13 @@ ai_tools_npm_verdict() {
 ai_tools_verify_npm_signatures() {
     local _p='npm-verify:'
 
-    # Fail-closed identity backstop: this must run as the sandbox account (the owner of the tree it audits), never root
-    # -- as root `npm root -g` is root's global prefix, so a run would verify the wrong tree and could report a false
-    # OK. Refuse rather than mislead.
-    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-        printf '%s refusing to run as root -- must run as the sandbox account\n' "${_p}" >&2
+    # Fail-closed identity backstop: this must run as the sandbox account, the owner of the tree it audits. As root
+    # `npm root -g` is root's global prefix, so a run would verify the wrong tree and could report a false OK, and root
+    # or an operator would execute npm from the tree with its own authority. Refuse rather than mislead; an identity
+    # sandbox-exec.lib.sh could not confirm refuses too.
+    if ! declare -F ai_tools_is_sandbox_account >/dev/null 2>&1 || ! ai_tools_is_sandbox_account; then
+        printf '%s refusing to run as %s -- must run as the sandbox account\n' "${_p}" \
+            "$(id -un 2>/dev/null || printf 'uid %s' "${EUID}")" >&2
         return 2
     fi
     command -v npm  >/dev/null 2>&1 || { printf '%s npm not found -- cannot verify signatures\n'  "${_p}" >&2; return 2; }

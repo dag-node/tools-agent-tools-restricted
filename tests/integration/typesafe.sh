@@ -39,7 +39,7 @@ if [[ ! -r "${CLI}" ]]; then
 fi
 
 # The node a session runs: the system one where root's PATH has it, else the newest in the sandbox toolchain. Either is
-# executed as the sandbox account alone (as_agent_decide, and runuser at every direct call): the toolchain's is
+# executed as the sandbox account alone, through the harness's as_sandbox at every call: the toolchain's is
 # that account's to rewrite.
 NODE="$(command -v node || true)"
 if [[ -z "${NODE}" ]]; then
@@ -51,7 +51,7 @@ fi
 # lands in ${TESTDIR}/out and stderr in ${TESTDIR}/err; the exit status is the function's.
 as_agent_decide() {
     local input="$1"; shift
-    runuser -u "${SANDBOX_USER}" -- "${NODE}" "${CLI}" "$@" <"${input}" >"${TESTDIR}/out" 2>"${TESTDIR}/err"
+    as_sandbox "${NODE}" "${CLI}" "$@" <"${input}" >"${TESTDIR}/out" 2>"${TESTDIR}/err"
 }
 
 mktestdir
@@ -82,7 +82,7 @@ else
     if [[ -n "${NODE}" ]]; then
         # As the sandbox account, like every other call here: NODE may be the sandbox toolchain's, which root does not
         # execute.
-        reported="$(runuser -u "${SANDBOX_USER}" -- "${NODE}" "${CLI}" --version 2>&1 || true)"
+        reported="$(as_sandbox "${NODE}" "${CLI}" --version 2>&1 || true)"
         if [[ "${reported}" == "typesafe-client-js ${tag}" ]]; then
             pass "the installed command reports the pinned release ${tag}"
         else
@@ -266,7 +266,7 @@ rc=0
 # stdin and stderr are opened here, as root, like every other call's: a root-created file is not one the sandbox
 # account may open for writing.
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-runuser -u "${SANDBOX_USER}" -- bash -c '"$1" "$2" filter --task "which lines name a fruit" --config "$3" \
+as_sandbox bash -c '"$1" "$2" filter --task "which lines name a fruit" --config "$3" \
     | head -c 0; exit "${PIPESTATUS[0]}"' _ "${NODE}" "${CLI}" "${CONF}" \
     <"${TESTDIR}/fruit" 2>"${TESTDIR}/err" || rc=$?
 if [[ ${rc} -eq 0 && ! -s "${TESTDIR}/err" ]]; then

@@ -59,8 +59,10 @@ x_bit_visible() {
 
 mktestdir
 FIXTURE_ROOT="${TESTDIR}"
+# The fallback is under the sandbox home rather than the operator's: the writer runs as the sandbox account,
+# which traverses its own home and not an operator's, and the toolchain executes from there, so the bit is visible.
 if ! x_bit_visible "${FIXTURE_ROOT}"; then
-    mk_fixture_dir FIXTURE_ROOT "${PROJECTS_HOME}" toolchain 2>/dev/null || FIXTURE_ROOT=""
+    mk_fixture_dir FIXTURE_ROOT /opt/ai-tools toolchain 2>/dev/null || FIXTURE_ROOT=""
     [[ -n "${FIXTURE_ROOT}" ]] && chmod 0755 "${FIXTURE_ROOT}"
 fi
 if [[ -z "${FIXTURE_ROOT}" ]] || ! x_bit_visible "${FIXTURE_ROOT}"; then
@@ -87,10 +89,12 @@ printf 'launcher=nopkg\ndefault_enable=no\n' > "${AGENTS_DIR}/nopkg.conf"; chmod
 chmod 0666 "${AGENTS_DIR}/gamma.conf"      # untrusted: not an agent, so never residue
 printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
 
-# package <version> <package> : the package directory npm leaves, with a marker file inside.
+# package <version> <package> : the package directory npm leaves, with a marker file inside, owned by the sandbox
+# account like the tree it sits in, since the writer's npm removes it as that account.
 package() {
     mkdir -p "${NVM}/versions/node/$1/lib/node_modules/$2"
     printf '{}\n' > "${NVM}/versions/node/$1/lib/node_modules/$2/package.json"
+    chown -R "${SANDBOX_USER}:${SANDBOX_GROUP}" "${NVM}/versions/node/$1/lib/node_modules/$2"
 }
 package v1.2.3 @acme/experimental
 package v1.2.3 @acme/beta
@@ -249,12 +253,15 @@ ai_tools_agent_package_in_use "${own_exe_dir}" \
 # ── ai_tools_agent_package_remove: the one write ───────────────────────────────────────────────
 # npm stubbed in the fixture version's own bin, where the writer puts it first on PATH: it records its arguments
 # and removes the last argument's package directory, as npm does. The arguments it records are what show the real npm
-# was not run.
+# was not run. The writer runs as the sandbox account alone, since it runs npm from the tree, so each case drives it
+# through the harness's as_sandbox with the resolver's two hooks passed in the environment, over the tree that account
+# owns; the call log lives in a directory that account writes, and the collector stub a case sets travels as a function
+# definition. Root is refused first, with no npm call, which is the guard every other case rests on.
 for ver in v1.2.3 v2.0.0; do
     mkdir -p "${NVM}/versions/node/${ver}/bin"
     cat > "${NVM}/versions/node/${ver}/bin/npm" <<EOF
 #!/usr/bin/bash
-printf '%s\n' "\$*" >> "${FIXTURE_ROOT}/npm-calls"
+printf '%s\n' "\$*" >> "${FIXTURE_ROOT}/npm-calls.d/calls"
 printf 'npm chatter \033[0m\n' >&2
 [[ "\${NPM_STUB_KEEP:-}" == 1 ]] && { printf 'npm ERR! could not remove \033[2J\n' >&2; exit 0; }
 rm -rf -- "${NVM}/versions/node/${ver}/lib/node_modules/\${@: -1}"
@@ -262,12 +269,36 @@ EOF
     chmod 0755 "${NVM}/versions/node/${ver}/bin/npm"
 done
 [[ -x "${NVM}/versions/node/v1.2.3/bin/npm" ]] || { fail "the npm stub is not executable where it sits"; finish; exit; }
-calls() { cat "${FIXTURE_ROOT}/npm-calls" 2>/dev/null || true; }
-reset_calls() { rm -f "${FIXTURE_ROOT}/npm-calls"; }
+chown -R "${SANDBOX_USER}:${SANDBOX_GROUP}" "${NVM}"
+mkdir -p "${FIXTURE_ROOT}/npm-calls.d"
+chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${FIXTURE_ROOT}/npm-calls.d"
+calls() { cat "${FIXTURE_ROOT}/npm-calls.d/calls" 2>/dev/null || true; }
+reset_calls() { rm -f "${FIXTURE_ROOT}/npm-calls.d/calls"; }
+# run_toolchain_writer_as_sandbox <function> <arg>... : the writer as the sandbox account;
+# TOOLCHAIN_WRITER_STUB_DEFINITION, where set, is evaluated in the child first. stdout and stderr are the function's,
+# so a case redirects them as it would the function's own.
+TOOLCHAIN_WRITER_STUB_DEFINITION=""
+run_toolchain_writer_as_sandbox() {
+    local function_name="$1"; shift
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    as_sandbox env AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" NPM_STUB_KEEP="${NPM_STUB_KEEP:-}" \
+        bash -c 'source "$1"; eval "$2"; function_name="$3"; shift 3; "${function_name}" "$@"' \
+        _ "${LIB}" "${TOOLCHAIN_WRITER_STUB_DEFINITION:-:}" "${function_name}" "$@"
+}
+
+# (root) The guard: as root the writer refuses under its code, does not call npm and leaves the directory.
+reset_calls; rc=0
+out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" || rc=$?
+if (( rc != 0 )) && [[ -z "${out}" && -d "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta" && -z "$(calls)" ]]; then
+    pass "as root the writer refuses: non-zero, nothing printed, no npm call, directory intact"
+else
+    fail "root writer: rc ${rc}, out '${out}', calls '$(calls)'"
+fi
+assert_msg MSG-P6P2 "$(<"${FIXTURE_ROOT}/err")" "the refusal names the identity the writer requires"
 
 # (a) An enabled agent's package is refused, with no npm call and the directory intact.
 reset_calls; rc=0
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/experimental 2>"${FIXTURE_ROOT}/err")" || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/experimental 2>"${FIXTURE_ROOT}/err")" || rc=$?
 if (( rc != 0 )) && [[ -z "${out}" && -d "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/experimental" && -z "$(calls)" ]]; then
     pass "an enabled agent's package is refused: non-zero, nothing printed, no npm call, directory intact"
 else
@@ -277,14 +308,16 @@ assert_msg MSG-X7Z9 "$(<"${FIXTURE_ROOT}/err")" "the refusal carries its code"
 
 # (b) A package that is not there.
 reset_calls
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/nothere 2>/dev/null)" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/nothere 2>/dev/null)" && rc=0 || rc=$?
 [[ "${rc}" -eq 0 && "${out}" == absent && -z "$(calls)" ]] \
     && pass "an absent package prints absent and calls no npm" || fail "absent package: rc ${rc}, out '${out}'"
 
 # (c) A package a live process executes from is deferred: the collector stubbed to name a path under it.
 reset_calls
 _ai_tools_toolchain_exe_targets() { printf '%s\n' "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta/bin/x"; }
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+TOOLCHAIN_WRITER_STUB_DEFINITION="$(declare -f _ai_tools_toolchain_exe_targets)"
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+TOOLCHAIN_WRITER_STUB_DEFINITION=""
 if [[ "${rc}" -eq 0 && "${out}" == deferred && -d "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta" && -z "$(calls)" ]]; then
     pass "a package in use is deferred: exit 0, no npm call, directory intact"
 else
@@ -296,7 +329,7 @@ _ai_tools_toolchain_exe_targets() { :; }
 # (d) A removal: one uninstall under that version's npm with the version directory as the prefix, the directory gone,
 # and the state-directory notice naming the manifest's config_dir.
 reset_calls
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
 if [[ "${rc}" -eq 0 && "${out}" == removed && ! -e "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta" ]]; then
     pass "a removal prints removed and the package directory is gone"
 else
@@ -316,7 +349,7 @@ grep -q '/opt/ai-tools/.beta' "${FIXTURE_ROOT}/err" \
 # (e) An uninstall that leaves the directory in place is a failure, reported.
 package v1.2.3 @acme/beta; reset_calls
 export NPM_STUB_KEEP=1
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
 unset NPM_STUB_KEEP
 [[ "${rc}" -ne 0 && -z "${out}" ]] \
     && pass "an uninstall that left the directory returns non-zero and prints nothing" || fail "kept dir: rc ${rc}, out '${out}'"
@@ -328,25 +361,25 @@ else
 fi
 
 # (f) A name outside npm's package-name charset is refused before it becomes a path.
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" '../../etc' 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" '../../etc' 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
 [[ "${rc}" -ne 0 && -z "${out}" ]] && pass "a traversal is not an npm package name" || fail "traversal: rc ${rc}, out '${out}'"
 assert_msg MSG-J5W4 "$(<"${FIXTURE_ROOT}/err")" "and is refused under the writer's argument code"
 
 # (g) The erase form removes an enabled agent's package: the manifest is being erased with it.
 reset_calls
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/experimental erase 2>/dev/null)" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/experimental erase 2>/dev/null)" && rc=0 || rc=$?
 [[ "${rc}" -eq 0 && "${out}" == removed && ! -e "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/experimental" ]] \
     && pass "the erase form removes an enabled agent's package" || fail "erase: rc ${rc}, out '${out}'"
 
 # (h) ai_tools_agent_package_erase: every version directory holding the agent's package, from the manifest.
 package v1.2.3 @acme/beta; reset_calls
-out="$(ai_tools_agent_package_erase "${NVM}" beta 2>/dev/null)" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_erase "${NVM}" beta 2>/dev/null)" && rc=0 || rc=$?
 expected="${NVM}/versions/node/v1.2.3"$'\tremoved\n'"${NVM}/versions/node/v2.0.0"$'\tremoved'
 [[ "${rc}" -eq 0 && "${out}" == "${expected}" ]] \
     && pass "the erase form over an agent removes its package from every version directory" \
     || fail "erase over beta: rc ${rc}, out '$(tr '\n' '|' <<<"${out}")'"
 [[ "$(calls | wc -l)" -eq 2 ]] && pass "one uninstall per version directory" || fail "npm calls: '$(calls | tr '\n' '|')'"
-[[ -z "$(ai_tools_agent_package_erase "${NVM}" nopkg 2>/dev/null)" ]] \
+[[ -z "$(run_toolchain_writer_as_sandbox ai_tools_agent_package_erase "${NVM}" nopkg 2>/dev/null)" ]] \
     && pass "an agent naming no package erases nothing" || fail "erase printed lines for a manifest naming no package"
 
 # ── ai_tools_agent_incomplete: an enabled agent's package without its declared entrypoint ──────
@@ -508,7 +541,7 @@ else
     chown -R "${SANDBOX_USER}:${SANDBOX_GROUP}" "${FIXTURE_ROOT}/copied-tree"
     chmod 0755 "${FIXTURE_ROOT}"
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
-    outcomes="$(runuser -u "${SANDBOX_USER}" -- bash -c 'source "$1"; ai_tools_toolchain_relink_copies "$2"' \
+    outcomes="$(as_sandbox bash -c 'source "$1"; ai_tools_toolchain_relink_copies "$2"' \
         _ "${LIB}" "${copy_vdir}" 2>/dev/null | paste -sd' ')"
     [[ "${outcomes}" == $'npm\trelinked npx\tdiffers stray\tunknown tool\trelinked' ]] \
         && pass "identical copies are relinked, an edited one and an undeclared one are left" \

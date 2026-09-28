@@ -15,7 +15,8 @@
 #
 # `node` (the pure verdict's JSON parser) is real, and on most hosts the only one is the sandbox toolchain's
 # (toolchain_node). That binary is the sandbox account's to rewrite, so root never executes it: as root the verdict runs
-# as the sandbox account through runuser, with that one node's directory on its PATH. Run as root via sudo.
+# as the sandbox account through the harness's as_sandbox, with that one node's directory on its PATH. Run as root
+# via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -56,7 +57,7 @@ as_verdict_account() {
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
     local verdict_script='source "$1" && ai_tools_npm_verdict "$2"'
     if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-        runuser -u "${SANDBOX_USER}" -- env PATH="$(dirname -- "${NODE_BIN}"):/usr/bin:/bin" \
+        as_sandbox env PATH="$(dirname -- "${NODE_BIN}"):/usr/bin:/bin" \
             bash -c "${verdict_script}" _ "${LIB}" "$1"
     else
         PATH="$(dirname -- "${NODE_BIN}"):${PATH}" bash -c "${verdict_script}" _ "${LIB}" "$1"
@@ -123,14 +124,22 @@ if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
     else
         fail "verifier as root returned rc ${rc}; expected 2 (root refusal)"
     fi
+    # An operator account is refused the same way: the identity required is the sandbox account's, not "not root".
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    rc=0; runuser -u "${PROJECTS_USER}" -- bash -c 'source "$1"; ai_tools_verify_npm_signatures' _ "${LIB}" >/dev/null 2>&1 || rc=$?
+    if [[ "${rc}" -eq 2 ]]; then
+        pass "verifier refuses to run as the projects user (rc 2, no tree access)"
+    else
+        fail "verifier as the projects user returned rc ${rc}; expected 2"
+    fi
 else
     skip "root-refusal backstop" "suite not running as root"
 fi
 
 # An npm that does not start -- a copy of the tree that replaced npm's bin/ symlink with its target, whose relative
 # require then resolves from bin/ -- is reported as that, with npm's own error line, rather than as an empty tree.
-# Driven as an unprivileged caller past the root refusal, with npm a shell function: `command -v` finds it, so no stub
-# file needs an exec-capable directory. The error carries an escape byte, which the report must not.
+# Driven as the sandbox account, the identity the verifier requires, with npm a shell function: `command -v` finds it,
+# so no stub file needs an exec-capable directory. The error carries an escape byte, which the report must not.
 npm_error_probe() {
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
     bash -c 'npm() { printf "node:internal/modules/cjs/loader:1433\n  throw err;\n\nError: Cannot find module '"'"'../lib/cli.js'"'"'\033[0m\n" >&2; return 1; }
@@ -138,7 +147,7 @@ npm_error_probe() {
              source "$1"; ai_tools_verify_npm_signatures' _ "${LIB}"
 }
 if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-    rc=0; out="$(runuser -u "${PROJECTS_USER}" -- bash -c "$(declare -f npm_error_probe); LIB='${LIB}' npm_error_probe" 2>&1)" || rc=$?
+    rc=0; out="$(as_sandbox bash -c "$(declare -f npm_error_probe); LIB='${LIB}' npm_error_probe" 2>&1)" || rc=$?
 else
     rc=0; out="$(npm_error_probe 2>&1)" || rc=$?
 fi

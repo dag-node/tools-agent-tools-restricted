@@ -1895,6 +1895,14 @@ invoked under a name that is not a launcher \-\- refusing to start
 .B MSG-G4Q2
 WARNING.
 could not remove ${AI_TOOLS_BIN}/${launcher} via handback SYMLINK_REMOVE \-\- the ${agent} package is gone and every launch stays refused until the link is; remove it as root: rm \-f ${AI_TOOLS_BIN}/${launcher}
+.TP
+.B MSG-T2F4
+ERROR.
+cannot confirm this runs as the sandbox account: ${SANDBOX_EXEC_LIB} did not load \-\- reinstall ai\-tools\-base
+.TP
+.B MSG-U5C4
+ERROR.
+refusing to run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"): this script sources nvm.sh and runs npm from the sandbox toolchain, which only the sandbox account runs \-\- start it in that account's user instance (sudo systemctl \-\-user \-M ai\-tools@ start nvm\-update.service) or provision through sudo ai\-tools\-admin system bootstrap
 .SS providers.lib.sh
 .TP
 .B MSG-A3S3
@@ -1976,6 +1984,10 @@ removed the ${agent} package from the sandbox toolchain, and left its state dire
 .B MSG-J5W4
 WARNING.
 cannot remove $(printf '%q' "${npm_package}") from $(printf '%q' "${version_dir}"): not an npm package name in a version directory \-\- leaving the toolchain as it is
+.TP
+.B MSG-P6P2
+WARNING.
+the sandbox toolchain is run by the sandbox account alone \-\- $1 was not run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"); a root caller runs it through ai_tools_as_sandbox (sandbox\-exec.lib.sh)
 .TP
 .B MSG-X2B7
 WARNING.

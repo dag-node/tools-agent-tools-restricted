@@ -162,6 +162,19 @@ source "${CONF_LIB}" 2>/dev/null || true
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/log.lib.sh
 source "${LOG_LIB}" 2>/dev/null || true
+
+# The identity this script requires of itself (sandbox-exec.lib.sh, ai_tools_is_sandbox_account): it sources nvm.sh
+# and runs npm from the tree, which runs whatever the sandbox account put there, so it runs as that account alone. Root
+# and an operator are refused here, ahead of every read of the tree, with the routes that run it as the account named;
+# a library that did not load leaves the identity unconfirmed, which refuses too.
+readonly SANDBOX_EXEC_LIB="/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/sandbox-exec.lib.sh
+source "${SANDBOX_EXEC_LIB}" 2>/dev/null || true
+if ! declare -F ai_tools_is_sandbox_account >/dev/null 2>&1; then
+    die MSG-T2F4 "cannot confirm this runs as the sandbox account: ${SANDBOX_EXEC_LIB} did not load -- reinstall ai-tools-base"
+elif ! ai_tools_is_sandbox_account; then
+    die MSG-U5C4 "refusing to run as $(id -un 2>/dev/null || printf 'uid %s' "${EUID}"): this script sources nvm.sh and runs npm from the sandbox toolchain, which only the sandbox account runs -- start it in that account's user instance (sudo systemctl --user -M ai-tools@ start nvm-update.service) or provision through sudo ai-tools-admin system bootstrap"
+fi
 # npm_output: pass npm's output (stdin) through ai_tools_log_sanitize_stream, or withhold it with one line saying so.
 npm_output() {
     if declare -F ai_tools_log_sanitize_stream >/dev/null 2>&1; then
