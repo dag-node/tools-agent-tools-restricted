@@ -116,8 +116,9 @@ routes to the toolchain, and no third:
 
 - **Read it as data.** The installed Node version is `ai_tools_nvm_default_version` over the `default` alias
   and the version directories, an agent's version `ai_tools_entrypoint_installed_version` over its `package.json`,
-  and the active version the target of a stable launcher link. Each read is bounded and admits a clamped shape, since
-  the bytes are the account's.
+  and the active version the target of a stable launcher link. Each read admits a clamped shape, since the bytes are
+  the account's: the alias reader validates the first line whole before it selects among real version directories,
+  and the manifest reader checks the descriptor it opened for a regular file within a size cap before parsing.
 - **Run it as the account, through `ai_tools_as_sandbox`** (`sandbox-exec.lib.sh`, a library of its own with no provider
   dependency, so a bootstrap provisioning Node alone loads it whole), the one route a root caller takes to a command
   that executes a file of the toolchain. The caller names the account it means, and the helper refuses a name that does
@@ -721,17 +722,23 @@ neither tier is claimed for it, since rendering it as `verified` would put a ven
 here produced. An `observed` pin is a **tightening** of the state it replaces — an agent with no provenance was
 previously unpinned, so the launch had nothing to compare and any change to the binary went unseen.
 
-**The version both sides compare is read once.** `ai_tools_entrypoint_installed_version` walks up from the entrypoint
-to the nearest `package.json`, bounded in depth and to directories inside `node_modules`, so an entrypoint outside any
-package reads as no version rather than as the toolchain root's, and admits `MAJOR.MINOR.PATCH` with an optional `-`/`+`
-suffix of alphanumerics, dots and hyphens, never containing `..` — the clamp matters because that value reaches
-a terminal, a journal line, a pin record and the `{version}` slot of a release-manifest URL, from a file the sandbox
-account owns. The walk is deeper than one agent's layout: Claude Code's entrypoint sits at `<pkg>/bin/claude.exe`,
-codex's vendored binary at `<pkg>/vendor/<target-triple>/bin/codex`, and the platform package spells its version
-`0.154.0-linux-x64`. The launch banner reads the same function, so the pin and the banner cannot disagree
-about what version a binary is. An unreadable version is recorded as `unknown`, and the observing caller substitutes
-that same token before comparing, so the two sides stay like for like: left empty it would never equal a recorded
-`unknown`, every run would read as a new version, and a changed binary would be re-recorded rather than refused.
+**The version both sides compare is read once.** `ai_tools_entrypoint_installed_version` finds the package holding
+the entrypoint — the nearest ancestor the path enters through `node_modules/<name>` or `node_modules/@<scope>/<name>`,
+within six directories — and reads that package's own `package.json` alone: a nested package without a manifest
+and an entrypoint outside any package each read as no version rather than as an enclosing package's or the toolchain
+root's, and a caller that names the package it asked about is answered only where the manifest's `name` matches.
+The host's `python3` reads the file, never the tree's `node`: it opens the path without following a symlink, checks
+the opened descriptor to be a regular file of at most 64 KiB, parses the bytes it read from that descriptor as JSON,
+and takes the top-level `version` alone, so a symlink, a fifo, a swapped file or a nested `version` field does not yield
+a version. The value admits `MAJOR.MINOR.PATCH` with an optional `-`/`+` suffix of alphanumerics, dots and hyphens, never
+containing `..` — the clamp matters because that value reaches a terminal, a journal line, a pin record
+and the `{version}` slot of a release-manifest URL, from a file the sandbox account owns. The boundary is deeper than
+one agent's layout: Claude Code's entrypoint sits at `<pkg>/bin/claude.exe`, codex's vendored binary
+at `<pkg>/vendor/<target-triple>/bin/codex`, and the platform package spells its version `0.154.0-linux-x64`. The launch
+banner reads the same function, so the pin and the banner cannot disagree about what version a binary is. An unreadable
+version is recorded as `unknown`, and the observing caller substitutes that same token before comparing, so the two
+sides stay like for like: left empty it would never equal a recorded `unknown`, every run would read as a new version,
+and a changed binary would be re-recorded rather than refused.
 
 **What guards the weaker tier is the refusal to re-record.** `ai_tools_entrypoint_observe_decision` is pure
 and unit-tested over its table: no pin, or a different installed version, yields `pin` (a release the updater installed

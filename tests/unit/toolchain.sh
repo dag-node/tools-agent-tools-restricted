@@ -455,7 +455,17 @@ v22.23.2|v22.23.2|an exact version selects itself
 18||a major with no installed match
 lts/*||an nvm keyword
 22;rm -rf /||a line carrying a shell metacharacter
+2 2||a line with a space is refused whole, not read as 22
+ 22||a leading space is refused whole
 ROWS
+# A candidate is a real directory: a regular file and a symlink named like a newer version do not win.
+: > "${alias_nvm}/versions/node/v22.99.99"
+ln -s "${alias_nvm}/versions/node/v22.23.3" "${alias_nvm}/versions/node/v22.99.98"
+printf '22\n' > "${alias_nvm}/alias/default"
+got="$(ai_tools_nvm_default_version "${alias_nvm}")"
+[[ "${got}" == v22.23.3 ]] && pass "a regular file and a symlink named like a version are not candidates" \
+    || fail "a non-directory candidate won: '${got}'"
+rm -f "${alias_nvm}/versions/node/v22.99.99" "${alias_nvm}/versions/node/v22.99.98"
 rm -f "${alias_nvm}/alias/default"
 ln -s "${alias_nvm}/versions/node/v20.1.0" "${alias_nvm}/alias/default"
 [[ -z "$(ai_tools_nvm_default_version "${alias_nvm}")" ]] \

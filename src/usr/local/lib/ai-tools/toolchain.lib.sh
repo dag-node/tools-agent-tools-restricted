@@ -74,17 +74,19 @@ source "${BASH_SOURCE[0]%/*}/sandbox-exec.lib.sh" 2>/dev/null || true
 #   among the installed versions, or an empty string. Read as data -- the alias file, then the version directories --
 #   so a root caller learns the version without sourcing nvm.sh, which is the sandbox account's to rewrite
 #   (updater.rule.md). The alias holds what nvm wrote: an exact `vX.Y.Z`, or a prefix of one (`22`, `v22.23`), which
-#   selects the highest installed match, as `nvm version default` does. Any other value -- `node`, `lts/*`, a line
-#   the account put there -- is outside the admitted shape and prints nothing, which the callers report as an unset
-#   alias.
+#   selects the highest installed match, as `nvm version default` does. The first line is validated whole, before any
+#   normalization, so a line the account put there -- `2 2`, `22;rm -rf /` -- is refused rather than read as `22`;
+#   `node`, `lts/*` and every other nvm keyword are outside the admitted shape too (ai-tools-bootstrap writes a bare
+#   major). Each prints nothing, which the callers report as an unset alias. A candidate is a real directory:
+#   a regular file or a symlink named like a version is not one.
 ai_tools_nvm_default_version() {
-    local nvm_dir="${1:-}" alias_value prefix candidate best=""
+    local nvm_dir="${1:-}" alias_line prefix candidate best=""
     [[ -n "${nvm_dir}" && -f "${nvm_dir}/alias/default" && ! -L "${nvm_dir}/alias/default" ]] || return 0
-    alias_value="$(head -c 64 -- "${nvm_dir}/alias/default" 2>/dev/null | head -n1 || true)"
-    alias_value="${alias_value//[[:space:]]/}"
-    [[ "${alias_value}" =~ ^v?[0-9]+(\.[0-9]+){0,2}$ ]] || return 0
-    prefix="v${alias_value#v}"
+    alias_line="$(head -c 64 -- "${nvm_dir}/alias/default" 2>/dev/null | head -n1 || true)"
+    [[ "${alias_line}" =~ ^v?[0-9]+(\.[0-9]+){0,2}$ ]] || return 0
+    prefix="v${alias_line#v}"
     for candidate in "${nvm_dir}"/versions/node/v*; do
+        [[ -d "${candidate}" && ! -L "${candidate}" ]] || continue
         candidate="${candidate##*/}"
         [[ "${candidate}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
         [[ "${candidate}" == "${prefix}" || "${candidate}" == "${prefix}".* ]] || continue

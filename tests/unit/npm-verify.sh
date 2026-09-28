@@ -95,6 +95,14 @@ expect "unsigned package present"     MISSING 2 '{"invalid":[],"missing":[{"name
 expect "audit no output (offline)"    EMPTY   2 ''
 # Unparseable output -> unable to verify; never a false OK on a format change.
 expect "unparseable audit output"     UNKNOWN 2 'this is not json'
+# Valid JSON in another shape than npm's report is a format change too: a document with neither array, a number,
+# an array, and fields that are not arrays each read as "could not verify", never as a clean audit.
+expect "an empty object"              UNKNOWN 2 '{}'
+expect "a number"                     UNKNOWN 2 '42'
+expect "an array"                     UNKNOWN 2 '[]'
+expect "null"                         UNKNOWN 2 'null'
+expect "fields that are not arrays"   UNKNOWN 2 '{"invalid":{},"missing":{}}'
+expect "one array missing"            UNKNOWN 2 '{"invalid":[]}'
 
 # The package names in the verdict's report come from npm's JSON, so they pass the same allowlist: a name carrying
 # an escape byte reaches stderr with a `?` in its place.

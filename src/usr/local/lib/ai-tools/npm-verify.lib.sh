@@ -58,7 +58,12 @@ source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
 # ai_tools_npm_verdict <audit-json>: pure decision over `npm audit signatures --json` output. Echoes a verdict token
 # (OK|INVALID|MISSING|EMPTY|UNKNOWN) and returns the status contract contract. node parses the JSON (node is
 # the toolchain's own runtime; jq is not assumed) and is used read-only on the passed string -- no filesystem, no npm,
-# no privilege. A parse failure or empty input yields a non-OK verdict, so a format change never reads as a false OK.
+# no privilege. OK requires the shape npm's verifier writes (`lib/utils/verify-signatures.js`: an object whose `invalid`
+# and `missing` are both arrays) with both arrays empty; empty input, a parse failure, and a document of any other shape
+# -- `{}`, a number, an object whose fields are not arrays -- yield UNKNOWN, so a format change is read as "could not
+# verify" and not as a clean audit. The audit is npm's own report over a tree the sandbox account can rewrite, npm
+# included, so it is not the trusted check against a hostile toolchain: the entrypoint pin is
+# (entrypoint-verify.lib.sh), and this verdict covers the registry-signature question alone.
 ai_tools_npm_verdict() {
     local audit_json="${1:-}"
     [[ -n "${audit_json}" ]] || { printf 'EMPTY'; return 2; }
@@ -70,7 +75,11 @@ ai_tools_npm_verdict() {
         let inv = [], mis = [];
         try {
             const j = JSON.parse(fs.readFileSync(0, "utf8"));
-            inv = j.invalid || []; mis = j.missing || [];
+            if (j === null || typeof j !== "object" || Array.isArray(j)
+                || !Array.isArray(j.invalid) || !Array.isArray(j.missing)) {
+                process.stdout.write("PARSEFAIL"); process.exit(0);
+            }
+            inv = j.invalid; mis = j.missing;
         } catch (_) { process.stdout.write("PARSEFAIL"); process.exit(0); }
         const safe = v => String(v).replace(/[^\x20-\x7e]/g, "?");
         const name = x => safe((x && x.name) ? (x.name + "@" + (x.version || "?")) : x);
