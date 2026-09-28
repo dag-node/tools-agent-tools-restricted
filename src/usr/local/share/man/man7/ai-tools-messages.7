@@ -1212,6 +1212,10 @@ wrong type on ${subject}: it is '${detail}', NOT ${wanted}
 WARNING.
 entrypoint verifier unavailable (${ENTRYPOINT_VERIFY_LIB}) \-\- entrypoints will not be pinned
 .TP
+.B MSG-J3A6
+ERROR.
+a copied toolchain link stops this relabel: ${copied} agent(s) resolve their launcher to a copy of the entrypoint rather than to it, so the file a session execs cannot be labelled; the toolchain run restores the links: sudo ai\-tools\-admin system bootstrap, then rerun
+.TP
 .B MSG-K4D7
 WARNING.
 could not record ${agent}'s stale pin for ai\-tools status \-\- the reports will render its pin as current
@@ -1239,6 +1243,10 @@ an agent's file\-context rule could not be applied (see above)
 .B MSG-S6C5
 ERROR.
 no usable path rules declared by ${agent} \-\- nothing dropped
+.TP
+.B MSG-S6V5
+WARNING.
+copied link for ${subject}: its launcher resolves to
 .TP
 .B MSG-S9Z3
 ERROR.
@@ -1501,6 +1509,10 @@ compiled module ${pp} was built for policy module version ${reading%% *}, and th
 WARNING.
 integration ${integration} declares layout module ${module}, which has no source under ${POLICY_DIR}
 .TP
+.B MSG-G9M3
+WARNING.
+incomplete package for ${subject}: its launcher resolves to
+.TP
 .B MSG-H5V4
 ERROR.
 selinux: cannot source required library ${1}
@@ -1528,6 +1540,10 @@ ENFORCING MISMATCH \-\- domain(s) are permissive but .te expects enforcing:
 .B MSG-N8Q3
 WARNING.
 integration ${integration} declares a layout module name that is not ai_tools_<name>: ${module}
+.TP
+.B MSG-P8W5
+WARNING.
+copied toolchain link for ${subject}: its launcher resolves to
 .TP
 .B MSG-Q3Q6
 ERROR.

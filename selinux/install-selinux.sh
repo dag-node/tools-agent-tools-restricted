@@ -629,6 +629,21 @@ verify_agent_labels() {
                       warn "    -- not covered by the file-context rule its manifest declares,"
                       warn "    so no relabel can label it and every launch will fail closed"
                       warn "    Update the agent package; its manifest is stale" ;;
+                # The launcher resolves to a copy of the declared entrypoint, so the manifest is right
+                # and the toolchain's links are not: the run that provisions the toolchain restores them.
+                copied) bad=1
+                      warn MSG-P8W5 "copied toolchain link for ${subject}: its launcher resolves to"
+                      warn "    ${detail}"
+                      warn "    -- a copy of the entrypoint its manifest declares, where the toolchain keeps a symlink,"
+                      warn "    so no relabel can label it and every launch will fail closed"
+                      warn "    Restore the links: sudo ai-tools-admin system bootstrap" ;;
+                # The declared entrypoint is not installed at all: the package is incomplete, and the toolchain run
+                # reinstalls it.
+                incomplete) bad=1
+                      warn MSG-G9M3 "incomplete package for ${subject}: its launcher resolves to"
+                      warn "    ${detail}"
+                      warn "    -- and no installed file matches the entrypoint its manifest declares"
+                      warn "    Reinstall it: sudo ai-tools-admin system bootstrap" ;;
                 none) warn MSG-S4K9 "no path to label for ${subject}: ${detail} is not installed" ;;
                 skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms, so only

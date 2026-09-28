@@ -207,13 +207,21 @@ else
             continue
         fi
         pattern="$(ai_tools_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
-        covered=no matched=no
+        covered=no matched=no copy=no
+        matches=()
         while IFS= read -r p; do
             matched=yes
+            matches+=("${p}")
             [[ "${p}" == "${installed}" ]] && covered=yes
         done < <(_ai_tools_entrypoint_paths "${pattern}")
-        case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}")" in
+        # The same copy reading the relabel makes, so the failure names the cause the relabel will.
+        if [[ "${covered}" != yes && -f "${installed}" && ! -L "${installed}" ]]; then
+            for p in "${matches[@]}"; do cmp -s -- "${installed}" "${p}" && { copy=yes; break; }; done
+        fi
+        case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}" "${copy}")" in
             ok) pass "${agent}: its declared entrypoint rule covers ${installed}" ;;
+            copied) fail "${agent}: its launcher resolves to ${installed}, a copy of the entrypoint its manifest declares where the toolchain keeps a symlink -- every launch will fail closed; restore the links: sudo ai-tools-admin system bootstrap" ;;
+            incomplete) fail "${agent}: installed at ${installed}, and no file matches the entrypoint its manifest declares -- every launch will fail closed; reinstall: sudo ai-tools-admin system bootstrap" ;;
             *)  fail "${agent}: installed at ${installed}, which its declared entrypoint_fcontext does not cover -- every launch will fail closed; the manifest is stale" ;;
         esac
     done < <(ai_tools_enabled_agents 2>/dev/null)

@@ -548,14 +548,16 @@ as the cause rather than diagnosed as a missing install. It never labels the res
 [agent-claude-code](agent-claude-code.rule.md)). `ai-tools-relabel-agent --remove <agent>` is the erase-time
 counterpart: the agent package's `%preun` drops its rule while its manifest is still on disk.
 
-**The divergence has two causes, and the reconciliation tells them apart, because their remedies do not overlap.**
-Whether the declared pattern matches *any* installed file is what decides it (`ai_tools_entrypoint_reconcile_verdict`,
-`relabel.lib.sh`):
+**The divergence has a cause per verdict, and the reconciliation tells them apart, because their remedies do not
+overlap.** Whether the declared pattern matches *any* installed file decides it, and where it does, whether the file
+the launcher resolves to is a byte-identical copy of a match (`ai_tools_entrypoint_reconcile_verdict`, `relabel.lib.sh`;
+the comparison is `cmp`, a read):
 
 | verdict | what the pattern matched | the cause | the remedy the refusal names |
 |---|---|---|---|
 | `stale` | some other file | the manifest has stopped describing its own package | a newer agent package (`dnf update 'ai-tools-agents-*'`) |
 | `incomplete` | no installed file | the package did not install the entrypoint it declares | the toolchain reinstall (`sudo ai-tools-admin system bootstrap`) |
+| `copied` | some other file, byte-identical to the one the launcher resolves to | a copy of the tree replaced a symlink in the launcher's chain with its target | the toolchain run, which restores the links (`sudo ai-tools-admin system bootstrap`) |
 
 Each is reported per agent as a warning and fails the run under its own code, and the split is what keeps the operator
 out of a loop: the missing executable comes from the sandbox toolchain rather than from the RPM, so an agent package
