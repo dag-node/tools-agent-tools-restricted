@@ -291,6 +291,40 @@ else
     fail "the orientation asset was not seeded: ${out}"
 fi
 
+# A managed asset the seeder keeps is still its to own: a copy of the tree, or a root edit, leaves one at an owner
+# or mode the sessions cannot read it under, and the next run brings it back and says so. Driven over a file asset
+# and a directory asset whose subdirectory carries an inherited setgid, since a four-digit chmod would leave that bit.
+if ! id nobody >/dev/null 2>&1; then
+    skip "ownership restored on a kept asset" "no 'nobody' account to drift the fixture to"
+else
+    write_skill "${SHIPPED}" ai-tools-owned 1
+    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root skills 2>&1)" || true
+    chown nobody:nobody "${LIVE}/orientation/AGENTS.md"; chmod 600 "${LIVE}/orientation/AGENTS.md"
+    mkdir -p "${LIVE}/skills/ai-tools-owned/references"; chmod 2775 "${LIVE}/skills/ai-tools-owned/references"
+    chown nobody "${LIVE}/skills/ai-tools-owned/SKILL.md"
+    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root skills orientation 2>&1)" || true
+    if [[ "$(stat -c '%a %U:%G' "${LIVE}/orientation/AGENTS.md")" == "640 root:root" ]] \
+       && [[ "$(stat -c '%a %U:%G' "${LIVE}/skills/ai-tools-owned/SKILL.md")" == "640 root:root" ]] \
+       && [[ "$(stat -c '%a' "${LIVE}/skills/ai-tools-owned/references")" == "750" ]] \
+       && [[ "$(asset_version "${LIVE}/orientation/AGENTS.md")" == "3" ]]; then
+        pass "a kept managed asset is brought back to root:group 640/750, an inherited setgid cleared, its content untouched"
+    else
+        fail "a kept asset's ownership was not restored: $(stat -c '%a %U:%G' "${LIVE}/orientation/AGENTS.md") / $(stat -c '%a %U:%G' "${LIVE}/skills/ai-tools-owned/SKILL.md") / $(stat -c '%a' "${LIVE}/skills/ai-tools-owned/references") (${out})"
+    fi
+    if [[ "$(grep -c 'ownership and modes restored' <<<"${out}")" -eq 2 ]]; then
+        pass "each asset brought back is reported, and one already right is not"
+    else
+        fail "the restore report: ${out}"
+    fi
+    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root skills orientation 2>&1)" || true
+    if ! grep -q 'ownership and modes restored' <<<"${out}"; then
+        pass "a second run over assets already at their ownership reports no restore"
+    else
+        fail "a clean run reported a restore: ${out}"
+    fi
+    # The linker's own fixture for the next section starts from a seeded orientation, which this left as seeded.
+fi
+
 if ! declare -F ai_tools_link_agent_memory >/dev/null 2>&1; then
     fail "the asset library does not define ai_tools_link_agent_memory"
 else
@@ -338,6 +372,30 @@ else
         pass "a real file at the agent's memory path is kept and reported, never replaced by a link"
     else
         fail "an operator's own memory file was displaced by the shared link: ${out}"
+    fi
+
+    # The one real file that does not win: a byte-identical copy carrying the managed marker is this project's own text
+    # -- a tree copied with its links dereferenced leaves one -- so it becomes the link with no content lost. A managed
+    # copy that differs is an edit or version drift, and stays.
+    rm -f "${AGENT_DIR}/CLAUDE.md"
+    cp "${SHARED_FILE}" "${AGENT_DIR}/CLAUDE.md"
+    out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
+    if [[ -L "${AGENT_DIR}/CLAUDE.md" ]] \
+       && [[ "$(readlink -- "${AGENT_DIR}/CLAUDE.md")" == "${SHARED_FILE}" ]] \
+       && grep -q 'converted to a link (was an identical managed copy)' <<<"${out}"; then
+        pass "a managed, byte-identical copy at the memory path is converted to the link and reported"
+    else
+        fail "an identical managed copy was not converted to the link: ${out}"
+    fi
+    rm -f "${AGENT_DIR}/CLAUDE.md"
+    { cat "${SHARED_FILE}"; printf 'an operator edit\n'; } > "${AGENT_DIR}/CLAUDE.md"
+    out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
+    if [[ ! -L "${AGENT_DIR}/CLAUDE.md" ]] \
+       && grep -q 'an operator edit' "${AGENT_DIR}/CLAUDE.md" \
+       && grep -q 'kept (a real entry here wins' <<<"${out}"; then
+        pass "a managed copy that differs from the shared text is kept, edit and all"
+    else
+        fail "a managed copy carrying an edit was displaced: ${out}"
     fi
 
     # An agent that does not declare a memory_file reaches the linker with an empty name (the resolver skips it,
