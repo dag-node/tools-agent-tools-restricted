@@ -422,11 +422,18 @@ report_ask_gaps() {
     return 0
 }
 
-# Create a directory only if it does not already exist, preserving perms on existing dirs. Applies owner/mode only
-# to newly created directories.
+# ensure_dir <mode> <owner> <group> <dir>: create the directory with that owner and mode, or bring an existing one
+# to them, and log a change it made -- so an install over an existing tree leaves every directory it names at the state
+# tests/integration/perms.sh asserts, whatever the tree came with. The mode is applied again as a five-digit octal
+# (00755), the one numeric form chmod clears a directory's setuid, setgid and sticky bits with: a directory
+# under a setgid parent inherits the bit at creation, and `install -d -m` and a four-digit chmod both leave it set.
 ensure_dir() {
-    local mode="$1" owner="$2" group="$3" dir="$4"
-    [[ -d "${dir}" ]] || install -d -o "${owner}" -g "${group}" -m "${mode}" "${dir}"
+    local mode="$1" owner="$2" group="$3" dir="$4" before="absent" after
+    [[ -d "${dir}" ]] && before="$(stat -c '%a %U:%G' "${dir}")"
+    install -d -o "${owner}" -g "${group}" -m "${mode}" "${dir}"
+    chmod "$(printf '%05o' "$(( 8#${mode} ))")" "${dir}"
+    after="$(stat -c '%a %U:%G' "${dir}")"
+    [[ "${before}" == absent || "${before}" == "${after}" ]] || log "  ${dir}: ${before} -> ${after}"
 }
 
 # Make sure `<home>/.config` exists and belongs to the account whose home it is, before the ai-tools config directory is
@@ -1260,10 +1267,11 @@ do_install() {
     # never edited on the host.
     install -o root -g root -d -m 755 /usr/local/lib/ai-tools/keys
     # Verified entrypoint pins: root-owned and not group-writable, so the account the pin constrains cannot write it.
-    # 755 so the sandbox account can read the pin at launch.
-    install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-pin.d
-    install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-label.d
-    install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-stale.d
+    # 755 so the sandbox account can read the pin at launch. Under the setgid state root, so ensure_dir, which clears
+    # the bit a directory created or copied there inherits.
+    ensure_dir 755 root root /var/opt/ai-tools/state/entrypoint-pin.d
+    ensure_dir 755 root root /var/opt/ai-tools/state/entrypoint-label.d
+    ensure_dir 755 root root /var/opt/ai-tools/state/entrypoint-stale.d
     log "/usr/local/lib/ai-tools/keys/claude-code.asc"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/claude-code.asc" \
@@ -1466,7 +1474,6 @@ do_install() {
     log "/opt/ai-tools/integrations/typesafe (state root: the usage log)"
     ensure_dir "${CP_DIR_MODES[integrations]}" root "${SANDBOX_GROUP}" /opt/ai-tools/integrations
     ensure_dir 2770 root "${SANDBOX_GROUP}" /opt/ai-tools/integrations/typesafe
-    chmod 2770 /opt/ai-tools/integrations/typesafe
 
     # SELinux policy modules: compiled from this checkout and staged under the canonical package dir (see
     # stage_selinux_modules). Loading and labelling the core is offer_selinux's step, later; this lays the modules
@@ -1815,30 +1822,21 @@ do_install() {
     # Sandbox project area. /var/opt is FHS-correct for variable data paired with an /opt install. Owned
     # root:SANDBOX_GROUP; the inner sandbox-projects dir is setgid (clones born group SANDBOX_GROUP) and group-writable
     # (the agent works in the clones). setgid is what lets the agent and an operator share the clone files
-    # through the group. Enforce ownership/mode on re-install even when the dirs
-    # pre-exist.
+    # through the group. ensure_dir brings a pre-existing directory to this ownership and mode.
     log "/var/opt/ai-tools/"
     ensure_dir 2750 root "${SANDBOX_GROUP}" /var/opt/ai-tools
-    chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools
-    chmod 2750 /var/opt/ai-tools
     log "/var/opt/ai-tools/sandbox-projects/"
     ensure_dir 2770 root "${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
-    chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
-    chmod 2770 /var/opt/ai-tools/sandbox-projects
 
     # Operator-readable state written BY the sandbox account: the last-run stamps of the units in that account's own
     # `systemd --user manager` (nvm-update), which `ai-tools status` cannot query from the operator's session.
     # The directory is root-owned and deliberately NOT group-writable -- the account gets traverse only --
     # so the surface the stamps add is the contents of the individual files created here, never the directory:
     # the account cannot add, unlink, rename, or symlink-swap anything in it. Each stamp is therefore created HERE,
-    # owned by the account (which rewrites it in place) with group ai-ops so operators read it directly. setgid is
-    # stripped symbolically: the parent is setgid and neither `install -d -m` nor a numeric chmod clears an inherited
-    # setgid bit on a directory (see tests.rule.md).
+    # owned by the account (which rewrites it in place) with group ai-ops so operators read it directly. The parent is
+    # setgid, and ensure_dir is what clears the inherited bit here (see tests.rule.md).
     log "/var/opt/ai-tools/state/"
     ensure_dir 0750 root "${SANDBOX_GROUP}" /var/opt/ai-tools/state
-    chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools/state
-    chmod 0750 /var/opt/ai-tools/state
-    chmod g-s /var/opt/ai-tools/state
     getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
     touch /var/opt/ai-tools/state/nvm-update.status
     chown "${SANDBOX_USER}:ai-ops" /var/opt/ai-tools/state/nvm-update.status
