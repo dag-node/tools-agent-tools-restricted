@@ -33,6 +33,27 @@ ai_tools_project_permissions_build_acl_specification() {
     printf -v "${_output}" 'user:%s:rwX,group:%s:rwX,other::---' "${_operator}" "${_group}"
 }
 
+# _ai_tools_project_permissions_read_capture <file> <output-variable>  -- set <output-variable> to the whole content
+# of a stream a check captured, and return 0. Returns 1 with the variable empty when the file is missing, is anything
+# but a regular file, fails to read, or holds a NUL: a shell string cannot carry one, and a read that stopped at it
+# would hide every byte after it. The length read is compared with the file's size, so a short read is refused as well.
+_ai_tools_project_permissions_read_capture() {
+    local _file="$1" _size
+    local -n _capture_out="$2"
+    local LC_ALL=C
+    _capture_out=""
+    [[ -f "${_file}" && ! -L "${_file}" && -r "${_file}" ]] || return 1
+    _size="$(stat -c '%s' -- "${_file}" 2>/dev/null)" || return 1
+    if IFS= read -r -d '' _capture_out 2>/dev/null < "${_file}"; then
+        _capture_out=""
+        return 1
+    fi
+    if (( ${#_capture_out} != _size )); then
+        _capture_out=""
+        return 1
+    fi
+}
+
 # ── SELinux label ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 # ai_tools_project_permissions_context_type <output-variable> <context>  -- set <output-variable> to the type
@@ -49,11 +70,11 @@ ai_tools_project_permissions_context_type() {
     _context_type_out="${BASH_REMATCH[1]}"
 }
 
-# ai_tools_project_permissions_split_record <record> <path-var> <from-type-var> <to-type-var>  -- split one
+# ai_tools_project_permissions_parse_restorecon_record <record> <path-var> <from-type-var> <to-type-var>  -- split one
 # `restorecon -v` record, `Would relabel <path> from <context> to <context>` without its LF, into the path and the two
 # types. Both contexts are cut from the right: a context does not hold a space, while a path may hold ` from `
 # or ` to `. Returns 1 with every variable empty when the record has another shape or either context does not validate.
-ai_tools_project_permissions_split_record() {
+ai_tools_project_permissions_parse_restorecon_record() {
     local _record="$1"
     local -n _split_path="$2" _split_from="$3" _split_to="$4"
     local LC_ALL=C _rest _from_context _to_context
@@ -77,11 +98,11 @@ ai_tools_project_permissions_split_record() {
 
 # ai_tools_project_permissions_label_check <path> <work-dir> <outcome-var> <from-type-var> <to-type-var>  --
 # the single-path form of the batch's label test: `restorecon -n -v -F -- <path>`, not recursive. <outcome-var> gets
-# `match` on complete output (exit 0, empty stderr) that has no record, or one record for these exact bytes whose two
-# types agree (the user, role or range alone differ, which a claim does not count); `drift` for that record
-# with the types differing, both type variables set; `unknown` for anything else. The record is matched by its known
-# prefix, so a path holding LF, whose record spans two lines, is read like any other. The captured streams are written
-# into <work-dir>.
+# `match` on complete output (exit 0, empty stderr, a capture read whole) that has no record, or one record for these
+# exact bytes whose two types agree (the user, role or range alone differ, which a claim does not count); `drift`
+# for that record with the types differing, both type variables set; `unknown` for anything else. The record is matched
+# by its known prefix, so a path holding LF, whose record spans two lines, is read like any other. The captured streams
+# are written into <work-dir>.
 ai_tools_project_permissions_label_check() {
     local _path="$1" _work="$2"
     local -n _label_outcome="$3" _label_from="$4" _label_to="$5"
@@ -90,8 +111,8 @@ ai_tools_project_permissions_label_check() {
     { LC_ALL=C restorecon -n -v -F -- "${_path}" \
         > "${_work}/label-check.out" 2> "${_work}/label-check.err"; } 2>/dev/null || _status=$?
     (( _status == 0 )) || return 0
-    [[ -s "${_work}/label-check.err" ]] && return 0
-    IFS= read -r -d '' _stdout 2>/dev/null < "${_work}/label-check.out" || true
+    [[ -f "${_work}/label-check.err" && ! -s "${_work}/label-check.err" ]] || return 0
+    _ai_tools_project_permissions_read_capture "${_work}/label-check.out" _stdout || return 0
     if [[ -z "${_stdout}" ]]; then
         _label_outcome=match
         return 0
@@ -119,38 +140,42 @@ ai_tools_project_permissions_label_check() {
 # bytes, none holding LF; <drift-map> receives `<from-type> TAB <to-type>` under each path whose valid record shows
 # the two types differing.
 #
-# Returns 0 on complete output: exit 0, empty stderr, and every line an LF-terminated valid record naming a listed path
-# once. Only then does a listed path absent from <drift-map> match. Returns 1 otherwise, and <drift-map> holds only
-# the drift records the output carried whole: every other listed path is unknown, a final line without its LF is not
-# read, and a record naming a path outside the set is not evidence about any path. `-i` skips a listed path that does
-# not exist, which the collection passes and the verification does not (cli.rule.md, Interior drift).
+# Returns 0 on complete output: exit 0, empty stderr, a capture read whole, and every line an LF-terminated valid record
+# naming a listed path once. Only then does a listed path absent from <drift-map> match. Returns 1 otherwise,
+# and <drift-map> holds only the drift records the output carried whole: every other listed path is unknown, a final
+# line without its LF is not read, and a record naming a path outside the set is not evidence about any path. `-i` skips
+# a listed path that does not exist, which the collection passes and the verification does not (cli.rule.md, Interior
+# drift).
 ai_tools_project_permissions_label_batch() {
     local _list="$1" _work="$2" _ignore_missing="${5:-}"
     local -n _batch_listed="$3" _batch_drift="$4"
-    local LC_ALL=C _status=0 _complete=0 _output="" _line _path _from _to
+    local LC_ALL=C _status=0 _incomplete=0 _output="" _line _path _from _to
     local -a _arguments=(-n -v -F -0) _lines=()
     local -A _seen=()
     [[ "${_ignore_missing}" == -i ]] && _arguments+=(-i)
     { LC_ALL=C restorecon "${_arguments[@]}" -f - < "${_list}" \
         > "${_work}/label-batch.out" 2> "${_work}/label-batch.err"; } 2>/dev/null || _status=$?
-    (( _status == 0 )) || _complete=1
-    [[ -s "${_work}/label-batch.err" ]] && _complete=1
-    IFS= read -r -d '' _output 2>/dev/null < "${_work}/label-batch.out" || true
+    (( _status == 0 )) || _incomplete=1
+    [[ -f "${_work}/label-batch.err" && ! -s "${_work}/label-batch.err" ]] || _incomplete=1
+    if ! _ai_tools_project_permissions_read_capture "${_work}/label-batch.out" _output; then
+        _incomplete=1
+        _output=""
+    fi
     if [[ -n "${_output}" && "${_output}" != *$'\n' ]]; then
-        _complete=1
+        _incomplete=1
         if [[ "${_output}" == *$'\n'* ]]; then _output="${_output%$'\n'*}"$'\n'; else _output=""; fi
     fi
     [[ -n "${_output}" ]] && mapfile -t _lines <<< "${_output%$'\n'}"
     for _line in "${_lines[@]}"; do
-        if ! ai_tools_project_permissions_split_record "${_line}" _path _from _to \
+        if ! ai_tools_project_permissions_parse_restorecon_record "${_line}" _path _from _to \
                 || [[ -z "${_batch_listed[${_path}]+set}" || -n "${_seen[${_path}]+set}" ]]; then
-            _complete=1
+            _incomplete=1
             continue
         fi
         _seen["${_path}"]=1
         [[ "${_from}" != "${_to}" ]] && _batch_drift["${_path}"]="${_from}"$'\t'"${_to}"
     done
-    return "${_complete}"
+    return "${_incomplete}"
 }
 
 # ── Absence ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -200,25 +225,23 @@ for path in paths:
 
 # ── Group and ACL ────────────────────────────────────────────────────────────────────────────────────────────────────
 
-# ai_tools_project_permissions_read_acl <path> <work-dir> <access-map> <default-map>  -- read <path>'s ACL
-# with `getfacl --absolute-names --omit-header --numeric --no-effective` into two associative arrays keyed
+# ai_tools_project_permissions_parse_acl <capture-file> <access-map> <default-map>  -- parse a captured
+# `getfacl --absolute-names --omit-header --numeric --no-effective` output into two associative arrays keyed
 # `<tag>:<qualifier>` (`user:`, `user:1000`, `group:`, `mask:`, `other:`), each value an `rwx` triple; the `default:`
 # entries go into <default-map>, which stays empty when the path has none. Returns 0 when every set present is
 # structurally complete: exactly one `user::`, `group::` and `other::` entry, no tag and qualifier twice, and a `mask::`
-# wherever a named entry is present (acl(5)). Returns 1 -- the ACL is unknown -- on a getfacl failure, any stderr,
-# a line that does not parse (a blank separator line is accepted), or a set that is incomplete.
-ai_tools_project_permissions_read_acl() {
-    local _path="$1" _work="$2"
-    local -n _acl_access="$3" _acl_default="$4"
-    local LC_ALL=C _status=0 _line _set _key
+# wherever a named entry is present (acl(5)). Returns 1 -- the ACL is unknown -- on a capture that is not read whole
+# (_ai_tools_project_permissions_read_capture), a line that does not parse (a blank separator line is accepted),
+# or a set that is incomplete.
+ai_tools_project_permissions_parse_acl() {
+    local _capture="$1"
+    local -n _acl_access="$2" _acl_default="$3"
+    local LC_ALL=C _text="" _line _set _key
     local pattern='^(default:)?(user|group|mask|other):([0-9]*):([r-][w-][x-])$'
     local -a _lines=()
     _acl_access=() _acl_default=()
-    { LC_ALL=C getfacl --absolute-names --omit-header --numeric --no-effective -- "${_path}" \
-        > "${_work}/acl.out" 2> "${_work}/acl.err"; } 2>/dev/null || _status=$?
-    (( _status == 0 )) || return 1
-    [[ -s "${_work}/acl.err" ]] && return 1
-    mapfile -t _lines 2>/dev/null < "${_work}/acl.out"
+    _ai_tools_project_permissions_read_capture "${_capture}" _text || return 1
+    [[ -n "${_text}" ]] && mapfile -t _lines <<< "${_text%$'\n'}"
     for _line in "${_lines[@]}"; do
         [[ -z "${_line}" ]] && continue
         [[ "${_line}" =~ ${pattern} ]] || return 1
@@ -236,7 +259,10 @@ ai_tools_project_permissions_read_acl() {
     done
     for _set in _acl_access _acl_default; do
         local -n _acl_set="${_set}"
-        [[ "${_set}" == _acl_default && "${#_acl_set[@]}" -eq 0 ]] && continue
+        if [[ "${_set}" == _acl_default && "${#_acl_set[@]}" -eq 0 ]]; then
+            unset -n _acl_set
+            continue
+        fi
         [[ -n "${_acl_set[user:]+set}" && -n "${_acl_set[group:]+set}" && -n "${_acl_set[other:]+set}" ]] || return 1
         for _key in "${!_acl_set[@]}"; do
             if [[ "${_key}" =~ ^(user|group):[0-9]+$ && -z "${_acl_set[mask:]+set}" ]]; then
@@ -248,11 +274,23 @@ ai_tools_project_permissions_read_acl() {
     return 0
 }
 
-# ai_tools_project_permissions_effective <output-variable> <acl-map> <key>  -- set <output-variable> to the permissions
-# entry <key> of a set read by ai_tools_project_permissions_read_acl grants in effect, or to the empty string
-# when the set does not carry the entry. The mask limits named-user entries, `group::` and named-group entries alone;
-# `user::` and `other::` are read as they are (acl(5)).
-ai_tools_project_permissions_effective() {
+# ai_tools_project_permissions_read_acl <path> <work-dir> <access-map> <default-map>  -- read <path>'s ACL by name
+# with getfacl, capturing both streams into <work-dir>, and parse it (ai_tools_project_permissions_parse_acl). Returns 1
+# on a getfacl failure, any stderr, or a parse failure. group_check reads through a pinned descriptor instead.
+ai_tools_project_permissions_read_acl() {
+    local _path="$1" _work="$2" _status=0
+    { LC_ALL=C getfacl --absolute-names --omit-header --numeric --no-effective -- "${_path}" \
+        > "${_work}/acl.out" 2> "${_work}/acl.err"; } 2>/dev/null || _status=$?
+    (( _status == 0 )) || return 1
+    [[ -f "${_work}/acl.err" && ! -s "${_work}/acl.err" ]] || return 1
+    ai_tools_project_permissions_parse_acl "${_work}/acl.out" "$3" "$4"
+}
+
+# ai_tools_project_permissions_acl_effective_permissions <output-variable> <acl-map> <key>  -- set <output-variable>
+# to the permissions entry <key> of a parsed set grants in effect, or to the empty string when the set does not carry
+# the entry. The mask limits named-user entries, `group::` and named-group entries alone; `user::` and `other::` are
+# read as they are (acl(5)).
+ai_tools_project_permissions_acl_effective_permissions() {
     local -n _effective_out="$1" _effective_set="$2"
     local _key="$3" _entry _mask _index _result=""
     _effective_out=""
@@ -272,12 +310,48 @@ ai_tools_project_permissions_effective() {
     _effective_out="${_result}"
 }
 
+# _ai_tools_project_permissions_pinned_read <path> <work-dir> <output-variable>  -- read one filesystem object's owner,
+# group, mode, type and ACL, all from the same object. The path's own identity and type are read without following it;
+# a child opens the path, reads the identity, owner, group, mode and type through that descriptor
+# into <work-dir>/pinned.stat, and runs getfacl on the descriptor into <work-dir>/acl.out and acl.err; the path's
+# identity is read again afterwards. <output-variable> gets `<uid> <gid> <mode> <type>`. Returns 0 when the descriptor's
+# object is the path's before and after; 2 with the variable holding the type when the path is neither a regular file
+# nor a directory (not opened, so a FIFO does not block the open); 1 otherwise. The child is bounded by `timeout`, since
+# a path replaced by a FIFO between the first read and the open blocks it. What it returns is an observation
+# of that object, not a guarantee against a later change.
+_ai_tools_project_permissions_pinned_read() {
+    local _path="$1" _work="$2" _before="" _after="" _pinned="" _status=0
+    local -n _pinned_out="$3"
+    local LC_ALL=C
+    _pinned_out=""
+    _before="$(LC_ALL=C stat -c '%d:%i %F' -- "${_path}" 2>/dev/null)" || return 1
+    case "${_before#* }" in
+        directory|"regular file"|"regular empty file") ;;
+        *) _pinned_out="${_before#* }"; return 2 ;;
+    esac
+    # shellcheck disable=SC2016  # the $1, $2 and ${fd} are the child's
+    { LC_ALL=C timeout 10 bash -c '
+        exec {fd}< "$1" || exit 3
+        stat -L -c "%d:%i %u %g %a %F" "/proc/self/fd/${fd}" > "$2/pinned.stat" || exit 4
+        getfacl --absolute-names --omit-header --numeric --no-effective -- "/proc/self/fd/${fd}" \
+            > "$2/acl.out" 2> "$2/acl.err" || exit 5
+    ' _ "${_path}" "${_work}"; } 2>/dev/null || _status=$?
+    (( _status == 0 )) || return 1
+    [[ -f "${_work}/acl.err" && ! -s "${_work}/acl.err" ]] || return 1
+    _ai_tools_project_permissions_read_capture "${_work}/pinned.stat" _pinned || return 1
+    _pinned="${_pinned%$'\n'}"
+    _after="$(LC_ALL=C stat -c '%d:%i %F' -- "${_path}" 2>/dev/null)" || return 1
+    [[ "${_after}" == "${_before}" && "${_pinned%% *}" == "${_before%% *}" ]] || return 1
+    _pinned_out="${_pinned#* }"
+}
+
 # ai_tools_project_permissions_group_check <path> <work-dir> <operator-uid> <sandbox-uid> <sandbox-gid> <outcome-var>
-# <detail-var>  -- test the postconditions a claim's group and ACL repair establishes on <path>. <outcome-var> gets
-# `match` when every one holds, `drift` with <detail-var> naming the first that does not, or `unknown` with
-# <detail-var> naming what could not be read. In order:
+# <detail-var>  -- test the postconditions a claim's group and ACL repair establishes on <path>, reading the owner,
+# group, mode and ACL from one pinned object (_ai_tools_project_permissions_pinned_read). <outcome-var> gets `match`
+# when every one holds, `drift` with <detail-var> naming the first that does not, or `unknown` with <detail-var> naming
+# what could not be read. In order:
 #   * the path is a regular file or a directory (a symlink, FIFO, device or socket is `unknown`: the repair does not
-#     apply to it);
+#     apply to it), and the object read is the one the path names;
 #   * its owner, by numeric UID, is the operator or the sandbox account (the helper's own eligibility rule, so a path
 #     the helper refused cannot pass on a group and ACL that already matched);
 #   * it is not owner-only (the claim honours that seal, and the path is still not shared);
@@ -287,19 +361,17 @@ ai_tools_project_permissions_effective() {
 ai_tools_project_permissions_group_check() {
     local _path="$1" _work="$2" _operator_uid="$3" _sandbox_uid="$4" _sandbox_gid="$5"
     local -n _group_outcome="$6" _group_detail="$7"
-    local LC_ALL=C _stat="" _uid _gid _mode _type _specification _entry _key _need _have _set _index
+    local LC_ALL=C _read="" _status=0 _uid _gid _mode _type _specification _entry _key _need _have _set _index
     local -A _access=() _default=()
     local -a _entries=() _sets=(_access)
     _group_outcome=unknown _group_detail=""
-    if ! _stat="$(LC_ALL=C stat -c '%u %g %a %F' -- "${_path}" 2>/dev/null)"; then
-        _group_detail="its owner, group and mode could not be read"
-        return 0
-    fi
-    IFS=' ' read -r _uid _gid _mode _type <<< "${_stat}"
-    case "${_type}" in
-        directory|"regular file"|"regular empty file") ;;
-        *) _group_detail="a ${_type} does not take the project ACL"; return 0 ;;
+    _ai_tools_project_permissions_pinned_read "${_path}" "${_work}" _read || _status=$?
+    case "${_status}" in
+        0) ;;
+        2) _group_detail="a ${_read} does not take the project ACL"; return 0 ;;
+        *) _group_detail="its owner, group, mode and ACL could not be read from one object"; return 0 ;;
     esac
+    IFS=' ' read -r _uid _gid _mode _type <<< "${_read}"
     [[ "${_uid}" =~ ^[0-9]+$ && "${_gid}" =~ ^[0-9]+$ && "${_mode}" =~ ^[0-7]+$ ]] || {
         _group_detail="its owner, group and mode could not be read"; return 0; }
     _group_outcome=drift
@@ -319,7 +391,7 @@ ai_tools_project_permissions_group_check() {
         _group_detail="the directory does not carry setgid"
         return 0
     fi
-    if ! ai_tools_project_permissions_read_acl "${_path}" "${_work}" _access _default; then
+    if ! ai_tools_project_permissions_parse_acl "${_work}/acl.out" _access _default; then
         _group_outcome=unknown _group_detail="its ACL could not be read"
         return 0
     fi
@@ -342,12 +414,12 @@ ai_tools_project_permissions_group_check() {
         for _entry in "${_entries[@]}"; do
             _key="${_entry%:*}"
             if [[ "${_key}" == other: ]]; then
-                ai_tools_project_permissions_effective _have "${_set}" other:
+                ai_tools_project_permissions_acl_effective_permissions _have "${_set}" other:
                 [[ "${_have}" == --- ]] && continue
                 _group_detail="${_set#_}: other:: grants ${_have}, not ---"
                 return 0
             fi
-            ai_tools_project_permissions_effective _have "${_set}" "${_key}"
+            ai_tools_project_permissions_acl_effective_permissions _have "${_set}" "${_key}"
             for _index in 0 1 2; do
                 if [[ "${_need:_index:1}" != - && "${_have:_index:1}" != "${_need:_index:1}" ]]; then
                     _group_detail="${_set#_}: ${_key}: grants ${_have:-no entry} in effect, not ${_need}"

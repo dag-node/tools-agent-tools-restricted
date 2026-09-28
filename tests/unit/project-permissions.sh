@@ -123,7 +123,7 @@ done
 ctx_home="unconfined_u:object_r:user_home_t:s0"
 ctx_project="system_u:object_r:ai_tools_project_t:s0"
 record_path='' record_from='' record_to=''
-if ai_tools_project_permissions_split_record "Would relabel /p/name from a to b from ${ctx_home} to ${ctx_project}" \
+if ai_tools_project_permissions_parse_restorecon_record "Would relabel /p/name from a to b from ${ctx_home} to ${ctx_project}" \
         record_path record_from record_to \
         && [[ "${record_path}" == "/p/name from a to b" && "${record_from}" == user_home_t \
               && "${record_to}" == ai_tools_project_t ]]; then
@@ -135,7 +135,7 @@ for bad in "Would relabel /p from ${ctx_home}" "relabel /p from ${ctx_home} to $
         "Would relabel  from ${ctx_home} to ${ctx_project}" "Would relabel /p from u::t:s0 to ${ctx_project}" \
         "Would relabel /p from ${ctx_home} to u:r::s0" "/p not reset as customized by admin to ${ctx_home}"; do
     record_path='x' rc=0
-    ai_tools_project_permissions_split_record "${bad}" record_path record_from record_to || rc=$?
+    ai_tools_project_permissions_parse_restorecon_record "${bad}" record_path record_from record_to || rc=$?
     if (( rc == 1 )) && [[ -z "${record_path}${record_from}${record_to}" ]]; then
         pass "record refused: '${bad}'"
     else
@@ -194,6 +194,17 @@ stub 255 "" "restorecon: lstat(/p/a) failed: No such file or directory"$'\n'
 lc_is "exit 255 for a missing path" /p/a unknown
 stub 1 ""
 lc_is "exit 1 with empty streams" /p/a unknown
+# A NUL ends a shell read, so output carrying one would read as the part before it: a NUL-prefixed capture would read
+# as empty, which is a match. The capture reader refuses it whole.
+stub_nul() {  # stub_nul <status> <text-before-the-NUL> <text-after-it>
+    stub_status="$1"
+    { printf '%s' "$2"; printf '\0'; printf '%s' "$3"; } > "${stub_out}"
+    : > "${stub_err}"
+}
+stub_nul 0 "" "Would relabel /p/a from ${ctx_home} to ${ctx_project}"$'\n'
+lc_is "a capture opening with a NUL" /p/a unknown
+stub_nul 0 "Would relabel /p/a from ${ctx_home} to ${ctx_project}"$'\n' "trailing"
+lc_is "a record followed by a NUL" /p/a unknown
 
 section "project-permissions: label_batch, the collection and verification batch (unit)"
 batch_list="${work}/batch.list"
@@ -243,17 +254,39 @@ stub 255 "${record_a}"$'\n' "restorecon: lstat(/p/d) failed: No such file or dir
 lb_is "exit 255 for a path removed before the batch" 1 "/p/a "
 stub 0 ""
 lb_is "empty output: every listed path matches" 0 ""
+stub_nul 0 "" "${record_a}"$'\n'
+lb_is "a capture opening with a NUL: never complete" 1 ""
+
+section "project-permissions: the capture reader (unit)"
+capture_is() {  # capture_is <what> <file> <want-status>
+    local text='unset' rc=0
+    _ai_tools_project_permissions_read_capture "$2" text || rc=$?
+    if (( rc == $3 )) && { (( rc == 0 )) || [[ -z "${text}" ]]; }; then
+        pass "read_capture: $1 -> ${rc}"
+    else
+        fail "read_capture: $1 -> ${rc} (text '${text}'), want $3"
+    fi
+}
+printf 'two\nlines\n' > "${work}/capture.text"
+capture_is "a whole capture" "${work}/capture.text" 0
+: > "${work}/capture.empty"
+capture_is "an empty capture" "${work}/capture.empty" 0
+capture_is "a missing capture" "${work}/capture.missing" 1
+printf 'a\0b' > "${work}/capture.nul"
+capture_is "a capture holding a NUL" "${work}/capture.nul" 1
+ln -s "${work}/capture.text" "${work}/capture.link"
+capture_is "a capture that is a symlink" "${work}/capture.link" 1
 
 # ── Absence ───────────────────────────────────────────────────────────────────────────────────────────────────────
 section "project-permissions: lstat_outcomes, confirmed absence (unit)"
 tree="${TESTDIR}/tree"
 mkdir -p "${tree}/dir" "${tree}/locked"
-: > "${tree}/file"; : > "${tree}/locked/inside"; : > "${tree}/$'\xff'name"
+: > "${tree}/file"; : > "${tree}/locked/inside"; : > "${tree}/"$'\xff'"name"
 ln -s "${tree}/nowhere" "${tree}/dangling"
 chmod 000 "${tree}/locked"
 lstat_list="${work}/lstat.list"
 printf '%s\0' "${tree}/file" "${tree}/dir" "${tree}/removed" "${tree}/file/child" "${tree}/dangling" \
-    "${tree}/$'\xff'name" "${tree}/locked/inside" > "${lstat_list}"
+    "${tree}/"$'\xff'"name" "${tree}/locked/inside" > "${lstat_list}"
 declare -a lstat_got=()
 ai_tools_project_permissions_lstat_outcomes "${lstat_list}" "${work}" lstat_got
 lstat_want=(exists exists gone gone exists exists unknown)
@@ -299,7 +332,7 @@ section "project-permissions: the ACL reader and the mask scope (acl(5)) (unit)"
 declare -A acl_set=([user:]=rw- [user:1000]=rwx [group:]=rw- [group:985]=rwx [mask:]=-wx [other:]=r--)
 effective_is() {  # effective_is <key> <want>
     local have
-    ai_tools_project_permissions_effective have acl_set "$1"
+    ai_tools_project_permissions_acl_effective_permissions have acl_set "$1"
     [[ "${have}" == "$2" ]] && pass "effective ${1}: ${2} under mask -wx" \
         || fail "effective ${1}: ${have}, want ${2}"
 }
@@ -351,7 +384,10 @@ good_access=(user::rw- "user:${op_uid}:rw-" group::rw- "group:${my_gid}:rw-" mas
 good_dir_access=(user::rwx "user:${op_uid}:rwx" group::rwx "group:${my_gid}:rwx" mask::rwx other::---)
 good_default=(default:user::rwx "default:user:${op_uid}:rwx" default:group::rwx "default:group:${my_gid}:rwx"
     default:mask::rwx default:other::---)
+# group_check reads through a child process, so the stub and the fixture path it reads are exported to it.
 getfacl() { cat -- "${acl_fixture}"; }
+export -f getfacl
+export acl_fixture
 gc_is() {  # gc_is <what> <path> <want-outcome> <sandbox-uid> <sandbox-gid> <fixture-lines...>
     local what="$1" path="$2" want="$3" sandbox_uid="$4" sandbox_gid="$5" outcome detail
     shift 5
@@ -398,8 +434,28 @@ ln -s "${gc_file}" "${TESTDIR}/gc-link"
 gc_is "a symlink" "${TESTDIR}/gc-link" unknown "${my_uid}" "${my_gid}" "${good_access[@]}"
 gc_is "a path that cannot be stat'ed" "${TESTDIR}/gc-missing" unknown "${my_uid}" "${my_gid}" "${good_access[@]}"
 getfacl() { return 1; }
+export -f getfacl
 gc_is "getfacl failing" "${gc_file}" unknown "${my_uid}" "${my_gid}"
+
+# The path swapped while it is read: getfacl here replaces the file with a symlink to another file carrying every entry
+# before printing, so the owner and ACL read come from an object the path no longer names. The path's identity read
+# again afterwards differs, which reads unknown.
+gc_swap="${TESTDIR}/gc-swap" gc_other="${TESTDIR}/gc-other"
+: > "${gc_swap}"; chmod 0660 "${gc_swap}"; : > "${gc_other}"; chmod 0660 "${gc_other}"
+export gc_swap gc_other
+getfacl() { rm -f -- "${gc_swap}"; ln -s -- "${gc_other}" "${gc_swap}"; cat -- "${acl_fixture}"; }
+export -f getfacl
+gc_is "a path swapped for a symlink while it is read" "${gc_swap}" unknown "${my_uid}" "${my_gid}" \
+    "${good_access[@]}"
+export -n gc_swap gc_other
+if mkfifo "${TESTDIR}/gc-fifo" 2>/dev/null; then
+    gc_is "a FIFO, reported without being opened" "${TESTDIR}/gc-fifo" unknown "${my_uid}" "${my_gid}" \
+        "${good_access[@]}"
+else
+    skip "group_check over a FIFO" "mkfifo refused in ${TESTDIR}"
+fi
 unset -f getfacl
+export -n acl_fixture
 
 # The live control: the specification applied with the real setfacl and read back with the real getfacl.
 if [[ -n "${acl_real}" ]] && command -v setfacl >/dev/null 2>&1; then
