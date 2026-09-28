@@ -152,20 +152,31 @@ make_fixtures() {
 
 # ── Drivers and readers ───────────────────────────────────────────────────────────
 # run_in <cwd> <args...>: the deployed CLI as the projects user, shim first on PATH, every registry pointed
-# at a fixture, under setsid so no prompt can block. Output captured with stderr.  The inner shell expands $1 and $@
-# itself, which is why they sit in single quotes.
+# at a fixture, under setsid so no prompt can block. Output captured with stderr, or with stderr written to the file
+# RUN_STDERR names when it is set.  The inner shell expands $1 and $@ itself, which is why they sit in single quotes.
 # shellcheck disable=SC2016
 run_in() {
     local cwd="$1"; shift
-    runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
-        PATH="${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin" \
-        AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_ALLOWLIST="${AL}" AI_TOOLS_GITCONFIG="${GC}" \
-        AI_TOOLS_SANDBOX_ROOT="${SBROOT}" \
-        bash -c 'cd "$1" && shift && exec setsid -w "$@"' _ "${cwd}" "${CLI}" "$@" 2>&1
+    local -a command=(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}"
+        PATH="${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin"
+        AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_ALLOWLIST="${AL}" AI_TOOLS_GITCONFIG="${GC}"
+        AI_TOOLS_SANDBOX_ROOT="${SBROOT}"
+        bash -c 'cd "$1" && shift && exec setsid -w "$@"' _ "${cwd}" "${CLI}" "$@")
+    if [[ -n "${RUN_STDERR:-}" ]]; then
+        "${command[@]}" 2>"${RUN_STDERR}"
+    else
+        "${command[@]}" 2>&1
+    fi
 }
 # cli <key> [args...] / cli_in <cwd> <key> [args...]: the command named by its spelling key.  cli_flag_first <key>
 # <flag...>: the flags AHEAD of the command, the other order --for accepts.
 cli()    { local key="$1"; shift; cli_cmd "${key}" || return 2; run_in "${R}" "${CLI_ARGV[@]}" "$@"; }
+# cli_stdout <key> <args...>: cli with stderr kept apart in ${R}/.stderr, so `out` holds stdout alone -- for the rows
+# asserting what a command writes to stdout. Every other row reads the two streams merged.
+cli_stdout() {
+    local key="$1"; shift; cli_cmd "${key}" || return 2
+    RUN_STDERR="${R}/.stderr" run_in "${R}" "${CLI_ARGV[@]}" "$@"
+}
 cli_in() { local cwd="$1" key="$2"; shift 2; cli_cmd "${key}" || return 2; run_in "${cwd}" "${CLI_ARGV[@]}" "$@"; }
 cli_flag_first() { local key="$1"; shift; cli_cmd "${key}" || return 2; run_in "${R}" "$@" "${CLI_ARGV[@]}"; }
 f() { cli_flag "$1"; }
@@ -308,6 +319,7 @@ drive() {
         cli)            label="${*:2}" ;;
         cli_in)         label="in $2: ${*:3}" ;;
         cli_flag_first) label="flag-first ${*:2}" ;;
+        cli_stdout)     label="stdout-only ${*:2}" ;;
         *)              label="$*" ;;
     esac
     out="$("$@")" && rc=0 || rc=$?
@@ -432,13 +444,13 @@ drive_rows() {
 
     # `--format tsv`: stdout carries the record stream and no page line. A first claim scans for no drift, so its stream
     # is empty and the page went to stderr.
-    cli_stub_reset; drive cli ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pf"
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pf"
     expect "claim --format tsv exits 0 on a first claim"              rc_is 0
     expect "claim --format tsv registers the project"                 st_is "${R}/pf" listed
     expect "claim --format tsv writes no page line to stdout"         out_is_stream
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f format)" json "${R}/pa"
     expect "claim refuses a --format other than tsv with exit 2"      quiet_rc 2
-    cli_stub_reset; drive cli ai-tools.projects.claim "$(f format)"
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)"
     expect "claim refuses --format without a value with exit 2"       quiet_rc 2
     expect "the refused --format writes nothing to stdout"            out_is_stream
 
