@@ -139,6 +139,19 @@ rc=0; ai_tools_as_sandbox "${SANDBOX_USER}" bash -c 'exit 7' >/dev/null 2>&1 || 
 out="$(ai_tools_as_sandbox "${SANDBOX_USER}" cat <<<'from a heredoc' 2>/dev/null)"
 [[ "${out}" == 'from a heredoc' ]] && pass "stdin the caller gives passes" || fail "stdin: '${out}'"
 
+# count_marked <marker> : the number of the sandbox account's processes whose command line carries the marker. pgrep
+# exits 1 for no match, which is the answer 0 here and not an error; any other non-zero status is one, reported
+# and returned, so a broken count never reads as "none left".
+count_marked() {
+    local listing="" rc=0
+    listing="$(pgrep -u "${SANDBOX_USER}" -f "$1" 2>/dev/null)" || rc=$?
+    case "${rc}" in
+        0) printf '%s\n' "${listing}" | wc -l ;;
+        1) printf 0 ;;
+        *) printf 'count_marked: pgrep exited %s\n' "${rc}" >&2; return 1 ;;
+    esac
+}
+
 # The bound: a command that outlives it is ended with every process of its run, and the call says so. The child execs
 # into a sleep and first starts a grandchild sleep in a subshell, each carrying this run's marker as its argv[0]
 # (`exec -a`), so `pgrep -f` finds exactly these; the case asserts the two are alive before the bound and gone after it.
@@ -149,10 +162,10 @@ AI_TOOLS_AS_SANDBOX_TIMEOUT=4 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
     '( exec -a "$1" sleep 300 ) & exec -a "$1" sleep 300' _ "${marker}" >/dev/null 2>"${TESTDIR}/bound-err" &
 helper_pid=$!
 sleep 2
-alive_before="$(pgrep -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null | wc -l)"
+alive_before="$(count_marked "${marker}")" || alive_before=-1
 rc=0; wait "${helper_pid}" || rc=$?
 sleep 1
-alive_after="$(pgrep -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null | wc -l)"
+alive_after="$(count_marked "${marker}")" || alive_after=-1
 if [[ "${alive_before}" -lt 2 ]]; then
     fail "control: the bound case started ${alive_before} marked process(es), so its cleanup is not measured"
 elif [[ "${rc}" -ne 124 ]]; then
@@ -174,12 +187,46 @@ rc=0; AI_TOOLS_AS_SANDBOX_TIMEOUT=3 ai_tools_as_sandbox "${SANDBOX_USER}" bash -
     '( exec -a "$1" sleep 300 ) & exit 0' _ "${marker}" >/dev/null 2>"${TESTDIR}/drain-err" || rc=$?
 elapsed=$(( SECONDS - started ))
 sleep 1
-alive_after="$(pgrep -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null | wc -l)"
+alive_after="$(count_marked "${marker}")" || alive_after=-1
 if [[ "${rc}" -eq 124 && "${elapsed}" -le 20 && "${alive_after}" -eq 0 ]]; then
     pass "a child that exited leaving a process on its output pipe is ended at the bound (${elapsed}s), and the call returns 124"
 else
     fail "exited child with an open pipe: rc ${rc} (want 124), ${elapsed}s (want <= 20), ${alive_after} left: $(<"${TESTDIR}/drain-err")"
 fi
 pkill -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null || true
+
+# The boundary is the scope, not the session: a descendant that opens a session of its own (`setsid -f`) and keeps
+# the output pipe is still in the run's cgroup, so it is ended at the bound with the rest. The control counts it alive
+# before the bound, from a background helper as in the first bound case.
+marker="ai-tools-test-sandbox-exec-escape-$$"
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+AI_TOOLS_AS_SANDBOX_TIMEOUT=4 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
+    'setsid -f bash -c "exec -a \"\$1\" sleep 300" _ "$1"; exec -a "$1" sleep 300' _ "${marker}" \
+    >/dev/null 2>"${TESTDIR}/escape-err" &
+helper_pid=$!
+sleep 2
+alive_before="$(count_marked "${marker}")" || alive_before=-1
+rc=0; wait "${helper_pid}" || rc=$?
+sleep 1
+alive_after="$(count_marked "${marker}")" || alive_after=-1
+if [[ "${alive_before}" -lt 2 ]]; then
+    fail "control: the escape case started ${alive_before} marked process(es), so the scope's reach is not measured"
+elif [[ "${rc}" -eq 124 && "${alive_after}" -eq 0 ]]; then
+    pass "a descendant that opened its own session is ended at the bound with the rest of the run"
+else
+    fail "descendant in its own session: rc ${rc} (want 124), ${alive_after} left: $(<"${TESTDIR}/escape-err")"
+fi
+pkill -u "${SANDBOX_USER}" -f "${marker}" 2>/dev/null || true
+
+# Without a scope the run is refused, not made with a weaker boundary: the probe answers no, and the command does not
+# run. Driven in a shell of its own, so the cached probe answer of this shell is not disturbed.
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+rc=0; out="$(bash -c 'source "$1"; _ai_tools_sandbox_exec_scope_available() { return 1; }
+    ai_tools_as_sandbox "$2" touch "$3"' _ "${LIB}" "${SANDBOX_USER}" "${TESTDIR}/no-scope-ran" 2>&1)" || rc=$?
+if [[ "${rc}" -eq 1 && ! -e "${TESTDIR}/no-scope-ran" ]]; then
+    assert_msg MSG-Q2K6 "${out}" "a run with no scope to open is refused under its code, and the command does not run"
+else
+    fail "no scope: rc ${rc} (want 1), ran: $([[ -e "${TESTDIR}/no-scope-ran" ]] && echo yes || echo no): ${out}"
+fi
 
 finish

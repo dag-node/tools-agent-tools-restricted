@@ -1963,9 +1963,13 @@ ERROR.
 Refusing the ${operation}: the target is a protected system directory.
 .SS sandbox-exec.lib.sh
 .TP
+.B MSG-Q2K6
+WARNING.
+cannot open a transient scope for a run as ${account} (systemd\-run \-\-scope did not start a probe: no system manager answers here) \-\- a run outside one could leave a process behind, so $(printf '%q' "$1") was not run
+.TP
 .B MSG-W8B7
 WARNING.
-ended a command as ${account} that ${what_ran_over} ${timeout_seconds}s, with every process of ${boundary_name}: $(printf '%q' "$1") \-\- the step did not complete; re\-run it, or set AI_TOOLS_AS_SANDBOX_TIMEOUT=<seconds> for a slower host
+ended a command as ${account} that ${what_ran_over} ${timeout_seconds}s, with every process of its scope ${scope_unit}: $(printf '%q' "$1") \-\- the step did not complete; re\-run it, or set AI_TOOLS_AS_SANDBOX_TIMEOUT=<seconds> for a slower host
 .SS settings-merge.lib.sh
 .TP
 .B MSG-F9W4

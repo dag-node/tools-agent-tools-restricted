@@ -137,13 +137,13 @@ routes to the toolchain, and no third:
   bounded: past `AI_TOOLS_AS_SANDBOX_TIMEOUT` seconds (a whole number, 1800 where unset or malformed) every process
   of the run receives `SIGTERM` then `SIGKILL`, and the call returns 124 under `MSG-W8B7`, so a hung child ends its step
   and not the run. The deadline holds through the draining of the child's output, so a descendant the child left holding
-  its output open is ended the same way rather than waited for. The run is a transient systemd scope where the system
-  manager answers a probe, which a descendant cannot leave, and otherwise the session `setsid` opened,
-  which a descendant's own `setsid` leaves; the message names which held. Otherwise the command's own status is
-  returned. `ai-tools-bootstrap` requires it and refuses the run under `MSG-E2X2` without it; its link repair, its
-  residue removal, its nvm/Node/agent install and its signature check go through it, and so does `install.sh`'s package
-  erase at uninstall. `ai_tools_is_sandbox_account`, beside it, is the check a function that sources `nvm.sh` or runs
-  `npm` makes of its own process.
+  its output open is ended the same way rather than waited for. The run is a transient systemd scope, the boundary
+  a descendant cannot leave whatever session it opens; where the system manager does not answer the helper's probe,
+  the run is refused under `MSG-Q2K6` rather than made inside the weaker boundary a session is, since a descendant's own
+  `setsid` leaves that one. Otherwise the command's own status is returned. `ai-tools-bootstrap` requires it and refuses
+  the run under `MSG-E2X2` without it; its link repair, its residue removal, its nvm/Node/agent install and its
+  signature check go through it, and so does `install.sh`'s package erase at uninstall. `ai_tools_is_sandbox_account`,
+  beside it, is the check a function that sources `nvm.sh` or runs `npm` makes of its own process.
 
 A step that runs as the account and executes only root-owned code — the launcher re-link through `providers.lib.sh`,
 the stamp's `mkdir` and `touch` — does not run a file the account can write, and keeps its plain `sudo -u`. `nvm-update`
