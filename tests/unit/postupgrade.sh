@@ -117,14 +117,14 @@ cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
 printf 'OPERATORS="root"\n' > "${CONF}"
 before="$(md5sum "${SETTINGS}" "${CONF}")"
 out="$(run_pu)"
-if [[ "${out}" != *"no .rpmnew"* ]]; then
+if [[ "${out}" != *"no package or installer copy"* ]]; then
     skip "system post-upgrade" "deployed ai-tools-admin predates the command -- re-run sudo ./install.sh install"
     finish; exit
 fi
 if [[ "$(md5sum "${SETTINGS}" "${CONF}")" == "${before}" ]]; then
-    pass "a host with no .rpmnew is reported reconciled and nothing is touched"
+    pass "a host with no package or installer copy is reported reconciled and nothing is touched"
 else
-    fail "a file with no .rpmnew beside it was modified"
+    fail "a file with no copy beside it was modified"
 fi
 
 # ── (B) settings.json: the merge that carries a newly shipped hook onto a kept file ───────────
@@ -253,6 +253,46 @@ else
     fail "a changed setting was not shown: ${out}"
 fi
 
+# ── (C3) The reference is the newest copy beside the file, whichever route left it ─────────────
+# A host whose install routes alternated holds both a package copy and an installer copy. The one compared is the newest
+# by modification time: an older .rpmnew beside a newer .shipped reads the installer's, the reverse reads the package's,
+# and each block names which. A .shipped alone -- a from-source host, where no rpm parks a copy -- drives the settings
+# treatment and the `--check` findings as a .rpmnew does. The reference in use is not repeated under the earlier-copies
+# list.
+reset_root
+jq '.permissions.deny -= ["Bash(gpg)", "Bash(gpg *)"]' "${SHIPPED_SETTINGS}" > "${SETTINGS}"
+INSTALLER_COPY="${SETTINGS}.20250101-1.shipped"
+cp "${SHIPPED_SETTINGS}" "${INSTALLER_COPY}"; touch -d 2025-01-01 "${INSTALLER_COPY}"
+printf '{"permissions":{"deny":["Bash(old:*)"]}}\n' > "${SETTINGS}.rpmnew"; touch -d 2019-01-01 "${SETTINGS}.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"installer copy: ${INSTALLER_COPY}"* && "${out}" == *"deny: Bash(gpg)"* \
+      && "${out}" != *"deny: Bash(old:*)"* && "${out}" != *"package copy: ${SETTINGS}.rpmnew"* ]]; then
+    pass "a .shipped newer than the .rpmnew is the copy compared, and the block names it as the installer's"
+else
+    fail "the newer installer copy was not the reference: ${out}"
+fi
+if ! grep -qF "  ${INSTALLER_COPY}" <<< "${out}"; then
+    pass "the installer copy in use is not listed again among the earlier copies"
+else
+    fail "the reference copy was listed as an earlier copy too: ${out}"
+fi
+touch -d 2026-01-01 "${SETTINGS}.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"package copy: ${SETTINGS}.rpmnew"* && "${out}" == *"deny: Bash(old:*)"* \
+      && "${out}" != *"installer copy:"* && "${out}" == *"  ${INSTALLER_COPY}"* ]]; then
+    pass "a .rpmnew newer than the .shipped is the copy compared, and the older .shipped is listed as an earlier copy"
+else
+    fail "the newer package copy was not the reference: ${out}"
+fi
+rm -f "${SETTINGS}.rpmnew"
+run_check
+if [[ "${check_rc}" == 4 ]] \
+        && has_finding MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg)' 'deny\tBash(gpg)'; then
+    pass "a .shipped alone, the from-source host's copy, drives --check's rule-missing findings"
+else
+    fail "--check did not read the installer copy as the reference (exit ${check_rc}): ${out}"
+fi
+
 # ── (D) A merge that matches the shipped copy still leaves it to the operator ──────────────────
 reset_root
 jq . "${SHIPPED_SETTINGS}" > "${SETTINGS}.rpmnew"
@@ -340,7 +380,7 @@ if [[ "${out}" == *"Post-upgrade done -- review the warnings above"* && "${out}"
 else
     fail "a run with something to act on closed without asking for a review: ${out}"
 fi
-if grep -qxE '  SUDO_EDITOR=(meld|vimdiff) sudoedit <file> <file>.rpmnew' <<< "${out}"; then
+if grep -qxE '  SUDO_EDITOR=(meld|vimdiff) sudoedit <file> <copy>' <<< "${out}"; then
     pass "a run with a difference left to act on prints the sudoedit comparison, the file on the left, on a line of its own"
 else
     fail "the meld line is missing where a difference is left: ${out}"
@@ -404,6 +444,9 @@ cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
 printf '{}\n' > "${SETTINGS}.20200101.bak"
 printf 'OPERATORS="root"\n' > "${CONF}"
 printf 'OPERATORS=""\n' > "${CONF}.20200101-2.shipped"
+# A package copy identical to the file and no older than the .shipped is the reference (it wins a tie), so the .shipped
+# stays in the earlier-copies list this case is about.
+cp "${CONF}" "${CONF}.rpmnew"
 out="$(run_pu)"
 if [[ "${out}" == *"${SETTINGS}.20200101.bak  (before this installation)"* \
       && "${out}" == *"${CONF}.20200101-2.shipped  (before this installation)"* \
@@ -438,6 +481,8 @@ fi
 reset_root
 printf 'OPERATORS="root"\n' > "${CONF}"
 for suffix in 20200105-3 20200105 20200103 20200105-2; do : > "${CONF}.${suffix}.shipped"; done
+# The reference is a package copy identical to the file (it wins a tie), so every .shipped is an earlier copy.
+cp "${CONF}" "${CONF}.rpmnew"
 listed="$(run_pu | grep -oE 'operator\.conf\.[0-9-]+\.shipped' | tr '\n' ' ')"
 if [[ "${listed}" == "operator.conf.20200103.shipped operator.conf.20200105.shipped operator.conf.20200105-2.shipped operator.conf.20200105-3.shipped " ]]; then
     pass "a day's copies list in the order they were made, the unnumbered first"
@@ -467,7 +512,7 @@ else
 fi
 cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
 out="$(run_pu)"
-if [[ "${out}" != *"without asking"* && "${out}" == *"no .rpmnew"* ]]; then
+if [[ "${out}" != *"without asking"* && "${out}" == *"no package or installer copy"* ]]; then
     pass "a file carrying every ask entry is not reported"
 else
     fail "a current file was reported as missing an ask entry: ${out}"

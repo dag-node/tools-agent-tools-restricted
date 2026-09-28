@@ -237,7 +237,21 @@ is at and names it before asking to proceed. A checkout with uncommitted
 changes is listed, with the paths the sandbox account wrote marked,
 and refused, so what root deploys is a tree you reviewed and committed.
 To deploy work in progress while developing, say so on the command line:
-`sudo ./install.sh install --allow-uncommitted`.
+`sudo ./install.sh install --allow-uncommitted`. A checkout older than
+the version installed is refused too, as `dnf` refuses a downgrade. The clean
+way down is to remove the installed version with the tool that installed it,
+`sudo dnf remove 'ai-tools-*'` or that version's own
+`sudo ./install.sh uninstall`, and then install the older checkout:
+the uninstall keeps `operator.conf`, your `~/.config/ai-tools`, the toolchain
+and the agents' state, moves an edited `settings.json` aside as a dated
+`.retired` copy (`dnf` keeps it as `.rpmsave`), and the older install lays
+down its own `settings.json`. `sudo ./install.sh install --allow-downgrade`
+downgrades in place instead; a kept `settings.json` then keeps the newer
+version's hook declarations, and the next
+`sudo ai-tools-admin system post-upgrade` compares each kept file
+with the older version's copy, listing what the newer one had added
+as the file's own. `sudo ./install.sh check-tree` prints both verdicts without
+installing.
 
 Whether the checkout is registered as a project is the CLI's business,
 and the install leaves that entry as it finds it.

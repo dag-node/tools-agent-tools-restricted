@@ -530,6 +530,34 @@ else
     fail "changed-baseline copy wrong: ${second_ref}"
 fi
 
+# The copy a reconcile compares a kept file with is the NEWEST beside it, whichever route left it: a package copy
+# (.rpmnew) and an installer copy (.shipped) are ordered by modification time, the package copy wins a tie, and both
+# the numbered and the earlier unnumbered day forms of a .shipped are read.
+lc="${TESTDIR}/latest.conf"
+printf 'LIVE\n' > "${lc}"
+if ! ai_tools_conf_latest_copy "${lc}" >/dev/null 2>&1; then
+    pass "a file with no copy beside it has no latest copy"
+else
+    fail "a latest copy was invented where none exists"
+fi
+# latest_is <expected> <what>: the latest copy beside ${lc} is <expected>.
+latest_is() {
+    local got
+    got="$(ai_tools_conf_latest_copy "${lc}")" || got="<none>"
+    if [[ "${got}" == "$1" ]]; then pass "$2"; else fail "$2: got ${got}, expected $1"; fi
+}
+printf 'RPM\n' > "${lc}.rpmnew"; touch -d 2024-01-01 "${lc}.rpmnew"
+latest_is "${lc}.rpmnew" "a package copy alone is the latest copy"
+printf 'SRC\n' > "${lc}.20250101-1.shipped"; touch -d 2025-01-01 "${lc}.20250101-1.shipped"
+latest_is "${lc}.20250101-1.shipped" "an installer copy newer than the package copy is the latest"
+touch -d 2026-01-01 "${lc}.rpmnew"
+latest_is "${lc}.rpmnew" "a package copy newer than the installer copy is the latest"
+touch -d 2026-01-01 "${lc}.20250101-1.shipped"
+latest_is "${lc}.rpmnew" "the package copy wins a tie"
+printf 'SRC2\n' > "${lc}.20250102.shipped"; touch -d 2027-01-01 "${lc}.20250102.shipped"
+latest_is "${lc}.20250102.shipped" "the unnumbered day form of an installer copy is read too"
+rm -f "${lc}" "${lc}".*
+
 # Absent inputs produce no copy and no path -- a caller must never act on a name that was not made.
 if ! ai_tools_conf_backup "${TESTDIR}/absent" >/dev/null 2>&1; then
     pass "no backup is invented for a file that is not there"

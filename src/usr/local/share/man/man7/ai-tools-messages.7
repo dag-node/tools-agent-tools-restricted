@@ -1618,6 +1618,10 @@ an agent outside the sandbox is installed at ${install_path}
 WARNING.
 systemctl \-\-user $* failed by both the machine transport and the account's own
 .TP
+.B MSG-J8F2
+WARNING.
+the kept ${deployed} differs from this version's beyond its hooks:
+.TP
 .B MSG-K2P8
 WARNING.
 the kept $1 runs these commands without asking, and each sends data off the host:
@@ -1702,9 +1706,17 @@ hook declarations not merged into ${deployed}: ${_ai_tools_conf_merge_reason}
 WARNING.
 lockdown: failed to chown ${d}
 .TP
+.B MSG-W6B3
+ERROR.
+this checkout is ${AI_TOOLS_VERSION} and ${installed} is installed, so this install is a downgrade, which dnf refuses too.
+.TP
 .B MSG-W6Y7
 WARNING.
 SELinux step refused: a source install compiles its policy modules, and the
+.TP
+.B MSG-W7G8
+WARNING.
+downgrading ${installed} to ${AI_TOOLS_VERSION} in place as asked (\-\-allow\-downgrade): a kept settings.json keeps the hook declarations and the hook scripts ${installed} added, and the baseline copy this install leaves beside a kept file is ${AI_TOOLS_VERSION}'s, so the next system post\-upgrade compares the file with it and lists what ${installed} had added as the file's own
 .TP
 .B MSG-W9Z9
 WARNING.

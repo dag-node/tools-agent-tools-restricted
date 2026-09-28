@@ -41,10 +41,13 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | x4x2 | [MSG-X4X2](../install.sh) | no such user: ${name} | install.sh | tests/unit/install-guards.sh | coded_refusal |
 | c3u6 | [MSG-C3U6](../install.sh) | no home directory on this host for ${name} (${home:-none}) | install.sh |  | coded_refusal |
 | r9a8 | [MSG-R9A8](../install.sh) | cannot source ${1} -- the checkout is incomplete; re-clone or re-download it | install.sh |  | die |
+| w7g8 | [MSG-W7G8](../install.sh) | downgrading ${installed} to ${AI_TOOLS_VERSION} in place as asked (--allow-downgrade): a kept settings.json keeps the hook declarations and the hook scripts ${installed} added, and the baseline copy this install leaves beside a kept file is ${AI_TOOLS_VERSION}'s, so the next system post-upgrade compares the file with it and lists what ${installed} had added as the file's own | install.sh | tests/unit/install-guards.sh | warn |
+| w6b3 | [MSG-W6B3](../install.sh) | this checkout is ${AI_TOOLS_VERSION} and ${installed} is installed, so this install is a downgrade, which dnf refuses too. | install.sh | tests/unit/install-guards.sh | die |
 | e2b9 | [MSG-E2B9](../install.sh) | installing work in progress: the ${total} uncommitted path(s) deploy as root (--allow-uncommitted) | install.sh | tests/unit/install-guards.sh | warn |
 | u8c9 | [MSG-U8C9](../install.sh) | the checkout ${SCRIPT_DIR} carries ${total} uncommitted path(s) -- review and commit them (git -C ${SCRIPT_DIR} status; git -C ${SCRIPT_DIR} diff), or install work in progress with: sudo ${SCRIPT_DIR}/install.sh install --allow-uncommitted | install.sh | tests/unit/install-guards.sh | die |
 | w9z9 | [MSG-W9Z9](../install.sh) | the kept ${deployed} does not mention this version's new options: | install.sh |  | warn |
 | v7m6 | [MSG-V7M6](../install.sh) | hook declarations not merged into ${deployed}: ${_ai_tools_conf_merge_reason} | install.sh |  | warn |
+| j8f2 | [MSG-J8F2](../install.sh) | the kept ${deployed} differs from this version's beyond its hooks: | install.sh |  | warn |
 | k2p8 | [MSG-K2P8](../install.sh) | the kept $1 runs these commands without asking, and each sends data off the host: | install.sh |  | warn |
 | g6h3 | [MSG-G6H3](../install.sh) | systemctl --user $* failed by both the machine transport and the account's own | install.sh |  | warn |
 | v9c7 | [MSG-V9C7](../install.sh) | lockdown: failed to chown ${d} | install.sh |  | warn |

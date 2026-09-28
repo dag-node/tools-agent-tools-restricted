@@ -10,11 +10,14 @@
 #   sudo ./install.sh install              deploy all files, enable timer
 #   sudo ./install.sh uninstall            remove deployed files, disable timer
 #   sudo ./install.sh check-perms          run the permissions test (tests/integration/perms.sh; also part of the suite offered at the end of an interactive install)
-#   sudo ./install.sh install --operator op      enrol the named account, asking no question
+#   sudo ./install.sh install --operator op      enrol the named account without asking
 #   sudo ./install.sh install --allow-uncommitted   deploy work in progress: a checkout with
 #                                          uncommitted changes is refused without this flag
-#   sudo ./install.sh check-tree           name the commit an install would deploy, and list the
-#                                          uncommitted paths that would refuse it; the host is unchanged
+#   sudo ./install.sh install --allow-downgrade      deploy a checkout older than the installed
+#                                          version, which is refused without this flag
+#   sudo ./install.sh check-tree           name the version and the commit an install would deploy, and
+#                                          the downgrade or the uncommitted paths that would refuse it;
+#                                          the host is unchanged
 #
 # Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run as the projects user, not
 # in install.sh:
@@ -48,18 +51,21 @@ refuse_early() {
 # usage: the one place the accepted arguments are spelled out, printed by a malformed command line
 # and by an unrecognized action alike. Orientation, so it does not carry a message code.
 usage() {
-    printf 'usage: sudo %s [install|uninstall|check-perms|check-tree] [--operator <account>] [--allow-uncommitted]\n' "$0" >&2
+    printf 'usage: sudo %s [install|uninstall|check-perms|check-tree] [--operator <account>] [--allow-uncommitted] [--allow-downgrade]\n' "$0" >&2
     printf '       (register projects with the ai-tools CLI, not install.sh)\n' >&2
     exit 1
 }
 
 # Arguments: an optional action (default install), an optional `--operator`, which names the account to enrol instead
 # of asking for it -- what an unattended install and the guard tests use, and the only route by which a name other than
-# SUDO_USER arrives without a terminal -- and `--allow-uncommitted`, which lets an install deploy a checkout carrying
-# uncommitted changes, the developer's own work in progress (the source-tree gate in do_install refuses one without it).
+# SUDO_USER arrives without a terminal -- `--allow-uncommitted`, which lets an install deploy a checkout carrying
+# uncommitted changes, the developer's own work in progress (the source-tree gate in do_install refuses one without it),
+# and `--allow-downgrade`, which lets a checkout older than the installed version deploy (the version gate refuses one
+# without it).
 ACTION=""
 OPERATOR_OPT=""
 ALLOW_UNCOMMITTED=0
+ALLOW_DOWNGRADE=0
 while (( $# )); do
     case "$1" in
         --operator)
@@ -69,12 +75,14 @@ while (( $# )); do
             OPERATOR_OPT="${1#--operator=}"; shift ;;
         --allow-uncommitted)
             ALLOW_UNCOMMITTED=1; shift ;;
+        --allow-downgrade)
+            ALLOW_DOWNGRADE=1; shift ;;
         *)
             [[ -z "${ACTION}" ]] || usage
             ACTION="$1"; shift ;;
     esac
 done
-readonly ACTION="${ACTION:-install}" OPERATOR_OPT ALLOW_UNCOMMITTED
+readonly ACTION="${ACTION:-install}" OPERATOR_OPT ALLOW_UNCOMMITTED ALLOW_DOWNGRADE
 
 # ── Guards ─────────────────────────────────────────────────────────────────────
 
@@ -267,6 +275,53 @@ confirm_boxed() {
 # `install.sh check-tree` runs this alone, which is how the unit test drives it against a fixture checkout
 # and how an operator reads the verdict without installing.
 TREE_LINE=""
+# version_gate -- the version this checkout deploys, against the one installed, ahead of every write. The installed
+# version is read as text off the deployed CLI -- its substituted AI_TOOLS_VERSION line; the CLI refuses root, so it is
+# not executed -- and the two are ordered by `sort -V`. A checkout older than the installation is REFUSED, as dnf
+# refuses that direction, and the refusal names the clean path: remove the installed version with the tool
+# that installed it (dnf where ai-tools-base is an rpm, that version's own `install.sh uninstall` otherwise, since only
+# the installed version's uninstaller knows its files), then install this checkout. An in-place downgrade over kept
+# files is a mixed state -- the hook merge only adds declarations, so a kept settings.json keeps the newer version's
+# hooks, and the older installer removes neither those declarations nor the newer scripts they name -- and the baseline
+# copy it leaves is then the newest one beside the file, which the next `system post-upgrade` compares the file with.
+# `--allow-downgrade` is the developer's way through that state, stated once, per invocation, with a warning saying
+# what it leaves. The same version installs again as it does now. An installation whose version cannot be read -- no
+# deployed CLI, a copy without the substitution, either side reading `dev` -- passes with a line saying so: there is no
+# version to order, and this gate reports rather than deciding any access. `install.sh check-tree` runs it
+# before the source-tree gate, which is how the unit test drives it, through AI_TOOLS_INSTALLED_CLI -- a root-only test
+# hook of the same standing as the ones tests.rule.md lists: sudo strips it, and a caller who could set it runs this
+# script as root
+# already.
+INSTALLED_CLI="${AI_TOOLS_INSTALLED_CLI:-/usr/local/bin/ai-tools}"
+version_gate() {
+    local installed="" lower
+    [[ -f "${INSTALLED_CLI}" ]] \
+        && installed="$(sed -nE 's/^AI_TOOLS_VERSION="([^"@]+)"$/\1/p' "${INSTALLED_CLI}" 2>/dev/null | head -n1)"
+    if [[ -z "${installed}" ]]; then
+        say "  version       : ${AI_TOOLS_VERSION} (no installed version to order against)"
+        return 0
+    fi
+    if [[ "${installed}" == dev || "${AI_TOOLS_VERSION}" == dev ]]; then
+        say "  version       : ${AI_TOOLS_VERSION} over ${installed} (a dev version is not ordered)"
+        return 0
+    fi
+    lower="$(printf '%s\n' "${installed}" "${AI_TOOLS_VERSION}" | sort -V | head -n1)"
+    if [[ "${installed}" == "${AI_TOOLS_VERSION}" || "${lower}" == "${installed}" ]]; then
+        say "  version       : ${AI_TOOLS_VERSION} over ${installed}"
+        return 0
+    fi
+    if (( ALLOW_DOWNGRADE )); then
+        warn MSG-W7G8 "downgrading ${installed} to ${AI_TOOLS_VERSION} in place as asked (--allow-downgrade): a kept settings.json keeps the hook declarations and the hook scripts ${installed} added, and the baseline copy this install leaves beside a kept file is ${AI_TOOLS_VERSION}'s, so the next system post-upgrade compares the file with it and lists what ${installed} had added as the file's own"
+        return 0
+    fi
+    local removal
+    if rpm -q ai-tools-base >/dev/null 2>&1; then
+        removal="sudo dnf remove 'ai-tools-*'   (an edited settings.json or operator.conf comes back as .rpmsave)"
+    else
+        removal="sudo ./install.sh uninstall   (from the checkout of ${installed}: it keeps operator.conf, ~/.config/ai-tools, the toolchain and the agents' state, and moves an edited settings.json aside as a dated .retired copy)"
+    fi
+    die MSG-W6B3 "this checkout is ${AI_TOOLS_VERSION} and ${installed} is installed, so this install is a downgrade, which dnf refuses too."$'\n'"  Remove ${installed} with the tool that installed it, then install this checkout:"$'\n'"      ${removal}"$'\n'"  To downgrade in place instead -- a kept settings.json then keeps ${installed}'s hook declarations and scripts: sudo $0 ${ACTION} --allow-downgrade"
+}
 source_tree_gate() {
     local head_line="" uncommitted=""
     if git -c safe.directory="${SCRIPT_DIR}" -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -399,6 +454,42 @@ reconcile_hook_declarations() {
         log "  - ${line} (a repeat of an earlier declaration)"
     done
     [[ -n "${_ai_tools_conf_merge_backup}" ]] && log "  previous file saved as ${_ai_tools_conf_merge_backup}"
+    return 0
+}
+
+# Report what a kept settings.json differs in from this version's once its hook declarations are current -- the rules
+# the shipped copy carries that the file does not, and any other setting -- through the two readers
+# `system post-upgrade` reports with (settings-merge.lib.sh), and leave the shipped copy beside the file as the dated
+# .shipped baseline (ai_tools_conf_reference), which is what that command compares the file with on a host no rpm parks
+# a .rpmnew on. The permission arrays are the host's, so this names and does not write; a file that differs in order
+# alone does not leave a copy, since a baseline identical in content would only be listed for removal.
+# $1 deployed settings.json   $2 shipped settings.json
+report_settings_gaps() {
+    local deployed="$1" shipped="$2" gaps kind list rule reference="" scratch differs=0
+    local -a missing_rules=()
+    gaps="$(ai_tools_conf_permission_gaps "${deployed}" "${shipped}")" || return 0
+    while IFS=$'\t' read -r kind list rule; do
+        [[ "${kind}" == missing ]] && missing_rules+=("${list}: ${rule}")
+    done <<< "${gaps}"
+    scratch="$(mktemp -d)" || scratch=""
+    if [[ -n "${scratch}" ]] && ai_tools_conf_settings_rest "${deployed}" > "${scratch}/file" \
+            && ai_tools_conf_settings_rest "${shipped}" > "${scratch}/copy" \
+            && ! cmp -s "${scratch}/file" "${scratch}/copy"; then
+        differs=1
+    fi
+    [[ -n "${scratch}" ]] && rm -rf "${scratch}"
+    (( ${#missing_rules[@]} > 0 || differs )) || return 0
+    reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true
+    warn MSG-J8F2 "the kept ${deployed} differs from this version's beyond its hooks:"
+    if (( ${#missing_rules[@]} > 0 )); then
+        warn "  rules this version ships that the file does not carry -- add them unless you removed them on purpose:"
+        for rule in "${missing_rules[@]}"; do warn "    ${rule}"; done
+    fi
+    (( differs )) && warn "  other settings differ as well"
+    if [[ -n "${reference}" ]]; then
+        warn "  this version's copy is kept as ${reference}; compare and merge with:"
+        warn "      sudo ai-tools-admin system post-upgrade"
+    fi
     return 0
 }
 
@@ -1098,6 +1189,7 @@ do_install() {
     say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"
     say "  sandbox user  : ${SANDBOX_USER}:${SANDBOX_GROUP}"
 
+    version_gate
     source_tree_gate
 
     # Proceed gate -- everything up to here is print-only; the first change to the host (including the install log
@@ -2092,6 +2184,8 @@ do_install() {
         seed_result "${settings}" "${settings_existed}" 1 "host-tuned permission rules preserved"
         reconcile_hook_declarations "${settings}" \
             "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
+        report_settings_gaps "${settings}" \
+            "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
         report_ask_gaps "${settings}"
     else
         install -o root -g "${SANDBOX_GROUP}" -m 640 \
@@ -2480,6 +2574,33 @@ retire_managed_files() {
     return 0
 }
 
+# retire_settings_file <live> <reference> -- the managed-file treatment for the agent's settings.json: removed while
+# byte-identical to <reference>, the copy this checkout ships, and moved aside as a dated .retired copy otherwise,
+# through ai_tools_managed_file_retire where the deployed provider library loaded (retire_managed_files sourced it),
+# and through the checkout's own sidecar stamp where it did not, so an edited file survives an uninstall from a broken
+# install too. The dated .bak and .shipped copies beside it are left as they are.
+retire_settings_file() {
+    local live="$1" reference="$2" outcome target
+    [[ -f "${live}" ]] || return 0
+    if declare -F ai_tools_managed_file_retire >/dev/null 2>&1 \
+            && outcome="$(ai_tools_managed_file_retire "${live}" "${reference}")"; then
+        case "${outcome%% *}" in
+            removed) log "${live} removed (the copy this checkout ships)" ;;
+            kept)    log "${live} kept as ${outcome#* } (it is not the copy this checkout ships)" ;;
+        esac
+        return 0
+    fi
+    if [[ -f "${reference}" ]] && cmp -s "${live}" "${reference}"; then
+        rm -f "${live}"
+        log "${live} removed (the copy this checkout ships)"
+    elif target="$(ai_tools_conf_sidecar_path "${live}" retired)" && mv "${live}" "${target}"; then
+        log "${live} kept as ${target} (it is not the copy this checkout ships)"
+    else
+        warn "${live} could not be moved aside and is left in place"
+    fi
+    return 0
+}
+
 # remove_agent_packages -- remove each installed agent's npm package from the sandbox toolchain, and its launcher link,
 # while the manifest that names the package is still deployed: once the manifests are gone no reader knows a package
 # name, and a package left in the tree keeps an entrypoint a session can exec (toolchain.lib.sh; the agent packages'
@@ -2518,7 +2639,8 @@ remove_agent_packages() {
 
 # Disable the nvm-update timer and remove every deployed system and control-plane file. Preserves operator and agent
 # state so a reinstall keeps working: the .nvm Node installation, /etc/ai-tools/operator.conf, ~/.config/ai-tools,
-# the ai-tools account, and each agent's own state under its config directory. Each installed agent's npm package leaves
+# the ai-tools account, each agent's own state under its config directory, and an edited settings.json or managed file
+# as a dated .retired copy (retire_settings_file, retire_managed_files). Each installed agent's npm package leaves
 # the toolchain with the manifest that names it (remove_agent_packages), so a reinstall re-provisions the agents
 # with `ai-tools-admin system bootstrap`. Allowlist and git safe.directory pruning for this project are offered
 # interactively.
@@ -2597,9 +2719,13 @@ do_uninstall() {
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
     rm -f /opt/ai-tools/.claude/session-hook.sh
     rm -f /opt/ai-tools/.claude/filter-hook.sh
-    rm -f /opt/ai-tools/.claude/settings.json \
-          /opt/ai-tools/.claude/settings.json.shipped \
-          /opt/ai-tools/.claude/settings.json.bak
+    # settings.json carries host tuning an operator does not want to lose, so it takes the treatment
+    # retire_managed_files gives a managed file: still byte-identical to the copy this checkout ships, it is removed;
+    # edited, or not comparable, it is moved aside as a dated .retired copy and named, the treatment rpm gives an edited
+    # %config(noreplace) file.
+    retire_settings_file /opt/ai-tools/.claude/settings.json \
+        "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
+    rm -f /opt/ai-tools/.claude/settings.json.shipped /opt/ai-tools/.claude/settings.json.bak
     rm -f /opt/ai-tools/.codex/post-tool-hook.sh
     rm -f /opt/ai-tools/.codex/session-hook.sh
 
@@ -2753,8 +2879,9 @@ case "${ACTION}" in
         exec bash "${SCRIPT_DIR}/tests/integration/perms.sh"
         ;;
     check-tree)
-        # The source-tree gate alone: the commit an install would deploy, and the refusal an uncommitted tree meets,
-        # leaving the host unchanged. What the unit test drives.
+        # The two gates alone: the version and the commit an install would deploy, and the refusals a downgrade
+        # and an uncommitted tree meet, leaving the host unchanged. What the unit test drives.
+        version_gate
         source_tree_gate
         ;;
     *)
