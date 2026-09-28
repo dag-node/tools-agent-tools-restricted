@@ -146,36 +146,31 @@ rc=0; ai_tools_as_sandbox "${SANDBOX_USER}" bash -c 'exit 7' >/dev/null 2>&1 || 
 out="$(ai_tools_as_sandbox "${SANDBOX_USER}" cat <<<'from a heredoc' 2>/dev/null)"
 [[ "${out}" == 'from a heredoc' ]] && pass "stdin the caller gives passes" || fail "stdin: '${out}'"
 
-# A marked process is `sleep <marker>`, the marker a duration unique to this run and case (`300.<pid>`): the marker is
-# the sleep's own argument, which every coreutils build keeps in the command line, where a name set through `exec -a` is
-# not kept by a multicall coreutils that dispatches on it. count_marked <marker> : the number of the sandbox account's
-# processes whose command line is exactly that sleep. pgrep exits 1 for no match, which is the answer 0 here and not
+# A marked process is `sleep <marker>`, the marker a duration unique to this run and case (`300.<pid>`), and it is
+# matched at the END of the command line: on a host whose coreutils is one multicall binary (the Rocky minimal images)
+# the line reads `/usr/bin/coreutils --coreutils-prog-shebang=sleep /usr/bin/sleep 300.<pid>`, so a match anchored
+# on a leading `sleep`, or a name set through `exec -a`, does not find the sleeps while they run. The bash that started
+# them carries the marker as `sleep "$1" ... 300.<pid>` and does not match. count_marked <marker> : the number
+# of the sandbox account's processes running that sleep. pgrep exits 1 for no match, which is the answer 0 here and not
 # an error; any other non-zero status is one, reported and returned, so a broken count never reads as "none left".
 count_marked() {
     local listing="" rc=0
-    listing="$(pgrep -u "${SANDBOX_USER}" -f "^sleep ${1//./\\.}\$" 2>/dev/null)" || rc=$?
+    listing="$(pgrep -u "${SANDBOX_USER}" -f "sleep ${1//./\\.}\$" 2>/dev/null)" || rc=$?
     case "${rc}" in
         0) printf '%s\n' "${listing}" | wc -l ;;
         1) printf 0 ;;
         *) printf 'count_marked: pgrep exited %s\n' "${rc}" >&2; return 1 ;;
     esac
 }
-# account_processes : the sandbox account's process table, one line, for a failed control to show what did run.
-account_processes() {
-    ps -u "${SANDBOX_USER}" -o pid=,ppid=,comm=,args= 2>&1 | head -n 20 | tr '\n' ';'
-}
-# snapshot_sleeps : every process of any user whose arguments hold a marked sleep, as ps and as pgrep -a see it, one
-# line -- taken while a control is still waiting, so a failed control shows what ran and under which user, rather than
-# the table after the run was ended.
+# snapshot_sleeps : every process of any user whose arguments hold a marked sleep, with its user and its whole command
+# line, one line -- taken while a control is still waiting, so a control that fails shows what ran,
+# as whom, and how the command line reads on this host.
 snapshot_sleeps() {
-    printf 'ps: %s | pgrep: %s' \
-        "$(ps -eo pid=,ppid=,user=,comm=,args= 2>&1 | grep -E 'sleep 30[0-9]\.' | tr '\n' ';')" \
-        "$(pgrep -a -f 'sleep 30[0-9]\.' 2>&1 | tr '\n' ';')"
+    ps -eo pid=,ppid=,user=,comm=,args= 2>&1 | grep -E 'sleep 30[0-9]\.' | tr '\n' ';'
 }
-LIVE_SNAPSHOT=""
 # end_marked <marker> : end the case's sleeps, whatever the case concluded.
 end_marked() {
-    pkill -u "${SANDBOX_USER}" -f "^sleep ${1//./\\.}\$" 2>/dev/null || true
+    pkill -u "${SANDBOX_USER}" -f "sleep ${1//./\\.}\$" 2>/dev/null || true
 }
 
 # The command receives its arguments byte for byte: a scope's own expansion of `${NAME}` and `$NAME` (off on the systemd
@@ -199,13 +194,14 @@ note "start latency" "${start_latency}s for a command that exits at once; the bo
 # and print the count seen last. The helper's own bound is what ends the poll where the processes never appear.
 wait_marked() {
     local marker="$1" want="$2" helper="$3" seen=0 polls=0
-    LIVE_SNAPSHOT=""
+    rm -f "${TESTDIR}/poll-snapshot"
     while :; do
         seen="$(count_marked "${marker}")" || seen=-1
         (( seen >= want )) && break
         kill -0 "${helper}" 2>/dev/null || break
         polls=$(( polls + 1 ))
-        (( polls == 15 )) && LIVE_SNAPSHOT="$(snapshot_sleeps)"
+        # To a file: this runs inside a command substitution, where a variable would not reach the caller.
+        (( polls == 15 )) && snapshot_sleeps > "${TESTDIR}/poll-snapshot"
         sleep 0.2
     done
     printf '%s' "${seen}"
@@ -224,7 +220,7 @@ rc=0; wait "${helper_pid}" || rc=$?
 sleep 1
 alive_after="$(count_marked "${marker}")" || alive_after=-1
 if [[ "${alive_before}" -lt 2 ]]; then
-    fail "control: the bound case started ${alive_before} marked process(es) before the helper returned ${rc}, so its cleanup is not measured: $(<"${TESTDIR}/bound-err") -- seen three seconds into the poll: ${LIVE_SNAPSHOT:-nothing captured}; the account's processes now: $(account_processes)"
+    fail "control: the bound case started ${alive_before} marked process(es) before the helper returned ${rc}, so its cleanup is not measured: $(<"${TESTDIR}/bound-err") -- seen three seconds into the poll: $(cat "${TESTDIR}/poll-snapshot" 2>/dev/null || printf 'nothing captured')"
 elif [[ "${rc}" -ne 124 ]]; then
     fail "a command past the bound returned ${rc}, want 124: $(<"${TESTDIR}/bound-err")"
 else
@@ -265,7 +261,7 @@ rc=0; wait "${helper_pid}" || rc=$?
 sleep 1
 alive_after="$(count_marked "${marker}")" || alive_after=-1
 if [[ "${alive_before}" -lt 2 ]]; then
-    fail "control: the escape case started ${alive_before} marked process(es) before the helper returned ${rc}, so the scope's reach is not measured: $(<"${TESTDIR}/escape-err") -- seen three seconds into the poll: ${LIVE_SNAPSHOT:-nothing captured}; the account's processes now: $(account_processes)"
+    fail "control: the escape case started ${alive_before} marked process(es) before the helper returned ${rc}, so the scope's reach is not measured: $(<"${TESTDIR}/escape-err") -- seen three seconds into the poll: $(cat "${TESTDIR}/poll-snapshot" 2>/dev/null || printf 'nothing captured')"
 elif [[ "${rc}" -eq 124 && "${alive_after}" -eq 0 ]]; then
     pass "a descendant that opened its own session is ended at the bound with the rest of the run"
 else
