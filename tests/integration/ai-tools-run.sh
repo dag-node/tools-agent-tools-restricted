@@ -186,6 +186,10 @@ if ! provisioned_agent; then
     skip_unprovisioned "ai-tools-run launch refusals (re-validation, residue, the migrated control)"
 else
 
+# The shim is agent-agnostic, so these cases take the first provisioned agent's launcher rather than naming one; the pin
+# cases at (8) run for every agent whose entrypoint is ready.
+IFS=$'\t' read -r _ launcher < <(provisioned_launchers) || true
+
 # Run ai-tools-run AS the agent with a clean, explicitly-set AI_TOOLS_AGENT_EXEC/AI_TOOLS_PROJECT_DIR (`env -u` clears
 # any inherited value first, so the case is deterministic). timeout backstops the design guarantee that every case exits
 # at validation, never reaching the launch.
@@ -207,12 +211,12 @@ refused() {
     fi
 }
 
-# (1) A AI_TOOLS_AGENT_EXEC outside the versioned-claude shape is refused.
+# (1) A AI_TOOLS_AGENT_EXEC outside the versioned-launcher shape is refused.
 out="$(run_crun AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
-refused "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC outside the versioned-claude path" MSG-Z2J9 "${rc}" "${out}"
+refused "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC outside the versioned-launcher path" MSG-Z2J9 "${rc}" "${out}"
 
 # (2) A correctly-shaped AI_TOOLS_AGENT_EXEC carrying '/../' is refused by the traversal guard.
-out="$(run_crun AI_TOOLS_AGENT_EXEC=/opt/ai-tools/.nvm/versions/node/v1.2.3/../bin/claude)" && rc=0 || rc=$?
+out="$(run_crun AI_TOOLS_AGENT_EXEC="/opt/ai-tools/.nvm/versions/node/v1.2.3/../bin/${launcher}")" && rc=0 || rc=$?
 # By code: the traversal refusal must be the executable's, not the project directory's.
 refused "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC with parent-directory references" MSG-N4P3 "${rc}" "${out}"
 
@@ -233,8 +237,8 @@ rm -rf "${clock_pins}"
 
 # (3)/(4) With a VALID AI_TOOLS_AGENT_EXEC, a bad AI_TOOLS_PROJECT_DIR is refused before launch. Needs the real
 # versioned target (so AI_TOOLS_AGENT_EXEC passes); skip if it cannot be resolved.
-real="$(readlink -- /opt/ai-tools/bin/claude 2>/dev/null || true)"
-if [[ -z "${real}" || "${real}" != /opt/ai-tools/.nvm/versions/node/*/bin/claude ]]; then
+real="$(readlink -- "/opt/ai-tools/bin/${launcher}" 2>/dev/null || true)"
+if [[ -z "${real}" || "${real}" != /opt/ai-tools/.nvm/versions/node/*/bin/"${launcher}" ]]; then
     skip "ai-tools-run project-dir revalidation" "cannot resolve a valid AI_TOOLS_AGENT_EXEC target"
 else
     # (3) A relative AI_TOOLS_PROJECT_DIR is refused.
@@ -258,7 +262,7 @@ else
     fi
 
     # (6) The version component must be an exact semver directory, not any directory name.
-    out="$(run_crun AI_TOOLS_AGENT_EXEC=/opt/ai-tools/.nvm/versions/node/evil/bin/claude)" && rc=0 || rc=$?
+    out="$(run_crun AI_TOOLS_AGENT_EXEC="/opt/ai-tools/.nvm/versions/node/evil/bin/${launcher}")" && rc=0 || rc=$?
     refused "ai-tools-run refuses a non-semver version directory (the same shape refusal)" MSG-Z2J9 "${rc}" "${out}"
 
     # (7) Containment across the symlink. Shape validation matches the launcher PATH; what execve transitions on is
@@ -282,9 +286,9 @@ else
         _cleanup+=("${fake_version_dir}")
         mkdir -p "${fake_version_dir}/bin"
         # Escapes the version root: a real, executable target the shim must still refuse.
-        ln -sfn /bin/sh "${fake_version_dir}/bin/claude"
+        ln -sfn /bin/sh "${fake_version_dir}/bin/${launcher}"
         chown -R "${SANDBOX_USER}" "${fake_version_dir}" 2>/dev/null || true
-        out="$(run_crun AI_TOOLS_AGENT_EXEC="${fake_version_dir}/bin/claude")" && rc=0 || rc=$?
+        out="$(run_crun AI_TOOLS_AGENT_EXEC="${fake_version_dir}/bin/${launcher}")" && rc=0 || rc=$?
         refused "ai-tools-run refuses a launcher resolving outside its own version directory" MSG-D7A7 "${rc}" "${out}"
         rm -rf "${fake_version_dir}"
     fi
@@ -304,36 +308,42 @@ else
     # The pin gate is the last one the shim runs, so it is reached only through a label preflight that accepts
     # the entrypoint; on a host where it does not, the preflight answers first and these cases would assert the wrong
     # refusal.
-    if ! entrypoint_ready claude-code; then
-        skip_entrypoint_unready "ai-tools-run pin refusals (verified and observed tiers)" claude-code
+    mapfile -t ready < <(ready_launchers)
+    if (( ${#ready[@]} == 0 )); then
+        skip_entrypoint_unready "ai-tools-run pin refusals (verified and observed tiers)"
     else
         pin_dir="$(mktemp -d)"
         _cleanup+=("${pin_dir}")
         chmod 0755 "${pin_dir}"
-        # A well-formed pin for a checksum this entrypoint cannot have: the shape is valid, so the refusal comes
-        # from the COMPARISON rather than from the reader rejecting a malformed record.
-        printf 'AGENT=claude-code\nVERSION=0.0.0\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' 0 \
-            > "${pin_dir}/claude-code"
-        chmod 0644 "${pin_dir}/claude-code"
-        out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
-        refused "ai-tools-run refuses an entrypoint that does not match its pin" MSG-H7S2 "${rc}" "${out}"
+        for entry in "${ready[@]}"; do
+            IFS=$'\t' read -r pin_agent pin_launcher <<<"${entry}"
+            pin_exec="$(readlink -- "/opt/ai-tools/bin/${pin_launcher}" 2>/dev/null || true)"
+            # A well-formed pin for a checksum this entrypoint cannot have: the shape is valid, so the refusal comes
+            # from the COMPARISON rather than from the reader rejecting a malformed record.
+            printf 'AGENT=%s\nVERSION=0.0.0\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' "${pin_agent}" 0 \
+                > "${pin_dir}/${pin_agent}"
+            chmod 0644 "${pin_dir}/${pin_agent}"
+            out="$(run_crun AI_TOOLS_AGENT_EXEC="${pin_exec}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
+            refused "ai-tools-run refuses an entrypoint that does not match its pin (${pin_agent})" MSG-H7S2 "${rc}" "${out}"
 
-        # The same refusal against an OBSERVED pin. The tier decides what the pin CLAIMS, never whether a mismatch
-        # refuses: a host whose agent has no vendor manifest is covered against a change to its binary, which is
-        # the whole reason the weaker tier is worth writing. The pin this case starts from carries no KIND (the shape
-        # every pin had before the tier existed), so this case is the one that would regress if the launch gate ever
-        # started reading the tier.
-        printf 'AGENT=claude-code\nVERSION=0.0.0\nSHA256=%064d\nKIND=observed\nVERIFIED=1970-01-01T00:00:00Z\n' 0 \
-            > "${pin_dir}/claude-code"
-        out="$(run_crun AI_TOOLS_AGENT_EXEC="${real}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
-        refused "ai-tools-run refuses a mismatch against an observed pin too" MSG-H7S2 "${rc}" "${out}"
-        # And the refusal names the tier it read, so an operator is not sent looking for a vendor signature behind a pin
-        # root recorded by hashing what was installed.
-        if grep -q 'root recorded' <<<"${out}"; then
-            pass "the refusal names the observed tier's claim rather than a vendor signature"
-        else
-            fail "the refusal over an observed pin still claims a vendor signed the checksum: ${out}"
-        fi
+            # The same refusal against an OBSERVED pin. The tier decides what the pin CLAIMS, never whether a mismatch
+            # refuses: a host whose agent has no vendor manifest is covered against a change to its binary, which is
+            # the whole reason the weaker tier is worth writing. The pin this case starts from carries no KIND (the
+            # shape every pin had before the tier existed), so this case is the one that would regress if the launch
+            # gate ever started reading the tier.
+            printf 'AGENT=%s\nVERSION=0.0.0\nSHA256=%064d\nKIND=observed\nVERIFIED=1970-01-01T00:00:00Z\n' \
+                "${pin_agent}" 0 > "${pin_dir}/${pin_agent}"
+            out="$(run_crun AI_TOOLS_AGENT_EXEC="${pin_exec}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
+            refused "ai-tools-run refuses a mismatch against an observed pin too (${pin_agent})" MSG-H7S2 "${rc}" "${out}"
+            # And the refusal names the tier it read, so an operator is not sent looking for a vendor signature behind
+            # a pin root recorded by hashing what was installed.
+            if grep -q 'root recorded' <<<"${out}"; then
+                pass "the refusal names the observed tier's claim rather than a vendor signature (${pin_agent})"
+            else
+                fail "the refusal over an observed pin still claims a vendor signed the checksum (${pin_agent}): ${out}"
+            fi
+            rm -f -- "${pin_dir:?}/${pin_agent}"
+        done
     fi
 
     # The complementary property -- an UNPINNED entrypoint must NOT be refused, or an air-gapped host would stop
@@ -398,11 +408,11 @@ section "ai-tools-run: a provider name written without its kind prefix refuses e
 # refusal, so a refusal that never read the lists cannot pass as this one.
 [[ -n "${TESTDIR:-}" ]] || mktestdir
 lists_conf="${TESTDIR}/lists-operator.conf"
-printf 'AI_TOOLS_AGENTS=[claude-code]\nAI_TOOLS_FILTERS=[core]\n' > "${lists_conf}"
+printf 'AI_TOOLS_AGENTS=[acme]\nAI_TOOLS_FILTERS=[core]\n' > "${lists_conf}"
 chmod 0644 "${lists_conf}"
 out="$(run_crun AI_TOOLS_OPERATOR_CONF="${lists_conf}" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
 refused "ai-tools-run refuses every launch while operator.conf names a provider without its kind prefix" MSG-V3Q5 "${rc}" "${out}"
-if grep -q 'AI_TOOLS_AGENTS claude-code' <<<"${out}" && grep -q 'system post-upgrade' <<<"${out}"; then
+if grep -q 'AI_TOOLS_AGENTS acme' <<<"${out}" && grep -q 'system post-upgrade' <<<"${out}"; then
     pass "the refusal names the bare item and the command that rewrites it"
 else
     fail "the refusal does not name the item and post-upgrade: $(head -c 300 <<<"${out}" | tr '\n' '|')"

@@ -121,12 +121,27 @@ toml_python() {
 # naming the one remedy, where every case would otherwise refuse under a code it did not ask about. Read in a child
 # shell: the resolver pulls conf.lib.sh, which several files source themselves.
 provisioned_agent() {
-    bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null || exit 1
-        declare -F ai_tools_enabled_agents >/dev/null 2>&1 || exit 1
-        while IFS=$'"'"'\t'"'"' read -r _ _ launcher; do
-            [[ -n "${launcher}" && -L "$1/${launcher}" ]] && exit 0
+    [[ -n "$(provisioned_launchers)" ]]
+}
+# provisioned_launchers: print `agent<TAB>launcher` for every enabled agent whose stable launcher link exists,
+# in the resolver's order. A case driving an agent-agnostic mechanism -- the shim, the launcher-symlink helper,
+# the handback verbs -- takes its agent from here rather than naming one, so it runs on a host with any agent enabled
+# and no case is tied to a shipped manifest.
+provisioned_launchers() {
+    bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null || exit 0
+        declare -F ai_tools_enabled_agents >/dev/null 2>&1 || exit 0
+        while IFS=$'"'"'\t'"'"' read -r agent _ launcher; do
+            [[ -n "${agent}" && -n "${launcher}" && -L "$1/${launcher}" ]] && printf "%s\t%s\n" "${agent}" "${launcher}"
         done < <(ai_tools_enabled_agents 2>/dev/null)
-        exit 1' _ "${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
+        exit 0' _ "${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
+}
+# ready_launchers: the provisioned_launchers lines whose agent passes entrypoint_ready.
+ready_launchers() {
+    local agent launcher
+    while IFS=$'\t' read -r agent launcher; do
+        entrypoint_ready "${agent}" && printf '%s\t%s\n' "${agent}" "${launcher}"
+    done < <(provisioned_launchers)
+    return 0
 }
 # skip_unprovisioned <what>: the one skip line for that state, naming the command that provisions.
 skip_unprovisioned() {
@@ -136,10 +151,11 @@ skip_unprovisioned() {
 # entrypoint_ready <agent>: succeed when <agent>'s stable launcher resolves to a file its manifest's entrypoint_fcontext
 # matches and, where confinement is expected (SELinux enforcing with the ai_tools file contexts live, the read
 # ai-tools-run's preflight makes), that file carries ai_tools_exec_t. A case that needs the launch preflight,
-# the launcher-symlink helper or the handback SYMLINK verb to accept the entrypoint asks this first and skips
-# through skip_entrypoint_unready, so one failing entrypoint reports as the check that owns it (integration/selinux.sh,
-# the declared-rule section) and a skip in each file that depends on it. An agent whose manifest does not declare
-# a pattern reads as not ready, since those cases drive an entrypoint rule. Reads the toolchain, so run as root.
+# the launcher-symlink helper or the handback SYMLINK verb to accept the entrypoint takes its agents
+# from ready_launchers and skips through skip_entrypoint_unready when that prints nothing, so one failing entrypoint
+# reports as the check that owns it (integration/selinux.sh, the declared-rule section) and a skip in each file
+# that depends on it. An agent whose manifest does not declare a pattern reads as not ready, since those cases drive
+# an entrypoint rule. Reads the toolchain, so run as root.
 entrypoint_ready() {
     bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null || exit 1
         declare -F ai_tools_agent_manifest_field >/dev/null 2>&1 || exit 1
@@ -154,9 +170,10 @@ entrypoint_ready() {
         fi
         exit 0' _ "$1" "${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
 }
-# skip_entrypoint_unready <what> <agent>: the one skip line for that state, naming the command that reports its cause.
+# skip_entrypoint_unready <what>: the one skip line for a host where no provisioned agent passes entrypoint_ready,
+# naming the command that reports the cause.
 skip_entrypoint_unready() {
-    skip "$1" "the $2 launcher does not resolve to the labelled entrypoint its manifest declares -- sudo ai-tools-admin system entrypoints relabel names the cause"
+    skip "$1" "no enabled agent's launcher resolves to the labelled entrypoint its manifest declares -- sudo ai-tools-admin system entrypoints relabel names the cause"
 }
 
 # The unprivileged project user (and the sandbox account) the helpers collaborate with, derived from the invocation --
