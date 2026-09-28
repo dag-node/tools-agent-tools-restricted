@@ -700,10 +700,20 @@ ask() {
 
 # ── Path helpers ─────────────────────────────────────────────────────────────────
 
-# resolve_dir <path>  -- canonicalize <path> (realpath -e) to stdout; die if absent.
+# resolve_dir <path>  -- canonicalize <path> (realpath -e) to stdout; die if it is absent or its canonical form holds
+# a control character.
 resolve_dir() {
-    local p
-    p="$(realpath -e "$1" 2>/dev/null)" || die "path not found: $1"
+    local p LC_ALL=C
+    # realpath ends its answer with one line feed; the sentinel keeps a line feed that is part of the name, which a bare
+    # command substitution would strip and so resolve `project<LF>` to its sibling `project`.
+    p="$(realpath -e -- "$1" 2>/dev/null && printf x)" || die "path not found: $(ai_tools_log_sanitize "$1")"
+    p="${p%x}"
+    p="${p%$'\n'}"
+    # A project root is registered one per line in allowed-projects and printed on the claim's page, so a control byte
+    # in it, a line feed first among them, is refused before any verb acts on the path.
+    if [[ "${p}" =~ [[:cntrl:]] ]]; then
+        die MSG-V8Z5 "project path holds a control character: $(ai_tools_log_sanitize "${p}") -- rename it first"
+    fi
     printf '%s' "${p}"
 }
 

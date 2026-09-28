@@ -721,24 +721,26 @@ after a removal; one shared implementation of the match is what rules that out.
 
 ## Two project models
 
-**Claim in place** (`projects claim`) registers an existing working tree where it lives. The confined agent
-(`ai_tools_t`) reaches it only if the tree carries the `ai_tools_project_t` SELinux label, so claim applies that label
-via the root helper `ai-tools-relabel`, and `projects unclaim` reverts it. The label primitive (semanage fcontext +
-restorecon) lives in the shared `relabel.lib.sh`, sourced by both `ai-tools-relabel` and `install-selinux.sh`,
-so the CLI and the policy installer apply one implementation. The relabel is **forced** (`restorecon -FR`), so a file
-brought in carrying an explicit foreign context is reset to the project type the confined agent can read;
-`ai_tools_label_project`'s contract states why, and why forcing stays idempotent on a labelled tree. Claim sets group
-`SANDBOX_GROUP` + the setgid bit on the project's directories (via `ai-tools-setgid`, so the agent traverses the tree
-and new files inherit the group), applies the group-permission ACL for existing files (via `ai-tools-setfacl`), and pins
-repo-local `core.filemode=true`. The ACL's entries are built by one pure function in `project-permissions.lib.sh`,
-which takes the operator and the sandbox group as arguments; the per-path checks a re-claim reads its drift with live
-beside it, so the check and the repair read one specification. A separate default-yes prompt offers to normalize
-the `.git` tree (`ai-tools-setfacl --with-git`: group `SANDBOX_GROUP` + setgid on its dirs + the same ACL)
-so the operator's own commits stay agent-readable — `.git` being the one heavy tree the per-session passes skip yet both
-parties write (see [ownership-and-hooks](ownership-and-hooks.rule.md)). Claim inspects current state and runs only
-the missing steps, so a re-run is a quiet no-op and existing projects retrofit the ACL/`filemode`/`.git` normalization
-on the next claim. `projects create` is part of this model rather than a third one: it makes the directory and then runs
-the same claim on it.
+**Claim in place** (`projects claim`) registers an existing working tree where it lives. A path whose canonical form
+holds a control character is refused before any verb acts on it (`resolve_dir`): `allowed-projects` holds one entry
+per line, and the path is printed on the claim's page. The confined agent (`ai_tools_t`) reaches it only if the tree
+carries the `ai_tools_project_t` SELinux label, so claim applies that label via the root helper `ai-tools-relabel`,
+and `projects unclaim` reverts it. The label primitive (semanage fcontext + restorecon) lives in the shared
+`relabel.lib.sh`, sourced by both `ai-tools-relabel` and `install-selinux.sh`, so the CLI and the policy installer apply
+one implementation. The relabel is **forced** (`restorecon -FR`), so a file brought in carrying an explicit foreign
+context is reset to the project type the confined agent can read; `ai_tools_label_project`'s contract states
+why, and why forcing stays idempotent on a labelled tree. Claim sets group `SANDBOX_GROUP` + the setgid bit
+on the project's directories (via `ai-tools-setgid`, so the agent traverses the tree and new files inherit the group),
+applies the group-permission ACL for existing files (via `ai-tools-setfacl`), and pins repo-local `core.filemode=true`.
+The ACL's entries are built by one pure function in `project-permissions.lib.sh`, which takes the operator
+and the sandbox group as arguments; the per-path checks a re-claim reads its drift with live beside it, so the check
+and the repair read one specification. A separate default-yes prompt offers to normalize the `.git` tree
+(`ai-tools-setfacl --with-git`: group `SANDBOX_GROUP` + setgid on its dirs + the same ACL) so the operator's own commits
+stay agent-readable — `.git` being the one heavy tree the per-session passes skip yet both parties write (see
+[ownership-and-hooks](ownership-and-hooks.rule.md)). Claim inspects current state and runs only the missing steps,
+so a re-run is a quiet no-op and existing projects retrofit the ACL/`filemode`/`.git` normalization on the next claim.
+`projects create` is part of this model rather than a third one: it makes the directory and then runs the same claim
+on it.
 
 **The project root must be held by the resolved operator or the sandbox account, and a claim refuses otherwise.**
 `ai-tools-setgid` and `ai-tools-setfacl` — the two helpers that grant the agent its access — act only on those two
