@@ -434,4 +434,79 @@ else
 fi
 
 unset AI_TOOLS_AGENTS_DIR AI_TOOLS_OPERATOR_CONF
+
+# ── ai_tools_nvm_default_version: the default alias read as data ────────────────────────────────
+# The version a root caller needs, read without sourcing nvm.sh: an exact version, or a prefix selecting the highest
+# installed match, the two shapes nvm writes; any other value -- an nvm keyword, a line carrying a shell metacharacter,
+# a symlinked alias -- prints nothing.
+section "toolchain: the default Node version read as data (unit)"
+alias_nvm="${FIXTURE_ROOT}/alias-nvm"
+mkdir -p "${alias_nvm}/alias" "${alias_nvm}/versions/node/v22.23.2" "${alias_nvm}/versions/node/v22.23.3" \
+    "${alias_nvm}/versions/node/v20.1.0" "${alias_nvm}/versions/node/notaversion"
+while IFS='|' read -r alias_value want what; do
+    [[ -n "${what}" ]] || continue
+    printf '%s\n' "${alias_value}" > "${alias_nvm}/alias/default"
+    got="$(ai_tools_nvm_default_version "${alias_nvm}")"
+    [[ "${got}" == "${want}" ]] && pass "alias ${what} -> '${want}'" || fail "alias ${what}: got '${got}', want '${want}'"
+done <<'ROWS'
+22|v22.23.3|a major selects the highest installed match
+v22.23|v22.23.3|a major.minor prefix selects the highest installed match
+v22.23.2|v22.23.2|an exact version selects itself
+18||a major with no installed match
+lts/*||an nvm keyword
+22;rm -rf /||a line carrying a shell metacharacter
+ROWS
+rm -f "${alias_nvm}/alias/default"
+ln -s "${alias_nvm}/versions/node/v20.1.0" "${alias_nvm}/alias/default"
+[[ -z "$(ai_tools_nvm_default_version "${alias_nvm}")" ]] \
+    && pass "a symlinked alias is not read" || fail "a symlinked alias was read"
+
+# ── ai_tools_as_sandbox: the one route from root to a file the sandbox account can write ───────
+# Each property the helper gives its child is asserted from inside the child. Root-only, like the helper.
+section "toolchain: a command run as the sandbox account from root (unit)"
+if [[ "${EUID}" -ne 0 ]]; then
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    rc=0; out="$(bash -c 'source "$1"; ai_tools_as_sandbox ai-tools id' _ "${LIB}" 2>&1)" || rc=$?
+    [[ "${rc}" -eq 1 && "${out}" == *"needs root"* ]] \
+        && pass "a caller that is not root is refused, and nothing runs" || fail "non-root call: rc ${rc}: ${out}"
+    skip "the sandbox child's properties" "needs root, which runuser does"
+elif ! id "${SANDBOX_USER}" >/dev/null 2>&1; then
+    skip "the sandbox child's properties" "no ${SANDBOX_USER} account on this host"
+else
+    out="$(ai_tools_as_sandbox "${SANDBOX_USER}" id -un 2>/dev/null)"
+    [[ "${out}" == "${SANDBOX_USER}" ]] && pass "the command runs as ${SANDBOX_USER}" || fail "ran as '${out}'"
+
+    # No controlling terminal: /dev/tty does not open, which is the terminal a child could otherwise inject into.
+    # A control first, since the suite may itself run without one.
+    if (exec 3</dev/tty) 2>/dev/null; then
+        # shellcheck disable=SC2016  # the inner shell expands these, not this one
+        out="$(ai_tools_as_sandbox "${SANDBOX_USER}" bash -c '(exec 3</dev/tty) 2>/dev/null && echo has-tty || echo no-tty' 2>/dev/null)"
+        [[ "${out}" == no-tty ]] && pass "the child has no controlling terminal, although this process has one" \
+            || fail "the child opened /dev/tty: ${out}"
+    else
+        note "controlling terminal" "this run has none, so the child's absence of one is not a contrast here"
+    fi
+
+    # A clean environment: a variable this process exports does not reach the child; HOME is the account's.
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    out="$(AI_TOOLS_TEST_LEAK=1 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c 'printf "%s|%s" "${AI_TOOLS_TEST_LEAK:-unset}" "${HOME}"' 2>/dev/null)"
+    [[ "${out}" == "unset|$(getent passwd "${SANDBOX_USER}" | cut -d: -f6)" ]] \
+        && pass "the child's environment is clean, and HOME is the account's" || fail "child environment: ${out}"
+
+    # Both streams through the allowlist, kept apart; a tab survives for a caller reading a wire format.
+    ai_tools_as_sandbox "${SANDBOX_USER}" bash -c 'printf "a\tb \033[2Jout\n"; printf "\033]0;err\n" >&2' \
+        >"${FIXTURE_ROOT}/as-out" 2>"${FIXTURE_ROOT}/as-err" || true
+    if [[ "$(<"${FIXTURE_ROOT}/as-out")" == $'a\tb ?[2Jout' && "$(<"${FIXTURE_ROOT}/as-err")" == '?]0;err' ]]; then
+        pass "stdout and stderr reach the caller apart, each through the allowlist, a tab kept"
+    else
+        fail "streams: out '$(tr '\t\033' '>?' <"${FIXTURE_ROOT}/as-out")' err '$(tr '\033' '?' <"${FIXTURE_ROOT}/as-err")'"
+    fi
+
+    rc=0; ai_tools_as_sandbox "${SANDBOX_USER}" bash -c 'exit 7' >/dev/null 2>&1 || rc=$?
+    [[ "${rc}" -eq 7 ]] && pass "the command's own status is returned" || fail "status: ${rc}, want 7"
+
+    out="$(ai_tools_as_sandbox "${SANDBOX_USER}" cat <<<'from a heredoc' 2>/dev/null)"
+    [[ "${out}" == 'from a heredoc' ]] && pass "stdin the caller gives passes" || fail "stdin: '${out}'"
+fi
+
 finish

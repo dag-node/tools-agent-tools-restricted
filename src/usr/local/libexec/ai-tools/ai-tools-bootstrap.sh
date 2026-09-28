@@ -378,8 +378,8 @@ remove_residue() {
     fi
     # One line per residue package, "agent<TAB>version-dir<TAB>outcome", from the account that owns the tree.
     # The heredoc is single-quoted, so the inner shell expands the variables from the env passed in.
-    outcomes="$(sudo -u "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" NVM_DIR="${NVM_DIR}" TOOLCHAIN_LIB="${toolchain_lib}" \
-        bash -s <<'EOSU'
+    outcomes="$(ai_tools_as_sandbox "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" NVM_DIR="${NVM_DIR}" \
+        TOOLCHAIN_LIB="${toolchain_lib}" bash -s <<'EOSU'
 set -euo pipefail
 . "${TOOLCHAIN_LIB}"
 while IFS=$'\t' read -r agent package version_dir; do
@@ -643,6 +643,17 @@ else
     log "provider resolver unavailable -- provisioning Node only; re-run after the control plane and an ai-tools-agents-* package are installed to provision agents"
 fi
 
+# The toolchain library, for ai_tools_as_sandbox: the one route by which this root helper runs a file the sandbox
+# account can write -- nvm, npm, and what they run -- with no controlling terminal, a clean environment and its output
+# sanitized, and for the default-alias reader. REQUIRED: those two are defined whatever the provider requirement inside
+# the library decides, and without them a toolchain step would run sandbox code with root's terminal, so the run ends.
+_toolchain_lib=/usr/local/lib/ai-tools/toolchain.lib.sh
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/toolchain.lib.sh
+source "${_toolchain_lib}" 2>/dev/null || true
+if ! declare -F ai_tools_as_sandbox >/dev/null 2>&1 || ! declare -F ai_tools_nvm_default_version >/dev/null 2>&1; then
+    die MSG-E2X2 "cannot run the sandbox toolchain: ${_toolchain_lib} did not load, and it is what runs that account's files without root's terminal -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
+fi
+
 # Which agents this run provisions, decided and written before the first network step: a name given on the command line,
 # the line already in operator.conf, or the operator's answer to the menu. An unknown `--agents` name ends the run here,
 # with no package installed and no line written.
@@ -724,35 +735,19 @@ elif [[ ${#_agent_packages[@]} -gt 0 ]]; then
 else
     log "installing nvm ${NVM_VERSION} + Node ${NODE_MAJOR} (no agents enabled) as ${SANDBOX_USER} (network)"
 fi
-(( _online )) && sudo -u "${SANDBOX_USER}" env \
+(( _online )) && ai_tools_as_sandbox "${SANDBOX_USER}" env \
     NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" PROFILE=/dev/null \
     NVM_VERSION="${NVM_VERSION}" NODE_MAJOR="${NODE_MAJOR}" \
     AGENT_PACKAGES="${_agent_packages[*]}" \
     bash -s <<'EOSU'
 set -euo pipefail
-# What nvm's installer, nvm and npm print -- the packages' install scripts among it -- comes from the network and
-# from a tree this account owns, and it reaches the operator's terminal: it passes the shared allowlist sanitizer,
-# or is withheld where log.lib.sh did not load.
-# shellcheck source=/dev/null
-. /usr/local/lib/ai-tools/log.lib.sh 2>/dev/null || true
-tool_output() {
-    if declare -F ai_tools_log_sanitize_stream >/dev/null 2>&1; then
-        ai_tools_log_sanitize_stream
-    else
-        cat >/dev/null
-        printf '%s\n' "(output withheld: /usr/local/lib/ai-tools/log.lib.sh, which sanitizes it, did not load)"
-    fi
-}
 if [ ! -s "${NVM_DIR}/nvm.sh" ]; then
-    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash 2>&1 | tool_output
+    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash
 fi
 # shellcheck source=/dev/null
 . "${NVM_DIR}/nvm.sh"
-nvm install "${NODE_MAJOR}" 2>&1 | tool_output
-nvm alias default "${NODE_MAJOR}" 2>&1 | tool_output
-# A piped nvm runs in a subshell, so the PATH `nvm install` sets for the version it installed does not reach this shell;
-# the alias it wrote does, and this use puts that version's npm first for the installs that follow.
-nvm use default >/dev/null 2>&1
+nvm install "${NODE_MAJOR}"
+nvm alias default "${NODE_MAJOR}"
 # Install each enabled agent's npm package. npm 11.5+ gates preinstall/install/postinstall
 # behind an allowScripts allowlist, so a bare `npm install -g` BLOCKS the postinstall --
 # @anthropic-ai/claude-code fetches and wires its platform-native binary there (node
@@ -764,7 +759,7 @@ read -ra agent_packages <<< "${AGENT_PACKAGES}"
 if [ "${#agent_packages[@]}" -gt 0 ]; then
     allow_scripts="$(IFS=,; printf '%s' "${agent_packages[*]}")"
     for agent_package in "${agent_packages[@]}"; do
-        npm install -g --allow-scripts="${allow_scripts}" "${agent_package}" 2>&1 | tool_output
+        npm install -g --allow-scripts="${allow_scripts}" "${agent_package}"
     done
 fi
 EOSU
@@ -776,9 +771,9 @@ EOSU
 #     before the verification (2b) and the stable symlink (3), so each reads the chain in its
 #     final shape. The library reports a refusal and leaves npm's link in place: that agent's
 #     launch then fails closed at the label preflight until its manifest and its package agree.
-#     The active Node version is read once here and reused by step 3.
-_node_version="$(sudo -u "${SANDBOX_USER}" env NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" \
-        bash -c '. "${NVM_DIR}/nvm.sh"; nvm version default' 2>/dev/null || true)"
+#     The active Node version is read once here and reused by step 3, as data: nvm's default alias
+#     and the installed version directories (ai_tools_nvm_default_version), not by sourcing nvm.sh.
+_node_version="$(ai_tools_nvm_default_version "${NVM_DIR}")"
 
 # What the install did NOT complete (toolchain.lib.sh), reported here -- before the re-link and the relabel, each
 # of which fails because of it and the second of which names this very command as its remedy. An install npm reports
@@ -820,7 +815,8 @@ fi
 _verify_lib=/usr/local/lib/ai-tools/npm-verify.lib.sh
 if [[ -r "${_verify_lib}" ]]; then
     _vrc=0
-    sudo -u "${SANDBOX_USER}" env \
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    ai_tools_as_sandbox "${SANDBOX_USER}" env \
         NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" VERIFY_LIB="${_verify_lib}" \
         bash -c '
             set -euo pipefail

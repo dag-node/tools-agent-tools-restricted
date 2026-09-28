@@ -104,6 +104,35 @@ adopts their own git identity, keeps the default, or edits the file by hand here
 present (the gitconfig exists) — a bootstrap that precedes control-plane install skips; past that gate `msg.lib` is
 deployed, so the prompt requires it and fails closed like any other, no fallback (see [messaging](messaging.rule.md)).
 
+## Root runs none of the toolchain <a id="ref-section-s9t9"></a>
+
+Everything under `/opt/ai-tools/.nvm` — nvm, `node`, `npm`, every agent package — is `SANDBOX_USER`'s to write,
+and a root `execve` of any of it runs what that account put there, whatever the arguments; so does sourcing `nvm.sh`,
+or running a trusted `node` over a script from the tree. The toolchain is enforced read-only to a confined session
+(`usr_t`, [ref-section-w4z6](confinement.rule.md#ref-section-w4z6)), and the rule here does not rest on that: a DAC-only
+host, or a process of the account outside `ai_tools_t`, writes it. Root and the operator therefore take one of two
+routes to the toolchain, and no third:
+
+- **Read it as data.** The installed Node version is `ai_tools_nvm_default_version` over the `default` alias
+  and the version directories, an agent's version `ai_tools_entrypoint_installed_version` over its `package.json`,
+  and the active version the target of a stable launcher link. Each read is bounded and admits a clamped shape, since
+  the bytes are the account's.
+- **Run it as the account, through `ai_tools_as_sandbox`** (`toolchain.lib.sh`), the one route a root caller takes
+  to a command that executes a file of the toolchain. The helper runs the command under `setsid` and `runuser`,
+  so the child has no controlling terminal: a process sharing root's terminal can open `/dev/tty` and insert input
+  into it with `TIOCSTI` where the kernel permits it, whatever its own descriptors point at. A terminal on stdin is
+  replaced with `/dev/null`, the environment is `env -i` with `HOME`, `PATH=/usr/bin:/bin` and `LANG=C.UTF-8`,
+  and stdout and stderr stay apart, each through `ai_tools_log_sanitize_stream` ([logging](logging.rule.md)),
+  or withheld where `log.lib.sh` did not load. The command's own status is returned. `ai-tools-bootstrap` requires it
+  and refuses the run under `MSG-E2X2` without it; its residue removal, its nvm/Node/agent install and its signature
+  check go through it, and so does `install.sh`'s package erase at uninstall.
+
+A step that runs as the account and executes only root-owned code — the launcher re-link through `providers.lib.sh`,
+the stamp's `mkdir` and `touch` — does not run a file the account can write, and keeps its plain `sudo -u`. `nvm-update`
+and `ai-tools-run` run as the account already. The status reports read versions as data and print the launcher's
+`--version` as a command for the operator to run through the wrapper, which is a sandboxed launch.
+`ai_tools_verify_npm_signatures` refuses root outright, the backstop for the one library that drives npm.
+
 ## Where the update runs
 
 `nvm-update.service` and `nvm-update.timer` ship in `%{_userunitdir}` and are enabled in `SANDBOX_USER`'s own

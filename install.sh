@@ -660,12 +660,14 @@ bootstrap_launcher_symlinks() {
         return
     fi
 
-    local node_version
-    # cd / first: this `sudo -u` step inherits the installer's CWD, and run from an operator dir the sandbox account
-    # cannot traverse (e.g. a 0700 home), nvm/npm's internal getcwd warns.
-    node_version="$(sudo -u "${SANDBOX_USER}" bash -c \
-        "cd / && source '${ai_nvm_dir}/nvm.sh' --no-use && nvm version default 2>/dev/null" \
-        2>/dev/null || true)"
+    local node_version=""
+    # Read as data -- nvm's default alias and the installed version directories -- through the library this run
+    # deployed, so this root process does not source nvm.sh, which the sandbox account can rewrite.
+    # shellcheck source=src/usr/local/lib/ai-tools/toolchain.lib.sh
+    source /usr/local/lib/ai-tools/toolchain.lib.sh 2>/dev/null || true
+    if declare -F ai_tools_nvm_default_version >/dev/null 2>&1; then
+        node_version="$(ai_tools_nvm_default_version "${ai_nvm_dir}")"
+    fi
 
     if [[ -z "${node_version}" || "${node_version}" == "N/A" ]]; then
         warn MSG-E5S3 "nvm 'default' alias not set -- launcher symlinks skipped"
@@ -2632,12 +2634,17 @@ remove_agent_packages() {
     local agents_dir=/usr/local/lib/ai-tools/agents.d
     [[ -r "${tclib}" && -d "${agents_dir}" && -d /opt/ai-tools/.nvm/versions/node ]] || return 0
     id "${SANDBOX_USER}" >/dev/null 2>&1 || return 0
+    # ai_tools_as_sandbox runs the erase: npm is the sandbox account's to rewrite, so it runs as that account with no
+    # terminal of this process's and its output sanitized.
+    # shellcheck source=src/usr/local/lib/ai-tools/toolchain.lib.sh
+    source "${tclib}" 2>/dev/null || true
+    declare -F ai_tools_as_sandbox >/dev/null 2>&1 || return 0
     local manifest agent launcher version_dir outcome erased
     for manifest in "${agents_dir}"/*.conf; do
         [[ -e "${manifest}" ]] || continue
         agent="${manifest##*/}"; agent="${agent%.conf}"
         # shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
-        erased="$(runuser -u "${SANDBOX_USER}" -- bash -c \
+        erased="$(ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
             'set -euo pipefail; . "$1"; ai_tools_agent_package_erase /opt/ai-tools/.nvm "$2"' _ "${tclib}" "${agent}" \
             || true)"
         while IFS=$'\t' read -r version_dir outcome; do
