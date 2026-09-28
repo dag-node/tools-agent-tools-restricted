@@ -974,6 +974,12 @@ one green run is not evidence about a race. The same shape reached production tw
 at random on the EL container runners for exactly this reason), so each remaining `semodule -l` probe now captures
 the listing before matching it.
 
+`fcontext-twins.sh` reads the policy sources and requires every file-context rule under the sandbox-clone area to appear
+under both `/opt` and `/var/opt`, with the same tail and context. A host reaches one of each pair, decided by whether
+its `file_contexts.subs_dist` aliases `/var/opt` to `/opt` (the note in `ai_tools.fc`), so `integration/selinux.sh`
+on EL10 passes with the `/var/opt` half missing. The check reads the sources to catch that on any host, and a control
+asserts the reader matched a rule before the two sets are compared.
+
 **`integration`** — checks that need a completed install and the running system (`perms.sh`, `wrapper.sh`, `hooks.sh`,
 `symlink-helper.sh`, `entrypoint-pin.sh`, `handback.sh`, `cli.sh`, `cli-flags.sh`, `ai-tools-run.sh`, `systemd.sh`,
 `selinux.sh`, `typesafe.sh`): installed-artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end (its

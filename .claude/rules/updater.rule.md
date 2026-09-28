@@ -249,9 +249,10 @@ refused, only the first 4 KiB is examined, and a value must be a short `[A-Za-z0
 at all), so no control byte or escape sequence can reach the operator's terminal through it and a corrupt stamp degrades
 the unit to *unknown* rather than to a wrong verdict. And it is **never the weakest link**: an account able to write
 the stamp can already write the toolchain the stamp reports on, which is by far the more valuable target.
-On an enforcing host it can write neither — both resolve to `usr_t` (the `/var/opt` → `/opt` base alias, see
-the `sandbox-projects` note in `ai_tools.fc`), which `ai_tools_t` may only read, while `nvm-update.service` runs outside
-that domain and writes normally.
+On an enforcing host it can write neither. The toolchain is `usr_t`, which `ai_tools_t` may only read. The stamp is
+`usr_t` where the policy aliases `/var/opt` to `/opt` (EL10, Fedora) and `var_t` where it does not (EL9),
+on which the domain holds directory search and no file permission (the `sandbox-projects` note in `ai_tools.fc`).
+`nvm-update.service` runs outside that domain and writes normally.
 
 ## Version resolution
 

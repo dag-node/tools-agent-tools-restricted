@@ -124,20 +124,23 @@ else
     fi
 fi
 
-# (5) Sandbox clones must LABEL as ai_tools_project_t. Their on-disk path is under /var/opt/ai-tools/sandbox-projects,
-# which the base file_contexts.subs_dist alias `/var/opt /opt` canonicalizes to /opt/... BEFORE file-context matching,
-# so the clone rule is authored under /opt (ai_tools.fc). This asserts the rule is REACHABLE through that alias:
-# a synthetic clone path resolves to ai_tools_project_t. A rule keyed on the aliased /var/opt prefix resolves to usr_t
-# here instead -- the exact regression this catches. matchpathcon reads the loaded policy, so the path need not exist.
+# (5) Sandbox clones must LABEL as ai_tools_project_t. Their on-disk path is under /var/opt/ai-tools/sandbox-projects.
+# Whether libselinux looks that path up as /opt/... depends on the host's file_contexts.subs_dist (`/var/opt /opt` is
+# in EL10's and not in EL9's), so ai_tools.fc carries the clone rule under both prefixes. This asserts the one this host
+# reaches is there: a synthetic clone path resolves to ai_tools_project_t. The note says which prefix answered, so a run
+# on each EL shows the twin it relies on. matchpathcon reads the loaded policy, so the path need not exist.
 readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
 if ! command -v matchpathcon >/dev/null 2>&1; then
     skip "sandbox clone label" "matchpathcon not available"
 else
     sbx_type="$(matchpathcon -n "${SANDBOX_ROOT}/_probe-$$" 2>/dev/null | awk -F: '{print $3}' || true)"
+    sbx_alias=no
+    grep -qE '^[[:space:]]*/var/opt[[:space:]]+/opt[[:space:]]*$' \
+        /etc/selinux/targeted/contexts/files/file_contexts.subs_dist 2>/dev/null && sbx_alias=yes
     if [[ "${sbx_type}" == "ai_tools_project_t" ]]; then
-        pass "sandbox clone path resolves to ai_tools_project_t (subs_dist /var/opt->/opt alias honoured)"
+        pass "sandbox clone path resolves to ai_tools_project_t (/var/opt alias on this host: ${sbx_alias})"
     else
-        fail "sandbox clone path -> ${sbx_type:-none}, not ai_tools_project_t -- the clone fcontext rule is unreachable (authored on the aliased /var/opt prefix instead of /opt?)"
+        fail "sandbox clone path -> ${sbx_type:-none}, not ai_tools_project_t (/var/opt alias on this host: ${sbx_alias}) -- the loaded ai_tools module lacks the clone rule under the prefix this host matches; reload it: sudo selinux/install-selinux.sh install"
     fi
 fi
 
