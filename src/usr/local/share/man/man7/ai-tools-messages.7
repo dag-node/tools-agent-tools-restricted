@@ -981,6 +981,10 @@ incomplete package for ${_agent}: ${_package} is installed and ${_version_dir} d
 WARNING.
 control\-plane git capture incomplete
 .TP
+.B MSG-V2W3
+WARNING.
+a regular file where npm keeps a symlink was left as it is at ${version_dir##*/}/bin/${name} (${outcome}) \-\- remove it by hand as the sandbox account if nothing installed it on purpose
+.TP
 .B MSG-V4D9
 WARNING.
 could not enable linger for ${SANDBOX_USER} (${_linger_out:\-no output})
@@ -1649,6 +1653,10 @@ an agent outside the sandbox is installed at ${install_path}
 .B MSG-G6H3
 WARNING.
 systemctl \-\-user $* failed by both the machine transport and the account's own
+.TP
+.B MSG-J2H9
+WARNING.
+the ${node_version}/bin directory holds copies where npm keeps symlinks (${copied_bins}) \-\- a transfer of the tree replaced the links with their targets, so launcher symlinks are skipped
 .TP
 .B MSG-J8F2
 WARNING.

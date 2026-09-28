@@ -407,6 +407,24 @@ would make the repair only as good as that theory. The reinstall is not a wideni
 value that cannot be joined to a path — and reads the updater's two uses of it as source order, since the updater runs
 `main` on its last line and cannot be sourced.
 
+## A copy of the tree without its symlinks is repaired, not reported
+
+npm's global layout keeps, in `<version-dir>/bin`, the `node` binary and a symlink into `lib/node_modules` for every
+command a package installs. A transfer that follows symlinks — an archive made without them — leaves a regular-file copy
+of each target in the link's place, and two things break: npm's entry script requires relative to its own directory,
+so npm does not start, and an agent's launcher resolves to a file no entrypoint rule covers, which the reconciliation
+reports as `copied`.
+
+`ai_tools_toolchain_bin_copies` (`toolchain.lib.sh`) finds such a copy with a `stat`: a regular file in `bin/` other
+than `node`. `ai_tools_toolchain_relink_copies` restores the link where the copy's bytes equal its target — the enabled
+agent's `launcher_target` for that launcher, and otherwise the `bin` entry of the global package declaring the name,
+read by that version's own `node` — in npm's relative form, through a temporary name and `mv -T`. A copy whose bytes
+differ, or whose name no package declares, is left and reported, since the transfer did not make it. The repair runs
+node from the tree, so it refuses root: `ai-tools-bootstrap` runs it through `ai_tools_as_sandbox` for every version
+directory holding a copy, ahead of the residue step, which needs npm; `nvm-update` runs it over the active version
+before its first npm call. `install.sh` reads the copies and names bootstrap as the repair instead of writing
+the launcher links over them.
+
 ## The versioned launcher and its declared target
 
 `<version-dir>/bin/<launcher>` is npm's symlink into the package, and for an agent whose manifest declares

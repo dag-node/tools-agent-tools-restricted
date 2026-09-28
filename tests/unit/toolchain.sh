@@ -509,4 +509,54 @@ else
     [[ "${out}" == 'from a heredoc' ]] && pass "stdin the caller gives passes" || fail "stdin: '${out}'"
 fi
 
+# ── The copies a transfer leaves where npm keeps symlinks, and their repair ────────────────────
+# The detector is a stat, which root runs. The repair runs node from the tree, so it refuses root and is driven here
+# as the sandbox account, over a fixture version directory that account owns; its node is a link to the toolchain's own,
+# the one this case needs to execute. Only a byte-identical copy is replaced.
+section "toolchain: copies in a version's bin directory, and their repair (unit)"
+copy_vdir="${FIXTURE_ROOT}/copied-tree/v9.9.9"
+mkdir -p "${copy_vdir}/bin" "${copy_vdir}/lib/node_modules/npm/bin" "${copy_vdir}/lib/node_modules/@acme/tool"
+printf '{"name":"npm","bin":{"npm":"bin/npm-cli.js","npx":"bin/npx-cli.js"}}\n' \
+    > "${copy_vdir}/lib/node_modules/npm/package.json"
+printf 'npm-cli\n' > "${copy_vdir}/lib/node_modules/npm/bin/npm-cli.js"
+printf 'npx-cli\n' > "${copy_vdir}/lib/node_modules/npm/bin/npx-cli.js"
+printf '{"name":"@acme/tool","bin":"cli.js"}\n' > "${copy_vdir}/lib/node_modules/@acme/tool/package.json"
+printf 'tool\n' > "${copy_vdir}/lib/node_modules/@acme/tool/cli.js"
+cp "${copy_vdir}/lib/node_modules/npm/bin/npm-cli.js" "${copy_vdir}/bin/npm"
+cp "${copy_vdir}/lib/node_modules/@acme/tool/cli.js" "${copy_vdir}/bin/tool"
+printf 'edited\n' > "${copy_vdir}/bin/npx"
+printf 'stray\n' > "${copy_vdir}/bin/stray"
+toolchain_node="$(printf '%s\n' /opt/ai-tools/.nvm/versions/node/v*/bin/node | sort -V | tail -n1)"
+[[ -x "${toolchain_node}" ]] && ln -s "${toolchain_node}" "${copy_vdir}/bin/node"
+
+copies_found="$(ai_tools_toolchain_bin_copies "${copy_vdir}" | paste -sd' ')"
+[[ "${copies_found}" == "npm npx stray tool" ]] \
+    && pass "the detector names every regular file in bin/ other than node" || fail "detector: '${copies_found}'"
+
+if [[ "${EUID}" -eq 0 ]]; then
+    rc=0; ai_tools_toolchain_relink_copies "${copy_vdir}" >/dev/null 2>&1 || rc=$?
+    [[ "${rc}" -ne 0 && -f "${copy_vdir}/bin/npm" && ! -L "${copy_vdir}/bin/npm" ]] \
+        && pass "the repair refuses root and leaves the tree as it was" || fail "the repair ran as root (rc ${rc})"
+fi
+if [[ ! -x "${toolchain_node}" ]]; then
+    skip "the repair of the copies" "no toolchain node to parse package.json with"
+elif [[ "${EUID}" -ne 0 ]]; then
+    skip "the repair of the copies" "needs root to run it as ${SANDBOX_USER}"
+else
+    chown -R "${SANDBOX_USER}:${SANDBOX_GROUP}" "${FIXTURE_ROOT}/copied-tree"
+    chmod 0755 "${FIXTURE_ROOT}"
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    outcomes="$(runuser -u "${SANDBOX_USER}" -- bash -c 'source "$1"; ai_tools_toolchain_relink_copies "$2"' \
+        _ "${LIB}" "${copy_vdir}" 2>/dev/null | paste -sd' ')"
+    [[ "${outcomes}" == $'npm\trelinked npx\tdiffers stray\tunknown tool\trelinked' ]] \
+        && pass "identical copies are relinked, an edited one and an undeclared one are left" \
+        || fail "outcomes: '$(tr '\t' '>' <<<"${outcomes}")'"
+    [[ "$(readlink "${copy_vdir}/bin/npm")" == ../lib/node_modules/npm/bin/npm-cli.js \
+        && "$(readlink "${copy_vdir}/bin/tool")" == ../lib/node_modules/@acme/tool/cli.js ]] \
+        && pass "each restored link is npm's own relative form, a scoped package's string bin included" \
+        || fail "links: npm -> '$(readlink "${copy_vdir}/bin/npm")', tool -> '$(readlink "${copy_vdir}/bin/tool")'"
+    [[ -f "${copy_vdir}/bin/npx" && ! -L "${copy_vdir}/bin/npx" && "$(<"${copy_vdir}/bin/npx")" == edited ]] \
+        && pass "a copy whose bytes differ from its target is left byte for byte" || fail "the edited copy changed"
+fi
+
 finish

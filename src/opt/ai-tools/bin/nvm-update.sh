@@ -463,6 +463,24 @@ main() {
     [[ -n "${current_version}" && "${current_version}" != "N/A" ]] \
         || die "nvm alias '${node_alias}' not set"
 
+    # A transfer of the tree can leave a regular-file copy in bin/ where npm keeps a symlink, and npm does not start
+    # from such a copy; every later step of main runs it. The repair (toolchain.lib.sh) replaces only a copy whose bytes
+    # equal its target, and runs here as the tree's owner. Best-effort: a library that does not load leaves the tree
+    # as it is.
+    # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/toolchain.lib.sh
+    if source /usr/local/lib/ai-tools/toolchain.lib.sh 2>/dev/null \
+            && declare -F ai_tools_toolchain_relink_copies >/dev/null 2>&1; then
+        local copied_name copied_outcome
+        while IFS=$'\t' read -r copied_name copied_outcome; do
+            [[ -n "${copied_name}" ]] || continue
+            if [[ "${copied_outcome}" == relinked ]]; then
+                log "${current_version}: restored the bin/${copied_name} symlink a copy had replaced"
+            else
+                warn "${current_version}: bin/${copied_name} is a regular file where npm keeps a symlink, left as it is (${copied_outcome})"
+            fi
+        done < <(ai_tools_toolchain_relink_copies "${nvm_dir}/versions/node/${current_version}")
+    fi
+
     # The timer invokes this with no argument, so resolve the latest LTS in the vMAJOR series here -- the same
     # `sort -V | tail -1` highest-semver selection the prune logic keys on. An explicit argument overrides the lookup.
     if [[ -z "${target_version}" ]]; then

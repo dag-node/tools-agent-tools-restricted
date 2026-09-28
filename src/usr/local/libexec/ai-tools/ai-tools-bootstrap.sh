@@ -366,6 +366,37 @@ refuse_unresolved_agents() {
 # the package: a removal deferred under a live session keeps the link, which is what keeps the wrapper refusing. Gated
 # on a toolchain being present at all -- a first run has no tree to hold residue -- and on the library loading;
 # a library that will not load warns and leaves the package, since every launch then keeps refusing and says why.
+# restore_toolchain_links: in each Node version directory, put back the symlinks npm keeps in bin/ where a transfer
+# of the tree left a regular-file copy of the target (toolchain.lib.sh, ai_tools_toolchain_bin_copies). With such a copy
+# npm does not start, and an agent's launcher resolves to a file no entrypoint rule labels, so this runs ahead
+# of the residue step, which needs npm, and before anything reads the launcher chain. The copies are found with a stat,
+# as root; the repair runs node from the tree, so it runs as the sandbox account through ai_tools_as_sandbox,
+# and replaces a copy only where its bytes equal the target's. A copy it leaves is reported by name and outcome.
+restore_toolchain_links() {
+    local version_dir outcomes name outcome relinked=0 left=0
+    [[ -d "${NVM_DIR}/versions/node" ]] || return 0
+    declare -F ai_tools_toolchain_bin_copies >/dev/null 2>&1 || return 0
+    for version_dir in "${NVM_DIR}"/versions/node/v*; do
+        [[ -d "${version_dir}" && -n "$(ai_tools_toolchain_bin_copies "${version_dir}" 2>/dev/null)" ]] || continue
+        # shellcheck disable=SC2016  # the inner shell expands these, not this one
+        outcomes="$(ai_tools_as_sandbox "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" bash -c \
+            '. "$1" 2>/dev/null; ai_tools_toolchain_relink_copies "$2"' _ "${_toolchain_lib}" "${version_dir}" \
+            || true)"
+        while IFS=$'\t' read -r name outcome; do
+            [[ -n "${name}" ]] || continue
+            if [[ "${outcome}" == relinked ]]; then
+                relinked=$(( relinked + 1 ))
+                log "${version_dir##*/}: restored the bin/${name} symlink a copy had replaced"
+            else
+                left=$(( left + 1 ))
+                warn MSG-V2W3 "a regular file where npm keeps a symlink was left as it is at ${version_dir##*/}/bin/${name} (${outcome}) -- remove it by hand as the sandbox account if nothing installed it on purpose"
+            fi
+        done <<<"${outcomes}"
+    done
+    (( relinked == 0 )) || notice "restored ${relinked} toolchain link(s) that a copy of the tree had replaced with their targets"
+    return 0
+}
+
 remove_residue() {
     local toolchain_lib=/usr/local/lib/ai-tools/toolchain.lib.sh outcomes agent version_dir outcome launcher
     local -A still_present=()
@@ -674,8 +705,10 @@ _online=1
 preflight_network "${_network_urls[@]}" || _online=0
 (( _ownership_ok )) || die "the toolchain's ownership must be restored before this run can read it (see above) -- no package was installed or removed"
 
+# Links a transfer of the tree replaced with copies are restored first, since the residue step runs npm.
 # What the toolchain holds for an agent that is installed and not in the set just decided is residue, removed here --
 # ahead of the network step, so an offline host still cleans up -- and every launch refuses until it is gone.
+restore_toolchain_links
 remove_residue
 
 # Concrete tag (latest, pinned, or fallback). Constrained to v + digits/dots before it reaches the download URL piped

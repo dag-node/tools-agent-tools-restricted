@@ -298,6 +298,109 @@ ai_tools_agent_incomplete() {
     return 0
 }
 
+# ai_tools_toolchain_bin_copies <version-dir> : print, one per line, the name of each entry in <version-dir>/bin that is
+#   a regular file other than `node`. npm's global layout keeps a symlink into lib/node_modules there for every command
+#   a package installs, so a regular file in its place is a copy a transfer of the tree left where the link was -- the
+#   state that stops npm (its entry script requires relative to its own directory) and leaves an agent's launcher on
+#   an unlabelled file. A stat per entry, so a root caller reads it as data. A name outside the launcher charset is
+#   not printed, since the directory is the sandbox account's; it is counted on stderr instead.
+ai_tools_toolchain_bin_copies() {
+    local version_dir="${1:-}" entry name unnamed=0
+    [[ -d "${version_dir}/bin" ]] || return 0
+    for entry in "${version_dir}/bin"/*; do
+        [[ -f "${entry}" && ! -L "${entry}" ]] || continue
+        name="${entry##*/}"
+        [[ "${name}" == node ]] && continue
+        if [[ "${name}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            printf '%s\n' "${name}"
+        else
+            unnamed=$(( unnamed + 1 ))
+        fi
+    done
+    (( unnamed == 0 )) || _ai_tools_toolchain_warn "${version_dir}/bin holds ${unnamed} regular file(s) whose name is outside [A-Za-z0-9._-] -- not reported by name"
+    return 0
+}
+
+# ai_tools_toolchain_relink_copies <version-dir> : restore the symlink npm keeps in <version-dir>/bin for each copy
+#   ai_tools_toolchain_bin_copies names, and print `name<TAB>outcome` per copy:
+#     relinked  replaced by a relative symlink to its target -- a temporary name, then `mv -T`, the write
+#               ai_tools_relink_launcher makes, so the name is never absent
+#     differs   the target exists and the copy's bytes differ from it: not the transfer's doing, left as it is
+#     unknown   no enabled agent and no global package declares the name, or its target does not stay inside
+#               the version directory: left as it is
+#     failed    the write did not complete: left as it was
+#   The target is the enabled agent's `launcher_target` where its manifest declares one for that launcher, and otherwise
+#   the `bin` entry of the global package declaring the name, read from the packages' package.json by that version's
+#   own node. Only a byte-identical copy is replaced, so the link lands on the file the copy already held. Refuses root:
+#   it runs node from the tree, which only the sandbox account runs (updater.rule.md, "Root runs none of the toolchain").
+ai_tools_toolchain_relink_copies() {
+    local version_dir="${1:-}"
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+        _ai_tools_toolchain_warn "ai_tools_toolchain_relink_copies runs node from the toolchain, so it refuses root -- run it through ai_tools_as_sandbox"
+        return 1
+    fi
+    [[ -d "${version_dir}/bin" && -d "${version_dir}/lib/node_modules" ]] || return 0
+    local -a copies=()
+    mapfile -t copies < <(ai_tools_toolchain_bin_copies "${version_dir}")
+    (( ${#copies[@]} )) || return 0
+
+    # name -> target, relative to the version directory. Packages first, so an agent's declared target overrides
+    # the shim npm links.
+    local -A target_of=()
+    local name rel agent launcher declared
+    if [[ -x "${version_dir}/bin/node" ]]; then
+        while IFS=$'\t' read -r name rel; do
+            [[ "${name}" =~ ^[A-Za-z0-9._-]+$ ]] && ai_tools_launcher_target_valid "${rel}" 2>/dev/null \
+                && target_of["${name}"]="${rel}"
+        done < <("${version_dir}/bin/node" -e '
+            const fs = require("fs"), path = require("path");
+            const root = path.join(process.argv[1], "lib", "node_modules");
+            const dirs = [];
+            for (const d of fs.readdirSync(root)) {
+                if (d.startsWith("@")) {
+                    for (const s of fs.readdirSync(path.join(root, d))) dirs.push(path.join(d, s));
+                } else if (!d.startsWith(".")) dirs.push(d);
+            }
+            for (const d of dirs) {
+                let j; try { j = JSON.parse(fs.readFileSync(path.join(root, d, "package.json"), "utf8")); } catch (_) { continue; }
+                let bin = j.bin;
+                if (typeof bin === "string") bin = { [String(j.name || d).split("/").pop()]: bin };
+                if (!bin || typeof bin !== "object") continue;
+                for (const [n, p] of Object.entries(bin))
+                    process.stdout.write(n + "\t" + path.posix.join("lib/node_modules", d, path.posix.normalize(String(p))) + "\n");
+            }' "${version_dir}" 2>/dev/null)
+    fi
+    while IFS=$'\t' read -r agent _ launcher; do
+        [[ -n "${agent}" && -n "${launcher}" ]] || continue
+        declared="$(ai_tools_agent_manifest_field "${agent}" launcher_target 2>/dev/null || true)"
+        [[ -n "${declared}" ]] && ai_tools_launcher_target_valid "${declared}" 2>/dev/null \
+            && target_of["${launcher}"]="${declared}"
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+
+    local version_real target_path tmp outcome
+    version_real="$(realpath -e -- "${version_dir}" 2>/dev/null)" || return 1
+    for name in "${copies[@]}"; do
+        rel="${target_of[${name}]:-}"
+        target_path=""
+        [[ -n "${rel}" ]] && target_path="$(realpath -e -- "${version_dir}/${rel}" 2>/dev/null || true)"
+        if [[ -z "${target_path}" || "${target_path}" != "${version_real}/"* || ! -f "${target_path}" ]]; then
+            outcome=unknown
+        elif ! cmp -s -- "${version_dir}/bin/${name}" "${target_path}"; then
+            outcome=differs
+        else
+            tmp="$(mktemp -u "${version_dir}/bin/.${name}.XXXXXX" 2>/dev/null)" || tmp=""
+            if [[ -n "${tmp}" ]] && ln -s "../${rel}" "${tmp}" 2>/dev/null && mv -Tf "${tmp}" "${version_dir}/bin/${name}" 2>/dev/null; then
+                outcome=relinked
+            else
+                [[ -n "${tmp}" ]] && rm -f -- "${tmp}"
+                outcome=failed
+            fi
+        fi
+        printf '%s\t%s\n' "${name}" "${outcome}"
+    done
+    return 0
+}
+
 # ai_tools_path_in_use <dir> [<executable>...] : pure, no I/O -- succeed when any <executable> is
 #   <dir> or lies under it. The predicate behind the deferral: a process executing from a package
 #   directory (codex stages symlinks to its own entrypoint and execs them per edit) would fail

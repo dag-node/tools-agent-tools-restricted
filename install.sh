@@ -675,6 +675,19 @@ bootstrap_launcher_symlinks() {
         return
     fi
 
+    # Copies where npm keeps symlinks -- a tree transferred without them -- make every link this step would write
+    # resolve to an unlabelled file, and npm does not start. Read with a stat; the repair runs node from the tree,
+    # which this root process does not, so it is bootstrap's (updater.rule.md).
+    local copied_bins=""
+    if declare -F ai_tools_toolchain_bin_copies >/dev/null 2>&1; then
+        copied_bins="$(ai_tools_toolchain_bin_copies "${ai_nvm_dir}/versions/node/${node_version}" 2>/dev/null | paste -sd' ')"
+    fi
+    if [[ -n "${copied_bins}" ]]; then
+        warn MSG-J2H9 "the ${node_version}/bin directory holds copies where npm keeps symlinks (${copied_bins}) -- a transfer of the tree replaced the links with their targets, so launcher symlinks are skipped"
+        warn "  restore them: sudo ai-tools-admin system bootstrap"
+        return
+    fi
+
     # The enabled agents' launchers, from the manifests this run deployed (providers.lib.sh is the same resolver
     # the updater and ai-tools-run use). A resolver that will not load leaves the list empty and the warning says so.
     local -a launchers=()
