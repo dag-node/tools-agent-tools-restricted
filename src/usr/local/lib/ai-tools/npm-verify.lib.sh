@@ -42,9 +42,18 @@
 #      matching the best-effort posture of the rest of the updater
 # Detail (which package failed) goes to stderr, which both callers route to the journal. The functions print no secret
 # and take no agent-supplied argument.
+#
+# ── What npm prints is untrusted ─────────────────────────────────────────────
+# npm, the tree it reads and the audit JSON it writes are the sandbox account's, so a package name or an error line
+# from them reaches a terminal or the journal only through the shared allowlist sanitizer: log.lib.sh's
+# ai_tools_log_sanitize for npm's own error line, and the same printable-ASCII allowlist inside the verdict's node
+# parser for the package names. log.lib.sh loads best-effort from this library's directory; without it npm's error line
+# is left out of the report rather than printed raw.
 
 [[ -n "${_AI_TOOLS_NPM_VERIFY_LIB_LOADED:-}" ]] && return 0
 readonly _AI_TOOLS_NPM_VERIFY_LIB_LOADED=1
+# shellcheck source=SCRIPTDIR/log.lib.sh
+source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
 
 # ai_tools_npm_verdict <audit-json>: pure decision over `npm audit signatures --json` output. Echoes a verdict token
 # (OK|INVALID|MISSING|EMPTY|UNKNOWN) and returns the status contract contract. node parses the JSON (node is
@@ -63,7 +72,8 @@ ai_tools_npm_verdict() {
             const j = JSON.parse(fs.readFileSync(0, "utf8"));
             inv = j.invalid || []; mis = j.missing || [];
         } catch (_) { process.stdout.write("PARSEFAIL"); process.exit(0); }
-        const name = x => (x && x.name) ? (x.name + "@" + (x.version || "?")) : String(x);
+        const safe = v => String(v).replace(/[^\x20-\x7e]/g, "?");
+        const name = x => safe((x && x.name) ? (x.name + "@" + (x.version || "?")) : x);
         if (inv.length) process.stderr.write("npm-verify: invalid signature: "   + inv.map(name).join(", ") + "\n");
         if (mis.length) process.stderr.write("npm-verify: unsigned (no registry signature): " + mis.map(name).join(", ") + "\n");
         process.stdout.write(inv.length ? "INVALID" : (mis.length ? "MISSING" : "OK"));
@@ -92,6 +102,23 @@ ai_tools_verify_npm_signatures() {
     fi
     command -v npm  >/dev/null 2>&1 || { printf '%s npm not found -- cannot verify signatures\n'  "${_p}" >&2; return 2; }
     command -v node >/dev/null 2>&1 || { printf '%s node not found -- cannot verify signatures\n' "${_p}" >&2; return 2; }
+
+    # npm is itself a package in the tree it audits, and one that does not start gives every later query in this
+    # function an empty result, which would read as an empty tree. Its own first error line is reported instead,
+    # sanitized (the header states
+    # why).
+    local npm_error
+    if ! npm_error="$(npm --version 2>&1 >/dev/null)"; then
+        npm_error="$(grep -m1 -E '^[A-Za-z]*Error' <<<"${npm_error}" || head -n1 <<<"${npm_error}")"
+        if declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
+            npm_error="$(ai_tools_log_sanitize "${npm_error:0:200}")"
+        else
+            npm_error="its error is not shown: log.lib.sh, which sanitizes it, did not load"
+        fi
+        printf '%s npm does not start (%s) -- the toolchain npm is broken, so signatures cannot be verified\n' \
+            "${_p}" "${npm_error:-no message}" >&2
+        return 2
+    fi
 
     local global_nm
     global_nm="$(npm root -g 2>/dev/null)" || true

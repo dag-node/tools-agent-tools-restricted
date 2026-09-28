@@ -37,6 +37,11 @@
 if [[ -n "${_AI_TOOLS_TOOLCHAIN_LIB_LOADED:-}" ]]; then
     return 0
 fi
+# The logger, best-effort from this library's directory: journald for _ai_tools_toolchain_warn
+# and _ai_tools_toolchain_notice, and the sanitizer npm's output passes before it reaches a terminal or the journal.
+# Without it npm's text is left out of a report.
+# shellcheck source=SCRIPTDIR/log.lib.sh
+source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
 
 # _ai_tools_toolchain_warn [code] <message...> / _ai_tools_toolchain_notice [code] <message...> : report to stderr
 #   (the terminal, or the journal a unit routes it to) and, when log.lib.sh loaded, to journald. A leading message
@@ -320,12 +325,22 @@ ai_tools_agent_package_remove() {
         return 0
     fi
     # That version's own npm, with the version directory pinned as the global prefix, so the uninstall edits the tree it
-    # was asked about whatever prefix the environment or an .npmrc would otherwise resolve. npm's own chatter goes
-    # to stderr, since this function's stdout is the outcome word alone.
-    PATH="${version_dir}/bin:${PATH}" npm uninstall -g --prefix "${version_dir}" "${npm_package}" >&2 \
+    # was asked about whatever prefix the environment or an .npmrc would otherwise resolve. npm and the tree it runs
+    # from are the sandbox account's, so what it prints is held rather than passed through: it is not printed
+    # on success, and on a failure its first error line, sanitized, in the report.
+    local npm_output npm_said
+    npm_output="$(PATH="${version_dir}/bin:${PATH}" npm uninstall -g --prefix "${version_dir}" "${npm_package}" 2>&1)" \
         || true
     if [[ -e "${package_dir}" || -L "${package_dir}" ]]; then
-        _ai_tools_toolchain_warn MSG-X8F9 "could not remove ${package_dir} (npm uninstall left it in place) -- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re-run: sudo ai-tools-admin system bootstrap"
+        npm_said="$(grep -m1 -E 'ERR!|^[A-Za-z]*Error' <<<"${npm_output}" || head -n1 <<<"${npm_output}")"
+        if [[ -z "${npm_said}" ]]; then
+            npm_said="npm printed no error"
+        elif declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
+            npm_said="npm: $(ai_tools_log_sanitize "${npm_said:0:200}")"
+        else
+            npm_said="npm's error is not shown: log.lib.sh, which sanitizes it, did not load"
+        fi
+        _ai_tools_toolchain_warn MSG-X8F9 "could not remove ${package_dir} (npm uninstall left it in place; ${npm_said}) -- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re-run: sudo ai-tools-admin system bootstrap"
         return 1
     fi
     printf 'removed'

@@ -730,13 +730,29 @@ fi
     AGENT_PACKAGES="${_agent_packages[*]}" \
     bash -s <<'EOSU'
 set -euo pipefail
+# What nvm's installer, nvm and npm print -- the packages' install scripts among it -- comes from the network and
+# from a tree this account owns, and it reaches the operator's terminal: it passes the shared allowlist sanitizer,
+# or is withheld where log.lib.sh did not load.
+# shellcheck source=/dev/null
+. /usr/local/lib/ai-tools/log.lib.sh 2>/dev/null || true
+tool_output() {
+    if declare -F ai_tools_log_sanitize_stream >/dev/null 2>&1; then
+        ai_tools_log_sanitize_stream
+    else
+        cat >/dev/null
+        printf '%s\n' "(output withheld: /usr/local/lib/ai-tools/log.lib.sh, which sanitizes it, did not load)"
+    fi
+}
 if [ ! -s "${NVM_DIR}/nvm.sh" ]; then
-    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash
+    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash 2>&1 | tool_output
 fi
 # shellcheck source=/dev/null
 . "${NVM_DIR}/nvm.sh"
-nvm install "${NODE_MAJOR}"
-nvm alias default "${NODE_MAJOR}"
+nvm install "${NODE_MAJOR}" 2>&1 | tool_output
+nvm alias default "${NODE_MAJOR}" 2>&1 | tool_output
+# A piped nvm runs in a subshell, so the PATH `nvm install` sets for the version it installed does not reach this shell;
+# the alias it wrote does, and this use puts that version's npm first for the installs that follow.
+nvm use default >/dev/null 2>&1
 # Install each enabled agent's npm package. npm 11.5+ gates preinstall/install/postinstall
 # behind an allowScripts allowlist, so a bare `npm install -g` BLOCKS the postinstall --
 # @anthropic-ai/claude-code fetches and wires its platform-native binary there (node
@@ -748,7 +764,7 @@ read -ra agent_packages <<< "${AGENT_PACKAGES}"
 if [ "${#agent_packages[@]}" -gt 0 ]; then
     allow_scripts="$(IFS=,; printf '%s' "${agent_packages[*]}")"
     for agent_package in "${agent_packages[@]}"; do
-        npm install -g --allow-scripts="${allow_scripts}" "${agent_package}"
+        npm install -g --allow-scripts="${allow_scripts}" "${agent_package}" 2>&1 | tool_output
     done
 fi
 EOSU
@@ -816,7 +832,7 @@ if [[ -r "${_verify_lib}" ]]; then
     case "${_vrc}" in
         0) log "npm registry signatures verified for the installed toolchain" ;;
         1) die MSG-F3Y2 "npm signature verification FAILED (possible registry tampering) -- aborting before wiring the launcher; the installed package is left unactivated" ;;
-        *) warn MSG-H6A8 "could not verify npm signatures (offline or unsupported) -- proceeding; the toolchain is installed but unverified" ;;
+        *) warn MSG-H6A8 "could not verify npm signatures (the npm-verify line states why) -- proceeding; the toolchain is installed but unverified" ;;
     esac
 else
     warn MSG-P9Q6 "signature-verification library not deployed yet -- skipping the check; the nvm-update timer verifies on its first run"

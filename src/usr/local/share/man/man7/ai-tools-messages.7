@@ -927,7 +927,7 @@ control plane present but ${msglib} missing \-\- reinstall ai\-tools
 .TP
 .B MSG-H6A8
 WARNING.
-could not verify npm signatures (offline or unsupported) \-\- proceeding; the toolchain is installed but unverified
+could not verify npm signatures (the npm\-verify line states why) \-\- proceeding; the toolchain is installed but unverified
 .TP
 .B MSG-H9S6
 ERROR.
@@ -1954,7 +1954,7 @@ refusing to remove ${npm_package} from ${version_dir##*/}: ${name} is enabled in
 .TP
 .B MSG-X8F9
 WARNING.
-could not remove ${package_dir} (npm uninstall left it in place) \-\- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re\-run: sudo ai\-tools\-admin system bootstrap
+could not remove ${package_dir} (npm uninstall left it in place; ${npm_said}) \-\- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re\-run: sudo ai\-tools\-admin system bootstrap
 .SH SEE ALSO
 .BR ai-tools (1),
 .BR ai-tools-admin (8),

@@ -602,18 +602,21 @@ over agent-controlled files as root. `nvm-update.sh` runs it directly; `ai-tools
 sandbox-account step; and the impure entry `ai_tools_verify_npm_signatures` refuses to run as root as a fail-closed
 backstop. The pure decision `ai_tools_npm_verdict` — no npm, no filesystem, no privilege — is split out and unit-tested
 over the audit-output truth table (`tests/unit/npm-verify.sh`), mirroring `confinement.lib.sh`'s pure verdict.
-That verdict parses its JSON with `node`, which exists only in the sandbox toolchain and never on root's `PATH`,
-so the root-run test resolves it the way the launch wrapper resolves the agent binary — one `readlink` hop
-through a stable launcher symlink to the active version's `bin` — and exposes **that one binary** under the name
-the library calls rather than putting the sandbox-owned toolchain directory on root's `PATH`. Resolving from `PATH`
-alone would skip the file on a fully provisioned host, which strict mode reports as no coverage.
+That verdict parses its JSON with `node`, which on most hosts exists only in the sandbox toolchain, so the root-run test
+resolves that one binary the way the launch wrapper resolves the agent binary — one `readlink` hop through a stable
+launcher symlink to the active version's `bin` — and runs the verdict as the sandbox account through `runuser`,
+with that directory alone on its `PATH`: the binary is that account's to replace, and root does not execute it
+([tests](tests.rule.md)). Resolving from `PATH` alone would skip the file on a fully provisioned host, which strict mode
+reports as no coverage.
 
 The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the prune
 and the launcher-symlink repoint, so the previous, trusted version stays active and the tampered tree is left unwired.
-An **inability to verify** — offline, an npm without `audit signatures`, or a missing library (root-owned, so a missing
-one is a broken install, not agent action) — warns and proceeds, since the update itself is not the danger and the check
-is best-effort against such hosts. The signing keys are fetched from the registry keys endpoint
-(`<registry>/-/npm/v1/keys`) over HTTPS on each run.
+An **inability to verify** — offline, an npm without `audit signatures`, an npm that does not start, or a missing
+library (root-owned, so a missing one is a broken install, not agent action) — warns and proceeds, since the update
+itself is not the danger and the check is best-effort against such hosts. The verifier asks `npm --version` first
+and names an npm that does not start with npm's own error line, since every later query would otherwise return an empty
+result and read as an empty tree; the callers' warning defers to that line rather than guessing a cause. The signing
+keys are fetched from the registry keys endpoint (`<registry>/-/npm/v1/keys`) over HTTPS on each run.
 
 ## Entrypoint verification and the pin
 

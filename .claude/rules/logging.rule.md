@@ -105,6 +105,14 @@ manager; that helper additionally refuses any working directory that is not an a
 interpret degrades to `unknown` instead of reaching the operator inside a `projects handback` command it is invited
 to run.
 
+**What the sandbox toolchain prints is untrusted in the same way.** npm, nvm and the install scripts of the packages npm
+installs run from a tree the sandbox account owns, and their output reaches an operator's terminal
+(`ai-tools-bootstrap`) or the journal (`nvm-update`). A stream passes `ai_tools_log_sanitize_stream`, the same allowlist
+over stdin with the line feed kept; a single line quoted in a report (`npm-verify.lib.sh`'s npm error,
+`toolchain.lib.sh`'s failed uninstall) passes `ai_tools_log_sanitize`, bounded to 200 characters; and the package names
+in the signature verdict pass the same allowlist inside its `node` parser. Each loads `log.lib.sh` best-effort,
+and where the sanitizer did not load the tool's text is withheld with a line saying so rather than printed raw.
+
 The test harness applies the same allowlist to every `pass`/`fail`/`skip`/`section` line (`_san`), so a suite run —
 which executes as root via `sudo`, often on a live host — cannot print a crafted byte a fixture carried into a result
 message.

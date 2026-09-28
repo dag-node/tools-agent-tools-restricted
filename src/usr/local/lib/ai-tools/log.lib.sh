@@ -120,6 +120,13 @@ ai_tools_log_sanitize() {
     printf '%s' "${s//[^[:print:]]/?}"
 }
 
+# ai_tools_log_sanitize_stream -- the same allowlist over stdin, written to stdout, with the line feed kept so a tool's
+# output stays one line per line. For a stream a caller passes through rather than holds -- `npm install` and its
+# packages' install scripts, which a toolchain step runs in front of an operator's terminal or into the journal.
+ai_tools_log_sanitize_stream() {
+    LC_ALL=C tr -c '\n\040-\176' '?'
+}
+
 # DEFERRED -- retained, not yet called. Where ai_tools_log_sanitize (the allowlist) reduces non-standard bytes to '?'
 # for safe display, this is the complementary *detector*: it targets exactly the ASCII/Unicode control, format, and bidi
 # bytes (C0/C1, zero-width, the Trojan-Source bidi overrides/isolates, line/paragraph separators, BOM), byte-wise

@@ -255,7 +255,8 @@ for ver in v1.2.3 v2.0.0; do
     cat > "${NVM}/versions/node/${ver}/bin/npm" <<EOF
 #!/usr/bin/bash
 printf '%s\n' "\$*" >> "${FIXTURE_ROOT}/npm-calls"
-[[ "\${NPM_STUB_KEEP:-}" == 1 ]] && exit 0
+printf 'npm chatter \033[0m\n' >&2
+[[ "\${NPM_STUB_KEEP:-}" == 1 ]] && { printf 'npm ERR! could not remove \033[2J\n' >&2; exit 0; }
 rm -rf -- "${NVM}/versions/node/${ver}/lib/node_modules/\${@: -1}"
 EOF
     chmod 0755 "${NVM}/versions/node/${ver}/bin/npm"
@@ -305,6 +306,9 @@ fi
     && pass "exactly one npm uninstall, global, with the version directory as the prefix" \
     || fail "npm calls: '$(calls)'"
 assert_msg MSG-G4M8 "$(<"${FIXTURE_ROOT}/err")" "the removal says what it left: the state directory"
+grep -q 'npm chatter' "${FIXTURE_ROOT}/err" \
+    && fail "a successful removal passed npm's own output through: $(tr '\n\033' '|?' <"${FIXTURE_ROOT}/err")" \
+    || pass "a successful removal holds npm's output back"
 grep -q '/opt/ai-tools/.beta' "${FIXTURE_ROOT}/err" \
     && pass "the notice names the agent's config_dir from its manifest" \
     || fail "the notice does not name /opt/ai-tools/.beta: $(tr '\n' '|' <"${FIXTURE_ROOT}/err")"
@@ -317,6 +321,11 @@ unset NPM_STUB_KEEP
 [[ "${rc}" -ne 0 && -z "${out}" ]] \
     && pass "an uninstall that left the directory returns non-zero and prints nothing" || fail "kept dir: rc ${rc}, out '${out}'"
 assert_msg MSG-X8F9 "$(<"${FIXTURE_ROOT}/err")" "the failed removal carries its code"
+if grep -qF 'npm: npm ERR! could not remove ?[2J' "${FIXTURE_ROOT}/err" && ! grep -q $'\033' "${FIXTURE_ROOT}/err"; then
+    pass "the failure quotes npm's error line through the sanitizer, and no escape byte reaches stderr"
+else
+    fail "the failure did not quote npm's sanitized error line: $(tr '\n\033' '|?' <"${FIXTURE_ROOT}/err")"
+fi
 
 # (f) A name outside npm's package-name charset is refused before it becomes a path.
 out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" '../../etc' 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?

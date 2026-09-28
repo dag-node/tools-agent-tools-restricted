@@ -96,6 +96,16 @@ expect "audit no output (offline)"    EMPTY   2 ''
 # Unparseable output -> unable to verify; never a false OK on a format change.
 expect "unparseable audit output"     UNKNOWN 2 'this is not json'
 
+# The package names in the verdict's report come from npm's JSON, so they pass the same allowlist: a name carrying
+# an escape byte reaches stderr with a `?` in its place.
+crafted='{"invalid":[{"name":"evil\u001b[2Jname","version":"1.0.0"}],"missing":[]}'
+verdict_err="$(as_verdict_account "${crafted}" 2>&1 >/dev/null || true)"
+if [[ "${verdict_err}" == *"evil?[2Jname@1.0.0"* && "${verdict_err}" != *$'\033'* ]]; then
+    pass "a package name from npm's JSON reaches the report through the allowlist"
+else
+    fail "the verdict printed a package name unsanitized: $(printf '%q' "${verdict_err}")"
+fi
+
 # Fail-closed backstop: the impure verifier refuses to run as root (this suite is root), so it returns "unable
 # to verify" (2) without discovering or touching the tree.
 if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
@@ -107,6 +117,27 @@ if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
     fi
 else
     skip "root-refusal backstop" "suite not running as root"
+fi
+
+# An npm that does not start -- a copy of the tree that replaced npm's bin/ symlink with its target, whose relative
+# require then resolves from bin/ -- is reported as that, with npm's own error line, rather than as an empty tree.
+# Driven as an unprivileged caller past the root refusal, with npm a shell function: `command -v` finds it, so no stub
+# file needs an exec-capable directory. The error carries an escape byte, which the report must not.
+npm_error_probe() {
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    bash -c 'npm() { printf "node:internal/modules/cjs/loader:1433\n  throw err;\n\nError: Cannot find module '"'"'../lib/cli.js'"'"'\033[0m\n" >&2; return 1; }
+             node() { :; }
+             source "$1"; ai_tools_verify_npm_signatures' _ "${LIB}"
+}
+if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    rc=0; out="$(runuser -u "${PROJECTS_USER}" -- bash -c "$(declare -f npm_error_probe); LIB='${LIB}' npm_error_probe" 2>&1)" || rc=$?
+else
+    rc=0; out="$(npm_error_probe 2>&1)" || rc=$?
+fi
+if [[ "${rc}" -eq 2 && "${out}" == *"npm does not start (Error: Cannot find module '../lib/cli.js'?[0m)"* ]]; then
+    pass "an npm that does not start is named with its own error line, at rc 2, the escape byte replaced by ?"
+else
+    fail "an npm that does not start read as rc ${rc}: $(tr '\n\033' '|?' <<<"${out}")"
 fi
 
 finish
