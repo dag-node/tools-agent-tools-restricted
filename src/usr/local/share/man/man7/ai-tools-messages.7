@@ -66,9 +66,17 @@ ai\-tools: \-\-for needs an operator name
 ERROR.
 \-\-for cannot be combined with \-\-force
 .TP
+.B MSG-B6S7
+NOTICE.
+group\-gone
+.TP
 .B MSG-B7K4
 ERROR.
 unknown option for stop: ${argument}
+.TP
+.B MSG-B7P8
+WARNING.
+scan\-capped
 .TP
 .B MSG-B9A2
 ERROR.
@@ -78,6 +86,10 @@ cannot load ${RECORDS_BASE_LIB}, which states this report's exit codes \-\- rein
 ERROR.
 root is not an operator
 .TP
+.B MSG-D3K4
+ERROR.
+group\-unverified
+.TP
 .B MSG-D8C8
 ERROR.
 this project is nested inside another claimed project: ${d}
@@ -85,6 +97,10 @@ this project is nested inside another claimed project: ${d}
 .B MSG-E3D2
 ERROR.
 not a configured ai\-tools operator: ${FOR_OPERATOR} \-\- enrol it first with:
+.TP
+.B MSG-E4Y3
+NOTICE.
+label\-gone
 .TP
 .B MSG-F4D8
 ERROR.
@@ -114,6 +130,10 @@ the parent directory does not exist: ${parent}
 ERROR.
 a value is required after ${flag}
 .TP
+.B MSG-J7X4
+NOTICE.
+group\-fixed
+.TP
 .B MSG-K5Y4
 ERROR.
 this path is inside a claimed project, not a project itself: ${d}
@@ -138,6 +158,10 @@ unknown projects remove option: ${a}
 ERROR.
 the sandbox account is not an operator and must not own projects
 .TP
+.B MSG-P4K8
+ERROR.
+label\-unverified
+.TP
 .B MSG-P8W2
 ERROR.
 nothing to unclaim here: ${d}
@@ -150,9 +174,17 @@ not a claimed project: ${d}
 ERROR.
 this project contains ${#nested[@]} other claimed project(s), listed above: ${d}
 .TP
+.B MSG-Q4G7
+WARNING.
+label\-not\-fixed
+.TP
 .B MSG-Q6Q8
 ERROR.
 ai\-tools: refusing to run as the sandbox account ${SANDBOX_USER}
+.TP
+.B MSG-Q6X2
+ERROR.
+error
 .TP
 .B MSG-R3G9
 ERROR.
@@ -186,6 +218,14 @@ not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d}
 ERROR.
 this path is inside a claimed project, not a project itself: ${d}
 .TP
+.B MSG-T6G3
+WARNING.
+group\-not\-fixed
+.TP
+.B MSG-T8F5
+NOTICE.
+label\-fixed
+.TP
 .B MSG-U7R7
 ERROR.
 \-\-for is not accepted on ${COMMAND}
@@ -215,6 +255,10 @@ Documented in
 .B MSG-W4S7
 ERROR.
 this is an excluded path inside a claimed project, not a disabled project: ${d}
+.TP
+.B MSG-X3G7
+ERROR.
+cannot load the libraries the claim checks its drift and states its exit codes with \-\- reinstall the ai\-tools package
 .TP
 .B MSG-X5Z8
 WARNING.

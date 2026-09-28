@@ -3,7 +3,7 @@
 # tests/unit/sandbox.sh
 # Unit test for the pure decisions behind the ai-tools.sh flows -- the ai-tools.projects.clone pair, the precondition
 # ai-tools.projects.create's skipped prompts rest on (tree_is_pristine), the exclusion reader the claim-time scans prune
-# their walks with (allowlist_exclusions), and the re-claim's SELinux drift reader (label_drift_scan, at the end).
+# their walks with (allowlist_exclusions), and the re-claim's SELinux drift scan (label_drift_scan, at the end).
 #
 # The ai-tools.projects.clone pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
@@ -201,57 +201,76 @@ else
 fi
 
 # ── label_drift_scan ──────────────────────────────────────────────────────────────────────────
-# The re-claim's SELinux half reads a dry run of the relabel the claim performs, so restorecon is stubbed with a canned
-# transcript and the scan is judged on which lines it keeps. The stub records its arguments each followed by a space,
-# not as "$*", which joins them with the CLI's IFS (a newline); the dry-run flag is asserted among them: the scan runs
-# unprivileged and reports, and a stub that saw no `-n` would mean a claim that relabels while it is still asking. Kept:
+# The re-claim's SELinux half walks the tree and reads one non-recursive dry run of the relabel the claim performs
+# over the walked paths, so restorecon is stubbed with a canned transcript and the scan is judged on what it keeps.
+# The stub records its arguments each followed by a space, not as "$*", which joins them with the CLI's IFS (a newline):
+# the scan runs unprivileged and reports, so a stub that saw no `-n` would mean a claim that relabels while it is still
+# asking, and one that saw `-R` would mean a batch whose records no longer belong to the listed paths alone. Kept:
 # a type difference, and a path holding " from " and " to " with an MLS range in its context. Dropped: a difference
-# in the SELinux user alone, an owner-only file, a path under a '!' carve-out, and a line other than a relabel line.
+# in the SELinux user alone, an owner-only file, and a path under a '!' carve-out. A line other than a relabel record
+# makes the scan incomplete (return 1, with a detail), and the drift it did read is still reported.
 section "label_drift_scan: the paths a re-claim asks to relabel (unit)"
 
 ld_work="${TESTDIR}/label-drift"
 ld_tree="${ld_work}/p"
-mkdir -p "${ld_tree}/excl"
+mkdir -p "${ld_tree}/excl" "${ld_work}/scan"
 for ld_name in moved useronly "name from a to b" excl/x; do
     : > "${ld_tree}/${ld_name}"; chmod 0640 "${ld_tree}/${ld_name}"
 done
 : > "${ld_tree}/private"; chmod 0600 "${ld_tree}/private"
 printf '%s\n' "${ld_tree}" "!${ld_tree}/excl" > "${ld_work}/allowed-projects"
-{
-    printf 'Would relabel %s from %s to %s\n' \
-        "${ld_tree}/moved" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
-        "${ld_tree}/useronly" unconfined_u:object_r:ai_tools_project_t:s0 system_u:object_r:ai_tools_project_t:s0 \
-        "${ld_tree}/private" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
-        "${ld_tree}/excl/x" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
-        "${ld_tree}/name from a to b" system_u:object_r:container_file_t:s0:c1,c2 system_u:object_r:ai_tools_project_t:s0
-    printf 'restorecon: a warning line that is not a relabel line\n'
-} > "${ld_work}/transcript"
+printf 'Would relabel %s from %s to %s\n' \
+    "${ld_tree}/moved" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
+    "${ld_tree}/useronly" unconfined_u:object_r:ai_tools_project_t:s0 system_u:object_r:ai_tools_project_t:s0 \
+    "${ld_tree}/private" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
+    "${ld_tree}/excl/x" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
+    "${ld_tree}/name from a to b" system_u:object_r:container_file_t:s0:c1,c2 system_u:object_r:ai_tools_project_t:s0 \
+    > "${ld_work}/transcript"
+{ cat "${ld_work}/transcript"; printf 'restorecon: a line that is not a relabel record\n'; } > "${ld_work}/transcript-bad"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ld_work}"
 
+# ld_run <transcript>: source the CLI as the projects user, load the claim's libraries, stub restorecon, run the scan,
+# and print each kept path with its types, then the scan's status and detail.
+ld_run() {
+    # shellcheck disable=SC2016  # the $1..$4 are for the inner `bash -c`, not this shell -- do not expand here
+    runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${ld_work}/allowed-projects" bash -c \
+        'cli="$1"; transcript="$2"; tree="$3"; work="$4"; set --
+         source "${cli}" >/dev/null 2>&1 || exit 99
+         declare -F claim_load_libraries >/dev/null || exit 98
+         claim_load_libraries >/dev/null 2>&1 || exit 97
+         restorecon() { printf "%s " "$@" > "${transcript}.args"; cat "${transcript}"; }
+         declare -a paths=(); declare -A types=(); detail=""; rc=0
+         label_drift_scan "${tree}" "${work}" paths types detail || rc=$?
+         for p in "${paths[@]}"; do printf "%s\t%s\n" "${p}" "${types[${p}]}"; done
+         printf "rc=%s detail=%s\n" "${rc}" "${detail}"' _ "${CLI}" "$1" "${ld_tree}" "${ld_work}/scan"
+}
+
 ld_rc=0
-# shellcheck disable=SC2016  # the $1..$3 are for the inner `bash -c`, not this shell -- do not expand here
-ld_got="$(runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${ld_work}/allowed-projects" bash -c \
-    'cli="$1"; transcript="$2"; tree="$3"; set --
-     source "${cli}" >/dev/null 2>&1 || exit 99
-     declare -F label_drift_scan >/dev/null || exit 98
-     restorecon() { printf "%s " "$@" > "${transcript}.args"; cat "${transcript}"; }
-     label_drift_scan "${tree}"' _ "${CLI}" "${ld_work}/transcript" "${ld_tree}")" || ld_rc=$?
-ld_want="$(printf '%s\t%s\t%s\n' "${ld_tree}/moved" user_home_t ai_tools_project_t \
-    "${ld_tree}/name from a to b" container_file_t ai_tools_project_t)"
-if [[ "${ld_rc}" -eq 98 ]]; then
-    skip "label_drift_scan" "the installed CLI predates it"
+ld_got="$(ld_run "${ld_work}/transcript")" || ld_rc=$?
+ld_want="$(printf '%s\t%s\n' "${ld_tree}/moved" "user_home_t -> ai_tools_project_t" \
+    "${ld_tree}/name from a to b" "container_file_t -> ai_tools_project_t"; printf 'rc=0 detail=\n')"
+if [[ "${ld_rc}" -eq 98 || "${ld_rc}" -eq 97 ]]; then
+    skip "label_drift_scan" "the installed CLI predates the per-path checks"
 elif [[ "${ld_rc}" -ne 0 ]]; then
     fail "label_drift_scan could not be driven (exit ${ld_rc})"
 else
-    if [[ " $(cat "${ld_work}/transcript.args" 2>/dev/null) " == *" -n "* ]]; then
-        pass "label_drift_scan asks restorecon for a dry run"
+    ld_args=" $(cat "${ld_work}/transcript.args" 2>/dev/null) "
+    if [[ "${ld_args}" == *" -n "* && "${ld_args}" == *" -F "* && "${ld_args}" == *" -0 "* \
+            && "${ld_args}" != *" -R "* ]]; then
+        pass "label_drift_scan asks for a forced, non-recursive dry run over a NUL list"
     else
-        fail "label_drift_scan called restorecon without -n: '$(cat "${ld_work}/transcript.args" 2>/dev/null)'"
+        fail "label_drift_scan called restorecon with '${ld_args}'"
     fi
     if [[ "${ld_got}" == "${ld_want}" ]]; then
         pass "label_drift_scan keeps type differences and drops user-only, owner-only and carved-out paths"
     else
         fail "label_drift_scan printed '$(tr '\t\n' '>|' <<<"${ld_got}")' (want '$(tr '\t\n' '>|' <<<"${ld_want}")')"
+    fi
+    ld_got="$(ld_run "${ld_work}/transcript-bad")" || true
+    if [[ "${ld_got}" == *"${ld_tree}/moved"* && "${ld_got}" == *"rc=1 detail="?* ]]; then
+        pass "a line that is not a relabel record makes the scan incomplete, and its drift is still reported"
+    else
+        fail "label_drift_scan over a transcript with a stray line printed '$(tr '\t\n' '>|' <<<"${ld_got}")'"
     fi
 fi
 

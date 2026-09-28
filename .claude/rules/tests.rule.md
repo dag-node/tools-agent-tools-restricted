@@ -536,8 +536,14 @@ confirm when it returns 0, so every way it could wrongly say yes is a way to gra
 covered — which is why the claim re-derives it from the tree rather than trusting the caller's hint, and why the cases
 driven here are the states that must read as **not** pristine (any file beyond the README, one nested deeper, any
 commit). It closes with `label_drift_scan`, the re-claim's SELinux half, over a canned `restorecon` transcript: the scan
-must ask for a dry run, since it runs unprivileged ahead of the question, and must keep a type difference while dropping
-a difference in the SELinux user alone, an owner-only file and a carved-out path.
+must ask for a forced, non-recursive dry run over a NUL list, since it runs unprivileged ahead of the question, must
+keep a type difference while dropping a difference in the SELinux user alone, an owner-only file and a carved-out path,
+and must read a stray line among the records as an incomplete scan that still reports the drift it read.
+
+`project-permissions.sh` pins the checks that scan and the claim's verification rest on, unprivileged
+and against the checkout: every way `restorecon`'s output can be incomplete is asserted to read unknown, not `match`,
+absence is ENOENT or ENOTDIR alone, and the ACL reader applies the mask to the named entries and `group::` alone,
+with a real `setfacl` of the claim's specification as the live control.
 
 `conf.sh` and `providers.sh` are the library pair behind the provider seam (see [providers](providers.rule.md)).
 `conf.sh` pins the shared `KEY=value` grammar every `operator.conf` key and every manifest is read with — quotes

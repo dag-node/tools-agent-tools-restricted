@@ -795,19 +795,28 @@ for two kinds, each read-only and unprivileged, and each leaves out owner-only p
 secrets) and `!`-excluded subtrees as out of reach by intent (see [secret-handling](secret-handling.rule.md)):
 
 - **Group and ACL** (`acl_drift_scan`, when ownership is in place): shared-looking paths with a foreign group,
-  the predicate `ai-tools-setfacl` skips on, so the scan never reports a path the repair would decline to touch.
-  The hits split on the shared skip list (`skip-dirs.lib.sh`): the claim walks leave a skip-listed directory's contents
-  alone, so hits there get an informational block naming the remedies that reach them — narrow the category override
-  in `operator.conf`, list the path in `SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE`, then re-claim;
-  or `ai-tools projects handback --full` for ownership alone. The repair (setgid walk + ACL walk) settles a path itself:
-  `ai-tools-setfacl` normalizes a drifted path's primary group to `SANDBOX_GROUP` alongside the ACL, so the next claim
-  reports the tree clean.
+  the predicate `ai-tools-setfacl` skips on, so the scan does not report a path the repair would decline to touch. Its
+  walk is the repair's: `-xdev`, `.git` pruned, and this project's `!` subtrees pruned. The hits split on the shared
+  skip list (`skip-dirs.lib.sh`): the claim walks leave a skip-listed directory's contents alone, so hits there get
+  an informational block naming the remedies that reach them — narrow the category override in `operator.conf`, list
+  the path in `SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE`, then re-claim; or `ai-tools projects handback --full`
+  for ownership alone. The repair (setgid walk + ACL walk) settles a path itself: `ai-tools-setfacl` normalizes
+  a drifted path's primary group to `SANDBOX_GROUP` alongside the ACL, so the next claim reports the tree clean.
 - **SELinux type** (`label_drift_scan`, when the root is labelled): the paths whose type is not the one the claim's
   relabel would apply. The expected type is asked of the policy, not of a list of type names — a dry run of that relabel
   (`restorecon -n -F`, unprivileged, reading the world-readable file contexts) — so the per-project rules and every
   loaded module's types are covered, a module added later included. Only a type difference counts; `-F` also reports
-  the SELinux user, which does not decide access. The relabel walks the whole tree regardless of the skip list, so a hit
-  under a skip-listed name is repairable and reported with the rest.
+  the SELinux user, which does not decide access. Its walk is the relabel's scope (`restorecon -FR`): every directory,
+  `.git` and skip-listed names included, crossing mount points, with the `!` exclusions and owner-only paths filtered
+  out afterwards. Every walked name without a line feed goes into one non-recursive batch, so each record belongs
+  to a listed path, and a name holding one is checked on its own.
+
+**A scan reports what it could not read.** Both walks are NUL-separated, so a name holding a tab or a line feed arrives
+whole, and each runs its tools with stdout and stderr apart. A walk that exits non-zero or writes to stderr, a batch
+whose output is not complete — exit 0, empty stderr and every line a valid record — and a per-path check that reads
+unknown each make the scan incomplete: it writes an `error` row naming why, keeps the drift it did read, and does not
+read as a complete scan of a smaller tree. A scan past 200 paths keeps 200 and writes a `scan-capped` row. The checks
+themselves, their grammar and their fail direction are in `project-permissions.lib.sh`.
 
 A first claim (or one with the setgid step pending, or an unlabelled root) skips the matching scan: its normal walk
 repairs the whole tree, and every path would trivially match.
@@ -822,19 +831,30 @@ with a team group or read by a service's group, so it defaults to **no**, and `-
 wrapper that passes `--yes` does not show the operator these paths. Either repair answered yes joins the secret gate
 like any other access-granting step. A declined repair does not stop the claim.
 
-After the Apply block the claim prints one **outcome record** per drifted path —
-`<outcome> TAB <kind> TAB <path> TAB <detail>`, `fixed` or `not-fixed`, `label` or `group`, uncoloured and with the path
-sanitized — so a path the claim left as it was is named rather than lost among the steps that ran. The ways to settle
-a not-fixed path follow them, each a command the file's owner runs — the invoker, or the target operator under `--for`:
-re-claim and answer yes to share every one; `chmod 600` to keep one out of the agent's reach; a `!` line to stop
-a re-claim asking about one, which does not keep a later relabel from resetting its type. Choosing a subset has no
-per-path form in the claim, whose repairs act on every path they reach: the owner may set a path's label,
-so `restorecon -F <path>` relabels only the paths named, while the group repair, which needs the sandbox group the owner
-is not in, is narrowed by sealing or carving out the paths to keep before answering yes. A path on both lists is
-reachable only once both repairs applied, since its permissions and its type each refuse the agent on their own,
-so where exactly one applied the claim adds one line counting those paths. With every repair declined and no other step
-pending, the Apply block does not open and the closing line carries `no change applied`, which it prints only where no
-step that writes could have run.
+**After the Apply block the claim checks each drifted path on its own**, and a re-scan of the tree does not decide
+`fixed`, since a path can be missing from one because the scan was capped, failed, or excludes it. Absence is looked
+up first with an errno-preserving `lstat`, and only ENOENT or ENOTDIR reads `gone`. A label path is checked in one batch
+without `-i`, so a path removed after the lookup fails the batch rather than reading as a match. A group path passes
+when its owner is the operator or the sandbox account, it is not owner-only, its group is `SANDBOX_GROUP`, a directory
+carries setgid, and each entry of the ACL specification grants in effect what the repair applies, the default set
+included. The mask limits the named entries and `group::` alone (`acl(5)`), and an ACL with a named entry and no mask,
+a duplicate or a missing base entry reads unknown.
+
+Each path gets one row: `fixed`, `not-fixed`, `unverified` where the check could not be read, or `gone`. On the page it
+is an **outcome line**, `<outcome> TAB <kind> TAB <path> TAB <detail>` with `label` or `group` as the kind, uncoloured
+and with the path sanitized, so a path the claim left as it was is named rather than lost among the steps that ran. Each
+row folds its severity into the report state `ai-tools-records(5)` states, and the claim ends with it: 4 when a path is
+left not-fixed or a scan was capped, 5 when a check or a scan could not be read, and 1 over both when a root step
+failed. The ways to settle a not-fixed path follow them, each a command the file's owner runs — the invoker,
+or the target operator under `--for`: re-claim and answer yes to share every one; `chmod 600` to keep one
+out of the agent's reach; a `!` line to stop a re-claim asking about one, which does not keep a later relabel
+from resetting its type. Choosing a subset has no per-path form in the claim, whose repairs act on every path they
+reach: the owner may set a path's label, so `restorecon -F <path>` relabels only the paths named, while the group
+repair, which needs the sandbox group the owner is not in, is narrowed by sealing or carving out the paths to keep
+before answering yes. A path on both lists is reachable only once both repairs took, since its permissions and its type
+each refuse the agent on their own, so where exactly one reads `fixed` the claim adds one line counting those paths.
+With every repair declined and no other step pending, the Apply block does not open and the closing line carries
+`no change applied`, which it prints only where no step that writes could have run.
 
 **Configuration the build reads from a project's ancestors.** A build toolchain collects configuration by walking
 from the project directory toward `/`, so a file it opens in an ancestor that the sandbox account is denied fails
