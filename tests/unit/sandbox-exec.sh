@@ -164,6 +164,15 @@ count_marked() {
 account_processes() {
     ps -u "${SANDBOX_USER}" -o pid=,ppid=,comm=,args= 2>&1 | head -n 20 | tr '\n' ';'
 }
+# snapshot_sleeps : every process of any user whose arguments hold a marked sleep, as ps and as pgrep -a see it, one
+# line -- taken while a control is still waiting, so a failed control shows what ran and under which user, rather than
+# the table after the run was ended.
+snapshot_sleeps() {
+    printf 'ps: %s | pgrep: %s' \
+        "$(ps -eo pid=,ppid=,user=,comm=,args= 2>&1 | grep -E 'sleep 30[0-9]\.' | tr '\n' ';')" \
+        "$(pgrep -a -f 'sleep 30[0-9]\.' 2>&1 | tr '\n' ';')"
+}
+LIVE_SNAPSHOT=""
 # end_marked <marker> : end the case's sleeps, whatever the case concluded.
 end_marked() {
     pkill -u "${SANDBOX_USER}" -f "^sleep ${1//./\\.}\$" 2>/dev/null || true
@@ -189,11 +198,14 @@ note "start latency" "${start_latency}s for a command that exits at once; the bo
 # wait_marked <marker> <count> <helper-pid> : poll until <count> marked processes are alive or the helper has exited,
 # and print the count seen last. The helper's own bound is what ends the poll where the processes never appear.
 wait_marked() {
-    local marker="$1" want="$2" helper="$3" seen=0
+    local marker="$1" want="$2" helper="$3" seen=0 polls=0
+    LIVE_SNAPSHOT=""
     while :; do
         seen="$(count_marked "${marker}")" || seen=-1
         (( seen >= want )) && break
         kill -0 "${helper}" 2>/dev/null || break
+        polls=$(( polls + 1 ))
+        (( polls == 15 )) && LIVE_SNAPSHOT="$(snapshot_sleeps)"
         sleep 0.2
     done
     printf '%s' "${seen}"
@@ -212,7 +224,7 @@ rc=0; wait "${helper_pid}" || rc=$?
 sleep 1
 alive_after="$(count_marked "${marker}")" || alive_after=-1
 if [[ "${alive_before}" -lt 2 ]]; then
-    fail "control: the bound case started ${alive_before} marked process(es) before the helper returned ${rc}, so its cleanup is not measured: $(<"${TESTDIR}/bound-err") -- the account's processes: $(account_processes)"
+    fail "control: the bound case started ${alive_before} marked process(es) before the helper returned ${rc}, so its cleanup is not measured: $(<"${TESTDIR}/bound-err") -- seen three seconds into the poll: ${LIVE_SNAPSHOT:-nothing captured}; the account's processes now: $(account_processes)"
 elif [[ "${rc}" -ne 124 ]]; then
     fail "a command past the bound returned ${rc}, want 124: $(<"${TESTDIR}/bound-err")"
 else
@@ -253,7 +265,7 @@ rc=0; wait "${helper_pid}" || rc=$?
 sleep 1
 alive_after="$(count_marked "${marker}")" || alive_after=-1
 if [[ "${alive_before}" -lt 2 ]]; then
-    fail "control: the escape case started ${alive_before} marked process(es) before the helper returned ${rc}, so the scope's reach is not measured: $(<"${TESTDIR}/escape-err") -- the account's processes: $(account_processes)"
+    fail "control: the escape case started ${alive_before} marked process(es) before the helper returned ${rc}, so the scope's reach is not measured: $(<"${TESTDIR}/escape-err") -- seen three seconds into the poll: ${LIVE_SNAPSHOT:-nothing captured}; the account's processes now: $(account_processes)"
 elif [[ "${rc}" -eq 124 && "${alive_after}" -eq 0 ]]; then
     pass "a descendant that opened its own session is ended at the bound with the rest of the run"
 else
