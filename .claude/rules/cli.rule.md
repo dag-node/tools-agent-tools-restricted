@@ -9,6 +9,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-stop.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
   - "src/usr/local/lib/ai-tools/relabel.lib.sh"
+  - "src/usr/local/lib/ai-tools/project-permissions.lib.sh"
   - "src/usr/local/lib/ai-tools/services.lib.sh"
 ---
 
@@ -726,13 +727,14 @@ brought in carrying an explicit foreign context is reset to the project type the
 `ai_tools_label_project`'s contract states why, and why forcing stays idempotent on a labelled tree. Claim sets group
 `SANDBOX_GROUP` + the setgid bit on the project's directories (via `ai-tools-setgid`, so the agent traverses the tree
 and new files inherit the group), applies the group-permission ACL for existing files (via `ai-tools-setfacl`), and pins
-repo-local `core.filemode=true`. A separate default-yes prompt offers to normalize the `.git` tree
-(`ai-tools-setfacl --with-git`: group `SANDBOX_GROUP` + setgid on its dirs + the same ACL) so the operator's own commits
-stay agent-readable — `.git` being the one heavy tree the per-session passes skip yet both parties write (see
-[ownership-and-hooks](ownership-and-hooks.rule.md)). Claim inspects current state and runs only the missing steps,
-so a re-run is a quiet no-op and existing projects retrofit the ACL/`filemode`/`.git` normalization on the next claim.
-`projects create` is part of this model rather than a third one: it makes the directory and then runs the same claim
-on it.
+repo-local `core.filemode=true`. The ACL's entries are built by one pure function in `project-permissions.lib.sh`,
+which takes the operator and the sandbox group as arguments. A separate default-yes prompt offers to normalize
+the `.git` tree (`ai-tools-setfacl --with-git`: group `SANDBOX_GROUP` + setgid on its dirs + the same ACL)
+so the operator's own commits stay agent-readable — `.git` being the one heavy tree the per-session passes skip yet both
+parties write (see [ownership-and-hooks](ownership-and-hooks.rule.md)). Claim inspects current state and runs only
+the missing steps, so a re-run is a quiet no-op and existing projects retrofit the ACL/`filemode`/`.git` normalization
+on the next claim. `projects create` is part of this model rather than a third one: it makes the directory and then runs
+the same claim on it.
 
 **The project root must be held by the resolved operator or the sandbox account, and a claim refuses otherwise.**
 `ai-tools-setgid` and `ai-tools-setfacl` — the two helpers that grant the agent its access — act only on those two

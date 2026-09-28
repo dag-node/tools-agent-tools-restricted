@@ -70,7 +70,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, and the `session-env.d`, `launch.d` and `admin-commands.d` seams | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env,launch,admin-commands}.d/**`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
 | The dotnet integration (its manifest, session-env fragment, filter rules, and contributed `dotnet` command) and running .NET (CoreCLR) under confinement: the `tmpmap`/`memfdexec`/`localipc`/`buildexec` SELinux groups, the build-output type and the `ai_tools_dotnet` layout module, project-type→group map, denial breakdown, the configuration a build reads from a project's ancestors and the report that names what a session is denied, the manifest keys and `ai-tools-providers(5)` | `lib/ai-tools/integrations.d/dotnet.conf`, `lib/ai-tools/ancestor-config.lib.sh`, `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `lib/ai-tools/admin-commands.d/dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,memfdexec,localipc,buildexec,dotnet}.te`, `share/man/man5/ai-tools-providers.5` | [dotnet](.claude/rules/dotnet.rule.md) |
 | The typesafe integration: its manifest and session-env fragment, the credential file a session is handed the path of, the decide command a session pipes a listing to and the transport that holds an untrusted answer to the documented shape, the `ai-tools-decide` skill the package ships, what a call discloses, and the signed release the command is vendored from | `lib/ai-tools/integrations.d/typesafe.conf`, `lib/ai-tools/session-env.d/typesafe.env.sh`, `etc/ai-tools/endpoints/typesafe.conf`, `lib/ai-tools/typesafe/**`, `tools/generators/typesafe-client.{sh,pin}`, `share/man/man5/ai-tools-typesafe.conf.5`, `usr/share/ai-tools/skills/ai-tools-decide/**` | [typesafe](.claude/rules/typesafe.rule.md) |
-| Management CLI, project lifecycle, relabel, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh` | [cli](.claude/rules/cli.rule.md) |
+| Management CLI, project lifecycle, relabel, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh`, `project-permissions.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Host health as one resource read from two vantages: what an operator can see and what root adds (live `--user units`, the entrypoint pin, the live SELinux label) | `services.lib.sh`, `relabel.lib.sh`, `bin/ai-tools.sh` (`status`), `ai-tools-admin.sh` (`status`) | [cli](.claude/rules/cli.rule.md) |
 | Record streams: the model and report state, the TSV wire format, the rules a report follows when it calls them (the saved collector PID, the internal framing, the cap that keeps a deliberate stop apart from a failure), and the page that is the consumer's whole contract | `records-base.lib.sh`, `records-tsv.lib.sh`, `share/man/man5/ai-tools-records.5` | [records](.claude/rules/records.rule.md) |
 | Terminating sessions that are already running (`stop`) — the incident ladder's stop rung; it sweeps every session in the account's cgroup and restores the user manager | `ai-tools-stop.sh` | [stop](.claude/rules/stop.rule.md) |
@@ -319,15 +319,15 @@ not gaps, so a reader tells bounded design from an oversight:
   `ai-tools-admin` domain**, an executable at `/usr/local/lib/ai-tools/admin-commands.d/<name>` that the dispatcher
   execs once it and its directory pass the provider trust predicate (`dotnet` is the one installed today). **Shared
   libraries** live under `/usr/local/lib/ai-tools/` (`conf`, `settings-merge`, `secret-patterns`, `skip-dirs`,
-  `owner-only`, `safe-paths`, `relabel`, `operator`, `control-plane`, `confinement`, `launch-wrapper`, `npm-verify`,
-  `entrypoint-verify`, `managed-assets`, `providers`, `ancestor-config`, `sandbox-exec`, `toolchain`, `selinux-groups`,
-  `filters`, `services`, `msg`, `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`,
-  and the claude-code pair `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment
-  `ai-tools-admin` wires into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its
-  contents are `root`-owned and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox
-  account sources several of these libraries. Read is open on every one of them and **write** is the boundary: a shared
-  library carries shipped logic or a general list, and an operator's own data stays in that operator's private config
-  instead, so an open read discloses only what already ships (the modes are
+  `owner-only`, `project-permissions`, `safe-paths`, `relabel`, `operator`, `control-plane`, `confinement`,
+  `launch-wrapper`, `npm-verify`, `entrypoint-verify`, `managed-assets`, `providers`, `ancestor-config`, `sandbox-exec`,
+  `toolchain`, `selinux-groups`, `filters`, `services`, `msg`, `log`, `path-order`, `agent-installs`, `records-base`,
+  `records-tsv`, and the claude-code pair `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering
+  fragment `ai-tools-admin` wires into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory
+  and its contents are `root`-owned and non-group-writable, and the sandbox group reads them — load-bearing, since
+  the sandbox account sources several of these libraries. Read is open on every one of them and **write** is
+  the boundary: a shared library carries shipped logic or a general list, and an operator's own data stays
+  in that operator's private config instead, so an open read discloses only what already ships (the modes are
   in [providers](.claude/rules/providers.rule.md); the guarantee is the invariant that the sandbox cannot widen its own
   surface).
 

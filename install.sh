@@ -1003,6 +1003,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
     _chk /usr/local/lib/ai-tools/skip-dirs.lib.sh
     _chk /usr/local/lib/ai-tools/owner-only.lib.sh
+    _chk /usr/local/lib/ai-tools/project-permissions.lib.sh
     _chk /usr/local/lib/ai-tools/log.lib.sh
     _chk /usr/local/lib/ai-tools/msg.lib.sh
     _chk /usr/local/lib/ai-tools/operator.lib.sh
@@ -1361,6 +1362,14 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/owner-only.lib.sh" \
         /usr/local/lib/ai-tools/owner-only.lib.sh
+
+    # The ACL a claim grants (project-permissions.lib.sh): sourced by ai-tools-setfacl as root and by the operator-run
+    # CLI's verifier, so 644 root:root like the other shared libraries. It does not carry any secrets, and it takes its
+    # identities as arguments, so it has no token to substitute.
+    log "/usr/local/lib/ai-tools/project-permissions.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/project-permissions.lib.sh" \
+        /usr/local/lib/ai-tools/project-permissions.lib.sh
 
     # Skip-dir list/selector: sourced by the root helpers, by session-hook.sh (as the agent), and by the operator-run
     # CLI (the claim drift scan) -- 644 root:root, like msg/log/safe-paths. It does not carry any secrets: the names are
