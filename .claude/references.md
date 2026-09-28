@@ -22,7 +22,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | c3u9 | [ref-section-c3u9](rules/shellcheck.rule.md#ref-section-c3u9) | What strict mode does that ShellCheck does not report | .claude/rules/shellcheck.rule.md | .claude/rules/tests.rule.md |  |
 | r5r9 | [ref-section-r5r9](rules/stop.rule.md#ref-section-r5r9) | Who may stop what | .claude/rules/stop.rule.md | .claude/rules/cli.rule.md, .claude/rules/launch.rule.md, .claude/rules/safe-paths.rule.md, docs/sessions/stop.md, src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  |
 | e8k5 | [ref-section-e8k5](rules/stop.rule.md#ref-section-e8k5) | Degradation policy: two inversions, one reason | .claude/rules/stop.rule.md | .claude/rules/logging.rule.md, .claude/rules/messaging.rule.md, docs/sessions/stop.md, src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  |
-| s9t9 | [ref-section-s9t9](rules/updater.rule.md#ref-section-s9t9) | Root runs none of the toolchain | .claude/rules/updater.rule.md | CLAUDE.md |  |
+| s9t9 | [ref-section-s9t9](rules/updater.rule.md#ref-section-s9t9) | Root runs none of the toolchain | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md, CLAUDE.md |  |
 | b3k5 | [ref-section-b3k5](rules/updater.rule.md#ref-section-b3k5) | A refusal leaves a mark too | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
 | j9w8 | [ref-section-j9w8](rules/updater.rule.md#ref-section-j9w8) | The labelling half leaves a record too | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
 | q7v4 | [ref-section-q7v4](rules/updater.rule.md#ref-section-q7v4) | Two tiers, and what each one claims | .claude/rules/updater.rule.md | CLAUDE.md |  |

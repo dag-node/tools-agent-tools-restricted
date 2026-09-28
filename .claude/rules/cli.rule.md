@@ -520,6 +520,7 @@ reports the same host and adds the readings the operator's prints as `?`:
 | an entrypoint pin | the state directory is root-owned, without a traverse bit for a non-operator | reads it, through the same stamp accessors |
 | whether the installed entrypoint still matches that pin | the toolchain is `0750` and sandbox-owned, so the file cannot be hashed | hashes it and compares, the same comparison the launch shim makes |
 | an agent path's SELinux type | the entrypoint sits in a `0750` toolchain owned by the sandbox account | `stat`s the label itself |
+| an agent's installed version | the same toolchain | reads the `package.json` around the entrypoint (`ai_tools_entrypoint_installed_version`), as data: running the agent's `--version` would execute a file the sandbox account can write ([ref-section-s9t9](updater.rule.md#ref-section-s9t9)) |
 
 **What keeps them one resource is where the privilege is tested.** `services.lib.sh` offers a live reading to whichever
 caller can make one, so the capability is checked at each read rather than at the dispatch: `sudo ai-tools status`

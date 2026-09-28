@@ -2525,6 +2525,31 @@ status_entrypoints() {
     status_labels
 }
 
+# status_agent_versions: one Version line per enabled agent, the version its installed package declares, read as data --
+# ai_tools_entrypoint_installed_version over the package.json around the entrypoint the stable launcher resolves to.
+# Root traverses the toolchain the operator cannot, and reads it rather than running the agent's `--version`,
+# which would execute a file the sandbox account can write (updater.rule.md, "Root runs none of the toolchain").
+# An entrypoint outside its package reads as unknown, with the path, which is itself the finding. Best-effort: a missing
+# reader does not print a line, and Entrypoints reports the libraries.
+status_agent_versions() {
+    declare -F ai_tools_enabled_agents                >/dev/null 2>&1 || return 0
+    declare -F ai_tools_agent_entrypoint_path         >/dev/null 2>&1 || return 0
+    declare -F ai_tools_entrypoint_installed_version  >/dev/null 2>&1 || return 0
+    local agent entrypoint version
+    while IFS=$'\t' read -r agent _ _; do
+        [[ -n "${agent}" ]] || continue
+        entrypoint="$(ai_tools_agent_entrypoint_path "${agent}" 2>/dev/null || true)"
+        if [[ -z "${entrypoint}" ]]; then
+            printf '    %-13s %s\n' "${agent}" "not provisioned (no launcher link resolves)"
+            continue
+        fi
+        version="$(ai_tools_entrypoint_installed_version "${entrypoint}")"
+        printf '    %-13s %s\n' "${agent}" \
+            "${version:-unknown (the launcher resolves to ${entrypoint}, outside its package)}"
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    return 0
+}
+
 # entrypoint_live_verdict <agent>: print what the agent's installed entrypoint hashes to against its pin RIGHT NOW --
 # `ok`, `mismatch`, `unpinned`, `unreadable` -- or an empty string where the reading cannot be made. The third root-only
 # reading of this report, beside the live SELinux type: the toolchain is 0750 and sandbox-owned, so no operator-side
@@ -2663,6 +2688,7 @@ status() {
     heading "Version"
     printf '    %-13s %s\n' "ai-tools" "${AI_TOOLS_VERSION}"
     status_node_version
+    status_agent_versions
 
     status_provisioning
     status_managed_files
