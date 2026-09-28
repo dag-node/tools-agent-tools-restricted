@@ -139,6 +139,9 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | b7p8 | [MSG-B7P8](../src/usr/local/bin/ai-tools.sh) | scan-capped | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
 | q6x2 | [MSG-Q6X2](../src/usr/local/bin/ai-tools.sh) | error | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
 | u8g4 | [MSG-U8G4](../src/usr/local/bin/ai-tools.sh) | this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| j2a7 | [MSG-J2A7](../src/usr/local/bin/ai-tools.sh) | unknown projects claim option: ${a} (allowed: -y/--yes, --format tsv) | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| f8g9 | [MSG-F8G9](../src/usr/local/bin/ai-tools.sh) | projects claim takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| s9a3 | [MSG-S9A3](../src/usr/local/bin/ai-tools.sh) | projects claim --format takes one value, tsv | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | a7d3 | [MSG-A7D3](../src/usr/local/bin/ai-tools.sh) | projects create needs a path: it creates a NEW project directory. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | t4b9 | [MSG-T4B9](../src/usr/local/bin/ai-tools.sh) | this path already exists: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | j3r8 | [MSG-J3R8](../src/usr/local/bin/ai-tools.sh) | the parent directory does not exist: ${parent} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |

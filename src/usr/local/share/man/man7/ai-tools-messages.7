@@ -106,6 +106,10 @@ label\-gone
 ERROR.
 this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d}
 .TP
+.B MSG-F8G9
+ERROR.
+projects claim takes a single path
+.TP
 .B MSG-H2D4
 ERROR.
 destination already exists: ${dst}
@@ -117,6 +121,10 @@ the parent directory is not writable by ${OWNER_USER}: ${rm_parent}
 .B MSG-H6W7
 ERROR.
 ai\-tools: do not run as root \-\- run as the projects user, without sudo
+.TP
+.B MSG-J2A7
+ERROR.
+unknown projects claim option: ${a} (allowed: \-y/\-\-yes, \-\-format tsv)
 .TP
 .B MSG-J3K5
 ERROR.
@@ -201,6 +209,10 @@ projects remove has no \-\-force: a registry entry is what authorizes a deletion
 .B MSG-S6V2
 WARNING.
 removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run
+.TP
+.B MSG-S9A3
+ERROR.
+projects claim \-\-format takes one value, tsv
 .TP
 .B MSG-T4A8
 ERROR.

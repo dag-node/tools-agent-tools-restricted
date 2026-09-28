@@ -177,10 +177,13 @@ an ordinary account read it — a partial view, the file sink being the authorit
   the steps listed), *Secret lockdown* (before any access-granting step; fails the claim closed), the *`.git` history*
   and *Reachability* opt-ins, then *Apply* (one result line per step, closed by the final `claimed` ✓ — **only**
   when the steps that grant access applied; see *A claim that could not apply its root steps does not report success*).
-  `-y/--yes` pre-answers only the claim's own default-NO proceed prompt ("Apply the pending steps above IN PLACE?") —
-  the launch wrapper passes it for a delegated claim after taking its own confirmation, so the same decision is not
-  asked twice; the scoped opt-ins (secret lockdown, `.git` history, ancestor traversal) still ask on their own terms
-  (see [messaging](messaging.rule.md) for the prompt/pre-answer doctrine).
+  `-y/--yes` pre-answers the claim's own default-NO proceed prompt ("Apply the pending steps above IN PLACE?") and its
+  interior relabel question — the launch wrapper passes it for a delegated claim after taking its own confirmation,
+  so the same decision is not asked twice; the scoped opt-ins (secret lockdown, `.git` history, ancestor traversal)
+  and the group repair still ask on their own terms (see [messaging](messaging.rule.md) for the prompt/pre-answer
+  doctrine). `--format tsv` makes stdout carry the outcome rows as the record stream `ai-tools-records(5)` states and no
+  other line: once the command line is parsed the page, refusals and every helper's own output go to stderr, while
+  the questions still ask on `/dev/tty`. A usage error exits 2.
 - `projects create <path>` — create a **new** project directory and claim it: one `mkdir`, an empty `git init`,
   a `README.md` naming the directory, then `cmd_project_claim` unchanged on the result (one implementation
   of what claiming means, not a second). Every filesystem step goes through the `run_as_owner` seam, so a create
@@ -826,10 +829,12 @@ it is about, and the two defaults differ because the costs do. A relabel leaves 
 the agent a path only where its permissions already admit the sandbox account; it defaults to **yes**, and `--yes`
 answers it. It does reset every path in the tree, so a type another service needs inside a project — a Podman `:Z`
 volume, a directory httpd serves — is lost to that service; the block says so, and each hit is listed with its current
-type. A group/ACL repair moves a path from the group it holds to `SANDBOX_GROUP`, which is wrong for a file shared
-with a team group or read by a service's group, so it defaults to **no**, and `--yes` does not answer it: the launch
-wrapper that passes `--yes` does not show the operator these paths. Either repair answered yes joins the secret gate
-like any other access-granting step. A declined repair does not stop the claim.
+type. A run without a terminal therefore relabels only with `--yes`, whatever the question's default,
+and `AI_TOOLS_ASSUME_YES` does not answer it with or without one. A group/ACL repair moves a path from the group it
+holds to `SANDBOX_GROUP`, which is wrong for a file shared with a team group or read by a service's group, so it
+defaults to **no**, and `--yes` does not answer it: the launch wrapper that passes `--yes` does not show the operator
+these paths. Either repair answered yes joins the secret gate like any other access-granting step. A declined repair
+does not stop the claim.
 
 **After the Apply block the claim checks each drifted path on its own**, and a re-scan of the tree does not decide
 `fixed`, since a path can be missing from one because the scan was capped, failed, or excludes it. Absence is looked

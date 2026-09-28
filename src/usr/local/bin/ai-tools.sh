@@ -422,6 +422,14 @@ die() {
     ai_tools_msg_error ${code:+"${code}"} "ai-tools: $*"
     exit 1
 }
+# die_usage is die for a command line the verb refuses, and exits 2 -- the usage code ai-tools(1) states.
+die_usage() {
+    local code=""
+    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
+    ai_tools_log_coded error "${code}" "$*"
+    ai_tools_msg_error ${code:+"${code}"} "ai-tools: $*"
+    exit 2
+}
 # The claim/sandbox flows are sequences of SELF-CONTAINED blocks, each opened by a wide headline box (title + summary
 # prose), with details, prompts, and results printed plain under it and a closing ✓ (or a fail-closed error) ending
 # the block -- see messaging.rule.md. headline() narrates to stdout; headline_warn() carries a "WARNING: ..."-titled
@@ -1943,19 +1951,35 @@ require_claimable_owner() {
 }
 
 cmd_project_claim() {
-    # -y/--yes pre-answers the claim's own proceed prompt ("Apply the pending steps IN PLACE?", default NO) --
+    # `-y`/`--yes` pre-answers the claim's own proceed prompt ("Apply the pending steps IN PLACE?", default NO) --
     # an explicit per-invocation flag, passed by a caller that already confirmed the same decision (the launch wrapper's
-    # delegated claim). The scoped opt-ins (secret lockdown, .git history, ancestor traversal) are separate questions it
-    # does not answer.
-    local a path="" ASSUME_YES=false
+    # delegated claim) -- and the interior relabel, which a run without a terminal performs only with it. The scoped
+    # opt-ins (secret lockdown, .git history, ancestor traversal) and the group repair are separate questions it does
+    # not answer.
+    #
+    # `--format tsv` makes stdout carry the outcome rows as a record stream (ai-tools-records(5)) and no other line:
+    # once the command line is parsed, fd 3 takes stdout and stdout takes stderr, so every page line, refusal and hint
+    # -- a helper's own output included -- lands on stderr without a change at any call site. A run refused
+    # before that point writes only to stderr too, since die and warn already do. The questions keep asking on /dev/tty.
+    local a path="" ASSUME_YES=false format="" format_given=false expect_format=false
     for a in "$@"; do
+        if ${expect_format}; then format="${a}"; expect_format=false; continue; fi
         case "${a}" in
             -y|--yes) ASSUME_YES=true ;;
-            -*) die "unknown projects claim option: ${a} (allowed: -y/--yes)" ;;
+            --format) expect_format=true format_given=true ;;
+            --format=*) format="${a#--format=}" format_given=true ;;
+            -*) die_usage MSG-J2A7 "unknown projects claim option: ${a} (allowed: -y/--yes, --format tsv)" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
-                else die "projects claim takes a single path"; fi ;;
+                else die_usage MSG-F8G9 "projects claim takes a single path"; fi ;;
         esac
     done
+    if ${expect_format} || { ${format_given} && [[ "${format}" != tsv ]]; }; then
+        die_usage MSG-S9A3 "projects claim --format takes one value, tsv"
+    fi
+    if [[ "${format}" == tsv ]]; then
+        CLAIM_FORMAT=tsv
+        exec 3>&1 1>&2
+    fi
     local d; d="$(resolve_dir "${path:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
     claim_load_libraries
@@ -2304,8 +2328,17 @@ cmd_project_claim() {
         # The cap is a property of the SCAN, not of this listing, so it is said whether the paths were sampled or shown
         # in full.
         ! ${label_capped} || say "        ${C_DIM}(scan capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
-        if ${ASSUME_YES} || confirm "Relabel the tree so these ${#label_drift[@]} path(s) get the project's types?" y; then
+        # Only an explicit `--yes` answers this without a terminal, and AI_TOOLS_ASSUME_YES does not answer it at all:
+        # the relabel resets every type in the tree, so an unattended run relabels only where its caller said
+        # so on the command line.
+        if ${ASSUME_YES}; then
             do_label_drift=true
+        elif have_tty; then
+            if AI_TOOLS_ASSUME_YES='' confirm "Relabel the tree so these ${#label_drift[@]} path(s) get the project's types?" y; then
+                do_label_drift=true
+            fi
+        else
+            say "      relabel not run: no terminal to ask on, and --yes was not given"
         fi
     fi
     if (( ${#drift[@]} )); then

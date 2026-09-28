@@ -30,7 +30,7 @@ cd "${ROOT}"
 SEVERITY_MAP='
 die=ERROR reject=ERROR refuse=ERROR refuse_early=ERROR err=ERROR say_error=ERROR ai_tools_launch_die=ERROR
 _ai_tools_launch_error=ERROR
-ai_tools_msg_error=ERROR die_stop_usage=ERROR reject_with_usage=ERROR coded_refusal=ERROR _pu_unreadable=ERROR
+ai_tools_msg_error=ERROR die_stop_usage=ERROR reject_with_usage=ERROR coded_refusal=ERROR _pu_unreadable=ERROR die_usage=ERROR
 _claim_unreadable=ERROR
 warn=WARNING _ai_tools_provider_warn=WARNING _ai_tools_conf_warn=WARNING _ai_tools_settings_merge_warn=WARNING say_warn=WARNING
 ai_tools_msg_warn=WARNING _ai_tools_toolchain_warn=WARNING _ai_tools_sandbox_exec_warn=WARNING _ai_tools_launch_warn=WARNING _pu_attention=WARNING
