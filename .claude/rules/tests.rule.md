@@ -49,9 +49,20 @@ not have to install takes the synthetic `acme`. A case asserting what one agent'
 its pins file, its hooks — names that agent, as data. The suite is root, so an assertion that holds only
 for an unprivileged caller — the stop helper's own root check, a cgroup file whose mode root reads through, a probe
 the services library withholds from non-root — is driven as the projects user through `runuser`, and the CLI's help is
-read as that user too, since the CLI refuses root before it prints. A skip that every full install emits is a check
-in the wrong place. An optional host feature outside this project's install (`pam_namespace` polyinstantiation
-of `/tmp`) is reported only where it is present; where it is absent, the default, the file does not print a line for it.
+read as that user too, since the CLI refuses root before it prints.
+
+**The suite does not execute a file the sandbox account can write.** The toolchain's `node` and `npm`, an agent's
+binaries and anything under the sandbox home are that account's to replace, so a root `execve` of one runs whatever
+the account put there, whatever the arguments. A case that needs one of them — a JSON parse through `node`, a command's
+`--version` — runs it as the sandbox account through `runuser`, and what it prints reaches the terminal
+through the harness's `_san`. Reading such a file as data (`readlink`, `stat`, a checksum, a bounded `sed`
+of a `package.json`) is not execution, and root does it freely. A line-based lint for the rule was measured
+and rejected: over the tree it reports heredoc bodies already inside `sudo -u`, arrays and fixture text, and no root
+execution.
+
+A skip that every full install emits is a check in the wrong place. An optional host feature outside this project's
+install (`pam_namespace` polyinstantiation of `/tmp`) is reported only where it is present; where it is absent,
+the default, the file does not print a line for it.
 
 ```
 tests/

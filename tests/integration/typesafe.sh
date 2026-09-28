@@ -38,7 +38,9 @@ if [[ ! -r "${CLI}" ]]; then
     skip "typesafe integration" "ai-tools-integration-typesafe is not installed"; finish; exit
 fi
 
-# The node a session runs: the system one where root's PATH has it, else the newest in the sandbox toolchain.
+# The node a session runs: the system one where root's PATH has it, else the newest in the sandbox toolchain. Either is
+# executed as the sandbox account alone (as_agent_decide, and runuser at every direct call): the toolchain's is
+# that account's to rewrite.
 NODE="$(command -v node || true)"
 if [[ -z "${NODE}" ]]; then
     NODE="$(printf '%s\n' /opt/ai-tools/.nvm/versions/node/v*/bin/node | sort -V | tail -n 1)"
@@ -78,10 +80,13 @@ else
     done < <(sed -n 's/^file=\([0-9a-f]\{64\}\) \(.*\)$/\1 \2/p' "${PIN}")
     tag="$(sed -n 's/^tag=v//p' "${PIN}")"
     if [[ -n "${NODE}" ]]; then
-        if [[ "$("${NODE}" "${CLI}" --version 2>&1)" == "typesafe-client-js ${tag}" ]]; then
+        # As the sandbox account, like every other call here: NODE may be the sandbox toolchain's, which root does not
+        # execute.
+        reported="$(runuser -u "${SANDBOX_USER}" -- "${NODE}" "${CLI}" --version 2>&1 || true)"
+        if [[ "${reported}" == "typesafe-client-js ${tag}" ]]; then
             pass "the installed command reports the pinned release ${tag}"
         else
-            fail "the installed command reports '$("${NODE}" "${CLI}" --version 2>&1)', the pin names ${tag}"
+            fail "the installed command reports '${reported}', the pin names ${tag}"
         fi
     fi
 fi

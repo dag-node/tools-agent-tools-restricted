@@ -11,8 +11,11 @@
 # on the SANDBOX-owned (agent-writable) global npm tree and must run as the sandbox account, never root -- and this
 # suite runs as root. Instead it asserts the function's fail-closed root-refusal backstop (as root it returns "unable
 # to verify" and does not touch a path). The real end-to-end audit is covered as the sandbox account, out of this
-# root-run unit suite. `node` (the pure verdict's JSON parser) is real, resolved from the sandbox toolchain rather than
-# from PATH -- see toolchain_node. Run as root via sudo.
+# root-run unit suite.
+#
+# `node` (the pure verdict's JSON parser) is real, and on most hosts the only one is the sandbox toolchain's
+# (toolchain_node). That binary is the sandbox account's to rewrite, so root never executes it: as root the verdict runs
+# as the sandbox account through runuser, with that one node's directory on its PATH. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -46,14 +49,19 @@ NODE_BIN="$(toolchain_node)"
 if [[ -z "${NODE_BIN}" ]]; then
     skip "npm-verify" "node not available (the pure verdict's JSON parser)"; finish; exit
 fi
-# Expose that ONE binary under the name the library calls, rather than putting the whole toolchain bin directory
-# on root's PATH: the nvm tree is sandbox-account-owned, so prepending it would make every name in it (npm, npx, each
-# agent launcher) resolvable as root for the rest of the run. A symlink is enough even where /tmp is noexec -- the exec
-# check applies to the resolved target.
-mktestdir
-mkdir -p "${TESTDIR}/bin"
-ln -s "${NODE_BIN}" "${TESTDIR}/bin/node"
-PATH="${TESTDIR}/bin:${PATH}"
+# as_verdict_account <json>: ai_tools_npm_verdict run by an account that may execute NODE_BIN -- this one when it is not
+# root, the sandbox account when it is, since NODE_BIN may be the sandbox's to rewrite and root never runs it. The token
+# goes to stdout and the verdict's status is the function's.
+as_verdict_account() {
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    local verdict_script='source "$1" && ai_tools_npm_verdict "$2"'
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+        runuser -u "${SANDBOX_USER}" -- env PATH="$(dirname -- "${NODE_BIN}"):/usr/bin:/bin" \
+            bash -c "${verdict_script}" _ "${LIB}" "$1"
+    else
+        PATH="$(dirname -- "${NODE_BIN}"):${PATH}" bash -c "${verdict_script}" _ "${LIB}" "$1"
+    fi
+}
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
         || ! declare -F ai_tools_npm_verdict >/dev/null 2>&1 \
@@ -65,7 +73,7 @@ fi
 # and the 0=verified / 1=tamper / 2=unable return. '|| rc=$?' keeps a non-zero return non-fatal under `set -e`.
 expect() {
     local desc="$1" exp_tok="$2" exp_rc="$3" json="$4" tok rc
-    tok="$(ai_tools_npm_verdict "${json}" 2>/dev/null)" && rc=0 || rc=$?
+    tok="$(as_verdict_account "${json}" 2>/dev/null)" && rc=0 || rc=$?
     if [[ "${tok}" == "${exp_tok}" && "${rc}" -eq "${exp_rc}" ]]; then
         pass "${desc} -> ${tok} (rc ${rc})"
     else
