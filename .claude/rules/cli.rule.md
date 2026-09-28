@@ -821,11 +821,15 @@ secrets) and `!`-excluded subtrees as out of reach by intent (see [secret-handli
   belongs to a listed path, and a name holding one is checked on its own.
 
 **A scan reports what it could not read.** Both walks are NUL-separated, so a name holding a tab or a line feed arrives
-whole, and each runs its tools with stdout and stderr apart. A walk that exits non-zero or writes to stderr, a batch
-whose output is not complete — exit 0, empty stderr and every line a valid record — and a per-path check that reads
-unknown each make the scan incomplete: it writes an `error` row naming why, keeps the drift it did read, and does not
-read as a complete scan of a smaller tree. A scan past 200 paths keeps 200 and writes a `scan-capped` row. The checks
-themselves, their grammar and their fail direction are in `project-permissions.lib.sh`.
+whole, and each runs its tools with stdout and stderr apart. A walk that exits non-zero or writes to stderr, a capture
+that is missing or holds a NUL, a batch whose output is not complete — exit 0, empty stderr and every line a valid
+record — a per-path check that reads unknown, a drifted path whose mode `stat` fails to read and that is not confirmed
+gone, and a labelled tree with no `restorecon` each make the scan incomplete: it writes an `error` row naming why, keeps
+the drift it did read, and does not read as a complete scan of a smaller tree. Each walk reads the whole tree,
+so the cap of 200 bounds the paths the claim asks about and reports; it does not bound the walk's time or memory: past
+it the claim keeps 200 — for the group kind, after the skip-list split, so paths it cannot repair do not take the places
+of ones it can — and writes a `scan-capped` row. The checks themselves, their grammar and their fail direction are
+in `project-permissions.lib.sh`.
 
 A first claim (or one with the setgid step pending, or an unlabelled root) skips the matching scan: its normal walk
 repairs the whole tree, and every path would trivially match.
@@ -848,8 +852,11 @@ up first with an errno-preserving `lstat`, and only ENOENT or ENOTDIR reads `gon
 without `-i`, so a path removed after the lookup fails the batch rather than reading as a match. A group path passes
 when its owner is the operator or the sandbox account, it is not owner-only, its group is `SANDBOX_GROUP`, a directory
 carries setgid, and each entry of the ACL specification grants in effect what the repair applies, the default set
-included. The mask limits the named entries and `group::` alone (`acl(5)`), and an ACL with a named entry and no mask,
-a duplicate or a missing base entry reads unknown.
+included. The owner, group, mode and ACL are read from one object — its identity read from the path, then
+through an open descriptor, then from the path again — so a path swapped mid-read reads unknown rather than passing
+on another object's metadata; the result is an observation of that object, not a guarantee against a later change.
+The mask limits the named entries and `group::` alone (`acl(5)`), and an ACL with a named entry and no mask, a duplicate
+or a missing base entry reads unknown.
 
 Each path gets one row: `fixed`, `not-fixed`, `unverified` where the check could not be read, or `gone`. On the page it
 is an **outcome line**, `<outcome> TAB <kind> TAB <path> TAB <detail>` with `label` or `group` as the kind, uncoloured
