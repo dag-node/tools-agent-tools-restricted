@@ -3,10 +3,12 @@
 # selinux/install-selinux.sh -- load and label the ai_tools SELinux confinement. Separate from the main install.sh
 # on purpose: this is an extra MAC layer, brought up independently and refined via the audit2allow loop in README.md.
 #
-# Every module this script loads is COMPILED from the .te/.fc/.if under policy/ on this host: the checkout carries no
-# compiled module (the RPM compiles its own at build time, per distribution). The core loads ENFORCING; to go permissive
-# instead (to observe before blocking), uncomment `permissive ai_tools_t;` in ai_tools.te and rebuild; the installer
-# detects the mode from the source and reports it.
+# Every module this script loads is COMPILED from the .te/.fc/.if under policy/ on this host: git does not track any
+# compiled module (the RPM compiles its own at build time, per distribution). A .pp an earlier build left in policy/,
+# or a copy of the checkout brought from another host, is loaded only when its module version is one this host's
+# libsepol reads (ensure_pp/build_pp); one built elsewhere is recompiled, or refused with the toolchain named. The core
+# loads ENFORCING; to go permissive instead (to observe before blocking), uncomment `permissive ai_tools_t;`
+# in ai_tools.te and rebuild; the installer detects the mode from the source and reports it.
 #
 # Usage:
 #   sudo ./install-selinux.sh install              compile + load core, stage the shipped set, prompt for groups
@@ -198,16 +200,21 @@ require_devel() {
     exit 1
 }
 
-# ensure_pp <module.pp>: guarantee ${POLICY_DIR}/<module.pp> exists and, where it can be checked, matches its source.
-# With the devel toolchain present it runs build_pp, whose make rebuilds the module when a .te/.if/.fc is newer than it
-# and otherwise reports it up to date -- so an edited source takes effect on the next load without a prompt, and a fresh
-# clone (no .pp, new mtimes) builds. Without the toolchain an earlier build is reused as found, and a missing one fails
-# through require_devel with the package named.
+# ensure_pp <module.pp>: guarantee ${POLICY_DIR}/<module.pp> exists, is one this host can load and, where it can be
+# checked, matches its source. With the devel toolchain present it runs build_pp, which recompiles a module built
+# for another host's module version range and otherwise lets make rebuild the module when a .te/.if/.fc is newer than it
+# -- so an edited source takes effect on the next load without a prompt, and a fresh clone (no .pp, new mtimes) builds.
+# Without the toolchain an earlier build is reused as found, once its module version reads within this host's range: one
+# outside it is refused with the toolchain named, since semodule refuses it at load and the message there does not name
+# the cause; a version that cannot be read (no checkmodule to print the range) is reused unverified, which is the state
+# semodule then reports. A missing module fails through require_devel with the package named.
 ensure_pp() {
-    local pp="$1"
+    local pp="$1" reading="" verdict=0
     if devel_present; then
         build_pp "${pp}"
     elif [[ -f "${POLICY_DIR}/${pp}" ]]; then
+        reading="$(ai_tools_selinux_pp_loadable "${POLICY_DIR}/${pp}")" || verdict=$?
+        (( verdict != 1 )) || die MSG-J7J5 "compiled module ${pp} was built for policy module version ${reading%% *}, and this host reads ${reading#* }: semodule refuses it. Install the toolchain and recompile it here: sudo dnf install selinux-policy-devel && sudo $0 rebuild"
         log "using the compiled ${pp} from an earlier build (no toolchain to check it against its source)"
     else
         build_pp "${pp}"
@@ -221,18 +228,22 @@ _shipped_modules() {
     bash "${POLICY_DIR}/shipped-modules.sh" || die MSG-E2A4 "could not derive the shipped module set (policy/shipped-modules.sh)"
 }
 
-# stage_shipped_modules [rebuild]: compile the shipped set -- every module with ensure_pp, or with build_pp
-# when `rebuild` is given -- and install each compiled module 644 root:root under AI_TOOLS_SELINUX_PACKAGE_DIR,
-# the directory the installed ai-tools-admin loads a group from. This is the from-source counterpart of the RPM's
-# %install, so a checkout host and an RPM host hold the same package directory; a group staged here still stays
-# OFF until enabled.
+# stage_shipped_modules [reuse|build|force]: compile the shipped set -- every module with ensure_pp (`reuse`,
+# the default), with build_pp (`build`), or with build_pp's forced compile (`force`) -- and install each compiled module
+# 644 root:root under AI_TOOLS_SELINUX_PACKAGE_DIR, the directory the installed ai-tools-admin loads a group from. This
+# is the from-source counterpart of the RPM's %install, so a checkout host and an RPM host hold the same package
+# directory; a group staged here still stays OFF until enabled.
 stage_shipped_modules() {
     local how="${1:-reuse}" module
     local -a modules=()
     mapfile -t modules < <(_shipped_modules)
     (( ${#modules[@]} )) || die MSG-Q3Q6 "the shipped module set is empty -- is the group registry readable?"
     for module in "${modules[@]}"; do
-        if [[ "${how}" == rebuild ]]; then build_pp "${module}.pp"; else ensure_pp "${module}.pp"; fi
+        case "${how}" in
+            reuse) ensure_pp "${module}.pp" ;;
+            build) build_pp "${module}.pp" ;;
+            force) build_pp "${module}.pp" force ;;
+        esac
     done
     install -d -o root -g root -m 755 "${AI_TOOLS_SELINUX_PACKAGE_DIR}"
     for module in "${modules[@]}"; do
@@ -330,13 +341,32 @@ _groups_needed_by() {
     printf '%s' "${out}"
 }
 
-# build_pp <module.pp>: compile the named policy module from its .te/.fc source via the refpolicy Makefile, then restore
-# the .fc stub's ownership to the repo owner (the Makefile creates it as root).
+# build_pp <module.pp> [force]: compile the named policy module from its .te/.fc source via the refpolicy Makefile, then
+# restore the .fc stub's ownership to the repo owner (the Makefile creates it as root). make reads mtimes alone,
+# so a .pp already in policy/ is read first: one built for a module version outside this host's range -- a copy
+# of the checkout from another distribution, where the .pp is newer than every source -- is compiled unconditionally
+# (`make -B`, since the intermediate under tmp/ carries the same version), with a warning naming both versions;
+# a version that cannot be read is left to make. `force` compiles unconditionally regardless, for the actions
+# that promise a recompile from source.
 build_pp() {
-    local pp="$1"
+    local pp="$1" how="${2:-}" reading="" verdict=0
+    local -a flags=()
     require_devel "${pp}"
-    log "make ${pp} (rebuilt when a .te/.if/.fc is newer than the build)"
-    make -C "${POLICY_DIR}" -f /usr/share/selinux/devel/Makefile "${pp}" 2>&1 | indented
+    if [[ "${how}" == force ]]; then
+        flags=( -B )
+        log "make -B ${pp} (recompiled from source)"
+    else
+        if [[ -f "${POLICY_DIR}/${pp}" ]]; then
+            reading="$(ai_tools_selinux_pp_loadable "${POLICY_DIR}/${pp}")" || verdict=$?
+        fi
+        if (( verdict == 1 )); then
+            warn MSG-F2V5 "compiled module ${pp} was built for policy module version ${reading%% *}, and this host reads ${reading#* }: recompiling it from source"
+            flags=( -B )
+        else
+            log "make ${pp} (rebuilt when a .te/.if/.fc is newer than the build)"
+        fi
+    fi
+    make -C "${POLICY_DIR}" -f /usr/share/selinux/devel/Makefile "${flags[@]}" "${pp}" 2>&1 | indented
     # The refpolicy Makefile creates *.fc stubs as root. Fix ownership so the source file remains readable/commitable
     # by the repo owner.
     local base="${POLICY_DIR}/${pp%.pp}"
@@ -827,7 +857,7 @@ case "${ACTION}" in
         # for on a host that cannot compile is refused with the package named rather than reusing the build it already
         # runs.
         for name in "${RECOMPILE_GROUPS[@]}"; do
-            build_pp "ai_tools_${name}.pp"
+            build_pp "ai_tools_${name}.pp" force
             log "reloading from source: ai_tools_${name}"
             _locked semodule -i "${POLICY_DIR}/ai_tools_${name}.pp"
             ok "group '${name}' recompiled and reloaded"
@@ -897,16 +927,17 @@ case "${ACTION}" in
     # runs so an installed ai-tools-admin can enable a stable group, and the from-source twin of the RPM's %build +
     # %install. Needs selinux-policy-devel.
     section "Compiling and staging the shipped modules"
-    stage_shipped_modules rebuild
+    stage_shipped_modules build
     ;;
 
   rebuild)
     # Recompile the core module from source (.te/.fc) and reload it, then re-apply labels. This is the "rebuild core
-    # module" path: use it after editing ai_tools.te or ai_tools.fc so the loaded policy matches the source. The shipped
-    # set is recompiled and re-staged with it, so the package directory matches the source too. Needs
-    # the selinux-policy-devel toolchain (build_pp checks and guides if absent).
+    # module" path: use it after editing ai_tools.te or ai_tools.fc so the loaded policy matches the source, and it is
+    # the recompile ensure_pp names where a build from another host is refused, so it compiles unconditionally rather
+    # than by mtime. The shipped set is recompiled and re-staged with it, so the package directory matches the source
+    # too. Needs the selinux-policy-devel toolchain (build_pp checks and guides if absent).
     section "Rebuilding core module"
-    build_pp "${MODULE}.pp"
+    build_pp "${MODULE}.pp" force
     _mode="$(_mode_label)"
     log "reloading core module (${_mode})"
     _locked semodule -i "${POLICY_DIR}/${MODULE}.pp"
@@ -915,7 +946,7 @@ case "${ACTION}" in
     _replace_former_group_modules
     _load_layout_modules
     section "Shipped modules"
-    stage_shipped_modules rebuild
+    stage_shipped_modules force
 
     section "Re-applying labels"
     restorecon -FR "${NVM_DIR}"  2>/dev/null || true

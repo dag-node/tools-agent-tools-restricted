@@ -97,6 +97,23 @@ require_root() {
     [[ "${EUID}" -eq 0 ]] || { echo "error: run with sudo" >&2; exit 1; }
 }
 
+# toml_python: print the name of an interpreter that parses TOML -- tomllib in the standard library (Python 3.11+),
+# or the tomli backport it was taken from (python3-tomli in EL9's AppStream, for the 3.9 there) -- trying the stock
+# python3 first, then the versioned interpreters EL9 ships beside it; fail without output where none can. Two checks
+# parse a codex file as codex does and skip through this, naming the package; no deployed file parses TOML,
+# so the package requirement stays python3. A snippet imports tomllib and falls back to tomli under the same name.
+toml_python() {
+    local interpreter
+    for interpreter in python3 python3.12 python3.11; do
+        command -v "${interpreter}" >/dev/null 2>&1 || continue
+        if "${interpreter}" -c $'try:\n    import tomllib\nexcept ImportError:\n    import tomli' 2>/dev/null; then
+            printf '%s' "${interpreter}"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # The unprivileged project user (and the sandbox account) the helpers collaborate with, derived from the invocation --
 # never hard-coded. Three cases, because not every suite needs root: under sudo it is the operator who invoked it; run
 # DIRECTLY as an unprivileged user (which the pure library suites support -- they stub what they drive and build
