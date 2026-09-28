@@ -704,10 +704,10 @@ _restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
 # REPORT and VERIFY each one. The per-project loop skips sandbox paths (they carry no dynamic semanage rule --
 # the static rule covers them), so without this an operator is shown no evidence the clones were relabelled even though
 # they are the trees the agent runs in. The label is verified, not assumed: restorecon exits 0 even when it writes
-# the WRONG type -- e.g. an fcontext rule made unreachable because libselinux aliases its path prefix away
-# (file_contexts.subs_dist `/var/opt /opt`) -- so each clone's achieved label is checked and a mismatch warns rather
-# than passing silently. Best-effort and SELinux-gated like the rest of the sweep: on a host without SELinux
-# the restorecon no-ops and the verify/report is skipped.
+# the WRONG type -- e.g. a module loaded before the clone rule was carried under both /opt and /var/opt, on a host
+# whose file_contexts.subs_dist does not alias one to the other -- so each clone's achieved label is checked
+# and a mismatch warns rather than passing silently. Best-effort and SELinux-gated like the rest of the sweep: on a host
+# without SELinux the restorecon no-ops and the verify/report is skipped.
 _label_sandbox_clones() {
     [[ -d "${SANDBOX_PROJECTS}" ]] || return 0
     restorecon -FR "${SANDBOX_PROJECTS}" 2>/dev/null || true
@@ -720,8 +720,8 @@ _label_sandbox_clones() {
             ok "labelled sandbox clone ai_tools_project_t: ${clone}"
         else
             warn MSG-A5N2 "sandbox clone NOT labelled ai_tools_project_t: ${clone}"
-            warn "    is the ai_tools module loaded, and the clone fcontext rule under /opt"
-            warn "    (base file_contexts.subs_dist aliases /var/opt -> /opt before matching)?"
+            warn "    is the current ai_tools module loaded? Its clone rule is carried under"
+            warn "    both /opt and /var/opt; reload it with: sudo $0 install"
         fi
     done
 }

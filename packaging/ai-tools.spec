@@ -945,6 +945,14 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
                     || echo "ai-tools-selinux: WARNING could not load the layout module ${_layout} declared by ${_manifest}; build output is typed at relabel time only. Re-run: sudo semodule -i ${_layout_pp}" >&2 ;;
         esac
     done
+    # The sandbox clones take their labels from the static clone rules and the layout modules'
+    # rules, so they are relabelled after both have loaded. /var/opt is outside the restorecon
+    # of /opt/ai-tools that follows the core load, and on a host whose file_contexts.subs_dist does
+    # not alias /var/opt to /opt (EL9) a clone created before this module version carries var_t
+    # until it is relabelled.
+    if command -v restorecon >/dev/null 2>&1 && [ -d /var/opt/ai-tools/sandbox-projects ]; then
+        restorecon -R /var/opt/ai-tools/sandbox-projects >/dev/null 2>&1 || :
+    fi
     exec 9>&-
     if command -v systemctl >/dev/null 2>&1 \
        && systemctl is-active --quiet ai-tools-handback.socket 2>/dev/null; then

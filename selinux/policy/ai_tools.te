@@ -231,12 +231,13 @@ userdom_search_user_home_dirs(ai_tools_t)
 allow ai_tools_t user_home_t:dir { getattr search open };
 
 # Reach SANDBOX project clones: their path is /var -> /var/opt -> /var/opt/ai-tools -> sandbox-projects -> the labelled
-# clone (ai_tools_project_t, set statically in ai_tools.fc). /var is var_t, covered by files_search_var. From /var/opt
-# down the path is usr_t, NOT var_t: the base file_contexts.subs_dist alias `/var/opt /opt` makes /var/opt/ai-tools
-# resolve as /opt/ai-tools (usr_t) -- the same reason the clone rule in ai_tools.fc is keyed under /opt. The agent
-# already searches usr_t dirs via the files_read_usr_files grant (it reads the nvm/node tree there), so those hops need
-# no extra rule; files_search_var covers only the /var hop. The clone itself is reached via the project rules. Projects
-# under /home use the user_home_t traversal instead.
+# clone (ai_tools_project_t, set statically in ai_tools.fc). /var is var_t, covered by files_search_var. The hops
+# from /var/opt down take one of two types, decided by the host's file_contexts.subs_dist (see the clone rule
+# in ai_tools.fc). Where the `/var/opt /opt` alias is shipped (EL10, Fedora) they are usr_t, searched
+# through the files_read_usr_files grant the nvm/node tree already needs. Where it is not (EL9) they are var_t, searched
+# through this same files_search_var, which grants directory search on var_t and no file permission. Neither needs
+# a rule of its own. The clone itself is reached via the project rules. Projects under /home use the user_home_t
+# traversal instead.
 files_search_var(ai_tools_t)
 
 # Reach + read the ai-tools config subtree (~/.config/ai-tools, ai_tools_conf_t): SEARCH config_home_t (~/.config) only
