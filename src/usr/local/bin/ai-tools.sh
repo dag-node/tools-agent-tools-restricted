@@ -1683,7 +1683,8 @@ claim_setfacl() {
 #   2. Interior drift -- on a re-claim, one block per kind found: the SELinux type
 #                   (label_drift_scan; default-YES, answered by `--yes`) and the group/ACL
 #                   (acl_drift_scan; default-NO, not answered by `--yes`), each its list
-#                   and then its question.
+#                   and then its question; the group question is skipped when the relabel
+#                   did not run and every path on its list is also on the relabel list.
 #   3. Secret lockdown -- BEFORE any access-granting step, whenever one is pending or
 #                   this is a first claim (see secret_gate); fails the claim closed.
 #   4. .git history  -- separate default-YES opt-in (ai-tools-setfacl --with-git).
@@ -1691,7 +1692,7 @@ claim_setfacl() {
 #   6. Apply     -- the approved steps back to back, one result line each, then each
 #                   drifted path checked on its own and one outcome row written for it
 #                   (fixed / not-fixed / unverified / gone), closed by the final
-#                   "claimed" ✓ and the exit the rows fold to.
+#                   "claimed" line -- ✓ on a clean exit, ! otherwise -- and the exit the rows fold to.
 # A first claim skips the drift scans: its normal walks repair the whole tree.
 
 # path_detail_lines <path...>  -- print each path prefixed with its owner:group and mode, the columns that show
@@ -2259,6 +2260,9 @@ cmd_project_claim() {
                 _outcome="${_group_outcomes[_i]:-unverified}"
                 _detail="${_group_details[_i]:-}"
                 [[ "${_outcome}" == fixed ]] && _detail="was ${drift_before[_i]}"
+                # A repair that did not run leaves the path as the scan read it, so the row says so in the fixed row's
+                # terms; a repair that ran and did not take keeps the check's own reason.
+                [[ "${_outcome}" == not-fixed ]] && ! ${do_drift} && _detail="still ${drift_before[_i]}"
                 [[ "${_outcome}" == not-fixed ]] && _left_group=true
                 # A path on both lists is reachable only once both repairs took: its permissions and its type each
                 # refuse the agent on their own, so one fixed and the other not leaves it as closed
@@ -2286,7 +2290,8 @@ cmd_project_claim() {
         [[ -n "${FOR_OPERATOR}" ]] && _who="${OWNER_USER}"
         say "      ${C_DIM}to share them all with the agent, re-run the claim and answer yes${C_RST}"
         say "      ${C_DIM}to keep one out of its reach, as ${_who}: chmod 600 <path>${C_RST}"
-        say "      ${C_DIM}to stop a re-claim asking about one, as ${_who}: add a line !<path> to allowed-projects${C_RST}"
+        say "      ${C_DIM}to stop a re-claim asking about one, as ${_who}: add a line !<path>${C_RST}"
+        say "      ${C_DIM}to ~/.config/ai-tools/allowed-projects${C_RST}"
         if ${_left_label}; then
             say "      ${C_DIM}to relabel only some, as ${_who}: restorecon -F <path>${C_RST}"
         fi
@@ -2375,10 +2380,14 @@ cmd_project_claim() {
     ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
     (( ${#label_drift[@]} )) \
-        && say "    - relabel the tree: ${#label_drift[@]} path(s) inside it carry a foreign SELinux type -- you will be asked"
+        && say "    - SELinux type differs on ${#label_drift[@]} path(s) -- you will be asked to relabel the tree"
     (( ${#drift[@]} )) \
-        && say "    - re-apply group ${SANDBOX_GROUP} + ACL to ${#drift[@]} drifted path(s) -- you will be asked (default no)"
-    ${gate_announced} && say "    - scan for secret-named files and lock them down -- you will confirm"
+        && say "    - group differs on ${#drift[@]} path(s) -- you will be asked to move them to group ${SANDBOX_GROUP} (default no)"
+    if ${need_gate}; then
+        say "    - scan for secret-named files and lock them down -- you will confirm"
+    elif ${gate_announced}; then
+        say "    - scan for secret-named files if you accept a repair -- you will confirm"
+    fi
     if ${need_git}; then
         if ${fresh}; then say "    - normalize .git so the agent can access git history"
         else say "    - normalize .git so the agent can access git history -- you will be asked"; fi
@@ -2411,33 +2420,58 @@ cmd_project_claim() {
     local do_label_drift=false do_drift=false
     if (( ${#label_drift[@]} )); then
         headline_warn "Interior drift: SELinux type" \
-            "${#label_drift[@]} path(s) inside the tree carry a type other than the one this project's file-context rules give them -- moved in with mv, cp -a or tar --selinux, or relabelled by another tool. The agent is refused them whatever their permissions say." \
-            "Relabelling resets every path in the tree to the project's types. A type another service needs here -- a Podman :Z volume, a directory httpd serves -- is reset as well, and that service loses its access."
+            "SELinux type differs on ${#label_drift[@]} path(s) inside the tree: each carries a type other than the one this project's file-context rules give it -- moved in with mv, cp -a or tar --selinux, or relabelled by another tool. The agent is refused them whatever their permissions say."
         item_listing "path(s) with their types" label_drift_lines "${label_drift[@]}"
         # The cap is a property of the SCAN, not of this listing, so it is said whether the paths were sampled or shown
         # in full.
         ! ${label_capped} || say "        ${C_DIM}(scan capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
+        # What the answer changes, and what it costs, sit directly ahead of the question: the relabel reaches every path
+        # in the tree, not only the ones listed.
+        say "      a relabel changes SELinux types only; owner, group and mode stay"
+        say "      ${C_YEL}it resets every type in the tree: a Podman :Z volume or a directory${C_RST}"
+        say "      ${C_YEL}httpd serves is reset too, and that service loses its access${C_RST}"
         # Only an explicit `--yes` answers this without a terminal, and AI_TOOLS_ASSUME_YES does not answer it at all:
         # the relabel resets every type in the tree, so an unattended run relabels only where its caller said
         # so on the command line.
         if ${ASSUME_YES}; then
             do_label_drift=true
         elif have_tty; then
-            if AI_TOOLS_ASSUME_YES='' confirm "Relabel the tree so these ${#label_drift[@]} path(s) get the project's types?" y; then
+            if AI_TOOLS_ASSUME_YES='' confirm "Relabel the tree to the project's SELinux types?" y; then
                 do_label_drift=true
             fi
         else
             say "      relabel not run: no terminal to ask on, and --yes was not given"
         fi
     fi
+    # A path on both lists reaches the agent only once both repairs take, so with the relabel not run and every path
+    # of this list also on the relabel list, a group repair would move each path's group and share none of them:
+    # the question is not asked, and the rows report the group as not fixed.
+    local group_needs_label=false _p
+    if (( ${#drift[@]} && ${#label_drift[@]} )) && ! ${do_label_drift}; then
+        local -A _on_label_list=()
+        for _p in "${label_drift[@]}"; do _on_label_list["${_p}"]=1; done
+        group_needs_label=true
+        for _p in "${drift[@]}"; do
+            [[ -n "${_on_label_list[${_p}]+set}" ]] || { group_needs_label=false; break; }
+        done
+    fi
     if (( ${#drift[@]} )); then
         headline_warn "Interior drift: group and ACL" \
-            "${#drift[@]} path(s) inside the tree carry a foreign group yet stay group-accessible -- they arrived without inheriting the project group or ACL." \
-            "Re-applying moves each to group ${SANDBOX_GROUP} with the project ACL: the agent gets the access its group bits grant, and the group it has now loses it. Keep a file shared with a team group or read by a service's group as it is."
+            "Group differs on ${#drift[@]} path(s) inside the tree: each has a group other than ${SANDBOX_GROUP} and group access -- it arrived without inheriting the project group or ACL." \
+            "Keep a file shared with a team group or read by a service's group as it is."
         path_listing "path(s)" "${drift[@]}"
         ! ${group_capped} || say "        ${C_DIM}(scan capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
-        if confirm "Re-apply group ${SANDBOX_GROUP} and the project ACL to these ${#drift[@]} path(s)?" n; then
-            do_drift=true
+        if ${group_needs_label}; then
+            say "      group repair not offered: these path(s) keep a type the agent is"
+            say "      refused, so a group change alone gives it no access -- re-run the"
+            say "      claim and relabel to share them"
+        else
+            say "      a move changes group and ACL only; the SELinux type stays"
+            say "      ${C_YEL}the agent gets what each path's group bits grant, and the group it${C_RST}"
+            say "      ${C_YEL}has now loses its access${C_RST}"
+            if confirm "Move these ${#drift[@]} path(s) to group ${SANDBOX_GROUP} with the project ACL?" n; then
+                do_drift=true
+            fi
         fi
     fi
     if ${do_label_drift} || ${do_drift}; then
@@ -2529,10 +2563,16 @@ cmd_project_claim() {
     fi
     # `no change applied` is said only where no step that writes could have run: no registry entry, no secret scan, no
     # traverse grant offered, and no Apply step. Any other run keeps the plain line, which does not say either way.
+    # The ✓ is kept for a claim that left no drift and no capped scan: with a not-fixed or a scan-capped row the claim
+    # ends non-zero, and the line takes the mark that status carries.
+    local closing="claimed ${d}"
     if ! ${apply_steps} && [[ "${listed}" == true ]] && ! ${need_gate} && (( ${#REACH_GRANT[@]} == 0 )); then
-        ok "claimed ${d} -- no change applied"
+        closing+=" -- no change applied"
+    fi
+    if ai_tools_records_get_exit_status; then
+        ok "${closing}"
     else
-        ok "claimed ${d}"
+        say "  ${C_YEL}!${C_RST} ${closing}"
     fi
     ai_tools_log_structured info "claimed project ${d}" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"

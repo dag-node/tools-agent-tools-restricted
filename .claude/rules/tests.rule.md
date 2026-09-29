@@ -624,12 +624,12 @@ so the flag chooses who is enrolled and never how the script was invoked. Its se
 gate** through `install.sh check-tree`, which runs the gate alone, against a fixture checkout the test builds (a copy
 of the installer with the libraries it sources, in a repository of its own): a clean tree passes and names its commit,
 the gate leaves an operator-owned `.git/index` with its owner when the stat cache is stale (a plain root `git status`
-rewrites it root-owned, which the case runs first as its control), an uncommitted tree is refused with its paths listed and the flag named, a path the sandbox account owns is marked
-`[agent]`, `--allow-uncommitted` admits the same tree with a warning, and a tree without a `.git` directory passes
-with no commit to name. Every case but the version gate's own orders against an installed CLI that does not exist,
-so the host's installed release does not decide a result. A fixture, and the action that leaves the host unchanged, because the real checkout reports
-whatever state the developer left it in and an `install` run against a fixture would install from it if the gate ever
-failed open.
+rewrites it root-owned, which the case runs first as its control), an uncommitted tree is refused with its paths listed
+and the flag named, a path the sandbox account owns is marked `[agent]`, `--allow-uncommitted` admits the same tree
+with a warning, and a tree without a `.git` directory passes with no commit to name. Every case but the version gate's
+own orders against an installed CLI that does not exist, so the host's installed release does not decide a result.
+A fixture, and the action that leaves the host unchanged, because the real checkout reports whatever state the developer
+left it in and an `install` run against a fixture would install from it if the gate ever failed open.
 
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)
@@ -1109,8 +1109,9 @@ unchanged. A difference the ticket lists in advance is expected; any other is a 
 The claim's rows pin its contract end to end: under `--format tsv` stdout is exactly empty where the claim does not
 write a row and is decoded whole, header and rows, where it does, with the page on stderr; the exit follows the fold
 `ai-tools-records(5)` states, with a root step's failure driven through `cli_stub_fail`; and without a terminal
-the relabel runs only with `--yes`, whatever `AI_TOOLS_ASSUME_YES` holds, driven over a fixture root `chcon`'d
-to the project type and skipped where SELinux is off or the fixture path has no default label.
+the relabel runs only with `--yes`, whatever `AI_TOOLS_ASSUME_YES` holds, and a file on both drift lists takes the group
+question only when the relabel ran, driven over a fixture root `chcon`'d to the project type and skipped where SELinux
+is off or the fixture path has no default label.
 
 The file pins its own umask. A umask is process state the CLI inherits through `runuser` (whose PAM stack carries no
 `pam_umask`), so the rows and the trace run under 022 whatever the host's login default, which is what makes a trace
