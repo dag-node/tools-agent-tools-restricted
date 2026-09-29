@@ -13,12 +13,31 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 
 | Id | Reftag | Name | File | Cited by | Emitter |
 |---|---|---|---|---|---|
+| z3p9 | [ref-section-z3p9](rules/cli.rule.md#ref-section-z3p9) | Acting for another operator (`--for`) | .claude/rules/cli.rule.md | docs/operators/service-accounts.md |  |
+| v2n3 | [ref-section-v2n3](rules/cli.rule.md#ref-section-v2n3) | Enabled, disabled, absent — the three states of an entry | .claude/rules/cli.rule.md | docs/projects/disable.md, docs/projects/enable.md |  |
+| d7q3 | [ref-table-d7q3](rules/cli.rule.md#ref-table-d7q3) | The three states of an allowlist entry | .claude/rules/cli.rule.md | docs/projects/disable.md |  |
+| h7d3 | [ref-section-h7d3](rules/cli.rule.md#ref-section-h7d3) | Claim in place | .claude/rules/cli.rule.md | docs/projects/claim.md, docs/projects/permissions.md |  |
+| g6f5 | [ref-list-g6f5](rules/cli.rule.md#ref-list-g6f5) | The claim's blocks, in run order | .claude/rules/cli.rule.md | .claude/rules/messaging.rule.md, docs/projects/claim.md |  |
+| s7c5 | [ref-table-s7c5](rules/cli.rule.md#ref-table-s7c5) | What answers each question a claim asks | .claude/rules/cli.rule.md | docs/projects/claim.md |  |
+| b9q6 | [ref-table-b9q6](rules/cli.rule.md#ref-table-b9q6) | A failed root step, per verb | .claude/rules/cli.rule.md | docs/projects/unclaim.md |  |
+| a9b2 | [ref-section-a9b2](rules/cli.rule.md#ref-section-a9b2) | Interior drift | .claude/rules/cli.rule.md | docs/projects/permissions.md |  |
+| x8q5 | [ref-table-x8q5](rules/cli.rule.md#ref-table-x8q5) | The outcome a re-claim reports per drifted path | .claude/rules/cli.rule.md | docs/projects/permissions.md |  |
+| d7d5 | [ref-section-d7d5](rules/cli.rule.md#ref-section-d7d5) | Reachability | .claude/rules/cli.rule.md | docs/projects/claim.md |  |
+| x8s5 | [ref-section-x8s5](rules/cli.rule.md#ref-section-x8s5) | Create | .claude/rules/cli.rule.md | docs/projects/create.md |  |
+| k3v7 | [ref-section-k3v7](rules/cli.rule.md#ref-section-k3v7) | Remove | .claude/rules/cli.rule.md | docs/projects/remove.md |  |
+| m5n5 | [ref-section-m5n5](rules/cli.rule.md#ref-section-m5n5) | Unclaim | .claude/rules/cli.rule.md | docs/projects/unclaim.md |  |
+| d9g9 | [ref-table-d9g9](rules/cli.rule.md#ref-table-d9g9) | What an unclaim does with each target | .claude/rules/cli.rule.md | docs/projects/unclaim.md |  |
+| u9a9 | [ref-section-u9a9](rules/cli.rule.md#ref-section-u9a9) | Sandbox clone | .claude/rules/cli.rule.md | .claude/rules/secret-handling.rule.md, docs/projects/clone.md |  |
+| u5h3 | [ref-section-u5h3](rules/cli.rule.md#ref-section-u5h3) | Secret pre-check on claim/clone | .claude/rules/cli.rule.md | .claude/rules/secret-handling.rule.md, docs/projects/lockdown.md |  |
 | w4z6 | [ref-section-w4z6](rules/confinement.rule.md#ref-section-w4z6) | The toolchain is read-only to the confined domain | .claude/rules/confinement.rule.md | .claude/rules/agent-claude-code.rule.md, .claude/rules/agent-codex.rule.md, .claude/rules/launch.rule.md, .claude/rules/updater.rule.md |  |
 | t8k3 | [ref-section-t8k3](rules/dotnet.rule.md#ref-section-t8k3) | Configuration the build reads from a project's ancestors | .claude/rules/dotnet.rule.md | .claude/rules/cli.rule.md, .claude/rules/launch.rule.md |  |
 | f2p3 | [ref-section-f2p3](rules/launch.rule.md#ref-section-f2p3) | An agent entrypoint started from inside a session | .claude/rules/launch.rule.md | .claude/rules/cli.rule.md |  |
 | p3k8 | [ref-section-p3k8](rules/launch.rule.md#ref-section-p3k8) | The ordering is read, not assumed | .claude/rules/launch.rule.md | .claude/rules/cli.rule.md |  |
 | f6z3 | MSG-F6Z3 | example | .claude/rules/messaging.rule.md |  |  |
 | y9z4 | [ref-section-y9z4](rules/ownership-and-hooks.rule.md#ref-section-y9z4) | Setgid normalization | .claude/rules/ownership-and-hooks.rule.md | .claude/rules/cli.rule.md |  |
+| b5v7 | [ref-table-b5v7](rules/ownership-and-hooks.rule.md#ref-table-b5v7) | A path's mode before, during and after a claim | .claude/rules/ownership-and-hooks.rule.md | .claude/rules/cli.rule.md, docs/projects/permissions.md |  |
+| e3h3 | [ref-definition-e3h3](rules/secret-handling.rule.md#ref-definition-e3h3) | Owner-only seal | .claude/rules/secret-handling.rule.md | .claude/rules/cli.rule.md, .claude/rules/ownership-and-hooks.rule.md, docs/projects/lockdown.md |  |
+| g6s6 | [ref-section-g6s6](rules/secret-handling.rule.md#ref-section-g6s6) | Proactive: `ai-tools-lockdown` | .claude/rules/secret-handling.rule.md | docs/projects/lockdown.md |  |
 | c3u9 | [ref-section-c3u9](rules/shellcheck.rule.md#ref-section-c3u9) | What strict mode does that ShellCheck does not report | .claude/rules/shellcheck.rule.md | .claude/rules/tests.rule.md |  |
 | r5r9 | [ref-section-r5r9](rules/stop.rule.md#ref-section-r5r9) | Who may stop what | .claude/rules/stop.rule.md | .claude/rules/cli.rule.md, .claude/rules/launch.rule.md, .claude/rules/safe-paths.rule.md, docs/sessions/stop.md, src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  |
 | e8k5 | [ref-section-e8k5](rules/stop.rule.md#ref-section-e8k5) | Degradation policy: two inversions, one reason | .claude/rules/stop.rule.md | .claude/rules/logging.rule.md, .claude/rules/messaging.rule.md, docs/sessions/stop.md, src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  |
