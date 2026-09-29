@@ -115,7 +115,7 @@ make_fixtures() {
     mk_operator_conf "${CONF}" "${PROJECTS_USER}" "${FOR_USER}"
     : > "${AL}"; : > "${FOR_AL}"; : > "${GC}"
     mkdir -p "${SBROOT}"
-    for d in pa pb pc pd pe pf pg plain unreg parent/p1 parent/p2 hold/inner for1 for2; do
+    for d in pa pb pc pd pe pf pg psd plain unreg parent/p1 parent/p2 hold/inner for1 for2; do
         mkdir -p "${R}/${d}"; printf '# %s\n' "${d}" > "${R}/${d}/README.md"
     done
     mkdir -p "${R}/unreg/node_modules/dep"; : > "${R}/unreg/node_modules/dep/index.js"
@@ -435,12 +435,12 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pa"
     expect "claim --yes exits 0"                                      rc_is 0
     expect "claim --yes registers the project"                        st_is "${R}/pa" listed
-    expect "claim --yes scans for secrets in the project"             cli_called ai-tools-lockdown "^$(f dry-run)$"
+    expect "claim --yes scans for secrets in the project"             cli_called ai-tools-lockdown "^--gate$"
     expect "claim --yes registers safe.directory"                     cli_called ai-tools-safedir "^${R}/pa$"
     expect "claim --yes sets the group and setgid"                    cli_called ai-tools-setgid "^${R}/pa$"
     expect "claim --yes applies the ACL"                              cli_called ai-tools-setfacl "${R}/pa$"
     expect "the safe.directory entry is on record"                    gc_has "${R}/pa"
-    expect "the secret scan precedes every access-granting step"     before ai-tools-lockdown "^$(f dry-run)$" ai-tools-setgid "."
+    expect "the secret scan precedes every access-granting step"     before ai-tools-lockdown "^--gate$" ai-tools-setgid "."
 
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes.short)" "${R}/pc"
     expect "claim -y is the short form of --yes"                      st_is "${R}/pc" listed
@@ -450,8 +450,15 @@ drive_rows() {
     expect "the default-directory claim names that directory"         cli_called ai-tools-safedir "^${R}/pd$"
 
     cli_stub_reset; cli_stub_secrets "${R}/pe/.env"; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pe"
-    expect "a found secret is locked down before access is granted"  before ai-tools-lockdown "^$(f yes)$" ai-tools-setgid "."
+    expect "a found secret is locked down before access is granted"  before ai-tools-lockdown "^--gate$" ai-tools-setgid "."
+    expect "the secret gate is one helper call"                       test "$(cli_calls ai-tools-lockdown | wc -l)" = 1
     expect "the claim with a secret still registers the project"     st_is "${R}/pe" listed
+    # A declined lockdown (the helper's exit 6) fails the claim closed: no access granted, the new entry rolled back.
+    cli_stub_reset; cli_stub_secrets "${R}/psd/.env"; cli_stub_decline_lockdown
+    drive cli ai-tools.projects.claim "$(f yes)" "${R}/psd"
+    expect "a declined secret lockdown stops the claim"               rc_not0
+    expect "the declined claim grants no access"                      cli_log_lacks ai-tools-setgid
+    expect "the declined claim rolls back its allowlist entry"        st_is "${R}/psd" absent
     cli_stub_reset
 
     drive cli ai-tools.projects.claim --bogus "${R}/pa"
@@ -639,6 +646,8 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" "$(f dry-run)" "${R}/unreg"
     expect "--force --dry-run previews and applies nothing"           quiet_rc 0
     expect "the preview leaves the fingerprint in place"              test "$(stat -c %G "${R}/unreg")" = "${SANDBOX_GROUP}"
+    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" "$(f dry-run)" "$(f yes)" "${R}/unreg"
+    expect "--yes beside --dry-run is refused with exit 2, no helper" quiet_rc 2
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" "${R}/unreg"
     expect "--force without --yes declines at the confirm"            rc_not0
     expect "the declined --force reaches no helper"                   cli_log_empty
@@ -772,7 +781,7 @@ drive_rows() {
     expect "clone lands under the sandbox area, named after the source" test -d "${SBROOT}/${N_SRC}/.git"
     expect "clone pushes the default branch, sandbox/<base>"          test -n "$(remote_tip sandbox/main)"
     expect "clone registers the clone"                                st_is "${SBROOT}/${N_SRC}" listed
-    expect "clone scans the clone for secrets before opening it"      cli_called ai-tools-lockdown "^$(f dry-run)$"
+    expect "clone scans the clone for secrets before opening it"      cli_called ai-tools-lockdown "^--gate$"
     expect "the scan runs inside the clone"                           test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_SRC}"
     expect "clone registers safe.directory for the clone"             cli_called ai-tools-safedir "^${SBROOT}/${N_SRC}$"
     expect "the clone is shallow"                                     test "$(gitr -C "${SBROOT}/${N_SRC}" rev-list --count HEAD)" -eq 1
@@ -786,7 +795,7 @@ drive_rows() {
     expect "clone accepts --yes"                                      test "${rc}" -eq 0 -a -d "${SBROOT}/${N_C4}/.git"
 
     cli_stub_reset; drive cli ai-tools.projects.clone "${SBROOT}/${N_C4}"
-    expect "clone on an existing clone path resumes its finalization" cli_called ai-tools-lockdown "^$(f dry-run)$"
+    expect "clone on an existing clone path resumes its finalization" cli_called ai-tools-lockdown "^--gate$"
     expect "the resume runs inside that clone"                        test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_C4}"
     expect "the resume makes no second clone"                         test "$(find "${SBROOT}" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 4
     expect "the resumed clone stays registered"                       st_is "${SBROOT}/${N_C4}" listed
@@ -848,12 +857,18 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.lockdown "${R}/pa"
     expect "lockdown runs the helper inside the project"              test "$(cwd_of ai-tools-lockdown)" = "${R}/pa"
     expect "lockdown passes no flag by default"                       test -z "$(cli_calls ai-tools-lockdown)"
+    cli_stub_reset; cli_stub_secrets "${R}/pa/.env"; cli_stub_decline_lockdown
+    drive cli ai-tools.projects.lockdown "${R}/pa"
+    expect "a declined lockdown exits 6, the decline code"            rc_is 6
+    cli_stub_reset
     for k in dry-run yes yes.short; do
         cli_stub_reset; drive cli ai-tools.projects.lockdown "$(f "${k}")" "${R}/pa"
         expect "lockdown passes $(f "${k}") through to the helper"     cli_called ai-tools-lockdown "^$(f "${k}")$"
     done
     cli_stub_reset; drive cli ai-tools.projects.lockdown -n "${R}/pa"
     expect "lockdown has no -n short form, no helper"                 quiet_refusal
+    cli_stub_reset; drive cli ai-tools.projects.lockdown "$(f dry-run)" "$(f yes)" "${R}/pa"
+    expect "lockdown refuses --yes beside --dry-run with exit 2, no helper" quiet_rc 2
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" -n "${R}/unreg"
     expect "unclaim has no -n short form, no helper"                  quiet_refusal
     guard="${R}/pa/CLAUDE.md"

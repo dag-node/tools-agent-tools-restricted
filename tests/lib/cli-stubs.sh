@@ -83,10 +83,16 @@ EOF
 #!/usr/bin/env bash
 set -u
 secrets="${CLI_STUB_SECRETS}"
+gate=false
+for a in "\$@"; do [[ "\${a}" == --gate ]] && gate=true; done
 if [[ -s "\${secrets}" ]]; then
     n="\$(wc -l < "\${secrets}")"
     printf 'ai-tools-lockdown: %d secret-matching path(s) under %s:\n' "\${n}" "\${PWD}" >&2
-    while IFS= read -r p; do printf '  [file] %s\n' "\${p}" >&2; done < "\${secrets}"
+    while IFS= read -r p; do
+        printf '  [file] %s\n' "\${p}" >&2
+        if \${gate}; then printf '%s\0' "\${p}"; fi
+    done < "\${secrets}"
+    [[ -e "${CLI_STUB_DIR}/decline.ai-tools-lockdown" ]] && exit 6
 fi
 exit 0
 EOF
@@ -133,11 +139,13 @@ EOF
     chmod 0755 "${CLI_STUB_PATH}/sudo" "${CLI_STUB_DIR}"/ai-tools-*
 }
 
-cli_stub_reset() { : > "${CLI_STUB_LOG}"; : > "${CLI_STUB_SECRETS}"; rm -f "${CLI_STUB_DIR}"/fail.*; }
+cli_stub_reset() { : > "${CLI_STUB_LOG}"; : > "${CLI_STUB_SECRETS}"; rm -f "${CLI_STUB_DIR}"/fail.* "${CLI_STUB_DIR}"/decline.*; }
 
 cli_stub_fail() { local helper; for helper in "$@"; do : > "${CLI_STUB_DIR}/fail.${helper}"; done; }
 
 cli_stub_secrets() { printf '%s\n' "$@" > "${CLI_STUB_SECRETS}"; }
+# cli_stub_decline_lockdown -- the lockdown stub answers a found secret as a declined confirmation, exit 6.
+cli_stub_decline_lockdown() { : > "${CLI_STUB_DIR}/decline.ai-tools-lockdown"; }
 
 cli_calls() {
     local helper="$1"

@@ -408,6 +408,7 @@ by default; see
 Lock secret-named files under the project (\fB.env\fR, \fB*.key\fR, ...) to
 owner-only, revoking the agent's read access. Runs via
 .BR sudo .
+It asks before it changes a file; declining exits 6 with no file changed.
 .TP
 .B projects handback \fR[\fB\-\-full\fR] [\fIDIRECTORY\fR]
 Take back ownership of the files the agent wrote under the project \(em including
@@ -804,6 +805,8 @@ You declined at the confirmation, so the requested action was not performed.
 returns this for a deliberate
 .I n
 at its prompt; no session was signalled.
+.B projects lockdown
+returns it when you decline to lock the files it found; no file was changed.
 .TP
 .B 130
 .B stop

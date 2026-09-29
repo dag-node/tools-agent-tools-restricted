@@ -720,6 +720,11 @@ live entry, in the earliest position it held.
 For a file that is the launch gate, a writer matching lines differently from the reader would leave a project reachable
 after a removal; one shared implementation of the match is what rules that out.
 
+**An option that has no effect beside another is refused rather than ignored**, with the usage status 2
+and before the run's first `sudo`: `--yes` beside `--dry-run` in `projects lockdown` and `projects unclaim`, whose dry
+runs neither change a path nor ask. A silent drop would leave the caller believing the command did what the combination
+asked.
+
 ## Two project models
 
 **Claim in place** (`projects claim`) registers an existing working tree where it lives. A path whose canonical form
@@ -1055,9 +1060,10 @@ mutating verb — the requirement, and why root cannot stand in, are in [CLAUDE.
 
 ## Secret pre-check on claim/clone
 
-Before granting access, the CLI runs `ai-tools-lockdown --dry-run` and, when secret-matching files are present, prompts
-to lock them down (see [secret-handling](secret-handling.rule.md)). On a claim the gate (`secret_gate`) runs whenever
-**any pending step widens the agent's access** — the setgid group change, the group ACL, drift repair, `.git`
+Before granting access, the CLI runs `ai-tools-lockdown --gate`, one `sudo` call that lists the secret-matching files,
+asks whether to lock them down, and locks them (see [secret-handling](secret-handling.rule.md)); the helper's exit tells
+a lockdown that ran or found none (0) from a decline (6) and a failure. On a claim the gate (`secret_gate`) runs
+whenever **any pending step widens the agent's access** — the setgid group change, the group ACL, drift repair, `.git`
 normalization, the SELinux label — and on every first claim (a tree can be group-accessible by setgid inheritance
 yet never scanned); only pure registry additions (safedir, filemode) skip it. A declined or failed gate fails
 the operation closed: the claim aborts (rolling back its own allowlist addition) and the sandbox create leaves the clone

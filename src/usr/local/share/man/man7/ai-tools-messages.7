@@ -166,9 +166,17 @@ unknown projects remove option: ${a}
 ERROR.
 the sandbox account is not an operator and must not own projects
 .TP
+.B MSG-P4D2
+ERROR.
+\-\-yes has no effect with \-\-dry\-run, which neither changes a path nor asks
+.TP
 .B MSG-P4K8
 ERROR.
 label\-unverified
+.TP
+.B MSG-P5P8
+ERROR.
+\-\-yes has no effect with \-\-dry\-run, which neither changes a path nor asks
 .TP
 .B MSG-P8W2
 ERROR.
@@ -1148,6 +1156,10 @@ unknown argument: $1
 .B MSG-G3R5
 ERROR.
 no TTY for confirmation; re\-run with \-\-yes to apply non\-interactively
+.TP
+.B MSG-G8S6
+ERROR.
+\-\-gate and \-\-dry\-run do not combine \-\- \-\-gate locks what it lists
 .TP
 .B MSG-J3F9
 ERROR.

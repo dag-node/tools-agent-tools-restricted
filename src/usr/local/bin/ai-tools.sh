@@ -1480,66 +1480,48 @@ run_unclaim() {
 
 # secret_gate <dir>  -- the secret-lockdown block: before ANY step grants the agent access to <dir> (the group ACL,
 # the setgid group change, .git normalization, the clone normalize), make sure no group-readable secret would be
-# exposed. The CLI cannot read the root-only secret-pattern library, so detection is delegated to ai-tools-lockdown
-# --dry-run (sudo, password -- the first sudo prompt of a claim, so it lands right under this block's headline). Found
-# secrets are listed and the user is asked to lock them down (--yes apply); the helper's own interactive mode is NOT
-# used for this because it exits 0 whether the user applies or aborts, which would let an un-locked tree through. Fills
-# SECRET_GATE_LOCKED with the found paths so normalize_clone can prune them. Returns 0 only when the tree is safe
-# to expose (no secrets found, or all locked down); non-zero means the caller must fail closed.
+# exposed. The CLI cannot read the root-only secret-pattern library, so one `ai-tools-lockdown --gate` call (sudo,
+# password -- the first sudo prompt of a claim, so it lands right under this block's headline) scans, lists what it
+# found, asks, and locks: one call, so a host whose sudo does not cache the password asks once. Its exit decides: 0
+# locked or found none, 6 declined, anything else failed. AI_TOOLS_ASSUME_YES answers the default-yes question
+# as `--yes`, since sudo does not pass it through. Fills SECRET_GATE_LOCKED with every secret-matching path the helper
+# wrote to stdout, so normalize_clone can prune them. Returns 0 only when the tree is safe to expose; non-zero means
+# the caller must fail closed.
 secret_gate() {
-    local dir="$1" out
+    local dir="$1" found status=0
+    local -a args=(--gate)
     SECRET_GATE_LOCKED=()
-    headline "Secret lockdown" \
-        "scanning ${dir} for secret-named files before the agent is granted access"
-    if ! out="$(run_lockdown "${dir}" --dry-run 2>&1)"; then
-        warn "secret scan failed -- not granting access:"
-        printf '%s\n' "${out}" >&2
-        ai_tools_log_structured error \
-            "secret pre-check: scan failed for ${dir}, access not granted" \
-            "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=failed"
-        return 1
-    fi
-    # "N secret-matching path(s)" when any are found vs "no secret-matching paths" when clean -- match the count form
-    # to tell them apart.
-    if ! grep -qE 'ai-tools-lockdown: [0-9]+ secret-matching' <<<"${out}"; then
-        ok "no secret-matching paths found"
-        ai_tools_log_structured info \
-            "secret pre-check: clean, no secret-matching paths under ${dir}" \
-            "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
-        return 0                                   # clean tree: safe to expose
-    fi
-
-    # The helper has already logged the count and each path (journald + lockdown.log); record the operator-side decision
-    # here too.
-    mapfile -t SECRET_GATE_LOCKED < <(printf '%s\n' "${out}" \
-        | sed -n 's/^[[:space:]]*\[\(file\|dir\)\][[:space:]]*//p')
-    say ""
-    say "  found ${#SECRET_GATE_LOCKED[@]} secret-matching path(s):"
-    printf '%s\n' "${out}" | grep -E '\[(file|dir)\]' >&2 || true
-    warn "lockdown is best effort, matching only known secret patterns -- handle any secret it misses yourself first"
-    ai_tools_log_structured warning \
-        "secret pre-check: secrets present under ${dir} (see lockdown.log for paths)" \
-        "AI_TOOLS_PROJECT=${dir}"
-    # Default YES: locking down is the safe direction and the printed list may be long, so Enter -- and an unattended
-    # run -- proceeds to lock down.
-    if ! confirm "Lock down these secrets now?" y; then
-        warn "declined -- access will not be granted while secrets are exposed"
-        ai_tools_log_structured warning \
-            "secret pre-check: lockdown declined for ${dir}, access not granted" \
-            "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=refused"
-        return 1
-    fi
-    if run_lockdown "${dir}" --yes; then
-        say ""
-        ok "secrets locked down"
-        ai_tools_log_structured info "secret pre-check: secrets locked down under ${dir}" \
-            "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
-        return 0
-    fi
-    warn "lockdown did not complete -- not granting access"
-    ai_tools_log_structured error "secret pre-check: lockdown failed under ${dir}, access not granted" \
-        "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=failed"
-    return 1
+    [[ "${AI_TOOLS_ASSUME_YES:-}" == 1 ]] && args+=(--yes)
+    headline "Secret lockdown" "${dir}"
+    found="$(mktemp)" || { warn "cannot create a temporary file for the secret scan -- not granting access"; return 1; }
+    run_lockdown "${dir}" "${args[@]}" > "${found}" || status=$?
+    mapfile -d '' -t SECRET_GATE_LOCKED < "${found}"
+    rm -f "${found}"
+    case "${status}" in
+        0)
+            if (( ${#SECRET_GATE_LOCKED[@]} )); then
+                ok "secrets locked down"
+                ai_tools_log_structured info "secret pre-check: secrets locked down under ${dir}" \
+                    "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
+            else
+                ok "no secret-matching paths found"
+                ai_tools_log_structured info \
+                    "secret pre-check: clean, no secret-matching paths under ${dir}" \
+                    "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
+            fi
+            return 0 ;;
+        6)
+            warn "declined -- access will not be granted while secrets are exposed"
+            ai_tools_log_structured warning \
+                "secret pre-check: lockdown declined for ${dir}, access not granted" \
+                "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=refused"
+            return 1 ;;
+        *)
+            warn "secret lockdown did not complete -- not granting access"
+            ai_tools_log_structured error "secret pre-check: lockdown failed under ${dir}, access not granted" \
+                "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=failed"
+            return 1 ;;
+    esac
 }
 
 # drop_lockdown_guard <dir>  -- write a placeholder CLAUDE.md telling the agent to wait until lockdown runs, used
@@ -3320,6 +3302,9 @@ cmd_project_unclaim() {
     if [[ -n "${group_opt}" ]] && ! getent group "${group_opt}" >/dev/null 2>&1; then
         die "no such group: ${group_opt}"
     fi
+    if ${dry} && ${assume_yes}; then
+        die_usage MSG-P4D2 "--yes has no effect with --dry-run, which neither changes a path nor asks"
+    fi
     if ${dry} && ! ${force}; then
         die "--dry-run applies to --force only" \
             "       a registered project's unclaim previews itself: it lists what it will do and asks before acting"
@@ -4030,6 +4015,10 @@ cmd_project_lockdown() {
             *)            if [[ -z "${d}" ]]; then d="${a}"; else die "projects lockdown takes a single path"; fi ;;
         esac
     done
+    # Refused here, before the helper's sudo, so the password is not asked for a command line that will not run.
+    if ${dry} && [[ " ${passthru[*]} " == *" -y "* || " ${passthru[*]} " == *" --yes "* ]]; then
+        die_usage MSG-P5P8 "--yes has no effect with --dry-run, which neither changes a path nor asks"
+    fi
     d="$(resolve_dir "${d:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
     covered_by_project "${d}" || not_covered_die "${d}"
@@ -4039,14 +4028,20 @@ cmd_project_lockdown() {
     section "Lock down project secrets"
     say "  ${d}"
     say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${OWNER_USER}:${OWNER_GROUP}${C_RST}"
-    if run_lockdown "${d}" "${passthru[@]}"; then
-        ${dry} || clear_lockdown_guard "${d}"
-        ok "lockdown done: ${d}"
-        ${dry} || ai_tools_log_structured info "locked down secrets in ${d}" \
-            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
-    else
-        die "lockdown failed for ${d}"
-    fi
+    local status=0
+    run_lockdown "${d}" "${passthru[@]}" || status=$?
+    case "${status}" in
+        0)
+            ${dry} || clear_lockdown_guard "${d}"
+            ok "lockdown done: ${d}"
+            ${dry} || ai_tools_log_structured info "locked down secrets in ${d}" \
+                "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
+            ;;
+        6)  # the helper's decline: nothing changed, and the exit carries it (ai-tools(1))
+            say "  declined -- no path was changed"
+            exit 6 ;;
+        *)  die "lockdown failed for ${d}" ;;
+    esac
 }
 
 # ── Enable / disable a claimed project ───────────────────────────────────────────
