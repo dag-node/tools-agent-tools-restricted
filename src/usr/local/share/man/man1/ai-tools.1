@@ -151,12 +151,9 @@ Claim a real project in place so the agent works your actual tree: register it
 any access is granted, set the shared group and ACL, and apply the SELinux
 project label. Idempotent \(em a re-claim runs only the missing steps. It also
 finds files moved into the project that kept their SELinux type, or their group
-and missing ACL, and asks about each kind under its list: the relabel defaults
-to yes and
+and missing ACL, and asks about each kind under its list, each defaulting to no:
 .B \-y
-answers it; the group and ACL repair defaults to no and
-.B \-y
-does not answer it. Without a terminal the relabel runs only with
+answers the relabel and not the group and ACL repair. Without a terminal the relabel runs only with
 .BR \-y ,
 and
 .B AI_TOOLS_ASSUME_YES

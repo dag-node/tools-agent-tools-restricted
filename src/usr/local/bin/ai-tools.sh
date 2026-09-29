@@ -2401,7 +2401,7 @@ cmd_project_claim() {
     ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
     (( ${#label_drift[@]} )) \
-        && say "    - SELinux type differs on ${#label_drift[@]} path(s) -- you will be asked to relabel the tree"
+        && say "    - SELinux type differs on ${#label_drift[@]} path(s) -- you will be asked to relabel the tree (default no)"
     (( ${#drift[@]} )) \
         && say "    - group differs on ${#drift[@]} path(s) -- you will be asked to move them to group ${SANDBOX_GROUP} (default no)"
     if ${need_gate}; then
@@ -2427,8 +2427,8 @@ cmd_project_claim() {
     fi
 
     # ── Interior drift: one block per kind, each its list and then its question, so the answer follows the paths it is
-    # about. The defaults differ because the costs do (cli.rule.md). A declined repair is reported as not fixed;
-    # the claim goes on. ──
+    # about. Each repair can widen the agent's access, so each defaults to no (cli.rule.md). A declined repair is
+    # reported as not fixed; the claim goes on. ──
     local do_label_drift=false do_drift=false
     if (( ${#label_drift[@]} )); then
         headline_warn "Interior drift: SELinux type" \
@@ -2447,7 +2447,7 @@ cmd_project_claim() {
         if ${ASSUME_YES}; then
             do_label_drift=true
         elif have_tty; then
-            if AI_TOOLS_ASSUME_YES='' confirm "Relabel the tree to the project's SELinux types?" y; then
+            if AI_TOOLS_ASSUME_YES='' confirm "Relabel the tree to the project's SELinux types?" n; then
                 do_label_drift=true
             fi
         else

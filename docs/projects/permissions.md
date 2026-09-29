@@ -78,11 +78,12 @@ and its SELinux type. A file created inside the project takes the project's
 instead. A re-claim finds the moved-in files and asks about each kind on its
 own, right under the list of files it found:
 
-- **SELinux type**, default Yes. The relabel gives the files the project's
-  type, and their permissions still decide whether the agent can open them. It
-  resets every file in the project, so a directory another service uses —
-  a Podman `:Z` volume, a directory a web server serves — loses the type
-  that service needs. Keep such a directory outside the project.
+- **SELinux type**, default No. The relabel gives the files the project's type,
+  and their permissions still decide whether the agent can open them: a file
+  readable by others opens to it. It resets every file in the project,
+  so a directory another service uses — a Podman `:Z` volume, a directory a web
+  server serves — loses the type that service needs. Keep such a directory
+  outside the project.
 - **Group and ACL**, default No. Yes moves each file to the agent's group
   with the project's grants: the agent gets the access its group bits give,
   and the group the file had loses it.
