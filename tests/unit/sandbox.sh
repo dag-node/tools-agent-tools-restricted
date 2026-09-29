@@ -354,4 +354,36 @@ cv_is() {  # cv_is <what> <restorecon-status> <want>
 cv_is "a clean batch" 0 "fixed gone | not-fixed gone "
 cv_is "a batch that exits 1" 1 "unverified gone | not-fixed gone "
 
+# ── normalize_clone ──────────────────────────────────────────────────────────────────────────
+# The step that opens a clone to the agent group once the gate has passed. What it must not do: change a path the gate
+# did not scan -- chmod follows a symlink named on its command line, so a tracked link to a file outside the clone
+# would take its target's mode with it -- and re-open a path the gate locked, which `-path` would miss if the locked
+# name carried a pattern character (the bracket here) and were not escaped.
+section "normalize_clone: opens files and directories alone, and keeps a locked path locked (unit)"
+nc_work="${TESTDIR}/nc"; nc_out="${TESTDIR}/nc-outside"
+mkdir -p "${nc_work}/config[prod]" "${nc_work}/sub"
+: > "${nc_work}/config[prod]/.env"; : > "${nc_work}/plain.txt"; : > "${nc_out}"
+ln -s "${nc_out}" "${nc_work}/link"
+chown -R -h "${PROJECTS_USER}:${PROJECTS_GROUP}" "${nc_work}" "${nc_out}"
+chmod 0700 "${nc_work}" "${nc_work}/config[prod]" "${nc_work}/sub"
+chmod 0600 "${nc_work}/config[prod]/.env" "${nc_work}/plain.txt" "${nc_out}"
+if call normalize_clone "${nc_work}" "${nc_work}/config[prod]/.env" >/dev/null 2>&1; then
+    nc_ok=true
+    [[ "$(perm "${nc_work}/plain.txt")" == 660 ]]  || { fail "normalize_clone: plain.txt is $(perm "${nc_work}/plain.txt"), want 660"; nc_ok=false; }
+    [[ "$(stat -c '%a' "${nc_work}/sub")" == 2770 ]] || { fail "normalize_clone: sub is $(stat -c '%a' "${nc_work}/sub"), want 2770"; nc_ok=false; }
+    ${nc_ok} && pass "normalize_clone opens a file to the group and sets setgid on a directory"
+    if [[ "$(perm "${nc_out}")" == 600 ]]; then
+        pass "normalize_clone leaves a symlink's target outside the clone as it was"
+    else
+        fail "normalize_clone changed the symlink target outside the clone: $(perm "${nc_out}")"
+    fi
+    if [[ "$(perm "${nc_work}/config[prod]/.env")" == 600 ]]; then
+        pass "normalize_clone keeps a locked path whose name carries a pattern character locked"
+    else
+        fail "normalize_clone re-opened the locked path: $(perm "${nc_work}/config[prod]/.env")"
+    fi
+else
+    fail "normalize_clone could not be driven (exit $?)"
+fi
+
 finish

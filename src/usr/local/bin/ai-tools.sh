@@ -1407,12 +1407,26 @@ reach_apply() {
 # once, while the root is still owner-only (clone_is_private), and not on a resume over a clone already opened. Neither
 # walk has a skip list, and the gate's walk skips .git alone, so every directory this opens is one the gate scanned
 # for secret names.
+#
+# Both walks act on regular files and directories alone, and stay on the clone's filesystem: chmod follows a symlink
+# named on its command line, so a tracked symlink handed to it would change the mode of its target, a path outside
+# the clone the gate never scanned. A locked path is pruned by its literal name: `-path` reads its argument
+# as a pattern, so a name carrying `[`, `*`, `?` or `\` is escaped first (find_pattern_literal), or the pattern
+# would miss the path and this walk would re-open the secret the gate locked.
 normalize_clone() {
     local d="$1"; shift
     local -a prune=() p
-    for p in "$@"; do prune+=( -path "${p}" -prune -o ); done
-    find "${d}" "${prune[@]}" -exec chmod g+rwX {} +
-    find "${d}" "${prune[@]}" -type d -exec chmod g+s {} +
+    for p in "$@"; do prune+=( -path "$(find_pattern_literal "${p}")" -prune -o ); done
+    find "${d}" -xdev "${prune[@]}" '(' -type f -o -type d ')' -exec chmod g+rwX {} +
+    find "${d}" -xdev "${prune[@]}" -type d -exec chmod g+s {} +
+}
+
+# find_pattern_literal <path>  -- print <path> escaped for find's `-path`/`-name` pattern grammar, so it matches
+# the path literally: a backslash escapes `\`, `*`, `?` and `[`, the characters fnmatch(3) reads as pattern syntax.
+find_pattern_literal() {
+    local s="$1"
+    s="${s//\\/\\\\}"; s="${s//\*/\\*}"; s="${s//\?/\\?}"; s="${s//\[/\\[}"
+    printf '%s' "${s}"
 }
 
 # clone_is_private <dir>  -- 0 while the clone root is owner-only: the state cmd_project_clone's pinned umask leaves
