@@ -954,7 +954,10 @@ of claim uses: only directories the **operator owns** and that are **not** prote
 **unprivileged** (the operator owns them, so no `sudo`). A blocking ancestor that is a system directory or owned
 by someone else is left untouched — there the sandbox clone (under `/var/opt/ai-tools`, already agent-traversable) is
 the way in. The grant is idempotent: an ancestor the account can already traverse (e.g. one carrying the ACL
-from a prior claim) is skipped. Detection (`find_blocking_ancestors`) runs up front so the Review overview announces
+from a prior claim) is skipped. It is applied with `setfacl -n` and the mask set to what it was plus execute
+(`traverse_grant_plan`), since a recalculated mask would rise to the union of every group-class entry and give a masked
+`group:devs:rwx` full access; a masked entry that holds execute still gains traverse with the account, and the prompt
+lists each one under its path. Detection (`find_blocking_ancestors`) runs up front so the Review overview announces
 the opt-in, and a claimed project with a grant pending — it can lose reachability to a later `chmod 700` on an ancestor
 — takes the full flow rather than the no-op path, since the grant is an access-widening step.
 `confirm_ancestor_traversal` asks with the drift repairs, ahead of the gate; an accepted grant makes the tree reachable

@@ -1363,6 +1363,10 @@ find_blocking_ancestors() {
 # Sets TRAVERSAL_GRANT_CONFIRMED and does not set the ACL: the grant makes the tree reachable, with whatever readable
 # secrets were added since it was last scanned, so an accepted grant counts as an access-widening step -- the caller
 # runs the secret gate on it and applies it with grant_ancestor_traversal in the Apply block, after the gate.
+#
+# Under each path the question lists every entry the grant widens beside the account's own (traverse_grant_plan):
+# the mask rises to carry execute, so a masked entry that holds execute gains traverse with it. The operator confirms
+# the grant with that consequence on the page rather than after it.
 confirm_ancestor_traversal() {
     local dir="$1" a
     TRAVERSAL_GRANT_CONFIRMED=false
@@ -1387,7 +1391,14 @@ confirm_ancestor_traversal() {
 
     headline_warn "WARNING: parent directories block the agent" \
         "the sandbox account must be able to traverse every parent directory to reach the project; the grant below is traverse-only (enter, never list or read): u:${SANDBOX_USER}:--x"
-    for a in "${TRAVERSAL_GRANT_PATHS[@]}"; do say "      ${a}"; done
+    local -a grant_argv=() grant_widened=() entry
+    for a in "${TRAVERSAL_GRANT_PATHS[@]}"; do
+        say "      ${a}"
+        traverse_grant_plan "${a}" grant_argv grant_widened || continue
+        (( ${#grant_widened[@]} )) || continue
+        say "        the mask on it rises to carry execute, so these entries gain traverse with the account:"
+        for entry in "${grant_widened[@]}"; do say "          ${entry}"; done
+    done
 
     # The owner's own HOME ROOT is the one entry in that list whose consequence has to be stated, and what to state is
     # a CONDITION rather than an assertion of exposure. `--x` permits traversal and neither a listing of the directory
@@ -1422,27 +1433,67 @@ confirm_ancestor_traversal() {
     else
         say "    reach: left as-is -- the agent may be unable to enter ${dir}"
         have_tty || for a in "${TRAVERSAL_GRANT_PATHS[@]}"; do
-            say "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
+            traverse_grant_plan "${a}" grant_argv grant_widened || grant_argv=(-n -m "u:${SANDBOX_USER}:--x")
+            say "      ${C_BOLD}setfacl ${grant_argv[*]} -- ${a}${C_RST}"
         done
     fi
 }
 
+# traverse_grant_plan <dir> <argv-var> <widened-var>  -- compute the setfacl arguments that give the sandbox account
+# traverse on <dir> without raising the mask past execute, and the entries that gain traverse alongside it. `setfacl -m`
+# recalculates the mask to the union of every group-class entry, so a directory holding `group:devs:rwx` under
+# `mask::---` would end with `mask::rwx` and that group at full access; `-n` keeps the mask as it is, which leaves
+# the new entry with no effect where the mask lacks execute. So the call is `-n` with the mask set explicitly to what it
+# was -- `group::` where the directory has no mask, as setfacl derives one -- plus execute. Every other masked entry
+# that holds execute then gains it in effect, and <widened-var> names each as `<tag>:<name> <perms>` for the prompt.
+# Returns 1 with both empty where the ACL could not be read, so no call is made on a state that was not read.
+traverse_grant_plan() {
+    local dir="$1"
+    local -n _plan_argv="$2" _plan_widened="$3"
+    local acl line tag name perms mask="" owning_group_perms="" base
+    local -a masked=()
+    _plan_argv=(); _plan_widened=()
+    acl="$(getfacl -p -c -E -- "${dir}" 2>/dev/null)" || return 1
+    while IFS= read -r line; do
+        IFS=: read -r tag name perms <<< "${line}"
+        case "${tag}:${name}" in
+            "mask:")                mask="${perms}" ;;
+            "group:")               owning_group_perms="${perms}"; masked+=("${tag}:${name} ${perms}") ;;
+            "user:${SANDBOX_USER}") ;;
+            user:|other:|default*)  ;;
+            user:*|group:*)         masked+=("${tag}:${name} ${perms}") ;;
+        esac
+    done <<< "${acl}"
+    base="${mask:-${owning_group_perms}}"
+    [[ "${base}" =~ ^[r-][w-][x-]$ ]] || return 1
+    _plan_argv=(-n -m "u:${SANDBOX_USER}:--x" -m "m::${base:0:2}x")
+    [[ "${base}" == *x* ]] && return 0
+    for line in "${masked[@]}"; do
+        [[ "${line##* }" == *x* ]] && _plan_widened+=("${line}")
+    done
+    return 0
+}
+
 # grant_ancestor_traversal  -- apply the grant confirm_ancestor_traversal accepted: one traverse-only ACL entry
 # per blocking ancestor, each reported on its own result line, and a manual command for one that could not be set.
-# Unprivileged, since the operator owns those directories; the CALLER runs the secret gate first. Returns non-zero
-# when any ancestor was not granted: one left blocking keeps the project out of reach whatever the others took,
-# so the caller counts it as a step that did not apply.
+# Unprivileged, since the operator owns those directories; the CALLER runs the secret gate first. The call is
+# traverse_grant_plan's, so the mask rises to execute and no further. Returns non-zero when any ancestor was not
+# granted, an ACL that could not be read included: one left blocking keeps the project out of reach whatever the others
+# took, so the caller counts it as a step that did not apply.
 grant_ancestor_traversal() {
     local a failed=false
+    local -a grant_argv=() grant_widened=()
     for a in "${TRAVERSAL_GRANT_PATHS[@]}"; do
         # A --for run's ancestors belong to the TARGET, so an unprivileged setfacl by the invoker fails on every one
         # of them; run_as_owner applies it as the owner instead.
-        if run_as_owner setfacl -m "u:${SANDBOX_USER}:--x" "${a}" 2>/dev/null; then
+        if traverse_grant_plan "${a}" grant_argv grant_widened \
+                && run_as_owner setfacl "${grant_argv[@]}" -- "${a}" 2>/dev/null; then
             say "    reach: u:${SANDBOX_USER}:--x ${a}"
         else
             failed=true
+            (( ${#grant_argv[@]} )) || grant_argv=(-n -m "u:${SANDBOX_USER}:--x")
             warn "reach: could not grant on ${a} -- run it as ${OWNER_USER} or as root:"
-            say  "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
+            say  "      ${C_BOLD}setfacl ${grant_argv[*]} -- ${a}${C_RST}"
         fi
     done
     ! ${failed}

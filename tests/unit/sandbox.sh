@@ -416,6 +416,59 @@ else
     else
         fail "agent_can_traverse: an ACL read that fails -> exit ${ct_rc}, want 2"
     fi
+
+    # ── grant_ancestor_traversal ─────────────────────────────────────────────────────────────
+    # The apply behind the grant. `setfacl -m` recalculates the mask to the union of the group-class entries, so
+    # a named group at rwx under mask --- would end at full access; the grant sets the mask to what it was plus
+    # execute, and the plan names the entry that gains traverse with the account so the prompt can list it.
+    section "grant_ancestor_traversal: the mask rises to execute and no further (unit)"
+    ct_dir maskw 0700 "g:${PROJECTS_GROUP}:rwx" chmod:0700
+    ct_dir bare  0700
+    # gr_plan <name>: print the widened entries the plan names for a fixture, one per line.
+    gr_plan() {
+        # shellcheck disable=SC2016  # the expansions are the inner shell's
+        call_script 'declare -a argv=() widened=(); traverse_grant_plan "${args[0]}" argv widened || exit 3
+            printf "%s\n" "${widened[@]}"' "${ct_work}/$1" 2>/dev/null
+    }
+    # gr_apply <name>: run the grant over a fixture as the projects user; the function reads its list from the global.
+    gr_apply() {
+        # shellcheck disable=SC2016  # the expansion is the inner shell's
+        call_script 'TRAVERSAL_GRANT_PATHS=("${args[0]}"); grant_ancestor_traversal' "${ct_work}/$1" >/dev/null 2>&1
+    }
+    gr_out="$(gr_plan maskw)" || true
+    if [[ "${gr_out}" == "group:${PROJECTS_GROUP} rwx" ]]; then
+        pass "traverse_grant_plan names the masked entry that gains traverse"
+    else
+        fail "traverse_grant_plan over a masked rwx group: $(tr '\n' '|' <<< "${gr_out}")"
+    fi
+    gr_out="$(gr_plan bare)" || true
+    if [[ -z "${gr_out}" ]]; then
+        pass "traverse_grant_plan names no entry on a directory with no mask"
+    else
+        fail "traverse_grant_plan over a bare 700 directory: $(tr '\n' '|' <<< "${gr_out}")"
+    fi
+    if gr_apply maskw && gr_apply bare; then
+        gr_acl="$(getfacl -p -c -E -- "${ct_work}/maskw" 2>/dev/null | tr '\n' ' ')"
+        if [[ "${gr_acl}" == *"user:${SANDBOX_USER}:--x "* && "${gr_acl}" == *"mask::--x "* ]]; then
+            pass "grant_ancestor_traversal grants traverse and raises the mask to --x, not to rwx"
+        else
+            fail "grant over a masked rwx group left: ${gr_acl}"
+        fi
+        if [[ "$(getfacl -p -c -- "${ct_work}/maskw" 2>/dev/null | grep "^group:${PROJECTS_GROUP}:")" == "group:${PROJECTS_GROUP}:rwx"$'\t'"#effective:--x" ]]; then
+            pass "the masked group's effective permissions gain execute alone"
+        else
+            fail "the masked group's effective permissions: $(getfacl -p -c -- "${ct_work}/maskw" 2>/dev/null | grep "^group:${PROJECTS_GROUP}:")"
+        fi
+        gr_acl="$(getfacl -p -c -E -- "${ct_work}/bare" 2>/dev/null | tr '\n' ' ')"
+        if [[ "${gr_acl}" == *"user:${SANDBOX_USER}:--x "* && "${gr_acl}" == *"group::--- "* && "${gr_acl}" == *"mask::--x "* ]]; then
+            pass "grant_ancestor_traversal on a directory with no mask leaves the owning group at ---"
+        else
+            fail "grant over a bare 700 directory left: ${gr_acl}"
+        fi
+        ct_is maskw yes "the account can traverse a granted directory whose mask was ---"
+    else
+        fail "grant_ancestor_traversal could not be driven over the fixtures"
+    fi
 fi
 
 # ── find_blocking_ancestors ──────────────────────────────────────────────────────────────────
