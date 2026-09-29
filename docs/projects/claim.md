@@ -36,9 +36,9 @@ own list and its own decision. In the order they appear on the page:
    ```
 
 2. **Interior drift** — on a re-claim only, one block per kind of file
-   that kept what it had where it came from. The SELinux type question defaults
-   to Yes; the group and ACL question defaults to No. Each is asked under its
-   own list of paths. When to say no is on [Permissions](permissions.md).
+   that kept what it had where it came from. Both questions default to No,
+   since each can widen what the agent reads. Each is asked under its own list
+   of paths. When to say no is on [Permissions](permissions.md).
 3. **Reachability** — the traverse grant on a parent directory
    whose permissions keep the sandbox account out, default No.
 4. **Secret lockdown** — the scan for secret-named files, and the run's first

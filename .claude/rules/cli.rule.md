@@ -723,7 +723,7 @@ defaults to no and takes an explicit per-invocation flag alone — is [messaging
 | question | default | `-y` / `--yes` | `AI_TOOLS_ASSUME_YES` | no terminal |
 |---|---|---|---|---|
 | proceed with the pending steps | no | answers yes | does not answer | declines |
-| relabel drifted paths | yes | answers yes | does not answer | relabels only with `-y` |
+| relabel drifted paths | no | answers yes | does not answer | relabels only with `-y` |
 | repair a drifted group and ACL | no | does not answer | does not answer | declines |
 | grant traverse on ancestors | no | does not answer | does not answer | declines, prints the `setfacl` lines |
 | lock secret-named paths (the gate) | yes | does not answer | does not answer | locks |
@@ -801,22 +801,23 @@ the group kind capped after the skip-list split so paths the repair cannot reach
 A first claim, one with the setgid step pending, or an unlabelled root skips the matching scan: its normal walk repairs
 the whole tree.
 
-**Each kind is its own question, asked under its own list**, so the answer follows the paths it is about, and the two
-defaults differ because the costs do. A relabel leaves owner, group and mode alone, so it gives the agent a path only
-where its permissions already admit the sandbox account; it defaults to yes, and `-y` answers it. It does reset every
-path in the tree, so a type another service needs inside a project — a Podman `:Z` volume, a directory httpd serves — is
-lost to that service; the block says so and lists each hit with its current type. A group and ACL repair moves a path
-from the group it holds to `SANDBOX_GROUP`, which is wrong for a file shared with a team group or read by a service's
-group, so it defaults to no, and `-y` does not answer it: the wrapper that passes `-y` does not show the operator these
-paths. A path on both lists reaches the agent only once both repairs take, since its permissions and its type each
-refuse the agent on their own; so on an enforcing host the group question is not asked when the relabel did not run
-and every path on its list is also on the relabel list, and where exactly one repair took the claim adds one line
-counting those paths. A path in either list whose name, or a directory containing it inside the project, matches
-the invoker's secret patterns is marked `[secret]`, with one line saying the gate makes it owner-only before a repair
-runs; the mark reads `secret-patterns.lib.sh` and is advisory, so where the library does not load, or under `--for`,
-whose target's patterns file the invoker cannot read, no path is marked. Either repair answered yes joins the secret
-gate like any other access-granting step, which is why the gate follows both questions. A declined repair does not stop
-the claim.
+**Each kind is its own question, asked under its own list**, so the answer follows the paths it is about, and each
+defaults to no, since each can widen the agent's access. A relabel leaves owner, group and mode alone, so it gives
+the agent a path where its permissions already admit the sandbox account — a moved-in file readable by other is one;
+`-y` answers it, since the launch wrapper that passes `-y` has already confirmed a claim of the tree. It also resets
+every path in the tree, so a type another service needs inside a project — a Podman `:Z` volume, a directory httpd
+serves — is lost to that service; the block says so and lists each hit with its current type. A group and ACL repair
+moves a path from the group it holds to `SANDBOX_GROUP`, which is wrong for a file shared with a team group or read
+by a service's group, so it defaults to no, and `-y` does not answer it: the wrapper that passes `-y` does not show
+the operator these paths. A path on both lists reaches the agent only once both repairs take, since its permissions
+and its type each refuse the agent on their own; so on an enforcing host the group question is not asked
+when the relabel did not run and every path on its list is also on the relabel list, and where exactly one repair took
+the claim adds one line counting those paths. A path in either list whose name, or a directory containing it inside
+the project, matches the invoker's secret patterns is marked `[secret]`, with one line saying the gate makes it
+owner-only before a repair runs; the mark reads `secret-patterns.lib.sh` and is advisory, so where the library does not
+load, or under `--for`, whose target's patterns file the invoker cannot read, no path is marked. Either repair answered
+yes joins the secret gate like any other access-granting step, which is why the gate follows both questions. A declined
+repair does not stop the claim.
 
 **After the Apply block the claim checks each drifted path on its own** against the postconditions its repair
 establishes (`claim_verify_label`, `claim_verify_group`; the contracts are the doc comments
