@@ -850,15 +850,15 @@ holds to `SANDBOX_GROUP`, which is wrong for a file shared with a team group or 
 defaults to **no**, and `--yes` does not answer it: the launch wrapper that passes `--yes` does not show the operator
 these paths. Either repair answered yes joins the secret gate like any other access-granting step, which is
 why the secret-scan question follows both, and the Review overview says the scan waits on a repair where no other step
-needs it. A declined repair does not stop the claim. The group question is **not asked** when the relabel did not run
-and every path on its list is also on the relabel list: a path on both lists reaches the agent only once both repairs
-take, so the group change alone would move each path's group and share none of them. Each block states, under its list
-and ahead of its question, what the repair changes and what it leaves alone, so the two questions read as the separate
-repairs they are. A path in either list whose name, or a directory containing it inside the project, matches
-the invoker's secret patterns is marked `[secret]`, with one line saying the secret gate makes it owner-only
-before a repair runs. The mark reads the patterns through `secret-patterns.lib.sh`, the classifier `ai-tools-lockdown`
-matches with, and is advisory: the gate decides, and where the library does not load, or under `--for`, whose target's
-patterns file the invoker cannot read, no path is marked.
+needs it. A declined repair does not stop the claim. On an enforcing host the group question is **not asked**
+when the relabel did not run and every path on its list is also on the relabel list: a path on both lists reaches
+the agent only once both repairs take, so the group change alone would move each path's group and share none of them.
+Each block states, under its list and ahead of its question, what the repair changes and what it leaves alone,
+so the two questions read as the separate repairs they are. A path in either list whose name, or a directory containing
+it inside the project, matches the invoker's secret patterns is marked `[secret]`, with one line saying the secret gate
+makes it owner-only before a repair runs. The mark reads the patterns through `secret-patterns.lib.sh`, the classifier
+`ai-tools-lockdown` matches with, and is advisory: the gate decides, and where the library does not load,
+or under `--for`, whose target's patterns file the invoker cannot read, no path is marked.
 
 **After the Apply block the claim checks each drifted path on its own** against the postconditions its repair
 establishes, and a re-scan of the tree does not decide `fixed`, since a path can be missing from one because the scan

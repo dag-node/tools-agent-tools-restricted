@@ -2285,9 +2285,13 @@ cmd_project_claim() {
                 _outcome="${_group_outcomes[_i]:-unverified}"
                 _detail="${_group_details[_i]:-}"
                 [[ "${_outcome}" == fixed ]] && _detail="was ${drift_before[_i]}"
-                # A repair that did not run leaves the path as the scan read it, so the row says so in the fixed row's
-                # terms; a repair that ran and did not take keeps the check's own reason.
-                [[ "${_outcome}" == not-fixed ]] && ! ${do_drift} && _detail="still ${drift_before[_i]}"
+                # A repair that did not run, over a path still as the scan read it, is said in the fixed row's terms.
+                # A path something else changed since -- the secret gate sealing it owner-only -- keeps the check's own
+                # reason, which names what it now is.
+                if [[ "${_outcome}" == not-fixed ]] && ! ${do_drift} \
+                        && [[ "$(stat -c '%U:%G %a' -- "${drift[_i]}" 2>/dev/null)" == "${drift_before[_i]}" ]]; then
+                    _detail="still ${drift_before[_i]}"
+                fi
                 [[ "${_outcome}" == not-fixed ]] && _left_group=true
                 # A path on both lists is reachable only once both repairs took: its permissions and its type each
                 # refuse the agent on their own, so one fixed and the other not leaves it as closed
@@ -2473,7 +2477,9 @@ cmd_project_claim() {
     # of this list also on the relabel list, a group repair would move each path's group and share none of them:
     # the question is not asked, and the rows report the group as not fixed.
     local group_needs_label=false _p
-    if (( ${#drift[@]} && ${#label_drift[@]} )) && ! ${do_label_drift}; then
+    # On a host not enforcing, a foreign type does not refuse the agent, so the group repair alone shares the path.
+    if (( ${#drift[@]} && ${#label_drift[@]} )) && ! ${do_label_drift} \
+            && [[ "$(getenforce 2>/dev/null)" == Enforcing ]]; then
         local -A _on_label_list=()
         for _p in "${label_drift[@]}"; do _on_label_list["${_p}"]=1; done
         group_needs_label=true
@@ -4006,17 +4012,17 @@ remove_clone() {
 # read access to secret files; clears any guard CLAUDE.md on a real (non-dry-run) success. --dry-run and -y/--yes pass
 # through to the helper.
 cmd_project_lockdown() {
-    local d="" a dry=false; local -a passthru=()
+    local d="" a dry=false assume_yes=false; local -a passthru=()
     for a in "$@"; do
         case "${a}" in
             --dry-run)    passthru+=("${a}"); dry=true ;;
-            -y|--yes)     passthru+=("${a}") ;;
+            -y|--yes)     passthru+=("${a}"); assume_yes=true ;;
             -*)           die "unknown projects lockdown option: ${a} (allowed: --dry-run, --yes)" ;;
             *)            if [[ -z "${d}" ]]; then d="${a}"; else die "projects lockdown takes a single path"; fi ;;
         esac
     done
     # Refused here, before the helper's sudo, so the password is not asked for a command line that will not run.
-    if ${dry} && [[ " ${passthru[*]} " == *" -y "* || " ${passthru[*]} " == *" --yes "* ]]; then
+    if ${dry} && ${assume_yes}; then
         die_usage MSG-P5P8 "--yes has no effect with --dry-run, which neither changes a path nor asks"
     fi
     d="$(resolve_dir "${d:-$PWD}")"

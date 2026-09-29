@@ -565,7 +565,11 @@ drive_rows() {
         : > "${R}/pl/both.txt"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/pl/both.txt"
         chmod 0640 "${R}/pl/both.txt"; chcon -t user_tmp_t "${R}/pl/both.txt"
         cli_stub_reset; drive cli ai-tools.projects.claim "${R}/pl"
-        expect "relabel not run: the group question is not asked"    out_has_text "group repair not offered"
+        if [[ "$(getenforce 2>/dev/null)" == Enforcing ]]; then
+            expect "relabel not run, enforcing: the group question is not asked" out_has_text "group repair not offered"
+        else
+            expect "relabel not run, not enforcing: the group question is asked" out_lacks_text "group repair not offered"
+        fi
         expect "the drift left on both lists exits 4"                 rc_is 4
         cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
         expect "relabel run: the group question is asked"             out_lacks_text "group repair not offered"
@@ -646,8 +650,11 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" "$(f dry-run)" "${R}/unreg"
     expect "--force --dry-run previews and applies nothing"           quiet_rc 0
     expect "the preview leaves the fingerprint in place"              test "$(stat -c %G "${R}/unreg")" = "${SANDBOX_GROUP}"
-    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" "$(f dry-run)" "$(f yes)" "${R}/unreg"
-    expect "--yes beside --dry-run is refused with exit 2, no helper" quiet_rc 2
+    for pair in "dry-run yes" "yes dry-run" "dry-run yes.short"; do
+        read -r k1 k2 <<< "${pair}"
+        cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" "$(f "${k1}")" "$(f "${k2}")" "${R}/unreg"
+        expect "unclaim refuses $(f "${k1}") $(f "${k2}") with exit 2, no helper" quiet_rc 2
+    done
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" "${R}/unreg"
     expect "--force without --yes declines at the confirm"            rc_not0
     expect "the declined --force reaches no helper"                   cli_log_empty
@@ -867,8 +874,11 @@ drive_rows() {
     done
     cli_stub_reset; drive cli ai-tools.projects.lockdown -n "${R}/pa"
     expect "lockdown has no -n short form, no helper"                 quiet_refusal
-    cli_stub_reset; drive cli ai-tools.projects.lockdown "$(f dry-run)" "$(f yes)" "${R}/pa"
-    expect "lockdown refuses --yes beside --dry-run with exit 2, no helper" quiet_rc 2
+    for pair in "dry-run yes" "yes dry-run" "dry-run yes.short"; do
+        read -r k1 k2 <<< "${pair}"
+        cli_stub_reset; drive cli ai-tools.projects.lockdown "$(f "${k1}")" "$(f "${k2}")" "${R}/pa"
+        expect "lockdown refuses $(f "${k1}") $(f "${k2}") with exit 2, no helper" quiet_rc 2
+    done
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" -n "${R}/unreg"
     expect "unclaim has no -n short form, no helper"                  quiet_refusal
     guard="${R}/pa/CLAUDE.md"
