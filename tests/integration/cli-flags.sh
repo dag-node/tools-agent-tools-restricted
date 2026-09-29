@@ -404,6 +404,12 @@ drive_rows() {
     # it could not make, so the assertion is on the statuses a report can close with.
     drive cli ai-tools.status;    expect "the host report runs and reaches no helper"     quiet_report 0 4 5
     drive cli ai-tools.providers; expect "the provider report runs and reaches no helper" quiet_report 0
+    # A report does not take any argument, and one given is refused rather than ignored. The bare `providers` reads
+    # a second word as its verb, so its refusal is the unknown-command one in the collection spelling and the parser's
+    # in the option spelling; the row asserts the refusal and the empty call log, which the two share.
+    drive cli ai-tools.projects.list "${R}/pa"; expect "projects list refuses an argument with exit 2, no helper" quiet_rc 2
+    drive cli ai-tools.status "${R}/pa";        expect "status refuses an argument with exit 2, no helper"        quiet_rc 2
+    drive cli ai-tools.providers "${R}/pa";     expect "providers refuses an argument, no helper"                 quiet_refusal
 
     cli_stub_reset
     drive cli ai-tools.stop;               expect "stop calls the stop helper with no argument" test "$(cli_call_count ai-tools-stop)" -eq 1 -a -z "$(cli_calls ai-tools-stop)"
@@ -832,6 +838,14 @@ drive_rows() {
     section "ai-tools.projects.push / ai-tools.projects.remove.clone"
     runuser -u "${PROJECTS_USER}" -- git -C "${SBROOT}/${N_SRC}" -c user.name=cli-flags -c user.email=cli-flags@example.invalid \
         -c commit.gpgsign=false commit --allow-empty -m "sandbox work" >/dev/null 2>&1
+    # The verb does not take any option: one is refused with the usage status ahead of the push, since the confirm
+    # defaults to yes and a `--dry-run` dropped from the command line would push where the caller asked to look.
+    # The unpushed commit stays unpushed, which the first successful push row then reads as its own precondition.
+    cli_stub_reset; drive cli ai-tools.projects.push "$(f dry-run)" "${SBROOT}/${N_SRC}"
+    expect "push refuses --dry-run with exit 2, no helper"           quiet_rc 2
+    expect "the refused push advances no branch"                      test "$(remote_tip sandbox/main)" != "$(gitr -C "${SBROOT}/${N_SRC}" rev-parse HEAD)"
+    drive cli ai-tools.projects.push "${SBROOT}/${N_SRC}" "${R}/pa"
+    expect "push refuses two paths with exit 2, no helper"            quiet_rc 2
     cli_stub_reset; drive cli ai-tools.projects.push "${SBROOT}/${N_SRC}"
     expect "push exits 0"                                             rc_is 0
     expect "push advances the remote branch to the clone's HEAD"      test "$(remote_tip sandbox/main)" = "$(gitr -C "${SBROOT}/${N_SRC}" rev-parse HEAD)"

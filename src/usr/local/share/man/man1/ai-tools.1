@@ -404,6 +404,8 @@ Push the sandbox clone's commits to the remote branch it tracks
 .RI ( sandbox/LEAF
 by default; see
 .BR \-\-branch ).
+It does not take options: one given is refused with exit 2 before anything is
+pushed, since the confirmation defaults to yes.
 .TP
 .B projects lockdown \fR[\fIDIRECTORY\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR]
 Lock secret-named files under the project (\fB.env\fR, \fB*.key\fR, ...) to
@@ -766,14 +768,18 @@ deleted by hand.
 .B 2
 The command line was rejected: an unknown option, or
 .B "projects claim"
-given two directories or a
+or
+.B "projects push"
+given two directories, or a
 .B \-\-format
 value other than
 .BR tsv .
 .B stop
 returns this for a
 .I DIRECTORY
-argument, which it refuses rather than accepts and ignores.
+argument, and
+.BR "projects list" ", " status " and " "providers"
+for any argument, which each refuses rather than accepts and ignores.
 .TP
 .B 3
 The target is a protected path \(em a system directory or a home root \(em and

@@ -3958,9 +3958,18 @@ cmd_project_clone() {
 }
 
 # cmd_project_push [path]  -- push the sandbox clone's commits ahead of its upstream branch, after listing them
-# and confirming. No-op when already up to date.
+# and confirming. No-op when already up to date. The verb does not take any option, so one is refused with the usage
+# status rather than dropped: the push confirm defaults to yes and is taken without a terminal, so a `--dry-run` read
+# as a path or silently discarded would push where the caller asked to look.
 cmd_project_push() {
-    local d; d="$(resolve_dir "${1:-$PWD}")"
+    local d="" a
+    for a in "$@"; do
+        case "${a}" in
+            -*) die_usage MSG-C2U5 "unknown projects push option: ${a} (projects push takes no options)" ;;
+            *)  if [[ -z "${d}" ]]; then d="${a}"; else die_usage MSG-K4R8 "projects push takes a single path"; fi ;;
+        esac
+    done
+    d="$(resolve_dir "${d:-$PWD}")"
     require_sandbox_clone "${d}"
     local up
     up="$(git -C "${d}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)" \
@@ -4261,7 +4270,7 @@ cmd_stop() {
 # an untrusted manifest, an enabled-but-uninstalled name -- go to its stderr and are captured and shown here; at launch
 # they reach only the terminal and journald.
 cmd_providers() {
-    [[ "$#" -eq 0 ]] || die "providers list takes no arguments"
+    [[ "$#" -eq 0 ]] || die_usage MSG-H2P7 "providers list takes no arguments"
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/providers.lib.sh
     if ! source "${providers_lib}" 2>/dev/null \
@@ -4848,6 +4857,9 @@ status_fold() {
 }
 
 cmd_status() {
+    # A report does not take any argument; one given is refused with the usage status rather than ignored, so a caller
+    # reading the exit code from cron learns the command line is wrong instead of reading a report it did not ask for.
+    [[ "$#" -eq 0 ]] || die_usage MSG-X9Z9 "status takes no arguments"
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/records-base.lib.sh
     if ! source "${RECORDS_BASE_LIB}" 2>/dev/null \
             || ! declare -F ai_tools_records_get_exit_status >/dev/null 2>&1; then
@@ -5002,6 +5014,7 @@ status_services() {
 # a stale path that no longer exists, or a project listed but never fully claimed). All read-only, reusing existing
 # predicates and verbs -- no recovery machinery of its own.
 cmd_project_list() {
+    [[ "$#" -eq 0 ]] || die_usage MSG-E2A5 "projects list takes no arguments"
     [[ -f "${ALLOWLIST}" ]] || { say "no allowlist at ${ALLOWLIST}"; return 0; }
     # Name the operator on a --for run: the listed entries are that account's launch gate, not the invoker's,
     # and an unlabelled listing of someone else's projects reads as your own.
@@ -5578,7 +5591,7 @@ unknown_command() {
 projects_dispatch() {
     local verb="$1"; shift
     case "${verb}" in
-        list)     cmd_project_list ;;
+        list)     cmd_project_list     "$@" ;;
         create)   cmd_project_create   "$@" ;;
         claim)    cmd_project_claim    "$@" ;;
         unclaim)  cmd_project_unclaim  "$@" ;;
@@ -5586,7 +5599,7 @@ projects_dispatch() {
         enable)   cmd_project_enable   "$@" ;;
         disable)  cmd_project_disable  "$@" ;;
         clone)    cmd_project_clone    "$@" ;;
-        push)     cmd_project_push     "${1:-}" ;;
+        push)     cmd_project_push     "$@" ;;
         lockdown) cmd_project_lockdown "$@" ;;
         handback) cmd_project_handback "$@" ;;
         *)        unknown_command "projects ${verb}" ;;
@@ -5604,7 +5617,7 @@ providers_dispatch() {
 case "${COMMAND%% *}" in
     projects)  projects_dispatch  "${COMMAND#* }" "$@" ;;
     providers) providers_dispatch "${COMMAND#* }" "$@" ;;
-    status)    cmd_status ;;
+    status)    cmd_status "$@" ;;
     audit)     cmd_audit "$@" ;;
     stop)      cmd_stop  "$@" ;;
     --version) printf 'ai-tools %s\n' "${AI_TOOLS_VERSION}" ;;
