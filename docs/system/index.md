@@ -1,7 +1,8 @@
 # System
 
 **System** · [Logs](logs.md) · [SELinux](selinux.md) · [Entrypoint
-verification](entrypoint-verification.md) — [all docs](../index.md)
+verification](entrypoint-verification.md) · [Reading a record
+stream](record-streams.md) — [all docs](../index.md)
 
 Whether this host is healthy and what to read when it is not: the status
 commands, the audit over both log trails, confinement, and the entrypoint pin.
