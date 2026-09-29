@@ -55,8 +55,8 @@ else
 fi
 
 # The command: what runs on every call, root-owned so a session cannot change what leaves the host or fabricate
-# a result. transport.mjs is the file that decides where a request goes and what a body is trusted to carry. The
-# directory and every module a call imports are checked; one PASS covers them, one FAIL names each writable path.
+# a result. transport.mjs is the file that decides where a request goes and what a body is trusted to carry.
+# The directory and every module a call imports are checked; one PASS covers them, one FAIL names each writable path.
 if [[ ! -e "${LIB}" ]]; then
     skip "${LIB}" "not deployed on this host"
 else

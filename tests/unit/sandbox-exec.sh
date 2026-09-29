@@ -48,8 +48,8 @@ if [[ "${EUID}" -ne 0 ]]; then
     rc=0; out="$(ai_tools_as_sandbox ai-tools id 2>&1)" || rc=$?
     [[ "${rc}" -eq 1 && "${out}" == *"needs root"* ]] \
         && pass "a caller that is not root is refused, and nothing runs" || fail "non-root call: rc ${rc}: ${out}"
-    # The identity check against this process: yes only where the invoker is the resolved sandbox account, which
-    # a development run as that account is.
+    # The identity check against this process: yes only where the invoker is the resolved sandbox account,
+    # which a development run as that account is.
     if [[ -n "$(ai_tools_sandbox_uid)" && "${EUID}" -eq "$(ai_tools_sandbox_uid)" ]]; then
         ai_tools_is_sandbox_account && pass "the sandbox account, running this file itself, reads as itself" \
             || fail "the sandbox account running this file does not read as itself"
@@ -182,8 +182,8 @@ out="$(ai_tools_as_sandbox "${SANDBOX_USER}" printf '%s|%s|%s' '$1' '${HOME}' '$
 
 # How long a start takes here -- the scope's bus call, runuser's PAM session, the trampoline -- measured on a command
 # that exits at once, since a loaded host gives it seconds where this one gives it a fraction. The bound, drain
-# and escape cases size their bound from it, so a slow start does not read as a cleanup failure, and a fast one is
-# not waited for longer than it takes.
+# and escape cases size their bound from it, so a slow start does not read as a cleanup failure, and a fast one is not
+# waited for longer than it takes.
 started=${SECONDS}
 ai_tools_as_sandbox "${SANDBOX_USER}" /usr/bin/true >/dev/null 2>&1 || true
 start_latency=$(( SECONDS - started ))

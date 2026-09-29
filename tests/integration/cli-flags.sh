@@ -154,10 +154,10 @@ make_fixtures() {
 # run_in <cwd> <args...>: the deployed CLI as the projects user, shim first on PATH, every registry pointed
 # at a fixture, under setsid so no prompt can block. Output captured with stderr, or with stderr written to the file
 # RUN_STDERR names when it is set; RUN_EXTRA_ENV adds NAME=value pairs to the environment.  The inner shell expands $1
-# and $@ itself, which is why they sit in single quotes. With RUN_TTY_ANSWERS set the CLI runs under script(1)
-# instead, on a pseudo-terminal fed that text, for the one question no flag pre-answers: confirm reads /dev/tty, which
-# script makes the controlling terminal and holds the answers on until they are read (the shape unit/msg.sh drives its
-# menus through). Bounded, since a question the answers do not reach would wait on the terminal.
+# and $@ itself, which is why they sit in single quotes. With RUN_TTY_ANSWERS set the CLI runs under script(1) instead,
+# on a pseudo-terminal fed that text, for the one question no flag pre-answers: confirm reads /dev/tty, which script
+# makes the controlling terminal and holds the answers on until they are read (the shape unit/msg.sh drives its menus
+# through). Bounded, since a question the answers do not reach would wait on the terminal.
 # shellcheck disable=SC2016
 RUN_EXTRA_ENV=()
 run_in() {

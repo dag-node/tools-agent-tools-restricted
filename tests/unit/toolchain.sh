@@ -281,8 +281,8 @@ TOOLCHAIN_WRITER_STUB_DEFINITION=""
 run_toolchain_writer_as_sandbox() {
     local function_name="$1"; shift
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
-    # NVM travels too: the collector stub's body names the fixture tree through it, and the child's environment
-    # is otherwise clean.
+    # NVM travels too: the collector stub's body names the fixture tree through it, and the child's environment is
+    # otherwise clean.
     as_sandbox env AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" NPM_STUB_KEEP="${NPM_STUB_KEEP:-}" \
         NVM="${NVM}" \
         bash -c 'source "$1"; eval "$2"; function_name="$3"; shift 3; "${function_name}" "$@"' \

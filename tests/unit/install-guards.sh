@@ -135,8 +135,8 @@ git_fix init -q
 git_fix add -A
 git_fix commit -q -m "fixture"
 # run_gate [arg...] -- the check-tree action on the fixture, its combined output and exit status published in GATE_OUT /
-# GATE_RC. Detached from any terminal, as the gate does not prompt. The installed CLI it orders against is a path that
-# does not exist, so the version gate passes whatever this host has installed; (13a) drives that gate on its own.
+# GATE_RC. Detached from any terminal, as the gate does not prompt. The installed CLI it orders against is a path
+# that does not exist, so the version gate passes whatever this host has installed; (13a) drives that gate on its own.
 run_gate() {
     set +e
     GATE_OUT="$(AI_TOOLS_INSTALLED_CLI="${TESTDIR}/no-installed-cli" SUDO_USER="${PROJECTS_USER}" setsid -w bash "${FIX}/install.sh" check-tree "$@" 2>&1)"

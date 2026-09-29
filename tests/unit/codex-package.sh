@@ -3,8 +3,8 @@
 # tests/unit/codex-package.sh
 # Unit test for the files ai-tools-agents-codex-restricted ships, held to the seams they plug into before any host
 # installs them: the manifest to the readers that parse it, the fragment to the session-env contract, the launcher
-# to the shared launch wrapper, the two managed TOML files to the shape codex was measured to accept, and the two
-# hook adapters to the payload shapes codex sends. Each property is one a host would otherwise discover at the first
+# to the shared launch wrapper, the two managed TOML files to the shape codex was measured to accept, and the two hook
+# adapters to the payload shapes codex sends. Each property is one a host would otherwise discover at the first
 # launch:
 #
 #   1. THE MANIFEST'S TWO PATHS AGREE. `launcher_target` names the file the launcher is re-linked

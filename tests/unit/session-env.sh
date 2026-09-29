@@ -17,8 +17,8 @@
 #      agent's launch.
 #
 # The checker is driven on fixtures it must refuse -- a name-only import, a token value, a PATH tail -- so a green run
-# is not an allowlist that admits everything. Pure: the pins files are read from the checkout, the fixtures are files this test
-# writes in its testdir, and no host state is read. Run without root.
+# is not an allowlist that admits everything. Pure: the pins files are read from the checkout, the fixtures are files
+# this test writes in its testdir, and no host state is read. Run without root.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

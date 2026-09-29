@@ -14,8 +14,8 @@ cd tools-agent-tools-restricted
 ```
 
 Set the recurring identities once, in the shell you run these steps
-in, so every command pastes verbatim (the full naming spec is
-in [Naming conventions](../naming-conventions.md)):
+in, so every command pastes verbatim (the full naming spec is in [Naming
+conventions](../naming-conventions.md)):
 
 ```bash
 export PROJECTS_USER="$(id -un)"
@@ -276,10 +276,9 @@ ai-tools projects clone /path/to/repo          # an isolated shallow clone
 ai-tools projects lockdown /path/to/project    # revoke agent access to secrets (sudo)
 ```
 
-[Project lifecycle](../projects/index.md) covers registering in depth —
-claim vs sandbox clone, what each consent prompt grants (including
-the traverse-only parent grant a home-nested project needs), and every
-recovery/reversal path.
+[Project lifecycle](../projects/index.md) covers registering in depth — claim
+vs sandbox clone, what each consent prompt grants (including the traverse-only
+parent grant a home-nested project needs), and every recovery/reversal path.
 
 To remove everything installed by this script: `sudo ./install.sh uninstall`.
 It keeps what you configured, and it keeps Node under `/opt/ai-tools/.nvm`;

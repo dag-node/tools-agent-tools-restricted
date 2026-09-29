@@ -389,8 +389,8 @@ else
         else
             fail "${agent}: ${distinct} distinct inodes carry ai_tools_exec_t (${entry_names[*]}) -- each is a domain entrypoint the manifest does not declare and the pin does not cover"
         fi
-        # A name-wise breakdown beside the inode-wise verdict: the entrypoint's hardlinked names count twice here and once
-        # there, so the two agree on a healthy package.
+        # A name-wise breakdown beside the inode-wise verdict: the entrypoint's hardlinked names count twice here
+        # and once there, so the two agree on a healthy package.
         by_type="$(printf '%s' "${types}" | sort | uniq -c | awk '{printf "%s%s(%s)", (NR > 1 ? " " : ""), $2, $1}')"
         note "${agent}: $(printf '%s' "${types}" | grep -c '^.' || true) executable file(s) under ${pkg}, by type: ${by_type}" \
             "counted by name; the check above counts inodes, so hardlinked names of the entrypoint count once there"
