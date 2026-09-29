@@ -275,6 +275,35 @@ else
     fi
 fi
 
+# ── drift_walk_read ───────────────────────────────────────────────────────────────────────────
+# The reader both scans take their walk through orders the capture in the C locale, so the rows a claim writes do not
+# follow the filesystem's entry order; the capture here is written out of order on purpose, since a `find`
+# over the fixture would be in whatever order this host's filesystem returns.
+section "drift_walk_read: a walk's capture is read in byte order (unit)"
+
+dw_work="${TESTDIR}/walk-read"
+mkdir -p "${dw_work}"
+printf '%s\0' "/p/n b" "/p/m" $'/p/a\nb' "/p/M" > "${dw_work}/capture"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${dw_work}"
+# shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell
+dw_got="$(runuser -u "${PROJECTS_USER}" -- bash -c \
+    'cli="$1"; capture="$2"; set --
+     source "${cli}" >/dev/null 2>&1 || exit 99
+     declare -F drift_walk_read >/dev/null || exit 98
+     declare -a paths=()
+     drift_walk_read "${capture}" paths || exit 97
+     printf "%s|" "${paths[@]}"' _ "${CLI}" "${dw_work}/capture" 2>/dev/null)" || dw_rc=$?
+dw_want="$(printf '%s|' "/p/M" $'/p/a\nb' "/p/m" "/p/n b")"
+if (( ${dw_rc:-0} == 99 || ${dw_rc:-0} == 98 )); then
+    skip "drift_walk_read" "the installed CLI predates the shared walk reader"
+elif (( ${dw_rc:-0} != 0 )); then
+    fail "drift_walk_read could not be driven (exit ${dw_rc})"
+elif [[ "${dw_got}" == "${dw_want}" ]]; then
+    pass "drift_walk_read orders an unsorted capture by byte, a line feed in a name kept"
+else
+    fail "drift_walk_read printed '$(tr '\n' '>' <<<"${dw_got}")', want '$(tr '\n' '>' <<<"${dw_want}")'"
+fi
+
 # ── claim_verify_label / claim_verify_group ───────────────────────────────────────────────────
 # The checks after the Apply block, driven through the sourced CLI with restorecon a stub: a path removed
 # before the check reads gone, a batch that fails reads the paths still present unverified and the ones now absent gone

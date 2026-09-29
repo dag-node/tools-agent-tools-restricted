@@ -852,17 +852,19 @@ absence yields `gone`, and the group check reads a path's owner, group, mode and
 result is an observation of that object rather than a guarantee against a later change. The contracts — the absence
 rule, the label batch, the ACL entries and the mask rule — are the doc comments in `project-permissions.lib.sh`.
 
-Each path gets one row carrying its outcome, `fixed`, `not-fixed`, `unverified` or `gone`. On the page it is
-an **outcome line**, `<outcome> TAB <kind> TAB <path> TAB <detail>` with `label` or `group` as the kind, uncoloured
-and with the path sanitized, so a path the claim left as it was is named rather than lost among the steps that ran. Each
-row folds its severity into the report state `ai-tools-records(5)` states, and the claim ends with it: 4 when a path is
-left not-fixed or a scan was capped, 5 when a check or a scan could not be read, and 1 over both when a root step
-failed. The ways to settle a not-fixed path follow the rows, each a command the file's owner runs — the invoker,
-or the target operator under `--for` — since the claim's repairs act on every path they reach and choosing a subset has
-no per-path form in the claim. A path on both lists is reachable only once both repairs took, since its permissions
-and its type each refuse the agent on their own, so where exactly one reads `fixed` the claim adds one line counting
-those paths. With every repair declined and no other step pending, the Apply block does not open and the closing line
-carries `no change applied`, which it prints only where no step that writes could have run.
+Each path gets one row carrying its outcome, `fixed`, `not-fixed`, `unverified` or `gone`, the rows in the byte order
+of their paths whatever order the filesystem walked them (`drift_walk_read`), so two runs over one tree list the same
+drift in the same order. On the page a row is an **outcome line**, `<outcome> TAB <kind> TAB <path> TAB <detail>`
+with `label` or `group` as the kind, uncoloured and with the path sanitized, so a path the claim left as it was is named
+rather than lost among the steps that ran. Each row folds its severity into the report state `ai-tools-records(5)`
+states, and the claim ends with it: 4 when a path is left not-fixed or a scan was capped, 5 when a check or a scan could
+not be read, and 1 over both when a root step failed. The ways to settle a not-fixed path follow the rows, each
+a command the file's owner runs — the invoker, or the target operator under `--for` — since the claim's repairs act
+on every path they reach and choosing a subset has no per-path form in the claim. A path on both lists is reachable only
+once both repairs took, since its permissions and its type each refuse the agent on their own, so where exactly one
+reads `fixed` the claim adds one line counting those paths. With every repair declined and no other step pending,
+the Apply block does not open and the closing line carries `no change applied`, which it prints only where no step
+that writes could have run.
 
 **Configuration the build reads from a project's ancestors.** A build toolchain collects configuration by walking
 from the project directory toward `/`, so a file it opens in an ancestor that the sandbox account is denied fails

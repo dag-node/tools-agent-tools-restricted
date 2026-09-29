@@ -1039,13 +1039,16 @@ dir_owngap() {
     return 0
 }
 
-# drift_walk_read <capture-file> <paths-array>  -- read a walk's NUL-separated capture into <paths-array>. Returns 1,
-# with the array empty, when the capture is missing, not a regular file, or cannot be read: a walk whose output was not
-# read is not an empty tree.
+# drift_walk_read <capture-file> <paths-array>  -- read a walk's NUL-separated capture into <paths-array> in byte order
+# (`sort -z` in the C locale, in place): `find` returns a directory's entries in the order the filesystem stores them,
+# so without the sort the page and the record stream would list drift in an order that differs between filesystems
+# and between two walks of one tree. Returns 1, with the array empty, when the capture is missing, not a regular file,
+# cannot be sorted or cannot be read: a walk whose output was not read is not an empty tree.
 drift_walk_read() {
     local -n _walk_paths="$2"
     _walk_paths=()
     [[ -f "$1" && ! -L "$1" && -r "$1" ]] || return 1
+    LC_ALL=C sort -z -o "$1" -- "$1" 2>/dev/null || return 1
     mapfile -d '' -t _walk_paths 2>/dev/null < "$1" || { _walk_paths=(); return 1; }
 }
 
