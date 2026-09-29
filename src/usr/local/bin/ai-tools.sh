@@ -1517,18 +1517,24 @@ grant_ancestor_traversal() {
 # would miss the path and this walk would re-open the secret the gate locked.
 normalize_clone() {
     local d="$1"; shift
-    local -a prune=() p
-    for p in "$@"; do prune+=( -path "$(find_pattern_literal "${p}")" -prune -o ); done
+    local -a prune=() p pattern
+    for p in "$@"; do
+        find_pattern_literal pattern "${p}"
+        prune+=( -path "${pattern}" -prune -o )
+    done
     find "${d}" -xdev "${prune[@]}" '(' -type f -o -type d ')' -exec chmod g+rwX {} +
     find "${d}" -xdev "${prune[@]}" -type d -exec chmod g+s {} +
 }
 
-# find_pattern_literal <path>  -- print <path> escaped for find's `-path`/`-name` pattern grammar, so it matches
-# the path literally: a backslash escapes `\`, `*`, `?` and `[`, the characters fnmatch(3) reads as pattern syntax.
+# find_pattern_literal <output-variable> <path>  -- set <output-variable> to <path> escaped for find's `-path`/`-name`
+# pattern grammar, so it matches the path literally: a backslash escapes `\`, `*`, `?` and `[`, the characters
+# fnmatch(3) reads as pattern syntax. The result is set rather than printed: a `$(...)` capture strips a trailing
+# newline, so a locked name ending in one would lose it and miss its prune.
 find_pattern_literal() {
-    local s="$1"
+    local -n _pattern_out="$1"
+    local s="$2"
     s="${s//\\/\\\\}"; s="${s//\*/\\*}"; s="${s//\?/\\?}"; s="${s//\[/\\[}"
-    printf '%s' "${s}"
+    _pattern_out="${s}"
 }
 
 # clone_is_private <dir>  -- 0 while the clone root is owner-only: the state cmd_project_clone's pinned umask leaves

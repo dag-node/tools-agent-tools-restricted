@@ -515,18 +515,19 @@ fi
 
 # ── normalize_clone ──────────────────────────────────────────────────────────────────────────
 # The step that opens a clone to the agent group once the gate has passed. What it must not do: change a path the gate
-# did not scan -- chmod follows a symlink named on its command line, so a tracked link to a file outside the clone
-# would take its target's mode with it -- and re-open a path the gate locked, which `-path` would miss if the locked
-# name carried a pattern character (the bracket here) and were not escaped.
+# did not scan -- chmod follows a symlink named on its command line, so a tracked link to a file outside the clone would
+# take its target's mode with it -- and re-open a path the gate locked, which `-path` would miss if the locked name
+# carried a pattern character (the bracket here) and were not escaped, or ended in a newline a `$(...)` capture
+# of the escaped pattern would strip.
 section "normalize_clone: opens files and directories alone, and keeps a locked path locked (unit)"
-nc_work="${TESTDIR}/nc"; nc_out="${TESTDIR}/nc-outside"
+nc_work="${TESTDIR}/nc"; nc_out="${TESTDIR}/nc-outside"; nc_newline="${nc_work}/"$'.env.production\n'
 mkdir -p "${nc_work}/config[prod]" "${nc_work}/sub"
-: > "${nc_work}/config[prod]/.env"; : > "${nc_work}/plain.txt"; : > "${nc_out}"
+: > "${nc_work}/config[prod]/.env"; : > "${nc_work}/plain.txt"; : > "${nc_out}"; : > "${nc_newline}"
 ln -s "${nc_out}" "${nc_work}/link"
 chown -R -h "${PROJECTS_USER}:${PROJECTS_GROUP}" "${nc_work}" "${nc_out}"
 chmod 0700 "${nc_work}" "${nc_work}/config[prod]" "${nc_work}/sub"
-chmod 0600 "${nc_work}/config[prod]/.env" "${nc_work}/plain.txt" "${nc_out}"
-if call normalize_clone "${nc_work}" "${nc_work}/config[prod]/.env" >/dev/null 2>&1; then
+chmod 0600 "${nc_work}/config[prod]/.env" "${nc_work}/plain.txt" "${nc_out}" "${nc_newline}"
+if call normalize_clone "${nc_work}" "${nc_work}/config[prod]/.env" "${nc_newline}" >/dev/null 2>&1; then
     nc_ok=true
     [[ "$(perm "${nc_work}/plain.txt")" == 660 ]]  || { fail "normalize_clone: plain.txt is $(perm "${nc_work}/plain.txt"), want 660"; nc_ok=false; }
     [[ "$(stat -c '%a' "${nc_work}/sub")" == 2770 ]] || { fail "normalize_clone: sub is $(stat -c '%a' "${nc_work}/sub"), want 2770"; nc_ok=false; }
@@ -540,6 +541,11 @@ if call normalize_clone "${nc_work}" "${nc_work}/config[prod]/.env" >/dev/null 2
         pass "normalize_clone keeps a locked path whose name carries a pattern character locked"
     else
         fail "normalize_clone re-opened the locked path: $(perm "${nc_work}/config[prod]/.env")"
+    fi
+    if [[ "$(perm "${nc_newline}")" == 600 ]]; then
+        pass "normalize_clone keeps a locked path whose name ends in a newline locked"
+    else
+        fail "normalize_clone re-opened the locked path ending in a newline: $(perm "${nc_newline}")"
     fi
 else
     fail "normalize_clone could not be driven (exit $?)"
