@@ -166,9 +166,17 @@ unknown projects remove option: ${a}
 ERROR.
 the sandbox account is not an operator and must not own projects
 .TP
+.B MSG-P4D2
+ERROR.
+\-\-yes has no effect with \-\-dry\-run, which neither changes a path nor asks
+.TP
 .B MSG-P4K8
 ERROR.
 label\-unverified
+.TP
+.B MSG-P5P8
+ERROR.
+\-\-yes has no effect with \-\-dry\-run, which neither changes a path nor asks
 .TP
 .B MSG-P8W2
 ERROR.
@@ -1149,6 +1157,10 @@ unknown argument: $1
 ERROR.
 no TTY for confirmation; re\-run with \-\-yes to apply non\-interactively
 .TP
+.B MSG-G8S6
+ERROR.
+\-\-gate and \-\-dry\-run do not combine \-\- \-\-gate locks what it lists
+.TP
 .B MSG-J3F9
 ERROR.
 excluded in the allowlist: ${target}; nothing to do
@@ -1169,9 +1181,17 @@ must be run by you, not ai\-tools
 ERROR.
 cannot source ${SECRET_PATTERNS_LIB}
 .TP
+.B MSG-T2J8
+ERROR.
+secret\-matching paths left unlocked under ${target}: ${skip_count}, each on a 'not locked:' line \-\- move, re\-link or lock it by hand, then re\-run
+.TP
 .B MSG-T5Y3
 WARNING.
 skip (hardlinked, nlink=${nlink}): ${path}
+.TP
+.B MSG-U8F7
+ERROR.
+cannot create a private directory for the scan
 .TP
 .B MSG-V7Y3
 ERROR.
@@ -1180,6 +1200,14 @@ cannot determine current directory
 .B MSG-V7Y7
 ERROR.
 not an allowed project: ${target} (see ${ALLOWLIST})
+.TP
+.B MSG-X4B9
+ERROR.
+the scan of ${target} could not read the whole tree (find exit ${rc}): $(ai_tools_log_sanitize "$(head \-c 300 "${SCAN_DIR}/find.err")")
+.TP
+.B MSG-Y5H5
+WARNING.
+could not lock ${path} to ${OWNER} ${mode}
 .SS ai-tools-reclaim
 .TP
 .B MSG-J4W5

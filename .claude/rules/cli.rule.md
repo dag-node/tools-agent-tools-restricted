@@ -178,7 +178,7 @@ an ordinary account read it — a partial view, the file sink being the authorit
   and *Reachability* opt-ins, then *Apply* (one result line per step, closed by the final `claimed` line — **only**
   when the steps that grant access applied, and carrying the ✓ only when no drift is left; see *A claim that could not
   apply its root steps does not report success*). `-y/--yes` pre-answers the claim's own default-NO proceed prompt
-  ("Apply the pending steps above IN PLACE?") and its interior relabel question — the launch wrapper passes it
+  ("Apply these pending steps to the tree in place?") and its interior relabel question — the launch wrapper passes it
   for a delegated claim after taking its own confirmation, so the same decision is not asked twice; the scoped opt-ins
   (secret lockdown, `.git` history, ancestor traversal) and the group repair still ask on their own terms (see
   [messaging](messaging.rule.md) for the prompt/pre-answer doctrine). `--format tsv` makes stdout carry the outcome rows
@@ -720,6 +720,11 @@ live entry, in the earliest position it held.
 For a file that is the launch gate, a writer matching lines differently from the reader would leave a project reachable
 after a removal; one shared implementation of the match is what rules that out.
 
+**An option that has no effect beside another is refused rather than ignored**, with the usage status 2
+and before the run's first `sudo`: `--yes` beside `--dry-run` in `projects lockdown` and `projects unclaim`, whose dry
+runs neither change a path nor ask. A silent drop would leave the caller believing the command did what the combination
+asked.
+
 ## Two project models
 
 **Claim in place** (`projects claim`) registers an existing working tree where it lives. A path whose canonical form
@@ -845,11 +850,15 @@ holds to `SANDBOX_GROUP`, which is wrong for a file shared with a team group or 
 defaults to **no**, and `--yes` does not answer it: the launch wrapper that passes `--yes` does not show the operator
 these paths. Either repair answered yes joins the secret gate like any other access-granting step, which is
 why the secret-scan question follows both, and the Review overview says the scan waits on a repair where no other step
-needs it. A declined repair does not stop the claim. The group question is **not asked** when the relabel did not run
-and every path on its list is also on the relabel list: a path on both lists reaches the agent only once both repairs
-take, so the group change alone would move each path's group and share none of them. Each block states, under its list
-and ahead of its question, what the repair changes and what it leaves alone, so the two questions read as the separate
-repairs they are.
+needs it. A declined repair does not stop the claim. On an enforcing host the group question is **not asked**
+when the relabel did not run and every path on its list is also on the relabel list: a path on both lists reaches
+the agent only once both repairs take, so the group change alone would move each path's group and share none of them.
+Each block states, under its list and ahead of its question, what the repair changes and what it leaves alone,
+so the two questions read as the separate repairs they are. A path in either list whose name, or a directory containing
+it inside the project, matches the invoker's secret patterns is marked `[secret]`, with one line saying the secret gate
+makes it owner-only before a repair runs. The mark reads the patterns through `secret-patterns.lib.sh`, the classifier
+`ai-tools-lockdown` matches with, and is advisory: the gate decides, and where the library does not load,
+or under `--for`, whose target's patterns file the invoker cannot read, no path is marked.
 
 **After the Apply block the claim checks each drifted path on its own** against the postconditions its repair
 establishes, and a re-scan of the tree does not decide `fixed`, since a path can be missing from one because the scan
@@ -860,19 +869,20 @@ rule, the label batch, the ACL entries and the mask rule — are the doc comment
 
 Each path gets one row carrying its outcome, `fixed`, `not-fixed`, `unverified` or `gone`, the rows in the byte order
 of their paths whatever order the filesystem walked them (`drift_walk_read`), so two runs over one tree list the same
-drift in the same order. On the page a row is an **outcome line**, `<outcome> TAB <kind> TAB <path> TAB <detail>`
-with `label` or `group` as the kind, uncoloured and with the path sanitized, so a path the claim left as it was is named
-rather than lost among the steps that ran. Each row folds its severity into the report state `ai-tools-records(5)`
-states, and the claim ends with it: 4 when a path is left not-fixed or a scan was capped, 5 when a check or a scan could
-not be read, and 1 over both when a root step failed. The ways to settle a not-fixed path follow the rows, each
-a command the file's owner runs — the invoker, or the target operator under `--for` — since the claim's repairs act
-on every path they reach and choosing a subset has no per-path form in the claim. A path on both lists is reachable only
-once both repairs took, since its permissions and its type each refuse the agent on their own, so where exactly one
-reads `fixed` the claim adds one line counting those paths. With every repair declined and no other step pending,
-the Apply block does not open and the closing line carries `no change applied`, which it prints only where no step
-that writes could have run. The closing line takes the ✓ only where the report state is clean; a claim ending 4 or 5
-marks it `!`, so the page does not pair a success mark with a non-zero exit. A not-fixed group row whose repair did not
-run carries the scan's reading as `still <owner:group mode>`, the terms of a fixed row's `was`.
+drift in the same order. On the page a row is an **outcome line**: outcome, kind (`label` or `group`), path and detail,
+indented under its heading with the first two in aligned columns, uncoloured and with the path sanitized, so a path
+the claim left as it was is named rather than lost among the steps that ran. The line is for reading; `--format tsv` is
+the form a script splits. Each row folds its severity into the report state `ai-tools-records(5)` states, and the claim
+ends with it: 4 when a path is left not-fixed or a scan was capped, 5 when a check or a scan could not be read, and 1
+over both when a root step failed. The ways to settle a not-fixed path follow the rows, each a command the file's owner
+runs — the invoker, or the target operator under `--for` — since the claim's repairs act on every path they reach
+and choosing a subset has no per-path form in the claim. A path on both lists is reachable only once both repairs took,
+since its permissions and its type each refuse the agent on their own, so where exactly one reads `fixed` the claim adds
+one line counting those paths. With every repair declined and no other step pending, the Apply block does not open
+and the closing line carries `no change applied`, which it prints only where no step that writes could have run.
+The closing line takes the ✓ only where the report state is clean; a claim ending 4 or 5 marks it `!`, so the page does
+not pair a success mark with a non-zero exit. A not-fixed group row whose repair did not run carries the scan's reading
+as `still <owner:group mode>`, the terms of a fixed row's `was`.
 
 **Configuration the build reads from a project's ancestors.** A build toolchain collects configuration by walking
 from the project directory toward `/`, so a file it opens in an ancestor that the sandbox account is denied fails
@@ -1050,9 +1060,10 @@ mutating verb — the requirement, and why root cannot stand in, are in [CLAUDE.
 
 ## Secret pre-check on claim/clone
 
-Before granting access, the CLI runs `ai-tools-lockdown --dry-run` and, when secret-matching files are present, prompts
-to lock them down (see [secret-handling](secret-handling.rule.md)). On a claim the gate (`secret_gate`) runs whenever
-**any pending step widens the agent's access** — the setgid group change, the group ACL, drift repair, `.git`
+Before granting access, the CLI runs `ai-tools-lockdown --gate`, one `sudo` call that lists the secret-matching files,
+asks whether to lock them down, and locks them (see [secret-handling](secret-handling.rule.md)); the helper's exit tells
+a lockdown that ran or found none (0) from a decline (6) and a failure. On a claim the gate (`secret_gate`) runs
+whenever **any pending step widens the agent's access** — the setgid group change, the group ACL, drift repair, `.git`
 normalization, the SELinux label — and on every first claim (a tree can be group-accessible by setgid inheritance
 yet never scanned); only pure registry additions (safedir, filemode) skip it. A declined or failed gate fails
 the operation closed: the claim aborts (rolling back its own allowlist addition) and the sandbox create leaves the clone

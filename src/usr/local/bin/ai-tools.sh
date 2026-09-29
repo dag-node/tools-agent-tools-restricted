@@ -551,6 +551,10 @@ readonly RECORDS_BASE_LIB="/usr/local/lib/ai-tools/records-base.lib.sh"
 # with (project-permissions.lib.sh). Loaded by claim_load_libraries, for the same reason records-base is loaded late.
 readonly RECORDS_TSV_LIB="/usr/local/lib/ai-tools/records-tsv.lib.sh"
 readonly PROJECT_PERMISSIONS_LIB="/usr/local/lib/ai-tools/project-permissions.lib.sh"
+# The secret-name classifier ai-tools-lockdown matches with (secret-patterns.lib.sh), which marks a secret-named path
+# in the claim's drift lists. Loaded by claim_load_libraries and not required: the mark is advisory, and the secret gate
+# makes the decision whether or not it loaded.
+readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 # The toolchain readers `status` makes from the operator's vantage (toolchain.lib.sh): a disabled agent's remaining
 # launcher link, and the Node version the enabled agents' links name. Loaded by the sections that read it,
 # through toolchain_lib_loaded, since only `status` reads it.
@@ -1476,66 +1480,48 @@ run_unclaim() {
 
 # secret_gate <dir>  -- the secret-lockdown block: before ANY step grants the agent access to <dir> (the group ACL,
 # the setgid group change, .git normalization, the clone normalize), make sure no group-readable secret would be
-# exposed. The CLI cannot read the root-only secret-pattern library, so detection is delegated to ai-tools-lockdown
-# --dry-run (sudo, password -- the first sudo prompt of a claim, so it lands right under this block's headline). Found
-# secrets are listed and the user is asked to lock them down (--yes apply); the helper's own interactive mode is NOT
-# used for this because it exits 0 whether the user applies or aborts, which would let an un-locked tree through. Fills
-# SECRET_GATE_LOCKED with the found paths so normalize_clone can prune them. Returns 0 only when the tree is safe
-# to expose (no secrets found, or all locked down); non-zero means the caller must fail closed.
+# exposed. The CLI cannot read the root-only secret-pattern library, so one `ai-tools-lockdown --gate` call (sudo,
+# password -- the first sudo prompt of a claim, so it lands right under this block's headline) scans, lists what it
+# found, asks, and locks: one call, so a host whose sudo does not cache the password asks once. Its exit decides: 0
+# locked or found none, 6 declined, anything else failed. AI_TOOLS_ASSUME_YES answers the default-yes question
+# as `--yes`, since sudo does not pass it through. Fills SECRET_GATE_LOCKED with every secret-matching path the helper
+# wrote to stdout, so normalize_clone can prune them. Returns 0 only when the tree is safe to expose; non-zero means
+# the caller must fail closed.
 secret_gate() {
-    local dir="$1" out
+    local dir="$1" found status=0
+    local -a args=(--gate)
     SECRET_GATE_LOCKED=()
-    headline "Secret lockdown" \
-        "scanning ${dir} for secret-named files before the agent is granted access"
-    if ! out="$(run_lockdown "${dir}" --dry-run 2>&1)"; then
-        warn "secret scan failed -- not granting access:"
-        printf '%s\n' "${out}" >&2
-        ai_tools_log_structured error \
-            "secret pre-check: scan failed for ${dir}, access not granted" \
-            "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=failed"
-        return 1
-    fi
-    # "N secret-matching path(s)" when any are found vs "no secret-matching paths" when clean -- match the count form
-    # to tell them apart.
-    if ! grep -qE 'ai-tools-lockdown: [0-9]+ secret-matching' <<<"${out}"; then
-        ok "no secret-matching paths found"
-        ai_tools_log_structured info \
-            "secret pre-check: clean, no secret-matching paths under ${dir}" \
-            "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
-        return 0                                   # clean tree: safe to expose
-    fi
-
-    # The helper has already logged the count and each path (journald + lockdown.log); record the operator-side decision
-    # here too.
-    mapfile -t SECRET_GATE_LOCKED < <(printf '%s\n' "${out}" \
-        | sed -n 's/^[[:space:]]*\[\(file\|dir\)\][[:space:]]*//p')
-    say ""
-    say "  found ${#SECRET_GATE_LOCKED[@]} secret-matching path(s):"
-    printf '%s\n' "${out}" | grep -E '\[(file|dir)\]' >&2 || true
-    warn "lockdown is best effort, matching only known secret patterns -- handle any secret it misses yourself first"
-    ai_tools_log_structured warning \
-        "secret pre-check: secrets present under ${dir} (see lockdown.log for paths)" \
-        "AI_TOOLS_PROJECT=${dir}"
-    # Default YES: locking down is the safe direction and the printed list may be long, so Enter -- and an unattended
-    # run -- proceeds to lock down.
-    if ! confirm "Lock down these secrets now?" y; then
-        warn "declined -- access will not be granted while secrets are exposed"
-        ai_tools_log_structured warning \
-            "secret pre-check: lockdown declined for ${dir}, access not granted" \
-            "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=refused"
-        return 1
-    fi
-    if run_lockdown "${dir}" --yes; then
-        say ""
-        ok "secrets locked down"
-        ai_tools_log_structured info "secret pre-check: secrets locked down under ${dir}" \
-            "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
-        return 0
-    fi
-    warn "lockdown did not complete -- not granting access"
-    ai_tools_log_structured error "secret pre-check: lockdown failed under ${dir}, access not granted" \
-        "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=failed"
-    return 1
+    [[ "${AI_TOOLS_ASSUME_YES:-}" == 1 ]] && args+=(--yes)
+    headline "Secret lockdown" "${dir}"
+    found="$(mktemp)" || { warn "cannot create a temporary file for the secret scan -- not granting access"; return 1; }
+    run_lockdown "${dir}" "${args[@]}" > "${found}" || status=$?
+    mapfile -d '' -t SECRET_GATE_LOCKED < "${found}"
+    rm -f "${found}"
+    case "${status}" in
+        0)
+            if (( ${#SECRET_GATE_LOCKED[@]} )); then
+                ok "secrets locked down"
+                ai_tools_log_structured info "secret pre-check: secrets locked down under ${dir}" \
+                    "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
+            else
+                ok "no secret-matching paths found"
+                ai_tools_log_structured info \
+                    "secret pre-check: clean, no secret-matching paths under ${dir}" \
+                    "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
+            fi
+            return 0 ;;
+        6)
+            warn "declined -- access will not be granted while secrets are exposed"
+            ai_tools_log_structured warning \
+                "secret pre-check: lockdown declined for ${dir}, access not granted" \
+                "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=refused"
+            return 1 ;;
+        *)
+            warn "secret lockdown did not complete -- not granting access"
+            ai_tools_log_structured error "secret pre-check: lockdown failed under ${dir}, access not granted" \
+                "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=failed"
+            return 1 ;;
+    esac
 }
 
 # drop_lockdown_guard <dir>  -- write a placeholder CLAUDE.md telling the agent to wait until lockdown runs, used
@@ -1698,13 +1684,44 @@ claim_setfacl() {
 # path_detail_lines <path...>  -- print each path prefixed with its owner:group and mode, the columns that show
 # at a glance why a path is flagged (the foreign or agent group) and whether its mode is what the operator expects.
 # Shared by the claim's drift report and the unclaim's residue report: both answer the same question about a path,
-# so both show the same columns.
+# so both show the same columns. A caller listing drift sets PATH_DETAIL_MARK=1 for the call, which appends
+# drift_secret_mark to each line.
 path_detail_lines() {
-    local _p _og _m
+    local _p _og _m _mark=""
     for _p in "$@"; do
         IFS=' ' read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) \
             || { _og='?'; _m='?'; }
-        printf '        %s%-18s %-4s %s%s\n' "${C_DIM}" "${_og}" "${_m}" "$(ai_tools_log_sanitize "${_p}")" "${C_RST}"
+        [[ -z "${PATH_DETAIL_MARK:-}" ]] || _mark="$(drift_secret_mark "${_p}")"
+        printf '        %s%-18s %-4s %s%s%s\n' "${C_DIM}" "${_og}" "${_m}" "$(ai_tools_log_sanitize "${_p}")" "${C_RST}" \
+            "${_mark}"
+    done
+}
+
+# drift_secret_mark <path>  -- print ` [secret]` when a component of <path> under the project root <d> (the claim's
+# local, in scope wherever the claim lists its drift) matches a loaded secret pattern, the match ai-tools-lockdown makes
+# before any repair runs. Prints nothing when no pattern set is loaded.
+drift_secret_mark() {
+    declare -F ai_tools_is_secret_basename >/dev/null 2>&1 && [[ -n "${_AI_TOOLS_PATTERNS_LOADED:-}" ]] || return 0
+    local _part
+    local -a _parts=()
+    IFS=/ read -r -a _parts <<< "${1#"${d}"/}"
+    for _part in "${_parts[@]}"; do
+        if [[ -n "${_part}" ]] && ai_tools_is_secret_basename "${_part}"; then
+            printf ' %s[secret]%s' "${C_YEL}" "${C_RST}"
+            return 0
+        fi
+    done
+}
+
+# drift_secret_legend <path...>  -- under a drift list holding a secret-named path, say what the secret gate does
+# with one.
+drift_secret_legend() {
+    local _p
+    for _p in "$@"; do
+        [[ -n "$(drift_secret_mark "${_p}")" ]] || continue
+        say "      ${C_YEL}[secret]${C_RST} if you accept a repair, the secret gate locks it down (owner-only)"
+        say "      first, so no repair shares it with the agent"
+        return 0
     done
 }
 
@@ -1740,17 +1757,17 @@ path_listing() { item_listing "$1 with ownership and mode" path_detail_lines "${
 label_drift_lines() {
     local _path
     for _path in "$@"; do
-        printf '        %s%s  %s%s\n' "${C_DIM}" "${label_drift_types[${_path}]:-?}" \
-            "$(ai_tools_log_sanitize "${_path}")" "${C_RST}"
+        printf '        %s%s  %s%s%s\n' "${C_DIM}" "${label_drift_types[${_path}]:-?}" \
+            "$(ai_tools_log_sanitize "${_path}")" "${C_RST}" "$(drift_secret_mark "${_path}")"
     done
 }
 
-# outcome_record <outcome> <kind> <path> <detail>  -- one line recording what a run did about one path:
-# `<outcome> TAB <kind> TAB <path> TAB <detail>`, uncoloured, so a script splits it on tabs and a grep for an outcome
-# finds every path it names. The path is printed through the display sanitizer, since a path under a claimed tree may be
-# one the agent named, and that keeps a tab or a newline in it from splitting the record.
+# outcome_record <outcome> <kind> <path> <detail>  -- one page line recording what a run did about one path, indented
+# under its heading with the outcome and kind in aligned columns, uncoloured, so a grep for an outcome finds every path
+# it names; `--format tsv` carries the same outcomes for a script. The path is printed through the display sanitizer,
+# since a path under a claimed tree may be one the agent named, and that keeps a newline in it from splitting the line.
 outcome_record() {
-    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$(ai_tools_log_sanitize "$3")" "${4:--}"
+    printf '    %-10s  %-5s  %s  %s\n' "$1" "$2" "$(ai_tools_log_sanitize "$3")" "${4:--}"
 }
 
 # claim_load_libraries -- load the record writer and the per-path checks the claim collects its drift and verifies its
@@ -1773,6 +1790,14 @@ claim_load_libraries() {
     done
     if ! ${loaded}; then
         die MSG-X3G7 "cannot load the libraries the claim checks its drift and states its exit codes with -- reinstall the ai-tools package"
+    fi
+    # The invoker's own patterns file, the one ai-tools-lockdown reads for a project the invoker owns. Under `--for`
+    # the target's file is unreadable from here, so no pattern set is loaded and drift_secret_mark does not mark any
+    # path.
+    if [[ -z "${FOR_OPERATOR}" ]]; then
+        # shellcheck source=SCRIPTDIR/../lib/ai-tools/secret-patterns.lib.sh
+        { source "${SECRET_PATTERNS_LIB}" && PROJECTS_HOME="${HOME_DIR}" ai_tools_load_secret_patterns; } 2>/dev/null \
+            || true
     fi
 }
 
@@ -2260,9 +2285,13 @@ cmd_project_claim() {
                 _outcome="${_group_outcomes[_i]:-unverified}"
                 _detail="${_group_details[_i]:-}"
                 [[ "${_outcome}" == fixed ]] && _detail="was ${drift_before[_i]}"
-                # A repair that did not run leaves the path as the scan read it, so the row says so in the fixed row's
-                # terms; a repair that ran and did not take keeps the check's own reason.
-                [[ "${_outcome}" == not-fixed ]] && ! ${do_drift} && _detail="still ${drift_before[_i]}"
+                # A repair that did not run, over a path still as the scan read it, is said in the fixed row's terms.
+                # A path something else changed since -- the secret gate sealing it owner-only -- keeps the check's own
+                # reason, which names what it now is.
+                if [[ "${_outcome}" == not-fixed ]] && ! ${do_drift} \
+                        && [[ "$(stat -c '%U:%G %a' -- "${drift[_i]}" 2>/dev/null)" == "${drift_before[_i]}" ]]; then
+                    _detail="still ${drift_before[_i]}"
+                fi
                 [[ "${_outcome}" == not-fixed ]] && _left_group=true
                 # A path on both lists is reachable only once both repairs took: its permissions and its type each
                 # refuse the agent on their own, so one fixed and the other not leaves it as closed
@@ -2406,7 +2435,7 @@ cmd_project_claim() {
     # asks the operator to approve the command they just typed, and its own subject ("apply the pending steps IN PLACE")
     # describes a tree that has no contents to apply them to.
     if ${heavy} && ! ${fresh}; then
-        ${ASSUME_YES} || confirm "Apply the pending steps above IN PLACE?" n \
+        ${ASSUME_YES} || confirm "Apply these pending steps to the tree in place?" n \
             || die "aborted"
     fi
 
@@ -2422,6 +2451,7 @@ cmd_project_claim() {
         headline_warn "Interior drift: SELinux type" \
             "SELinux type differs on ${#label_drift[@]} path(s) inside the tree: each carries a type other than the one this project's file-context rules give it -- moved in with mv, cp -a or tar --selinux, or relabelled by another tool. The agent is refused them whatever their permissions say."
         item_listing "path(s) with their types" label_drift_lines "${label_drift[@]}"
+        drift_secret_legend "${label_drift[@]}"
         # The cap is a property of the SCAN, not of this listing, so it is said whether the paths were sampled or shown
         # in full.
         ! ${label_capped} || say "        ${C_DIM}(scan capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
@@ -2447,7 +2477,9 @@ cmd_project_claim() {
     # of this list also on the relabel list, a group repair would move each path's group and share none of them:
     # the question is not asked, and the rows report the group as not fixed.
     local group_needs_label=false _p
-    if (( ${#drift[@]} && ${#label_drift[@]} )) && ! ${do_label_drift}; then
+    # On a host not enforcing, a foreign type does not refuse the agent, so the group repair alone shares the path.
+    if (( ${#drift[@]} && ${#label_drift[@]} )) && ! ${do_label_drift} \
+            && [[ "$(getenforce 2>/dev/null)" == Enforcing ]]; then
         local -A _on_label_list=()
         for _p in "${label_drift[@]}"; do _on_label_list["${_p}"]=1; done
         group_needs_label=true
@@ -2459,7 +2491,8 @@ cmd_project_claim() {
         headline_warn "Interior drift: group and ACL" \
             "Group differs on ${#drift[@]} path(s) inside the tree: each has a group other than ${SANDBOX_GROUP} and group access -- it arrived without inheriting the project group or ACL." \
             "Keep a file shared with a team group or read by a service's group as it is."
-        path_listing "path(s)" "${drift[@]}"
+        PATH_DETAIL_MARK=1 path_listing "path(s)" "${drift[@]}"
+        drift_secret_legend "${drift[@]}"
         ! ${group_capped} || say "        ${C_DIM}(scan capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
         if ${group_needs_label}; then
             say "      group repair not offered: these path(s) keep a type the agent is"
@@ -3275,6 +3308,9 @@ cmd_project_unclaim() {
     if [[ -n "${group_opt}" ]] && ! getent group "${group_opt}" >/dev/null 2>&1; then
         die "no such group: ${group_opt}"
     fi
+    if ${dry} && ${assume_yes}; then
+        die_usage MSG-P4D2 "--yes has no effect with --dry-run, which neither changes a path nor asks"
+    fi
     if ${dry} && ! ${force}; then
         die "--dry-run applies to --force only" \
             "       a registered project's unclaim previews itself: it lists what it will do and asks before acting"
@@ -3976,15 +4012,19 @@ remove_clone() {
 # read access to secret files; clears any guard CLAUDE.md on a real (non-dry-run) success. --dry-run and -y/--yes pass
 # through to the helper.
 cmd_project_lockdown() {
-    local d="" a dry=false; local -a passthru=()
+    local d="" a dry=false assume_yes=false; local -a passthru=()
     for a in "$@"; do
         case "${a}" in
             --dry-run)    passthru+=("${a}"); dry=true ;;
-            -y|--yes)     passthru+=("${a}") ;;
+            -y|--yes)     passthru+=("${a}"); assume_yes=true ;;
             -*)           die "unknown projects lockdown option: ${a} (allowed: --dry-run, --yes)" ;;
             *)            if [[ -z "${d}" ]]; then d="${a}"; else die "projects lockdown takes a single path"; fi ;;
         esac
     done
+    # Refused here, before the helper's sudo, so the password is not asked for a command line that will not run.
+    if ${dry} && ${assume_yes}; then
+        die_usage MSG-P5P8 "--yes has no effect with --dry-run, which neither changes a path nor asks"
+    fi
     d="$(resolve_dir "${d:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
     covered_by_project "${d}" || not_covered_die "${d}"
@@ -3994,14 +4034,20 @@ cmd_project_lockdown() {
     section "Lock down project secrets"
     say "  ${d}"
     say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${OWNER_USER}:${OWNER_GROUP}${C_RST}"
-    if run_lockdown "${d}" "${passthru[@]}"; then
-        ${dry} || clear_lockdown_guard "${d}"
-        ok "lockdown done: ${d}"
-        ${dry} || ai_tools_log_structured info "locked down secrets in ${d}" \
-            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
-    else
-        die "lockdown failed for ${d}"
-    fi
+    local status=0
+    run_lockdown "${d}" "${passthru[@]}" || status=$?
+    case "${status}" in
+        0)
+            ${dry} || clear_lockdown_guard "${d}"
+            ok "lockdown done: ${d}"
+            ${dry} || ai_tools_log_structured info "locked down secrets in ${d}" \
+                "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
+            ;;
+        6)  # the helper's decline: nothing changed, and the exit carries it (ai-tools(1))
+            say "  declined -- no path was changed"
+            exit 6 ;;
+        *)  die "lockdown failed for ${d}" ;;
+    esac
 }
 
 # ── Enable / disable a claimed project ───────────────────────────────────────────

@@ -151,6 +151,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | w3s4 | [MSG-W3S4](../src/usr/local/bin/ai-tools.sh) | this project is disabled: ${d} | src/usr/local/bin/ai-tools.sh |  | die |
 | j3k5 | [MSG-J3K5](../src/usr/local/bin/ai-tools.sh) | not a claimed project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | p8w2 | [MSG-P8W2](../src/usr/local/bin/ai-tools.sh) | nothing to unclaim here: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| p4d2 | [MSG-P4D2](../src/usr/local/bin/ai-tools.sh) | --yes has no effect with --dry-run, which neither changes a path nor asks | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | r3g9 | [MSG-R3G9](../src/usr/local/bin/ai-tools.sh) | --keep-entry cannot be combined with --force | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | t5a3 | [MSG-T5A3](../src/usr/local/bin/ai-tools.sh) | this path is inside a claimed project, not a project itself: ${d} | src/usr/local/bin/ai-tools.sh |  | die |
 | s6q5 | [MSG-S6Q5](../src/usr/local/bin/ai-tools.sh) | projects remove has no --force: a registry entry is what authorizes a deletion here. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
@@ -165,6 +166,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | j4p9 | [MSG-J4P9](../src/usr/local/bin/ai-tools.sh) | a value is required after ${flag} | src/usr/local/bin/ai-tools.sh | packaging/ai-tools.spec | die |
 | z5v5 | [MSG-Z5V5](../src/usr/local/bin/ai-tools.sh) | a value is required after ${flag}, not another option: $1 | src/usr/local/bin/ai-tools.sh | packaging/ai-tools.spec, tests/manual/verify-live-flows.sh | die |
 | h2d4 | [MSG-H2D4](../src/usr/local/bin/ai-tools.sh) | destination already exists: ${dst} | src/usr/local/bin/ai-tools.sh |  | die |
+| p5p8 | [MSG-P5P8](../src/usr/local/bin/ai-tools.sh) | --yes has no effect with --dry-run, which neither changes a path nor asks | src/usr/local/bin/ai-tools.sh | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh, tests/unit/lockdown.sh | die_usage |
 | t4a8 | [MSG-T4A8](../src/usr/local/bin/ai-tools.sh) | not a claimed project: $1 | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | b7k4 | [MSG-B7K4](../src/usr/local/bin/ai-tools.sh) | unknown option for stop: ${argument} | src/usr/local/bin/ai-tools.sh | src/usr/local/libexec/ai-tools/ai-tools-stop.sh, tests/integration/cli.sh, tests/unit/stop.sh | die_stop_usage |
 | a3m9 | [MSG-A3M9](../src/usr/local/bin/ai-tools.sh) | stop takes no path: ${argument}. It TERMINATES every agent session on this host -- killing the process tree, so no session-end handback runs -- and has no per-project form, because a session is attributed to a project by the sandbox account's own user manager -- the account being stopped -- so that attribution is reported, never trusted to decide what a stop reaches. | src/usr/local/bin/ai-tools.sh | src/usr/local/libexec/ai-tools/ai-tools-stop.sh, tests/integration/cli.sh, tests/manual/verify-live-flows.sh, tests/unit/stop.sh | die_stop_usage |
@@ -444,6 +446,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q9m3 | [MSG-Q9M3](../src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh) | the launcher directory is missing: ${BIN_DIR} | src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh |  | err |
 | f6d9 | [MSG-F6D9](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | cannot source ${LOG_LIB} | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
 | g2t3 | [MSG-G2T3](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | unknown argument: $1 | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
+| g8s6 | [MSG-G8S6](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | --gate and --dry-run do not combine -- --gate locks what it lists | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die_usage |
 | e9a3 | [MSG-E9A3](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | run with sudo | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
 | m8a8 | [MSG-M8A8](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | must be run by you, not ai-tools | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die |
 | v7y3 | [MSG-V7Y3](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | cannot determine current directory | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
@@ -452,9 +455,13 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | v7y7 | [MSG-V7Y7](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | not an allowed project: ${target} (see ${ALLOWLIST}) | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
 | j3f9 | [MSG-J3F9](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | excluded in the allowlist: ${target}; nothing to do | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
 | q7c6 | [MSG-Q7C6](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | cannot source ${SECRET_PATTERNS_LIB} | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
+| u8f7 | [MSG-U8F7](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | cannot create a private directory for the scan | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
+| x4b9 | [MSG-X4B9](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | the scan of ${target} could not read the whole tree (find exit ${rc}): $(ai_tools_log_sanitize "$(head -c 300 "${SCAN_DIR}/find.err")") | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
 | t5y3 | [MSG-T5Y3](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | skip (hardlinked, nlink=${nlink}): ${path} | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | warn |
+| y5h5 | [MSG-Y5H5](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | could not lock ${path} to ${OWNER} ${mode} | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | warn |
 | j8h9 | [MSG-J8H9](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | kept the setgid bit on ${foreign} owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir> | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | warn |
 | g3r5 | [MSG-G3R5](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | no TTY for confirmation; re-run with --yes to apply non-interactively | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
+| t2j8 | [MSG-T2J8](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | secret-matching paths left unlocked under ${target}: ${skip_count}, each on a 'not locked:' line -- move, re-link or lock it by hand, then re-run | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die |
 | w6a2 | [MSG-W6A2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | unknown option: ${arg} | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
 | w2b2 | [MSG-W2B2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
 | k9h2 | [MSG-K9H2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | nothing to reclaim -- ${canonical} is not under any claimed project | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh | src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh | warn |

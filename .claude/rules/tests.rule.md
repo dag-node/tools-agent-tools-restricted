@@ -1109,9 +1109,10 @@ unchanged. A difference the ticket lists in advance is expected; any other is a 
 The claim's rows pin its contract end to end: under `--format tsv` stdout is exactly empty where the claim does not
 write a row and is decoded whole, header and rows, where it does, with the page on stderr; the exit follows the fold
 `ai-tools-records(5)` states, with a root step's failure driven through `cli_stub_fail`; and without a terminal
-the relabel runs only with `--yes`, whatever `AI_TOOLS_ASSUME_YES` holds, and a file on both drift lists takes the group
-question only when the relabel ran, driven over a fixture root `chcon`'d to the project type and skipped where SELinux
-is off or the fixture path has no default label.
+the relabel runs only with `--yes`, whatever `AI_TOOLS_ASSUME_YES` holds, a secret-named drift path is marked `[secret]`
+under a fixture patterns file while a plain one is not, and a file on both drift lists takes the group question only
+when the relabel ran, driven over a fixture root `chcon`'d to the project type and skipped where SELinux is
+off or the fixture path has no default label.
 
 The file pins its own umask. A umask is process state the CLI inherits through `runuser` (whose PAM stack carries no
 `pam_umask`), so the rows and the trace run under 022 whatever the host's login default, which is what makes a trace

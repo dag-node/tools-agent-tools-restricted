@@ -249,4 +249,65 @@ else
     fail "the clone's secret ended $(stat -c '%U:%G' "${clone}/.env") $(perm "${clone}/.env")"
 fi
 
+# (7) `--gate`, the claim's one call: stdout carries every secret-matching path NUL-terminated and no other byte, since
+#     the claim reads it back as the list it keeps out of the clone's shared access; the page on stderr names each path
+#     relative to the project and closes on one summary line. Without a terminal the question takes its default, yes.
+#     A tree with no secret leaves stdout empty, including the line the helper prints when there is no path to act
+#     on. `--dry-run` beside it is refused before the scan, since a dry run exits 0 with the paths listed and none
+#     locked; `--gate` is left out of the helper's usage text and is refused the same way when typed.
+gate="${proj}/gatecase"
+mkdir -p "${gate}"; : > "${gate}/.env"; : > "${gate}/plain.txt"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${gate}"; chmod 0755 "${gate}"; chmod 0644 "${gate}/.env" "${gate}/plain.txt"
+run_gate() {  # <cwd> -- the helper under --gate with no terminal: stdout to gate.out, stderr to gate.err, exit to LD_RC
+    ( cd "$1" && setsid -w "${HELPER}" --gate ) < /dev/null > "${TESTDIR}/gate.out" 2> "${TESTDIR}/gate.err" \
+        && LD_RC=0 || LD_RC=$?
+}
+run_gate "${gate}"
+if (( LD_RC == 0 )) && cmp -s "${TESTDIR}/gate.out" <(printf '%s\0' "${gate}/.env"); then
+    pass "--gate writes the secret-matching path to stdout NUL-terminated, and no other byte"
+else
+    fail "--gate stdout: rc=${LD_RC}: $(od -c "${TESTDIR}/gate.out" | head -3)"
+fi
+if grep -qE '^ +\[file\] \.env$' "${TESTDIR}/gate.err" && grep -q 'locked 1 path(s)' "${TESTDIR}/gate.err" \
+        && [[ "$(perm "${gate}/.env")" == 600 ]]; then
+    pass "--gate lists the path relative to the project, locks it without a terminal, and summarizes in one line"
+else
+    fail "--gate page or lock: $(perm "${gate}/.env"): $(tr '\n' '|' < "${TESTDIR}/gate.err")"
+fi
+rm -f "${gate}/.env"
+run_gate "${gate}"
+if (( LD_RC == 0 )) && [[ ! -s "${TESTDIR}/gate.out" ]]; then
+    pass "--gate over a tree with no secret writes nothing to stdout"
+else
+    fail "--gate with no secret: rc=${LD_RC}: $(od -c "${TESTDIR}/gate.out" | head -3)"
+fi
+: > "${gate}/.env"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${gate}/.env"; chmod 0644 "${gate}/.env"
+( cd "${gate}" && setsid -w "${HELPER}" --gate --dry-run ) < /dev/null > "${TESTDIR}/gate.out" 2> "${TESTDIR}/gate.err" \
+    && LD_RC=0 || LD_RC=$?
+assert_msg MSG-G8S6 "$(cat "${TESTDIR}/gate.err")" "--gate with --dry-run is refused"
+if (( LD_RC == 2 )) && [[ ! -s "${TESTDIR}/gate.out" && "$(perm "${gate}/.env")" == 644 ]]; then
+    pass "--gate with --dry-run exits 2 with no path written and no file changed"
+else
+    fail "--gate --dry-run: rc=${LD_RC}, .env $(perm "${gate}/.env"): $(od -c "${TESTDIR}/gate.out" | head -2)"
+fi
+# A dry run neither changes a path nor asks, so `--yes` beside it is refused with the usage status, not ignored.
+( cd "${gate}" && "${HELPER}" --dry-run --yes ) < /dev/null > "${TESTDIR}/gate.err" 2>&1 && LD_RC=0 || LD_RC=$?
+assert_msg MSG-P5P8 "$(cat "${TESTDIR}/gate.err")" "--dry-run with --yes is refused"
+if (( LD_RC == 2 )) && [[ "$(perm "${gate}/.env")" == 644 ]]; then
+    pass "--dry-run with --yes exits 2 and changes no file"
+else
+    fail "--dry-run --yes: rc=${LD_RC}, .env $(perm "${gate}/.env")"
+fi
+# A secret the lock cannot take -- hardlinked, so a chmod would reach its other name outside the tree -- is named,
+# and the run exits non-zero: the claim's gate grants access only on 0, so a tree holding it is not opened.
+ln "${gate}/.env" "${TESTDIR}/env-second-name"
+run_gate "${gate}"
+assert_msg MSG-T2J8 "$(cat "${TESTDIR}/gate.err")" "an unlocked secret-matching path fails the run"
+if (( LD_RC == 1 )) && grep -q 'not locked: .env' "${TESTDIR}/gate.err" && [[ "$(perm "${gate}/.env")" == 644 ]]; then
+    pass "--gate over a hardlinked secret names it, leaves it as it was, and exits 1"
+else
+    fail "--gate over a hardlinked secret: rc=${LD_RC}: $(tr '\n' '|' < "${TESTDIR}/gate.err")"
+fi
+rm -f "${TESTDIR}/env-second-name"
+
 finish
