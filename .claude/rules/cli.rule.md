@@ -495,6 +495,13 @@ an ordinary account read it — a partial view, the file sink being the authorit
 - `--for <operator>` — a **modifier**, not a command: run the verb on behalf of another enrolled operator (see [Acting
   for another operator](#acting-for-another-operator---for)).
 
+**A command line a verb does not parse is refused with exit 2, the usage status `ai-tools(1)` states, before any helper
+or `sudo` runs** — an unknown option, a second path for a verb taking one, an argument to a report taking none, a path
+for `stop`, and an option that has no effect beside another. Each refusal carries its own message code
+(`die_usage`), so a script tells a rejected command line from an operation that failed (exit 1) by the status alone.
+The one refusal this ordering does not yet cover is a `--for` run, whose allowlist snapshot — the run's first `sudo` —
+precedes the verb's own parser ([Acting for another operator](#acting-for-another-operator---for)).
+
 **`--relabel` prints the new command and exits 2.** The entrypoint reconcile is
 `sudo ai-tools-admin system entrypoints relabel` ([updater](updater.rule.md) owns what it does,
 [cli-grammar](cli-grammar.rule.md) why it is spelled that way): it runs as root, which this CLI refuses, so it is not

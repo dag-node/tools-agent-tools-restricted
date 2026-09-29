@@ -2729,10 +2729,10 @@ cmd_project_create() {
     local a path=""
     for a in "$@"; do
         case "${a}" in
-            -*) die "unknown projects create option: ${a}" \
+            -*) die_usage MSG-C5T8 "unknown projects create option: ${a}" \
                     "       it takes a path and nothing else; see: man ai-tools" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
-                else die "projects create takes a single path"; fi ;;
+                else die_usage MSG-Z5Y7 "projects create takes a single path"; fi ;;
         esac
     done
     [[ -n "${path}" ]] || die MSG-A7D3 "projects create needs a path: it creates a NEW project directory." \
@@ -3375,10 +3375,10 @@ cmd_project_unclaim() {
             --group)      want_group=true ;;
             --group=*)    group_opt="${a#--group=}" ;;
             --keep-entry) registry=park ;;
-            -*) die "unknown projects unclaim option: ${a}" \
+            -*) die_usage MSG-F7J9 "unknown projects unclaim option: ${a}" \
                     "       allowed: --force, --full, --keep-entry, --dry-run, -y/--yes, --group <group>" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
-                else die "projects unclaim takes a single path"; fi ;;
+                else die_usage MSG-C8P8 "projects unclaim takes a single path"; fi ;;
         esac
     done
     ${want_group} && die "--group needs a group name"
@@ -3586,10 +3586,10 @@ cmd_project_remove() {
             # Deliberately does NOT enumerate the options the way the other verbs' refusals do: the only one this verb
             # has pre-answers both the confirmation and the typed-name challenge, and a caller who has just mistyped
             # a flag is not who that is for. It is documented in ai-tools(1), where reaching it is a deliberate act.
-            -*) die MSG-M3Y5 "unknown projects remove option: ${a}" \
+            -*) die_usage MSG-M3Y5 "unknown projects remove option: ${a}" \
                     "       the options this verb takes are in: man ai-tools" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
-                else die "projects remove takes a single path"; fi ;;
+                else die_usage MSG-M2U9 "projects remove takes a single path"; fi ;;
         esac
     done
     # An unattended run must never delete whatever directory it happened to start in, so the one mode that can proceed
@@ -3899,8 +3899,8 @@ cmd_project_clone() {
             --dir)    _need_value --dir    "${@:2}"; o_dir="$2";    have_dir=true;    shift 2 ;;
             -y|--yes) o_yes=true; shift ;;
             --)       shift ;;
-            -*)       die "unknown option: $1 (see: ai-tools --help)" ;;
-            *)        [[ -z "${o_path}" ]] || die "unexpected extra argument: $1"; o_path="$1"; shift ;;
+            -*)       die_usage MSG-U8N3 "unknown projects clone option: $1 (see: ai-tools --help)" ;;
+            *)        [[ -z "${o_path}" ]] || die_usage MSG-J3Q9 "projects clone takes a single path: unexpected extra argument $1"; o_path="$1"; shift ;;
         esac
     done
     local src; src="$(resolve_dir "${o_path:-$PWD}")"
@@ -4103,8 +4103,8 @@ cmd_project_lockdown() {
         case "${a}" in
             --dry-run)    passthru+=("${a}"); dry=true ;;
             -y|--yes)     passthru+=("${a}"); assume_yes=true ;;
-            -*)           die "unknown projects lockdown option: ${a} (allowed: --dry-run, --yes)" ;;
-            *)            if [[ -z "${d}" ]]; then d="${a}"; else die "projects lockdown takes a single path"; fi ;;
+            -*)           die_usage MSG-R3H8 "unknown projects lockdown option: ${a} (allowed: --dry-run, --yes)" ;;
+            *)            if [[ -z "${d}" ]]; then d="${a}"; else die_usage MSG-Y6V3 "projects lockdown takes a single path"; fi ;;
         esac
     done
     # Refused here, before the helper's sudo, so the password is not asked for a command line that will not run.
@@ -4166,8 +4166,8 @@ cmd_project_disable() {
     local d="" a
     for a in "$@"; do
         case "${a}" in
-            -*) die "unknown projects disable option: ${a} (it takes a path only)" ;;
-            *)  if [[ -z "${d}" ]]; then d="${a}"; else die "projects disable takes a single path"; fi ;;
+            -*) die_usage MSG-K5W9 "unknown projects disable option: ${a} (it takes a path only)" ;;
+            *)  if [[ -z "${d}" ]]; then d="${a}"; else die_usage MSG-W3C7 "projects disable takes a single path"; fi ;;
         esac
     done
     d="$(resolve_dir "${d:-$PWD}")"
@@ -4202,8 +4202,8 @@ cmd_project_enable() {
     local d="" a
     for a in "$@"; do
         case "${a}" in
-            -*) die "unknown projects enable option: ${a} (it takes a path only)" ;;
-            *)  if [[ -z "${d}" ]]; then d="${a}"; else die "projects enable takes a single path"; fi ;;
+            -*) die_usage MSG-Q3K7 "unknown projects enable option: ${a} (it takes a path only)" ;;
+            *)  if [[ -z "${d}" ]]; then d="${a}"; else die_usage MSG-T5S8 "projects enable takes a single path"; fi ;;
         esac
     done
     d="$(resolve_dir "${d:-$PWD}")"
@@ -4246,8 +4246,8 @@ cmd_project_handback() {
     for a in "$@"; do
         case "${a}" in
             --full) passthru+=("${a}"); full=true ;;
-            -*)     die "unknown projects handback option: ${a} (allowed: --full)" ;;
-            *)      if [[ -z "${d}" ]]; then d="${a}"; else die "projects handback takes a single path"; fi ;;
+            -*)     die_usage MSG-U3R3 "unknown projects handback option: ${a} (allowed: --full)" ;;
+            *)      if [[ -z "${d}" ]]; then d="${a}"; else die_usage MSG-D9C7 "projects handback takes a single path"; fi ;;
         esac
     done
     d="$(resolve_dir "${d:-$PWD}")"

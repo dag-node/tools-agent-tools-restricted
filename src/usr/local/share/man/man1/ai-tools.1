@@ -766,20 +766,22 @@ unregistered by then, so what remains is out of the agent's reach and can be
 deleted by hand.
 .TP
 .B 2
-The command line was rejected: an unknown option, or
-.B "projects claim"
-or
-.B "projects push"
-given two directories, or a
+The command line was rejected, before any helper or
+.B sudo
+ran: an unknown option; a second directory for a verb that takes one; an
+argument to
+.BR "projects list" ", " status " or " providers ,
+which take none; a
+.I DIRECTORY
+for
+.BR stop ,
+which refuses one rather than accepts and ignores it; an option that has no
+effect beside another
+.RB ( \-\-yes " with " \-\-dry\-run );
+or a
 .B \-\-format
 value other than
 .BR tsv .
-.B stop
-returns this for a
-.I DIRECTORY
-argument, and
-.BR "projects list" ", " status " and " "providers"
-for any argument, which each refuses rather than accepts and ignores.
 .TP
 .B 3
 The target is a protected path \(em a system directory or a home root \(em and

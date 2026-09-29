@@ -357,7 +357,7 @@ cv_is "a batch that exits 1" 1 "unverified gone | not-fixed gone "
 # ── agent_can_traverse ───────────────────────────────────────────────────────────────────────
 # The read behind the traverse grant: whether the sandbox account can enter a directory, decided as the kernel decides
 # it. Each row is one entry the algorithm consults, and the two that carry weight are the ones a mode read gets wrong:
-# a named-user entry narrowed to nothing by the mask (a `chmod 700` after an earlier grant), which must read
+# a named-user entry the mask narrows to no permission (a `chmod 700` after an earlier grant), which must read
 # as blocked so the grant is offered again, and a named-user entry denying execute beside world execute, which must
 # read as blocked because a named entry is consulted ahead of the other entry.
 section "agent_can_traverse: the kernel's access order, mask included (unit)"

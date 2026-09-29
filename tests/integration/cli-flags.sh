@@ -958,7 +958,7 @@ drive_rows() {
     expect "lockdown refuses a path outside every project"            rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
     cli_stub_reset; drive cli ai-tools.projects.lockdown --bogus "${R}/pa"
-    expect "lockdown refuses an unknown option, no helper"            quiet_refusal
+    expect "lockdown refuses an unknown option with exit 2, no helper" quiet_rc 2
 
     cli_stub_reset; drive cli ai-tools.projects.handback "${R}/pa"
     expect "reclaim hands the project to the reclaim helper"          cli_called ai-tools-reclaim "^${R}/pa$"
@@ -970,7 +970,7 @@ drive_rows() {
     expect "reclaim refuses a path outside every project"             rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
     cli_stub_reset; drive cli ai-tools.projects.handback --bogus "${R}/pa"
-    expect "reclaim refuses an unknown option, no helper"             quiet_refusal
+    expect "reclaim refuses an unknown option with exit 2, no helper"  quiet_rc 2
 
     # ── L. The operator's umask does not decide what the agent can read ──────────────
     # A create sets its modes outright and a clone is born private and then opened, so neither depends on the umask
