@@ -1264,13 +1264,17 @@ reg_ownership() {
 # entry for the account when there is one, whatever the group and other entries say; else the owning-group entry
 # when the directory is in SANDBOX_GROUP, and every named-group entry for SANDBOX_GROUP; else the other entry.
 # A named entry and the owning-group entry are narrowed by the mask, so `user:SANDBOX_USER:--x` under `mask::---`
-# -- the state a `chmod 700` after an earlier grant leaves -- reads as blocked, and the grant is offered again.
-# Without getfacl, or where it cannot read the directory, the mode bits alone decide.
+# -- the state a `chmod 700` after an earlier grant leaves -- reads as blocked, and the grant is offered again. Returns
+# 1 when the account cannot enter, and 2 when the answer cannot be read: the stat fails, or getfacl is installed
+# and fails on the directory. A mode read in place of an ACL that could not be read would say "traversable" over a named
+# entry denying it, so the caller reads 2 as blocked by a directory no grant may cover. Without getfacl on the host
+# the mode bits alone decide, since no ACL can be inspected there at all.
 agent_can_traverse() {
     local dir="$1" mode owner grp acl
     # IFS pinned for the read: this script's global IFS has no space, and stat separates the fields with one.
-    IFS=' ' read -r mode owner grp < <(stat -c '%a %U %G' -- "${dir}" 2>/dev/null) || return 1
-    if command -v getfacl >/dev/null 2>&1 && acl="$(getfacl -p -c -E -- "${dir}" 2>/dev/null)"; then
+    IFS=' ' read -r mode owner grp < <(stat -c '%a %U %G' -- "${dir}" 2>/dev/null) || return 2
+    if command -v getfacl >/dev/null 2>&1; then
+        acl="$(getfacl -p -c -E -- "${dir}" 2>/dev/null)" || return 2
         local line tag name perms mask="" named_user="" owner_perms="" other="" found_group=false
         local -a group_perms=()
         while IFS= read -r line; do
@@ -1315,20 +1319,27 @@ grantable_ancestor() {
 
 # find_blocking_ancestors <dir>  -- detect the traverse gap between the sandbox account and <dir>: fills
 # TRAVERSAL_GRANT_PATHS (each blocking ancestor a grant may cover: operator-owned, not a protected system directory)
-# and TRAVERSAL_BLOCKED_PATH (the first blocking ancestor no grant may cover, empty when none). Read-only
+# and TRAVERSAL_BLOCKED_PATH (the first blocking ancestor no grant may cover, empty when none),
+# with TRAVERSAL_BLOCKED_REASON naming why where the reason is the read rather than the directory. Read-only
 # and unprivileged; confirm_ancestor_traversal asks on the result and grant_ancestor_traversal acts on it,
 # and the claim's pending overview reads it so the traverse opt-in is announced up front.
+#
+# An ancestor whose ACL could not be read (agent_can_traverse returns 2) is the blocker, whoever owns it: no grant is
+# offered on a state the walk did not read, so the answer moves to less access and the warning names the directory.
 #
 # The walk reads every ancestor up to `/`: the kernel resolves each component on its own, so a `700` directory that is
 # the parent of a `755` one blocks the path as surely as the reverse, and a walk that stopped at the first traversable
 # directory would report the gap closed with the outer one still shut. It ends early only at a blocker no grant covers,
 # since a grant on a directory inside that blocker could not open the path anyway.
 find_blocking_ancestors() {
-    local dir="$1" anc
-    TRAVERSAL_GRANT_PATHS=(); TRAVERSAL_BLOCKED_PATH=""
+    local dir="$1" anc traverse=0
+    TRAVERSAL_GRANT_PATHS=(); TRAVERSAL_BLOCKED_PATH=""; TRAVERSAL_BLOCKED_REASON=""
     anc="$(dirname "${dir}")"
     while [[ "${anc}" != / && "${anc}" != . ]]; do
-        if ! agent_can_traverse "${anc}"; then
+        traverse=0; agent_can_traverse "${anc}" || traverse=$?
+        if (( traverse == 2 )); then
+            TRAVERSAL_BLOCKED_PATH="${anc}"; TRAVERSAL_BLOCKED_REASON="its permissions could not be read"; break
+        elif (( traverse != 0 )); then
             if grantable_ancestor "${anc}"; then
                 TRAVERSAL_GRANT_PATHS+=("${anc}")
             else
@@ -1358,7 +1369,9 @@ confirm_ancestor_traversal() {
     if [[ -n "${TRAVERSAL_BLOCKED_PATH}" ]]; then
         local why blocked_owner
         blocked_owner="$(stat -c '%U' "${TRAVERSAL_BLOCKED_PATH}" 2>/dev/null || echo '?')"
-        if ! declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1; then
+        if [[ -n "${TRAVERSAL_BLOCKED_REASON}" ]]; then
+            why="${TRAVERSAL_BLOCKED_REASON}, so no grant is offered on it"
+        elif ! declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1; then
             why="the safe-paths traverse rule is not loaded, so ancestors cannot be vetted"
         elif [[ "${blocked_owner}" != "${OWNER_USER}" ]]; then
             why="owned by ${blocked_owner}, not by ${OWNER_USER}"
@@ -2791,7 +2804,9 @@ cmd_project_create() {
         # and this verb's whole subject is a project that does not exist yet, so there is no source to name.
         local why blocked_owner
         blocked_owner="$(stat -c '%U' "${TRAVERSAL_BLOCKED_PATH}" 2>/dev/null || true)"
-        if [[ -z "${blocked_owner}" ]]; then
+        if [[ -n "${TRAVERSAL_BLOCKED_REASON}" ]]; then
+            why="${TRAVERSAL_BLOCKED_REASON}, so no grant is offered on it"
+        elif [[ -z "${blocked_owner}" ]]; then
             why="its owner cannot be read from here"
         elif [[ "${blocked_owner}" != "${OWNER_USER}" ]]; then
             why="it belongs to ${blocked_owner}, not to ${OWNER_USER}"

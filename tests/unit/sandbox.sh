@@ -406,6 +406,16 @@ else
     ct_dir ngroup 0700 "g:${SANDBOX_GROUP}:--x";                   ct_is ngroup     yes "named-group entry with execute"
     ct_dir ogroup 0710; chgrp "${SANDBOX_GROUP}" "${ct_work}/ogroup"; ct_is ogroup   yes "owning group is the sandbox group, group execute"
     ct_dir fgroup 0710;                                            ct_is fgroup     no  "group execute for a group that is not the sandbox group"
+    # An ACL read that fails is neither answer: the mode bits would read `world` as traversable over a named entry
+    # denying it, so the function returns 2 and the caller reads the directory as blocked and not grantable.
+    ct_rc=0
+    # shellcheck disable=SC2016  # the expansion is the inner shell's
+    call_script 'getfacl() { return 1; }; agent_can_traverse "${args[0]}"' "${ct_work}/world" >/dev/null 2>&1 || ct_rc=$?
+    if (( ct_rc == 2 )); then
+        pass "agent_can_traverse: an ACL read that fails -> 2, not the mode bits' answer"
+    else
+        fail "agent_can_traverse: an ACL read that fails -> exit ${ct_rc}, want 2"
+    fi
 fi
 
 # ── find_blocking_ancestors ──────────────────────────────────────────────────────────────────
@@ -437,6 +447,17 @@ if [[ "${fb_out}" == "G=${fb_work}/foreign/mine"$'\n'"B=${fb_work}/foreign" ]]; 
     pass "find_blocking_ancestors collects the grantable blocker and stops at its foreign parent"
 else
     fail "find_blocking_ancestors over root-700/700/proj: $(tr '\n' '|' <<< "${fb_out}")"
+fi
+# An ancestor whose ACL could not be read is the blocker, whoever owns it, and the reason names the read: a grant
+# offered on a state the walk did not read would widen on a guess.
+# shellcheck disable=SC2016  # the expansions are the inner shell's
+fb_out="$(call_script 'getfacl() { return 1; }; find_blocking_ancestors "${args[0]}"
+    printf "G=%s\n" "${TRAVERSAL_GRANT_PATHS[@]}"; printf "B=%s R=%s\n" "${TRAVERSAL_BLOCKED_PATH}" "${TRAVERSAL_BLOCKED_REASON}"' \
+    "${fb_work}/private/open/proj" 2>/dev/null)" || true
+if [[ "${fb_out}" == "G="$'\n'"B=${fb_work}/private/open R=its permissions could not be read" ]]; then
+    pass "find_blocking_ancestors reads an unreadable ACL as a blocker no grant covers, and names the read"
+else
+    fail "find_blocking_ancestors under a failing getfacl: $(tr '\n' '|' <<< "${fb_out}")"
 fi
 
 # ── normalize_clone ──────────────────────────────────────────────────────────────────────────
