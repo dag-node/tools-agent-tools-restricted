@@ -310,4 +310,26 @@ else
 fi
 rm -f "${TESTDIR}/env-second-name"
 
+# (8) `--full`, the clone's half of the gate: the walk has no skip list, so a secret under a skip-listed directory is
+#     found and locked, where `--gate` alone skips the directory -- which the claim in place may, since its own walks
+#     skip it too, and the clone's normalize may not, since it opens every directory it does not prune.
+full="${proj}/fullcase"
+mkdir -p "${full}/node_modules"; : > "${full}/node_modules/.env"; : > "${full}/plain.txt"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${full}"
+chmod 0755 "${full}" "${full}/node_modules"; chmod 0644 "${full}/node_modules/.env" "${full}/plain.txt"
+run_gate "${full}"
+if (( LD_RC == 0 )) && [[ ! -s "${TESTDIR}/gate.out" && "$(perm "${full}/node_modules/.env")" == 644 ]]; then
+    pass "--gate skips a secret under node_modules (the skip list the claim's walks share)"
+else
+    fail "--gate over node_modules: rc=${LD_RC}, .env $(perm "${full}/node_modules/.env"): $(od -c "${TESTDIR}/gate.out" | head -2)"
+fi
+( cd "${full}" && setsid -w "${HELPER}" --gate --full ) < /dev/null > "${TESTDIR}/gate.out" 2> "${TESTDIR}/gate.err" \
+    && LD_RC=0 || LD_RC=$?
+if (( LD_RC == 0 )) && cmp -s "${TESTDIR}/gate.out" <(printf '%s\0' "${full}/node_modules/.env") \
+        && [[ "$(perm "${full}/node_modules/.env")" == 600 ]]; then
+    pass "--gate --full finds and locks the secret under node_modules, and writes its path to stdout"
+else
+    fail "--gate --full over node_modules: rc=${LD_RC}, .env $(perm "${full}/node_modules/.env"): $(tr '\n' '|' < "${TESTDIR}/gate.err")"
+fi
+
 finish

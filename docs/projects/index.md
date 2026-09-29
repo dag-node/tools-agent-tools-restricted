@@ -258,7 +258,8 @@ ai-tools projects clone ~/src/repo
 
 The clone is born owner-only (`umask 077`), so checked-in credentials
 in the tip commit are unreadable to the sandbox account from the first instant.
-The lockdown gate runs next; only past it is the clone opened to the agent
+The lockdown gate runs next, over every directory of the clone (a checked-in
+`node_modules` included); only past it is the clone opened to the agent
 group, labelled, and registered, with the locked paths kept private. Declining,
 or a failed lockdown, stops fail-closed: the clone stays on disk, private
 and unregistered, with a guard `CLAUDE.md` inside.

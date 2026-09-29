@@ -150,6 +150,9 @@ back from the pinned inode, and a secret-matching path left unlocked — hardlin
 and fails the run after the seal pass. `--gate` is the CLI's calling contract and is left out of the helper's usage
 text; typed by hand it is parsed and refused the same way, and `--gate` with `--dry-run` is refused with exit 2
 before the scan: the dry run exits 0 with the paths written and none locked, which a caller would read as a lock.
+`--full` gives the walk no skip list (`lockdown-full` in `skip-dirs.lib.sh`), and is the clone's calling contract:
+`normalize_clone` opens every directory the gate did not lock, `node_modules` and its kind included, so the scan ahead
+of it walks those directories too. A claim in place keeps the skip list, since its own walks skip the same directories.
 
 It is a user tool: there is **no** sudoers grant letting `SANDBOX_USER` run it, and it refuses to run as `SANDBOX_USER`.
 The `ai-tools` CLI wraps it as `ai-tools projects lockdown [path]` (it `cd`s into the project and `sudo`s the helper,

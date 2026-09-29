@@ -393,7 +393,8 @@ Skip the final \(lqCreate the sandbox clone?\(rq confirmation. The secret gate s
 applies.
 .RE
 .IP
-The clone is born owner-only; tip-commit secrets are locked down first, and only past
+The clone is born owner-only; tip-commit secrets are locked down first, under every
+directory of the clone, and only past
 that gate is the clone opened to the agent and registered. A declined or failed lockdown
 stops fail-closed \(em the clone stays private and unregistered; re-run this command on
 the clone path to resume securing it.

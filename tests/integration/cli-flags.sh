@@ -788,7 +788,9 @@ drive_rows() {
     expect "clone lands under the sandbox area, named after the source" test -d "${SBROOT}/${N_SRC}/.git"
     expect "clone pushes the default branch, sandbox/<base>"          test -n "$(remote_tip sandbox/main)"
     expect "clone registers the clone"                                st_is "${SBROOT}/${N_SRC}" listed
-    expect "clone scans the clone for secrets before opening it"      cli_called ai-tools-lockdown "^--gate$"
+    # `--full`: the normalize that follows the gate opens every directory, so the gate walks every directory, the
+    # skip-listed dependency trees included; a claim in place passes `--gate` alone (the claim section's rows).
+    expect "clone scans the whole clone for secrets before opening it" cli_called ai-tools-lockdown "^--gate${T}--full$"
     expect "the scan runs inside the clone"                           test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_SRC}"
     expect "clone registers safe.directory for the clone"             cli_called ai-tools-safedir "^${SBROOT}/${N_SRC}$"
     expect "the clone is shallow"                                     test "$(gitr -C "${SBROOT}/${N_SRC}" rev-list --count HEAD)" -eq 1
@@ -802,7 +804,7 @@ drive_rows() {
     expect "clone accepts --yes"                                      test "${rc}" -eq 0 -a -d "${SBROOT}/${N_C4}/.git"
 
     cli_stub_reset; drive cli ai-tools.projects.clone "${SBROOT}/${N_C4}"
-    expect "clone on an existing clone path resumes its finalization" cli_called ai-tools-lockdown "^--gate$"
+    expect "clone on an existing clone path resumes its finalization" cli_called ai-tools-lockdown "^--gate${T}--full$"
     expect "the resume runs inside that clone"                        test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_C4}"
     expect "the resume makes no second clone"                         test "$(find "${SBROOT}" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 4
     expect "the resumed clone stays registered"                       st_is "${SBROOT}/${N_C4}" listed

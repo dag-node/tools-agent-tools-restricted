@@ -15,7 +15,8 @@
 #     alone: no sweep inspects what a tree holds, here or anywhere else. To have a tree handed
 #     back to the operator, remove it from the skip list (or run `ai-tools projects handback --full`).
 #   - setgid/ACL normalization: a skipped tree is given neither a setgid bit nor an ACL.
-#   - secret lockdown: a skipped tree is not scanned for secret-named files.
+#   - secret lockdown: a skipped tree is not scanned for secret-named files. The clone's gate is the exception
+#     (`lockdown-full`): it walks every directory, because the normalize that follows it opens every directory.
 #
 # Sourced, not executed. Deployed 644 root:root -- it does not carry any secrets (the names are documented) and three
 # principals source it: the root helpers, the hooks (as the agent), and the unprivileged CLI (the claim drift scan
@@ -91,6 +92,8 @@ fi
 #   setfacl       `setfacl --with-git`.
 #   unclaim       heavy + .git.  Unclaim reversal; .git reverted in its own pass.
 #   lockdown      heavy + .git.  Secret sweep; .git object names are hashes -- no name to match.
+#   lockdown-full none.          The clone's secret gate: normalize_clone opens every path the gate did not
+#                 lock, so the gate walks every path normalize_clone will open.
 #   reclaim       heavy only.    On-demand reclaim WALKS .git (the one tree the per-session
 #                 sweeps leave behind).
 #   reclaim-full  none.          Reclaim the entire tree, heavy trees and .git included.
@@ -101,7 +104,7 @@ ai_tools_skip_find_expr() {
     case "${consumer}" in
         sweep|setgid|setfacl|unclaim|lockdown) base=heavy; skip_git=true  ;;
         reclaim)                               base=heavy; skip_git=false ;;  # WALKS .git
-        reclaim-full)                          base=none;  skip_git=false ;;  # skips nothing
+        reclaim-full|lockdown-full)            base=none;  skip_git=false ;;  # skips nothing
         *) printf 'skip-dirs: unknown consumer: %s\n' "${consumer}" >&2; return 2 ;;
     esac
     [[ -n "${skip_git_arg}" ]] && skip_git="${skip_git_arg}"   # optional per-call override

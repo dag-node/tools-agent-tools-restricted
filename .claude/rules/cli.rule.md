@@ -1069,4 +1069,7 @@ yet never scanned); only pure registry additions (safedir, filemode) skip it. A 
 the operation closed: the claim aborts (rolling back its own allowlist addition) and the sandbox create leaves the clone
 private and unregistered, dropping a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) instructing the agent
 to wait until lockdown runs, preserving any real `CLAUDE.md` via `git mv` to `CLAUDE.md.bak`. The gate exports the found
-paths (`SECRET_GATE_LOCKED`) so `normalize_clone` prunes them from its group-access walk.
+paths (`SECRET_GATE_LOCKED`) so `normalize_clone` prunes them from its group-access walk. The gate covers what the step
+after it opens: a claim's walks skip the shared skip list (`skip-dirs.lib.sh`), so its scan skips the same directories,
+while `normalize_clone` opens every directory it does not prune, so the clone passes `--full` and the helper walks
+every directory of the clone, `node_modules` and its kind included.

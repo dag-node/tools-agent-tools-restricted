@@ -51,6 +51,13 @@ if [[ -z "$(names_for reclaim-full)" ]]; then
 else
     fail "reclaim-full names: $(names_for reclaim-full)"
 fi
+# The clone's secret gate walks every directory the normalize that follows it opens. The status is asserted too: an
+# unknown consumer returns 2 and leaves the previous call's list standing, which is empty here.
+if ai_tools_skip_find_expr lockdown-full 2>/dev/null && [[ -z "${AI_TOOLS_SKIP_NAMES[*]}" ]]; then
+    pass "lockdown-full skips nothing"
+else
+    fail "lockdown-full: status $? or names: ${AI_TOOLS_SKIP_NAMES[*]}"
+fi
 
 # (3) Optional skip_git override: reclaim true adds .git; sweep false drops it.
 [[ " $(names_for reclaim true) " == *" .git "* ]] \
