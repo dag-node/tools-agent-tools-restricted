@@ -51,6 +51,20 @@ call() {
     ' _ "${helper}" "${CLI}" "$@"
 }
 
+# call_script <script> <args...> : like call, running <script> in the sourced CLI's shell with the arguments held
+# in `args`, for a helper that publishes its result as arrays rather than on stdout, or one whose dependency the case
+# shadows with a shell function ahead of the call.
+call_script() {
+    local script="$1"; shift
+    # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
+    runuser -u "${PROJECTS_USER}" -- bash -c '
+        script="$1"; cli="$2"; shift 2
+        args=("$@"); set --
+        source "${cli}" >/dev/null 2>&1 || exit 99
+        eval "${script}"
+    ' _ "${script}" "${CLI}" "$@"
+}
+
 # Sourceable-and-defines probe: an install missing a required lib exits 3 on source -- skip cleanly.
 # shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
 if ! runuser -u "${PROJECTS_USER}" -- bash -c \
@@ -392,6 +406,37 @@ else
     ct_dir ngroup 0700 "g:${SANDBOX_GROUP}:--x";                   ct_is ngroup     yes "named-group entry with execute"
     ct_dir ogroup 0710; chgrp "${SANDBOX_GROUP}" "${ct_work}/ogroup"; ct_is ogroup   yes "owning group is the sandbox group, group execute"
     ct_dir fgroup 0710;                                            ct_is fgroup     no  "group execute for a group that is not the sandbox group"
+fi
+
+# ── find_blocking_ancestors ──────────────────────────────────────────────────────────────────
+# The walk behind the traverse grant. The kernel resolves each component on its own, so what the walk must not do is
+# stop at the first directory the account can enter: a 700 directory that is the parent of a 755 one blocks the path,
+# and a walk that ended at the open one would report the gap closed with the outer one still shut. A blocker no grant
+# covers ends the walk, since a grant on a directory inside it could not open the path.
+section "find_blocking_ancestors: every ancestor up to / is read, and only an ungrantable blocker ends the walk (unit)"
+fb_work="${TESTDIR}/fb"
+mkdir -p "${fb_work}/private/open/proj" "${fb_work}/foreign/mine/proj"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${fb_work}"
+chown root:root "${fb_work}/foreign"
+chmod 0755 "${fb_work}" "${fb_work}/private/open" "${fb_work}/private/open/proj" "${fb_work}/foreign/mine/proj"
+chmod 0700 "${fb_work}/private" "${fb_work}/foreign" "${fb_work}/foreign/mine"
+# fb_walk <dir>: print one `G=<path>` line per grant path and one `B=<path>` line, from the sourced shell.
+fb_walk() {
+    # shellcheck disable=SC2016  # the expansions are the inner shell's
+    call_script 'find_blocking_ancestors "${args[0]}"
+        printf "G=%s\n" "${TRAVERSAL_GRANT_PATHS[@]}"; printf "B=%s\n" "${TRAVERSAL_BLOCKED_PATH}"' "$1" 2>/dev/null
+}
+fb_out="$(fb_walk "${fb_work}/private/open/proj")" || true
+if [[ "${fb_out}" == "G=${fb_work}/private"$'\n'"B=" ]]; then
+    pass "find_blocking_ancestors reads past an open directory to its closed parent"
+else
+    fail "find_blocking_ancestors over 700/755/proj: $(tr '\n' '|' <<< "${fb_out}")"
+fi
+fb_out="$(fb_walk "${fb_work}/foreign/mine/proj")" || true
+if [[ "${fb_out}" == "G=${fb_work}/foreign/mine"$'\n'"B=${fb_work}/foreign" ]]; then
+    pass "find_blocking_ancestors collects the grantable blocker and stops at its foreign parent"
+else
+    fail "find_blocking_ancestors over root-700/700/proj: $(tr '\n' '|' <<< "${fb_out}")"
 fi
 
 # ── normalize_clone ──────────────────────────────────────────────────────────────────────────

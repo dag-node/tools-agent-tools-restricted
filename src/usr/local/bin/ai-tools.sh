@@ -1318,16 +1318,22 @@ grantable_ancestor() {
 # and TRAVERSAL_BLOCKED_PATH (the first blocking ancestor no grant may cover, empty when none). Read-only
 # and unprivileged; confirm_ancestor_traversal asks on the result and grant_ancestor_traversal acts on it,
 # and the claim's pending overview reads it so the traverse opt-in is announced up front.
+#
+# The walk reads every ancestor up to `/`: the kernel resolves each component on its own, so a `700` directory that is
+# the parent of a `755` one blocks the path as surely as the reverse, and a walk that stopped at the first traversable
+# directory would report the gap closed with the outer one still shut. It ends early only at a blocker no grant covers,
+# since a grant on a directory inside that blocker could not open the path anyway.
 find_blocking_ancestors() {
     local dir="$1" anc
     TRAVERSAL_GRANT_PATHS=(); TRAVERSAL_BLOCKED_PATH=""
     anc="$(dirname "${dir}")"
     while [[ "${anc}" != / && "${anc}" != . ]]; do
-        if agent_can_traverse "${anc}"; then break; fi
-        if grantable_ancestor "${anc}"; then
-            TRAVERSAL_GRANT_PATHS+=("${anc}")
-        else
-            TRAVERSAL_BLOCKED_PATH="${anc}"; break
+        if ! agent_can_traverse "${anc}"; then
+            if grantable_ancestor "${anc}"; then
+                TRAVERSAL_GRANT_PATHS+=("${anc}")
+            else
+                TRAVERSAL_BLOCKED_PATH="${anc}"; break
+            fi
         fi
         anc="$(dirname "${anc}")"
     done
