@@ -1436,8 +1436,9 @@ grant_ancestor_traversal() {
 # locked to owner-only by ai-tools-lockdown) is PRUNED from both walks -- re-opening one here would undo the lockdown
 # this step is sequenced after. It prunes only what THIS run's gate reported, which is why sandbox_finalize runs it
 # once, while the root is still owner-only (clone_is_private), and not on a resume over a clone already opened. Neither
-# walk has a skip list, and the gate's walk skips .git alone, so every directory this opens is one the gate scanned
-# for secret names.
+# walk has a skip list, and the gate's walk prunes only the `.git` subtrees git names itself (ai-tools-lockdown's header
+# fixes the set), so every directory this opens is one the gate scanned for secret names, or one whose entries git
+# named.
 #
 # Both walks act on regular files and directories alone, and stay on the clone's filesystem: chmod follows a symlink
 # named on its command line, so a tracked symlink handed to it would change the mode of its target, a path outside

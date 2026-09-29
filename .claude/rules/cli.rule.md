@@ -1086,5 +1086,6 @@ the agent to wait until lockdown runs, preserving any real `CLAUDE.md` via `git 
 the found paths (`SECRET_MATCH_PATHS`) so `normalize_clone` prunes them from its group-access walk. The gate covers
 what the steps after it expose, which is more than the claim's walks touch: those walks skip the shared skip list
 (`skip-dirs.lib.sh`), while the root's traversal, a skipped tree's own world bits and the recursive relabel reach
-into `node_modules` and its kind, and `normalize_clone` opens them outright. So the scan skips `.git` alone (the
-helper's header states why that one), on a claim and on a clone alike.
+into `node_modules` and its kind, and `normalize_clone` opens them outright. So the scan does not take a skip list
+and prunes only the `.git` subtrees git names itself ([secret-handling](secret-handling.rule.md)), on a claim
+and on a clone alike.

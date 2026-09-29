@@ -33,10 +33,15 @@
 # secret-matching path NUL-terminated to stdout, which does not carry any other byte; secret-handling.rule.md states
 # the contract.
 #
-# The walk skips .git alone (skip-dirs.lib.sh's `lockdown` consumer): a secret under a heavy tree such
-# as `node_modules` is reached through the project root's traversal, the tree's own world bits and the recursive
-# relabel, none of which the claim's walks skipping that tree close, and the clone's normalize opens the tree outright.
-# The per-path match runs in this shell without a subprocess, which is what keeps a walk over such a tree to seconds.
+# The walk does not take a skip list: a secret under a heavy tree such as `node_modules` is reached through the project
+# root's traversal, the tree's own world bits and the recursive relabel, none of which the claim's walks skipping
+# that tree close, and the clone's normalize opens the tree outright. Under `.git` it prunes `objects`, `refs`
+# and `logs` alone -- the subtrees git names itself, an object by its hash and a ref and its reflog by the branch name,
+# so no secret-named file lands there by an operator's choice, and a ref locked owner-only would refuse git to the agent
+# -- and walks `hooks`, `info` and the rest, where a template or a resumed clone puts an operator-written file
+# (`hooks/deploy.pem`). The set is fixed here rather than read from skip-dirs.lib.sh, whose categories an operator edits
+# in operator.conf: it is a coverage decision, and a name added to a category there would reopen the gap. The per-path
+# match runs in this shell without a subprocess, which is what keeps a walk over such a tree to seconds.
 #
 # Installed 750 root:root, so only root runs it -- which is why the CLI cannot pre-check the path and sudo reaches it
 # instead. Its domain rule is secret-handling.rule.md.
@@ -76,13 +81,6 @@ die_usage() {
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
-
-# Directory-skip selector from the shared library (single source of truth, shared with session-hook.sh
-# and ai-tools-setgid). A missing lib leaves a stub that descends everywhere.
-readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
-# shellcheck source=SCRIPTDIR/../../lib/ai-tools/skip-dirs.lib.sh
-source "${SKIP_DIRS_LIB}" 2>/dev/null \
-    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/lockdown.log. Best-effort -- a no-op
 # fallback keeps the helper working if the lib is missing.
@@ -274,10 +272,11 @@ _scan() {
 }
 
 # ── Enumerate secret-matching paths under the target ─────────────────────────
-# `find -P` (the default) does not follow a symlink, and `-type f`/`-type d` exclude one anyway.
-ai_tools_skip_find_expr lockdown '' "${target}"
-declare -a expr=( "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
-                  '(' -type f -o -type d ')' -print0 )
+# `find -P` (the default) does not follow a symlink, and `-type f`/`-type d` exclude one anyway. Both walks prune
+# the three `.git` subtrees the header names, at any depth, so a nested repository's are pruned the same way.
+declare -a git_prune=( '(' -type d '(' -path '*/.git/objects' -o -path '*/.git/refs' -o -path '*/.git/logs' ')' ')' \
+                       -prune -o )
+declare -a expr=( "${target}" -xdev "${git_prune[@]}" '(' -type f -o -type d ')' -print0 )
 
 declare -a hits=()
 _scan "${SCAN_DIR}/hits" "${expr[@]}"
@@ -308,7 +307,7 @@ done < "${SCAN_DIR}/hits"
 # where every depth-one entry is owner-only for the same reason and in the sandbox group by setgid inheritance,
 # and the pass would move all of them to the operator's group.
 declare -a sealed=()
-_scan "${SCAN_DIR}/sealed" "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
+_scan "${SCAN_DIR}/sealed" "${target}" -xdev "${git_prune[@]}" \
     '(' -type d ! -perm /077 -print0 -prune ')' -o '(' -type f ! -perm /077 -print0 ')'
 while IFS= read -r -d '' path; do
     [[ "${path}" == "${target}" ]] && continue

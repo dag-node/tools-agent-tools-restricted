@@ -51,12 +51,12 @@ if [[ -z "$(names_for reclaim-full)" ]]; then
 else
     fail "reclaim-full names: $(names_for reclaim-full)"
 fi
-# The secret sweep skips .git alone: a claim's traversal, world bits and relabel reach into the heavy trees whatever
-# its walks skip, and the clone's normalize opens them.
-if ai_tools_skip_find_expr lockdown 2>/dev/null && [[ "${AI_TOOLS_SKIP_NAMES[*]}" == ".git" ]]; then
-    pass "lockdown skips .git alone"
+# The secret sweep is not a consumer: ai-tools-lockdown fixes its own `.git` prune, since a name an operator adds
+# to a category here must not reopen a tree the claim exposes (tests/unit/lockdown.sh drives that walk).
+if ai_tools_skip_find_expr lockdown 2>/dev/null; then
+    fail "lockdown is accepted as a consumer: ${AI_TOOLS_SKIP_NAMES[*]}"
 else
-    fail "lockdown names: ${AI_TOOLS_SKIP_NAMES[*]}"
+    pass "lockdown is not a consumer of the skip list"
 fi
 
 # (3) Optional skip_git override: reclaim true adds .git; sweep false drops it.
