@@ -372,8 +372,8 @@ cv_is "a batch that exits 1" 1 "unverified gone | not-fixed gone "
 # The read behind the traverse grant: whether the sandbox account can enter a directory, decided as the kernel decides
 # it. Each row is one entry the algorithm consults, and the two that carry weight are the ones a mode read gets wrong:
 # a named-user entry the mask narrows to no permission (a `chmod 700` after an earlier grant), which must read
-# as blocked so the grant is offered again, and a named-user entry denying execute beside world execute, which must
-# read as blocked because a named entry is consulted ahead of the other entry.
+# as blocked so the grant is offered again, and a named-user entry denying execute beside world execute, which must read
+# as blocked because a named entry is consulted ahead of the other entry.
 section "agent_can_traverse: the kernel's access order, mask included (unit)"
 if ! command -v setfacl >/dev/null 2>&1 || ! command -v getfacl >/dev/null 2>&1 \
         || ! getent passwd "${SANDBOX_USER}" >/dev/null 2>&1 || ! getent group "${SANDBOX_GROUP}" >/dev/null 2>&1; then
@@ -483,6 +483,12 @@ chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${fb_work}"
 chown root:root "${fb_work}/foreign"
 chmod 0755 "${fb_work}" "${fb_work}/private/open" "${fb_work}/private/open/proj" "${fb_work}/foreign/mine/proj"
 chmod 0700 "${fb_work}/private" "${fb_work}/foreign" "${fb_work}/foreign/mine"
+# The foreign parent lets the projects user through and not the sandbox account, the shape of a real claim: the operator
+# reaches its own tree, so the walk can read `mine` and must stop at `foreign`, which it cannot grant.
+fb_foreign=false
+if command -v setfacl >/dev/null 2>&1 && setfacl -m "u:${PROJECTS_USER}:--x" "${fb_work}/foreign" 2>/dev/null; then
+    fb_foreign=true
+fi
 # fb_walk <dir>: print one `G=<path>` line per grant path and one `B=<path>` line, from the sourced shell.
 fb_walk() {
     # shellcheck disable=SC2016  # the expansions are the inner shell's
@@ -495,11 +501,15 @@ if [[ "${fb_out}" == "G=${fb_work}/private"$'\n'"B=" ]]; then
 else
     fail "find_blocking_ancestors over 700/755/proj: $(tr '\n' '|' <<< "${fb_out}")"
 fi
-fb_out="$(fb_walk "${fb_work}/foreign/mine/proj")" || true
-if [[ "${fb_out}" == "G=${fb_work}/foreign/mine"$'\n'"B=${fb_work}/foreign" ]]; then
-    pass "find_blocking_ancestors collects the grantable blocker and stops at its foreign parent"
+if ${fb_foreign}; then
+    fb_out="$(fb_walk "${fb_work}/foreign/mine/proj")" || true
+    if [[ "${fb_out}" == "G=${fb_work}/foreign/mine"$'\n'"B=${fb_work}/foreign" ]]; then
+        pass "find_blocking_ancestors collects the grantable blocker and stops at its foreign parent"
+    else
+        fail "find_blocking_ancestors over root-700/700/proj: $(tr '\n' '|' <<< "${fb_out}")"
+    fi
 else
-    fail "find_blocking_ancestors over root-700/700/proj: $(tr '\n' '|' <<< "${fb_out}")"
+    skip "find_blocking_ancestors over a foreign parent" "setfacl is unavailable to give the projects user traverse"
 fi
 # An ancestor whose ACL could not be read is the blocker, whoever owns it, and the reason names the read: a grant
 # offered on a state the walk did not read would widen on a guess.
