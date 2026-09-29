@@ -485,7 +485,7 @@ note_option_spellings() {
 note_option_spellings
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to claim a system directory, and vet ancestors
-# for the reachability grant (reg_reach -> grantable_ancestor). It is REQUIRED: FAIL CLOSED if it cannot be sourced
+# for the reachability grant (reach_ask -> grantable_ancestor). It is REQUIRED: FAIL CLOSED if it cannot be sourced
 # (missing, unreadable, or the lib dir is not traversable) or does not define its guard. A broken install is not a state
 # to run through with the guard disabled -- a stubbed no-op would skip the system-dir refusal AND silently never grant
 # ancestor traversal (a claimed project the agent cannot reach). Log to journald (via logger, independent of log.lib
@@ -1275,12 +1275,12 @@ agent_can_traverse() {
     return 1
 }
 
-# grantable_ancestor <dir>  -- 0 if reg_reach may grant traverse on <dir>. The rule itself lives in safe-paths.lib.sh
+# grantable_ancestor <dir>  -- 0 if reach_ask may offer traverse on <dir>. The rule itself lives in safe-paths.lib.sh
 # (ai_tools_traverse_grant_allowed), single-sourced with the two new project verbs; this is the call site. Fail-closed
 # when the predicate is unavailable, so a broken install never widens a directory it cannot vet.
 #
-# On a --for run the owner is the target, whose directories the invoker cannot setfacl unprivileged; reg_reach applies
-# the grant through the runas seam instead.
+# On a `--for` run the owner is the target, whose directories the invoker cannot setfacl unprivileged; reach_apply
+# applies the grant through the runas seam instead.
 grantable_ancestor() {
     local p="$1"
     declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1 || return 1
@@ -1289,8 +1289,8 @@ grantable_ancestor() {
 
 # reach_scan <dir>  -- detect the traverse gap between the sandbox account and <dir>: fills REACH_GRANT (each blocking
 # ancestor a grant may cover: operator-owned, not a protected system directory) and REACH_BLOCKED (the first blocking
-# ancestor no grant may cover, empty when none). Read-only and unprivileged; reg_reach acts on the result,
-# and the claim's pending overview reads it so the traverse opt-in is announced up front.
+# ancestor no grant may cover, empty when none). Read-only and unprivileged; reach_ask asks on the result
+# and reach_apply acts on it, and the claim's pending overview reads it so the traverse opt-in is announced up front.
 reach_scan() {
     local dir="$1" anc
     REACH_GRANT=(); REACH_BLOCKED=""
@@ -1306,17 +1306,22 @@ reach_scan() {
     done
 }
 
-# reg_reach <dir>  -- the reachability block: ensure the sandbox account can TRAVERSE the path to <dir>, acting
-# on reach_scan's result (the CALLER runs reach_scan first). The confined session runs as the sandbox account; a project
-# nested under a directory it cannot enter (a private home, 700) is unreachable, so ai-tools-run reports it missing even
-# after a clean claim. Grant traverse-only (execute, no read -- u:SANDBOX_USER:--x) on each blocking ancestor
-# the operator owns and that is not a protected system directory: enough to enter and reach the project, never to list
-# or read it, and unprivileged because the operator owns those directories. A blocking ancestor that is a system
-# directory or someone else's is left untouched -- there an isolated sandbox clone (under /var/opt/ai-tools, already
-# agent-traversable) is the way in. Default-NO: it widens on the project's ANCESTORS, so it is a separate, explicit
-# opt-in.
-reg_reach() {
+# reach_ask <dir>  -- the reachability block's question: whether the sandbox account may be let TRAVERSE the path
+# to <dir>, on reach_scan's result (the CALLER runs reach_scan first). The confined session runs as the sandbox account;
+# a project nested under a directory it cannot enter (a private home, 700) is unreachable, so ai-tools-run reports it
+# missing even after a clean claim. The grant is traverse-only (execute, no read -- u:SANDBOX_USER:--x) on each
+# blocking ancestor the operator owns and that is not a protected system directory: enough to enter and reach
+# the project, never to list or read it, and unprivileged because the operator owns those directories. A blocking
+# ancestor that is a system directory or someone else's is left untouched -- there an isolated sandbox clone (under
+# /var/opt/ai-tools, already agent-traversable) is the way in. Default-NO: it widens on the project's ANCESTORS, so it
+# is a separate, explicit opt-in.
+#
+# Sets REACH_ACCEPTED and does not set the ACL: the grant makes the tree reachable, with whatever readable secrets
+# were added since it was last scanned, so an accepted grant counts as an access-widening step -- the caller runs
+# the secret gate on it and applies it with reach_apply in the Apply block, after the gate.
+reach_ask() {
     local dir="$1" a
+    REACH_ACCEPTED=false
     if [[ -n "${REACH_BLOCKED}" ]]; then
         local why blocked_owner
         blocked_owner="$(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || echo '?')"
@@ -1367,25 +1372,30 @@ reg_reach() {
     # with no terminal therefore declines, and prints the commands so the refusal is actionable rather than merely
     # recorded.
     if confirm "Grant the sandbox account traverse-only access on them?" n; then
-        local failed=false
-        for a in "${REACH_GRANT[@]}"; do
-            # A --for run's ancestors belong to the TARGET, so an unprivileged setfacl by the invoker fails on every one
-            # of them; run_as_owner applies it as the owner instead.
-            if run_as_owner setfacl -m "u:${SANDBOX_USER}:--x" "${a}" 2>/dev/null; then
-                say "    reach: u:${SANDBOX_USER}:--x ${a}"
-            else
-                failed=true
-                warn "reach: could not grant on ${a} -- run it as ${OWNER_USER} or as root:"
-                say  "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
-            fi
-        done
-        ${failed} || ok "parent directories traversable by the sandbox account"
+        REACH_ACCEPTED=true
     else
         say "    reach: left as-is -- the agent may be unable to enter ${dir}"
         have_tty || for a in "${REACH_GRANT[@]}"; do
             say "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
         done
     fi
+}
+
+# reach_apply  -- apply the grant reach_ask accepted: one traverse-only ACL entry per blocking ancestor, each reported
+# on its own result line, and a manual command for one that could not be set. Unprivileged, since the operator owns
+# those directories; the CALLER runs the secret gate first.
+reach_apply() {
+    local a
+    for a in "${REACH_GRANT[@]}"; do
+        # A --for run's ancestors belong to the TARGET, so an unprivileged setfacl by the invoker fails on every one
+        # of them; run_as_owner applies it as the owner instead.
+        if run_as_owner setfacl -m "u:${SANDBOX_USER}:--x" "${a}" 2>/dev/null; then
+            say "    reach: u:${SANDBOX_USER}:--x ${a}"
+        else
+            warn "reach: could not grant on ${a} -- run it as ${OWNER_USER} or as root:"
+            say  "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
+        fi
+    done
 }
 
 # normalize_clone <dir> [locked-path...]  -- make a freshly created clone agent-accessible. The clone is born in group
@@ -1481,16 +1491,16 @@ run_unclaim() {
 }
 
 # secret_gate <dir> [helper-option...]  -- the secret-lockdown block: before ANY step grants the agent access to <dir>
-# (the group ACL, the setgid group change, .git normalization, the clone normalize), make sure no group-readable secret
-# would be exposed. The CLI cannot read the root-only secret-pattern library, so one `ai-tools-lockdown --gate` call
-# (sudo, password -- the first sudo prompt of a claim, so it lands right under this block's headline) scans, lists what
-# it found, asks, and locks: one call, so a host whose sudo does not cache the password asks once. Its exit decides: 0
-# locked or found none, 6 declined, anything else failed. AI_TOOLS_ASSUME_YES answers the default-yes question
-# as `--yes`, since sudo does not pass it through. Every <helper-option> goes to the helper after `--gate`: the clone
-# passes `--full`, so the scan walks every directory normalize_clone will open (the helper's header states why a claim
-# in place does not). Fills SECRET_GATE_LOCKED with every secret-matching path the helper wrote to stdout,
-# so normalize_clone can prune them. Returns 0 only when the tree is safe to expose; non-zero means the caller must
-# fail closed.
+# (the group ACL, the setgid group change, .git normalization, the traverse grant on an ancestor, the clone normalize),
+# make sure no group-readable secret would be exposed. The CLI cannot read the root-only secret-pattern library, so one
+# `ai-tools-lockdown --gate` call (sudo, password -- the first sudo prompt of a claim, so it lands right under this
+# block's headline) scans, lists what it found, asks, and locks: one call, so a host whose sudo does not cache
+# the password asks once. Its exit decides: 0 locked or found none, 6 declined, anything else failed.
+# AI_TOOLS_ASSUME_YES answers the default-yes question as `--yes`, since sudo does not pass it through. Every
+# <helper-option> goes to the helper after `--gate`: the clone passes `--full`, so the scan walks every directory
+# normalize_clone will open (the helper's header states why a claim in place does not). Fills SECRET_GATE_LOCKED
+# with every secret-matching path the helper wrote to stdout, so normalize_clone can prune them. Returns 0 only
+# when the tree is safe to expose; non-zero means the caller must fail closed.
 secret_gate() {
     local dir="$1" found status=0; shift
     local -a args=(--gate "$@")
@@ -1675,10 +1685,12 @@ claim_setfacl() {
 #                   (acl_drift_scan; default-NO, not answered by `--yes`), each its list
 #                   and then its question; the group question is skipped when the relabel
 #                   did not run and every path on its list is also on the relabel list.
-#   3. Secret lockdown -- BEFORE any access-granting step, whenever one is pending or
+#   3. Reachability  -- separate default-NO opt-in for traverse-only ancestor ACLs; the
+#                   question alone, since an accepted grant is an access-granting step
+#                   and takes the gate, and the ACL is set in Apply.
+#   4. Secret lockdown -- BEFORE any access-granting step, whenever one is pending or
 #                   this is a first claim (see secret_gate); fails the claim closed.
-#   4. .git history  -- separate default-YES opt-in (ai-tools-setfacl --with-git).
-#   5. Reachability  -- separate default-NO opt-in for traverse-only ancestor ACLs.
+#   5. .git history  -- separate default-YES opt-in (ai-tools-setfacl --with-git).
 #   6. Apply     -- the approved steps back to back, one result line each, then each
 #                   drifted path checked on its own and one outcome row written for it
 #                   (fixed / not-fixed / unverified / gone), closed by the final
@@ -2373,15 +2385,17 @@ cmd_project_claim() {
         say ""
     fi
 
+    # A claimed project can still sit under a non-traversable parent (a later chmod 700 on an ancestor), and the grant
+    # that closes that is a pending step like the others -- it takes the gate -- so a project with one takes
+    # the pending-steps flow rather than this path.
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
             && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
-            && (( ${#drift[@]} == 0 && ${#label_drift[@]} == 0 )); then
+            && (( ${#drift[@]} == 0 && ${#label_drift[@]} == 0 && ${#REACH_GRANT[@]} == 0 )); then
         skip_listed_note
         sealed_setgid_note
         ancestor_config_note
-        # A claimed project can still sit under a non-traversable parent (a later chmod 700 on an ancestor),
-        # so the reachability block runs on the no-op path too.
-        reg_reach "${d}"
+        # With no grant to offer, this prints the blocked-ancestor warning alone, where there is one.
+        reach_ask "${d}"
         claim_scan_rows
         ok "already fully claimed -- nothing to do"
         claim_end
@@ -2389,9 +2403,10 @@ cmd_project_claim() {
     fi
 
     # The gate runs whenever any pending step widens the agent's access -- the setgid group change, the group ACL, drift
-    # repair, .git normalization, the SELinux label -- and on every first claim (a tree can be group-accessible
-    # by setgid inheritance yet never scanned). Only pure registry additions (safedir, filemode) skip it. Drift repair
-    # counts once its question is answered yes, so here it only decides whether the overview announces the gate.
+    # repair, .git normalization, the SELinux label, the traverse grant -- and on every first claim (a tree can be
+    # group-accessible by setgid inheritance yet never scanned). Only pure registry additions (safedir, filemode) skip
+    # it. Drift repair and the traverse grant count once their question is answered yes, so here they only decide
+    # whether the overview announces the gate.
     local need_gate=false
     if [[ "${listed}" != true || "${owngap}" == true ]] \
             || ${need_acl} || ${need_git} || ${need_label}; then
@@ -2402,7 +2417,7 @@ cmd_project_claim() {
     # rule, so it costs the operator a sudo PASSWORD prompt to search a directory the tool itself just created.
     if ${fresh}; then need_gate=false; fi
     local gate_announced="${need_gate}"
-    (( ${#drift[@]} || ${#label_drift[@]} )) && gate_announced=true
+    (( ${#drift[@]} || ${#label_drift[@]} || ${#REACH_GRANT[@]} )) && gate_announced=true
 
     say ""
     say "  pending:"
@@ -2515,6 +2530,14 @@ cmd_project_claim() {
         ${fresh} || need_gate=true
     fi
 
+    # The traverse grant is asked with the repairs, ahead of the gate, because it is one: it makes the tree reachable
+    # with whatever readable secrets were added since its last scan, so an accepted grant runs the gate, and reach_apply
+    # sets the ACL in the Apply block. A pristine tree has no secret to find, as for the other steps.
+    reach_ask "${d}"
+    if ${REACH_ACCEPTED}; then
+        ${fresh} || need_gate=true
+    fi
+
     # Allowlist first: ai-tools-lockdown only scans an allowlisted path. Rolled back on a failed gate.
     [[ "${listed}" == true ]] || reg_allow "${d}"
 
@@ -2549,17 +2572,20 @@ cmd_project_claim() {
         fi
     fi
 
-    reg_reach "${d}"
-
     # ── Apply block: the approved steps run back to back, each reporting one result line; the closing ✓ is the claim's
     # completion. The headline opens only over a step that runs: with every repair declined there is none, and an empty
     # block would read as work done. ──
     local apply_steps=false
     if [[ "${safedir}" != true || "${owngap}" == true ]] || ${need_filemode} || ${need_acl} || ${do_git} \
-            || ${need_label} || ${do_drift} || ${do_label_drift}; then
+            || ${need_label} || ${do_drift} || ${do_label_drift} || ${REACH_ACCEPTED}; then
         apply_steps=true
     fi
     if ${apply_steps}; then headline "Applying claim steps" "${d}"; fi
+
+    # The traverse grant goes first: it is unprivileged, so it cannot fail a password round, and its own precondition,
+    # the gate, has run. Placed after the root steps it would be skipped by note_root_failure's stop, and the closing
+    # warning names the steps a root helper applies, not this one.
+    if ${REACH_ACCEPTED}; then reach_apply; fi
 
     # A failed step asks once before the next is attempted (note_root_failure). Stopping is the safe direction here --
     # fewer steps applied -- and costs the operator no work, since the claim is idempotent and a re-run does exactly
