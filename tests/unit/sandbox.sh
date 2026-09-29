@@ -354,6 +354,46 @@ cv_is() {  # cv_is <what> <restorecon-status> <want>
 cv_is "a clean batch" 0 "fixed gone | not-fixed gone "
 cv_is "a batch that exits 1" 1 "unverified gone | not-fixed gone "
 
+# ── agent_can_traverse ───────────────────────────────────────────────────────────────────────
+# The read behind the traverse grant: whether the sandbox account can enter a directory, decided as the kernel decides
+# it. Each row is one entry the algorithm consults, and the two that carry weight are the ones a mode read gets wrong:
+# a named-user entry narrowed to nothing by the mask (a `chmod 700` after an earlier grant), which must read
+# as blocked so the grant is offered again, and a named-user entry denying execute beside world execute, which must
+# read as blocked because a named entry is consulted ahead of the other entry.
+section "agent_can_traverse: the kernel's access order, mask included (unit)"
+if ! command -v setfacl >/dev/null 2>&1 || ! command -v getfacl >/dev/null 2>&1 \
+        || ! getent passwd "${SANDBOX_USER}" >/dev/null 2>&1 || ! getent group "${SANDBOX_GROUP}" >/dev/null 2>&1; then
+    skip "agent_can_traverse" "setfacl/getfacl or the ${SANDBOX_USER} account is unavailable"
+else
+    ct_work="${TESTDIR}/ct"; mkdir -p "${ct_work}"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ct_work}"; chmod 0755 "${ct_work}"
+    # ct_dir <name> <mode> [setfacl-spec...]: a directory of the projects user at <mode>, with the ACL specs applied
+    # in order; a spec `chmod:<mode>` re-modes the directory after the entries before it, which is how a mask narrows.
+    ct_dir() {
+        local name="$1" mode="$2" spec; shift 2
+        mkdir -p "${ct_work}/${name}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ct_work}/${name}"
+        chmod "${mode}" "${ct_work}/${name}"
+        for spec in "$@"; do
+            if [[ "${spec}" == chmod:* ]]; then chmod "${spec#chmod:}" "${ct_work}/${name}"
+            else setfacl -m "${spec}" "${ct_work}/${name}"; fi
+        done
+    }
+    ct_is() {  # ct_is <name> <yes|no> <what>
+        local rc=0; call agent_can_traverse "${ct_work}/$1" >/dev/null 2>&1 || rc=$?
+        if (( rc == 99 )); then fail "agent_can_traverse: $3 -- CLI not sourceable"
+        elif { [[ "$2" == yes ]] && (( rc == 0 )); } || { [[ "$2" == no ]] && (( rc == 1 )); }; then pass "agent_can_traverse: $3 -> $2"
+        else fail "agent_can_traverse: $3 -> exit ${rc}, want $2"; fi
+    }
+    ct_dir world 0711;                                             ct_is world      yes "world execute"
+    ct_dir closed 0700;                                            ct_is closed     no  "owner-only, no ACL"
+    ct_dir named 0700 "u:${SANDBOX_USER}:--x";                     ct_is named      yes "named-user entry with execute"
+    ct_dir masked 0700 "u:${SANDBOX_USER}:--x" chmod:0700;         ct_is masked     no  "named-user entry under mask ---"
+    ct_dir denied 0711 "u:${SANDBOX_USER}:---";                    ct_is denied     no  "named-user entry denying execute beside world execute"
+    ct_dir ngroup 0700 "g:${SANDBOX_GROUP}:--x";                   ct_is ngroup     yes "named-group entry with execute"
+    ct_dir ogroup 0710; chgrp "${SANDBOX_GROUP}" "${ct_work}/ogroup"; ct_is ogroup   yes "owning group is the sandbox group, group execute"
+    ct_dir fgroup 0710;                                            ct_is fgroup     no  "group execute for a group that is not the sandbox group"
+fi
+
 # ── normalize_clone ──────────────────────────────────────────────────────────────────────────
 # The step that opens a clone to the agent group once the gate has passed. What it must not do: change a path the gate
 # did not scan -- chmod follows a symlink named on its command line, so a tracked link to a file outside the clone

@@ -1259,20 +1259,45 @@ reg_ownership() {
     fi
 }
 
-# agent_can_traverse <dir>  -- 0 if the sandbox account (SANDBOX_USER, a SANDBOX_GROUP member) can ENTER <dir>:
-# world-execute, or group-execute with the directory in group SANDBOX_GROUP, or an explicit user:SANDBOX_USER ACL
-# carrying execute.
+# agent_can_traverse <dir>  -- 0 if the sandbox account (SANDBOX_USER, a SANDBOX_GROUP member) can ENTER <dir>, decided
+# the way the kernel decides it (acl(5)): the owner entry when the account owns the directory; else the named-user
+# entry for the account when there is one, whatever the group and other entries say; else the owning-group entry
+# when the directory is in SANDBOX_GROUP, and every named-group entry for SANDBOX_GROUP; else the other entry.
+# A named entry and the owning-group entry are narrowed by the mask, so `user:SANDBOX_USER:--x` under `mask::---`
+# -- the state a `chmod 700` after an earlier grant leaves -- reads as blocked, and the grant is offered again.
+# Without getfacl, or where it cannot read the directory, the mode bits alone decide.
 agent_can_traverse() {
-    local d="$1" m grp
-    m="$(stat -c '%a' "${d}" 2>/dev/null)" || return 1
-    if (( 8#${m} & 0001 )); then return 0; fi
-    grp="$(stat -c '%G' "${d}" 2>/dev/null || true)"
-    if [[ "${grp}" == "${SANDBOX_GROUP}" ]] && (( 8#${m} & 0010 )); then return 0; fi
-    if command -v getfacl >/dev/null 2>&1 \
-            && getfacl -p "${d}" 2>/dev/null | grep -qE "^user:${SANDBOX_USER}:..x"; then
-        return 0
+    local dir="$1" mode owner grp acl
+    # IFS pinned for the read: this script's global IFS has no space, and stat separates the fields with one.
+    IFS=' ' read -r mode owner grp < <(stat -c '%a %U %G' -- "${dir}" 2>/dev/null) || return 1
+    if command -v getfacl >/dev/null 2>&1 && acl="$(getfacl -p -c -E -- "${dir}" 2>/dev/null)"; then
+        local line tag name perms mask="" named_user="" owner_perms="" other="" found_group=false
+        local -a group_perms=()
+        while IFS= read -r line; do
+            IFS=: read -r tag name perms <<< "${line}"
+            case "${tag}:${name}" in
+                "user:")                   owner_perms="${perms}" ;;
+                "user:${SANDBOX_USER}")    named_user="${perms}" ;;
+                "group:")                  [[ "${grp}" == "${SANDBOX_GROUP}" ]] && group_perms+=("${perms}") ;;
+                "group:${SANDBOX_GROUP}")  group_perms+=("${perms}") ;;
+                "mask:")                   mask="${perms}" ;;
+                "other:")                  other="${perms}" ;;
+            esac
+        done <<< "${acl}"
+        # _masked_x <perms>: the entry grants execute and the mask, where one exists, does not take it away.
+        _masked_x() { [[ "$1" == *x* ]] && [[ -z "${mask}" || "${mask}" == *x* ]]; }
+        if [[ "${owner}" == "${SANDBOX_USER}" ]]; then [[ "${owner_perms}" == *x* ]]; return; fi
+        if [[ -n "${named_user}" ]]; then _masked_x "${named_user}"; return; fi
+        for perms in "${group_perms[@]}"; do
+            found_group=true
+            _masked_x "${perms}" && return 0
+        done
+        ${found_group} && return 1
+        [[ "${other}" == *x* ]]; return
     fi
-    return 1
+    if [[ "${owner}" == "${SANDBOX_USER}" ]]; then (( 8#${mode} & 0100 )); return; fi
+    if [[ "${grp}" == "${SANDBOX_GROUP}" ]]; then (( 8#${mode} & 0010 )); return; fi
+    (( 8#${mode} & 0001 ))
 }
 
 # grantable_ancestor <dir>  -- 0 if reach_ask may offer traverse on <dir>. The rule itself lives in safe-paths.lib.sh
@@ -1383,19 +1408,23 @@ reach_ask() {
 
 # reach_apply  -- apply the grant reach_ask accepted: one traverse-only ACL entry per blocking ancestor, each reported
 # on its own result line, and a manual command for one that could not be set. Unprivileged, since the operator owns
-# those directories; the CALLER runs the secret gate first.
+# those directories; the CALLER runs the secret gate first. Returns non-zero when any ancestor was not granted: one
+# left blocking keeps the project out of reach whatever the others took, so the caller counts it as a step that did
+# not apply.
 reach_apply() {
-    local a
+    local a failed=false
     for a in "${REACH_GRANT[@]}"; do
         # A --for run's ancestors belong to the TARGET, so an unprivileged setfacl by the invoker fails on every one
         # of them; run_as_owner applies it as the owner instead.
         if run_as_owner setfacl -m "u:${SANDBOX_USER}:--x" "${a}" 2>/dev/null; then
             say "    reach: u:${SANDBOX_USER}:--x ${a}"
         else
+            failed=true
             warn "reach: could not grant on ${a} -- run it as ${OWNER_USER} or as root:"
             say  "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
         fi
     done
+    ! ${failed}
 }
 
 # normalize_clone <dir> [locked-path...]  -- make a freshly created clone agent-accessible. The clone is born in group
@@ -2597,9 +2626,13 @@ cmd_project_claim() {
     if ${apply_steps}; then headline "Applying claim steps" "${d}"; fi
 
     # The traverse grant goes first: it is unprivileged, so it cannot fail a password round, and its own precondition,
-    # the gate, has run. Placed after the root steps it would be skipped by note_root_failure's stop, and the closing
-    # warning names the steps a root helper applies, not this one.
-    if ${REACH_ACCEPTED}; then reach_apply; fi
+    # the gate, has run. Placed after the root steps it would be skipped by note_root_failure's stop. A grant that did
+    # not take counts with the root steps that did not apply: the project stays out of the agent's reach, which
+    # the closing warning reports, and the command that applies it is printed with the failure. It does not ask
+    # note_root_failure's question, which is about a password round the next root step would repeat.
+    if ${REACH_ACCEPTED} && ! reach_apply; then
+        ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
+    fi
 
     # A failed step asks once before the next is attempted (note_root_failure). Stopping is the safe direction here --
     # fewer steps applied -- and costs the operator no work, since the claim is idempotent and a re-run does exactly
