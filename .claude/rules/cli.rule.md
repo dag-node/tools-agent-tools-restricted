@@ -894,12 +894,13 @@ command wrote and the scan would cost a sudo password; the `.git` question is in
 to expose and normalizing keeps later commits readable. The traverse grant still asks: it widens access on ancestors,
 which exist.
 
-No path it seeds is left owner-only: under an `077` umask the directory, `.git` and the README would come
-out `0700`/`0600`, the seal `ai-tools-setgid` and `ai-tools-setfacl` honour and skip, so the create sets `0750`, `0640`
-and `chmod -R g+rX` on `.git` — group read and traverse only, since write comes from the claim's ACL, `0770` would open
-the tree to the operator's primary group, shared on some hosts, and those are the modes an unclaim normalizes back to.
-This is a statement, not a prompt: a umask is a blanket default, not a seal placed on this directory, so where the umask
-would have sealed it the create says so in a line.
+No path it seeds is left owner-only: under an `077` umask (the `/etc/login.defs` default on many hosts, which a PAM
+session hands the command) the directory, `.git` and the README would come out `0700`/`0600`, the seal `ai-tools-setgid`
+and `ai-tools-setfacl` honour and skip, so the create sets `0750`, `0640` and `chmod -R g+rX` on `.git` — group read
+and traverse only, since write comes from the claim's ACL, `0770` would open the tree to the operator's primary group,
+shared on some hosts, and those are the modes an unclaim normalizes back to. This is a statement, not a prompt: a umask
+is a blanket default, not a seal placed on this directory, so where the umask would have sealed it the create says
+so in a line.
 
 ## Remove <a id="ref-section-k3v7"></a>
 

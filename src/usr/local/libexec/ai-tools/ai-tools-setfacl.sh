@@ -2,39 +2,25 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-setfacl
 # Applies the per-project POSIX ACL that lets the owning operator and the sandbox agent co-write an approved tree
-# regardless of either party's umask -- the permission companion to ai-tools-setgid's group-ownership inheritance.
-# An access + inherited-default ACL grants rwX to the @SANDBOX_GROUP@ group (the agent's access to operator-written
-# files) and to the resolved operator (the operator's access to agent-written files), others denied. The operator grant
-# is what lets the operator co-write the tree -- work tree, and .git under `--with-git` -- without joining
-# @SANDBOX_GROUP@ and without waiting on the ownership handback.
+# whatever either party's umask: an access + inherited-default ACL granting rwX to the @SANDBOX_GROUP@ group (the
+# agent's access to operator-written files) and to the resolved operator (the operator's access to agent-written files),
+# others denied, built by project-permissions.lib.sh, the specification the claim's verifier reads too.
+# Under `--with-git` a second pass normalizes `.git` the same way -- group, setgid on its directories and the same ACL
+# -- so the operator's commits stay agent-readable.
 #
-# Owner-only paths are never granted. When a path's mode grants neither group nor other bits (0600, 0700), the walk does
-# not apply either grant to it -- group:@SANDBOX_GROUP@:rwX (the agent's) or user:<operator>:rwX (the operator's) --
-# does not set a default ACL on a directory, does not recalculate the mask, and leaves the mode bits untouched.
-# That mode is the operator's standing decision to keep the path out of the sandbox account's reach, and a claim does
-# not overrule it. What the walk does instead is STRIP the sandbox residue such a path still carries
-# (owner-only.lib.sh), so the seal does not rest on the mode alone staying put. It holds on the main walk
-# and in the `--with-git` pass alike; a skipped directory takes its subtree with it, since the sandbox account cannot
-# enter the directory to use a grant inside it. To opt a path in, widen its mode and re-claim -- a manual step rather
-# than a prompt, because a standing denial should not fall to a single keypress.
+# The walk skips secret-named, '!'-excluded, skip-list and foreign-owned paths, and never grants an owner-only path
+# (0600/0700; `_safe_setfacl` returns 2 on ai_tools_is_owner_only): it strips the sandbox residue such a path carries
+# instead, and a skipped directory takes its subtree with it, no grant inside being reachable through it. What the seal
+# is, what the strip removes and why `setfacl -m` on a sealed path would grant are owner-only.lib.sh's. Every skip is
+# counted and reported: on the project ROOT it means the sandbox account has no way into the tree,
+# and under `--with-git` it means the history the operator asked to share was not shared.
 #
-# Every skip is counted and reported. On a project ROOT it means the sandbox account cannot enter the tree at all;
-# under `--with-git` it means the git history the operator asked to share was not shared. Both are outcomes the operator
-# has to be told, not left to infer from later behaviour.
-#
-# What this prevents: `setfacl -m` recalculates the mask to cover the entries it adds, so granting an owner-only path
-# returns a 0600 file as 0660 with @SANDBOX_GROUP@ holding effective rw, and a 0700 directory as 0770 -- write
-# on the directory, hence the power to unlink what it holds. secret-handling.rule.md's "keep it in a 700 <you>:<you>
-# dir" advice rests on that directory case. `setfacl -n` (add the entry, leave the mask alone) is not used either: it
-# would leave a dormant grant that any later chmod widening the group bits activates.
-#
-# Runs as root via sudo under `ai-tools projects claim` (no-NOPASSWD, like ai-tools-lockdown); CAP_FOWNER lets it ACL
-# files the operator does not own. The walk skips secret-named, '!'-excluded, skip-list, and foreign-owned paths.
 # Alongside the ACL, the walk normalizes the primary group of a DRIFTED path -- group-accessible yet not group
 # @SANDBOX_GROUP@ (it arrived by rename, inheriting neither the setgid group nor the default ACL) -- so a re-claim's
 # drift scan (acl_drift_scan in the CLI) finds the tree settled.
 #
-# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
+# Runs as root via sudo under `ai-tools projects claim`; CAP_FOWNER lets it ACL files the operator does not own.
+# Installed 750 root:root. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 

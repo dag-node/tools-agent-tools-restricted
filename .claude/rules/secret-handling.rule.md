@@ -36,14 +36,15 @@ A path whose mode grants neither group nor other bits (`0600`, `0700`) is the op
 walks (`ai-tools-setfacl`, `ai-tools-setgid`), the unclaim and the re-claim scans leave such a path as it is — no ACL
 entry, no default ACL, no mask recalculation, mode bits untouched — and a sealed directory takes its subtree with it;
 the skip count is reported, since on a project root it means the sandbox account cannot enter the tree at all,
-and widening the mode and re-claiming is how a path opts in. Granting it would not keep it protective: `setfacl -m`
-recalculates the mask to cover the entries it adds, so a `700` directory would come back `0770`, with write on it
-and the ability to unlink the secrets inside. Every walk also **strips** the sandbox residue such a path inherited
-at creation — the project group, the setgid bit and the default ACL — rather than merely skipping it, since a later
-`chmod 700` masks that residue and does not remove it, and widening the mode later would re-activate the grant
-over everything already inside. `owner-only.lib.sh` is the reference for which paths are sealed, what the strip removes,
-and why a numeric `chmod` and a default ACL leave the residue in place. A `!`-exclusion is the stronger form:
-an excluded subtree is skipped by every walk whatever its mode.
+and widening the mode and re-claiming is how a path opts in — a manual step by design, since a standing denial is not
+put to a single keypress. Granting it would not keep it protective: `setfacl -m` recalculates the mask to cover
+the entries it adds, so a `700` directory would come back `0770`, with write on it and the ability to unlink the secrets
+inside. Every walk also **strips** the sandbox residue such a path inherited at creation — the project group, the setgid
+bit and the default ACL — rather than merely skipping it, since a later `chmod 700` masks that residue and does not
+remove it, and widening the mode later would re-activate the grant over everything already inside. `owner-only.lib.sh`
+is the reference for which paths are sealed, what the strip removes, and why a numeric `chmod` and a default ACL leave
+the residue in place. A `!`-exclusion is the stronger form: an excluded subtree is skipped by every walk whatever its
+mode.
 
 ## Shared secret-pattern set (one source, one matcher)
 

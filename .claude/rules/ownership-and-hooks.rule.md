@@ -206,9 +206,10 @@ to AGENT-written files — so the operator co-writes the tree, and reads agent-w
 `SANDBOX_GROUP` and without waiting on the ownership handback**; it is the access counterpart to setgid's
 `operator→agent` group grant. The named entry governs agent-owned files and yields to the owner entry on operator-owned
 ones. The helper shares the allowlist/exclusion/secret-skip/skip-list rules with the setgid pass, so secret-named
-and `!`-excluded paths receive neither grant. `other::---` is pinned explicitly rather than cloned from each directory's
-mode, which on a permissive-umask directory would otherwise seed `default:other::r-x` and leak read access to every
-future file.
+and `!`-excluded paths receive neither grant. The grant is applied with the mask recalculated (no `setfacl -n`), since
+an entry kept under the old mask would be dormant until a later `chmod` widening the group bits activated it.
+`other::---` is pinned explicitly rather than cloned from each directory's mode, which on a permissive-umask directory
+would otherwise seed `default:other::r-x` and leak read access to every future file.
 
 The group grant and the mask leave a path's mode at one of three values, and an unclaim normalizes them, since
 the pre-claim mode is not recorded, which is why the claim's page says to back up first:
