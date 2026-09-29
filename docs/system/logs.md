@@ -1,7 +1,8 @@
 # Read the logs
 
 [System](index.md) · **Logs** · [SELinux](selinux.md) · [Entrypoint
-verification](entrypoint-verification.md) — [all docs](../index.md)
+verification](entrypoint-verification.md) · [Reading a record
+stream](record-streams.md) — [all docs](../index.md)
 
 One command answers "has anything gone wrong lately?", and two sinks answer
 everything after that: journald for every component, root-only files

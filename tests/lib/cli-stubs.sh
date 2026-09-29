@@ -27,7 +27,8 @@
 # cli_stubs_install <root>   writes the shim and stubs under <root>; sets CLI_STUB_PATH (prepend
 #                            to PATH), CLI_STUB_LOG, CLI_STUB_SECRETS. <root> must be exec-capable
 #                            and the caller chowns it to the user the CLI runs as.
-# cli_stub_reset             truncates the log and the secrets list.
+# cli_stub_reset             truncates the log and the secrets list, and clears every cli_stub_fail.
+# cli_stub_fail <helper>...  makes each named helper's call exit 1 after it is logged, for a failed root step.
 # cli_calls <helper>         prints the log lines for <helper>, fields after the cwd only
 #                            (tab-separated args).
 # cli_called <helper> [ere]  0 when <helper> was called and, with <ere>, some call's args match it.
@@ -71,6 +72,7 @@ name="\${bin##*/}"
     for a in "\$@"; do printf '\t%s' "\${a}"; done
     printf '\n'
 } >> "\${LOG}"
+[[ -e "\${STUBS}/fail.\${name}" ]] && exit 1
 if [[ -x "\${STUBS}/\${name}" ]]; then
     exec "\${STUBS}/\${name}" "\$@"
 fi
@@ -131,7 +133,9 @@ EOF
     chmod 0755 "${CLI_STUB_PATH}/sudo" "${CLI_STUB_DIR}"/ai-tools-*
 }
 
-cli_stub_reset() { : > "${CLI_STUB_LOG}"; : > "${CLI_STUB_SECRETS}"; }
+cli_stub_reset() { : > "${CLI_STUB_LOG}"; : > "${CLI_STUB_SECRETS}"; rm -f "${CLI_STUB_DIR}"/fail.*; }
+
+cli_stub_fail() { local helper; for helper in "$@"; do : > "${CLI_STUB_DIR}/fail.${helper}"; done; }
 
 cli_stub_secrets() { printf '%s\n' "$@" > "${CLI_STUB_SECRETS}"; }
 

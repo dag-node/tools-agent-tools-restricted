@@ -1,6 +1,7 @@
 # Entrypoint verification
 
-[System](index.md) · **Entrypoint verification** — [all docs](../index.md)
+[System](index.md) · **Entrypoint verification** · [Reading a record
+stream](record-streams.md) — [all docs](../index.md)
 
 How `ai-tools` proves that the agent binary it is about to run is the one its
 vendor published, what

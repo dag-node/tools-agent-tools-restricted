@@ -66,9 +66,17 @@ ai\-tools: \-\-for needs an operator name
 ERROR.
 \-\-for cannot be combined with \-\-force
 .TP
+.B MSG-B6S7
+NOTICE.
+group\-gone
+.TP
 .B MSG-B7K4
 ERROR.
 unknown option for stop: ${argument}
+.TP
+.B MSG-B7P8
+WARNING.
+scan\-capped
 .TP
 .B MSG-B9A2
 ERROR.
@@ -78,6 +86,10 @@ cannot load ${RECORDS_BASE_LIB}, which states this report's exit codes \-\- rein
 ERROR.
 root is not an operator
 .TP
+.B MSG-D3K4
+ERROR.
+group\-unverified
+.TP
 .B MSG-D8C8
 ERROR.
 this project is nested inside another claimed project: ${d}
@@ -86,9 +98,17 @@ this project is nested inside another claimed project: ${d}
 ERROR.
 not a configured ai\-tools operator: ${FOR_OPERATOR} \-\- enrol it first with:
 .TP
+.B MSG-E4Y3
+NOTICE.
+label\-gone
+.TP
 .B MSG-F4D8
 ERROR.
 this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d}
+.TP
+.B MSG-F8G9
+ERROR.
+projects claim takes a single path
 .TP
 .B MSG-H2D4
 ERROR.
@@ -102,6 +122,10 @@ the parent directory is not writable by ${OWNER_USER}: ${rm_parent}
 ERROR.
 ai\-tools: do not run as root \-\- run as the projects user, without sudo
 .TP
+.B MSG-J2A7
+ERROR.
+unknown projects claim option: ${a} (allowed: \-y/\-\-yes, \-\-format tsv)
+.TP
 .B MSG-J3K5
 ERROR.
 not a claimed project: ${d}
@@ -113,6 +137,10 @@ the parent directory does not exist: ${parent}
 .B MSG-J4P9
 ERROR.
 a value is required after ${flag}
+.TP
+.B MSG-J7X4
+NOTICE.
+group\-fixed
 .TP
 .B MSG-K5Y4
 ERROR.
@@ -138,6 +166,10 @@ unknown projects remove option: ${a}
 ERROR.
 the sandbox account is not an operator and must not own projects
 .TP
+.B MSG-P4K8
+ERROR.
+label\-unverified
+.TP
 .B MSG-P8W2
 ERROR.
 nothing to unclaim here: ${d}
@@ -150,9 +182,17 @@ not a claimed project: ${d}
 ERROR.
 this project contains ${#nested[@]} other claimed project(s), listed above: ${d}
 .TP
+.B MSG-Q4G7
+WARNING.
+label\-not\-fixed
+.TP
 .B MSG-Q6Q8
 ERROR.
 ai\-tools: refusing to run as the sandbox account ${SANDBOX_USER}
+.TP
+.B MSG-Q6X2
+ERROR.
+error
 .TP
 .B MSG-R3G9
 ERROR.
@@ -170,6 +210,10 @@ projects remove has no \-\-force: a registry entry is what authorizes a deletion
 WARNING.
 removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run
 .TP
+.B MSG-S9A3
+ERROR.
+projects claim \-\-format takes one value, tsv
+.TP
 .B MSG-T4A8
 ERROR.
 not a claimed project: $1
@@ -186,6 +230,14 @@ not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d}
 ERROR.
 this path is inside a claimed project, not a project itself: ${d}
 .TP
+.B MSG-T6G3
+WARNING.
+group\-not\-fixed
+.TP
+.B MSG-T8F5
+NOTICE.
+label\-fixed
+.TP
 .B MSG-U7R7
 ERROR.
 \-\-for is not accepted on ${COMMAND}
@@ -197,6 +249,10 @@ this project directory is owned by ${owner}, and the claim grants it to ${OWNER_
 .B MSG-V3N7
 ERROR.
 the provider resolver is unavailable: ${ENABLED_AGENTS_ERROR}
+.TP
+.B MSG-V8Z5
+ERROR.
+project path holds a control character: $(ai_tools_log_sanitize "${p}") \-\- rename it first
 .TP
 .B MSG-W3H3
 ERROR.
@@ -215,6 +271,10 @@ Documented in
 .B MSG-W4S7
 ERROR.
 this is an excluded path inside a claimed project, not a disabled project: ${d}
+.TP
+.B MSG-X3G7
+ERROR.
+cannot load the libraries the claim checks its drift and states its exit codes with \-\- reinstall the ai\-tools package
 .TP
 .B MSG-X5Z8
 WARNING.
@@ -1355,9 +1415,17 @@ unknown option: ${arg}
 WARNING.
 left ${owneronly} owner\-only path(s) (0600/0700) out of the sandbox account's reach
 .TP
+.B MSG-D3E3
+WARNING.
+FATAL: project\-permissions.lib.sh did not load \-\- no ACL specification to apply
+.TP
 .B MSG-D8D7
 WARNING.
 under .git, ${git_thirdparty} path(s) were NOT shared \-\- owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@
+.TP
+.B MSG-F3U3
+WARNING.
+FATAL: project\-permissions.lib.sh built no ACL specification for ${PROJECTS_USER}
 .TP
 .B MSG-G4P4
 WARNING.

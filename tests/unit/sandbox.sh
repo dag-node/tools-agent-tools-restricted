@@ -3,7 +3,8 @@
 # tests/unit/sandbox.sh
 # Unit test for the pure decisions behind the ai-tools.sh flows -- the ai-tools.projects.clone pair, the precondition
 # ai-tools.projects.create's skipped prompts rest on (tree_is_pristine), the exclusion reader the claim-time scans prune
-# their walks with (allowlist_exclusions), and the re-claim's SELinux drift reader (label_drift_scan, at the end).
+# their walks with (allowlist_exclusions), the re-claim's SELinux drift scan (label_drift_scan), and the checks
+# the claim runs after its Apply block (claim_verify_label, claim_verify_group, at the end).
 #
 # The ai-tools.projects.clone pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
@@ -201,58 +202,156 @@ else
 fi
 
 # ── label_drift_scan ──────────────────────────────────────────────────────────────────────────
-# The re-claim's SELinux half reads a dry run of the relabel the claim performs, so restorecon is stubbed with a canned
-# transcript and the scan is judged on which lines it keeps. The stub records its arguments each followed by a space,
-# not as "$*", which joins them with the CLI's IFS (a newline); the dry-run flag is asserted among them: the scan runs
-# unprivileged and reports, and a stub that saw no `-n` would mean a claim that relabels while it is still asking. Kept:
+# The re-claim's SELinux half walks the tree and reads one non-recursive dry run of the relabel the claim performs
+# over the walked paths, so restorecon is stubbed with a canned transcript and the scan is judged on what it keeps.
+# The stub records its arguments each followed by a space, not as "$*", which joins them with the CLI's IFS (a newline):
+# the scan runs unprivileged and reports, so a stub that saw no `-n` would mean a claim that relabels while it is still
+# asking, and one that saw `-R` would mean a batch whose records no longer belong to the listed paths alone. Kept:
 # a type difference, and a path holding " from " and " to " with an MLS range in its context. Dropped: a difference
-# in the SELinux user alone, an owner-only file, a path under a '!' carve-out, and a line other than a relabel line.
+# in the SELinux user alone, an owner-only file, and a path under a '!' carve-out. A line other than a relabel record
+# makes the scan incomplete (return 1, with a detail), and the drift it did read is still reported.
 section "label_drift_scan: the paths a re-claim asks to relabel (unit)"
 
 ld_work="${TESTDIR}/label-drift"
 ld_tree="${ld_work}/p"
-mkdir -p "${ld_tree}/excl"
+mkdir -p "${ld_tree}/excl" "${ld_work}/scan"
 for ld_name in moved useronly "name from a to b" excl/x; do
     : > "${ld_tree}/${ld_name}"; chmod 0640 "${ld_tree}/${ld_name}"
 done
 : > "${ld_tree}/private"; chmod 0600 "${ld_tree}/private"
 printf '%s\n' "${ld_tree}" "!${ld_tree}/excl" > "${ld_work}/allowed-projects"
-{
-    printf 'Would relabel %s from %s to %s\n' \
-        "${ld_tree}/moved" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
-        "${ld_tree}/useronly" unconfined_u:object_r:ai_tools_project_t:s0 system_u:object_r:ai_tools_project_t:s0 \
-        "${ld_tree}/private" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
-        "${ld_tree}/excl/x" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
-        "${ld_tree}/name from a to b" system_u:object_r:container_file_t:s0:c1,c2 system_u:object_r:ai_tools_project_t:s0
-    printf 'restorecon: a warning line that is not a relabel line\n'
-} > "${ld_work}/transcript"
+printf 'Would relabel %s from %s to %s\n' \
+    "${ld_tree}/moved" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
+    "${ld_tree}/useronly" unconfined_u:object_r:ai_tools_project_t:s0 system_u:object_r:ai_tools_project_t:s0 \
+    "${ld_tree}/private" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
+    "${ld_tree}/excl/x" unconfined_u:object_r:user_home_t:s0 system_u:object_r:ai_tools_project_t:s0 \
+    "${ld_tree}/name from a to b" system_u:object_r:container_file_t:s0:c1,c2 system_u:object_r:ai_tools_project_t:s0 \
+    > "${ld_work}/transcript"
+{ cat "${ld_work}/transcript"; printf 'restorecon: a line that is not a relabel record\n'; } > "${ld_work}/transcript-bad"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ld_work}"
 
+# ld_run <transcript>: source the CLI as the projects user, load the claim's libraries, stub restorecon, run the scan,
+# and print each kept path with its types, then the scan's status and detail.
+ld_run() {
+    # shellcheck disable=SC2016  # the $1..$4 are for the inner `bash -c`, not this shell -- do not expand here
+    runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${ld_work}/allowed-projects" bash -c \
+        'cli="$1"; transcript="$2"; tree="$3"; work="$4"; set --
+         source "${cli}" >/dev/null 2>&1 || exit 99
+         declare -F claim_load_libraries >/dev/null || exit 98
+         claim_load_libraries >/dev/null 2>&1 || exit 97
+         restorecon() { printf "%s " "$@" > "${transcript}.args"; cat "${transcript}"; }
+         declare -a paths=(); declare -A types=(); detail=""; rc=0
+         label_drift_scan "${tree}" "${work}" paths types detail || rc=$?
+         for p in "${paths[@]}"; do printf "%s\t%s\n" "${p}" "${types[${p}]}"; done
+         printf "rc=%s detail=%s\n" "${rc}" "${detail}"' _ "${CLI}" "$1" "${ld_tree}" "${ld_work}/scan"
+}
+
 ld_rc=0
-# shellcheck disable=SC2016  # the $1..$3 are for the inner `bash -c`, not this shell -- do not expand here
-ld_got="$(runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${ld_work}/allowed-projects" bash -c \
-    'cli="$1"; transcript="$2"; tree="$3"; set --
-     source "${cli}" >/dev/null 2>&1 || exit 99
-     declare -F label_drift_scan >/dev/null || exit 98
-     restorecon() { printf "%s " "$@" > "${transcript}.args"; cat "${transcript}"; }
-     label_drift_scan "${tree}"' _ "${CLI}" "${ld_work}/transcript" "${ld_tree}")" || ld_rc=$?
-ld_want="$(printf '%s\t%s\t%s\n' "${ld_tree}/moved" user_home_t ai_tools_project_t \
-    "${ld_tree}/name from a to b" container_file_t ai_tools_project_t)"
-if [[ "${ld_rc}" -eq 98 ]]; then
-    skip "label_drift_scan" "the installed CLI predates it"
+ld_got="$(ld_run "${ld_work}/transcript")" || ld_rc=$?
+ld_want="$(printf '%s\t%s\n' "${ld_tree}/moved" "user_home_t -> ai_tools_project_t" \
+    "${ld_tree}/name from a to b" "container_file_t -> ai_tools_project_t"; printf 'rc=0 detail=\n')"
+if [[ "${ld_rc}" -eq 98 || "${ld_rc}" -eq 97 ]]; then
+    skip "label_drift_scan" "the installed CLI predates the per-path checks"
 elif [[ "${ld_rc}" -ne 0 ]]; then
     fail "label_drift_scan could not be driven (exit ${ld_rc})"
 else
-    if [[ " $(cat "${ld_work}/transcript.args" 2>/dev/null) " == *" -n "* ]]; then
-        pass "label_drift_scan asks restorecon for a dry run"
+    ld_args=" $(cat "${ld_work}/transcript.args" 2>/dev/null) "
+    if [[ "${ld_args}" == *" -n "* && "${ld_args}" == *" -F "* && "${ld_args}" == *" -0 "* \
+            && "${ld_args}" != *" -R "* ]]; then
+        pass "label_drift_scan asks for a forced, non-recursive dry run over a NUL list"
     else
-        fail "label_drift_scan called restorecon without -n: '$(cat "${ld_work}/transcript.args" 2>/dev/null)'"
+        fail "label_drift_scan called restorecon with '${ld_args}'"
     fi
     if [[ "${ld_got}" == "${ld_want}" ]]; then
         pass "label_drift_scan keeps type differences and drops user-only, owner-only and carved-out paths"
     else
         fail "label_drift_scan printed '$(tr '\t\n' '>|' <<<"${ld_got}")' (want '$(tr '\t\n' '>|' <<<"${ld_want}")')"
     fi
+    ld_got="$(ld_run "${ld_work}/transcript-bad")" || true
+    if [[ "${ld_got}" == *"${ld_tree}/moved"* && "${ld_got}" == *"rc=1 detail="?* ]]; then
+        pass "a line that is not a relabel record makes the scan incomplete, and its drift is still reported"
+    else
+        fail "label_drift_scan over a transcript with a stray line printed '$(tr '\t\n' '>|' <<<"${ld_got}")'"
+    fi
 fi
+
+# ── drift_walk_read ───────────────────────────────────────────────────────────────────────────
+# The reader both scans take their walk through orders the capture in the C locale, so the rows a claim writes do not
+# follow the filesystem's entry order; the capture here is written out of order on purpose, since a `find`
+# over the fixture would be in whatever order this host's filesystem returns.
+section "drift_walk_read: a walk's capture is read in byte order (unit)"
+
+dw_work="${TESTDIR}/walk-read"
+mkdir -p "${dw_work}"
+printf '%s\0' "/p/n b" "/p/m" $'/p/a\nb' "/p/M" > "${dw_work}/capture"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${dw_work}"
+# shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell
+dw_got="$(runuser -u "${PROJECTS_USER}" -- bash -c \
+    'cli="$1"; capture="$2"; set --
+     source "${cli}" >/dev/null 2>&1 || exit 99
+     declare -F drift_walk_read >/dev/null || exit 98
+     declare -a paths=()
+     drift_walk_read "${capture}" paths || exit 97
+     printf "%s|" "${paths[@]}"' _ "${CLI}" "${dw_work}/capture" 2>/dev/null)" || dw_rc=$?
+dw_want="$(printf '%s|' "/p/M" $'/p/a\nb' "/p/m" "/p/n b")"
+if (( ${dw_rc:-0} == 99 || ${dw_rc:-0} == 98 )); then
+    skip "drift_walk_read" "the installed CLI predates the shared walk reader"
+elif (( ${dw_rc:-0} != 0 )); then
+    fail "drift_walk_read could not be driven (exit ${dw_rc})"
+elif [[ "${dw_got}" == "${dw_want}" ]]; then
+    pass "drift_walk_read orders an unsorted capture by byte, a line feed in a name kept"
+else
+    fail "drift_walk_read printed '$(tr '\n' '>' <<<"${dw_got}")', want '$(tr '\n' '>' <<<"${dw_want}")'"
+fi
+
+# ── claim_verify_label / claim_verify_group ───────────────────────────────────────────────────
+# The checks after the Apply block, driven through the sourced CLI with restorecon a stub: a path removed
+# before the check reads gone, a batch that fails reads the paths still present unverified and the ones now absent gone
+# -- never fixed -- and a clean batch reads fixed. The group side reads a moved-in file not fixed and a removed one
+# gone.
+section "claim_verify_label / claim_verify_group: the checks after the Apply block (unit)"
+
+cv_work="${TESTDIR}/verify"
+mkdir -p "${cv_work}/scratch"
+: > "${cv_work}/present"; chmod 0640 "${cv_work}/present"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${cv_work}"
+
+# cv_run <restorecon-status>: print the label outcomes, then the group outcomes, for the present path and a path
+# that does not exist. The CLI resolves OWNER_USER from `id -un` at its top level and makes it readonly, so the inner
+# shell runs as the fixture's owner and asserts the resolved owner rather than assigning it.
+cv_run() {
+    # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
+    runuser -u "${PROJECTS_USER}" -- bash -c \
+        'cli="$1"; work="$2"; status="$3"; user="$4"; set --
+         source "${cli}" >/dev/null 2>&1 || exit 99
+         declare -F claim_verify_label >/dev/null || exit 98
+         claim_load_libraries >/dev/null 2>&1 || exit 97
+         [[ "${OWNER_USER}" == "${user}" ]] \
+             || { echo "OWNER_USER resolved to ${OWNER_USER}, not ${user}" >&2; exit 96; }
+         CLAIM_WORK="${work}/scratch"
+         restorecon() { return "${status}"; }
+         declare -a paths=("${work}/present" "${work}/absent") label=() group=() details=()
+         claim_verify_label paths label
+         claim_verify_group paths group details
+         printf "%s " "${label[@]}"; printf "| "; printf "%s " "${group[@]}"' \
+        _ "${CLI}" "${cv_work}" "$1" "${PROJECTS_USER}" 2> "${cv_work}/stderr"
+}
+
+cv_is() {  # cv_is <what> <restorecon-status> <want>
+    local got rc=0
+    got="$(cv_run "$2")" || rc=$?
+    if (( rc == 98 || rc == 97 )); then
+        skip "claim_verify: $1" "the installed CLI predates the per-path checks"
+    elif (( rc != 0 )); then
+        # The inner shell's stderr names what stopped it; its last lines ride the result line.
+        fail "claim_verify: $1 could not be driven (exit ${rc}): $(tail -n 3 "${cv_work}/stderr" 2>/dev/null | tr '\n' '|')"
+    elif [[ "${got}" == "$3" ]]; then
+        pass "claim_verify: $1 -> ${got}"
+    else
+        fail "claim_verify: $1 -> '${got}', want '$3'"
+    fi
+}
+cv_is "a clean batch" 0 "fixed gone | not-fixed gone "
+cv_is "a batch that exits 1" 1 "unverified gone | not-fixed gone "
 
 finish

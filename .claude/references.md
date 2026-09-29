@@ -124,10 +124,25 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | b4g2 | [MSG-B4G2](../src/usr/local/bin/ai-tools.sh) | ai-tools: --for needs an operator name | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | refuse_early |
 | h6w7 | [MSG-H6W7](../src/usr/local/bin/ai-tools.sh) | ai-tools: do not run as root -- run as the projects user, without sudo | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | refuse_early |
 | w3w8 | [MSG-W3W8](../src/usr/local/bin/ai-tools.sh) | option spelling ${used%%$'\t'*} is kept for compatibility -- the preferred form is: | src/usr/local/bin/ai-tools.sh | docs/option-spellings.md, tests/integration/cli-flags.sh, tools/generators/option-spellings.sh | note |
+| v8z5 | [MSG-V8Z5](../src/usr/local/bin/ai-tools.sh) | project path holds a control character: $(ai_tools_log_sanitize "${p}") -- rename it first | src/usr/local/bin/ai-tools.sh |  | die |
 | t4z6 | [MSG-T4Z6](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d} | src/usr/local/bin/ai-tools.sh |  | die |
 | w3h3 | [MSG-W3H3](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d} | src/usr/local/bin/ai-tools.sh |  | die |
 | k8s2 | [MSG-K8S2](../src/usr/local/bin/ai-tools.sh) | allowed-projects not updated -- ${dir} is still registered | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| x3g7 | [MSG-X3G7](../src/usr/local/bin/ai-tools.sh) | cannot load the libraries the claim checks its drift and states its exit codes with -- reinstall the ai-tools package | src/usr/local/bin/ai-tools.sh |  | die |
+| t8f5 | [MSG-T8F5](../src/usr/local/bin/ai-tools.sh) | label-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_info |
+| q4g7 | [MSG-Q4G7](../src/usr/local/bin/ai-tools.sh) | label-not-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
+| p4k8 | [MSG-P4K8](../src/usr/local/bin/ai-tools.sh) | label-unverified | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
+| e4y3 | [MSG-E4Y3](../src/usr/local/bin/ai-tools.sh) | label-gone | src/usr/local/bin/ai-tools.sh |  | _claim_info |
+| j7x4 | [MSG-J7X4](../src/usr/local/bin/ai-tools.sh) | group-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_info |
+| t6g3 | [MSG-T6G3](../src/usr/local/bin/ai-tools.sh) | group-not-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
+| d3k4 | [MSG-D3K4](../src/usr/local/bin/ai-tools.sh) | group-unverified | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
+| b6s7 | [MSG-B6S7](../src/usr/local/bin/ai-tools.sh) | group-gone | src/usr/local/bin/ai-tools.sh |  | _claim_info |
+| b7p8 | [MSG-B7P8](../src/usr/local/bin/ai-tools.sh) | scan-capped | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
+| q6x2 | [MSG-Q6X2](../src/usr/local/bin/ai-tools.sh) | error | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
 | u8g4 | [MSG-U8G4](../src/usr/local/bin/ai-tools.sh) | this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| j2a7 | [MSG-J2A7](../src/usr/local/bin/ai-tools.sh) | unknown projects claim option: ${a} (allowed: -y/--yes, --format tsv) | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| f8g9 | [MSG-F8G9](../src/usr/local/bin/ai-tools.sh) | projects claim takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| s9a3 | [MSG-S9A3](../src/usr/local/bin/ai-tools.sh) | projects claim --format takes one value, tsv | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | a7d3 | [MSG-A7D3](../src/usr/local/bin/ai-tools.sh) | projects create needs a path: it creates a NEW project directory. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | t4b9 | [MSG-T4B9](../src/usr/local/bin/ai-tools.sh) | this path already exists: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | j3r8 | [MSG-J3R8](../src/usr/local/bin/ai-tools.sh) | the parent directory does not exist: ${parent} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
@@ -488,8 +503,10 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | p5b5 | [MSG-P5B5](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | no operator covers ${canonical} -- not registering safe.directory | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh | tests/unit/safedir.sh | warn |
 | c3v2 | [MSG-C3V2](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | unknown option: ${arg} | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |
 | j9j3 | [MSG-J9J3](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |
+| d3e3 | [MSG-D3E3](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | FATAL: project-permissions.lib.sh did not load -- no ACL specification to apply | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |
 | v3w8 | [MSG-V3W8](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | setfacl not found -- skipping ACL normalization for ${TARGET} | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |
 | g4p4 | [MSG-G4P4](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | FATAL: owner-only.lib.sh defines no owner-only guard | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh, src/usr/local/libexec/ai-tools/ai-tools-setgid.sh | warn |
+| f3u3 | [MSG-F3U3](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | FATAL: project-permissions.lib.sh built no ACL specification for ${PROJECTS_USER} | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |
 | c9z6 | [MSG-C9Z6](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | left ${owneronly} owner-only path(s) (0600/0700) out of the sandbox account's reach | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh | tests/unit/setfacl.sh | warn |
 | m6h3 | [MSG-M6H3](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | the project directory itself is owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ -- no ACL was applied, and the agent gets no access to this tree | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh | tests/unit/setfacl.sh | warn |
 | k8m2 | [MSG-K8M2](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | left ${thirdparty} path(s) owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ untouched -- the agent gets no access to them | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh | tests/unit/setfacl.sh | warn |

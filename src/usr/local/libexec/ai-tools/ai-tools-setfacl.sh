@@ -79,9 +79,14 @@ readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 readonly GROUP="@SANDBOX_GROUP@"
-# Operator-independent half of the ACL (see the header for the two-grant model); ACL_SPEC prepends
-# user:<operator> after resolve_owner. rwX executes only on dirs/already-exec files; other::--- denies world.
-readonly ACL_BASE="group:${GROUP}:rwX,other::---"
+# The ACL a claim grants (project-permissions.lib.sh), shared with the claim's verifier so the two cannot disagree
+# about which entries a repaired path carries. Required: without it the helper has no specification to apply.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/project-permissions.lib.sh
+source /usr/local/lib/ai-tools/project-permissions.lib.sh 2>/dev/null || true
+if ! declare -F ai_tools_project_permissions_build_acl_specification >/dev/null 2>&1; then
+    warn MSG-D3E3 "FATAL: project-permissions.lib.sh did not load -- no ACL specification to apply"
+    exit 3
+fi
 # Two identities may legitimately hold a project tree's files: the resolved operator and the sandbox account. A file
 # belonging to a third party (root, another developer) is left untouched -- claim must not pull a foreign file
 # into the agent's group, even one the operator placed in the tree -- and COUNTED, so a walk that skipped every path is
@@ -171,8 +176,12 @@ _is_secret_name() {
 AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
 AI_TOOLS_LOG_PROJECT="${canonical}"
 
-# Prepend the resolved operator's named grant (its access to agent-written files).
-readonly ACL_SPEC="user:${PROJECTS_USER}:rwX,${ACL_BASE}"
+ACL_SPEC=""
+if ! ai_tools_project_permissions_build_acl_specification ACL_SPEC "${PROJECTS_USER}" "${GROUP}"; then
+    warn MSG-F3U3 "FATAL: project-permissions.lib.sh built no ACL specification for ${PROJECTS_USER}"
+    exit 3
+fi
+readonly ACL_SPEC
 
 # Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the allowlist is read with --
 # end-of-line comments, and quotes for a path carrying a space or a literal '#'. REQUIRED like safe-paths.lib.sh:

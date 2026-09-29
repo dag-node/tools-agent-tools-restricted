@@ -87,6 +87,9 @@ check_file /usr/local/lib/ai-tools/providers.lib.sh          root              r
 # Unreadable ancestor configuration: 644 root:root -- world-readable, sourced by the claim CLI and the launch wrapper
 # (both as the operator); it reports paths and does not change any file, so it does not carry any secrets.
 check_file /usr/local/lib/ai-tools/ancestor-config.lib.sh    root              root              644
+# The ACL a claim grants: 644 root:root, sourced by ai-tools-setfacl (root) and the claim CLI's verifier (the operator);
+# a pure function over the identities its caller passes, so it does not carry any secrets.
+check_file /usr/local/lib/ai-tools/project-permissions.lib.sh root            root              644
 # The execution boundary: 644 root:root, the one route by which a root process runs a file the sandbox account can
 # write; holds shipped logic and the substituted account name, does not read any operator data.
 check_file /usr/local/lib/ai-tools/sandbox-exec.lib.sh       root              root              644

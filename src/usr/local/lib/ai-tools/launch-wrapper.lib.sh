@@ -467,9 +467,10 @@ ai_tools_launch_gate_project() {
                 ai_tools_launch_die "sandbox creation did not complete -- see the output above"
                 ;;
             2)
-                # Claim in place. `--yes` pre-answers only the CLI's proceed prompt (you chose claiming here);
-                # the secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit.
-                # `ai-tools projects claim` is idempotent and registers a brand-new path from scratch.
+                # Claim in place. `--yes` answers the proceed prompt (you chose claiming here) and the relabel; every
+                # other question still asks (cli.rule.md). The claim's exit is not read: the allowlist check
+                # that follows it re-reads the outcome. `ai-tools projects claim` is idempotent and registers
+                # a brand-new path from scratch.
                 "${AI_TOOLS_CLI}" projects claim --yes "${cwd}" || true
                 # Confirm the claim registered the path before falling through to the claim guard, which re-verifies
                 # ownership/label (both just applied) and then launches. Match through the shared grammar so an entry
@@ -560,9 +561,9 @@ ai_tools_launch_claim_guard() {
         claim_ok=false
         ai_tools_msg_confirm "Claim it in place now?" "${claim_default}" && claim_ok=true
         if ${claim_ok}; then
-            # Delegate the claim. `--yes` pre-answers only the CLI's proceed prompt (you answered it here); its
-            # secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit.
-            # `ai-tools projects claim` is idempotent and closes whichever gaps apply.
+            # Delegate the claim. `--yes` answers the proceed prompt (you answered it here) and the relabel; every other
+            # question still asks (cli.rule.md). `ai-tools projects claim` is idempotent and closes whichever gaps
+            # apply.
             "${AI_TOOLS_CLI}" projects claim --yes "${cwd}" || true
             # Re-verify the FATAL gaps closed before launching.
             cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
