@@ -615,8 +615,9 @@ Most `--for` verbs redirect a **registry**: the entry lands in the target's allo
 the owner from it. Two do not. `projects create` and `projects remove` write the **filesystem** as an owner — a tree
 the target must own for the claim's helpers to act on it, and a tree only its owner can delete — so both go
 through `run_as_owner`, which prefixes `sudo -u <target> -H` when `--for` is set and runs the command directly
-otherwise. Two claim steps use the same seam: `reach_apply` for the traverse ACL, whose ancestors belong to the target
-on a `--for` run, and `reg_filemode` for the `core.filemode` pin it writes into the target's `.git/config`.
+otherwise. Two claim steps use the same seam: `grant_ancestor_traversal` for the traverse ACL, whose ancestors belong
+to the target on a `--for` run, and `reg_filemode` for the `core.filemode` pin it writes into the target's
+`.git/config`.
 
 `-H` is load-bearing rather than tidiness: without it (and without sudoers' `always_set_home`) sudo leaves `HOME`
 pointing at the **invoker's** home, so the `git init` inside a create would configure the target's repository
@@ -953,12 +954,13 @@ of claim uses: only directories the **operator owns** and that are **not** prote
 **unprivileged** (the operator owns them, so no `sudo`). A blocking ancestor that is a system directory or owned
 by someone else is left untouched — there the sandbox clone (under `/var/opt/ai-tools`, already agent-traversable) is
 the way in. The grant is idempotent: an ancestor the account can already traverse (e.g. one carrying the ACL
-from a prior claim) is skipped. Detection (`reach_scan`) runs up front so the Review overview announces the opt-in,
-and a claimed project with a grant pending — it can lose reachability to a later `chmod 700` on an ancestor — takes
-the full flow rather than the no-op path, since the grant is an access-widening step. `reach_ask` asks with the drift
-repairs, ahead of the gate; an accepted grant makes the tree reachable with whatever readable secrets were added since
-its last scan, so it schedules the gate, and `reach_apply` sets the ACL in the Apply block once the gate has passed.
-A declined or failed gate therefore stops the claim with the ancestor as it was.
+from a prior claim) is skipped. Detection (`find_blocking_ancestors`) runs up front so the Review overview announces
+the opt-in, and a claimed project with a grant pending — it can lose reachability to a later `chmod 700` on an ancestor
+— takes the full flow rather than the no-op path, since the grant is an access-widening step.
+`confirm_ancestor_traversal` asks with the drift repairs, ahead of the gate; an accepted grant makes the tree reachable
+with whatever readable secrets were added since its last scan, so it schedules the gate, and `grant_ancestor_traversal`
+sets the ACL in the Apply block once the gate has passed. A declined or failed gate therefore stops the claim
+with the ancestor as it was.
 
 **Unclaim** (`projects unclaim`) reverts that. The CLI classifies the target against `allowed-projects` and acts only
 where something authorizes it:
@@ -1079,11 +1081,10 @@ normalization, the SELinux label, an accepted traverse grant on an ancestor (the
 readable secrets were added since its last scan) — and on every first claim (a tree can be group-accessible by setgid
 inheritance yet never scanned); only pure registry additions (safedir, filemode) skip it. A declined or failed gate
 fails the operation closed: the claim aborts (rolling back its own allowlist addition) and the sandbox create leaves
-the clone
-private and unregistered, dropping a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) instructing the agent
-to wait until lockdown runs, preserving any real `CLAUDE.md` via `git mv` to `CLAUDE.md.bak`. The gate exports the found
-paths (`SECRET_GATE_LOCKED`) so `normalize_clone` prunes them from its group-access walk. The gate covers what the steps
-after it expose, which is more than the claim's walks touch: those walks skip the shared skip list
-(`skip-dirs.lib.sh`), while the root's traversal, a skipped tree's own world bits and the recursive relabel reach into
-`node_modules` and its kind, and `normalize_clone` opens them outright. So the scan skips `.git` alone (the helper's
-header states why that one), on a claim and on a clone alike.
+the clone private and unregistered, dropping a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) instructing
+the agent to wait until lockdown runs, preserving any real `CLAUDE.md` via `git mv` to `CLAUDE.md.bak`. The gate exports
+the found paths (`SECRET_MATCH_PATHS`) so `normalize_clone` prunes them from its group-access walk. The gate covers
+what the steps after it expose, which is more than the claim's walks touch: those walks skip the shared skip list
+(`skip-dirs.lib.sh`), while the root's traversal, a skipped tree's own world bits and the recursive relabel reach
+into `node_modules` and its kind, and `normalize_clone` opens them outright. So the scan skips `.git` alone (the
+helper's header states why that one), on a claim and on a clone alike.

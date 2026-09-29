@@ -485,11 +485,11 @@ note_option_spellings() {
 note_option_spellings
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to claim a system directory, and vet ancestors
-# for the reachability grant (reach_ask -> grantable_ancestor). It is REQUIRED: FAIL CLOSED if it cannot be sourced
-# (missing, unreadable, or the lib dir is not traversable) or does not define its guard. A broken install is not a state
-# to run through with the guard disabled -- a stubbed no-op would skip the system-dir refusal AND silently never grant
-# ancestor traversal (a claimed project the agent cannot reach). Log to journald (via logger, independent of log.lib
-# which may share the broken dir) and warn the user, then exit.
+# for the reachability grant (confirm_ancestor_traversal -> grantable_ancestor). It is REQUIRED: FAIL CLOSED if it
+# cannot be sourced (missing, unreadable, or the lib dir is not traversable) or does not define its guard. A broken
+# install is not a state to run through with the guard disabled -- a stubbed no-op would skip the system-dir refusal
+# AND silently never grant ancestor traversal (a claimed project the agent cannot reach). Log to journald (via logger,
+# independent of log.lib which may share the broken dir) and warn the user, then exit.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/safe-paths.lib.sh
 if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
@@ -1300,56 +1300,58 @@ agent_can_traverse() {
     (( 8#${mode} & 0001 ))
 }
 
-# grantable_ancestor <dir>  -- 0 if reach_ask may offer traverse on <dir>. The rule itself lives in safe-paths.lib.sh
-# (ai_tools_traverse_grant_allowed), single-sourced with the two new project verbs; this is the call site. Fail-closed
-# when the predicate is unavailable, so a broken install never widens a directory it cannot vet.
+# grantable_ancestor <dir>  -- 0 if confirm_ancestor_traversal may offer traverse on <dir>. The rule itself lives
+# in safe-paths.lib.sh (ai_tools_traverse_grant_allowed), single-sourced with the two new project verbs; this is
+# the call site. Fail-closed when the predicate is unavailable, so a broken install never widens a directory it cannot
+# vet.
 #
-# On a `--for` run the owner is the target, whose directories the invoker cannot setfacl unprivileged; reach_apply
-# applies the grant through the runas seam instead.
+# On a `--for` run the owner is the target, whose directories the invoker cannot setfacl unprivileged;
+# grant_ancestor_traversal applies the grant through the runas seam instead.
 grantable_ancestor() {
     local p="$1"
     declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1 || return 1
     ai_tools_traverse_grant_allowed "${p}" "${OWNER_USER}"
 }
 
-# reach_scan <dir>  -- detect the traverse gap between the sandbox account and <dir>: fills REACH_GRANT (each blocking
-# ancestor a grant may cover: operator-owned, not a protected system directory) and REACH_BLOCKED (the first blocking
-# ancestor no grant may cover, empty when none). Read-only and unprivileged; reach_ask asks on the result
-# and reach_apply acts on it, and the claim's pending overview reads it so the traverse opt-in is announced up front.
-reach_scan() {
+# find_blocking_ancestors <dir>  -- detect the traverse gap between the sandbox account and <dir>: fills
+# TRAVERSAL_GRANT_PATHS (each blocking ancestor a grant may cover: operator-owned, not a protected system directory)
+# and TRAVERSAL_BLOCKED_PATH (the first blocking ancestor no grant may cover, empty when none). Read-only
+# and unprivileged; confirm_ancestor_traversal asks on the result and grant_ancestor_traversal acts on it,
+# and the claim's pending overview reads it so the traverse opt-in is announced up front.
+find_blocking_ancestors() {
     local dir="$1" anc
-    REACH_GRANT=(); REACH_BLOCKED=""
+    TRAVERSAL_GRANT_PATHS=(); TRAVERSAL_BLOCKED_PATH=""
     anc="$(dirname "${dir}")"
     while [[ "${anc}" != / && "${anc}" != . ]]; do
         if agent_can_traverse "${anc}"; then break; fi
         if grantable_ancestor "${anc}"; then
-            REACH_GRANT+=("${anc}")
+            TRAVERSAL_GRANT_PATHS+=("${anc}")
         else
-            REACH_BLOCKED="${anc}"; break
+            TRAVERSAL_BLOCKED_PATH="${anc}"; break
         fi
         anc="$(dirname "${anc}")"
     done
 }
 
-# reach_ask <dir>  -- the reachability block's question: whether the sandbox account may be let TRAVERSE the path
-# to <dir>, on reach_scan's result (the CALLER runs reach_scan first). The confined session runs as the sandbox account;
-# a project nested under a directory it cannot enter (a private home, 700) is unreachable, so ai-tools-run reports it
-# missing even after a clean claim. The grant is traverse-only (execute, no read -- u:SANDBOX_USER:--x) on each
-# blocking ancestor the operator owns and that is not a protected system directory: enough to enter and reach
-# the project, never to list or read it, and unprivileged because the operator owns those directories. A blocking
-# ancestor that is a system directory or someone else's is left untouched -- there an isolated sandbox clone (under
-# /var/opt/ai-tools, already agent-traversable) is the way in. Default-NO: it widens on the project's ANCESTORS, so it
-# is a separate, explicit opt-in.
+# confirm_ancestor_traversal <dir>  -- the reachability block's question: whether the sandbox account may be let
+# TRAVERSE the path to <dir>, on find_blocking_ancestors's result (the CALLER runs find_blocking_ancestors first).
+# The confined session runs as the sandbox account; a project nested under a directory it cannot enter (a private home,
+# 700) is unreachable, so ai-tools-run reports it missing even after a clean claim. The grant is traverse-only (execute,
+# no read -- u:SANDBOX_USER:--x) on each blocking ancestor the operator owns and that is not a protected system
+# directory: enough to enter and reach the project, never to list or read it, and unprivileged because the operator owns
+# those directories. A blocking ancestor that is a system directory or someone else's is left untouched -- there
+# an isolated sandbox clone (under /var/opt/ai-tools, already agent-traversable) is the way in. Default-NO: it widens
+# on the project's ANCESTORS, so it is a separate, explicit opt-in.
 #
-# Sets REACH_ACCEPTED and does not set the ACL: the grant makes the tree reachable, with whatever readable secrets
-# were added since it was last scanned, so an accepted grant counts as an access-widening step -- the caller runs
-# the secret gate on it and applies it with reach_apply in the Apply block, after the gate.
-reach_ask() {
+# Sets TRAVERSAL_GRANT_CONFIRMED and does not set the ACL: the grant makes the tree reachable, with whatever readable
+# secrets were added since it was last scanned, so an accepted grant counts as an access-widening step -- the caller
+# runs the secret gate on it and applies it with grant_ancestor_traversal in the Apply block, after the gate.
+confirm_ancestor_traversal() {
     local dir="$1" a
-    REACH_ACCEPTED=false
-    if [[ -n "${REACH_BLOCKED}" ]]; then
+    TRAVERSAL_GRANT_CONFIRMED=false
+    if [[ -n "${TRAVERSAL_BLOCKED_PATH}" ]]; then
         local why blocked_owner
-        blocked_owner="$(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || echo '?')"
+        blocked_owner="$(stat -c '%U' "${TRAVERSAL_BLOCKED_PATH}" 2>/dev/null || echo '?')"
         if ! declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1; then
             why="the safe-paths traverse rule is not loaded, so ancestors cannot be vetted"
         elif [[ "${blocked_owner}" != "${OWNER_USER}" ]]; then
@@ -1358,15 +1360,15 @@ reach_ask() {
             why="a protected system directory"
         fi
         headline_warn "WARNING: project unreachable for the sandbox account" \
-            "the sandbox account cannot traverse ${REACH_BLOCKED} (${why}), so it cannot reach ${dir}; an isolated clone under the sandbox area is the way in:"
+            "the sandbox account cannot traverse ${TRAVERSAL_BLOCKED_PATH} (${why}), so it cannot reach ${dir}; an isolated clone under the sandbox area is the way in:"
         say "      ${C_BOLD}ai-tools projects clone ${dir}${C_RST}"
         return 0
     fi
-    if (( ${#REACH_GRANT[@]} == 0 )); then return 0; fi
+    if (( ${#TRAVERSAL_GRANT_PATHS[@]} == 0 )); then return 0; fi
 
     headline_warn "WARNING: parent directories block the agent" \
         "the sandbox account must be able to traverse every parent directory to reach the project; the grant below is traverse-only (enter, never list or read): u:${SANDBOX_USER}:--x"
-    for a in "${REACH_GRANT[@]}"; do say "      ${a}"; done
+    for a in "${TRAVERSAL_GRANT_PATHS[@]}"; do say "      ${a}"; done
 
     # The owner's own HOME ROOT is the one entry in that list whose consequence has to be stated, and what to state is
     # a CONDITION rather than an assertion of exposure. `--x` permits traversal and neither a listing of the directory
@@ -1378,7 +1380,7 @@ reach_ask() {
     local owner_home includes_home=false
     owner_home="$(getent passwd "${OWNER_USER}" 2>/dev/null | cut -d: -f6)"
     if [[ -n "${owner_home}" ]]; then
-        for a in "${REACH_GRANT[@]}"; do
+        for a in "${TRAVERSAL_GRANT_PATHS[@]}"; do
             [[ "${a}" == "${owner_home%/}" ]] && { includes_home=true; break; }
         done
     fi
@@ -1397,23 +1399,23 @@ reach_ask() {
     # with no terminal therefore declines, and prints the commands so the refusal is actionable rather than merely
     # recorded.
     if confirm "Grant the sandbox account traverse-only access on them?" n; then
-        REACH_ACCEPTED=true
+        TRAVERSAL_GRANT_CONFIRMED=true
     else
         say "    reach: left as-is -- the agent may be unable to enter ${dir}"
-        have_tty || for a in "${REACH_GRANT[@]}"; do
+        have_tty || for a in "${TRAVERSAL_GRANT_PATHS[@]}"; do
             say "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
         done
     fi
 }
 
-# reach_apply  -- apply the grant reach_ask accepted: one traverse-only ACL entry per blocking ancestor, each reported
-# on its own result line, and a manual command for one that could not be set. Unprivileged, since the operator owns
-# those directories; the CALLER runs the secret gate first. Returns non-zero when any ancestor was not granted: one
-# left blocking keeps the project out of reach whatever the others took, so the caller counts it as a step that did
-# not apply.
-reach_apply() {
+# grant_ancestor_traversal  -- apply the grant confirm_ancestor_traversal accepted: one traverse-only ACL entry
+# per blocking ancestor, each reported on its own result line, and a manual command for one that could not be set.
+# Unprivileged, since the operator owns those directories; the CALLER runs the secret gate first. Returns non-zero
+# when any ancestor was not granted: one left blocking keeps the project out of reach whatever the others took,
+# so the caller counts it as a step that did not apply.
+grant_ancestor_traversal() {
     local a failed=false
-    for a in "${REACH_GRANT[@]}"; do
+    for a in "${TRAVERSAL_GRANT_PATHS[@]}"; do
         # A --for run's ancestors belong to the TARGET, so an unprivileged setfacl by the invoker fails on every one
         # of them; run_as_owner applies it as the owner instead.
         if run_as_owner setfacl -m "u:${SANDBOX_USER}:--x" "${a}" 2>/dev/null; then
@@ -1539,24 +1541,24 @@ run_unclaim() {
 # library, so one `ai-tools-lockdown --gate` call (sudo, password -- the first sudo prompt of a claim, so it lands right
 # under this block's headline) scans, lists what it found, asks, and locks: one call, so a host whose sudo does not
 # cache the password asks once. The scan walks every heavy tree (the helper's header states why), since the root's
-# traversal, a tree's own world bits and the relabel reach into them whatever the claim's walks skip. Its exit
-# decides: 0 locked or found none, 6 declined, anything else failed. AI_TOOLS_ASSUME_YES answers the default-yes
-# question as `--yes`, since sudo does not pass it through. Fills SECRET_GATE_LOCKED with every secret-matching path
-# the helper wrote to stdout, so normalize_clone can prune them. Returns 0 only when the tree is safe to expose;
-# non-zero means the caller must fail closed.
+# traversal, a tree's own world bits and the relabel reach into them whatever the claim's walks skip. Its exit decides:
+# 0 locked or found none, 6 declined, anything else failed. AI_TOOLS_ASSUME_YES answers the default-yes question
+# as `--yes`, since sudo does not pass it through. Fills SECRET_MATCH_PATHS with every secret-matching path the helper
+# wrote to stdout, so normalize_clone can prune them. Returns 0 only when the tree is safe to expose; non-zero means
+# the caller must fail closed.
 secret_gate() {
     local dir="$1" found status=0
     local -a args=(--gate)
-    SECRET_GATE_LOCKED=()
+    SECRET_MATCH_PATHS=()
     [[ "${AI_TOOLS_ASSUME_YES:-}" == 1 ]] && args+=(--yes)
     headline "Secret lockdown" "${dir}"
     found="$(mktemp)" || { warn "cannot create a temporary file for the secret scan -- not granting access"; return 1; }
     run_lockdown "${dir}" "${args[@]}" > "${found}" || status=$?
-    mapfile -d '' -t SECRET_GATE_LOCKED < "${found}"
+    mapfile -d '' -t SECRET_MATCH_PATHS < "${found}"
     rm -f "${found}"
     case "${status}" in
         0)
-            if (( ${#SECRET_GATE_LOCKED[@]} )); then
+            if (( ${#SECRET_MATCH_PATHS[@]} )); then
                 ok "secrets locked down"
                 ai_tools_log_structured info "secret pre-check: secrets locked down under ${dir}" \
                     "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
@@ -2414,11 +2416,12 @@ cmd_project_claim() {
     fi
     headline "Claim project (in place)" "${head[@]}"
 
-    reach_scan "${d}"
+    find_blocking_ancestors "${d}"
 
-    # The project root being owner-only is reach_scan's problem one level down: ai-tools-setfacl honours a 0600/0700
-    # mode and skips the path, so every later step still succeeds and the claim closes with its ✓ while the sandbox
-    # account cannot enter the tree at all. Stated here, before the confirm, rather than left to the helper's skip count
+    # The project root being owner-only is find_blocking_ancestors's problem one level down: ai-tools-setfacl honours
+    # a 0600/0700 mode and skips the path, so every later step still succeeds and the claim closes with its ✓ while
+    # the sandbox account cannot enter the tree at all. Stated here, before the confirm, rather than left
+    # to the helper's skip count
     # afterwards.
     local root_mode
     root_mode="$(stat -c '%a' "${d}" 2>/dev/null || echo 755)"
@@ -2433,12 +2436,12 @@ cmd_project_claim() {
     # the pending-steps flow rather than this path.
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
             && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
-            && (( ${#drift[@]} == 0 && ${#label_drift[@]} == 0 && ${#REACH_GRANT[@]} == 0 )); then
+            && (( ${#drift[@]} == 0 && ${#label_drift[@]} == 0 && ${#TRAVERSAL_GRANT_PATHS[@]} == 0 )); then
         skip_listed_note
         sealed_setgid_note
         ancestor_config_note
         # With no grant to offer, this prints the blocked-ancestor warning alone, where there is one.
-        reach_ask "${d}"
+        confirm_ancestor_traversal "${d}"
         claim_scan_rows
         ok "already fully claimed -- nothing to do"
         claim_end
@@ -2460,7 +2463,7 @@ cmd_project_claim() {
     # rule, so it costs the operator a sudo PASSWORD prompt to search a directory the tool itself just created.
     if ${fresh}; then need_gate=false; fi
     local gate_announced="${need_gate}"
-    (( ${#drift[@]} || ${#label_drift[@]} || ${#REACH_GRANT[@]} )) && gate_announced=true
+    (( ${#drift[@]} || ${#label_drift[@]} || ${#TRAVERSAL_GRANT_PATHS[@]} )) && gate_announced=true
 
     say ""
     say "  pending:"
@@ -2483,7 +2486,7 @@ cmd_project_claim() {
         if ${fresh}; then say "    - normalize .git so the agent can access git history"
         else say "    - normalize .git so the agent can access git history -- you will be asked"; fi
     fi
-    (( ${#REACH_GRANT[@]} )) && say "    - grant traverse-only access on ${#REACH_GRANT[@]} parent path(s) -- you will be asked"
+    (( ${#TRAVERSAL_GRANT_PATHS[@]} )) && say "    - grant traverse-only access on ${#TRAVERSAL_GRANT_PATHS[@]} parent path(s) -- you will be asked"
 
     skip_listed_note
     sealed_setgid_note
@@ -2574,10 +2577,11 @@ cmd_project_claim() {
     fi
 
     # The traverse grant is asked with the repairs, ahead of the gate, because it is one: it makes the tree reachable
-    # with whatever readable secrets were added since its last scan, so an accepted grant runs the gate, and reach_apply
-    # sets the ACL in the Apply block. A pristine tree has no secret to find, as for the other steps.
-    reach_ask "${d}"
-    if ${REACH_ACCEPTED}; then
+    # with whatever readable secrets were added since its last scan, so an accepted grant runs the gate,
+    # and grant_ancestor_traversal sets the ACL in the Apply block. A pristine tree has no secret to find,
+    # as for the other steps.
+    confirm_ancestor_traversal "${d}"
+    if ${TRAVERSAL_GRANT_CONFIRMED}; then
         ${fresh} || need_gate=true
     fi
 
@@ -2620,7 +2624,7 @@ cmd_project_claim() {
     # block would read as work done. ──
     local apply_steps=false
     if [[ "${safedir}" != true || "${owngap}" == true ]] || ${need_filemode} || ${need_acl} || ${do_git} \
-            || ${need_label} || ${do_drift} || ${do_label_drift} || ${REACH_ACCEPTED}; then
+            || ${need_label} || ${do_drift} || ${do_label_drift} || ${TRAVERSAL_GRANT_CONFIRMED}; then
         apply_steps=true
     fi
     if ${apply_steps}; then headline "Applying claim steps" "${d}"; fi
@@ -2630,7 +2634,7 @@ cmd_project_claim() {
     # not take counts with the root steps that did not apply: the project stays out of the agent's reach, which
     # the closing warning reports, and the command that applies it is printed with the failure. It does not ask
     # note_root_failure's question, which is about a password round the next root step would repeat.
-    if ${REACH_ACCEPTED} && ! reach_apply; then
+    if ${TRAVERSAL_GRANT_CONFIRMED} && ! grant_ancestor_traversal; then
         ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
     fi
 
@@ -2676,7 +2680,7 @@ cmd_project_claim() {
     # The ✓ is kept for a claim that left no drift and no capped scan: with a not-fixed or a scan-capped row the claim
     # ends non-zero, and the line takes the mark that status carries.
     local closing="claimed ${d}"
-    if ! ${apply_steps} && [[ "${listed}" == true ]] && ! ${need_gate} && (( ${#REACH_GRANT[@]} == 0 )); then
+    if ! ${apply_steps} && [[ "${listed}" == true ]] && ! ${need_gate} && (( ${#TRAVERSAL_GRANT_PATHS[@]} == 0 )); then
         closing+=" -- no change applied"
     fi
     if ai_tools_records_get_exit_status; then
@@ -2773,13 +2777,13 @@ cmd_project_create() {
     # exists rather than leaving a directory to clean up. A blocker the predicate DOES permit is not a refusal -- it
     # becomes the claim's own traverse opt-in, which offers the grant and the exact setfacl for anything it cannot
     # apply.
-    reach_scan "${d}"
-    if [[ -n "${REACH_BLOCKED}" ]]; then
+    find_blocking_ancestors "${d}"
+    if [[ -n "${TRAVERSAL_BLOCKED_PATH}" ]]; then
         # State the blocker and why no grant covers it, and stop there. The claim's own version of this refusal points
         # at `projects clone`, which does not apply here: that verb clones an EXISTING repository into the sandbox area,
         # and this verb's whole subject is a project that does not exist yet, so there is no source to name.
         local why blocked_owner
-        blocked_owner="$(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || true)"
+        blocked_owner="$(stat -c '%U' "${TRAVERSAL_BLOCKED_PATH}" 2>/dev/null || true)"
         if [[ -z "${blocked_owner}" ]]; then
             why="its owner cannot be read from here"
         elif [[ "${blocked_owner}" != "${OWNER_USER}" ]]; then
@@ -2788,7 +2792,7 @@ cmd_project_create() {
             why="it is a protected system directory"
         fi
         headline_warn "WARNING: the agent could not reach a project here" \
-            "the sandbox account cannot traverse ${REACH_BLOCKED} (${why}), so it could not enter a project created at ${d}. Nothing has been created. Create the project somewhere the sandbox account can reach: every parent directory has to be one it can already enter, or one you own and can grant traverse on."
+            "the sandbox account cannot traverse ${TRAVERSAL_BLOCKED_PATH} (${why}), so it could not enter a project created at ${d}. Nothing has been created. Create the project somewhere the sandbox account can reach: every parent directory has to be one it can already enter, or one you own and can grant traverse on."
 
         # One alternative is offered, and only after it has been CHECKED on this host rather than assumed: the owner's
         # home is the usual reachable location, but whether it is depends on its ancestry, which differs per host.
@@ -2797,8 +2801,8 @@ cmd_project_create() {
         home_dir="$(getent passwd "${OWNER_USER}" 2>/dev/null | cut -d: -f6)"
         if [[ -n "${home_dir}" && -d "${home_dir}" ]]; then
             candidate="${home_dir%/}/${d##*/}"
-            reach_scan "${candidate}"
-            if [[ -z "${REACH_BLOCKED}" && ! -e "${candidate}" ]]; then
+            find_blocking_ancestors "${candidate}"
+            if [[ -z "${TRAVERSAL_BLOCKED_PATH}" && ! -e "${candidate}" ]]; then
                 say ""
                 say "  this location is reachable:"
                 say "      ${C_BOLD}ai-tools projects create ${candidate}${C_RST}"
@@ -3805,7 +3809,7 @@ sandbox_finalize() {
     # Once per clone, while the root is still owner-only (normalize_clone's header states why). A later resume leaves
     # the tree as it is, and the SessionStart setgid pass, which honours a seal, keeps the rest normalized.
     if clone_is_private "${dst}"; then
-        normalize_clone "${dst}" "${SECRET_GATE_LOCKED[@]}"
+        normalize_clone "${dst}" "${SECRET_MATCH_PATHS[@]}"
         say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
     else
         say "    access: already granted; the tree is left as it is"
