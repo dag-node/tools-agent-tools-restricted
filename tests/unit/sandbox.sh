@@ -288,7 +288,8 @@ mkdir -p "${cv_work}/scratch"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${cv_work}"
 
 # cv_run <restorecon-status>: print the label outcomes, then the group outcomes, for the present path and a path
-# that does not exist.
+# that does not exist. The CLI resolves OWNER_USER from `id -un` at its top level and makes it readonly, so the inner
+# shell runs as the fixture's owner and asserts the resolved owner rather than assigning it.
 cv_run() {
     # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
     runuser -u "${PROJECTS_USER}" -- bash -c \
@@ -296,7 +297,9 @@ cv_run() {
          source "${cli}" >/dev/null 2>&1 || exit 99
          declare -F claim_verify_label >/dev/null || exit 98
          claim_load_libraries >/dev/null 2>&1 || exit 97
-         CLAIM_WORK="${work}/scratch" OWNER_USER="${user}"
+         [[ "${OWNER_USER}" == "${user}" ]] \
+             || { echo "OWNER_USER resolved to ${OWNER_USER}, not ${user}" >&2; exit 96; }
+         CLAIM_WORK="${work}/scratch"
          restorecon() { return "${status}"; }
          declare -a paths=("${work}/present" "${work}/absent") label=() group=() details=()
          claim_verify_label paths label
