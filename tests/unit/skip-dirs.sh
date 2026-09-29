@@ -34,11 +34,11 @@ fi
 
 # (2) Per-consumer defaults (lib-owned): handback/normalization consumers skip .git + heavy.
 handback_ok=true
-for consumer in sweep setgid setfacl unclaim lockdown; do
+for consumer in sweep setgid setfacl unclaim; do
     [[ " $(names_for "${consumer}") " == *" .git "* ]] \
         || { fail "${consumer} should skip .git by default"; handback_ok=false; }
 done
-${handback_ok} && pass "sweep/setgid/setfacl/unclaim/lockdown skip .git + heavy trees"
+${handback_ok} && pass "sweep/setgid/setfacl/unclaim skip .git + heavy trees"
 
 # reclaim WALKS .git but skips the heavy trees; reclaim-full descends everywhere.
 if [[ " $(names_for reclaim) " != *" .git "* && " $(names_for reclaim) " == *" node_modules "* ]]; then
@@ -51,12 +51,12 @@ if [[ -z "$(names_for reclaim-full)" ]]; then
 else
     fail "reclaim-full names: $(names_for reclaim-full)"
 fi
-# The clone's secret gate walks every directory the normalize that follows it opens. The status is asserted too: an
-# unknown consumer returns 2 and leaves the previous call's list standing, which is empty here.
-if ai_tools_skip_find_expr lockdown-full 2>/dev/null && [[ -z "${AI_TOOLS_SKIP_NAMES[*]}" ]]; then
-    pass "lockdown-full skips nothing"
+# The secret sweep skips .git alone: a claim's traversal, world bits and relabel reach into the heavy trees whatever
+# its walks skip, and the clone's normalize opens them.
+if ai_tools_skip_find_expr lockdown 2>/dev/null && [[ "${AI_TOOLS_SKIP_NAMES[*]}" == ".git" ]]; then
+    pass "lockdown skips .git alone"
 else
-    fail "lockdown-full: status $? or names: ${AI_TOOLS_SKIP_NAMES[*]}"
+    fail "lockdown names: ${AI_TOOLS_SKIP_NAMES[*]}"
 fi
 
 # (3) Optional skip_git override: reclaim true adds .git; sweep false drops it.

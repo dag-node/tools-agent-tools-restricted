@@ -1405,8 +1405,8 @@ reach_apply() {
 # locked to owner-only by ai-tools-lockdown) is PRUNED from both walks -- re-opening one here would undo the lockdown
 # this step is sequenced after. It prunes only what THIS run's gate reported, which is why sandbox_finalize runs it
 # once, while the root is still owner-only (clone_is_private), and not on a resume over a clone already opened. Neither
-# walk has a skip list: every directory this opens is one the gate scanned (`secret_gate --full`), so the two walks
-# cover one set of paths.
+# walk has a skip list, and the gate's walk skips .git alone, so every directory this opens is one the gate scanned
+# for secret names.
 normalize_clone() {
     local d="$1"; shift
     local -a prune=() p
@@ -1490,20 +1490,20 @@ run_unclaim() {
     sudo "${UNCLAIM_BIN}" "${d}" "${g}" "$@"
 }
 
-# secret_gate <dir> [helper-option...]  -- the secret-lockdown block: before ANY step grants the agent access to <dir>
-# (the group ACL, the setgid group change, .git normalization, the traverse grant on an ancestor, the clone normalize),
-# make sure no group-readable secret would be exposed. The CLI cannot read the root-only secret-pattern library, so one
-# `ai-tools-lockdown --gate` call (sudo, password -- the first sudo prompt of a claim, so it lands right under this
-# block's headline) scans, lists what it found, asks, and locks: one call, so a host whose sudo does not cache
-# the password asks once. Its exit decides: 0 locked or found none, 6 declined, anything else failed.
-# AI_TOOLS_ASSUME_YES answers the default-yes question as `--yes`, since sudo does not pass it through. Every
-# <helper-option> goes to the helper after `--gate`: the clone passes `--full`, so the scan walks every directory
-# normalize_clone will open (the helper's header states why a claim in place does not). Fills SECRET_GATE_LOCKED
-# with every secret-matching path the helper wrote to stdout, so normalize_clone can prune them. Returns 0 only
-# when the tree is safe to expose; non-zero means the caller must fail closed.
+# secret_gate <dir>  -- the secret-lockdown block: before ANY step grants the agent access to <dir> (the group ACL,
+# the setgid group change, .git normalization, the SELinux label, the traverse grant on an ancestor, the clone
+# normalize), make sure no group-readable secret would be exposed. The CLI cannot read the root-only secret-pattern
+# library, so one `ai-tools-lockdown --gate` call (sudo, password -- the first sudo prompt of a claim, so it lands right
+# under this block's headline) scans, lists what it found, asks, and locks: one call, so a host whose sudo does not
+# cache the password asks once. The scan walks every heavy tree (the helper's header states why), since the root's
+# traversal, a tree's own world bits and the relabel reach into them whatever the claim's walks skip. Its exit
+# decides: 0 locked or found none, 6 declined, anything else failed. AI_TOOLS_ASSUME_YES answers the default-yes
+# question as `--yes`, since sudo does not pass it through. Fills SECRET_GATE_LOCKED with every secret-matching path
+# the helper wrote to stdout, so normalize_clone can prune them. Returns 0 only when the tree is safe to expose;
+# non-zero means the caller must fail closed.
 secret_gate() {
-    local dir="$1" found status=0; shift
-    local -a args=(--gate "$@")
+    local dir="$1" found status=0
+    local -a args=(--gate)
     SECRET_GATE_LOCKED=()
     [[ "${AI_TOOLS_ASSUME_YES:-}" == 1 ]] && args+=(--yes)
     headline "Secret lockdown" "${dir}"
@@ -3745,10 +3745,7 @@ cmd_project_remove() {
 sandbox_finalize() {
     local dst="$1"
     reg_allow "${dst}"
-    # `--full`: normalize_clone opens every directory it does not prune, the skip-listed ones (node_modules, .venv,
-    # packages) included, so the gate walks every directory too -- a tracked secret under one of them is found here
-    # or opened unscanned.
-    if ! secret_gate "${dst}" --full; then
+    if ! secret_gate "${dst}"; then
         unreg_allow "${dst}"
         drop_lockdown_guard "${dst}"
         warn "sandbox not secured -- the clone stays private to you:" \

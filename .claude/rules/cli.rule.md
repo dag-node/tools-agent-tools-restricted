@@ -1075,7 +1075,8 @@ fails the operation closed: the claim aborts (rolling back its own allowlist add
 the clone
 private and unregistered, dropping a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) instructing the agent
 to wait until lockdown runs, preserving any real `CLAUDE.md` via `git mv` to `CLAUDE.md.bak`. The gate exports the found
-paths (`SECRET_GATE_LOCKED`) so `normalize_clone` prunes them from its group-access walk. The gate covers what the step
-after it opens: a claim's walks skip the shared skip list (`skip-dirs.lib.sh`), so its scan skips the same directories,
-while `normalize_clone` opens every directory it does not prune, so the clone passes `--full` and the helper walks
-every directory of the clone, `node_modules` and its kind included.
+paths (`SECRET_GATE_LOCKED`) so `normalize_clone` prunes them from its group-access walk. The gate covers what the steps
+after it expose, which is more than the claim's walks touch: those walks skip the shared skip list
+(`skip-dirs.lib.sh`), while the root's traversal, a skipped tree's own world bits and the recursive relabel reach into
+`node_modules` and its kind, and `normalize_clone` opens them outright. So the scan skips `.git` alone (the helper's
+header states why that one), on a claim and on a clone alike.

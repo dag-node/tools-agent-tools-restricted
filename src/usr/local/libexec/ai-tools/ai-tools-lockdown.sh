@@ -31,10 +31,12 @@
 # whose sudo asks for the password on every invocation asks once. It lists each path relative to the project, asks
 # with a default of yes (the answer without a terminal), summarizes the lock in one line, and writes every
 # secret-matching path NUL-terminated to stdout, which does not carry any other byte; secret-handling.rule.md states
-# the contract. `--full` is the clone's half of that contract: it walks every directory, the skip list included,
-# because normalize_clone then opens every path this run did not lock, and a secret under `node_modules` the walk
-# skipped would be opened unscanned. A claim in place keeps the skip list, since its own walks skip the same
-# directories.
+# the contract.
+#
+# The walk skips .git alone (skip-dirs.lib.sh's `lockdown` consumer): a secret under a heavy tree such
+# as `node_modules` is reached through the project root's traversal, the tree's own world bits and the recursive
+# relabel, none of which the claim's walks skipping that tree close, and the clone's normalize opens the tree outright.
+# The per-path match runs in this shell without a subprocess, which is what keeps a walk over such a tree to seconds.
 #
 # Installed 750 root:root, so only root runs it -- which is why the CLI cannot pre-check the path and sudo reaches it
 # instead. Its domain rule is secret-handling.rule.md.
@@ -141,15 +143,11 @@ EOF
 DRY_RUN=false
 ASSUME_YES=false
 GATE=false
-# The skip-dirs consumer the walk is built for: `--full` selects the one that walks every directory (the header states
-# which caller needs it).
-SKIP_CONSUMER=lockdown
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)    DRY_RUN=true ;;
         -y|--yes)     ASSUME_YES=true ;;
         --gate)       GATE=true ;;
-        --full)       SKIP_CONSUMER=lockdown-full ;;
         -h|--help)    usage; exit 0 ;;
         *)            usage; die MSG-G2T3 "unknown argument: $1" ;;
     esac
@@ -277,7 +275,7 @@ _scan() {
 
 # ── Enumerate secret-matching paths under the target ─────────────────────────
 # `find -P` (the default) does not follow a symlink, and `-type f`/`-type d` exclude one anyway.
-ai_tools_skip_find_expr "${SKIP_CONSUMER}" '' "${target}"
+ai_tools_skip_find_expr lockdown '' "${target}"
 declare -a expr=( "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -type f -o -type d ')' -print0 )
 
@@ -285,7 +283,7 @@ declare -a hits=()
 _scan "${SCAN_DIR}/hits" "${expr[@]}"
 while IFS= read -r -d '' path; do
     _is_excluded "${path}" && continue
-    ai_tools_is_secret_basename "$(basename "${path}")" || continue
+    ai_tools_is_secret_basename "${path##*/}" || continue
     hits+=("${path}")
 done < "${SCAN_DIR}/hits"
 
@@ -315,7 +313,7 @@ _scan "${SCAN_DIR}/sealed" "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
 while IFS= read -r -d '' path; do
     [[ "${path}" == "${target}" ]] && continue
     _is_excluded "${path}" && continue
-    ai_tools_is_secret_basename "$(basename "${path}")" && continue
+    ai_tools_is_secret_basename "${path##*/}" && continue
     sealed+=("${path}")
 done < "${SCAN_DIR}/sealed"
 

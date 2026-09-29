@@ -184,7 +184,8 @@ the operator's standing seal, and this pass honours it exactly as `ai-tools-setf
 residue such a directory carries rather than normalizing it, since the mode masks that residue instead of removing it.
 `owner-only.lib.sh` defines what counts as residue and carries the strip; the seal itself is
 [secrets](secret-handling.rule.md). Heavy/transient trees (`.git`, `node_modules`, `.venv`, `__pycache__`, `packages`)
-are skipped; that skip list is shared with the sweep and `ai-tools-lockdown`
+are skipped; that skip list is shared with the sweep, and `ai-tools-lockdown` takes its `.git` entry alone
+([secrets](secret-handling.rule.md)),
 via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the authoritative reference), which groups the names into categories
 (VCS, package, artifact, cache) an operator can override per category in `operator.conf` — read through the shared
 `KEY=value` grammar in `conf.lib.sh`, so a category list separates on commas or whitespace with optional quotes,
