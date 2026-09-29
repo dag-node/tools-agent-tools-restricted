@@ -1468,6 +1468,71 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Tue Sep 29 2026 dagnode <tools@dagnode.com> - 0.22.0-1
+- CHANGE: 'ai-tools status', 'sudo ai-tools-admin status' and 'ai-tools audit' exit 4 when they
+  find something that needs attention and 5 when a reading could not be made, where they exited 1.
+  'system post-upgrade' exits 4 while a file needs attention. Update any script or monitor that
+  tests for exit 1.
+- CHANGE: 'sudo ai-tools-admin system post-upgrade --check' writes the record stream
+  ai-tools-records(5) describes, a header row and one row per finding, in place of the four-column
+  lines. Update a cron job that parses its output.
+- CHANGE: 'ai-tools projects claim' exits 4 when it leaves a drifted file as it was and 5 when it
+  could not verify a repair, where it exited 0. Without a terminal it relabels the tree only with
+  --yes, and the relabel question defaults to no.
+- CHANGE: A declined confirmation exits 6: 'ai-tools stop' exited 4 and 'projects lockdown'
+  exited 0.
+- CHANGE: A rejected command line exits 2 in every command, where most verbs exited 1.
+  'projects push', 'projects list' and 'status' refuse an argument they ignored, so
+  'projects push <dir> --dry-run' is refused; it pushed.
+- CHANGE: A session is refused, and the nightly update skips its run, while the system clock is
+  behind a file this host wrote, as after a boot without a battery-backed clock. The refusal names
+  the file and the command that sets the clock.
+- CHANGE: install.sh refuses a checkout older than the installed version and names the removal to
+  run first; --allow-downgrade installs over it.
+- SECURITY: The secret lockdown that 'projects lockdown', claim and clone run walks dependency trees
+  (node_modules, .venv, packages, caches) and .git except its objects, refs and logs, which it
+  skipped, and makes a secret-named file there owner-only. The SKIP_* keys in operator.conf no
+  longer narrow it.
+- SECURITY: ai-tools-lockdown fails whenever it leaves a secret-named path unlocked. A scan that
+  failed, a hardlinked secret and a failed chown each exited 0, and the claim then shared the tree.
+- SECURITY: The claim's traverse grant on a parent directory runs the secret scan first, and adds
+  execute alone to the directory's ACL mask: a masked 'group:devs:rwx' entry gained full access.
+  The prompt lists each entry that gains traverse beside the sandbox account.
+- SECURITY: 'projects clone' leaves alone a file outside the clone that a tracked symlink points
+  to, and keeps locked a secret whose name holds a bracket, a wildcard, a backslash or a trailing
+  newline. A project path holding a control character is refused; 'project<LF>' named 'project'.
+- SECURITY: Root and the operator run the sandbox's toolchain -- nvm, npm, Node and install scripts
+  -- only as the sandbox account, without a terminal, in a time-bounded systemd scope, and print
+  its output sanitized. Root shared its terminal with those processes.
+- SECURITY: 'system post-upgrade' prints the target of a skill or orientation link the sandbox
+  account planted with its control bytes replaced; an escape sequence in it reached root's terminal.
+- NEW: A re-claim relabels files moved into the project with a foreign SELinux type, asks about
+  type and group drift under separate lists, marks secret-named paths [secret], and reports each
+  path as fixed or not. 'projects claim --format tsv' writes that report as a record stream.
+- NEW: 'sudo ai-tools-admin system bootstrap' reports a toolchain path the sandbox account does not
+  own, with the chown that restores it, before it installs anything, and runs offline where no
+  download host answers, reusing an installed toolchain.
+- NEW: 'system post-upgrade' compares a kept file with the newer of its .rpmnew and install.sh's
+  .shipped copy, which install.sh leaves beside a kept settings.json that lacks rules. An uninstall
+  keeps an edited settings.json as a dated .retired copy.
+- NEW: 'sudo ai-tools-admin status' names the installed version of each enabled agent.
+- FIX: A toolchain copied without its symlinks, as a .zip archive leaves it, no longer stops npm:
+  'system bootstrap' restores each link, and the entrypoint reconcile names bootstrap as the repair.
+- FIX: install.sh recompiles a policy module built on EL10 and carried to EL9, or refuses naming the
+  policy toolchain, where semodule refused it and kept the earlier module. On EL9, sandbox clones and .NET
+  build output are labelled, where the session was denied them.
+- FIX: The entrypoint relabel read an entrypoint outside its npm package as nvm's version and asked
+  the vendor for that release; a recreated pin directory read as unpinned.
+- FIX: install.sh brings an existing directory, and the asset seeding a kept skill or orientation
+  file, to its declared owner and mode, and no longer leaves a copied checkout's .git/index
+  root-owned.
+- FIX: The claim offers the traverse grant for a 700 directory holding a 755 one, treats an ancestor
+  whose ACL cannot be read as blocked, and does not report a project claimed when a grant failed.
+- FIX: 'sudo ai-tools-admin status' read Provisioning as OK on every host, and 'ai-tools audit'
+  did not list any launch refusals.
+- DOCS: The projects documentation is one page per verb, each with its exit codes, and
+  docs/system/record-streams.md shows a .NET reader for a record stream.
+
 * Fri Sep 25 2026 dagnode <tools@dagnode.com> - 0.21.0-1
 - CHANGE: The 'claude' and 'codex' commands are symlinks to /usr/local/bin/ai-tools-launch, one
   launch wrapper that takes the agent from the name it was invoked as. A provider manifest may
