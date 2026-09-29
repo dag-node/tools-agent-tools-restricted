@@ -49,7 +49,7 @@ a carve-out.
 
 ### `ai_tools_traverse_grant_allowed <path> <owner>` — the traverse-grant rule
 
-A second predicate, for a strictly weaker operation, single-sourced here and used by `reg_reach` (via
+A second predicate, for a strictly weaker operation, single-sourced here and used by `confirm_ancestor_traversal` (via
 `grantable_ancestor`) and by both new project verbs through it. It returns 0 when `<path>` is a directory `<owner>`
 holds and it either does not match any protected path **or** matches only as `<owner>`'s own home root — resolved
 from `getent`, so a path that merely looks like `/home/<name>` is not admitted on its shape. Every system directory,

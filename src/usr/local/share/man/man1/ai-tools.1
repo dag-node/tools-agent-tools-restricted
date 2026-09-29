@@ -393,7 +393,8 @@ Skip the final \(lqCreate the sandbox clone?\(rq confirmation. The secret gate s
 applies.
 .RE
 .IP
-The clone is born owner-only; tip-commit secrets are locked down first, and only past
+The clone is born owner-only; tip-commit secrets are locked down first, under every
+directory of the clone, and only past
 that gate is the clone opened to the agent and registered. A declined or failed lockdown
 stops fail-closed \(em the clone stays private and unregistered; re-run this command on
 the clone path to resume securing it.
@@ -403,6 +404,8 @@ Push the sandbox clone's commits to the remote branch it tracks
 .RI ( sandbox/LEAF
 by default; see
 .BR \-\-branch ).
+It does not take options: one given is refused with exit 2 before anything is
+pushed, since the confirmation defaults to yes.
 .TP
 .B projects lockdown \fR[\fIDIRECTORY\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR]
 Lock secret-named files under the project (\fB.env\fR, \fB*.key\fR, ...) to
@@ -763,16 +766,29 @@ unregistered by then, so what remains is out of the agent's reach and can be
 deleted by hand.
 .TP
 .B 2
-The command line was rejected: an unknown option, or
-.B "projects claim"
-given two directories or a
+The command line was rejected, before any helper or
+.B sudo
+ran: an unknown option; a second directory for a verb that takes one; an
+argument to
+.BR "projects list" ", " status " or " providers ,
+which take none; a
+.I DIRECTORY
+for
+.BR stop ,
+which refuses one rather than accepts and ignores it; an option that has no
+effect beside another
+.RB ( \-\-yes " with " \-\-dry\-run );
+or a
 .B \-\-format
 value other than
 .BR tsv .
-.B stop
-returns this for a
-.I DIRECTORY
-argument, which it refuses rather than accepts and ignores.
+A
+.B \-\-for
+run is the one exception to the ordering: its allowlist snapshot is the run's
+first
+.BR sudo ,
+and it precedes the verb's own parser, so a command line that verb rejects is
+refused after that prompt.
 .TP
 .B 3
 The target is a protected path \(em a system directory or a home root \(em and

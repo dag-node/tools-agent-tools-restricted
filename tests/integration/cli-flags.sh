@@ -154,7 +154,10 @@ make_fixtures() {
 # run_in <cwd> <args...>: the deployed CLI as the projects user, shim first on PATH, every registry pointed
 # at a fixture, under setsid so no prompt can block. Output captured with stderr, or with stderr written to the file
 # RUN_STDERR names when it is set; RUN_EXTRA_ENV adds NAME=value pairs to the environment.  The inner shell expands $1
-# and $@ itself, which is why they sit in single quotes.
+# and $@ itself, which is why they sit in single quotes. With RUN_TTY_ANSWERS set the CLI runs under script(1)
+# instead, on a pseudo-terminal fed that text, for the one question no flag pre-answers: confirm reads /dev/tty, which
+# script makes the controlling terminal and holds the answers on until they are read (the shape unit/msg.sh drives its
+# menus through). Bounded, since a question the answers do not reach would wait on the terminal.
 # shellcheck disable=SC2016
 RUN_EXTRA_ENV=()
 run_in() {
@@ -162,8 +165,13 @@ run_in() {
     local -a command=(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}"
         PATH="${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin"
         AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_ALLOWLIST="${AL}" AI_TOOLS_GITCONFIG="${GC}"
-        AI_TOOLS_SANDBOX_ROOT="${SBROOT}" "${RUN_EXTRA_ENV[@]}"
-        bash -c 'cd "$1" && shift && exec setsid -w "$@"' _ "${cwd}" "${CLI}" "$@")
+        AI_TOOLS_SANDBOX_ROOT="${SBROOT}" "${RUN_EXTRA_ENV[@]}")
+    if [[ -n "${RUN_TTY_ANSWERS:-}" ]]; then
+        command+=(bash -c 'cd "$1" && exec script -qec "$2" /dev/null' _ "${cwd}" "$(printf '%q ' "${CLI}" "$@")")
+        printf '%b' "${RUN_TTY_ANSWERS}" | timeout 120 "${command[@]}" 2>&1
+        return
+    fi
+    command+=(bash -c 'cd "$1" && shift && exec setsid -w "$@"' _ "${cwd}" "${CLI}" "$@")
     if [[ -n "${RUN_STDERR:-}" ]]; then
         "${command[@]}" 2>"${RUN_STDERR}"
     else
@@ -180,6 +188,8 @@ cli_stdout() {
     RUN_STDERR="${R}/.stderr" run_in "${R}" "${CLI_ARGV[@]}" "$@"
 }
 cli_in() { local cwd="$1" key="$2"; shift 2; cli_cmd "${key}" || return 2; run_in "${cwd}" "${CLI_ARGV[@]}" "$@"; }
+# cli_tty <answers> <key> <args...>: cli on a pseudo-terminal, <answers> typed at its questions.
+cli_tty() { local answers="$1" key="$2"; shift 2; cli_cmd "${key}" || return 2; RUN_TTY_ANSWERS="${answers}" run_in "${R}" "${CLI_ARGV[@]}" "$@"; }
 cli_flag_first() { local key="$1"; shift; cli_cmd "${key}" || return 2; run_in "${R}" "$@" "${CLI_ARGV[@]}"; }
 f() { cli_flag "$1"; }
 
@@ -320,6 +330,7 @@ drive() {
     case "$1" in
         cli)            label="${*:2}" ;;
         cli_in)         label="in $2: ${*:3}" ;;
+        cli_tty)        label="tty ${*:3}" ;;
         cli_flag_first) label="flag-first ${*:2}" ;;
         cli_stdout)     label="stdout-only ${*:2}" ;;
         *)              label="$*" ;;
@@ -404,6 +415,12 @@ drive_rows() {
     # it could not make, so the assertion is on the statuses a report can close with.
     drive cli ai-tools.status;    expect "the host report runs and reaches no helper"     quiet_report 0 4 5
     drive cli ai-tools.providers; expect "the provider report runs and reaches no helper" quiet_report 0
+    # A report does not take any argument, and one given is refused rather than ignored. The bare `providers` reads
+    # a second word as its verb, so its refusal is the unknown-command one in the collection spelling and the parser's
+    # in the option spelling; the row asserts the refusal and the empty call log, which the two share.
+    drive cli ai-tools.projects.list "${R}/pa"; expect "projects list refuses an argument with exit 2, no helper" quiet_rc 2
+    drive cli ai-tools.status "${R}/pa";        expect "status refuses an argument with exit 2, no helper"        quiet_rc 2
+    drive cli ai-tools.providers "${R}/pa";     expect "providers refuses an argument, no helper"                 quiet_refusal
 
     cli_stub_reset
     drive cli ai-tools.stop;               expect "stop calls the stop helper with no argument" test "$(cli_call_count ai-tools-stop)" -eq 1 -a -z "$(cli_calls ai-tools-stop)"
@@ -577,6 +594,48 @@ drive_rows() {
         RUN_EXTRA_ENV=()
     fi
     cli_stub_reset
+
+    # ── B3. Claim: the traverse grant takes the gate ─────────────────────────────────
+    # A claimed project under a parent the sandbox account cannot enter has one pending step, the traverse grant,
+    # which makes the tree reachable with whatever readable secrets were added since its last scan. So an accepted grant
+    # runs the secret scan ahead of the setfacl, and a declined scan leaves the parent as it was. The question is
+    # default-NO and no flag answers it, so the accepted answer is typed on a pseudo-terminal; the grant is
+    # an unprivileged setfacl, which the sudo shim does not see, so it is read back from the parent. The rows run
+    # where the fixture has no other pending step: on a host with SELinux enabled its files would read as label drift,
+    # whose question would take the typed answer and, accepted, the gate on its own.
+    section "ai-tools.projects.claim: traverse grant"
+    reach_fx="${R}/reach"; reach_proj="${reach_fx}/proj"
+    claimed_fixture "${reach_proj}"; rm -f "${reach_proj}/moved-in.txt"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${reach_fx}"; chmod 0700 "${reach_fx}"
+    reach_why=""
+    if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" != Disabled ]]; then
+        reach_why="SELinux is enabled, so the fixture's files would read as label drift"
+    elif ! runuser -u "${SANDBOX_USER}" -- test -x "${R}" 2>/dev/null; then
+        reach_why="the sandbox account cannot enter ${R}, so the grant would fall on a directory outside the fixtures"
+    elif ! command -v script >/dev/null 2>&1; then
+        reach_why="script(1) not available for a pseudo-terminal"
+    fi
+    if [[ -n "${reach_why}" ]]; then
+        skip "claim traverse-grant rows" "${reach_why}"
+    else
+        granted()     { getfacl -p "${reach_fx}" 2>/dev/null | grep -qE "^user:${SANDBOX_USER}:..x"; }
+        not_granted() { ! granted; }
+        seed "${reach_proj}"; seed_gc "${reach_proj}"
+        cli_stub_reset; drive cli ai-tools.projects.claim "${reach_proj}"
+        expect "a claimed project with the grant pending exits 0 with no terminal" rc_is 0
+        expect "the declined grant runs no secret scan"                   not_called ai-tools-lockdown
+        expect "the declined grant leaves the parent as it was"           not_granted
+        cli_stub_reset; drive cli_tty 'y\n' ai-tools.projects.claim "${reach_proj}"
+        expect "the accepted grant exits 0"                               rc_is 0
+        expect "the accepted grant runs the secret scan"                  cli_called ai-tools-lockdown "^--gate$"
+        expect "the accepted grant is applied once the scan passed"       granted
+        setfacl -x "u:${SANDBOX_USER}" "${reach_fx}"
+        cli_stub_reset; cli_stub_secrets "${reach_proj}/.env"; cli_stub_decline_lockdown
+        drive cli_tty 'y\n' ai-tools.projects.claim "${reach_proj}"
+        expect "a declined scan stops the claim"                          rc_not0
+        expect "a declined scan leaves the parent as it was"              not_granted
+        cli_stub_reset
+    fi
 
     # ── C. Create ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.create"
@@ -830,6 +889,14 @@ drive_rows() {
     section "ai-tools.projects.push / ai-tools.projects.remove.clone"
     runuser -u "${PROJECTS_USER}" -- git -C "${SBROOT}/${N_SRC}" -c user.name=cli-flags -c user.email=cli-flags@example.invalid \
         -c commit.gpgsign=false commit --allow-empty -m "sandbox work" >/dev/null 2>&1
+    # The verb does not take any option: one is refused with the usage status ahead of the push, since the confirm
+    # defaults to yes and a `--dry-run` dropped from the command line would push where the caller asked to look.
+    # The unpushed commit stays unpushed, which the first successful push row then reads as its own precondition.
+    cli_stub_reset; drive cli ai-tools.projects.push "$(f dry-run)" "${SBROOT}/${N_SRC}"
+    expect "push refuses --dry-run with exit 2, no helper"           quiet_rc 2
+    expect "the refused push advances no branch"                      test "$(remote_tip sandbox/main)" != "$(gitr -C "${SBROOT}/${N_SRC}" rev-parse HEAD)"
+    drive cli ai-tools.projects.push "${SBROOT}/${N_SRC}" "${R}/pa"
+    expect "push refuses two paths with exit 2, no helper"            quiet_rc 2
     cli_stub_reset; drive cli ai-tools.projects.push "${SBROOT}/${N_SRC}"
     expect "push exits 0"                                             rc_is 0
     expect "push advances the remote branch to the clone's HEAD"      test "$(remote_tip sandbox/main)" = "$(gitr -C "${SBROOT}/${N_SRC}" rev-parse HEAD)"
@@ -891,7 +958,7 @@ drive_rows() {
     expect "lockdown refuses a path outside every project"            rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
     cli_stub_reset; drive cli ai-tools.projects.lockdown --bogus "${R}/pa"
-    expect "lockdown refuses an unknown option, no helper"            quiet_refusal
+    expect "lockdown refuses an unknown option with exit 2, no helper" quiet_rc 2
 
     cli_stub_reset; drive cli ai-tools.projects.handback "${R}/pa"
     expect "reclaim hands the project to the reclaim helper"          cli_called ai-tools-reclaim "^${R}/pa$"
@@ -903,7 +970,7 @@ drive_rows() {
     expect "reclaim refuses a path outside every project"             rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
     cli_stub_reset; drive cli ai-tools.projects.handback --bogus "${R}/pa"
-    expect "reclaim refuses an unknown option, no helper"             quiet_refusal
+    expect "reclaim refuses an unknown option with exit 2, no helper"  quiet_rc 2
 
     # ── L. The operator's umask does not decide what the agent can read ──────────────
     # A create sets its modes outright and a clone is born private and then opened, so neither depends on the umask

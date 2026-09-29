@@ -184,13 +184,13 @@ the operator's standing seal, and this pass honours it exactly as `ai-tools-setf
 residue such a directory carries rather than normalizing it, since the mode masks that residue instead of removing it.
 `owner-only.lib.sh` defines what counts as residue and carries the strip; the seal itself is
 [secrets](secret-handling.rule.md). Heavy/transient trees (`.git`, `node_modules`, `.venv`, `__pycache__`, `packages`)
-are skipped; that skip list is shared with the sweep and `ai-tools-lockdown`
-via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the authoritative reference), which groups the names into categories
-(VCS, package, artifact, cache) an operator can override per category in `operator.conf` — read through the shared
-`KEY=value` grammar in `conf.lib.sh`, so a category list separates on commas or whitespace with optional quotes,
-and a **present** key replaces that category's default while an absent one leaves it standing (see
-[providers](providers.rule.md)) — and combines per consumer. The artifact category ships empty — `bin`/`obj`-style
-build-output names double as source dirs in many codebases, so skipping them is a per-host perf opt-in
+are skipped; that skip list is shared with the sweep (`ai-tools-lockdown` does not read it, since it covers what a claim
+exposes, [secrets](secret-handling.rule.md)), via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the authoritative
+reference), which groups the names into categories (VCS, package, artifact, cache) an operator can override per category
+in `operator.conf` — read through the shared `KEY=value` grammar in `conf.lib.sh`, so a category list separates
+on commas or whitespace with optional quotes, and a **present** key replaces that category's default while an absent one
+leaves it standing (see [providers](providers.rule.md)) — and combines per consumer. The artifact category ships empty —
+`bin`/`obj`-style build-output names double as source dirs in many codebases, so skipping them is a per-host perf opt-in
 (`SKIP_ARTIFACT_DIRS="bin obj"`), with root-relative exemptions for same-named source dirs
 (`SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE`; every walk passes its root to the selector). "Skip" means omitted
 from the walk, not hidden from the agent — a skipped tree's files stay agent-owned. A Stop sweep that hands back

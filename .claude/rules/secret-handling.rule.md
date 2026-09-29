@@ -150,6 +150,14 @@ back from the pinned inode, and a secret-matching path left unlocked — hardlin
 and fails the run after the seal pass. `--gate` is the CLI's calling contract and is left out of the helper's usage
 text; typed by hand it is parsed and refused the same way, and `--gate` with `--dry-run` is refused with exit 2
 before the scan: the dry run exits 0 with the paths written and none locked, which a caller would read as a lock.
+The walk does not take a skip list: a secret under `node_modules` or another heavy tree is reached through the project
+root's traversal, the tree's own world bits and the recursive relabel, which the claim's walks skipping that tree do not
+close, and `normalize_clone` opens the tree outright. Under `.git` it prunes `objects`, `refs` and `logs` alone,
+the subtrees git names itself, an object by its hash and a ref and its reflog by the branch name: no secret-named file
+lands there by an operator's choice, and a ref locked owner-only would refuse git to the agent. `hooks`, `info`
+and the rest are walked, since a template or a resumed clone puts an operator-written file there. The set is fixed
+in the helper rather than read from `skip-dirs.lib.sh`, whose categories an operator edits in `operator.conf`,
+so a category override cannot reopen it.
 
 It is a user tool: there is **no** sudoers grant letting `SANDBOX_USER` run it, and it refuses to run as `SANDBOX_USER`.
 The `ai-tools` CLI wraps it as `ai-tools projects lockdown [path]` (it `cd`s into the project and `sudo`s the helper,

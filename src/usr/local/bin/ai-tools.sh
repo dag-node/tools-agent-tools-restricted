@@ -485,11 +485,11 @@ note_option_spellings() {
 note_option_spellings
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to claim a system directory, and vet ancestors
-# for the reachability grant (reg_reach -> grantable_ancestor). It is REQUIRED: FAIL CLOSED if it cannot be sourced
-# (missing, unreadable, or the lib dir is not traversable) or does not define its guard. A broken install is not a state
-# to run through with the guard disabled -- a stubbed no-op would skip the system-dir refusal AND silently never grant
-# ancestor traversal (a claimed project the agent cannot reach). Log to journald (via logger, independent of log.lib
-# which may share the broken dir) and warn the user, then exit.
+# for the reachability grant (confirm_ancestor_traversal -> grantable_ancestor). It is REQUIRED: FAIL CLOSED if it
+# cannot be sourced (missing, unreadable, or the lib dir is not traversable) or does not define its guard. A broken
+# install is not a state to run through with the guard disabled -- a stubbed no-op would skip the system-dir refusal
+# AND silently never grant ancestor traversal (a claimed project the agent cannot reach). Log to journald (via logger,
+# independent of log.lib which may share the broken dir) and warn the user, then exit.
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/safe-paths.lib.sh
 if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
@@ -1259,68 +1259,123 @@ reg_ownership() {
     fi
 }
 
-# agent_can_traverse <dir>  -- 0 if the sandbox account (SANDBOX_USER, a SANDBOX_GROUP member) can ENTER <dir>:
-# world-execute, or group-execute with the directory in group SANDBOX_GROUP, or an explicit user:SANDBOX_USER ACL
-# carrying execute.
+# agent_can_traverse <dir>  -- 0 if the sandbox account (SANDBOX_USER, a SANDBOX_GROUP member) can ENTER <dir>, decided
+# the way the kernel decides it (acl(5)): the owner entry when the account owns the directory; else the named-user
+# entry for the account when there is one, whatever the group and other entries say; else the owning-group entry
+# when the directory is in SANDBOX_GROUP, and every named-group entry for SANDBOX_GROUP; else the other entry.
+# A named entry and the owning-group entry are narrowed by the mask, so `user:SANDBOX_USER:--x` under `mask::---`
+# -- the state a `chmod 700` after an earlier grant leaves -- reads as blocked, and the grant is offered again. Returns
+# 1 when the account cannot enter, and 2 when the answer cannot be read: the stat fails, or getfacl is installed
+# and fails on the directory. A mode read in place of an ACL that could not be read would say "traversable" over a named
+# entry denying it, so the caller reads 2 as blocked by a directory no grant may cover. Without getfacl on the host
+# the mode bits alone decide, since no ACL can be inspected there at all.
 agent_can_traverse() {
-    local d="$1" m grp
-    m="$(stat -c '%a' "${d}" 2>/dev/null)" || return 1
-    if (( 8#${m} & 0001 )); then return 0; fi
-    grp="$(stat -c '%G' "${d}" 2>/dev/null || true)"
-    if [[ "${grp}" == "${SANDBOX_GROUP}" ]] && (( 8#${m} & 0010 )); then return 0; fi
-    if command -v getfacl >/dev/null 2>&1 \
-            && getfacl -p "${d}" 2>/dev/null | grep -qE "^user:${SANDBOX_USER}:..x"; then
-        return 0
+    local dir="$1" mode owner grp acl
+    # IFS pinned for the read: this script's global IFS has no space, and stat separates the fields with one.
+    IFS=' ' read -r mode owner grp < <(stat -c '%a %U %G' -- "${dir}" 2>/dev/null) || return 2
+    if command -v getfacl >/dev/null 2>&1; then
+        acl="$(getfacl -p -c -E -- "${dir}" 2>/dev/null)" || return 2
+        local line tag name perms mask="" named_user="" owner_perms="" other="" found_group=false
+        local -a group_perms=()
+        while IFS= read -r line; do
+            IFS=: read -r tag name perms <<< "${line}"
+            case "${tag}:${name}" in
+                "user:")                   owner_perms="${perms}" ;;
+                "user:${SANDBOX_USER}")    named_user="${perms}" ;;
+                "group:")                  [[ "${grp}" == "${SANDBOX_GROUP}" ]] && group_perms+=("${perms}") ;;
+                "group:${SANDBOX_GROUP}")  group_perms+=("${perms}") ;;
+                "mask:")                   mask="${perms}" ;;
+                "other:")                  other="${perms}" ;;
+            esac
+        done <<< "${acl}"
+        # _masked_x <perms>: the entry grants execute and the mask, where one exists, does not take it away.
+        _masked_x() { [[ "$1" == *x* ]] && [[ -z "${mask}" || "${mask}" == *x* ]]; }
+        if [[ "${owner}" == "${SANDBOX_USER}" ]]; then [[ "${owner_perms}" == *x* ]]; return; fi
+        if [[ -n "${named_user}" ]]; then _masked_x "${named_user}"; return; fi
+        for perms in "${group_perms[@]}"; do
+            found_group=true
+            _masked_x "${perms}" && return 0
+        done
+        ${found_group} && return 1
+        [[ "${other}" == *x* ]]; return
     fi
-    return 1
+    if [[ "${owner}" == "${SANDBOX_USER}" ]]; then (( 8#${mode} & 0100 )); return; fi
+    if [[ "${grp}" == "${SANDBOX_GROUP}" ]]; then (( 8#${mode} & 0010 )); return; fi
+    (( 8#${mode} & 0001 ))
 }
 
-# grantable_ancestor <dir>  -- 0 if reg_reach may grant traverse on <dir>. The rule itself lives in safe-paths.lib.sh
-# (ai_tools_traverse_grant_allowed), single-sourced with the two new project verbs; this is the call site. Fail-closed
-# when the predicate is unavailable, so a broken install never widens a directory it cannot vet.
+# grantable_ancestor <dir>  -- 0 if confirm_ancestor_traversal may offer traverse on <dir>. The rule itself lives
+# in safe-paths.lib.sh (ai_tools_traverse_grant_allowed), single-sourced with the two new project verbs; this is
+# the call site. Fail-closed when the predicate is unavailable, so a broken install never widens a directory it cannot
+# vet.
 #
-# On a --for run the owner is the target, whose directories the invoker cannot setfacl unprivileged; reg_reach applies
-# the grant through the runas seam instead.
+# On a `--for` run the owner is the target, whose directories the invoker cannot setfacl unprivileged;
+# grant_ancestor_traversal applies the grant through the runas seam instead.
 grantable_ancestor() {
     local p="$1"
     declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1 || return 1
     ai_tools_traverse_grant_allowed "${p}" "${OWNER_USER}"
 }
 
-# reach_scan <dir>  -- detect the traverse gap between the sandbox account and <dir>: fills REACH_GRANT (each blocking
-# ancestor a grant may cover: operator-owned, not a protected system directory) and REACH_BLOCKED (the first blocking
-# ancestor no grant may cover, empty when none). Read-only and unprivileged; reg_reach acts on the result,
+# find_blocking_ancestors <dir>  -- detect the traverse gap between the sandbox account and <dir>: fills
+# TRAVERSAL_GRANT_PATHS (each blocking ancestor a grant may cover: operator-owned, not a protected system directory)
+# and TRAVERSAL_BLOCKED_PATH (the first blocking ancestor no grant may cover, empty when none),
+# with TRAVERSAL_BLOCKED_REASON naming why where the reason is the read rather than the directory. Read-only
+# and unprivileged; confirm_ancestor_traversal asks on the result and grant_ancestor_traversal acts on it,
 # and the claim's pending overview reads it so the traverse opt-in is announced up front.
-reach_scan() {
-    local dir="$1" anc
-    REACH_GRANT=(); REACH_BLOCKED=""
+#
+# An ancestor whose ACL could not be read (agent_can_traverse returns 2) is the blocker, whoever owns it: no grant is
+# offered on a state the walk did not read, so the answer moves to less access and the warning names the directory.
+#
+# The walk reads every ancestor up to `/`: the kernel resolves each component on its own, so a `700` directory that is
+# the parent of a `755` one blocks the path as surely as the reverse, and a walk that stopped at the first traversable
+# directory would report the gap closed with the outer one still shut. It ends early only at a blocker no grant covers,
+# since a grant on a directory inside that blocker could not open the path anyway.
+find_blocking_ancestors() {
+    local dir="$1" anc traverse=0
+    TRAVERSAL_GRANT_PATHS=(); TRAVERSAL_BLOCKED_PATH=""; TRAVERSAL_BLOCKED_REASON=""
     anc="$(dirname "${dir}")"
     while [[ "${anc}" != / && "${anc}" != . ]]; do
-        if agent_can_traverse "${anc}"; then break; fi
-        if grantable_ancestor "${anc}"; then
-            REACH_GRANT+=("${anc}")
-        else
-            REACH_BLOCKED="${anc}"; break
+        traverse=0; agent_can_traverse "${anc}" || traverse=$?
+        if (( traverse == 2 )); then
+            TRAVERSAL_BLOCKED_PATH="${anc}"; TRAVERSAL_BLOCKED_REASON="its permissions could not be read"; break
+        elif (( traverse != 0 )); then
+            if grantable_ancestor "${anc}"; then
+                TRAVERSAL_GRANT_PATHS+=("${anc}")
+            else
+                TRAVERSAL_BLOCKED_PATH="${anc}"; break
+            fi
         fi
         anc="$(dirname "${anc}")"
     done
 }
 
-# reg_reach <dir>  -- the reachability block: ensure the sandbox account can TRAVERSE the path to <dir>, acting
-# on reach_scan's result (the CALLER runs reach_scan first). The confined session runs as the sandbox account; a project
-# nested under a directory it cannot enter (a private home, 700) is unreachable, so ai-tools-run reports it missing even
-# after a clean claim. Grant traverse-only (execute, no read -- u:SANDBOX_USER:--x) on each blocking ancestor
-# the operator owns and that is not a protected system directory: enough to enter and reach the project, never to list
-# or read it, and unprivileged because the operator owns those directories. A blocking ancestor that is a system
-# directory or someone else's is left untouched -- there an isolated sandbox clone (under /var/opt/ai-tools, already
-# agent-traversable) is the way in. Default-NO: it widens on the project's ANCESTORS, so it is a separate, explicit
-# opt-in.
-reg_reach() {
+# confirm_ancestor_traversal <dir>  -- the reachability block's question: whether the sandbox account may be let
+# TRAVERSE the path to <dir>, on find_blocking_ancestors's result (the CALLER runs find_blocking_ancestors first).
+# The confined session runs as the sandbox account; a project nested under a directory it cannot enter (a private home,
+# 700) is unreachable, so ai-tools-run reports it missing even after a clean claim. The grant is traverse-only (execute,
+# no read -- u:SANDBOX_USER:--x) on each blocking ancestor the operator owns and that is not a protected system
+# directory: enough to enter and reach the project, never to list or read it, and unprivileged because the operator owns
+# those directories. A blocking ancestor that is a system directory or someone else's is left untouched -- there
+# an isolated sandbox clone (under /var/opt/ai-tools, already agent-traversable) is the way in. Default-NO: it widens
+# on the project's ANCESTORS, so it is a separate, explicit opt-in.
+#
+# Sets TRAVERSAL_GRANT_CONFIRMED and does not set the ACL: the grant makes the tree reachable, with whatever readable
+# secrets were added since it was last scanned, so an accepted grant counts as an access-widening step -- the caller
+# runs the secret gate on it and applies it with grant_ancestor_traversal in the Apply block, after the gate.
+#
+# Under each path the question lists every entry the grant widens beside the account's own (traverse_grant_plan):
+# the mask rises to carry execute, so a masked entry that holds execute gains traverse with it. The operator confirms
+# the grant with that consequence on the page rather than after it.
+confirm_ancestor_traversal() {
     local dir="$1" a
-    if [[ -n "${REACH_BLOCKED}" ]]; then
+    TRAVERSAL_GRANT_CONFIRMED=false
+    if [[ -n "${TRAVERSAL_BLOCKED_PATH}" ]]; then
         local why blocked_owner
-        blocked_owner="$(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || echo '?')"
-        if ! declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1; then
+        blocked_owner="$(stat -c '%U' "${TRAVERSAL_BLOCKED_PATH}" 2>/dev/null || echo '?')"
+        if [[ -n "${TRAVERSAL_BLOCKED_REASON}" ]]; then
+            why="${TRAVERSAL_BLOCKED_REASON}, so no grant is offered on it"
+        elif ! declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1; then
             why="the safe-paths traverse rule is not loaded, so ancestors cannot be vetted"
         elif [[ "${blocked_owner}" != "${OWNER_USER}" ]]; then
             why="owned by ${blocked_owner}, not by ${OWNER_USER}"
@@ -1328,15 +1383,22 @@ reg_reach() {
             why="a protected system directory"
         fi
         headline_warn "WARNING: project unreachable for the sandbox account" \
-            "the sandbox account cannot traverse ${REACH_BLOCKED} (${why}), so it cannot reach ${dir}; an isolated clone under the sandbox area is the way in:"
+            "the sandbox account cannot traverse ${TRAVERSAL_BLOCKED_PATH} (${why}), so it cannot reach ${dir}; an isolated clone under the sandbox area is the way in:"
         say "      ${C_BOLD}ai-tools projects clone ${dir}${C_RST}"
         return 0
     fi
-    if (( ${#REACH_GRANT[@]} == 0 )); then return 0; fi
+    if (( ${#TRAVERSAL_GRANT_PATHS[@]} == 0 )); then return 0; fi
 
     headline_warn "WARNING: parent directories block the agent" \
         "the sandbox account must be able to traverse every parent directory to reach the project; the grant below is traverse-only (enter, never list or read): u:${SANDBOX_USER}:--x"
-    for a in "${REACH_GRANT[@]}"; do say "      ${a}"; done
+    local -a grant_argv=() grant_widened=() entry
+    for a in "${TRAVERSAL_GRANT_PATHS[@]}"; do
+        say "      ${a}"
+        traverse_grant_plan "${a}" grant_argv grant_widened || continue
+        (( ${#grant_widened[@]} )) || continue
+        say "        the mask on it rises to carry execute, so these entries gain traverse with the account:"
+        for entry in "${grant_widened[@]}"; do say "          ${entry}"; done
+    done
 
     # The owner's own HOME ROOT is the one entry in that list whose consequence has to be stated, and what to state is
     # a CONDITION rather than an assertion of exposure. `--x` permits traversal and neither a listing of the directory
@@ -1348,7 +1410,7 @@ reg_reach() {
     local owner_home includes_home=false
     owner_home="$(getent passwd "${OWNER_USER}" 2>/dev/null | cut -d: -f6)"
     if [[ -n "${owner_home}" ]]; then
-        for a in "${REACH_GRANT[@]}"; do
+        for a in "${TRAVERSAL_GRANT_PATHS[@]}"; do
             [[ "${a}" == "${owner_home%/}" ]] && { includes_home=true; break; }
         done
     fi
@@ -1367,25 +1429,74 @@ reg_reach() {
     # with no terminal therefore declines, and prints the commands so the refusal is actionable rather than merely
     # recorded.
     if confirm "Grant the sandbox account traverse-only access on them?" n; then
-        local failed=false
-        for a in "${REACH_GRANT[@]}"; do
-            # A --for run's ancestors belong to the TARGET, so an unprivileged setfacl by the invoker fails on every one
-            # of them; run_as_owner applies it as the owner instead.
-            if run_as_owner setfacl -m "u:${SANDBOX_USER}:--x" "${a}" 2>/dev/null; then
-                say "    reach: u:${SANDBOX_USER}:--x ${a}"
-            else
-                failed=true
-                warn "reach: could not grant on ${a} -- run it as ${OWNER_USER} or as root:"
-                say  "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
-            fi
-        done
-        ${failed} || ok "parent directories traversable by the sandbox account"
+        TRAVERSAL_GRANT_CONFIRMED=true
     else
         say "    reach: left as-is -- the agent may be unable to enter ${dir}"
-        have_tty || for a in "${REACH_GRANT[@]}"; do
-            say "      ${C_BOLD}setfacl -m u:${SANDBOX_USER}:--x ${a}${C_RST}"
+        have_tty || for a in "${TRAVERSAL_GRANT_PATHS[@]}"; do
+            traverse_grant_plan "${a}" grant_argv grant_widened || grant_argv=(-n -m "u:${SANDBOX_USER}:--x")
+            say "      ${C_BOLD}setfacl ${grant_argv[*]} -- ${a}${C_RST}"
         done
     fi
+}
+
+# traverse_grant_plan <dir> <argv-var> <widened-var>  -- compute the setfacl arguments that give the sandbox account
+# traverse on <dir> without raising the mask past execute, and the entries that gain traverse alongside it. `setfacl -m`
+# recalculates the mask to the union of every group-class entry, so a directory holding `group:devs:rwx` under
+# `mask::---` would end with `mask::rwx` and that group at full access; `-n` keeps the mask as it is, which leaves
+# the new entry with no effect where the mask lacks execute. So the call is `-n` with the mask set explicitly to what it
+# was -- `group::` where the directory has no mask, as setfacl derives one -- plus execute. Every other masked entry
+# that holds execute then gains it in effect, and <widened-var> names each as `<tag>:<name> <perms>` for the prompt.
+# Returns 1 with both empty where the ACL could not be read, so no call is made on a state that was not read.
+traverse_grant_plan() {
+    local dir="$1"
+    local -n _plan_argv="$2" _plan_widened="$3"
+    local acl line tag name perms mask="" owning_group_perms="" base
+    local -a masked=()
+    _plan_argv=(); _plan_widened=()
+    acl="$(getfacl -p -c -E -- "${dir}" 2>/dev/null)" || return 1
+    while IFS= read -r line; do
+        IFS=: read -r tag name perms <<< "${line}"
+        case "${tag}:${name}" in
+            "mask:")                mask="${perms}" ;;
+            "group:")               owning_group_perms="${perms}"; masked+=("${tag}:${name} ${perms}") ;;
+            "user:${SANDBOX_USER}") ;;
+            user:|other:|default*)  ;;
+            user:*|group:*)         masked+=("${tag}:${name} ${perms}") ;;
+        esac
+    done <<< "${acl}"
+    base="${mask:-${owning_group_perms}}"
+    [[ "${base}" =~ ^[r-][w-][x-]$ ]] || return 1
+    _plan_argv=(-n -m "u:${SANDBOX_USER}:--x" -m "m::${base:0:2}x")
+    [[ "${base}" == *x* ]] && return 0
+    for line in "${masked[@]}"; do
+        [[ "${line##* }" == *x* ]] && _plan_widened+=("${line}")
+    done
+    return 0
+}
+
+# grant_ancestor_traversal  -- apply the grant confirm_ancestor_traversal accepted: one traverse-only ACL entry
+# per blocking ancestor, each reported on its own result line, and a manual command for one that could not be set.
+# Unprivileged, since the operator owns those directories; the CALLER runs the secret gate first. The call is
+# traverse_grant_plan's, so the mask rises to execute and no further. Returns non-zero when any ancestor was not
+# granted, an ACL that could not be read included: one left blocking keeps the project out of reach whatever the others
+# took, so the caller counts it as a step that did not apply.
+grant_ancestor_traversal() {
+    local a failed=false
+    local -a grant_argv=() grant_widened=()
+    for a in "${TRAVERSAL_GRANT_PATHS[@]}"; do
+        # A --for run's ancestors belong to the TARGET, so an unprivileged setfacl by the invoker fails on every one
+        # of them; run_as_owner applies it as the owner instead.
+        if traverse_grant_plan "${a}" grant_argv grant_widened \
+                && run_as_owner setfacl "${grant_argv[@]}" -- "${a}" 2>/dev/null; then
+            say "    reach: u:${SANDBOX_USER}:--x ${a}"
+        else
+            failed=true
+            (( ${#grant_argv[@]} )) || grant_argv=(-n -m "u:${SANDBOX_USER}:--x")
+            warn "reach: could not grant on ${a} -- run it as ${OWNER_USER} or as root:"
+            say  "      ${C_BOLD}setfacl ${grant_argv[*]} -- ${a}${C_RST}"
+        fi
+    done
+    ! ${failed}
 }
 
 # normalize_clone <dir> [locked-path...]  -- make a freshly created clone agent-accessible. The clone is born in group
@@ -1394,13 +1505,36 @@ reg_reach() {
 # the SessionStart ai-tools-setgid pass keeps it normalized thereafter. Every <locked-path> (the secret gate's finds,
 # locked to owner-only by ai-tools-lockdown) is PRUNED from both walks -- re-opening one here would undo the lockdown
 # this step is sequenced after. It prunes only what THIS run's gate reported, which is why sandbox_finalize runs it
-# once, while the root is still owner-only (clone_is_private), and not on a resume over a clone already opened.
+# once, while the root is still owner-only (clone_is_private), and not on a resume over a clone already opened. Neither
+# walk has a skip list, and the gate's walk prunes only the `.git` subtrees git names itself (ai-tools-lockdown's header
+# fixes the set), so every directory this opens is one the gate scanned for secret names, or one whose entries git
+# named.
+#
+# Both walks act on regular files and directories alone, and stay on the clone's filesystem: chmod follows a symlink
+# named on its command line, so a tracked symlink handed to it would change the mode of its target, a path outside
+# the clone the gate never scanned. A locked path is pruned by its literal name: `-path` reads its argument
+# as a pattern, so a name carrying `[`, `*`, `?` or `\` is escaped first (find_pattern_literal), or the pattern
+# would miss the path and this walk would re-open the secret the gate locked.
 normalize_clone() {
     local d="$1"; shift
-    local -a prune=() p
-    for p in "$@"; do prune+=( -path "${p}" -prune -o ); done
-    find "${d}" "${prune[@]}" -exec chmod g+rwX {} +
-    find "${d}" "${prune[@]}" -type d -exec chmod g+s {} +
+    local -a prune=() p pattern
+    for p in "$@"; do
+        find_pattern_literal pattern "${p}"
+        prune+=( -path "${pattern}" -prune -o )
+    done
+    find "${d}" -xdev "${prune[@]}" '(' -type f -o -type d ')' -exec chmod g+rwX {} +
+    find "${d}" -xdev "${prune[@]}" -type d -exec chmod g+s {} +
+}
+
+# find_pattern_literal <output-variable> <path>  -- set <output-variable> to <path> escaped for find's `-path`/`-name`
+# pattern grammar, so it matches the path literally: a backslash escapes `\`, `*`, `?` and `[`, the characters
+# fnmatch(3) reads as pattern syntax. The result is set rather than printed: a `$(...)` capture strips a trailing
+# newline, so a locked name ending in one would lose it and miss its prune.
+find_pattern_literal() {
+    local -n _pattern_out="$1"
+    local s="$2"
+    s="${s//\\/\\\\}"; s="${s//\*/\\*}"; s="${s//\?/\\?}"; s="${s//\[/\\[}"
+    _pattern_out="${s}"
 }
 
 # clone_is_private <dir>  -- 0 while the clone root is owner-only: the state cmd_project_clone's pinned umask leaves
@@ -1479,27 +1613,29 @@ run_unclaim() {
 }
 
 # secret_gate <dir>  -- the secret-lockdown block: before ANY step grants the agent access to <dir> (the group ACL,
-# the setgid group change, .git normalization, the clone normalize), make sure no group-readable secret would be
-# exposed. The CLI cannot read the root-only secret-pattern library, so one `ai-tools-lockdown --gate` call (sudo,
-# password -- the first sudo prompt of a claim, so it lands right under this block's headline) scans, lists what it
-# found, asks, and locks: one call, so a host whose sudo does not cache the password asks once. Its exit decides: 0
-# locked or found none, 6 declined, anything else failed. AI_TOOLS_ASSUME_YES answers the default-yes question
-# as `--yes`, since sudo does not pass it through. Fills SECRET_GATE_LOCKED with every secret-matching path the helper
+# the setgid group change, .git normalization, the SELinux label, the traverse grant on an ancestor, the clone
+# normalize), make sure no group-readable secret would be exposed. The CLI cannot read the root-only secret-pattern
+# library, so one `ai-tools-lockdown --gate` call (sudo, password -- the first sudo prompt of a claim, so it lands right
+# under this block's headline) scans, lists what it found, asks, and locks: one call, so a host whose sudo does not
+# cache the password asks once. The scan walks every heavy tree (the helper's header states why), since the root's
+# traversal, a tree's own world bits and the relabel reach into them whatever the claim's walks skip. Its exit decides:
+# 0 locked or found none, 6 declined, anything else failed. AI_TOOLS_ASSUME_YES answers the default-yes question
+# as `--yes`, since sudo does not pass it through. Fills SECRET_MATCH_PATHS with every secret-matching path the helper
 # wrote to stdout, so normalize_clone can prune them. Returns 0 only when the tree is safe to expose; non-zero means
 # the caller must fail closed.
 secret_gate() {
     local dir="$1" found status=0
     local -a args=(--gate)
-    SECRET_GATE_LOCKED=()
+    SECRET_MATCH_PATHS=()
     [[ "${AI_TOOLS_ASSUME_YES:-}" == 1 ]] && args+=(--yes)
     headline "Secret lockdown" "${dir}"
     found="$(mktemp)" || { warn "cannot create a temporary file for the secret scan -- not granting access"; return 1; }
     run_lockdown "${dir}" "${args[@]}" > "${found}" || status=$?
-    mapfile -d '' -t SECRET_GATE_LOCKED < "${found}"
+    mapfile -d '' -t SECRET_MATCH_PATHS < "${found}"
     rm -f "${found}"
     case "${status}" in
         0)
-            if (( ${#SECRET_GATE_LOCKED[@]} )); then
+            if (( ${#SECRET_MATCH_PATHS[@]} )); then
                 ok "secrets locked down"
                 ai_tools_log_structured info "secret pre-check: secrets locked down under ${dir}" \
                     "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
@@ -1671,10 +1807,12 @@ claim_setfacl() {
 #                   (acl_drift_scan; default-NO, not answered by `--yes`), each its list
 #                   and then its question; the group question is skipped when the relabel
 #                   did not run and every path on its list is also on the relabel list.
-#   3. Secret lockdown -- BEFORE any access-granting step, whenever one is pending or
+#   3. Reachability  -- separate default-NO opt-in for traverse-only ancestor ACLs; the
+#                   question alone, since an accepted grant is an access-granting step
+#                   and takes the gate, and the ACL is set in Apply.
+#   4. Secret lockdown -- BEFORE any access-granting step, whenever one is pending or
 #                   this is a first claim (see secret_gate); fails the claim closed.
-#   4. .git history  -- separate default-YES opt-in (ai-tools-setfacl --with-git).
-#   5. Reachability  -- separate default-NO opt-in for traverse-only ancestor ACLs.
+#   5. .git history  -- separate default-YES opt-in (ai-tools-setfacl --with-git).
 #   6. Apply     -- the approved steps back to back, one result line each, then each
 #                   drifted path checked on its own and one outcome row written for it
 #                   (fixed / not-fixed / unverified / gone), closed by the final
@@ -2355,11 +2493,12 @@ cmd_project_claim() {
     fi
     headline "Claim project (in place)" "${head[@]}"
 
-    reach_scan "${d}"
+    find_blocking_ancestors "${d}"
 
-    # The project root being owner-only is reach_scan's problem one level down: ai-tools-setfacl honours a 0600/0700
-    # mode and skips the path, so every later step still succeeds and the claim closes with its ✓ while the sandbox
-    # account cannot enter the tree at all. Stated here, before the confirm, rather than left to the helper's skip count
+    # The project root being owner-only is find_blocking_ancestors's problem one level down: ai-tools-setfacl honours
+    # a 0600/0700 mode and skips the path, so every later step still succeeds and the claim closes with its ✓ while
+    # the sandbox account cannot enter the tree at all. Stated here, before the confirm, rather than left
+    # to the helper's skip count
     # afterwards.
     local root_mode
     root_mode="$(stat -c '%a' "${d}" 2>/dev/null || echo 755)"
@@ -2369,15 +2508,17 @@ cmd_project_claim() {
         say ""
     fi
 
+    # A claimed project can still sit under a non-traversable parent (a later chmod 700 on an ancestor), and the grant
+    # that closes that is a pending step like the others -- it takes the gate -- so a project with one takes
+    # the pending-steps flow rather than this path.
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
             && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
-            && (( ${#drift[@]} == 0 && ${#label_drift[@]} == 0 )); then
+            && (( ${#drift[@]} == 0 && ${#label_drift[@]} == 0 && ${#TRAVERSAL_GRANT_PATHS[@]} == 0 )); then
         skip_listed_note
         sealed_setgid_note
         ancestor_config_note
-        # A claimed project can still sit under a non-traversable parent (a later chmod 700 on an ancestor),
-        # so the reachability block runs on the no-op path too.
-        reg_reach "${d}"
+        # With no grant to offer, this prints the blocked-ancestor warning alone, where there is one.
+        confirm_ancestor_traversal "${d}"
         claim_scan_rows
         ok "already fully claimed -- nothing to do"
         claim_end
@@ -2385,9 +2526,10 @@ cmd_project_claim() {
     fi
 
     # The gate runs whenever any pending step widens the agent's access -- the setgid group change, the group ACL, drift
-    # repair, .git normalization, the SELinux label -- and on every first claim (a tree can be group-accessible
-    # by setgid inheritance yet never scanned). Only pure registry additions (safedir, filemode) skip it. Drift repair
-    # counts once its question is answered yes, so here it only decides whether the overview announces the gate.
+    # repair, .git normalization, the SELinux label, the traverse grant -- and on every first claim (a tree can be
+    # group-accessible by setgid inheritance yet never scanned). Only pure registry additions (safedir, filemode) skip
+    # it. Drift repair and the traverse grant count once their question is answered yes, so here they only decide
+    # whether the overview announces the gate.
     local need_gate=false
     if [[ "${listed}" != true || "${owngap}" == true ]] \
             || ${need_acl} || ${need_git} || ${need_label}; then
@@ -2398,7 +2540,7 @@ cmd_project_claim() {
     # rule, so it costs the operator a sudo PASSWORD prompt to search a directory the tool itself just created.
     if ${fresh}; then need_gate=false; fi
     local gate_announced="${need_gate}"
-    (( ${#drift[@]} || ${#label_drift[@]} )) && gate_announced=true
+    (( ${#drift[@]} || ${#label_drift[@]} || ${#TRAVERSAL_GRANT_PATHS[@]} )) && gate_announced=true
 
     say ""
     say "  pending:"
@@ -2421,7 +2563,7 @@ cmd_project_claim() {
         if ${fresh}; then say "    - normalize .git so the agent can access git history"
         else say "    - normalize .git so the agent can access git history -- you will be asked"; fi
     fi
-    (( ${#REACH_GRANT[@]} )) && say "    - grant traverse-only access on ${#REACH_GRANT[@]} parent path(s) -- you will be asked"
+    (( ${#TRAVERSAL_GRANT_PATHS[@]} )) && say "    - grant traverse-only access on ${#TRAVERSAL_GRANT_PATHS[@]} parent path(s) -- you will be asked"
 
     skip_listed_note
     sealed_setgid_note
@@ -2511,6 +2653,15 @@ cmd_project_claim() {
         ${fresh} || need_gate=true
     fi
 
+    # The traverse grant is asked with the repairs, ahead of the gate, because it is one: it makes the tree reachable
+    # with whatever readable secrets were added since its last scan, so an accepted grant runs the gate,
+    # and grant_ancestor_traversal sets the ACL in the Apply block. A pristine tree has no secret to find,
+    # as for the other steps.
+    confirm_ancestor_traversal "${d}"
+    if ${TRAVERSAL_GRANT_CONFIRMED}; then
+        ${fresh} || need_gate=true
+    fi
+
     # Allowlist first: ai-tools-lockdown only scans an allowlisted path. Rolled back on a failed gate.
     [[ "${listed}" == true ]] || reg_allow "${d}"
 
@@ -2545,17 +2696,24 @@ cmd_project_claim() {
         fi
     fi
 
-    reg_reach "${d}"
-
     # ── Apply block: the approved steps run back to back, each reporting one result line; the closing ✓ is the claim's
     # completion. The headline opens only over a step that runs: with every repair declined there is none, and an empty
     # block would read as work done. ──
     local apply_steps=false
     if [[ "${safedir}" != true || "${owngap}" == true ]] || ${need_filemode} || ${need_acl} || ${do_git} \
-            || ${need_label} || ${do_drift} || ${do_label_drift}; then
+            || ${need_label} || ${do_drift} || ${do_label_drift} || ${TRAVERSAL_GRANT_CONFIRMED}; then
         apply_steps=true
     fi
     if ${apply_steps}; then headline "Applying claim steps" "${d}"; fi
+
+    # The traverse grant goes first: it is unprivileged, so it cannot fail a password round, and its own precondition,
+    # the gate, has run. Placed after the root steps it would be skipped by note_root_failure's stop. A grant that did
+    # not take counts with the root steps that did not apply: the project stays out of the agent's reach, which
+    # the closing warning reports, and the command that applies it is printed with the failure. It does not ask
+    # note_root_failure's question, which is about a password round the next root step would repeat.
+    if ${TRAVERSAL_GRANT_CONFIRMED} && ! grant_ancestor_traversal; then
+        ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
+    fi
 
     # A failed step asks once before the next is attempted (note_root_failure). Stopping is the safe direction here --
     # fewer steps applied -- and costs the operator no work, since the claim is idempotent and a re-run does exactly
@@ -2599,7 +2757,7 @@ cmd_project_claim() {
     # The ✓ is kept for a claim that left no drift and no capped scan: with a not-fixed or a scan-capped row the claim
     # ends non-zero, and the line takes the mark that status carries.
     local closing="claimed ${d}"
-    if ! ${apply_steps} && [[ "${listed}" == true ]] && ! ${need_gate} && (( ${#REACH_GRANT[@]} == 0 )); then
+    if ! ${apply_steps} && [[ "${listed}" == true ]] && ! ${need_gate} && (( ${#TRAVERSAL_GRANT_PATHS[@]} == 0 )); then
         closing+=" -- no change applied"
     fi
     if ai_tools_records_get_exit_status; then
@@ -2652,10 +2810,10 @@ cmd_project_create() {
     local a path=""
     for a in "$@"; do
         case "${a}" in
-            -*) die "unknown projects create option: ${a}" \
+            -*) die_usage MSG-C5T8 "unknown projects create option: ${a}" \
                     "       it takes a path and nothing else; see: man ai-tools" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
-                else die "projects create takes a single path"; fi ;;
+                else die_usage MSG-Z5Y7 "projects create takes a single path"; fi ;;
         esac
     done
     [[ -n "${path}" ]] || die MSG-A7D3 "projects create needs a path: it creates a NEW project directory." \
@@ -2696,14 +2854,16 @@ cmd_project_create() {
     # exists rather than leaving a directory to clean up. A blocker the predicate DOES permit is not a refusal -- it
     # becomes the claim's own traverse opt-in, which offers the grant and the exact setfacl for anything it cannot
     # apply.
-    reach_scan "${d}"
-    if [[ -n "${REACH_BLOCKED}" ]]; then
+    find_blocking_ancestors "${d}"
+    if [[ -n "${TRAVERSAL_BLOCKED_PATH}" ]]; then
         # State the blocker and why no grant covers it, and stop there. The claim's own version of this refusal points
         # at `projects clone`, which does not apply here: that verb clones an EXISTING repository into the sandbox area,
         # and this verb's whole subject is a project that does not exist yet, so there is no source to name.
         local why blocked_owner
-        blocked_owner="$(stat -c '%U' "${REACH_BLOCKED}" 2>/dev/null || true)"
-        if [[ -z "${blocked_owner}" ]]; then
+        blocked_owner="$(stat -c '%U' "${TRAVERSAL_BLOCKED_PATH}" 2>/dev/null || true)"
+        if [[ -n "${TRAVERSAL_BLOCKED_REASON}" ]]; then
+            why="${TRAVERSAL_BLOCKED_REASON}, so no grant is offered on it"
+        elif [[ -z "${blocked_owner}" ]]; then
             why="its owner cannot be read from here"
         elif [[ "${blocked_owner}" != "${OWNER_USER}" ]]; then
             why="it belongs to ${blocked_owner}, not to ${OWNER_USER}"
@@ -2711,7 +2871,7 @@ cmd_project_create() {
             why="it is a protected system directory"
         fi
         headline_warn "WARNING: the agent could not reach a project here" \
-            "the sandbox account cannot traverse ${REACH_BLOCKED} (${why}), so it could not enter a project created at ${d}. Nothing has been created. Create the project somewhere the sandbox account can reach: every parent directory has to be one it can already enter, or one you own and can grant traverse on."
+            "the sandbox account cannot traverse ${TRAVERSAL_BLOCKED_PATH} (${why}), so it could not enter a project created at ${d}. Nothing has been created. Create the project somewhere the sandbox account can reach: every parent directory has to be one it can already enter, or one you own and can grant traverse on."
 
         # One alternative is offered, and only after it has been CHECKED on this host rather than assumed: the owner's
         # home is the usual reachable location, but whether it is depends on its ancestry, which differs per host.
@@ -2720,8 +2880,8 @@ cmd_project_create() {
         home_dir="$(getent passwd "${OWNER_USER}" 2>/dev/null | cut -d: -f6)"
         if [[ -n "${home_dir}" && -d "${home_dir}" ]]; then
             candidate="${home_dir%/}/${d##*/}"
-            reach_scan "${candidate}"
-            if [[ -z "${REACH_BLOCKED}" && ! -e "${candidate}" ]]; then
+            find_blocking_ancestors "${candidate}"
+            if [[ -z "${TRAVERSAL_BLOCKED_PATH}" && ! -e "${candidate}" ]]; then
                 say ""
                 say "  this location is reachable:"
                 say "      ${C_BOLD}ai-tools projects create ${candidate}${C_RST}"
@@ -3298,10 +3458,10 @@ cmd_project_unclaim() {
             --group)      want_group=true ;;
             --group=*)    group_opt="${a#--group=}" ;;
             --keep-entry) registry=park ;;
-            -*) die "unknown projects unclaim option: ${a}" \
+            -*) die_usage MSG-F7J9 "unknown projects unclaim option: ${a}" \
                     "       allowed: --force, --full, --keep-entry, --dry-run, -y/--yes, --group <group>" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
-                else die "projects unclaim takes a single path"; fi ;;
+                else die_usage MSG-C8P8 "projects unclaim takes a single path"; fi ;;
         esac
     done
     ${want_group} && die "--group needs a group name"
@@ -3509,10 +3669,10 @@ cmd_project_remove() {
             # Deliberately does NOT enumerate the options the way the other verbs' refusals do: the only one this verb
             # has pre-answers both the confirmation and the typed-name challenge, and a caller who has just mistyped
             # a flag is not who that is for. It is documented in ai-tools(1), where reaching it is a deliberate act.
-            -*) die MSG-M3Y5 "unknown projects remove option: ${a}" \
+            -*) die_usage MSG-M3Y5 "unknown projects remove option: ${a}" \
                     "       the options this verb takes are in: man ai-tools" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
-                else die "projects remove takes a single path"; fi ;;
+                else die_usage MSG-M2U9 "projects remove takes a single path"; fi ;;
         esac
     done
     # An unattended run must never delete whatever directory it happened to start in, so the one mode that can proceed
@@ -3728,7 +3888,7 @@ sandbox_finalize() {
     # Once per clone, while the root is still owner-only (normalize_clone's header states why). A later resume leaves
     # the tree as it is, and the SessionStart setgid pass, which honours a seal, keeps the rest normalized.
     if clone_is_private "${dst}"; then
-        normalize_clone "${dst}" "${SECRET_GATE_LOCKED[@]}"
+        normalize_clone "${dst}" "${SECRET_MATCH_PATHS[@]}"
         say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
     else
         say "    access: already granted; the tree is left as it is"
@@ -3822,8 +3982,8 @@ cmd_project_clone() {
             --dir)    _need_value --dir    "${@:2}"; o_dir="$2";    have_dir=true;    shift 2 ;;
             -y|--yes) o_yes=true; shift ;;
             --)       shift ;;
-            -*)       die "unknown option: $1 (see: ai-tools --help)" ;;
-            *)        [[ -z "${o_path}" ]] || die "unexpected extra argument: $1"; o_path="$1"; shift ;;
+            -*)       die_usage MSG-U8N3 "unknown projects clone option: $1 (see: ai-tools --help)" ;;
+            *)        [[ -z "${o_path}" ]] || die_usage MSG-J3Q9 "projects clone takes a single path: unexpected extra argument $1"; o_path="$1"; shift ;;
         esac
     done
     local src; src="$(resolve_dir "${o_path:-$PWD}")"
@@ -3951,9 +4111,18 @@ cmd_project_clone() {
 }
 
 # cmd_project_push [path]  -- push the sandbox clone's commits ahead of its upstream branch, after listing them
-# and confirming. No-op when already up to date.
+# and confirming. No-op when already up to date. The verb does not take any option, so one is refused with the usage
+# status rather than dropped: the push confirm defaults to yes and is taken without a terminal, so a `--dry-run` read
+# as a path or silently discarded would push where the caller asked to look.
 cmd_project_push() {
-    local d; d="$(resolve_dir "${1:-$PWD}")"
+    local d="" a
+    for a in "$@"; do
+        case "${a}" in
+            -*) die_usage MSG-C2U5 "unknown projects push option: ${a} (projects push takes no options)" ;;
+            *)  if [[ -z "${d}" ]]; then d="${a}"; else die_usage MSG-K4R8 "projects push takes a single path"; fi ;;
+        esac
+    done
+    d="$(resolve_dir "${d:-$PWD}")"
     require_sandbox_clone "${d}"
     local up
     up="$(git -C "${d}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)" \
@@ -4017,8 +4186,8 @@ cmd_project_lockdown() {
         case "${a}" in
             --dry-run)    passthru+=("${a}"); dry=true ;;
             -y|--yes)     passthru+=("${a}"); assume_yes=true ;;
-            -*)           die "unknown projects lockdown option: ${a} (allowed: --dry-run, --yes)" ;;
-            *)            if [[ -z "${d}" ]]; then d="${a}"; else die "projects lockdown takes a single path"; fi ;;
+            -*)           die_usage MSG-R3H8 "unknown projects lockdown option: ${a} (allowed: --dry-run, --yes)" ;;
+            *)            if [[ -z "${d}" ]]; then d="${a}"; else die_usage MSG-Y6V3 "projects lockdown takes a single path"; fi ;;
         esac
     done
     # Refused here, before the helper's sudo, so the password is not asked for a command line that will not run.
@@ -4080,8 +4249,8 @@ cmd_project_disable() {
     local d="" a
     for a in "$@"; do
         case "${a}" in
-            -*) die "unknown projects disable option: ${a} (it takes a path only)" ;;
-            *)  if [[ -z "${d}" ]]; then d="${a}"; else die "projects disable takes a single path"; fi ;;
+            -*) die_usage MSG-K5W9 "unknown projects disable option: ${a} (it takes a path only)" ;;
+            *)  if [[ -z "${d}" ]]; then d="${a}"; else die_usage MSG-W3C7 "projects disable takes a single path"; fi ;;
         esac
     done
     d="$(resolve_dir "${d:-$PWD}")"
@@ -4116,8 +4285,8 @@ cmd_project_enable() {
     local d="" a
     for a in "$@"; do
         case "${a}" in
-            -*) die "unknown projects enable option: ${a} (it takes a path only)" ;;
-            *)  if [[ -z "${d}" ]]; then d="${a}"; else die "projects enable takes a single path"; fi ;;
+            -*) die_usage MSG-Q3K7 "unknown projects enable option: ${a} (it takes a path only)" ;;
+            *)  if [[ -z "${d}" ]]; then d="${a}"; else die_usage MSG-T5S8 "projects enable takes a single path"; fi ;;
         esac
     done
     d="$(resolve_dir "${d:-$PWD}")"
@@ -4160,8 +4329,8 @@ cmd_project_handback() {
     for a in "$@"; do
         case "${a}" in
             --full) passthru+=("${a}"); full=true ;;
-            -*)     die "unknown projects handback option: ${a} (allowed: --full)" ;;
-            *)      if [[ -z "${d}" ]]; then d="${a}"; else die "projects handback takes a single path"; fi ;;
+            -*)     die_usage MSG-U3R3 "unknown projects handback option: ${a} (allowed: --full)" ;;
+            *)      if [[ -z "${d}" ]]; then d="${a}"; else die_usage MSG-D9C7 "projects handback takes a single path"; fi ;;
         esac
     done
     d="$(resolve_dir "${d:-$PWD}")"
@@ -4254,7 +4423,7 @@ cmd_stop() {
 # an untrusted manifest, an enabled-but-uninstalled name -- go to its stderr and are captured and shown here; at launch
 # they reach only the terminal and journald.
 cmd_providers() {
-    [[ "$#" -eq 0 ]] || die "providers list takes no arguments"
+    [[ "$#" -eq 0 ]] || die_usage MSG-H2P7 "providers list takes no arguments"
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/providers.lib.sh
     if ! source "${providers_lib}" 2>/dev/null \
@@ -4841,6 +5010,9 @@ status_fold() {
 }
 
 cmd_status() {
+    # A report does not take any argument; one given is refused with the usage status rather than ignored, so a caller
+    # reading the exit code from cron learns the command line is wrong instead of reading a report it did not ask for.
+    [[ "$#" -eq 0 ]] || die_usage MSG-X9Z9 "status takes no arguments"
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/records-base.lib.sh
     if ! source "${RECORDS_BASE_LIB}" 2>/dev/null \
             || ! declare -F ai_tools_records_get_exit_status >/dev/null 2>&1; then
@@ -4995,6 +5167,7 @@ status_services() {
 # a stale path that no longer exists, or a project listed but never fully claimed). All read-only, reusing existing
 # predicates and verbs -- no recovery machinery of its own.
 cmd_project_list() {
+    [[ "$#" -eq 0 ]] || die_usage MSG-E2A5 "projects list takes no arguments"
     [[ -f "${ALLOWLIST}" ]] || { say "no allowlist at ${ALLOWLIST}"; return 0; }
     # Name the operator on a --for run: the listed entries are that account's launch gate, not the invoker's,
     # and an unlabelled listing of someone else's projects reads as your own.
@@ -5571,7 +5744,7 @@ unknown_command() {
 projects_dispatch() {
     local verb="$1"; shift
     case "${verb}" in
-        list)     cmd_project_list ;;
+        list)     cmd_project_list     "$@" ;;
         create)   cmd_project_create   "$@" ;;
         claim)    cmd_project_claim    "$@" ;;
         unclaim)  cmd_project_unclaim  "$@" ;;
@@ -5579,7 +5752,7 @@ projects_dispatch() {
         enable)   cmd_project_enable   "$@" ;;
         disable)  cmd_project_disable  "$@" ;;
         clone)    cmd_project_clone    "$@" ;;
-        push)     cmd_project_push     "${1:-}" ;;
+        push)     cmd_project_push     "$@" ;;
         lockdown) cmd_project_lockdown "$@" ;;
         handback) cmd_project_handback "$@" ;;
         *)        unknown_command "projects ${verb}" ;;
@@ -5597,7 +5770,7 @@ providers_dispatch() {
 case "${COMMAND%% *}" in
     projects)  projects_dispatch  "${COMMAND#* }" "$@" ;;
     providers) providers_dispatch "${COMMAND#* }" "$@" ;;
-    status)    cmd_status ;;
+    status)    cmd_status "$@" ;;
     audit)     cmd_audit "$@" ;;
     stop)      cmd_stop  "$@" ;;
     --version) printf 'ai-tools %s\n' "${AI_TOOLS_VERSION}" ;;

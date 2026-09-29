@@ -174,8 +174,9 @@ an ordinary account read it — a partial view, the file sink being the authorit
   prompt) to normalize it for agent git-history access via `ai-tools-setfacl --with-git`. The flow renders as a sequence
   of **self-contained blocks** (see [messaging](messaging.rule.md) for the headline frame): *Review* (the pending-step
   overview announcing every later block, the drift reports, and the default-NO proceed confirm covering exactly
-  the steps listed), *Secret lockdown* (before any access-granting step; fails the claim closed), the *`.git` history*
-  and *Reachability* opt-ins, then *Apply* (one result line per step, closed by the final `claimed` line — **only**
+  the steps listed), the *Reachability* opt-in (its question alone, since an accepted grant widens access and takes
+  the gate), *Secret lockdown* (before any access-granting step; fails the claim closed), the *`.git` history* opt-in,
+  then *Apply* (one result line per step, the traverse grant first, closed by the final `claimed` line — **only**
   when the steps that grant access applied, and carrying the ✓ only when no drift is left; see *A claim that could not
   apply its root steps does not report success*). `-y/--yes` pre-answers the claim's own default-NO proceed prompt
   ("Apply these pending steps to the tree in place?") and its interior relabel question — the launch wrapper passes it
@@ -494,6 +495,13 @@ an ordinary account read it — a partial view, the file sink being the authorit
 - `--for <operator>` — a **modifier**, not a command: run the verb on behalf of another enrolled operator (see [Acting
   for another operator](#acting-for-another-operator---for)).
 
+**A command line a verb does not parse is refused with exit 2, the usage status `ai-tools(1)` states, before any helper
+or `sudo` runs** — an unknown option, a second path for a verb taking one, an argument to a report taking none, a path
+for `stop`, and an option that has no effect beside another. Each refusal carries its own message code
+(`die_usage`), so a script tells a rejected command line from an operation that failed (exit 1) by the status alone.
+The one refusal this ordering does not yet cover is a `--for` run, whose allowlist snapshot — the run's first `sudo` —
+precedes the verb's own parser ([Acting for another operator](#acting-for-another-operator---for)).
+
 **`--relabel` prints the new command and exits 2.** The entrypoint reconcile is
 `sudo ai-tools-admin system entrypoints relabel` ([updater](updater.rule.md) owns what it does,
 [cli-grammar](cli-grammar.rule.md) why it is spelled that way): it runs as root, which this CLI refuses, so it is not
@@ -607,8 +615,9 @@ Most `--for` verbs redirect a **registry**: the entry lands in the target's allo
 the owner from it. Two do not. `projects create` and `projects remove` write the **filesystem** as an owner — a tree
 the target must own for the claim's helpers to act on it, and a tree only its owner can delete — so both go
 through `run_as_owner`, which prefixes `sudo -u <target> -H` when `--for` is set and runs the command directly
-otherwise. Two claim steps use the same seam: `reg_reach` for the traverse ACL, whose ancestors belong to the target
-on a `--for` run, and `reg_filemode` for the `core.filemode` pin it writes into the target's `.git/config`.
+otherwise. Two claim steps use the same seam: `grant_ancestor_traversal` for the traverse ACL, whose ancestors belong
+to the target on a `--for` run, and `reg_filemode` for the `core.filemode` pin it writes into the target's
+`.git/config`.
 
 `-H` is load-bearing rather than tidiness: without it (and without sudoers' `always_set_home`) sudo leaves `HOME`
 pointing at the **invoker's** home, so the `git init` inside a create would configure the target's repository
@@ -945,9 +954,16 @@ of claim uses: only directories the **operator owns** and that are **not** prote
 **unprivileged** (the operator owns them, so no `sudo`). A blocking ancestor that is a system directory or owned
 by someone else is left untouched — there the sandbox clone (under `/var/opt/ai-tools`, already agent-traversable) is
 the way in. The grant is idempotent: an ancestor the account can already traverse (e.g. one carrying the ACL
-from a prior claim) is skipped. Detection (`reach_scan`) runs up front so the Review overview announces the opt-in,
-and the block runs on the fully-claimed no-op path too — a claimed project can still lose reachability to a later
-`chmod 700` on an ancestor.
+from a prior claim) is skipped. It is applied with `setfacl -n` and the mask set to what it was plus execute
+(`traverse_grant_plan`), since a recalculated mask would rise to the union of every group-class entry and give a masked
+`group:devs:rwx` full access; a masked entry that holds execute still gains traverse with the account, and the prompt
+lists each one under its path. Detection (`find_blocking_ancestors`) runs up front so the Review overview announces
+the opt-in, and a claimed project with a grant pending — it can lose reachability to a later `chmod 700` on an ancestor
+— takes the full flow rather than the no-op path, since the grant is an access-widening step.
+`confirm_ancestor_traversal` asks with the drift repairs, ahead of the gate; an accepted grant makes the tree reachable
+with whatever readable secrets were added since its last scan, so it schedules the gate, and `grant_ancestor_traversal`
+sets the ACL in the Apply block once the gate has passed. A declined or failed gate therefore stops the claim
+with the ancestor as it was.
 
 **Unclaim** (`projects unclaim`) reverts that. The CLI classifies the target against `allowed-projects` and acts only
 where something authorizes it:
@@ -1064,9 +1080,15 @@ Before granting access, the CLI runs `ai-tools-lockdown --gate`, one `sudo` call
 asks whether to lock them down, and locks them (see [secret-handling](secret-handling.rule.md)); the helper's exit tells
 a lockdown that ran or found none (0) from a decline (6) and a failure. On a claim the gate (`secret_gate`) runs
 whenever **any pending step widens the agent's access** — the setgid group change, the group ACL, drift repair, `.git`
-normalization, the SELinux label — and on every first claim (a tree can be group-accessible by setgid inheritance
-yet never scanned); only pure registry additions (safedir, filemode) skip it. A declined or failed gate fails
-the operation closed: the claim aborts (rolling back its own allowlist addition) and the sandbox create leaves the clone
-private and unregistered, dropping a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) instructing the agent
-to wait until lockdown runs, preserving any real `CLAUDE.md` via `git mv` to `CLAUDE.md.bak`. The gate exports the found
-paths (`SECRET_GATE_LOCKED`) so `normalize_clone` prunes them from its group-access walk.
+normalization, the SELinux label, an accepted traverse grant on an ancestor (the tree becomes reachable, with whatever
+readable secrets were added since its last scan) — and on every first claim (a tree can be group-accessible by setgid
+inheritance yet never scanned); only pure registry additions (safedir, filemode) skip it. A declined or failed gate
+fails the operation closed: the claim aborts (rolling back its own allowlist addition) and the sandbox create leaves
+the clone private and unregistered, dropping a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) instructing
+the agent to wait until lockdown runs, preserving any real `CLAUDE.md` via `git mv` to `CLAUDE.md.bak`. The gate exports
+the found paths (`SECRET_MATCH_PATHS`) so `normalize_clone` prunes them from its group-access walk. The gate covers
+what the steps after it expose, which is more than the claim's walks touch: those walks skip the shared skip list
+(`skip-dirs.lib.sh`), while the root's traversal, a skipped tree's own world bits and the recursive relabel reach
+into `node_modules` and its kind, and `normalize_clone` opens them outright. So the scan does not take a skip list
+and prunes only the `.git` subtrees git names itself ([secret-handling](secret-handling.rule.md)), on a claim
+and on a clone alike.

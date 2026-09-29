@@ -82,9 +82,21 @@ scan\-capped
 ERROR.
 cannot load ${RECORDS_BASE_LIB}, which states this report's exit codes \-\- reinstall the ai\-tools package
 .TP
+.B MSG-C2U5
+ERROR.
+unknown projects push option: ${a} (projects push takes no options)
+.TP
 .B MSG-C4Y4
 ERROR.
 root is not an operator
+.TP
+.B MSG-C5T8
+ERROR.
+unknown projects create option: ${a}
+.TP
+.B MSG-C8P8
+ERROR.
+projects unclaim takes a single path
 .TP
 .B MSG-D3K4
 ERROR.
@@ -93,6 +105,14 @@ group\-unverified
 .B MSG-D8C8
 ERROR.
 this project is nested inside another claimed project: ${d}
+.TP
+.B MSG-D9C7
+ERROR.
+projects handback takes a single path
+.TP
+.B MSG-E2A5
+ERROR.
+projects list takes no arguments
 .TP
 .B MSG-E3D2
 ERROR.
@@ -106,6 +126,10 @@ label\-gone
 ERROR.
 this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d}
 .TP
+.B MSG-F7J9
+ERROR.
+unknown projects unclaim option: ${a}
+.TP
 .B MSG-F8G9
 ERROR.
 projects claim takes a single path
@@ -113,6 +137,10 @@ projects claim takes a single path
 .B MSG-H2D4
 ERROR.
 destination already exists: ${dst}
+.TP
+.B MSG-H2P7
+ERROR.
+providers list takes no arguments
 .TP
 .B MSG-H3F6
 ERROR.
@@ -130,6 +158,10 @@ unknown projects claim option: ${a} (allowed: \-y/\-\-yes, \-\-format tsv)
 ERROR.
 not a claimed project: ${d}
 .TP
+.B MSG-J3Q9
+ERROR.
+projects clone takes a single path: unexpected extra argument $1
+.TP
 .B MSG-J3R8
 ERROR.
 the parent directory does not exist: ${parent}
@@ -141,6 +173,14 @@ a value is required after ${flag}
 .B MSG-J7X4
 NOTICE.
 group\-fixed
+.TP
+.B MSG-K4R8
+ERROR.
+projects push takes a single path
+.TP
+.B MSG-K5W9
+ERROR.
+unknown projects disable option: ${a} (it takes a path only)
 .TP
 .B MSG-K5Y4
 ERROR.
@@ -157,6 +197,10 @@ projects remove \-y needs a path.
 .B MSG-K8S2
 ERROR.
 allowed\-projects not updated \-\- ${dir} is still registered
+.TP
+.B MSG-M2U9
+ERROR.
+projects remove takes a single path
 .TP
 .B MSG-M3Y5
 ERROR.
@@ -186,6 +230,10 @@ nothing to unclaim here: ${d}
 ERROR.
 not a claimed project: ${d}
 .TP
+.B MSG-Q3K7
+ERROR.
+unknown projects enable option: ${a} (it takes a path only)
+.TP
 .B MSG-Q3R9
 ERROR.
 this project contains ${#nested[@]} other claimed project(s), listed above: ${d}
@@ -205,6 +253,10 @@ error
 .B MSG-R3G9
 ERROR.
 \-\-keep\-entry cannot be combined with \-\-force
+.TP
+.B MSG-R3H8
+ERROR.
+unknown projects lockdown option: ${a} (allowed: \-\-dry\-run, \-\-yes)
 .TP
 .B MSG-R4J2
 ERROR.
@@ -238,6 +290,10 @@ not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d}
 ERROR.
 this path is inside a claimed project, not a project itself: ${d}
 .TP
+.B MSG-T5S8
+ERROR.
+projects enable takes a single path
+.TP
 .B MSG-T6G3
 WARNING.
 group\-not\-fixed
@@ -245,6 +301,10 @@ group\-not\-fixed
 .B MSG-T8F5
 NOTICE.
 label\-fixed
+.TP
+.B MSG-U3R3
+ERROR.
+unknown projects handback option: ${a} (allowed: \-\-full)
 .TP
 .B MSG-U7R7
 ERROR.
@@ -254,6 +314,10 @@ ERROR.
 ERROR.
 this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}.
 .TP
+.B MSG-U8N3
+ERROR.
+unknown projects clone option: $1 (see: ai\-tools \-\-help)
+.TP
 .B MSG-V3N7
 ERROR.
 the provider resolver is unavailable: ${ENABLED_AGENTS_ERROR}
@@ -261,6 +325,10 @@ the provider resolver is unavailable: ${ENABLED_AGENTS_ERROR}
 .B MSG-V8Z5
 ERROR.
 project path holds a control character: $(ai_tools_log_sanitize "${p}") \-\- rename it first
+.TP
+.B MSG-W3C7
+ERROR.
+projects disable takes a single path
 .TP
 .B MSG-W3H3
 ERROR.
@@ -296,9 +364,21 @@ you (${INVOKING_USER}) are not a configured ai\-tools operator \-\- add your nam
 ERROR.
 the sandbox is not provisioned for any enabled agent: ${joined%, } \-\- provision it with:
 .TP
+.B MSG-X9Z9
+ERROR.
+status takes no arguments
+.TP
+.B MSG-Y6V3
+ERROR.
+projects lockdown takes a single path
+.TP
 .B MSG-Z5V5
 ERROR.
 a value is required after ${flag}, not another option: $1
+.TP
+.B MSG-Z5Y7
+ERROR.
+projects create takes a single path
 .TP
 .B MSG-Z6Q6
 ERROR.

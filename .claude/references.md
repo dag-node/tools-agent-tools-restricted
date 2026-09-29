@@ -143,6 +143,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | j2a7 | [MSG-J2A7](../src/usr/local/bin/ai-tools.sh) | unknown projects claim option: ${a} (allowed: -y/--yes, --format tsv) | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | f8g9 | [MSG-F8G9](../src/usr/local/bin/ai-tools.sh) | projects claim takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | s9a3 | [MSG-S9A3](../src/usr/local/bin/ai-tools.sh) | projects claim --format takes one value, tsv | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| c5t8 | [MSG-C5T8](../src/usr/local/bin/ai-tools.sh) | unknown projects create option: ${a} | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| z5y7 | [MSG-Z5Y7](../src/usr/local/bin/ai-tools.sh) | projects create takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | a7d3 | [MSG-A7D3](../src/usr/local/bin/ai-tools.sh) | projects create needs a path: it creates a NEW project directory. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | t4b9 | [MSG-T4B9](../src/usr/local/bin/ai-tools.sh) | this path already exists: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | j3r8 | [MSG-J3R8](../src/usr/local/bin/ai-tools.sh) | the parent directory does not exist: ${parent} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
@@ -151,11 +153,14 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | w3s4 | [MSG-W3S4](../src/usr/local/bin/ai-tools.sh) | this project is disabled: ${d} | src/usr/local/bin/ai-tools.sh |  | die |
 | j3k5 | [MSG-J3K5](../src/usr/local/bin/ai-tools.sh) | not a claimed project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | p8w2 | [MSG-P8W2](../src/usr/local/bin/ai-tools.sh) | nothing to unclaim here: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| f7j9 | [MSG-F7J9](../src/usr/local/bin/ai-tools.sh) | unknown projects unclaim option: ${a} | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| c8p8 | [MSG-C8P8](../src/usr/local/bin/ai-tools.sh) | projects unclaim takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | p4d2 | [MSG-P4D2](../src/usr/local/bin/ai-tools.sh) | --yes has no effect with --dry-run, which neither changes a path nor asks | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | r3g9 | [MSG-R3G9](../src/usr/local/bin/ai-tools.sh) | --keep-entry cannot be combined with --force | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | t5a3 | [MSG-T5A3](../src/usr/local/bin/ai-tools.sh) | this path is inside a claimed project, not a project itself: ${d} | src/usr/local/bin/ai-tools.sh |  | die |
 | s6q5 | [MSG-S6Q5](../src/usr/local/bin/ai-tools.sh) | projects remove has no --force: a registry entry is what authorizes a deletion here. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
-| m3y5 | [MSG-M3Y5](../src/usr/local/bin/ai-tools.sh) | unknown projects remove option: ${a} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| m3y5 | [MSG-M3Y5](../src/usr/local/bin/ai-tools.sh) | unknown projects remove option: ${a} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die_usage |
+| m2u9 | [MSG-M2U9](../src/usr/local/bin/ai-tools.sh) | projects remove takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | k7d9 | [MSG-K7D9](../src/usr/local/bin/ai-tools.sh) | projects remove -y needs a path. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | f4d8 | [MSG-F4D8](../src/usr/local/bin/ai-tools.sh) | this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | k5y4 | [MSG-K5Y4](../src/usr/local/bin/ai-tools.sh) | this path is inside a claimed project, not a project itself: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
@@ -165,13 +170,28 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | s6v2 | [MSG-S6V2](../src/usr/local/bin/ai-tools.sh) | removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | warn |
 | j4p9 | [MSG-J4P9](../src/usr/local/bin/ai-tools.sh) | a value is required after ${flag} | src/usr/local/bin/ai-tools.sh | packaging/ai-tools.spec | die |
 | z5v5 | [MSG-Z5V5](../src/usr/local/bin/ai-tools.sh) | a value is required after ${flag}, not another option: $1 | src/usr/local/bin/ai-tools.sh | packaging/ai-tools.spec, tests/manual/verify-live-flows.sh | die |
+| u8n3 | [MSG-U8N3](../src/usr/local/bin/ai-tools.sh) | unknown projects clone option: $1 (see: ai-tools --help) | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| j3q9 | [MSG-J3Q9](../src/usr/local/bin/ai-tools.sh) | projects clone takes a single path: unexpected extra argument $1 | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | h2d4 | [MSG-H2D4](../src/usr/local/bin/ai-tools.sh) | destination already exists: ${dst} | src/usr/local/bin/ai-tools.sh |  | die |
+| c2u5 | [MSG-C2U5](../src/usr/local/bin/ai-tools.sh) | unknown projects push option: ${a} (projects push takes no options) | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| k4r8 | [MSG-K4R8](../src/usr/local/bin/ai-tools.sh) | projects push takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| r3h8 | [MSG-R3H8](../src/usr/local/bin/ai-tools.sh) | unknown projects lockdown option: ${a} (allowed: --dry-run, --yes) | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| y6v3 | [MSG-Y6V3](../src/usr/local/bin/ai-tools.sh) | projects lockdown takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | p5p8 | [MSG-P5P8](../src/usr/local/bin/ai-tools.sh) | --yes has no effect with --dry-run, which neither changes a path nor asks | src/usr/local/bin/ai-tools.sh | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh, tests/unit/lockdown.sh | die_usage |
 | t4a8 | [MSG-T4A8](../src/usr/local/bin/ai-tools.sh) | not a claimed project: $1 | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| k5w9 | [MSG-K5W9](../src/usr/local/bin/ai-tools.sh) | unknown projects disable option: ${a} (it takes a path only) | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| w3c7 | [MSG-W3C7](../src/usr/local/bin/ai-tools.sh) | projects disable takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| q3k7 | [MSG-Q3K7](../src/usr/local/bin/ai-tools.sh) | unknown projects enable option: ${a} (it takes a path only) | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| t5s8 | [MSG-T5S8](../src/usr/local/bin/ai-tools.sh) | projects enable takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| u3r3 | [MSG-U3R3](../src/usr/local/bin/ai-tools.sh) | unknown projects handback option: ${a} (allowed: --full) | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| d9c7 | [MSG-D9C7](../src/usr/local/bin/ai-tools.sh) | projects handback takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | b7k4 | [MSG-B7K4](../src/usr/local/bin/ai-tools.sh) | unknown option for stop: ${argument} | src/usr/local/bin/ai-tools.sh | src/usr/local/libexec/ai-tools/ai-tools-stop.sh, tests/integration/cli.sh, tests/unit/stop.sh | die_stop_usage |
 | a3m9 | [MSG-A3M9](../src/usr/local/bin/ai-tools.sh) | stop takes no path: ${argument}. It TERMINATES every agent session on this host -- killing the process tree, so no session-end handback runs -- and has no per-project form, because a session is attributed to a project by the sandbox account's own user manager -- the account being stopped -- so that attribution is reported, never trusted to decide what a stop reaches. | src/usr/local/bin/ai-tools.sh | src/usr/local/libexec/ai-tools/ai-tools-stop.sh, tests/integration/cli.sh, tests/manual/verify-live-flows.sh, tests/unit/stop.sh | die_stop_usage |
+| h2p7 | [MSG-H2P7](../src/usr/local/bin/ai-tools.sh) | providers list takes no arguments | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| x9z9 | [MSG-X9Z9](../src/usr/local/bin/ai-tools.sh) | status takes no arguments | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | b9a2 | [MSG-B9A2](../src/usr/local/bin/ai-tools.sh) | cannot load ${RECORDS_BASE_LIB}, which states this report's exit codes -- reinstall the ai-tools package | src/usr/local/bin/ai-tools.sh |  | die |
 | x5z8 | [MSG-X5Z8](../src/usr/local/bin/ai-tools.sh) | service registry unavailable (${SERVICES_LIB}) -- cannot report service health; reinstall the ai-tools package | src/usr/local/bin/ai-tools.sh | tests/unit/cli-agent-set.sh | warn |
+| e2a5 | [MSG-E2A5](../src/usr/local/bin/ai-tools.sh) | projects list takes no arguments | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | v3n7 | [MSG-V3N7](../src/usr/local/bin/ai-tools.sh) | the provider resolver is unavailable: ${ENABLED_AGENTS_ERROR} | src/usr/local/bin/ai-tools.sh |  | die |
 | x9h7 | [MSG-X9H7](../src/usr/local/bin/ai-tools.sh) | the sandbox is not provisioned for any enabled agent: ${joined%, } -- provision it with: | src/usr/local/bin/ai-tools.sh | tests/unit/cli-agent-set.sh | die |
 | k7a6 | [MSG-K7A6](../src/usr/local/bin/ai-tools.sh) | no agent is enabled or resolved, so there is no agent to provision a project for -- ${reason} | src/usr/local/bin/ai-tools.sh | tests/unit/cli-agent-set.sh | die |
