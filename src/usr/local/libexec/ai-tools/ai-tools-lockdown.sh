@@ -255,6 +255,19 @@ if ! source "${SECRET_PATTERNS_LIB}"; then
 fi
 ai_tools_load_secret_patterns
 
+# _scan <list-file> <find-arg...>: run find into <list-file> with its stderr apart, and die when find does not exit 0
+# or writes to stderr. A walk that could not read part of the tree has not found every secret in it, and a scan read
+# as complete when it was not is how a caller would expose one.
+SCAN_DIR="$(mktemp -d)" || die MSG-U8F7 "cannot create a private directory for the scan"
+trap 'rm -rf "${SCAN_DIR}"' EXIT
+_scan() {
+    local list="$1" rc=0; shift
+    find "$@" > "${list}" 2> "${SCAN_DIR}/find.err" || rc=$?
+    if (( rc != 0 )) || [[ -s "${SCAN_DIR}/find.err" ]]; then
+        die MSG-X4B9 "the scan of ${target} could not read the whole tree (find exit ${rc}): $(ai_tools_log_sanitize "$(head -c 300 "${SCAN_DIR}/find.err")")"
+    fi
+}
+
 # ── Enumerate secret-matching paths under the target ─────────────────────────
 # `find -P` (the default) does not follow a symlink, and `-type f`/`-type d` exclude one anyway.
 ai_tools_skip_find_expr lockdown '' "${target}"
@@ -262,11 +275,12 @@ declare -a expr=( "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
                   '(' -type f -o -type d ')' -print0 )
 
 declare -a hits=()
+_scan "${SCAN_DIR}/hits" "${expr[@]}"
 while IFS= read -r -d '' path; do
     _is_excluded "${path}" && continue
     ai_tools_is_secret_basename "$(basename "${path}")" || continue
     hits+=("${path}")
-done < <(find "${expr[@]}" 2>/dev/null)
+done < "${SCAN_DIR}/hits"
 
 # ── Enumerate owner-only paths to seal ───────────────────────────────────────
 # The lock pass finds paths by NAME. This one finds the paths sealed by MODE -- anything already owner-only that still
@@ -289,14 +303,14 @@ done < <(find "${expr[@]}" 2>/dev/null)
 # where every depth-one entry is owner-only for the same reason and in the sandbox group by setgid inheritance,
 # and the pass would move all of them to the operator's group.
 declare -a sealed=()
+_scan "${SCAN_DIR}/sealed" "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
+    '(' -type d ! -perm /077 -print0 -prune ')' -o '(' -type f ! -perm /077 -print0 ')'
 while IFS= read -r -d '' path; do
     [[ "${path}" == "${target}" ]] && continue
     _is_excluded "${path}" && continue
     ai_tools_is_secret_basename "$(basename "${path}")" && continue
     sealed+=("${path}")
-done < <(find "${target}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
-              '(' -type d ! -perm /077 -print0 -prune ')' -o \
-              '(' -type f ! -perm /077 -print0 ')' 2>/dev/null)
+done < "${SCAN_DIR}/sealed"
 
 # Label for log lines: DRY_RUN holds the string "true"/"false" (both non-empty), so select on its value, not
 # with ${DRY_RUN:+...} which would always expand.
@@ -374,8 +388,16 @@ _safe_apply() {
         exec {fd}<&-
         return 1
     fi
-    /usr/bin/chown -- "${OWNER}" "/proc/self/fd/${fd}"
-    /usr/bin/chmod -- "${mode}"  "/proc/self/fd/${fd}"
+    # Each call's status is read, and the result is read back from the pinned inode: the caller runs this inside
+    # an `if`, where errexit does not apply, so a failed chown or chmod would otherwise report the path as locked.
+    local now_uid now_perm
+    if ! /usr/bin/chown -- "${OWNER}" "/proc/self/fd/${fd}" || ! /usr/bin/chmod -- "${mode}" "/proc/self/fd/${fd}" \
+            || ! read -r now_uid now_perm < <(stat -L -c '%u %a' "/proc/self/fd/${fd}" 2>/dev/null) \
+            || [[ "${now_uid}" != "${PROJECTS_UID}" ]] || (( (8#${now_perm} & 8#777) != 8#${mode} )); then
+        exec {fd}<&-
+        warn MSG-Y5H5 "could not lock ${path} to ${OWNER} ${mode}"
+        return 1
+    fi
     # The path is owner-only now, so strip the residue the mode merely masks -- the inherited ACL entries
     # and, on a directory, the setgid bit the numeric chmod leaves standing. Re-read both from the pinned inode: they
     # are what the chown/chmod just made them.
@@ -517,15 +539,17 @@ for path in "${hits[@]}"; do
         not_locked+=("${path}")
     fi
 done
-# Under `--gate` the paths were listed before the question, so the result is one line when every path took its mode,
-# and a line per path only for those that did not; each lock is recorded per path in the log either way.
+# Under `--gate` the paths were listed before the question, so the result is one line when every path took its mode;
+# in either mode each path that did not is named, and each lock is recorded per path in the log.
 if ${GATE} && (( ${#hits[@]} )); then
     printf '  locked %d path(s): %d director(ies) 700, %d file(s) 600, owner %s\n' \
         "${done_count}" "${locked_dirs}" "${locked_files}" "${OWNER}" >&2
-    for path in "${not_locked[@]}"; do
-        printf '  not locked: %s\n' "$(ai_tools_log_sanitize "${path#"${target}"/}")" >&2
-    done
 fi
+for path in "${not_locked[@]}"; do
+    shown="${path}"
+    if ${GATE}; then shown="${path#"${target}"/}"; fi
+    printf '  not locked: %s\n' "$(ai_tools_log_sanitize "${shown}")" >&2
+done
 
 if (( ${#hits[@]} )); then
     if (( skip_count > 0 )); then
@@ -544,3 +568,10 @@ fi
 # Strip the residue from the paths the operator sealed by mode. Reported only when something came off, so on a settled
 # tree this is a silent no-op, run after run.
 _seal_pass
+
+# A secret-matching path left unlocked is still as readable as it was, so the run does not succeed over it: each one has
+# its `not locked:` line, and the exit tells the claim's gate, which grants access only on 0, that the tree is not safe
+# to open.
+if (( skip_count > 0 )); then
+    die MSG-T2J8 "secret-matching paths left unlocked under ${target}: ${skip_count}, each on a 'not locked:' line -- move, re-link or lock it by hand, then re-run"
+fi

@@ -143,10 +143,13 @@ what keeps the gate to one `sudo` on a host whose sudo does not cache a credenti
 to the project, asks with a default of **yes** (the answer without a terminal, since locking moves to less access
 and a declined gate stops the claim), reports the lock as one summary line with a line per path only for one that did
 not lock, and writes every secret-matching path NUL-terminated to stdout, which under `--gate` does not carry any other
-byte — the list `normalize_clone` prunes. The per-path record stays in the journal and `lockdown.log`. `--gate` is
-the CLI's calling contract and is left out of the helper's usage text; typed by hand it is parsed and refused the same
-way, and `--gate` with `--dry-run` is refused with exit 2 before the scan: the dry run exits 0 with the paths written
-and none locked, which a caller would read as a lock.
+byte — the list `normalize_clone` prunes. The per-path record stays in the journal and `lockdown.log`. Every way
+the lock can fall short exits non-zero rather than 0, since the gate grants access on 0 alone: a `find` that exits
+non-zero or writes to stderr is an incomplete scan and refuses the run, each `chown` and `chmod` is checked and read
+back from the pinned inode, and a secret-matching path left unlocked — hardlinked, swapped, or refused a mode — is named
+and fails the run after the seal pass. `--gate` is the CLI's calling contract and is left out of the helper's usage
+text; typed by hand it is parsed and refused the same way, and `--gate` with `--dry-run` is refused with exit 2
+before the scan: the dry run exits 0 with the paths written and none locked, which a caller would read as a lock.
 
 It is a user tool: there is **no** sudoers grant letting `SANDBOX_USER` run it, and it refuses to run as `SANDBOX_USER`.
 The `ai-tools` CLI wraps it as `ai-tools projects lockdown [path]` (it `cd`s into the project and `sudo`s the helper,

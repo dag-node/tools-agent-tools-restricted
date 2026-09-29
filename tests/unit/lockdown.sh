@@ -298,5 +298,16 @@ if (( LD_RC == 2 )) && [[ "$(perm "${gate}/.env")" == 644 ]]; then
 else
     fail "--dry-run --yes: rc=${LD_RC}, .env $(perm "${gate}/.env")"
 fi
+# A secret the lock cannot take -- hardlinked, so a chmod would reach its other name outside the tree -- is named,
+# and the run exits non-zero: the claim's gate grants access only on 0, so a tree holding it is not opened.
+ln "${gate}/.env" "${TESTDIR}/env-second-name"
+run_gate "${gate}"
+assert_msg MSG-T2J8 "$(cat "${TESTDIR}/gate.err")" "an unlocked secret-matching path fails the run"
+if (( LD_RC == 1 )) && grep -q 'not locked: .env' "${TESTDIR}/gate.err" && [[ "$(perm "${gate}/.env")" == 644 ]]; then
+    pass "--gate over a hardlinked secret names it, leaves it as it was, and exits 1"
+else
+    fail "--gate over a hardlinked secret: rc=${LD_RC}: $(tr '\n' '|' < "${TESTDIR}/gate.err")"
+fi
+rm -f "${TESTDIR}/env-second-name"
 
 finish
