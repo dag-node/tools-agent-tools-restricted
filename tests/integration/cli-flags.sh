@@ -596,13 +596,13 @@ drive_rows() {
     cli_stub_reset
 
     # ── B3. Claim: the traverse grant takes the gate ─────────────────────────────────
-    # A claimed project under a parent the sandbox account cannot enter has one pending step, the traverse grant, which
-    # makes the tree reachable with whatever readable secrets were added since its last scan. So an accepted grant
+    # A claimed project under a parent the sandbox account cannot enter has one pending step, the traverse grant,
+    # which makes the tree reachable with whatever readable secrets were added since its last scan. So an accepted grant
     # runs the secret scan ahead of the setfacl, and a declined scan leaves the parent as it was. The question is
     # default-NO and no flag answers it, so the accepted answer is typed on a pseudo-terminal; the grant is
-    # an unprivileged setfacl, read back from the parent rather than from the call log. The rows run where the fixture
-    # has no other pending step: on a host with SELinux enabled its files would read as label drift, whose question
-    # would take the typed answer and, accepted, the gate on its own.
+    # an unprivileged setfacl, which the sudo shim does not see, so it is read back from the parent. The rows run
+    # where the fixture has no other pending step: on a host with SELinux enabled its files would read as label drift,
+    # whose question would take the typed answer and, accepted, the gate on its own.
     section "ai-tools.projects.claim: traverse grant"
     reach_fx="${R}/reach"; reach_proj="${reach_fx}/proj"
     claimed_fixture "${reach_proj}"; rm -f "${reach_proj}/moved-in.txt"
