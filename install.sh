@@ -271,7 +271,10 @@ confirm_boxed() {
 # it run is a valid step of developing this project, and the flag is how that decision is stated once, per invocation,
 # rather than answered at a prompt whose default would have to be guessed. Interactive and unattended runs take the same
 # path. A checkout that is not a git repository (a tarball) has no commit to name and passes. Root reads the repository
-# through an explicit safe.directory, since git refuses another user's checkout otherwise; both git calls are reads.
+# through an explicit safe.directory, since git refuses another user's checkout otherwise. Every git call is a read:
+# `status` runs under `--no-optional-locks`, since it otherwise rewrites `.git/index` to refresh its stat cache -- which
+# a copied or unpacked tree always needs -- and the index root wrote is root-owned, so the operator's next `git add`
+# cannot write it.
 # `install.sh check-tree` runs this alone, which is how the unit test drives it against a fixture checkout
 # and how an operator reads the verdict without installing.
 TREE_LINE=""
@@ -314,19 +317,20 @@ version_gate() {
         warn MSG-W7G8 "downgrading ${installed} to ${AI_TOOLS_VERSION} in place as asked (--allow-downgrade): a kept settings.json keeps the hook declarations and the hook scripts ${installed} added, and the baseline copy this install leaves beside a kept file is ${AI_TOOLS_VERSION}'s, so the next system post-upgrade compares the file with it and lists what ${installed} had added as the file's own"
         return 0
     fi
-    local removal
+    local removal dnf_clause=""
     if rpm -q ai-tools-base >/dev/null 2>&1; then
         removal="sudo dnf remove 'ai-tools-*'   (an edited settings.json or operator.conf comes back as .rpmsave)"
+        dnf_clause=", which dnf refuses too"
     else
         removal="sudo ./install.sh uninstall   (from the checkout of ${installed}: it keeps operator.conf, ~/.config/ai-tools, the toolchain and the agents' state, and moves an edited settings.json aside as a dated .retired copy)"
     fi
-    die MSG-W6B3 "this checkout is ${AI_TOOLS_VERSION} and ${installed} is installed, so this install is a downgrade, which dnf refuses too."$'\n'"  Remove ${installed} with the tool that installed it, then install this checkout:"$'\n'"      ${removal}"$'\n'"  To downgrade in place instead -- a kept settings.json then keeps ${installed}'s hook declarations and scripts: sudo $0 ${ACTION} --allow-downgrade"
+    die MSG-W6B3 "this checkout is ${AI_TOOLS_VERSION} and ${installed} is installed, so this install is a downgrade${dnf_clause}."$'\n'"  Remove ${installed} with the tool that installed it, then install this checkout:"$'\n'"      ${removal}"$'\n'"  To downgrade in place instead -- a kept settings.json then keeps ${installed}'s hook declarations and scripts: sudo $0 ${ACTION} --allow-downgrade"
 }
 source_tree_gate() {
     local head_line="" uncommitted=""
     if git -c safe.directory="${SCRIPT_DIR}" -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         head_line="$(git -c safe.directory="${SCRIPT_DIR}" -C "${SCRIPT_DIR}" log -1 --format='%h %s (%an, %cr)' 2>/dev/null || true)"
-        uncommitted="$(git -c safe.directory="${SCRIPT_DIR}" -C "${SCRIPT_DIR}" status --porcelain --untracked-files=all 2>/dev/null || true)"
+        uncommitted="$(git --no-optional-locks -c safe.directory="${SCRIPT_DIR}" -C "${SCRIPT_DIR}" status --porcelain --untracked-files=all 2>/dev/null || true)"
         TREE_LINE="commit ${head_line:-unknown}"
     else
         TREE_LINE="not a git checkout, so no commit to name"
