@@ -782,6 +782,13 @@ or a
 .B \-\-format
 value other than
 .BR tsv .
+A
+.B \-\-for
+run is the one exception to the ordering: its allowlist snapshot is the run's
+first
+.BR sudo ,
+and it precedes the verb's own parser, so a command line that verb rejects is
+refused after that prompt.
 .TP
 .B 3
 The target is a protected path \(em a system directory or a home root \(em and
