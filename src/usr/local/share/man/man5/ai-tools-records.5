@@ -1,0 +1,506 @@
+.\" ai-tools-records(5) -- the record stream a report of Agent Tools Restricted writes for a machine consumer.
+.\" @AI_TOOLS_VERSION@ is substituted at deploy time (install.sh install_subst and the RPM
+.\" %prep), like ai-tools(1). The columns, the escape and the identity recipe stated here are the
+.\" ones records-base.lib.sh and records-tsv.lib.sh implement; tests/unit/records.sh holds the
+.\" COLUMNS section to the library's registry and runs its REFERENCE DECODER over the library's fixtures.
+.TH AI-TOOLS-RECORDS 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.SH NAME
+ai-tools-records \- the record stream a report writes for a machine consumer
+.SH SYNOPSIS
+.nf
+observed-at occurred-at code record-id severity finding subject-type operator item subject detail
+.fi
+.SH DESCRIPTION
+A report that runs unattended writes what it found as a
+.B record stream
+on standard output:
+a header row, then one row per finding, each ending in a line feed,
+every row holding the same number of tab-separated fields as the header.
+.B "ai-tools-admin system post-upgrade --check"
+and
+.B "ai-tools projects claim --format tsv"
+write one.
+The exit status states whether the reading was complete
+(see
+.BR "EXIT STATUS" ),
+so a cron job or a monitoring backend reads the stream and the status together.
+.PP
+The header is printed only before the first row, so a clean run prints
+nothing and exits 0.
+One invocation is one stream:
+concatenating the output of several runs into one file loses where each
+run begins and ends, and
+.B observed-at
+does not restore that.
+.PP
+Every field is written in one byte escape
+(see
+.BR "FIELD ENCODING" ),
+so a path holding a tab, a line feed or a byte that is not UTF-8 arrives
+exactly as it is on disk.
+An empty field means
+.IR "not applicable, or not available" .
+.SH COLUMNS
+The header names the columns in this order.
+A consumer selects a column by name, not by position.
+.SS Fixed columns
+.TP
+.B observed-at
+The collection time,
+.BR YYYY-MM-DDTHH:MM:SSZ ,
+in UTC.
+One value per run.
+.TP
+.B occurred-at
+The event time, in the same form, where the row is an event; empty otherwise.
+.TP
+.B code
+The message code of the situation, as
+.BR ai-tools-messages (7)
+lists it.
+.TP
+.B record-id
+The identity of the situation on its subject
+(see
+.BR "RECORD IDENTITY" ).
+.SS Enumerated columns
+.TP
+.B severity
+One of
+.BR ok ,
+.BR info ,
+.B attention
+and
+.BR unreadable .
+.TP
+.B finding
+The report's own token for the situation
+.RB ( hook-missing ,
+.BR copy-kept ,
+.BR error ).
+.TP
+.B subject-type
+One of
+.BR file ,
+.BR directory ,
+.BR unit ,
+.BR agent ,
+.BR integration ,
+.BR project ,
+.B operator
+and
+.BR host .
+Taken from the subject, not from the finding.
+.SS Identifier columns
+.TP
+.B operator
+The account whose project or registry the row concerns; empty for a
+host-wide row.
+.TP
+.B item
+The thing inside the subject the row is about: a hook, a key, a rule.
+A list of components, framed as
+.B ITEMS
+states.
+.SS Path columns
+.TP
+.B subject
+The path, unit, agent or operator the row is about.
+.SS Text columns
+.TP
+.B detail
+Display prose for a person.
+It is not part of the contract: a reader does not parse it, and its wording
+changes between releases.
+.SH SEVERITY AND EXIT STATUS
+The producer folds every row's severity into its exit status:
+5 when any row is
+.BR unreadable ,
+else 4 when any row is
+.BR attention ,
+else 0.
+.B info
+and
+.B ok
+do not change it.
+A reader that meets a severity token it does not know treats the row as
+.BR attention ,
+and a known
+.B unreadable
+in the same stream still wins.
+.SH EXIT STATUS
+.TP
+.B 0
+The reading was complete and found no finding of severity
+.B attention
+or
+.BR unreadable .
+.TP
+.B 1
+An operation the command was asked to perform failed.
+On a command that changes the host this wins over every other status.
+.TP
+.B 4
+The reading was complete and left at least one finding of severity
+.BR attention .
+.TP
+.B 5
+The reading could not be made in full: a source the report needs failed,
+a line from an upstream tool could not be parsed, or a row could not be
+formed.
+The rows printed before that point are still valid observations.
+.PP
+On a command that changes the host the order is 1, then 5, then 4:
+a requested change that failed is 1; otherwise a final assessment that could
+not be read is 5; otherwise findings left over are 4.
+.SH COMPLETION
+The exit status states whether the reading was complete:
+.TP
+.B a required source failed
+A collector exited non-zero, a file could not be read, a helper is missing.
+The report writes its
+.B error
+finding with severity
+.B unreadable
+where it still can, and exits 5.
+.TP
+.B an upstream line could not be parsed
+An
+.B error
+row, severity
+.BR unreadable ,
+with
+.B detail
+naming the tool; exit 5.
+.TP
+.B a scan reached its cap
+A
+.B scan-capped
+row, severity
+.BR attention ,
+with
+.B item
+holding the cap; exit 4.
+The rows collected before the cap stay valid.
+.TP
+.B an optional capability is not installed
+An
+.B info
+row where the report prints those, or none; the exit is unchanged.
+.TP
+.B a source outside the requested scope
+No row and no change to the exit, and the same for a path the scan
+excludes by design.
+.PP
+A consumer resolves an earlier finding from its absence only when the run
+completed (exit 0 or 4) without a
+.B scan-capped
+row, over the same host, operator, report and scope.
+A path a scan excludes is outside that scope, so its absence does not resolve
+anything either.
+A run with exit 5, a signal, a malformed row, or a truncated final line is
+incomplete.
+.SH FIELD ENCODING
+The producer writes every field in one canonical escape, and the output is
+free of NUL:
+.TP
+.B a byte 0x20 to 0x7e other than \e
+is written as itself.
+.TP
+.BR \e ", tab, line feed and carriage return"
+are written
+.BR \e\e ,
+.BR \et ,
+.B \en
+and
+.BR \er .
+.TP
+.B every other byte
+is written
+.B \ex
+and two lowercase hex digits.
+.PP
+A reader:
+.IP \(bu 3
+accepts empty standard output with exit 0 as the clean result:
+the one stream that has no header;
+.IP \(bu 3
+splits a row on the literal tab byte and strips only the terminating line
+feed.
+It does not strip whitespace and does not split on runs of whitespace,
+so leading, adjacent and trailing empty fields keep their positions.
+A shell reader does not use
+.B "IFS=$'\et' read"
+for that reason: tab is IFS whitespace, and the shell collapses adjacent empty
+fields;
+.IP \(bu 3
+rejects the row on a raw byte outside 0x20 to 0x7e,
+an unknown or truncated escape,
+a
+.B \ex
+escape for a byte that has a literal or named form
+(0x20 to 0x7e, 0x09, 0x0a, 0x0d),
+.BR \ex00 ,
+uppercase hex digits,
+and a field count that differs from the header's;
+.IP \(bu 3
+rejects a non-empty stream whose first row is not a header, and a header
+with a duplicate column name or a missing canonical column;
+.IP \(bu 3
+keeps a column it does not know, and passes through a code, a finding token
+or a subject type it does not know.
+.PP
+.B REFERENCE DECODER
+applies these rules in Python.
+.SH ITEMS
+.B item
+is composed while collecting, never parsed out of
+.BR detail .
+It is a list of components, framed so the list is recoverable from the field.
+The producer refuses an empty component.
+The list with no components is written as the empty field.
+A non-empty list is framed in three steps:
+.IP 1. 4
+each component is encoded on its own, as
+.B FIELD ENCODING
+states, so it does not hold a raw tab;
+.IP 2. 4
+the encoded components are joined with one raw tab;
+.IP 3. 4
+the joined value is the field's value, encoded again when the row is
+written, like every field.
+.PP
+A reader reads the empty field as the empty list.
+Otherwise it decodes the field, splits the result on the raw tab, decodes each
+part, and rejects the row when a part is empty.
+The framing applies to a single component too, so a one-component item and a
+two-component item cannot produce the same field.
+With
+.B TAB
+standing for the raw byte:
+.PP
+.RS 4
+.EX
+components          after step 2      field on the wire
+["a TAB b", "c"]    a\etb TAB c        a\e\etb\etc
+["a", "b TAB c"]    a TAB b\etc        a\etb\e\etc
+["key"]             key               key
+.EE
+.RE
+.PP
+For a component of printable ASCII without
+.B \e
+\(em every key, hook event and token \(em the framing leaves the value as it
+was.
+.SH RECORD IDENTITY
+.B record-id
+is the first 16 lowercase hex digits of SHA-256 over exactly these bytes:
+.PP
+.RS 4
+.EX
+ENC(code) 0x09 ENC(subject) 0x09 ENC(item)
+.EE
+.RE
+.PP
+.B ENC
+is the escape of
+.BR "FIELD ENCODING" ,
+and
+.B item
+is the framed value of
+.BR ITEMS .
+There is no header and no trailing line feed, and no other field is hashed.
+An encoded value does not hold a raw tab, so the three parts are recoverable
+from the hashed bytes.
+The id is stable across changes to
+.BR detail ,
+.B severity
+and the timestamps, and changes when the situation, the subject or any item
+component changes.
+.PP
+The id names a situation on a subject within one host.
+It is not unique across hosts, is not a resource URI, an authorization token
+or an idempotency key, and repeated polls produce the same id.
+A consumer that stores records keys them on host, report,
+.BR operator ,
+.B subject-type
+and the identity tuple, and uses
+.B record-id
+for correlation within that key.
+For a lifecycle view of one subject across findings (not fixed, then fixed),
+a consumer joins on that key with
+.B code
+dropped.
+.PP
+Known answers, with
+.B TAB
+for the raw byte and every other byte as written:
+.PP
+.RS 4
+.EX
+code      subject                item              record-id
+MSG-A1B2  /srv/project/app.conf  (empty)           d2b6a0f255f321d9 \" ref-index: ignore
+MSG-A1B2  /srv/project/app.conf  ["key"]           6bc5171e35197c4f \" ref-index: ignore
+MSG-A1B2  /srv/project/a TAB b   ["hooks", "x"]    142b7f86fe379965 \" ref-index: ignore
+.EE
+.RE
+.PP
+The third hashes the bytes
+.B "MSG-A1B2 TAB /srv/project/a\etb TAB hooks\etx" \" ref-index: ignore
+where
+.B \et
+is the two-character escape.
+.SH COMPATIBILITY
+A column is appended after
+.BR detail .
+Renaming, reordering or removing a column is a breaking change, and so is a
+change to a field's meaning, a code's meaning, a finding token's meaning, the
+item framing or the identity recipe.
+A new code, finding token or subject type may appear in any release.
+.PP
+The tab-separated form does not distinguish an empty value from an absent
+one.
+A later JSON form carries the same fields and computes
+.B record-id
+the same way, preserves a byte that is not valid UTF-8 through an explicitly
+encoded companion value rather than replacing it, and keeps
+.B item
+as its component list.
+.SH A BACKEND CONSUMER
+A backend runs the command through its documented command and privilege
+boundary, never by sourcing shell libraries.
+It runs the command
+.B without a controlling terminal
+(a systemd unit, a cron job, or
+.BR setsid (1)),
+because a command that can ask a question asks on
+.I /dev/tty
+whenever one exists, whatever its standard streams are redirected to.
+It passes every choice it has authority for as an option.
+It captures standard output, standard error and the exit status separately,
+waits for the process to end before accepting a report, and keeps the exact
+bytes and the invocation context.
+It shows report health in its response data.
+It does not turn exit 4 into a transport failure, and does not retry a
+command that changes the host because its report was incomplete.
+.SH REFERENCE DECODER
+This decoder applies every rule of
+.B FIELD ENCODING
+and
+.BR ITEMS .
+.B decode_field
+returns the bytes one field encodes,
+.B decode_item
+returns an item's components,
+.B read_stream
+returns one stream's rows as dictionaries of bytes, and
+.B exit_status
+folds their severities as the producer does.
+Each raises
+.B ValueError
+on input the rules reject.
+.PP
+.\" records-decoder-begin
+.RS 4
+.EX
+import re
+
+ESCAPE = re.compile(rb'\e\e(\e\e|t|n|r|x([0-9a-f]{2}))')
+NAMED = {b'\e\e': b'\e\e', b't': b'\et', b'n': b'\en', b'r': b'\er'}
+RAW = re.compile(rb'[^\ex20-\ex7e]')
+CANONICAL = ('observed-at', 'occurred-at', 'code', 'record-id',
+             'severity', 'finding', 'subject-type', 'operator',
+             'item', 'subject', 'detail')
+
+
+def decode_field(field):
+    """Return the bytes a field encodes, or raise ValueError."""
+    if RAW.search(field):
+        raise ValueError('raw byte outside 0x20-0x7e')
+    out = bytearray()
+    i = 0
+    while i < len(field):
+        if field[i:i + 1] != b'\e\e':
+            out += field[i:i + 1]
+            i += 1
+            continue
+        m = ESCAPE.match(field, i)
+        if m is None:
+            raise ValueError('unknown or truncated escape')
+        if m.group(2) is None:
+            out += NAMED[m.group(1)]
+        else:
+            b = int(m.group(2), 16)
+            if b == 0 or 0x20 <= b <= 0x7e or b in (0x09, 0x0a, 0x0d):
+                raise ValueError('escape for a byte with a shorter form')
+            out.append(b)
+        i = m.end()
+    return bytes(out)
+
+
+def decode_item(field):
+    """Return the item's components, or raise ValueError."""
+    if field == b'':
+        return []
+    parts = [decode_field(p) for p in decode_field(field).split(b'\et')]
+    if any(p == b'' for p in parts):
+        raise ValueError('empty item component')
+    return parts
+
+
+def read_stream(data):
+    """Return one stream's rows as dicts of bytes, or raise ValueError."""
+    if data == b'':
+        return []
+    if not data.endswith(b'\en'):
+        raise ValueError('truncated final line')
+    lines = data[:-1].split(b'\en')
+    cells = lines[0].split(b'\et')
+    if any(RAW.search(c) for c in cells):
+        raise ValueError('no header')
+    header = [c.decode('ascii') for c in cells]
+    if len(set(header)) != len(header):
+        raise ValueError('duplicate column')
+    if any(c not in header for c in CANONICAL):
+        raise ValueError('missing canonical column')
+    rows = []
+    for line in lines[1:]:
+        fields = line.split(b'\et')
+        if len(fields) != len(header):
+            raise ValueError('field count differs from the header')
+        rows.append(dict(zip(header, [decode_field(f) for f in fields])))
+    return rows
+
+
+def exit_status(rows):
+    """Return the exit a producer reports for these rows."""
+    status = 0
+    for row in rows:
+        severity = row['severity']
+        if severity == b'unreadable':
+            return 5
+        if severity not in (b'ok', b'info'):
+            status = 4
+    return status
+.EE
+.RE
+.\" records-decoder-end
+.SH EXAMPLES
+Read a report from a cron job and keep the stream only when the reading
+found something:
+.PP
+.RS 4
+.EX
+ai-tools-admin system post-upgrade --check > /var/tmp/post-upgrade.tsv
+case $? in
+    0) rm -f /var/tmp/post-upgrade.tsv ;;
+    4) logger -t post-upgrade "findings left; see the stream" ;;
+    5) logger -t post-upgrade "reading incomplete; see the stream" ;;
+    *) logger -t post-upgrade "the command failed" ;;
+esac
+.EE
+.RE
+.SH SEE ALSO
+.BR ai-tools (1),
+.BR ai-tools-admin (8),
+.BR ai-tools-messages (7)

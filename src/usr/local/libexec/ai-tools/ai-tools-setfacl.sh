@@ -2,39 +2,25 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-setfacl
 # Applies the per-project POSIX ACL that lets the owning operator and the sandbox agent co-write an approved tree
-# regardless of either party's umask -- the permission companion to ai-tools-setgid's group-ownership inheritance.
-# An access + inherited-default ACL grants rwX to the @SANDBOX_GROUP@ group (the agent's access to operator-written
-# files) and to the resolved operator (the operator's access to agent-written files), others denied. The operator grant
-# is what lets the operator co-write the tree -- work tree, and .git under `--with-git` -- without joining
-# @SANDBOX_GROUP@ and without waiting on the ownership handback.
+# whatever either party's umask: an access + inherited-default ACL granting rwX to the @SANDBOX_GROUP@ group (the
+# agent's access to operator-written files) and to the resolved operator (the operator's access to agent-written files),
+# others denied, built by project-permissions.lib.sh, the specification the claim's verifier reads too.
+# Under `--with-git` a second pass normalizes `.git` the same way -- group, setgid on its directories and the same ACL
+# -- so the operator's commits stay agent-readable.
 #
-# Owner-only paths are never granted. When a path's mode grants neither group nor other bits (0600, 0700), the walk does
-# not apply either grant to it -- group:@SANDBOX_GROUP@:rwX (the agent's) or user:<operator>:rwX (the operator's) --
-# does not set a default ACL on a directory, does not recalculate the mask, and leaves the mode bits untouched.
-# That mode is the operator's standing decision to keep the path out of the sandbox account's reach, and a claim does
-# not overrule it. What the walk does instead is STRIP the sandbox residue such a path still carries
-# (owner-only.lib.sh), so the seal does not rest on the mode alone staying put. It holds on the main walk
-# and in the `--with-git` pass alike; a skipped directory takes its subtree with it, since the sandbox account cannot
-# enter the directory to use a grant inside it. To opt a path in, widen its mode and re-claim -- a manual step rather
-# than a prompt, because a standing denial should not fall to a single keypress.
+# The walk skips secret-named, '!'-excluded, skip-list and foreign-owned paths, and never grants an owner-only path
+# (0600/0700; `_safe_setfacl` returns 2 on ai_tools_is_owner_only): it strips the sandbox residue such a path carries
+# instead, and a skipped directory takes its subtree with it, no grant inside being reachable through it. What the seal
+# is, what the strip removes and why `setfacl -m` on a sealed path would grant are owner-only.lib.sh's. Every skip is
+# counted and reported: on the project ROOT it means the sandbox account has no way into the tree,
+# and under `--with-git` it means the history the operator asked to share was not shared.
 #
-# Every skip is counted and reported. On a project ROOT it means the sandbox account cannot enter the tree at all;
-# under `--with-git` it means the git history the operator asked to share was not shared. Both are outcomes the operator
-# has to be told, not left to infer from later behaviour.
-#
-# What this prevents: `setfacl -m` recalculates the mask to cover the entries it adds, so granting an owner-only path
-# returns a 0600 file as 0660 with @SANDBOX_GROUP@ holding effective rw, and a 0700 directory as 0770 -- write
-# on the directory, hence the power to unlink what it holds. secret-handling.rule.md's "keep it in a 700 <you>:<you>
-# dir" advice rests on that directory case. `setfacl -n` (add the entry, leave the mask alone) is not used either: it
-# would leave a dormant grant that any later chmod widening the group bits activates.
-#
-# Runs as root via sudo under `ai-tools projects claim` (no-NOPASSWD, like ai-tools-lockdown); CAP_FOWNER lets it ACL
-# files the operator does not own. The walk skips secret-named, '!'-excluded, skip-list, and foreign-owned paths.
 # Alongside the ACL, the walk normalizes the primary group of a DRIFTED path -- group-accessible yet not group
 # @SANDBOX_GROUP@ (it arrived by rename, inheriting neither the setgid group nor the default ACL) -- so a re-claim's
 # drift scan (acl_drift_scan in the CLI) finds the tree settled.
 #
-# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
+# Runs as root via sudo under `ai-tools projects claim`; CAP_FOWNER lets it ACL files the operator does not own.
+# Installed 750 root:root. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 
@@ -79,9 +65,14 @@ readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
 source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
 readonly GROUP="@SANDBOX_GROUP@"
-# Operator-independent half of the ACL (see the header for the two-grant model); ACL_SPEC prepends
-# user:<operator> after resolve_owner. rwX executes only on dirs/already-exec files; other::--- denies world.
-readonly ACL_BASE="group:${GROUP}:rwX,other::---"
+# The ACL a claim grants (project-permissions.lib.sh), shared with the claim's verifier so the two cannot disagree
+# about which entries a repaired path carries. Required: without it the helper has no specification to apply.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/project-permissions.lib.sh
+source /usr/local/lib/ai-tools/project-permissions.lib.sh 2>/dev/null || true
+if ! declare -F ai_tools_project_permissions_build_acl_specification >/dev/null 2>&1; then
+    warn MSG-D3E3 "FATAL: project-permissions.lib.sh did not load -- no ACL specification to apply"
+    exit 3
+fi
 # Two identities may legitimately hold a project tree's files: the resolved operator and the sandbox account. A file
 # belonging to a third party (root, another developer) is left untouched -- claim must not pull a foreign file
 # into the agent's group, even one the operator placed in the tree -- and COUNTED, so a walk that skipped every path is
@@ -171,8 +162,12 @@ _is_secret_name() {
 AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
 AI_TOOLS_LOG_PROJECT="${canonical}"
 
-# Prepend the resolved operator's named grant (its access to agent-written files).
-readonly ACL_SPEC="user:${PROJECTS_USER}:rwX,${ACL_BASE}"
+ACL_SPEC=""
+if ! ai_tools_project_permissions_build_acl_specification ACL_SPEC "${PROJECTS_USER}" "${GROUP}"; then
+    warn MSG-F3U3 "FATAL: project-permissions.lib.sh built no ACL specification for ${PROJECTS_USER}"
+    exit 3
+fi
+readonly ACL_SPEC
 
 # Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the allowlist is read with --
 # end-of-line comments, and quotes for a path carrying a space or a literal '#'. REQUIRED like safe-paths.lib.sh:

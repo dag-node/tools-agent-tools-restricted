@@ -1,7 +1,8 @@
 # System
 
 **System** · [Logs](logs.md) · [SELinux](selinux.md) · [Entrypoint
-verification](entrypoint-verification.md) — [all docs](../index.md)
+verification](entrypoint-verification.md) · [Reading a record
+stream](record-streams.md) — [all docs](../index.md)
 
 Whether this host is healthy and what to read when it is not: the status
 commands, the audit over both log trails, confinement, and the entrypoint pin.
@@ -18,9 +19,10 @@ and what the last relabel recorded for its paths. Each prints `?` where its
 caller cannot reach the answer, so running the second as root fills
 in the sandbox account's own `systemd --user` units, the entrypoint pin,
 whether the installed binary still matches that pin, and the SELinux label each
-path carries now. Both exit non-zero when something needs attention, so either
-runs from `cron` or a monitor without its output being parsed. The exit codes
-are in `man ai-tools` and `man ai-tools-admin`.
+path carries now. Both exit 4 when something needs attention and 5
+when a reading could not be made, so either runs from `cron` or a monitor
+without its output being parsed. The exit codes are in `man ai-tools`
+and `man ai-tools-admin`.
 
 `sudo ai-tools audit` is the other starting point — it reads the trails
 and reports what refused, was rejected, was stranded, or was flagged

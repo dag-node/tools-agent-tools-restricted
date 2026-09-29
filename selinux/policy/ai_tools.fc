@@ -87,12 +87,11 @@
 # self-label a fresh clone with a plain restorecon -- no per-project semanage and no root, since unconfined_t is granted
 # relabel to ai_tools_project_t in ai_tools.te.
 #
-# The pattern is written under /opt, NOT /var/opt, even though the clones live on disk
-# at /var/opt/ai-tools/sandbox-projects. EL (and Fedora) ship a base path alias in file_contexts.subs_dist --
-# `/var/opt /opt` -- so libselinux canonicalizes every /var/opt/* lookup to /opt/* BEFORE matching file_contexts. A rule
-# keyed on /var/opt/... is therefore unreachable: no path is ever presented to the matcher in that form. restorecon
-# of a clone at /var/opt/ai-tools/sandbox-projects/<clone> resolves against /opt/ai-tools/sandbox-projects/<clone>,
-# which this rule matches. (The alias also makes the parent dirs /var/opt/ai-tools and sandbox-projects/ resolve
-# as /opt/ai-tools -> usr_t, not var_t; the agent traverses them via the files_read_usr_files grant, and reaches /var
-# itself via files_search_var -- see ai_tools.te.)
-/opt/ai-tools/sandbox-projects/[^/]+(/.*)?  gen_context(system_u:object_r:ai_tools_project_t,s0)
+# The clones live on disk at /var/opt/ai-tools/sandbox-projects, and the rule is written under both prefixes, the same
+# twin shape as the /run/ai-tools and /var/run/ai-tools pair. EL10 and Fedora ship the base path alias `/var/opt /opt`
+# in file_contexts.subs_dist, so libselinux looks every /var/opt/* path up as /opt/* and only the /opt rule is reachable
+# there. EL9's policy does not ship that alias, so there only the /var/opt rule is reachable. The parent directories
+# follow the same split: /var/opt/ai-tools and sandbox-projects/ are usr_t through the alias and var_t without it,
+# and the agent traverses either (files_read_usr_files, files_search_var -- see ai_tools.te).
+/opt/ai-tools/sandbox-projects/[^/]+(/.*)?      gen_context(system_u:object_r:ai_tools_project_t,s0)
+/var/opt/ai-tools/sandbox-projects/[^/]+(/.*)?  gen_context(system_u:object_r:ai_tools_project_t,s0)

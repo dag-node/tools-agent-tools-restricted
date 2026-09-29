@@ -10,11 +10,14 @@
 #   sudo ./install.sh install              deploy all files, enable timer
 #   sudo ./install.sh uninstall            remove deployed files, disable timer
 #   sudo ./install.sh check-perms          run the permissions test (tests/integration/perms.sh; also part of the suite offered at the end of an interactive install)
-#   sudo ./install.sh install --operator op      enrol the named account, asking no question
+#   sudo ./install.sh install --operator op      enrol the named account without asking
 #   sudo ./install.sh install --allow-uncommitted   deploy work in progress: a checkout with
 #                                          uncommitted changes is refused without this flag
-#   sudo ./install.sh check-tree           name the commit an install would deploy, and list the
-#                                          uncommitted paths that would refuse it; the host is unchanged
+#   sudo ./install.sh install --allow-downgrade      deploy a checkout older than the installed
+#                                          version, which is refused without this flag
+#   sudo ./install.sh check-tree           name the version and the commit an install would deploy, and
+#                                          the downgrade or the uncommitted paths that would refuse it;
+#                                          the host is unchanged
 #
 # Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run as the projects user, not
 # in install.sh:
@@ -48,18 +51,21 @@ refuse_early() {
 # usage: the one place the accepted arguments are spelled out, printed by a malformed command line
 # and by an unrecognized action alike. Orientation, so it does not carry a message code.
 usage() {
-    printf 'usage: sudo %s [install|uninstall|check-perms|check-tree] [--operator <account>] [--allow-uncommitted]\n' "$0" >&2
+    printf 'usage: sudo %s [install|uninstall|check-perms|check-tree] [--operator <account>] [--allow-uncommitted] [--allow-downgrade]\n' "$0" >&2
     printf '       (register projects with the ai-tools CLI, not install.sh)\n' >&2
     exit 1
 }
 
 # Arguments: an optional action (default install), an optional `--operator`, which names the account to enrol instead
 # of asking for it -- what an unattended install and the guard tests use, and the only route by which a name other than
-# SUDO_USER arrives without a terminal -- and `--allow-uncommitted`, which lets an install deploy a checkout carrying
-# uncommitted changes, the developer's own work in progress (the source-tree gate in do_install refuses one without it).
+# SUDO_USER arrives without a terminal -- `--allow-uncommitted`, which lets an install deploy a checkout carrying
+# uncommitted changes, the developer's own work in progress (the source-tree gate in do_install refuses one without it),
+# and `--allow-downgrade`, which lets a checkout older than the installed version deploy (the version gate refuses one
+# without it).
 ACTION=""
 OPERATOR_OPT=""
 ALLOW_UNCOMMITTED=0
+ALLOW_DOWNGRADE=0
 while (( $# )); do
     case "$1" in
         --operator)
@@ -69,12 +75,14 @@ while (( $# )); do
             OPERATOR_OPT="${1#--operator=}"; shift ;;
         --allow-uncommitted)
             ALLOW_UNCOMMITTED=1; shift ;;
+        --allow-downgrade)
+            ALLOW_DOWNGRADE=1; shift ;;
         *)
             [[ -z "${ACTION}" ]] || usage
             ACTION="$1"; shift ;;
     esac
 done
-readonly ACTION="${ACTION:-install}" OPERATOR_OPT ALLOW_UNCOMMITTED
+readonly ACTION="${ACTION:-install}" OPERATOR_OPT ALLOW_UNCOMMITTED ALLOW_DOWNGRADE
 
 # ── Guards ─────────────────────────────────────────────────────────────────────
 
@@ -263,15 +271,65 @@ confirm_boxed() {
 # it run is a valid step of developing this project, and the flag is how that decision is stated once, per invocation,
 # rather than answered at a prompt whose default would have to be guessed. Interactive and unattended runs take the same
 # path. A checkout that is not a git repository (a tarball) has no commit to name and passes. Root reads the repository
-# through an explicit safe.directory, since git refuses another user's checkout otherwise; both git calls are reads.
-# `install.sh check-tree` runs this alone, which is how the unit test drives it against a fixture checkout
-# and how an operator reads the verdict without installing.
+# through an explicit safe.directory, since git refuses another user's checkout otherwise. Every git call is a read:
+# `status` runs under `--no-optional-locks`, since it otherwise rewrites `.git/index` to refresh its stat cache --
+# which a copied or unpacked tree always needs -- and the index root wrote is root-owned, so the operator's next
+# `git add` cannot write it. `install.sh check-tree` runs this alone, which is how the unit test drives it
+# against a fixture checkout and how an operator reads the verdict without installing.
 TREE_LINE=""
+# version_gate -- the version this checkout deploys, against the one installed, ahead of every write. The installed
+# version is read as text off the deployed CLI -- its substituted AI_TOOLS_VERSION line; the CLI refuses root, so it is
+# not executed -- and the two are ordered by `sort -V`. A checkout older than the installation is REFUSED, as dnf
+# refuses that direction, and the refusal names the clean path: remove the installed version with the tool
+# that installed it (dnf where ai-tools-base is an rpm, that version's own `install.sh uninstall` otherwise, since only
+# the installed version's uninstaller knows its files), then install this checkout. An in-place downgrade over kept
+# files is a mixed state -- the hook merge only adds declarations, so a kept settings.json keeps the newer version's
+# hooks, and the older installer removes neither those declarations nor the newer scripts they name -- and the baseline
+# copy it leaves is then the newest one beside the file, which the next `system post-upgrade` compares the file with.
+# `--allow-downgrade` is the developer's way through that state, stated once, per invocation, with a warning saying
+# what it leaves. The same version installs again as it does now. An installation whose version cannot be read -- no
+# deployed CLI, a copy without the substitution, either side reading `dev` -- passes with a line saying so: there is no
+# version to order, and this gate reports rather than deciding any access. `install.sh check-tree` runs it
+# before the source-tree gate, which is how the unit test drives it, through AI_TOOLS_INSTALLED_CLI -- a root-only test
+# hook of the same standing as the ones tests.rule.md lists: sudo strips it, and a caller who could set it runs this
+# script as root
+# already.
+INSTALLED_CLI="${AI_TOOLS_INSTALLED_CLI:-/usr/local/bin/ai-tools}"
+version_gate() {
+    local installed="" lower
+    [[ -f "${INSTALLED_CLI}" ]] \
+        && installed="$(sed -nE 's/^AI_TOOLS_VERSION="([^"@]+)"$/\1/p' "${INSTALLED_CLI}" 2>/dev/null | head -n1)"
+    if [[ -z "${installed}" ]]; then
+        say "  version       : ${AI_TOOLS_VERSION} (no installed version to order against)"
+        return 0
+    fi
+    if [[ "${installed}" == dev || "${AI_TOOLS_VERSION}" == dev ]]; then
+        say "  version       : ${AI_TOOLS_VERSION} over ${installed} (a dev version is not ordered)"
+        return 0
+    fi
+    lower="$(printf '%s\n' "${installed}" "${AI_TOOLS_VERSION}" | sort -V | head -n1)"
+    if [[ "${installed}" == "${AI_TOOLS_VERSION}" || "${lower}" == "${installed}" ]]; then
+        say "  version       : ${AI_TOOLS_VERSION} over ${installed}"
+        return 0
+    fi
+    if (( ALLOW_DOWNGRADE )); then
+        warn MSG-W7G8 "downgrading ${installed} to ${AI_TOOLS_VERSION} in place as asked (--allow-downgrade): a kept settings.json keeps the hook declarations and the hook scripts ${installed} added, and the baseline copy this install leaves beside a kept file is ${AI_TOOLS_VERSION}'s, so the next system post-upgrade compares the file with it and lists what ${installed} had added as the file's own"
+        return 0
+    fi
+    local removal dnf_clause=""
+    if rpm -q ai-tools-base >/dev/null 2>&1; then
+        removal="sudo dnf remove 'ai-tools-*'   (an edited settings.json or operator.conf comes back as .rpmsave)"
+        dnf_clause=", which dnf refuses too"
+    else
+        removal="sudo ./install.sh uninstall   (from the checkout of ${installed}: it keeps operator.conf, ~/.config/ai-tools, the toolchain and the agents' state, and moves an edited settings.json aside as a dated .retired copy)"
+    fi
+    die MSG-W6B3 "this checkout is ${AI_TOOLS_VERSION} and ${installed} is installed, so this install is a downgrade${dnf_clause}."$'\n'"  Remove ${installed} with the tool that installed it, then install this checkout:"$'\n'"      ${removal}"$'\n'"  To downgrade in place instead -- a kept settings.json then keeps ${installed}'s hook declarations and scripts: sudo $0 ${ACTION} --allow-downgrade"
+}
 source_tree_gate() {
     local head_line="" uncommitted=""
     if git -c safe.directory="${SCRIPT_DIR}" -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         head_line="$(git -c safe.directory="${SCRIPT_DIR}" -C "${SCRIPT_DIR}" log -1 --format='%h %s (%an, %cr)' 2>/dev/null || true)"
-        uncommitted="$(git -c safe.directory="${SCRIPT_DIR}" -C "${SCRIPT_DIR}" status --porcelain --untracked-files=all 2>/dev/null || true)"
+        uncommitted="$(git --no-optional-locks -c safe.directory="${SCRIPT_DIR}" -C "${SCRIPT_DIR}" status --porcelain --untracked-files=all 2>/dev/null || true)"
         TREE_LINE="commit ${head_line:-unknown}"
     else
         TREE_LINE="not a git checkout, so no commit to name"
@@ -338,6 +396,22 @@ seed_result() {
     log "${path} ${verb}${detail:+ (${detail})}"
 }
 
+# clock_allows_baseline <deployed> <shipped> -- succeed when the system clock is not behind the deployed file,
+# the shipped copy, or a copy already beside the deployed file (ai_tools_conf_clock_behind), and warn and fail
+# otherwise. A baseline copy is stamped with today's date and ordered against the others by date, so one written
+# under a clock that is behind would sort before the copies it supersedes and send the next post-upgrade to the wrong
+# one: the caller then names the gaps and does not leave a copy, and the clock is named as the first thing to correct.
+clock_allows_baseline() {
+    local deployed="$1" shipped="$2" behind
+    if behind="$(ai_tools_conf_clock_behind "${deployed}" "${shipped}" "${deployed}".*.shipped "${deployed}.rpmnew")"; then
+        return 0
+    fi
+    warn MSG-B5V5 "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than a file this install compares by date -- set the clock first (timedatectl set-time, or chronyc makestep once a time source is reachable), then re-run; no baseline copy is written beside ${deployed} this run:"
+    local line
+    while IFS= read -r line; do [[ -n "${line}" ]] && warn "    ${line//$'\t'/  }"; done <<< "${behind}"
+    return 1
+}
+
 # Announce the options a kept KEY=value config does not mention yet, and leave the shipped baseline beside it to copy
 # the documentation from. Unlike the hook declarations, this NEVER rewrites the file: with the present/absent grammar
 # an absent key already means its default, so a stale config costs the operator the knowledge that an option exists
@@ -354,7 +428,8 @@ report_new_conf_keys() {
     for key in "${new_keys[@]}"; do
         warn "  ${key}"
     done
-    reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true
+    clock_allows_baseline "${deployed}" "${shipped}" \
+        && { reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true; }
     if [[ -n "${reference}" ]]; then
         warn "  documented in ${reference} -- copy the blocks you want;"
         warn "  each is optional and an unmentioned key keeps its default"
@@ -402,6 +477,43 @@ reconcile_hook_declarations() {
     return 0
 }
 
+# Report what a kept settings.json differs in from this version's once its hook declarations are current -- the rules
+# the shipped copy carries that the file does not, and any other setting -- through the two readers
+# `system post-upgrade` reports with (settings-merge.lib.sh), and leave the shipped copy beside the file as the dated
+# .shipped baseline (ai_tools_conf_reference), which is what that command compares the file with on a host no rpm parks
+# a .rpmnew on. The permission arrays are the host's, so this names and does not write; a file that differs in order
+# alone does not leave a copy, since a baseline identical in content would only be listed for removal.
+# $1 deployed settings.json   $2 shipped settings.json
+report_settings_gaps() {
+    local deployed="$1" shipped="$2" gaps kind list rule reference="" scratch differs=0
+    local -a missing_rules=()
+    gaps="$(ai_tools_conf_permission_gaps "${deployed}" "${shipped}")" || return 0
+    while IFS=$'\t' read -r kind list rule; do
+        [[ "${kind}" == missing ]] && missing_rules+=("${list}: ${rule}")
+    done <<< "${gaps}"
+    scratch="$(mktemp -d)" || scratch=""
+    if [[ -n "${scratch}" ]] && ai_tools_conf_settings_rest "${deployed}" > "${scratch}/file" \
+            && ai_tools_conf_settings_rest "${shipped}" > "${scratch}/copy" \
+            && ! cmp -s "${scratch}/file" "${scratch}/copy"; then
+        differs=1
+    fi
+    [[ -n "${scratch}" ]] && rm -rf "${scratch}"
+    (( ${#missing_rules[@]} > 0 || differs )) || return 0
+    clock_allows_baseline "${deployed}" "${shipped}" \
+        && { reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true; }
+    warn MSG-J8F2 "the kept ${deployed} differs from this version's beyond its hooks:"
+    if (( ${#missing_rules[@]} > 0 )); then
+        warn "  rules this version ships that the file does not carry -- add them unless you removed them on purpose:"
+        for rule in "${missing_rules[@]}"; do warn "    ${rule}"; done
+    fi
+    (( differs )) && warn "  other settings differ as well"
+    if [[ -n "${reference}" ]]; then
+        warn "  this version's copy is kept as ${reference}; compare and merge with:"
+        warn "      sudo ai-tools-admin system post-upgrade"
+    fi
+    return 0
+}
+
 # Name each ask entry a kept settings.json lacks for an installed command (settings-merge.lib.sh).
 # reconcile_hook_declarations leaves the permission arrays as written, so the entry is the operator's to add; a warning,
 # and the install continues.
@@ -422,11 +534,18 @@ report_ask_gaps() {
     return 0
 }
 
-# Create a directory only if it does not already exist, preserving perms on existing dirs. Applies owner/mode only
-# to newly created directories.
+# ensure_dir <mode> <owner> <group> <dir>: create the directory with that owner and mode, or bring an existing one
+# to them, and log a change it made -- so an install over an existing tree leaves every directory it names at the state
+# tests/integration/perms.sh asserts, whatever the tree came with. The mode is applied again as a five-digit octal
+# (00755), the one numeric form chmod clears a directory's setuid, setgid and sticky bits with: a directory
+# under a setgid parent inherits the bit at creation, and `install -d -m` and a four-digit chmod both leave it set.
 ensure_dir() {
-    local mode="$1" owner="$2" group="$3" dir="$4"
-    [[ -d "${dir}" ]] || install -d -o "${owner}" -g "${group}" -m "${mode}" "${dir}"
+    local mode="$1" owner="$2" group="$3" dir="$4" before="absent" after
+    [[ -d "${dir}" ]] && before="$(stat -c '%a %U:%G' "${dir}")"
+    install -d -o "${owner}" -g "${group}" -m "${mode}" "${dir}"
+    chmod "$(printf '%05o' "$(( 8#${mode} ))")" "${dir}"
+    after="$(stat -c '%a %U:%G' "${dir}")"
+    [[ "${before}" == absent || "${before}" == "${after}" ]] || log "  ${dir}: ${before} -> ${after}"
 }
 
 # Make sure `<home>/.config` exists and belongs to the account whose home it is, before the ai-tools config directory is
@@ -544,16 +663,31 @@ bootstrap_launcher_symlinks() {
         return
     fi
 
-    local node_version
-    # cd / first: this `sudo -u` step inherits the installer's CWD, and run from an operator dir the sandbox account
-    # cannot traverse (e.g. a 0700 home), nvm/npm's internal getcwd warns.
-    node_version="$(sudo -u "${SANDBOX_USER}" bash -c \
-        "cd / && source '${ai_nvm_dir}/nvm.sh' --no-use && nvm version default 2>/dev/null" \
-        2>/dev/null || true)"
+    local node_version=""
+    # Read as data -- nvm's default alias and the installed version directories -- through the library this run
+    # deployed, so this root process does not source nvm.sh, which the sandbox account can rewrite.
+    # shellcheck source=src/usr/local/lib/ai-tools/toolchain.lib.sh
+    source /usr/local/lib/ai-tools/toolchain.lib.sh 2>/dev/null || true
+    if declare -F ai_tools_nvm_default_version >/dev/null 2>&1; then
+        node_version="$(ai_tools_nvm_default_version "${ai_nvm_dir}")"
+    fi
 
     if [[ -z "${node_version}" || "${node_version}" == "N/A" ]]; then
         warn MSG-E5S3 "nvm 'default' alias not set -- launcher symlinks skipped"
         warn "  provision the toolchain: sudo ai-tools-admin system bootstrap"
+        return
+    fi
+
+    # Copies where npm keeps symlinks -- a tree transferred without them -- make every link this step would write
+    # resolve to an unlabelled file, and npm does not start. Read with a stat; the repair runs node from the tree,
+    # which this root process does not, so it is bootstrap's (updater.rule.md).
+    local copied_bins=""
+    if declare -F ai_tools_toolchain_bin_copies >/dev/null 2>&1; then
+        copied_bins="$(ai_tools_toolchain_bin_copies "${ai_nvm_dir}/versions/node/${node_version}" 2>/dev/null | paste -sd' ')"
+    fi
+    if [[ -n "${copied_bins}" ]]; then
+        warn MSG-J2H9 "the ${node_version}/bin directory holds copies where npm keeps symlinks (${copied_bins}) -- a transfer of the tree replaced the links with their targets, so launcher symlinks are skipped"
+        warn "  restore them: sudo ai-tools-admin system bootstrap"
         return
     fi
 
@@ -863,6 +997,7 @@ do_summary() {
     _chk /usr/local/share/man/man5/ai-tools-allowed-projects.5
     _chk /usr/local/share/man/man5/ai-tools-secret-patterns.5
     _chk /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
+    _chk /usr/local/share/man/man5/ai-tools-records.5
     _chk /usr/local/share/man/man7/ai-tools-messages.7
     _chk /usr/local/share/man/man8/ai-tools-admin.8
     _chk /var/opt/ai-tools
@@ -871,6 +1006,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
     _chk /usr/local/lib/ai-tools/skip-dirs.lib.sh
     _chk /usr/local/lib/ai-tools/owner-only.lib.sh
+    _chk /usr/local/lib/ai-tools/project-permissions.lib.sh
     _chk /usr/local/lib/ai-tools/log.lib.sh
     _chk /usr/local/lib/ai-tools/msg.lib.sh
     _chk /usr/local/lib/ai-tools/operator.lib.sh
@@ -884,11 +1020,14 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/settings-merge.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
     _chk /usr/local/lib/ai-tools/ancestor-config.lib.sh
+    _chk /usr/local/lib/ai-tools/sandbox-exec.lib.sh
     _chk /usr/local/lib/ai-tools/toolchain.lib.sh
     _chk /usr/local/lib/ai-tools/filters.lib.sh
     _chk /usr/local/lib/ai-tools/filters.d/base.rules
     _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
     _chk /usr/local/lib/ai-tools/services.lib.sh
+    _chk /usr/local/lib/ai-tools/records-base.lib.sh
+    _chk /usr/local/lib/ai-tools/records-tsv.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
@@ -1088,6 +1227,7 @@ do_install() {
     say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"
     say "  sandbox user  : ${SANDBOX_USER}:${SANDBOX_GROUP}"
 
+    version_gate
     source_tree_gate
 
     # Proceed gate -- everything up to here is print-only; the first change to the host (including the install log
@@ -1226,6 +1366,14 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/owner-only.lib.sh" \
         /usr/local/lib/ai-tools/owner-only.lib.sh
 
+    # The ACL a claim grants (project-permissions.lib.sh): sourced by ai-tools-setfacl as root and by the operator-run
+    # CLI's verifier, so 644 root:root like the other shared libraries. It does not carry any secrets, and it takes its
+    # identities as arguments, so it has no token to substitute.
+    log "/usr/local/lib/ai-tools/project-permissions.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/project-permissions.lib.sh" \
+        /usr/local/lib/ai-tools/project-permissions.lib.sh
+
     # Skip-dir list/selector: sourced by the root helpers, by session-hook.sh (as the agent), and by the operator-run
     # CLI (the claim drift scan) -- 644 root:root, like msg/log/safe-paths. It does not carry any secrets: the names are
     # documented. No tokens to
@@ -1257,10 +1405,11 @@ do_install() {
     # never edited on the host.
     install -o root -g root -d -m 755 /usr/local/lib/ai-tools/keys
     # Verified entrypoint pins: root-owned and not group-writable, so the account the pin constrains cannot write it.
-    # 755 so the sandbox account can read the pin at launch.
-    install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-pin.d
-    install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-label.d
-    install -o root -g root -d -m 755 /var/opt/ai-tools/state/entrypoint-stale.d
+    # 755 so the sandbox account can read the pin at launch. Under the setgid state root, so ensure_dir, which clears
+    # the bit a directory created or copied there inherits.
+    ensure_dir 755 root root /var/opt/ai-tools/state/entrypoint-pin.d
+    ensure_dir 755 root root /var/opt/ai-tools/state/entrypoint-label.d
+    ensure_dir 755 root root /var/opt/ai-tools/state/entrypoint-stale.d
     log "/usr/local/lib/ai-tools/keys/claude-code.asc"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/claude-code.asc" \
@@ -1296,6 +1445,16 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/ancestor-config.lib.sh" \
         /usr/local/lib/ai-tools/ancestor-config.lib.sh
+
+    # The execution boundary (sandbox-exec.lib.sh): the one route by which a root process runs a file the sandbox
+    # account can write, and the identity check the toolchain writers require. 644 root:root: shipped logic
+    # and the account name, which install_subst substitutes here as the spec does at build -- a copy holding the token
+    # does not name an account and refuses every run -- sourced by the bootstrap, the updater, the toolchain library
+    # and this installer's uninstall.
+    log "/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sandbox-exec.lib.sh" \
+        /usr/local/lib/ai-tools/sandbox-exec.lib.sh
 
     # The residue readers and the one package removal (toolchain.lib.sh): 644 root:root like the resolver it requires,
     # sourced by the launch wrapper (as the operator), ai-tools-run, nvm-update and the bootstrap's sandbox-account
@@ -1341,6 +1500,17 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/services.lib.sh" \
         /usr/local/lib/ai-tools/services.lib.sh
 
+    # Record streams: 644 root:root -- the model and report state, and the TSV wire format, sourced by every report
+    # a machine consumer reads (ai-tools-records(5)). Pure data plus encoding, no secrets, no msg.lib dependency.
+    log "/usr/local/lib/ai-tools/records-base.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/records-base.lib.sh" \
+        /usr/local/lib/ai-tools/records-base.lib.sh
+    log "/usr/local/lib/ai-tools/records-tsv.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/records-tsv.lib.sh" \
+        /usr/local/lib/ai-tools/records-tsv.lib.sh
+
     # Agent manifests: the agents.d directory (0755 root:root) plus each agent's <name>.conf (644, parsed data naming
     # its npm package + launcher). This from-source installer deploys the full stack, so it lays down the claude-code
     # manifest here (the RPM ships it in the agent subpackage). No secrets, no tokens.
@@ -1382,9 +1552,9 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/launch.d/claude-code.sh" \
         /usr/local/lib/ai-tools/launch.d/claude-code.sh
 
-    # Claude Code-specific resolvers: the custom system prompt (the launch hook, operator-side) and the custom API endpoint
-    # (its own fragment, sandbox-side). Root-owned and non-group-writable so both are trusted enough to source. No
-    # secrets (the endpoint's token lives in its own file).
+    # Claude Code-specific resolvers: the custom system prompt (the launch hook, operator-side) and the custom API
+    # endpoint (its own fragment, sandbox-side). Root-owned and non-group-writable so both are trusted enough to source.
+    # No secrets (the endpoint's token lives in its own file).
     for _cc_lib in claude-prompt.lib.sh claude-endpoint.lib.sh; do
         log "/usr/local/lib/ai-tools/${_cc_lib}"
         install -o root -g root -m 644 \
@@ -1452,7 +1622,6 @@ do_install() {
     log "/opt/ai-tools/integrations/typesafe (state root: the usage log)"
     ensure_dir "${CP_DIR_MODES[integrations]}" root "${SANDBOX_GROUP}" /opt/ai-tools/integrations
     ensure_dir 2770 root "${SANDBOX_GROUP}" /opt/ai-tools/integrations/typesafe
-    chmod 2770 /opt/ai-tools/integrations/typesafe
 
     # SELinux policy modules: compiled from this checkout and staged under the canonical package dir (see
     # stage_selinux_modules). Loading and labelling the core is offer_selinux's step, later; this lays the modules
@@ -1759,6 +1928,13 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5" \
         /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
 
+    # ai-tools-records(5). The record stream a report writes for a machine consumer: the columns, the byte escape,
+    # the identity recipe and the exit contract, with a reference decoder, so a consumer is written from the page.
+    log "/usr/local/share/man/man5/ai-tools-records.5"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-records.5" \
+        /usr/local/share/man/man5/ai-tools-records.5
+
     # ai-tools-typesafe.conf(5). The typesafe integration's credential file: its four options and what the decide
     # command refuses, so the seeded template can stay a pointer.
     log "/usr/local/share/man/man5/ai-tools-typesafe.conf.5"
@@ -1794,30 +1970,21 @@ do_install() {
     # Sandbox project area. /var/opt is FHS-correct for variable data paired with an /opt install. Owned
     # root:SANDBOX_GROUP; the inner sandbox-projects dir is setgid (clones born group SANDBOX_GROUP) and group-writable
     # (the agent works in the clones). setgid is what lets the agent and an operator share the clone files
-    # through the group. Enforce ownership/mode on re-install even when the dirs
-    # pre-exist.
+    # through the group. ensure_dir brings a pre-existing directory to this ownership and mode.
     log "/var/opt/ai-tools/"
     ensure_dir 2750 root "${SANDBOX_GROUP}" /var/opt/ai-tools
-    chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools
-    chmod 2750 /var/opt/ai-tools
     log "/var/opt/ai-tools/sandbox-projects/"
     ensure_dir 2770 root "${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
-    chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
-    chmod 2770 /var/opt/ai-tools/sandbox-projects
 
     # Operator-readable state written BY the sandbox account: the last-run stamps of the units in that account's own
     # `systemd --user manager` (nvm-update), which `ai-tools status` cannot query from the operator's session.
     # The directory is root-owned and deliberately NOT group-writable -- the account gets traverse only --
     # so the surface the stamps add is the contents of the individual files created here, never the directory:
     # the account cannot add, unlink, rename, or symlink-swap anything in it. Each stamp is therefore created HERE,
-    # owned by the account (which rewrites it in place) with group ai-ops so operators read it directly. setgid is
-    # stripped symbolically: the parent is setgid and neither `install -d -m` nor a numeric chmod clears an inherited
-    # setgid bit on a directory (see tests.rule.md).
+    # owned by the account (which rewrites it in place) with group ai-ops so operators read it directly. The parent is
+    # setgid, and ensure_dir is what clears the inherited bit here (see tests.rule.md).
     log "/var/opt/ai-tools/state/"
     ensure_dir 0750 root "${SANDBOX_GROUP}" /var/opt/ai-tools/state
-    chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools/state
-    chmod 0750 /var/opt/ai-tools/state
-    chmod g-s /var/opt/ai-tools/state
     getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
     touch /var/opt/ai-tools/state/nvm-update.status
     chown "${SANDBOX_USER}:ai-ops" /var/opt/ai-tools/state/nvm-update.status
@@ -2072,6 +2239,8 @@ do_install() {
         chmod 640 "${settings}"
         seed_result "${settings}" "${settings_existed}" 1 "host-tuned permission rules preserved"
         reconcile_hook_declarations "${settings}" \
+            "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
+        report_settings_gaps "${settings}" \
             "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
         report_ask_gaps "${settings}"
     else
@@ -2461,6 +2630,33 @@ retire_managed_files() {
     return 0
 }
 
+# retire_settings_file <live> <reference> -- the managed-file treatment for the agent's settings.json: removed while
+# byte-identical to <reference>, the copy this checkout ships, and moved aside as a dated .retired copy otherwise,
+# through ai_tools_managed_file_retire where the deployed provider library loaded (retire_managed_files sourced it),
+# and through the checkout's own sidecar stamp where it did not, so an edited file survives an uninstall from a broken
+# install too. The dated .bak and .shipped copies beside it are left as they are.
+retire_settings_file() {
+    local live="$1" reference="$2" outcome target
+    [[ -f "${live}" ]] || return 0
+    if declare -F ai_tools_managed_file_retire >/dev/null 2>&1 \
+            && outcome="$(ai_tools_managed_file_retire "${live}" "${reference}")"; then
+        case "${outcome%% *}" in
+            removed) log "${live} removed (the copy this checkout ships)" ;;
+            kept)    log "${live} kept as ${outcome#* } (it is not the copy this checkout ships)" ;;
+        esac
+        return 0
+    fi
+    if [[ -f "${reference}" ]] && cmp -s "${live}" "${reference}"; then
+        rm -f "${live}"
+        log "${live} removed (the copy this checkout ships)"
+    elif target="$(ai_tools_conf_sidecar_path "${live}" retired)" && mv "${live}" "${target}"; then
+        log "${live} kept as ${target} (it is not the copy this checkout ships)"
+    else
+        warn "${live} could not be moved aside and is left in place"
+    fi
+    return 0
+}
+
 # remove_agent_packages -- remove each installed agent's npm package from the sandbox toolchain, and its launcher link,
 # while the manifest that names the package is still deployed: once the manifests are gone no reader knows a package
 # name, and a package left in the tree keeps an entrypoint a session can exec (toolchain.lib.sh; the agent packages'
@@ -2474,12 +2670,17 @@ remove_agent_packages() {
     local agents_dir=/usr/local/lib/ai-tools/agents.d
     [[ -r "${tclib}" && -d "${agents_dir}" && -d /opt/ai-tools/.nvm/versions/node ]] || return 0
     id "${SANDBOX_USER}" >/dev/null 2>&1 || return 0
+    # ai_tools_as_sandbox runs the erase: npm is the sandbox account's to rewrite, so it runs as that account with no
+    # terminal of this process's and its output sanitized.
+    # shellcheck source=src/usr/local/lib/ai-tools/toolchain.lib.sh
+    source "${tclib}" 2>/dev/null || true
+    declare -F ai_tools_as_sandbox >/dev/null 2>&1 || return 0
     local manifest agent launcher version_dir outcome erased
     for manifest in "${agents_dir}"/*.conf; do
         [[ -e "${manifest}" ]] || continue
         agent="${manifest##*/}"; agent="${agent%.conf}"
         # shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
-        erased="$(runuser -u "${SANDBOX_USER}" -- bash -c \
+        erased="$(ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
             'set -euo pipefail; . "$1"; ai_tools_agent_package_erase /opt/ai-tools/.nvm "$2"' _ "${tclib}" "${agent}" \
             || true)"
         while IFS=$'\t' read -r version_dir outcome; do
@@ -2499,7 +2700,8 @@ remove_agent_packages() {
 
 # Disable the nvm-update timer and remove every deployed system and control-plane file. Preserves operator and agent
 # state so a reinstall keeps working: the .nvm Node installation, /etc/ai-tools/operator.conf, ~/.config/ai-tools,
-# the ai-tools account, and each agent's own state under its config directory. Each installed agent's npm package leaves
+# the ai-tools account, each agent's own state under its config directory, and an edited settings.json or managed file
+# as a dated .retired copy (retire_settings_file, retire_managed_files). Each installed agent's npm package leaves
 # the toolchain with the manifest that names it (remove_agent_packages), so a reinstall re-provisions the agents
 # with `ai-tools-admin system bootstrap`. Allowlist and git safe.directory pruning for this project are offered
 # interactively.
@@ -2548,6 +2750,7 @@ do_uninstall() {
     rm -f /usr/local/share/man/man5/ai-tools-allowed-projects.5
     rm -f /usr/local/share/man/man5/ai-tools-secret-patterns.5
     rm -f /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
+    rm -f /usr/local/share/man/man5/ai-tools-records.5
     rm -f /usr/local/share/man/man5/ai-tools-typesafe.conf.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude /usr/local/bin/codex /usr/local/bin/ai-tools-launch
@@ -2577,9 +2780,13 @@ do_uninstall() {
     rm -f /opt/ai-tools/.claude/post-tool-hook.sh
     rm -f /opt/ai-tools/.claude/session-hook.sh
     rm -f /opt/ai-tools/.claude/filter-hook.sh
-    rm -f /opt/ai-tools/.claude/settings.json \
-          /opt/ai-tools/.claude/settings.json.shipped \
-          /opt/ai-tools/.claude/settings.json.bak
+    # settings.json carries host tuning an operator does not want to lose, so it takes the treatment
+    # retire_managed_files gives a managed file: still byte-identical to the copy this checkout ships, it is removed;
+    # edited, or not comparable, it is moved aside as a dated .retired copy and named, the treatment rpm gives an edited
+    # %config(noreplace) file.
+    retire_settings_file /opt/ai-tools/.claude/settings.json \
+        "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
+    rm -f /opt/ai-tools/.claude/settings.json.shipped /opt/ai-tools/.claude/settings.json.bak
     rm -f /opt/ai-tools/.codex/post-tool-hook.sh
     rm -f /opt/ai-tools/.codex/session-hook.sh
 
@@ -2733,8 +2940,9 @@ case "${ACTION}" in
         exec bash "${SCRIPT_DIR}/tests/integration/perms.sh"
         ;;
     check-tree)
-        # The source-tree gate alone: the commit an install would deploy, and the refusal an uncommitted tree meets,
-        # leaving the host unchanged. What the unit test drives.
+        # The two gates alone: the version and the commit an install would deploy, and the refusals a downgrade
+        # and an uncommitted tree meet, leaving the host unchanged. What the unit test drives.
+        version_gate
         source_tree_gate
         ;;
     *)

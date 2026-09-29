@@ -58,7 +58,10 @@ write_fixture 0.6.2 0.6.1
 expect refused "bare run, %changelog head behind VERSION"
 expect refused "final tag with stale %changelog"         v0.6.2
 expect ok      "rc tag relaxes the %changelog match"     v0.6.2-rc.1
-if bash "${TESTDIR}/check-version.sh" v0.6.2-rc.1 2>&1 | grep -q '^note:'; then
+# Captured first: the script prints its `version check ok` line after the note, so a `grep -q` reading the pipe exits
+# on the note and the later write dies of SIGPIPE, which pipefail reports as a failed match.
+cv_out="$(bash "${TESTDIR}/check-version.sh" v0.6.2-rc.1 2>&1)" || true
+if grep -q '^note:' <<< "${cv_out}"; then
     pass "relaxed rc mismatch surfaces a note"
 else
     fail "relaxed rc mismatch prints no note"

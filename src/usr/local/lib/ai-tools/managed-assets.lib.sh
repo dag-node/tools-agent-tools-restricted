@@ -10,9 +10,11 @@
 # read it. A managed asset is one whose name matches the kind's glob AND whose frontmatter carries
 # `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the operator authored is never claimed
 # or overwritten. Seeded copies are root:SANDBOX_GROUP (files 640, dirs 750): the agent reads and invokes them
-# and cannot rewrite one. `x-ai-tools-version` is a monotonic integer bumped once per release, and a newer shipped
-# version is what drives the update offer. Sourced (never executed) by install.sh, ai-tools-bootstrap and base's %post,
-# all root, after msg.lib.sh and conf.lib.sh. The placement chain, the versioning scheme, and withdrawal are
+# through the group, which the mode does not give a write. Every run brings a managed asset it keeps back to those,
+# so a copy of the tree that changed an owner or a mode does not leave one the group read is refused on.
+# `x-ai-tools-version` is a monotonic integer bumped once per release, and a newer shipped version is what drives
+# the update offer. Sourced (never executed) by install.sh, ai-tools-bootstrap and base's %post, all root,
+# after msg.lib.sh and conf.lib.sh. The placement chain, the versioning scheme, and withdrawal are
 # in shipped-assets.rule.md.
 
 # Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are not rpm-owned,
@@ -109,6 +111,21 @@ ai_tools_asset_is_managed() {
     grep -qE '^x-ai-tools-managed:[[:space:]]*true[[:space:]]*$' "$1" 2>/dev/null
 }
 
+# _ai_tools_own_asset <dst> <group>: bring a live asset to the ownership and modes a seeded copy has -- root:<group>,
+# files 640, directories 750 (the five-digit chmod clears a setgid a directory inherited or a copy carried) --
+# and succeed; fail, without a write, when every entry already holds them. A managed asset's ownership is this
+# library's, whatever a copy of the tree gave it, so the seeder applies this to every managed asset it meets and reports
+# the ones it changed.
+_ai_tools_own_asset() {
+    local dst="$1" group="$2" drift
+    drift="$(find "${dst}" \( ! -user root -o ! -group "${group}" -o \( -type d ! -perm 750 \) -o \( -type f ! -perm 640 \) \) -print -quit 2>/dev/null)"
+    [[ -n "${drift}" ]] || return 1
+    chown -R "root:${group}" "${dst}"
+    find "${dst}" -type d -exec chmod 00750 {} +
+    find "${dst}" -type f -exec chmod 00640 {} +
+    restorecon -R "${dst}" >/dev/null 2>&1 || :
+}
+
 # Copy one asset from source to live, owned root:<group>, files 640 / dirs 750. A file (agent) installs directly;
 # a directory (skill) is replaced whole so a removed source file cannot linger.
 # $1 src (file|dir)  $2 dst (file|dir)  $3 group
@@ -117,9 +134,7 @@ _ai_tools_place_asset() {
     if [[ -d "${src}" ]]; then
         rm -rf "${dst}"
         cp -rT "${src}" "${dst}"
-        chown -R "root:${group}" "${dst}"
-        find "${dst}" -type d -exec chmod 750 {} +
-        find "${dst}" -type f -exec chmod 640 {} +
+        _ai_tools_own_asset "${dst}" "${group}" || :
     else
         install -o root -g "${group}" -m 640 "${src}" "${dst}"
     fi
@@ -197,11 +212,16 @@ ai_tools_seed_managed_assets() {
                     if ai_tools_msg_confirm "Update ${name} (v${cur} -> v${new})?" y; then
                         _ai_tools_place_asset "${src%/}" "${dst}" "${group}"
                         _ai_tools_ma_say "${name} updated (v${cur} -> v${new})"
-                    else
-                        _ai_tools_ma_say "${name} kept (v${cur}; v${new} available)"
+                        continue
                     fi
+                    _ai_tools_ma_say "${name} kept (v${cur}; v${new} available)"
                 else
                     _ai_tools_ma_say "${name} up to date (v${cur})"
+                fi
+                # A managed asset that stays is still this library's to own: a copy of the tree, or an edit made
+                # as root, leaves it at an owner or mode that refuses the group read every session makes.
+                if _ai_tools_own_asset "${dst}" "${group}"; then
+                    _ai_tools_ma_say "${name} ownership and modes restored (root:${group}, 640/750)"
                 fi
             else
                 _ai_tools_place_asset "${src%/}" "${dst}" "${group}"
@@ -375,8 +395,10 @@ ai_tools_link_shared_assets() {
 #
 # Non-displacing on the same rule as the asset linker: a link already pointing at the shared file is left alone, a stale
 # one is repointed, and anything REAL is kept and reported -- an operator who writes their own instructions at that path
-# keeps them, and the shared text is then not loaded. Root-owned inside the agent's setgid+sticky config directory,
-# so the session reads it and cannot repoint it at a file of its own choosing.
+# keeps them, and the shared text is then not loaded -- with the linker's one exception: a real file that is both
+# ai-tools-managed and byte-identical to the shared one is this project's own copy (a tree copied with its links
+# dereferenced leaves one), so it becomes the link with no content lost. Root-owned inside the agent's setgid+sticky
+# config directory, so the session reads it and cannot repoint it at a file of its own choosing.
 ai_tools_link_agent_memory() {
     local shared_file="$1" agent_dir="$2" memory_file="$3" group="$4"
     [[ -f "${shared_file}" && -d "${agent_dir}" && -n "${memory_file}" ]] || return 0
@@ -388,8 +410,14 @@ ai_tools_link_agent_memory() {
         ln -sfn "${shared_file}" "${dst}"
         _ai_tools_ma_say "${memory_file} link repointed at ${shared_file}"
     elif [[ -e "${dst}" ]]; then
-        _ai_tools_ma_say "${memory_file} kept (a real entry here wins over the shared one)"
-        return 0
+        if [[ -f "${dst}" ]] && _ai_tools_asset_is_stale_copy "${shared_file}" "${dst}"; then
+            rm -f "${dst}"
+            ln -s "${shared_file}" "${dst}"
+            _ai_tools_ma_say "${memory_file} converted to a link (was an identical managed copy)"
+        else
+            _ai_tools_ma_say "${memory_file} kept (a real entry here wins over the shared one)"
+            return 0
+        fi
     else
         ln -s "${shared_file}" "${dst}"
         _ai_tools_ma_say "${memory_file} linked -> ${shared_file}"

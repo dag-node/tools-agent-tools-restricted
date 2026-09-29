@@ -62,13 +62,12 @@ link() { rm -f "${links}/claude"; ln -s "$1" "${links}/claude"; }
 
 # run <lib> <user> <cwd> <function> [<arg>...] : source <lib> as <user> from <cwd> with the hooks set, initialise it
 # for the launcher FIXTURE_LAUNCHER (default `claude`), call <function> with the arguments, then print the three values
-# the gates publish. Both
-# streams land in OUT and the status in RC. AI_TOOLS_MSG_PLAIN keeps a refusal's code on its own line; the strict mode
-# and IFS are the wrapper's, so the library runs as it does in one. A case that drives a gate downstream of the CWD gate
-# seeds the project directory that gate would have published through FIXTURE_PROJECT_DIR; the residue cases point
-# the resolver's two hooks at fixture manifests through FIXTURE_AGENTS_DIR and FIXTURE_OPERATOR_CONF (empty, each hook
-# takes its deployed default); a locale case sets FIXTURE_LC_ALL, and the launch-hook cases drive a copy of the library
-# whose hook directory is repointed at a fixture.
+# the gates publish. Both streams land in OUT and the status in RC. AI_TOOLS_MSG_PLAIN keeps a refusal's code on its own
+# line; the strict mode and IFS are the wrapper's, so the library runs as it does in one. A case that drives a gate
+# downstream of the CWD gate seeds the project directory that gate would have published through FIXTURE_PROJECT_DIR;
+# the residue cases point the resolver's two hooks at fixture manifests through FIXTURE_AGENTS_DIR
+# and FIXTURE_OPERATOR_CONF (empty, each hook takes its deployed default); a locale case sets FIXTURE_LC_ALL,
+# and the launch-hook cases drive a copy of the library whose hook directory is repointed at a fixture.
 run() {
     local lib="$1" user="$2" cwd="$3"; shift 3
     RC=0
@@ -76,7 +75,7 @@ run() {
     OUT="$(setsid runuser -u "${user}" -- env HOME="${home}" AI_TOOLS_LAUNCHER_DIR="${links}" AI_TOOLS_MSG_PLAIN=1 \
         FIXTURE_PROJECT_DIR="${FIXTURE_PROJECT_DIR:-}" FIXTURE_LAUNCHER="${FIXTURE_LAUNCHER:-claude}" \
         AI_TOOLS_AGENTS_DIR="${FIXTURE_AGENTS_DIR:-}" AI_TOOLS_OPERATOR_CONF="${FIXTURE_OPERATOR_CONF:-}" \
-        LC_ALL="${FIXTURE_LC_ALL:-}" \
+        AI_TOOLS_ENTRYPOINT_PIN_DIR="${FIXTURE_PIN_DIR:-}" LC_ALL="${FIXTURE_LC_ALL:-}" \
         bash -c 'set -euo pipefail; IFS=$'"'"'\n\t'"'"'; cd "$1" || exit 98; source "$2" || exit 99
                  ai_tools_launch_init "${FIXTURE_LAUNCHER}"; AI_TOOLS_LAUNCH_PROJECT_DIR="${FIXTURE_PROJECT_DIR}"
                  shift 2; "$@"
@@ -191,6 +190,21 @@ sed 's#^readonly TOOLCHAIN_LIB=.*#readonly TOOLCHAIN_LIB="/nonexistent/ai-tools/
 chmod 644 "${broken_toolchain}"
 run "${broken_toolchain}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
 refused "the residue gate refuses when toolchain.lib.sh will not load (fail closed)" MSG-U9K8
+
+# ── (1e) The clock gate: a file this host wrote dated after the clock refuses every launch ── The gate reads the files
+# every host writes at a known moment; the entrypoint pins are the one set a fixture reaches
+# (AI_TOOLS_ENTRYPOINT_PIN_DIR), so a pin dated after now is the fixture. The refusal names the file and the command
+# that sets the clock; a pin dated in the past passes.
+fixture_pins="${TESTDIR}/pins"
+mkdir -m 0755 "${fixture_pins}"
+printf 'AGENT=acme\n' > "${fixture_pins}/acme"; chmod 0644 "${fixture_pins}/acme"; touch -d '+2 days' "${fixture_pins}/acme"
+FIXTURE_PIN_DIR="${fixture_pins}" run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_clock
+refused "a pin dated after the system clock refuses the launch" MSG-U8K6
+says "and the refusal names the file" "${fixture_pins}/acme"
+says "and the refusal names the command that sets the clock" "timedatectl set-time"
+touch -d 2024-01-01 "${fixture_pins}/acme"
+FIXTURE_PIN_DIR="${fixture_pins}" run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_clock
+passed "a pin dated in the past passes the clock gate"
 
 # ── (1c) The provider-list gate: a name an earlier release wrote bare refuses every launch ── The list reader reads
 # such a list as empty, so without this gate an unmigrated AI_TOOLS_AGENTS would be refused as "no agent is enabled"
@@ -370,11 +384,11 @@ silent "and the launcher gate does not run ahead of it" 'MSG-F8N3'
 
 # ── (7) ai-tools-launch: the startup hardening, measured ───────────────────────
 # The launcher runs in the operator's environment, so bash must not source $BASH_ENV or import an exported function
-# before the first line runs. A copy with the gate library repointed at a missing file drives the refusal path, which
-# calls `logger`; an exported `logger` function and a BASH_ENV file each leave a marker if they take effect. The control
-# is the same run without -p, which must leave both markers -- otherwise the run proves nothing about -p. The copy is
-# read by bash rather than executed, so a noexec /tmp does not matter, and it is reached through a symlink named claude,
-# as a launcher is.
+# before the first line runs. A copy with the gate library repointed at a missing file drives the refusal path,
+# which calls `logger`; an exported `logger` function and a BASH_ENV file each leave a marker if they take effect.
+# The control is the same run without -p, which must leave both markers -- otherwise the run proves nothing about -p.
+# The copy is read by bash rather than executed, so a noexec /tmp does not matter, and it is reached through a symlink
+# named claude, as a launcher is.
 launcher_src=/usr/local/bin/ai-tools-launch
 [[ -r "${launcher_src}" ]] || launcher_src="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/local/bin/ai-tools-launch.sh"
 if [[ ! -r "${launcher_src}" ]]; then

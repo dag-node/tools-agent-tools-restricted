@@ -176,10 +176,10 @@ fi
 # tokens, so a respelling of the surface edits that table alone.
 #
 # What is asserted is that the REPORT ran and named the handback socket -- the same registry the launch-time warning
-# shares -- not that this host is healthy. ai-tools.status exits 1 when it reports something broken (see cli.rule.md),
-# which is a successful report on an unhealthy host and must not fail the suite: a test host legitimately has a unit
-# down. So 0 and 1 both pass provided the output is there, while any other status (or missing output) means the command
-# itself broke.
+# shares -- not that this host is healthy. ai-tools.status exits 4 when it reports findings and 5 when a reading it
+# promises could not be made (ai-tools-records(5)), which is a successful report on an unhealthy host and must not fail
+# the suite: a test host legitimately has a unit down. So 0, 4 and 5 pass provided the output is there, while any other
+# status (or missing output) means the command itself broke.
 section "ai-tools status service report"
 readonly CLI="/usr/local/bin/ai-tools"
 if [[ ! -x "${CLI}" ]]; then
@@ -189,7 +189,7 @@ elif ! command -v runuser >/dev/null 2>&1; then
 else
     cli_cmd ai-tools.status || exit 2
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" && rc=0 || rc=$?
-    if [[ ${rc} -le 1 ]] && grep -q 'ai-tools-handback.socket' <<<"${out}"; then
+    if [[ ${rc} -eq 0 || ${rc} -eq 4 || ${rc} -eq 5 ]] && grep -q 'ai-tools-handback.socket' <<<"${out}"; then
         pass "ai-tools.status reports service health (lists ai-tools-handback.socket, rc=${rc})"
     else
         fail "ai-tools.status did not report services (rc=${rc}): ${out}"

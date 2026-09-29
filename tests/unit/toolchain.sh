@@ -59,8 +59,10 @@ x_bit_visible() {
 
 mktestdir
 FIXTURE_ROOT="${TESTDIR}"
+# The fallback is under the sandbox home rather than the operator's: the writer runs as the sandbox account,
+# which traverses its own home and not an operator's, and the toolchain executes from there, so the bit is visible.
 if ! x_bit_visible "${FIXTURE_ROOT}"; then
-    mk_fixture_dir FIXTURE_ROOT "${PROJECTS_HOME}" toolchain 2>/dev/null || FIXTURE_ROOT=""
+    mk_fixture_dir FIXTURE_ROOT /opt/ai-tools toolchain 2>/dev/null || FIXTURE_ROOT=""
     [[ -n "${FIXTURE_ROOT}" ]] && chmod 0755 "${FIXTURE_ROOT}"
 fi
 if [[ -z "${FIXTURE_ROOT}" ]] || ! x_bit_visible "${FIXTURE_ROOT}"; then
@@ -87,10 +89,12 @@ printf 'launcher=nopkg\ndefault_enable=no\n' > "${AGENTS_DIR}/nopkg.conf"; chmod
 chmod 0666 "${AGENTS_DIR}/gamma.conf"      # untrusted: not an agent, so never residue
 printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
 
-# package <version> <package> : the package directory npm leaves, with a marker file inside.
+# package <version> <package> : the package directory npm leaves, with a marker file inside, owned by the sandbox
+# account like the tree it sits in, since the writer's npm removes it as that account.
 package() {
     mkdir -p "${NVM}/versions/node/$1/lib/node_modules/$2"
     printf '{}\n' > "${NVM}/versions/node/$1/lib/node_modules/$2/package.json"
+    chown -R "${SANDBOX_USER}:${SANDBOX_GROUP}" "${NVM}/versions/node/$1/lib/node_modules/$2"
 }
 package v1.2.3 @acme/experimental
 package v1.2.3 @acme/beta
@@ -249,24 +253,55 @@ ai_tools_agent_package_in_use "${own_exe_dir}" \
 # ── ai_tools_agent_package_remove: the one write ───────────────────────────────────────────────
 # npm stubbed in the fixture version's own bin, where the writer puts it first on PATH: it records its arguments
 # and removes the last argument's package directory, as npm does. The arguments it records are what show the real npm
-# was not run.
+# was not run. The writer runs as the sandbox account alone, since it runs npm from the tree, so each case drives it
+# through the harness's as_sandbox with the resolver's two hooks passed in the environment, over the tree that account
+# owns; the call log lives in a directory that account writes, and the collector stub a case sets travels as a function
+# definition. Root is refused first, with no npm call, which is the guard every other case rests on.
 for ver in v1.2.3 v2.0.0; do
     mkdir -p "${NVM}/versions/node/${ver}/bin"
     cat > "${NVM}/versions/node/${ver}/bin/npm" <<EOF
 #!/usr/bin/bash
-printf '%s\n' "\$*" >> "${FIXTURE_ROOT}/npm-calls"
-[[ "\${NPM_STUB_KEEP:-}" == 1 ]] && exit 0
+printf '%s\n' "\$*" >> "${FIXTURE_ROOT}/npm-calls.d/calls"
+printf 'npm chatter \033[0m\n' >&2
+[[ "\${NPM_STUB_KEEP:-}" == 1 ]] && { printf 'npm ERR! could not remove \033[2J\n' >&2; exit 0; }
 rm -rf -- "${NVM}/versions/node/${ver}/lib/node_modules/\${@: -1}"
 EOF
     chmod 0755 "${NVM}/versions/node/${ver}/bin/npm"
 done
 [[ -x "${NVM}/versions/node/v1.2.3/bin/npm" ]] || { fail "the npm stub is not executable where it sits"; finish; exit; }
-calls() { cat "${FIXTURE_ROOT}/npm-calls" 2>/dev/null || true; }
-reset_calls() { rm -f "${FIXTURE_ROOT}/npm-calls"; }
+chown -R "${SANDBOX_USER}:${SANDBOX_GROUP}" "${NVM}"
+mkdir -p "${FIXTURE_ROOT}/npm-calls.d"
+chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${FIXTURE_ROOT}/npm-calls.d"
+calls() { cat "${FIXTURE_ROOT}/npm-calls.d/calls" 2>/dev/null || true; }
+reset_calls() { rm -f "${FIXTURE_ROOT}/npm-calls.d/calls"; }
+# run_toolchain_writer_as_sandbox <function> <arg>... : the writer as the sandbox account;
+# TOOLCHAIN_WRITER_STUB_DEFINITION, where set, is evaluated in the child first. stdout and stderr are the function's,
+# so a case redirects them as it would the function's own.
+TOOLCHAIN_WRITER_STUB_DEFINITION=""
+run_toolchain_writer_as_sandbox() {
+    local function_name="$1"; shift
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    # NVM travels too: the collector stub's body names the fixture tree through it, and the child's environment is
+    # otherwise clean.
+    as_sandbox env AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" NPM_STUB_KEEP="${NPM_STUB_KEEP:-}" \
+        NVM="${NVM}" \
+        bash -c 'source "$1"; eval "$2"; function_name="$3"; shift 3; "${function_name}" "$@"' \
+        _ "${LIB}" "${TOOLCHAIN_WRITER_STUB_DEFINITION:-:}" "${function_name}" "$@"
+}
+
+# (root) The guard: as root the writer refuses under its code, does not call npm and leaves the directory.
+reset_calls; rc=0
+out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" || rc=$?
+if (( rc != 0 )) && [[ -z "${out}" && -d "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta" && -z "$(calls)" ]]; then
+    pass "as root the writer refuses: non-zero, nothing printed, no npm call, directory intact"
+else
+    fail "root writer: rc ${rc}, out '${out}', calls '$(calls)'"
+fi
+assert_msg MSG-P6P2 "$(<"${FIXTURE_ROOT}/err")" "the refusal names the identity the writer requires"
 
 # (a) An enabled agent's package is refused, with no npm call and the directory intact.
 reset_calls; rc=0
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/experimental 2>"${FIXTURE_ROOT}/err")" || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/experimental 2>"${FIXTURE_ROOT}/err")" || rc=$?
 if (( rc != 0 )) && [[ -z "${out}" && -d "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/experimental" && -z "$(calls)" ]]; then
     pass "an enabled agent's package is refused: non-zero, nothing printed, no npm call, directory intact"
 else
@@ -276,14 +311,16 @@ assert_msg MSG-X7Z9 "$(<"${FIXTURE_ROOT}/err")" "the refusal carries its code"
 
 # (b) A package that is not there.
 reset_calls
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/nothere 2>/dev/null)" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/nothere 2>/dev/null)" && rc=0 || rc=$?
 [[ "${rc}" -eq 0 && "${out}" == absent && -z "$(calls)" ]] \
     && pass "an absent package prints absent and calls no npm" || fail "absent package: rc ${rc}, out '${out}'"
 
 # (c) A package a live process executes from is deferred: the collector stubbed to name a path under it.
 reset_calls
 _ai_tools_toolchain_exe_targets() { printf '%s\n' "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta/bin/x"; }
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+TOOLCHAIN_WRITER_STUB_DEFINITION="$(declare -f _ai_tools_toolchain_exe_targets)"
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+TOOLCHAIN_WRITER_STUB_DEFINITION=""
 if [[ "${rc}" -eq 0 && "${out}" == deferred && -d "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta" && -z "$(calls)" ]]; then
     pass "a package in use is deferred: exit 0, no npm call, directory intact"
 else
@@ -295,7 +332,7 @@ _ai_tools_toolchain_exe_targets() { :; }
 # (d) A removal: one uninstall under that version's npm with the version directory as the prefix, the directory gone,
 # and the state-directory notice naming the manifest's config_dir.
 reset_calls
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
 if [[ "${rc}" -eq 0 && "${out}" == removed && ! -e "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta" ]]; then
     pass "a removal prints removed and the package directory is gone"
 else
@@ -305,6 +342,9 @@ fi
     && pass "exactly one npm uninstall, global, with the version directory as the prefix" \
     || fail "npm calls: '$(calls)'"
 assert_msg MSG-G4M8 "$(<"${FIXTURE_ROOT}/err")" "the removal says what it left: the state directory"
+grep -q 'npm chatter' "${FIXTURE_ROOT}/err" \
+    && fail "a successful removal passed npm's own output through: $(tr '\n\033' '|?' <"${FIXTURE_ROOT}/err")" \
+    || pass "a successful removal holds npm's output back"
 grep -q '/opt/ai-tools/.beta' "${FIXTURE_ROOT}/err" \
     && pass "the notice names the agent's config_dir from its manifest" \
     || fail "the notice does not name /opt/ai-tools/.beta: $(tr '\n' '|' <"${FIXTURE_ROOT}/err")"
@@ -312,32 +352,37 @@ grep -q '/opt/ai-tools/.beta' "${FIXTURE_ROOT}/err" \
 # (e) An uninstall that leaves the directory in place is a failure, reported.
 package v1.2.3 @acme/beta; reset_calls
 export NPM_STUB_KEEP=1
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
 unset NPM_STUB_KEEP
 [[ "${rc}" -ne 0 && -z "${out}" ]] \
     && pass "an uninstall that left the directory returns non-zero and prints nothing" || fail "kept dir: rc ${rc}, out '${out}'"
 assert_msg MSG-X8F9 "$(<"${FIXTURE_ROOT}/err")" "the failed removal carries its code"
+if grep -qF 'npm: npm ERR! could not remove ?[2J' "${FIXTURE_ROOT}/err" && ! grep -q $'\033' "${FIXTURE_ROOT}/err"; then
+    pass "the failure quotes npm's error line through the sanitizer, and no escape byte reaches stderr"
+else
+    fail "the failure did not quote npm's sanitized error line: $(tr '\n\033' '|?' <"${FIXTURE_ROOT}/err")"
+fi
 
 # (f) A name outside npm's package-name charset is refused before it becomes a path.
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" '../../etc' 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" '../../etc' 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
 [[ "${rc}" -ne 0 && -z "${out}" ]] && pass "a traversal is not an npm package name" || fail "traversal: rc ${rc}, out '${out}'"
 assert_msg MSG-J5W4 "$(<"${FIXTURE_ROOT}/err")" "and is refused under the writer's argument code"
 
 # (g) The erase form removes an enabled agent's package: the manifest is being erased with it.
 reset_calls
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/experimental erase 2>/dev/null)" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/experimental erase 2>/dev/null)" && rc=0 || rc=$?
 [[ "${rc}" -eq 0 && "${out}" == removed && ! -e "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/experimental" ]] \
     && pass "the erase form removes an enabled agent's package" || fail "erase: rc ${rc}, out '${out}'"
 
 # (h) ai_tools_agent_package_erase: every version directory holding the agent's package, from the manifest.
 package v1.2.3 @acme/beta; reset_calls
-out="$(ai_tools_agent_package_erase "${NVM}" beta 2>/dev/null)" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_erase "${NVM}" beta 2>/dev/null)" && rc=0 || rc=$?
 expected="${NVM}/versions/node/v1.2.3"$'\tremoved\n'"${NVM}/versions/node/v2.0.0"$'\tremoved'
 [[ "${rc}" -eq 0 && "${out}" == "${expected}" ]] \
     && pass "the erase form over an agent removes its package from every version directory" \
     || fail "erase over beta: rc ${rc}, out '$(tr '\n' '|' <<<"${out}")'"
 [[ "$(calls | wc -l)" -eq 2 ]] && pass "one uninstall per version directory" || fail "npm calls: '$(calls | tr '\n' '|')'"
-[[ -z "$(ai_tools_agent_package_erase "${NVM}" nopkg 2>/dev/null)" ]] \
+[[ -z "$(run_toolchain_writer_as_sandbox ai_tools_agent_package_erase "${NVM}" nopkg 2>/dev/null)" ]] \
     && pass "an agent naming no package erases nothing" || fail "erase printed lines for a manifest naming no package"
 
 # ── ai_tools_agent_incomplete: an enabled agent's package without its declared entrypoint ──────
@@ -425,4 +470,97 @@ else
 fi
 
 unset AI_TOOLS_AGENTS_DIR AI_TOOLS_OPERATOR_CONF
+
+# ── ai_tools_nvm_default_version: the default alias read as data ────────────────────────────────
+# The version a root caller needs, read without sourcing nvm.sh: an exact version, or a prefix selecting the highest
+# installed match, the two shapes nvm writes; any other value -- an nvm keyword, a line carrying a shell metacharacter,
+# a symlinked alias -- prints nothing.
+section "toolchain: the default Node version read as data (unit)"
+alias_nvm="${FIXTURE_ROOT}/alias-nvm"
+mkdir -p "${alias_nvm}/alias" "${alias_nvm}/versions/node/v22.23.2" "${alias_nvm}/versions/node/v22.23.3" \
+    "${alias_nvm}/versions/node/v20.1.0" "${alias_nvm}/versions/node/notaversion"
+while IFS='|' read -r alias_value want what; do
+    [[ -n "${what}" ]] || continue
+    printf '%s\n' "${alias_value}" > "${alias_nvm}/alias/default"
+    got="$(ai_tools_nvm_default_version "${alias_nvm}")"
+    [[ "${got}" == "${want}" ]] && pass "alias ${what} -> '${want}'" || fail "alias ${what}: got '${got}', want '${want}'"
+done <<'ROWS'
+22|v22.23.3|a major selects the highest installed match
+v22.23|v22.23.3|a major.minor prefix selects the highest installed match
+v22.23.2|v22.23.2|an exact version selects itself
+18||a major with no installed match
+lts/*||an nvm keyword
+22;rm -rf /||a line carrying a shell metacharacter
+2 2||a line with a space is refused whole, not read as 22
+ 22||a leading space is refused whole
+22
+23||a second line is refused whole
+ROWS
+# A NUL byte, which a command substitution drops -- `2<NUL>2` read that way is `22` -- is refused as a byte.
+printf '2\0002\n' > "${alias_nvm}/alias/default"
+got="$(ai_tools_nvm_default_version "${alias_nvm}")"
+[[ -z "${got}" ]] && pass "alias with a NUL byte is refused whole, not read as 22" || fail "alias with a NUL byte read '${got}'"
+# A candidate is a real directory: a regular file and a symlink named like a newer version do not win.
+: > "${alias_nvm}/versions/node/v22.99.99"
+ln -s "${alias_nvm}/versions/node/v22.23.3" "${alias_nvm}/versions/node/v22.99.98"
+printf '22\n' > "${alias_nvm}/alias/default"
+got="$(ai_tools_nvm_default_version "${alias_nvm}")"
+[[ "${got}" == v22.23.3 ]] && pass "a regular file and a symlink named like a version are not candidates" \
+    || fail "a non-directory candidate won: '${got}'"
+rm -f "${alias_nvm}/versions/node/v22.99.99" "${alias_nvm}/versions/node/v22.99.98"
+rm -f "${alias_nvm}/alias/default"
+ln -s "${alias_nvm}/versions/node/v20.1.0" "${alias_nvm}/alias/default"
+[[ -z "$(ai_tools_nvm_default_version "${alias_nvm}")" ]] \
+    && pass "a symlinked alias is not read" || fail "a symlinked alias was read"
+
+# ── The copies a transfer leaves where npm keeps symlinks, and their repair ────────────────────
+# The detector is a stat, which root runs. The repair runs node from the tree, so it refuses root and is driven here
+# as the sandbox account, over a fixture version directory that account owns; its node is a link to the toolchain's own,
+# the one this case needs to execute. Only a byte-identical copy is replaced.
+section "toolchain: copies in a version's bin directory, and their repair (unit)"
+copy_vdir="${FIXTURE_ROOT}/copied-tree/v9.9.9"
+mkdir -p "${copy_vdir}/bin" "${copy_vdir}/lib/node_modules/npm/bin" "${copy_vdir}/lib/node_modules/@acme/tool"
+printf '{"name":"npm","bin":{"npm":"bin/npm-cli.js","npx":"bin/npx-cli.js"}}\n' \
+    > "${copy_vdir}/lib/node_modules/npm/package.json"
+printf 'npm-cli\n' > "${copy_vdir}/lib/node_modules/npm/bin/npm-cli.js"
+printf 'npx-cli\n' > "${copy_vdir}/lib/node_modules/npm/bin/npx-cli.js"
+printf '{"name":"@acme/tool","bin":"cli.js"}\n' > "${copy_vdir}/lib/node_modules/@acme/tool/package.json"
+printf 'tool\n' > "${copy_vdir}/lib/node_modules/@acme/tool/cli.js"
+cp "${copy_vdir}/lib/node_modules/npm/bin/npm-cli.js" "${copy_vdir}/bin/npm"
+cp "${copy_vdir}/lib/node_modules/@acme/tool/cli.js" "${copy_vdir}/bin/tool"
+printf 'edited\n' > "${copy_vdir}/bin/npx"
+printf 'stray\n' > "${copy_vdir}/bin/stray"
+toolchain_node="$(printf '%s\n' /opt/ai-tools/.nvm/versions/node/v*/bin/node | sort -V | tail -n1)"
+[[ -x "${toolchain_node}" ]] && ln -s "${toolchain_node}" "${copy_vdir}/bin/node"
+
+copies_found="$(ai_tools_toolchain_bin_copies "${copy_vdir}" | paste -sd' ')"
+[[ "${copies_found}" == "npm npx stray tool" ]] \
+    && pass "the detector names every regular file in bin/ other than node" || fail "detector: '${copies_found}'"
+
+if [[ "${EUID}" -eq 0 ]]; then
+    rc=0; ai_tools_toolchain_relink_copies "${copy_vdir}" >/dev/null 2>&1 || rc=$?
+    [[ "${rc}" -ne 0 && -f "${copy_vdir}/bin/npm" && ! -L "${copy_vdir}/bin/npm" ]] \
+        && pass "the repair refuses root and leaves the tree as it was" || fail "the repair ran as root (rc ${rc})"
+fi
+if [[ ! -x "${toolchain_node}" ]]; then
+    skip "the repair of the copies" "no toolchain node to parse package.json with"
+elif [[ "${EUID}" -ne 0 ]]; then
+    skip "the repair of the copies" "needs root to run it as ${SANDBOX_USER}"
+else
+    chown -R "${SANDBOX_USER}:${SANDBOX_GROUP}" "${FIXTURE_ROOT}/copied-tree"
+    chmod 0755 "${FIXTURE_ROOT}"
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    outcomes="$(as_sandbox bash -c 'source "$1"; ai_tools_toolchain_relink_copies "$2"' \
+        _ "${LIB}" "${copy_vdir}" 2>/dev/null | paste -sd' ')"
+    [[ "${outcomes}" == $'npm\trelinked npx\tdiffers stray\tunknown tool\trelinked' ]] \
+        && pass "identical copies are relinked, an edited one and an undeclared one are left" \
+        || fail "outcomes: '$(tr '\t' '>' <<<"${outcomes}")'"
+    [[ "$(readlink "${copy_vdir}/bin/npm")" == ../lib/node_modules/npm/bin/npm-cli.js \
+        && "$(readlink "${copy_vdir}/bin/tool")" == ../lib/node_modules/@acme/tool/cli.js ]] \
+        && pass "each restored link is npm's own relative form, a scoped package's string bin included" \
+        || fail "links: npm -> '$(readlink "${copy_vdir}/bin/npm")', tool -> '$(readlink "${copy_vdir}/bin/tool")'"
+    [[ -f "${copy_vdir}/bin/npx" && ! -L "${copy_vdir}/bin/npx" && "$(<"${copy_vdir}/bin/npx")" == edited ]] \
+        && pass "a copy whose bytes differ from its target is left byte for byte" || fail "the edited copy changed"
+fi
+
 finish

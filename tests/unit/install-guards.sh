@@ -135,10 +135,11 @@ git_fix init -q
 git_fix add -A
 git_fix commit -q -m "fixture"
 # run_gate [arg...] -- the check-tree action on the fixture, its combined output and exit status published in GATE_OUT /
-# GATE_RC. Detached from any terminal, as the gate does not prompt.
+# GATE_RC. Detached from any terminal, as the gate does not prompt. The installed CLI it orders against is a path
+# that does not exist, so the version gate passes whatever this host has installed; (13a) drives that gate on its own.
 run_gate() {
     set +e
-    GATE_OUT="$(SUDO_USER="${PROJECTS_USER}" setsid -w bash "${FIX}/install.sh" check-tree "$@" 2>&1)"
+    GATE_OUT="$(AI_TOOLS_INSTALLED_CLI="${TESTDIR}/no-installed-cli" SUDO_USER="${PROJECTS_USER}" setsid -w bash "${FIX}/install.sh" check-tree "$@" 2>&1)"
     GATE_RC=$?
     set -e
 }
@@ -149,6 +150,27 @@ if (( GATE_RC == 0 )) && grep -q 'source tree   : commit' <<<"${GATE_OUT}" && gr
     pass "a clean checkout passes the gate and names its commit"
 else
     fail "clean checkout: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+
+# (11b) The gate reads the operator's repository without writing it. A tree copied or unpacked onto a host carries
+# a stale stat cache in .git/index, which a plain `git status` refreshes by rewriting the index -- and a root-written
+# index is root-owned, so the operator's next `git add` cannot write it. The fixture is handed to the projects user,
+# a touch stales the cache, and a plain root `git status` is the control that the state rewrites the index at all.
+chown -R "${PROJECTS_USER}:" "${FIX}"
+index_owner() { stat -c %U "${FIX}/.git/index"; }
+touch -d '2001-01-01' "${FIX}/install.sh"
+git -c safe.directory='*' -C "${FIX}" status --porcelain >/dev/null 2>&1 || true
+if [[ "$(index_owner)" == root ]]; then
+    chown "${PROJECTS_USER}:" "${FIX}/.git/index"
+    touch -d '2002-02-02' "${FIX}/install.sh"
+    run_gate
+    if (( GATE_RC == 0 )) && [[ "$(index_owner)" == "${PROJECTS_USER}" ]]; then
+        pass "the gate leaves .git/index with the operator when the stat cache is stale"
+    else
+        fail "the gate rewrote .git/index as $(index_owner): rc=${GATE_RC}: ${GATE_OUT}"
+    fi
+else
+    skip "the gate leaves .git/index with the operator" "a root git status did not rewrite a stale index on this git, so the case has no control"
 fi
 
 # (12) An uncommitted change is refused, the path is listed, and the refusal names the flag. The edit is a comment:
@@ -164,6 +186,66 @@ if (( GATE_RC != 0 )) \
     pass "an uncommitted tree is refused, its paths listed, and the flag named as the way through"
 else
     fail "uncommitted tree: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+
+# (13a) The version gate, driven through the same action over the same fixture: the checkout's packaging/VERSION
+# against the AI_TOOLS_VERSION line of a fixture "installed CLI" reached through AI_TOOLS_INSTALLED_CLI. Each direction
+# is driven -- a newer installation refuses and names the flag, the flag admits it with the warning that states
+# what the next post-upgrade will read, an equal and an older installation pass in silence, and an installation
+# whose version cannot be read passes with the line saying so. `--allow-uncommitted` keeps the source-tree gate
+# out of the way, since these runs share the fixture with the cases that dirty it.
+mkdir -p "${FIX}/packaging"; printf '0.21.0\n' > "${FIX}/packaging/VERSION"
+INSTALLED_CLI="${TESTDIR}/installed-cli"
+run_version_gate() {  # run_version_gate <installed version line> [arg...]
+    local line="$1"; shift
+    printf '#!/usr/bin/env bash\n%s\n' "${line}" > "${INSTALLED_CLI}"
+    set +e
+    GATE_OUT="$(AI_TOOLS_INSTALLED_CLI="${INSTALLED_CLI}" SUDO_USER="${PROJECTS_USER}" setsid -w bash "${FIX}/install.sh" check-tree --allow-uncommitted "$@" 2>&1)"
+    GATE_RC=$?
+    set -e
+}
+run_version_gate 'AI_TOOLS_VERSION="0.22.0"'
+assert_msg MSG-W6B3 "${GATE_OUT}" "a checkout older than the installed version is refused"
+if (( GATE_RC != 0 )) && grep -q '0.21.0' <<<"${GATE_OUT}" && grep -q '0.22.0' <<<"${GATE_OUT}" \
+        && grep -qE "sudo (dnf remove 'ai-tools-\*'|\./install\.sh uninstall)" <<<"${GATE_OUT}" \
+        && grep -q -- '--allow-downgrade' <<<"${GATE_OUT}"; then
+    pass "the refusal names both versions, the removal by the installed version's own tool, and the in-place flag after it"
+else
+    fail "downgrade refusal: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+if grep -q 'sudo dnf remove' <<<"${GATE_OUT}"; then
+    if rpm -q ai-tools-base >/dev/null 2>&1; then
+        pass "the removal named is dnf's, since ai-tools-base is an rpm on this host"
+    else
+        fail "the refusal names dnf on a host where ai-tools-base is not an rpm"
+    fi
+elif rpm -q ai-tools-base >/dev/null 2>&1; then
+    fail "the refusal names the from-source uninstall on a host where ai-tools-base is an rpm"
+else
+    pass "the removal named is the installed version's own install.sh uninstall, since ai-tools-base is not an rpm here"
+fi
+run_version_gate 'AI_TOOLS_VERSION="0.22.0"' --allow-downgrade
+assert_msg MSG-W7G8 "${GATE_OUT}" "--allow-downgrade admits the older checkout with a warning"
+if (( GATE_RC == 0 )) && ! grep -q 'MSG-W6B3' <<<"${GATE_OUT}" && grep -q 'system post-upgrade' <<<"${GATE_OUT}"; then
+    pass "the admitted downgrade passes and the warning names what the next post-upgrade reads"
+else
+    fail "admitted downgrade: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+for line in 'AI_TOOLS_VERSION="0.21.0"' 'AI_TOOLS_VERSION="0.20.5"' 'AI_TOOLS_VERSION="dev"' 'AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"'; do
+    run_version_gate "${line}"
+    if (( GATE_RC == 0 )) && ! grep -qE 'MSG-W6B3|MSG-W7G8' <<<"${GATE_OUT}" && grep -q 'version       : 0.21.0' <<<"${GATE_OUT}"; then
+        pass "an installation reading ${line#AI_TOOLS_VERSION=} passes the version gate, the version line printed"
+    else
+        fail "installed ${line}: rc=${GATE_RC}: ${GATE_OUT}"
+    fi
+done
+rm -f "${INSTALLED_CLI}"
+run_version_gate ''
+rm -f "${INSTALLED_CLI}"
+if (( GATE_RC == 0 )) && grep -q 'no installed version to order against' <<<"${GATE_OUT}"; then
+    pass "no installed CLI passes the version gate, saying there is nothing to order against"
+else
+    fail "no installed CLI: rc=${GATE_RC}: ${GATE_OUT}"
 fi
 
 # (13) A path the sandbox account owns is marked: that is a session's write no one has committed.

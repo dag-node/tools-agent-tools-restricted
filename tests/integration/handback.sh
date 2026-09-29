@@ -121,13 +121,20 @@ fi
 # as ${SANDBOX_USER}: socket reach (0711) + SO_PEERCRED + the daemon's getattr on the ai_tools_exec_t entrypoint. No net
 # change: the target is unchanged.
 _client="/usr/local/bin/ai-tools-handback-client"
-_tgt="$(readlink /opt/ai-tools/bin/claude 2>/dev/null || true)"
+# The verb is agent-agnostic, so it is driven through the first enabled agent whose entrypoint is ready: the helper
+# behind it refuses a target the declared rule does not cover, and the declared-rule check in integration/selinux.sh
+# reports that state.
+IFS=$'\t' read -r _ _launcher < <(ready_launchers) || true
+_tgt=""
+[[ -n "${_launcher:-}" ]] && _tgt="$(readlink "/opt/ai-tools/bin/${_launcher}" 2>/dev/null || true)"
 if ! command -v runuser >/dev/null 2>&1; then
     skip "handback SYMLINK verb end-to-end" "runuser unavailable"
 elif [[ ! -x "${_client}" || ! -S "${_sock}" ]]; then
     skip "handback SYMLINK verb end-to-end" "client or socket unavailable"
+elif [[ -z "${_launcher:-}" ]]; then
+    skip_entrypoint_unready "handback SYMLINK verb end-to-end"
 elif [[ -z "${_tgt}" ]]; then
-    skip "handback SYMLINK verb end-to-end" "cannot read /opt/ai-tools/bin/claude target"
+    skip "handback SYMLINK verb end-to-end" "cannot read the /opt/ai-tools/bin/${_launcher} target"
 elif runuser -u "${SANDBOX_USER}" -- "${_client}" SYMLINK "${_tgt}" >/dev/null 2>&1; then
     pass "handback SYMLINK verb OK (socket reach + getattr on entrypoint)"
     _symlink_ok=1

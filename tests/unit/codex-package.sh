@@ -3,8 +3,8 @@
 # tests/unit/codex-package.sh
 # Unit test for the files ai-tools-agents-codex-restricted ships, held to the seams they plug into before any host
 # installs them: the manifest to the readers that parse it, the fragment to the session-env contract, the launcher
-# to the shared launch wrapper, the two managed TOML files to the shape codex was measured to accept, and the two
-# hook adapters to the payload shapes codex sends. Each property is one a host would otherwise discover at the first
+# to the shared launch wrapper, the two managed TOML files to the shape codex was measured to accept, and the two hook
+# adapters to the payload shapes codex sends. Each property is one a host would otherwise discover at the first
 # launch:
 #
 #   1. THE MANIFEST'S TWO PATHS AGREE. `launcher_target` names the file the launcher is re-linked
@@ -267,14 +267,18 @@ fi
 
 # ── 4. The managed files ──────────────────────────────────────────────────────────────────────
 section "/etc/codex: the two managed files, as codex parses them"
-if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import tomllib' 2>/dev/null; then
-    skip "managed files" "python3 with tomllib (3.11+) not available to parse TOML"
+if ! TOML_PY="$(toml_python)"; then
+    skip "managed files" "no python parses TOML (tomllib or tomli) -- on EL9: dnf install python3-tomli"
 else
     # toml_get <file> <dotted.key>: the value at that key as JSON, or "MISSING". A bare key that landed inside a table
     # is MISSING at the top level, which is the property this test exists for.
     toml_get() {
-        python3 - "$1" "$2" <<'PY'
-import json, sys, tomllib
+        "${TOML_PY}" - "$1" "$2" <<'PY'
+import json, sys
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 with open(sys.argv[1], "rb") as f:
     doc = tomllib.load(f)
 node = doc
@@ -285,8 +289,20 @@ for part in sys.argv[2].split("."):
 print(json.dumps(node, sort_keys=True))
 PY
     }
+    # toml_parses <file>: exit 0 when the file parses, with the parser's message on stderr otherwise.
+    toml_parses() {
+        "${TOML_PY}" - "$1" <<'PY'
+import sys
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
+with open(sys.argv[1], "rb") as f:
+    tomllib.load(f)
+PY
+    }
     for f in "${REQUIREMENTS}" "${MANAGED_CONFIG}"; do
-        if python3 -c 'import sys, tomllib; tomllib.load(open(sys.argv[1], "rb"))' "${f}" 2>"${TESTDIR}/toml.err"; then
+        if toml_parses "${f}" 2>"${TESTDIR}/toml.err"; then
             pass "$(basename "${f}") parses as TOML"
         else
             fail "$(basename "${f}") does not parse: $(head -c 200 "${TESTDIR}/toml.err")"

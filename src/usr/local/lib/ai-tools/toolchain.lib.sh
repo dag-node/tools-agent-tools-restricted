@@ -37,6 +37,11 @@
 if [[ -n "${_AI_TOOLS_TOOLCHAIN_LIB_LOADED:-}" ]]; then
     return 0
 fi
+# The logger, best-effort from this library's directory: journald for _ai_tools_toolchain_warn
+# and _ai_tools_toolchain_notice, and the sanitizer npm's output passes before it reaches a terminal or the journal.
+# Without it npm's text is left out of a report.
+# shellcheck source=SCRIPTDIR/log.lib.sh
+source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
 
 # _ai_tools_toolchain_warn [code] <message...> / _ai_tools_toolchain_notice [code] <message...> : report to stderr
 #   (the terminal, or the journal a unit routes it to) and, when log.lib.sh loaded, to journald. A leading message
@@ -55,6 +60,81 @@ _ai_tools_toolchain_notice() {
     printf 'ai-tools: notice: %s\n' "$*" >&2
     declare -F ai_tools_log_info >/dev/null 2>&1 && ai_tools_log_info "toolchain: $*"
     return 0
+}
+
+# The execution boundary: ai_tools_as_sandbox, the one route by which a root caller runs a file the sandbox account can
+# write, and ai_tools_is_sandbox_account, which this library's writers require of their own process. Its own library,
+# ahead of the provider requirement and independent of it, so a bootstrap provisioning Node alone still runs every
+# toolchain step through it.
+# shellcheck source=SCRIPTDIR/sandbox-exec.lib.sh
+source "${BASH_SOURCE[0]%/*}/sandbox-exec.lib.sh" 2>/dev/null || true
+
+# _ai_tools_toolchain_require_sandbox <function> : return 0 when this process runs as the sandbox account; otherwise
+#   report under MSG-P6P2 and return 1. Every function here that executes a file of the tree -- npm, node -- calls it
+#   first: root or an operator running one would execute what the sandbox account put there with its own authority
+#   (updater.rule.md). The answer is ai_tools_is_sandbox_account's (sandbox-exec.lib.sh); where that library did not
+#   load the identity is unconfirmed, which refuses too.
+_ai_tools_toolchain_require_sandbox() {
+    if declare -F ai_tools_is_sandbox_account >/dev/null 2>&1 && ai_tools_is_sandbox_account; then
+        return 0
+    fi
+    _ai_tools_toolchain_warn MSG-P6P2 "the sandbox toolchain is run by the sandbox account alone -- $1 was not run as $(id -un 2>/dev/null || printf 'uid %s' "${EUID}"); a root caller runs it through ai_tools_as_sandbox (sandbox-exec.lib.sh)"
+    return 1
+}
+
+# The reader ahead of the provider requirement does not read a manifest, so it is defined whatever it decides.
+# _ai_tools_toolchain_alias_value <alias-file> : print the alias an nvm alias file holds, or return non-zero. The host's
+#   /usr/bin/python3 reads it in isolated mode (the current directory off the import path): the file is opened without
+#   following a symlink, the descriptor is checked to be a regular file of at most 64 bytes, and the bytes read
+#   from that descriptor must match the alias shape whole, one optional line feed included -- a NUL, a space,
+#   a second line or a keyword is refused before any byte becomes a shell value.
+_ai_tools_toolchain_alias_value() {
+    [[ -x /usr/bin/python3 ]] || return 1
+    /usr/bin/python3 -I - "$1" <<'PY'
+import os, re, stat, sys
+
+path = sys.argv[1]
+try:
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+except OSError:
+    sys.exit(1)
+try:
+    info = os.fstat(descriptor)
+    if not stat.S_ISREG(info.st_mode) or info.st_size > 64:
+        sys.exit(1)
+    data = os.read(descriptor, 65)
+finally:
+    os.close(descriptor)
+match = re.fullmatch(rb"(v?[0-9]+(?:\.[0-9]+){0,2})\n?", data)
+if match is None:
+    sys.exit(1)
+sys.stdout.write(match.group(1).decode("ascii"))
+PY
+}
+
+# ai_tools_nvm_default_version <nvm-dir> : print the version directory name (`v22.23.3`) nvm's `default` alias selects
+#   among the installed versions, or an empty string. Read as data -- the alias file, then the version directories --
+#   so a root caller learns the version without sourcing nvm.sh, which is the sandbox account's to rewrite
+#   (updater.rule.md). The alias holds what nvm wrote: an exact `vX.Y.Z`, or a prefix of one (`22`, `v22.23`), which
+#   selects the highest installed match, as `nvm version default` does. The file's bytes are validated whole, as bytes,
+#   before any of them becomes a shell value: a line the account put there -- `2 2`, `22;rm -rf /`, `2<NUL>2`, which
+#   a command substitution would read as `22` -- is refused; `node`, `lts/*` and every other nvm keyword are outside
+#   the admitted shape too (ai-tools-bootstrap writes a bare major). Each prints nothing, which the callers report
+#   as an unset alias. A candidate is a real directory: a regular file or a symlink named like a version is not one.
+ai_tools_nvm_default_version() {
+    local nvm_dir="${1:-}" alias_line prefix candidate best=""
+    [[ -n "${nvm_dir}" ]] || return 0
+    alias_line="$(_ai_tools_toolchain_alias_value "${nvm_dir}/alias/default")" || return 0
+    [[ "${alias_line}" =~ ^v?[0-9]+(\.[0-9]+){0,2}$ ]] || return 0
+    prefix="v${alias_line#v}"
+    for candidate in "${nvm_dir}"/versions/node/v*; do
+        [[ -d "${candidate}" && ! -L "${candidate}" ]] || continue
+        candidate="${candidate##*/}"
+        [[ "${candidate}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+        [[ "${candidate}" == "${prefix}" || "${candidate}" == "${prefix}".* ]] || continue
+        best="$(printf '%s\n%s\n' "${best}" "${candidate}" | sed '/^$/d' | sort -V | tail -n1)"
+    done
+    printf '%s' "${best}"
 }
 
 # The provider resolver: the installed and enabled sets, and each manifest's fields. REQUIRED, and probed rather than
@@ -226,6 +306,108 @@ ai_tools_agent_incomplete() {
     return 0
 }
 
+# ai_tools_toolchain_bin_copies <version-dir> : print, one per line, the name of each entry in <version-dir>/bin that is
+#   a regular file other than `node`. npm's global layout keeps a symlink into lib/node_modules there for every command
+#   a package installs, so a regular file in its place is a copy a transfer of the tree left where the link was -- the
+#   state that stops npm (its entry script requires relative to its own directory) and leaves an agent's launcher on
+#   an unlabelled file. A stat per entry, so a root caller reads it as data. A name outside the launcher charset is
+#   not printed, since the directory is the sandbox account's; it is counted on stderr instead.
+ai_tools_toolchain_bin_copies() {
+    local version_dir="${1:-}" entry name invalid_name_count=0
+    [[ -d "${version_dir}/bin" ]] || return 0
+    for entry in "${version_dir}/bin"/*; do
+        [[ -f "${entry}" && ! -L "${entry}" ]] || continue
+        name="${entry##*/}"
+        [[ "${name}" == node ]] && continue
+        if [[ "${name}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            printf '%s\n' "${name}"
+        else
+            invalid_name_count=$(( invalid_name_count + 1 ))
+        fi
+    done
+    (( invalid_name_count == 0 )) || _ai_tools_toolchain_warn "${version_dir}/bin holds ${invalid_name_count} regular file(s) whose name is outside [A-Za-z0-9._-] -- not reported by name"
+    return 0
+}
+
+# ai_tools_toolchain_relink_copies <version-dir> : restore the symlink npm keeps in <version-dir>/bin for each copy
+#   ai_tools_toolchain_bin_copies names, and print `name<TAB>outcome` per copy:
+#     relinked  replaced by a relative symlink to its target -- a temporary name, then `mv -T`, the write
+#               ai_tools_relink_launcher makes, so the name is never absent
+#     differs   the target exists and the copy's bytes differ from it: not the transfer's doing, left as it is
+#     unknown   no enabled agent and no global package declares the name, or its target does not stay inside
+#               the version directory: left as it is
+#     failed    the write did not complete: left as it was
+#   The target is the enabled agent's `launcher_target` where its manifest declares one for that launcher, and otherwise
+#   the `bin` entry of the global package declaring the name, read from the packages' package.json by that version's
+#   own node. Only a byte-identical copy is replaced, so the link lands on the file the copy already held. Runs
+#   as the sandbox account alone (_ai_tools_toolchain_require_sandbox): it runs node from the tree.
+ai_tools_toolchain_relink_copies() {
+    local version_dir="${1:-}"
+    _ai_tools_toolchain_require_sandbox ai_tools_toolchain_relink_copies || return 1
+    [[ -d "${version_dir}/bin" && -d "${version_dir}/lib/node_modules" ]] || return 0
+    local -a copies=()
+    mapfile -t copies < <(ai_tools_toolchain_bin_copies "${version_dir}")
+    (( ${#copies[@]} )) || return 0
+
+    # name -> target, relative to the version directory. Packages first, so an agent's declared target overrides
+    # the shim npm links.
+    local -A launcher_targets=()
+    local name relative_target_path agent launcher declared
+    if [[ -x "${version_dir}/bin/node" ]]; then
+        while IFS=$'\t' read -r name relative_target_path; do
+            [[ "${name}" =~ ^[A-Za-z0-9._-]+$ ]] && ai_tools_launcher_target_valid "${relative_target_path}" 2>/dev/null \
+                && launcher_targets["${name}"]="${relative_target_path}"
+        done < <("${version_dir}/bin/node" -e '
+            const fs = require("fs"), path = require("path");
+            const root = path.join(process.argv[1], "lib", "node_modules");
+            const dirs = [];
+            for (const d of fs.readdirSync(root)) {
+                if (d.startsWith("@")) {
+                    for (const s of fs.readdirSync(path.join(root, d))) dirs.push(path.join(d, s));
+                } else if (!d.startsWith(".")) dirs.push(d);
+            }
+            for (const d of dirs) {
+                let j; try { j = JSON.parse(fs.readFileSync(path.join(root, d, "package.json"), "utf8")); } catch (_) { continue; }
+                let bin = j.bin;
+                if (typeof bin === "string") bin = { [String(j.name || d).split("/").pop()]: bin };
+                if (!bin || typeof bin !== "object") continue;
+                for (const [n, p] of Object.entries(bin))
+                    process.stdout.write(n + "\t" + path.posix.join("lib/node_modules", d, path.posix.normalize(String(p))) + "\n");
+            }' "${version_dir}" 2>/dev/null)
+    fi
+    while IFS=$'\t' read -r agent _ launcher; do
+        [[ -n "${agent}" && -n "${launcher}" ]] || continue
+        declared="$(ai_tools_agent_manifest_field "${agent}" launcher_target 2>/dev/null || true)"
+        [[ -n "${declared}" ]] && ai_tools_launcher_target_valid "${declared}" 2>/dev/null \
+            && launcher_targets["${launcher}"]="${declared}"
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+
+    local version_real target_path temporary_link_path outcome
+    version_real="$(realpath -e -- "${version_dir}" 2>/dev/null)" || return 1
+    for name in "${copies[@]}"; do
+        relative_target_path="${launcher_targets[${name}]:-}"
+        target_path=""
+        [[ -n "${relative_target_path}" ]] \
+            && target_path="$(realpath -e -- "${version_dir}/${relative_target_path}" 2>/dev/null || true)"
+        if [[ -z "${target_path}" || "${target_path}" != "${version_real}/"* || ! -f "${target_path}" ]]; then
+            outcome=unknown
+        elif ! cmp -s -- "${version_dir}/bin/${name}" "${target_path}"; then
+            outcome=differs
+        else
+            temporary_link_path="$(mktemp -u "${version_dir}/bin/.${name}.XXXXXX" 2>/dev/null)" || temporary_link_path=""
+            if [[ -n "${temporary_link_path}" ]] && ln -s "../${relative_target_path}" "${temporary_link_path}" 2>/dev/null \
+                    && mv -Tf "${temporary_link_path}" "${version_dir}/bin/${name}" 2>/dev/null; then
+                outcome=relinked
+            else
+                [[ -n "${temporary_link_path}" ]] && rm -f -- "${temporary_link_path}"
+                outcome=failed
+            fi
+        fi
+        printf '%s\t%s\n' "${name}" "${outcome}"
+    done
+    return 0
+}
+
 # ai_tools_path_in_use <dir> [<executable>...] : pure, no I/O -- succeed when any <executable> is
 #   <dir> or lies under it. The predicate behind the deferral: a process executing from a package
 #   directory (codex stages symlinks to its own entrypoint and execs them per edit) would fail
@@ -292,10 +474,12 @@ _ai_tools_toolchain_state_notice() {
 #   agent (MSG-X7Z9: a provisioning run must not remove what it maintains, so the direction is
 #   less access only) unless the third argument is `erase`, the form an agent package's own erase
 #   takes while its manifest still names the package; when <npm_package> falls outside npm's
-#   package-name charset or <version-dir> is not a directory (MSG-J5W4); and when the uninstall
-#   leaves the directory in place (MSG-X8F9).
+#   package-name charset or <version-dir> is not a directory (MSG-J5W4); when the uninstall
+#   leaves the directory in place (MSG-X8F9); and when the caller is not the sandbox account
+#   (MSG-P6P2), since the write runs npm from the tree.
 ai_tools_agent_package_remove() {
     local version_dir="${1:-}" npm_package="${2:-}" mode="${3:-}" package_dir agent name
+    _ai_tools_toolchain_require_sandbox ai_tools_agent_package_remove || return 1
     if [[ -z "${version_dir}" || ! -d "${version_dir}" ]] || ! [[ "${npm_package}" =~ ${_AI_TOOLS_NPM_PACKAGE_RE} ]]; then
         _ai_tools_toolchain_warn MSG-J5W4 "cannot remove $(printf '%q' "${npm_package}") from $(printf '%q' "${version_dir}"): not an npm package name in a version directory -- leaving the toolchain as it is"
         return 1
@@ -320,12 +504,22 @@ ai_tools_agent_package_remove() {
         return 0
     fi
     # That version's own npm, with the version directory pinned as the global prefix, so the uninstall edits the tree it
-    # was asked about whatever prefix the environment or an .npmrc would otherwise resolve. npm's own chatter goes
-    # to stderr, since this function's stdout is the outcome word alone.
-    PATH="${version_dir}/bin:${PATH}" npm uninstall -g --prefix "${version_dir}" "${npm_package}" >&2 \
+    # was asked about whatever prefix the environment or an .npmrc would otherwise resolve. npm and the tree it runs
+    # from are the sandbox account's, so what it prints is held rather than passed through: it is not printed
+    # on success, and on a failure its first error line, sanitized, in the report.
+    local npm_output npm_error_summary
+    npm_output="$(PATH="${version_dir}/bin:${PATH}" npm uninstall -g --prefix "${version_dir}" "${npm_package}" 2>&1)" \
         || true
     if [[ -e "${package_dir}" || -L "${package_dir}" ]]; then
-        _ai_tools_toolchain_warn MSG-X8F9 "could not remove ${package_dir} (npm uninstall left it in place) -- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re-run: sudo ai-tools-admin system bootstrap"
+        npm_error_summary="$(grep -m1 -E 'ERR!|^[A-Za-z]*Error' <<<"${npm_output}" || head -n1 <<<"${npm_output}")"
+        if [[ -z "${npm_error_summary}" ]]; then
+            npm_error_summary="npm printed no error"
+        elif declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
+            npm_error_summary="npm: $(ai_tools_log_sanitize "${npm_error_summary:0:200}")"
+        else
+            npm_error_summary="npm's error is not shown: log.lib.sh, which sanitizes it, did not load"
+        fi
+        _ai_tools_toolchain_warn MSG-X8F9 "could not remove ${package_dir} (npm uninstall left it in place; ${npm_error_summary}) -- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re-run: sudo ai-tools-admin system bootstrap"
         return 1
     fi
     printf 'removed'
@@ -337,10 +531,12 @@ ai_tools_agent_package_remove() {
 #   directory of <nvm-dir>, enabled or not -- the erase-time form, for an agent package's %preun
 #   and `install.sh uninstall`, run while the manifest that names the package is still on disk.
 #   Prints "version-dir<TAB>outcome" per version directory holding the package (the writer's
-#   words), and returns non-zero when any removal failed. Prints nothing for an agent whose
-#   manifest does not name a package, or whose package no version directory holds.
+#   words), and returns non-zero when any removal failed, or when the caller is not the sandbox
+#   account (MSG-P6P2). Prints nothing for an agent whose manifest does not name a package,
+#   or whose package no version directory holds.
 ai_tools_agent_package_erase() {
     local nvm_dir="${1:-}" agent="${2:-}" npm_package version_dir outcome rc=0
+    _ai_tools_toolchain_require_sandbox ai_tools_agent_package_erase || return 1
     npm_package="$(ai_tools_agent_manifest_field "${agent}" npm_package 2>/dev/null || true)"
     [[ -n "${npm_package}" && -n "${nvm_dir}" && -d "${nvm_dir}/versions/node" ]] || return 0
     [[ "${npm_package}" =~ ${_AI_TOOLS_NPM_PACKAGE_RE} ]] || return 1

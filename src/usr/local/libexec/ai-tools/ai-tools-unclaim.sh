@@ -1,79 +1,59 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-unclaim
-# Reverses the filesystem side of a project claim: hands an approved project tree back
-# to a target group and revokes the agent's access. For every eligible path it:
-#   1. clears all extended ACL entries and the default ACL (`setfacl -b`), removing the access
-#      entries claim seeded -- group:@SANDBOX_GROUP@ for the agent and user:<operator> for the
-#      operator -- AND the default ACL, so no claim grant lingers and new files no longer inherit
-#      auto group-write;
-#   2. changes the group owner to <target-group> (the operator's own group by default, or
-#      any group the operator chose), moving the tree out of @SANDBOX_GROUP@;
-#   3. removes group WRITE: 660 -> 640, 770 -> 750, 400 stays 400. Group READ stays, so the
-#      new group owner can still read/traverse. Group EXECUTE stays on a directory (traversal)
-#      and on a genuine script (owner has execute), but is stripped on a data file that landed
-#      group-executable -- `setfacl -b` promotes the tree's `group::r-x` base into the
-#      mode, so a plain file the agent wrote can surface as 0650; the strip is keyed on
-#      OWNER-execute (the bit git records) so a script keeps group r-x (750) while a data file
-#      drops to 640. On DIRECTORIES the setgid bit claim added is also cleared (`chmod g-w,g-s`),
-#      returning the tree to plain perms -- a numeric chmod cannot clear a directory's setgid,
-#      only symbolic `g-s` can. Files keep their setuid/setgid bits (an sgid binary is not
-#      silently altered): only the group write and any stray group execute are removed.
-# Net effect: the agent (group @SANDBOX_GROUP@) loses access via both the group owner and
-# the named ACL entry, and the tree carries plain Unix permissions under the new group.
+# Reverses the filesystem side of a project claim: hands an approved project tree back to a target group and revokes
+# the agent's access. For every eligible path it:
+#   1. clears every extended ACL entry and the default ACL (`setfacl -b`): the group:@SANDBOX_GROUP@
+#      and user:<operator> entries claim seeded, and the default that made new files inherit them;
+#   2. changes the group owner to <target-group> (the operator's own group by default), moving
+#      the tree out of @SANDBOX_GROUP@;
+#   3. removes group WRITE: 660 -> 640, 770 -> 750, 400 stays 400; group read and traverse stay. Group
+#      execute comes off a data file alone, keyed on OWNER-execute (the bit git records): `setfacl -b`
+#      promotes the tree's `group::r-x` base into the mode, so a plain file the agent wrote can surface
+#      as 0650. On a DIRECTORY the setgid bit claim added is cleared too (`chmod g-w,g-s`; a numeric chmod
+#      leaves a directory's setgid standing). A file keeps its setuid/setgid bits.
+# Net effect: the agent (group @SANDBOX_GROUP@) loses access through the group owner and the named ACL entry alike,
+# and the tree carries plain Unix permissions under the new group. `.git`, which the main walk skips with the other
+# heavy trees, is reverted by a dedicated pass, so git history is revoked with the rest.
 #
-# Invoked as root via sudo by the management CLI (`ai-tools projects unclaim`), the same no-NOPASSWD model
-# as `ai-tools-{relabel,lockdown,setfacl}`. Running as root is required to chgrp to an arbitrary group and to act
-# on files the projects user does not own. The project path and target group the CLI passes are re-validated here,
+# Invoked as root via sudo by `ai-tools projects unclaim`: root is what a chgrp to an arbitrary group, and a change
+# to a file the projects user does not own, need. The path and the target group the CLI passes are re-validated here,
 # and the path must resolve at or under a registered project (allowed-projects) or the helper is a no-op.
 #
 # Two modes, differing ONLY in which paths they accept -- never in what they do to a path they accept, so one reversal
 # is described once and tested once:
-#   default      the whole tree is authorized by its allowlist entry, and every eligible path
-#                in it is reverted.
-#   `--unlisted` the tree is in NO allowlist (a claimed project copied or moved elsewhere and
-#                never unclaimed), so it does not carry authorization of its own. The membership
-#                check is replaced by a per-path residue gate (_is_residue): a path is touched
-#                only while it still bears the ai-tools fingerprint -- owned by the sandbox
-#                account, grouped to it, or carrying its named ACL entry. A path that was
-#                never part of a claim is left byte-for-byte as it is, so running this on the
-#                wrong directory leaves it exactly as it was. This mode additionally hands sandbox-OWNED
-#                inodes back to the invoking operator (ai-tools-reclaim, which normally does
-#                that, declines an unlisted path -- MSG-K9H2, exit 0) and resets a leftover ai_tools_project_t
-#                label. `--full` extends the walk into the skip-listed heavy trees, where
-#                residue survives a copy exactly like everywhere else.
+#   default      the whole tree is authorized by its allowlist entry, and every eligible path in it is reverted.
+#   `--unlisted` the tree is in NO allowlist (a claimed project copied or moved elsewhere and never unclaimed), so it
+#                has no authorization of its own; a path is touched only while it still bears the ai-tools
+#                fingerprint (_is_residue: owned by the sandbox account, grouped to it, or carrying its named ACL
+#                entry), so a path that was never part of a claim is left byte for byte as it is. This mode also
+#                hands a sandbox-OWNED inode back to the invoking operator (ai-tools-reclaim declines an unlisted
+#                path -- MSG-K9H2, exit 0) and resets a leftover ai_tools_project_t label. `--full` extends the walk
+#                into the skip-listed heavy trees, where residue survives a copy as it does elsewhere.
 #
-# Owner guard: only the projects user's and the sandbox account's own files are touched; anything owned by a third party
-# (root, another developer) is left untouched, mirroring the claim helpers. Under `--unlisted` the "projects user" is
-# the operator who invoked sudo, validated against OPERATORS, since no allowlist entry can name the owner of an unlisted
-# tree -- so one operator can never rewrite another's files. Hardlink guard: a regular file with more than one name is
-# refused in BOTH modes, the same boundary ai-tools-chown enforces -- chgrp and chmod act on the inode, which a second
-# name can reach from outside the tree, so acting would change a path the walk never authorized.
+# Owner guard: only the projects user's and the sandbox account's own files are touched, the rule the claim walks hold.
+# Under `--unlisted` the "projects user" is the operator who invoked sudo, validated against OPERATORS, since no
+# allowlist entry names the owner of an unlisted tree.
 #
-# This is the one refusal here that leaves MORE access than acting would: the inode keeps its group,
-# so after the project is deregistered the agent still holds those files through it. That is accepted rather than
-# resolved, because the alternative is worse -- the second name is outside the tree and this pass does not authorize
-# a change out there, and for the common case (`git clone --local`, which hardlinks .git/objects to the source repo)
-# acting would silently rewrite the ORIGIN's objects. What the guard owes the operator instead is disclosure: refusals
-# are counted, reported to the terminal with what they leave behind, and handed the `find -links +1` that lists them,
-# never folded into a silent skip count. Secret-named and '!'-excluded paths are skipped (a locked secret stays where it
-# is), and heavy/transient trees are skipped -- the same rules as setgid/ setfacl, via the shared libraries. .git is
-# the exception: the main walk skips it like the other heavy trees, but a dedicated one-shot pass reverts it (it is
-# the tree a claim groups, and optionally normalizes, for the agent), so the unclaim fully revokes the agent's access
-# to git history.
+# Hardlink guard: a regular file with more than one name is refused in BOTH modes, the boundary ai-tools-chown holds too
+# -- chgrp and chmod act on the inode, which a second name reaches from outside the tree, so acting would change a path
+# the walk never authorized. This is the one refusal here that leaves MORE access than acting would: the inode keeps its
+# group, so after the project is deregistered the agent still holds those files through it. That is accepted, since
+# the second name is outside the tree, where this pass does not authorize a change, and for `git clone --local`,
+# which hardlinks .git/objects to the source repo, acting would silently rewrite the ORIGIN's objects. What the guard
+# owes the operator is disclosure: refusals are counted apart from the other skips, reported with what they leave
+# behind, and handed the `find -links +1` that lists them.
 #
-# NOT a round trip. The reversal normalizes; it does not restore. `setfacl -b` clears every extended ACL -- including
-# entries that predate the claim and are unrelated to the agent -- and group write comes off, so a path the claim opened
-# lands on 640 (750 when the owner has execute) under the target group. What it does NOT do is put back the world bits:
-# the claim's ACL walk set other::--- on every path it touched, so 644 and 664 both arrive
-# here as 660 and leave as 640. An owner-only path (0600/0700) is the exception at both ends -- the claim skips it
-# as out of the agent's reach, so there is no change to reverse and it passes through unchanged. No prior state is
-# recorded anywhere, so no pass can restore it; the CLI says so before it asks and tells the operator to back up first.
+# NOT a round trip. The reversal normalizes; it does not restore. `setfacl -b` clears every extended ACL -- entries
+# that predate the claim included -- and group write comes off, so a path the claim opened lands on 640 (750 when
+# the owner has execute) under the target group. The world bits are not put back: the claim's ACL walk set other::---
+# on every path it touched, so 644 and 664 both arrive here as 660 and leave as 640. An owner-only path (0600/0700)
+# passes through unchanged at both ends, the claim having skipped it. No prior state is recorded anywhere, so no pass
+# can restore it; the CLI says so before it asks and tells the operator to back up first.
 #
-# Idempotent: re-running on an already-unclaimed tree finds no ACL left to clear, regroups to the same group,
-# and removes an already-absent write bit -- all no-ops.
+# Idempotent: a re-run finds no ACL to clear, regroups to the same group, and removes an absent write bit.
 #
-# Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
+# Installed 750 root:root. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 

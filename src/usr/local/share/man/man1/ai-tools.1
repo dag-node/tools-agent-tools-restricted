@@ -144,16 +144,56 @@ brand-new directory for, and no git history to expose in a repository with no co
 The one question that can still appear is the traverse grant on a parent directory,
 which widens access on the project's ancestors and is answered only by a person at a terminal.
 .TP
-.B projects claim \fR[\fB\-y\fR] [\fIDIRECTORY\fR]
+.B projects claim \fR[\fB\-y\fR] [\fB\-\-format tsv\fR] [\fIDIRECTORY\fR]
 Claim a real project in place so the agent works your actual tree: register it
-(allowlist and git safe.directory), scan for and lock down secret-named files
+(allowlist, git safe.directory and repo-local core.filemode=true), scan for and lock down secret-named files
 .I before
 any access is granted, set the shared group and ACL, and apply the SELinux
-project label. Idempotent \(em a re-claim runs only the missing steps and
-repairs interior permission drift behind the same confirm. Access to the
+project label. Idempotent \(em a re-claim runs only the missing steps. It also
+finds files moved into the project that kept their SELinux type, or their group
+and missing ACL, and asks about each kind under its list, each defaulting to no:
+.B \-y
+answers the relabel and not the group and ACL repair. Without a terminal the relabel runs only with
+.BR \-y ,
+and
+.B AI_TOOLS_ASSUME_YES
+does not answer it, since it resets every type in the tree.
+On an enforcing host, when the relabel does not run and every file the group question lists is also
+on the relabel list, the group question is not asked: those files keep a type
+the agent is refused, so a group change alone would not share them.
+A file whose name, or a project directory containing it, matches your secret
+patterns is marked
+.BR [secret] :
+if you accept either repair, the secret lockdown makes it owner-only first,
+so neither repair shares it.
+After the claim's steps, each such file is checked on its own and printed as one
+indented line naming its
+.IR "outcome kind path detail" ;
+.B \-\-format tsv
+carries the same outcomes for a script. The
+.I outcome
+is one of
+.BR fixed ,
+.BR not\-fixed ,
+.B unverified
+(the check could not be read), or
+.B gone
+(the file no longer exists).
+The claim exits 4 when a file is left not fixed and 5 when a check could not be read
+(see
+.BR "EXIT STATUS" ).
+Access to the
 repository's git history
 .RB ( .git )
 is a separate opt-in prompt.
+.RS
+.TP
+.B \-\-format tsv
+Write those outcomes as the record stream
+.BR ai-tools-records (5)
+states, one row per file, and no other line on standard output: every other
+line the claim prints goes to standard error, and its questions still ask on the terminal.
+.RE
 .TP
 .B projects unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI GROUP\fR] [\fIDIRECTORY\fR]
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
@@ -175,8 +215,8 @@ extended ACL is cleared (including any predating the claim), the group owner
 changes, group write is removed, and directory setgid is cleared. World access,
 which the claim removed, is not restored, and an owner-only path (0600 or 0700) is
 untouched at both ends, since the claim leaves it out of the agent's reach to begin
-with. The mode each path lands on is in
-.IR /usr/share/doc/ai\-tools/docs/projects/index.md .
+with. What a claim leaves alone, and what an unclaim does not restore, is in
+.IR /usr/share/doc/ai\-tools/docs/projects/permissions.md .
 The previous permissions are recorded nowhere, so the operation is
 .BR "not reversible" .
 Back up first.
@@ -350,7 +390,8 @@ Skip the final \(lqCreate the sandbox clone?\(rq confirmation. The secret gate s
 applies.
 .RE
 .IP
-The clone is born owner-only; tip-commit secrets are locked down first, and only past
+The clone is born owner-only; tip-commit secrets are locked down first, under every
+directory of the clone, and only past
 that gate is the clone opened to the agent and registered. A declined or failed lockdown
 stops fail-closed \(em the clone stays private and unregistered; re-run this command on
 the clone path to resume securing it.
@@ -360,11 +401,14 @@ Push the sandbox clone's commits to the remote branch it tracks
 .RI ( sandbox/LEAF
 by default; see
 .BR \-\-branch ).
+It does not take options: one given is refused with exit 2 before anything is
+pushed, since the confirmation defaults to yes.
 .TP
 .B projects lockdown \fR[\fIDIRECTORY\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR]
 Lock secret-named files under the project (\fB.env\fR, \fB*.key\fR, ...) to
 owner-only, revoking the agent's read access. Runs via
 .BR sudo .
+It asks before it changes a file; declining exits 6 with no file changed.
 .TP
 .B projects handback \fR[\fB\-\-full\fR] [\fIDIRECTORY\fR]
 Take back ownership of the files the agent wrote under the project \(em including
@@ -456,10 +500,10 @@ something survived
 .BR SIGKILL ,
 .B 2
 usage \(em an unknown option, or a path,
-.B 4
-declined at the confirmation,
 .B 5
-the helper could not run. The request, the answer to the confirmation, each session ended
+the helper could not run,
+.B 6
+declined at the confirmation. The request, the answer to the confirmation, each session ended
 and which pass ended it are all recorded in
 .I /var/log/ai\-tools/stop.log
 and journald. What each outcome means, and what a stop leaves in place:
@@ -509,8 +553,11 @@ Launch refusals are reported in a section of their own, because
 .B ai\-tools\-run
 runs as the sandbox account and can reach only journald \(em they are the session's own
 account of itself, to reconcile against the file trail rather than to rely on alone.
-Exits non-zero when anything is reported, so it can be run unattended from a cron job
-or a login banner without parsing its output.
+Exits 4 when anything is reported and 5 when a source could not be read (see
+.BR "EXIT STATUS" ),
+so it can be run unattended from a cron job or a login banner without parsing its
+output; an incomplete run names the reading it could not make instead of reporting
+a clean window.
 .RS
 .PP
 A third section reports what the kernel recorded: an agent's binary started from
@@ -546,11 +593,17 @@ because running it starts an agent as you with none of the sandbox, and names
 .B "ai\-tools\-admin operators add"
 as the repair.
 .PP
-Exits non-zero when anything is reported broken \(em a shadowed launcher
-included \(em so it can be run unattended from a monitor or a cron job. SKIPPED
+Exits 4 when anything is reported broken \(em a shadowed launcher
+included \(em and 5 when a reading it promises could not be made because a
+library the package ships did not load (see
+.BR "EXIT STATUS" ),
+so it can be run unattended from a monitor or a cron job. SKIPPED
 is not broken: it reports a run that correctly declined to act, such as an
 update that could not reach the package registry, and turns STALE if the
-condition persists.
+condition persists. A
+.B ?
+line is a probe this account may fail without the host being broken, and does
+not change the exit.
 .RE
 .SH OPTIONS
 .TP
@@ -710,21 +763,63 @@ unregistered by then, so what remains is out of the agent's reach and can be
 deleted by hand.
 .TP
 .B 2
-The command line was rejected.
-.B stop
-returns this for a
+The command line was rejected, before any helper or
+.B sudo
+ran: an unknown option; a second directory for a verb that takes one; an
+argument to
+.BR "projects list" ", " status " or " providers ,
+which take none; a
 .I DIRECTORY
-argument, which it refuses rather than accepts and ignores.
+for
+.BR stop ,
+which refuses one rather than accepts and ignores it; an option that has no
+effect beside another
+.RB ( \-\-yes " with " \-\-dry\-run );
+or a
+.B \-\-format
+value other than
+.BR tsv .
+A
+.B \-\-for
+run is the one exception to the ordering: its allowlist snapshot is the run's
+first
+.BR sudo ,
+and it precedes the verb's own parser, so a command line that verb rejects is
+refused after that prompt.
 .TP
 .B 3
 The target is a protected path \(em a system directory or a home root \(em and
 every elevated helper refuses it, whatever the allowlist says.
 .TP
+.B 4
+A report read every source and found something that needs attention
+.RB ( status ", " audit ),
+or
+.B "projects claim"
+left a file that drifted as it was, or stopped a scan at 200 files.
+The codes 4 and 5 are the ones
+.BR ai-tools-records (5)
+states for every report in this project.
+.TP
 .B 5
+A report could not make a reading it promises, so its findings are incomplete
+.RB ( status ": a library the package ships did not load; " audit ": a log file,
+the journal or the audit log could not be read, or the caller is not root;
+.BR "projects claim" ": a drifted file's state, or a scan of the tree, could not be read).
+The page names the reading it could not make.
 .B stop
-could not run at all: it was not invoked as root, the sandbox account has no
-uid, or the host has no cgroup v2 hierarchy.
-No session was signalled.
+returns the same code for its own case: it could not run at all, because it was
+not invoked as root, the sandbox account has no uid, or the host has no cgroup v2
+hierarchy. No session was signalled.
+.TP
+.B 6
+You declined at the confirmation, so the requested action was not performed.
+.B stop
+returns this for a deliberate
+.I n
+at its prompt; no session was signalled.
+.B projects lockdown
+returns it when you decline to lock the files it found; no file was changed.
 .TP
 .B 130
 .B stop
@@ -741,6 +836,9 @@ without prompting, for unattended runs.
 A question defaulting to
 .I no
 still prompts, so this never turns a refusal into consent.
+The relabel
+.B "projects claim"
+offers for files that kept a foreign SELinux type is not answered by it either.
 .PP
 Operator-wide settings are not environment variables: they live in
 .BR ai-tools-operator.conf (5),
@@ -752,12 +850,12 @@ Per-operator allowlist of project paths; a
 .RB \(oq ! \(cq-prefixed
 line excludes a subtree. Gates where sessions launch \(em not a read boundary.
 The grammar and the entry states are in
-.BR allowed\-projects (5).
+.BR ai\-tools\-allowed\-projects (5).
 .TP
 .I ~/.config/ai-tools/secret-patterns
 Per-operator secret-name patterns: a file whose name matches one is kept out of
 the agent's reach. The grammar and the replace rule are in
-.BR secret\-patterns (5).
+.BR ai\-tools\-secret\-patterns (5).
 .TP
 .I /etc/ai-tools/operator.conf
 The host options: the operator list, the enabled providers and filters, the
@@ -777,7 +875,9 @@ ai\-tools projects claim
 .EE
 .RE
 .PP
-Claim a specific tree, taking every default:
+Claim a specific tree, pre-answering the proceed prompt and the relabel
+question; the secret lockdown, the traverse grant and the git-history question
+still ask:
 .PP
 .RS 4
 .EX
@@ -829,9 +929,10 @@ ai\-tools projects unclaim ~/src/myproject
 .RE
 .SH SEE ALSO
 .BR ai\-tools\-admin (8),
-.BR allowed\-projects (5),
+.BR ai\-tools\-allowed\-projects (5),
 .BR ai-tools-operator.conf (5),
-.BR secret\-patterns (5),
+.BR ai-tools-records (5),
+.BR ai\-tools\-secret\-patterns (5),
 .BR setfacl (1),
 .BR sudo (8).
 .PP

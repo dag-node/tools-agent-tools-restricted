@@ -87,6 +87,12 @@ check_file /usr/local/lib/ai-tools/providers.lib.sh          root              r
 # Unreadable ancestor configuration: 644 root:root -- world-readable, sourced by the claim CLI and the launch wrapper
 # (both as the operator); it reports paths and does not change any file, so it does not carry any secrets.
 check_file /usr/local/lib/ai-tools/ancestor-config.lib.sh    root              root              644
+# The ACL a claim grants: 644 root:root, sourced by ai-tools-setfacl (root) and the claim CLI's verifier (the operator);
+# a pure function over the identities its caller passes, so it does not carry any secrets.
+check_file /usr/local/lib/ai-tools/project-permissions.lib.sh root            root              644
+# The execution boundary: 644 root:root, the one route by which a root process runs a file the sandbox account can
+# write; holds shipped logic and the substituted account name, does not read any operator data.
+check_file /usr/local/lib/ai-tools/sandbox-exec.lib.sh       root              root              644
 # The residue readers and the package removal: 644 root:root, sourced by the wrapper (as the operator), the shim,
 # the updater and the bootstrap's sandbox-account step; reads manifests, edits a tree its caller owns.
 check_file /usr/local/lib/ai-tools/toolchain.lib.sh          root              root              644
@@ -125,6 +131,10 @@ check_file /usr/local/lib/ai-tools/filters.lib.sh            root              r
 # Service-health registry: 644 root:root -- world-readable, sourced by the operator launch wrapper and the CLI
 # (ai-tools.status); read-only data, no secrets.
 check_file /usr/local/lib/ai-tools/services.lib.sh           root              root              644
+# Record streams: 644 root:root -- the model and the TSV wire format every machine-read report sources; read-only data
+# plus encoding, no secrets.
+check_file /usr/local/lib/ai-tools/records-base.lib.sh       root              root              644
+check_file /usr/local/lib/ai-tools/records-tsv.lib.sh        root              root              644
 # The three provider directories, owned by ai-tools-base (each member package drops only its own files into them). 0755
 # root:root is SECURITY-LOAD-BEARING, not housekeeping: these decide which agents get provisioned and what env a session
 # gets, and a group- or other-writable directory would let a non-root writer unlink and replace a root-owned manifest
@@ -226,8 +236,8 @@ check_file /etc/sudoers.d/ai-tools                     root              root   
 check_file /etc/ai-tools/operator.conf                        root              root              644
 # Custom system prompt: an empty, editable default under a dedicated dir. 640 root:ai-tools -- the sandbox account reads
 # it (via etc_t + the group) and the operator edits it with sudo, but a custom prompt is not world-readable (it may
-# carry proprietary instructions). the launch hook only stat()s it as the operator, so no operator read is needed; the dir
-# stays 755 so that stat can traverse it.
+# carry proprietary instructions). the launch hook only stat()s it as the operator, so no operator read is needed;
+# the dir stays 755 so that stat can traverse it.
 check_file /etc/ai-tools/prompts                              root              root              755
 check_file /etc/ai-tools/prompts/claude-system-prompt.md      root              "${SANDBOX_GROUP}" 640
 # Custom API endpoint: the endpoint file may hold a bearer token, so unlike operator.conf it is 640 root:ai-tools --
@@ -405,6 +415,11 @@ if [[ -e /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5.gz ]];
     check_file /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5.gz root root 644
 else
     check_file /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5    root root 644
+fi
+if [[ -e /usr/local/share/man/man5/ai-tools-records.5.gz ]]; then
+    check_file /usr/local/share/man/man5/ai-tools-records.5.gz root root 644
+else
+    check_file /usr/local/share/man/man5/ai-tools-records.5    root root 644
 fi
 if [[ -e /usr/local/share/man/man5/ai-tools-typesafe.conf.5.gz ]]; then
     check_file /usr/local/share/man/man5/ai-tools-typesafe.conf.5.gz root root 644

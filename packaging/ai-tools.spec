@@ -330,12 +330,15 @@ install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_man
 # headers are written once and point here for the reference.
 # ai-tools-custom-claude-endpoint.conf(5): the endpoint file's options, so its %%config(noreplace)
 # template stays a pointer.
+# ai-tools-records(5): the record stream a report writes for a machine consumer -- the columns, the
+# byte escape, the identity recipe and the exit contract a cron job branches on.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-operator.conf.5               %{buildroot}%{ai_mandir}/man5/ai-tools-operator.conf.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-providers.5                   %{buildroot}%{ai_mandir}/man5/ai-tools-providers.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-allowed-projects.5            %{buildroot}%{ai_mandir}/man5/ai-tools-allowed-projects.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-secret-patterns.5             %{buildroot}%{ai_mandir}/man5/ai-tools-secret-patterns.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5 %{buildroot}%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-records.5                     %{buildroot}%{ai_mandir}/man5/ai-tools-records.5
 # ai-tools-messages(7): every message code the tree emits, generated from the cross-reference
 # index. Section 7 documents a convention rather than a command, and no EL package owns man7
 # under %%{_prefix}/local, so the directory ships here.
@@ -355,7 +358,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf settings-merge skip-dirs owner-only relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify managed-assets providers ancestor-config toolchain selinux-groups filters services path-order agent-installs; do
+for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify managed-assets providers ancestor-config sandbox-exec toolchain selinux-groups filters services path-order agent-installs records-base records-tsv; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -942,6 +945,14 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
                     || echo "ai-tools-selinux: WARNING could not load the layout module ${_layout} declared by ${_manifest}; build output is typed at relabel time only. Re-run: sudo semodule -i ${_layout_pp}" >&2 ;;
         esac
     done
+    # The sandbox clones take their labels from the static clone rules and the layout modules'
+    # rules, so they are relabelled after both have loaded. /var/opt is outside the restorecon
+    # of /opt/ai-tools that follows the core load, and on a host whose file_contexts.subs_dist does
+    # not alias /var/opt to /opt (EL9) a clone created before this module version carries var_t
+    # until it is relabelled.
+    if command -v restorecon >/dev/null 2>&1 && [ -d /var/opt/ai-tools/sandbox-projects ]; then
+        restorecon -R /var/opt/ai-tools/sandbox-projects >/dev/null 2>&1 || :
+    fi
     exec 9>&-
     if command -v systemctl >/dev/null 2>&1 \
        && systemctl is-active --quiet ai-tools-handback.socket 2>/dev/null; then
@@ -1113,14 +1124,15 @@ fi
 # here. The npm package this agent installed into the sandbox toolchain goes the same way, with its
 # launcher link: once the manifest is gone no reader knows the package name, and a package left
 # behind keeps an entrypoint a session can exec (toolchain.lib.sh). Run AS the sandbox account, the
-# tree's owner, offline (npm uninstall does not reach a registry), and best-effort (`|| :`), so
+# tree's owner, through ai_tools_as_sandbox (sandbox-exec.lib.sh: no terminal, no inherited
+# descriptor, a clean environment), offline (npm uninstall does not reach a registry), and best-effort (`|| :`), so
 # the erase completes whatever it prints; a removal deferred under a live session is left for
 # the next update run.
 if [ "$1" -eq 0 ]; then
     [ -x %{ai_libexecdir}/ai-tools-relabel-agent ] \
         && %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
-    if [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
-        runuser -u ai-tools -- bash -c '. /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm claude-code' 2>&1 | sed 's/^/ai-tools: /' || :
+    if [ -r /usr/local/lib/ai-tools/sandbox-exec.lib.sh ] && [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
+        bash -c '. /usr/local/lib/ai-tools/sandbox-exec.lib.sh; ai_tools_as_sandbox ai-tools bash -c ". /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm claude-code"' 2>&1 | sed 's/^/ai-tools: /' || :
     fi
     rm -f /opt/ai-tools/bin/claude
 fi
@@ -1203,8 +1215,8 @@ if [ "$1" -eq 0 ]; then
     fi
     # The npm package and its launcher link, as the claude-code %%preun removes its own (the
     # reasoning is there): as the sandbox account, offline, best-effort.
-    if [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
-        runuser -u ai-tools -- bash -c '. /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm codex' 2>&1 | sed 's/^/ai-tools: /' || :
+    if [ -r /usr/local/lib/ai-tools/sandbox-exec.lib.sh ] && [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
+        bash -c '. /usr/local/lib/ai-tools/sandbox-exec.lib.sh; ai_tools_as_sandbox ai-tools bash -c ". /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm codex"' 2>&1 | sed 's/^/ai-tools: /' || :
     fi
     rm -f /opt/ai-tools/bin/codex
 fi
@@ -1246,6 +1258,7 @@ fi
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-allowed-projects.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-secret-patterns.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-records.5*
 %attr(0644, root, root) %{ai_mandir}/man7/ai-tools-messages.7*
 %attr(0644, root, root) %{ai_mandir}/man8/ai-tools-admin.8*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
@@ -1254,6 +1267,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/msg.lib.sh
 %attr(0644, root, root) %{ai_libdir}/skip-dirs.lib.sh
 %attr(0644, root, root) %{ai_libdir}/owner-only.lib.sh
+%attr(0644, root, root) %{ai_libdir}/project-permissions.lib.sh
 %attr(0644, root, root) %{ai_libdir}/relabel.lib.sh
 %attr(0644, root, root) %{ai_libdir}/secret-patterns.lib.sh
 %attr(0644, root, root) %{ai_libdir}/operator.lib.sh
@@ -1268,12 +1282,15 @@ fi
 %attr(0644, root, root) %{ai_libdir}/settings-merge.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
 %attr(0644, root, root) %{ai_libdir}/ancestor-config.lib.sh
+%attr(0644, root, root) %{ai_libdir}/sandbox-exec.lib.sh
 %attr(0644, root, root) %{ai_libdir}/toolchain.lib.sh
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
 %attr(0644, root, root) %{ai_libdir}/filters.lib.sh
 %attr(0644, root, root) %{ai_libdir}/services.lib.sh
 %attr(0644, root, root) %{ai_libdir}/path-order.lib.sh
 %attr(0644, root, root) %{ai_libdir}/agent-installs.lib.sh
+%attr(0644, root, root) %{ai_libdir}/records-base.lib.sh
+%attr(0644, root, root) %{ai_libdir}/records-tsv.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/keys
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d

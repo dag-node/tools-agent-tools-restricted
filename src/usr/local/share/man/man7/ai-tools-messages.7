@@ -66,29 +66,81 @@ ai\-tools: \-\-for needs an operator name
 ERROR.
 \-\-for cannot be combined with \-\-force
 .TP
+.B MSG-B6S7
+NOTICE.
+group\-gone
+.TP
 .B MSG-B7K4
 ERROR.
 unknown option for stop: ${argument}
+.TP
+.B MSG-B7P8
+WARNING.
+scan\-capped
+.TP
+.B MSG-B9A2
+ERROR.
+cannot load ${RECORDS_BASE_LIB}, which states this report's exit codes \-\- reinstall the ai\-tools package
+.TP
+.B MSG-C2U5
+ERROR.
+unknown projects push option: ${a} (projects push takes no options)
 .TP
 .B MSG-C4Y4
 ERROR.
 root is not an operator
 .TP
+.B MSG-C5T8
+ERROR.
+unknown projects create option: ${a}
+.TP
+.B MSG-C8P8
+ERROR.
+projects unclaim takes a single path
+.TP
+.B MSG-D3K4
+ERROR.
+group\-unverified
+.TP
 .B MSG-D8C8
 ERROR.
 this project is nested inside another claimed project: ${d}
+.TP
+.B MSG-D9C7
+ERROR.
+projects handback takes a single path
+.TP
+.B MSG-E2A5
+ERROR.
+projects list takes no arguments
 .TP
 .B MSG-E3D2
 ERROR.
 not a configured ai\-tools operator: ${FOR_OPERATOR} \-\- enrol it first with:
 .TP
+.B MSG-E4Y3
+NOTICE.
+label\-gone
+.TP
 .B MSG-F4D8
 ERROR.
 this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d}
 .TP
+.B MSG-F7J9
+ERROR.
+unknown projects unclaim option: ${a}
+.TP
+.B MSG-F8G9
+ERROR.
+projects claim takes a single path
+.TP
 .B MSG-H2D4
 ERROR.
 destination already exists: ${dst}
+.TP
+.B MSG-H2P7
+ERROR.
+providers list takes no arguments
 .TP
 .B MSG-H3F6
 ERROR.
@@ -98,9 +150,17 @@ the parent directory is not writable by ${OWNER_USER}: ${rm_parent}
 ERROR.
 ai\-tools: do not run as root \-\- run as the projects user, without sudo
 .TP
+.B MSG-J2A7
+ERROR.
+unknown projects claim option: ${a} (allowed: \-y/\-\-yes, \-\-format tsv)
+.TP
 .B MSG-J3K5
 ERROR.
 not a claimed project: ${d}
+.TP
+.B MSG-J3Q9
+ERROR.
+projects clone takes a single path: unexpected extra argument $1
 .TP
 .B MSG-J3R8
 ERROR.
@@ -109,6 +169,18 @@ the parent directory does not exist: ${parent}
 .B MSG-J4P9
 ERROR.
 a value is required after ${flag}
+.TP
+.B MSG-J7X4
+NOTICE.
+group\-fixed
+.TP
+.B MSG-K4R8
+ERROR.
+projects push takes a single path
+.TP
+.B MSG-K5W9
+ERROR.
+unknown projects disable option: ${a} (it takes a path only)
 .TP
 .B MSG-K5Y4
 ERROR.
@@ -126,6 +198,10 @@ projects remove \-y needs a path.
 ERROR.
 allowed\-projects not updated \-\- ${dir} is still registered
 .TP
+.B MSG-M2U9
+ERROR.
+projects remove takes a single path
+.TP
 .B MSG-M3Y5
 ERROR.
 unknown projects remove option: ${a}
@@ -133,6 +209,18 @@ unknown projects remove option: ${a}
 .B MSG-M3Z3
 ERROR.
 the sandbox account is not an operator and must not own projects
+.TP
+.B MSG-P4D2
+ERROR.
+\-\-yes has no effect with \-\-dry\-run, which neither changes a path nor asks
+.TP
+.B MSG-P4K8
+ERROR.
+label\-unverified
+.TP
+.B MSG-P5P8
+ERROR.
+\-\-yes has no effect with \-\-dry\-run, which neither changes a path nor asks
 .TP
 .B MSG-P8W2
 ERROR.
@@ -142,17 +230,33 @@ nothing to unclaim here: ${d}
 ERROR.
 not a claimed project: ${d}
 .TP
+.B MSG-Q3K7
+ERROR.
+unknown projects enable option: ${a} (it takes a path only)
+.TP
 .B MSG-Q3R9
 ERROR.
 this project contains ${#nested[@]} other claimed project(s), listed above: ${d}
+.TP
+.B MSG-Q4G7
+WARNING.
+label\-not\-fixed
 .TP
 .B MSG-Q6Q8
 ERROR.
 ai\-tools: refusing to run as the sandbox account ${SANDBOX_USER}
 .TP
+.B MSG-Q6X2
+ERROR.
+error
+.TP
 .B MSG-R3G9
 ERROR.
 \-\-keep\-entry cannot be combined with \-\-force
+.TP
+.B MSG-R3H8
+ERROR.
+unknown projects lockdown option: ${a} (allowed: \-\-dry\-run, \-\-yes)
 .TP
 .B MSG-R4J2
 ERROR.
@@ -165,6 +269,10 @@ projects remove has no \-\-force: a registry entry is what authorizes a deletion
 .B MSG-S6V2
 WARNING.
 removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run
+.TP
+.B MSG-S9A3
+ERROR.
+projects claim \-\-format takes one value, tsv
 .TP
 .B MSG-T4A8
 ERROR.
@@ -182,6 +290,22 @@ not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d}
 ERROR.
 this path is inside a claimed project, not a project itself: ${d}
 .TP
+.B MSG-T5S8
+ERROR.
+projects enable takes a single path
+.TP
+.B MSG-T6G3
+WARNING.
+group\-not\-fixed
+.TP
+.B MSG-T8F5
+NOTICE.
+label\-fixed
+.TP
+.B MSG-U3R3
+ERROR.
+unknown projects handback option: ${a} (allowed: \-\-full)
+.TP
 .B MSG-U7R7
 ERROR.
 \-\-for is not accepted on ${COMMAND}
@@ -190,9 +314,21 @@ ERROR.
 ERROR.
 this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}.
 .TP
+.B MSG-U8N3
+ERROR.
+unknown projects clone option: $1 (see: ai\-tools \-\-help)
+.TP
 .B MSG-V3N7
 ERROR.
 the provider resolver is unavailable: ${ENABLED_AGENTS_ERROR}
+.TP
+.B MSG-V8Z5
+ERROR.
+project path holds a control character: $(ai_tools_log_sanitize "${p}") \-\- rename it first
+.TP
+.B MSG-W3C7
+ERROR.
+projects disable takes a single path
 .TP
 .B MSG-W3H3
 ERROR.
@@ -212,6 +348,14 @@ Documented in
 ERROR.
 this is an excluded path inside a claimed project, not a disabled project: ${d}
 .TP
+.B MSG-X3G7
+ERROR.
+cannot load the libraries the claim checks its drift and states its exit codes with \-\- reinstall the ai\-tools package
+.TP
+.B MSG-X5Z8
+WARNING.
+service registry unavailable (${SERVICES_LIB}) \-\- cannot report service health; reinstall the ai\-tools package
+.TP
 .B MSG-X6U2
 ERROR.
 you (${INVOKING_USER}) are not a configured ai\-tools operator \-\- add your name to OPERATORS in ${conf} with:
@@ -220,9 +364,21 @@ you (${INVOKING_USER}) are not a configured ai\-tools operator \-\- add your nam
 ERROR.
 the sandbox is not provisioned for any enabled agent: ${joined%, } \-\- provision it with:
 .TP
+.B MSG-X9Z9
+ERROR.
+status takes no arguments
+.TP
+.B MSG-Y6V3
+ERROR.
+projects lockdown takes a single path
+.TP
 .B MSG-Z5V5
 ERROR.
 a value is required after ${flag}, not another option: $1
+.TP
+.B MSG-Z5Y7
+ERROR.
+projects create takes a single path
 .TP
 .B MSG-Z6Q6
 ERROR.
@@ -497,6 +653,10 @@ operators remove: name the user to withdraw
 ERROR.
 compiled module ${pp} not found \-\- reinstall ai\-tools\-selinux, or from a checkout: sudo selinux/install\-selinux.sh build
 .TP
+.B MSG-S5S2
+WARNING.
+the system clock reads $(date '+%Y\-%m\-%d %H:%M:%S'), earlier than the file(s) above \-\- the copy a file is compared with is the newest by date, so set the clock first (timedatectl set\-time, or chronyc makestep once a time source is reachable), then re\-run this command; no file was compared
+.TP
 .B MSG-S9G3
 WARNING.
 could not create ${cfg_home} as ${user}:${group}
@@ -554,7 +714,7 @@ ERROR.
 cannot source ${1}
 .TP
 .B MSG-V6N9
-ERROR.
+WARNING.
 the service registry (${SERVICES_LIB}) is unavailable \-\- reinstall ai\-tools\-base
 .TP
 .B MSG-V8V7
@@ -844,6 +1004,10 @@ no audit daemon on this host, so an agent started from inside a session leaves n
 WARNING.
 an agent entrypoint was started from inside a running session, which no launch gate saw
 .TP
+.B MSG-H2B7
+WARNING.
+cannot load ${RECORDS_BASE_LIB} \-\- refusing to report without its exit contract
+.TP
 .B MSG-K9C5
 ERROR.
 ai\-tools\-audit must run as root: the trail it reads is 700 root:root
@@ -860,9 +1024,17 @@ unknown option: $1
 WARNING.
 cannot load ${LOG_LIB} \-\- refusing to print log text unsanitized
 .TP
+.B MSG-T8S2
+WARNING.
+cannot create a temporary file to capture a tool's stderr
+.TP
 .B MSG-V8Z9
 NOTICE.
 the SELinux rule that records an agent started from inside a session is not in force, so no such start is recorded
+.TP
+.B MSG-W5C8
+WARNING.
+the audit could not read every source it reports from \-\- the readings it could not make are listed below
 .TP
 .B MSG-Y3M7
 ERROR.
@@ -872,6 +1044,10 @@ ai\-tools\-audit: \-\-since value not understood: ${SINCE}
 WARNING.
 \-\-since needs a value
 .SS ai-tools-bootstrap
+.TP
+.B MSG-C6E2
+ERROR.
+the toolchain is not the sandbox account's (the paths above), so the install step, which runs as ${user}, cannot read it \-\- restore the account's ownership, then re\-run:  sudo chown \-Rh ${user}:${group} ${foreign[*]}
 .TP
 .B MSG-C7C8
 WARNING.
@@ -889,6 +1065,10 @@ AI_TOOLS_AGENTS names more than one agent ($*): every agent named runs as the on
 ERROR.
 control plane present but the managed\-asset libs are missing \-\- reinstall ai\-tools
 .TP
+.B MSG-E2X2
+ERROR.
+cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it \-\- reinstall ai\-tools\-base, then re\-run: sudo ai\-tools\-admin system bootstrap
+.TP
 .B MSG-F3Y2
 ERROR.
 npm signature verification FAILED (possible registry tampering) \-\- aborting before wiring the launcher; the installed package is left unactivated
@@ -899,7 +1079,7 @@ control plane present but ${msglib} missing \-\- reinstall ai\-tools
 .TP
 .B MSG-H6A8
 WARNING.
-could not verify npm signatures (offline or unsupported) \-\- proceeding; the toolchain is installed but unverified
+could not verify npm signatures (the npm\-verify line states why) \-\- proceeding; the toolchain is installed but unverified
 .TP
 .B MSG-H9S6
 ERROR.
@@ -929,6 +1109,14 @@ could not write ${key}=${answer} into ${conf} \-\- set the line by hand
 WARNING.
 signature\-verification library not deployed yet \-\- skipping the check; the nvm\-update timer verifies on its first run
 .TP
+.B MSG-R5Z3
+ERROR.
+offline, and no toolchain is installed under ${NVM_DIR}: the nvm and Node download needs the network \-\- connect this host, then re\-run: sudo ai\-tools\-admin system bootstrap
+.TP
+.B MSG-S8B6
+WARNING.
+network: no answer from ${unreachable[*]} \-\- this run applies what needs no download (the account and its home, the launcher links, the labels, the units, the managed assets) and skips the nvm, Node and npm install; connect this host and re\-run to install or update the toolchain
+.TP
 .B MSG-T7H8
 ERROR.
 curl is required to fetch nvm
@@ -940,6 +1128,10 @@ incomplete package for ${_agent}: ${_package} is installed and ${_version_dir} d
 .B MSG-U6F2
 WARNING.
 control\-plane git capture incomplete
+.TP
+.B MSG-V2W3
+WARNING.
+a regular file where npm keeps a symlink was left as it is at ${version}/bin/${name} (${outcome}) \-\- remove it by hand as the sandbox account if nothing installed it on purpose
 .TP
 .B MSG-V4D9
 WARNING.
@@ -1045,6 +1237,10 @@ unknown argument: $1
 ERROR.
 no TTY for confirmation; re\-run with \-\-yes to apply non\-interactively
 .TP
+.B MSG-G8S6
+ERROR.
+\-\-gate and \-\-dry\-run do not combine \-\- \-\-gate locks what it lists
+.TP
 .B MSG-J3F9
 ERROR.
 excluded in the allowlist: ${target}; nothing to do
@@ -1065,9 +1261,17 @@ must be run by you, not ai\-tools
 ERROR.
 cannot source ${SECRET_PATTERNS_LIB}
 .TP
+.B MSG-T2J8
+ERROR.
+secret\-matching paths left unlocked under ${target}: ${skip_count}, each on a 'not locked:' line \-\- move, re\-link or lock it by hand, then re\-run
+.TP
 .B MSG-T5Y3
 WARNING.
 skip (hardlinked, nlink=${nlink}): ${path}
+.TP
+.B MSG-U8F7
+ERROR.
+cannot create a private directory for the scan
 .TP
 .B MSG-V7Y3
 ERROR.
@@ -1076,6 +1280,14 @@ cannot determine current directory
 .B MSG-V7Y7
 ERROR.
 not an allowed project: ${target} (see ${ALLOWLIST})
+.TP
+.B MSG-X4B9
+ERROR.
+the scan of ${target} could not read the whole tree (find exit ${rc}): $(ai_tools_log_sanitize "$(head \-c 300 "${SCAN_DIR}/find.err")")
+.TP
+.B MSG-Y5H5
+WARNING.
+could not lock ${path} to ${OWNER} ${mode}
 .SS ai-tools-reclaim
 .TP
 .B MSG-J4W5
@@ -1172,6 +1384,10 @@ wrong type on ${subject}: it is '${detail}', NOT ${wanted}
 WARNING.
 entrypoint verifier unavailable (${ENTRYPOINT_VERIFY_LIB}) \-\- entrypoints will not be pinned
 .TP
+.B MSG-J3A6
+ERROR.
+a copied toolchain link stops this relabel: ${copied} agent(s) resolve their launcher to a copy of the entrypoint rather than to it, so the file a session execs cannot be labelled; the toolchain run restores the links: sudo ai\-tools\-admin system bootstrap, then rerun
+.TP
 .B MSG-K4D7
 WARNING.
 could not record ${agent}'s stale pin for ai\-tools status \-\- the reports will render its pin as current
@@ -1199,6 +1415,10 @@ an agent's file\-context rule could not be applied (see above)
 .B MSG-S6C5
 ERROR.
 no usable path rules declared by ${agent} \-\- nothing dropped
+.TP
+.B MSG-S6V5
+WARNING.
+copied link for ${subject}: its launcher resolves to
 .TP
 .B MSG-S9Z3
 ERROR.
@@ -1260,6 +1480,10 @@ AI_TOOLS_AGENT_EXEC contains parent\-directory references
 .B MSG-Z2J9
 ERROR.
 invalid or absent AI_TOOLS_AGENT_EXEC \-\- cannot launch
+.TP
+.B MSG-Z9C8
+ERROR.
+the system clock reads $(date '+%Y\-%m\-%d %H:%M:%S'), earlier than a file this host wrote \-\- refusing to launch
 .SS ai-tools-safedir
 .TP
 .B MSG-F4Y6
@@ -1299,9 +1523,17 @@ unknown option: ${arg}
 WARNING.
 left ${owneronly} owner\-only path(s) (0600/0700) out of the sandbox account's reach
 .TP
+.B MSG-D3E3
+WARNING.
+FATAL: project\-permissions.lib.sh did not load \-\- no ACL specification to apply
+.TP
 .B MSG-D8D7
 WARNING.
 under .git, ${git_thirdparty} path(s) were NOT shared \-\- owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@
+.TP
+.B MSG-F3U3
+WARNING.
+FATAL: project\-permissions.lib.sh built no ACL specification for ${PROJECTS_USER}
 .TP
 .B MSG-G4P4
 WARNING.
@@ -1449,13 +1681,25 @@ could not derive the shipped module set (policy/shipped\-modules.sh)
 WARNING.
 labelling did not complete for ${subject} \-\- see its lines above
 .TP
+.B MSG-F2V5
+WARNING.
+compiled module ${pp} was built for policy module version ${reading%% *}, and this host reads ${reading#* }: recompiling it from source
+.TP
 .B MSG-F9G3
 WARNING.
 integration ${integration} declares layout module ${module}, which has no source under ${POLICY_DIR}
 .TP
+.B MSG-G9M3
+WARNING.
+incomplete package for ${subject}: its launcher resolves to
+.TP
 .B MSG-H5V4
 ERROR.
 selinux: cannot source required library ${1}
+.TP
+.B MSG-J7J5
+ERROR.
+compiled module ${pp} was built for policy module version ${reading%% *}, and this host reads ${reading#* }: semodule refuses it. Install the toolchain and recompile it here: sudo dnf install selinux\-policy\-devel && sudo $0 rebuild
 .TP
 .B MSG-J9B3
 WARNING.
@@ -1476,6 +1720,10 @@ ENFORCING MISMATCH \-\- domain(s) are permissive but .te expects enforcing:
 .B MSG-N8Q3
 WARNING.
 integration ${integration} declares a layout module name that is not ai_tools_<name>: ${module}
+.TP
+.B MSG-P8W5
+WARNING.
+copied toolchain link for ${subject}: its launcher resolves to
 .TP
 .B MSG-Q3Q6
 ERROR.
@@ -1542,6 +1790,10 @@ SELinux or the ai_tools module is not active \-\- no agent paths to label
 WARNING.
 toolchain not provisioned \-\- the wrapper/handback/SELinux checks skip or fail
 .TP
+.B MSG-B5V5
+WARNING.
+the system clock reads $(date '+%Y\-%m\-%d %H:%M:%S'), earlier than a file this install compares by date \-\- set the clock first (timedatectl set\-time, or chronyc makestep once a time source is reachable), then re\-run; no baseline copy is written beside ${deployed} this run:
+.TP
 .B MSG-C2X3
 WARNING.
 could not add ${PROJECTS_USER} to ai\-ops
@@ -1577,6 +1829,14 @@ an agent outside the sandbox is installed at ${install_path}
 .B MSG-G6H3
 WARNING.
 systemctl \-\-user $* failed by both the machine transport and the account's own
+.TP
+.B MSG-J2H9
+WARNING.
+the ${node_version}/bin directory holds copies where npm keeps symlinks (${copied_bins}) \-\- a transfer of the tree replaced the links with their targets, so launcher symlinks are skipped
+.TP
+.B MSG-J8F2
+WARNING.
+the kept ${deployed} differs from this version's beyond its hooks:
 .TP
 .B MSG-K2P8
 WARNING.
@@ -1662,9 +1922,17 @@ hook declarations not merged into ${deployed}: ${_ai_tools_conf_merge_reason}
 WARNING.
 lockdown: failed to chown ${d}
 .TP
+.B MSG-W6B3
+ERROR.
+this checkout is ${AI_TOOLS_VERSION} and ${installed} is installed, so this install is a downgrade${dnf_clause}.
+.TP
 .B MSG-W6Y7
 WARNING.
 SELinux step refused: a source install compiles its policy modules, and the
+.TP
+.B MSG-W7G8
+WARNING.
+downgrading ${installed} to ${AI_TOOLS_VERSION} in place as asked (\-\-allow\-downgrade): a kept settings.json keeps the hook declarations and the hook scripts ${installed} added, and the baseline copy this install leaves beside a kept file is ${AI_TOOLS_VERSION}'s, so the next system post\-upgrade compares the file with it and lists what ${installed} had added as the file's own
 .TP
 .B MSG-W9Z9
 WARNING.
@@ -1775,6 +2043,10 @@ cannot resolve working directory
 ERROR.
 cannot load the launch safety library \-\- refusing to start
 .TP
+.B MSG-U8K6
+ERROR.
+the system clock reads $(date '+%Y\-%m\-%d %H:%M:%S'), earlier than a file this host wrote \-\- refusing to start
+.TP
 .B MSG-U9K8
 ERROR.
 cannot load the toolchain library \-\- refusing to start
@@ -1799,6 +2071,14 @@ invoked under a name that is not a launcher \-\- refusing to start
 .B MSG-G4Q2
 WARNING.
 could not remove ${AI_TOOLS_BIN}/${launcher} via handback SYMLINK_REMOVE \-\- the ${agent} package is gone and every launch stays refused until the link is; remove it as root: rm \-f ${AI_TOOLS_BIN}/${launcher}
+.TP
+.B MSG-T2F4
+ERROR.
+cannot confirm this runs as the sandbox account: ${SANDBOX_EXEC_LIB} did not load \-\- reinstall ai\-tools\-base
+.TP
+.B MSG-U5C4
+ERROR.
+refusing to run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"): this script sources nvm.sh and runs npm from the sandbox toolchain, which only the sandbox account runs \-\- start it in that account's user instance (sudo systemctl \-\-user \-M ai\-tools@ start nvm\-update.service) or provision through sudo ai\-tools\-admin system bootstrap
 .SS providers.lib.sh
 .TP
 .B MSG-A3S3
@@ -1857,6 +2137,15 @@ enabled with nothing installed: $(printf '%q' "${item}") is enabled in operator.
 .B MSG-Q6H3
 ERROR.
 Refusing the ${operation}: the target is a protected system directory.
+.SS sandbox-exec.lib.sh
+.TP
+.B MSG-Q2K6
+WARNING.
+cannot open a transient scope for a run as ${account} (systemd\-run \-\-scope did not start a probe: no system manager answers here) \-\- a run outside one could leave a process behind, so $(printf '%q' "$1") was not run
+.TP
+.B MSG-W8B7
+WARNING.
+ended a command as ${account} that ${what_ran_over} ${timeout_seconds}s, with every process of its scope ${scope_unit}: $(printf '%q' "$1") \-\- the step did not complete; re\-run it, or set AI_TOOLS_AS_SANDBOX_TIMEOUT=<seconds> for a slower host
 .SS settings-merge.lib.sh
 .TP
 .B MSG-F9W4
@@ -1876,6 +2165,10 @@ removed the ${agent} package from the sandbox toolchain, and left its state dire
 WARNING.
 cannot remove $(printf '%q' "${npm_package}") from $(printf '%q' "${version_dir}"): not an npm package name in a version directory \-\- leaving the toolchain as it is
 .TP
+.B MSG-P6P2
+WARNING.
+the sandbox toolchain is run by the sandbox account alone \-\- $1 was not run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"); a root caller runs it through ai_tools_as_sandbox (sandbox\-exec.lib.sh)
+.TP
 .B MSG-X2B7
 WARNING.
 deferring the removal of ${npm_package} from ${version_dir##*/}: a live session executes from it \-\- it is removed on the next provisioning or update run, and no session starts until then
@@ -1886,7 +2179,7 @@ refusing to remove ${npm_package} from ${version_dir##*/}: ${name} is enabled in
 .TP
 .B MSG-X8F9
 WARNING.
-could not remove ${package_dir} (npm uninstall left it in place) \-\- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re\-run: sudo ai\-tools\-admin system bootstrap
+could not remove ${package_dir} (npm uninstall left it in place; ${npm_error_summary}) \-\- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re\-run: sudo ai\-tools\-admin system bootstrap
 .SH SEE ALSO
 .BR ai-tools (1),
 .BR ai-tools-admin (8),

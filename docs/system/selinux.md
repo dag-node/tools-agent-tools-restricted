@@ -1,7 +1,8 @@
 # SELinux confinement
 
 [System](index.md) · [Logs](logs.md) · **SELinux** · [Entrypoint
-verification](entrypoint-verification.md) — [all docs](../index.md)
+verification](entrypoint-verification.md) · [Reading a record
+stream](record-streams.md) — [all docs](../index.md)
 
 What the optional policy adds on top of file permissions, the one case
 an operator meets in practice — a stale label after a toolchain update —

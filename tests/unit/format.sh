@@ -52,6 +52,9 @@ printf '# Index\n\n<!-- prose-check: ignore-file -->\n\n%s\n' "${long}" > "${rep
 printf '[Unit]\n# %s\nDescription=x\n' "${long}" > "${repo}/unit.service"
 printf '%s\n' "${long}" > "${repo}/notes.log"
 printf '# %s\nall:\n\ttrue\n' "${long}" > "${repo}/Makefile"
+# A vendored page: in a scope pattern by its extension, and another project's file byte for byte.
+mkdir -p "${repo}/src/usr/local/lib/ai-tools/typesafe"
+printf '# Changelog\n\n%s\n' "${long}" > "${repo}/src/usr/local/lib/ai-tools/typesafe/CHANGELOG.md"
 git -C "${repo}" init -q
 git -C "${repo}" config user.email t@example.invalid
 git -C "${repo}" config user.name t
@@ -156,10 +159,11 @@ if [[ "${RC}" -eq 1 ]] && grep -q 'document-width' <<<"${OUT}" && grep -q '1 ove
 else
     fail "expected rc 1 with the anchor line reported; rc ${RC}: ${OUT}"
 fi
-# The scope is an explicit list of what the formatter owns. The man page, the binary, the unit file, the log
-# and the Makefile are outside it: counted, and left as written.
-if grep -q '5 file(s) outside the scope left as written' <<<"${OUT}" \
-        && git -C "${repo}" diff --quiet -- page.1 image.webp unit.service notes.log Makefile; then
+# The scope is an explicit list of what the formatter owns. The man page, the binary, the unit file, the log,
+# the Makefile and the vendored page are outside it: counted, and left as written.
+if grep -q '6 file(s) outside the scope left as written' <<<"${OUT}" \
+        && git -C "${repo}" diff --quiet -- page.1 image.webp unit.service notes.log Makefile \
+            src/usr/local/lib/ai-tools/typesafe/CHANGELOG.md; then
     pass "--all counts the files outside the scope and leaves them as written"
 else
     fail "a file outside the scope was formatted or not counted: ${OUT}; $(git -C "${repo}" diff --stat)"

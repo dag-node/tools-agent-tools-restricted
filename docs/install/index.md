@@ -15,8 +15,11 @@ where the session's own domain applies; a host without it runs in a DAC-only
 posture instead. The install itself needs the network once,
 for `sudo ai-tools-admin system bootstrap`, which fetches the Node toolchain
 and the agent; after that a systemd timer keeps both current
-([Upgrade](upgrade.md)). `podman` is the one optional requirement, and only
-to run the container test harness ([Tests](../tests/index.md)).
+([Upgrade](upgrade.md)). Run without a route to the download hosts,
+that command says so, applies every step that does not need a download,
+and leaves a toolchain that is already installed as it is; it stops where none
+is. `podman` is the one optional requirement, and only to run the container
+test harness ([Tests](../tests/index.md)).
 
 Two properties hold across every install:
 

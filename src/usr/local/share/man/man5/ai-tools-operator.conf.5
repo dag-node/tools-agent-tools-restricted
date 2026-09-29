@@ -371,8 +371,9 @@ block are in
 .BI SKIP_CACHE_DIRS= "NAME\fR...\fP"
 Directory
 .B names
-(not paths) omitted from the helper walks \(em ownership hand-back sweeps, claim
-normalization, and secret lockdown. Setting a key
+(not paths) omitted from the helper walks \(em ownership hand-back sweeps and claim
+normalization. The secret lockdown reads none of them, since a claim reaches into
+every one of those trees. Setting a key
 .B replaces
 that category's default rather than adding to it, and
 .B []

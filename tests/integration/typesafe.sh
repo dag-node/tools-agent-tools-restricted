@@ -8,9 +8,12 @@
 #      a module a release adds reaches the host and one a release drops does not linger. `--version` names the pinned
 #      tag.
 #   2. Every refusal the command makes before a request, driven as the sandbox account against fixture credential
-#      files: the configuration class (exit 3) and the input class (exit 2), and the provider class (exit 4) for a host
-#      that cannot resolve. The fixtures name `typesafe.invalid` (RFC 2606, never resolves), so no case in this section
-#      sends a byte off the host whatever the command does.
+#      files: the configuration class (exit 3) and the input class (exit 2), and the provider class (exit 4) for
+#      an endpoint that refuses the connection. The fixtures name `localhost` on port 1, which resolves from the hosts
+#      file and is refused at once, so no case in this section sends a byte off the host whatever the command does,
+#      and the provider class does not depend on how long the host's resolver takes to answer. A name that does not
+#      resolve would reach that class only when the resolver answered within the per-attempt timeout, and would read
+#      as a deadline otherwise.
 #   3. Live calls, run only with AI_TOOLS_TEST_TYPESAFE_LIVE=1, since each sends its listing and task to TypeSafe with
 #      the host's key. The listings are synthetic, never project content. Each asserts the exit status, the summary
 #      line naming the concrete model version that answered, and the usage line the call appended; which lines were
@@ -35,7 +38,9 @@ if [[ ! -r "${CLI}" ]]; then
     skip "typesafe integration" "ai-tools-integration-typesafe is not installed"; finish; exit
 fi
 
-# The node a session runs: the system one where root's PATH has it, else the newest in the sandbox toolchain.
+# The node a session runs: the system one where root's PATH has it, else the newest in the sandbox toolchain. Either is
+# executed as the sandbox account alone, through the harness's as_sandbox at every call: the toolchain's is
+# that account's to rewrite.
 NODE="$(command -v node || true)"
 if [[ -z "${NODE}" ]]; then
     NODE="$(printf '%s\n' /opt/ai-tools/.nvm/versions/node/v*/bin/node | sort -V | tail -n 1)"
@@ -46,7 +51,7 @@ fi
 # lands in ${TESTDIR}/out and stderr in ${TESTDIR}/err; the exit status is the function's.
 as_agent_decide() {
     local input="$1"; shift
-    runuser -u "${SANDBOX_USER}" -- "${NODE}" "${CLI}" "$@" <"${input}" >"${TESTDIR}/out" 2>"${TESTDIR}/err"
+    as_sandbox "${NODE}" "${CLI}" "$@" <"${input}" >"${TESTDIR}/out" 2>"${TESTDIR}/err"
 }
 
 mktestdir
@@ -75,10 +80,13 @@ else
     done < <(sed -n 's/^file=\([0-9a-f]\{64\}\) \(.*\)$/\1 \2/p' "${PIN}")
     tag="$(sed -n 's/^tag=v//p' "${PIN}")"
     if [[ -n "${NODE}" ]]; then
-        if [[ "$("${NODE}" "${CLI}" --version 2>&1)" == "typesafe-client-js ${tag}" ]]; then
+        # As the sandbox account, like every other call here: NODE may be the sandbox toolchain's, which root does not
+        # execute.
+        reported="$(as_sandbox "${NODE}" "${CLI}" --version 2>&1 || true)"
+        if [[ "${reported}" == "typesafe-client-js ${tag}" ]]; then
             pass "the installed command reports the pinned release ${tag}"
         else
-            fail "the installed command reports '$("${NODE}" "${CLI}" --version 2>&1)', the pin names ${tag}"
+            fail "the installed command reports '${reported}', the pin names ${tag}"
         fi
     fi
 fi
@@ -89,11 +97,11 @@ fi
 
 # ── 2. Refusals before a request, as the sandbox account ─────────────────────────────────────────
 # conf_fixture <name> [KEY=value]...: a credential file the sandbox account owns at 0600, with a key of the issued shape
-# and the unresolvable host, each extra argument appended as a line (a later line overrides an earlier one).
+# and the refusing endpoint, each extra argument appended as a line (a later line overrides an earlier one).
 conf_fixture() {
     local path="${TESTDIR}/$1"; shift
     printf '%s\n' "TYPESAFE_API_KEY=apikey_0123456789abcdef0123456789abcdef" \
-        "TYPESAFE_BASE_URL=https://typesafe.invalid" "TYPESAFE_ENDPOINT_HOST=typesafe.invalid" \
+        "TYPESAFE_BASE_URL=https://localhost:1" "TYPESAFE_ENDPOINT_HOST=localhost" \
         "TYPESAFE_TIMEOUT_MS=3000" "$@" >"${path}"
     chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${path}"
     chmod 0600 "${path}"
@@ -151,8 +159,8 @@ input_refused "an unknown --format"              listing filter --task t --forma
 input_refused "the deferred triage template"     listing triage --task t --config "${C}/ok.conf"
 input_refused "an item carrying a Unicode tag character" tagged filter --task t --config "${C}/ok.conf"
 
-# The provider class: a file every configuration check accepts reaches the request, which fails on the unresolvable
-# host. The in-range threshold values and band pair the out-of-range ones, so the refusals are about the range.
+# The provider class: a file every configuration check accepts reaches the request, which the endpoint refuses.
+# The in-range threshold values and band pair the out-of-range ones, so the refusals are about the range.
 for value in 0 0.7 1; do
     expect_refusal 4 provider "a threshold of ${value} passes the configuration check" \
         "${C}/listing" filter --task t --config "${C}/threshold-${value}.conf"
@@ -162,7 +170,7 @@ expect_refusal 4 provider "an uncertain band of 0.3,0.7 passes the configuration
 
 # What the usage log records of a provider failure: counts and the outcome, never the task.
 usage="${TESTDIR}/usage.log"
-expect_refusal 4 provider "a host that does not resolve" "${C}/listing" \
+expect_refusal 4 provider "an endpoint that refuses the connection" "${C}/listing" \
     filter --task "a task sentence the log must not hold" --config "${C}/ok.conf" --usage-log "${usage}"
 if [[ -s "${usage}" ]] && jq -e '.outcome == "provider" and .items == 2' <"${usage}" >/dev/null 2>&1 \
         && ! grep -q 'must not hold' "${usage}"; then
@@ -220,8 +228,8 @@ printf '%s\n' "Build started 9/23/2026 10:00:00 AM." \
     "Build FAILED." "Time Elapsed 00:00:02.13" >"${TESTDIR}/msbuild"
 chmod 0644 "${TESTDIR}"/{fruit,prose,msbuild}
 
-# A key the provider never issued, sent to the host's own endpoint with a one-line listing: the provider must refuse
-# it, and the command must report that as the provider class with the status. An answer here is the failure.
+# A key the provider never issued, sent to the host's own endpoint with a one-line listing: the provider must refuse it,
+# and the command must report that as the provider class with the status. An answer here is the failure.
 conf_value() { sed -n "s/^[[:space:]]*$1=[\"']\\{0,1\\}\\([^\"' ]*\\).*/\\1/p" "${CONF}" | tail -n 1; }
 base_url="$(conf_value TYPESAFE_BASE_URL)"; endpoint_host="$(conf_value TYPESAFE_ENDPOINT_HOST)"
 conf_fixture forged.conf "TYPESAFE_API_KEY=apikey_$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" \
@@ -255,10 +263,10 @@ fi
 
 # A reader that closes stdout early ends the command with status 0 and an empty stderr.
 rc=0
-# stdin and stderr are opened here, as root, like every other call's: a root-created file is not one the sandbox
-# account may open for writing.
+# stdin and stderr are opened here, as root, like every other call's: a root-created file is not one the sandbox account
+# may open for writing.
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-runuser -u "${SANDBOX_USER}" -- bash -c '"$1" "$2" filter --task "which lines name a fruit" --config "$3" \
+as_sandbox bash -c '"$1" "$2" filter --task "which lines name a fruit" --config "$3" \
     | head -c 0; exit "${PIPESTATUS[0]}"' _ "${NODE}" "${CLI}" "${CONF}" \
     <"${TESTDIR}/fruit" 2>"${TESTDIR}/err" || rc=$?
 if [[ ${rc} -eq 0 && ! -s "${TESTDIR}/err" ]]; then

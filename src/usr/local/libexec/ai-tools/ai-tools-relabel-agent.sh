@@ -329,7 +329,7 @@ fi
 
 # Render the lib's status lines: it reports per path and per agent, this decides what an operator reads and what fails
 # the run. The wanted type travels with a "bad" line, since an agent declares two paths that carry different types.
-labelled=0 mislabelled=0 stale=0 incomplete=0
+labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0
 declare -A agent_outcome=() agent_reason=()
 if [[ -n "${report}" ]]; then
     while read -r verdict subject detail wanted; do
@@ -346,6 +346,14 @@ if [[ -n "${report}" ]]; then
        ${detail}, and the file-context rule its manifest declares labels a different installed file -- so the file
        a session execs is left unlabelled"
                    ai_tools_log_warn "${subject}: installed entrypoint ${detail} is not covered by its declared entrypoint_fcontext" ;;
+            # The launcher resolves to a copy of the declared entrypoint: the manifest and the package agree, and a link
+            # in the chain was replaced by its target, so the repair is the toolchain run that restores the links.
+            copied) copied=$(( copied + 1 ))
+                   agent_reason["${subject}"]="copied-link"
+                   warn MSG-S6V5 "copied link for ${subject}: its launcher resolves to
+       ${detail}, a regular file identical to the entrypoint its manifest declares -- a copy of the toolchain replaced
+       a symlink with its target, so the file a session execs is left unlabelled"
+                   ai_tools_log_warn "${subject}: launcher resolves to ${detail}, a copy of its declared entrypoint" ;;
             # The same divergence with the other cause, and the other remedy: the declared rule covers no installed
             # file, so what the package is missing is the entrypoint itself rather than a manifest that has moved on.
             incomplete) incomplete=$(( incomplete + 1 ))
@@ -385,6 +393,8 @@ done
 # and WHICH upstream is what the two causes differ in: an incomplete package is repaired by the run that installs
 # the toolchain, a stale manifest by a newer agent package. Reporting either one under the other's remedy is a loop
 # of its own -- an RPM update does not install an npm package's missing dependency.
+(( copied == 0 )) \
+    || die MSG-J3A6 "a copied toolchain link stops this relabel: ${copied} agent(s) resolve their launcher to a copy of the entrypoint rather than to it, so the file a session execs cannot be labelled; the toolchain run restores the links: sudo ai-tools-admin system bootstrap, then rerun"
 (( incomplete == 0 )) \
     || die MSG-D7H2 "an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: sudo ai-tools-admin system bootstrap, then rerun"
 (( stale == 0 )) \

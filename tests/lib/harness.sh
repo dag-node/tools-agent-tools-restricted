@@ -12,15 +12,20 @@ set -euo pipefail
 
 declare -i _pass=0 _fail=0 _skip=0
 
-# _san <text>: reduce text to printable ASCII (0x20-0x7E), replacing every other byte with '?'. Result messages
-# interpolate values that may carry crafted control/bidi bytes -- a filename fixture, a daemon reply relayed verbatim,
-# or a sanitizer's own output on the regression the assertion just caught. The suite runs as ROOT via sudo, often
-# on a live host, and run.sh tees every line to the terminal, so a raw byte reaching stdout/stderr could inject
-# a terminal escape or bidi reordering. This is the suite-wide net: sanitize at the point every result is printed, so no
-# individual test can emit a dangerous byte regardless of what it interpolates. Byte-wise under a forced C locale, so it
-# is locale-independent and neutralizes multi-byte sequences too. (An individual test may still hex-render a value
-# for a better diagnostic.)
-_san() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
+# _san <text>: reduce text to printable ASCII (0x20-0x7E): a newline becomes the two characters '\n' and a tab '\t',
+# so a multi-line output quoted in a result reads with its breaks while the result stays one line, and every other byte
+# becomes '?'. Result messages interpolate values that may carry crafted control/bidi bytes -- a filename fixture,
+# a daemon reply relayed verbatim, or a sanitizer's own output on the regression the assertion just caught. The suite
+# runs as ROOT via sudo, often on a live host, and run.sh tees every line to the terminal, so a raw byte reaching
+# stdout/stderr could inject a terminal escape or bidi reordering. This is the suite-wide net: sanitize at the point
+# every result is printed, so no individual test can emit a dangerous byte regardless of what it interpolates. Byte-wise
+# under a forced C locale, so it is locale-independent and neutralizes multi-byte sequences too. (An individual test may
+# still hex-render a value for a better diagnostic.)
+_san() {
+    local LC_ALL=C s="${1//$'\n'/\\n}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "${s//[^[:print:]]/?}"
+}
 
 # Colour on the RESULT WORD only, so a long run reads at a glance. Enabled when stdout is a terminal,
 # or when AI_TOOLS_TEST_COLOR=1 -- run.sh and install.sh set that because they pipe this output through tee, which makes
@@ -95,6 +100,104 @@ check_file_optional() {
 # fixtures, which needs root; the suites are invoked via sudo.
 require_root() {
     [[ "${EUID}" -eq 0 ]] || { echo "error: run with sudo" >&2; exit 1; }
+}
+
+# as_sandbox <command> [arg...]: run a command as the sandbox account through the one route root takes to a file
+# that account can write -- sandbox-exec.lib.sh's ai_tools_as_sandbox: no controlling terminal, no inherited descriptor,
+# a clean environment (a case passes what the command needs with a leading `env NAME=value`), each stream
+# through the log allowlist, and a bound on the run. The installed library, else the checkout's; without either the call
+# fails and says so, since a plain runuser would hand the child root's terminal and environment.
+as_sandbox() {
+    if ! declare -F ai_tools_as_sandbox >/dev/null 2>&1; then
+        local candidate
+        for candidate in /usr/local/lib/ai-tools/sandbox-exec.lib.sh \
+                "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/local/lib/ai-tools/sandbox-exec.lib.sh"; do
+            # shellcheck source=/dev/null
+            [[ -r "${candidate}" ]] && source "${candidate}" && break
+        done
+        declare -F ai_tools_as_sandbox >/dev/null 2>&1 \
+            || { printf 'as_sandbox: sandbox-exec.lib.sh is neither installed nor in the checkout\n' >&2; return 1; }
+    fi
+    ai_tools_as_sandbox "${SANDBOX_USER}" "$@"
+}
+
+# toml_python: print the name of an interpreter that parses TOML -- tomllib in the standard library (Python 3.11+),
+# or the tomli backport it was taken from (python3-tomli in EL9's AppStream, for the 3.9 there) -- trying the stock
+# python3 first, then the versioned interpreters EL9 ships beside it; fail without output where none can. Two checks
+# parse a codex file as codex does and skip through this, naming the package; no deployed file parses TOML,
+# so the package requirement stays python3. A snippet imports tomllib and falls back to tomli under the same name.
+toml_python() {
+    local interpreter
+    for interpreter in python3 python3.12 python3.11; do
+        command -v "${interpreter}" >/dev/null 2>&1 || continue
+        if "${interpreter}" -c $'try:\n    import tomllib\nexcept ImportError:\n    import tomli' 2>/dev/null; then
+            printf '%s' "${interpreter}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# provisioned_agent: succeed when an enabled agent's stable launcher symlink exists (under AI_TOOLS_LAUNCHER_DIR,
+# the locked bin directory by default) -- the read the CLI's bootstrap gate, the wrapper's launcher gate and the shim's
+# enabled-set check each make through the deployed resolver. A file that drives any of them past that gate asks this
+# first and skips through skip_unprovisioned, so a host with no agent enabled or provisioned reports one skip per file
+# naming the one remedy, where every case would otherwise refuse under a code it did not ask about. Read in a child
+# shell: the resolver pulls conf.lib.sh, which several files source themselves.
+provisioned_agent() {
+    [[ -n "$(provisioned_launchers)" ]]
+}
+# provisioned_launchers: print `agent<TAB>launcher` for every enabled agent whose stable launcher link exists,
+# in the resolver's order. A case driving an agent-agnostic mechanism -- the shim, the launcher-symlink helper,
+# the handback verbs -- takes its agent from here rather than naming one, so it runs on a host with any agent enabled
+# and no case is tied to a shipped manifest.
+provisioned_launchers() {
+    bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null || exit 0
+        declare -F ai_tools_enabled_agents >/dev/null 2>&1 || exit 0
+        while IFS=$'"'"'\t'"'"' read -r agent _ launcher; do
+            [[ -n "${agent}" && -n "${launcher}" && -L "$1/${launcher}" ]] && printf "%s\t%s\n" "${agent}" "${launcher}"
+        done < <(ai_tools_enabled_agents 2>/dev/null)
+        exit 0' _ "${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
+}
+# ready_launchers: the provisioned_launchers lines whose agent passes entrypoint_ready.
+ready_launchers() {
+    local agent launcher
+    while IFS=$'\t' read -r agent launcher; do
+        entrypoint_ready "${agent}" && printf '%s\t%s\n' "${agent}" "${launcher}"
+    done < <(provisioned_launchers)
+    return 0
+}
+# skip_unprovisioned <what>: the one skip line for that state, naming the command that provisions.
+skip_unprovisioned() {
+    skip "$1" "host not provisioned: no enabled agent has a launcher link under ${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin} -- run: sudo ai-tools-admin system bootstrap"
+}
+
+# entrypoint_ready <agent>: succeed when <agent>'s stable launcher resolves to a file its manifest's entrypoint_fcontext
+# matches and, where confinement is expected (SELinux enforcing with the ai_tools file contexts live, the read
+# ai-tools-run's preflight makes), that file carries ai_tools_exec_t. A case that needs the launch preflight,
+# the launcher-symlink helper or the handback SYMLINK verb to accept the entrypoint takes its agents
+# from ready_launchers and skips through skip_entrypoint_unready when that prints nothing, so one failing entrypoint
+# reports as the check that owns it (integration/selinux.sh, the declared-rule section) and a skip in each file
+# that depends on it. An agent whose manifest does not declare a pattern reads as not ready, since those cases drive
+# an entrypoint rule. Reads the toolchain, so run as root.
+entrypoint_ready() {
+    bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null || exit 1
+        declare -F ai_tools_agent_manifest_field >/dev/null 2>&1 || exit 1
+        launcher="$(ai_tools_agent_manifest_field "$1" launcher 2>/dev/null)" || exit 1
+        pattern="$(ai_tools_agent_manifest_field "$1" entrypoint_fcontext 2>/dev/null)" || exit 1
+        [[ -n "${launcher}" && -n "${pattern}" ]] || exit 1
+        resolved="$(realpath -e "$2/${launcher}" 2>/dev/null)" || exit 1
+        [[ "${resolved}" =~ ^(${pattern})$ ]] || exit 1
+        if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" == Enforcing ]] \
+                && [[ "$(matchpathcon -n /opt/ai-tools/.config 2>/dev/null | cut -d: -f3)" == ai_tools_home_t ]]; then
+            [[ "$(stat -c %C -- "${resolved}" 2>/dev/null | cut -d: -f3)" == ai_tools_exec_t ]] || exit 1
+        fi
+        exit 0' _ "$1" "${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
+}
+# skip_entrypoint_unready <what>: the one skip line for a host where no provisioned agent passes entrypoint_ready,
+# naming the command that reports the cause.
+skip_entrypoint_unready() {
+    skip "$1" "no enabled agent's launcher resolves to the labelled entrypoint its manifest declares -- sudo ai-tools-admin system entrypoints relabel names the cause"
 }
 
 # The unprivileged project user (and the sandbox account) the helpers collaborate with, derived from the invocation --

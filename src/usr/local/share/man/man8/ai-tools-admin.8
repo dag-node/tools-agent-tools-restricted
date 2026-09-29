@@ -402,9 +402,17 @@ and
 .BR ai-tools-operator.conf (5).
 .TP
 .B system post-upgrade \fR[\fB\-\-check \fR[\fB\-\-all\fR] [\fB\-\-format tsv\fR]]
-Reconcile the
+Reconcile the baseline copies left beside the configuration files this stack
+owns: the
 .I FILE.rpmnew
-copies an upgrade leaves beside the configuration files this stack owns.
+an rpm upgrade parks, and the
+.I FILE.DATE\-N.shipped
+a from-source install leaves beside a kept file that differs from its copy.
+Where a file has a copy of each kind, the newer one by modification time is
+the reference, and each file's block names which route left it.
+A file or copy dated after the system clock means the clock is behind, so the
+command names the clock as the first thing to set and does not compare
+a file until it is.
 Each file gets the treatment its content calls for: the agent's
 .I settings.json
 has the hook declarations it lacks merged in, with its permission rules left
@@ -428,8 +436,7 @@ A reported configuration file is never printed, since one may hold a
 credential; the report names the options it lacks, the keys you set, and
 whether the comments differ.
 The merge confirms and writes a dated backup before changing anything.
-Each file closes by naming its
-.I FILE.rpmnew
+Each file closes by naming its reference copy
 as yours to delete, and prints the command that deletes it only when your
 file mentions every option the copy documents and carries the same comments.
 A copy dated before the installation is named as an earlier version's
@@ -483,34 +490,34 @@ so the merge tool runs as you rather than as root; where no
 .I .rpmnew
 is waiting, the first command recreates it from the shipped copy.
 It does not edit the file.
-Idempotent, and leaves every file as it is when no
-.I .rpmnew
-file is waiting.
-Exits 0 when nothing is left to act on and 1 otherwise, so a copy identical to
-its file counts as clean.
+Idempotent, and leaves every file as it is when no baseline copy
+is waiting.
+Exits 0 when no file is left to act on, 4 while one is, and 1 when a merge it
+was asked to make failed; a copy identical to its file counts as clean.
 .RS
 .TP
 .B \-\-check
-List the findings without asking or writing, one line per finding:
-.IP
-.I CODE
-TAB
-.I PATH
-TAB
-.I FINDING
-TAB
-.I DETAIL
-.IP
-with no heading, colour, or other text.
-.I CODE
-is the finding's message code in
-.BR ai-tools-messages (7),
-and
-.I DETAIL
-is
-.B \-
-where there is none.
-A finding that needs attention makes the command exit 1:
+Write the findings without asking or writing, as the record stream
+.BR ai-tools-records (5)
+states: a header row, then one tab-separated row per finding, and no output
+at all on a host with no finding.
+Exits 0 with no row, 4 when a row needs attention, and 5 when a source could
+not be read, so a
+.BR cron (8)
+job mails only a host that needs you.
+Each row's
+.I subject
+is the file or directory the finding is about,
+.I item
+names what inside it the row is about (a hook's event and command, a
+permission list and rule, a key, a provider list's key and name) and is empty
+where the subject is the whole finding, and
+.I detail
+is display prose.
+No row carries an
+.IR operator :
+every subject is host-wide.
+A finding that needs attention makes the command exit 4:
 .B hook\-missing
 and
 .B hook\-repeated
@@ -542,13 +549,17 @@ entry the file lacks),
 .IR DETAIL ),
 .B list\-unmigratable
 (a name in a provider list that does not match any installed manifest or rule
-set, to edit by hand), and
+set, to edit by hand).
+An
 .B error
-(a check that could not run, with the reason as
-.IR DETAIL ).
-With none of these the command prints nothing and exits 0, so a
-.BR cron (8)
-job mails only a host that needs you.
+row (a check that could not run, or a collector that failed, with the check
+named as
+.I ITEM
+and the reason as
+.IR DETAIL )
+makes it exit 5: the rows before it stay valid, and the reading is
+incomplete.
+With none of these the command prints nothing and exits 0.
 .TP
 .B \-\-all
 Also list the findings that need no action, without changing the exit status:
@@ -567,7 +578,7 @@ copy),
 (your own file where a shipped asset or its link would be).
 .TP
 .B \-\-format tsv
-The line format, and the default.
+The stream format, and the default.
 .RE
 .TP
 .B status
@@ -607,9 +618,13 @@ Read-only: it reads the labels and does not relabel, register a file-context
 rule, or take the policy-store lock, so it does not change the state it reports
 on.
 It does not take an argument.
-Exits non-zero when anything needs attention, so it runs from a monitor or a
+Exits 4 when anything needs attention and 5 when a library the package ships did
+not load, so a section could not make a reading it promises (see
+.BR "EXIT STATUS" );
+either way it runs from a monitor or a
 .BR cron (8)
-job without parsing its output; a reading it could not make is reported as
+job without parsing its output. A probe this vantage may fail without the host
+being broken is reported as
 .B ?
 and never counted, so an unqueryable unit does not alarm a healthy host.
 .RE
@@ -635,6 +650,20 @@ The operation failed.
 .B 2
 The command line was rejected \(em an unknown command, a missing argument, or
 a domain named with no command after it.
+.TP
+.B 4
+A report found something that needs attention and read every source
+.RB ( status ", and " "system post\-upgrade"
+with or without
+.BR \-\-check ).
+.TP
+.B 5
+A report could not read one of its sources, so its findings are incomplete
+.RB ( status ": a library the package ships did not load; " "system post\-upgrade \-\-check" ).
+The page names the reading it could not make.
+Each is an exit status
+.BR ai-tools-records (5)
+states.
 Nothing was changed.
 .SH ENVIRONMENT
 .TP
@@ -773,11 +802,24 @@ sudo ai\-tools\-admin system post\-upgrade
 .RE
 .PP
 Check each morning from root's crontab, with a mail only when a file needs
-you:
+you; the script keeps the stream when the exit says the reading found
+something or could not complete:
 .PP
 .RS 4
 .EX
 0 7 * * * /usr/sbin/ai\-tools\-admin system post\-upgrade \-\-check
+.EE
+.RE
+.PP
+.RS 4
+.EX
+ai\-tools\-admin system post\-upgrade \-\-check > /var/tmp/post\-upgrade.tsv
+case $? in
+    0) rm \-f /var/tmp/post\-upgrade.tsv ;;
+    4) logger \-t post\-upgrade "findings left; see the stream" ;;
+    5) logger \-t post\-upgrade "reading incomplete; see the stream" ;;
+    *) logger \-t post\-upgrade "the command failed" ;;
+esac
 .EE
 .RE
 .PP
@@ -793,6 +835,7 @@ sudo ai\-tools\-admin system entrypoints relabel
 .BR ai\-tools (1),
 .BR allowed\-projects (5),
 .BR ai-tools-operator.conf (5),
+.BR ai-tools-records (5),
 .BR secret\-patterns (5),
 .BR semodule (8),
 .BR sudoers (5).

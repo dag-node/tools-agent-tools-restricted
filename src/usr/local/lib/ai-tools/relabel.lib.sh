@@ -301,7 +301,7 @@ _ai_tools_entrypoint_path_reportable() {
     [[ "${path}" =~ ^[]A-Za-z0-9_./@+^[-]+$ ]]
 }
 
-# ai_tools_entrypoint_reconcile_verdict <installed-path> <covered> <matched>: pure verdict, no I/O
+# ai_tools_entrypoint_reconcile_verdict <installed-path> <covered> <matched> [copy]: pure verdict, no I/O
 #   -- reconcile what an agent's manifest DECLARES against what its package actually INSTALLED,
 #   and print one of:
 #     ok          the declared rule governs the installed entrypoint (or no entrypoint is installed and
@@ -309,11 +309,15 @@ _ai_tools_entrypoint_path_reportable() {
 #     none        no entrypoint is installed and the rule matched no file: the agent is not provisioned yet
 #     stale       an entrypoint IS installed elsewhere and the declared rule covers a file the launcher
 #                 does not resolve to: the manifest has stopped describing its own package
-#     incomplete  an entrypoint IS installed and the declared rule covers no file at all: the package
+#     incomplete  an entrypoint IS installed and the declared rule does not cover any file: the package
 #                 did not install the entrypoint it declares
+#     copied      the launcher resolves to a regular file outside the rule that is byte-identical to a file
+#                 the rule matched: a copy of the tree replaced a symlink in the chain with its target, so
+#                 the manifest and the package agree and the toolchain's links are what need restoring
 #   <installed-path> is the file the agent's launcher symlink resolves to, empty when it does not
 #   resolve; <covered> is whether that file was among the pattern's matches; <matched> is whether
-#   the pattern matched anything at all. Both flags are `yes`/`no`, and anything other than the
+#   the pattern matched anything at all; <copy> is whether the installed file is byte-identical to one
+#   of those matches. The flags are `yes`/`no`, and anything other than the
 #   exact literal `yes` reads as `no` -- an unknown input errs toward reporting a divergence, which
 #   is the direction that fails a relabel loudly rather than blessing one silently.
 #
@@ -334,12 +338,13 @@ _ai_tools_entrypoint_path_reportable() {
 #   entrypoint is installed, and it is the launcher that resolves elsewhere.
 #   The unit test relabel.sh drives the truth table.
 ai_tools_entrypoint_reconcile_verdict() {
-    local installed="${1:-}" covered="${2:-}" matched="${3:-}"
+    local installed="${1:-}" covered="${2:-}" matched="${3:-}" copy="${4:-}"
     if [[ -z "${installed}" ]]; then
         [[ "${matched}" == yes ]] && { printf 'ok'; return 0; }
         printf 'none'; return 0
     fi
     [[ "${covered}" == yes ]] && { printf 'ok'; return 0; }
+    [[ "${matched}" == yes && "${copy}" == yes ]] && { printf 'copied'; return 0; }
     [[ "${matched}" == yes ]] && { printf 'stale'; return 0; }
     printf 'incomplete'
 }
@@ -483,19 +488,30 @@ _ai_tools_label_agent_entrypoint() {
             "${agent}" "${AI_TOOLS_FCONTEXT_ERROR}"
         return 1
     fi
+    local -a matches=()
     while IFS= read -r path; do
         matched=yes
+        matches+=("${path}")
         [[ "${path}" == "${installed}" ]] && covered=yes
         _ai_tools_verify_label "${path}" "${AI_TOOLS_ENTRYPOINT_TYPE}" || status=1
     done < <(_ai_tools_entrypoint_paths "${pattern}")
+    # Whether the launcher resolves to a copy of a declared entrypoint, the one divergence the toolchain's own links
+    # explain. Read by content, a comparison and not an execution, and only once the path check has already failed.
+    local copy=no
+    if [[ -n "${installed}" && "${covered}" != yes && -f "${installed}" && ! -L "${installed}" ]]; then
+        for path in "${matches[@]}"; do
+            cmp -s -- "${installed}" "${path}" && { copy=yes; break; }
+        done
+    fi
 
-    case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}")" in
+    case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}" "${copy}")" in
         # 3, not 0: the rule registered and no step failed, but no file took the type because none is installed yet.
         # The caller reports that as `nothing to label`, not as labels applied: on an unprovisioned host that is
         # the difference between a true report and a green line for work that did not happen.
         none)  printf 'none %s its entrypoint\n' "${agent}"
                if [[ "${status}" -eq 0 ]]; then status=3; fi ;;
         stale) printf 'stale %s %s\n' "${agent}" "${installed}"; status=1 ;;
+        copied) printf 'copied %s %s\n' "${agent}" "${installed}"; status=1 ;;
         incomplete) printf 'incomplete %s %s\n' "${agent}" "${installed}"; status=1 ;;
     esac
     return "${status}"

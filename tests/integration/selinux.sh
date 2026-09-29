@@ -124,20 +124,23 @@ else
     fi
 fi
 
-# (5) Sandbox clones must LABEL as ai_tools_project_t. Their on-disk path is under /var/opt/ai-tools/sandbox-projects,
-# which the base file_contexts.subs_dist alias `/var/opt /opt` canonicalizes to /opt/... BEFORE file-context matching,
-# so the clone rule is authored under /opt (ai_tools.fc). This asserts the rule is REACHABLE through that alias:
-# a synthetic clone path resolves to ai_tools_project_t. A rule keyed on the aliased /var/opt prefix resolves to usr_t
-# here instead -- the exact regression this catches. matchpathcon reads the loaded policy, so the path need not exist.
+# (5) Sandbox clones must LABEL as ai_tools_project_t. Their on-disk path is under /var/opt/ai-tools/sandbox-projects.
+# Whether libselinux looks that path up as /opt/... depends on the host's file_contexts.subs_dist (`/var/opt /opt` is
+# in EL10's and not in EL9's), so ai_tools.fc carries the clone rule under both prefixes. This asserts the one this host
+# reaches is there: a synthetic clone path resolves to ai_tools_project_t. The note says which prefix answered, so a run
+# on each EL shows the twin it relies on. matchpathcon reads the loaded policy, so the path need not exist.
 readonly SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
 if ! command -v matchpathcon >/dev/null 2>&1; then
     skip "sandbox clone label" "matchpathcon not available"
 else
     sbx_type="$(matchpathcon -n "${SANDBOX_ROOT}/_probe-$$" 2>/dev/null | awk -F: '{print $3}' || true)"
+    sbx_alias=no
+    grep -qE '^[[:space:]]*/var/opt[[:space:]]+/opt[[:space:]]*$' \
+        /etc/selinux/targeted/contexts/files/file_contexts.subs_dist 2>/dev/null && sbx_alias=yes
     if [[ "${sbx_type}" == "ai_tools_project_t" ]]; then
-        pass "sandbox clone path resolves to ai_tools_project_t (subs_dist /var/opt->/opt alias honoured)"
+        pass "sandbox clone path resolves to ai_tools_project_t (/var/opt alias on this host: ${sbx_alias})"
     else
-        fail "sandbox clone path -> ${sbx_type:-none}, not ai_tools_project_t -- the clone fcontext rule is unreachable (authored on the aliased /var/opt prefix instead of /opt?)"
+        fail "sandbox clone path -> ${sbx_type:-none}, not ai_tools_project_t (/var/opt alias on this host: ${sbx_alias}) -- the loaded ai_tools module lacks the clone rule under the prefix this host matches; reload it: sudo selinux/install-selinux.sh install"
     fi
 fi
 
@@ -204,13 +207,21 @@ else
             continue
         fi
         pattern="$(ai_tools_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
-        covered=no matched=no
+        covered=no matched=no copy=no
+        matches=()
         while IFS= read -r p; do
             matched=yes
+            matches+=("${p}")
             [[ "${p}" == "${installed}" ]] && covered=yes
         done < <(_ai_tools_entrypoint_paths "${pattern}")
-        case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}")" in
+        # The same copy reading the relabel makes, so the failure names the cause the relabel will.
+        if [[ "${covered}" != yes && -f "${installed}" && ! -L "${installed}" ]]; then
+            for p in "${matches[@]}"; do cmp -s -- "${installed}" "${p}" && { copy=yes; break; }; done
+        fi
+        case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}" "${copy}")" in
             ok) pass "${agent}: its declared entrypoint rule covers ${installed}" ;;
+            copied) fail "${agent}: its launcher resolves to ${installed}, a copy of the entrypoint its manifest declares where the toolchain keeps a symlink -- every launch will fail closed; restore the links: sudo ai-tools-admin system bootstrap" ;;
+            incomplete) fail "${agent}: installed at ${installed}, and no file matches the entrypoint its manifest declares -- every launch will fail closed; reinstall: sudo ai-tools-admin system bootstrap" ;;
             *)  fail "${agent}: installed at ${installed}, which its declared entrypoint_fcontext does not cover -- every launch will fail closed; the manifest is stale" ;;
         esac
     done < <(ai_tools_enabled_agents 2>/dev/null)
@@ -342,6 +353,11 @@ else
         [[ -n "${entry}" && -n "${pkg}" ]] || continue
         # The package root is the path up to the FIRST /lib/node_modules/<npm_package>/, which is where npm installs it;
         # an entrypoint nested under a platform-specific dependency (codex) sits further down the same prefix.
+        # An entrypoint outside that prefix has no package root to enumerate; the declared-rule section reports it.
+        if [[ "${entry}" != */lib/node_modules/"${pkg}"/* ]]; then
+            skip "${agent} package entry-type enumeration" "the launcher resolves to ${entry}, outside ${pkg}'s package tree"
+            continue
+        fi
         root="${entry%%/lib/node_modules/"${pkg}"/*}/lib/node_modules/${pkg}"
         if [[ ! -d "${root}" ]]; then
             skip "${agent} package entry-type enumeration" "no package tree at ${root}"
@@ -373,8 +389,8 @@ else
         else
             fail "${agent}: ${distinct} distinct inodes carry ai_tools_exec_t (${entry_names[*]}) -- each is a domain entrypoint the manifest does not declare and the pin does not cover"
         fi
-        # A name-wise breakdown beside the inode-wise verdict: the entrypoint's hardlinked names count twice here and once
-        # there, so the two agree on a healthy package.
+        # A name-wise breakdown beside the inode-wise verdict: the entrypoint's hardlinked names count twice here
+        # and once there, so the two agree on a healthy package.
         by_type="$(printf '%s' "${types}" | sort | uniq -c | awk '{printf "%s%s(%s)", (NR > 1 ? " " : ""), $2, $1}')"
         note "${agent}: $(printf '%s' "${types}" | grep -c '^.' || true) executable file(s) under ${pkg}, by type: ${by_type}" \
             "counted by name; the check above counts inodes, so hardlinked names of the entrypoint count once there"

@@ -478,6 +478,29 @@ check_config_page ai-tools-operator.conf "${CONFIG_TEMPLATES}/operator.conf" AI-
 check_config_page ai-tools-custom-claude-endpoint.conf "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" AI-TOOLS-CUSTOM-CLAUDE-ENDPOINT.CONF
 check_config_page ai-tools-typesafe.conf "${CONFIG_TEMPLATES}/endpoints/typesafe.conf" AI-TOOLS-TYPESAFE.CONF
 
+# ── ai-tools-records(5): the record stream contract ───────────────────────────────────────────
+# The page pairs with the two record libraries, and tests/unit/records.sh holds its COLUMNS section to the library's
+# registry and runs its marked Python decoder over the library's fixtures. What this file adds is the page's presence
+# at its version field and the pair of marker comments that extraction depends on: a page whose block lost a marker
+# renders as cleanly as one that kept it, and the extraction then reads an empty or a runaway block.
+RECORDS_MAN="$(man5_path ai-tools-records)"
+section "man page: ai-tools-records(5) carries its version and its marked decoder (unit)"
+check_records_page() {
+    if [[ ! -r "${RECORDS_MAN}" ]]; then
+        skip "ai-tools-records page" "ai-tools-records.5 not found in the repo or installed"; return
+    fi
+    local begins ends
+    begins="$(read_man "${RECORDS_MAN}" | grep -c '^\.\\" records-decoder-begin$')"
+    ends="$(read_man "${RECORDS_MAN}" | grep -c '^\.\\" records-decoder-end$')"
+    if [[ "${begins}" == 1 && "${ends}" == 1 ]]; then
+        pass "ai-tools-records(5) carries one records-decoder-begin and one records-decoder-end marker"
+    else
+        fail "ai-tools-records(5) carries ${begins} begin and ${ends} end markers"
+    fi
+    th_version "${RECORDS_MAN}" AI-TOOLS-RECORDS
+}
+check_records_page
+
 # ── ai-tools-messages(7): the generated page ───────────────────────────────────────────────────
 # Each other page is written by hand and held to what it documents; this one is derived from .claude/references.md,
 # so its pair is the generator that writes it. A committed page the generator would rewrite means a message carries new

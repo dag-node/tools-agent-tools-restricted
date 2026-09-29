@@ -1,7 +1,8 @@
 # Read the logs
 
 [System](index.md) · **Logs** · [SELinux](selinux.md) · [Entrypoint
-verification](entrypoint-verification.md) — [all docs](../index.md)
+verification](entrypoint-verification.md) · [Reading a record
+stream](record-streams.md) — [all docs](../index.md)
 
 One command answers "has anything gone wrong lately?", and two sinks answer
 everything after that: journald for every component, root-only files
@@ -14,11 +15,13 @@ sudo ai-tools audit --since '2 days ago' # any window date(1) understands
 
 It reads all three trails and reports what refused, was rejected, was stranded,
 or was flagged — a breached secret, a rejected socket peer, a helper timeout,
-a refused launch, an agent started from inside another session. It exits
-non-zero when anything is reported, so it works from `cron` or a login banner
-without its output being parsed. Findings from the root-only files and refusals
-from the session's own journald tag are reported **separately**, because only
-the first is a trail the agent cannot write.
+a refused launch, an agent started from inside another session. It exits 4
+when anything is reported and 5 when a source could not be read, so it works
+from `cron` or a login banner without its output being parsed; an incomplete
+run names the source it could not read instead of reporting a clean window.
+Findings from the root-only files and refusals from the session's own journald
+tag are reported **separately**, because only the first is a trail the agent
+cannot write.
 
 ## An agent started from inside a session
 

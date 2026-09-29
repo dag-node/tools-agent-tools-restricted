@@ -83,10 +83,10 @@ section "relabel: declared-vs-installed entrypoint reconciliation (unit)"
 
 readonly INSTALLED='/opt/ai-tools/.nvm/versions/node/v22.23.2/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe'
 
-# verdict_is <expected> <installed> <covered> <matched> <why>
+# verdict_is <expected> <installed> <covered> <matched> <why> [copy]
 verdict_is() {
     local expected="$1" got
-    got="$(ai_tools_entrypoint_reconcile_verdict "$2" "$3" "$4")"
+    got="$(ai_tools_entrypoint_reconcile_verdict "$2" "$3" "$4" "${6:-}")"
     if [[ "${got}" == "${expected}" ]]; then pass "${5} -> ${expected}"
     else fail "${5}: expected ${expected}, got '${got}'"; fi
 }
@@ -97,6 +97,13 @@ if declare -F ai_tools_entrypoint_reconcile_verdict >/dev/null 2>&1; then
     verdict_is stale      "${INSTALLED}" no  yes "the rule matched some OTHER file, not the installed one"
     verdict_is none       ""             no  no  "no entrypoint installed and no match (not provisioned)"
     verdict_is ok         ""             no  yes "no launcher resolves but the rule matched a copy"
+    # A copy of a declared entrypoint is the links' fault, not the manifest's: the toolchain run restores it, and naming
+    # a newer agent package would send the operator to a repair that does not change the file.
+    verdict_is copied     "${INSTALLED}" no  yes "the launcher resolves to a byte-identical copy of a match" yes
+    verdict_is stale      "${INSTALLED}" no  yes "the installed file differs from every match" no
+    verdict_is incomplete "${INSTALLED}" no  no  "a copy flag with nothing matched cannot be a copy" yes
+    verdict_is ok         "${INSTALLED}" yes yes "covered wins over a copy flag" yes
+    verdict_is stale      "${INSTALLED}" no  yes "a copy flag that is not the exact literal yes" YES
     # Unknown flags must not read as "covered": an input this function cannot interpret errs toward reporting
     # a divergence, which fails a relabel loudly rather than blessing one. Which divergence it lands on decides only
     # the remedy the caller names.

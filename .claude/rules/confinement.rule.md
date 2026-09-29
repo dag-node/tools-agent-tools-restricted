@@ -398,12 +398,16 @@ properties meet at that boundary:
   `make dist` refuses a tarball carrying one, and `tests/unit/selinux-groups.sh` fails on a tracked one, since a tracked
   binary was built on some other host's headers and no review can read it. A source install compiles the same set
   from the checkout — `install-selinux.sh build`, which `install.sh` runs — and stages it in that same package
-  directory; where SELinux is active and `selinux-policy-devel` is absent, `install.sh` refuses the SELinux step
-  and names the package, so the absent modules are reported at install rather than met later as a launch the preflight
-  refuses. The container self-tests compile in each image and assert the packaged set against the derivation
-  (`rpm -qlp`), so an interface that does not resolve on a distribution fails that distribution's build; they do not
-  load a module (`getenforce` is `Disabled` in a container), so a rule that fails to load is caught on an enforcing host
-  only.
+  directory. A `.pp` already in the checkout is read before `make` decides by mtime: `selinux-groups.lib.sh` reads
+  the module version from its header and the range this host's `checkmodule -V` prints, and one outside the range (a
+  checkout copied from a host on another distribution) is compiled unconditionally where the toolchain is present
+  and refused with the toolchain named where it is not, so `semodule` is not handed a module it refuses; a version
+  or a range that cannot be read leaves the module to `make`. Where SELinux is active and `selinux-policy-devel` is
+  absent, `install.sh` refuses the SELinux step and names the package, so the absent modules are reported at install
+  rather than met later as a launch the preflight refuses. The container self-tests compile in each image and assert
+  the packaged set against the derivation (`rpm -qlp`), so an interface that does not resolve on a distribution fails
+  that distribution's build; they do not load a module (`getenforce` is `Disabled` in a container), so a rule that fails
+  to load is caught on an enforcing host only.
 - **Licence.** A compiled `.pp` embeds macro expansions from the SELinux reference policy, so it is `GPL-2.0-or-later`
   while the rest of the stack is `AGPL-3.0-only`. Everything under `selinux/policy/` carries that identifier:
   the `.te`/`.if`/`.fc` sources (they call refpolicy interfaces that expand on compile) and the scripts controlling

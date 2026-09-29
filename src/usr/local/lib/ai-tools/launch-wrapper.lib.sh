@@ -3,10 +3,10 @@
 # /usr/local/lib/ai-tools/launch-wrapper.lib.sh
 # The launch checks every agent's launch runs, as the invoking operator before the drop to the sandbox account. Its one
 # caller is /usr/local/bin/ai-tools-launch. Each check that fails stops the launch through ai_tools_launch_die, so every
-# refusal moves to less access; ai_tools_launch_gates holds the order. Shipped 644 root:root by ai-tools-base, with
-# the sandbox-account tokens substituted at install.
-# The gate order, what each refusal distinguishes, and the two variables the exec carries through sudo are
-# in launch.rule.md; the wrapper contract each agent package holds to is stated there too.
+# refusal moves to less access; ai_tools_launch_gates holds the order. Shipped 644 root:root by ai-tools-base,
+# with the sandbox-account tokens substituted at install. The gate order, what each refusal distinguishes, and the two
+# variables the exec carries through sudo are in launch.rule.md; the wrapper contract each agent package holds to is
+# stated there too.
 #
 # The library reads the operator's allowlist off ${HOME} and the stable launcher symlinks
 # under ${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}, the hook ai-tools.sh and relabel.lib.sh already read for the same
@@ -92,18 +92,17 @@ ai_tools_launch_die() {
 }
 
 # ai_tools_launch_init <launcher> -- record the launcher name and load the three required libraries, fail-closed.
-# The name comes from the command line the operator typed (ai-tools-launch passes its own argv0), so it is admitted
-# only in a launcher's charset before it prefixes a message or names a path; any other shape is refused under the
-# launcher's own name. Whether it names an ENABLED agent is ai_tools_launch_gate_launcher's question, after the operator
+# The name comes from the command line the operator typed (ai-tools-launch passes its own argv0), so it is admitted only
+# in a launcher's charset before it prefixes a message or names a path; any other shape is refused under the launcher's
+# own name. Whether it names an ENABLED agent is ai_tools_launch_gate_launcher's question, after the operator
 # gate.
 # msg.lib.sh carries the yes/no decisions and the framed refusal every later gate emits, so with it missing the refusal
 # is printed plain and the launch stops; safe-paths.lib.sh is the launch path's front-line guard, verified once die is
 # available; conf.lib.sh reads the allowlist, and without ai_tools_conf_path_entry every line parses as no entry,
 # which refuses every launch -- fail-closed, but indistinguishable from "you have no projects", so refusing here names
 # the missing component. Each failure is logged to journald (via logger: the wrapper does not source log.lib, and it may
-# share the broken directory).
-# _ai_tools_launch_name_valid <name> -- 0 when <name> is in a launcher's charset, matched in the C locale so a range
-# does not take in letters outside ASCII.
+# share the broken directory). _ai_tools_launch_name_valid <name> -- 0 when <name> is in a launcher's charset, matched
+# in the C locale so a range does not take in letters outside ASCII.
 _ai_tools_launch_name_valid() { local LC_ALL=C; [[ "${1-}" =~ ^[A-Za-z0-9._-]+$ ]]; }
 
 ai_tools_launch_init() {
@@ -206,8 +205,8 @@ ai_tools_launch_gate_operator() {
 # decides which agent this launch is for; ai-tools-run re-derives the agent from the resolved path after the drop,
 # and this gate is the diagnostician that answers before sudo. It reads the enabled set through the provider resolver,
 # whose trust checks refuse an untrusted operator.conf, manifest directory or manifest (reported on stderr), so an input
-# the resolver refuses yields no agent and a refusal here. The provider library is required: without it no launcher
-# can be matched, and refusing names the missing component.
+# the resolver refuses yields no agent and a refusal here. The provider library is required: without it no launcher can
+# be matched, and refusing names the missing component.
 ai_tools_launch_gate_launcher() {
     local name="${AI_TOOLS_LAUNCH_NAME}" agent launcher
     local -a enabled=()
@@ -264,7 +263,29 @@ ai_tools_launch_gate_lists() {
 # gate is the diagnostician that answers before sudo, naming the agent and the provisioning run that removes
 # the package. The library the reader lives in is required like the three ai_tools_launch_init loads: a wrapper
 # that cannot read it cannot tell residue from a clean toolchain, and the shim bare-sources the same file, so refusing
-# here names the cause.
+# here names the cause. ai_tools_launch_gate_clock -- refuse while the system clock is behind a file this host wrote
+# (ai_tools_conf_clock_behind, conf.lib.sh): every record a session leaves -- the audit lines, the handback stamps,
+# the journal -- would carry a wrong time, and a host with no battery-backed clock boots into an earlier time until it
+# reaches a time source. The files read are the ones every host writes at a known moment and the operator can stat: this
+# library and the wrapper (written at install), the operator's allowlist (at the last claim), the updater's last-run
+# stamp (daily on a healthy host), and the entrypoint pins (at the last reconcile). The refusal names the file
+# and the command that sets the clock; there is no override, since the fix is the clock itself. ai-tools-run makes
+# the same read as the sandbox account, against the files it can reach, so the boundary does not rest on this
+# diagnostician. A clock that is ahead is not visible this way, and this gate does not claim to see it.
+ai_tools_launch_gate_clock() {
+    local pin_dir="${AI_TOOLS_ENTRYPOINT_PIN_DIR:-/var/opt/ai-tools/state/entrypoint-pin.d}" behind when path
+    local -a lines=()
+    behind="$(ai_tools_conf_clock_behind "${BASH_SOURCE[0]}" "$0" "${HOME}/.config/ai-tools/allowed-projects" \
+        /var/opt/ai-tools/state/nvm-update.status "${pin_dir}"/* 2>/dev/null)" && return 0
+    while IFS=$'\t' read -r when path; do
+        [[ -n "${path}" ]] && lines+=("         ${when}  ${path}")
+    done <<< "${behind}"
+    ai_tools_launch_die MSG-U8K6 "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than a file this host wrote -- refusing to start" \
+        "${lines[@]}" \
+        "       every record of a session would carry a wrong time; set the clock first:" \
+        "         sudo timedatectl set-time 'YYYY-MM-DD HH:MM:SS'   (or chronyc makestep, once a time source is reachable)"
+}
+
 ai_tools_launch_gate_residue() {
     local name="${AI_TOOLS_LAUNCH_NAME}" link_dir="${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}" agent launcher joined
     local -a residue=()
@@ -445,9 +466,10 @@ ai_tools_launch_gate_project() {
                 ai_tools_launch_die "sandbox creation did not complete -- see the output above"
                 ;;
             2)
-                # Claim in place. `--yes` pre-answers only the CLI's proceed prompt (you chose claiming here);
-                # the secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit.
-                # `ai-tools projects claim` is idempotent and registers a brand-new path from scratch.
+                # Claim in place. `--yes` answers the proceed prompt (you chose claiming here) and the relabel; every
+                # other question still asks (cli.rule.md). The claim's exit is not read: the allowlist check
+                # that follows it re-reads the outcome. `ai-tools projects claim` is idempotent and registers
+                # a brand-new path from scratch.
                 "${AI_TOOLS_CLI}" projects claim --yes "${cwd}" || true
                 # Confirm the claim registered the path before falling through to the claim guard, which re-verifies
                 # ownership/label (both just applied) and then launches. Match through the shared grammar so an entry
@@ -538,9 +560,9 @@ ai_tools_launch_claim_guard() {
         claim_ok=false
         ai_tools_msg_confirm "Claim it in place now?" "${claim_default}" && claim_ok=true
         if ${claim_ok}; then
-            # Delegate the claim. `--yes` pre-answers only the CLI's proceed prompt (you answered it here); its
-            # secret-lockdown prompt, the .git history grant, and the traverse grant stay explicit.
-            # `ai-tools projects claim` is idempotent and closes whichever gaps apply.
+            # Delegate the claim. `--yes` answers the proceed prompt (you answered it here) and the relabel; every other
+            # question still asks (cli.rule.md). `ai-tools projects claim` is idempotent and closes whichever gaps
+            # apply.
             "${AI_TOOLS_CLI}" projects claim --yes "${cwd}" || true
             # Re-verify the FATAL gaps closed before launching.
             cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
@@ -583,14 +605,14 @@ ai_tools_launch_claim_guard() {
 }
 
 # ai_tools_launch_gates "$@" -- run the gates in the order the security model rests on. The operator gate answers
-# before any other read, the provider-list gate before the launcher gate reads the enabled set (an unmigrated list
-# would read as "not enabled" and name the wrong remedy), the launcher gate before any path is built from the name,
-# the residue gate before the launcher is resolved (a print-and-exit run execs the shim too,
-# which refuses residue on its own), the launcher is resolved before the print-and-exit short-circuit can exec it,
-# and the CWD gates run only for a real project launch. A wrapper calls this once with its arguments and does not
-# reorder or omit a gate.
+# before any other read, the provider-list gate before the launcher gate reads the enabled set (an unmigrated list would
+# read as "not enabled" and name the wrong remedy), the launcher gate before any path is built from the name,
+# the residue gate before the launcher is resolved (a print-and-exit run execs the shim too, which refuses residue
+# on its own), the launcher is resolved before the print-and-exit short-circuit can exec it, and the CWD gates run only
+# for a real project launch. A wrapper calls this once with its arguments and does not reorder or omit a gate.
 ai_tools_launch_gates() {
     ai_tools_launch_gate_operator
+    ai_tools_launch_gate_clock
     ai_tools_launch_gate_lists
     ai_tools_launch_gate_launcher
     ai_tools_launch_gate_residue
@@ -673,10 +695,10 @@ _ai_tools_launch_notices() {
 # <array>, from the launch hook its manifest declares. An agent that does not declare `launch_hook=yes` takes none,
 # and its launch.d file is not read even where one exists, so a hook is code an agent package ships and its root-owned
 # manifest asks for. A declared hook is sourced only while the file and the directory holding it pass
-# ai_tools_conf_is_trusted, and must define ai_tools_launch_hook_args, which appends to the array or refuses through
-# ai_tools_launch_die; every other state -- the file missing or untrusted, the function absent, a declaration other than
-# yes or no, the hook returning non-zero -- refuses the launch, since a hook carries an input the operator configured
-# and launching without it would run a session they did not set up.
+# ai_tools_conf_is_trusted, and must define ai_tools_launch_hook_args, which appends to the array or refuses
+# through ai_tools_launch_die; every other state -- the file missing or untrusted, the function absent, a declaration
+# other than yes or no, the hook returning non-zero -- refuses the launch, since a hook carries an input the operator
+# configured and launching without it would run a session they did not set up.
 ai_tools_launch_agent_args() {
     local array_name="$1"; shift
     local agent="${AI_TOOLS_LAUNCH_AGENT}" declared hook reason=""

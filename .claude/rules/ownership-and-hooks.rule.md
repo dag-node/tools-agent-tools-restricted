@@ -184,13 +184,13 @@ the operator's standing seal, and this pass honours it exactly as `ai-tools-setf
 residue such a directory carries rather than normalizing it, since the mode masks that residue instead of removing it.
 `owner-only.lib.sh` defines what counts as residue and carries the strip; the seal itself is
 [secrets](secret-handling.rule.md). Heavy/transient trees (`.git`, `node_modules`, `.venv`, `__pycache__`, `packages`)
-are skipped; that skip list is shared with the sweep and `ai-tools-lockdown`
-via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the authoritative reference), which groups the names into categories
-(VCS, package, artifact, cache) an operator can override per category in `operator.conf` — read through the shared
-`KEY=value` grammar in `conf.lib.sh`, so a category list separates on commas or whitespace with optional quotes,
-and a **present** key replaces that category's default while an absent one leaves it standing (see
-[providers](providers.rule.md)) — and combines per consumer. The artifact category ships empty — `bin`/`obj`-style
-build-output names double as source dirs in many codebases, so skipping them is a per-host perf opt-in
+are skipped; that skip list is shared with the sweep (`ai-tools-lockdown` does not read it, since it covers what a claim
+exposes, [secrets](secret-handling.rule.md)), via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the authoritative
+reference), which groups the names into categories (VCS, package, artifact, cache) an operator can override per category
+in `operator.conf` — read through the shared `KEY=value` grammar in `conf.lib.sh`, so a category list separates
+on commas or whitespace with optional quotes, and a **present** key replaces that category's default while an absent one
+leaves it standing (see [providers](providers.rule.md)) — and combines per consumer. The artifact category ships empty —
+`bin`/`obj`-style build-output names double as source dirs in many codebases, so skipping them is a per-host perf opt-in
 (`SKIP_ARTIFACT_DIRS="bin obj"`), with root-relative exemptions for same-named source dirs
 (`SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE`; every walk passes its root to the selector). "Skip" means omitted
 from the walk, not hidden from the agent — a skipped tree's files stay agent-owned. A Stop sweep that hands back
@@ -206,9 +206,25 @@ to AGENT-written files — so the operator co-writes the tree, and reads agent-w
 `SANDBOX_GROUP` and without waiting on the ownership handback**; it is the access counterpart to setgid's
 `operator→agent` group grant. The named entry governs agent-owned files and yields to the owner entry on operator-owned
 ones. The helper shares the allowlist/exclusion/secret-skip/skip-list rules with the setgid pass, so secret-named
-and `!`-excluded paths receive neither grant. `other::---` is pinned explicitly rather than cloned from each directory's
-mode, which on a permissive-umask directory would otherwise seed `default:other::r-x` and leak read access to every
-future file.
+and `!`-excluded paths receive neither grant. The grant is applied with the mask recalculated (no `setfacl -n`), since
+an entry kept under the old mask would be dormant until a later `chmod` widening the group bits activated it.
+`other::---` is pinned explicitly rather than cloned from each directory's mode, which on a permissive-umask directory
+would otherwise seed `default:other::r-x` and leak read access to every future file.
+
+The group grant and the mask leave a path's mode at one of three values, and an unclaim normalizes them, since
+the pre-claim mode is not recorded, which is why the claim's page says to back up first:
+
+<a id="ref-table-b5v7"></a>**A path's mode before, during and after a claim**
+
+| before claim | while claimed | after unclaim |
+|---|---|---|
+| `600`, `700` | never opened: the owner-only seal ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)) | unchanged |
+| `640`, `644`, `660`, `664` | `660` | `640` |
+| `750`, `755`, `775` | `770` | `750` |
+
+World access goes at claim time and does not come back: the claim pins `other::---`, so `644` becomes `660` at once
+and the unclaim drops group write and leaves `640`. `ls -l` shows the ACL **mask** in the group column, so effective
+access is read with `getfacl -e`.
 
 `.git` is the one skipped tree both parties commit into. The per-session passes leave it alone for cost, so the agent's
 own `.git` writes are reclaimed by the [`.git` reclaim](#git-reclaim); the operator's `.git` writes — born

@@ -38,10 +38,10 @@ A build log takes `--format msbuild`, which keeps the log's diagnostics and sets
 dotnet build -v n 2>&1 | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --config "$AI_TOOLS_TYPESAFE_CONF" --usage-log "$AI_TOOLS_TYPESAFE_USAGE_LOG" --format msbuild --task "which diagnostics are the cause rather than a knock-on of another one"
 ```
 
-Each diagnostic becomes one item -- its location the id, its code the rule, its project the context -- and the
-repeat MSBuild prints in its summary collapses into one. The summary line names how many lines were set aside, so
-the size of what was skipped stays visible. Use it where a build fails with several diagnostics and the question is
-which to act on; a log with one error is read directly.
+Each diagnostic becomes one item -- its location the id, its code the rule, its project the context -- and the repeat
+MSBuild prints in its summary collapses into one. The summary line names how many lines were set aside, so the size
+of what was skipped stays visible. Use it where a build fails with several diagnostics and the question is which to act
+on; a log with one error is read directly.
 
 The command exits non-zero with one line on stderr naming the class (`configuration`, `input`, `provider`, `contract`,
 `deadline`) and does not print a result: the listing already in hand is the fallback, and a failed call costs the one
@@ -50,9 +50,9 @@ without asking, so pipe only the lines the task needs.
 
 A `provider` line naming `status=401` or `status=403` means TypeSafe refused the host's key. Do not run the command
 again in that session: every call would be refused the same way, and each one still sends its listing. Tell the user
-once that the key in the credential file needs replacing, which the operator does with `sudo`, and work from
-the listing. Do not read, grep, diff or print the credential file to find out why. The command's own line states what
-is wrong with the file without the key, and printing the file puts the key into the session transcript.
+once that the key in the credential file needs replacing, which the operator does with `sudo`, and work
+from the listing. Do not read, grep, diff or print the credential file to find out why. The command's own line states
+what is wrong with the file without the key, and printing the file puts the key into the session transcript.
 
 ## Which layer answers which question
 
@@ -84,11 +84,11 @@ not answer — which of the diagnostics that remain bear on the change in hand.
 
 ## What the result is good for
 
-The command decides one question per line, and the questions in a request are answered independently of each other.
-Two consequences set the boundary, and they are what the two rules here rest on:
+The command decides one question per line, and the questions in a request are answered independently of each other. Two
+consequences set the boundary, and they are what the two rules here rest on:
 
-**Depend on it to decide what to read first.** The kept lines are where to start; the summary names every line not
-kept, so a wrong drop costs an id the agent can still open. That is the whole of what it is for.
+**Depend on it to decide what to read first.** The kept lines are where to start; the summary names every line not kept,
+so a wrong drop costs an id the agent can still open. That is the whole of what it is for.
 
 **Do not depend on it for any of these**, and read the listing instead:
 
@@ -101,8 +101,8 @@ kept, so a wrong drop costs an id the agent can still open. That is the whole of
 
 A listing that may hold text from outside the project — a compiler echoing a string literal, a dependency's message,
 a file another party wrote — is judged with that text in the request. An item carrying a directive does not take
-over the answer, and it does move the scores of the lines beside it, so a result over such a listing orders what to
-read and does not settle a question on its own.
+over the answer, and it does move the scores of the lines beside it, so a result over such a listing orders what to read
+and does not settle a question on its own.
 
 ## When it does not apply
 

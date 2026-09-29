@@ -54,7 +54,6 @@ umask 022
 
 readonly CLI="/usr/local/bin/ai-tools"
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
-readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 readonly FOR_USER="nobody"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SPELLING="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/cli-spelling.sh"
@@ -66,18 +65,8 @@ TRACE_BASE="${AI_TOOLS_CLI_FLAGS_TRACE:-}"; TRACE=""
 section "ai-tools: every command and option, by effect (integration)"
 
 if [[ ! -x "${CLI}" ]]; then skip "cli flags" "not installed at ${CLI}"; finish; exit; fi
-# provisioned_agent : succeed when any enabled agent's stable launcher symlink exists -- the read the CLI's bootstrap
-# gate makes, through the same resolver, so every gated row would refuse where this fails. In a child shell, since
-# the resolver pulls conf.lib.sh, which this file sources itself once the skips are passed.
-provisioned_agent() {
-    bash -c 'source "$1" 2>/dev/null || exit 1
-        declare -F ai_tools_enabled_agents >/dev/null 2>&1 || exit 1
-        while read -r _ _ launcher; do
-            [[ -L "/opt/ai-tools/bin/${launcher}" ]] && exit 0
-        done < <(ai_tools_enabled_agents 2>/dev/null)
-        exit 1' _ "${PROVIDERS_LIB}"
-}
-if ! provisioned_agent; then skip "cli flags" "host not provisioned (no enabled agent has a launcher symlink under /opt/ai-tools/bin); the CLI's bootstrap gate refuses"; finish; exit; fi
+# Every gated row would refuse at the CLI's bootstrap gate where the harness's provisioned_agent read fails.
+if ! provisioned_agent; then skip_unprovisioned "cli flags"; finish; exit; fi
 if [[ ! -r "${CONF_LIB}" ]]; then skip "cli flags" "no ${CONF_LIB} to read registry state with"; finish; exit; fi
 if ! command -v runuser >/dev/null 2>&1; then skip "cli flags" "runuser unavailable"; finish; exit; fi
 if ! getent passwd "${FOR_USER}" >/dev/null 2>&1; then skip "cli flags" "no ${FOR_USER} account for the --for rows"; finish; exit; fi
@@ -126,7 +115,7 @@ make_fixtures() {
     mk_operator_conf "${CONF}" "${PROJECTS_USER}" "${FOR_USER}"
     : > "${AL}"; : > "${FOR_AL}"; : > "${GC}"
     mkdir -p "${SBROOT}"
-    for d in pa pb pc pd pe pf pg plain unreg parent/p1 parent/p2 hold/inner for1 for2; do
+    for d in pa pb pc pd pe pf pg psd plain unreg parent/p1 parent/p2 hold/inner for1 for2; do
         mkdir -p "${R}/${d}"; printf '# %s\n' "${d}" > "${R}/${d}/README.md"
     done
     mkdir -p "${R}/unreg/node_modules/dep"; : > "${R}/unreg/node_modules/dep/index.js"
@@ -163,21 +152,44 @@ make_fixtures() {
 
 # ── Drivers and readers ───────────────────────────────────────────────────────────
 # run_in <cwd> <args...>: the deployed CLI as the projects user, shim first on PATH, every registry pointed
-# at a fixture, under setsid so no prompt can block. Output captured with stderr.  The inner shell expands $1 and $@
-# itself, which is why they sit in single quotes.
+# at a fixture, under setsid so no prompt can block. Output captured with stderr, or with stderr written to the file
+# RUN_STDERR names when it is set; RUN_EXTRA_ENV adds NAME=value pairs to the environment.  The inner shell expands $1
+# and $@ itself, which is why they sit in single quotes. With RUN_TTY_ANSWERS set the CLI runs under script(1) instead,
+# on a pseudo-terminal fed that text, for the one question no flag pre-answers: confirm reads /dev/tty, which script
+# makes the controlling terminal and holds the answers on until they are read (the shape unit/msg.sh drives its menus
+# through). Bounded, since a question the answers do not reach would wait on the terminal.
 # shellcheck disable=SC2016
+RUN_EXTRA_ENV=()
 run_in() {
     local cwd="$1"; shift
-    runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
-        PATH="${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin" \
-        AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_ALLOWLIST="${AL}" AI_TOOLS_GITCONFIG="${GC}" \
-        AI_TOOLS_SANDBOX_ROOT="${SBROOT}" \
-        bash -c 'cd "$1" && shift && exec setsid -w "$@"' _ "${cwd}" "${CLI}" "$@" 2>&1
+    local -a command=(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}"
+        PATH="${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin"
+        AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_ALLOWLIST="${AL}" AI_TOOLS_GITCONFIG="${GC}"
+        AI_TOOLS_SANDBOX_ROOT="${SBROOT}" "${RUN_EXTRA_ENV[@]}")
+    if [[ -n "${RUN_TTY_ANSWERS:-}" ]]; then
+        command+=(bash -c 'cd "$1" && exec script -qec "$2" /dev/null' _ "${cwd}" "$(printf '%q ' "${CLI}" "$@")")
+        printf '%b' "${RUN_TTY_ANSWERS}" | timeout 120 "${command[@]}" 2>&1
+        return
+    fi
+    command+=(bash -c 'cd "$1" && shift && exec setsid -w "$@"' _ "${cwd}" "${CLI}" "$@")
+    if [[ -n "${RUN_STDERR:-}" ]]; then
+        "${command[@]}" 2>"${RUN_STDERR}"
+    else
+        "${command[@]}" 2>&1
+    fi
 }
 # cli <key> [args...] / cli_in <cwd> <key> [args...]: the command named by its spelling key.  cli_flag_first <key>
 # <flag...>: the flags AHEAD of the command, the other order --for accepts.
 cli()    { local key="$1"; shift; cli_cmd "${key}" || return 2; run_in "${R}" "${CLI_ARGV[@]}" "$@"; }
+# cli_stdout <key> <args...>: cli with stderr kept apart in ${R}/.stderr, so `out` holds stdout alone -- for the rows
+# asserting what a command writes to stdout. Every other row reads the two streams merged.
+cli_stdout() {
+    local key="$1"; shift; cli_cmd "${key}" || return 2
+    RUN_STDERR="${R}/.stderr" run_in "${R}" "${CLI_ARGV[@]}" "$@"
+}
 cli_in() { local cwd="$1" key="$2"; shift 2; cli_cmd "${key}" || return 2; run_in "${cwd}" "${CLI_ARGV[@]}" "$@"; }
+# cli_tty <answers> <key> <args...>: cli on a pseudo-terminal, <answers> typed at its questions.
+cli_tty() { local answers="$1" key="$2"; shift 2; cli_cmd "${key}" || return 2; RUN_TTY_ANSWERS="${answers}" run_in "${R}" "${CLI_ARGV[@]}" "$@"; }
 cli_flag_first() { local key="$1"; shift; cli_cmd "${key}" || return 2; run_in "${R}" "$@" "${CLI_ARGV[@]}"; }
 f() { cli_flag "$1"; }
 
@@ -318,22 +330,48 @@ drive() {
     case "$1" in
         cli)            label="${*:2}" ;;
         cli_in)         label="in $2: ${*:3}" ;;
+        cli_tty)        label="tty ${*:3}" ;;
         cli_flag_first) label="flag-first ${*:2}" ;;
+        cli_stdout)     label="stdout-only ${*:2}" ;;
         *)              label="$*" ;;
     esac
     out="$("$@")" && rc=0 || rc=$?
     trace_row "${label}"
 }
 rc_is()   { [[ "${rc}" -eq "$1" ]]; }
+# The record-stream readers, over a row driven through cli_stdout. out_is_empty: stdout is exactly empty.
+# out_is_records: stdout is the header ai-tools-records(5) states, then at least one row, every row eleven tab-separated
+# fields with a severity from the page's set. out_has_row <finding>: some row carries <finding>. err_has <text>:
+# the stderr the row kept apart holds <text>.
+readonly RECORD_HEADER=$'observed-at\toccurred-at\tcode\trecord-id\tseverity\tfinding\tsubject-type\toperator\titem\tsubject\tdetail'
+out_is_empty() { [[ -z "${out}" ]]; }
+out_is_records() {
+    [[ "${out%%$'\n'*}" == "${RECORD_HEADER}" ]] || return 1
+    awk -F'\t' 'NR > 1 { rows++; if (NF != 11 || $5 !~ /^(ok|info|attention|unreadable)$/) bad = 1 }
+                 END { exit (bad || rows < 1) }' <<< "${out}"
+}
+out_has_row() { awk -F'\t' -v f="$1" 'NR > 1 && $6 == f { found = 1 } END { exit !found }' <<< "${out}"; }
+err_has() { grep -qF -- "$1" "${R}/.stderr"; }
+# out_has_text <text>: the row's captured output holds <text>.
+out_has_text() { grep -qF -- "$1" <<< "${out}"; }
+out_lacks_text() { ! out_has_text "$1"; }
 rc_not0() { [[ "${rc}" -ne 0 ]]; }
 # quiet_rc <n> / quiet_refusal: the exit status AND an empty call log -- a refusal that did not reach a helper, which is
 # the ordering rule that a refused command does not prompt for sudo first.
 quiet_rc()      { [[ "${rc}" -eq "$1" ]] && cli_log_empty; }
+cli_log_lacks() { ! cli_called "$1"; }
 quiet_refusal() { [[ "${rc}" -ne 0 ]] && cli_log_empty; }
-# quiet_report <max-rc>: a report that RAN and reached no helper. A report closes at 0 or at 1 with something broken
-# to say, so the status is bounded rather than fixed -- and bounding it is what separates a report from a command
-# that never started, which leaves the same empty call log.
-quiet_report()  { [[ "${rc}" -le "$1" ]] && cli_log_empty; }
+# quiet_report <rc>...: a report that RAN and reached no helper. A report closes at one of the statuses
+# ai-tools-records(5) gives every report -- 0, 4 with findings, 5 with a reading it could not make -- and which of them
+# depends on the host, so the status is one of a set rather than fixed. The set is what separates a report
+# from a command that never started, which leaves the same empty call log.
+quiet_report()  {
+    local allowed
+    for allowed in "$@"; do
+        [[ "${rc}" -eq "${allowed}" ]] && { cli_log_empty; return; }
+    done
+    return 1
+}
 st_is()   { [[ "$(st "$1")" == "$2" ]]; }
 st_for_is() { [[ "$(st_for "$1")" == "$2" ]]; }
 not_called() { ! cli_called "$1"; }
@@ -373,10 +411,16 @@ drive_rows() {
     fi
     # Both reports are asserted to have RUN as well as to have reached no helper. An empty call log is also what a row
     # whose command never started leaves behind, so on its own it passes for the wrong reason -- which is how a key this
-    # table no longer holds reads as a green row. `status` exits 1 to report an unhealthy host, so the assertion is
-    # on the pair of statuses a report can close with.
-    drive cli ai-tools.status;    expect "the host report runs and reaches no helper"     quiet_report 1
+    # table no longer holds reads as a green row. `status` exits 4 to report findings on this host and 5 for a reading
+    # it could not make, so the assertion is on the statuses a report can close with.
+    drive cli ai-tools.status;    expect "the host report runs and reaches no helper"     quiet_report 0 4 5
     drive cli ai-tools.providers; expect "the provider report runs and reaches no helper" quiet_report 0
+    # A report does not take any argument, and one given is refused rather than ignored. The bare `providers` reads
+    # a second word as its verb, so its refusal is the unknown-command one in the collection spelling and the parser's
+    # in the option spelling; the row asserts the refusal and the empty call log, which the two share.
+    drive cli ai-tools.projects.list "${R}/pa"; expect "projects list refuses an argument with exit 2, no helper" quiet_rc 2
+    drive cli ai-tools.status "${R}/pa";        expect "status refuses an argument with exit 2, no helper"        quiet_rc 2
+    drive cli ai-tools.providers "${R}/pa";     expect "providers refuses an argument, no helper"                 quiet_refusal
 
     cli_stub_reset
     drive cli ai-tools.stop;               expect "stop calls the stop helper with no argument" test "$(cli_call_count ai-tools-stop)" -eq 1 -a -z "$(cli_calls ai-tools-stop)"
@@ -408,12 +452,12 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pa"
     expect "claim --yes exits 0"                                      rc_is 0
     expect "claim --yes registers the project"                        st_is "${R}/pa" listed
-    expect "claim --yes scans for secrets in the project"             cli_called ai-tools-lockdown "^$(f dry-run)$"
+    expect "claim --yes scans for secrets in the project"             cli_called ai-tools-lockdown "^--gate$"
     expect "claim --yes registers safe.directory"                     cli_called ai-tools-safedir "^${R}/pa$"
     expect "claim --yes sets the group and setgid"                    cli_called ai-tools-setgid "^${R}/pa$"
     expect "claim --yes applies the ACL"                              cli_called ai-tools-setfacl "${R}/pa$"
     expect "the safe.directory entry is on record"                    gc_has "${R}/pa"
-    expect "the secret scan precedes every access-granting step"     before ai-tools-lockdown "^$(f dry-run)$" ai-tools-setgid "."
+    expect "the secret scan precedes every access-granting step"     before ai-tools-lockdown "^--gate$" ai-tools-setgid "."
 
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes.short)" "${R}/pc"
     expect "claim -y is the short form of --yes"                      st_is "${R}/pc" listed
@@ -423,13 +467,175 @@ drive_rows() {
     expect "the default-directory claim names that directory"         cli_called ai-tools-safedir "^${R}/pd$"
 
     cli_stub_reset; cli_stub_secrets "${R}/pe/.env"; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pe"
-    expect "a found secret is locked down before access is granted"  before ai-tools-lockdown "^$(f yes)$" ai-tools-setgid "."
+    expect "a found secret is locked down before access is granted"  before ai-tools-lockdown "^--gate$" ai-tools-setgid "."
+    expect "the secret gate is one helper call"                       test "$(cli_calls ai-tools-lockdown | wc -l)" = 1
     expect "the claim with a secret still registers the project"     st_is "${R}/pe" listed
+    # A declined lockdown (the helper's exit 6) fails the claim closed: no access granted, the new entry rolled back.
+    cli_stub_reset; cli_stub_secrets "${R}/psd/.env"; cli_stub_decline_lockdown
+    drive cli ai-tools.projects.claim "$(f yes)" "${R}/psd"
+    expect "a declined secret lockdown stops the claim"               rc_not0
+    expect "the declined claim grants no access"                      cli_log_lacks ai-tools-setgid
+    expect "the declined claim rolls back its allowlist entry"        st_is "${R}/psd" absent
     cli_stub_reset
 
     drive cli ai-tools.projects.claim --bogus "${R}/pa"
-    expect "claim refuses an unknown option"                          rc_not0
-    expect "the refused claim reaches no helper"                      cli_log_empty
+    expect "claim refuses an unknown option with exit 2, no helper"   quiet_rc 2
+    cli_stub_reset; drive cli ai-tools.projects.claim "${R}/pa" "${R}/pb"
+    expect "claim refuses two paths with exit 2, no helper"           quiet_rc 2
+
+    # `--format tsv`: stdout carries the record stream and no page line. A first claim scans for no drift, so its stream
+    # is empty and the page went to stderr.
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pf"
+    expect "claim --format tsv exits 0 on a first claim"              rc_is 0
+    expect "claim --format tsv registers the project"                 st_is "${R}/pf" listed
+    expect "claim --format tsv writes nothing to stdout on a first claim" out_is_empty
+    expect "claim --format tsv writes its page to stderr"             err_has "Claim project"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f format)" json "${R}/pa"
+    expect "claim refuses a --format other than tsv with exit 2"      quiet_rc 2
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)"
+    expect "claim refuses --format without a value with exit 2"       quiet_rc 2
+    expect "the refused --format writes nothing to stdout"            out_is_empty
+
+    # ── B2. Claim: drift rows and exits ──────────────────────────────────────────────
+    # A re-claim over a project already carrying the claim's group, setgid and default ACL, with one file moved in (the
+    # projects user's own group, 640): the group scan finds it, no terminal declines the repair, and the per-path check
+    # reads it not fixed. The fixture's root is left unlabelled, so the relabel is a pending step the stub applies,
+    # and `--yes` answers the proceed prompt.
+    section "ai-tools.projects.claim: drift rows and exits"
+    claimed_fixture() {  # claimed_fixture <dir>: a project the claim has already applied its group and ACL to
+        mkdir -p "$1"; printf '# fixture\n' > "$1/README.md"
+        chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "$1"
+        chmod 2770 "$1"; chmod 0660 "$1/README.md"
+        setfacl -m "g:${SANDBOX_GROUP}:rwX" -d -m "g:${SANDBOX_GROUP}:rwX" "$1"
+        : > "$1/moved-in.txt"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "$1/moved-in.txt"; chmod 0640 "$1/moved-in.txt"
+    }
+    claimed_fixture "${R}/ph"
+    seed "${R}/ph"; seed_gc "${R}/ph"
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/ph"
+    expect "a declined group repair exits 4"                          rc_is 4
+    expect "the stream is the header and whole rows"                  out_is_records
+    expect "the stream carries the file as group-not-fixed"           out_has_row group-not-fixed
+    expect "the page went to stderr"                                  err_has "Claim project"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/ph"
+    expect "the same claim on the page exits 4"                       rc_is 4
+    # A secret-named path in a drift list is marked, read with the operator's patterns -- here a fixture set
+    # through the classifier's own file override -- and a plain path beside it is not.
+    printf '*.pem\n' > "${R}/secret-patterns"; chmod 0644 "${R}/secret-patterns"
+    : > "${R}/ph/deploy.pem"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/ph/deploy.pem"; chmod 0640 "${R}/ph/deploy.pem"
+    RUN_EXTRA_ENV=(AI_TOOLS_SECRET_PATTERNS_FILE="${R}/secret-patterns")
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/ph"
+    expect "a secret-named drift path is marked"                      out_has_text "deploy.pem [secret]"
+    expect "a plain drift path beside it is not"                      out_lacks_text "moved-in.txt [secret]"
+    RUN_EXTRA_ENV=(); rm -f "${R}/ph/deploy.pem"
+
+    # A root step that fails outranks the rows: the safe.directory entry is missing, so its helper runs on every host,
+    # and it exits 1; the claim exits 1 with the file still reported not fixed.
+    seed_gc
+    cli_stub_reset; cli_stub_fail ai-tools-safedir
+    drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/ph"
+    expect "a failed root step exits 1 over the drift left"           rc_is 1
+    expect "the failed claim still writes its rows"                   out_has_row group-not-fixed
+    cli_stub_reset; seed_gc "${R}/ph"
+
+    # A walk that fails to read part of the tree: a root-owned 0700 directory, which the projects user lacks search
+    # permission on, makes the group walk write to stderr, which the claim reports as an `error` row and exit 5 rather
+    # than as a complete scan of a smaller tree.
+    claimed_fixture "${R}/pk"
+    mkdir -p "${R}/pk/locked"; chown root:root "${R}/pk/locked"; chmod 0700 "${R}/pk/locked"
+    seed "${R}/pk"; seed_gc "${R}/pk"
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pk"
+    expect "an unreadable directory in the tree exits 5"              rc_is 5
+    expect "the unread walk is an error row"                          out_has_row error
+    chmod 0755 "${R}/pk/locked"
+
+    # The unattended relabel: a root carrying the project type, so the label scan runs, with its own type other than
+    # the one the policy gives its path, so it is drift. Without a terminal only `--yes` relabels,
+    # and AI_TOOLS_ASSUME_YES does not, with or without it.
+    claimed_fixture "${R}/pl"; rm -f "${R}/pl/moved-in.txt"
+    seed "${R}/pl"; seed_gc "${R}/pl"
+    # The fixture's path needs a default label for the dry run to compare against: under /tmp the policy gives none.
+    # getenforce and restorecon live in /usr/sbin, which run_in's PATH leaves out, so these rows add it: without it
+    # the CLI reads the host as having no SELinux and never runs the label scan.
+    if ! command -v restorecon >/dev/null 2>&1 || [[ "$(getenforce 2>/dev/null)" == Disabled ]] \
+            || [[ "$(matchpathcon -n "${R}/pl" 2>/dev/null)" != *:*:*:* ]] \
+            || ! chcon -t ai_tools_project_t "${R}/pl" 2>/dev/null; then
+        skip "ai-tools.projects.claim unattended relabel" \
+            "SELinux is disabled, ${R} has no default label, or chcon to ai_tools_project_t failed"
+    else
+        local sbin_path="${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin"
+        RUN_EXTRA_ENV=(PATH="${sbin_path}")
+        cli_stub_reset; drive cli ai-tools.projects.claim "${R}/pl"
+        expect "the label scan saw the root's foreign type"           out_has_text "Interior drift: SELinux type"
+        expect "no terminal, no --yes: the relabel is not run"        cli_log_lacks ai-tools-relabel
+        expect "the unrelabelled root leaves exit 4"                  rc_is 4
+        cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+        expect "no terminal, --yes: the relabel runs"                 cli_called ai-tools-relabel
+        cli_stub_reset; RUN_EXTRA_ENV=(PATH="${sbin_path}" AI_TOOLS_ASSUME_YES=1)
+        drive cli ai-tools.projects.claim "${R}/pl"
+        expect "AI_TOOLS_ASSUME_YES without --yes: not run"           cli_log_lacks ai-tools-relabel
+        expect "AI_TOOLS_ASSUME_YES without --yes still saw the drift" out_has_text "Interior drift: SELinux type"
+        cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+        expect "AI_TOOLS_ASSUME_YES with --yes: the relabel runs"     cli_called ai-tools-relabel
+        # A file on both lists: a foreign type and a foreign group. With the relabel not run, the group question is not
+        # asked, since the group change alone would not share the file; with the relabel run it is asked again.
+        RUN_EXTRA_ENV=(PATH="${sbin_path}")
+        : > "${R}/pl/both.txt"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/pl/both.txt"
+        chmod 0640 "${R}/pl/both.txt"; chcon -t user_tmp_t "${R}/pl/both.txt"
+        cli_stub_reset; drive cli ai-tools.projects.claim "${R}/pl"
+        if [[ "$(getenforce 2>/dev/null)" == Enforcing ]]; then
+            expect "relabel not run, enforcing: the group question is not asked" out_has_text "group repair not offered"
+        else
+            expect "relabel not run, not enforcing: the group question is asked" out_lacks_text "group repair not offered"
+        fi
+        expect "the drift left on both lists exits 4"                 rc_is 4
+        cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+        expect "relabel run: the group question is asked"             out_lacks_text "group repair not offered"
+        rm -f "${R}/pl/both.txt"
+        RUN_EXTRA_ENV=()
+    fi
+    cli_stub_reset
+
+    # ── B3. Claim: the traverse grant takes the gate ─────────────────────────────────
+    # A claimed project under a parent the sandbox account cannot enter has one pending step, the traverse grant,
+    # which makes the tree reachable with whatever readable secrets were added since its last scan. So an accepted grant
+    # runs the secret scan ahead of the setfacl, and a declined scan leaves the parent as it was. The question is
+    # default-NO and no flag answers it, so the accepted answer is typed on a pseudo-terminal; the grant is
+    # an unprivileged setfacl, which the sudo shim does not see, so it is read back from the parent. The rows run
+    # where the fixture has no other pending step: on a host with SELinux enabled its files would read as label drift,
+    # whose question would take the typed answer and, accepted, the gate on its own.
+    section "ai-tools.projects.claim: traverse grant"
+    reach_fx="${R}/reach"; reach_proj="${reach_fx}/proj"
+    claimed_fixture "${reach_proj}"; rm -f "${reach_proj}/moved-in.txt"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${reach_fx}"; chmod 0700 "${reach_fx}"
+    reach_why=""
+    if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" != Disabled ]]; then
+        reach_why="SELinux is enabled, so the fixture's files would read as label drift"
+    elif ! runuser -u "${SANDBOX_USER}" -- test -x "${R}" 2>/dev/null; then
+        reach_why="the sandbox account cannot enter ${R}, so the grant would fall on a directory outside the fixtures"
+    elif ! command -v script >/dev/null 2>&1; then
+        reach_why="script(1) not available for a pseudo-terminal"
+    fi
+    if [[ -n "${reach_why}" ]]; then
+        skip "claim traverse-grant rows" "${reach_why}"
+    else
+        granted()     { getfacl -p "${reach_fx}" 2>/dev/null | grep -qE "^user:${SANDBOX_USER}:..x"; }
+        not_granted() { ! granted; }
+        seed "${reach_proj}"; seed_gc "${reach_proj}"
+        cli_stub_reset; drive cli ai-tools.projects.claim "${reach_proj}"
+        expect "a claimed project with the grant pending exits 0 with no terminal" rc_is 0
+        expect "the declined grant runs no secret scan"                   not_called ai-tools-lockdown
+        expect "the declined grant leaves the parent as it was"           not_granted
+        cli_stub_reset; drive cli_tty 'y\n' ai-tools.projects.claim "${reach_proj}"
+        expect "the accepted grant exits 0"                               rc_is 0
+        expect "the accepted grant runs the secret scan"                  cli_called ai-tools-lockdown "^--gate$"
+        expect "the accepted grant is applied once the scan passed"       granted
+        setfacl -x "u:${SANDBOX_USER}" "${reach_fx}"
+        cli_stub_reset; cli_stub_secrets "${reach_proj}/.env"; cli_stub_decline_lockdown
+        drive cli_tty 'y\n' ai-tools.projects.claim "${reach_proj}"
+        expect "a declined scan stops the claim"                          rc_not0
+        expect "a declined scan leaves the parent as it was"              not_granted
+        cli_stub_reset
+    fi
 
     # ── C. Create ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.create"
@@ -503,6 +709,11 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" "$(f dry-run)" "${R}/unreg"
     expect "--force --dry-run previews and applies nothing"           quiet_rc 0
     expect "the preview leaves the fingerprint in place"              test "$(stat -c %G "${R}/unreg")" = "${SANDBOX_GROUP}"
+    for pair in "dry-run yes" "yes dry-run" "dry-run yes.short"; do
+        read -r k1 k2 <<< "${pair}"
+        cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" "$(f "${k1}")" "$(f "${k2}")" "${R}/unreg"
+        expect "unclaim refuses $(f "${k1}") $(f "${k2}") with exit 2, no helper" quiet_rc 2
+    done
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" "${R}/unreg"
     expect "--force without --yes declines at the confirm"            rc_not0
     expect "the declined --force reaches no helper"                   cli_log_empty
@@ -636,7 +847,7 @@ drive_rows() {
     expect "clone lands under the sandbox area, named after the source" test -d "${SBROOT}/${N_SRC}/.git"
     expect "clone pushes the default branch, sandbox/<base>"          test -n "$(remote_tip sandbox/main)"
     expect "clone registers the clone"                                st_is "${SBROOT}/${N_SRC}" listed
-    expect "clone scans the clone for secrets before opening it"      cli_called ai-tools-lockdown "^$(f dry-run)$"
+    expect "clone scans the clone for secrets before opening it"      cli_called ai-tools-lockdown "^--gate$"
     expect "the scan runs inside the clone"                           test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_SRC}"
     expect "clone registers safe.directory for the clone"             cli_called ai-tools-safedir "^${SBROOT}/${N_SRC}$"
     expect "the clone is shallow"                                     test "$(gitr -C "${SBROOT}/${N_SRC}" rev-list --count HEAD)" -eq 1
@@ -650,7 +861,7 @@ drive_rows() {
     expect "clone accepts --yes"                                      test "${rc}" -eq 0 -a -d "${SBROOT}/${N_C4}/.git"
 
     cli_stub_reset; drive cli ai-tools.projects.clone "${SBROOT}/${N_C4}"
-    expect "clone on an existing clone path resumes its finalization" cli_called ai-tools-lockdown "^$(f dry-run)$"
+    expect "clone on an existing clone path resumes its finalization" cli_called ai-tools-lockdown "^--gate$"
     expect "the resume runs inside that clone"                        test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_C4}"
     expect "the resume makes no second clone"                         test "$(find "${SBROOT}" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 4
     expect "the resumed clone stays registered"                       st_is "${SBROOT}/${N_C4}" listed
@@ -678,6 +889,14 @@ drive_rows() {
     section "ai-tools.projects.push / ai-tools.projects.remove.clone"
     runuser -u "${PROJECTS_USER}" -- git -C "${SBROOT}/${N_SRC}" -c user.name=cli-flags -c user.email=cli-flags@example.invalid \
         -c commit.gpgsign=false commit --allow-empty -m "sandbox work" >/dev/null 2>&1
+    # The verb does not take any option: one is refused with the usage status ahead of the push, since the confirm
+    # defaults to yes and a `--dry-run` dropped from the command line would push where the caller asked to look.
+    # The unpushed commit stays unpushed, which the first successful push row then reads as its own precondition.
+    cli_stub_reset; drive cli ai-tools.projects.push "$(f dry-run)" "${SBROOT}/${N_SRC}"
+    expect "push refuses --dry-run with exit 2, no helper"           quiet_rc 2
+    expect "the refused push advances no branch"                      test "$(remote_tip sandbox/main)" != "$(gitr -C "${SBROOT}/${N_SRC}" rev-parse HEAD)"
+    drive cli ai-tools.projects.push "${SBROOT}/${N_SRC}" "${R}/pa"
+    expect "push refuses two paths with exit 2, no helper"            quiet_rc 2
     cli_stub_reset; drive cli ai-tools.projects.push "${SBROOT}/${N_SRC}"
     expect "push exits 0"                                             rc_is 0
     expect "push advances the remote branch to the clone's HEAD"      test "$(remote_tip sandbox/main)" = "$(gitr -C "${SBROOT}/${N_SRC}" rev-parse HEAD)"
@@ -712,12 +931,21 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.lockdown "${R}/pa"
     expect "lockdown runs the helper inside the project"              test "$(cwd_of ai-tools-lockdown)" = "${R}/pa"
     expect "lockdown passes no flag by default"                       test -z "$(cli_calls ai-tools-lockdown)"
+    cli_stub_reset; cli_stub_secrets "${R}/pa/.env"; cli_stub_decline_lockdown
+    drive cli ai-tools.projects.lockdown "${R}/pa"
+    expect "a declined lockdown exits 6, the decline code"            rc_is 6
+    cli_stub_reset
     for k in dry-run yes yes.short; do
         cli_stub_reset; drive cli ai-tools.projects.lockdown "$(f "${k}")" "${R}/pa"
         expect "lockdown passes $(f "${k}") through to the helper"     cli_called ai-tools-lockdown "^$(f "${k}")$"
     done
     cli_stub_reset; drive cli ai-tools.projects.lockdown -n "${R}/pa"
     expect "lockdown has no -n short form, no helper"                 quiet_refusal
+    for pair in "dry-run yes" "yes dry-run" "dry-run yes.short"; do
+        read -r k1 k2 <<< "${pair}"
+        cli_stub_reset; drive cli ai-tools.projects.lockdown "$(f "${k1}")" "$(f "${k2}")" "${R}/pa"
+        expect "lockdown refuses $(f "${k1}") $(f "${k2}") with exit 2, no helper" quiet_rc 2
+    done
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" -n "${R}/unreg"
     expect "unclaim has no -n short form, no helper"                  quiet_refusal
     guard="${R}/pa/CLAUDE.md"
@@ -730,7 +958,7 @@ drive_rows() {
     expect "lockdown refuses a path outside every project"            rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
     cli_stub_reset; drive cli ai-tools.projects.lockdown --bogus "${R}/pa"
-    expect "lockdown refuses an unknown option, no helper"            quiet_refusal
+    expect "lockdown refuses an unknown option with exit 2, no helper" quiet_rc 2
 
     cli_stub_reset; drive cli ai-tools.projects.handback "${R}/pa"
     expect "reclaim hands the project to the reclaim helper"          cli_called ai-tools-reclaim "^${R}/pa$"
@@ -742,7 +970,7 @@ drive_rows() {
     expect "reclaim refuses a path outside every project"             rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
     cli_stub_reset; drive cli ai-tools.projects.handback --bogus "${R}/pa"
-    expect "reclaim refuses an unknown option, no helper"             quiet_refusal
+    expect "reclaim refuses an unknown option with exit 2, no helper"  quiet_rc 2
 
     # ── L. The operator's umask does not decide what the agent can read ──────────────
     # A create sets its modes outright and a clone is born private and then opened, so neither depends on the umask

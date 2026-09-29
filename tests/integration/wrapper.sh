@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/integration/wrapper.sh
-# Integration: the deployed launch wrapper (/usr/local/bin/ai-tools-launch), reached through the claude launcher
-# symlink as an operator types it. It proves the installed wrapper reaches the shared gates (launch-wrapper.lib.sh)
-# in their order -- the ai-ops operator gate, the launcher gate, the allowlist gate, and the symlink-existence guard --
-# against the REAL installed files, hermetically: the gates key
-# the allowlist off ${HOME}, so the test points HOME at a /tmp testdir with a controlled allowed-projects (no dependency
-# on the operator's real allowlist, and no dependency on whether the install dir is a project). Every wrapper run is
-# detached via setsid so the /dev/tty claim prompt can never fire -- the test never claims a project as a side effect.
-# Each gate's own refusal set is driven in tests/unit/launch-wrapper.sh. Run as root via sudo.
+# Integration: the deployed launch wrapper (/usr/local/bin/ai-tools-launch), reached through the claude launcher symlink
+# as an operator types it. It proves the installed wrapper reaches the shared gates (launch-wrapper.lib.sh) in their
+# order -- the ai-ops operator gate, the launcher gate, the allowlist gate, and the symlink-existence guard --
+# against the REAL installed files, hermetically: the gates key the allowlist off ${HOME}, so the test points HOME
+# at a /tmp testdir with a controlled allowed-projects (no dependency on the operator's real allowlist, and no
+# dependency on whether the install dir is a project). Every wrapper run is detached via setsid so the /dev/tty claim
+# prompt can never fire -- the test never claims a project as a side effect. Each gate's own refusal set is driven
+# in tests/unit/launch-wrapper.sh. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -73,10 +73,10 @@ else
     pass "wrapper short-circuits at the ai-ops gate before the allowlist check"
 fi
 
-# The allowlist-gate cases (1)-(3) exercise the wrapper PAST its symlink guard, which needs the provisioned toolchain's
-# bin/claude symlink; without it every run stops at "claude symlink not found" before the gate under test.
-if [[ ! -L "/opt/ai-tools/bin/claude" ]]; then
-    skip "wrapper allowlist-gate cases (1)-(3)" "toolchain not provisioned -- run: sudo ai-tools-admin system bootstrap"
+# The allowlist-gate cases (1)-(3) exercise the wrapper PAST its launcher gate, which needs an enabled agent's stable
+# launcher link (the harness's provisioned_agent read); without one every run stops there, before the gate under test.
+if ! provisioned_agent; then
+    skip_unprovisioned "wrapper allowlist-gate cases (1)-(3)"
 else
 
 # (1) An unapproved cwd is blocked at the allowlist gate. With no tty the wrapper never
@@ -285,14 +285,19 @@ fi
 # The operator gate runs first, so if this environment's operator is not in ai-ops the run is intercepted there -- skip
 # rather than misreport.
 section "Wrapper consults the protected-paths backstop (defense in depth)"
-printf '%s\n' "/etc" > "${home}/.config/ai-tools/allowed-projects"
-pp_out="$(run_wrapper /etc)"
-if grep -qxE 'MSG-C7C9|MSG-R7Z3' <<<"${pp_out}"; then
-    # Either operator-gate refusal an enrolled-but-not-here operator can draw.
-    skip "wrapper protected-path consult" "operator gate intercepts (test operator not in ai-ops here)"
+if ! provisioned_agent; then
+    # The launcher gate precedes the CWD gates, so with no enabled agent the run stops there.
+    skip_unprovisioned "wrapper protected-path consult"
 else
-    assert_msg MSG-Q6H3 "${pp_out}" \
-        "wrapper refuses to launch in an allowlisted-but-protected system directory (/etc)"
+    printf '%s\n' "/etc" > "${home}/.config/ai-tools/allowed-projects"
+    pp_out="$(run_wrapper /etc)"
+    if grep -qxE 'MSG-C7C9|MSG-R7Z3' <<<"${pp_out}"; then
+        # Either operator-gate refusal an enrolled-but-not-here operator can draw.
+        skip "wrapper protected-path consult" "operator gate intercepts (test operator not in ai-ops here)"
+    else
+        assert_msg MSG-Q6H3 "${pp_out}" \
+            "wrapper refuses to launch in an allowlisted-but-protected system directory (/etc)"
+    fi
 fi
 
 # ── Every launcher is the one wrapper ────────────────────────────────────────────
@@ -309,13 +314,13 @@ for launcher_path in /usr/local/bin/claude /usr/local/bin/codex; do
 done
 
 # ── The codex launcher: enablement fails closed ──────────────────────────────────
-# The second launcher is the same wrapper under another name, so its gates are proven by this file's claude cases; what
-# is its own is ENABLEMENT. The launcher gate admits the name only while an enabled manifest claims it, before the CWD
-# gate -- so a disabled codex refuses every launch there, whichever directory it is typed in, and an enabled one
-# reaches the allowlist gate exactly as claude does. Which of the two this host is in is read from the same resolver the toolchain provisions
-# from, and the link and the enabled set must agree: a link for an agent the resolver does not enable is a launcher no
-# enabled manifest claims, which ai-tools-run refuses (integration/ai-tools-run.sh) -- reported here so the two gates
-# are never seen
+# The second launcher is the same wrapper under another name, so its gates are proven by this file's claude cases;
+# what is its own is ENABLEMENT. The launcher gate admits the name only while an enabled manifest claims it,
+# before the CWD gate -- so a disabled codex refuses every launch there, whichever directory it is typed
+# in, and an enabled one reaches the allowlist gate exactly as claude does. Which of the two this host is in is read
+# from the same resolver the toolchain provisions from, and the link and the enabled set must agree: a link for an agent
+# the resolver does not enable is a launcher no enabled manifest claims, which ai-tools-run refuses
+# (integration/ai-tools-run.sh) -- reported here so the two gates are never seen
 # disagreeing.
 section "codex wrapper: enablement fails closed (integration)"
 codex_wrapper=/usr/local/bin/codex

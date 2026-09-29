@@ -55,6 +55,46 @@ run_pu() {
     setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade < /dev/null 2>&1 || true
 }
 
+# ── `--check`: the findings as the record stream ai-tools-records(5) states ──────────────────
+# It is what cron runs, so a clean host must print no output at all and exit 0, a finding must be one row of the stream
+# -- read here by column name off the header, so a column appended later leaves the reader as it is -- and a merge
+# the interactive run would make must be reported without being made. A finding that needs attention exits 4, a source
+# the check could not read exits 5, and the findings that need no action appear under `--all` alone and leave the exit
+# at 0. The column registry is read from the library the helper reads, the installed one first.
+RECORDS_BASE_LIB="/usr/local/lib/ai-tools/records-base.lib.sh"
+[[ -r "${RECORDS_BASE_LIB}" ]] || RECORDS_BASE_LIB="${REPO_ROOT}/src/usr/local/lib/ai-tools/records-base.lib.sh"
+# shellcheck source=../../src/usr/local/lib/ai-tools/records-base.lib.sh
+source "${RECORDS_BASE_LIB}"
+run_check() {
+    local rc=0
+    out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check "$@" \
+        < /dev/null 2>&1)" || rc=$?
+    check_rc="${rc}"
+}
+# has_finding <code> <subject> <finding> <detail> [<item>]: the stream holds a row with those fields. The item is
+# compared as written on the wire (two components joined by the literal `\t` the framing writes) and left unchecked
+# when not given; the values are passed through the environment, since `awk -v` would read that `\t` as a tab.
+# The fixture values are printable ASCII without a backslash, so a field on the wire is its value.
+has_finding() {
+    HF_CODE="$1" HF_SUBJECT="$2" HF_FINDING="$3" HF_DETAIL="$4" HF_ITEM="${5-}" HF_CHECK_ITEM="$#" awk -F '\t' '
+        NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
+        $col["code"] == ENVIRON["HF_CODE"] && $col["subject"] == ENVIRON["HF_SUBJECT"] \
+            && $col["finding"] == ENVIRON["HF_FINDING"] && $col["detail"] == ENVIRON["HF_DETAIL"] \
+            && (ENVIRON["HF_CHECK_ITEM"] < 5 || $col["item"] == ENVIRON["HF_ITEM"]) { found = 1 }
+        END { exit !found }' <<< "${out}"
+}
+# stream_is_well_formed: the first line is the header the column registry declares, and every other line is one row
+# in the shape a post-upgrade finding takes -- eleven fields, an empty occurred-at and operator, a 16-hex id, a severity
+# and subject-type this report writes, and an absolute subject.
+stream_is_well_formed() {
+    local header rows
+    header="$(printf '%s\t' "${AI_TOOLS_RECORDS_COLUMNS[@]%%:*}")"; header="${header%$'\t'}"
+    rows="$(tail -n +2 <<< "${out}")"
+    [[ "${out%%$'\n'*}" == "${header}" ]] \
+        && ! grep -qvP '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\t\tMSG-[A-Z]\d[A-Z]\d\t[0-9a-f]{16}\t(attention|unreadable|info)\t[a-z-]+\t(file|directory)\t\t[^\t]*\t/[^\t]+\t[^\t]*$' \
+            <<< "${rows}"
+}
+
 # The sidecars the run left beside a file, as a count -- a keyval file must gain none.
 sidecars() {
     local file="$1" found=()
@@ -77,14 +117,14 @@ cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
 printf 'OPERATORS="root"\n' > "${CONF}"
 before="$(md5sum "${SETTINGS}" "${CONF}")"
 out="$(run_pu)"
-if [[ "${out}" != *"no .rpmnew"* ]]; then
+if [[ "${out}" != *"no package or installer copy"* ]]; then
     skip "system post-upgrade" "deployed ai-tools-admin predates the command -- re-run sudo ./install.sh install"
     finish; exit
 fi
 if [[ "$(md5sum "${SETTINGS}" "${CONF}")" == "${before}" ]]; then
-    pass "a host with no .rpmnew is reported reconciled and nothing is touched"
+    pass "a host with no package or installer copy is reported reconciled and nothing is touched"
 else
-    fail "a file with no .rpmnew beside it was modified"
+    fail "a file with no copy beside it was modified"
 fi
 
 # ── (B) settings.json: the merge that carries a newly shipped hook onto a kept file ───────────
@@ -126,8 +166,8 @@ if [[ ${#baks[@]} -eq 1 && "${out}" == *"${baks[0]}"* ]]; then
 else
     fail "the run did not name the backup it wrote"
 fi
-# Once the hook arrives, the host's own deny rule is all that differs from the copy. It is the host's, so it is listed as
-# such and not counted, and the copy is left with nothing to carry over -- kept on disk, and named for removal.
+# Once the hook arrives, the host's own deny rule is all that differs from the copy. It is the host's, so it is listed
+# as such and not counted, and the copy is left with nothing to carry over -- kept on disk, and named for removal.
 if [[ -f "${SETTINGS}.rpmnew" && "${out}" == *"sudo rm ${SETTINGS}.rpmnew"* \
       && "${out}" == *"kept as yours"* && "${out}" == *"deny: Bash(hosttuned:*)"* ]]; then
     pass "the copy survives the merge and is named as the operator's to remove, the host's own rule listed as its"
@@ -185,13 +225,12 @@ if [[ "$(md5sum < "${SETTINGS}")" == "${before}" && -f "${SETTINGS}.rpmnew" ]]; 
 else
     fail "the set comparison wrote the settings file or dropped its copy"
 fi
-out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check < /dev/null 2>&1)" \
-    && check_rc=0 || check_rc=$?
-if [[ "${check_rc}" == 1 ]] \
-        && grep -qxF "$(printf '%s\t%s\t%s\t%s' MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg)')" <<< "${out}" \
-        && grep -qxF "$(printf '%s\t%s\t%s\t%s' MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg *)')" <<< "${out}" \
+run_check
+if [[ "${check_rc}" == 4 ]] \
+        && has_finding MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg)' 'deny\tBash(gpg)' \
+        && has_finding MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg *)' 'deny\tBash(gpg *)' \
         && ! grep -qF 'hosttuned' <<< "${out}" && ! grep -qF 'rpmnew-differs' <<< "${out}"; then
-    pass "--check reports each missing rule as rule-missing, and neither the host's rule nor the layout"
+    pass "--check reports each missing rule as rule-missing with the list and the rule as its item, and neither the host's rule nor the layout"
 else
     fail "--check did not report the missing rules alone (exit ${check_rc}): ${out}"
 fi
@@ -212,6 +251,71 @@ if [[ "${out}" == *"other settings differ"* && "${out}" == *"CLAUDE_CODE_MAX_OUT
     pass "a setting outside the rule lists is shown as a diff labelled with the real files"
 else
     fail "a changed setting was not shown: ${out}"
+fi
+
+# ── (C3) The reference is the newest copy beside the file, whichever route left it ─────────────
+# A host whose install routes alternated holds both a package copy and an installer copy. The one compared is the newest
+# by modification time: an older .rpmnew beside a newer .shipped reads the installer's, the reverse reads the package's,
+# and each block names which. A .shipped alone -- a from-source host, where no rpm parks a copy -- drives the settings
+# treatment and the `--check` findings as a .rpmnew does. The reference in use is not repeated under the earlier-copies
+# list.
+reset_root
+jq '.permissions.deny -= ["Bash(gpg)", "Bash(gpg *)"]' "${SHIPPED_SETTINGS}" > "${SETTINGS}"
+INSTALLER_COPY="${SETTINGS}.20250101-1.shipped"
+cp "${SHIPPED_SETTINGS}" "${INSTALLER_COPY}"; touch -d 2025-01-01 "${INSTALLER_COPY}"
+printf '{"permissions":{"deny":["Bash(old:*)"]}}\n' > "${SETTINGS}.rpmnew"; touch -d 2019-01-01 "${SETTINGS}.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"installer copy: ${INSTALLER_COPY}"* && "${out}" == *"deny: Bash(gpg)"* \
+      && "${out}" != *"deny: Bash(old:*)"* && "${out}" != *"package copy: ${SETTINGS}.rpmnew"* ]]; then
+    pass "a .shipped newer than the .rpmnew is the copy compared, and the block names it as the installer's"
+else
+    fail "the newer installer copy was not the reference: ${out}"
+fi
+if ! grep -qF "  ${INSTALLER_COPY}" <<< "${out}"; then
+    pass "the installer copy in use is not listed again among the earlier copies"
+else
+    fail "the reference copy was listed as an earlier copy too: ${out}"
+fi
+touch -d 2026-01-01 "${SETTINGS}.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"package copy: ${SETTINGS}.rpmnew"* && "${out}" == *"deny: Bash(old:*)"* \
+      && "${out}" != *"installer copy:"* && "${out}" == *"  ${INSTALLER_COPY}"* ]]; then
+    pass "a .rpmnew newer than the .shipped is the copy compared, and the older .shipped is listed as an earlier copy"
+else
+    fail "the newer package copy was not the reference: ${out}"
+fi
+rm -f "${SETTINGS}.rpmnew"
+run_check
+if [[ "${check_rc}" == 4 ]] \
+        && has_finding MSG-Z8U4 "${SETTINGS}" rule-missing 'deny: Bash(gpg)' 'deny\tBash(gpg)'; then
+    pass "a .shipped alone, the from-source host's copy, drives --check's rule-missing findings"
+else
+    fail "--check did not read the installer copy as the reference (exit ${check_rc}): ${out}"
+fi
+
+# ── (C4) A file dated after the clock stops the comparison and names the clock first ──────────
+# The copy compared is the newest by date, so under a clock that is behind -- a host with no battery-backed clock,
+# booted offline -- the comparison picks the wrong copy. A copy dated after now is therefore reported as the clock being
+# behind: the interactive run names it and the file to set, does not compare a file, and needs attention; `--check`
+# writes an `error` row, a reading that could not be made, and exits 5.
+reset_root
+jq '.permissions.deny -= ["Bash(gpg)"]' "${SHIPPED_SETTINGS}" > "${SETTINGS}"
+cp "${SHIPPED_SETTINGS}" "${SETTINGS}.rpmnew"; touch -d '+2 days' "${SETTINGS}.rpmnew"
+out="$(run_pu)"
+assert_msg MSG-S5S2 "${out}" "a copy dated after the system clock is reported as the clock being behind"
+if [[ "${out}" == *"${SETTINGS}.rpmnew"* && "${out}" == *"set the clock first"* \
+      && "${out}" != *"rules this version ships"* && "${out}" != *"package copy: ${SETTINGS}.rpmnew"* ]]; then
+    pass "the report names the future-dated copy and the clock, and compares no file"
+else
+    fail "a comparison ran under a clock that is behind: ${out}"
+fi
+run_check
+if [[ "${check_rc}" == 5 ]] && has_finding MSG-Y3J5 "${SETTINGS}.rpmnew" error \
+        "dated $(date -d "@$(stat -c %Y "${SETTINGS}.rpmnew")" '+%Y-%m-%d %H:%M:%S'), after the system clock -- set the clock before acting on this report" clock \
+        && ! grep -qF 'rule-missing' <<< "${out}"; then
+    pass "--check writes an error row for the future-dated copy, no rule finding, and exits 5"
+else
+    fail "--check under a clock that is behind (exit ${check_rc}): ${out}"
 fi
 
 # ── (D) A merge that matches the shipped copy still leaves it to the operator ──────────────────
@@ -301,7 +405,7 @@ if [[ "${out}" == *"Post-upgrade done -- review the warnings above"* && "${out}"
 else
     fail "a run with something to act on closed without asking for a review: ${out}"
 fi
-if grep -qxE '  SUDO_EDITOR=(meld|vimdiff) sudoedit <file> <file>.rpmnew' <<< "${out}"; then
+if grep -qxE '  SUDO_EDITOR=(meld|vimdiff) sudoedit <file> <copy>' <<< "${out}"; then
     pass "a run with a difference left to act on prints the sudoedit comparison, the file on the left, on a line of its own"
 else
     fail "the meld line is missing where a difference is left: ${out}"
@@ -365,6 +469,9 @@ cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
 printf '{}\n' > "${SETTINGS}.20200101.bak"
 printf 'OPERATORS="root"\n' > "${CONF}"
 printf 'OPERATORS=""\n' > "${CONF}.20200101-2.shipped"
+# A package copy identical to the file and no older than the .shipped is the reference (it wins a tie), so the .shipped
+# stays in the earlier-copies list this case is about.
+cp "${CONF}" "${CONF}.rpmnew"
 out="$(run_pu)"
 if [[ "${out}" == *"${SETTINGS}.20200101.bak  (before this installation)"* \
       && "${out}" == *"${CONF}.20200101-2.shipped  (before this installation)"* \
@@ -399,6 +506,8 @@ fi
 reset_root
 printf 'OPERATORS="root"\n' > "${CONF}"
 for suffix in 20200105-3 20200105 20200103 20200105-2; do : > "${CONF}.${suffix}.shipped"; done
+# The reference is a package copy identical to the file (it wins a tie), so every .shipped is an earlier copy.
+cp "${CONF}" "${CONF}.rpmnew"
 listed="$(run_pu | grep -oE 'operator\.conf\.[0-9-]+\.shipped' | tr '\n' ' ')"
 if [[ "${listed}" == "operator.conf.20200103.shipped operator.conf.20200105.shipped operator.conf.20200105-2.shipped operator.conf.20200105-3.shipped " ]]; then
     pass "a day's copies list in the order they were made, the unnumbered first"
@@ -428,7 +537,7 @@ else
 fi
 cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
 out="$(run_pu)"
-if [[ "${out}" != *"without asking"* && "${out}" == *"no .rpmnew"* ]]; then
+if [[ "${out}" != *"without asking"* && "${out}" == *"no package or installer copy"* ]]; then
     pass "a file carrying every ask entry is not reported"
 else
     fail "a current file was reported as missing an ask entry: ${out}"
@@ -462,13 +571,11 @@ if cmp -s "${ROOT}/etc/acme/req.toml" "${TESTDIR}/pre.req" && [[ "$(sidecars "${
 else
     fail "the key check wrote to the managed file"
 fi
-out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check < /dev/null 2>&1)" \
-    && check_rc=0 || check_rc=$?
-if [[ "${check_rc}" -eq 1 ]] \
-        && grep -qxF "$(printf '%s\t%s\t%s\t%s' MSG-K5H2 "${ROOT}/etc/acme/req.toml" key-missing features.auto_start)" \
-            <<< "${out}" \
-        && ! grep -qF "${ROOT}/etc/acme/req.toml"$'\t'key-missing$'\t'pin <<< "${out}"; then
-    pass "--check reports the missing key as key-missing under its code, not the key set to another value, and exits 1"
+run_check
+if [[ "${check_rc}" == 4 ]] \
+        && has_finding MSG-K5H2 "${ROOT}/etc/acme/req.toml" key-missing features.auto_start features.auto_start \
+        && ! has_finding MSG-K5H2 "${ROOT}/etc/acme/req.toml" key-missing pin; then
+    pass "--check reports the missing key as key-missing under its code, not the key set to another value, and exits 4"
 else
     fail "--check did not report the missing key alone (exit ${check_rc}): ${out}"
 fi
@@ -489,19 +596,7 @@ else
     fail "a file setting every key was reported: ${out}"
 fi
 
-# ── (E9) --check: one tab-separated line per finding, nothing when clean, and no write ───────────────────────
-# It is what cron runs, so a clean host must print nothing at all and exit 0, a finding must be one line a monitor
-# splits on a tab -- its code, the path, the finding, the detail -- and a merge the interactive run would make must be
-# reported without being made. The findings that need no action appear under --all alone and leave the exit at 0.
-run_check() {
-    local rc=0
-    out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check "$@" \
-        < /dev/null 2>&1)" || rc=$?
-    check_rc="${rc}"
-}
-# has_finding <code> <path> <finding> <detail>: the output holds exactly that line.
-has_finding() { grep -qxF "$(printf '%s\t%s\t%s\t%s' "$@")" <<< "${out}"; }
-
+# ── (E9) `--check`: one row per finding, no output when clean, and no write ──────────────────────────────────
 reset_root
 cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
 mkdir -p "${ROOT}/etc/ai-tools/prompts"
@@ -514,9 +609,9 @@ else
     fail "a clean host was reported under --check (exit ${check_rc}): ${out}"
 fi
 run_check --all
-if [[ "${check_rc}" == 0 ]] && has_finding MSG-J3X7 "${ROOT}/etc/ai-tools/prompts/prompt.md.rpmnew" rpmnew-residual - \
-        && has_finding MSG-W8F8 "${SETTINGS}.20200101-1.bak" copy-kept -; then
-    pass "--all adds the identical copy and the kept backup, and the exit stays 0"
+if [[ "${check_rc}" == 0 ]] && has_finding MSG-J3X7 "${ROOT}/etc/ai-tools/prompts/prompt.md.rpmnew" rpmnew-residual "" "" \
+        && has_finding MSG-W8F8 "${SETTINGS}.20200101-1.bak" copy-kept "" "" && stream_is_well_formed; then
+    pass "--all adds the identical copy and the kept backup as info rows with an empty item, and the exit stays 0"
 else
     fail "--all did not list the no-action findings, or changed the exit (exit ${check_rc}): ${out}"
 fi
@@ -530,17 +625,19 @@ mkdir -p "${ROOT}/usr/local/lib/ai-tools/typesafe"
 cp "${SETTINGS}" "${TESTDIR}/pre-check.json"
 shipped_cmd="$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "${SHIPPED_SETTINGS}")"
 run_check
-if [[ "${check_rc}" == 1 ]] && has_finding MSG-F2G7 "${SETTINGS}" hook-missing "PreToolUse: ${shipped_cmd}" \
+if [[ "${check_rc}" == 4 ]] \
+        && has_finding MSG-F2G7 "${SETTINGS}" hook-missing "PreToolUse: ${shipped_cmd}" 'PreToolUse\t'"${shipped_cmd}" \
         && has_finding MSG-E9V5 "${SETTINGS}" ask-missing 'Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)' \
-        && has_finding MSG-K8D2 "${ROOT}/etc/codex/gone.toml.rpmnew" rpmnew-orphan "the file it belongs to is gone"; then
-    pass "each finding is one line of code, path, finding and detail, and the run exits 1"
+            'Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)' \
+        && has_finding MSG-K8D2 "${ROOT}/etc/codex/gone.toml.rpmnew" rpmnew-orphan "the file it belongs to is gone" ""; then
+    pass "each finding is one row under its code, with the hook's event and command and the ask entry as items, and the run exits 4"
 else
     fail "--check did not report the pending merge, the missing ask entry and the orphan (exit ${check_rc}): ${out}"
 fi
-if ! grep -qvP '^MSG-[A-Z][0-9][A-Z][0-9]\t/[^\t]+\t[a-z-]+\t[^\t]+$' <<< "${out}"; then
-    pass "every line --check prints has the four-field shape and no other text"
+if stream_is_well_formed; then
+    pass "the stream is the declared header and one eleven-field row per finding, with no other text"
 else
-    fail "--check printed a line outside the finding shape: ${out}"
+    fail "--check printed a line outside the stream's shape: ${out}"
 fi
 if cmp -s "${SETTINGS}" "${TESTDIR}/pre-check.json" && [[ "$(sidecars "${SETTINGS}")" == 0 ]]; then
     pass "--check writes nothing: the file is byte-identical and gains no backup"
@@ -556,9 +653,9 @@ mkdir -p "${ROOT}/usr/share/ai-tools/skills/ai-tools-demo" "${ROOT}/opt/ai-tools
 printf -- '---\nname: ai-tools-demo\nx-ai-tools-managed: true\nx-ai-tools-version: 2\n---\n' \
     > "${ROOT}/usr/share/ai-tools/skills/ai-tools-demo/SKILL.md"
 run_check
-if [[ "${check_rc}" == 1 ]] && has_finding MSG-X6H5 "${ROOT}/opt/ai-tools/skills/ai-tools-demo" asset-missing \
-        "not seeded -- sessions are not offered it"; then
-    pass "a shipped skill whose live directory is empty is reported missing"
+if [[ "${check_rc}" == 4 ]] && has_finding MSG-X6H5 "${ROOT}/opt/ai-tools/skills/ai-tools-demo" asset-missing \
+        "not seeded -- sessions are not offered it" && grep -q $'\tasset-missing\tdirectory\t' <<< "${out}"; then
+    pass "a shipped skill whose live directory is empty is reported missing, as a directory"
 else
     fail "an empty live skill directory was not reported (exit ${check_rc}): ${out}"
 fi
@@ -570,6 +667,23 @@ if has_finding MSG-R6B2 "${ROOT}/opt/ai-tools/skills/ai-tools-demo" asset-outdat
     pass "a live skill older than the shipped one is listed under --all as outdated"
 else
     fail "an outdated live skill was not listed under --all: ${out}"
+fi
+
+# An agent's config directory is group-writable, so the sandbox account can plant the skill link itself, and its target
+# is printed on root's terminal. A target carrying a terminal escape reaches the report with the control bytes replaced.
+# The link path comes from the host's enabled agent manifests, so the case runs where one declares a skills directory.
+cp "${ROOT}/usr/share/ai-tools/skills/ai-tools-demo/SKILL.md" "${ROOT}/opt/ai-tools/skills/ai-tools-demo/SKILL.md"
+mkdir -p "${ROOT}/opt/ai-tools/.claude/skills"
+ln -sfn $'/tmp/planted\e]0;title\a' "${ROOT}/opt/ai-tools/.claude/skills/ai-tools-demo"
+run_check
+if ! grep -q asset-unlinked <<< "${out}"; then
+    skip "a planted skill link's target" "no enabled agent on this host declares a skills directory at /opt/ai-tools/.claude"
+elif [[ "${out}" != *$'\e'* && "${out}" != *$'\a'* ]] \
+        && has_finding MSG-N9S4 "${ROOT}/opt/ai-tools/.claude/skills/ai-tools-demo" asset-unlinked \
+            "claude-code: points at /tmp/planted?]0;title?"; then
+    pass "a planted skill link's target is printed with its control bytes replaced"
+else
+    fail "a planted skill link's target reached the report unsanitized: $(printf '%q' "${out}")"
 fi
 
 for bad in "--all" "--format tsv" "--check --format json" "--check --bogus"; do
@@ -615,11 +729,11 @@ kinds_env=(AI_TOOLS_AGENTS_DIR="${TESTDIR}/kinds/agents.d" AI_TOOLS_INTEGRATIONS
 check_rc=0
 out="$(setsid env "${kinds_env[@]}" AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check \
     < /dev/null 2>&1)" || check_rc=$?
-if [[ "${check_rc}" == 1 ]] \
-        && has_finding MSG-P5K4 "${CONF}" list-unmigrated 'AI_TOOLS_AGENTS: [acme] -> [agent-acme]' \
-        && has_finding MSG-S3D8 "${CONF}" list-unmigratable 'AI_TOOLS_INTEGRATIONS: nosuch' \
-        && has_finding MSG-P5K4 "${CONF}" list-unmigrated 'AI_TOOLS_FILTERS: [core] -> [filter-base]'; then
-    pass "--check names each list it would rewrite and each name it cannot, and exits 1"
+if [[ "${check_rc}" == 4 ]] \
+        && has_finding MSG-P5K4 "${CONF}" list-unmigrated 'AI_TOOLS_AGENTS: [acme] -> [agent-acme]' AI_TOOLS_AGENTS \
+        && has_finding MSG-S3D8 "${CONF}" list-unmigratable 'AI_TOOLS_INTEGRATIONS: nosuch' 'AI_TOOLS_INTEGRATIONS\tnosuch' \
+        && has_finding MSG-P5K4 "${CONF}" list-unmigrated 'AI_TOOLS_FILTERS: [core] -> [filter-base]' AI_TOOLS_FILTERS; then
+    pass "--check names each list it would rewrite by key and each name it cannot by key and name, and exits 4"
 else
     fail "--check over bare provider lists (exit ${check_rc}): ${out}"
 fi
@@ -643,11 +757,50 @@ fi
 check_rc=0
 out="$(setsid env "${kinds_env[@]}" AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade --check \
     < /dev/null 2>&1)" || check_rc=$?
-if [[ "${check_rc}" == 1 && "$(grep -c . <<< "${out}")" == 1 ]] \
+if [[ "${check_rc}" == 4 && "$(grep -c . <<< "${out}")" == 2 ]] \
         && has_finding MSG-S3D8 "${CONF}" list-unmigratable 'AI_TOOLS_INTEGRATIONS: nosuch'; then
     pass "after the run --check names only the name left to edit by hand"
 else
     fail "--check after the run (exit ${check_rc}): ${out}"
+fi
+
+# ── (I) `--check`: a collector that fails is an error row, and the run exits 5 ───────────────
+# The check reads each collector through a process substitution and waits for it, so a collector's exit is what says
+# the reading was complete. `cut` is the last stage of the copies collector and the only step on the check's path
+# that runs it, so a `cut` that fails drives one collector failure. The stub needs a directory where its executable bit
+# is visible, which a noexec /tmp hides: the testdir is used when it qualifies and a directory beside the operator's
+# home otherwise, the fallback unit/agent-installs.sh takes for the same reason.
+x_bit_visible() {
+    local probe="$1/.x-probe.$$" ok=1
+    printf '' > "${probe}" 2>/dev/null || return 1
+    chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
+    [[ -x "${probe}" ]] && ok=0
+    rm -f "${probe}"
+    return "${ok}"
+}
+STUBS="${TESTDIR}/stubs"
+mkdir -p "${STUBS}"
+if ! x_bit_visible "${STUBS}"; then
+    mk_fixture_dir STUBS "${PROJECTS_HOME}" pustubs 2>/dev/null || STUBS=""
+    [[ -n "${STUBS}" ]] && chmod 0755 "${STUBS}"
+fi
+if [[ -z "${STUBS}" ]] || ! x_bit_visible "${STUBS}"; then
+    skip "--check on a failing collector" "no directory here reports a 0755 file as executable (a noexec mount)"
+else
+    printf '#!/bin/sh\nexit 7\n' > "${STUBS}/cut"
+    chmod 0755 "${STUBS}/cut"
+    reset_root
+    cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
+    check_rc=0
+    out="$(setsid env PATH="${STUBS}:${PATH}" AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade \
+        --check < /dev/null 2>&1)" || check_rc=$?
+    if [[ "${check_rc}" == 5 && "$(grep -c . <<< "${out}")" == 2 ]] \
+            && has_finding MSG-Y3J5 "${ROOT}" error "the copies collector exited 7" copies \
+            && grep -q $'\tunreadable\terror\tdirectory\t' <<< "${out}"; then
+        pass "a collector that exits non-zero is one unreadable error row naming it, and the run exits 5"
+    else
+        fail "a failing collector was not reported as unreadable (exit ${check_rc}): ${out}"
+    fi
 fi
 
 # ── (G) Dispatch ─────────────────────────────────────────────────────────────────────────────

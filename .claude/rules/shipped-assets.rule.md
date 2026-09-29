@@ -119,9 +119,11 @@ per enabled agent. The product does not read a link under any other name, which 
 which preserves names — cannot place it.
 
 Same non-displacing rule otherwise: a correct link is left alone, a stale one repointed, and a **real file wins and is
-reported**. That last case is how an operator keeps their own user-scope instructions; the shared text is then not
-loaded at all, since the path holds one file. An agent that declares no `memory_file` is given no link, exactly as one
-declaring no `skills_dir` is given no skills.
+reported**, with the asset linker's one exception — a real file that is both `x-ai-tools-managed` and byte-identical
+to the shared text is this project's own copy (a tree copied with its links dereferenced leaves one) and becomes
+the link, with no content lost. The real-file case is how an operator keeps their own user-scope instructions;
+the shared text is then not loaded at all, since the path holds one file. An agent that declares no `memory_file` is
+given no link, exactly as one declaring no `skills_dir` is given no skills.
 
 **Assumption to hold:** the agent follows a symlinked asset. Claude Code scans its skills and agents directories
 and reads the file beneath, which follows links transparently; `tests/integration/perms.sh` asserts a shipped asset
@@ -226,7 +228,9 @@ frontmatter carries `x-ai-tools-managed: true`, so an operator's own agent/skill
 - **present + unmanaged** (no marker) → left untouched (the operator's own file);
 - **an empty directory** at a directory asset's name → seeded, as absent: it holds nothing an operator wrote, and read
   as theirs it would leave the asset missing from every session with nothing to fill it;
-- **present + same-or-older version** → no-op;
+- **present + same-or-older version** → the content is left as it is, and the ownership and modes a seeded copy has
+  (`root:SANDBOX_GROUP`, files `640`, directories `750`, an inherited setgid cleared) are applied again where they
+  drifted, which the report names — the same on a kept older version;
 - **a withdrawn name** → skipped outright, before any of the other cases (see [Withdrawing
   an asset](#withdrawing-an-asset)).
 
