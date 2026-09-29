@@ -23,6 +23,10 @@ mktestdir
 proj="${TESTDIR}/proj"
 mkdir -p "${proj}/secrets" "${proj}/vendor" "${proj}/.git/hooks" "${proj}/.git/refs/heads" "${proj}/.git/objects/aa"
 chmod 0755 "${TESTDIR}" "${proj}"
+# Every directory mkdir made takes its mode here: under a host umask of 077 it would be born owner-only, which the seal
+# pass reads as the operator's seal, so a fixture left to the umask differs from host to host.
+chmod 0755 "${proj}/vendor" "${proj}/.git" "${proj}/.git/hooks" "${proj}/.git/refs" "${proj}/.git/refs/heads" \
+    "${proj}/.git/objects" "${proj}/.git/objects/aa"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}/.git"
 
 # Pre-existing, user-owned fixtures -- the case ai-tools-chown's owner guard skips, since it acts only on a path
