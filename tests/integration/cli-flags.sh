@@ -494,6 +494,15 @@ drive_rows() {
     expect "the page went to stderr"                                  err_has "Claim project"
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/ph"
     expect "the same claim on the page exits 4"                       rc_is 4
+    # A secret-named path in a drift list is marked, read with the operator's patterns -- here a fixture set
+    # through the classifier's own file override -- and a plain path beside it is not.
+    printf '*.pem\n' > "${R}/secret-patterns"; chmod 0644 "${R}/secret-patterns"
+    : > "${R}/ph/deploy.pem"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/ph/deploy.pem"; chmod 0640 "${R}/ph/deploy.pem"
+    RUN_EXTRA_ENV=(AI_TOOLS_SECRET_PATTERNS_FILE="${R}/secret-patterns")
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/ph"
+    expect "a secret-named drift path is marked"                      out_has_text "deploy.pem [secret]"
+    expect "a plain drift path beside it is not"                      out_lacks_text "moved-in.txt [secret]"
+    RUN_EXTRA_ENV=(); rm -f "${R}/ph/deploy.pem"
 
     # A root step that fails outranks the rows: the safe.directory entry is missing, so its helper runs on every host,
     # and it exits 1; the claim exits 1 with the file still reported not fixed.

@@ -164,11 +164,18 @@ does not answer it, since it resets every type in the tree.
 When the relabel does not run and every file the group question lists is also
 on the relabel list, the group question is not asked: those files keep a type
 the agent is refused, so a group change alone would not share them.
-After the claim's steps, each such file is checked on its own and printed as one line,
-.IR outcome\ kind\ path\ detail ,
-tab-separated, with
+A file whose name, or a project directory containing it, matches your secret
+patterns is marked
+.BR [secret] :
+if you accept either repair, the secret lockdown makes it owner-only first,
+so neither repair shares it.
+After the claim's steps, each such file is checked on its own and printed as one
+indented line naming its
+.IR "outcome kind path detail" ;
+.B \-\-format tsv
+carries the same outcomes for a script. The
 .I outcome
-one of
+is one of
 .BR fixed ,
 .BR not\-fixed ,
 .B unverified

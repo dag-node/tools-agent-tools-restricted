@@ -551,6 +551,10 @@ readonly RECORDS_BASE_LIB="/usr/local/lib/ai-tools/records-base.lib.sh"
 # with (project-permissions.lib.sh). Loaded by claim_load_libraries, for the same reason records-base is loaded late.
 readonly RECORDS_TSV_LIB="/usr/local/lib/ai-tools/records-tsv.lib.sh"
 readonly PROJECT_PERMISSIONS_LIB="/usr/local/lib/ai-tools/project-permissions.lib.sh"
+# The secret-name classifier ai-tools-lockdown matches with (secret-patterns.lib.sh), which marks a secret-named path
+# in the claim's drift lists. Loaded by claim_load_libraries and not required: the mark is advisory, and the secret gate
+# makes the decision whether or not it loaded.
+readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 # The toolchain readers `status` makes from the operator's vantage (toolchain.lib.sh): a disabled agent's remaining
 # launcher link, and the Node version the enabled agents' links name. Loaded by the sections that read it,
 # through toolchain_lib_loaded, since only `status` reads it.
@@ -1698,13 +1702,44 @@ claim_setfacl() {
 # path_detail_lines <path...>  -- print each path prefixed with its owner:group and mode, the columns that show
 # at a glance why a path is flagged (the foreign or agent group) and whether its mode is what the operator expects.
 # Shared by the claim's drift report and the unclaim's residue report: both answer the same question about a path,
-# so both show the same columns.
+# so both show the same columns. A caller listing drift sets PATH_DETAIL_MARK=1 for the call, which appends
+# drift_secret_mark to each line.
 path_detail_lines() {
-    local _p _og _m
+    local _p _og _m _mark=""
     for _p in "$@"; do
         IFS=' ' read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) \
             || { _og='?'; _m='?'; }
-        printf '        %s%-18s %-4s %s%s\n' "${C_DIM}" "${_og}" "${_m}" "$(ai_tools_log_sanitize "${_p}")" "${C_RST}"
+        [[ -z "${PATH_DETAIL_MARK:-}" ]] || _mark="$(drift_secret_mark "${_p}")"
+        printf '        %s%-18s %-4s %s%s%s\n' "${C_DIM}" "${_og}" "${_m}" "$(ai_tools_log_sanitize "${_p}")" "${C_RST}" \
+            "${_mark}"
+    done
+}
+
+# drift_secret_mark <path>  -- print ` [secret]` when a component of <path> under the project root <d> (the claim's
+# local, in scope wherever the claim lists its drift) matches a loaded secret pattern, the match ai-tools-lockdown makes
+# before any repair runs. Prints nothing when no pattern set is loaded.
+drift_secret_mark() {
+    declare -F ai_tools_is_secret_basename >/dev/null 2>&1 && [[ -n "${_AI_TOOLS_PATTERNS_LOADED:-}" ]] || return 0
+    local _part
+    local -a _parts=()
+    IFS=/ read -r -a _parts <<< "${1#"${d}"/}"
+    for _part in "${_parts[@]}"; do
+        if [[ -n "${_part}" ]] && ai_tools_is_secret_basename "${_part}"; then
+            printf ' %s[secret]%s' "${C_YEL}" "${C_RST}"
+            return 0
+        fi
+    done
+}
+
+# drift_secret_legend <path...>  -- under a drift list holding a secret-named path, say what the secret gate does
+# with one.
+drift_secret_legend() {
+    local _p
+    for _p in "$@"; do
+        [[ -n "$(drift_secret_mark "${_p}")" ]] || continue
+        say "      ${C_YEL}[secret]${C_RST} if you accept a repair, the secret gate locks it down (owner-only)"
+        say "      first, so no repair shares it with the agent"
+        return 0
     done
 }
 
@@ -1740,17 +1775,17 @@ path_listing() { item_listing "$1 with ownership and mode" path_detail_lines "${
 label_drift_lines() {
     local _path
     for _path in "$@"; do
-        printf '        %s%s  %s%s\n' "${C_DIM}" "${label_drift_types[${_path}]:-?}" \
-            "$(ai_tools_log_sanitize "${_path}")" "${C_RST}"
+        printf '        %s%s  %s%s%s\n' "${C_DIM}" "${label_drift_types[${_path}]:-?}" \
+            "$(ai_tools_log_sanitize "${_path}")" "${C_RST}" "$(drift_secret_mark "${_path}")"
     done
 }
 
-# outcome_record <outcome> <kind> <path> <detail>  -- one line recording what a run did about one path:
-# `<outcome> TAB <kind> TAB <path> TAB <detail>`, uncoloured, so a script splits it on tabs and a grep for an outcome
-# finds every path it names. The path is printed through the display sanitizer, since a path under a claimed tree may be
-# one the agent named, and that keeps a tab or a newline in it from splitting the record.
+# outcome_record <outcome> <kind> <path> <detail>  -- one page line recording what a run did about one path, indented
+# under its heading with the outcome and kind in aligned columns, uncoloured, so a grep for an outcome finds every path
+# it names; `--format tsv` carries the same outcomes for a script. The path is printed through the display sanitizer,
+# since a path under a claimed tree may be one the agent named, and that keeps a newline in it from splitting the line.
 outcome_record() {
-    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$(ai_tools_log_sanitize "$3")" "${4:--}"
+    printf '    %-10s  %-5s  %s  %s\n' "$1" "$2" "$(ai_tools_log_sanitize "$3")" "${4:--}"
 }
 
 # claim_load_libraries -- load the record writer and the per-path checks the claim collects its drift and verifies its
@@ -1773,6 +1808,14 @@ claim_load_libraries() {
     done
     if ! ${loaded}; then
         die MSG-X3G7 "cannot load the libraries the claim checks its drift and states its exit codes with -- reinstall the ai-tools package"
+    fi
+    # The invoker's own patterns file, the one ai-tools-lockdown reads for a project the invoker owns. Under `--for`
+    # the target's file is unreadable from here, so no pattern set is loaded and drift_secret_mark does not mark any
+    # path.
+    if [[ -z "${FOR_OPERATOR}" ]]; then
+        # shellcheck source=SCRIPTDIR/../lib/ai-tools/secret-patterns.lib.sh
+        { source "${SECRET_PATTERNS_LIB}" && PROJECTS_HOME="${HOME_DIR}" ai_tools_load_secret_patterns; } 2>/dev/null \
+            || true
     fi
 }
 
@@ -2406,7 +2449,7 @@ cmd_project_claim() {
     # asks the operator to approve the command they just typed, and its own subject ("apply the pending steps IN PLACE")
     # describes a tree that has no contents to apply them to.
     if ${heavy} && ! ${fresh}; then
-        ${ASSUME_YES} || confirm "Apply the pending steps above IN PLACE?" n \
+        ${ASSUME_YES} || confirm "Apply these pending steps to the tree in place?" n \
             || die "aborted"
     fi
 
@@ -2422,6 +2465,7 @@ cmd_project_claim() {
         headline_warn "Interior drift: SELinux type" \
             "SELinux type differs on ${#label_drift[@]} path(s) inside the tree: each carries a type other than the one this project's file-context rules give it -- moved in with mv, cp -a or tar --selinux, or relabelled by another tool. The agent is refused them whatever their permissions say."
         item_listing "path(s) with their types" label_drift_lines "${label_drift[@]}"
+        drift_secret_legend "${label_drift[@]}"
         # The cap is a property of the SCAN, not of this listing, so it is said whether the paths were sampled or shown
         # in full.
         ! ${label_capped} || say "        ${C_DIM}(scan capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
@@ -2459,7 +2503,8 @@ cmd_project_claim() {
         headline_warn "Interior drift: group and ACL" \
             "Group differs on ${#drift[@]} path(s) inside the tree: each has a group other than ${SANDBOX_GROUP} and group access -- it arrived without inheriting the project group or ACL." \
             "Keep a file shared with a team group or read by a service's group as it is."
-        path_listing "path(s)" "${drift[@]}"
+        PATH_DETAIL_MARK=1 path_listing "path(s)" "${drift[@]}"
+        drift_secret_legend "${drift[@]}"
         ! ${group_capped} || say "        ${C_DIM}(scan capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
         if ${group_needs_label}; then
             say "      group repair not offered: these path(s) keep a type the agent is"
