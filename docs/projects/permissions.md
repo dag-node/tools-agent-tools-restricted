@@ -88,8 +88,9 @@ with the kind and what it was before:
 | `unverified` | the claim could not read the file's state |
 | `gone` | the file no longer exists |
 
-The claim exits 4 when a file is left `not-fixed` and 5 when one is
-`unverified`, so a script can tell a clean claim from one that left work.
+The claim exits 4 when a file is left `not-fixed` or a scan stopped early,
+and 5 when a file is `unverified` or a scan could not read part of the tree,
+so a script can tell a clean claim from one that left work.
 `ai-tools projects claim --format tsv` writes the same outcomes as a record
 stream (`man 5 ai-tools-records`) for a script to read.
 

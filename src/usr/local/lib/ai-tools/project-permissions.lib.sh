@@ -144,8 +144,7 @@ ai_tools_project_permissions_label_check() {
 # naming a listed path once. Only then does a listed path absent from <drift-map> match. Returns 1 otherwise,
 # and <drift-map> holds only the drift records the output carried whole: every other listed path is unknown, a final
 # line without its LF is not read, and a record naming a path outside the set is not evidence about any path. `-i` skips
-# a listed path that does not exist, which the collection passes and the verification does not (cli.rule.md, Interior
-# drift).
+# a listed path that does not exist, which the collection passes and the verification does not (cli.rule.md).
 ai_tools_project_permissions_label_batch() {
     local _list="$1" _work="$2" _ignore_missing="${5:-}"
     local -n _batch_listed="$3" _batch_drift="$4"

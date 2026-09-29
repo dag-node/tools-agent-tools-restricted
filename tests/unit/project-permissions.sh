@@ -3,9 +3,9 @@
 # tests/unit/project-permissions.sh
 # Unit test for project-permissions.lib.sh: the ACL specification a claim grants, which ai-tools-setfacl applies,
 # and the per-path checks the claim collects its drift and verifies its repairs with. What it pins, in order:
-#   * the specification: the exact string the helper applied before the function existed, so the move does not change
-#     any grant; the numeric form the checks pass; and the refusals that keep an identity from adding an entry of its
-#     own (a `,` or `:` in a name);
+#   * the specification: the literal `ai-tools-setfacl` applies, `user:<operator>:rwX,group:<group>:rwX,other::---`,
+#     so a change to the builder is a change to every claimed tree's grant; the numeric form the checks pass;
+#     and the refusals that keep an identity from adding an entry of its own (a `,` or `:` in a name);
 #   * the context and record grammar, where a malformed context is refused rather than read as an empty type;
 #   * label_check and label_batch over canned `restorecon` output (a shell function stands in for the binary): each
 #     way the output can be incomplete -- a malformed line at exit 0 with empty stderr, a record naming a path outside

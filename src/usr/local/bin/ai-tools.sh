@@ -1065,8 +1065,9 @@ drift_walk_failure() {
 # The walk is the repair's (ai-tools-setfacl): `-xdev`, `.git` pruned, and this project's '!'-excluded subtrees pruned,
 # since an intentional carve-out stays unreported; owner-only paths (600/700: locked-down secrets, deliberately private
 # files) are left out by the `-perm /077` predicate. The paths come NUL-separated, so a name holding a tab or a line
-# feed arrives whole. Returns 1, with <detail-var> naming why, when the walk exits non-zero or writes to stderr:
-# a failed walk is not a complete scan of a smaller tree. Read-only and unprivileged, detection only.
+# feed arrives whole. Returns 1, with <detail-var> naming why, when the walk exits non-zero or writes to stderr, or its
+# capture cannot be read: a failed walk is not a complete scan of a smaller tree. Read-only and unprivileged, detection
+# only.
 acl_drift_scan() {
     local dir="$1" work="$2" excl status=0
     local -n _acl_scan_paths="$3" _acl_scan_detail="$4"
@@ -1102,11 +1103,12 @@ acl_drift_scan() {
 # names included, crossing mount points. Every walked name without a line feed goes into one non-recursive batch
 # with `-i`, since a path removed after the walk is outside the run's scope; a name holding one goes
 # through ai_tools_project_permissions_label_check on its own, so no record can be a fragment of another
-# (project-permissions.lib.sh). Only a TYPE difference is reported -- `-F` also reports the SELinux user, which does not
-# decide access. Owner-only paths and '!'-excluded subtrees are filtered out afterwards, as the group scan leaves them
-# out: a path out of the agent's reach by intent does not make the claim ask for a relabel. Returns 1, with <detail-var>
-# naming why, when restorecon is absent, the walk or the batch output is not complete, a per-path check reads unknown,
-# or a drifted path's mode cannot be read and the path is not confirmed gone; the drift it did read stays in the arrays.
+# (project-permissions.lib.sh). Only a TYPE difference is reported -- `-F` also reports the SELinux user and the MLS
+# range, which the file-class constraints do not compare for a read, write or execute (cli.rule.md). Owner-only paths
+# and '!'-excluded subtrees are filtered out afterwards, as the group scan leaves them out: a path out of the agent's
+# reach by intent does not make the claim ask for a relabel. Returns 1, with <detail-var> naming why, when restorecon is
+# absent, the walk or the batch output is not complete, a per-path check reads unknown, or a drifted path's mode cannot
+# be read and the path is not confirmed gone; the drift it did read stays in the arrays.
 label_drift_scan() {
     local dir="$1" work="$2" status=0 path outcome from to excl skip mode incomplete=0 index
     local -n _label_scan_paths="$3" _label_scan_types="$4" _label_scan_detail="$5"
@@ -1834,14 +1836,15 @@ claim_write_list() {
     { printf '%s\0' "$@" > "${file}"; } 2>/dev/null || { rm -f -- "${file}" 2>/dev/null; return 1; }
 }
 
-# claim_subject_type <path>  -- print `directory` for a directory and `file` for anything else, the subject-type a row
-# records; read at collection, so a `gone` row keeps what the path was.
+# claim_subject_type <path>  -- print `directory` when the path itself is a directory and `file` for anything else,
+# a symlink to a directory included: the subject-type a row records, read at collection so a `gone` row keeps
+# what the path was.
 claim_subject_type() {
     if [[ -d "$1" && ! -L "$1" ]]; then printf 'directory'; else printf 'file'; fi
 }
 
 # claim_verify_label <paths-array> <outcomes-array>  -- after the Apply block, check each listed label-drift path on its
-# own and fill <outcomes-array>, index for index, with `fixed`, `not-fixed`, `unverified` or `gone`. Absence is looked
+# own and fill <outcomes-array>, index for index, with the outcome tokens claim_write_row records. Absence is looked
 # up first (project-permissions.lib.sh); the paths that exist and hold no line feed go into one batch WITHOUT `-i`,
 # so a path removed after that lookup fails the batch rather than reading as a match, and a name holding a line feed is
 # checked on its own. From a batch whose output is not complete only the drift records it carried whole are read,
@@ -1915,7 +1918,7 @@ claim_verify_label() {
 
 # claim_verify_group <paths-array> <outcomes-array> <details-array>  -- after the Apply block, check each listed
 # group-drift path against the postconditions the repair establishes (ai_tools_project_permissions_group_check) and fill
-# <outcomes-array> with `fixed`, `not-fixed`, `unverified` or `gone`, and <details-array> with the check's reason
+# <outcomes-array> with the outcome tokens claim_write_row records, and <details-array> with the check's reason
 # for a path it did not pass. The identities are resolved to numeric ids once; one that does not resolve leaves every
 # path `unverified`.
 claim_verify_group() {
@@ -2225,7 +2228,7 @@ cmd_project_claim() {
     # `fixed` where its postcondition now holds, `not-fixed` where it does not (declined, not authorized, or a repair
     # that did not take), `unverified` where the check could not be read, and `gone` where the path is confirmed absent.
     # A re-scan of the tree is not what decides `fixed`: a path can be missing from one because it was capped, failed,
-    # or excluded (cli.rule.md, Interior drift). The ways to settle a not-fixed path follow the rows.
+    # or excluded (cli.rule.md). The ways to settle a not-fixed path follow the rows.
     claim_drift_records() {
         (( ${#label_drift[@]} || ${#drift[@]} )) || { claim_scan_rows; return 0; }
         local _i _outcome _detail _left_label=false _left_group=false _mixed=0 _group_fixed _label_fixed
@@ -2272,11 +2275,10 @@ cmd_project_claim() {
             say "      re-run the claim and answer yes to the other question to share them"
         fi
         ${_left_label} || ${_left_group} || return 0
-        # The ways to settle not-fixed paths, the per-path ones included: the claim's repairs act on every path they
-        # reach, so a subset is chosen with commands the file's owner runs. A path's owner may set its label
-        # (restorecon, no sudo), so a relabel of a few paths is one command each; the group repair has no per-path form,
-        # since the owner is not in the sandbox group, so the paths to keep are sealed or carved out first.
-        # Under `--for` those files belong to the target operator, and the commands are theirs to run.
+        # The settle commands are the per-path form the claim's repairs do not have, since each repair acts on every
+        # path it reaches. A path's owner may set its label without sudo, so a relabel of a few paths is one command
+        # each; the owner is not in the sandbox group, so the paths to keep from the group repair are sealed or carved
+        # out first. Under `--for` those files belong to the target operator, and the commands are theirs to run.
         local _who="you"
         [[ -n "${FOR_OPERATOR}" ]] && _who="${OWNER_USER}"
         say "      ${C_DIM}to share them all with the agent, re-run the claim and answer yes${C_RST}"
@@ -2397,12 +2399,12 @@ cmd_project_claim() {
     fi
 
     # ── Interior drift: one block per kind, each its list and then its question, so the answer follows the paths it is
-    # about. The defaults differ because the costs do (cli.rule.md, Interior drift). A relabel leaves owner, group
-    # and mode as they are, so the agent reaches a relabelled path only where its permissions already let the sandbox
-    # account in; it defaults to yes and `--yes` answers it. A group/ACL repair moves a path from the group it has
-    # to the sandbox group, which is wrong for a file shared with a team or read by a service's group, so it defaults
-    # to no, and `--yes` does not answer it: the launch wrapper that passes `--yes` does not show the operator these
-    # paths. A declined repair is reported as not fixed; the claim goes on. ──
+    # about. The defaults differ because the costs do (cli.rule.md). A relabel leaves owner, group and mode as they are,
+    # so the agent reaches a relabelled path only where its permissions already let the sandbox account in; it defaults
+    # to yes and `--yes` answers it. A group/ACL repair moves a path from the group it has to the sandbox group,
+    # which is wrong for a file shared with a team or read by a service's group, so it defaults to no, and `--yes` does
+    # not answer it: the launch wrapper that passes `--yes` does not show the operator these paths. A declined repair is
+    # reported as not fixed; the claim goes on. ──
     local do_label_drift=false do_drift=false
     if (( ${#label_drift[@]} )); then
         headline_warn "Interior drift: SELinux type" \
@@ -2534,10 +2536,9 @@ cmd_project_claim() {
     claim_end
 }
 
-# claim_end -- end a claim that applied its steps with the report state's status (ai-tools-records(5)): 4 when a path is
-# left not-fixed or a scan was capped, 5 when a check or a scan could not be read, 0 otherwise. A root step that failed
-# has already exited 1, which outranks both (1 over 5 over 4). On the page a non-zero status is said in one line, since
-# the rows printed before it name each path.
+# claim_end -- end a claim that applied its steps with the report state's status (ai-tools-records(5)), which the rows
+# written before it folded their severity into. A root step that failed has already exited 1, which outranks both (1
+# over 5 over 4). On the page a non-zero status is said in one line, since the rows printed before it name each path.
 claim_end() {
     local status=0
     ai_tools_records_get_exit_status || status=$?

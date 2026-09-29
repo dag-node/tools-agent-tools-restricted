@@ -801,8 +801,8 @@ secrets) and `!`-excluded subtrees as out of reach by intent (see [secret-handli
 
 - **Group and ACL** (`acl_drift_scan`, when ownership is in place): shared-looking paths with a foreign group,
   the predicate `ai-tools-setfacl` skips on, so the scan does not report a path the repair would decline to touch. Its
-  walk is the repair's: `-xdev`, `.git` pruned, and this project's `!` subtrees pruned. The hits split on the shared
-  skip list (`skip-dirs.lib.sh`): the claim walks leave a skip-listed directory's contents alone, so hits there get
+  walk is the repair's (the header of `acl_drift_scan` holds it). The hits split on the shared skip list
+  (`skip-dirs.lib.sh`): the claim walks leave a skip-listed directory's contents alone, so hits there get
   an informational block naming the remedies that reach them — narrow the category override in `operator.conf`, list
   the path in `SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE`, then re-claim; or `ai-tools projects handback --full`
   for ownership alone. The repair (setgid walk + ACL walk) settles a path itself: `ai-tools-setfacl` normalizes
@@ -817,20 +817,17 @@ secrets) and `!`-excluded subtrees as out of reach by intent (see [secret-handli
   for a read, write or execute of an existing file, and `ai_tools_t` does not carry `mcs_constrained_type`,
   so a category on a file does not deny it — `seinfo -a mcs_constrained_type -x` and `seinfo --constrain` read both
   on a host. Counting them would report every file an operator creates, which carries `unconfined_u` where the project
-  rule gives `system_u`, and a relabel resets both anyway. Its walk is the relabel's scope (`restorecon -FR`): every
-  directory, `.git` and skip-listed names included, crossing mount points, with the `!` exclusions and owner-only paths
-  filtered out afterwards. Every walked name without a line feed goes into one non-recursive batch, so each record
-  belongs to a listed path, and a name holding one is checked on its own.
+  rule gives `system_u`, and a relabel resets both anyway. Its walk is the relabel's scope, which is wider than
+  the group walk's, with the `!` exclusions and owner-only paths filtered out afterwards; the header
+  of `label_drift_scan` holds the walk and the batch it checks the paths in.
 
-**A scan reports what it could not read.** Both walks are NUL-separated, so a name holding a tab or a line feed arrives
-whole, and each runs its tools with stdout and stderr apart. A walk that exits non-zero or writes to stderr, a capture
-that is missing or holds a NUL, a batch whose output is not complete — exit 0, empty stderr and every line a valid
-record — a per-path check that reads unknown, a drifted path whose mode `stat` fails to read and that is not confirmed
-gone, and a labelled tree with no `restorecon` each make the scan incomplete: it writes an `error` row naming why, keeps
-the drift it did read, and does not read as a complete scan of a smaller tree. Each walk reads the whole tree,
-so the cap of 200 bounds the paths the claim asks about and reports; it does not bound the walk's time or memory: past
-it the claim keeps 200 — for the group kind, after the skip-list split, so paths it cannot repair do not take the places
-of ones it can — and writes a `scan-capped` row. The checks themselves, their grammar and their fail direction are
+**A scan reports what it could not read.** Each walk and each check runs its tool with stdout and stderr apart and reads
+the capture whole, and a part of the tree the scan could not read makes it incomplete: the scan writes an `error` row
+naming why, keeps the drift it did read, and does not read as a complete scan of a smaller tree. Each walk reads
+the whole tree. `CLAIM_SCAN_CAP` bounds the paths the claim asks about and reports: past it the claim writes
+a `scan-capped` row, the group kind capped after the skip-list split so paths the repair cannot reach do not take
+the places of ones it can. Which conditions make a scan incomplete are in the headers of `acl_drift_scan`
+and `label_drift_scan`; the checks themselves, their grammar and their fail direction are
 in `project-permissions.lib.sh`.
 
 A first claim (or one with the setgid step pending, or an unlabelled root) skips the matching scan: its normal walk
@@ -848,33 +845,24 @@ defaults to **no**, and `--yes` does not answer it: the launch wrapper that pass
 these paths. Either repair answered yes joins the secret gate like any other access-granting step. A declined repair
 does not stop the claim.
 
-**After the Apply block the claim checks each drifted path on its own**, and a re-scan of the tree does not decide
-`fixed`, since a path can be missing from one because the scan was capped, failed, or excludes it. Absence is looked
-up first with an errno-preserving `lstat`, and only ENOENT or ENOTDIR reads `gone`. A label path is checked in one batch
-without `-i`, so a path removed after the lookup fails the batch rather than reading as a match. A group path passes
-when its owner is the operator or the sandbox account, it is not owner-only, its group is `SANDBOX_GROUP`, a directory
-carries setgid, and each entry of the ACL specification grants in effect what the repair applies, the default set
-included. The owner, group, mode and ACL are read from one object — its identity read from the path, then
-through an open descriptor, then from the path again — so a path swapped mid-read reads unknown rather than passing
-on another object's metadata; the result is an observation of that object, not a guarantee against a later change.
-The mask limits the named entries and `group::` alone (`acl(5)`), and an ACL with a named entry and no mask, a duplicate
-or a missing base entry reads unknown.
+**After the Apply block the claim checks each drifted path on its own** against the postconditions its repair
+establishes, and a re-scan of the tree does not decide `fixed`, since a path can be missing from one because the scan
+was capped, failed, or excludes it. A check that cannot be read yields `unverified` and never `fixed`, a confirmed
+absence yields `gone`, and the group check reads a path's owner, group, mode and ACL from one pinned object, so its
+result is an observation of that object rather than a guarantee against a later change. The contracts — the absence
+rule, the label batch, the ACL entries and the mask rule — are the doc comments in `project-permissions.lib.sh`.
 
-Each path gets one row: `fixed`, `not-fixed`, `unverified` where the check could not be read, or `gone`. On the page it
-is an **outcome line**, `<outcome> TAB <kind> TAB <path> TAB <detail>` with `label` or `group` as the kind, uncoloured
+Each path gets one row carrying its outcome, `fixed`, `not-fixed`, `unverified` or `gone`. On the page it is
+an **outcome line**, `<outcome> TAB <kind> TAB <path> TAB <detail>` with `label` or `group` as the kind, uncoloured
 and with the path sanitized, so a path the claim left as it was is named rather than lost among the steps that ran. Each
 row folds its severity into the report state `ai-tools-records(5)` states, and the claim ends with it: 4 when a path is
 left not-fixed or a scan was capped, 5 when a check or a scan could not be read, and 1 over both when a root step
-failed. The ways to settle a not-fixed path follow them, each a command the file's owner runs — the invoker,
-or the target operator under `--for`: re-claim and answer yes to share every one; `chmod 600` to keep one
-out of the agent's reach; a `!` line to stop a re-claim asking about one, which does not keep a later relabel
-from resetting its type. Choosing a subset has no per-path form in the claim, whose repairs act on every path they
-reach: the owner may set a path's label, so `restorecon -F <path>` relabels only the paths named, while the group
-repair, which needs the sandbox group the owner is not in, is narrowed by sealing or carving out the paths to keep
-before answering yes. A path on both lists is reachable only once both repairs took, since its permissions and its type
-each refuse the agent on their own, so where exactly one reads `fixed` the claim adds one line counting those paths.
-With every repair declined and no other step pending, the Apply block does not open and the closing line carries
-`no change applied`, which it prints only where no step that writes could have run.
+failed. The ways to settle a not-fixed path follow the rows, each a command the file's owner runs — the invoker,
+or the target operator under `--for` — since the claim's repairs act on every path they reach and choosing a subset has
+no per-path form in the claim. A path on both lists is reachable only once both repairs took, since its permissions
+and its type each refuse the agent on their own, so where exactly one reads `fixed` the claim adds one line counting
+those paths. With every repair declined and no other step pending, the Apply block does not open and the closing line
+carries `no change applied`, which it prints only where no step that writes could have run.
 
 **Configuration the build reads from a project's ancestors.** A build toolchain collects configuration by walking
 from the project directory toward `/`, so a file it opens in an ancestor that the sandbox account is denied fails
