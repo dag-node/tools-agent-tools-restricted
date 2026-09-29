@@ -30,32 +30,20 @@ root-owned. A project-wide sticky bit does not apply: `SANDBOX_USER` is a group-
 secrets, place them in a dir the agent cannot write (`700 <you>:<you>`) and `!`-exclude it — the allowlist is not a read
 boundary.
 
-`ai-tools-setfacl` makes that recipe hold: a path whose mode grants neither group nor other bits (`0600`, `0700`) is
-never granted — no `group:SANDBOX_GROUP:rwX` entry, no `user:<operator>:rwX` entry, no default ACL on a directory, no
-mask recalculation, mode bits untouched — and a skipped directory takes its subtree with it. Widening the mode
-and re-claiming is how a path opts in; the skip count is reported, since on a project root it means the sandbox account
-cannot enter the tree at all.
+<a id="ref-definition-e3h3"></a>**Owner-only seal**
 
-This is what keeps a `700 <you>:<you>` directory protective. `setfacl -m` recalculates the mask to cover the entries it
-adds, so granting such a directory would return it as `0770` — write on the directory, and with it the ability to unlink
-the secrets inside, which is the very thing the `700` is there to stop.
-
-**The mode is not the whole boundary, so sealing also strips.** Setgid and default-ACL inheritance act at create time,
-so a path created inside a claimed tree already carries the project's sandbox group, setgid bit and default ACL. A later
-`chmod 700` holds the ACL mask at `---` but removes none of them, and a numeric `chmod` does not clear a directory's
-setgid at all (GNU chmod keeps it unless the octal carries five digits), so files created inside are born `0660`
-with the inherited entry **effective** — group read *and write*, others denied. That mode comes from the default ACL
-rather than from anyone's umask: POSIX applies a directory's default ACL **instead of** the creator's umask,
-so the residue is identical whoever writes the file and however their umask is set ([the permissions
-cheatsheet](../../docs/linux-permissions-cheatsheet.txt) §7b covers the general rule). No file inside is reachable while
-the `700` stands, since traversal is denied at the directory, but the grant is dormant rather than gone: widening
-that one mode later re-activates it over everything already inside, including files written while the directory looked
-private.
-
-Every walk over a claimed tree therefore **strips** that residue from an owner-only path rather than merely skipping it,
-so the seal does not rest on a single mode bit staying put. `owner-only.lib.sh` is the reference for both halves —
-which paths are sealed, exactly what the strip removes, and what it leaves as found. A `!`-exclusion remains
-the stronger form, since an excluded subtree is skipped by every walk whatever its mode.
+A path whose mode grants neither group nor other bits (`0600`, `0700`) is the operator's standing seal. The claim-side
+walks (`ai-tools-setfacl`, `ai-tools-setgid`), the unclaim and the re-claim scans leave such a path as it is — no ACL
+entry, no default ACL, no mask recalculation, mode bits untouched — and a sealed directory takes its subtree with it;
+the skip count is reported, since on a project root it means the sandbox account cannot enter the tree at all,
+and widening the mode and re-claiming is how a path opts in. Granting it would not keep it protective: `setfacl -m`
+recalculates the mask to cover the entries it adds, so a `700` directory would come back `0770`, with write on it
+and the ability to unlink the secrets inside. Every walk also **strips** the sandbox residue such a path inherited
+at creation — the project group, the setgid bit and the default ACL — rather than merely skipping it, since a later
+`chmod 700` masks that residue and does not remove it, and widening the mode later would re-activate the grant
+over everything already inside. `owner-only.lib.sh` is the reference for which paths are sealed, what the strip removes,
+and why a numeric `chmod` and a default ACL leave the residue in place. A `!`-exclusion is the stronger form:
+an excluded subtree is skipped by every walk whatever its mode.
 
 ## Shared secret-pattern set (one source, one matcher)
 
@@ -110,7 +98,7 @@ secrets: a doc or rule file called `secrets.md` matches `secrets.*` and becomes 
 why rule files use a non-matching stem (`secret-handling.rule.md`, not `secrets.rule.md`; see
 [authoring](authoring.rule.md)).
 
-## Proactive: `ai-tools-lockdown`
+## Proactive: `ai-tools-lockdown` <a id="ref-section-g6s6"></a>
 
 `ai-tools-chown` is reactive — it acts only on `SANDBOX_USER`-owned paths, so it never touches a pre-existing user-owned
 secret the agent could already read. `ai-tools-lockdown` (`/usr/local/libexec/ai-tools/ai-tools-lockdown`, run
@@ -161,17 +149,11 @@ so a category override cannot reopen it.
 
 It is a user tool: there is **no** sudoers grant letting `SANDBOX_USER` run it, and it refuses to run as `SANDBOX_USER`.
 The `ai-tools` CLI wraps it as `ai-tools projects lockdown [path]` (it `cd`s into the project and `sudo`s the helper,
-so sudo prompts for the projects user's password; `--dry-run` and `-y`/`--yes` pass through). The CLI never pre-checks
-the helper's path: `/usr/local/libexec/ai-tools` is `750 root:root`, so the projects user cannot stat the helper — only
-`sudo`, as root, can reach it.
+so sudo prompts for the projects user's password; `--dry-run` and `-y`/`--yes` pass through).
 
-### Lockdown on clone
+### Lockdown on claim and clone
 
-`ai-tools projects clone` runs this lockdown directly after a shallow clone and **before** the clone is opened
-to the agent group or registered, since the tip commit may still hold credential files (the clone is born owner-only
-via `umask 077`, so no file is group-readable in the interim — see [cli](cli.rule.md)). If the user declines or lockdown
-fails, the create stops fail-closed — the clone stays private and unregistered — and the CLI drops a guard `CLAUDE.md`
-into the clone instructing the agent to wait until lockdown runs (any existing `CLAUDE.md` is preserved via `git mv`
-to `CLAUDE.md.bak`); re-running `projects clone` on the clone path resumes the gate and, on success, removes the guard
-and restores the original. The guard carries a sentinel comment (`ai-tools-lockdown-guard`) so the CLI recognizes its
-own placeholder and never clobbers a real `CLAUDE.md`.
+A claim runs the `--gate` form before any step that widens the agent's access, and a clone runs it between the shallow
+clone and the step that opens the clone to the agent group; a declined or failed gate stops either fail-closed.
+Which steps count as widening, and how a clone stays private under a guard `CLAUDE.md` until a resume passes the gate,
+are [ref-section-u5h3](cli.rule.md#ref-section-u5h3) and [ref-section-u9a9](cli.rule.md#ref-section-u9a9).
