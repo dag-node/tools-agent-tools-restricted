@@ -343,6 +343,7 @@ out_has_row() { awk -F'\t' -v f="$1" 'NR > 1 && $6 == f { found = 1 } END { exit
 err_has() { grep -qF -- "$1" "${R}/.stderr"; }
 # out_has_text <text>: the row's captured output holds <text>.
 out_has_text() { grep -qF -- "$1" <<< "${out}"; }
+out_lacks_text() { ! out_has_text "$1"; }
 rc_not0() { [[ "${rc}" -ne 0 ]]; }
 # quiet_rc <n> / quiet_refusal: the exit status AND an empty call log -- a refusal that did not reach a helper, which is
 # the ordering rule that a refused command does not prompt for sudo first.
@@ -542,6 +543,17 @@ drive_rows() {
         expect "AI_TOOLS_ASSUME_YES without --yes still saw the drift" out_has_text "Interior drift: SELinux type"
         cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
         expect "AI_TOOLS_ASSUME_YES with --yes: the relabel runs"     cli_called ai-tools-relabel
+        # A file on both lists: a foreign type and a foreign group. With the relabel not run, the group question is not
+        # asked, since the group change alone would not share the file; with the relabel run it is asked again.
+        RUN_EXTRA_ENV=(PATH="${sbin_path}")
+        : > "${R}/pl/both.txt"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/pl/both.txt"
+        chmod 0640 "${R}/pl/both.txt"; chcon -t user_tmp_t "${R}/pl/both.txt"
+        cli_stub_reset; drive cli ai-tools.projects.claim "${R}/pl"
+        expect "relabel not run: the group question is not asked"    out_has_text "group repair not offered"
+        expect "the drift left on both lists exits 4"                 rc_is 4
+        cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+        expect "relabel run: the group question is asked"             out_lacks_text "group repair not offered"
+        rm -f "${R}/pl/both.txt"
         RUN_EXTRA_ENV=()
     fi
     cli_stub_reset
