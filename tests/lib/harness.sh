@@ -12,7 +12,9 @@ set -euo pipefail
 
 declare -i _pass=0 _fail=0 _skip=0
 
-# _san <text>: reduce text to printable ASCII (0x20-0x7E), replacing every other byte with '?'. Result messages
+# _san <text>: reduce text to printable ASCII (0x20-0x7E): a newline becomes the two characters '\n' and a tab '\t', so
+# a multi-line output quoted in a result reads with its breaks while the result stays one line, and every other byte
+# becomes '?'. Result messages
 # interpolate values that may carry crafted control/bidi bytes -- a filename fixture, a daemon reply relayed verbatim,
 # or a sanitizer's own output on the regression the assertion just caught. The suite runs as ROOT via sudo, often
 # on a live host, and run.sh tees every line to the terminal, so a raw byte reaching stdout/stderr could inject
@@ -20,7 +22,11 @@ declare -i _pass=0 _fail=0 _skip=0
 # individual test can emit a dangerous byte regardless of what it interpolates. Byte-wise under a forced C locale, so it
 # is locale-independent and neutralizes multi-byte sequences too. (An individual test may still hex-render a value
 # for a better diagnostic.)
-_san() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
+_san() {
+    local LC_ALL=C s="${1//$'\n'/\\n}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "${s//[^[:print:]]/?}"
+}
 
 # Colour on the RESULT WORD only, so a long run reads at a glance. Enabled when stdout is a terminal,
 # or when AI_TOOLS_TEST_COLOR=1 -- run.sh and install.sh set that because they pipe this output through tee, which makes
