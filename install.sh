@@ -271,7 +271,10 @@ confirm_boxed() {
 # it run is a valid step of developing this project, and the flag is how that decision is stated once, per invocation,
 # rather than answered at a prompt whose default would have to be guessed. Interactive and unattended runs take the same
 # path. A checkout that is not a git repository (a tarball) has no commit to name and passes. Root reads the repository
-# through an explicit safe.directory, since git refuses another user's checkout otherwise; both git calls are reads.
+# through an explicit safe.directory, since git refuses another user's checkout otherwise. Every git call is a read:
+# `status` runs under `--no-optional-locks`, since it otherwise rewrites `.git/index` to refresh its stat cache -- which
+# a copied or unpacked tree always needs -- and the index root wrote is root-owned, so the operator's next `git add`
+# cannot write it.
 # `install.sh check-tree` runs this alone, which is how the unit test drives it against a fixture checkout
 # and how an operator reads the verdict without installing.
 TREE_LINE=""

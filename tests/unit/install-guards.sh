@@ -152,6 +152,27 @@ else
     fail "clean checkout: rc=${GATE_RC}: ${GATE_OUT}"
 fi
 
+# (11b) The gate reads the operator's repository without writing it. A tree copied or unpacked onto a host carries
+# a stale stat cache in .git/index, which a plain `git status` refreshes by rewriting the index -- and a root-written
+# index is root-owned, so the operator's next `git add` cannot write it. The fixture is handed to the projects user,
+# a touch stales the cache, and a plain root `git status` is the control that the state rewrites the index at all.
+chown -R "${PROJECTS_USER}:" "${FIX}"
+index_owner() { stat -c %U "${FIX}/.git/index"; }
+touch -d '2001-01-01' "${FIX}/install.sh"
+git -c safe.directory='*' -C "${FIX}" status --porcelain >/dev/null 2>&1 || true
+if [[ "$(index_owner)" == root ]]; then
+    chown "${PROJECTS_USER}:" "${FIX}/.git/index"
+    touch -d '2002-02-02' "${FIX}/install.sh"
+    run_gate
+    if (( GATE_RC == 0 )) && [[ "$(index_owner)" == "${PROJECTS_USER}" ]]; then
+        pass "the gate leaves .git/index with the operator when the stat cache is stale"
+    else
+        fail "the gate rewrote .git/index as $(index_owner): rc=${GATE_RC}: ${GATE_OUT}"
+    fi
+else
+    skip "the gate leaves .git/index with the operator" "a root git status did not rewrite a stale index on this git, so the case has no control"
+fi
+
 # (12) An uncommitted change is refused, the path is listed, and the refusal names the flag. The edit is a comment:
 # the file is the script under test, and a run that passes the gate (14, 15) executes to its end, where an appended word
 # would run as a command.
