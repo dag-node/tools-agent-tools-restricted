@@ -272,11 +272,10 @@ confirm_boxed() {
 # rather than answered at a prompt whose default would have to be guessed. Interactive and unattended runs take the same
 # path. A checkout that is not a git repository (a tarball) has no commit to name and passes. Root reads the repository
 # through an explicit safe.directory, since git refuses another user's checkout otherwise. Every git call is a read:
-# `status` runs under `--no-optional-locks`, since it otherwise rewrites `.git/index` to refresh its stat cache -- which
-# a copied or unpacked tree always needs -- and the index root wrote is root-owned, so the operator's next `git add`
-# cannot write it.
-# `install.sh check-tree` runs this alone, which is how the unit test drives it against a fixture checkout
-# and how an operator reads the verdict without installing.
+# `status` runs under `--no-optional-locks`, since it otherwise rewrites `.git/index` to refresh its stat cache --
+# which a copied or unpacked tree always needs -- and the index root wrote is root-owned, so the operator's next
+# `git add` cannot write it. `install.sh check-tree` runs this alone, which is how the unit test drives it
+# against a fixture checkout and how an operator reads the verdict without installing.
 TREE_LINE=""
 # version_gate -- the version this checkout deploys, against the one installed, ahead of every write. The installed
 # version is read as text off the deployed CLI -- its substituted AI_TOOLS_VERSION line; the CLI refuses root, so it is
@@ -1553,9 +1552,9 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/launch.d/claude-code.sh" \
         /usr/local/lib/ai-tools/launch.d/claude-code.sh
 
-    # Claude Code-specific resolvers: the custom system prompt (the launch hook, operator-side) and the custom API endpoint
-    # (its own fragment, sandbox-side). Root-owned and non-group-writable so both are trusted enough to source. No
-    # secrets (the endpoint's token lives in its own file).
+    # Claude Code-specific resolvers: the custom system prompt (the launch hook, operator-side) and the custom API
+    # endpoint (its own fragment, sandbox-side). Root-owned and non-group-writable so both are trusted enough to source.
+    # No secrets (the endpoint's token lives in its own file).
     for _cc_lib in claude-prompt.lib.sh claude-endpoint.lib.sh; do
         log "/usr/local/lib/ai-tools/${_cc_lib}"
         install -o root -g root -m 644 \

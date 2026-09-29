@@ -2,6 +2,9 @@
 
 [Operators](index.md) · **Service accounts** — [all docs](../index.md)
 
+How a service account without a password becomes an operator, how a human
+claims projects for it with `--for`, and which commands need more than that.
+
 ```bash
 sudo ai-tools-admin operators add svc-ci                  # enrol the service account
 ai-tools projects claim --for svc-ci /srv/projects/api    # claim a project on its behalf
@@ -22,10 +25,12 @@ as `svc-ci` runs `claude` the same way.
 An operator is any login account enrolled like this, a person or a service
 account alike. The model exists so that agents can work on tasks under limited
 accounts on one host: each account has its own allowlist and owns its own
-results, while one sandbox account does the work.
-[Naming conventions](../naming-conventions.md) states what an operator
-and an allowlist are, and [Project lifecycle](../projects/index.md) covers
-`--for` and the commands that take it.
+results, while one sandbox account does the work. [Naming
+conventions](../naming-conventions.md) states what an operator and an allowlist
+are. Each command's page under [Projects](../projects/index.md) states its own
+`--for` line, and `man ai-tools` lists the commands that accept the flag;
+`projects clone` and `projects push` do not, since a clone belongs
+to the operator who made it and pushes with that operator's git credentials.
 
 ## What a service account can do on its own
 
@@ -54,6 +59,51 @@ about before `operators add` creates one, and Enter or a run with no terminal
 takes the yes, so an unattended enrolment seeds the account. An enrolment
 that cannot write the allowlist is refused with the host unchanged: re-run it
 once the reason it printed is cleared.
+
+## Creating and deleting as the service account
+
+```bash
+ai-tools projects create --for svc-ci /srv/projects/api
+ai-tools projects remove --for svc-ci /srv/projects/api
+```
+
+Most `--for` commands redirect a registry: the entry lands in the target's
+allowlist, and the files come back to them. `projects create`
+and `projects remove` write the **filesystem** as that account too — the create
+makes a tree the account owns, and the remove deletes a tree only its owner can
+delete — so each needs permission for **you** to run commands as that account
+(`sudo -u svc-ci`), a separate sudoers question from the grant that reaches
+the claim's root steps. A host can grant the one and restrict the other,
+so the check runs before anything is created:
+
+```text
+ai-tools: a --for run acts on the filesystem AS the target: projects create --for svc-ci
+runs mkdir as svc-ci, and you hold no sudo grant to do that.
+
+  Run it as svc-ci, or create the project without --for and hand it over:
+
+    ai-tools projects create /srv/projects/api
+    sudo chown -R svc-ci /srv/projects/api
+    ai-tools projects claim --for svc-ci /srv/projects/api
+```
+
+The last line of that workaround is the general rule: a claim for an operator
+acts on a tree that operator owns, and refuses one they do not, naming
+the `chown` ([Claim](../projects/claim.md)). What `--for` changes, and what it
+does not, is
+[ref-section-z3p9](../../.claude/rules/cli.rule.md#ref-section-z3p9).
+
+Because the create runs its `mkdir` as the target, **the parent must be
+a directory that account can write**, and your own home is usually the one
+place it is not:
+
+```text
+mkdir: cannot create directory '/home/you/projects/api': Permission denied
+```
+
+A shared location fixes it. On a stock install every enrolled operator can
+create under the clone area, `/var/opt/ai-tools/sandbox-projects`; any other
+directory works as long as both accounts can reach it.
 
 ## What every operator shares
 
@@ -100,6 +150,6 @@ once the reason it printed is cleared.
 - `ai-tools-admin(8)` for enrolling and removing operators;
   `ai-tools-operator.conf(5)` and `ai-tools-allowed-projects(5)` for the two
   files an enrolment writes.
-- [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9) for what the model leaves
-  out on purpose: operators are trusted, and sessions are not isolated from one
-  another.
+- [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9) for what the model
+  leaves out on purpose: operators are trusted, and sessions are not isolated
+  from one another.

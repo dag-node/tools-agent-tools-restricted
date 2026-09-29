@@ -29,6 +29,10 @@
 # carrying the ignore-file marker) pass the pattern and are left by the dispatch. A pattern matches the path
 # from the repository root, and `*` crosses a `/`.
 #
+# A vendored tree sits inside those patterns and is still not this repository's: its files are a release another project
+# signs, held byte for byte to a pin (tools/generators/typesafe-client.pin), so `VENDORED` takes it out of every scope,
+# counted with the other files left as written.
+#
 # A `.conf` under `src/etc/` is a config header, read at 72 through `--config-header`: that is this repository's layout,
 # the one fact the checker cannot resolve from a path alone. The sudoers drop-in beside them is not one: its rule lines
 # are read by sudo, not wrapped.
@@ -51,9 +55,17 @@ FORMAT_SCOPE=(
     "${CONFIG_HEADERS}"                            # a config header, at 72
 )
 
-# in_scope <path>: 0 when the root-relative <path> matches a pattern in FORMAT_SCOPE.
+VENDORED=(
+    'src/usr/local/lib/ai-tools/typesafe/*'        # the decide command, vendored from its signed release
+)
+
+# in_scope <path>: 0 when the root-relative <path> matches a pattern in FORMAT_SCOPE and none in VENDORED.
 in_scope() {
     local pattern
+    for pattern in "${VENDORED[@]}"; do
+        # shellcheck disable=SC2053  # the pattern side is the tool's own glob
+        [[ "$1" == ${pattern} ]] && return 1
+    done
     for pattern in "${FORMAT_SCOPE[@]}"; do
         # shellcheck disable=SC2053  # the pattern side is the tool's own glob
         [[ "$1" == ${pattern} ]] && return 0

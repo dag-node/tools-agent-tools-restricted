@@ -365,9 +365,9 @@ report.
   command (its prompt is a yes/no confirm offering only the claim, so the alternative has nowhere else to appear),
   and its severity-based default.
 - **`ai-tools.sh`** routes `die()` and `warn()` through the error/warning emitters, and builds the `projects claim` /
-  `projects clone` flows from `ai_tools_msg_headline` blocks (Review, Secret lockdown, `.git` history, Reachability,
-  Apply — see [cli](cli.rule.md)). The flows carry **no sudo-password notices**: the first sudo prompt (the secret scan)
-  lands directly under the Secret-lockdown headline, and sudo's own prompt is self-explanatory.
+  `projects clone` flows from `ai_tools_msg_headline` blocks, in the run order
+  [ref-list-g6f5](cli.rule.md#ref-list-g6f5) states. The flows carry **no sudo-password notices**: the first sudo prompt
+  (the secret scan) lands directly under the Secret-lockdown headline, and sudo's own prompt is self-explanatory.
 - **`ai-tools-run.sh`** routes its pre-launch refusals and the podman NOTICE.
 - **`session-hook.sh`** frames the interrupted-session `SessionStart` NOTICE (see
   [ownership-and-hooks](ownership-and-hooks.rule.md)).

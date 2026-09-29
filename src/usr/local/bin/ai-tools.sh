@@ -5,9 +5,9 @@
 # account). It writes the operator-owned allowlist (~/.config/ai-tools/allowed-projects) directly --
 # through conf.lib.sh's allowlist-editing functions, the one implementation shared with the ai-tools-allowlist root
 # helper and install.sh -- and reaches the root-owned bits -- the git safe.directory list in /opt/ai-tools/.gitconfig,
-# the SELinux label, the ACL, and secret lockdown -- through the sudo root helpers, over the operator's general sudo
-# grant (the drop-in carries no NOPASSWD rule for them, so sudo prompts for a password; the sandbox account has no
-# grant). The one helper with a rule of its own is `stop`'s (STOP_BIN).
+# the SELinux label, the ACL, and secret lockdown -- through the sudo root helpers (the *_BIN constants),
+# over the operator's general sudo grant: the drop-in carries no NOPASSWD rule for them, so sudo prompts for a password,
+# and the sandbox account has no grant. The one helper with a rule of its own is `stop`'s (STOP_BIN).
 #
 # A command is a bare word in the resource grammar (cli-grammar.rule.md): `projects <verb> [DIRECTORY]` for the project
 # lifecycle, `status`, `providers`, `audit` and `stop` for the host, and `--` introduces an option. The command path is
@@ -28,22 +28,12 @@
 # (ROOT_ALLOWED_VERBS): the reports -- `audit` needs root by construction, since the trail it reads is 700 root:root --
 # plus `stop`, whose helper requires root anyway.
 #
-# --for <operator> performs a command ON BEHALF OF another enrolled operator: the allowlist entry lands in THEIR
-# registry, so ai-tools-setfacl grants user:<them>, the handback restores to them, and their agent's launch gate covers
-# the path. It exists for a service account that runs an agent without holding a password to authenticate a claim of its
-# own. The target's registry is unreadable to the invoker (0600 in a 0700 directory), so a --for run reads a root-side
-# snapshot of it and routes its writes through ai-tools-allowlist.
-#
-# The commands: usage() is the orientation (one line per verb) and ai-tools(1) the reference for every per-verb option;
-# tests/unit/cli-verbs.sh and tests/unit/man.sh hold each to the dispatcher.
-#
-# Sandbox model: `projects clone` shallow-clones the repo into SANDBOX_ROOT, so the agent never reads the origin's full
-# git history, and `projects push` sends the agent's commits to a per-repo branch (sandbox_default_branch names
-# the default) that only the projects user can push -- the sandbox account has no git credentials. The operator's
-# statement of the workflow is
-# /var/opt/ai-tools/README.md.
-#
-# Its domain rules are cli.rule.md (what each command does) and cli-grammar.rule.md (how it is spelled).
+# `--for <operator>` runs a command on behalf of another enrolled operator, whose registry the entry then lands
+# in (require_for_target validates the run). `projects clone` and `projects push` are the sandbox model, a shallow clone
+# under SANDBOX_ROOT pushed to a per-repo branch. The account `--for` serves, the snapshot it reads and the sandbox
+# model are cli.rule.md's. usage() is the orientation (one line per verb) and ai-tools(1) the reference for every
+# per-verb option; tests/unit/cli-verbs.sh and tests/unit/man.sh hold each to the dispatcher. Its domain rules are
+# cli.rule.md (what each command does) and cli-grammar.rule.md (how it is spelled).
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -71,44 +61,38 @@ readonly SANDBOX_ROOT="${AI_TOOLS_SANDBOX_ROOT:-/var/opt/ai-tools/sandbox-projec
 # AI_TOOLS_GITCONFIG, AI_TOOLS_ALLOWLIST and AI_TOOLS_SANDBOX_ROOT: what it moves is a report and an early refusal, no
 # access decision reads it, and the sandbox account is refused before it is read.
 readonly LAUNCHER_DIR="${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
-# Root-only secret lockdown helper. Invoked via sudo (NO NOPASSWD grant exists for it -- by design), so sudo prompts
-# for the projects user's password.
+# Root-only secret lockdown helper.
 readonly LOCKDOWN_BIN="/usr/local/libexec/ai-tools/ai-tools-lockdown"
-# Root-only SELinux project-label helper, same sudo (no NOPASSWD) model as lockdown. Applies/reverts ai_tools_project_t
-# so the confined agent can access a claimed, in-place tree; the per-project semanage fcontext rule it adds needs root,
-# which this unprivileged CLI lacks. Sandbox clones do NOT use it (static rule + plain restorecon -- see relabel_clone).
+# Root-only SELinux project-label helper: applies/reverts ai_tools_project_t so the confined agent can access a claimed,
+# in-place tree; the per-project semanage fcontext rule it adds needs root. Sandbox clones do not use it (static rule +
+# plain restorecon -- see relabel_clone).
 readonly RELABEL_BIN="/usr/local/libexec/ai-tools/ai-tools-relabel"
-# Root-only ACL helper, same sudo (no NOPASSWD) model as lockdown/relabel. Applies the project's group-permission ACL
-# (default + access group:SANDBOX_GROUP:rwX, other denied) so files the projects user's git checkout/merge writes
-# under a restrictive umask stay group-accessible to the agent. Needs root (CAP_FOWNER) to ACL files the projects user
-# does not own; this unprivileged CLI lacks that.
+# Root-only ACL helper: applies the project's group-permission ACL (default + access group:SANDBOX_GROUP:rwX, other
+# denied) so files the projects user's git checkout/merge writes under a restrictive umask stay group-accessible
+# to the agent. CAP_FOWNER lets it ACL files the projects user does not own.
 readonly SETFACL_BIN="/usr/local/libexec/ai-tools/ai-tools-setfacl"
-# Root-only setgid helper, same sudo (no NOPASSWD) model. Sets group SANDBOX_GROUP + the setgid bit on a claimed
-# project's directories. The operator is not a SANDBOX_GROUP member (multi-operator), so the group change needs root;
-# the helper carries its own allowlist + owner guard. Also invoked by the handback daemon for the SessionStart
-# normalization pass.
+# Root-only setgid helper: sets group SANDBOX_GROUP + the setgid bit on a claimed project's directories. The operator is
+# not a SANDBOX_GROUP member (multi-operator), so the group change needs root; the helper carries its own allowlist +
+# owner guard. Also invoked by the handback daemon for the SessionStart normalization pass.
 readonly SETGID_BIN="/usr/local/libexec/ai-tools/ai-tools-setgid"
-# Root-only unclaim helper, same sudo (no NOPASSWD) model. Reverses the filesystem side of a claim: clears the agent ACL
-# + default ACL, regroups the tree to a target group, and removes group write. Needs root to chgrp to an arbitrary group
-# and to act on files the projects user does not own.
+# Root-only unclaim helper: reverses the filesystem side of a claim -- clears the agent ACL + default ACL, regroups
+# the tree to a target group, and removes group write. Root is what a chgrp to an arbitrary group, and a change
+# to a file the projects user does not own, need.
 readonly UNCLAIM_BIN="/usr/local/libexec/ai-tools/ai-tools-unclaim"
-# Root-only git safe.directory helper, same sudo (no NOPASSWD) model as lockdown/relabel/ setfacl/unclaim.
-# /opt/ai-tools/.gitconfig is root-owned 644: world-readable (the agent reads safe.directory on startup)
-# but root-write-only, so neither the operator nor the agent writes it directly -- the operator reaches the validated
-# add/--remove through this helper.
+# Root-only git safe.directory helper. /opt/ai-tools/.gitconfig is root-owned 644: world-readable (the agent reads
+# safe.directory on startup) and root-write-only, so neither the operator nor the agent writes it directly --
+# the operator reaches the validated add and `--remove` through this helper.
 readonly SAFEDIR_BIN="/usr/local/libexec/ai-tools/ai-tools-safedir"
-# Root-only ownership-reclaim helper, same sudo (no NOPASSWD) model. Hands agent-written files under a project back
-# to the operator via ai-tools-chown (the per-path trust boundary), needed for the .git tree the per-session sweeps
-# skip; useful before an ACL-unaware backup.
+# Root-only ownership-reclaim helper: hands agent-written files under a project back to the operator via ai-tools-chown
+# (the per-path trust boundary), needed for the .git tree the per-session sweeps skip; useful before an ACL-unaware
+# backup.
 readonly RECLAIM_BIN="/usr/local/libexec/ai-tools/ai-tools-reclaim"
-# Root-only cross-operator allowlist helper, same sudo (no NOPASSWD) model. Reads and edits ANOTHER enrolled operator's
-# allowed-projects for a --for run; root is needed for the READ too, since an allowlist is 0600 inside a 0700
-# .config/ai-tools. Only a --for run reaches it -- without the flag the CLI writes the invoker's own registry directly,
-# as before.
+# Root-only cross-operator allowlist helper: reads and edits ANOTHER enrolled operator's allowed-projects for a `--for`
+# run; root is needed for the READ too, since an allowlist is 0600 inside a 0700 .config/ai-tools. Only a `--for` run
+# reaches it -- without the flag the CLI writes the invoker's own registry directly.
 readonly ALLOWLIST_BIN="/usr/local/libexec/ai-tools/ai-tools-allowlist"
 
-# Reader for the refusal/rejection trails (`audit`). Root-only, since the trail it reads is 700 root:root; no NOPASSWD
-# rule, so sudo prompts like the other per-project helpers.
+# Reader for the refusal/rejection trails (`audit`). Root-only, since the trail it reads is 700 root:root.
 readonly AUDIT_BIN="/usr/local/libexec/ai-tools/ai-tools-audit"
 # Session-stop helper (`stop`). Root-only, since a session is a transient unit in the sandbox account's own
 # `systemd --user` manager, which no operator can reach. The one helper with a %ai-ops NOPASSWD rule of its own, pinned
@@ -645,20 +629,14 @@ sudo_grant_missing() {
 }
 
 # ── Reacting to a root step that did not apply ───────────────────────────────────
-# Every root helper authenticates on its own, and no step can be pre-authenticated for a flow: a hardened sudoers may
-# set timestamp_timeout=0, where a credential is never cached and every invocation prompts, so there is no credential
-# to obtain up front. One mistyped password therefore costs a full round of attempts PER STEP -- a claim asks nine
-# times, an unclaim over three nested projects twenty-seven -- each round re-asking for something the operator
-# authorized once, and the last arriving long after the flow has already reported the earlier failures.
+# Every root helper authenticates on its own, and a flow cannot pre-authenticate a step: a hardened sudoers may set
+# timestamp_timeout=0, where a credential is never cached and every invocation prompts, so one mistyped password costs
+# a full round of attempts PER STEP. note_root_failure asks ONCE whether to attempt the rest -- default NO, which is
+# also the no-terminal answer -- and once per RUN rather than per step or per project. It is asked rather than inferred:
+# a mistyped password and an absent grant are indistinguishable at this point and call for opposite actions.
 #
-# The reaction is to ask ONCE whether to attempt the rest. Default NO, which is also the no-terminal answer. It is asked
-# rather than inferred because a mistyped password and an absent grant are indistinguishable at this point and call
-# for opposite actions; and it is asked once per RUN rather than per step or per project, so an ancestor unclaim does
-# not re-ask for each project.
-#
-# The decision covers only which steps are ATTEMPTED. What a partial result means is the caller's to report,
-# and the callers differ: for a claim, stopping leaves less access, so it stops completely; for an unclaim or a removal,
-# the registry drops proceed regardless, because those are the steps that move to less access.
+# The answer decides only which steps are ATTEMPTED; what a partial result means is the caller's to report, and differs
+# per verb (cli.rule.md).
 ROOT_STEP_FAILURES=0
 _root_step_asked=false
 _root_step_carry_on=1
@@ -737,18 +715,12 @@ require_sandbox_clone() {
         || die "not a git clone: ${d} -- if it is a stray directory, remove it by hand"
 }
 
-# run_as_owner <cmd> [args...]  -- run <cmd> as the operator this run acts FOR. Without --for that is the invoker,
-# so the command runs directly with no prefix; with --for it is the target, and the command runs
-# under `sudo -u <target> -H`. The seam every step that must touch the filesystem AS AN OWNER goes through.
+# run_as_owner <cmd> [args...]  -- run <cmd> as the operator this run acts FOR: directly without --for,
+# and under `sudo -u <target> -H` with it. The seam every step that touches the filesystem AS AN OWNER goes
+# through; the general sudo grant `sudo -u` rides, and why that adds the caller no authority, are cli.rule.md's.
 #
-# It uses a grant the caller already holds. `sudo -u <target>` rides the caller's GENERAL sudo grant -- the separate
-# authority axis CLAUDE.md names, which this project neither writes nor records -- so an operator who reaches it could
-# already act as that account. The sandbox account does not hold a sudo rule and runs under PR_SET_NO_NEW_PRIVS,
-# which drops sudo's SUID bit, so it reaches none of this.
-#
-# -H is load-bearing rather than tidiness: without it (and without sudoers' always_set_home) sudo leaves HOME pointing
-# at the INVOKER's home, so a command that reads a dotfile -- git most of all -- would configure the target's tree
-# from the invoker's settings.
+# `-H` is load-bearing: without it (and without sudoers' always_set_home) sudo leaves HOME pointing at the INVOKER's
+# home, so a command that reads a dotfile -- git most of all -- would configure the target's tree from the invoker's.
 run_as_owner() {
     if [[ -z "${FOR_OPERATOR}" ]]; then "$@"; return; fi
     sudo -u "${OWNER_USER}" -H -- "$@"
@@ -844,8 +816,6 @@ reg_allow() {
         fi
         die "could not add ${dir} to ${FOR_OPERATOR}'s allowed-projects"
     fi
-    # Enrolment creates this file; a name that reached OPERATORS another way arrives here without one. Naming
-    # the command that writes it keeps that recoverable without a hand-made registry.
     [[ -f "${ALLOWLIST}" ]] || die "no allowlist at ${ALLOWLIST} -- nothing changed.
        If this account is meant to run sandboxed sessions, enrol it first with:
        sudo ai-tools-admin operators add ${USER:-$(id -un)}"
@@ -898,16 +868,10 @@ unreg_allow() {
     ai_tools_conf_allowlist_matching_lines  lines "${ALLOWLIST}" "${dir}" || true
     ai_tools_conf_allowlist_exclusion_lines excl  "${ALLOWLIST}" "${dir}" || true
     lines+=("${excl[@]}")
-    # This entry is the agent's LAUNCH GATE, so the removal is verified by re-reading the file rather than trusted
-    # from an exit status (the library does that itself): an entry that survives a "removal" leaves the project
-    # launchable while the caller carries on as though it did not -- and for `projects remove` the very next step would
-    # delete the tree out from under a registration that is still standing, which is the state its teardown order exists
-    # to prevent.
-    #
-    # Reported and fatal, never silent. The rewrite lands a temporary file in the allowlist's own DIRECTORY, so it fails
-    # on a config dir this operator cannot write even when the allowlist itself is writable -- which under `set -e` used
-    # to abort the whole command with sed's bare I/O error and its exit status, telling the operator no more
-    # about what was left registered.
+    # The library verifies the removal by re-reading the file: this entry is the launch gate, and cmd_project_remove
+    # deletes the tree in its next step. Reported and fatal, since `sed -i` writes its temporary file
+    # into the allowlist's own DIRECTORY and so fails on a config dir this operator cannot write even when the allowlist
+    # itself is writable.
     if ! ai_tools_conf_allowlist_remove "${ALLOWLIST}" "${dir}"; then
         warn "could not remove ${dir} from allowed-projects -- a line naming it survived. While an allow line stands the agent can still launch there, and a '!' line left behind parks the path against a future claim. Remove it by hand:"
         for raw in "${lines[@]}"; do
@@ -972,13 +936,10 @@ unreg_safedir() {
     fi
 }
 
-# reg_filemode <dir>  -- pin core.filemode=true in the project's own .git/config so git tracks the executable bit
-# deterministically for BOTH co-writers, regardless of either user's global git config. Repo-LOCAL (not the shared
-# /opt/ai-tools/.gitconfig, which is the agent's global): the setting must be shared by the projects user and the agent,
-# and .git is reclaimed to the owner, who can write it. Every git call runs through run_as_owner: under --for the tree
-# belongs to the target operator, and the invoking user may not even traverse it. Idempotent and quiet when already set;
-# a no-op (with a note) when <dir> is not a git work tree. Orthogonal to the ACL hardening -- filemode governs only
-# the exec bit, never group/ other permission bits -- but claimed in the same git-config step as safe.directory.
+# reg_filemode <dir>  -- pin core.filemode=true in the project's own .git/config, so git tracks the executable bit
+# the same way for BOTH co-writers whatever either user's global git config: repo-LOCAL, since /opt/ai-tools/.gitconfig
+# is the agent's global alone. Every git call runs through run_as_owner, since under `--for` the .git/config it writes
+# belongs to the target operator. Idempotent and quiet when already set; a no-op (with a note) outside a git work tree.
 reg_filemode() {
     local dir="$1"
     if ! run_as_owner git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -1020,9 +981,7 @@ git_gap() {
     local dir="$1" grp mode
     [[ -d "${dir}/.git" ]] || return 1
     command -v getfacl >/dev/null 2>&1 || return 1
-    # IFS pinned to a space: the script's global IFS ($'\n\t') would land the whole stat line in grp and leave mode
-    # empty -- the same pitfall project_state's reader
-    # documents.
+    # IFS pinned (see join_words).
     IFS=' ' read -r grp mode < <(stat -c '%G %a' "${dir}/.git" 2>/dev/null) || return 1
     [[ "${grp}" == "${SANDBOX_GROUP}" ]] \
         && (( (0${mode} & 02000) != 0 )) \
@@ -1101,21 +1060,19 @@ acl_drift_scan() {
 
 # label_drift_scan <dir> <work-dir> <paths-array> <types-map> <detail-var>  -- fill <paths-array> with the paths inside
 # a claimed tree whose SELinux type differs from the one the claim's relabel would apply, and <types-map>
-# with `<type it carries> -> <type the policy gives it>` under each. A file created in a labelled directory inherits
-# the project type; one moved in (`mv`, `cp -a`, `tar --selinux`) keeps the type it had, which the confined session is
-# refused. The expected type is asked of the policy rather than of a list of names: a dry run of the relabel the claim
-# performs (`restorecon -n -F`, which reads the world-readable file contexts and does not need privilege).
-#
+# with `<type it carries> -> <type the policy gives it>` under each. The expected type is asked of the policy: a dry run
+# of the relabel the claim performs (`restorecon -n -F`, unprivileged, reading the world-readable file contexts).
 # The walk is the relabel's scope (`restorecon -FR`, ai_tools_label_project): every directory, `.git` and skip-listed
 # names included, crossing mount points. Every walked name without a line feed goes into one non-recursive batch
 # with `-i`, since a path removed after the walk is outside the run's scope; a name holding one goes
 # through ai_tools_project_permissions_label_check on its own, so no record can be a fragment of another
-# (project-permissions.lib.sh). Only a TYPE difference is reported -- `-F` also reports the SELinux user and the MLS
-# range, which the file-class constraints do not compare for a read, write or execute (cli.rule.md). Owner-only paths
-# and '!'-excluded subtrees are filtered out afterwards, as the group scan leaves them out: a path out of the agent's
-# reach by intent does not make the claim ask for a relabel. Returns 1, with <detail-var> naming why, when restorecon is
-# absent, the walk or the batch output is not complete, a per-path check reads unknown, or a drifted path's mode cannot
-# be read and the path is not confirmed gone; the drift it did read stays in the arrays.
+# (project-permissions.lib.sh). Only a TYPE difference counts: `-F` also reports the SELinux user and the MLS range,
+# and on the file classes the targeted policy constrains the user for create, relabelfrom and relabelto alone,
+# and ai_tools_t does not carry mcs_constrained_type, so a user or category difference on its own does not deny
+# the agent (`seinfo --constrain` and `seinfo -a mcs_constrained_type -x` read both on a host). Owner-only paths
+# and '!'-excluded subtrees are filtered out afterwards, as the group scan leaves them out. Returns 1, with <detail-var>
+# naming why, when restorecon is absent, the walk or the batch output is not complete, a per-path check reads unknown,
+# or a drifted path's mode cannot be read and the path is not confirmed gone; the drift it did read stays in the arrays.
 label_drift_scan() {
     local dir="$1" work="$2" status=0 path outcome from to excl skip mode incomplete=0 index
     local -n _label_scan_paths="$3" _label_scan_types="$4" _label_scan_detail="$5"
@@ -1199,17 +1156,12 @@ label_drift_scan() {
 }
 
 # sealed_setgid_scan <dir>  -- list owner-only directories inside a claimed tree whose setgid bit carries a THIRD-party
-# group: neither SANDBOX_GROUP nor the group of the directory's own owner. When the claim walks seal a path they clear
-# a setgid bit belonging to one of those two, since a claimed tree has no other legitimately; any further group reads
-# as a deliberate operator choice and is kept (owner-only.lib.sh). That leaves the operator the one who decides,
-# so the claim has to say so rather than act. Read-only and unprivileged, detection only -- a path reported here is one
-# the claim did NOT touch, so reporting it never widens access.
-#
-# "Third party" is decided per path, against the OWNER's primary group -- not against the invoking user's. The two
-# differ on a multi-operator host, where the group the claim walks treat as legitimate is the resolved project owner's
-# (they act only on paths that owner or the sandbox account holds, so the owner's group is exactly what their check
-# comes to), and reporting against the invoker's would flag a bit the claim goes on to strip, or stay silent about one
-# it keeps.
+# group: neither SANDBOX_GROUP nor the group of the directory's own owner, the one piece of residue the claim walks keep
+# rather than strip (owner-only.lib.sh). Read-only and unprivileged, detection only: a path reported here is one
+# the claim did not touch. "Third party" is decided per path, against the OWNER's primary group and not the invoking
+# user's: on a multi-operator host the group the claim walks treat as legitimate is the resolved project owner's, since
+# they act only on paths that owner or the sandbox account holds, so reporting against the invoker's would flag a bit
+# the claim goes on to strip, or stay silent about one it keeps.
 sealed_setgid_scan() {
     local dir="$1" excl
     local -a skip=( -name .git -prune )
@@ -1229,23 +1181,17 @@ sealed_setgid_scan() {
       done
 }
 
-# reg_ownership <dir>  -- make <dir> usable by the sandbox account: group SANDBOX_GROUP + the setgid bit
+# reg_ownership <dir> [force]  -- make <dir> usable by the sandbox account: group SANDBOX_GROUP + the setgid bit
 # on the project's directories, via the root ai-tools-setgid helper, so the agent can enter the tree and files born
 # there inherit the group. Without it a path can be allowlisted yet fail every posix_spawn -- the session starts
-# but cannot enter the tree or run a child. The operator is not a SANDBOX_GROUP member (multi-operator), so it cannot
-# chgrp to that group unprivileged; the helper does it as root and carries its own allowlist + owner guard (a dir owned
-# by a third party is left untouched). Pre-existing FILES become agent-accessible through the group ACL claim_setfacl
-# applies next -- not a recursive chgrp: only a DRIFTED file (group-accessible yet foreign group, per acl_drift_scan)
-# gets its primary group normalized there, which is what settles the drift report instead of re-flagging the same paths
-# on every claim.
+# but cannot enter the tree or run a child. The operator is not a SANDBOX_GROUP member (multi-operator), so the chgrp
+# needs root; the helper carries its own allowlist + owner guard. Pre-existing FILES become agent-accessible
+# through the ACL claim_setfacl applies next (ai-tools-setfacl's header states which paths it regroups).
 #
-# CALLER MUST run secret_gate "${dir}" first: claim_setfacl then grants the agent group access to existing files,
-# so a group-readable secret left un-locked (e.g. appsettings.json 640) would become readable by the agent. secret_gate
-# locks secrets to 600/700 first.
+# CALLER MUST run secret_gate "${dir}" first: the steps this one leads open existing files to the agent's group,
+# and the gate locks secrets to 600/700 ahead of them.
 reg_ownership() {
     local dir="$1" force="${2:-}"
-    # 'force' runs the helper walk even when the project root already matches -- the interior-drift repair,
-    # where the gap sits under the root.
     if [[ "${force}" != force ]] && ! dir_owngap "${dir}"; then
         say "    ownership: already group ${SANDBOX_GROUP}, setgid"
         return 0
@@ -1260,8 +1206,8 @@ reg_ownership() {
 }
 
 # agent_can_traverse <dir>  -- 0 if the sandbox account (SANDBOX_USER, a SANDBOX_GROUP member) can ENTER <dir>, decided
-# the way the kernel decides it (acl(5)): the owner entry when the account owns the directory; else the named-user
-# entry for the account when there is one, whatever the group and other entries say; else the owning-group entry
+# the way the kernel decides it (acl(5)): the owner entry when the account owns the directory; else the named-user entry
+# for the account when there is one, whatever the group and other entries say; else the owning-group entry
 # when the directory is in SANDBOX_GROUP, and every named-group entry for SANDBOX_GROUP; else the other entry.
 # A named entry and the owning-group entry are narrowed by the mask, so `user:SANDBOX_USER:--x` under `mask::---`
 # -- the state a `chmod 700` after an earlier grant leaves -- reads as blocked, and the grant is offered again. Returns
@@ -1271,7 +1217,7 @@ reg_ownership() {
 # the mode bits alone decide, since no ACL can be inspected there at all.
 agent_can_traverse() {
     local dir="$1" mode owner grp acl
-    # IFS pinned for the read: this script's global IFS has no space, and stat separates the fields with one.
+    # IFS pinned (see join_words).
     IFS=' ' read -r mode owner grp < <(stat -c '%a %U %G' -- "${dir}" 2>/dev/null) || return 2
     if command -v getfacl >/dev/null 2>&1; then
         acl="$(getfacl -p -c -E -- "${dir}" 2>/dev/null)" || return 2
@@ -1288,7 +1234,6 @@ agent_can_traverse() {
                 "other:")                  other="${perms}" ;;
             esac
         done <<< "${acl}"
-        # _masked_x <perms>: the entry grants execute and the mask, where one exists, does not take it away.
         _masked_x() { [[ "$1" == *x* ]] && [[ -z "${mask}" || "${mask}" == *x* ]]; }
         if [[ "${owner}" == "${SANDBOX_USER}" ]]; then [[ "${owner_perms}" == *x* ]]; return; fi
         if [[ -n "${named_user}" ]]; then _masked_x "${named_user}"; return; fi
@@ -1304,13 +1249,9 @@ agent_can_traverse() {
     (( 8#${mode} & 0001 ))
 }
 
-# grantable_ancestor <dir>  -- 0 if confirm_ancestor_traversal may offer traverse on <dir>. The rule itself lives
-# in safe-paths.lib.sh (ai_tools_traverse_grant_allowed), single-sourced with the two new project verbs; this is
-# the call site. Fail-closed when the predicate is unavailable, so a broken install never widens a directory it cannot
-# vet.
-#
-# On a `--for` run the owner is the target, whose directories the invoker cannot setfacl unprivileged;
-# grant_ancestor_traversal applies the grant through the runas seam instead.
+# grantable_ancestor <dir>  -- 0 if confirm_ancestor_traversal may offer traverse on <dir>: the call site
+# of ai_tools_traverse_grant_allowed (safe-paths.lib.sh), asked for the owner this run acts FOR. Returns 1
+# when the predicate is not loaded, so a broken install never widens a directory it cannot vet.
 grantable_ancestor() {
     local p="$1"
     declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1 || return 1
@@ -1321,16 +1262,11 @@ grantable_ancestor() {
 # TRAVERSAL_GRANT_PATHS (each blocking ancestor a grant may cover: operator-owned, not a protected system directory)
 # and TRAVERSAL_BLOCKED_PATH (the first blocking ancestor no grant may cover, empty when none),
 # with TRAVERSAL_BLOCKED_REASON naming why where the reason is the read rather than the directory. Read-only
-# and unprivileged; confirm_ancestor_traversal asks on the result and grant_ancestor_traversal acts on it,
-# and the claim's pending overview reads it so the traverse opt-in is announced up front.
-#
-# An ancestor whose ACL could not be read (agent_can_traverse returns 2) is the blocker, whoever owns it: no grant is
-# offered on a state the walk did not read, so the answer moves to less access and the warning names the directory.
-#
-# The walk reads every ancestor up to `/`: the kernel resolves each component on its own, so a `700` directory that is
-# the parent of a `755` one blocks the path as surely as the reverse, and a walk that stopped at the first traversable
-# directory would report the gap closed with the outer one still shut. It ends early only at a blocker no grant covers,
-# since a grant on a directory inside that blocker could not open the path anyway.
+# and unprivileged. An ancestor whose ACL could not be read (agent_can_traverse returns 2) is the blocker, whoever owns
+# it: no grant is offered on a state the walk did not read. The walk reads every ancestor up to `/`, since the kernel
+# resolves each component on its own and a `700` parent of a `755` directory blocks the path as surely as the reverse;
+# it ends early only at a blocker no grant covers, since a grant on a directory inside that blocker could not open
+# the path.
 find_blocking_ancestors() {
     local dir="$1" anc traverse=0
     TRAVERSAL_GRANT_PATHS=(); TRAVERSAL_BLOCKED_PATH=""; TRAVERSAL_BLOCKED_REASON=""
@@ -1350,23 +1286,12 @@ find_blocking_ancestors() {
     done
 }
 
-# confirm_ancestor_traversal <dir>  -- the reachability block's question: whether the sandbox account may be let
-# TRAVERSE the path to <dir>, on find_blocking_ancestors's result (the CALLER runs find_blocking_ancestors first).
-# The confined session runs as the sandbox account; a project nested under a directory it cannot enter (a private home,
-# 700) is unreachable, so ai-tools-run reports it missing even after a clean claim. The grant is traverse-only (execute,
-# no read -- u:SANDBOX_USER:--x) on each blocking ancestor the operator owns and that is not a protected system
-# directory: enough to enter and reach the project, never to list or read it, and unprivileged because the operator owns
-# those directories. A blocking ancestor that is a system directory or someone else's is left untouched -- there
-# an isolated sandbox clone (under /var/opt/ai-tools, already agent-traversable) is the way in. Default-NO: it widens
-# on the project's ANCESTORS, so it is a separate, explicit opt-in.
-#
-# Sets TRAVERSAL_GRANT_CONFIRMED and does not set the ACL: the grant makes the tree reachable, with whatever readable
-# secrets were added since it was last scanned, so an accepted grant counts as an access-widening step -- the caller
-# runs the secret gate on it and applies it with grant_ancestor_traversal in the Apply block, after the gate.
-#
-# Under each path the question lists every entry the grant widens beside the account's own (traverse_grant_plan):
-# the mask rises to carry execute, so a masked entry that holds execute gains traverse with it. The operator confirms
-# the grant with that consequence on the page rather than after it.
+# confirm_ancestor_traversal <dir>  -- the reachability block's question, asked on find_blocking_ancestors's result (the
+# CALLER runs it first): a default-NO confirm for a traverse-only `u:SANDBOX_USER:--x` entry on each blocking ancestor,
+# listing under each path every entry the grant widens beside the account's own (traverse_grant_plan). Sets
+# TRAVERSAL_GRANT_CONFIRMED and does not set the ACL: an accepted grant is an access-widening step, so the caller runs
+# the secret gate on it and applies it with grant_ancestor_traversal in the Apply block, after the gate. A blocker no
+# grant covers gets the warning naming the clone as the way in. The reachability story is cli.rule.md's.
 confirm_ancestor_traversal() {
     local dir="$1" a
     TRAVERSAL_GRANT_CONFIRMED=false
@@ -1400,13 +1325,8 @@ confirm_ancestor_traversal() {
         for entry in "${grant_widened[@]}"; do say "          ${entry}"; done
     done
 
-    # The owner's own HOME ROOT is the one entry in that list whose consequence has to be stated, and what to state is
-    # a CONDITION rather than an assertion of exposure. `--x` permits traversal and neither a listing of the directory
-    # nor any access to the files in it -- each file's own mode and ACL still decides, and the sandbox account is
-    # neither their owner nor in their group. So the grant does not open a file; it makes already-world-readable entries
-    # REACHABLE. Under umask 077 that set is empty; under the RHEL default 022 it is the 644 skel files and anything
-    # else written world-readable. Which of those this host is, is a question with a one-line answer, so the prompt
-    # names the command instead of guessing.
+    # The owner's own HOME ROOT is the one entry in that list whose consequence is stated, as a condition the named
+    # command answers on this host; the condition itself is safe-paths.rule.md's.
     local owner_home includes_home=false
     owner_home="$(getent passwd "${OWNER_USER}" 2>/dev/null | cut -d: -f6)"
     if [[ -n "${owner_home}" ]]; then
@@ -1499,22 +1419,15 @@ grant_ancestor_traversal() {
     ! ${failed}
 }
 
-# normalize_clone <dir> [locked-path...]  -- make a freshly created clone agent-accessible. The clone is born in group
-# SANDBOX_GROUP via the setgid SANDBOX_ROOT but cloned under umask 077 (see cmd_project_clone), so no file in it is
-# group-readable until this step. Add group rwX and the setgid bit on every directory (owner stays the projects user);
-# the SessionStart ai-tools-setgid pass keeps it normalized thereafter. Every <locked-path> (the secret gate's finds,
-# locked to owner-only by ai-tools-lockdown) is PRUNED from both walks -- re-opening one here would undo the lockdown
-# this step is sequenced after. It prunes only what THIS run's gate reported, which is why sandbox_finalize runs it
-# once, while the root is still owner-only (clone_is_private), and not on a resume over a clone already opened. Neither
-# walk has a skip list, and the gate's walk prunes only the `.git` subtrees git names itself (ai-tools-lockdown's header
-# fixes the set), so every directory this opens is one the gate scanned for secret names, or one whose entries git
-# named.
-#
-# Both walks act on regular files and directories alone, and stay on the clone's filesystem: chmod follows a symlink
-# named on its command line, so a tracked symlink handed to it would change the mode of its target, a path outside
-# the clone the gate never scanned. A locked path is pruned by its literal name: `-path` reads its argument
-# as a pattern, so a name carrying `[`, `*`, `?` or `\` is escaped first (find_pattern_literal), or the pattern
-# would miss the path and this walk would re-open the secret the gate locked.
+# normalize_clone <dir> [locked-path...]  -- make a freshly created clone agent-accessible: group rwX on every path
+# and the setgid bit on every directory (the owner stays the projects user), with every <locked-path> -- the secret
+# gate's finds, locked owner-only by ai-tools-lockdown -- PRUNED from both walks, since re-opening one would undo
+# the lockdown this step follows. It prunes what THIS run's gate reported alone, which is why sandbox_finalize runs it
+# once, while the root is still owner-only (clone_is_private). The gate's walk covers every tree this opens
+# (ai-tools-lockdown's header). Both walks act on regular files and directories alone and stay on the clone's filesystem
+# (`-xdev`): chmod follows a symlink named on its command line, so a tracked symlink handed to it would change a target
+# outside the clone. A locked path is pruned by its literal name: `-path` reads its argument as a pattern, so `[`, `*`,
+# `?` and `\` are escaped first (find_pattern_literal), or the walk would re-open the secret.
 normalize_clone() {
     local d="$1"; shift
     local -a prune=() p pattern
@@ -1566,8 +1479,7 @@ relabel_clone() {
 
 # ── Lockdown helpers ───────────────────────────────────────────────────────────
 # ai-tools-lockdown revokes ai-tools' read access to secret-named files under a project. It is root-only and reads its
-# target from the working directory, so we cd there and sudo it; there is no NOPASSWD grant, so sudo prompts
-# for a password.
+# target from the working directory, so run_lockdown cds there and sudos it.
 
 # run_lockdown <dir> [extra-args...]  -- run the helper on <dir>; returns its status.
 run_lockdown() {
@@ -1580,8 +1492,8 @@ run_lockdown() {
 run_relabel() {
     local d="$1"; shift
     # stdout suppressed: the helper narrates its own success ("labelled <path> ai_tools_project_t"), which lands
-    # unindented in the middle of a flow block whose result lines are all indented, and says what the caller is
-    # about to say anyway. stderr is kept -- that is where a failure explains itself.
+    # unindented in the middle of a flow block whose result lines are all indented. stderr is kept -- that is
+    # where a failure explains itself.
     sudo "${RELABEL_BIN}" "$@" "${d}" >/dev/null
 }
 
@@ -1612,17 +1524,14 @@ run_unclaim() {
     sudo "${UNCLAIM_BIN}" "${d}" "${g}" "$@"
 }
 
-# secret_gate <dir>  -- the secret-lockdown block: before ANY step grants the agent access to <dir> (the group ACL,
-# the setgid group change, .git normalization, the SELinux label, the traverse grant on an ancestor, the clone
-# normalize), make sure no group-readable secret would be exposed. The CLI cannot read the root-only secret-pattern
-# library, so one `ai-tools-lockdown --gate` call (sudo, password -- the first sudo prompt of a claim, so it lands right
-# under this block's headline) scans, lists what it found, asks, and locks: one call, so a host whose sudo does not
-# cache the password asks once. The scan walks every heavy tree (the helper's header states why), since the root's
-# traversal, a tree's own world bits and the relabel reach into them whatever the claim's walks skip. Its exit decides:
-# 0 locked or found none, 6 declined, anything else failed. AI_TOOLS_ASSUME_YES answers the default-yes question
-# as `--yes`, since sudo does not pass it through. Fills SECRET_MATCH_PATHS with every secret-matching path the helper
-# wrote to stdout, so normalize_clone can prune them. Returns 0 only when the tree is safe to expose; non-zero means
-# the caller must fail closed.
+# secret_gate <dir>  -- the secret-lockdown block: before any step grants the agent access to <dir> -- the setgid group
+# change, the group ACL, a drift repair, .git normalization, the SELinux label, an accepted traverse grant, the clone
+# normalize -- one `ai-tools-lockdown --gate` call (sudo; the first prompt of a claim, so it lands under this block's
+# headline) scans, lists, asks and locks, so a host whose sudo does not cache the password asks once. Its walk covers
+# every tree the steps after it open (ai-tools-lockdown's header). Its exit decides: 0 locked or found none, 6 declined,
+# anything else failed. AI_TOOLS_ASSUME_YES is passed as `--yes`, since sudo does not pass the variable through. Fills
+# SECRET_MATCH_PATHS with every path the helper wrote to stdout, for normalize_clone to prune. Returns 0 only
+# when the tree is safe to expose; on non-zero the caller fails closed.
 secret_gate() {
     local dir="$1" found status=0
     local -a args=(--gate)
@@ -1791,33 +1700,6 @@ claim_setfacl() {
         return 1
     fi
 }
-
-# cmd_project_claim [path]  -- idempotently bring a real, IN-PLACE project (default: cwd) to a fully claimed state:
-# allowlist + git safe.directory + git core.filemode + secret lockdown + recursive ownership + group-permission ACL +
-# SELinux ai_tools_project_t label, so the agent can work the REAL tree. Inspects current state first and performs ONLY
-# the missing steps, so a re-run is quiet and a fully-claimed project is a clean no-op (no prompt, no sudo).
-#
-# The flow is a sequence of SELF-CONTAINED blocks, each opened by a headline box and closed by its own confirm/result,
-# in this order:
-#   1. Review    -- the pending-step overview (every later block announced), the notices,
-#                   and -- when a heavy step (chgrp, ACL, relabel) is pending -- the
-#                   default-NO proceed confirm that covers exactly the steps listed.
-#   2. Interior drift -- on a re-claim, one block per kind found: the SELinux type
-#                   (label_drift_scan; default-YES, answered by `--yes`) and the group/ACL
-#                   (acl_drift_scan; default-NO, not answered by `--yes`), each its list
-#                   and then its question; the group question is skipped when the relabel
-#                   did not run and every path on its list is also on the relabel list.
-#   3. Reachability  -- separate default-NO opt-in for traverse-only ancestor ACLs; the
-#                   question alone, since an accepted grant is an access-granting step
-#                   and takes the gate, and the ACL is set in Apply.
-#   4. Secret lockdown -- BEFORE any access-granting step, whenever one is pending or
-#                   this is a first claim (see secret_gate); fails the claim closed.
-#   5. .git history  -- separate default-YES opt-in (ai-tools-setfacl --with-git).
-#   6. Apply     -- the approved steps back to back, one result line each, then each
-#                   drifted path checked on its own and one outcome row written for it
-#                   (fixed / not-fixed / unverified / gone), closed by the final
-#                   "claimed" line -- ✓ on a clean exit, ! otherwise -- and the exit the rows fold to.
-# A first claim skips the drift scans: its normal walks repair the whole tree.
 
 # path_detail_lines <path...>  -- print each path prefixed with its owner:group and mode, the columns that show
 # at a glance why a path is flagged (the foreign or agent group) and whether its mode is what the operator expects.
@@ -2171,15 +2053,12 @@ tree_is_pristine() {
 }
 
 # require_claimable_owner <dir>  -- die unless <dir> is held by the operator this run acts FOR or by the sandbox
-# account. The two root helpers that grant the agent its access -- ai-tools-setgid and ai-tools-setfacl -- act only
-# on those two owners, so a project root held by anyone else takes neither the group/setgid change nor the ACL, while
-# the allowlist entry, the git safe.directory entry and the SELinux label all still apply. The claim would close
-# with its ✓ having granted no access at all, and the agent could not enter the tree.
-#
-# The case this exists for is a `--for` claim: `mkdir ~/proj && ai-tools projects claim --for svc ~/proj` resolves
-# the owner to svc, so every inode in the tree fails the helpers' guard. This is the CLI-side front line for the count
-# those helpers now report; the refusal names the chown that fixes it, because transferring a tree recursively needs
-# an authority this CLI does not hold.
+# account: ai-tools-setgid and ai-tools-setfacl, the two helpers that grant the agent its access, act only on those two
+# owners, so a root held by anyone else would take every registry step and none of the access-granting ones. The case it
+# exists for is a `--for` claim over a tree the invoker made
+# (`mkdir ~/proj && ai-tools projects claim --for svc ~/proj`), and the refusal names the chown that fixes it, since
+# transferring a tree recursively needs an authority this CLI does not hold. The consequence and the remedy are
+# cli.rule.md's.
 require_claimable_owner() {
     local d="$1" owner
     owner="$(stat -c '%U' "${d}" 2>/dev/null)" || die "cannot read the owner of ${d}"
@@ -2203,17 +2082,22 @@ require_claimable_owner() {
         "${why[@]}"
 }
 
+# cmd_project_claim [path] [-y|--yes] [--format tsv]  -- bring a real, IN-PLACE project (default: cwd) to a fully
+# claimed state, idempotently: it reads the current state and performs the missing steps alone, so a fully claimed
+# project is a quiet no-op. Six blocks in run order -- Review, Interior drift, Reachability, Secret lockdown, `.git`
+# history, Apply -- each opened by a headline box and closed by its own confirm or result lines; a first claim skips
+# the drift scans, since its normal walks repair the whole tree. `-y`/`--yes` pre-answers the proceed confirm
+# and the interior relabel question alone; `--format tsv` puts the outcome rows on stdout as a record stream and every
+# other line on stderr. The blocks' order and their defaults are cli.rule.md's.
 cmd_project_claim() {
-    # `-y`/`--yes` pre-answers the claim's own proceed prompt ("Apply the pending steps IN PLACE?", default NO) --
-    # an explicit per-invocation flag, passed by a caller that already confirmed the same decision (the launch wrapper's
-    # delegated claim) -- and the interior relabel, which a run without a terminal performs only with it. The scoped
-    # opt-ins (secret lockdown, .git history, ancestor traversal) and the group repair are separate questions it does
-    # not answer.
+    # `-y`/`--yes` is an explicit per-invocation flag, passed by a caller that already confirmed the same decision (the
+    # launch wrapper's delegated claim); the scoped opt-ins (secret lockdown, .git history, ancestor traversal)
+    # and the group repair are separate questions it does not answer.
     #
-    # `--format tsv` makes stdout carry the outcome rows as a record stream (ai-tools-records(5)) and no other line:
-    # once the command line is parsed, fd 3 takes stdout and stdout takes stderr, so every page line, refusal and hint
-    # -- a helper's own output included -- lands on stderr without a change at any call site. A run refused
-    # before that point writes only to stderr too, since die and warn already do. The questions keep asking on /dev/tty.
+    # `--format tsv`: once the command line is parsed, fd 3 takes stdout and stdout takes stderr, so every page line,
+    # refusal and hint -- a helper's own output included -- lands on stderr without a change at any call site. A run
+    # refused before that point writes only to stderr too, since die and warn already do. The questions keep asking
+    # on /dev/tty.
     local a path="" ASSUME_YES=false format="" format_given=false expect_format=false
     for a in "$@"; do
         if ${expect_format}; then format="${a}"; expect_format=false; continue; fi
@@ -2236,49 +2120,34 @@ cmd_project_claim() {
     local d; d="$(resolve_dir "${path:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
     claim_load_libraries
-    # Refuse to claim a protected system directory before it ever reaches the allowlist. The safe-paths guard is
-    # guaranteed loaded (the top-level source fails closed otherwise).
     ai_tools_assert_safe_target "${d}" "project claim" || exit 3
-    # Before any registry write: a root the access-granting helpers cannot act on makes the whole claim a no-op they
-    # would report only as a count on stderr.
     require_claimable_owner "${d}"
 
-    # A PARKED project is answered here, ahead of the flow, rather than at the registry write it would otherwise reach
-    # last. Two reasons it belongs up front: the exclusion decides whether any of the flow's steps can apply at all --
-    # while it stands the root helpers resolve no owner and skip every step -- and the proceed confirm is what a run
-    # with no terminal answers first, so a check behind it would never be reached by exactly the runs that most need
-    # telling. Declining aborts the claim before any write.
+    # A parked project is answered up front (offer_reenable), ahead of the proceed confirm a run with no terminal
+    # answers first; declining aborts the claim before any write.
     if [[ "$(allow_state "${d}")" == disabled ]]; then
         offer_reenable "${d}" "the claim" \
             || die "allowed-projects not updated -- ${d} is still disabled"
     fi
 
-    # A tree `projects create` just made, which tree_is_pristine re-derives from the tree without reading the caller's
-    # hint. Three of this flow's questions are answerable from that fact alone; each is marked where it is asked.
+    # A tree `projects create` just made (tree_is_pristine re-derives it from the tree); each question it answers is
+    # marked where it is asked.
     local fresh=false
     if [[ "${CLAIM_FRESH_TREE:-}" == "${d}" ]] && tree_is_pristine "${d}"; then fresh=true; fi
 
     local listed safedir filemode owngap acl labelled git
-    # project_state prints seven SPACE-separated tokens; this script's global IFS is $'\n\t' (no space), so a bare read
-    # would collapse the whole line into the first field and leave the rest empty -- silently skipping
-    # the label/ACL/ownership steps. Pin IFS=' ' for this read so the tokens split as intended.
+    # IFS pinned (see join_words).
     IFS=' ' read -r listed safedir filemode owngap acl labelled git < <(project_state "${d}")
     local need_label=false; [[ "${labelled}" == false ]] && need_label=true
     local need_filemode=false; [[ "${filemode}" == false ]] && need_filemode=true
     local need_acl=false; [[ "${acl}" == true ]] && need_acl=true
     local need_git=false; [[ "${git}" == true ]] && need_git=true
 
-    # Interior drift: the root-level state does not cover a path brought INTO a claimed tree without inheriting
-    # the group/ACL (mv keeps the old group). Detect them here; the repair applies further down behind the same confirm
-    # + secret gate as the other in-place steps. Scanned only on a RE-CLAIM whose ownership is already in place: a first
-    # claim (or one with the setgid step still pending) walks and repairs the whole tree anyway, and its every path
-    # would trivially match the drift predicate -- a 200-line report of what the claim is about to fix is noise, not
-    # signal.
-    #
-    # Each scan reports an incomplete walk rather than a shorter one: its detail becomes an `error` row. Each walk reads
-    # the whole tree, and the cap then bounds the paths the claim asks about and reports: past CLAIM_SCAN_CAP it keeps
-    # that many and writes a `scan-capped` row, so exactly the cap and more than it stay distinguishable. The group cap
-    # applies after the skip-list split, so hits the claim cannot repair do not take the places of ones it can.
+    # Interior drift is detected here and repaired in Apply, behind the same confirm and gate as the other in-place
+    # steps; scanned on a re-claim whose ownership is in place, since a first claim repairs the whole tree
+    # (cli.rule.md). Each walk reads the whole tree; past CLAIM_SCAN_CAP the claim keeps that many paths and writes
+    # a `scan-capped` row, the group cap applied after the skip-list split so hits the claim cannot repair do not take
+    # the places of ones it can.
     claim_work_dir
     ai_tools_records_begin_report
     local -a drift=()
@@ -2287,9 +2156,6 @@ cmd_project_claim() {
         acl_drift_scan "${d}" "${CLAIM_WORK}" drift group_scan_detail || true
     fi
 
-    # Split the hits on the shared skip list: the sweeps AND the claim walks leave a skip-listed directory's contents
-    # alone (one skip contract), so a re-claim cannot repair a hit under one -- it gets its own report with the remedies
-    # that can.
     local -a drift_skipped=()
     if ai_tools_skip_find_expr sweep 2>/dev/null && (( ${#AI_TOOLS_SKIP_NAMES[@]} )); then
         local -a _keep=()
@@ -2317,9 +2183,8 @@ cmd_project_claim() {
         drift_types+=("$(claim_subject_type "${_hit}")")
     done
 
-    # Interior label drift: the same blind spot for the SELinux type. The root label is what project_state reads,
-    # so a path moved in under a labelled root keeps the type it came with (label_drift_scan). Scanned only
-    # where the root is labelled -- otherwise the whole-tree relabel is pending anyway.
+    # Interior label drift (label_drift_scan), scanned where the root is labelled: otherwise the whole-tree relabel is
+    # pending anyway.
     local -a label_drift=()
     local -A label_drift_types=()
     local label_scan_detail="" label_capped=false
@@ -2365,8 +2230,6 @@ cmd_project_claim() {
         say "      ${C_DIM}which one above it is not${C_RST}"
     }
 
-    # skip_listed_note: the skip-listed hits are informational either way -- shown both on the fully-claimed early
-    # return and in the pending flow.
     skip_listed_note() {
         (( ${#drift_skipped[@]} )) || return 0
         headline_warn "NOTICE: drift under skip-listed directories" \
@@ -2474,21 +2337,13 @@ cmd_project_claim() {
     # marker. ──
     local heavy=false
     local -a head=("${d}")
-    # Drift repair is not one of the heavy steps: each kind is its own question, asked under its own list once
-    # the proceed confirm is answered, so the answer follows the paths it is about.
     if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label}; then
         heavy=true
     fi
-    # NOT said on a pristine tree: every sentence of it is false for one. There are no previous permissions to modify,
-    # no irreversible change, and no content to back up -- the tree was empty a moment ago. A warning that is routinely
-    # untrue is what teaches an operator to click through the ones that are not, so silence is the more careful choice
-    # here.
+    # Not said on a pristine tree (cli.rule.md, `projects create`). The warning is what the operator sees of the fact
+    # that an unclaim normalizes rather than restores (ai-tools-unclaim's header).
     if ${heavy} && ! ${fresh}; then
         head+=("claiming in place grants the agent group access to this whole tree")
-        # Said plainly, before the confirm that authorizes it: the steps it authorizes rewrite metadata across the tree,
-        # and unclaim NORMALIZES rather than restores (setfacl -b clears ACLs that predate the claim; the result is
-        # 640/750). No prior state is recorded anywhere, so no command can put it back -- which makes "back up first"
-        # the only real safeguard.
         head+=("It MODIFIES group, permissions and ACLs throughout this tree, sets setgid on its directories, and removes world access. Files and directories that are owner-only (0600/0700) are left alone, out of the agent's reach. The previous permissions are NOT recorded anywhere, so this is NOT reversible -- unclaiming later normalizes the tree rather than restoring it. Back up first. See: man ai-tools")
     fi
     headline "Claim project (in place)" "${head[@]}"
@@ -2525,19 +2380,14 @@ cmd_project_claim() {
         return 0
     fi
 
-    # The gate runs whenever any pending step widens the agent's access -- the setgid group change, the group ACL, drift
-    # repair, .git normalization, the SELinux label, the traverse grant -- and on every first claim (a tree can be
-    # group-accessible by setgid inheritance yet never scanned). Only pure registry additions (safedir, filemode) skip
-    # it. Drift repair and the traverse grant count once their question is answered yes, so here they only decide
-    # whether the overview announces the gate.
+    # The gate runs where a pending step widens access (secret_gate) and on every first claim; a drift repair
+    # and the traverse grant count once answered yes, so here they decide only whether the overview announces it.
     local need_gate=false
     if [[ "${listed}" != true || "${owngap}" == true ]] \
             || ${need_acl} || ${need_git} || ${need_label}; then
         need_gate=true
     fi
-    # The gate's whole job is to find secret-named files before access is granted. A tree whose only file is the README
-    # this command wrote a moment ago provably has none, and the scan is not free: ai-tools-lockdown has no NOPASSWD
-    # rule, so it costs the operator a sudo PASSWORD prompt to search a directory the tool itself just created.
+    # A pristine tree has no secret-named file to find (cli.rule.md, `projects create`).
     if ${fresh}; then need_gate=false; fi
     local gate_announced="${need_gate}"
     (( ${#drift[@]} || ${#label_drift[@]} || ${#TRAVERSAL_GRANT_PATHS[@]} )) && gate_announced=true
@@ -2569,33 +2419,22 @@ cmd_project_claim() {
     sealed_setgid_note
     ancestor_config_note
 
-    # Heavy steps (recursive chgrp; sudo relabel/ACL; drift repair) close the Review block behind the proceed confirm;
-    # pure registry additions do not. --yes pre-answers exactly this prompt: the launch wrapper passes it after taking
-    # its own "Claim it in place now?" confirmation, so a delegated claim does not ask the same question twice.
-    # The scoped opt-ins (secret lockdown, .git history, ancestor traversal) still ask on their own terms. Skipped
-    # for a pristine tree along with the warnings it exists to authorize: with no pre-existing content to expose, this
-    # asks the operator to approve the command they just typed, and its own subject ("apply the pending steps IN PLACE")
-    # describes a tree that has no contents to apply them to.
+    # Heavy steps close the Review block behind the proceed confirm, the one prompt `--yes` pre-answers; a pristine tree
+    # skips it with the warnings it authorizes.
     if ${heavy} && ! ${fresh}; then
         ${ASSUME_YES} || confirm "Apply these pending steps to the tree in place?" n \
             || die "aborted"
     fi
 
     # ── Interior drift: one block per kind, each its list and then its question, so the answer follows the paths it is
-    # about. The defaults differ because the costs do (cli.rule.md). A relabel leaves owner, group and mode as they are,
-    # so the agent reaches a relabelled path only where its permissions already let the sandbox account in; it defaults
-    # to yes and `--yes` answers it. A group/ACL repair moves a path from the group it has to the sandbox group,
-    # which is wrong for a file shared with a team or read by a service's group, so it defaults to no, and `--yes` does
-    # not answer it: the launch wrapper that passes `--yes` does not show the operator these paths. A declined repair is
-    # reported as not fixed; the claim goes on. ──
+    # about. The defaults differ because the costs do (cli.rule.md). A declined repair is reported as not fixed;
+    # the claim goes on. ──
     local do_label_drift=false do_drift=false
     if (( ${#label_drift[@]} )); then
         headline_warn "Interior drift: SELinux type" \
             "SELinux type differs on ${#label_drift[@]} path(s) inside the tree: each carries a type other than the one this project's file-context rules give it -- moved in with mv, cp -a or tar --selinux, or relabelled by another tool. The agent is refused them whatever their permissions say."
         item_listing "path(s) with their types" label_drift_lines "${label_drift[@]}"
         drift_secret_legend "${label_drift[@]}"
-        # The cap is a property of the SCAN, not of this listing, so it is said whether the paths were sampled or shown
-        # in full.
         ! ${label_capped} || say "        ${C_DIM}(scan capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
         # What the answer changes, and what it costs, sit directly ahead of the question: the relabel reaches every path
         # in the tree, not only the ones listed.
@@ -2615,9 +2454,8 @@ cmd_project_claim() {
             say "      relabel not run: no terminal to ask on, and --yes was not given"
         fi
     fi
-    # A path on both lists reaches the agent only once both repairs take, so with the relabel not run and every path
-    # of this list also on the relabel list, a group repair would move each path's group and share none of them:
-    # the question is not asked, and the rows report the group as not fixed.
+    # With the relabel not run and every path of this list also on the relabel list, a group repair would share none
+    # of them (cli.rule.md), so the question is not asked and the rows report the group as not fixed.
     local group_needs_label=false _p
     # On a host not enforcing, a foreign type does not refuse the agent, so the group repair alone shares the path.
     if (( ${#drift[@]} && ${#label_drift[@]} )) && ! ${do_label_drift} \
@@ -2653,10 +2491,8 @@ cmd_project_claim() {
         ${fresh} || need_gate=true
     fi
 
-    # The traverse grant is asked with the repairs, ahead of the gate, because it is one: it makes the tree reachable
-    # with whatever readable secrets were added since its last scan, so an accepted grant runs the gate,
-    # and grant_ancestor_traversal sets the ACL in the Apply block. A pristine tree has no secret to find,
-    # as for the other steps.
+    # An accepted traverse grant is an access-widening step, so it takes the gate (confirm_ancestor_traversal); the ACL
+    # is set in Apply.
     confirm_ancestor_traversal "${d}"
     if ${TRAVERSAL_GRANT_CONFIRMED}; then
         ${fresh} || need_gate=true
@@ -2706,18 +2542,14 @@ cmd_project_claim() {
     fi
     if ${apply_steps}; then headline "Applying claim steps" "${d}"; fi
 
-    # The traverse grant goes first: it is unprivileged, so it cannot fail a password round, and its own precondition,
-    # the gate, has run. Placed after the root steps it would be skipped by note_root_failure's stop. A grant that did
-    # not take counts with the root steps that did not apply: the project stays out of the agent's reach, which
-    # the closing warning reports, and the command that applies it is printed with the failure. It does not ask
-    # note_root_failure's question, which is about a password round the next root step would repeat.
+    # The traverse grant goes first: it is unprivileged, so it cannot fail a password round, and a stop
+    # by note_root_failure would otherwise skip it. A grant that did not take counts with the root steps that did not
+    # apply, and does not ask note_root_failure's question, which is about a password round.
     if ${TRAVERSAL_GRANT_CONFIRMED} && ! grant_ancestor_traversal; then
         ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
     fi
 
-    # A failed step asks once before the next is attempted (note_root_failure). Stopping is the safe direction here --
-    # fewer steps applied -- and costs the operator no work, since the claim is idempotent and a re-run does exactly
-    # what is still missing.
+    # A failed step asks once before the next is attempted (note_root_failure); stopping is the safe direction here.
     local stopped=false
     if [[ "${safedir}" != true ]]; then
         reg_safedir "${d}" || note_root_failure || stopped=true
@@ -2739,10 +2571,8 @@ cmd_project_claim() {
     say ""
     claim_drift_records
 
-    # A claim whose access-granting steps did not apply has NOT claimed anything, and must not say it has. This is
-    # the owner guard's rule at the other end of the flow: no ✓ over a project the agent cannot work in. The registry
-    # entries stand, so a re-run applies exactly what is missing -- which is why stopping early costs the operator no
-    # work.
+    # A claim whose access-granting steps did not apply exits 1 in place of the ✓: no success mark over a project
+    # the agent has no group or ACL entry into. The registry entries stand, so a re-run applies what is missing.
     if (( ROOT_STEP_FAILURES )); then
         headline_warn "WARNING: the claim did not complete" \
             "${d} is registered, but ${ROOT_STEP_FAILURES} step(s) that grant the agent access did not apply, so it cannot work there yet. Each is named above with the command that applies it. Re-running the claim is the simpler route -- it is idempotent and does only what is still missing:"
@@ -2787,26 +2617,14 @@ claim_end() {
     exit "${status}"
 }
 
-# cmd_project_create <path> [-y]  -- create a NEW project directory and claim it: ONE mkdir, an empty git repository,
-# a README.md, then the ordinary claim flow on the result. The parent directory must already exist; see the refusal
-# of an existing path for why it is not created.
-#
-# It REFUSES a path that already exists, which is the sharp line between this verb and `projects claim`: a create
-# that quietly claimed whatever was already there would make the two interchangeable, and the operation that grants
-# an agent access to a tree is not one to arrive at by a typo. Recovering a half-finished create is therefore
-# `ai-tools projects claim` on the new directory; a re-run of this verb refuses the path as one that exists.
-#
-# <path> is REQUIRED and has no cwd default, unlike every other verb here: the cwd always exists, so a defaulted create
-# could only ever refuse.
-#
-# Every filesystem step goes through run_as_owner, so a create for another operator produces a TARGET-owned tree.
-# That is not tidiness -- the claim's setgid and ACL helpers act only on paths the resolved operator or the sandbox
-# account holds, so a tree born owned by the invoker is one require_claimable_owner then refuses.
+# cmd_project_create <path>  -- create a NEW project directory and claim it: ONE mkdir, an empty git repository,
+# a README.md, then cmd_project_claim unchanged on the result. It refuses a path that exists (naming `projects claim`)
+# and a parent that does not, and <path> is required with no cwd default. Every filesystem step goes
+# through run_as_owner, so a create under `--for` produces a TARGET-owned tree, the one require_claimable_owner then
+# admits. It does not take `-y`: it does not ask a question a flag could pre-answer, and the traverse grant
+# on an ancestor, the one question that can still appear, is answered by a person at a terminal alone. The refusals,
+# the modes it sets and the claim questions it infers are cli.rule.md's.
 cmd_project_create() {
-    # No -y: this verb does not ask a question a flag could pre-answer. Its own confirmation would be a request
-    # to approve the command just typed over a tree that does not exist yet, and the claim that follows infers the rest
-    # from the tree being empty (see tree_is_pristine). The one question that can still appear -- the traverse grant
-    # on an ancestor -- widens access OUTSIDE the project and is deliberately answerable only by a person at a terminal.
     local a path=""
     for a in "$@"; do
         case "${a}" in
@@ -2827,15 +2645,9 @@ cmd_project_create() {
             "       ai-tools projects claim ${d}"
     fi
 
-    # ONE directory is created -- the final component, never a path of them. The parent has to exist already,
-    # and a parent that does not is refused rather than built.
-    #
-    # This is the verb's main safety property, not a limitation of it. `mkdir -p` turns a mistyped path into a silently
-    # manufactured tree: `projects create ~/Devlopment/app` would create the typo, create the project inside it, claim
-    # it, and report success, leaving the operator with a working project nobody meant to make in a directory nobody
-    # meant to make. Requiring the parent means a typo surfaces as a refusal that names the missing directory. It also
-    # removes every question that a multi-component create raises: which components were created, which to vet
-    # against the backstop, and what to remove when a later step fails.
+    # ONE directory is created, the final component, and a parent that does not exist is refused: a mistyped path
+    # surfaces as a refusal naming the missing directory and does not become a manufactured tree with a claimed project
+    # inside it.
     local parent="${d%/*}"; [[ -n "${parent}" ]] || parent=/
     if [[ ! -d "${parent}" ]]; then
         die MSG-J3R8 "the parent directory does not exist: ${parent}" \
@@ -2896,29 +2708,14 @@ cmd_project_create() {
     # block. ──
     headline "Create project" "${d}" \
         "Creating the directory, an empty git repository in it, and a README.md, then claiming it so the sandbox account can work there."
-    # Mode 0750 EXPLICITLY, not whatever the caller's umask yields. Under a umask of 077 -- the /etc/login.defs default
-    # on many hosts, and what a PAM session hands this command -- a new directory is born 0700, which ai-tools-setgid
-    # and ai-tools-setfacl both honour as the operator's standing SEAL and leave alone. The claim would then report
-    # a NOTICE and grant no access, producing a registered project the agent can never enter: the one outcome this verb
-    # exists to avoid.
-    #
-    # The seal is a statement about a path the operator restricted deliberately. A umask is not that -- it is a default
-    # for every new file, carrying no intent about a directory created a moment ago BY a command whose whole purpose is
-    # to give the agent somewhere to work. So the mode is set rather than inherited, and it is not asked
-    # about: for anyone who typed `ai-tools projects create` the answer is the same, and declining would yield a project
-    # whose files the agent's group has no read on.
-    #
-    # 0750 rather than 0770: the agent's write access comes from the claim's ACL (g:SANDBOX_GROUP:rwX, which raises
-    # the mask), so group write here would only widen the tree to the OPERATOR's primary group -- shared on some hosts
-    # -- for no gain. It is also the mode an unclaim normalizes a directory back to. `mkdir -m` applies the mode
-    # after creation, so the umask cannot mask it.
+    # Mode 0750 set explicitly (`mkdir -m` applies it after creation, so the umask does not mask it): under a 077 umask
+    # the directory would be born 0700, the seal ai-tools-setgid and ai-tools-setfacl honour and skip, and the claim
+    # would register a project the agent cannot enter. 0750 and not 0770: write comes from the claim's ACL, and 0750 is
+    # the mode an unclaim normalizes a directory back to. Why a umask is not a seal is cli.rule.md's.
     local umask_would_be
     printf -v umask_would_be '%04o' "$(( 0777 & ~0$(umask) ))"
     run_as_owner mkdir -m 0750 -- "${d}" || die "could not create ${d}"
     say "    created ${d}"
-    # Said only where it is news: on a permissive umask these modes are unremarkable, but on a host whose umask would
-    # have sealed what this verb creates, the operator is told what was done and why. Printed once, covering
-    # the directory and everything seeded into it.
     if (( (8#${umask_would_be} & 077) == 0 )); then
         say "    ${C_DIM}modes set to 0750/0640 -- your umask ($(umask)) would have made them${C_RST}"
         say "    ${C_DIM}owner-only, which the agent cannot read${C_RST}"
@@ -2929,11 +2726,8 @@ cmd_project_create() {
     # Plain `git init`, so the operator's own init.defaultBranch decides the branch name rather than this tool holding
     # an opinion about it. run_as_owner passes -H, so it is the TARGET's git config that is read on a --for run.
     if run_as_owner git init -q -- "${d}"; then
-        # git builds .git under the caller's umask, so on an 077 host it is born 0700/0600 -- owner-only,
-        # which ai-tools-setfacl's --with-git pass skips as a seal, taking the whole subtree with it. The claim reports
-        # that it is normalizing .git for shared history, so leaving it sealed would make that line untrue. g+rX only:
-        # group read, and traverse on directories. The agent's WRITE access comes from the claim's ACL, exactly
-        # as for the work tree, so this step grants reachability alone.
+        # git builds .git under the caller's umask, so on an 077 host it is born owner-only and the `--with-git` pass
+        # would skip it as a seal. g+rX alone: write comes from the claim's ACL, as for the work tree.
         run_as_owner chmod -R g+rX -- "${d}/.git" \
             || warn "could not open .git for the agent -- git history may stay out of its reach"
         say "    git: initialized an empty repository"
@@ -2941,14 +2735,11 @@ cmd_project_create() {
         warn "git init failed -- the directory is created but is not a git repository"
     fi
 
-    # The basename verbatim, with no prettifying: a project skeleton is a different feature and would need an opinion
-    # this tool should not hold. Written through `tee` as the owner, since a shell redirect here would create the file
-    # as the INVOKER on a --for run.
+    # Written through `tee` as the owner, since a shell redirect here would create the file as the INVOKER on a --for
+    # run.
     if printf '# %s\n' "${d##*/}" | run_as_owner tee -- "${d}/README.md" >/dev/null; then
-        # tee creates under the caller's umask (0600 on an 077 host), and an owner-only file is one ai-tools-setfacl
-        # leaves alone -- so the first file this verb writes for the project would be the one file in it the agent
-        # cannot read. 0640 is the mode the claim's ACL expects to raise, and the one an unclaim normalizes a file back
-        # to.
+        # tee creates under the caller's umask (0600 on an 077 host), a seal ai-tools-setfacl leaves alone; 0640 is
+        # the mode an unclaim normalizes a file back to.
         run_as_owner chmod 0640 -- "${d}/README.md" \
             || warn "could not set the mode on README.md -- the agent may not be able to read it"
         say "    wrote README.md"
@@ -2956,9 +2747,7 @@ cmd_project_create() {
         warn "could not write ${d}/README.md (continuing)"
     fi
 
-    # The claim runs unchanged on the new tree -- one implementation of what claiming means. CLAIM_FRESH_TREE names
-    # the tree this run created; the claim VERIFIES that independently before it acts on it, so this is a hint and never
-    # an authorization.
+    # The claim runs unchanged on the new tree; CLAIM_FRESH_TREE is a hint it re-derives (tree_is_pristine).
     CLAIM_FRESH_TREE="${d}"
     cmd_project_claim "${d}"
 }
@@ -3418,34 +3207,18 @@ cmd_unclaim_unlisted() {
     fi
 }
 
-# cmd_project_unclaim [path]  -- undo an in-place claim (default: cwd): revert the SELinux label, drop both registries,
-# and (default-yes confirm) hand the tree's filesystem back to a target group with the agent's write access revoked.
-# The directory itself is left on disk. The filesystem hand-back (ai-tools-unclaim) clears the agent ACL + default ACL,
-# regroups every eligible file to the target group, and removes group write (660->640, 770->750, 400 stays 400).
-# The target group defaults to the invoking user's own group; any other system user can be named.
-#
-# The path is classified against allowed-projects into five outcomes, so unclaim only ever modifies permissions
-# where something authorizes it:
-#   EXACT       the path is itself a claimed project -- unclaim it.
-#   ANCESTOR    claimed projects are nested under it -- list them and, behind a single default-NO
-#               warning, unclaim each, outermost first.
-#   DESCENDANT  the path sits INSIDE a claimed project -- refuse, naming the nearest claimed
-#               parent (the longest matching entry) and the command that does work.
-#   UNRELATED + residue   no allowlist entry covers it, but it still carries the ai-tools
-#               fingerprint: a claimed project copied or moved here and never unclaimed. Detection
-#               only GUIDES; acting needs an explicit --force, which swaps the allowlist gate for
-#               a per-path residue gate in the helper.
-#   UNRELATED, clean      refuse -- no part of this tree was ever claimed, so there is no change to undo.
-# A protected system path is refused up front. For a registered project this only guards a hand-edited allowlist (claim,
-# setgid and setfacl each refuse a protected path, so one is a claimed project only by hand), whose cleanup
-# `ai-tools projects` reports; the backstop reads the path alone, so `--force` does not relax it.
+# cmd_project_unclaim [path] [--force] [--full] [--keep-entry] [--dry-run] [-y|--yes] [--group <group>]  -- undo
+# an in-place claim (default: cwd): revert the SELinux label, drop both registries (or park the allowlist line
+# under `--keep-entry`), and behind a default-yes confirm hand the tree back to a target group through ai-tools-unclaim,
+# with the agent's write access revoked; the directory itself is left on disk. The target is classified
+# against allowed-projects first (cli.rule.md, Unclaim), and a protected system path is refused up front, whatever
+# the mode: the backstop reads the path alone, so `--force` does not relax it. A parked target is answered up front
+# (offer_reenable). `-y`/`--yes` pre-answers the default-NO confirm in every mode and is not read by the hand-back
+# or skip-listed questions, which ask on their own terms; `--group` names the hand-back group outright, so a script
+# never depends on the prompt's no-tty fallback.
 cmd_project_unclaim() {
-    # --force gates on the on-disk fingerprint instead of allowlist membership; it never relaxes the protected-paths
-    # backstop, the owner guard, or the secret/'!' skips. `-y`/`--yes` pre-answers the default-NO confirm in EVERY mode
-    # -- the registered project's, the ancestor batch's, and `--force`'s -- the same explicit-flag convention
-    # as `projects claim` `-y`; it is not read by the hand-back or skip-listed questions, which ask on their own terms.
-    # --group names the hand-back group outright, so a script never depends on the prompt's no-tty fallback -- and it
-    # works in both modes.
+    # `--force` swaps the allowlist gate for the helper's per-path residue gate (ai-tools-unclaim's header) and does not
+    # relax any other gate.
     local a path="" force=false full=false dry=false assume_yes=false group_opt="" want_group=false
     local registry=drop
     for a in "$@"; do
@@ -3502,15 +3275,12 @@ cmd_project_unclaim() {
         done
         if (( ${#targets[@]} )); then
             mode=ancestor
-            # Outermost first: a parent path sorts before every path nested in it (it is their prefix), so a containing
-            # project is handed back before one inside it. Each still needs its own registry and label drop, so a nested
-            # entry is never skipped.
+            # Outermost first; each nested entry still takes its own registry and label drop.
             mapfile -t targets < <(printf '%s\n' "${targets[@]}" | sort)
         fi
     fi
     if [[ "${mode}" == unrelated ]]; then
-        # Nearest claimed parent: the LONGEST entry that is a prefix of d. With both /a and /a/b claimed, /a/b/c belongs
-        # to /a/b. One length comparison -- no tree, no traversal.
+        # Nearest claimed parent: the longest entry that is a prefix of d.
         for e in "${entries[@]:-}"; do
             if [[ "${d}" == "${e}/"* ]] && (( ${#e} > ${#nearest} )); then nearest="${e}"; fi
         done
@@ -3545,17 +3315,9 @@ cmd_project_unclaim() {
             "       ai-tools projects unclaim ${targets[0]}"
     fi
 
-    # A parked target is answered BEFORE this verb asks its own question, because it decides what the run can DO rather
-    # than being a step inside it: ai-tools-unclaim resolves this path's owner through the allowlist, where an exclusion
-    # wins, so on a disabled project the hand-back would exit 0 having handed back no path -- and the flow would close
-    # with a ✓ over files that still carry the agent's group.
-    #
-    # Declining does NOT abort. That would be the one wrong answer here: the registry reversal is what moves to less
-    # access, so a decline keeps it and gives up only the part that genuinely cannot run -- the hand-back, which is then
-    # reported as not having run (the run exits non-zero and prints the command that completes it), exactly as it is
-    # for a hand-back that was wanted and failed. The verb's rule is unchanged; what "reversal" means is the <registry>
-    # disposition -- the entry is DROPPED, or PARKED under --keep-entry, and both end with no session able to start
-    # there.
+    # A parked target is answered up front (offer_reenable), since under the exclusion the hand-back would exit 0
+    # without handing back a path. Declining does not abort: the registry reversal still applies, and the hand-back
+    # alone is given up and reported as not having run, with a non-zero exit (cli.rule.md).
     local -a handback_blocked=()
     local t
     for t in "${targets[@]}"; do
@@ -3609,8 +3371,8 @@ cmd_project_unclaim() {
             || incomplete=$(( incomplete + 1 ))
     done
 
-    # An incomplete reversal is an outcome a script has to be able to see, so it reaches the exit status rather than
-    # only the terminal. The registries are dropped either way, which is why this reports rather than aborts.
+    # An incomplete reversal reaches the exit status, so a script sees it; the registries drop regardless, which is
+    # why this reports rather than aborts.
     if (( incomplete )); then
         ai_tools_log_structured warning \
             "unclaim finished with ${incomplete} of ${#targets[@]} project(s) not fully reversed" \
@@ -3636,28 +3398,13 @@ cmd_project_unclaim() {
     (( incomplete == 0 ))
 }
 
-# cmd_project_remove [path] [-y]  -- unclaim a project AND delete its directory (default: cwd). `projects unclaim` stays
-# the non-destructive reversal, and is what these refusals point at.
-#
-# ONE VERB, TWO KINDS. A path under SANDBOX_ROOT is a sandbox clone and takes the clone's own removal (remove_clone):
-# require_sandbox_clone as the guard, the unpushed-commit count, one default-NO confirm, then the rm and both
-# registries. Every other path is a project claimed in place and takes the exact-entry gate. `-y` pre-answers
-# the confirm of either kind, and needs a DIRECTORY for either.
-#
-# AUTHORIZATION IS THE REGISTRY ENTRY, and only an EXACT one. There is no `--force`: the flag exists on unclaim to reach
-# a tree the allowlist does not name, and "delete a tree no registry names" is not an operation this verb should offer
-# at all -- that is `projects unclaim --force` followed by an rm the operator types themselves, where the destructive
-# step is theirs.
-#
-# This verb sits OUTSIDE the "every refusal moves to less access" table in CLAUDE.md, and the difference is worth naming
-# rather than letting it read as an exception: the predicates in that table decide what a session may REACH, so their
-# safe direction is to grant less. This one decides what is DESTROYED, so its safe direction is inaction -- which is
-# why its gate is an exact registry entry plus a typed confirmation rather than one of the launch predicates.
-#
-# Teardown order is registries first, deletion last. A failure at the deletion therefore leaves an UNREGISTERED tree --
-# less access, not more -- recoverable with an ordinary rm. The reverse order would leave a half-deleted tree the agent
-# still reaches. The filesystem hand-back that `projects unclaim` performs is deliberately NOT run: it is a full-tree
-# chgrp/chmod pass over files about to be deleted.
+# cmd_project_remove [path] [-y|--yes]  -- unclaim a project AND delete its directory (default: cwd); `projects unclaim`
+# is the non-destructive reversal these refusals point at. One verb, two kinds: a path under SANDBOX_ROOT is a sandbox
+# clone and takes remove_clone, every other path is a project claimed in place. Authorization is an EXACT registry
+# entry, allow or parked, and the verb does not take `--force`; teardown is registries first, deletion last, so a failed
+# deletion leaves an unregistered tree, and the filesystem hand-back is not run over files about to be deleted
+# (cli.rule.md, Remove). `-y` pre-answers the default-NO confirm and the typed-name challenge of either kind, and needs
+# a DIRECTORY for either.
 cmd_project_remove() {
     local a path="" assume_yes=false
     for a in "$@"; do
@@ -3666,9 +3413,9 @@ cmd_project_remove() {
             --force) die MSG-S6Q5 "projects remove has no --force: a registry entry is what authorizes a deletion here." \
                          "To reverse a claim on an unregistered tree, and then remove it yourself:" \
                          "       ai-tools projects unclaim --force ${path:-<path>}" ;;
-            # Deliberately does NOT enumerate the options the way the other verbs' refusals do: the only one this verb
+            # Deliberately does not enumerate the options the way the other verbs' refusals do: the only one this verb
             # has pre-answers both the confirmation and the typed-name challenge, and a caller who has just mistyped
-            # a flag is not who that is for. It is documented in ai-tools(1), where reaching it is a deliberate act.
+            # a flag is not who that is for.
             -*) die_usage MSG-M3Y5 "unknown projects remove option: ${a}" \
                     "       the options this verb takes are in: man ai-tools" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
@@ -3690,11 +3437,8 @@ cmd_project_remove() {
     fi
     ai_tools_assert_safe_target "${d}" "project remove" || exit 3
 
-    # ── Classification: an EXACT entry, and only that, is a removal target. ── The entry may be a parked one
-    # (project_entries): a '!' line is the same line, written by the same operator, and it records "not right now"
-    # rather than "not mine" -- so it authorizes the removal exactly as an active entry does. Requiring the operator
-    # to re-enable a project first would be the worse rule: it makes a tree they mean to delete launchable on the way
-    # out.
+    # ── Classification: an EXACT entry, and only that, is a removal target; a parked entry (project_entries) authorizes
+    # it as an active one does (cli.rule.md). ──
     local -a entries=() nested=()
     local e
     while IFS= read -r e; do [[ -n "${e}" ]] && entries+=("${e}"); done \
@@ -3726,14 +3470,8 @@ cmd_project_remove() {
             "       ai-tools projects unclaim --force ${d}"
     fi
 
-    # An exact entry that CONTAINS other claimed projects. rm -rf would take them with it, leaving each one's allowlist
-    # entry, safe.directory line and SELinux label pointing at a path that is gone -- and on a shared host one of them
-    # may belong to another operator. Refused rather than cascaded: this verb deletes one project, and the nested ones
-    # are their own decisions.
-    #
-    # The check sees only the registry THIS run reads (the invoker's, or the --for target's snapshot), since
-    # an allowlist is 0600 in a 0700 directory. A project another operator registered under this path is therefore not
-    # visible here.
+    # An entry containing other claimed projects is refused (cli.rule.md); the check sees the registry THIS run reads
+    # alone, so another operator's nested project is not visible here.
     if (( ${#nested[@]} )); then
         printf '\n' >&2
         printf '    %s\n' "${nested[@]}" >&2
@@ -3742,12 +3480,8 @@ cmd_project_remove() {
             "Deleting it would delete them too, leaving each one registered, git-trusted and SELinux-labelled at a path that no longer exists. Remove or unclaim those first, then re-run this."
     fi
 
-    # ── Deletability pre-flight: read-only, run as the acting owner. ── The PARENT first, and separately, because
-    # `rm -rf <d>` finishes by unlinking <d> from the directory that contains it -- which needs write+execute THERE,
-    # on a directory that is not part of the project and so is not covered by the walk. Missing it produces the worst
-    # outcome this verb has: rm descends, deletes every file successfully, and fails only on the top directory, leaving
-    # an empty husk that is already deregistered. Its remedy is not `ai-tools projects handback` either, since
-    # the parent was never the project's to reclaim.
+    # ── Deletability pre-flight: read-only, run as the acting owner. ── The parent first: `rm -rf <d>` ends
+    # by unlinking <d> from it, which the walk over the tree does not cover (cli.rule.md).
     local rm_parent="${d%/*}"; [[ -n "${rm_parent}" ]] || rm_parent=/
     if [[ -z "$(run_as_owner find "${rm_parent}" -maxdepth 0 -writable -executable 2>/dev/null)" ]]; then
         die MSG-H3F6 "the parent directory is not writable by ${OWNER_USER}: ${rm_parent}" \
@@ -3795,10 +3529,8 @@ cmd_project_remove() {
         fi
     fi
 
-    # ── Confirmation: the block states what is lost, then a default-NO confirm, then the typed name. Neither is
-    # pre-answered by AI_TOOLS_ASSUME_YES -- that only fast-tracks default-YES questions, and the challenge has no
-    # default to fast-track -- so the ONLY thing that answers them ahead of time is this command's own -y, an auditable
-    # per-invocation decision. With no terminal both decline independently. ──
+    # ── Confirmation: a default-NO confirm, then the typed name; this command's own `-y` is the one thing that answers
+    # them ahead of time, and with no terminal each declines on its own (messaging.rule.md). ──
     headline_warn "WARNING: this deletes the project directory" \
         "${d} and everything in it is deleted. This is NOT reversible: there is no undo, and the tree is not moved to a trash location. To release the project and keep the files, use ai-tools projects unclaim instead."
     if ! ${assume_yes}; then
@@ -3809,10 +3541,8 @@ cmd_project_remove() {
 
     # ── Apply: registries first, deletion last. ──
     headline "Removing the project" "${d}"
-    # The two cleanup steps authenticate separately, so a wrong password would otherwise cost a round of attempts
-    # for each; note_root_failure asks once instead. Neither can stop the removal: what they clean up are registry
-    # entries pointing at a path that is about to stop existing, and refusing to delete over them would leave the tree
-    # in place -- MORE access, not less. ai-tools projects reports whatever is left behind.
+    # A failed cleanup step asks once (note_root_failure) and does not stop the removal: the registries drop regardless,
+    # and `ai-tools projects` reports what is left behind.
     local cleanup_stopped=false
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
@@ -3856,22 +3586,16 @@ cmd_project_remove() {
     else
         ok "removed ${d}"
     fi
-    # The shell that started here is now sitting in a directory that no longer exists, where most commands fail
-    # with a confusing error. Said plainly, since the cause is this command.
     [[ "${PWD}" == "${d}" || "${PWD}" == "${d}/"* ]] \
         && say "  ${C_DIM}your shell is still in the deleted directory -- cd somewhere else${C_RST}"
     (( ROOT_STEP_FAILURES == 0 ))
 }
 
-# sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run only AFTER the clone exists:
-# allowlist (the lockdown scan acts only on an allowlisted path; rolled back on a failed gate), the secret-lockdown
-# gate, then -- strictly past the gate -- normalize (pruning the locked paths), relabel, and register. FAIL CLOSED:
-# a declined or failed gate leaves the clone on disk but private to the operator -- cloned under umask 077, so no file
-# in it is group-readable -- not normalized, not relabelled, not registered, with a guard CLAUDE.md dropped
-# and the resume command printed. Re-running `ai-tools projects clone` on the existing clone path resumes here,
-# and a resume is idempotent: the normalize runs while the clone root is still owner-only (the state the pinned umask
-# leaves a clone in, and a declined gate leaves it in), and a resume over a clone already opened leaves the tree as it
-# is.
+# sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run once the clone exists: allowlist
+# entry (the lockdown scan acts only on an allowlisted path; rolled back on a failed gate), the secret gate, then --
+# past the gate alone -- normalize (pruning the locked paths), relabel, and register. A declined or failed gate leaves
+# the clone on disk, private and unregistered, with a guard CLAUDE.md and the resume command printed (fail closed:
+# cli.rule.md, Sandbox clone). The normalize runs once, while the root is still owner-only (clone_is_private).
 sandbox_finalize() {
     local dst="$1"
     reg_allow "${dst}"
@@ -3885,8 +3609,7 @@ sandbox_finalize() {
         die "sandbox create stopped -- secrets not locked down"
     fi
     clear_lockdown_guard "${dst}"
-    # Once per clone, while the root is still owner-only (normalize_clone's header states why). A later resume leaves
-    # the tree as it is, and the SessionStart setgid pass, which honours a seal, keeps the rest normalized.
+    # A resume over a clone already opened leaves the tree as it is (normalize_clone's header states why).
     if clone_is_private "${dst}"; then
         normalize_clone "${dst}" "${SECRET_MATCH_PATHS[@]}"
         say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
@@ -3894,10 +3617,9 @@ sandbox_finalize() {
         say "    access: already granted; the tree is left as it is"
     fi
     relabel_clone "${dst}"
-    # A clone exists to run git in, so a missing safe.directory is not cosmetic here: the agent's git refuses to operate
-    # in a tree it sees as someone else's ("dubious ownership"), and the clone would be ready for everything except its
-    # purpose. Reported at the close rather than letting the ✓ stand for it. (Also `|| true`: reg_safedir now signals
-    # failure, and this call is not conditional, so under set -e a bare call would abort the create.)
+    # A clone exists to run git in, and without safe.directory the agent's git refuses the tree ("dubious ownership"),
+    # so the failure is reported at the close rather than left under the ✓; reg_safedir returns non-zero, so a bare call
+    # under `set -e` would abort the create.
     local safedir_ok=true
     reg_safedir "${dst}" || safedir_ok=false
     say ""
@@ -3950,19 +3672,13 @@ sandbox_resolve_base() {
     return 1
 }
 
-# cmd_project_clone [path] [--from <ref>] [--branch <name>] [--dir <name>] [-y|--yes]
-#   -- create or reuse a sandbox branch, shallow-clone it PRIVATELY (umask 077) into SANDBOX_ROOT,
-#   then hand off to sandbox_finalize: secret lockdown first, and only past that gate normalize +
-#   relabel + register (fail-closed otherwise). Pointed at an EXISTING clone under SANDBOX_ROOT, it
-#   resumes sandbox_finalize on it (flags are then irrelevant) -- the recovery path for a create
-#   whose gate was declined or failed.
-#
-#   Every input has a default and an optional flag, so the command is fully scriptable and the
-#   prompts are only the interactive fallback (a flag skips its prompt; no flag + no tty takes the
-#   default). The branch is a FULL git ref of any shape -- the "sandbox/<leaf>" default is a
-#   convention, not a required structure (see sandbox_default_branch); it is validated with
-#   git check-ref-format, never silently rewritten. `-y`/`--yes` pre-answers the create confirm only;
-#   the secret gate in sandbox_finalize still applies (messaging.rule.md doctrine).
+# cmd_project_clone [path] [--from <ref>] [--branch <name>] [--dir <name>] [-y|--yes]  -- create or reuse a sandbox
+# branch, shallow-clone it PRIVATELY (umask 077) into SANDBOX_ROOT, then hand off to sandbox_finalize, which gates
+# and opens it. Pointed at an EXISTING clone under SANDBOX_ROOT, it resumes sandbox_finalize on it (the flags are then
+# not read). Every input has a default and an optional flag, so the command is scriptable and the prompts are
+# the interactive fallback: a flag skips its prompt, and no flag with no tty takes the default. The branch is a FULL git
+# ref of any shape -- the "sandbox/<leaf>" default is a convention (sandbox_default_branch) -- validated with git
+# check-ref-format and refused rather than rewritten.
 cmd_project_clone() {
     local o_path="" o_from="" o_branch="" o_dir="" o_yes=false
     local have_from=false have_branch=false have_dir=false
@@ -4099,8 +3815,7 @@ cmd_project_clone() {
     fi
 
     # umask 077: the clone is born OWNER-ONLY, so the tip commit's files -- possibly checked-in credentials -- are
-    # unreadable to the sandbox account (the setgid SANDBOX_ROOT already puts them in group SANDBOX_GROUP) until
-    # the secret gate has run and normalize_clone deliberately opens the non-secret paths.
+    # unreadable to the sandbox account until the gate has run and normalize_clone opens the non-secret paths.
     ( umask 077 && git clone --depth=1 -b "${br}" "${clone_url}" "${dst}" )
     ok "shallow-cloned into ${dst} (private until secured)"
     ai_tools_log_structured info \
@@ -4154,7 +3869,6 @@ remove_clone() {
     section "Remove sandbox project"
     say "  ${d}"
 
-    # require_sandbox_clone guarantees a git worktree; @{u} may be absent (no upstream) -> 0.
     local n; n="$(git -C "${d}" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
     if [[ "${n}" != "0" ]]; then
         warn "${n} unpushed commit(s) will be lost (already-pushed work stays on the remote)"
@@ -4190,16 +3904,15 @@ cmd_project_lockdown() {
             *)            if [[ -z "${d}" ]]; then d="${a}"; else die_usage MSG-Y6V3 "projects lockdown takes a single path"; fi ;;
         esac
     done
-    # Refused here, before the helper's sudo, so the password is not asked for a command line that will not run.
+    # Refused here, before the helper's sudo.
     if ${dry} && ${assume_yes}; then
         die_usage MSG-P5P8 "--yes has no effect with --dry-run, which neither changes a path nor asks"
     fi
     d="$(resolve_dir "${d:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
     covered_by_project "${d}" || not_covered_die "${d}"
-    # No readable-path pre-check: /usr/local/libexec/ai-tools is 750 root:root, so the projects user cannot even stat
-    # the helper -- only sudo (as root) can reach it. If it is genuinely missing, sudo reports it and run_lockdown
-    # returns non-zero.
+    # No pre-check of the helper's path: the libexec directory is root-only (cli.rule.md), so a missing helper is
+    # reported by sudo.
     section "Lock down project secrets"
     say "  ${d}"
     say "  ${C_DIM}secret-matching files -> 600, dirs -> 700, owner ${OWNER_USER}:${OWNER_GROUP}${C_RST}"
@@ -4220,20 +3933,9 @@ cmd_project_lockdown() {
 }
 
 # ── Enable / disable a claimed project ───────────────────────────────────────────
-# The pair that makes parking a project a supported operation rather than a text edit the tools misread. Both are pure
-# REGISTRY edits: the tree keeps its group, its ACLs, its setgid bits and its SELinux label, so disabling changes
-# the registry alone and re-enabling does not grant any access that was not already granted -- which is why neither runs
-# the claim's secret gate, and why disable does not ask for confirmation (it moves to LESS access; the launch gate stops
-# opening).
-#
-# What disabling changes is everything downstream of the allowlist, and the report says so: no session starts there,
-# and the root helpers -- which resolve a path's owner through the same allow/exclude matcher -- stop acting on it,
-# so the ownership handback no longer restores files written there. That last one is the consequence an operator has
-# to know before parking a project a session is still writing to.
-#
-# The operator may still do this with an editor; that workflow is untouched, and these verbs edit the same line the same
-# way (conf.lib.sh's allowlist editing). What they add is a name for the operation, the consequences printed once,
-# and a state the rest of the CLI now understands.
+# Each is a REGISTRY edit through conf.lib.sh's allowlist editing -- the tree keeps its group, its ACLs, its setgid bits
+# and its SELinux label -- so neither runs the secret gate, and disable does not ask for confirmation, since it moves
+# to less access. What parking costs downstream of the allowlist is offer_reenable's header and cli.rule.md's.
 
 # no_entry_die <dir> <what>  -- the enable/disable pair's shared refusal. Neither verb invents an entry (registering
 # a project is a claim, which scans for secrets first), so a path the file does not name is refused by both and pointed

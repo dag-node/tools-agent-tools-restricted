@@ -5,14 +5,14 @@
 # to every claude launch, through claude-prompt.lib.sh. ai-tools-launch sources it because the claude-code manifest
 # declares launch_hook=yes.
 #
-# A custom prompt is not confinement, so a host that configures none launches normally even when the resolver library
-# is missing; a host that configures one refuses the launch instead of falling back to Claude Code's default prompt.
+# A custom prompt is not confinement, so a host that configures none launches normally even when the resolver library is
+# missing; a host that configures one refuses the launch instead of falling back to Claude Code's default prompt.
 # What a configured prompt must satisfy is in agent-claude-code.rule.md.
 
 readonly CLAUDE_PROMPT_LIB="/usr/local/lib/ai-tools/claude-prompt.lib.sh"
 
-# ai_tools_launch_hook_args <array> <arg>... -- append the custom-system-prompt arguments to the array named <array>, or
-# refuse through ai_tools_launch_die. None are appended when no prompt is configured, or when the operator passed
+# ai_tools_launch_hook_args <array> <arg>... -- append the custom-system-prompt arguments to the array named <array>,
+# or refuse through ai_tools_launch_die. None are appended when no prompt is configured, or when the operator passed
 # a system-prompt flag for this invocation.
 # shellcheck disable=SC2153  # OPERATOR_CONF is launch-wrapper.lib.sh's readonly, set before the launcher sources this
 ai_tools_launch_hook_args() {

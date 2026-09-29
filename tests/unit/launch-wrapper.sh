@@ -62,13 +62,12 @@ link() { rm -f "${links}/claude"; ln -s "$1" "${links}/claude"; }
 
 # run <lib> <user> <cwd> <function> [<arg>...] : source <lib> as <user> from <cwd> with the hooks set, initialise it
 # for the launcher FIXTURE_LAUNCHER (default `claude`), call <function> with the arguments, then print the three values
-# the gates publish. Both
-# streams land in OUT and the status in RC. AI_TOOLS_MSG_PLAIN keeps a refusal's code on its own line; the strict mode
-# and IFS are the wrapper's, so the library runs as it does in one. A case that drives a gate downstream of the CWD gate
-# seeds the project directory that gate would have published through FIXTURE_PROJECT_DIR; the residue cases point
-# the resolver's two hooks at fixture manifests through FIXTURE_AGENTS_DIR and FIXTURE_OPERATOR_CONF (empty, each hook
-# takes its deployed default); a locale case sets FIXTURE_LC_ALL, and the launch-hook cases drive a copy of the library
-# whose hook directory is repointed at a fixture.
+# the gates publish. Both streams land in OUT and the status in RC. AI_TOOLS_MSG_PLAIN keeps a refusal's code on its own
+# line; the strict mode and IFS are the wrapper's, so the library runs as it does in one. A case that drives a gate
+# downstream of the CWD gate seeds the project directory that gate would have published through FIXTURE_PROJECT_DIR;
+# the residue cases point the resolver's two hooks at fixture manifests through FIXTURE_AGENTS_DIR
+# and FIXTURE_OPERATOR_CONF (empty, each hook takes its deployed default); a locale case sets FIXTURE_LC_ALL,
+# and the launch-hook cases drive a copy of the library whose hook directory is repointed at a fixture.
 run() {
     local lib="$1" user="$2" cwd="$3"; shift 3
     RC=0
@@ -385,11 +384,11 @@ silent "and the launcher gate does not run ahead of it" 'MSG-F8N3'
 
 # ── (7) ai-tools-launch: the startup hardening, measured ───────────────────────
 # The launcher runs in the operator's environment, so bash must not source $BASH_ENV or import an exported function
-# before the first line runs. A copy with the gate library repointed at a missing file drives the refusal path, which
-# calls `logger`; an exported `logger` function and a BASH_ENV file each leave a marker if they take effect. The control
-# is the same run without -p, which must leave both markers -- otherwise the run proves nothing about -p. The copy is
-# read by bash rather than executed, so a noexec /tmp does not matter, and it is reached through a symlink named claude,
-# as a launcher is.
+# before the first line runs. A copy with the gate library repointed at a missing file drives the refusal path,
+# which calls `logger`; an exported `logger` function and a BASH_ENV file each leave a marker if they take effect.
+# The control is the same run without -p, which must leave both markers -- otherwise the run proves nothing about -p.
+# The copy is read by bash rather than executed, so a noexec /tmp does not matter, and it is reached through a symlink
+# named claude, as a launcher is.
 launcher_src=/usr/local/bin/ai-tools-launch
 [[ -r "${launcher_src}" ]] || launcher_src="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/local/bin/ai-tools-launch.sh"
 if [[ ! -r "${launcher_src}" ]]; then

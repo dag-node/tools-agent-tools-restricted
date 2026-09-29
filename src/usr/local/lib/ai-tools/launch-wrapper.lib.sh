@@ -3,10 +3,10 @@
 # /usr/local/lib/ai-tools/launch-wrapper.lib.sh
 # The launch checks every agent's launch runs, as the invoking operator before the drop to the sandbox account. Its one
 # caller is /usr/local/bin/ai-tools-launch. Each check that fails stops the launch through ai_tools_launch_die, so every
-# refusal moves to less access; ai_tools_launch_gates holds the order. Shipped 644 root:root by ai-tools-base, with
-# the sandbox-account tokens substituted at install.
-# The gate order, what each refusal distinguishes, and the two variables the exec carries through sudo are
-# in launch.rule.md; the wrapper contract each agent package holds to is stated there too.
+# refusal moves to less access; ai_tools_launch_gates holds the order. Shipped 644 root:root by ai-tools-base,
+# with the sandbox-account tokens substituted at install. The gate order, what each refusal distinguishes, and the two
+# variables the exec carries through sudo are in launch.rule.md; the wrapper contract each agent package holds to is
+# stated there too.
 #
 # The library reads the operator's allowlist off ${HOME} and the stable launcher symlinks
 # under ${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}, the hook ai-tools.sh and relabel.lib.sh already read for the same
@@ -92,18 +92,17 @@ ai_tools_launch_die() {
 }
 
 # ai_tools_launch_init <launcher> -- record the launcher name and load the three required libraries, fail-closed.
-# The name comes from the command line the operator typed (ai-tools-launch passes its own argv0), so it is admitted
-# only in a launcher's charset before it prefixes a message or names a path; any other shape is refused under the
-# launcher's own name. Whether it names an ENABLED agent is ai_tools_launch_gate_launcher's question, after the operator
+# The name comes from the command line the operator typed (ai-tools-launch passes its own argv0), so it is admitted only
+# in a launcher's charset before it prefixes a message or names a path; any other shape is refused under the launcher's
+# own name. Whether it names an ENABLED agent is ai_tools_launch_gate_launcher's question, after the operator
 # gate.
 # msg.lib.sh carries the yes/no decisions and the framed refusal every later gate emits, so with it missing the refusal
 # is printed plain and the launch stops; safe-paths.lib.sh is the launch path's front-line guard, verified once die is
 # available; conf.lib.sh reads the allowlist, and without ai_tools_conf_path_entry every line parses as no entry,
 # which refuses every launch -- fail-closed, but indistinguishable from "you have no projects", so refusing here names
 # the missing component. Each failure is logged to journald (via logger: the wrapper does not source log.lib, and it may
-# share the broken directory).
-# _ai_tools_launch_name_valid <name> -- 0 when <name> is in a launcher's charset, matched in the C locale so a range
-# does not take in letters outside ASCII.
+# share the broken directory). _ai_tools_launch_name_valid <name> -- 0 when <name> is in a launcher's charset, matched
+# in the C locale so a range does not take in letters outside ASCII.
 _ai_tools_launch_name_valid() { local LC_ALL=C; [[ "${1-}" =~ ^[A-Za-z0-9._-]+$ ]]; }
 
 ai_tools_launch_init() {
@@ -206,8 +205,8 @@ ai_tools_launch_gate_operator() {
 # decides which agent this launch is for; ai-tools-run re-derives the agent from the resolved path after the drop,
 # and this gate is the diagnostician that answers before sudo. It reads the enabled set through the provider resolver,
 # whose trust checks refuse an untrusted operator.conf, manifest directory or manifest (reported on stderr), so an input
-# the resolver refuses yields no agent and a refusal here. The provider library is required: without it no launcher
-# can be matched, and refusing names the missing component.
+# the resolver refuses yields no agent and a refusal here. The provider library is required: without it no launcher can
+# be matched, and refusing names the missing component.
 ai_tools_launch_gate_launcher() {
     local name="${AI_TOOLS_LAUNCH_NAME}" agent launcher
     local -a enabled=()
@@ -606,12 +605,11 @@ ai_tools_launch_claim_guard() {
 }
 
 # ai_tools_launch_gates "$@" -- run the gates in the order the security model rests on. The operator gate answers
-# before any other read, the provider-list gate before the launcher gate reads the enabled set (an unmigrated list
-# would read as "not enabled" and name the wrong remedy), the launcher gate before any path is built from the name,
-# the residue gate before the launcher is resolved (a print-and-exit run execs the shim too,
-# which refuses residue on its own), the launcher is resolved before the print-and-exit short-circuit can exec it,
-# and the CWD gates run only for a real project launch. A wrapper calls this once with its arguments and does not
-# reorder or omit a gate.
+# before any other read, the provider-list gate before the launcher gate reads the enabled set (an unmigrated list would
+# read as "not enabled" and name the wrong remedy), the launcher gate before any path is built from the name,
+# the residue gate before the launcher is resolved (a print-and-exit run execs the shim too, which refuses residue
+# on its own), the launcher is resolved before the print-and-exit short-circuit can exec it, and the CWD gates run only
+# for a real project launch. A wrapper calls this once with its arguments and does not reorder or omit a gate.
 ai_tools_launch_gates() {
     ai_tools_launch_gate_operator
     ai_tools_launch_gate_clock
@@ -697,10 +695,10 @@ _ai_tools_launch_notices() {
 # <array>, from the launch hook its manifest declares. An agent that does not declare `launch_hook=yes` takes none,
 # and its launch.d file is not read even where one exists, so a hook is code an agent package ships and its root-owned
 # manifest asks for. A declared hook is sourced only while the file and the directory holding it pass
-# ai_tools_conf_is_trusted, and must define ai_tools_launch_hook_args, which appends to the array or refuses through
-# ai_tools_launch_die; every other state -- the file missing or untrusted, the function absent, a declaration other than
-# yes or no, the hook returning non-zero -- refuses the launch, since a hook carries an input the operator configured
-# and launching without it would run a session they did not set up.
+# ai_tools_conf_is_trusted, and must define ai_tools_launch_hook_args, which appends to the array or refuses
+# through ai_tools_launch_die; every other state -- the file missing or untrusted, the function absent, a declaration
+# other than yes or no, the hook returning non-zero -- refuses the launch, since a hook carries an input the operator
+# configured and launching without it would run a session they did not set up.
 ai_tools_launch_agent_args() {
     local array_name="$1"; shift
     local agent="${AI_TOOLS_LAUNCH_AGENT}" declared hook reason=""

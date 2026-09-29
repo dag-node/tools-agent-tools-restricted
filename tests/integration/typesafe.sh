@@ -228,8 +228,8 @@ printf '%s\n' "Build started 9/23/2026 10:00:00 AM." \
     "Build FAILED." "Time Elapsed 00:00:02.13" >"${TESTDIR}/msbuild"
 chmod 0644 "${TESTDIR}"/{fruit,prose,msbuild}
 
-# A key the provider never issued, sent to the host's own endpoint with a one-line listing: the provider must refuse
-# it, and the command must report that as the provider class with the status. An answer here is the failure.
+# A key the provider never issued, sent to the host's own endpoint with a one-line listing: the provider must refuse it,
+# and the command must report that as the provider class with the status. An answer here is the failure.
 conf_value() { sed -n "s/^[[:space:]]*$1=[\"']\\{0,1\\}\\([^\"' ]*\\).*/\\1/p" "${CONF}" | tail -n 1; }
 base_url="$(conf_value TYPESAFE_BASE_URL)"; endpoint_host="$(conf_value TYPESAFE_ENDPOINT_HOST)"
 conf_fixture forged.conf "TYPESAFE_API_KEY=apikey_$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" \
@@ -263,8 +263,8 @@ fi
 
 # A reader that closes stdout early ends the command with status 0 and an empty stderr.
 rc=0
-# stdin and stderr are opened here, as root, like every other call's: a root-created file is not one the sandbox
-# account may open for writing.
+# stdin and stderr are opened here, as root, like every other call's: a root-created file is not one the sandbox account
+# may open for writing.
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
 as_sandbox bash -c '"$1" "$2" filter --task "which lines name a fruit" --config "$3" \
     | head -c 0; exit "${PIPESTATUS[0]}"' _ "${NODE}" "${CLI}" "${CONF}" \

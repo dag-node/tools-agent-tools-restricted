@@ -1,50 +1,33 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-lockdown
-# Proactively revoke ai-tools' access to credential files under the CURRENT project. Walks the current working directory
-# and, for every path whose basename matches a secret pattern -- the SAME set ai-tools-chown uses, from the shared
-# library and config file -- applies:
+# Revokes ai-tools' read access to credential files under the CURRENT project ahead of a session. Walks the working
+# directory and, for every path whose basename matches a secret pattern -- the set ai-tools-chown uses, from the shared
+# library and the operator's config file -- applies:
 #       regular file -> 600        directory -> 700        owner -> <you>:<you>
-# so ai-tools, neither owner nor a permitted group member, cannot read it. The owner's own private group is the target,
-# matching ai-tools-chown's handling of an agent-written secret: leaving the group as @SANDBOX_GROUP@ would re-expose
-# the file the moment its mode is widened. Each locked path also has its sandbox residue stripped (owner-only.lib.sh),
-# for the same reason -- the mode alone does not hold.
+# and strips the path's sandbox residue (owner-only.lib.sh). A second pass strips the same residue from every path
+# already owner-only under the target, whatever its name, without a confirmation, since it removes the sandbox's reach
+# alone; the target itself is left out (the enumeration states why). Why the owner's private group is the target,
+# and how this sweep relates to ai-tools-chown's per-write quarantine, are secret-handling.rule.md's.
 #
-# A second pass then seals the paths the operator sealed by MODE: every path already owner-only under the target,
-# whatever its name, gets the same residue stripped, so a directory or file sealed after the claim does not wait
-# for the next claim to be cleaned up. The target directory itself is not sealed (the enumeration states why). That pass
-# only ever removes the sandbox's reach, so unlike the lock it runs without a confirmation.
-#
-# Unlike ai-tools-chown (reactive: fires per agent-written path and acts only on ai-tools-owned paths), this is
-# a USER-run pre-flight sweep -- it also locks down pre-existing, user-owned secrets the agent could otherwise read
-# (e.g. an appsettings.json checked into the project). It honours the same allowlist: it runs only when the CWD is
-# an allowed project, and skips any '!'-excluded path.
-#
-# Runs as root via sudo, invoked by YOU -- not ai-tools (no sudoers grant lets ai-tools run it):
-#       ```bash
-#       cd /path/to/project
-#       sudo ai-tools-lockdown [--dry-run] [--yes|-y]
-#       ```
-#
-# A declined confirmation exits 6, so a caller tells a decline from a lockdown that ran. `--gate` is the claim's
-# and the clone's secret gate in one call, the CLI's calling contract and so not in usage(): one sudo, so a host
-# whose sudo asks for the password on every invocation asks once. It lists each path relative to the project, asks
-# with a default of yes (the answer without a terminal), summarizes the lock in one line, and writes every
-# secret-matching path NUL-terminated to stdout, which does not carry any other byte; secret-handling.rule.md states
-# the contract.
+# Run by YOU, as root via sudo, from inside an allowed project (usage() states the options); a '!'-excluded CWD is
+# refused. A declined confirmation exits 6, so a caller tells a decline from a lockdown that ran. `--gate` is
+# the claim's and the clone's secret gate in one call -- the CLI's calling contract, so not in usage(): one sudo,
+# so a host whose sudo asks for the password on every invocation asks once. It lists each path relative to the project,
+# asks with a default of yes (the answer without a terminal), summarizes the lock in one line, and writes every
+# secret-matching path NUL-terminated to stdout, which does not carry any other byte.
 #
 # The walk does not take a skip list: a secret under a heavy tree such as `node_modules` is reached through the project
-# root's traversal, the tree's own world bits and the recursive relabel, none of which the claim's walks skipping
-# that tree close, and the clone's normalize opens the tree outright. Under `.git` it prunes `objects`, `refs`
-# and `logs` alone -- the subtrees git names itself, an object by its hash and a ref and its reflog by the branch name,
-# so no secret-named file lands there by an operator's choice, and a ref locked owner-only would refuse git to the agent
-# -- and walks `hooks`, `info` and the rest, where a template or a resumed clone puts an operator-written file
+# root's traversal, the tree's own world bits and the recursive relabel, which the claim's walks skipping that tree do
+# not close, and the clone's normalize opens the tree outright. Under `.git` it prunes `objects`, `refs` and `logs`
+# alone -- the subtrees git names itself, an object by its hash and a ref and its reflog by the branch name, so no
+# secret-named file lands there by an operator's choice, and a ref locked owner-only would refuse git to the agent --
+# and walks `hooks`, `info` and the rest, where a template or a resumed clone puts an operator-written file
 # (`hooks/deploy.pem`). The set is fixed here rather than read from skip-dirs.lib.sh, whose categories an operator edits
 # in operator.conf: it is a coverage decision, and a name added to a category there would reopen the gap. The per-path
-# match runs in this shell without a subprocess, which is what keeps a walk over such a tree to seconds.
+# match runs in this shell without a subprocess, which keeps a walk over such a tree to seconds.
 #
-# Installed 750 root:root, so only root runs it -- which is why the CLI cannot pre-check the path and sudo reaches it
-# instead. Its domain rule is secret-handling.rule.md.
+# Installed 750 root:root. Its domain rule is secret-handling.rule.md.
 
 set -euo pipefail
 
@@ -187,9 +170,6 @@ ai_tools_assert_safe_target "${target}" "lockdown" || exit 3
 ai_tools_resolve_owner "${target}" \
     || die MSG-K8Z6 "this directory is not in allowed projects for current operator: ${target}"
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
-# The owner's own private group (secret-handling.rule.md states the target) -- the same one ai-tools-chown gives
-# an agent-written secret, so a secret ends up identically owned whether it was locked down proactively or quarantined
-# on write.
 readonly OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
 
 # This run locks one project down for one operator, so the operator and the project ride as per-run log context
@@ -316,8 +296,6 @@ while IFS= read -r -d '' path; do
     sealed+=("${path}")
 done < "${SCAN_DIR}/sealed"
 
-# Label for log lines: DRY_RUN holds the string "true"/"false" (both non-empty), so select on its value, not
-# with ${DRY_RUN:+...} which would always expand.
 if ${DRY_RUN}; then scan_mode=" (dry-run)"; else scan_mode=""; fi
 
 if [[ "${#hits[@]}" -eq 0 && "${#sealed[@]}" -eq 0 ]]; then
@@ -331,7 +309,8 @@ fi
 # The later per-path "locked" entries from _safe_apply record what was DONE -- distinct events, intentionally both
 # logged.
 # Under `--gate` the claim's page has already named the project, so each path is shown relative to it and indented
-# under the claim's block, and the paths go to stdout NUL-terminated for the caller to exclude from what it opens.
+# under the claim's block, and the paths go to stdout NUL-terminated for the caller to exclude from what it opens;
+# the result after the question is then one line, plus a line for each path that did not take its mode.
 if (( ${#hits[@]} )); then
     if ${GATE}; then
         printf '  found %d secret-matching path(s):\n' "${#hits[@]}" >&2
@@ -543,8 +522,6 @@ for path in "${hits[@]}"; do
         not_locked+=("${path}")
     fi
 done
-# Under `--gate` the paths were listed before the question, so the result is one line when every path took its mode;
-# in either mode each path that did not is named, and each lock is recorded per path in the log.
 if ${GATE} && (( ${#hits[@]} )); then
     printf '  locked %d path(s): %d director(ies) 700, %d file(s) 600, owner %s\n' \
         "${done_count}" "${locked_dirs}" "${locked_files}" "${OWNER}" >&2
@@ -569,8 +546,6 @@ if (( ${#hits[@]} )); then
 fi
 
 # ── Seal pass ────────────────────────────────────────────────────────────────
-# Strip the residue from the paths the operator sealed by mode. Reported only when something came off, so on a settled
-# tree this is a silent no-op, run after run.
 _seal_pass
 
 # A secret-matching path left unlocked is still as readable as it was, so the run does not succeed over it: each one has

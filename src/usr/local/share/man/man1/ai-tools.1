@@ -146,7 +146,7 @@ which widens access on the project's ancestors and is answered only by a person 
 .TP
 .B projects claim \fR[\fB\-y\fR] [\fB\-\-format tsv\fR] [\fIDIRECTORY\fR]
 Claim a real project in place so the agent works your actual tree: register it
-(allowlist and git safe.directory), scan for and lock down secret-named files
+(allowlist, git safe.directory and repo-local core.filemode=true), scan for and lock down secret-named files
 .I before
 any access is granted, set the shared group and ACL, and apply the SELinux
 project label. Idempotent \(em a re-claim runs only the missing steps. It also
@@ -218,8 +218,8 @@ extended ACL is cleared (including any predating the claim), the group owner
 changes, group write is removed, and directory setgid is cleared. World access,
 which the claim removed, is not restored, and an owner-only path (0600 or 0700) is
 untouched at both ends, since the claim leaves it out of the agent's reach to begin
-with. The mode each path lands on is in
-.IR /usr/share/doc/ai\-tools/docs/projects/index.md .
+with. What a claim leaves alone, and what an unclaim does not restore, is in
+.IR /usr/share/doc/ai\-tools/docs/projects/permissions.md .
 The previous permissions are recorded nowhere, so the operation is
 .BR "not reversible" .
 Back up first.
@@ -853,12 +853,12 @@ Per-operator allowlist of project paths; a
 .RB \(oq ! \(cq-prefixed
 line excludes a subtree. Gates where sessions launch \(em not a read boundary.
 The grammar and the entry states are in
-.BR allowed\-projects (5).
+.BR ai\-tools\-allowed\-projects (5).
 .TP
 .I ~/.config/ai-tools/secret-patterns
 Per-operator secret-name patterns: a file whose name matches one is kept out of
 the agent's reach. The grammar and the replace rule are in
-.BR secret\-patterns (5).
+.BR ai\-tools\-secret\-patterns (5).
 .TP
 .I /etc/ai-tools/operator.conf
 The host options: the operator list, the enabled providers and filters, the
@@ -878,7 +878,9 @@ ai\-tools projects claim
 .EE
 .RE
 .PP
-Claim a specific tree, taking every default:
+Claim a specific tree, pre-answering the proceed prompt and the relabel
+question; the secret lockdown, the traverse grant and the git-history question
+still ask:
 .PP
 .RS 4
 .EX
@@ -930,10 +932,10 @@ ai\-tools projects unclaim ~/src/myproject
 .RE
 .SH SEE ALSO
 .BR ai\-tools\-admin (8),
-.BR allowed\-projects (5),
+.BR ai\-tools\-allowed\-projects (5),
 .BR ai-tools-operator.conf (5),
 .BR ai-tools-records (5),
-.BR secret\-patterns (5),
+.BR ai\-tools\-secret\-patterns (5),
 .BR setfacl (1),
 .BR sudo (8).
 .PP
