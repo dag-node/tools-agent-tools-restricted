@@ -34,6 +34,10 @@ rather than start an unconfined session, and names
 still optional — a host that never installs the module runs DAC-only,
 which the launch preflight recognises and allows.
 
+The modules are written and tested against the **targeted** policy
+(`selinux-policy-targeted`) on Enterprise Linux 9 and 10. Another policy
+type, such as `selinux-policy-mls`, is not tested.
+
 You cannot confine a complex app (Node + git + the Bash tool) correctly
 by guessing rules — the rule set must be *observed*. The policy here was
 completed that way: load **permissive** (`permissive ai_tools_t;`
