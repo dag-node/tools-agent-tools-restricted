@@ -292,11 +292,21 @@ the log, the agent triggers the denials:
 # 1. AS <you> (root), in a terminal:
 sudo selinux/avc/avc-denials.sh           # -DB, prints the probe cmd, then WAITS
 
-# 2. AS THE AGENT, in a confined claude (approved project):
-bash selinux/avc/avc-denials.sh probe     # every attempt is expected to FAIL
+# 2. AS THE AGENT, in a confined claude (approved project), the command
+#    step 1 printed -- it carries --groups and, once root has verified
+#    enforcement, --enforcing-confirmed:
+bash selinux/avc/avc-denials.sh probe --groups tmpmap,localipc --enforcing-confirmed
 
 # 3. back in terminal 1: press Enter   # ausearch + classify, then -B restores
 ```
+
+The probe prints a summary line and exits non-zero when a check fails (1)
+or could not run its access (3). Each check reads the errno of its attempt:
+a refusal is `PASS`, an access that succeeds where it should not is `FAIL`,
+and an attempt that failed for another reason — a missing tool, a refused
+connection — is `INCONCLUSIVE`, because it did not test the boundary. Group
+checks are judged against the `--groups` list the root half read
+from the module store. No probe writes to the host.
 
 It hands off to `avc-analyze.sh`, which now sorts denials into **three**
 buckets: **EXPECTED BOUNDARY** (`dontaudit`'d in the core module), **EXPECTED
