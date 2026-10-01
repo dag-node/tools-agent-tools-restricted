@@ -923,7 +923,10 @@ the directories it names) and escapes a dot; a label registers the project rule 
 among rules sharing a stem the later one is the match; a build rule the store refuses fails the label rather than being
 skipped; a sandbox clone registers neither; and an unlabel drops the build rule it finds by **listing** the local rules
 under the project rule — an older name set included, a sibling project's rule untouched, a pattern with a space parsed
-whole — so no rule outlives the claim on a subtree the confined domain manages.
+whole — so no rule outlives the claim on a subtree the confined domain manages. The project path is a literal inside
+both patterns: `ai_tools_fcontext_literal` escapes every regex metacharacter, a label writes the escaped path,
+and an unlabel removes the escaped rule and the raw one an earlier label wrote, since a `.` or `+` left bare widens
+or breaks the set of paths the rule covers.
 
 Two further sections cover what happens when a rule does **not** register, with `semanage` stubbed as a shell function
 so no policy store is touched. The first asserts the refusal carries `semanage`'s stderr, collapsed to one line,

@@ -187,10 +187,26 @@ ai_tools_project_build_pattern() {
     local dir="$1" alternation="" name
     while IFS= read -r name; do
         [[ -n "${name}" ]] || continue
-        alternation+="${alternation:+|}${name//./\\.}"
+        alternation+="${alternation:+|}$(ai_tools_fcontext_literal "${name}")"
     done < <(_ai_tools_build_output_names)
     [[ -n "${alternation}" ]] || return 1
-    printf '%s(/.*)?/(%s)(/.*)?' "${dir}" "${alternation}"
+    printf '%s(/.*)?/(%s)(/.*)?' "$(ai_tools_fcontext_literal "${dir}")" "${alternation}"
+}
+
+# ai_tools_fcontext_literal <text>: print <text> with every regex metacharacter backslash-escaped, so it matches only
+#   itself inside a file-context pattern. A path is spliced into a regex, where an unescaped `.` in `app.v1` also
+#   matches `appXv1` and a `+`, `(` or `|` changes which paths the rule covers.
+#   args: $1 literal text  stdout: the escaped text
+ai_tools_fcontext_literal() {
+    local text="$1" out="" char i
+    for (( i = 0; i < ${#text}; i++ )); do
+        char="${text:i:1}"
+        case "${char}" in
+            \\|.|'['|']'|'('|')'|'{'|'}'|'*'|'+'|'?'|'^'|'$'|'|') out+="\\${char}" ;;
+            *) out+="${char}" ;;
+        esac
+    done
+    printf '%s' "${out}"
 }
 
 # _ai_tools_local_rules_under <dir>: print every LOCAL file-context pattern registered under
@@ -199,7 +215,8 @@ ai_tools_project_build_pattern() {
 #   have changed since the claim, and a rule left behind would keep a subtree of an unclaimed
 #   project on a type the confined domain manages. Parses `semanage fcontext -l -C -n` rows
 #   (pattern, file-type words, context), stripping the trailing two fields so a pattern carrying
-#   a space survives. Root-only, since the store is.
+#   a space survives. <dir> is matched as given, so a caller passes the encoding the rule was
+#   written with. Root-only, since the store is.
 _ai_tools_local_rules_under() {
     local prefix="$1(/.*)?/" line pattern
     while IFS= read -r line; do
@@ -229,13 +246,14 @@ _ai_tools_local_rules_under() {
 # The fcontext rule is asserted whether or not the type already matches: it is what makes the type survive a future
 # restorecon, and re-asserting it is how a type change from a policy bump reaches an existing project.
 ai_tools_label_project() {
-    local dir="$1" build_pattern
+    local dir="$1" build_pattern literal
     ai_tools_relabel_available || return 2
     if ! _ai_tools_is_sandbox "${dir}"; then
+        literal="$(ai_tools_fcontext_literal "${dir}")"
         # `-a` on an existing entry reports it on stdout as well as failing, so both streams are dropped: the fallback
         # to `-m` is the handling, and the message reads as an error.
-        semanage fcontext -a -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" >/dev/null 2>&1 \
-            || semanage fcontext -m -t "${AI_TOOLS_PROJECT_TYPE}" "${dir}(/.*)?" >/dev/null 2>&1 \
+        semanage fcontext -a -t "${AI_TOOLS_PROJECT_TYPE}" "${literal}(/.*)?" >/dev/null 2>&1 \
+            || semanage fcontext -m -t "${AI_TOOLS_PROJECT_TYPE}" "${literal}(/.*)?" >/dev/null 2>&1 \
             || return 1
         # The build rule goes in AFTER the project rule (see ai_tools_project_build_pattern).
         if build_pattern="$(ai_tools_project_build_pattern "${dir}")"; then
@@ -258,15 +276,24 @@ ai_tools_label_project() {
 # registered under it (the build rule, under whatever name set it was written with) -- and restorecon the subtree back
 # to its default type (e.g. user_home_t). The semanage deletes are skipped for sandbox clones (no local rule was ever
 # added); the restorecon still runs. Returns 2 if SELinux is unavailable, 1 on restorecon failure, 0 otherwise.
+#
+# The rules are looked up under the escaped encoding ai_tools_label_project writes and, where it differs, under the raw
+# path, which is how a rule registered before paths were escaped is found: one left behind would keep the project type
+# on a path the unclaim meant to release.
 ai_tools_unlabel_project() {
-    local dir="$1" pattern
+    local dir="$1" pattern encoding
+    local -a encodings
     ai_tools_relabel_available || return 2
     if ! _ai_tools_is_sandbox "${dir}"; then
-        while IFS= read -r pattern; do
-            [[ -n "${pattern}" ]] || continue
-            semanage fcontext -d -- "${pattern}" >/dev/null 2>&1 || true
-        done < <(_ai_tools_local_rules_under "${dir}")
-        semanage fcontext -d "${dir}(/.*)?" 2>/dev/null || true
+        encodings=("$(ai_tools_fcontext_literal "${dir}")")
+        [[ "${encodings[0]}" == "${dir}" ]] || encodings+=("${dir}")
+        for encoding in "${encodings[@]}"; do
+            while IFS= read -r pattern; do
+                [[ -n "${pattern}" ]] || continue
+                semanage fcontext -d -- "${pattern}" >/dev/null 2>&1 || true
+            done < <(_ai_tools_local_rules_under "${encoding}")
+            semanage fcontext -d "${encoding}(/.*)?" 2>/dev/null || true
+        done
     fi
     restorecon -FR "${dir}" 2>/dev/null || return 1
 }
@@ -400,10 +427,10 @@ _ai_tools_fcontext() {
 }
 
 # _ai_tools_agent_config_pattern <config-dir-name>: print the file-context pattern for an agent's
-#   config directory and everything under it. Dots are escaped (a bare `.` in a regex matches any
-#   character), and the name has already been validated as one component.
+#   config directory and everything under it. The name is escaped (ai_tools_fcontext_literal) and has
+#   already been validated as one component.
 _ai_tools_agent_config_pattern() {
-    printf '%s/%s(/.*)?' "${CP_HOME}" "${1//./\\.}"
+    printf '%s/%s(/.*)?' "$(ai_tools_fcontext_literal "${CP_HOME}")" "$(ai_tools_fcontext_literal "$1")"
 }
 
 # _ai_tools_entrypoint_paths <pattern>: print each installed file the pattern matches. find's
@@ -737,10 +764,10 @@ ai_tools_operator_conf_valid() {
 }
 
 # _ai_tools_operator_conf_pattern <dir> : the file-context pattern covering <dir> and everything
-#   under it. Dots are escaped for the same reason _ai_tools_agent_config_pattern escapes them --
-#   a bare `.` in a file-context regex matches any character, so an unescaped `/home/a.b` would
-#   also cover `/home/axb`, a home this operator does not own.
-_ai_tools_operator_conf_pattern() { printf '%s(/.*)?' "${1//./\\.}"; }
+#   under it. The path is escaped (ai_tools_fcontext_literal): a bare `.` in a file-context regex
+#   matches any character, so an unescaped `/home/a.b` would also cover `/home/axb`, a home this
+#   operator does not own.
+_ai_tools_operator_conf_pattern() { printf '%s(/.*)?' "$(ai_tools_fcontext_literal "$1")"; }
 
 # ai_tools_label_operator_conf <dir> : register the local rule mapping <dir> and its contents to
 #   ai_tools_conf_t, then apply it. ROOT ONLY (semanage writes the policy store); the caller takes
