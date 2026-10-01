@@ -217,9 +217,10 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             current_mode="$( stat -c '%a'    "${canonical}" 2>/dev/null)" || exit 0
 
             # The agent-written guard: act only on a path currently ai-tools-owned. What that ownership signals
-            # and what an unowned path is spared are in ownership-and-hooks.rule.md. The owner is read from the path
-            # string here, which the pinned-inode re-check makes race-safe: moving an ai-tools-owned inode's user field
-            # takes root, which the agent lacks.
+            # and what an unowned path is spared are in ownership-and-hooks.rule.md. These reads go through the path
+            # string, a separate lookup from the identity read (expect_ident), so a rename exchange can answer each
+            # from a different inode. They select the plan and the prompt only: the apply block re-reads the owner and mode
+            # from the pinned descriptor and refuses unless both still match.
             [[ "${current_owner%%:*}" == "@SANDBOX_USER@" ]] || exit 0
 
             # Three targets, in this order: a directory, a secret-named file, then an ordinary file split
@@ -277,8 +278,10 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # to the SHELL permanently (exec with no command), which would swallow the secret-file NOTICE emitted
             # on stderr. The group scopes 2>/dev/null to just the open; fd2 is restored after.
             { exec {fd}< "${canonical}"; } 2>/dev/null || exit 0
-            read -r got_ident got_nlink got_ftype \
-                < <(stat -L -c '%d:%i %h %F' "/proc/self/fd/${fd}" 2>/dev/null) \
+            # One stat of the pinned inode supplies every fact the decision rests on. The type goes last because
+            # `%F` can span several words ("regular empty file"), which `read` gathers into its final variable.
+            read -r got_ident got_nlink got_owner got_mode got_ftype \
+                < <(stat -L -c '%d:%i %h %U:%G %a %F' "/proc/self/fd/${fd}" 2>/dev/null) \
                 || { exec {fd}<&-; exit 0; }
             case "${got_ftype}" in
                 "regular file"|"regular empty file") ${is_dir} && { exec {fd}<&-; exit 0; } ;;
@@ -286,8 +289,11 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                 *)                                   exec {fd}<&-; exit 0 ;;
             esac
             # Inode must match the one validated pre-open (catches a path swap); for a regular file, link count must
-            # still be 1 (dirs are exempt).
+            # still be 1 (dirs are exempt). The owner and mode must equal the path-string reads the plan was built
+            # from: a mismatch means those reads came from another inode, and the pinned one is not known to be
+            # agent-written.
             if [[ "${got_ident}" != "${expect_ident}" ]] \
+               || [[ "${got_owner}" != "${current_owner}" || "${got_mode}" != "${current_mode}" ]] \
                || { ! ${is_dir} && [[ "${got_nlink}" -ne 1 ]]; }; then
                 exec {fd}<&-
                 exit 0

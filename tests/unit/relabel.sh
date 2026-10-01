@@ -260,6 +260,30 @@ if declare -F ai_tools_project_build_pattern >/dev/null 2>&1 \
     else
         fail "row parse of a pattern with a space: '${got}'"
     fi
+
+    # A project path is a literal inside the rule's regex: `.` in app.v1 would also match appXv1, and `+`, `(`, `|`
+    # change which paths the rule covers. The label writes the escaped path; the unlabel removes the escaped rule and
+    # the raw one a host may still hold from before paths were escaped.
+    got="$(ai_tools_fcontext_literal '/home/op/a.b+c(d)|e[f]$^*?{g}\h')"
+    if [[ "${got}" == '/home/op/a\.b\+c\(d\)\|e\[f\]\$\^\*\?\{g\}\\h' ]]; then
+        pass "ai_tools_fcontext_literal escapes every regex metacharacter and leaves the rest"
+    else
+        fail "ai_tools_fcontext_literal: '${got}'"
+    fi
+    CALLS=""; semanage() { CALLS+="$*"$'\n'; return 0; }
+    ai_tools_label_project '/home/op/app.v1+x'
+    if [[ "${CALLS}" == "fcontext -a -t ai_tools_project_t /home/op/app\\.v1\\+x(/.*)?"$'\n'"fcontext -a -t ai_tools_project_build_t -- /home/op/app\\.v1\\+x(/.*)?/(bin|obj)(/.*)?"$'\n' ]]; then
+        pass "a label escapes the project path in both rules"
+    else
+        fail "label calls for a path with metacharacters: ${CALLS//$'\n'/ | }"
+    fi
+    CALLS=""
+    ai_tools_unlabel_project '/home/op/app.v1'
+    if [[ "${CALLS}" == "fcontext -d /home/op/app\\.v1(/.*)?"$'\n'"fcontext -d /home/op/app.v1(/.*)?"$'\n' ]]; then
+        pass "an unlabel removes the escaped rule and the raw rule an earlier label wrote"
+    else
+        fail "unlabel calls for a dotted path: ${CALLS//$'\n'/ | }"
+    fi
     unset -f ai_tools_installed_integrations_declaring ai_tools_relabel_available \
              ai_tools_project_labelled restorecon semanage
     unset CALLS
