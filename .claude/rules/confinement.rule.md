@@ -349,7 +349,12 @@ exercised.
 `avc-denials.sh` proves the inverse — that what the agent must not do is refused. Its root half brackets the probe
 with `semodule -DB` … `semodule -B`, since a `dontaudit` suppresses the audit record and an empty `ausearch` result
 would otherwise be indistinguishable from a probe that never ran; a trap restores dontaudit on any exit, Ctrl-C
-included.
+included. The probe reads each attempt's errno rather than its exit status: only `EACCES`/`EPERM` counts as a denial,
+and an attempt that failed for another reason is reported as not exercised and makes the probe exit non-zero, since
+a missing tool or a refused connection says nothing about the policy. A socket check makes a real `connect(2)`,
+and the write checks open an existing file for append without writing or ask `access(2)` of a directory, so a probe run
+against a broken boundary does not change the host. The loaded groups and the enforcement state come from the root half,
+which prints them into the probe command, because the session can read neither.
 
 Both agent halves **abort unless the calling process is in `ai_tools_t`**: run unconfined they log no `ai_tools_t`
 denial at all, and that empty result reads as success. The procedure for running either is in `selinux/README.md` §2
