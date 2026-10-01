@@ -23,6 +23,11 @@ set, so a secret returns to its project's operator at `600`, where only that ope
 to stderr (the hook relays it into the session) and, at `WARNING` level, to the operation log
 (`/var/log/ai-tools/chown.log` and journald; see [logging](logging.rule.md)).
 
+The revocation applies to an open made after it. The kernel checks owner and mode when a file is opened, so a descriptor
+a session process opened before the handback keeps reading and writing the file; the quarantine responds to an exposure
+that has already happened, which is why the NOTICE says to rotate the secret, and a credential kept outside
+the agent-writable tree is the control that prevents one.
+
 This revokes read only. `SANDBOX_USER` is a group-writer on the project dir (not its owner), so it can still
 unlink/replace the path; a replacement is agent-written and re-triggers the same handling, and the audit log is
 root-owned. A project-wide sticky bit does not apply: `SANDBOX_USER` is a group-writer and handed-back files are

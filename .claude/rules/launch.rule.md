@@ -154,8 +154,10 @@ does not inherit the caller's umask (a scope does), so the umask is set as a uni
 over the per-command sudoers `umask`.
 
 **Environment is an explicit allowlist.** The user manager spawns the service with its own environment, not
-`ai-tools-run`'s, so a variable crosses into the session only when it is named. `ai-tools-run` forwards only terminal-,
-locale-, and connectivity-shaping variables **by name** (`FORWARDED_ENVIRONMENT_VARIABLES`: `TERM`/`COLORTERM`,
+`ai-tools-run`'s, so a variable of the caller's crosses into the session only when it is named. The session starts
+from the manager's environment — `HOME`, `PATH`, `LANG`, the `XDG_*` set and `DBUS_SESSION_BUS_ADDRESS` among it —
+which the manager builds from root-owned inputs, not from the caller. `ai-tools-run` forwards only terminal-, locale-,
+and connectivity-shaping variables **by name** (`FORWARDED_ENVIRONMENT_VARIABLES`: `TERM`/`COLORTERM`,
 the `LANG`/`LANGUAGE`/`LC_*` set, `XDG_RUNTIME_DIR`, and the upper- and lower-case proxy vars) via `--setenv=NAME`,
 so a value never reaches the command line. The operator's secrets (`ANTHROPIC_API_KEY`, `AWS_*`, `SSH_AUTH_SOCK`, …)
 stay out of the session by construction, independent of sudo's `env_reset`/`env_keep`. To share a variable deliberately,
