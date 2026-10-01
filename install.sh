@@ -307,8 +307,12 @@ version_gate() {
         say "  version       : ${AI_TOOLS_VERSION} over ${installed} (a dev version is not ordered)"
         return 0
     fi
-    lower="$(printf '%s\n' "${installed}" "${AI_TOOLS_VERSION}" | sort -V | head -n1)"
-    if [[ "${installed}" == "${AI_TOOLS_VERSION}" || "${lower}" == "${installed}" ]]; then
+    # An rpm stamps the CLI with version-release (`0.22.0-1.el10`) and this script with the bare version, and sort -V
+    # orders `0.22.0` before `0.22.0-1.el10`, so the release is cut before ordering: rpm refuses a `-` in Version, so
+    # everything from the first `-` on is the release, and the same version is a reinstall whatever release built it.
+    local installed_version="${installed%%-*}"
+    lower="$(printf '%s\n' "${installed_version}" "${AI_TOOLS_VERSION}" | sort -V | head -n1)"
+    if [[ "${installed_version}" == "${AI_TOOLS_VERSION}" || "${lower}" == "${installed_version}" ]]; then
         say "  version       : ${AI_TOOLS_VERSION} over ${installed}"
         return 0
     fi

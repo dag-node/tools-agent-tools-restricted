@@ -308,6 +308,8 @@ allow ai_tools_t tmp_t:dir { getattr search add_name remove_name write };
 # Run the agent, the Bash tool, and git/coreutils
 ########################################
 
+# corecmd_exec_bin also calls files_exec_all_base_ro_files, so the domain executes usr_t and every other
+# base_ro_file_type without a transition; why that does not widen the boundary is in confinement.rule.md.
 corecmd_exec_bin(ai_tools_t)        # /usr/bin/git, rg, coreutils, ...
 corecmd_exec_shell(ai_tools_t)      # the Bash tool
 files_read_usr_files(ai_tools_t)    # read the nvm/node tree under /opt/ai-tools (usr_t)

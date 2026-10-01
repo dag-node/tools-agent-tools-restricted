@@ -170,6 +170,14 @@ declares and the pin checksums. An agent whose platform-specific dependency is h
 to two names on one inode and therefore one label, so that is counted by inode (`tests/integration/selinux.sh`);
 the hardlink itself, and what else rests on it, are in [agent-claude-code](agent-claude-code.rule.md).
 
+Executability reaches past `bin_t`. `corecmd_exec_bin` also calls `files_exec_all_base_ro_files` (selinux-policy 42.1.18
+on EL10.2), which grants `execute`, `execute_no_trans` and `map` on every `base_ro_file_type`, `usr_t` among them, so a
+session runs a file anywhere under `/usr` directly; the compiled module shows it as an `allow` on `[base_ro_file_type]`
+(`sedismod` over `ai_tools.pp`). The grant does not widen the boundary, which rests on write and transition rather than
+on which files execute: the exec stays in `ai_tools_t` (`execute_no_trans`), `NoNewPrivileges` drops a setuid bit, the
+domain already reads those files and runs any of them through an interpreter it may execute, and it already executes
+what it writes under `ai_tools_home_t`; `ai_tools_t` does not hold write on `usr_t`.
+
 `ai_tools_home_t` is the one type the domain both writes and executes. `ai_tools.te` grants `execute execute_no_trans`
 on it for the hook scripts under the agent's config directory, interpreted shell the session runs without a transition,
 and the grant reaches every path the type covers — the config directories and the caches. A file a session writes there
