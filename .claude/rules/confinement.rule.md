@@ -184,7 +184,9 @@ and the grant reaches every path the type covers — the config directories and 
 runs in a later session at the same uid and in the same domain, another operator's session included, which is
 the shared-account boundary of [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9) and not an escalation. The project
 tree (`ai_tools_project_t`) and `/tmp` (`ai_tools_tmp_t`) are written and not executed; the `buildexec` group is the one
-exception, for build output alone.
+exception, for build output alone. That holds per type, not per path: the domain holds `setfscreate`, so a file
+a session creates in the project tree under an explicit `ai_tools_home_t` label is executable there, in `ai_tools_t`,
+as the grant's comment in `ai_tools.te` states.
 
 So on an enforcing host with the module loaded, `ai_tools_t` can neither write the entrypoint, nor unlink or rename
 over it (no `add_name`/`remove_name` on a `lib_t` directory), nor repoint the `bin_t` symlink — even though DAC alone
@@ -301,6 +303,22 @@ podman means re-allowing the user namespace, which *is* ESC-001, so it is not a 
 emits an actionable NOTICE at launch when the podman group is loaded while the filter is active.
 
 After editing policy source, rebuild and reload the loaded module with `sudo selinux/install-selinux.sh rebuild`.
+
+## What the domain holds beyond the module's own rules
+
+`ai_tools_t` carries base-policy attributes, and the rules on those attributes apply whatever the optional groups are.
+`auth_use_nsswitch` makes it an `nsswitch_domain`, which holds `connectto` on the system bus, `init_t`, `sssd_t`,
+`systemd_userdbd_t` and `systemd_machined_t`, and D-Bus `send_msg` to `system_dbusd_t` and `init_t`; so a session
+reaches the system bus with the `systemd` and `netadmin` groups off, and what it may call there is decided per method
+by the D-Bus policy and polkit, not by this module. `syslog_client_type` and the module's own logging interface let it
+write to the journal, where journald stamps the trusted fields from the sender's credentials.
+
+Some of those rules are conditional on a Boolean the host sets: `nis_enabled` (`name_bind` and `name_connect` on most
+port types), `domain_can_mmap_files` (`map` on every file type), `authlogin_nsswitch_use_ldap` and `kerberos_enabled`
+(directory-service ports and sockets). A Boolean switched on widens the domain without any module change, and disabling
+a group does not take back what a Boolean grants — `domain_can_mmap_files` grants the `map` the `tmpmap` group exists
+to add. `sesearch -A -s ai_tools_t` prints a conditional rule with its expression, `[ nis_enabled ]:True` for the true
+branch, which is not the Boolean's current value; `getsebool` reads that.
 
 ## Bring-up and enforce-verification (`selinux/avc/`)
 

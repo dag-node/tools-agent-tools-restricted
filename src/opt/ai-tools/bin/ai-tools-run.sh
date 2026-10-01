@@ -379,10 +379,13 @@ if [[ -n "${session_working_directory}" && ! -S "${HANDBACK_SOCKET}" ]]; then
 fi
 
 # ── Session environment ──────────────────────────────────────────────────────────────────────
-# A service unit is spawned by the user manager with ITS OWN environment, so no variable crosses into the session unless
-# named here. Only terminal-, locale-, and connectivity-shaping variables are forwarded by name; the operator's API
-# keys, tokens, SSH_AUTH_SOCK, and cloud credentials stay out by construction, independent of sudo's env_reset/env_keep.
-# `--setenv=NAME` imports NAME by name, so a value never reaches the command line.
+# A service unit is spawned by the user manager with ITS OWN environment, so none of this process's variables crosses
+# into the session unless named here. The session still starts from the manager's environment -- HOME, PATH, LANG,
+# the XDG_* set and DBUS_SESSION_BUS_ADDRESS among it, set by the manager from root-owned inputs and not by the caller
+# -- with HOME, SHELL and PATH pinned over it (the pins after the forwarded set). Only terminal-, locale-,
+# and connectivity-shaping variables are forwarded by name; the operator's API keys, tokens, SSH_AUTH_SOCK, and cloud
+# credentials stay out by construction, independent of sudo's env_reset/env_keep. `--setenv=NAME` imports NAME by name,
+# so a value never reaches the command line.
 readonly FORWARDED_ENVIRONMENT_VARIABLES=(
     TERM COLORTERM                                  # TUI rendering
     LANG LANGUAGE LC_ALL LC_CTYPE LC_MESSAGES       # locale / UTF-8 handling
