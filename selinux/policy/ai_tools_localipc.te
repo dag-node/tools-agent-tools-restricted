@@ -5,13 +5,16 @@ policy_module(ai_tools_localipc, 0.1.0)
 #
 # Local inter-process communication between the session's own processes, beyond the file and directory management
 # the base grants: unix sockets and FIFOs created under /tmp and under the agent's home state, connecting
-# to the domain's own stream sockets, connecting to an ephemeral TCP port on loopback, getsid(2), and the /proc/sys/net
+# to the domain's own stream sockets, connecting to an unreserved or ephemeral TCP port, getsid(2), and the /proc/sys/net
 # reads a runtime makes at startup. Kept OUT of the base because the agent itself needs none of it; a workload
 # that spawns a child and talks to it over a socket does -- the .NET runtime's diagnostic socket and CLR debug FIFO,
 # multi-node MSBuild's worker pipes, a test runner reaching its test host, a dev server and the browser driven
-# against it, a language server. BENIGN: creating a socket or FIFO in the sandbox's own tmp/home, or reaching its own
-# child over loopback, is the same class as the file management the base already grants, and none of it reaches a new
-# host surface.
+# against it, a language server. Creating a socket or FIFO in the sandbox's own tmp/home is the same class as the file
+# management the base already grants. The two connect grants reach further than the workload needs, because SELinux does
+# not check which process listens: the stream-socket connectto reaches any socket of the shared ai_tools_t domain
+# whose file DAC lets the session open, another session's included; and the TCP grant (the last rule here) is keyed
+# on the destination PORT TYPE, not the address, so it permits a connect to an unreserved or ephemeral port on any host
+# the network allows.
 #
 # For .NET this pairs with tmpmap (mmap of the /tmp shm mutex), memfdexec (memfd exec for the JIT and apphost creation)
 # and buildexec (running what a build produced); the workload-to-group map is in the dotnet integration's rule.
@@ -48,8 +51,9 @@ allow ai_tools_t self:process getsession;
 # /proc/sys/net/* symlink reads during runtime startup.
 kernel_read_network_state_symlinks(ai_tools_t)
 
-# TCP connect to a generic (unreserved) port on loopback: the xUnit/VSTest runner and the test host it spawns talk
-# over a TCP socket bound to an ephemeral port, so the runner (ai_tools_t) needs to connect(2) that port -- otherwise it
-# returns EACCES and `dotnet test` fails. Same benign IPC class as the unix-socket connectto; the sandbox is only
-# reaching its own child, not a new host surface.
+# TCP connect to a generic port: the xUnit/VSTest runner and the test host it spawns talk over a TCP socket bound
+# to an ephemeral port on loopback, so the runner (ai_tools_t) needs to connect(2) that port -- otherwise it returns
+# EACCES and `dotnet test` fails. The interface grants name_connect on port_t, unreserved_port_t and ephemeral_port_t,
+# which a port type alone decides: the connect is permitted to that port on ANY address, not only loopback. Limiting it
+# to loopback needs an address control outside this policy (a per-uid egress rule).
 corenet_tcp_connect_generic_port(ai_tools_t)
