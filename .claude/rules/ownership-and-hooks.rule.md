@@ -37,8 +37,10 @@ about a secret the agent never accessed).
 
 It acts only on a regular file or directory — a symlink or a hardlinked file is refused — and applies
 the `chown`/`chmod` through a pinned descriptor it re-verifies, so a `SANDBOX_USER` path swap between validation
-and mutation cannot redirect root's `chown` onto a file outside the tree. The full sequence is in `ai-tools-chown.sh`'s
-apply block.
+and mutation cannot redirect root's `chown` onto a file outside the tree. The owner check holds for the same reason:
+the reads made through the path string are separate lookups a rename exchange can answer from different inodes,
+so the apply re-reads the owner and mode from the pinned descriptor and refuses unless they still match. The full
+sequence is in `ai-tools-chown.sh`'s apply block.
 
 ## `PostToolUse` — the immediate path
 

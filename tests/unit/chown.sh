@@ -4,7 +4,7 @@
 # Hermetic unit tests for the deployed ai-tools-chown helper: it acts only on agent (SANDBOX_USER)-owned paths, hands
 # ordinary ones back to <projects-user>:SANDBOX_GROUP with world bits stripped, quarantines secret-named ones
 # to <projects-user>:<projects-user> 600, honors '!' exclusions, refuses paths outside the allowlist, and is TOCTOU-safe
-# (pinned fd, refuses symlink redirection). Installed helper against a /tmp testdir with a dummy allowlist. This test
+# (pinned fd, refuses symlink redirection, takes the owner and mode from the pinned inode). Installed helper against a /tmp testdir with a dummy allowlist. This test
 # stays out of /var/log to keep its hermetic boundary; the audit-log FILE's ownership and mode are pinned in perms.sh
 # (the written log line itself is not asserted).
 
@@ -202,6 +202,65 @@ if [[ "$(stat -c '%U:%G %a' "${loot}")" == "${lbefore}" ]]; then
     pass "symlinked parent cannot smuggle an out-of-allowlist file into handback (loot untouched)"
 else
     fail "symlinked parent redirected handback onto an outside file: now $(stat -c '%U:%G %a' "${loot}")"
+fi
+
+# (13) The owner the apply acts on is the pinned inode's, not the path string's. The helper reads owner and mode through
+# the path before it pins the inode, and a rename exchange can answer those reads from a decoy. The interactive prompt
+# sits between the reads and the pin, so a pty pauses the helper there and the test makes the inode operator-owned
+# before answering yes: the apply must refuse. The control run answers yes without the change and must hand back,
+# which proves the prompt route reached the apply.
+# pty_apply <path> <change-owner-to-or-empty>: run the helper on a pty, wait for its prompt, optionally chown the path,
+# answer yes. Prints "prompted" once the prompt was seen.
+pty_apply() {
+    python3 -I - "${HELPER}" "$1" "${2-}" <<'PY'
+import os, pty, select, sys, time
+helper, path, new_owner = sys.argv[1], sys.argv[2], sys.argv[3]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv(helper, [helper, path])
+seen, deadline = b"", time.monotonic() + 15
+while b"Apply?" not in seen and time.monotonic() < deadline:
+    if select.select([fd], [], [], 0.5)[0]:
+        try:
+            seen += os.read(fd, 4096)
+        except OSError:
+            break
+if b"Apply?" in seen:
+    print("prompted")
+    if new_owner:
+        user, group = new_owner.split(":")
+        import grp, pwd
+        os.chown(path, pwd.getpwnam(user).pw_uid, grp.getgrnam(group).gr_gid)
+    os.write(fd, b"y\n")
+deadline = time.monotonic() + 15
+while time.monotonic() < deadline:
+    if os.waitpid(pid, os.WNOHANG)[0]:
+        break
+    try:
+        if select.select([fd], [], [], 0.5)[0]:
+            os.read(fd, 4096)
+    except OSError:
+        pass
+else:
+    os.kill(pid, 9)
+PY
+}
+if command -v python3 >/dev/null 2>&1; then
+    ctl="${proj}/pinned-control.txt"; : > "${ctl}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${ctl}"; chmod 0644 "${ctl}"
+    ctl_seen="$(pty_apply "${ctl}" "")"
+    swp="${proj}/pinned-swap.txt"; : > "${swp}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${swp}"; chmod 0644 "${swp}"
+    swp_seen="$(pty_apply "${swp}" "${PROJECTS_USER}:${PROJECTS_GROUP}")"
+    if [[ "${ctl_seen}" != prompted || "${swp_seen}" != prompted ]]; then
+        fail "pinned-owner check: the helper did not prompt on a pty (control '${ctl_seen}', swap '${swp_seen}')"
+    elif [[ "$(stat -c '%U:%G %a' "${ctl}")" != "${PROJECTS_USER}:${SANDBOX_GROUP} 640" ]]; then
+        fail "pinned-owner control: a confirmed apply left $(stat -c '%U:%G %a' "${ctl}") (want ${PROJECTS_USER}:${SANDBOX_GROUP} 640)"
+    elif [[ "$(stat -c '%U:%G %a' "${swp}")" == "${PROJECTS_USER}:${PROJECTS_GROUP} 644" ]]; then
+        pass "an inode no longer agent-owned at the pin is refused (owner and mode read from the descriptor)"
+    else
+        fail "the apply acted on an inode the pin found operator-owned: now $(stat -c '%U:%G %a' "${swp}")"
+    fi
+else
+    skip "pinned-owner check" "python3 not installed"
 fi
 
 finish
