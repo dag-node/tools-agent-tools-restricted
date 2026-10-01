@@ -77,21 +77,6 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
-# Secret-name matcher (defense in depth): the walk skips a dir whose basename looks like a secret (e.g. .env),
-# so a private dir is not exposed to the agent group when the operator did not '!'-exclude it. Best-effort, unlike
-# ai-tools-chown's fail-closed load: the '!' exclusions are the authoritative control, so a matcher that will not load
-# leaves the exclusions as the only skip instead of stopping the claim.
-readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-_secret_loaded=false
-# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
-if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
-    _secret_loaded=true
-fi
-_is_secret_name() {
-    ${_secret_loaded} || return 1
-    ai_tools_is_secret_basename "$(basename -- "$1")"
-}
-
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the reference for the seal
 # and the strip alike). Required and fail-closed like safe-paths.lib.sh: an unusable library must not leave this walk
 # unable to recognize a sealed directory.
@@ -122,6 +107,23 @@ ai_tools_assert_safe_target "${canonical}" "setgid normalization" || exit 3
 # acts only on dirs the resolved operator or the sandbox account hold.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
+
+# Secret-name matcher (defense in depth): the walk skips a dir whose basename looks like a secret (e.g. .env),
+# so a private dir is not exposed to the agent group when the operator did not '!'-exclude it. Loaded AFTER the owner
+# resolve, because the loader builds the file path from PROJECTS_HOME: a load ahead of the resolve reads the built-in
+# baseline and marks the set loaded, so the operator's own secret-patterns file is never read. Best-effort, unlike
+# ai-tools-chown's fail-closed load: the '!' exclusions are the authoritative control, so a matcher that will not load
+# leaves the exclusions as the only skip instead of stopping the claim.
+readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
+_secret_loaded=false
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
+if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
+    _secret_loaded=true
+fi
+_is_secret_name() {
+    ${_secret_loaded} || return 1
+    ai_tools_is_secret_basename "$(basename -- "$1")"
+}
 
 # This run normalizes one project for one operator, so the operator and the project ride as per-run log context
 # (logging.rule.md).
