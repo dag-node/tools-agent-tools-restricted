@@ -149,6 +149,16 @@ if grep -qE -- '--property=UMask=0007' "${CRUN}"; then
 else
     fail "ai-tools-run does not pin UMask=0007 -- agent files may be born world-accessible"
 fi
+# The resource profile caps a session that runs away (launch.rule.md): reclaim pressure, a hard memory limit, no swap,
+# and a task budget. Pinned by value, since a profile changed here changes what every session on the host may hold. Each
+# shim line ends in a continuation after the value, so the match closes on whitespace or on the line end.
+for prop in MemoryHigh=6G MemoryMax=8G MemorySwapMax=0 TasksMax=1024; do
+    if grep -qE -- "--property=${prop}([[:space:]]|\$)" "${CRUN}"; then
+        pass "ai-tools-run pins ${prop} on the session unit"
+    else
+        fail "ai-tools-run does not pin ${prop} -- a session is unbounded there"
+    fi
+done
 # The shim turns systemd-run's background tint off on the invocation itself (launch.rule.md); asserted on the line
 # before the command, where sudo's reset environment cannot supply it.
 if grep -qE -- '^SYSTEMD_TINT_BACKGROUND=0 \\$' "${CRUN}"; then

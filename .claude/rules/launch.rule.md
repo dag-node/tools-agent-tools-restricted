@@ -153,6 +153,24 @@ in [confinement](confinement.rule.md); the launch-shaping properties:
 does not inherit the caller's umask (a scope does), so the umask is set as a unit property, authoritative
 over the per-command sudoers `umask`.
 
+**A resource profile caps a session that runs away.** The unit carries `MemoryHigh=6G` (reclaim pressure),
+`MemoryMax=8G` (the OOM killer ends the session's largest process), `MemorySwapMax=0` (the session does not swap,
+so a runaway is killed at its limit rather than pushing the host's other workloads out) and `TasksMax=1024` (threads
+count). The account's manager applies them to the cgroup it creates for the unit where the host delegates the `memory`
+and `pids` controllers to it, which cgroup v2 does by default and cgroup v1 does not; on a host without the delegation
+`systemd-run` accepts the properties and the manager does not apply them. The profile is a cap and **not a boundary**:
+the cgroup a user manager creates belongs to the account, so on a DAC-only host a session may write a larger value
+into its own `memory.max`, and the `ai_tools` module does not call an interface naming `cgroup_t`, so an enforcing host
+refuses that write. A ceiling that holds against the account is a root-owned drop-in on the account slice,
+`user-<uid>.slice`, whose cgroup files root owns and the account is refused by mode; this project does not install one,
+since it is a new privileged artifact, and it is deferred with the status reading of the effective limits. An operator
+tunes the profile with a drop-in the manager reads for every session unit through the dash-prefix rule
+of `systemd.unit(5)` — the unit is `<account>-<agent>-<pid>.service`,
+so `/etc/systemd/user/<account>-<agent>-.service.d/limits.conf` holding a `[Service]` section applies to that agent's
+sessions and `/etc/systemd/user/<account>-.service.d/` to every agent's; a drop-in overrides a `--property`, since
+drop-ins load after the transient unit's own definition. `nvm-update.service` carries a profile of its own
+([updater](updater.rule.md)).
+
 **Environment is an explicit allowlist.** The user manager spawns the service with its own environment, not
 `ai-tools-run`'s, so a variable of the caller's crosses into the session only when it is named. The session starts
 from the manager's environment — `HOME`, `PATH`, `LANG`, the `XDG_*` set and `DBUS_SESSION_BUS_ADDRESS` among it —

@@ -268,6 +268,13 @@ not ordered against it and connectivity is handled where it arises, in the run's
 The daily window is the host's local time; an operator moves it
 with `sudo systemctl --user -M ai-tools@.host edit nvm-update.timer`.
 
+The unit also caps the run: `MemoryHigh=1G`, `MemoryMax=2G`, `MemorySwapMax=0` and `TasksMax=256`, which a Node install
+and an npm install stay under. A run killed at the limit exits non-zero, which `Restart=on-failure` retries within
+the start limit and the stamp reports as `failed`. The manager applies the four where the host delegates the `memory`
+and `pids` controllers to it (cgroup v2), and accepts them without applying them on cgroup v1; an operator raises one
+with `sudo systemctl --user -M ai-tools@.host edit nvm-update.service`. The session unit's profile, and why either is
+a cap and not a boundary, are in [launch](launch.rule.md).
+
 Each field has a distinct reader. `RESULT` and `EXIT_CODE` are the service's verdict. `FINISHED` carries two: it dates
 that verdict, and its **age** is what `nvm-update.timer` — which can otherwise report only `?` — infers its own health
 from, since a run systemd started proves the timer fired (see [cli](cli.rule.md) for the `stamp_mode`/`max_age` fields

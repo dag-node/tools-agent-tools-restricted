@@ -201,7 +201,8 @@ you type `claude`
             │                                  (DROPS privilege to the unprivileged sandbox
             │                                   account — the wrapper never runs as root)
             └─ systemd transient service      (--pty; RestrictNamespaces=yes, UMask=0007,
-                                               WorkingDirectory=project, NODE_COMPILE_CACHE pinned)
+                                               MemoryMax=8G, TasksMax=1024, WorkingDirectory=project,
+                                               NODE_COMPILE_CACHE pinned)
                  └─ claude runs as ${SANDBOX_USER} in ai_tools_t (SELinux)
                       └─ on Write/Edit → PostToolUse hook (or Stop/SessionStart sweep)
                            └─ ai-tools-handback-client CHOWN <file>   (socket, no sudo)
