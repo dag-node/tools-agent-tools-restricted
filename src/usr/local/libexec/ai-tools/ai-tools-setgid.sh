@@ -109,12 +109,11 @@ ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
 
 # Secret-name matcher (defense in depth): the walk skips a dir whose basename looks like a secret (e.g. .env),
-# so a private dir is not exposed to the agent group when the operator did not '!'-exclude it. Loaded AFTER the owner
-# resolve, because the loader builds the file path from PROJECTS_HOME: a load ahead of the resolve reads the built-in
-# baseline and marks the set loaded, so the operator's own secret-patterns file is never read. Fail-closed, like
-# ai-tools-chown's load: a walk with no matcher would give the agent's group every directory the operator named,
-# so a library that does not load refuses here, and an operator's file that is present and cannot be read refuses
-# through the loader's own status, under the code the library prints (secret-handling.rule.md).
+# so a private dir is not exposed to the agent group when the operator did not '!'-exclude it. Loaded after the owner
+# resolve, which names the operator's file (ai_tools_load_secret_patterns states what an earlier load reads).
+# Fail-closed: a walk with no matcher would give the agent's group every directory the operator named, so a library
+# that does not load and a present file the loader cannot read each refuse before the first change
+# (secret-handling.rule.md).
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
 if ! source "${SECRET_PATTERNS_LIB}" 2>/dev/null || ! declare -F ai_tools_load_secret_patterns >/dev/null 2>&1; then

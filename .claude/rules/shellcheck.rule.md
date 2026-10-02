@@ -39,9 +39,10 @@ Node alone, `ai-tools-launcher-symlink` refuses to repoint; `operator.lib.sh` fa
 means no operators resolved, and "no owner" already stops a handback; `skip-dirs.lib.sh` fails **soft**, keeping its
 compiled-in defaults, because a skip list is a walk-cost optimization and not an access boundary, so the worst case is
 a slower walk rather than a widened boundary. The launch wrapper and the CLI verify `safe-paths.lib.sh`'s guard
-functions and `die` otherwise; the root helpers bare-`source` it under `set -e`; `ai-tools-chown`
-and `ai-tools-lockdown` `exit 1` when `secret-patterns.lib.sh` will not load; and `msg.lib.sh` is required the same way
-— it carries the yes/no decisions (`ai_tools_msg_confirm`), so its consumers refuse rather than run through a private
+functions and `die` otherwise; the root helpers bare-`source` it under `set -e`; every helper that changes a tree
+refuses when `secret-patterns.lib.sh` will not load or the operator's pattern file cannot be read, each at the status
+[ref-section-h4j6](secret-handling.rule.md#ref-section-h4j6) states; and `msg.lib.sh` is required the same way — it
+carries the yes/no decisions (`ai_tools_msg_confirm`), so its consumers refuse rather than run through a private
 fallback, with `session-hook.sh` the one emit-only exception (see [safe-paths](safe-paths.rule.md),
 [secret-handling](secret-handling.rule.md), [messaging](messaging.rule.md), and the fail-closed invariant in the root
 `CLAUDE.md`). The logger (`log.lib.sh`) and the owner resolver (`operator.lib.sh`) carry faithful fallbacks for their
