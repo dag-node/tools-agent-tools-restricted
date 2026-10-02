@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/confinement.lib.sh
-# The pure decision behind ai-tools-run's fail-closed SELinux launch preflight: a session that does not transition
+# The decision behind ai-tools-run's fail-closed SELinux launch preflight: a session that does not transition
 # into ai_tools_t runs UNCONFINED, so ai-tools-run checks the transition's inputs BEFORE launch (a wrapper cannot
 # observe its successor's post-exec domain). ai-tools-run probes the host and calls ai_tools_confinement_verdict;
-# the decision lives here, free of I/O, so it is unit-tested apart from the probing (tests/unit/confinement.sh, no
-# SELinux host needed). The one impure function, ai_tools_confinement_read_attestation_records, is the selinuxfs read
-# the shim and both status reports share, so the three read the per-domain mode and the Booleans one way. See
-# confinement.rule.md.
+# the decision is free of I/O, so it is unit-tested apart from the probing (tests/unit/confinement.sh, no SELinux host
+# needed). The functions that read -- the operator.conf readers and the selinuxfs reader -- are shared by the shim
+# and the status reports through ai_tools_confinement_read_attestation_inputs, so every consumer reads one set
+# of inputs one way. See confinement.rule.md.
 #
-# Sourced, not executed. Deployed 644 root:root -- no secrets; sourced by ai-tools-run (as the sandbox account), the two
-# status reports, and the unit test (as root).
+# Sourced, not executed. Deployed 644 root:root -- no secrets; sourced by ai-tools-run (as the sandbox account),
+# the status reports, and the unit test (as root).
 #
 # Deploy:
 #   ```bash
@@ -156,7 +156,7 @@ ai_tools_confinement_attestation_verdict() {
 }
 
 # ai_tools_confinement_parse_access_decision <kernel-answer> -- print "yes" or "no" for the permissive bit of an answer
-# read back from selinuxfs' access transaction file, and nothing for an answer outside its grammar. The kernel writes
+# read back from selinuxfs' access transaction file, and prints nothing for an answer outside its grammar. The kernel writes
 # `<allowed> <decided> <auditallow> <auditdeny> <seqno> <flags>`, every field hex but the decimal seqno; bit 0x1
 # of <flags> is AVD_FLAGS_PERMISSIVE, which the kernel sets from the source domain's type alone.
 ai_tools_confinement_parse_access_decision() {

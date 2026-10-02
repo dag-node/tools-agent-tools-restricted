@@ -272,15 +272,14 @@ a glob, so `ai-tools-bootstrap --agents` refuses a bracket by name (`MSG-Y7B6`) 
 of an agent name.
 
 **A pair list is opt-in per key.** `ai_tools_conf_pair_list` reads a key whose items each carry a value,
-against the values the caller names; an item that is not a name and one of those values, or a name given again, is
-reported and left out, and an invalid list reads as empty like every other. How the pairs combine with the caller's
-defaults is the caller's to state: a plain list key replaces its default wholesale, while a pair key may merge by name,
-so a default the list does not name stands. A pair's name is an identifier with a length
-cap (`ai_tools_conf_pair_name_valid`), so a caller may use it as a path component. A key takes pairs only where an item
-has more than one meaningful value and leaving it out means something else again — `AI_TOOLS_SELINUX_BOOLEANS`,
-where absence means the default requirement. A membership list stays bare: listing a provider already means enabling it,
-so `agent-codex=no` would be a second spelling of "not listed". A key's values have one spelling each, the one
-the underlying tool prints.
+against the values the caller names; an item outside that grammar, or a name given again, is reported and left
+out, and an invalid list reads as empty like every other. How a declaration combines with the caller's defaults is
+the caller's to state — `AI_TOOLS_SELINUX_BOOLEANS` replaces its default, as every list in `operator.conf` does.
+A pair's name is an identifier with a length cap (`ai_tools_conf_pair_name_valid`), so a caller may use it as a path
+component. A key takes pairs where an item has more than one meaningful value and an absent key means something other
+than an empty list: `AI_TOOLS_SELINUX_BOOLEANS` absent means the default requirement. A membership list stays bare,
+since listing a provider already enables it and `agent-codex=no` would be a second spelling of "not listed". A key's
+values have one spelling each, the one the underlying tool takes.
 
 **A provider list item carries its kind.** Each item of `AI_TOOLS_AGENTS`, `AI_TOOLS_INTEGRATIONS`
 and `AI_TOOLS_FILTERS` is written `agent-<name>`, `integration-<name>` or `filter-<name>`, so one word names one thing
