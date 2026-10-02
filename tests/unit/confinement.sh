@@ -127,10 +127,10 @@ expect_verdict require-unattested 1 ""        yes ai_tools_exec_t ai_tools_exec_
 expect_verdict require-unattested 1 Enforcing ""  ""              lib_t           init_t yes no "${CLEAN_BOOLEANS}"  # no matchpathcon
 expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t ""     yes no "${CLEAN_BOOLEANS}"  # manager domain
 expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes "" "${CLEAN_BOOLEANS}"  # domain mode
-expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no "nis_enabled=off"     # one Boolean
-expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no ""                    # no Boolean
+expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no "nis_enabled=off"    # one Boolean
+expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no ""                   # no Boolean
 expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no \
-    "nis_enabled=maybe domain_can_mmap_files=off"                                                                     # bad value
+    "nis_enabled=maybe domain_can_mmap_files=off"                                                                    # bad value
 expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes unknown "${CLEAN_BOOLEANS}"
 expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes   # a 6-argument caller
 # Without require, an absent getenforce or matchpathcon keeps today's launch.
@@ -182,7 +182,7 @@ expect_access_decision() {
 expect_access_decision no  "ffffffff ffffffff 0 ffffffff 12 0"
 expect_access_decision yes "ffffffff ffffffff 0 ffffffff 12 1"
 expect_access_decision yes "ffffffff ffffffff 0 ffffffff 12 3"     # another flag beside the permissive bit
-expect_access_decision ""  "ffffffff ffffffff 0 ffffffff 12"        # a kernel without the flags field
+expect_access_decision ""  "ffffffff ffffffff 0 ffffffff 12"       # a kernel without the flags field
 expect_access_decision ""  ""
 expect_access_decision ""  "ffffffff ffffffff 0 ffffffff 12 1 extra"
 expect_access_decision ""  "ffffffff ffffffff 0 ffffffff 12 0x1"
