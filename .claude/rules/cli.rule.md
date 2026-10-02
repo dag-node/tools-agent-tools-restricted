@@ -399,6 +399,12 @@ an ordinary account read it — a partial view, the file sink being the authorit
   and repairs it. A mislabel that arises after the recorded run still stops the next launch with the fault
   and the command that clears it.
 
+  **The launch attestation is reported where SELinux is active**, in both reports, from the shim's own reader
+  and verdict: whether `ai_tools_t` is a permissive domain and each Boolean that widens it
+  ([confinement](confinement.rule.md) states the set and the refusals). An unconfined caller can make the read
+  without privilege, so the two vantages read it alike. A finding counts toward the exit status only
+  where `AI_TOOLS_REQUIRE_SELINUX` is set, since only then does it refuse a launch.
+
   **The unit that does the labelling is reported too, and answers a different question.** `ai-tools-relabel.service` is
   in the registry beside the `.path` that triggers it, because a healthy watcher says only that a run *started* —
   on the upgrade that motivated both records, the watcher was `OK` and the relabel it fired had failed. A `Type=oneshot`

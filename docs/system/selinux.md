@@ -84,6 +84,22 @@ sudo ai-tools-admin selinux groups                  # the core module and every 
 sudo ai-tools-admin selinux groups enable <name>    # load one
 ```
 
+### The `tmpmap` group and the `domain_can_mmap_files` Boolean
+
+```bash
+sudo ai-tools-admin selinux groups enable tmpmap   # let a session memory-map its own temporary files
+```
+
+A .NET restore memory-maps files it creates under `/tmp`, and a session is
+refused that until the `tmpmap` group is loaded. The SELinux Boolean
+`domain_can_mmap_files` would allow it too, but for every process on the host
+and every file type, so the two look related and are not interchangeable:
+load the group and leave the Boolean off. A host that sets
+`AI_TOOLS_REQUIRE_SELINUX` refuses every launch while that Boolean is on,
+unless `AI_TOOLS_SELINUX_BOOLEANS` declares it, as
+[`ai-tools-operator.conf(5)`](../../src/usr/local/share/man/man5/ai-tools-operator.conf.5)
+describes.
+
 Policy layout, the optional groups, and the bring-up loop for a new denial are
 in [`selinux/README.md`](../../selinux/README.md). What the domain guarantees
 and where it stops is

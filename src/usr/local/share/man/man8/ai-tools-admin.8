@@ -588,6 +588,11 @@ provisioned, each managed
 unit, the sandbox account's own unit search path, and \(em per enabled agent
 \(em both halves of the entrypoint reconciliation: whether the binary matches
 the checksum pinned for it, and what SELinux type its paths carry.
+Where SELinux is active it closes with the attestation a launch makes under
+.BR AI_TOOLS_REQUIRE_SELINUX :
+whether
+.B ai_tools_t
+is a permissive domain, and which of the Booleans that widen it are on.
 .RS
 .PP
 It is the same report

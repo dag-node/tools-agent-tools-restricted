@@ -1228,6 +1228,10 @@ per swap vector.
   line to read. It is a race, so it can pass by hand and fail in a root run. A predicate captures the producer's output
   first and tests the variable (`grep -q … <<< "${out}"`, `"${out%%$'\n'*}"`), and a file that fails with no `FAIL` line
   is checked for this shape first.
+- **A stub reads the caller's locals.** Bash scopes variables dynamically, so a stub function that reads a variable
+  the case set (`getenforce() { printf '%s' "${selinux_mode}"; }`) sees the `local` of the same name in the function
+  under test, unset there, and `set -u` ends the shell. The case reports a failure the code does not have. A stub reads
+  a name the code under test does not declare, `stub_` prefixed.
 - **Setgid bits survive numeric `chmod`.** GNU coreutils `chmod` with an octal mode does not clear a directory's
   setgid/setuid bit; a testdir under a setgid parent inherits it. Assertions on the rwx bits use `perm()` (low 3 octal
   digits), not raw `stat %a`.

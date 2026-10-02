@@ -697,8 +697,8 @@ run_check --message "${msg}"
 assert_rc 1 "TEST-PC-40-message: --message checks a commit message"
 
 # ── `--config-header`: a config file's header is fixed-width text ────────────────────────────────
-# The width rule is pinned from both directions, and its one exemption with it: a commented default is a setting, so its
-# length is not measured. Where a line BREAKS is the formatter's, so no case here reads a line's last word.
+# The width rule is pinned from both directions, and its two exemptions with it: a commented default is a setting and
+# a `# Default:` line states a value, so neither length is measured. Where a line BREAKS is the formatter's, so no case here reads a line's last word.
 long="# $(printf 'x%.0s' $(seq 1 75))"
 run_check --config-header "$(fixture TEST-PC-41-header-width.conf "${long}")"
 assert_grep 'header-width \[77>72\]' "${OUT}" "TEST-PC-41-header-width: a 77-column comment line is reported at the default width"
@@ -706,6 +706,10 @@ run_check --config-header --width 80 "$(fixture TEST-PC-42-header-width-arg.conf
 assert_rc 0 "TEST-PC-42-header-width-arg: the same line is within an explicit width of 80"
 run_check --config-header "$(fixture TEST-PC-43-header-default.conf "#KEY=$(printf 'v%.0s' $(seq 1 75))")"
 assert_rc 0 "TEST-PC-43-header-default: a commented default is not measured"
+run_check --config-header "$(fixture TEST-PC-179-header-default-line.conf "# Default: [$(printf 'v%.0s' $(seq 1 75))]")"
+assert_rc 0 "TEST-PC-179-header-default-line: a # Default: line states a value, so it is not measured"
+run_check --config-header "$(fixture TEST-PC-180-header-default-mid.conf "# The value Default: names $(printf 'x%.0s' $(seq 1 75))")"
+assert_grep 'header-width' "${OUT}" "TEST-PC-180-header-default-mid: a prose line mentioning Default: mid-line is measured"
 run_check --config-header "$(fixture TEST-PC-44-header-line-end.conf '# A session starts only inside a' '# listed directory.')"
 assert_rc 0 "TEST-PC-44-header-line-end: a line's last word is the formatter's business, not this check's"
 run_check --config-header "$(fixture TEST-PC-47-header-clean.conf '# A session starts only inside' '# a listed directory.' 'KEY=value' '#OTHER=default')"

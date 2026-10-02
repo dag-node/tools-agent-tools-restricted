@@ -283,12 +283,29 @@ export XDG_RUNTIME_DIR="/run/user/${UID}"
 # post-exec domain -- so the transition's inputs are verified here, before launch, and logged on every launch.
 # The launch/refuse decision is the pure ai_tools_confinement_verdict; this block owns only the probing
 # and the reporting.
+#
+# AI_TOOLS_REQUIRE_SELINUX: the operator's declaration that confinement is mandatory here, read only while
+# ai_tools_conf_is_trusted holds for operator.conf, and read FIRST, so a host missing a tool still reaches the verdict
+# and a missing tool is an unread input there. An untrusted or absent file yields "no", the default posture,
+# so the refusals it would otherwise produce stay launches; the package installs operator.conf 0644 root:root, so a file
+# failing that check is a misconfigured host. What the switch turns into a refusal: confinement.rule.md.
+require_selinux=no
+operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
+ai_tools_confinement_selinux_required "${operator_conf}" && require_selinux=yes
+
+# Each probe that could not run is named here, so a require-unattested refusal says which reading is missing.
+unread_confinement_inputs=""
+selinux_mode=""
 if command -v getenforce >/dev/null 2>&1; then
-    selinux_mode="$(getenforce 2>/dev/null || echo unknown)"
+    selinux_mode="$(getenforce 2>/dev/null || true)"
+fi
+[[ -n "${selinux_mode}" ]] || unread_confinement_inputs+="${unread_confinement_inputs:+, }the SELinux mode (getenforce)"
+
+if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
     # The already-resolved and contained entrypoint -- the same inode this shim hands systemd as ExecStart, so the label
     # checked here is the label the transitioning execve reads.
     entrypoint_path="${session_exec_path}"
-    expected_label="" actual_label="" manager_domain="" module_present=no
+    expected_label="" actual_label="" manager_domain="" module_present=""
     if command -v matchpathcon >/dev/null 2>&1; then
         expected_label="$(matchpathcon -n "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
         actual_label="$(stat -c '%C' -- "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
@@ -297,28 +314,50 @@ if command -v getenforce >/dev/null 2>&1; then
         # means; why the store read would fail OPEN here is in confinement.rule.md.
         module_present="$(ai_tools_confinement_module_present \
             "$(matchpathcon -n /opt/ai-tools/.config 2>/dev/null | awk -F: '{print $3}' || true)")"
+    else
+        unread_confinement_inputs+="${unread_confinement_inputs:+, }the file contexts (matchpathcon)"
     fi
     # The manager is the `systemd --user process` that execs the entrypoint; same uid, so its domain is readable.
     manager_pid="$(pgrep -u "${UID}" -f 'systemd --user' 2>/dev/null | head -n1 || true)"
     [[ -n "${manager_pid}" ]] && manager_domain="$(tr -d '\000' < "/proc/${manager_pid}/attr/current" 2>/dev/null | awk -F: '{print $3}' || true)"
+    [[ -n "${manager_domain}" ]] || unread_confinement_inputs+="${unread_confinement_inputs:+, }the user manager's domain"
 
-    # AI_TOOLS_REQUIRE_SELINUX: the operator's declaration that confinement is mandatory here, read only while
-    # ai_tools_conf_is_trusted holds for operator.conf. An untrusted or absent file yields "no", the default posture,
-    # so the refusals it would otherwise produce -- require-not-enforcing and require-inactive -- stay DAC-only
-    # launches; the package installs operator.conf 0644 root:root, so a file failing that check is a misconfigured host.
-    # What the switch turns into a refusal: confinement.rule.md.
-    require_selinux=no
-    operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
-    if ai_tools_conf_is_trusted "${operator_conf}" 2>/dev/null \
-            && ai_tools_conf_yes "${operator_conf}" AI_TOOLS_REQUIRE_SELINUX; then
-        require_selinux=yes
+    # The per-domain mode and the Booleans are read only where they decide anything: under require.
+    domain_permissive="" current_boolean_values="" required_boolean_values="" declaration_state=absent
+    if [[ "${require_selinux}" == yes ]]; then
+        { read -r declaration_state; IFS= read -r required_boolean_values; IFS= read -r _; } \
+            < <(ai_tools_confinement_read_required_boolean_values "${operator_conf}")
+        declared_boolean_names=()
+        if [[ "${declaration_state}" != absent ]]; then
+            for required_entry in ${required_boolean_values}; do
+                [[ "${required_entry%%=*}" == AI_TOOLS_SELINUX_BOOLEANS ]] && continue
+                declared_boolean_names+=( "${required_entry%%=*}" )
+            done
+        fi
+        IFS='|' read -r domain_permissive current_boolean_values \
+            < <(ai_tools_confinement_read_attestation_records /sys/fs/selinux \
+                    "${declared_boolean_names[@]+"${declared_boolean_names[@]}"}" \
+                    | ai_tools_confinement_parse_attestation_records) \
+            || true
+        [[ -n "${domain_permissive}" ]] \
+            || unread_confinement_inputs+="${unread_confinement_inputs:+, }whether ai_tools_t is a permissive domain (/sys/fs/selinux/access)"
+        for required_entry in ${required_boolean_values}; do
+            if [[ "${required_entry}" == AI_TOOLS_SELINUX_BOOLEANS=malformed ]]; then
+                unread_confinement_inputs+="${unread_confinement_inputs:+, }AI_TOOLS_SELINUX_BOOLEANS in operator.conf (an entry is not <boolean>=on or <boolean>=off)"
+            elif [[ " ${current_boolean_values} " != *" ${required_entry%%=*}="* ]]; then
+                unread_confinement_inputs+="${unread_confinement_inputs:+, }the ${required_entry%%=*} Boolean"
+            fi
+        done
     fi
 
-    audit info "launch: agent=${agent_name} selinux=${selinux_mode} module=${module_present} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown} require=${require_selinux}"
+    audit info "launch: agent=${agent_name} selinux=${selinux_mode:-unknown} module=${module_present:-unknown} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown} require=${require_selinux} permissive=${domain_permissive:-unread} booleans=${current_boolean_values:-unread} required=${required_boolean_values:-none}"
 
     case "$(ai_tools_confinement_verdict "${selinux_mode}" "${module_present}" \
                                          "${expected_label}" "${actual_label}" "${manager_domain}" \
-                                         "${require_selinux}")" in
+                                         "${require_selinux}" "${domain_permissive}" "${current_boolean_values}" \
+                                         "${required_boolean_values}")" in
+        ok)
+            ;;
         mislabel)
             audit warning "REFUSED: entrypoint mislabelled (${actual_label:-none}, want ai_tools_exec_t)"
             refuse "refusing to launch -- ${entrypoint_path} is mislabelled \"${actual_label:-none}\"" \
@@ -326,14 +365,17 @@ if command -v getenforce >/dev/null 2>&1; then
                    "Fix:  sudo ai-tools-admin system entrypoints relabel" ;;
         manager-domain)
             audit warning "REFUSED: manager domain ${manager_domain} has no domtrans to ai_tools_t"
-            refuse "refusing to launch -- the systemd --user manager runs in domain \"${manager_domain}\", which no domtrans_pattern in ai_tools.te covers, so the session would run UNCONFINED.  Add the source and rebuild:" \
-                   "  domtrans_pattern(${manager_domain}, ai_tools_exec_t, ai_tools_t)   # in selinux/policy/ai_tools.te" \
+            refuse "refusing to launch -- the systemd --user manager runs in domain \"${manager_domain}\", which no domtrans_pattern in the installed ai_tools policy covers, so the session would run UNCONFINED." \
+                   "The shipped policy does not cover this host's manager domain: report it to the ai-tools maintainers, naming ${manager_domain}." \
+                   "On a source checkout, add the rule to selinux/policy/ai_tools.te and rebuild:" \
+                   "  domtrans_pattern(${manager_domain}, ai_tools_exec_t, ai_tools_t)" \
                    "  sudo selinux/install-selinux.sh rebuild" ;;
         unverifiable)
             audit warning "REFUSED: ai_tools module present but file-contexts inactive (expected=${expected_label:-none})"
             refuse "refusing to launch -- the ai_tools SELinux module is installed but no file-context maps ${entrypoint_path} to ai_tools_exec_t, so the transition cannot be verified and the session would run UNCONFINED (fail closed on a half-installed host)." \
                    "The agent's entrypoint rule comes from its own manifest; register it:  sudo ai-tools-admin system entrypoints relabel" \
-                   "Or bring the whole layer up:  sudo selinux/install-selinux.sh install" \
+                   "Or reload the confinement policy package:  sudo dnf reinstall ai-tools-selinux" \
+                   "On a source checkout instead:  sudo selinux/install-selinux.sh install" \
                    "Or make this a DAC-only host:  sudo semodule -r ai_tools   (or run SELinux permissive)" ;;
         require-not-enforcing)
             audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but SELinux is ${selinux_mode}, not Enforcing"
@@ -346,6 +388,38 @@ if command -v getenforce >/dev/null 2>&1; then
                    "Install the confinement policy package (its scriptlet loads the module):  sudo dnf install ai-tools-selinux" \
                    "On a source checkout instead:  sudo selinux/install-selinux.sh install" \
                    "Or drop the requirement:  unset AI_TOOLS_REQUIRE_SELINUX in /etc/ai-tools/operator.conf" ;;
+        require-unattested)
+            audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but the confinement state could not be read: ${unread_confinement_inputs:-an input}"
+            refuse MSG-A7E7 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but this launch could not read ${unread_confinement_inputs:-an input of the confinement check}, so it cannot show the session would run confined." \
+                   "Install what reads it:  sudo dnf install libselinux-utils procps-ng" \
+                   "Or drop the requirement:  unset AI_TOOLS_REQUIRE_SELINUX in /etc/ai-tools/operator.conf" ;;
+        require-permissive)
+            audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but ai_tools_t is a permissive domain"
+            refuse MSG-Z5M5 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ai_tools_t is a permissive domain on this host, so SELinux would log the session's denials and enforce none of them." \
+                   "Enforce the domain:  sudo semanage permissive -d ai_tools_t" \
+                   "If that reports no such permissive type, the loaded module declares it; reload the shipped one:  sudo dnf reinstall ai-tools-selinux" \
+                   "On a source checkout instead, remove 'permissive ai_tools_t;' from selinux/policy/ai_tools.te, then:  sudo selinux/install-selinux.sh rebuild" \
+                   "Or drop the requirement:  unset AI_TOOLS_REQUIRE_SELINUX in /etc/ai-tools/operator.conf" ;;
+        require-boolean)
+            differing_boolean_names="" required_assignments="" current_assignments=""
+            for required_entry in ${required_boolean_values}; do
+                [[ " ${current_boolean_values} " == *" ${required_entry%%=*}="* \
+                   && " ${current_boolean_values} " != *" ${required_entry} "* ]] || continue
+                differing_boolean_names+="${differing_boolean_names:+, }${required_entry%%=*}"
+                required_assignments+=" ${required_entry}"
+                if [[ "${required_entry#*=}" == on ]]; then current_assignments+="${current_assignments:+, }${required_entry%%=*}=off"
+                else current_assignments+="${current_assignments:+, }${required_entry%%=*}=on"; fi
+            done
+            audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but a Boolean differs from its required value: ${current_assignments}"
+            refuse MSG-P3P8 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but the SELinux Boolean ${differing_boolean_names} is not at the value a launch requires (now ${current_assignments}), so ai_tools_t would run under rules this host has not declared." \
+                   "Set it as required, persistently:  sudo setsebool -P${required_assignments}" \
+                   "Or, where the host runs with it, declare that value in /etc/ai-tools/operator.conf:  AI_TOOLS_SELINUX_BOOLEANS=[${current_assignments}]" ;;
+        *)
+            # A token this shim does not know -- the verdict's own unclassified, or one a newer library added -- is
+            # a state nobody listed as a launch, so it refuses.
+            audit warning "REFUSED: the confinement verdict did not name a launch state (selinux=${selinux_mode:-unknown} module=${module_present:-unknown} require=${require_selinux})"
+            refuse MSG-A3K3 "refusing to launch -- the confinement check did not recognize this host's SELinux state as one that launches, so it cannot show the session would run confined." \
+                   "Report it to the ai-tools maintainers with the launch line:  sudo journalctl -t ai-tools-run -n 5 --no-pager" ;;
     esac
 fi
 

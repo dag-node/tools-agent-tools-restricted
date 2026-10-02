@@ -132,6 +132,7 @@ call_status() {
                  declare -F status >/dev/null || exit 98
                  source "${lib}" 2>/dev/null || true
                  status_entrypoints() { :; }; ai_tools_service_records() { :; }
+                 status_selinux_attestation() { :; }
                  eval "${pre}"; status' _ "${HELPER}" "${SERVICES_LIB}" "$1" 2>&1
 }
 reset_fixtures; manifest alpha la; vlink la v9.9.9
@@ -161,6 +162,70 @@ if [[ "${rc}" -eq 5 ]]; then
     pass "a fault read beside a reading that could not be made exits 5: unreadable wins the fold"
 else
     fail "fault plus unreadable exited ${rc}, expected 5"
+fi
+
+# ── The SELinux attestation section counts a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse a launch ──
+# `getenforce` and the selinuxfs reader are stubbed as shell functions, after the library is loaded, so its include
+# guard keeps the section's own re-source from restoring the reader. Each case prints the section and the problem count.
+# The stubs read `stub_*` names: bash scopes dynamically, so a stub reading `selinux_mode` would see the section's own
+# unset local of that name rather than the value set here.
+section "ai-tools-admin status: the SELinux attestation section (unit)"
+CONFINEMENT_LIB_INSTALLED="/usr/local/lib/ai-tools/confinement.lib.sh"
+REQUIRED_CONF="${TESTDIR}/operator-required.conf"; NOT_REQUIRED_CONF="${TESTDIR}/operator-not-required.conf"
+printf 'AI_TOOLS_REQUIRE_SELINUX=yes\n' > "${REQUIRED_CONF}"
+printf 'AI_TOOLS_REQUIRE_SELINUX=no\n'  > "${NOT_REQUIRED_CONF}"
+readonly CLEAN_ATTESTATION=$'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff'
+
+# call_attestation_section <selinux-mode> <records> <operator-conf> : print the section, then `problems=<n>`.
+# shellcheck disable=SC2016  # the $1..$5 are for the inner `bash -c`, not this shell -- do not expand here
+call_attestation_section() {
+    bash -c 'helper="$1"; lib="$2"; stub_selinux_mode="$3"; stub_attestation_records="$4"; operator_conf="$5"; set --
+             source "${helper}" >/dev/null 2>&1 || exit 99
+             declare -F status_selinux_attestation >/dev/null || exit 98
+             source "${lib}" 2>/dev/null || exit 97
+             declare -F ai_tools_confinement_attestation_report_rows >/dev/null || exit 97
+             getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
+             ai_tools_confinement_read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
+             STATUS_PROBLEMS=0; STATUS_UNREADABLE=0
+             status_selinux_attestation "${operator_conf}"
+             printf "problems=%s\n" "${STATUS_PROBLEMS}"' \
+        _ "${HELPER}" "${CONFINEMENT_LIB_INSTALLED}" "$1" "$2" "$3" 2>&1
+}
+rc=0; out="$(call_attestation_section Enforcing "${CLEAN_ATTESTATION}" "${REQUIRED_CONF}")" || rc=$?
+if [[ "${rc}" -ge 97 ]]; then
+    skip "admin status attestation" "the installed helper or confinement library predates the section (rc ${rc})"
+else
+    if grep -qx 'problems=0' <<<"${out}" && grep -qF '[enforcing]' <<<"${out}"; then
+        pass "an enforced domain with the refused Booleans off is not counted, under the requirement"
+    else
+        fail "clean attestation under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section Enforcing $'permissive\tyes\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\ton' \
+               "${REQUIRED_CONF}")" || true
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF '[PERMISSIVE]' <<<"${out}" && grep -qF '[ON]' <<<"${out}" \
+            && grep -qF 'every launch refuses' <<<"${out}"; then
+        pass "a permissive domain and a refused Boolean on count once under the requirement, each named with its remedy"
+    else
+        fail "faults under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section Enforcing $'permissive\tyes' "${NOT_REQUIRED_CONF}")" || true
+    if grep -qx 'problems=0' <<<"${out}" && grep -qF 'launches are not refused' <<<"${out}"; then
+        pass "the same fault without the requirement is reported and not counted"
+    else
+        fail "fault without the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section Enforcing '' "${REQUIRED_CONF}")" || true
+    if grep -qx 'problems=1' <<<"${out}" && [[ "$(grep -c '\[?\]' <<<"${out}")" -ge 3 ]]; then
+        pass "nothing readable is reported per reading and counted under the requirement, since it refuses every launch"
+    else
+        fail "unread attestation under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section Disabled "${CLEAN_ATTESTATION}" "${REQUIRED_CONF}")" || true
+    if grep -qx 'problems=0' <<<"${out}" && grep -qF '[n/a]' <<<"${out}"; then
+        pass "SELinux disabled reads n/a here; the launch refusal for it is the preflight's to report"
+    else
+        fail "SELinux disabled: $(tr '\n' '|' <<<"${out}")"
+    fi
 fi
 
 finish

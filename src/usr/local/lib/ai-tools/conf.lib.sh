@@ -280,6 +280,54 @@ ai_tools_conf_list_value() {
 # wrote bare names, and `ai-tools-admin system post-upgrade` rewrites them (ai_tools_conf_kind_migrate,
 # providers.lib.sh). _ai_tools_conf_kind_table is the one place a key is tied to its prefix.
 
+# The longest name a pair list item takes; a name may become a path component, so it is an identifier and bounded.
+# shellcheck disable=SC2034  # read by the pair-list callers that use a name as a path component
+readonly AI_TOOLS_CONF_PAIR_NAME_MAX=64
+
+# ai_tools_conf_pair_name_valid <name> : succeed when <name> is a pair list name -- letters, digits and underscores,
+#   1 to AI_TOOLS_CONF_PAIR_NAME_MAX characters, so it does not carry a separator, a dot, a glob or a space.
+ai_tools_conf_pair_name_valid() {
+    [[ "${1-}" =~ ^[A-Za-z0-9_]+$ && ${#1} -le ${AI_TOOLS_CONF_PAIR_NAME_MAX} ]]
+}
+
+# ai_tools_conf_pair_list <array-name> <file> <KEY> <value>... : ai_tools_conf_list for a key whose items are
+#   <name>=<value> pairs, `[nis_enabled=off, deny_ptrace=on]`. Sets the array to the valid items, as written, in order:
+#   a name ai_tools_conf_pair_name_valid accepts and one of the <value>s, matched exactly. An item that is not one is
+#   reported (MSG-F6D7) and left out; a name given again is reported (MSG-R8C6) and its first value kept. An invalid
+#   list sets the array empty, as ai_tools_conf_list_value does. _ai_tools_conf_pair_list_rejected is set to the number
+#   of items left out, and _ai_tools_conf_list_invalid to 1 for an invalid list, so a caller for whom a left-out item
+#   is not the safe reading can refuse on it. Returns 1, leaving the array untouched, for an absent key, so a caller's
+#   defaults stand.
+ai_tools_conf_pair_list() {
+    local out_name="$1" file="$2" key="$3" item pair_name pair_value allowed_value value_allowed kept_names=" "
+    local allowed_values_text=""
+    shift 3
+    # Joined by hand: "$*" joins on the caller's IFS, which is a newline under ai-tools.
+    for allowed_value in "$@"; do allowed_values_text+="${allowed_values_text:+, }${allowed_value}"; done
+    local -a _ai_tools_conf_pair_list_raw=() _ai_tools_conf_pair_list_kept=()
+    _ai_tools_conf_pair_list_rejected=0
+    ai_tools_conf_list _ai_tools_conf_pair_list_raw "${file}" "${key}" || return 1
+    local -n _ai_tools_conf_pair_list_out="${out_name}"
+    for item in "${_ai_tools_conf_pair_list_raw[@]+"${_ai_tools_conf_pair_list_raw[@]}"}"; do
+        pair_name="${item%%=*}"; pair_value="${item#*=}"; value_allowed=0
+        for allowed_value in "$@"; do [[ "${pair_value}" == "${allowed_value}" ]] && value_allowed=1; done
+        if [[ "${item}" != *=* ]] || ! ai_tools_conf_pair_name_valid "${pair_name}" || (( ! value_allowed )); then
+            _ai_tools_conf_warn MSG-F6D7 "the pair list ${key} in ${file} has the item ${item}, which is not <name>=<value> with a value of ${allowed_values_text} -- ignored"
+            _ai_tools_conf_pair_list_rejected=$(( _ai_tools_conf_pair_list_rejected + 1 ))
+            continue
+        fi
+        if [[ "${kept_names}" == *" ${pair_name} "* ]]; then
+            _ai_tools_conf_warn MSG-R8C6 "the pair list ${key} in ${file} gives ${pair_name} more than once -- the first value stands"
+            _ai_tools_conf_pair_list_rejected=$(( _ai_tools_conf_pair_list_rejected + 1 ))
+            continue
+        fi
+        kept_names+="${pair_name} "
+        _ai_tools_conf_pair_list_kept+=("${item}")
+    done
+    _ai_tools_conf_pair_list_out=("${_ai_tools_conf_pair_list_kept[@]+"${_ai_tools_conf_pair_list_kept[@]}"}")
+    return 0
+}
+
 # _ai_tools_conf_kind_table : print "KEY<TAB>prefix" per list key that carries a kind prefix.
 _ai_tools_conf_kind_table() {
     printf '%s\t%s\n' AI_TOOLS_AGENTS agent- AI_TOOLS_INTEGRATIONS integration- AI_TOOLS_FILTERS filter-
