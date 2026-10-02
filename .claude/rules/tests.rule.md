@@ -929,7 +929,11 @@ under the project rule — an older name set included, a sibling project's rule 
 whole — so no rule outlives the claim on a subtree the confined domain manages. The project path is a literal inside
 both patterns: `ai_tools_fcontext_literal` escapes every regex metacharacter, a label writes the escaped path,
 and an unlabel removes the escaped rule and the raw one an earlier label wrote, since a `.` or `+` left bare widens
-or breaks the set of paths the rule covers.
+or breaks the set of paths the rule covers. A label retires those raw rules on an upgraded host, over a fixture tree,
+in each direction that would widen or misreport: only a rule whose raw pattern and type this library writes is removed,
+a rule of another type is left and named for review, and the paths the removed rule matched beside the project are
+relabelled — one reached through a `.` read as `/` included — while a host without a raw rule, or an unlabel
+that removed none, leaves them alone.
 
 Two further sections cover what happens when a rule does **not** register, with `semanage` stubbed as a shell function
 so no policy store is touched. The first asserts the refusal carries `semanage`'s stderr, collapsed to one line,
