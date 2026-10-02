@@ -12,7 +12,8 @@ POSIX ACLs on the projects you claim. Other distributions are untested:
 the design assumes systemd user instances with lingering, `sudo`, and EL
 filesystem conventions. SELinux in enforcing mode with the targeted policy is
 where the session's own domain applies; a host without it runs in a DAC-only
-posture instead. The install itself needs the network once,
+posture instead, and says so at every launch until the operator declares it
+([SELinux](../system/selinux.md)). The install itself needs the network once,
 for `sudo ai-tools-admin system bootstrap`, which fetches the Node toolchain
 and the agent; after that a systemd timer keeps both current
 ([Upgrade](upgrade.md)). Run without a route to the download hosts,

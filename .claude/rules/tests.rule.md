@@ -361,7 +361,8 @@ artifact) against fixture `VERSION`/spec files, pinning the tag grammar — fina
 `tools/formatters/fill-comments.sh`, the Emacs-driven formatter for the comment wrap rule, over one fixture carrying
 every shape the tool must fill or leave alone. Filled: a long paragraph inside the column with no line ending on a tie
 word (the checker's `--wrap` mode is the oracle), one indented inside a function body, and a sentence pair the join
-gives one space. Left as written: an aligned table, a doc comment's contract line, a column of three or more spaces,
+gives one space. Left as written: an aligned table, a doc comment's contract line, a config header's `Values:`
+and `Default:` field lines (with the description before them filled and ending there), a column of three or more spaces,
 a table drawn with vertical rules, a heredoc body, the commands a header shows in a fenced block, a CDATA section,
 a `<pre>` block, a linter directive, a commented default, a shebang and a code line. Each of those is a way a formatter
 silently rewrites what a file emits or what a reader reads as a column, and none is visible in review. It also holds

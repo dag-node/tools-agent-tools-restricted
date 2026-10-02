@@ -32,11 +32,17 @@ A missing transition **fails closed**: if an agent's entrypoint loses its label
 rather than start an unconfined session, and names
 `ai-tools-admin system entrypoints relabel` as the fix. The layer as a whole is
 still optional — a host that never installs the module runs DAC-only,
-which the launch preflight recognises and allows.
+which the launch preflight recognises and allows, with a warning at every
+launch until `AI_TOOLS_REQUIRE_SELINUX=no` in `operator.conf` declares it.
 
 The modules are written and tested against the **targeted** policy
-(`selinux-policy-targeted`) on Enterprise Linux 9 and 10. Another policy
-type, such as `selinux-policy-mls`, is not tested.
+(`selinux-policy-targeted`) on Enterprise Linux 9 and 10, with operators
+logging in as `unconfined_u`, the default mapping. Another policy type, such
+as `selinux-policy-mls`, is not tested. An operator confined to a login domain
+(`staff_t`, `user_t`, a site-written domain) is not supported yet: the operator
+block in `ai_tools.te` grants `unconfined_t` alone, so a launch from such
+a login fails closed. An operator-domain attribute group, which a host extends
+with the login domains it confines operators to, is planned.
 
 You cannot confine a complex app (Node + git + the Bash tool) correctly
 by guessing rules — the rule set must be *observed*. The policy here was

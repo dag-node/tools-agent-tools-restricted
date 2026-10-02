@@ -153,10 +153,10 @@ The invariants this section states are instances of one property, stated once he
 can fail resolves to *less* access — never more — and is reported.** Corrupting, removing, or tampering with one
 of these inputs therefore narrows what the session gets, so the sandbox cannot improve its own position by breaking one.
 
-`AI_TOOLS_REQUIRE_SELINUX` sits **outside** it in the other direction: it is an operator's *declaration* rather than one
-of the predicates, and a failed read of it yields the default, which launches where the declaration would have refused.
-The sandbox cannot produce that state, so the property holds against the adversary it names; which exits it governs,
-and what makes the direction safe, are in [confinement](.claude/rules/confinement.rule.md).
+`AI_TOOLS_REQUIRE_SELINUX` is an operator's *declaration*, not one of the predicates. It is in force unless
+`operator.conf` turns it off, so a failed read of it — the file untrusted or absent, the key absent — leaves
+the requirement standing, the same direction the predicates take. Which exits it governs, and the two host states it
+lets launch with a warning rather than refuse, are in [confinement](.claude/rules/confinement.rule.md).
 
 `ai-tools projects remove` sits **outside** this table: it decides what is *destroyed*, not what a session may reach,
 so its safe direction is inaction. Its authorization is correspondingly different — an exact `allowed-projects` entry
@@ -169,7 +169,7 @@ shape of guarantee: it deletes only after that confirmation, and a failure leave
 | where a session may start | the canonicalized allowlist + the protected-paths backstop | no launch |
 | which executable may start it | a launcher an enabled manifest claims, at a semver path in the toolchain | no launch |
 | whether the toolchain holds the enabled agents' packages alone | the residue readers over every installed manifest the enabled set does not name ([updater](.claude/rules/updater.rule.md)) | no launch, of any agent, until a provisioning run removes the package |
-| whether it will be confined | the pre-launch SELinux transition probe (fail-closed once confinement is expected; an operator can require it outright via `AI_TOOLS_REQUIRE_SELINUX`) | no launch |
+| whether it will be confined | the pre-launch SELinux transition probe (fail-closed once confinement is expected; `AI_TOOLS_REQUIRE_SELINUX`, in force by default, requires it outright, and an operator declares a DAC-only host with `no`) | no launch |
 | which providers it gets | `ai_tools_conf_is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, never "enable all" |
 | which paths handback may touch | born-`SANDBOX_USER` ownership, re-checked race-safely as root | the path is left alone |
 | which toolchain may be activated | npm registry signature verification | the previous, trusted version stays |

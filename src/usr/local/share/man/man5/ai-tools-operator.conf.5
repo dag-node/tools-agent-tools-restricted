@@ -12,13 +12,19 @@ Host-wide configuration for the sandboxed coding agent: which agents and
 integrations a session receives, which command filters it applies, and which
 directories the maintenance walks skip.
 .PP
-Every option is optional, and the shipped file sets only
-.BR OPERATORS .
+Every option is optional, and the shipped file sets
+.BR OPERATORS ,
+.B AI_TOOLS_REQUIRE_SELINUX
+and
+.BR AI_TOOLS_SELINUX_BOOLEANS .
 An absent key keeps its default, so a fresh install runs unedited and a file
 written for an earlier version keeps working unchanged when a new option
 appears. Each option states what its absence means, since the defaults
-differ: an absent provider list enables the installed baseline, while an
-absent strictness switch leaves the permissive posture in place.
+differ: an absent provider list enables the installed baseline, an absent
+.B AI_TOOLS_REQUIRE_SELINUX
+keeps the requirement in force, and an absent
+.B AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY
+leaves the permissive posture in place.
 .PP
 Edit it as root; it is owned by
 .B root
@@ -122,8 +128,8 @@ as yes, and
 .BR 0 ,
 .B off
 and an empty value as no, in any case and quoted or not. Any other value reads
-as no and is reported, so a mistyped switch does not change what a launch does
-without a line saying so.
+as the switch's default and is reported, so a mistyped switch does not change
+what a launch does without a line saying so.
 .PP
 A line beginning with
 .B #
@@ -205,7 +211,7 @@ every installed rule set applies.
 Filtering never decides what the agent may run: the permission rules in the
 agent's settings are evaluated on the rewritten command.
 .TP
-.B AI_TOOLS_REQUIRE_SELINUX=yes
+.BR AI_TOOLS_REQUIRE_SELINUX=yes | no
 SELinux strictness.
 Where SELinux is enforcing and the
 .B ai_tools
@@ -214,15 +220,15 @@ entrypoint carrying the wrong label refuses the launch at either setting.
 This key governs the states in which the launch preflight cannot show the
 session will run confined.
 .B Default
-(key absent): such a launch proceeds without the SELinux layer, which is
-the posture of an intentional DAC-only host; the launch log records
-.BR require=no .
-.B Set:
-each of these refuses the launch instead, so a host that expects
+(key absent):
+.BR yes ,
+which the shipped file also writes.
+.B Set to yes
+(or absent): each of these refuses the launch, so a host that expects
 confinement cannot start an unconfined session unnoticed:
-SELinux not enforcing
+SELinux permissive
 .RB ( require-not-enforcing );
-the module's file contexts not live
+the policy installed on the host but its module not loaded
 .RB ( require-inactive );
 .B ai_tools_t
 a permissive domain
@@ -241,6 +247,16 @@ on, and any Boolean
 declares at another value;
 and any of these, or the user manager's domain, not readable
 .RB ( require-unattested ).
+Two states are not faults and launch with a warning instead: SELinux
+disabled, and the
+.B ai_tools
+policy not installed on the host. Such a host runs with file permissions
+alone, and the warning names this key.
+.B Set to no:
+every launch the states listed under yes would refuse or warn on proceeds
+without the SELinux layer instead, which is the declaration of an
+intentional DAC-only host; the launch log records
+.BR require=no .
 Other Booleans that reach the session, such as
 .BR kerberos_enabled ,
 are reported by
@@ -248,15 +264,11 @@ are reported by
 and do not refuse.
 The check runs at launch: a Boolean or a domain mode changed afterwards
 reaches a running session without a refusal.
-The key is read only while this file is root-owned and not group- or
-other-writable, so a session cannot set or clear it.
-On a host where SELinux is enforcing and the module is loaded,
-.B sudo ai\-tools\-admin system bootstrap
-offers to set this key and
-.B AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY
-while neither is present; the offer defaults to yes, a run with no terminal
-takes it, and a declined offer writes
-.BR no .
+A
+.B no
+is read only while this file is root-owned and not group- or other-writable,
+so a session cannot clear the requirement; a file that cannot be read keeps
+it in force.
 .TP
 .BI AI_TOOLS_SELINUX_BOOLEANS= "\fR[\fPBOOLEAN\fR=\fPVALUE\fR,\fP ...\fR]\fP"
 The SELinux Boolean values a launch requires while
@@ -300,6 +312,11 @@ declared in this file.
 .BR domain_can_write_kmsg=off] ,
 Booleans the SELinux policy ships off whose opening widens what a
 session may do.
+The shipped file writes this list, so a release that adds a pair to the
+default reaches an upgraded host as a line in
+.I operator.conf.rpmnew
+and not as a changed requirement; see
+.BR Upgrades .
 A malformed entry (a name is letters, digits and underscores, up to 64
 characters), a Boolean listed twice, and a list that does not parse each
 refuse the launch until the line is fixed; a Boolean the loaded policy
@@ -334,9 +351,10 @@ Pin one with
 which fetches the vendor's signed manifest where there is one and so needs the
 host online.
 .B sudo ai\-tools\-admin system bootstrap
-offers this key on an enforcing host, as it does
-.BR AI_TOOLS_REQUIRE_SELINUX ,
-only while every enabled agent carries a pin.
+offers this key on an enforcing host with the policy loaded, while the key is
+absent and every enabled agent carries a pin; the offer defaults to yes, a run
+with no terminal takes it, and a declined offer writes
+.BR no .
 .TP
 .BI CLAUDE_SYSTEM_PROMPT_FILE= FILE
 A custom system prompt for Claude Code sessions (requires the

@@ -71,14 +71,15 @@ exists. Root starts the timer over the machine transport (`systemctl --user -M S
 the system bus authorizes for root; a `sudo -u` call on the account's own bus is refused there even while the manager is
 healthy ([cli](cli.rule.md)).
 
-**It offers both launch requirements where confinement is in force** (`offer_launch_requirements`). On a host
+**It offers the entrypoint requirement where confinement is in force** (`offer_launch_requirements`). On a host
 where SELinux is enforcing and the `ai_tools` module is loaded, it asks once, through `ai_tools_msg_confirm` defaulting
-to yes, whether to set `AI_TOOLS_REQUIRE_SELINUX` and `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`; the answer is written
-to both through `ai_tools_conf_set_key`, `no` included, so it is asked once rather than on every run. A run with no
-terminal takes the default, since each switch moves a launch toward less access. A key already present, either way, is
-the operator's declaration and is not asked about, and an untrusted `operator.conf` is neither asked about nor written.
-The entrypoint switch is offered only while every enabled agent carries a pin, which the relabel ahead of the step
-writes: offered without one, it would refuse that agent's next launch.
+to yes, whether to set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`; the answer is written through `ai_tools_conf_set_key`, `no`
+included, so it is asked once rather than on every run. A run with no terminal takes the default, since the switch moves
+a launch toward less access. `AI_TOOLS_REQUIRE_SELINUX` is not offered: it is in force unless `operator.conf` turns it
+off ([confinement](confinement.rule.md)), so there is no posture for a bootstrap to write. A key already present, either
+way, is the operator's declaration and is not asked about, and an untrusted `operator.conf` is neither asked
+about nor written. The entrypoint switch is offered only while every enabled agent carries a pin, which the relabel
+ahead of the step writes: offered without one, it would refuse that agent's next launch.
 
 Starting the timer **pre-seeds its `Persistent=` run-stamp** (`$XDG_DATA_HOME/systemd/timers/ stamp-nvm-update.timer`
 under `/opt/ai-tools`, written as `SANDBOX_USER`) so it begins on its next scheduled window rather than an **immediate

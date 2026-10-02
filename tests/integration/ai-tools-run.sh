@@ -320,11 +320,12 @@ else
         # for a Boolean rather than a package install. The conf is the host's own with the two keys replaced, root-owned
         # and readable by the sandbox account, reached through AI_TOOLS_OPERATOR_CONF; a mismatching pin stays in place
         # so a run that somehow passed the attestation still refuses before systemd-run. The attestation sits behind
-        # the mode check, so a host not Enforcing refuses on the mode first and skips here.
+        # the mode check, so a host not Enforcing answers the requirement on the mode first -- a refusal, or the warned
+        # DAC-only launch -- and skips here.
         IFS=$'\t' read -r att_agent att_launcher <<<"${ready[0]}"
         att_exec="$(readlink -- "/opt/ai-tools/bin/${att_launcher}" 2>/dev/null || true)"
         if [[ "$(getenforce 2>/dev/null || true)" != Enforcing ]]; then
-            skip "ai-tools-run unattested refusal" "SELinux is not Enforcing here, so the requirement refuses on the mode first"
+            skip "ai-tools-run unattested refusal" "SELinux is not Enforcing here, so the requirement is answered on the mode first"
         else
             att_conf_dir="$(mktemp -d)"; _cleanup+=("${att_conf_dir}"); chmod 0755 "${att_conf_dir}"
             grep -vE '^[[:space:]]*AI_TOOLS_(REQUIRE_SELINUX|SELINUX_BOOLEANS)=' /etc/ai-tools/operator.conf \

@@ -197,6 +197,21 @@ ai_tools_conf_yes() {
     return 1
 }
 
+# ai_tools_conf_no <file> <key> : succeed when <key> is set to a no value -- no, false, 0, off or an empty value, in any
+#   case and with or without quotes -- the reader for a switch whose default is yes. A yes value, an absent key
+#   and an unreadable file are not no. A value in neither set is not no either, and is reported, so a mistyped switch
+#   keeps the posture its default gives and does not change what a launch does without a line saying so.
+ai_tools_conf_no() {
+    local file="$1" key="$2"
+    ai_tools_conf_read "${file}" "${key}" || return 1
+    case "${_ai_tools_conf_value,,}" in
+        no|false|0|off|"") return 0 ;;
+        yes|true|1|on) return 1 ;;
+    esac
+    _ai_tools_conf_warn MSG-H7N5 "switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no value (no, false, 0, off) -- read as yes"
+    return 1
+}
+
 # ai_tools_conf_get <file> <key> : print the value of <key>, empty when absent. For a caller that
 #   only wants the string; one that must tell absent from empty calls ai_tools_conf_read.
 ai_tools_conf_get() {

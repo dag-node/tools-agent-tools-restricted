@@ -6,9 +6,10 @@
 # as they were as much as on the lines it fills, so one fixture carries every shape it must read one way or the other.
 # Filled: a long prose paragraph, inside the column and with no line ending on a tie word (the filler's own rule,
 # which no checker reads), one indented inside a function body, and a sentence pair whose join takes one space. Left
-# as written: an aligned comment table, a doc comment's contract line, a column of three or more spaces, a table drawn
-# with vertical rules, a heredoc body, the commands a header shows in a fenced block, a CDATA
-# section, a `<pre>` block, a linter directive, a commented default, a shebang and a code line.
+# as written: an aligned comment table, a doc comment's contract line, a config header's `Values:` and `Default:` field
+# lines, a column of three or more spaces, a table drawn with vertical rules, a heredoc body, the commands
+# a header shows in a fenced block, a CDATA section, a `<pre>` block, a linter directive, a commented default,
+# a shebang and a code line.
 # Held on the output: a break never falls inside a code span, which the `fill-nobreak-predicate`
 # hook refuses.
 # A second run must leave the file as the first left it, `--lines` must confine the fill to a
@@ -97,6 +98,10 @@ indented() {
 # sudo ai-tools-admin system bootstrap --with-an-option-long-enough-that-the-line-runs-past-the-column
 # ```
 v=10
+# A description a config header gives one of its keys, long enough to need rewrapping at the column it is read at.
+# Values: yes | no
+# Default: no; such a launch proceeds, however long this one line runs on past the column it would otherwise hold to
+#LONG_KEY=yes
 EOF
 cp "${f}" "${TESTDIR}/before.sh"
 
@@ -206,6 +211,18 @@ if (( $(grep -c 'A paragraph that a doc comment' "${f}") == 1 )) \
     pass "the paragraph before a contract line is filled, and ends there"
 else
     fail "the run did not end at the contract line: $(grep -n -A2 'A paragraph that a doc' "${f}")"
+fi
+# A config header's key block is a description, then a `Values:` and a `Default:` line of their own, each stating
+# one value the grammar does not wrap. The description is filled and ends at the first field; the fields stay where
+# and as they are, however long, and the commented example after them is a setting.
+same "a Values: field line"  '# Values: yes | no'
+same "a Default: field line" '# Default: no; such a launch proceeds'
+if (( $(grep -c 'A description a config header' "${f}") == 1 )) \
+        && ! grep -qF 'one of its keys, long enough to need rewrapping at the column it is read at.' "${f}" \
+        && grep -B1 -xF '# Values: yes | no' "${f}" | head -n1 | grep -q 'read at\.$'; then
+    pass "a key's description is filled on its own and ends at its Values: line"
+else
+    fail "the run did not end at the field line: $(grep -n -A3 'A description a config header' "${f}")"
 fi
 # The prose after the banner is filled on its own: it still opens on the line after the banner,
 # it now spans several lines, and no line of it runs past the column.

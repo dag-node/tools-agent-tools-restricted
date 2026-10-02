@@ -81,7 +81,7 @@ the column runs the line over instead, since a wider line is still a line."
   (concat "^[ \t]*\\(?:#\\|//\\)[ \t]*"
           "\\(?:!\\|shellcheck\\b\\|noqa\\b\\|pylint:\\|type:\\|pragma\\b\\|SPDX-"
           "\\|ref-index:\\|prose-check:\\|ai-tools-admin-[a-z-]*:"
-          "\\|args:\\|stdout:\\|stderr:\\|returns?:\\|\\$[0-9]+[ \t]"
+          "\\|args:\\|stdout:\\|stderr:\\|returns?:\\|\\$[0-9]+[ \t]\\|Values:\\|Defaults?:"
           ;; The column rule excludes the newline from both sides: `[^ ]' matches one, so the
           ;; unanchored form read a line as holding a column whenever the NEXT line was indented
           ;; three spaces or more -- every comment block inside a function body.
@@ -93,9 +93,11 @@ a linter directive, an SPDX header, a checker marker (`ref-index: ignore-file', 
 ignore'), a declaration another tool reads (`# ai-tools-admin-verbs: …', which `ai-tools-admin'
 parses out of a contributed command's header), a commented default, a lone token (a path, a URL,
 a name on a line of its own), a rule or banner line, a doc comment's contract line (`args:',
-`stdout:', `$1 path'), and a line holding a column of three or more spaces. The last two are code
-rather than prose -- a signature, a parameter table, an example rule -- and a fill reads them as a
-sentence and wraps the columns away. A marker joined into the paragraph above it stops marking.")
+`stdout:', `$1 path'), a config header's field line (`Values:', `Default:'), and a line holding
+a column of three or more spaces. The last two are code rather than prose -- a signature,
+a parameter table, an example rule -- and a fill reads them as a sentence and wraps the columns
+away; a field line states one value, which does not wrap, and a field joined into the description
+above it stops being a field. A marker joined into the paragraph above it stops marking.")
 
 (defconst ai-tools-fill--vertical-rule "[|│┃║]"
   "A character drawing a vertical rule in an ASCII diagram or a comment table.")
