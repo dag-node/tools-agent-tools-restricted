@@ -229,11 +229,11 @@ up agents installed since.
 
 The home root stays `root:ai-tools 2751`, which the agent (group `ai-tools`)
 cannot write, so bootstrap pre-creates the agent-owned subtrees it must
-populate — `.nvm`, `.cache`, `.npm`, `.local`, each `ai-tools:ai-tools 0750` —
-as root, then runs nvm/Node/npm as the sandbox account, writing only within
-them (`PROFILE=/dev/null` keeps nvm's installer off the root-owned home
-profile). It creates the launcher symlink under the locked `bin` as root; agent
-runtime state does not need seeding — `ai-tools-run` pins `CLAUDE_CONFIG_DIR`
+populate — `.nvm`, `.cache`, `.npm`, each `ai-tools:ai-tools 0750` — as root,
+then runs nvm/Node/npm as the sandbox account, writing only within them
+(`PROFILE=/dev/null` keeps nvm's installer off the root-owned home profile). It
+creates the launcher symlink under the locked `bin` as root; agent runtime
+state does not need seeding — `ai-tools-run` pins `CLAUDE_CONFIG_DIR`
 to the group-writable `.claude`, where claude creates its own state files
 (`.claude.json` included). A re-run reuses an existing toolchain; Node updates
 land inside the agent-owned `.nvm` subtree.

@@ -93,6 +93,7 @@
 set -euo pipefail
 
 readonly SANDBOX_USER="@SANDBOX_USER@"
+readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 readonly OPERATORS_GROUP="ai-ops"
 readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
@@ -2614,6 +2615,94 @@ status_labels() {
     return 0
 }
 
+# status_unit_search_path: the sandbox account's systemd unit search path -- the chain's drift
+# (ai_tools_get_unit_search_path_drift), any unexpected entry on it (ai_tools_find_unexpected_unit_search_path_entries),
+# and the `Persistent=` timer stamp. A root-vantage reading: the chain has no world bits. It reads and does not write.
+# <home> is a parameter so a unit test drives it over a fixture chain.
+status_unit_search_path() {
+    local home="${1:-${CP_HOME:-/opt/ai-tools}}"
+    heading "Sandbox unit search path"
+    if ! declare -F ai_tools_get_unit_search_path_drift >/dev/null 2>&1 \
+            || ! declare -F ai_tools_find_unexpected_unit_search_path_entries >/dev/null 2>&1; then
+        st UNREADABLE "the control-plane library did not load its unit search path readers -- reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
+    local line path got wanted drift_out drift_rc=0 open=0
+    drift_out="$(ai_tools_get_unit_search_path_drift "${home}" "${SANDBOX_GROUP}")" || drift_rc=$?
+    case "${drift_rc}" in
+        0)  while IFS= read -r line; do
+                [[ -n "${line}" ]] || continue
+                path="${line%% *}"; got="${line#* }"; wanted="${got#* root:}"; got="${got%% root:*}"
+                # An absent directory is a host the provisioning run has not reached, which Provisioning reports; one
+                # that exists at another owner or mode is the state this layout removes, so it counts.
+                if [[ "${got}" == absent ]]; then
+                    st "n/a" "${path}  not created yet -- the provisioning run makes it root:${wanted}"
+                    continue
+                fi
+                open=1
+                st DRIFTED "${path}  is ${got}, not root:${wanted}"
+                STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+            done <<< "${drift_out}"
+            if (( open )); then
+                detail "${SANDBOX_USER}'s --user manager runs unconfined, so a unit left on this path would run with none of the properties a session unit sets"
+                detail "sudo ai-tools-admin system bootstrap"
+            fi ;;
+        1)  st OK "root owns every directory down to ${home}/${CP_UNIT_SEARCH_PATH_CHAIN[-1]}" ;;
+        *)  st UNREADABLE "the unit search path under ${home} could not be read -- reinstall ai-tools-base"
+            STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 )) ;;
+    esac
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        st UNEXPECTED "${line}  is on the unit search path and nothing ai-tools ships writes it -- inspect it, then remove it"
+        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+    done < <(ai_tools_find_unexpected_unit_search_path_entries "${home}")
+    status_update_timer_stamp "${home}"
+    return 0
+}
+
+# status_update_timer_stamp: the `Persistent=` stamp nvm-update.timer keeps (ai_tools_service_evaluate_timer_stamp).
+# Whether the timer is overdue is the Services section's reading.
+status_update_timer_stamp() {
+    local home="${1:-${CP_HOME:-/opt/ai-tools}}"
+    if ! declare -F ai_tools_service_evaluate_timer_stamp >/dev/null 2>&1 \
+            || ! declare -F ai_tools_service_parse_timespan_seconds >/dev/null 2>&1; then
+        st UNREADABLE "the service library did not load its timer-stamp readers -- reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
+    local stamp="${home}/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"
+    local state=ok mtime now skew="" accuracy delay allowance verdict
+    if [[ -L "${stamp}" || ( -e "${stamp}" && ! -f "${stamp}" ) ]]; then
+        state=unreadable
+    elif [[ ! -e "${stamp}" ]]; then
+        state=absent
+    elif ! mtime="$(stat -c %Y -- "${stamp}" 2>/dev/null)" || [[ ! "${mtime}" =~ ^[0-9]+$ ]]; then
+        state=unreadable
+    else
+        now="$(date -u +%s 2>/dev/null || true)"
+        if [[ "${now}" =~ ^[0-9]+$ ]]; then
+            skew=0
+            [[ "${mtime}" -gt "${now}" ]] && skew=$(( mtime - now ))
+        fi
+    fi
+    # An unreadable property leaves its share of the allowance at 0, which only makes the future test stricter.
+    accuracy="$(ai_tools_service_parse_timespan_seconds "$(ai_tools_service_unit_property nvm-update.timer AccuracyUSec sandbox-user)")"
+    delay="$(ai_tools_service_parse_timespan_seconds "$(ai_tools_service_unit_property nvm-update.timer RandomizedDelayUSec sandbox-user)")"
+    allowance=$(( ${accuracy:-0} + ${delay:-0} ))
+    verdict="$(ai_tools_service_evaluate_timer_stamp "${state}" "${skew}" "${allowance}")"
+    case "${verdict}" in
+        ok)     st OK "the update timer's Persistent= stamp" ;;
+        absent) st "n/a" "no Persistent= stamp yet -- the next start of that manager runs a catch-up update" ;;
+        future) st FUTURE "its Persistent= stamp is dated $(( ${skew:-0} / 60 )) min ahead of now, past the timer's own ${allowance}s tolerance"
+                detail "systemd reads that stamp at timer start, so a missed window gets no catch-up run while it stands"
+                detail "check this host's clock, then: sudo systemctl --user -M ${SANDBOX_USER}@.host restart nvm-update.timer"
+                STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+        *)      st "?" "its Persistent= stamp could not be read at ${stamp}" ;;
+    esac
+    return 0
+}
+
 # status_node_version: the Version section's Node line, from the same verdict the CLI renders
 # (ai_tools_node_version_verdict, toolchain.lib.sh): the active version read off the enabled agents' stable launcher
 # links, and the version the updater's last run recorded shown beside it only where the two differ. Root could read
@@ -2700,6 +2789,7 @@ status() {
         st UNREADABLE "the service registry did not load, so no unit could be read"
     fi
     status_entrypoints
+    status_unit_search_path "${CP_HOME:-/opt/ai-tools}"
 
     # Pointers, not duplication: the reports that own the detail this one deliberately does not.
     heading "More"

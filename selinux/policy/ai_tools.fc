@@ -76,6 +76,8 @@
 /opt/ai-tools/\.npm(/.*)?         gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.cache(/.*)?       gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.local(/.*)?       gen_context(system_u:object_r:ai_tools_home_t,s0)
+# The more specific rule wins: the systemd data directory takes ai_tools_systemd_data_t (ai_tools.te).
+/opt/ai-tools/\.local/share/systemd(/.*)?  gen_context(system_u:object_r:ai_tools_systemd_data_t,s0)
 /opt/ai-tools/\.config(/.*)?      gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.gitconfig     --  gen_context(system_u:object_r:ai_tools_home_t,s0)
 

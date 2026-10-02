@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-policy_module(ai_tools, 0.7.0)
+policy_module(ai_tools, 0.8.0)
 
 ########################################
 #
@@ -85,6 +85,11 @@ files_type(ai_tools_project_build_t)
 # regardless of label.
 type ai_tools_home_t;
 files_type(ai_tools_home_t)
+
+# The sandbox account's systemd data directory (.local/share/systemd): a unit search path of its unconfined
+# `systemd --user` manager and the Persistent= timer stamps, read-only to the domain (confinement.rule.md).
+type ai_tools_systemd_data_t;
+files_type(ai_tools_systemd_data_t)
 
 # The agent's private temp files. A type_transition relabels everything the agent creates under /tmp to this type, so it
 # gets its own scratch space and cannot read or clobber other domains' tmp_t/user_tmp_t files once enforcing.
@@ -219,6 +224,11 @@ allow ai_tools_t ai_tools_project_t:file map;
 allow ai_tools_t ai_tools_project_build_t:file map;
 allow ai_tools_t ai_tools_home_t:file map;
 
+# Read and search only, so a walk of .local/share is not denied. This module does not grant add_name, remove_name,
+# write, create, rename or unlink on the type anywhere; a write attempt stays audited.
+allow ai_tools_t ai_tools_systemd_data_t:dir { getattr search open read ioctl lock };
+allow ai_tools_t ai_tools_systemd_data_t:file { getattr open read ioctl lock };
+
 # Execute the PostToolUse/Stop hook scripts that live in .claude (ai_tools_home_t). They are interpreted shell,
 # but the kernel still needs file execute on the script the shebang line names. No transition: the hook stays
 # in ai_tools_t.
@@ -289,6 +299,12 @@ manage_dirs_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
 manage_files_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
 relabel_dirs_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
 relabel_files_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
+# The account's `--user manager` writes its timer stamps under the systemd data type; stated like the ai_tools_home_t
+# rules beside it, and relabel so a restorecon of the home applies the type.
+manage_dirs_pattern(unconfined_t, ai_tools_systemd_data_t, ai_tools_systemd_data_t)
+manage_files_pattern(unconfined_t, ai_tools_systemd_data_t, ai_tools_systemd_data_t)
+relabel_dirs_pattern(unconfined_t, ai_tools_systemd_data_t, ai_tools_systemd_data_t)
+relabel_files_pattern(unconfined_t, ai_tools_systemd_data_t, ai_tools_systemd_data_t)
 
 ########################################
 # Private temp  (/tmp scratch for git, Node, and the Bash tool)

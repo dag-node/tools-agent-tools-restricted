@@ -668,4 +668,61 @@ else
     fi
 fi
 
+# ── The Persistent= TIMER stamp's verdict ─────────────────────────────────────────────────────────────────────
+# The ranking the cases pin is ai_tools_service_evaluate_timer_stamp's header.
+section "services: the Persistent= timer stamp's verdict (unit)"
+
+if ! declare -F ai_tools_service_evaluate_timer_stamp >/dev/null 2>&1; then
+    skip "timer-stamp verdict" "the deployed library predates ai_tools_service_evaluate_timer_stamp"
+else
+    # tsv <expected> <label> <state> <skew> <allowance>
+    tsv() {
+        local expected="$1" label="$2"; shift 2
+        local got; got="$(ai_tools_service_evaluate_timer_stamp "$@")"
+        if [[ "${got}" == "${expected}" ]]; then
+            pass "${label}"
+        else
+            fail "${label}: expected '${expected}', got '${got}'"
+        fi
+    }
+
+    tsv ok "a stamp in the past reads ok" ok 0 240
+    tsv future "a stamp dated past the timer's own tolerance reads future" ok 600 240
+    tsv ok "a stamp inside that tolerance is the schedule's own jitter, not a future date" ok 100 240
+    tsv future "future outranks absent, since a date ahead is what systemd will read" absent 600 240
+    tsv absent "no stamp reads absent -- the next manager start runs the catch-up" absent 0 240
+    tsv unreadable "a stamp whose mtime could not be read supports no verdict and says so" unreadable "" 240
+    tsv ok "an unknown skew is not read as a future date" ok "" 240
+    tsv future "a non-numeric allowance is read as no tolerance, which only makes the future test stricter" \
+        ok 10 "not-a-number"
+
+    # The span parser the allowance is built from; its header states the contract the cases pin.
+    if ! declare -F ai_tools_service_parse_timespan_seconds >/dev/null 2>&1; then
+        skip "timespan parser" "the deployed library predates ai_tools_service_parse_timespan_seconds"
+    else
+        span() {
+            local got; got="$(ai_tools_service_parse_timespan_seconds "$2")"
+            if [[ "${got}" == "$1" ]]; then
+                pass "a span of '$2' reads as ${1:-no value}"
+            else
+                fail "a span of '$2': expected '$1', got '${got}'"
+            fi
+        }
+        span 0 "0"
+        span 60 "1min"
+        span 180 "3min"
+        span 90 "1min 30s"
+        span 7200 "2h"
+        span 0 "500ms"
+        span "" ""
+        span "" "infinity"
+        # Under an inherited IFS without a space, an unpinned split would drop the second token.
+        ( IFS=$'\n\t'
+          got="$(ai_tools_service_parse_timespan_seconds "1min 30s")"
+          [[ "${got}" == 90 ]] ) \
+            && pass "the split is IFS-independent, so a two-token span still sums under the strict-mode IFS" \
+            || fail "a two-token span does not sum under IFS=\$'\\n\\t'"
+    fi
+fi
+
 finish

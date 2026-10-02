@@ -474,6 +474,7 @@ reports the same host and adds the readings the operator's prints as `?`:
 | whether the installed entrypoint still matches that pin | the toolchain is `0750` and sandbox-owned, so the file cannot be hashed | hashes it and compares, the same comparison the launch shim makes |
 | an agent path's SELinux type | the entrypoint sits in a `0750` toolchain owned by the sandbox account | `stat`s the label itself |
 | an agent's installed version | the same toolchain | reads the `package.json` around the entrypoint (`ai_tools_entrypoint_installed_version`), as data: running the agent's `--version` would execute a file the sandbox account can write ([ref-section-s9t9](updater.rule.md#ref-section-s9t9)) |
+| the sandbox account's systemd unit search path, and the `Persistent=` timer stamp on it | the chain is root-owned without world bits, so an operator outside the sandbox group cannot traverse it, and the stamp sits inside that account's home | reads both: the chain against its declared layout, the stamp's own mtime |
 
 **What keeps them one resource is where the privilege is tested.** `services.lib.sh` offers a live reading to whichever
 caller can make one, so the capability is checked at each read rather than at the dispatch: `sudo ai-tools status`
@@ -493,6 +494,14 @@ that may be hours old; `ai_tools_agent_label_report` reports the type each path 
 since — an out-of-band `restorecon`, a package that reinstalled the binary — is visible without running the reconcile.
 It is **read-only**, which is what makes it safe to call from a report, and its whole difference
 from `ai_tools_label_agent_paths`; that function's header states which calls each one makes.
+
+**The sandbox unit search path is a section of its own, because only root can read it.** A chain directory that exists
+at another owner or mode is `DRIFTED` and counts; an absent one is `n/a`, a host provisioning has not reached;
+and an entry under `.local/share/systemd` other than the stamp directory is `UNEXPECTED` and counts. The drift reader's
+status keeps a failed reading apart from a clean chain. The `Persistent=` timer stamp is read by its mtime
+through `ai_tools_service_evaluate_timer_stamp`, with the tolerance taken from the timer's own accuracy and randomized
+delay; `FUTURE` counts, since a future-dated stamp suppresses the catch-up run a missed window gets. Whether the timer
+is overdue is the Services section's reading alone. The report does not write the stamp.
 
 The report is otherwise the same contract as `status`: it exits 4 when something needs attention and 5 when a library
 base ships did not load, so a section could not make a reading it promises — the two counts `STATUS_PROBLEMS`

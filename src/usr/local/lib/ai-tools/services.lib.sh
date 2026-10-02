@@ -324,6 +324,58 @@ ai_tools_service_stamp_verdict() {
     return 0
 }
 
+# ai_tools_service_parse_timespan_seconds <value>  -- PRINT whole seconds for a systemd time span as `systemctl show`
+# renders one (`0`, `1min`, `3min`, `1min 30s`, `500ms`, `2h`), or an EMPTY STRING when no token could be read. ALWAYS
+# returns 0. systemd pretty-prints these properties and does not publish a numeric form for them, so adding a timer's
+# accuracy to its randomized delay means parsing what it prints. Unrecognized tokens are skipped rather than guessed
+# at, and a value made entirely of them prints nothing, so a caller treats it as unknown instead of as zero tolerance.
+# Sub-second units floor to 0, which is what they are worth in a judgment measured in minutes. IFS is pinned
+# for the split: this library is sourced into scripts that set their own.
+ai_tools_service_parse_timespan_seconds() {
+    local value="${1:-}" token total=0 read_any=0 number unit
+    local -a tokens=()
+    IFS=$' \t\n' read -ra tokens <<<"${value}"
+    for token in "${tokens[@]+"${tokens[@]}"}"; do
+        [[ "${token}" =~ ^([0-9]+)(us|usec|ms|msec|s|sec|seconds?|min|minutes?|h|hours?|d|days?)?$ ]] || continue
+        number="${BASH_REMATCH[1]}"; unit="${BASH_REMATCH[2]:-s}"
+        case "${unit}" in
+            us|usec|ms|msec)      total=$(( total + 0 )) ;;
+            s|sec|second|seconds) total=$(( total + number )) ;;
+            min|minute|minutes)   total=$(( total + number * 60 )) ;;
+            h|hour|hours)         total=$(( total + number * 3600 )) ;;
+            d|day|days)           total=$(( total + number * 86400 )) ;;
+        esac
+        read_any=1
+    done
+    (( read_any )) || return 0
+    printf '%s' "${total}"
+    return 0
+}
+
+# ai_tools_service_evaluate_timer_stamp <state> <skew> <allowance>  -- the pure decision about a `Persistent=` TIMER
+# STAMP: PRINT one of ok|future|absent|unreadable from readings already taken. No I/O, ALWAYS returns 0, so it is driven
+# over its truth table (tests/unit/services.sh). systemd compares the stamp's mtime at timer start to decide whether
+# a window was missed.
+#
+#   <state>      ok | absent | unreadable, from the caller's stat of the file.
+#   <skew>       seconds the mtime is dated ahead of now, 0 when it is not, empty when it could not be computed.
+#   <allowance>  seconds of future-dating to tolerate: the timer's own accuracy plus its randomized delay.
+#
+# `future` outranks `absent` because it changes what systemd does: a stamp dated ahead suppresses the catch-up run
+# a missed window gets. `unreadable` outranks it, since a stamp whose mtime could not be read does not support
+# a verdict.
+ai_tools_service_evaluate_timer_stamp() {
+    local state="${1:-unreadable}" skew="${2:-}" allowance="${3:-0}"
+    [[ "${allowance}" =~ ^[0-9]+$ ]] || allowance=0
+    [[ "${state}" == unreadable ]] && { printf 'unreadable'; return 0; }
+    if [[ "${skew}" =~ ^[0-9]+$ ]] && [[ "${skew}" -gt "${allowance}" ]]; then
+        printf 'future'; return 0
+    fi
+    [[ "${state}" == absent ]] && { printf 'absent'; return 0; }
+    printf 'ok'
+    return 0
+}
+
 # ai_tools_service_state <unit> <scope> [stamp] [stamp_mode] [max_age]  -- PRINT one of
 # active|skipped|down|failed|stale|absent|unknown; the state is the stdout value and the function
 # ALWAYS returns 0 (so a `state="$(...)"` capture is safe under `set -e` -- no consumer reads the
