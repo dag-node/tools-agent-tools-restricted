@@ -137,6 +137,14 @@ expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_
 expect_verdict ok 0 ""        yes ai_tools_exec_t ai_tools_exec_t init_t no
 expect_verdict ok 0 Enforcing ""  ""              lib_t           init_t no
 
+section "confinement: only the listed states launch (unit)"
+# The verdict checks each LAUNCH row whole before it classifies a refusal, so an input outside its documented values
+# reaches the default row and refuses instead of falling through to a launch.
+expect_verdict unclassified 1 Enforcing maybe ""              lib_t           init_t yes no "${CLEAN_BOOLEANS}"
+expect_verdict unverifiable 1 Enforcing yes   bin_t           ""              init_t no   # a foreign expected label
+expect_verdict ok           0 ""        yes   ai_tools_exec_t lib_t           init_t no   # no getenforce, no requirement
+expect_verdict unclassified 1 Enforcing maybe ""              lib_t           init_t no   # not a documented value
+
 section "confinement: attestation record parser (unit)"
 # expect_parsed_inputs <description> <expected-line> <records>: the parser is what turns the reader's output
 # into the verdict's two inputs, so a record it misreads is an unread input or a wrong one.

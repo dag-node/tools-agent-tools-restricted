@@ -345,6 +345,8 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
     case "$(ai_tools_confinement_verdict "${selinux_mode}" "${module_present}" \
                                          "${expected_label}" "${actual_label}" "${manager_domain}" \
                                          "${require_selinux}" "${domain_permissive}" "${boolean_states}")" in
+        ok)
+            ;;
         mislabel)
             audit warning "REFUSED: entrypoint mislabelled (${actual_label:-none}, want ai_tools_exec_t)"
             refuse "refusing to launch -- ${entrypoint_path} is mislabelled \"${actual_label:-none}\"" \
@@ -397,6 +399,12 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
             refuse MSG-P3P8 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but the SELinux Boolean ${enabled_refused_booleans// /, } is on, which widens what ai_tools_t may do beyond the policy this project ships." \
                    "Turn it off, persistently:  sudo setsebool -P ${enabled_refused_booleans// /=off }=off" \
                    "Or drop the requirement:  unset AI_TOOLS_REQUIRE_SELINUX in /etc/ai-tools/operator.conf" ;;
+        *)
+            # A token this shim does not know -- the verdict's own unclassified, or one a newer library added -- is
+            # a state nobody listed as a launch, so it refuses.
+            audit warning "REFUSED: the confinement verdict did not name a launch state (selinux=${selinux_mode:-unknown} module=${module_present:-unknown} require=${require_selinux})"
+            refuse MSG-A3K3 "refusing to launch -- the confinement check did not recognize this host's SELinux state as one that launches, so it cannot show the session would run confined." \
+                   "Report it to the ai-tools maintainers with the launch line:  sudo journalctl -t ai-tools-run -n 5 --no-pager" ;;
     esac
 fi
 

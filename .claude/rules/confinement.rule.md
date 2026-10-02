@@ -134,15 +134,21 @@ cannot influence it, file-contexts and the shim both being root-owned.
 (`confinement.lib.sh`), which carries its inputs and the verdict token for each combination as its contract, and is
 unit-tested apart from the probing (`tests/unit/confinement.sh` drives the truth table with no SELinux host).
 
+**Only a listed state launches.** The verdict checks each launch state whole before it classifies a refusal,
+so a combination the table does not list — an input outside its documented values among them — refuses as `unclassified`
+rather than falling through to a launch, and `ai-tools-run` launches on the `ok` token alone: any other token, one
+a newer library adds included, refuses (`MSG-A3K3`).
+
 The policy that table implements is **fail-closed once confinement is expected**. Where SELinux is enforcing
 and `matchpathcon` resolves the entrypoint to `ai_tools_exec_t`, a live label that is anything else refuses (`mislabel`,
-→ `relabel`), as does a manager domain no `domtrans_pattern` in `ai_tools.te` covers (`manager-domain`, → add the rule
-and `rebuild`; this one is advisory, and an unreadable domain does not block). Where the label does **not** resolve,
-the verdict splits on module presence: **present** means confinement is installed yet the transition is unverifiable,
-so it refuses (`unverifiable`, → `ai-tools-admin system entrypoints relabel` or `install-selinux.sh install`) rather
-than launch DAC-only and silently drop confinement; **absent** means the SELinux layer was never installed here, so it
-launches — an intentional DAC-only deployment, cleared for a staged host with `semodule -r ai_tools` or permissive mode.
-The check is a no-op where SELinux is not enforcing, so DAC-only and permissive boxes are unaffected.
+→ `relabel`), as does a manager domain no `domtrans_pattern` in `ai_tools.te` covers (`manager-domain`, a policy change
+the shipped module does not carry, so the refusal asks for a report and names the source-checkout edit; an unreadable
+domain does not block without `AI_TOOLS_REQUIRE_SELINUX`). Where the label does **not** resolve, the verdict splits
+on module presence: **present** means confinement is installed yet the transition is unverifiable, so it refuses
+(`unverifiable`, → `ai-tools-admin system entrypoints relabel`, or the policy package reinstalled) rather than launch
+DAC-only and silently drop confinement; **absent** means the SELinux layer was never installed here, so it launches —
+an intentional DAC-only deployment, cleared for a staged host with `semodule -r ai_tools` or permissive mode. The check
+is a no-op where SELinux is not enforcing, so DAC-only and permissive boxes are unaffected.
 
 One residual the `matchpathcon` probe cannot see: a module **staged in the store but with its file-contexts never
 loaded** into the running policy reads as "absent" (the core-owned path resolves to its default type), so that narrow

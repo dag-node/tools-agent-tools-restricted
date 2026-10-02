@@ -156,29 +156,33 @@ ai_tools_confinement_parse_attestation_records() {
 #   domain-permissive  the per-domain mode, as ai_tools_confinement_attestation_verdict takes it
 #   boolean-states     the refused Booleans, as ai_tools_confinement_attestation_verdict takes them
 #
-#   mode | module | expected | actual  |    manager     | req | attestation |        verdict        | result
-#   -----+--------+----------+---------+----------------+-----+-------------+-----------------------+--------
-#   ""   |   -    |    -     |    -    |       -        | yes |      -      | require-unattested    | refuse
-#   no   |   -    |    -     |    -    |       -        | no  |      -      | ok                    | launch
-#   no   |   -    |    -     |    -    |       -        | yes |      -      | require-not-enforcing | refuse
-#   yes  |   -    |  exec_t  | exec_t  | init/unconf/"" | no  |      -      | ok                    | launch
-#   yes  |   -    |  exec_t  | exec_t  | other          |  -  |      -      | manager-domain        | refuse
-#   yes  |   -    |  exec_t  | exec_t  | init/unconf    | yes | ok          | ok                    | launch
-#   yes  |   -    |  exec_t  | exec_t  | init/unconf/"" | yes | permissive  | require-permissive    | refuse
-#   yes  |   -    |  exec_t  | exec_t  | init/unconf/"" | yes | boolean     | require-boolean       | refuse
-#   yes  |   -    |  exec_t  | exec_t  | ""             | yes | ok/unknown  | require-unattested    | refuse
-#   yes  |   -    |  exec_t  | exec_t  | init/unconf    | yes | unknown     | require-unattested    | refuse
-#   yes  |   -    |  exec_t  | !exec_t |       -        |  -  |      -      | mislabel              | refuse
-#   yes  |  yes   | !exec_t  |    -    |       -        |  -  |      -      | unverifiable          | refuse
-#   yes  | no/""  | !exec_t  |    -    |       -        | no  |      -      | ok                    | launch
-#   yes  |  no    | !exec_t  |    -    |       -        | yes |      -      | require-inactive      | refuse
-#   yes  |  ""    | !exec_t  |    -    |       -        | yes |      -      | require-unattested    | refuse
-#   (a "-" cell is don't-care; "" is empty/unreadable; mode "no" is any value other than Enforcing and "")
+#   mode   | module | expected | actual  |    manager     | req | attestation |        verdict        | result
+#   -------+--------+----------+---------+----------------+-----+-------------+-----------------------+--------
+#   !Enf   |   -    |    -     |    -    |       -        | no  |      -      | ok                    | LAUNCH
+#   Enf    |   -    |  exec_t  | exec_t  | init/unconf/"" | no  |      -      | ok                    | LAUNCH
+#   Enf    | no/""  | !exec_t  |    -    |       -        | no  |      -      | ok                    | LAUNCH
+#   Enf    |   -    |  exec_t  | exec_t  | init/unconf    | yes | ok          | ok                    | LAUNCH
+#   ""     |   -    |    -     |    -    |       -        | yes |      -      | require-unattested    | refuse
+#   !Enf"" |   -    |    -     |    -    |       -        | yes |      -      | require-not-enforcing | refuse
+#   Enf    |   -    |  exec_t  | !exec_t |       -        |  -  |      -      | mislabel              | refuse
+#   Enf    |   -    |  exec_t  | exec_t  | other          |  -  |      -      | manager-domain        | refuse
+#   Enf    |   -    |  exec_t  | exec_t  | init/unconf/"" | yes | permissive  | require-permissive    | refuse
+#   Enf    |   -    |  exec_t  | exec_t  | init/unconf/"" | yes | boolean     | require-boolean       | refuse
+#   Enf    |   -    |  exec_t  | exec_t  | init/unconf    | yes | unknown     | require-unattested    | refuse
+#   Enf    |   -    |  exec_t  | exec_t  | ""             | yes | ok/unknown  | require-unattested    | refuse
+#   Enf    |  yes   | !exec_t  |    -    |       -        |  -  |      -      | unverifiable          | refuse
+#   Enf    |  no    | !exec_t  |    -    |       -        | yes |      -      | require-inactive      | refuse
+#   Enf    |  ""    | !exec_t  |    -    |       -        | yes |      -      | require-unattested    | refuse
+#   any other combination                                                     | unclassified          | refuse
+#   (Enf is "Enforcing"; !Enf any other value, "" included; !Enf"" any other non-empty value. A "-" cell is
+#   don't-care; "" is empty/unreadable; req "no" is any value other than "yes")
 #
-# Fail-closed once confinement is EXPECTED (enforcing with the module installed). What each refusal means,
-# and the remedy each one prints, are in confinement.rule.md and in ai-tools-run's refusal text. Two properties
-# of the table are easy to miss reading it: manager-domain is ADVISORY without require, so an unreadable ("") domain
-# does not block there; and every require-* token replaces a launch the same inputs take without require.
+# The LAUNCH rows are the only states that launch, each checked whole before any refusal is classified, so a state
+# the table does not list refuses as unclassified rather than launching. Fail-closed once confinement is EXPECTED
+# (enforcing with the module installed). What each refusal means, and the remedy each one prints, are
+# in confinement.rule.md and in ai-tools-run's refusal text. Two properties of the table are easy to miss reading it:
+# manager-domain is ADVISORY without require, so an unreadable ("") domain does not block there; and every require-*
+# token replaces a launch the same inputs take without require.
 #
 # ai_tools_confinement_module_present <matchpathcon-type> Classify the `module-present` verdict input from a probe
 # of a CORE-module-owned path (e.g. `matchpathcon /opt/ai-tools/.config` -> ai_tools_home_t): print "yes" when <type> is
@@ -193,43 +197,50 @@ ai_tools_confinement_module_present() {
 
 ai_tools_confinement_verdict() {
     local selinux_mode="$1" module_present="$2" expected_label="$3" actual_label="$4" manager_domain="$5"
-    local require_selinux="${6:-no}" domain_permissive="${7:-}" boolean_states="${8:-}" attestation_verdict
+    local require_selinux="${6:-no}" domain_permissive="${7:-}" boolean_states="${8:-}"
+    local manager_domain_covered=no entrypoint_labelled=no attestation_verdict
+    [[ "${manager_domain}" == "init_t" || "${manager_domain}" == "unconfined_t" ]] && manager_domain_covered=yes
+    [[ "${expected_label}" == "ai_tools_exec_t" && "${actual_label}" == "ai_tools_exec_t" ]] && entrypoint_labelled=yes
+    attestation_verdict="$(ai_tools_confinement_attestation_verdict "${domain_permissive}" "${boolean_states}")" || true
 
-    if [[ "${selinux_mode}" != "Enforcing" ]]; then
-        # DAC-only launch: no transition to verify -- unless the operator declared SELinux mandatory.
-        if [[ "${require_selinux}" == "yes" ]]; then
-            [[ -z "${selinux_mode}" ]] && { printf 'require-unattested'; return 1; }
-            printf 'require-not-enforcing'; return 1
+    # ── Launch: the known good states, each stated whole ──
+    if [[ "${require_selinux}" != "yes" ]]; then
+        # DAC-only by the operator's default: no transition to verify.
+        if [[ "${selinux_mode}" != "Enforcing" ]]; then
+            printf 'ok'; return 0
         fi
+        # Confined: the transition's inputs verified; an unreadable manager domain is advisory here.
+        if [[ "${entrypoint_labelled}" == yes && ( "${manager_domain_covered}" == yes || -z "${manager_domain}" ) ]]; then
+            printf 'ok'; return 0
+        fi
+        # The SELinux layer was never installed on this host: an intentional DAC-only deployment.
+        if [[ "${expected_label}" != "ai_tools_exec_t" && ( "${module_present}" == "no" || -z "${module_present}" ) ]]
+        then
+            printf 'ok'; return 0
+        fi
+    elif [[ "${selinux_mode}" == "Enforcing" && "${entrypoint_labelled}" == yes \
+            && "${manager_domain_covered}" == yes && "${attestation_verdict}" == ok ]]; then
+        # Confined and attested.
         printf 'ok'; return 0
     fi
 
+    # ── Refuse: name the reason, in the order the inputs are checked ──
+    if [[ "${selinux_mode}" != "Enforcing" ]]; then
+        if [[ -z "${selinux_mode}" ]]; then printf 'require-unattested'; else printf 'require-not-enforcing'; fi
+        return 1
+    fi
     if [[ "${expected_label}" == "ai_tools_exec_t" ]]; then
-        if [[ "${actual_label}" != "ai_tools_exec_t" ]]; then
-            printf 'mislabel'; return 1
+        [[ "${actual_label}" != "ai_tools_exec_t" ]] && { printf 'mislabel'; return 1; }
+        [[ -n "${manager_domain}" && "${manager_domain_covered}" == no ]] && { printf 'manager-domain'; return 1; }
+        [[ "${attestation_verdict}" == permissive ]] && { printf 'require-permissive'; return 1; }
+        [[ "${attestation_verdict}" == boolean ]] && { printf 'require-boolean'; return 1; }
+        if [[ -z "${manager_domain}" || "${attestation_verdict}" == unknown ]]; then
+            printf 'require-unattested'; return 1
         fi
-        if [[ -n "${manager_domain}" && "${manager_domain}" != "init_t" && "${manager_domain}" != "unconfined_t" ]]; then
-            printf 'manager-domain'; return 1
-        fi
-        [[ "${require_selinux}" == "yes" ]] || { printf 'ok'; return 0; }
-        attestation_verdict="$(ai_tools_confinement_attestation_verdict "${domain_permissive}" "${boolean_states}")" \
-            || true
-        case "${attestation_verdict}" in
-            permissive) printf 'require-permissive'; return 1 ;;
-            boolean)    printf 'require-boolean'; return 1 ;;
-            ok)         [[ -n "${manager_domain}" ]] && { printf 'ok'; return 0; } ;;
-        esac
-        printf 'require-unattested'; return 1
-    fi
-
-    # Label unresolved: distinguish a half-installed host (module present -> fail closed) from an intentional DAC-only
-    # deployment (module absent -> launch, unless the operator requires SELinux).
-    if [[ "${module_present}" == "yes" ]]; then
-        printf 'unverifiable'; return 1
-    fi
-    if [[ "${require_selinux}" == "yes" ]]; then
+    else
+        [[ "${module_present}" == "yes" ]] && { printf 'unverifiable'; return 1; }
+        [[ "${module_present}" == "no" ]] && { printf 'require-inactive'; return 1; }
         [[ -z "${module_present}" ]] && { printf 'require-unattested'; return 1; }
-        printf 'require-inactive'; return 1
     fi
-    printf 'ok'; return 0
+    printf 'unclassified'; return 1
 }
