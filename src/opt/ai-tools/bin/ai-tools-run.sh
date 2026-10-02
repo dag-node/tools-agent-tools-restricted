@@ -334,31 +334,14 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
     [[ -n "${manager_domain}" ]] || note_unread_input tool "the user manager's domain (pgrep)"
 
     # The per-domain mode and the Booleans are read only where they decide anything: under require.
-    domain_permissive="" current_boolean_values="" required_boolean_values="" declaration_state=absent
+    domain_permissive="" current_boolean_values="" required_boolean_values=""
     if [[ "${require_selinux}" == yes ]]; then
-        { read -r declaration_state; IFS= read -r required_boolean_values; IFS= read -r _; } \
-            < <(ai_tools_confinement_read_boolean_requirement "${operator_conf}")
-        declared_boolean_names=()
-        if [[ "${declaration_state}" != absent ]]; then
-            for required_entry in ${required_boolean_values}; do
-                [[ "${required_entry%%=*}" == AI_TOOLS_SELINUX_BOOLEANS ]] && continue
-                declared_boolean_names+=( "${required_entry%%=*}" )
-            done
-        fi
-        IFS='|' read -r domain_permissive current_boolean_values \
-            < <(ai_tools_confinement_read_attestation_records /sys/fs/selinux \
-                    "${declared_boolean_names[@]+"${declared_boolean_names[@]}"}" \
-                    | ai_tools_confinement_parse_attestation_records) \
-            || true
-        [[ -n "${domain_permissive}" ]] \
-            || note_unread_input selinuxfs "whether ai_tools_t is a permissive domain (/sys/fs/selinux/access)"
-        for required_entry in ${required_boolean_values}; do
-            if [[ "${required_entry}" == AI_TOOLS_SELINUX_BOOLEANS=malformed ]]; then
-                note_unread_input declaration "AI_TOOLS_SELINUX_BOOLEANS in operator.conf (an entry is not <boolean>=on or <boolean>=off)"
-            elif [[ " ${current_boolean_values} " != *" ${required_entry%%=*}="* ]]; then
-                note_unread_input boolean "the ${required_entry%%=*} Boolean"
-            fi
-        done
+        IFS='|' read -r _ required_boolean_values _ domain_permissive current_boolean_values \
+            < <(ai_tools_confinement_read_attestation_inputs "${operator_conf}" /sys/fs/selinux) || true
+        while IFS=$'\t' read -r unread_kind unread_description; do
+            note_unread_input "${unread_kind}" "${unread_description}"
+        done < <(ai_tools_confinement_list_unread_inputs "${required_boolean_values}" "${current_boolean_values}" \
+                                                           "${domain_permissive}")
     fi
 
     audit info "launch: agent=${agent_name} selinux=${selinux_mode:-unknown} module=${module_present:-unknown} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown} require=${require_selinux} permissive=${domain_permissive:-unread} booleans=${current_boolean_values:-unread} required=${required_boolean_values:-none}"

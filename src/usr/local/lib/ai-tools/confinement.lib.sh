@@ -254,31 +254,73 @@ ai_tools_confinement_is_selinux_required() {
     ai_tools_conf_is_trusted "$1" 2>/dev/null && ai_tools_conf_yes "$1" AI_TOOLS_REQUIRE_SELINUX
 }
 
-# ai_tools_confinement_list_attestation_rows [required-boolean-values] [declared-boolean-values] -- read
-# ai_tools_confinement_read_attestation_records' output on stdin and print one tab-separated row per reading the status
-# reports show: every table Boolean, then each required Boolean the table does not hold, a value the reader could not
-# read as `unread`:
-#   domain<TAB><yes|no|unread>                                  whether ai_tools_t is a permissive domain
-#   boolean<TAB><name><TAB><on|off|unread><TAB><required value|-><TAB><built-in|operator.conf|->
-#          <TAB><opening value|-><TAB><grants>
-# The required value is the one <required-boolean-values> holds (the table's defaults when absent), and its origin is
-# `operator.conf` where <declared-boolean-values> holds the name.
+# ai_tools_confinement_read_attestation_inputs <operator-conf> [selinuxfs-root] -- print, on one `|`-separated line,
+# every input the attestation verdict and the status reports take for <operator-conf>:
+#   <declaration-state>|<required-boolean-values>|<declared-boolean-values>|<domain-permissive>|<current-boolean-values>
+# The first three are ai_tools_confinement_read_boolean_requirement's record; the last two are
+# ai_tools_confinement_read_attestation_records' reading of <selinuxfs-root>, which reads each declared Boolean beside
+# the registry's. The shim and both status reports read through this one function, so the three cannot read a different
+# set. `|` is the separator because `read` collapses an empty field split on a tab.
+ai_tools_confinement_read_attestation_inputs() {
+    local IFS=$' \t\n'   # the name list below splits on spaces whatever IFS the caller set (ai-tools: newline, tab)
+    local operator_conf="$1" selinuxfs_root="${2:-/sys/fs/selinux}"
+    local declaration_state required_boolean_values declared_boolean_values domain_permissive current_boolean_values
+    local declared_entry
+    local -a declared_boolean_names=()
+    { read -r declaration_state; IFS= read -r required_boolean_values; IFS= read -r declared_boolean_values; } \
+        < <(ai_tools_confinement_read_boolean_requirement "${operator_conf}")
+    for declared_entry in ${declared_boolean_values}; do declared_boolean_names+=( "${declared_entry%%=*}" ); done
+    IFS='|' read -r domain_permissive current_boolean_values \
+        < <(ai_tools_confinement_read_attestation_records "${selinuxfs_root}" \
+                "${declared_boolean_names[@]+"${declared_boolean_names[@]}"}" \
+            | ai_tools_confinement_parse_attestation_records) || true
+    printf '%s|%s|%s|%s|%s\n' "${declaration_state}" "${required_boolean_values}" "${declared_boolean_values}" \
+        "${domain_permissive}" "${current_boolean_values}"
+}
+
+# ai_tools_confinement_list_unread_inputs <required-boolean-values> <current-boolean-values> <domain-permissive> --
+# print one `<kind><TAB><description>` row per attestation input the verdict reads as unread, so a refusal names each
+# and prints the remedy its kind takes: `selinuxfs` for the per-domain mode, `boolean` for a required Boolean
+# the reading lacks, `declaration` for the malformed marker. Prints nothing when every input was read.
+ai_tools_confinement_list_unread_inputs() {
+    local IFS=$' \t\n'   # the list below splits on spaces whatever IFS the caller set (ai-tools: newline, tab)
+    local required_boolean_values="$1" current_boolean_values=" $2 " domain_permissive="$3" required_entry
+    [[ "${domain_permissive}" == yes || "${domain_permissive}" == no ]] \
+        || printf 'selinuxfs\twhether ai_tools_t is a permissive domain (/sys/fs/selinux/access)\n'
+    for required_entry in ${required_boolean_values}; do
+        if [[ "${required_entry}" == AI_TOOLS_SELINUX_BOOLEANS=malformed ]]; then
+            printf 'declaration\tAI_TOOLS_SELINUX_BOOLEANS in operator.conf (an entry is not <boolean>=on or <boolean>=off)\n'
+        elif [[ "${current_boolean_values}" != *" ${required_entry%%=*}="* ]]; then
+            printf 'boolean\tthe %s Boolean\n' "${required_entry%%=*}"
+        fi
+    done
+}
+
+# ai_tools_confinement_list_attestation_rows <domain-permissive> <current-boolean-values> <required-boolean-values>
+#                                            <declared-boolean-values>
+# Print one tab-separated row per reading the status reports render: the per-domain mode, then every registry Boolean,
+# then each required Boolean the registry does not hold. A value the reader could not read is `unread`, a column with
+# no value `-`:
+#   domain<TAB><yes|no|unread><TAB><remedy|->
+#   boolean<TAB><name><TAB><classification><TAB><on|off|unread><TAB><required value|->
+#          <TAB><built-in|operator.conf|-><TAB><opening value|-><TAB><grants><TAB><remedy|->
+# The classification is ai_tools_confinement_classify_boolean_row's; the remedy is the command that puts a `differs`
+# row or a permissive domain right, so every report prints the same one.
 ai_tools_confinement_list_attestation_rows() {
     local IFS=$' \t\n'   # the lists below split on spaces whatever IFS the caller set (ai-tools: newline, tab)
-    local required_boolean_values=" ${1-} " declared_boolean_values=" ${2:-} "
-    local domain_permissive current_boolean_values boolean_name opening_value boolean_grants required_entry
-    local table_boolean_names=" "
-    [[ $# -ge 1 ]] || required_boolean_values=" $(ai_tools_confinement_resolve_required_boolean_values "") "
-    IFS='|' read -r domain_permissive current_boolean_values < <(ai_tools_confinement_parse_attestation_records) || true
-    printf 'domain\t%s\n' "${domain_permissive:-unread}"
+    local domain_permissive="$1" current_boolean_values="$2" required_boolean_values=" $3 "
+    local declared_boolean_values=" $4 " boolean_name opening_value boolean_grants required_entry
+    local registry_boolean_names=" " domain_remedy=-
+    [[ "${domain_permissive}" == yes ]] && domain_remedy="sudo semanage permissive -d ai_tools_t"
+    printf 'domain\t%s\t%s\n' "${domain_permissive:-unread}" "${domain_remedy}"
     while IFS=$'\t' read -r boolean_name _ opening_value boolean_grants; do
-        table_boolean_names+="${boolean_name} "
+        registry_boolean_names+="${boolean_name} "
         _ai_tools_confinement_print_boolean_row "${boolean_name}" "${opening_value}" "${boolean_grants}" \
             "${current_boolean_values}" "${required_boolean_values}" "${declared_boolean_values}"
     done < <(ai_tools_confinement_list_known_booleans)
     for required_entry in ${required_boolean_values}; do
         boolean_name="${required_entry%%=*}"
-        [[ "${table_boolean_names}" == *" ${boolean_name} "* ]] && continue
+        [[ "${registry_boolean_names}" == *" ${boolean_name} "* ]] && continue
         if [[ "${required_entry#*=}" == malformed ]]; then
             _ai_tools_confinement_print_boolean_row "${boolean_name}" - "an entry that is not <boolean>=on or <boolean>=off" \
                 "${current_boolean_values}" "${required_boolean_values}" " ${boolean_name}=malformed "
@@ -294,6 +336,7 @@ ai_tools_confinement_list_attestation_rows() {
 _ai_tools_confinement_print_boolean_row() {
     local boolean_name="$1" opening_value="$2" boolean_grants="$3" current_boolean_values=" $4 "
     local required_boolean_values=" $5 " declared_boolean_values=" $6 " boolean_state required_value=- origin=-
+    local classification remedy=-
     case "${current_boolean_values}" in
         *" ${boolean_name}=on "*)  boolean_state=on ;;
         *" ${boolean_name}=off "*) boolean_state=off ;;
@@ -308,8 +351,30 @@ _ai_tools_confinement_print_boolean_row() {
         origin=built-in
         [[ "${declared_boolean_values}" == *" ${boolean_name}="* ]] && origin=operator.conf
     fi
-    printf 'boolean\t%s\t%s\t%s\t%s\t%s\t%s\n' "${boolean_name}" "${boolean_state}" "${required_value}" "${origin}" \
-        "${opening_value}" "${boolean_grants}"
+    classification="$(ai_tools_confinement_classify_boolean_row "${boolean_state}" "${required_value}" "${opening_value}")"
+    [[ "${classification}" == differs ]] && remedy="sudo setsebool -P ${boolean_name}=${required_value}"
+    printf 'boolean\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${boolean_name}" "${classification}" "${boolean_state}" \
+        "${required_value}" "${origin}" "${opening_value}" "${boolean_grants}" "${remedy}"
+}
+
+# ai_tools_confinement_list_attestation_report <operator-conf> [selinuxfs-root] -- print the whole reading a status
+# report renders: ai_tools_confinement_list_attestation_rows over ai_tools_confinement_read_attestation_inputs, then one
+# closing row, `verdict<TAB><ok|permissive|boolean|unknown><TAB><yes|no>`: ai_tools_confinement_attestation_verdict's
+# token, and whether AI_TOOLS_REQUIRE_SELINUX makes a token other than `ok` refuse every launch. A report renders
+# the rows in its own form and reads the exit status it owes off the verdict row, so the reports and the shim agree
+# on every value.
+ai_tools_confinement_list_attestation_report() {
+    local operator_conf="$1" selinuxfs_root="${2:-/sys/fs/selinux}" selinux_required=no attestation_verdict
+    local declaration_state required_boolean_values declared_boolean_values domain_permissive current_boolean_values
+    IFS='|' read -r declaration_state required_boolean_values declared_boolean_values domain_permissive \
+            current_boolean_values \
+        < <(ai_tools_confinement_read_attestation_inputs "${operator_conf}" "${selinuxfs_root}") || true
+    ai_tools_confinement_list_attestation_rows "${domain_permissive}" "${current_boolean_values}" \
+        "${required_boolean_values}" "${declared_boolean_values}"
+    attestation_verdict="$(ai_tools_confinement_attestation_verdict "${domain_permissive}" "${current_boolean_values}" \
+        "${required_boolean_values}")" || true
+    ai_tools_confinement_is_selinux_required "${operator_conf}" && selinux_required=yes
+    printf 'verdict\t%s\t%s\n' "${attestation_verdict}" "${selinux_required}"
 }
 
 # ai_tools_confinement_classify_boolean_row <state> <required value|-> <opening value|-> -- print the reading

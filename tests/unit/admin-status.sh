@@ -183,7 +183,7 @@ call_attestation_section() {
              source "${helper}" >/dev/null 2>&1 || exit 99
              declare -F status_selinux_attestation >/dev/null || exit 98
              source "${lib}" 2>/dev/null || exit 97
-             declare -F ai_tools_confinement_list_attestation_rows >/dev/null || exit 97
+             declare -F ai_tools_confinement_list_attestation_report >/dev/null || exit 97
              getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
              ai_tools_confinement_read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
              STATUS_PROBLEMS=0; STATUS_UNREADABLE=0

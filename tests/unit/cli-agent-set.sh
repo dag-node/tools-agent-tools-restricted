@@ -333,7 +333,7 @@ call_attestation_section() {
         bash -c 'cli="$1"; lib="$2"; stub_attestation_records="$3"; operator_conf="$4"; set --
                  source "${cli}" >/dev/null 2>&1 || exit 99
                  declare -F status_selinux_attestation >/dev/null || exit 98
-                 source "${lib}" 2>/dev/null; declare -F ai_tools_confinement_list_attestation_rows >/dev/null || exit 97
+                 source "${lib}" 2>/dev/null; declare -F ai_tools_confinement_list_attestation_report >/dev/null || exit 97
                  getenforce() { printf "Enforcing\n"; }
                  ai_tools_confinement_read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
                  section_status=0; status_selinux_attestation "${operator_conf}" || section_status=$?
