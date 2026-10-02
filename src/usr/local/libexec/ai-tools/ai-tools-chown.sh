@@ -78,8 +78,8 @@ if ! source "${LOG_LIB}"; then
     die_unsourced "${LOG_LIB}"
 fi
 
-# Shared secret-name matcher, sourced (not executed) so this helper and ai-tools-lockdown classify basenames by the SAME
-# patterns from the SAME config file (the operator's secret-patterns, resolved via the operator identity). Required
+# Shared secret-name matcher, sourced (not executed) so every helper classifies a basename by the same patterns
+# from the same config file (the operator's secret-patterns, resolved via the operator identity). Required
 # and fail-closed: exiting non-zero here skips this path's handback, which secret-handling.rule.md states is the safe
 # outcome -- the path stays ai-tools-owned instead of being handed back unclassified.
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
@@ -154,10 +154,9 @@ readonly SECRET_OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
 AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
 
 # Classify the basename against the shared secret-name patterns, which the library reads from the operator's own config
-# (secret-handling.rule.md covers the set and how an operator narrows it). The file is read here, after the resolve
-# that names it; one that is present and cannot be read refuses the handback under the library's own code, so the path
-# stays sandbox-owned rather than classified on a set the operator did not write. A match sets is_secret, which selects
-# the quarantine branch and the NOTICE further down.
+# (secret-handling.rule.md covers the set, the load order and what each loader outcome does). Read after the resolve
+# that names the file; a present file the loader cannot read refuses the handback, so the path stays sandbox-owned.
+# A match sets is_secret, which selects the quarantine branch and the NOTICE further down.
 ai_tools_load_secret_patterns \
     || die "the operator's secret-patterns file could not be read -- ${canonical} stays sandbox-owned until it is fixed"
 is_secret=false
@@ -223,8 +222,8 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # The agent-written guard: act only on a path currently ai-tools-owned. What that ownership signals
             # and what an unowned path is spared are in ownership-and-hooks.rule.md. These reads go through the path
             # string, a separate lookup from the identity read (expect_ident), so a rename exchange can answer each
-            # from a different inode. They select the plan and the prompt only: the apply block re-reads the owner and mode
-            # from the pinned descriptor and refuses unless both still match.
+            # from a different inode. They select the plan and the prompt only: the apply block re-reads the owner
+            # and mode from the pinned descriptor and refuses unless both still match.
             [[ "${current_owner%%:*}" == "@SANDBOX_USER@" ]] || exit 0
 
             # Three targets, in this order: a directory, a secret-named file, then an ordinary file split
@@ -282,8 +281,8 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
             # to the SHELL permanently (exec with no command), which would swallow the secret-file NOTICE emitted
             # on stderr. The group scopes 2>/dev/null to just the open; fd2 is restored after.
             { exec {fd}< "${canonical}"; } 2>/dev/null || exit 0
-            # One stat of the pinned inode supplies every fact the decision rests on. The type goes last because
-            # `%F` can span several words ("regular empty file"), which `read` gathers into its final variable.
+            # One stat of the pinned inode supplies every fact the decision rests on. The type goes last because `%F`
+            # can span several words ("regular empty file"), which `read` gathers into its final variable.
             read -r got_ident got_nlink got_owner got_mode got_ftype \
                 < <(stat -L -c '%d:%i %h %U:%G %a %F' "/proc/self/fd/${fd}" 2>/dev/null) \
                 || { exec {fd}<&-; exit 0; }

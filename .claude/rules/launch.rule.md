@@ -244,6 +244,13 @@ by `ai-tools projects claim`, which does not close this one. The print-and-exit 
 `--version`/`--help` does not take the reading. What the report is about is
 [ref-section-t8k3](dotnet.rule.md#ref-section-t8k3).
 
+**A secret-pattern drift line (wrapper-side, journald only).** Beside those two, the wrapper logs once per launch
+how the operator's own `secret-patterns` file differs from the shipped baseline, and names a file the loader cannot
+read. The wrapper runs as the operator, so it is the one point per session where that file is readable and the record is
+attributable to a launch; the line is a record and not a launch decision, so it goes to the journal and never
+the terminal, and a missing library or `logger` skips it. What the comparison is for, and what an unreadable file does
+to the operator's helpers, is [ref-section-h4j6](secret-handling.rule.md#ref-section-h4j6).
+
 **`WorkingDirectory` is the validated project directory.** A transient unit defaults its cwd to `/`. The wrapper exports
 the realpath'd, allowlist- and claim-validated project directory as `AI_TOOLS_PROJECT_DIR`, carried through sudo
 via `env_keep`; `ai-tools-run` re-validates it (absolute, `..`-free, existing) and sets it as the unit's

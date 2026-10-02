@@ -631,14 +631,13 @@ ai_tools_launch_gates() {
 # on a healthy host. Each down service names its consequence (framed) and its exact remedy (plain, under the box
 # so the command stays copy-pasteable -- see messaging.rule.md).
 #
-# Secret-pattern drift, journald only: the operator's own file REPLACES the shipped baseline rather than extending it,
-# so a copy written once keeps this host on that set and silently drops every pattern added upstream since. Nobody is
-# placed to notice: the agent cannot read the file, and the log records the quarantines that happened rather than
-# the patterns that would have caused one. This is the one point per session where the file is both readable (the
-# wrapper runs as the operator, before the drop) and attributable to a launch, so the difference is recorded here --
-# to the journal, never to the terminal, since it is not a launch decision and the operator did not ask a question.
-# A missing lib, an unreadable file, or an absent `logger` skips it; an empty or missing file means the baseline is
-# in force, which is no difference and stays silent.
+# Secret-pattern drift, journald only: the operator's own file REPLACES the shipped baseline (secret-handling.rule.md
+# states the cost), and the wrapper is the one point per session where that file is both readable (it runs
+# as the operator, before the drop) and attributable to a launch, so the difference is recorded here -- to the journal,
+# never to the terminal, since it is not a launch decision and the operator did not ask a question. A missing lib
+# or an absent `logger` skips it; an empty or missing file is the baseline in force and does not print a line; a present
+# file the loader cannot read prints a line saying so, since the baseline then classifies for this session while
+# the operator's helpers refuse.
 #
 # Unreadable ancestor configuration: a build toolchain collects configuration from a project's ancestor directories,
 # and a file it opens there that the DAC mode or the SELinux label denies the sandbox account fails the build

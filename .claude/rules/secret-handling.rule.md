@@ -4,6 +4,9 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-chown.sh"
   - "src/usr/local/lib/ai-tools/secret-patterns.lib.sh"
   - "src/usr/local/lib/ai-tools/owner-only.lib.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-setgid.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh"
 ---
 
 # Secret-named file handling
@@ -51,65 +54,70 @@ is the reference for which paths are sealed, what the strip removes, and why a n
 the residue in place. A `!`-exclusion is the stronger form: an excluded subtree is skipped by every walk whatever its
 mode.
 
-## Shared secret-pattern set (one source, one matcher)
+## Shared secret-pattern set (one source, one matcher) <a id="ref-section-h4j6"></a>
 
-The secret basename patterns live in a single user-owned config file, `~/.config/ai-tools/secret-patterns`
-(`<you>:<you> 600`), co-located with `allowed-projects` and owned the same way: the operator edits it; `SANDBOX_USER` —
-neither its owner nor in its group, and unable to enter the `700 .config/ai-tools` dir — can neither read nor write it;
-the root helpers read it on the operator's behalf, so the agent cannot weaken its own secret classification.
+**The file.** The patterns live in `~/.config/ai-tools/secret-patterns` (`<you>:<you> 600`, inside the `700`
+`~/.config/ai-tools`), beside `allowed-projects` and owned the same way: the operator edits it, `SANDBOX_USER` — neither
+its owner nor in its group, and unable to enter the directory — can neither read nor write it, and the root helpers read
+it on the operator's behalf, so the agent cannot weaken its own secret classification. `ai-tools-admin operators add`
+seeds it with the header alone — what the file is, the replace rule, an example line and `ai-tools-secret-patterns(5)`,
+the page that holds the reference ([providers](providers.rule.md) states why a seeded header is a pointer) —
+so the baseline stays in force and each upgrade's additions reach that operator until they write a pattern of their own.
 
-Every helper that classifies a basename — `ai-tools-chown`, `ai-tools-lockdown`, and the claim-side walks
-`ai-tools-setfacl` and `ai-tools-unclaim`, which skip a match — sources `/usr/local/lib/ai-tools/secret-patterns.lib.sh`
-(`644 root:root`, not in a `SANDBOX_USER`-writable dir) for one matcher over that file, so no two of them drift apart.
-Each loads the set only once the path's operator is resolved, since the loader builds the file's path
-from that operator's home: a load made earlier reads the built-in baseline and marks the set loaded, so the operator's
-file is never read. `tests/unit/setfacl.sh`, `tests/unit/setgid.sh` and `tests/unit/unclaim.sh` read that order off
-the installed helpers. Its
-built-in list is the **public baseline** — the credential names software writes in general — and ships in the source
-repo, so read is open: the installed copy holds only what is already published. Root-only **write** is the boundary,
-since an agent that could edit the matcher would decide its own classification; `tests/boundary/access.sh` asserts
-that as the agent. An operator's config **replaces** it rather than adding to it, and the baseline applies
-when that file is missing or parses empty, so classification never degrades to an empty pattern set. That is what makes
-the seeded file safe to place before an operator has decided anything: enrolment writes the header alone — what the file
-is, the replace rule, an example line and `ai-tools-secret-patterns(5)`, the page that holds the reference
-([providers](providers.rule.md) states why a seeded header is a pointer) — so the baseline stays in force and each
-upgrade's additions reach that operator until they write a pattern of their own. A deployment-specific name belongs
-in the operator's `600` config, alongside the baseline entries they still want, since the file replaces rather than
-extends; a general one missing from the baseline goes upstream, since the library is rpm-owned and not `%config`,
-so an edit there is lost on upgrade.
+**The library.** Every component that classifies a basename sources `/usr/local/lib/ai-tools/secret-patterns.lib.sh`
+(`644 root:root`, in a directory `SANDBOX_USER` cannot write) for one loader and one matcher over that file, so no two
+of them drift apart. Its built-in list is the **public baseline** — the credential names software writes in general —
+and ships in the source repo, so read is open: the installed copy holds only what is already published. Root-only
+**write** is the boundary, since an agent that could edit the matcher would decide its own classification;
+`tests/boundary/access.sh` asserts that as the agent. `ai-tools-chown` reads it from `ai_tools_handback_t` (inherited
+from the handback daemon, no transition), which the policy grants `libs_read_lib_files` for the `lib_t`-labelled
+library. The baseline is incomplete by construction, since it tracks conventions that keep appearing:
+a deployment-specific name belongs in the operator's file, alongside the baseline entries they still want, and a general
+one missing from the baseline goes upstream, since the library is rpm-owned and not `%config`, so an edit there is lost
+on upgrade.
 
-**A present file the loader refuses to read is told apart from an absent one.** `ai_tools_load_secret_patterns` reads
-a path that exists only while `-f` and `-r` both hold for it; a directory, a dangling symlink, a FIFO, or a read
-`access(2)` refuses loads the baseline all the same, names the file in `AI_TOOLS_SECRET_PATTERNS_UNREADABLE`, prints
-`MSG-S4T9`, and returns 1. So a caller that ignores the status classifies on the baseline and never on an empty set,
-and every helper that changes a tree reads the status and refuses before its first write: `ai-tools-chown` leaves
-the path sandbox-owned, `ai-tools-lockdown` does not lock any path, and the claim-side walks `ai-tools-setgid`,
-`ai-tools-setfacl` and `ai-tools-unclaim` exit without touching the project. The same three walks refuse
-when the library itself does not load (`MSG-B3F5`, `MSG-Q6N6`, `MSG-P5R2`), as `ai-tools-chown` and `ai-tools-lockdown`
-already did: a walk with no matcher would give the agent's group every path the operator named. An absent file stays
-the ordinary state and loads the baseline at status 0. The launch wrapper's drift line reports the unreadable file
-in the journal, since the baseline is then in force for the operator's sessions while their helpers refuse. The runtime
-half is `tests/unit/secret-patterns.sh` and one case per helper; the boundary half is the `700` config directory
-`tests/boundary/access.sh` probes, which keeps the sandbox account from putting the file into that state.
+**The loader has three outcomes, and the file replaces the baseline.** `ai_tools_load_secret_patterns` builds the file's
+path from the resolved operator's home, so every consumer calls it after the owner resolve (its doc comment states
+what a load made earlier reads). An operator's file **replaces** the baseline rather than adding to it:
 
-**Replacing rather than extending has a cost the launch wrapper reports.** A config written once holds this host
-to the set it listed then, and every pattern added upstream since is absent from it — a narrowing no party is placed
-to notice, since the agent cannot read the file and a quarantine that did not happen writes no line to any log.
-`ai_tools_secret_patterns_drift` compares the set in force against the baseline as a set, and the launch wrapper
-(`launch-wrapper.lib.sh`, for every agent) logs the result to journald once per launch: the file's path, what it adds,
-and — the half that matters — which baseline patterns it drops, each one a credential name this host no longer
-quarantines. A missing or empty config is the baseline itself, so no line is written for it; the report names patterns
-rather than counts alone, and goes to the journal rather than the terminal, being a fact to act on later and not
-a launch decision. A failure to source the library is fail-closed: `ai-tools-chown` exits non-zero and skips that path's
-handback (it stays `SANDBOX_USER`-owned) rather than handing a possible secret back as an ordinary file.
-`ai-tools-chown` runs in `ai_tools_handback_t` (inherited from the handback daemon, no transition), so the policy grants
-that domain `libs_read_lib_files` to read the `lib_t`-labelled library.
+**The set in force, by the state of the operator's file**
 
-The patterns are name- or environment-anchored (`appsettings.*.json`, `web.*.config`, `*.Production.*`, …), **not**
+| the file | the set in force | status |
+|---|---|---|
+| absent, or holds only comments | the baseline | 0 |
+| a readable regular file with a pattern | its patterns alone | 0 |
+| present and not a readable regular file — a directory, a dangling symlink, a FIFO, a read `access(2)` refuses | the baseline, the path in `AI_TOOLS_SECRET_PATTERNS_UNREADABLE`, and `MSG-S4T9` printed | 1 |
+
+So a caller that ignores the status classifies on the baseline, which the loader substitutes for an empty list,
+and the absent file stays the ordinary state of a fresh enrolment. The third row is told apart from the first because
+a helper walking a tree on the baseline would act on the names the operator listed: **every helper that changes a tree
+reads the status and refuses before its first write**, and refuses the same way when the library itself does not load,
+since a walk with no matcher would give the agent's group every path the operator named. `ai-tools-chown` leaves
+the path sandbox-owned rather than handing a possible secret back as an ordinary file, `ai-tools-lockdown` does not lock
+a path (a `--gate` caller reads exit 0 as every secret locked), `ai-tools-setgid` and `ai-tools-setfacl` do not write
+a group change or an ACL entry under the project, and `ai-tools-unclaim` does not regroup a path. The two consumers
+that only report go on without the operator's set: the claim's `[secret]` mark ([cli](cli.rule.md)) is advisory,
+and the launch wrapper's drift line names the unreadable file instead of a comparison. `tests/unit/secret-patterns.sh`
+drives the loader through the three rows and each helper's unit test drives its refusal; the boundary half is the `700`
+directory `tests/boundary/access.sh` probes, which keeps the sandbox account from putting the file into any of those
+states.
+
+**Replacing rather than extending has a cost the launch wrapper reports.** A file written once holds this host
+to the set it listed then, and every pattern added upstream since is absent from it — a narrowing that goes unnoticed,
+since the agent cannot read the file and a quarantine that did not happen does not write a line to any log.
+`ai_tools_secret_patterns_drift` compares the set in force against the baseline as a set and prints one line naming
+the file, what it adds, and — the half that matters — which baseline patterns it drops, each one a credential name this
+host no longer quarantines; a present file the loader cannot read prints a line saying so, since the baseline is then
+in force for the operator's sessions while their helpers refuse. The launch wrapper logs that line to journald once
+per launch, for every agent ([launch](launch.rule.md)): the wrapper runs as the operator before the privilege drop,
+so it is the one point per session where the file is both readable and attributable to a launch, and the line is
+a record to act on later, so it goes to the journal and not the terminal. A missing or empty file is the baseline
+itself, and the wrapper does not write a line for it.
+
+**The patterns are name- or environment-anchored** (`appsettings.*.json`, `web.*.config`, `*.Production.*`, …), **not**
 broad `*.*.json`/`*.*.config` catch-alls: those would also match build artifacts the toolchain must read (`*.deps.json`,
 `*.runtimeconfig.json`, `project.assets.json`, `*.dll.config`), and quarantining them breaks builds. The set uses
-basename-safe globs only, no bare `config`. A `secrets.*`/`secret.*`/`*.secret`-style stem also matches ordinary files
-named after the topic — which is why rule files use a non-matching stem (see [authoring](authoring.rule.md)).
+basename-safe globs only, no bare `config`.
 
 ## Quirks
 
@@ -117,7 +125,7 @@ A file the agent writes whose basename matches the secret patterns is quarantine
 `ai-tools-chown` chowns it to `<you>:<you> 600`, which also catches files merely *named* after the topic, not just real
 secrets: a doc or rule file called `secrets.md` matches `secrets.*` and becomes unreadable to the agent. This is
 why rule files use a non-matching stem (`secret-handling.rule.md`, not `secrets.rule.md`; see
-[authoring](authoring.rule.md)).
+[authoring](authoring.rule.md)) and docs pages are named for their verb ([docs-pages](docs-pages.rule.md)).
 
 ## Proactive: `ai-tools-lockdown` <a id="ref-section-g6s6"></a>
 
