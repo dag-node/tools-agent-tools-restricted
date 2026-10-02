@@ -320,7 +320,8 @@ fi
 # ── The SELinux attestation section returns a fault only where AI_TOOLS_REQUIRE_SELINUX makes it refuse a launch ──
 # `getenforce` and the selinuxfs reader are stubbed after the library is loaded, so its include guard keeps
 # the section's own re-source from restoring the reader. The `operator.conf` fixtures are root-owned, as the trust
-# predicate requires.
+# predicate requires. The stub reads a `stub_*` name: bash scopes dynamically, so a stub reading `attestation_records`
+# would see the section's own unset local of that name rather than the value set here.
 section "status: the SELinux attestation section (unit)"
 REQUIRED_CONF="${TESTDIR}/operator-required.conf"; NOT_REQUIRED_CONF="${TESTDIR}/operator-not-required.conf"
 printf 'AI_TOOLS_REQUIRE_SELINUX=yes\n' > "${REQUIRED_CONF}"; printf 'AI_TOOLS_REQUIRE_SELINUX=no\n' > "${NOT_REQUIRED_CONF}"
@@ -329,12 +330,12 @@ chmod 0644 "${REQUIRED_CONF}" "${NOT_REQUIRED_CONF}"
 # shellcheck disable=SC2016  # the $1..$4 are for the inner `bash -c`, not this shell -- do not expand here
 call_attestation_section() {
     runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_MSG_PLAIN=1 \
-        bash -c 'cli="$1"; lib="$2"; attestation_records="$3"; operator_conf="$4"; set --
+        bash -c 'cli="$1"; lib="$2"; stub_attestation_records="$3"; operator_conf="$4"; set --
                  source "${cli}" >/dev/null 2>&1 || exit 99
                  declare -F status_selinux_attestation >/dev/null || exit 98
                  source "${lib}" 2>/dev/null; declare -F ai_tools_confinement_attestation_report_rows >/dev/null || exit 97
                  getenforce() { printf "Enforcing\n"; }
-                 ai_tools_confinement_read_attestation_records() { printf "%s\n" "${attestation_records}"; }
+                 ai_tools_confinement_read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
                  section_status=0; status_selinux_attestation "${operator_conf}" || section_status=$?
                  printf "section-status=%s\n" "${section_status}"' \
         _ "${CLI}" /usr/local/lib/ai-tools/confinement.lib.sh "$1" "$2" 2>&1
@@ -348,14 +349,14 @@ else
     else
         fail "permissive under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
-    out="$(call_attestation_section $'permissive\tyes' "${NOT_REQUIRED_CONF}")"
+    out="$(call_attestation_section $'permissive\tyes' "${NOT_REQUIRED_CONF}")" || true
     if grep -qx 'section-status=0' <<<"${out}" && grep -qF 'launches are not refused' <<<"${out}"; then
         pass "the same reading without the requirement is reported and not a fault"
     else
         fail "permissive without the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
     out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff' \
-               "${REQUIRED_CONF}")"
+               "${REQUIRED_CONF}")" || true
     if grep -qx 'section-status=0' <<<"${out}"; then
         pass "an attested host under the requirement is not a fault"
     else
