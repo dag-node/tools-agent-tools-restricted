@@ -111,7 +111,9 @@ ai_tools_confinement_read_attestation_records() {
     for boolean_row in "${AI_TOOLS_CONFINEMENT_BOOLEANS[@]}"; do
         boolean_name="${boolean_row%%|*}"
         boolean_active_value=""
-        { read -r boolean_active_value _ < "${selinuxfs_root}/booleans/${boolean_name}"; } \
+        # IFS is pinned: the file holds `<active> <pending>`, and a caller sourcing this with IFS=$'\n\t' (ai-tools)
+        # would otherwise read both fields as one value.
+        { IFS=' ' read -r boolean_active_value _ < "${selinuxfs_root}/booleans/${boolean_name}"; } \
             2>/dev/null || true
         case "${boolean_active_value}" in
             1) printf 'boolean\t%s\ton\n'  "${boolean_name}" ;;

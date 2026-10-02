@@ -207,6 +207,14 @@ if [[ "${fixture_records}" == "${expected_records}" ]]; then
 else
     fail "reader over the fixture printed: ${fixture_records//$'\n'/ | }"
 fi
+# The same reading under the IFS ai-tools sets (newline and tab only): a reader that split on the caller's IFS would
+# read `0 0` as one value and report every Boolean unread.
+fixture_records_cli_ifs="$(IFS=$'\n\t'; ai_tools_confinement_read_attestation_records "${fixture_selinuxfs}")"
+if [[ "${fixture_records_cli_ifs}" == "${expected_records}" ]]; then
+    pass "reader: the Boolean values read alike under ai-tools' IFS=\$'\\n\\t'"
+else
+    fail "reader under IFS=\$'\\n\\t' printed: ${fixture_records_cli_ifs//$'\n'/ | }"
+fi
 if [[ -z "$(ai_tools_confinement_read_attestation_records "${TESTDIR}/absent")" ]]; then
     pass "reader: a missing selinuxfs prints no record, so every input reads as unread"
 else
