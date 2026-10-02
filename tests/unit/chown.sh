@@ -272,9 +272,10 @@ fi
 # lookups wide, so this is a stress check that catches a regression with some probability per run; case (13) is
 # the deterministic one. A run that hands the agent file back is required, which proves the racer left the apply
 # reachable.
-# race_exchange <a> <b>: swap <a> and <b> with renameat2(RENAME_EXCHANGE) until killed.
+# race_exchange <a> <b>: swap <a> and <b> with renameat2(RENAME_EXCHANGE) until killed. `exec` makes the background
+# job's pid the racer's own, so the kill stops it; a racer left running would swap the next run's fixture during setup.
 race_exchange() {
-    python3 -I - "$1" "$2" <<'PY'
+    exec python3 -I - "$1" "$2" <<'PY'
 import ctypes, os, sys
 libc = ctypes.CDLL(None, use_errno=True)
 a, b = (os.fsencode(p) for p in sys.argv[1:3])
@@ -296,11 +297,17 @@ if command -v python3 >/dev/null 2>&1; then
         run "${rp}"
         kill "${racer}" 2>/dev/null || true
         wait "${racer}" 2>/dev/null || true
+        if kill -0 "${racer}" 2>/dev/null; then
+            fail "rename-exchange race: the racer outlived its kill in run ${n}, so later runs would not be read"
+            break
+        fi
         [[ -s "${TESTDIR}/racer.err" ]] && racer_errors=$(( racer_errors + 1 ))
-        # The racer stopped at an arbitrary point, so each inode is found by number rather than by name.
+        # The racer stopped at an arbitrary point, so a name may hold either inode: each is identified by its number,
+        # read with its owner and mode in one stat.
         for f in "${rp}" "${rq}"; do
-            state="$(stat -c '%U:%G %a' "${f}")"
-            if [[ "$(stat -c %i "${f}")" == "${agent_ino}" ]]; then
+            read -r ino state_owner state_mode < <(stat -c '%i %U:%G %a' "${f}")
+            state="${state_owner} ${state_mode}"
+            if [[ "${ino}" == "${agent_ino}" ]]; then
                 case "${state}" in
                     "${SANDBOX_USER}:${SANDBOX_GROUP} 674") left=$(( left + 1 )) ;;
                     "${PROJECTS_USER}:${SANDBOX_GROUP} 660") handed=$(( handed + 1 )) ;;
