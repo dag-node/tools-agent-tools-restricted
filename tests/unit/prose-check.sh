@@ -697,8 +697,9 @@ run_check --message "${msg}"
 assert_rc 1 "TEST-PC-40-message: --message checks a commit message"
 
 # ── `--config-header`: a config file's header is fixed-width text ────────────────────────────────
-# The width rule is pinned from both directions, and its two exemptions with it: a commented default is a setting and
-# a `# Default:` line states a value, so neither length is measured. Where a line BREAKS is the formatter's, so no case here reads a line's last word.
+# The width rule is pinned from both directions, and its exemptions with it: a commented default is a setting,
+# and a `# Default:` line and a `# Values:` line each state a value, so none of their lengths is measured. Where a line
+# BREAKS is the formatter's, so no case here reads a line's last word.
 long="# $(printf 'x%.0s' $(seq 1 75))"
 run_check --config-header "$(fixture TEST-PC-41-header-width.conf "${long}")"
 assert_grep 'header-width \[77>72\]' "${OUT}" "TEST-PC-41-header-width: a 77-column comment line is reported at the default width"
@@ -710,6 +711,8 @@ run_check --config-header "$(fixture TEST-PC-179-header-default-line.conf "# Def
 assert_rc 0 "TEST-PC-179-header-default-line: a # Default: line states a value, so it is not measured"
 run_check --config-header "$(fixture TEST-PC-180-header-default-mid.conf "# The value Default: names $(printf 'x%.0s' $(seq 1 75))")"
 assert_grep 'header-width' "${OUT}" "TEST-PC-180-header-default-mid: a prose line mentioning Default: mid-line is measured"
+run_check --config-header "$(fixture TEST-PC-181-header-values-line.conf "# Values: $(printf 'v%.0s' $(seq 1 75))")"
+assert_rc 0 "TEST-PC-181-header-values-line: a # Values: line states a value, so it is not measured"
 run_check --config-header "$(fixture TEST-PC-44-header-line-end.conf '# A session starts only inside a' '# listed directory.')"
 assert_rc 0 "TEST-PC-44-header-line-end: a line's last word is the formatter's business, not this check's"
 run_check --config-header "$(fixture TEST-PC-47-header-clean.conf '# A session starts only inside' '# a listed directory.' 'KEY=value' '#OTHER=default')"
