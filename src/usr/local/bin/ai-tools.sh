@@ -4488,20 +4488,40 @@ status_entrypoint_pins() {
 # status_selinux_attestation [operator-conf] -- render the rows ai_tools_confinement_list_attestation_report prints
 # (confinement.lib.sh): the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified
 # by the launch shim's own functions, so this report, ai-tools-admin status and the launch cannot disagree. Returns 1
-# for a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse every launch (the report's verdict row),
-# STATUS_UNREADABLE when the library did not load, and 0 otherwise. The section is omitted where SELinux is off
-# or getenforce cannot say.
+# for a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse every launch (the report's verdict row) or makes
+# every launch warn -- a host without SELinux confinement by its own configuration
+# (ai_tools_confinement_dac_only_state), where the shim launches DAC-only and names the key to set -- STATUS_UNREADABLE
+# when the library did not load, and 0 otherwise. The section is omitted where getenforce cannot say.
 status_selinux_attestation() {
     local operator_conf="${1:-${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}}"
-    local selinux_mode
+    local selinux_mode module_present policy_shipped dac_only_state=""
     selinux_mode="$(getenforce 2>/dev/null || true)"
-    [[ -n "${selinux_mode}" && "${selinux_mode}" != Disabled ]] || return 0
+    [[ -n "${selinux_mode}" ]] || return 0
     section "SELinux attestation"
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/confinement.lib.sh
     source "${CONFINEMENT_LIB}" 2>/dev/null || true
-    if ! declare -F ai_tools_confinement_list_attestation_report >/dev/null 2>&1; then
+    if ! declare -F ai_tools_confinement_list_attestation_report >/dev/null 2>&1 \
+            || ! declare -F ai_tools_confinement_dac_only_state >/dev/null 2>&1; then
         warn MSG-M9H2 "the confinement library ${CONFINEMENT_LIB} did not load its attestation readers -- reinstall ai-tools-base"
         return "${STATUS_UNREADABLE}"
+    fi
+    module_present="$(ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}" 2>/dev/null || true)"
+    policy_shipped="$(ai_tools_confinement_read_policy_shipped "${AI_TOOLS_CONFINEMENT_CORE_MODULE_FILE}")"
+    dac_only_state="$(ai_tools_confinement_dac_only_state "${selinux_mode}" "${module_present}" "${policy_shipped}")" \
+        || true
+    if [[ -n "${dac_only_state}" ]]; then
+        case "${dac_only_state}" in
+            disabled) say "  SELinux is disabled on this host -- there is no domain to attest" ;;
+            *)        say "  the ai_tools policy is not installed (SELinux ${selinux_mode}) -- there is no domain to attest" ;;
+        esac
+        if ai_tools_confinement_is_selinux_required "${operator_conf}"; then
+            say "  AI_TOOLS_REQUIRE_SELINUX is set, so every launch runs DAC-only and warns that the requirement is not met"
+            say "      declare this host DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
+            say "      or install the policy:       sudo dnf install ai-tools-selinux"
+            return 1
+        fi
+        say "  ${C_DIM}AI_TOOLS_REQUIRE_SELINUX is not set, so a launch runs DAC-only without a warning${C_RST}"
+        return 0
     fi
     local -a row
     local origin_note section_status=0

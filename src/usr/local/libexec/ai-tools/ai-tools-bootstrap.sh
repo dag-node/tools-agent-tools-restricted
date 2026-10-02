@@ -506,63 +506,48 @@ seed_managed_assets_step() {
     (( seeded )) || log "managed assets: no agent config directory to seed yet"
 }
 
-# offer_launch_requirements -- on a host where SELinux is enforcing and the ai_tools module is loaded, offer to require
-# both at every launch: AI_TOOLS_REQUIRE_SELINUX refuses a session the ai_tools_t domain would not confine,
-# and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY refuses an agent binary that does not carry a pin. Each moves a launch toward
-# LESS access, so the confirm defaults to yes and a run with no terminal writes both; a declined offer writes `no`,
-# so the answer is recorded once rather than asked on every run. A key operator.conf already carries, either way, is
-# the operator's declaration and is not asked about. The entrypoint requirement is offered only while every enabled
-# agent carries a pin -- the relabel ahead of this step writes them -- since it would otherwise refuse that agent's next
-# launch. An untrusted operator.conf is neither asked about nor written, as in choose_agents.
+# offer_launch_requirements -- on a host where SELinux is enforcing and the ai_tools module is loaded, offer the one
+# launch requirement operator.conf does not hold in force by default: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY refuses
+# an agent binary that does not carry a pin. (AI_TOOLS_REQUIRE_SELINUX is in force unless the file sets it to no,
+# confinement.lib.sh, so there is no posture to offer.) The switch moves a launch toward LESS access, so the confirm
+# defaults to yes and a run with no terminal writes it; a declined offer writes `no`, so the answer is recorded once
+# rather than asked on every run. A key operator.conf already carries, either way, is the operator's declaration and is
+# not asked about. The requirement is offered only while every enabled agent carries a pin -- the relabel ahead of this
+# step writes them -- since it would otherwise refuse that agent's next launch. An untrusted operator.conf is neither
+# asked about nor written, as in choose_agents.
 offer_launch_requirements() {
-    local conf="${AI_TOOLS_OPERATOR_CONF}" modules agent key answer
-    local pin_lib=/usr/local/lib/ai-tools/entrypoint-verify.lib.sh
-    local -a keys=() unpinned=() lines=()
+    local conf="${AI_TOOLS_OPERATOR_CONF}" modules agent answer
+    local key=AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY pin_lib=/usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+    local -a unpinned=()
     (( _providers_loaded )) && [[ -f "${conf}" ]] || return 0
     command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" == Enforcing ]] || return 0
     # Captured before matching: `grep -q` exits on the match and leaves semodule to die of SIGPIPE mid-listing.
     modules="$(semodule -l 2>/dev/null)" || return 0
     grep -qx ai_tools <<< "${modules}" || return 0
     if ! ai_tools_conf_is_trusted "${conf}" 2>/dev/null; then
-        log "launch requirements: ${conf} is not trusted, so neither requirement is asked about or written"
+        log "launch requirements: ${conf} is not trusted, so ${key} is neither asked about nor written"
+        return 0
+    fi
+    ai_tools_conf_read "${conf}" "${key}" && return 0
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/entrypoint-verify.lib.sh
+    source "${pin_lib}" 2>/dev/null && declare -F ai_tools_entrypoint_pin_path >/dev/null 2>&1 || return 0
+    while IFS=$'\t' read -r agent _; do
+        [[ -n "${agent}" && ! -f "$(ai_tools_entrypoint_pin_path "${agent}")" ]] && unpinned+=("${agent}")
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    if (( ${#unpinned[@]} > 0 )); then
+        log "launch requirements: ${key} is not offered while ${unpinned[*]} carries no pin -- run sudo ai-tools-admin system entrypoints relabel, then re-run this command"
         return 0
     fi
 
-    ai_tools_conf_read "${conf}" AI_TOOLS_REQUIRE_SELINUX || keys+=(AI_TOOLS_REQUIRE_SELINUX)
-    if ! ai_tools_conf_read "${conf}" AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY; then
-        # shellcheck source=SCRIPTDIR/../../lib/ai-tools/entrypoint-verify.lib.sh
-        if source "${pin_lib}" 2>/dev/null && declare -F ai_tools_entrypoint_pin_path >/dev/null 2>&1; then
-            while IFS=$'\t' read -r agent _; do
-                [[ -n "${agent}" && ! -f "$(ai_tools_entrypoint_pin_path "${agent}")" ]] && unpinned+=("${agent}")
-            done < <(ai_tools_enabled_agents 2>/dev/null)
-            if (( ${#unpinned[@]} == 0 )); then
-                keys+=(AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)
-            else
-                log "launch requirements: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is not offered while ${unpinned[*]} carries no pin -- run sudo ai-tools-admin system entrypoints relabel, then re-run this command"
-            fi
-        fi
-    fi
-    (( ${#keys[@]} > 0 )) || return 0
-
     require_msg_lib
-    for key in "${keys[@]}"; do
-        case "${key}" in
-            AI_TOOLS_REQUIRE_SELINUX)
-                lines+=("  AI_TOOLS_REQUIRE_SELINUX=yes              refuse a session ai_tools_t would not confine") ;;
-            AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)
-                lines+=("  AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes    refuse an agent binary that carries no pin") ;;
-        esac
-    done
-    ai_tools_msg_block "Require confinement at every launch" \
-        "SELinux is enforcing on this host and the ai_tools policy is loaded. Setting these in ${conf} makes a launch refuse where it would otherwise start a session without them:" \
-        "" "${lines[@]}" "" \
-        "Each can be set back to no in that file; ai-tools-operator.conf(5) states what each refuses."
-    if ai_tools_msg_confirm "Require these at every launch?" y; then answer=yes; else answer=no; fi
-    for key in "${keys[@]}"; do
-        ai_tools_conf_set_key "${conf}" "${key}" "${answer}" \
-            || { warn MSG-N8U6 "could not write ${key}=${answer} into ${conf} -- set the line by hand"; continue; }
-        log "set ${key}=${answer} in ${conf}"
-    done
+    ai_tools_msg_block "Require a verified entrypoint at every launch" \
+        "SELinux is enforcing on this host, the ai_tools policy is loaded, and every enabled agent's entrypoint carries a pin. Setting this in ${conf} makes a launch refuse where it would otherwise start an agent binary no reconcile has pinned:" \
+        "" "  ${key}=yes    refuse an agent binary that carries no pin" "" \
+        "It can be set back to no in that file; ai-tools-operator.conf(5) states what it refuses."
+    if ai_tools_msg_confirm "Require a pinned entrypoint at every launch?" y; then answer=yes; else answer=no; fi
+    ai_tools_conf_set_key "${conf}" "${key}" "${answer}" \
+        || { warn MSG-N8U6 "could not write ${key}=${answer} into ${conf} -- set the line by hand"; return 0; }
+    log "set ${key}=${answer} in ${conf}"
 }
 
 # report_shadowed_operators -- name each enrolled operator whose shell reaches an agent other than the wrapper,

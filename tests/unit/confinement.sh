@@ -25,7 +25,8 @@ if ! source "${LIB}" || ! declare -F ai_tools_confinement_verdict >/dev/null 2>&
 fi
 
 # expect_verdict <token> <rc> <selinux-mode> <module-present> <expected-label> <actual-label> <manager-domain>
-#                [require-selinux] [domain-permissive] [current-boolean-values]
+#                [require-selinux] [domain-permissive] [current-boolean-values] [required-boolean-values]
+#                [policy-shipped]
 # Drive the verdict and assert BOTH the echoed token and the 0=launch/1=refuse return. The '|| verdict_status=$?' keeps
 # a refusal (rc 1) non-fatal under `set -e` and captures the status. Each optional input is passed only when given, so
 # a 5-argument call exercises the default a caller without the switch gets.
@@ -34,7 +35,7 @@ expect_verdict() {
     local verdict_token verdict_status
     verdict_token="$(ai_tools_confinement_verdict "$@")" && verdict_status=0 || verdict_status=$?
     local case_description="mode=${1:-∅} module=${2:-∅} expected=${3:-∅} actual=${4:-∅} manager=${5:-∅}"
-    case_description+=" require=${6-unset} permissive=${7-unset} booleans=${8-unset}"
+    case_description+=" require=${6-unset} permissive=${7-unset} booleans=${8-unset} policy=${10-unset}"
     if [[ "${verdict_token}" == "${expected_token}" && "${verdict_status}" -eq "${expected_status}" ]]; then
         pass "${case_description} -> ${verdict_token} (rc ${verdict_status})"
     else
@@ -89,19 +90,31 @@ expect_module_present no  user_home_t         # module absent -> the path keeps 
 expect_module_present no  bin_t               # any non-ai_tools type -> not present
 expect_module_present no  ""                  # no match -> not present (stays fail-closed via the verdict)
 
-# ── AI_TOOLS_REQUIRE_SELINUX: the operator's opt-in. It turns launches into refusals and does not turn any refusal
+# ── AI_TOOLS_REQUIRE_SELINUX: the operator's declaration, shipped on. It turns launches into refusals, or into a warned
+# DAC-only launch where the host has no SELinux confinement by its own configuration, and does not turn any refusal
 # into a launch; every verdict without it is identical to the require=no path. ──
-section "confinement: AI_TOOLS_REQUIRE_SELINUX opt-in fail-closed (unit)"
+section "confinement: AI_TOOLS_REQUIRE_SELINUX fail-closed (unit)"
 readonly CLEAN_BOOLEANS="nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off"
 # require=no reproduces the DAC-capable behaviour exactly (the explicit default is a no-op), and does not read
 # the attestation inputs: a permissive domain or an enabled Boolean launches there, as global permissive does.
 expect_verdict ok 0 Permissive yes ai_tools_exec_t lib_t init_t no
 expect_verdict ok 0 Enforcing no "" lib_t init_t no
 expect_verdict ok 0 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t no yes "nis_enabled=on"
-# The DAC-only launches become refusals under require=yes.
-expect_verdict require-not-enforcing 1 Permissive yes ai_tools_exec_t lib_t init_t yes  # not enforcing
-expect_verdict require-not-enforcing 1 Disabled   yes ai_tools_exec_t lib_t init_t yes  # SELinux off
-expect_verdict require-inactive      1 Enforcing  no  ""              lib_t init_t yes  # module absent on an enforcing host
+# A degraded host becomes a refusal under require=yes: permissive with the module present, or its file contexts unread;
+# a module installed on the host and not loaded; a module not live whose file was not read.
+expect_verdict require-not-enforcing 1 Permissive yes ai_tools_exec_t lib_t init_t yes                 # not enforcing
+expect_verdict require-not-enforcing 1 Permissive ""  ""              lib_t init_t yes no "" "" no     # file contexts unread
+expect_verdict require-not-enforcing 1 Permissive no  ""              lib_t init_t yes no "" "" yes    # installed, not loaded
+expect_verdict require-inactive      1 Enforcing  no  ""              lib_t init_t yes no "" "" yes    # installed, not loaded
+expect_verdict require-unattested    1 Enforcing  no  ""              lib_t init_t yes no "" "" ""     # module file unread
+expect_verdict require-unattested    1 Enforcing  no  ""              lib_t init_t yes                 # a 6-argument caller
+# A host without SELinux confinement by its own configuration launches DAC-only under require=yes, and the shim warns:
+# SELinux disabled whatever else was read, or the policy neither live nor on disk. The label fault still outranks it.
+expect_verdict ok-dac-only 0 Disabled   yes ai_tools_exec_t lib_t init_t yes                           # SELinux off
+expect_verdict ok-dac-only 0 Disabled   ""  ""              ""    ""     yes                           # off, probes empty
+expect_verdict ok-dac-only 0 Enforcing  no  ""              lib_t init_t yes no "" "" no               # never installed
+expect_verdict ok-dac-only 0 Permissive no  ""              lib_t init_t yes no "" "" no               # never installed
+expect_verdict mislabel    1 Enforcing  no  ai_tools_exec_t lib_t init_t yes no "" "" no               # a label the module maps
 # require does NOT loosen or alter any already-fail-closed refusal: a mislabel/unverifiable still refuses whatever
 # the attestation says.
 expect_verdict mislabel       1 Enforcing yes ai_tools_exec_t lib_t           init_t       yes no "${CLEAN_BOOLEANS}"
@@ -144,6 +157,104 @@ expect_verdict unclassified 1 Enforcing maybe ""              lib_t           in
 expect_verdict unverifiable 1 Enforcing yes   bin_t           ""              init_t no   # a foreign expected label
 expect_verdict ok           0 ""        yes   ai_tools_exec_t lib_t           init_t no   # no getenforce, no requirement
 expect_verdict unclassified 1 Enforcing maybe ""              lib_t           init_t no   # not a documented value
+expect_verdict require-not-enforcing 1 unknown no ""          lib_t           init_t yes no "" "" no  # not a documented mode
+
+section "confinement: the requirement is in force unless operator.conf turns it off (unit)"
+# ai_tools_confinement_is_selinux_required is the one read of AI_TOOLS_REQUIRE_SELINUX, and every way it can fail
+# resolves to the requirement: an untrusted file (one this account owns), an absent key, a yes value and a mistyped
+# value each require; only a value the grammar reads as no does not. A trusted file is root-owned, so those cases run
+# as root.
+mktestdir
+expect_required() {  # <description> <expected 0|1> <operator-conf>
+    local status=0
+    ai_tools_confinement_is_selinux_required "$3" 2>/dev/null || status=$?
+    if [[ "${status}" -eq "$2" ]]; then pass "$1 -> rc ${status}"; else fail "$1 -> rc ${status}; expected $2"; fi
+}
+# The reader needs the grammar beside the lib (ai_tools_conf_no); without it the requirement stands whatever the file
+# says, which is the fail direction and not what these cases are about, so the grammar is loaded first.
+CONF_LIB_FOR_REQUIREMENT="$(dirname "${LIB}")/conf.lib.sh"
+if [[ -r "${CONF_LIB_FOR_REQUIREMENT}" ]] && source "${CONF_LIB_FOR_REQUIREMENT}" \
+        && declare -F ai_tools_conf_no >/dev/null 2>&1; then
+    printf 'AI_TOOLS_REQUIRE_SELINUX=no\n' > "${TESTDIR}/untrusted.conf"; chmod 0666 "${TESTDIR}/untrusted.conf"
+    expect_required "an untrusted operator.conf setting no still requires" 0 "${TESTDIR}/untrusted.conf"
+    expect_required "an absent operator.conf requires" 0 "${TESTDIR}/missing.conf"
+    if [[ "${EUID}" -eq 0 ]]; then
+        for value in "" "yes" "no" "ture"; do
+            case "${value}" in
+                "")   : > "${TESTDIR}/trusted-absent.conf"; conf="${TESTDIR}/trusted-absent.conf" ;;
+                *)    printf 'AI_TOOLS_REQUIRE_SELINUX=%s\n' "${value}" > "${TESTDIR}/trusted-${value}.conf"
+                      conf="${TESTDIR}/trusted-${value}.conf" ;;
+            esac
+            chmod 0644 "${conf}"; chown root:root "${conf}"
+        done
+        expect_required "a trusted file without the key requires" 0 "${TESTDIR}/trusted-absent.conf"
+        expect_required "a trusted file setting yes requires"     0 "${TESTDIR}/trusted-yes.conf"
+        expect_required "a trusted file setting no does not"      1 "${TESTDIR}/trusted-no.conf"
+        expect_required "a trusted file with a mistyped value requires" 0 "${TESTDIR}/trusted-ture.conf"
+        said="$(ai_tools_confinement_is_selinux_required "${TESTDIR}/trusted-ture.conf" 2>&1 || true)"
+        assert_msg MSG-H7N5 "${said}" "the mistyped value is reported as read as yes"
+    else
+        skip "the requirement's trusted-file cases" "a trusted operator.conf is root-owned; run as root"
+    fi
+else
+    skip "the requirement's reader" "conf.lib.sh beside ${LIB} is not readable, or it predates ai_tools_conf_no"
+fi
+
+section "confinement: the DAC-only state and its readers (unit)"
+# ai_tools_confinement_dac_only_state is the one predicate the verdict and both status reports read a host's want
+# of confinement by, so it is driven in both directions: the two states it names, and every near miss that is a fault
+# or an unread input rather than the host's own configuration.
+expect_dac_only_state() {  # <expected|none> <selinux-mode> <module-present> <policy-shipped>
+    local expected="$1"; shift
+    local state status=0
+    state="$(ai_tools_confinement_dac_only_state "$@")" || status=$?
+    if [[ "${expected}" == none && -z "${state}" && "${status}" -eq 1 ]] \
+            || [[ "${expected}" != none && "${state}" == "${expected}" && "${status}" -eq 0 ]]; then
+        pass "dac-only(mode=${1:-∅} module=${2:-∅} policy=${3:-∅}) -> ${state:-none}"
+    else
+        fail "dac-only(mode=${1:-∅} module=${2:-∅} policy=${3:-∅}) -> ${state:-none} (rc ${status}); expected ${expected}"
+    fi
+}
+expect_dac_only_state disabled      Disabled   yes yes
+expect_dac_only_state disabled      Disabled   ""  ""
+expect_dac_only_state module-absent Enforcing  no  no
+expect_dac_only_state module-absent Permissive no  no
+expect_dac_only_state none          Enforcing  no  yes    # installed and not loaded: a fault
+expect_dac_only_state none          Enforcing  no  ""     # the module file unread
+expect_dac_only_state none          Enforcing  ""  no     # the file contexts unread
+expect_dac_only_state none          Enforcing  yes no     # live: confined
+expect_dac_only_state none          Permissive yes no     # permissive with the module present: a fault
+expect_dac_only_state none          ""         no  no     # the mode unread
+expect_dac_only_state none          unknown    no  no     # not a documented mode
+
+# The policy-shipped reader answers from the module file's presence alone, and the module-present reader
+# from matchpathcon, so each is driven against a fixture: a file that exists, one that does not, a type the core module
+# maps and one it does not, and a host without matchpathcon, which reads as unread rather than as absent.
+: > "${TESTDIR}/ai_tools.pp"
+expect_reader() {  # <description> <expected> <command...>
+    local description="$1" expected="$2"; shift 2
+    local answer status=0
+    answer="$("$@")" || status=$?
+    if [[ "${answer}" == "${expected}" ]]; then pass "${description} -> ${answer:-∅} (rc ${status})"
+    else fail "${description} -> ${answer:-∅} (rc ${status}); expected ${expected:-∅}"; fi
+}
+expect_reader "policy shipped: the module file present" yes ai_tools_confinement_read_policy_shipped "${TESTDIR}/ai_tools.pp"
+expect_reader "policy shipped: the module file absent"  no  ai_tools_confinement_read_policy_shipped "${TESTDIR}/missing.pp"
+matchpathcon() { printf 'system_u:object_r:%s:s0\n' "${stub_probe_type}"; }
+stub_probe_type=ai_tools_home_t
+expect_reader "module present: the core path maps to its type" yes \
+    ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}"
+stub_probe_type=user_home_t
+expect_reader "module present: the core path keeps its default type" no \
+    ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}"
+unset -f matchpathcon
+if answer="$(PATH=/nonexistent ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}" 2>/dev/null)"; then
+    fail "module present without matchpathcon read as a value: ${answer}"
+elif [[ -z "${answer}" ]]; then
+    pass "module present without matchpathcon -> unread (rc 1, prints nothing)"
+else
+    fail "module present without matchpathcon printed ${answer}"
+fi
 
 section "confinement: attestation record parser (unit)"
 # expect_parsed_inputs <description> <expected-line> <records>: the parser is what turns the reader's output
@@ -190,7 +301,6 @@ expect_access_decision ""  "ffffffff ffffffff 0 ffffffff 12 0x1"
 # The reader over a fixture selinuxfs tree. A regular file cannot answer the access transaction (the read
 # after the write meets end of file), so the per-domain mode reads as unread here, which is the direction a host
 # that refuses the query takes; the live answer is the host's to give, since ai_tools_t is denied the query.
-mktestdir
 fixture_selinuxfs="${TESTDIR}/selinuxfs"
 mkdir -p "${fixture_selinuxfs}/class/process/perms" "${fixture_selinuxfs}/booleans"
 printf '2\n'  > "${fixture_selinuxfs}/class/process/index"
@@ -327,7 +437,7 @@ if [[ -r "${CONF_LIB_FOR_READERS}" ]] && source "${CONF_LIB_FOR_READERS}" \
     valid_operator_conf="${TESTDIR}/operator-valid.conf"; malformed_operator_conf="${TESTDIR}/operator-malformed.conf"
     empty_operator_conf="${TESTDIR}/operator-empty.conf"; absent_operator_conf="${TESTDIR}/operator-absent.conf"
     untrusted_operator_conf="${TESTDIR}/operator-untrusted.conf"
-    printf 'AI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=on, deny_ptrace=on]\n' > "${valid_operator_conf}"
+    printf 'AI_TOOLS_REQUIRE_SELINUX=no\nAI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=on, deny_ptrace=on]\n' > "${valid_operator_conf}"
     printf 'AI_TOOLS_SELINUX_BOOLEANS=[deny_ptrace=on, nis_enabled=of, deny_ptrace=off]\n' > "${malformed_operator_conf}"
     printf 'AI_TOOLS_SELINUX_BOOLEANS=[]\n' > "${empty_operator_conf}"
     printf 'AI_TOOLS_REQUIRE_SELINUX=yes\n' > "${absent_operator_conf}"
@@ -366,8 +476,10 @@ if [[ -r "${CONF_LIB_FOR_READERS}" ]] && source "${CONF_LIB_FOR_READERS}" \
         if [[ "${report_tail}" == "$3" ]]; then pass "attestation report, $1 -> ${report_tail//$'\t'/ }"
         else fail "attestation report, $1 -> ${report_tail//$'\t'/ }; expected ${3//$'\t'/ }"; fi
     }
-    expect_report_verdict "a declaration a Boolean drifted from, not required" "${valid_operator_conf}" $'verdict\tboolean\tno'
+    expect_report_verdict "a declaration a Boolean drifted from, declared not required" "${valid_operator_conf}" $'verdict\tboolean\tno'
     expect_report_verdict "the built-in pairs with one open, required" "${absent_operator_conf}" $'verdict\tboolean\tyes'
+    # The no is read only from a trusted file: the same declaration in an untrusted one leaves the requirement in force.
+    expect_report_verdict "the same declaration in an untrusted file, required" "${untrusted_operator_conf}" $'verdict\tboolean\tyes'
     unset -f ai_tools_conf_is_trusted
 else
     skip "operator.conf readers" "conf.lib.sh beside ${LIB} is not readable, or the library predates the readers"

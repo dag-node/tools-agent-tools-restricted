@@ -176,20 +176,26 @@ printf 'AI_TOOLS_REQUIRE_SELINUX=yes\n' > "${REQUIRED_CONF}"
 printf 'AI_TOOLS_REQUIRE_SELINUX=no\n'  > "${NOT_REQUIRED_CONF}"
 readonly CLEAN_ATTESTATION=$'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff'
 
-# call_attestation_section <selinux-mode> <records> <operator-conf> : print the section, then `problems=<n>`.
-# shellcheck disable=SC2016  # the $1..$5 are for the inner `bash -c`, not this shell -- do not expand here
+# call_attestation_section <selinux-mode> <records> <operator-conf> [module-present] [policy-shipped] : print
+# the section, then `problems=<n>`. The two module readers are stubbed as well (default: live and shipped), since
+# the section reads them to tell a host without confinement by its own configuration from one with a fault.
+# shellcheck disable=SC2016  # the $1..$7 are for the inner `bash -c`, not this shell -- do not expand here
 call_attestation_section() {
-    bash -c 'helper="$1"; lib="$2"; stub_selinux_mode="$3"; stub_attestation_records="$4"; operator_conf="$5"; set --
+    bash -c 'helper="$1"; lib="$2"; stub_selinux_mode="$3"; stub_attestation_records="$4"; operator_conf="$5"
+             stub_module_present="$6"; stub_policy_shipped="$7"; set --
              source "${helper}" >/dev/null 2>&1 || exit 99
              declare -F status_selinux_attestation >/dev/null || exit 98
              source "${lib}" 2>/dev/null || exit 97
              declare -F ai_tools_confinement_list_attestation_report >/dev/null || exit 97
+             declare -F ai_tools_confinement_dac_only_state >/dev/null || exit 97
              getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
              ai_tools_confinement_read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
+             ai_tools_confinement_read_module_present() { printf "%s" "${stub_module_present}"; }
+             ai_tools_confinement_read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
              STATUS_PROBLEMS=0; STATUS_UNREADABLE=0
              status_selinux_attestation "${operator_conf}"
              printf "problems=%s\n" "${STATUS_PROBLEMS}"' \
-        _ "${HELPER}" "${CONFINEMENT_LIB_INSTALLED}" "$1" "$2" "$3" 2>&1
+        _ "${HELPER}" "${CONFINEMENT_LIB_INSTALLED}" "$1" "$2" "$3" "${4:-yes}" "${5:-yes}" 2>&1
 }
 rc=0; out="$(call_attestation_section Enforcing "${CLEAN_ATTESTATION}" "${REQUIRED_CONF}")" || rc=$?
 if [[ "${rc}" -ge 97 ]]; then
@@ -233,11 +239,33 @@ else
     else
         fail "declaration rendering: $(tr '\n' '|' <<<"${out}")"
     fi
+    # A host without SELinux confinement by its own configuration -- SELinux disabled, or the policy neither live nor
+    # on disk -- has no domain to attest, and under the requirement every launch runs DAC-only with a warning, which
+    # counts and names the line that declares the host so; without it the posture is reported and not counted.
     out="$(call_attestation_section Disabled "${CLEAN_ATTESTATION}" "${REQUIRED_CONF}")" || true
-    if grep -qx 'problems=0' <<<"${out}" && grep -qF '[n/a]' <<<"${out}"; then
-        pass "SELinux disabled reads n/a here; the launch refusal for it is the preflight's to report"
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF '[n/a]' <<<"${out}" && grep -qF 'runs DAC-only and warns' <<<"${out}" \
+            && grep -qF 'AI_TOOLS_REQUIRE_SELINUX=no' <<<"${out}"; then
+        pass "SELinux disabled under the requirement reads n/a, counts, and names AI_TOOLS_REQUIRE_SELINUX=no"
     else
-        fail "SELinux disabled: $(tr '\n' '|' <<<"${out}")"
+        fail "SELinux disabled under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section Disabled "${CLEAN_ATTESTATION}" "${NOT_REQUIRED_CONF}")" || true
+    if grep -qx 'problems=0' <<<"${out}" && grep -qF '[n/a]' <<<"${out}"; then
+        pass "SELinux disabled without the requirement reads n/a and is not counted"
+    else
+        fail "SELinux disabled without the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section Enforcing '' "${REQUIRED_CONF}" no no)" || true
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF 'not installed' <<<"${out}" && grep -qF 'runs DAC-only and warns' <<<"${out}"; then
+        pass "a policy never installed under the requirement reads as such and counts, with no unread rows"
+    else
+        fail "policy never installed under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section Enforcing '' "${REQUIRED_CONF}" no yes)" || true
+    if grep -qx 'problems=1' <<<"${out}" && [[ "$(grep -c '\[?\]' <<<"${out}")" -ge 3 ]]; then
+        pass "a policy installed and not loaded is not the DAC-only state: its unread rows are reported and counted"
+    else
+        fail "policy installed and not loaded: $(tr '\n' '|' <<<"${out}")"
     fi
 fi
 

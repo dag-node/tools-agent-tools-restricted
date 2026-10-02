@@ -445,6 +445,34 @@ else
     skip "ai_tools_conf_yes" "the deployed conf.lib.sh predates it -- re-run sudo ./install.sh install"
 fi
 
+section "conf: ai_tools_conf_no reads a switch whose default is yes"
+# The mirror for a key in force unless the file turns it off (AI_TOOLS_REQUIRE_SELINUX): only a value the grammar reads
+# as no turns it off. A yes value, an absent key and a value in neither set are not no -- the last reported under its
+# own code, since a mistyped line otherwise relaxes a requirement with no line saying so.
+if declare -F ai_tools_conf_no >/dev/null 2>&1; then
+    yn="${TESTDIR}/switches-no.conf"
+    printf '%s\n' 'A=yes' 'B="true"' 'C=1' "D='1'" 'E=On' 'F=TRUE' \
+                   'G=no' 'H="false"' 'I=0' 'J="0"' 'K=off' 'L=' 'M=ture' > "${yn}"
+    misread=()
+    for key in G H I J K L; do ai_tools_conf_no "${yn}" "${key}" 2>/dev/null || misread+=("${key}"); done
+    for key in A B C D E F M ABSENT; do ai_tools_conf_no "${yn}" "${key}" 2>/dev/null && misread+=("${key}"); done
+    if (( ${#misread[@]} == 0 )); then
+        pass "no, false, 0, off and empty read as no; yes values, absent and unknown do not, quoted or not"
+    else
+        fail "misread switches: ${misread[*]}"
+    fi
+    said="$(ai_tools_conf_no "${yn}" M 2>&1 || true)"
+    assert_msg MSG-H7N5 "${said}" "a value in neither set is reported as read as yes"
+    said="$(ai_tools_conf_no "${yn}" A 2>&1 || true)"
+    if [[ -z "${said}" ]]; then
+        pass "a recognized yes value is read silently"
+    else
+        fail "a recognized yes value was reported: ${said}"
+    fi
+else
+    skip "ai_tools_conf_no" "the deployed conf.lib.sh predates it -- re-run sudo ./install.sh install"
+fi
+
 section "conf: a refusal reports the owner and mode it read"
 check_reason() {
     local desc="$1" expected="$2" path="$3" got

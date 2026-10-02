@@ -2704,26 +2704,47 @@ status_update_timer_stamp() {
     return 0
 }
 
-# status_selinux_attestation: render the rows ai_tools_confinement_list_attestation_report prints
-# (confinement.lib.sh): the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified
-# by the launch shim's own functions, so this report, ai-tools status and the launch cannot disagree. A finding counts
-# only where the report's verdict row says AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch;
-# elsewhere it is reported as the posture it is. A host where SELinux is off reports n/a. <operator-conf> is a parameter
-# so a unit test drives the counting rule over a fixture.
+# status_selinux_attestation: render the rows ai_tools_confinement_list_attestation_report prints (confinement.lib.sh):
+# the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified by the launch shim's own
+# functions, so this report, ai-tools status and the launch cannot disagree. A finding counts only where the report's
+# verdict row says AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch, and on a host without
+# SELinux confinement by its own configuration (ai_tools_confinement_dac_only_state) only where that key makes every
+# launch warn; elsewhere it is reported as the posture it is. <operator-conf> is a parameter so a unit test drives
+# the counting rule over a fixture.
 status_selinux_attestation() {
     local operator_conf="${1:-${OPERATOR_CONF}}"
     heading "SELinux attestation"
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/confinement.lib.sh
     source "${CONFINEMENT_LIB}" 2>/dev/null || true
-    if ! declare -F ai_tools_confinement_list_attestation_report >/dev/null 2>&1; then
+    if ! declare -F ai_tools_confinement_list_attestation_report >/dev/null 2>&1 \
+            || ! declare -F ai_tools_confinement_dac_only_state >/dev/null 2>&1; then
         st UNREADABLE "${CONFINEMENT_LIB} did not load its attestation readers -- reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
-    local selinux_mode
+    local selinux_mode module_present policy_shipped dac_only_state=""
     selinux_mode="$(getenforce 2>/dev/null || true)"
-    if [[ -z "${selinux_mode}" || "${selinux_mode}" == Disabled ]]; then
-        st "n/a" "SELinux is ${selinux_mode:-not readable here (getenforce)} -- there is no domain to attest"
+    if [[ -z "${selinux_mode}" ]]; then
+        st "n/a" "SELinux is not readable here (getenforce) -- there is no domain to attest"
+        return 0
+    fi
+    module_present="$(ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}" 2>/dev/null || true)"
+    policy_shipped="$(ai_tools_confinement_read_policy_shipped "${AI_TOOLS_CONFINEMENT_CORE_MODULE_FILE}")"
+    dac_only_state="$(ai_tools_confinement_dac_only_state "${selinux_mode}" "${module_present}" "${policy_shipped}")" \
+        || true
+    if [[ -n "${dac_only_state}" ]]; then
+        case "${dac_only_state}" in
+            disabled) st "n/a" "SELinux is disabled on this host -- there is no domain to attest" ;;
+            *)        st "n/a" "the ai_tools policy is not installed (SELinux ${selinux_mode}) -- there is no domain to attest" ;;
+        esac
+        if ai_tools_confinement_is_selinux_required "${operator_conf}"; then
+            detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch runs DAC-only and warns that the requirement is not met"
+            detail "declare this host DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
+            detail "or install the policy:       sudo dnf install ai-tools-selinux"
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        else
+            detail "AI_TOOLS_REQUIRE_SELINUX is not set, so a launch runs DAC-only without a warning"
+        fi
         return 0
     fi
     local -a row
