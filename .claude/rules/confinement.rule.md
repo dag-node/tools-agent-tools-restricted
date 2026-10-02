@@ -131,7 +131,7 @@ loaded. The `matchpathcon` probe does not need any privilege — it reads the wo
 cannot influence it, file-contexts and the shim both being root-owned.
 
 `ai-tools-run` performs that probing and I/O; the launch-vs-refuse decision is the pure `ai_tools_confinement_verdict`
-(`confinement.lib.sh`), which carries the six inputs and the verdict token for each combination as its contract, and is
+(`confinement.lib.sh`), which carries its inputs and the verdict token for each combination as its contract, and is
 unit-tested apart from the probing (`tests/unit/confinement.sh` drives the truth table with no SELinux host).
 
 The policy that table implements is **fail-closed once confinement is expected**. Where SELinux is enforcing
@@ -212,27 +212,45 @@ confinement is enforcing can have sessions silently run `unconfined_t`. DAC, the
 `NoNewPrivileges` and the env allowlist all still hold, so what is lost is the `ai_tools_t` type layer —
 a defence-in-depth layer, not a DAC bypass.
 
-`AI_TOOLS_REQUIRE_SELINUX=yes` in `operator.conf` lets the operator **declare** the requirement. `ai-tools-run` passes
-it as the verdict's sixth `require` input, which turns the two DAC-only *launch* exits into refusals:
-`require-not-enforcing` (SELinux not `Enforcing`) and `require-inactive` (enforcing but the module's file-contexts are
-not live). Having the operator assert intent rather than the wrapper guess it closes the whole "thinks-enforcing"
-family, the staged-but-not-active residual included, and adds **no** store-read surface.
+`AI_TOOLS_REQUIRE_SELINUX=yes` in `operator.conf` lets the operator **declare** the requirement. `ai-tools-run` reads it
+first, ahead of finding any SELinux tool, and passes it to the verdict, which then refuses every launch that does not
+show the session will run confined:
+
+- `require-not-enforcing` — SELinux is not `Enforcing`.
+- `require-inactive` — enforcing, but the module's file-contexts are not live.
+- `require-permissive` (`MSG-Z5M5`) — `ai_tools_t` is a permissive domain, which a global `Enforcing` does not reveal.
+- `require-boolean` (`MSG-P3P8`) — a Boolean the verdict refuses is on: one that widens `ai_tools_t`
+  through a base-policy conditional rule beyond what this project ships ([What the domain holds beyond the module's own
+  rules](#what-the-domain-holds-beyond-the-modules-own-rules)).
+- `require-unattested` (`MSG-A7E7`) — an input could not be read: `getenforce` or `matchpathcon` missing, the manager's
+  domain unreadable, or the per-domain mode or a refused Boolean unread. The refusal names each input it lacked.
+
+A definite fault outranks an unread input, so a refusal names what to change where one is known. Having the operator
+assert intent rather than the wrapper guess it closes the whole "thinks-enforcing" family, the staged-but-not-active
+residual included, and adds **no** store-read surface. The per-domain mode and the Booleans are read from selinuxfs
+by `ai_tools_confinement_read_attestation_records`, which does not run an interpreter or a library in the shim's
+unconfined window before the transition; the status reports read them through the same function.
 
 It is opt-in: the default — the key absent, a no value, or a value `ai_tools_conf_yes` does not recognize, which it
-reports — is `no`, so intentional DAC-only hosts are untouched. `system bootstrap` offers `yes` on a host where SELinux
-is enforcing and the module is loaded, the one state in which requiring it cannot refuse a launch the host was set
-up to allow ([updater](updater.rule.md)). `require` tightens those two exits alone —
-the `mislabel`/`manager-domain`/`unverifiable` refusals already fail closed and are unchanged, and the `manager-domain`
-advisory stays advisory under `require`, since it targets the `/proc` read rather than a DAC-only launch. The switch is
-read only while `ai_tools_conf_is_trusted` holds for `operator.conf` (root-owned, non-group/other-writable, not
-a symlink), so the agent can neither set nor clear it.
+reports — is `no`, so intentional DAC-only hosts are untouched and the per-domain mode and the Booleans are not read.
+`system bootstrap` offers `yes` on a host where SELinux is enforcing and the module is loaded
+([updater](updater.rule.md)). `require` turns launches into refusals and does not turn any refusal into a launch:
+`mislabel` and `unverifiable` refuse at either setting, and `manager-domain` refuses a domain no `domtrans_pattern`
+covers at either setting, while an unreadable manager domain launches without `require` and refuses with it. The switch
+is read only while `ai_tools_conf_is_trusted` holds for `operator.conf` (root-owned, non-group/other-writable, not
+a symlink), so the agent can neither set nor clear it, and the Booleans, the permissive-domain store and selinuxfs are
+root's to write (`tests/boundary/access.sh`).
+
+**The check is a launch-time observation.** A Boolean switched on, a domain made permissive, or a module reloaded
+after a session started reaches that session without any refusal; the next launch reads the new state. Revalidating
+a running session is `ai-tools stop` and a relaunch.
 
 `require` is the one input whose read failure resolves toward *more* access: an untrusted or absent file yields `no`,
-which is the default posture, so the two refusals it would otherwise produce — `require-not-enforcing`
-and `require-inactive` — stay DAC-only launches instead. The package installs `operator.conf` as `0644 root:root`
-and `tests/integration/perms.sh` asserts that ownership and mode, so a file failing `ai_tools_conf_is_trusted` is
-a misconfigured host rather than a state this model covers. The agent cannot produce it: the file and the directory
-holding it are root-owned. The posture rides in the per-launch audit line (`require=yes|no`).
+which is the default posture, so the `require-*` refusals it would otherwise produce stay launches instead. The package
+installs `operator.conf` as `0644 root:root` and `tests/integration/perms.sh` asserts that ownership and mode, so a file
+failing `ai_tools_conf_is_trusted` is a misconfigured host rather than a state this model covers. The agent cannot
+produce it: the file and the directory holding it are root-owned. The posture rides in the per-launch audit line
+(`require=yes|no`), with the per-domain mode and the Booleans read under it.
 
 ## `/tmp` model
 
@@ -325,8 +343,11 @@ Some of those rules are conditional on a Boolean the host sets: `nis_enabled` (`
 port types), `domain_can_mmap_files` (`map` on every file type), `authlogin_nsswitch_use_ldap` and `kerberos_enabled`
 (directory-service ports and sockets). A Boolean switched on widens the domain without any module change, and disabling
 a group does not take back what a Boolean grants — `domain_can_mmap_files` grants the `map` the `tmpmap` group exists
-to add. `sesearch -A -s ai_tools_t` prints a conditional rule with its expression, `[ nis_enabled ]:True` for the true
-branch, which is not the Boolean's current value; `getsebool` reads that.
+to add. `AI_TOOLS_CONFINEMENT_BOOLEANS` in `confinement.lib.sh` is the registry: under `AI_TOOLS_REQUIRE_SELINUX`
+a launch refuses while `nis_enabled` or `domain_can_mmap_files` is on or unread, and the status reports name the rest,
+which stay supported (`kerberos_enabled` among them). No component of this project changes a Boolean.
+`sesearch -A -s ai_tools_t` prints a conditional rule with its expression, `[ nis_enabled ]:True` for the true branch,
+which is not the Boolean's current value; `getsebool` reads that.
 
 ## Bring-up and enforce-verification (`selinux/avc/`)
 

@@ -1461,6 +1461,10 @@ no enabled agent provides the launcher \e"${launcher_name}\e" \-\- refusing to l
 ERROR.
 AI_TOOLS_PROJECT_DIR contains parent\-directory references
 .TP
+.B MSG-A7E7
+ERROR.
+refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but this launch could not read ${unread_confinement_inputs:\-an input of the confinement check}, so it cannot show the session would run confined.
+.TP
 .B MSG-D2A4
 ERROR.
 AI_TOOLS_PROJECT_DIR must be an absolute path
@@ -1481,9 +1485,17 @@ the agent entrypoint does not match its recorded checksum \-\- refusing to start
 ERROR.
 AI_TOOLS_AGENT_EXEC contains parent\-directory references
 .TP
+.B MSG-P3P8
+ERROR.
+refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but the SELinux Boolean ${enabled_refused_booleans// /, } is on, which widens what ai_tools_t may do beyond the policy this project ships.
+.TP
 .B MSG-Z2J9
 ERROR.
 invalid or absent AI_TOOLS_AGENT_EXEC \-\- cannot launch
+.TP
+.B MSG-Z5M5
+ERROR.
+refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ai_tools_t is a permissive domain on this host, so SELinux would log the session's denials and enforce none of them.
 .TP
 .B MSG-Z9C8
 ERROR.

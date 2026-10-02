@@ -211,18 +211,37 @@ Where SELinux is enforcing and the
 .B ai_tools
 policy module is loaded, a session is confined at either setting, and an
 entrypoint carrying the wrong label refuses the launch at either setting.
-This key governs the two states the launch preflight reports as unverified:
-SELinux not enforcing, and the module's file contexts not live.
+This key governs the states in which the launch preflight cannot show the
+session will run confined.
 .B Default
 (key absent): such a launch proceeds without the SELinux layer, which is
 the posture of an intentional DAC-only host; the launch log records
 .BR require=no .
 .B Set:
-those two states refuse the launch instead
-.RB ( require-not-enforcing ,
-.BR require-inactive ),
-so a host that expects confinement cannot start an unconfined session
-unnoticed.
+each of these refuses the launch instead, so a host that expects
+confinement cannot start an unconfined session unnoticed:
+SELinux not enforcing
+.RB ( require-not-enforcing );
+the module's file contexts not live
+.RB ( require-inactive );
+.B ai_tools_t
+a permissive domain
+.RB ( require-permissive );
+the
+.B nis_enabled
+or
+.B domain_can_mmap_files
+Boolean on, either of which widens what a session may do
+.RB ( require-boolean );
+and any of these, or the user manager's domain, not readable
+.RB ( require-unattested ).
+Other Booleans that reach the session, such as
+.BR kerberos_enabled ,
+are reported by
+.B ai\-tools status
+and do not refuse.
+The check runs at launch: a Boolean or a domain mode changed afterwards
+reaches a running session without a refusal.
 The key is read only while this file is root-owned and not group- or
 other-writable, so a session cannot set or clear it.
 On a host where SELinux is enforcing and the module is loaded,

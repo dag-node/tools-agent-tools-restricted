@@ -670,4 +670,19 @@ else
     pass "the agent cannot act as the operator through sudo -u (no rule; NNP drops sudo's SUID)"
 fi
 
+# The launch attestation under AI_TOOLS_REQUIRE_SELINUX reads the per-domain mode and the Booleans from selinuxfs,
+# and unit/confinement.sh drives the refusals a permissive domain, an enabled Boolean and an unread input produce. This
+# is the other end: the account cannot reach the state that produces them. It cannot set a Boolean (the selinuxfs files
+# are root-only to write), and cannot mark a domain permissive, which is a module in the root-only policy store.
+# An absent path is skipped: a host without SELinux has no selinuxfs and no store.
+for attestation_input_path in /sys/fs/selinux/booleans/nis_enabled /sys/fs/selinux/booleans/domain_can_mmap_files \
+                              /sys/fs/selinux/commit_pending_bools /var/lib/selinux/targeted/active/modules; do
+    [[ -e "${attestation_input_path}" ]] || continue
+    if runuser -u "${SANDBOX_USER}" -- test -w "${attestation_input_path}" 2>/dev/null; then
+        fail "the agent can write ${attestation_input_path} -- it could change what the launch attestation reads"
+    else
+        pass "cannot write ${attestation_input_path}: the state the launch attestation reads is root's to set"
+    fi
+done
+
 finish
