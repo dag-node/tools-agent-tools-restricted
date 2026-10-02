@@ -622,8 +622,8 @@ keeps on that path for
 .B Persistent=
 is reported from its own modification time, which is what decides whether
 a missed window gets a catch-up run. A stamp dated in the future needs
-attention, because it suppresses that run; an overdue timer is printed for
-reference and counted once, in the
+attention, because it suppresses that run. Whether the timer is overdue is
+reported in the
 .B Services
 section. Nothing in this report writes or resets the stamp.
 Every verdict comes from the registry both reports read, so the two differ in

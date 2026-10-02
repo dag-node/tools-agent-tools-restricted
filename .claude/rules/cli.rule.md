@@ -499,9 +499,9 @@ from `ai_tools_label_agent_paths`; that function's header states which calls eac
 at another owner or mode is `DRIFTED` and counts; an absent one is `n/a`, a host provisioning has not reached;
 and an entry under `.local/share/systemd` other than the stamp directory is `UNEXPECTED` and counts. The drift reader's
 status keeps a failed reading apart from a clean chain. The `Persistent=` timer stamp is read by its mtime
-through `ai_tools_timer_stamp_verdict`, with the tolerance taken from the timer's own accuracy and randomized delay;
-only `FUTURE` counts, since a future-dated stamp suppresses the catch-up run a missed window gets. `OVERDUE` is printed
-without counting, as the Services section counts that fault. The report does not write the stamp.
+through `ai_tools_service_evaluate_timer_stamp`, with the tolerance taken from the timer's own accuracy and randomized
+delay; `FUTURE` counts, since a future-dated stamp suppresses the catch-up run a missed window gets. Whether the timer
+is overdue is the Services section's reading alone. The report does not write the stamp.
 
 The report is otherwise the same contract as `status`: it exits 4 when something needs attention and 5 when a library
 base ships did not load, so a section could not make a reading it promises — the two counts `STATUS_PROBLEMS`

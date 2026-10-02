@@ -344,9 +344,9 @@ aborts the test the same way it would abort an unclaim. No live daemon, no SELin
 user before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it sources the shared
 classifier library (`secret-patterns.lib.sh`) and forces the built-in default pattern set, pinning the matcher itself —
 credential names match case-insensitively, while plain configs and build artifacts the toolchain must read do not.
-`control-plane.sh` pins the unit-path converge to less access in every direction: the chain ends root-owned,
-an unexpected entry is an error left in place, a symlink ends the descent without creating a directory at its target,
-a non-root caller is refused, and the drift reader tells a clean chain from a failed reading by status.
+`control-plane.sh` pins `ai_tools_ensure_unit_search_path_closed` to less access in every direction: the chain ends
+root-owned, an unexpected entry is an error left in place, a symlink ends the descent without creating a directory
+at its target, a non-root caller is refused, and the drift reader tells a clean chain from a failed reading by status.
 `source-modes.sh` and `source-text.sh` are the pair that reads the **repository's own record** rather than any deployed
 artifact, each covering a property no review catches unaided: the exec bit git tracks for every `.sh`, which must agree
 within a directory, and that every tracked text file ends with a newline. Both classify without a maintained list —

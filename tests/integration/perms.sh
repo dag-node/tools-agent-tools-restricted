@@ -288,13 +288,13 @@ fi
 # (ownership-and-hooks.rule.md).
 _cp_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
 # shellcheck source=/dev/null
-if source "${_cp_lib}" 2>/dev/null && [[ -n "${CP_UNIT_PATH_CHAIN[*]:-}" ]]; then
-    for _rel in "${CP_UNIT_PATH_CHAIN[@]}"; do
-        check_file "/opt/ai-tools/${_rel}" root "${SANDBOX_GROUP}" "${CP_UNIT_PATH_MODES[${_rel}]}"
+if source "${_cp_lib}" 2>/dev/null && [[ -n "${CP_UNIT_SEARCH_PATH_CHAIN[*]:-}" ]]; then
+    for _rel in "${CP_UNIT_SEARCH_PATH_CHAIN[@]}"; do
+        check_file "/opt/ai-tools/${_rel}" root "${SANDBOX_GROUP}" "${CP_UNIT_SEARCH_PATH_MODES[${_rel}]}"
     done
-    check_file "/opt/ai-tools/${CP_TIMER_STAMP_DIR}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" 750
+    check_file "/opt/ai-tools/${CP_TIMER_STAMP_DIR}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" "${CP_TIMER_STAMP_DIR_MODE#0}"
 else
-    skip "the sandbox unit search path" "${_cp_lib} does not declare the unit-path chain on this host"
+    skip "the sandbox unit search path" "${_cp_lib} does not declare the unit search path chain on this host"
 fi
 
 # shellcheck source=/dev/null

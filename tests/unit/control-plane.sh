@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/control-plane.sh
-# Unit test for the unit-path chain in control-plane.lib.sh: the converge that closes the sandbox account's systemd unit
-# search path, and the readers `ai-tools-admin status` reports from (ownership-and-hooks.rule.md). Each case asserts
-# the converge moves toward less access and reports what it did and what it left: an unexpected entry stays in place
-# as an `error`, a non-root caller is refused, and the drift reader tells a clean chain from a failed reading.
+# Unit test for the unit search path chain in control-plane.lib.sh: the converge that closes the sandbox account's
+# systemd unit search path, and the readers `ai-tools-admin status` reports from (ownership-and-hooks.rule.md). Each
+# case asserts the converge moves toward less access and reports what it did and what it left: an unexpected entry stays
+# in place as an `error`, a non-root caller is refused, and the drift reader tells a clean chain from a failed reading.
 #
 # Run as root via sudo: the converge chowns, and the fixture chains are account-owned. Every fixture is in the testdir.
 
@@ -20,14 +20,14 @@ LIB="/usr/local/lib/ai-tools/control-plane.lib.sh"
 section "control-plane: the sandbox unit search path (unit)"
 
 if [[ ! -r "${LIB}" ]]; then
-    skip "unit-path chain" "library not readable at ${LIB}"; finish; exit
+    skip "unit search path chain" "library not readable at ${LIB}"; finish; exit
 fi
 # shellcheck source=/dev/null
 source "${LIB}" 2>/dev/null || true
-if ! declare -F ai_tools_unit_path_converge >/dev/null 2>&1 \
-        || ! declare -F ai_tools_unit_path_drift >/dev/null 2>&1 \
-        || ! declare -F ai_tools_unit_path_entries >/dev/null 2>&1; then
-    skip "unit-path chain" "the deployed library predates the unit-path readers"; finish; exit
+if ! declare -F ai_tools_ensure_unit_search_path_closed >/dev/null 2>&1 \
+        || ! declare -F ai_tools_get_unit_search_path_drift >/dev/null 2>&1 \
+        || ! declare -F ai_tools_find_unexpected_unit_search_path_entries >/dev/null 2>&1; then
+    skip "unit search path chain" "the deployed library predates the unit search path readers"; finish; exit
 fi
 
 mktestdir
@@ -44,7 +44,7 @@ mkchain() {
 # converge <home> : run the converge, printing its tagged lines then `rc=<status>`.
 converge() {
     local rc=0
-    ai_tools_unit_path_converge "$1" "${SANDBOX_USER}" "${SANDBOX_GROUP}" 2>&1 || rc=$?
+    ai_tools_ensure_unit_search_path_closed "$1" "${SANDBOX_USER}" "${SANDBOX_GROUP}" 2>&1 || rc=$?
     printf 'rc=%s\n' "${rc}"
 }
 
@@ -136,10 +136,10 @@ if [[ "$(state "${HOME_B}/.local/share/systemd")" == "root:${SANDBOX_GROUP} 2750
 else
     fail "the chain was left open beside the finding: $(state "${HOME_B}/.local/share/systemd")"
 fi
-if [[ "$(ai_tools_unit_path_entries "${HOME_B}")" == "${HOME_B}/.local/share/systemd/user" ]]; then
+if [[ "$(ai_tools_find_unexpected_unit_search_path_entries "${HOME_B}")" == "${HOME_B}/.local/share/systemd/user" ]]; then
     pass "the entries reader names it and passes over the timer-stamp directory"
 else
-    fail "ai_tools_unit_path_entries: $(ai_tools_unit_path_entries "${HOME_B}")"
+    fail "ai_tools_find_unexpected_unit_search_path_entries: $(ai_tools_find_unexpected_unit_search_path_entries "${HOME_B}")"
 fi
 
 # ── A symlink on the chain is refused and left exactly as it is ───────────────────────────────────────────────
@@ -177,7 +177,7 @@ else
     rc=0
     # shellcheck disable=SC2016  # the $1/$2 are the inner bash's own arguments, not this shell's
     runuser -u "${PROJECTS_USER}" -- bash -c '
-        source "$1"; ai_tools_unit_path_converge "$2" x y' _ "${LIB}" "${HOME_E}" >/dev/null 2>&1 || rc=$?
+        source "$1"; ai_tools_ensure_unit_search_path_closed "$2" x y' _ "${LIB}" "${HOME_E}" >/dev/null 2>&1 || rc=$?
     if [[ "${rc}" -eq 2 ]]; then
         pass "a non-root caller is refused with status 2 rather than reporting a converge it could not make"
     else
@@ -191,23 +191,40 @@ else
 fi
 
 # ── The drift reader: three statuses, so a failure is never read as a closed path ─────────────────────────────
-rc=0; out="$(ai_tools_unit_path_drift "${HOME_A}" "${SANDBOX_GROUP}")" || rc=$?
+rc=0; out="$(ai_tools_get_unit_search_path_drift "${HOME_A}" "${SANDBOX_GROUP}")" || rc=$?
 if [[ "${rc}" -eq 1 && -z "${out}" ]]; then
     pass "a converged chain reads clean (status 1, no line)"
 else
     fail "a converged chain read status ${rc}: ${out}"
 fi
-rc=0; out="$(ai_tools_unit_path_drift "${TESTDIR}/home-e" "${SANDBOX_GROUP}")" || rc=$?
+rc=0; out="$(ai_tools_get_unit_search_path_drift "${TESTDIR}/home-e" "${SANDBOX_GROUP}")" || rc=$?
 if [[ "${rc}" -eq 0 ]] && grep -q "^${TESTDIR}/home-e/.local ${SANDBOX_USER}:${SANDBOX_GROUP} 750 root:" <<<"${out}"; then
     pass "an account-owned chain is reported as drift (status 0), naming what each path is and what it must be"
 else
     fail "an account-owned chain read status ${rc}: ${out}"
 fi
-rc=0; ai_tools_unit_path_drift "" "" >/dev/null 2>&1 || rc=$?
+rc=0; ai_tools_get_unit_search_path_drift "" "" >/dev/null 2>&1 || rc=$?
 if [[ "${rc}" -eq 2 ]]; then
     pass "a reading it could not make is status 2, told apart from a clean chain so no caller renders it as closed"
 else
     fail "an unmakeable drift reading returned ${rc}, expected 2"
+fi
+
+# ── The report parser both installers render from ─────────────────────────────────────────────────────────────
+# <before> is `owner:group mode` or the single word `absent`, so the split is asserted for each shape.
+parsed_changed=(); parsed_failed=()
+ai_tools_parse_unit_search_path_report parsed_changed parsed_failed <<'REPORT'
+changed /h/.local ai-tools:ai-tools 750 root:ai-tools 3770
+changed /h/.local/share/systemd/timers absent ai-tools:ai-tools 750
+error /h/.local/share/systemd/user is on the account's unit search path
+REPORT
+if [[ "${parsed_changed[0]:-}" == "/h/.local: ai-tools:ai-tools 750 -> root:ai-tools 3770" \
+        && "${parsed_changed[1]:-}" == "/h/.local/share/systemd/timers: absent -> ai-tools:ai-tools 750" \
+        && "${parsed_failed[0]:-}" == "/h/.local/share/systemd/user: is on the account's unit search path" \
+        && ${#parsed_changed[@]} -eq 2 && ${#parsed_failed[@]} -eq 1 ]]; then
+    pass "the report parser splits changed and error lines, with either shape of <before>"
+else
+    fail "the report parser read: changed=(${parsed_changed[*]-}) failed=(${parsed_failed[*]-})"
 fi
 
 finish

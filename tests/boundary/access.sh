@@ -248,7 +248,7 @@ for _d in /opt/ai-tools/.config/systemd/user /opt/ai-tools/.config/systemd/user/
     fi
 done
 
-# The manager's other unit search path, $XDG_DATA_HOME/systemd/user, behind the root-owned unit-path chain
+# The manager's other unit search path, $XDG_DATA_HOME/systemd/user, behind the root-owned unit search path chain
 # (ownership-and-hooks.rule.md). Probed with create attempts; a rename of the live chain would break this host's update
 # timer if it succeeded, so unit/control-plane.sh drives the rename against a fixture.
 for _d in /opt/ai-tools/.local/share/systemd /opt/ai-tools/.local/share/systemd/user; do

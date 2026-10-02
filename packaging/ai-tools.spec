@@ -837,8 +837,8 @@ chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # access, so it runs unattended; under an explicit bash, since the library is bash and a scriptlet runs under /bin/sh.
 if [ -d /opt/ai-tools ] && command -v bash >/dev/null 2>&1; then
     bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || exit 0
-             declare -F ai_tools_unit_path_converge >/dev/null 2>&1 || exit 0
-             ai_tools_unit_path_converge /opt/ai-tools ai-tools ai-tools | while read -r verdict rest; do
+             declare -F ai_tools_ensure_unit_search_path_closed >/dev/null 2>&1 || exit 0
+             ai_tools_ensure_unit_search_path_closed /opt/ai-tools ai-tools ai-tools | while read -r verdict rest; do
                  [ "${verdict}" = error ] && echo "ai-tools-base: WARNING the sandbox systemd unit search path is not fully closed: ${rest}" >&2
              done' || :
     if command -v restorecon >/dev/null 2>&1; then

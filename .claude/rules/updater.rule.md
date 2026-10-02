@@ -90,7 +90,7 @@ chain races the operator's first launch into the mislabel refusal. Provisioning 
 toolchain, so recording "last run = now" is truthful; the next run is the next scheduled window. `ai-tools-bootstrap`
 and `install.sh` both seed the stamp before starting the timer (the RPM/dev flows), and each also runs from a neutral
 CWD so the `sudo -u SANDBOX_USER` steps do not inherit an operator directory the account cannot traverse back into. Each
-converges the unit-path chain first, which creates the stamp directory
+closes the unit search path first, which creates the stamp directory
 ([ownership-and-hooks](ownership-and-hooks.rule.md)).
 
 It closes by **naming each enrolled operator whose shell reaches an agent other than the wrapper**, read per account

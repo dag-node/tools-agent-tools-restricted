@@ -324,14 +324,14 @@ ai_tools_service_stamp_verdict() {
     return 0
 }
 
-# ai_tools_service_timespan_seconds <value>  -- PRINT whole seconds for a systemd time span as `systemctl show` renders
-# one (`0`, `1min`, `3min`, `1min 30s`, `500ms`, `2h`), or an EMPTY STRING when no token could be read. ALWAYS returns
-# 0. systemd pretty-prints these properties and does not publish a numeric form for them, so adding a timer's accuracy
-# to its randomized delay means parsing what it prints. Unrecognized tokens are skipped rather than guessed
+# ai_tools_service_parse_timespan_seconds <value>  -- PRINT whole seconds for a systemd time span as `systemctl show`
+# renders one (`0`, `1min`, `3min`, `1min 30s`, `500ms`, `2h`), or an EMPTY STRING when no token could be read. ALWAYS
+# returns 0. systemd pretty-prints these properties and does not publish a numeric form for them, so adding a timer's
+# accuracy to its randomized delay means parsing what it prints. Unrecognized tokens are skipped rather than guessed
 # at, and a value made entirely of them prints nothing, so a caller treats it as unknown instead of as zero tolerance.
 # Sub-second units floor to 0, which is what they are worth in a judgment measured in minutes. IFS is pinned
 # for the split: this library is sourced into scripts that set their own.
-ai_tools_service_timespan_seconds() {
+ai_tools_service_parse_timespan_seconds() {
     local value="${1:-}" token total=0 read_any=0 number unit
     local -a tokens=()
     IFS=$' \t\n' read -ra tokens <<<"${value}"
@@ -352,44 +352,26 @@ ai_tools_service_timespan_seconds() {
     return 0
 }
 
-# ai_tools_timer_stamp_verdict <state> <skew> <trigger_age> <max_age> <allowance>  -- the pure decision
-# about a `Persistent=` TIMER STAMP: PRINT one of ok|future|absent|overdue|unreadable from readings already taken. No
-# I/O, no privilege, ALWAYS returns 0, so the policy is driven over its truth table (tests/unit/services.sh) apart
-# from the probing that gathers its inputs -- the same split ai_tools_service_stamp_verdict makes.
+# ai_tools_service_evaluate_timer_stamp <state> <skew> <allowance>  -- the pure decision about a `Persistent=` TIMER
+# STAMP: PRINT one of ok|future|absent|unreadable from readings already taken. No I/O, ALWAYS returns 0, so it is driven
+# over its truth table (tests/unit/services.sh). systemd compares the stamp's mtime at timer start to decide whether
+# a window was missed, and the sandbox account's manager must write it, so it is reported rather than trusted.
 #
-# This is a DIFFERENT record from the last-run stamp every other function here reads. systemd writes it when a timer
-# elapses, and `Persistent=true` reads it at timer start to decide whether a window was missed: so its mtime, not its
-# contents, is the whole datum. It lives in the sandbox account's own XDG data home, which is why it is reported rather
-# than trusted -- the account's manager must write it, so no mode can keep a process of that account
-# out, and on an enforcing host the type on that path is what does (ai_tools.fc).
+#   <state>      ok | absent | unreadable, from the caller's stat of the file.
+#   <skew>       seconds the mtime is dated ahead of now, 0 when it is not, empty when it could not be computed.
+#   <allowance>  seconds of future-dating to tolerate: the timer's own accuracy plus its randomized delay.
 #
-#   <state>        ok | absent | unreadable, from the caller's stat of the file: whether there is an mtime to judge.
-#   <skew>         seconds the mtime is dated AHEAD of now, 0 when it is not, empty when it could not be computed.
-#   <trigger_age>  seconds since the timer last elapsed, from the unit's own LastTriggerUSec, or empty.
-#   <max_age>      seconds after which a timer that has not elapsed is overdue.
-#   <allowance>    seconds of future-dating to tolerate before calling it `future` -- the timer's own accuracy plus its
-#                  randomized delay, which a caller reads from the unit rather than this library assuming a schedule.
-#
-# `future` outranks the rest because it is the one state that changes what systemd DOES: a stamp dated ahead suppresses
-# the catch-up run a missed window would otherwise get, so a host can stop updating while every other reading looks
-# healthy. `unreadable` outranks it in turn, since a stamp whose mtime could not be read does not support any verdict.
-# An unknown age never manufactures `overdue`, the same rule the last-run stamp follows: an absence is not evidence
-# of staleness. Nothing here writes or resets the stamp -- a report that repaired its own input would destroy the record
-# it exists to show.
-ai_tools_timer_stamp_verdict() {
-    local state="${1:-unreadable}" skew="${2:-}" trigger_age="${3:-}" max_age="${4:-}" allowance="${5:-0}"
+# `future` outranks `absent` because it changes what systemd does: a stamp dated ahead suppresses the catch-up run
+# a missed window gets. `unreadable` outranks it, since a stamp whose mtime could not be read does not support
+# a verdict.
+ai_tools_service_evaluate_timer_stamp() {
+    local state="${1:-unreadable}" skew="${2:-}" allowance="${3:-0}"
     [[ "${allowance}" =~ ^[0-9]+$ ]] || allowance=0
-    case "${state}" in
-        unreadable) printf 'unreadable'; return 0 ;;
-    esac
+    [[ "${state}" == unreadable ]] && { printf 'unreadable'; return 0; }
     if [[ "${skew}" =~ ^[0-9]+$ ]] && [[ "${skew}" -gt "${allowance}" ]]; then
         printf 'future'; return 0
     fi
-    if [[ "${state}" == absent ]]; then printf 'absent'; return 0; fi
-    if [[ "${max_age}" =~ ^[0-9]+$ && "${trigger_age}" =~ ^[0-9]+$ ]] \
-            && [[ "${trigger_age}" -gt "${max_age}" ]]; then
-        printf 'overdue'; return 0
-    fi
+    [[ "${state}" == absent ]] && { printf 'absent'; return 0; }
     printf 'ok'
     return 0
 }

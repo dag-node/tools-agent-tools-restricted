@@ -632,24 +632,14 @@ preflight_network() {
     return 1
 }
 
-# converge_unit_path_step -- apply the unit-path chain (ai_tools_unit_path_converge) before the stamp step writes
-# into it, and warn where it could not close a path; the run continues. Without control-plane.lib.sh (a bootstrap ahead
-# of the control-plane install) it creates `.local` account-owned, and the install that follows converges it.
-converge_unit_path_step() {
-    local line verdict path rest
-    local -a failed=()
-    if ! declare -F ai_tools_unit_path_converge >/dev/null 2>&1; then
-        install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${SANDBOX_HOME}/.local"
-        return 0
-    fi
-    while IFS= read -r line; do
-        [[ -n "${line}" ]] || continue
-        verdict="${line%% *}"; rest="${line#* }"; path="${rest%% *}"
-        case "${verdict}" in
-            changed) log "unit search path: ${path} is now ${rest#* }" ;;
-            error)   failed+=("${path}: ${rest#* }") ;;
-        esac
-    done < <(ai_tools_unit_path_converge "${SANDBOX_HOME}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
+# close_unit_search_path -- apply the unit search path layout (ai_tools_ensure_unit_search_path_closed) before the stamp
+# step writes into it, and warn where a path stays open; the run continues.
+close_unit_search_path() {
+    local line
+    local -a changed=() failed=()
+    ai_tools_parse_unit_search_path_report changed failed \
+        < <(ai_tools_ensure_unit_search_path_closed "${SANDBOX_HOME}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
+    for line in "${changed[@]+"${changed[@]}"}"; do log "unit search path: ${line}"; done
     if (( ${#failed[@]} > 0 )); then
         # A twin of install.sh's warning, which defines the code (messaging.rule.md).
         printf 'MSG-A2Y5\n' >&2
@@ -727,11 +717,14 @@ if ! declare -F ai_tools_as_sandbox >/dev/null 2>&1 || ! declare -F ai_tools_nvm
     die MSG-E2X2 "cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
 fi
 
-# The unit-path converge (control-plane.lib.sh), loaded best-effort: a bootstrap ahead of the control-plane install has
-# none, and converge_unit_path_step says what it does then.
+# The unit search path layout (control-plane.lib.sh). Required: a run without it would leave that path the account's.
 _control_plane_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
 source "${_control_plane_lib}" 2>/dev/null || true
+if ! declare -F ai_tools_ensure_unit_search_path_closed >/dev/null 2>&1 \
+        || ! declare -F ai_tools_parse_unit_search_path_report >/dev/null 2>&1; then
+    die MSG-Q3P4 "cannot close the sandbox account's systemd unit search path: ${_control_plane_lib} did not load -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
+fi
 
 # Which agents this run provisions, decided and written before the first network step: a name given on the command line,
 # the line already in operator.conf, or the operator's answer to the menu. An unknown `--agents` name ends the run here,
@@ -787,8 +780,8 @@ for _sub in .nvm .cache .npm; do
     install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${SANDBOX_HOME}/${_sub}"
 done
 
-# `.local` heads the unit-path chain, which root owns.
-converge_unit_path_step
+# `.local` heads the unit search path chain, which root owns.
+close_unit_search_path
 
 # Resolve the enabled agents -- read AFTER choose_agents, so the set is the one this run just wrote. Each enabled line
 # is "name<TAB>npm_package<TAB>launcher"; collect the packages (installed in step 2) and launchers (symlinked in step
@@ -1000,9 +993,7 @@ ln -sfn /usr/lib/systemd/user/nvm-update.timer \
 # is truthful: record it (mtime is all systemd reads), and the next run is the next scheduled window. Written
 # AS the sandbox account into its XDG_DATA_HOME, the path the `--user manager` reads and later updates itself. See
 # .claude/rules/updater.rule.md.
-_stampdir="${SANDBOX_HOME}/.local/share/systemd/timers"
-sudo -u "${SANDBOX_USER}" mkdir -p "${_stampdir}"
-sudo -u "${SANDBOX_USER}" touch "${_stampdir}/stamp-nvm-update.timer"
+sudo -u "${SANDBOX_USER}" touch "${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"
 
 # Linger keeps the `--user manager` running without an interactive login, so the timer it holds stays active. Surface
 # a failure so an instance that does not engage linger is visible.
