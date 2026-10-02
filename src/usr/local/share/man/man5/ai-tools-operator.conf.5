@@ -261,14 +261,13 @@ takes it, and a declined offer writes
 .BI AI_TOOLS_SELINUX_BOOLEANS= "\fR[\fPBOOLEAN\fR=\fPVALUE\fR,\fP ...\fR]\fP"
 The SELinux Boolean values a launch requires while
 .B AI_TOOLS_REQUIRE_SELINUX
-is set, each
-.I VALUE
-.B on
+is set, each pair spelled as
+.B setsebool
+takes it,
+.IB BOOLEAN =on
 or
-.B off
-as
-.B getsebool \-a
-prints it; a Boolean at another value refuses the launch.
+.IB BOOLEAN =off ;
+a Boolean at another value refuses the launch.
 The list is exactly the requirement, as every list in this file replaces
 its default: a built-in requirement is kept by listing it, and
 .B []
@@ -301,15 +300,10 @@ declared in this file.
 .BR domain_can_write_kmsg=off] ,
 Booleans the SELinux policy ships off whose opening widens what a
 session may do.
-An entry that is not
-.IB BOOLEAN =on
-or
-.IB BOOLEAN =off
-with a name of letters, digits and underscores up to 64 characters, a
-Boolean listed twice, and a list that does not parse each refuse the
-launch until the line is fixed, and a Boolean the kernel does not have
-refuses it as an input that could not be read, so a wrong entry costs a
-launch, never confinement.
+A malformed entry (a name is letters, digits and underscores, up to 64
+characters), a Boolean listed twice, and a list that does not parse each
+refuse the launch until the line is fixed; a Boolean the loaded policy
+does not have refuses it as an input that could not be read.
 .TP
 .B AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes
 Entrypoint-verification strictness. Each agent's entrypoint is verified against

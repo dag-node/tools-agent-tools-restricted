@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/confinement.lib.sh
-# The pure decision behind ai-tools-run's fail-closed SELinux launch preflight: a session that does not transition
+# The decision behind ai-tools-run's fail-closed SELinux launch preflight: a session that does not transition
 # into ai_tools_t runs UNCONFINED, so ai-tools-run checks the transition's inputs BEFORE launch (a wrapper cannot
 # observe its successor's post-exec domain). ai-tools-run probes the host and calls ai_tools_confinement_verdict;
-# the decision lives here, free of I/O, so it is unit-tested apart from the probing (tests/unit/confinement.sh, no
-# SELinux host needed). The one impure function, ai_tools_confinement_read_attestation_records, is the selinuxfs read
-# the shim and both status reports share, so the three read the per-domain mode and the Booleans one way. See
-# confinement.rule.md.
+# the decision is free of I/O, so it is unit-tested apart from the probing (tests/unit/confinement.sh, no SELinux host
+# needed). The functions that read -- the operator.conf readers and the selinuxfs reader -- are shared by the shim
+# and the status reports through ai_tools_confinement_read_attestation_inputs, so every consumer reads one set
+# of inputs one way. See confinement.rule.md.
 #
-# Sourced, not executed. Deployed 644 root:root -- no secrets; sourced by ai-tools-run (as the sandbox account), the two
-# status reports, and the unit test (as root).
+# Sourced, not executed. Deployed 644 root:root -- no secrets; sourced by ai-tools-run (as the sandbox account),
+# the status reports, and the unit test (as root).
 #
 # Deploy:
 #   ```bash
@@ -23,29 +23,29 @@
 _AI_TOOLS_CONFINEMENT_LIB_LOADED=1
 
 # The Booleans that gate rules for ai_tools_t in the base policy, one row per Boolean, as `sesearch -A -s ai_tools_t`
-# lists them on the supported policy: <name>|<refused|reported>|<opening value>|<what the open rules grant>. The opening
-# value is the one under which the conditional rules apply: `on` for a true branch, `off` for a false one. A refused row
+# lists them on the supported policy: <name>|<gating|advisory>|<opening value>|<what the open rules grant>. The opening
+# value is the one under which the conditional rules apply: `on` for a true branch, `off` for a false one. A gating row
 # is one the stock policy keeps closed, so opening it is a change on the host: by default a launch
-# under AI_TOOLS_REQUIRE_SELINUX requires it at its other value. A reported row is open by default or supported by this
+# under AI_TOOLS_REQUIRE_SELINUX requires it at its other value. An advisory row is open by default or supported by this
 # project, and the status reports show it. AI_TOOLS_SELINUX_BOOLEANS replaces a default requirement or adds one
-# (ai_tools_confinement_get_required_boolean_values).
+# (ai_tools_confinement_resolve_required_boolean_values).
 # shellcheck disable=SC2034  # read by ai-tools-run and the two status reports
 readonly -a AI_TOOLS_CONFINEMENT_BOOLEANS=(
-    "nis_enabled|refused|on|bind and connect on most port types"
-    "domain_can_mmap_files|refused|on|map on every file type, the access the tmpmap group exists to add"
-    "domain_can_write_kmsg|refused|on|writes to the kernel log device, kmsg"
-    "kerberos_enabled|reported|on|Kerberos and OCSP connects, and connectto on pcscd"
-    "authlogin_nsswitch_use_ldap|reported|on|LDAP connects and connectto on the directory server"
-    "fips_mode|reported|on|execute on prelink_exec_t, and a fifo_file rule on the domain itself"
-    "domain_kernel_load_modules|reported|on|a request that the kernel load a module"
-    "nscd_use_shm|reported|on|use of the nscd shared memory"
-    "domain_fd_use|reported|on|use of file descriptors other domains hold"
-    "deny_ptrace|reported|off|ptrace, which this Boolean denies while on"
+    "nis_enabled|gating|on|bind and connect on most port types"
+    "domain_can_mmap_files|gating|on|map on every file type, the access the tmpmap group exists to add"
+    "domain_can_write_kmsg|gating|on|writes to the kernel log device, kmsg"
+    "kerberos_enabled|advisory|on|Kerberos and OCSP connects, and connectto on pcscd"
+    "authlogin_nsswitch_use_ldap|advisory|on|LDAP connects and connectto on the directory server"
+    "fips_mode|advisory|on|execute on prelink_exec_t, and a fifo_file rule on the domain itself"
+    "domain_kernel_load_modules|advisory|on|a request that the kernel load a module"
+    "nscd_use_shm|advisory|on|use of the nscd shared memory"
+    "domain_fd_use|advisory|on|use of file descriptors other domains hold"
+    "deny_ptrace|advisory|off|ptrace, which this Boolean denies while on"
 )
 
-# ai_tools_confinement_list_table_booleans -- print the table as tab-separated rows,
-# `<name><TAB><refused|reported><TAB><on|off><TAB><grants>`, in table order.
-ai_tools_confinement_list_table_booleans() {
+# ai_tools_confinement_list_known_booleans -- print the registry as tab-separated rows,
+# `<name><TAB><gating|advisory><TAB><on|off><TAB><grants>`, in registry order.
+ai_tools_confinement_list_known_booleans() {
     local boolean_row boolean_name boolean_class opening_value boolean_grants
     for boolean_row in "${AI_TOOLS_CONFINEMENT_BOOLEANS[@]}"; do
         IFS='|' read -r boolean_name boolean_class opening_value boolean_grants <<< "${boolean_row}"
@@ -71,18 +71,18 @@ ai_tools_confinement_read_declared_boolean_values() {
     ai_tools_conf_pair_list declared_entries "${operator_conf}" AI_TOOLS_SELINUX_BOOLEANS on off || return 1
     declared_boolean_values="${declared_entries[*]+"${declared_entries[*]}"}"
     printf '%s\n' "${declared_boolean_values}"
-    (( ${_ai_tools_conf_pair_list_rejected:-0} == 0 && ${_ai_tools_conf_list_invalid:-0} == 0 )) || return 2
+    (( ${_ai_tools_conf_pair_list_rejected_count:-0} == 0 && ${_ai_tools_conf_list_invalid:-0} == 0 )) || return 2
     return 0
 }
 
-# ai_tools_confinement_get_required_boolean_values [declaration-state] [declared-boolean-values] -- print the Boolean
+# ai_tools_confinement_resolve_required_boolean_values [declaration-state] [declared-boolean-values] -- print the Boolean
 # values a launch under AI_TOOLS_REQUIRE_SELINUX requires, as one space-separated `<name>=<value>` list. A present
 # declaration (<declaration-state> `present`) is the whole requirement, exactly as AI_TOOLS_SELINUX_BOOLEANS lists it,
 # as every list in operator.conf replaces its default. With no declaration (`absent`, or no argument) the requirement
-# is each refused table row at the value that keeps its rules closed. A malformed declaration (`malformed`) requires
+# is each gating registry row at the value that keeps its rules closed. A malformed declaration (`malformed`) requires
 # the defaults and the entries read, plus `AI_TOOLS_SELINUX_BOOLEANS=malformed`, which no reading satisfies, so
 # the launch refuses until the entry is fixed: a wrong entry costs a launch, never a requirement.
-ai_tools_confinement_get_required_boolean_values() {
+ai_tools_confinement_resolve_required_boolean_values() {
     local IFS=$' \t\n'   # the lists below split on spaces whatever IFS the caller set (ai-tools: newline, tab)
     local declaration_state="${1:-absent}" declared_boolean_values=" ${2:-} " boolean_name boolean_class opening_value
     local declared_entry required_boolean_values=""
@@ -94,13 +94,13 @@ ai_tools_confinement_get_required_boolean_values() {
         return 0
     fi
     while IFS=$'\t' read -r boolean_name boolean_class opening_value _; do
-        [[ "${boolean_class}" == refused && "${declared_boolean_values}" != *" ${boolean_name}="* ]] || continue
+        [[ "${boolean_class}" == gating && "${declared_boolean_values}" != *" ${boolean_name}="* ]] || continue
         if [[ "${opening_value}" == on ]]; then
             required_boolean_values+="${required_boolean_values:+ }${boolean_name}=off"
         else
             required_boolean_values+="${required_boolean_values:+ }${boolean_name}=on"
         fi
-    done < <(ai_tools_confinement_list_table_booleans)
+    done < <(ai_tools_confinement_list_known_booleans)
     if [[ "${declaration_state}" == malformed ]]; then
         for declared_entry in ${declared_boolean_values}; do
             required_boolean_values+="${required_boolean_values:+ }${declared_entry}"
@@ -110,10 +110,10 @@ ai_tools_confinement_get_required_boolean_values() {
     printf '%s\n' "${required_boolean_values}"
 }
 
-# ai_tools_confinement_read_required_boolean_values <operator-conf> -- print, on three lines, the declaration state
-# (`present`, `absent` or `malformed`), the required values ai_tools_confinement_get_required_boolean_values gives
+# ai_tools_confinement_read_boolean_requirement <operator-conf> -- print, on three lines, the declaration state
+# (`present`, `absent` or `malformed`), the required values ai_tools_confinement_resolve_required_boolean_values gives
 # for <operator-conf>'s AI_TOOLS_SELINUX_BOOLEANS, and the declared values that list holds (empty when absent).
-ai_tools_confinement_read_required_boolean_values() {
+ai_tools_confinement_read_boolean_requirement() {
     local declared_boolean_values declaration_status=0 declaration_state
     declared_boolean_values="$(ai_tools_confinement_read_declared_boolean_values "$1")" || declaration_status=$?
     case "${declaration_status}" in
@@ -122,7 +122,7 @@ ai_tools_confinement_read_required_boolean_values() {
         *) declaration_state=absent; declared_boolean_values="" ;;
     esac
     printf '%s\n' "${declaration_state}"
-    ai_tools_confinement_get_required_boolean_values "${declaration_state}" "${declared_boolean_values}"
+    ai_tools_confinement_resolve_required_boolean_values "${declaration_state}" "${declared_boolean_values}"
     printf '%s\n' "${declared_boolean_values}"
 }
 
@@ -130,14 +130,14 @@ ai_tools_confinement_read_required_boolean_values() {
 # ok | permissive | boolean | unknown for the attestation inputs a launch under AI_TOOLS_REQUIRE_SELINUX needs beyond
 # the transition: <domain-permissive> is "no" when ai_tools_t is enforced per domain, "yes" when it is a permissive
 # domain, "" when unread; <current-boolean-values> is space-separated <name>=on|off pairs; <required-boolean-values> is
-# the `<name>=<on|off>` set a launch requires (ai_tools_confinement_get_required_boolean_values), the table's defaults
+# the `<name>=<on|off>` set a launch requires (ai_tools_confinement_resolve_required_boolean_values), the table's defaults
 # when absent. A Boolean at another value than the one required is a fault; one missing from <current-boolean-values>,
 # or carrying another value, is unread. A definite fault outranks an unread input. Returns 0 for ok, 1 otherwise.
 ai_tools_confinement_attestation_verdict() {
     local IFS=$' \t\n'   # the lists below split on spaces whatever IFS the caller set (ai-tools: newline, tab)
     local domain_permissive="$1" current_boolean_values=" $2 " required_boolean_values="${3-}"
     local required_entry boolean_name required_value other_value any_input_unread=no any_boolean_differs=no
-    [[ $# -ge 3 ]] || required_boolean_values="$(ai_tools_confinement_get_required_boolean_values "")"
+    [[ $# -ge 3 ]] || required_boolean_values="$(ai_tools_confinement_resolve_required_boolean_values "")"
     [[ "${domain_permissive}" == yes ]] && { printf 'permissive'; return 1; }
     [[ "${domain_permissive}" == no ]] || any_input_unread=yes
     for required_entry in ${required_boolean_values}; do
@@ -156,7 +156,7 @@ ai_tools_confinement_attestation_verdict() {
 }
 
 # ai_tools_confinement_parse_access_decision <kernel-answer> -- print "yes" or "no" for the permissive bit of an answer
-# read back from selinuxfs' access transaction file, and nothing for an answer outside its grammar. The kernel writes
+# read back from selinuxfs' access transaction file, and prints nothing for an answer outside its grammar. The kernel writes
 # `<allowed> <decided> <auditallow> <auditdeny> <seqno> <flags>`, every field hex but the decimal seqno; bit 0x1
 # of <flags> is AVD_FLAGS_PERMISSIVE, which the kernel sets from the source domain's type alone.
 ai_tools_confinement_parse_access_decision() {
@@ -185,7 +185,7 @@ ai_tools_confinement_read_attestation_records() {
     local -a boolean_names=()
     [[ $# -gt 0 ]] && shift
     while IFS=$'\t' read -r boolean_name _; do boolean_names+=( "${boolean_name}" ); done \
-        < <(ai_tools_confinement_list_table_booleans)
+        < <(ai_tools_confinement_list_known_booleans)
     for boolean_name in "$@"; do
         # A further name becomes a path component under selinuxfs, so it is read only as a name the pair grammar admits
         # -- and not at all where conf.lib.sh is not loaded -- and a name the table holds is read once.
@@ -243,42 +243,84 @@ ai_tools_confinement_parse_attestation_records() {
     printf '%s|%s\n' "${domain_permissive}" "${current_boolean_values}"
 }
 
-# ai_tools_confinement_selinux_required <operator-conf> -- return 0 when <operator-conf> sets AI_TOOLS_REQUIRE_SELINUX
+# ai_tools_confinement_is_selinux_required <operator-conf> -- return 0 when <operator-conf> sets AI_TOOLS_REQUIRE_SELINUX
 # to a yes value and passes ai_tools_conf_is_trusted, 1 otherwise. Needs conf.lib.sh loaded; without it,
 # and for an untrusted or absent file, it returns 1, the default posture (confinement.rule.md states why that direction
 # is the one read failure that does not narrow).
-ai_tools_confinement_selinux_required() {
+ai_tools_confinement_is_selinux_required() {
     if ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 || ! declare -F ai_tools_conf_yes >/dev/null 2>&1; then
         return 1
     fi
     ai_tools_conf_is_trusted "$1" 2>/dev/null && ai_tools_conf_yes "$1" AI_TOOLS_REQUIRE_SELINUX
 }
 
-# ai_tools_confinement_attestation_report_rows [required-boolean-values] [declared-boolean-values] -- read
-# ai_tools_confinement_read_attestation_records' output on stdin and print one tab-separated row per reading the status
-# reports show: every table Boolean, then each required Boolean the table does not hold, a value the reader could not
-# read as `unread`:
-#   domain<TAB><yes|no|unread>                                  whether ai_tools_t is a permissive domain
-#   boolean<TAB><name><TAB><on|off|unread><TAB><required value|-><TAB><built-in|operator.conf|->
-#          <TAB><opening value|-><TAB><grants>
-# The required value is the one <required-boolean-values> holds (the table's defaults when absent), and its origin is
-# `operator.conf` where <declared-boolean-values> holds the name.
-ai_tools_confinement_attestation_report_rows() {
+# ai_tools_confinement_read_attestation_inputs <operator-conf> [selinuxfs-root] -- print, on one `|`-separated line,
+# every input the attestation verdict and the status reports take for <operator-conf>:
+#   <declaration-state>|<required-boolean-values>|<declared-boolean-values>|<domain-permissive>|<current-boolean-values>
+# The first three are ai_tools_confinement_read_boolean_requirement's record; the last two are
+# ai_tools_confinement_read_attestation_records' reading of <selinuxfs-root>, which reads each declared Boolean beside
+# the registry's. The shim and both status reports read through this one function, so the three cannot read a different
+# set. `|` is the separator because `read` collapses an empty field split on a tab.
+ai_tools_confinement_read_attestation_inputs() {
+    local IFS=$' \t\n'   # the name list below splits on spaces whatever IFS the caller set (ai-tools: newline, tab)
+    local operator_conf="$1" selinuxfs_root="${2:-/sys/fs/selinux}"
+    local declaration_state required_boolean_values declared_boolean_values domain_permissive current_boolean_values
+    local declared_entry
+    local -a declared_boolean_names=()
+    { read -r declaration_state; IFS= read -r required_boolean_values; IFS= read -r declared_boolean_values; } \
+        < <(ai_tools_confinement_read_boolean_requirement "${operator_conf}")
+    for declared_entry in ${declared_boolean_values}; do declared_boolean_names+=( "${declared_entry%%=*}" ); done
+    IFS='|' read -r domain_permissive current_boolean_values \
+        < <(ai_tools_confinement_read_attestation_records "${selinuxfs_root}" \
+                "${declared_boolean_names[@]+"${declared_boolean_names[@]}"}" \
+            | ai_tools_confinement_parse_attestation_records) || true
+    printf '%s|%s|%s|%s|%s\n' "${declaration_state}" "${required_boolean_values}" "${declared_boolean_values}" \
+        "${domain_permissive}" "${current_boolean_values}"
+}
+
+# ai_tools_confinement_list_unread_inputs <required-boolean-values> <current-boolean-values> <domain-permissive> --
+# print one `<kind><TAB><description>` row per attestation input the verdict reads as unread, so a refusal names each
+# and prints the remedy its kind takes: `selinuxfs` for the per-domain mode, `boolean` for a required Boolean
+# the reading lacks, `declaration` for the malformed marker. Prints nothing when every input was read.
+ai_tools_confinement_list_unread_inputs() {
+    local IFS=$' \t\n'   # the list below splits on spaces whatever IFS the caller set (ai-tools: newline, tab)
+    local required_boolean_values="$1" current_boolean_values=" $2 " domain_permissive="$3" required_entry
+    [[ "${domain_permissive}" == yes || "${domain_permissive}" == no ]] \
+        || printf 'selinuxfs\twhether ai_tools_t is a permissive domain (/sys/fs/selinux/access)\n'
+    for required_entry in ${required_boolean_values}; do
+        if [[ "${required_entry}" == AI_TOOLS_SELINUX_BOOLEANS=malformed ]]; then
+            printf 'declaration\tAI_TOOLS_SELINUX_BOOLEANS in operator.conf (an entry is not <boolean>=on or <boolean>=off)\n'
+        elif [[ "${current_boolean_values}" != *" ${required_entry%%=*}="* ]]; then
+            printf 'boolean\tthe %s Boolean\n' "${required_entry%%=*}"
+        fi
+    done
+}
+
+# ai_tools_confinement_list_attestation_rows <domain-permissive> <current-boolean-values> <required-boolean-values>
+#                                            <declared-boolean-values>
+# Print one tab-separated row per reading the status reports render: the per-domain mode, then every registry Boolean,
+# then each required Boolean the registry does not hold. A value the reader could not read is `unread`, a column with
+# no value `-`:
+#   domain<TAB><yes|no|unread><TAB><remedy|->
+#   boolean<TAB><name><TAB><classification><TAB><on|off|unread><TAB><required value|->
+#          <TAB><built-in|operator.conf|-><TAB><opening value|-><TAB><grants><TAB><remedy|->
+# The classification is ai_tools_confinement_classify_boolean_row's; the remedy is the command that puts a `differs`
+# row or a permissive domain right, so every report prints the same one.
+ai_tools_confinement_list_attestation_rows() {
     local IFS=$' \t\n'   # the lists below split on spaces whatever IFS the caller set (ai-tools: newline, tab)
-    local required_boolean_values=" ${1-} " declared_boolean_values=" ${2:-} "
-    local domain_permissive current_boolean_values boolean_name opening_value boolean_grants required_entry
-    local table_boolean_names=" "
-    [[ $# -ge 1 ]] || required_boolean_values=" $(ai_tools_confinement_get_required_boolean_values "") "
-    IFS='|' read -r domain_permissive current_boolean_values < <(ai_tools_confinement_parse_attestation_records) || true
-    printf 'domain\t%s\n' "${domain_permissive:-unread}"
+    local domain_permissive="$1" current_boolean_values="$2" required_boolean_values=" $3 "
+    local declared_boolean_values=" $4 " boolean_name opening_value boolean_grants required_entry
+    local registry_boolean_names=" " domain_remedy=-
+    [[ "${domain_permissive}" == yes ]] && domain_remedy="sudo semanage permissive -d ai_tools_t"
+    printf 'domain\t%s\t%s\n' "${domain_permissive:-unread}" "${domain_remedy}"
     while IFS=$'\t' read -r boolean_name _ opening_value boolean_grants; do
-        table_boolean_names+="${boolean_name} "
+        registry_boolean_names+="${boolean_name} "
         _ai_tools_confinement_print_boolean_row "${boolean_name}" "${opening_value}" "${boolean_grants}" \
             "${current_boolean_values}" "${required_boolean_values}" "${declared_boolean_values}"
-    done < <(ai_tools_confinement_list_table_booleans)
+    done < <(ai_tools_confinement_list_known_booleans)
     for required_entry in ${required_boolean_values}; do
         boolean_name="${required_entry%%=*}"
-        [[ "${table_boolean_names}" == *" ${boolean_name} "* ]] && continue
+        [[ "${registry_boolean_names}" == *" ${boolean_name} "* ]] && continue
         if [[ "${required_entry#*=}" == malformed ]]; then
             _ai_tools_confinement_print_boolean_row "${boolean_name}" - "an entry that is not <boolean>=on or <boolean>=off" \
                 "${current_boolean_values}" "${required_boolean_values}" " ${boolean_name}=malformed "
@@ -290,10 +332,11 @@ ai_tools_confinement_attestation_report_rows() {
 }
 
 # _ai_tools_confinement_print_boolean_row <name> <opening value|-> <grants> <current> <required> <declared> -- print one
-# `boolean` row of ai_tools_confinement_attestation_report_rows.
+# `boolean` row of ai_tools_confinement_list_attestation_rows.
 _ai_tools_confinement_print_boolean_row() {
     local boolean_name="$1" opening_value="$2" boolean_grants="$3" current_boolean_values=" $4 "
     local required_boolean_values=" $5 " declared_boolean_values=" $6 " boolean_state required_value=- origin=-
+    local classification remedy=-
     case "${current_boolean_values}" in
         *" ${boolean_name}=on "*)  boolean_state=on ;;
         *" ${boolean_name}=off "*) boolean_state=off ;;
@@ -308,16 +351,38 @@ _ai_tools_confinement_print_boolean_row() {
         origin=built-in
         [[ "${declared_boolean_values}" == *" ${boolean_name}="* ]] && origin=operator.conf
     fi
-    printf 'boolean\t%s\t%s\t%s\t%s\t%s\t%s\n' "${boolean_name}" "${boolean_state}" "${required_value}" "${origin}" \
-        "${opening_value}" "${boolean_grants}"
+    classification="$(ai_tools_confinement_classify_boolean_row "${boolean_state}" "${required_value}" "${opening_value}")"
+    [[ "${classification}" == differs ]] && remedy="sudo setsebool -P ${boolean_name}=${required_value}"
+    printf 'boolean\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${boolean_name}" "${classification}" "${boolean_state}" \
+        "${required_value}" "${origin}" "${opening_value}" "${boolean_grants}" "${remedy}"
 }
 
-# ai_tools_confinement_get_boolean_row_reading <state> <required value|-> <opening value|-> -- print the reading
-# a status report renders for one `boolean` row of ai_tools_confinement_attestation_report_rows: `unread`, `matches` (at
+# ai_tools_confinement_list_attestation_report <operator-conf> [selinuxfs-root] -- print the whole reading a status
+# report renders: ai_tools_confinement_list_attestation_rows over ai_tools_confinement_read_attestation_inputs, then one
+# closing row, `verdict<TAB><ok|permissive|boolean|unknown><TAB><yes|no>`: ai_tools_confinement_attestation_verdict's
+# token, and whether AI_TOOLS_REQUIRE_SELINUX makes a token other than `ok` refuse every launch. A report renders
+# the rows in its own form and reads the exit status it owes off the verdict row, so the reports and the shim agree
+# on every value.
+ai_tools_confinement_list_attestation_report() {
+    local operator_conf="$1" selinuxfs_root="${2:-/sys/fs/selinux}" selinux_required=no attestation_verdict
+    local declaration_state required_boolean_values declared_boolean_values domain_permissive current_boolean_values
+    IFS='|' read -r declaration_state required_boolean_values declared_boolean_values domain_permissive \
+            current_boolean_values \
+        < <(ai_tools_confinement_read_attestation_inputs "${operator_conf}" "${selinuxfs_root}") || true
+    ai_tools_confinement_list_attestation_rows "${domain_permissive}" "${current_boolean_values}" \
+        "${required_boolean_values}" "${declared_boolean_values}"
+    attestation_verdict="$(ai_tools_confinement_attestation_verdict "${domain_permissive}" "${current_boolean_values}" \
+        "${required_boolean_values}")" || true
+    ai_tools_confinement_is_selinux_required "${operator_conf}" && selinux_required=yes
+    printf 'verdict\t%s\t%s\n' "${attestation_verdict}" "${selinux_required}"
+}
+
+# ai_tools_confinement_classify_boolean_row <state> <required value|-> <opening value|-> -- print the reading
+# a status report renders for one `boolean` row of ai_tools_confinement_list_attestation_rows: `unread`, `matches` (at
 # the required value), `differs` (at the other value, which refuses a launch under AI_TOOLS_REQUIRE_SELINUX), `open`
 # (not required, and at the value that opens its rules), `closed` (not required, rules shut), or `malformed` (the
 # AI_TOOLS_SELINUX_BOOLEANS row of a declaration with an entry it could not read, which refuses a launch).
-ai_tools_confinement_get_boolean_row_reading() {
+ai_tools_confinement_classify_boolean_row() {
     local boolean_state="$1" required_value="$2" opening_value="$3"
     if [[ "${required_value}" == malformed ]]; then printf 'malformed\n'
     elif [[ "${boolean_state}" != on && "${boolean_state}" != off ]]; then printf 'unread\n'
@@ -394,7 +459,7 @@ ai_tools_confinement_verdict() {
     if [[ $# -ge 9 ]]; then
         required_boolean_values="$9"
     else
-        required_boolean_values="$(ai_tools_confinement_get_required_boolean_values "")"
+        required_boolean_values="$(ai_tools_confinement_resolve_required_boolean_values "")"
     fi
     local manager_domain_covered=no entrypoint_labelled=no attestation_verdict
     [[ "${manager_domain}" == "init_t" || "${manager_domain}" == "unconfined_t" ]] && manager_domain_covered=yes

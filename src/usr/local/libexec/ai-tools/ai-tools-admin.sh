@@ -2704,9 +2704,10 @@ status_update_timer_stamp() {
     return 0
 }
 
-# status_selinux_attestation: the per-domain mode of ai_tools_t and the Booleans that widen it, read through the shim's
-# own reader (ai_tools_confinement_read_attestation_records) and judged by its verdict, so this report and the launch
-# cannot disagree. A finding counts only where AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch;
+# status_selinux_attestation: render the rows ai_tools_confinement_list_attestation_report prints
+# (confinement.lib.sh): the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified
+# by the launch shim's own functions, so this report, ai-tools status and the launch cannot disagree. A finding counts
+# only where the report's verdict row says AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch;
 # elsewhere it is reported as the posture it is. A host where SELinux is off reports n/a. <operator-conf> is a parameter
 # so a unit test drives the counting rule over a fixture.
 status_selinux_attestation() {
@@ -2714,8 +2715,7 @@ status_selinux_attestation() {
     heading "SELinux attestation"
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/confinement.lib.sh
     source "${CONFINEMENT_LIB}" 2>/dev/null || true
-    if ! declare -F ai_tools_confinement_read_attestation_records >/dev/null 2>&1 \
-            || ! declare -F ai_tools_confinement_get_boolean_row_reading >/dev/null 2>&1; then
+    if ! declare -F ai_tools_confinement_list_attestation_report >/dev/null 2>&1; then
         st UNREADABLE "${CONFINEMENT_LIB} did not load its attestation readers -- reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
@@ -2726,54 +2726,40 @@ status_selinux_attestation() {
         st "n/a" "SELinux is ${selinux_mode:-not readable here (getenforce)} -- there is no domain to attest"
         return 0
     fi
-    local selinux_required=no declaration_state declared_boolean_values required_boolean_values attestation_records
-    local attestation_verdict declared_entry
-    local -a declared_boolean_names=()
-    ai_tools_confinement_selinux_required "${operator_conf}" && selinux_required=yes
-    { read -r declaration_state; IFS= read -r required_boolean_values; IFS= read -r declared_boolean_values; } \
-        < <(ai_tools_confinement_read_required_boolean_values "${operator_conf}")
-    for declared_entry in ${declared_boolean_values}; do declared_boolean_names+=( "${declared_entry%%=*}" ); done
-    attestation_records="$(ai_tools_confinement_read_attestation_records /sys/fs/selinux \
-        "${declared_boolean_names[@]+"${declared_boolean_names[@]}"}")"
-    local row_kind boolean_name boolean_state required_value requirement_origin opening_value boolean_grants
+    local -a row
     local origin_note
-    while IFS=$'\t' read -r row_kind boolean_name boolean_state required_value requirement_origin opening_value \
-            boolean_grants; do
-        if [[ "${row_kind}" == domain ]]; then
-            case "${boolean_name}" in
-                no)  st enforcing "ai_tools_t is enforced as a domain" ;;
-                yes) st PERMISSIVE "ai_tools_t is a permissive domain -- its denials are logged and not enforced"
-                     detail "sudo semanage permissive -d ai_tools_t" ;;
-                *)   st "?" "whether ai_tools_t is a permissive domain could not be read" ;;
-            esac
-            continue
-        fi
-        origin_note=""
-        [[ "${requirement_origin}" == operator.conf ]] && origin_note=", declared in operator.conf"
-        [[ "${requirement_origin}" == built-in ]] && origin_note=", built in"
-        case "$(ai_tools_confinement_get_boolean_row_reading "${boolean_state}" "${required_value}" "${opening_value}")" in
-            matches) st "${boolean_state}" "${boolean_name}  required ${required_value}${origin_note}" ;;
-            differs) st "${boolean_state^^}" "${boolean_name}  required ${required_value}${origin_note} -- opens ${boolean_grants}"
-                     detail "sudo setsebool -P ${boolean_name}=${required_value}" ;;
-            open)    st "${boolean_state}" "${boolean_name}  opens ${boolean_grants}" ;;
-            closed)  st "${boolean_state}" "${boolean_name}" ;;
-            malformed) st MALFORMED "${boolean_name} in ${operator_conf} has ${boolean_grants} -- every launch refuses until it is fixed" ;;
-            *)       st "?" "${boolean_name}  could not be read" ;;
+    while IFS=$'\t' read -r -a row; do
+        case "${row[0]}" in
+            domain)   # <yes|no|unread> <remedy|->
+                case "${row[1]}" in
+                    no)  st enforcing "ai_tools_t is enforced as a domain" ;;
+                    yes) st PERMISSIVE "ai_tools_t is a permissive domain -- its denials are logged and not enforced"
+                         detail "${row[2]}" ;;
+                    *)   st "?" "whether ai_tools_t is a permissive domain could not be read" ;;
+                esac ;;
+            boolean)  # <name> <classification> <state> <required> <origin> <opening> <grants> <remedy|->
+                origin_note=""
+                [[ "${row[5]}" == operator.conf ]] && origin_note=", declared in operator.conf"
+                [[ "${row[5]}" == built-in ]] && origin_note=", built in"
+                case "${row[2]}" in
+                    matches) st "${row[3]}" "${row[1]}  required ${row[4]}${origin_note}" ;;
+                    differs) st "${row[3]^^}" "${row[1]}  required ${row[4]}${origin_note} -- opens ${row[7]}"
+                             detail "${row[8]}" ;;
+                    open)    st "${row[3]}" "${row[1]}  opens ${row[7]}" ;;
+                    closed)  st "${row[3]}" "${row[1]}" ;;
+                    malformed) st MALFORMED "${row[1]} in ${operator_conf} has ${row[7]} -- every launch refuses until it is fixed" ;;
+                    *)       st "?" "${row[1]}  could not be read" ;;
+                esac ;;
+            verdict)  # <ok|permissive|boolean|unknown> <required: yes|no>
+                [[ "${row[1]}" == ok ]] && continue
+                if [[ "${row[2]}" == yes ]]; then
+                    detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch refuses while this stands"
+                    STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+                else
+                    detail "AI_TOOLS_REQUIRE_SELINUX is not set, so launches are not refused for this"
+                fi ;;
         esac
-    done < <(ai_tools_confinement_attestation_report_rows "${required_boolean_values}" "${declared_boolean_values}" \
-                 <<< "${attestation_records}")
-    attestation_verdict="$(ai_tools_confinement_parse_attestation_records <<< "${attestation_records}" \
-        | { IFS='|' read -r domain_permissive current_boolean_values
-            ai_tools_confinement_attestation_verdict "${domain_permissive}" "${current_boolean_values}" \
-                "${required_boolean_values}"; })" || true
-    if [[ "${attestation_verdict}" != ok ]]; then
-        if [[ "${selinux_required}" == yes ]]; then
-            detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch refuses while this stands"
-            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
-        else
-            detail "AI_TOOLS_REQUIRE_SELINUX is not set, so launches are not refused for this"
-        fi
-    fi
+    done < <(ai_tools_confinement_list_attestation_report "${operator_conf}")
     return 0
 }
 

@@ -264,9 +264,9 @@ if declare -F ai_tools_conf_pair_list >/dev/null 2>&1; then
         [[ "${pair_rc}" -eq 1 ]] && pair_got=ABSENT
         pair_reported="$(grep -c '^MSG-' <<<"${pair_stderr}" || true)"
         # The rejected count is what a caller refuses on, so it must agree with what was reported.
-        if [[ "${pair_rc}" -eq 0 && "${_ai_tools_conf_pair_list_rejected:-}" != "${pair_reports}" \
+        if [[ "${pair_rc}" -eq 0 && "${_ai_tools_conf_pair_list_rejected_count:-}" != "${pair_reports}" \
               && "${_ai_tools_conf_list_invalid:-0}" -eq 0 ]]; then
-            fail "pair list ${pair_line}: _ai_tools_conf_pair_list_rejected=${_ai_tools_conf_pair_list_rejected:-unset}, expected ${pair_reports}"
+            fail "pair list ${pair_line}: _ai_tools_conf_pair_list_rejected_count=${_ai_tools_conf_pair_list_rejected_count:-unset}, expected ${pair_reports}"
         fi
         if [[ "${pair_got}" == "${pair_expected}" && "${pair_reported}" == "${pair_reports}" ]]; then
             pass "pair list ${pair_line} -> [${pair_got}], ${pair_reported} reported"

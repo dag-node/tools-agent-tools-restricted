@@ -291,15 +291,26 @@ export XDG_RUNTIME_DIR="/run/user/${UID}"
 # failing that check is a misconfigured host. What the switch turns into a refusal: confinement.rule.md.
 require_selinux=no
 operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
-ai_tools_confinement_selinux_required "${operator_conf}" && require_selinux=yes
+ai_tools_confinement_is_selinux_required "${operator_conf}" && require_selinux=yes
 
-# Each probe that could not run is named here, so a require-unattested refusal says which reading is missing.
+# Each probe that could not run is named here, so a require-unattested refusal says which reading is missing and prints
+# the remedy for that reading: a tool to install, a selinuxfs read, a Boolean the policy lacks, or a line to fix.
 unread_confinement_inputs=""
+unread_tool=no unread_selinuxfs=no unread_boolean=no declaration_malformed=no
+note_unread_input() {  # <kind: tool|selinuxfs|boolean|declaration> <description>
+    unread_confinement_inputs+="${unread_confinement_inputs:+, }$2"
+    case "$1" in
+        tool)        unread_tool=yes ;;
+        selinuxfs)   unread_selinuxfs=yes ;;
+        boolean)     unread_boolean=yes ;;
+        declaration) declaration_malformed=yes ;;
+    esac
+}
 selinux_mode=""
 if command -v getenforce >/dev/null 2>&1; then
     selinux_mode="$(getenforce 2>/dev/null || true)"
 fi
-[[ -n "${selinux_mode}" ]] || unread_confinement_inputs+="${unread_confinement_inputs:+, }the SELinux mode (getenforce)"
+[[ -n "${selinux_mode}" ]] || note_unread_input tool "the SELinux mode (getenforce)"
 
 if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
     # The already-resolved and contained entrypoint -- the same inode this shim hands systemd as ExecStart, so the label
@@ -315,39 +326,22 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
         module_present="$(ai_tools_confinement_module_present \
             "$(matchpathcon -n /opt/ai-tools/.config 2>/dev/null | awk -F: '{print $3}' || true)")"
     else
-        unread_confinement_inputs+="${unread_confinement_inputs:+, }the file contexts (matchpathcon)"
+        note_unread_input tool "the file contexts (matchpathcon)"
     fi
     # The manager is the `systemd --user process` that execs the entrypoint; same uid, so its domain is readable.
     manager_pid="$(pgrep -u "${UID}" -f 'systemd --user' 2>/dev/null | head -n1 || true)"
     [[ -n "${manager_pid}" ]] && manager_domain="$(tr -d '\000' < "/proc/${manager_pid}/attr/current" 2>/dev/null | awk -F: '{print $3}' || true)"
-    [[ -n "${manager_domain}" ]] || unread_confinement_inputs+="${unread_confinement_inputs:+, }the user manager's domain"
+    [[ -n "${manager_domain}" ]] || note_unread_input tool "the user manager's domain (pgrep)"
 
     # The per-domain mode and the Booleans are read only where they decide anything: under require.
-    domain_permissive="" current_boolean_values="" required_boolean_values="" declaration_state=absent
+    domain_permissive="" current_boolean_values="" required_boolean_values=""
     if [[ "${require_selinux}" == yes ]]; then
-        { read -r declaration_state; IFS= read -r required_boolean_values; IFS= read -r _; } \
-            < <(ai_tools_confinement_read_required_boolean_values "${operator_conf}")
-        declared_boolean_names=()
-        if [[ "${declaration_state}" != absent ]]; then
-            for required_entry in ${required_boolean_values}; do
-                [[ "${required_entry%%=*}" == AI_TOOLS_SELINUX_BOOLEANS ]] && continue
-                declared_boolean_names+=( "${required_entry%%=*}" )
-            done
-        fi
-        IFS='|' read -r domain_permissive current_boolean_values \
-            < <(ai_tools_confinement_read_attestation_records /sys/fs/selinux \
-                    "${declared_boolean_names[@]+"${declared_boolean_names[@]}"}" \
-                    | ai_tools_confinement_parse_attestation_records) \
-            || true
-        [[ -n "${domain_permissive}" ]] \
-            || unread_confinement_inputs+="${unread_confinement_inputs:+, }whether ai_tools_t is a permissive domain (/sys/fs/selinux/access)"
-        for required_entry in ${required_boolean_values}; do
-            if [[ "${required_entry}" == AI_TOOLS_SELINUX_BOOLEANS=malformed ]]; then
-                unread_confinement_inputs+="${unread_confinement_inputs:+, }AI_TOOLS_SELINUX_BOOLEANS in operator.conf (an entry is not <boolean>=on or <boolean>=off)"
-            elif [[ " ${current_boolean_values} " != *" ${required_entry%%=*}="* ]]; then
-                unread_confinement_inputs+="${unread_confinement_inputs:+, }the ${required_entry%%=*} Boolean"
-            fi
-        done
+        IFS='|' read -r _ required_boolean_values _ domain_permissive current_boolean_values \
+            < <(ai_tools_confinement_read_attestation_inputs "${operator_conf}" /sys/fs/selinux) || true
+        while IFS=$'\t' read -r unread_kind unread_description; do
+            note_unread_input "${unread_kind}" "${unread_description}"
+        done < <(ai_tools_confinement_list_unread_inputs "${required_boolean_values}" "${current_boolean_values}" \
+                                                           "${domain_permissive}")
     fi
 
     audit info "launch: agent=${agent_name} selinux=${selinux_mode:-unknown} module=${module_present:-unknown} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown} require=${require_selinux} permissive=${domain_permissive:-unread} booleans=${current_boolean_values:-unread} required=${required_boolean_values:-none}"
@@ -390,8 +384,18 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
                    "Or drop the requirement:  unset AI_TOOLS_REQUIRE_SELINUX in /etc/ai-tools/operator.conf" ;;
         require-unattested)
             audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but the confinement state could not be read: ${unread_confinement_inputs:-an input}"
+            # One remedy line per kind of unread input, so a misspelled Boolean is not answered with a package install.
+            unattested_remedies=()
+            [[ "${unread_tool}" == yes ]] \
+                && unattested_remedies+=( "Install what reads it:  sudo dnf install libselinux-utils procps-ng" )
+            [[ "${unread_selinuxfs}" == yes ]] \
+                && unattested_remedies+=( "Check that /sys/fs/selinux is mounted and the loaded policy declares ai_tools_t:  sudo semodule -l | grep ai_tools   (reload it:  sudo dnf reinstall ai-tools-selinux)" )
+            [[ "${unread_boolean}" == yes ]] \
+                && unattested_remedies+=( "A Boolean the loaded policy does not declare cannot be read: check its spelling in AI_TOOLS_SELINUX_BOOLEANS against the host's:  getsebool -a" )
+            [[ "${declaration_malformed}" == yes ]] \
+                && unattested_remedies+=( "Fix the line in /etc/ai-tools/operator.conf: each entry is <boolean>=on or <boolean>=off, as  AI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=off, deny_ptrace=on]" )
             refuse MSG-A7E7 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but this launch could not read ${unread_confinement_inputs:-an input of the confinement check}, so it cannot show the session would run confined." \
-                   "Install what reads it:  sudo dnf install libselinux-utils procps-ng" \
+                   "${unattested_remedies[@]+"${unattested_remedies[@]}"}" \
                    "Or drop the requirement:  unset AI_TOOLS_REQUIRE_SELINUX in /etc/ai-tools/operator.conf" ;;
         require-permissive)
             audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but ai_tools_t is a permissive domain"

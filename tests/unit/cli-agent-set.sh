@@ -333,7 +333,7 @@ call_attestation_section() {
         bash -c 'cli="$1"; lib="$2"; stub_attestation_records="$3"; operator_conf="$4"; set --
                  source "${cli}" >/dev/null 2>&1 || exit 99
                  declare -F status_selinux_attestation >/dev/null || exit 98
-                 source "${lib}" 2>/dev/null; declare -F ai_tools_confinement_attestation_report_rows >/dev/null || exit 97
+                 source "${lib}" 2>/dev/null; declare -F ai_tools_confinement_list_attestation_report >/dev/null || exit 97
                  getenforce() { printf "Enforcing\n"; }
                  ai_tools_confinement_read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
                  section_status=0; status_selinux_attestation "${operator_conf}" || section_status=$?
@@ -361,6 +361,18 @@ else
         pass "an attested host under the requirement is not a fault"
     else
         fail "attested host under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    # A declaration renders its origin, a Boolean outside the registry, and the malformed row, which is a fault under
+    # the requirement.
+    DECLARED_CONF="${TESTDIR}/operator-declared.conf"
+    printf 'AI_TOOLS_REQUIRE_SELINUX=yes\nAI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=on, ai_tools_test_extra=on, bad]\n' > "${DECLARED_CONF}"
+    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\ton\nboolean\tai_tools_test_extra\ton' \
+               "${DECLARED_CONF}")" || true
+    if grep -qx 'section-status=1' <<<"${out}" && grep -qF 'declared in operator.conf' <<<"${out}" \
+            && grep -qF 'ai_tools_test_extra' <<<"${out}" && grep -qF 'MALFORMED' <<<"${out}"; then
+        pass "a declaration renders its origin, a Boolean outside the registry, and the malformed row as a fault"
+    else
+        fail "declaration rendering: $(tr '\n' '|' <<<"${out}")"
     fi
 fi
 

@@ -596,11 +596,12 @@ because running it starts an agent as you with none of the sandbox, and names
 .B "ai\-tools\-admin operators add"
 as the repair.
 .PP
-A permissive domain, or the
-.B nis_enabled
-or
-.B domain_can_mmap_files
-Boolean on, counts as broken only where
+A permissive domain, or a Boolean away from the value a launch requires
+(the set
+.BR ai\-tools\-operator.conf (5)
+lists under
+.BR AI_TOOLS_SELINUX_BOOLEANS ),
+counts as broken only where
 .B AI_TOOLS_REQUIRE_SELINUX
 is set, since that is when it refuses every launch.
 .PP

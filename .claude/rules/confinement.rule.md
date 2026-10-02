@@ -135,9 +135,9 @@ cannot influence it, file-contexts and the shim both being root-owned.
 unit-tested apart from the probing (`tests/unit/confinement.sh` drives the truth table with no SELinux host).
 
 **Only a listed state launches.** The verdict checks each launch state whole before it classifies a refusal,
-so a combination the table does not list — an input outside its documented values among them — refuses as `unclassified`
-rather than falling through to a launch, and `ai-tools-run` launches on the `ok` token alone: any other token, one
-a newer library adds included, refuses (`MSG-A3K3`).
+so a combination the table does not list — an input outside its documented values among them — refuses
+as `unclassified`. `ai-tools-run` launches on the `ok` token alone and refuses every other token, one a newer library
+adds included (`MSG-A3K3`).
 
 The policy that table implements is **fail-closed once confinement is expected**. Where SELinux is enforcing
 and `matchpathcon` resolves the entrypoint to `ai_tools_exec_t`, a live label that is anything else refuses (`mislabel`,
@@ -230,13 +230,15 @@ show the session will run confined:
   under rules the host has not declared ([What the domain holds beyond the module's own
   rules](#what-the-domain-holds-beyond-the-modules-own-rules)).
 - `require-unattested` (`MSG-A7E7`) — an input could not be read: `getenforce` or `matchpathcon` missing, the manager's
-  domain unreadable, or the per-domain mode or a refused Boolean unread. The refusal names each input it lacked.
+  domain unreadable, or the per-domain mode or a gating Boolean unread. The refusal names each input it lacked.
 
-A definite fault outranks an unread input, so a refusal names what to change where one is known. Having the operator
-assert intent rather than the wrapper guess it closes the whole "thinks-enforcing" family, the staged-but-not-active
-residual included, and adds **no** store-read surface. The per-domain mode and the Booleans are read from selinuxfs
-by `ai_tools_confinement_read_attestation_records`, which does not run an interpreter or a library in the shim's
-unconfined window before the transition; the status reports read them through the same function.
+A definite fault outranks an unread input, so a refusal names what to change where one is known,
+and `require-unattested` prints one remedy per kind of input it lacked: a tool to install, the selinuxfs read, a Boolean
+the loaded policy does not declare, or the line to fix. The operator's declaration is what closes the "thinks-enforcing"
+family, the staged-but-not-active residual included, without a store read. The per-domain mode and the Booleans are read
+from selinuxfs by `ai_tools_confinement_read_attestation_records`, which does not run an interpreter or a library
+in the shim's unconfined window before the transition; the shim and both status reports take every attestation input
+through `ai_tools_confinement_read_attestation_inputs`, so they cannot read a different set.
 
 It is opt-in: the default — the key absent, a no value, or a value `ai_tools_conf_yes` does not recognize, which it
 reports — is `no`, so intentional DAC-only hosts are untouched and the per-domain mode and the Booleans are not read.
@@ -245,8 +247,8 @@ reports — is `no`, so intentional DAC-only hosts are untouched and the per-dom
 `mislabel` and `unverifiable` refuse at either setting, and `manager-domain` refuses a domain no `domtrans_pattern`
 covers at either setting, while an unreadable manager domain launches without `require` and refuses with it. The switch
 is read only while `ai_tools_conf_is_trusted` holds for `operator.conf` (root-owned, non-group/other-writable, not
-a symlink), so the agent can neither set nor clear it, and the Booleans, the permissive-domain store and selinuxfs are
-root's to write (`tests/boundary/access.sh`).
+a symlink), so the agent can neither set nor clear it; the Boolean files under selinuxfs and the policy store are root's
+to write (`tests/boundary/access.sh`).
 
 **The check is a launch-time observation.** A Boolean switched on, a domain made permissive, or a module reloaded
 after a session started reaches that session without any refusal; the next launch reads the new state. Revalidating
@@ -350,21 +352,26 @@ Some of those rules are conditional on a Boolean the host sets: `nis_enabled` (`
 port types), `domain_can_mmap_files` (`map` on every file type), `authlogin_nsswitch_use_ldap` and `kerberos_enabled`
 (directory-service ports and sockets). A Boolean switched on widens the domain without any module change, and disabling
 a group does not take back what a Boolean grants — `domain_can_mmap_files` grants the `map` the `tmpmap` group exists
-to add. `AI_TOOLS_CONFINEMENT_BOOLEANS` in `confinement.lib.sh` is the registry, one row per Boolean with the value
-that opens its rules — `on` for a true branch, `off` for a false one, as `deny_ptrace` is.
-Under `AI_TOOLS_REQUIRE_SELINUX` a launch requires each refused row at its closed value: those are the Booleans
-the stock policy keeps closed, so opening one is a change on the host. The status reports name the reported rows,
-which stay supported (`kerberos_enabled` among them). `AI_TOOLS_SELINUX_BOOLEANS` in `operator.conf` declares the values
-the host runs with, `<boolean>=on|off` as `getsebool` prints them, and replaces the built-in requirement as every list
-in that file replaces its default: a built-in pair it leaves out is no longer required, and `[]` requires none. A launch
-refuses while a declared Boolean is at the other value, so drift either way is caught. A wrong entry costs a launch,
-never a requirement: a malformed entry, a repeated Boolean, or a list that does not parse keeps the built-in pairs
-and adds a marker no reading satisfies, so the launch refuses as unattested until the line is fixed, and a Boolean
-the kernel does not have reads as unread. No component of this project changes a Boolean. The registry is written
-from one reading of the supported policy, so a Boolean a later policy or an optional group adds is neither required
-nor reported until a row or a declaration names it. `sesearch -A -s ai_tools_t` prints a conditional rule with its
-expression, `[ nis_enabled ]:True` for the true branch, which is not the Boolean's current value; `getsebool` reads
-that.
+to add.
+
+`AI_TOOLS_CONFINEMENT_BOOLEANS` in `confinement.lib.sh` is the registry: one row per Boolean, its class, and the value
+that opens its rules — `on` for a true branch, `off` for a false one, as `deny_ptrace` is. A **gating** row is one
+the stock policy ships closed, so opening it is a change on the host; an **advisory** row is open by default
+or supported by this project, and the status reports show it. The registry is written from one reading of the supported
+policy, so a Boolean a later policy or an optional group adds is neither required nor reported until a row
+or a declaration names it.
+
+Under `AI_TOOLS_REQUIRE_SELINUX` a launch requires each gating row at its closed value. `AI_TOOLS_SELINUX_BOOLEANS`
+in `operator.conf` replaces that requirement with exactly the pairs it lists, `<boolean>=on|off` as `setsebool` takes
+them, as every list in that file replaces its default, so `[]` requires none. A launch refuses while a required Boolean
+is at the other value, so drift either way is caught; no component of this project changes a Boolean.
+
+A declaration the reader cannot take whole — a malformed entry, a repeated Boolean, a list that does not parse — keeps
+the built-in pairs, adds the entries it read, and adds a marker no reading satisfies, so the launch refuses
+as unattested until the line is fixed (`ai_tools_confinement_resolve_required_boolean_values`); a Boolean the loaded
+policy does not have reads as unread and refuses the same way. `sesearch -A -s ai_tools_t` prints a conditional rule
+with its expression, `[ nis_enabled ]:True` for the true branch, which is not the Boolean's current value; `getsebool`
+reads that.
 
 ## Bring-up and enforce-verification (`selinux/avc/`)
 
