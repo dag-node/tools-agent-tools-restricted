@@ -37,6 +37,7 @@ ai_tools_msg_warn=WARNING _ai_tools_toolchain_warn=WARNING _ai_tools_sandbox_exe
 _claim_attention=WARNING
 note=NOTICE say_notice=NOTICE notice=NOTICE _ai_tools_toolchain_notice=NOTICE
 ai_tools_msg_notice=NOTICE _pu_info=NOTICE _claim_info=NOTICE
+_ai_tools_secret_patterns_error=ERROR
 '
 
 # Source file to the component an operator names it by: the commands spelled differently from their file (an agent's

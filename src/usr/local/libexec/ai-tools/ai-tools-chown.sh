@@ -154,8 +154,12 @@ readonly SECRET_OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
 AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
 
 # Classify the basename against the shared secret-name patterns, which the library reads from the operator's own config
-# (secret-handling.rule.md covers the set and how an operator narrows it). A match sets is_secret, which selects
+# (secret-handling.rule.md covers the set and how an operator narrows it). The file is read here, after the resolve
+# that names it; one that is present and cannot be read refuses the handback under the library's own code, so the path
+# stays sandbox-owned rather than classified on a set the operator did not write. A match sets is_secret, which selects
 # the quarantine branch and the NOTICE further down.
+ai_tools_load_secret_patterns \
+    || die "the operator's secret-patterns file could not be read -- ${canonical} stays sandbox-owned until it is fixed"
 is_secret=false
 if ai_tools_is_secret_basename "$(basename "${canonical}")"; then
     is_secret=true

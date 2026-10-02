@@ -1583,10 +1583,18 @@ left ${thirdparty} path(s) owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ 
 WARNING.
 the project directory itself is owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ \-\- no ACL was applied, and the agent gets no access to this tree
 .TP
+.B MSG-Q6N6
+WARNING.
+cannot load ${SECRET_PATTERNS_LIB}, which decides which paths are secrets \-\- no ACL was granted under ${canonical}; reinstall the ai\-tools package
+.TP
 .B MSG-V3W8
 WARNING.
 setfacl not found \-\- skipping ACL normalization for ${TARGET}
 .SS ai-tools-setgid
+.TP
+.B MSG-B3F5
+WARNING.
+cannot load ${SECRET_PATTERNS_LIB}, which decides which directories are secrets \-\- no directory under ${canonical} was normalized; reinstall the ai\-tools package
 .TP
 .B MSG-B9V2
 WARNING.
@@ -1645,6 +1653,10 @@ ERROR.
 .B MSG-N6X6
 ERROR.
 \-\-unlisted needs an invoking operator (no SUDO_UID) \-\- nothing changed
+.TP
+.B MSG-P5R2
+ERROR.
+cannot load ${SECRET_PATTERNS_LIB}, which decides which paths are secrets \-\- nothing under ${canonical} was changed; reinstall the ai\-tools package
 .TP
 .B MSG-R3C7
 ERROR.
@@ -2190,6 +2202,11 @@ cannot open a transient scope for a run as ${account} (systemd\-run \-\-scope di
 .B MSG-W8B7
 WARNING.
 ended a command as ${account} that ${what_ran_over} ${timeout_seconds}s, with every process of its scope ${scope_unit}: $(printf '%q' "$1") \-\- the step did not complete; re\-run it, or set AI_TOOLS_AS_SANDBOX_TIMEOUT=<seconds> for a slower host
+.SS secret-patterns.lib.sh
+.TP
+.B MSG-S4T9
+ERROR.
+the secret\-patterns file ${file} is present and cannot be read as a regular file \-\- the shipped baseline classifies instead, and a helper that changes a tree refuses; make it a readable file, or remove it to keep the baseline
 .SS settings-merge.lib.sh
 .TP
 .B MSG-F9W4

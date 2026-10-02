@@ -221,4 +221,22 @@ else
     fail "the secret patterns are loaded at line ${load_line}, ahead of the owner resolve at ${resolve_line} -- the walk reads the baseline, never the operator's file"
 fi
 
+# A secret-patterns file that is present and cannot be read refuses the grant before its first write (exit 3,
+# under the library's code), where an absent file loads the baseline and grants. Driven through the loader's file hook
+# at a directory, the one unreadable state root meets on any host; the tree is read back with no ACL.
+proj2="${TESTDIR}/proj2"
+mkdir -p "${proj2}"; : > "${proj2}/plain.txt"
+mk_allowlist "${proj}" "${proj2}"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj2}"
+chmod 0750 "${proj2}"; chmod 0640 "${proj2}/plain.txt"
+mkdir -p "${TESTDIR}/patterns-dir"
+rc=0
+err="$(AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir" setsid "${HELPER}" "${proj2}" < /dev/null 2>&1 >/dev/null)" || rc=$?
+if (( rc == 3 )) && ! getfacl -p "${proj2}/plain.txt" 2>/dev/null | grep -q "^group:${SANDBOX_GROUP}:"; then
+    pass "an unreadable secret-patterns file refuses the grant (exit 3) and leaves the tree without an ACL"
+else
+    fail "an unreadable secret-patterns file: rc=${rc} (want 3), ACL: $(getfacl -p "${proj2}/plain.txt" 2>/dev/null | tr '\n' ' ')"
+fi
+assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
+
 finish

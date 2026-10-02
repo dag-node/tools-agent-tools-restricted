@@ -11,7 +11,9 @@
 # and unable to enter the 700 .config/ai-tools dir -- can neither read nor write it; the root helpers read it
 # on the user's behalf. This mirrors how allowed-projects is owned and consumed. A config file REPLACES the defaults
 # rather than adding to them, and these defaults apply when it is absent or parses to an empty set, so classification
-# never silently degrades to an empty pattern set.
+# never silently degrades to an empty pattern set. A file that is PRESENT and cannot be read is a third state:
+# the loader still classifies on the defaults, so no consumer narrows, and returns non-zero, so a helper that acts
+# on a tree refuses the run instead of walking it on a set the operator did not write (secret-handling.rule.md).
 #
 # Do not edit these defaults on a deployed host. The file is rpm-owned and not %config, so an upgrade overwrites it
 # and a local edit is lost without a .rpmsave copy. The list is the PUBLIC baseline -- the names credential files carry
@@ -61,27 +63,53 @@ readonly -a _AI_TOOLS_DEFAULT_SECRET_PATTERNS=(
     '*.Development.*' '*.Staging.*' '*.Production.*'
 )
 
+# _ai_tools_secret_patterns_error <code> <message>: print the code on its own line, then the message under this
+# library's prefix, to stderr -- the plain-mode shape every helper's warn() prints and assert_msg reads
+# (messaging.rule.md). This library has no msg.lib.sh: it is sourced by root helpers that report before any library
+# loads.
+_ai_tools_secret_patterns_error() {
+    printf '%s\nsecret-patterns: %s\n' "$1" "$2" >&2
+}
+
 # ai_tools_load_secret_patterns: populate the global AI_TOOLS_SECRET_PATTERNS array from the operator's secret-patterns
 # config (one pattern per line, '#' comments and blanks skipped, whitespace trimmed). The config path is resolved lazily
 # here: AI_TOOLS_SECRET_PATTERNS_FILE overrides it (a test hook), else
 # `<PROJECTS_HOME>/.config/ai-tools/secret-patterns` -- so a caller that has resolved an operator first
-# (ai_tools_resolve_owner for the path's owner, or ai_tools_load_operator) reads that operator's file. Falls back
-# to the built-in defaults when the file is unreadable or parses to an empty set. Idempotent.
+# (ai_tools_resolve_owner for the path's owner, or ai_tools_load_operator) reads that operator's file. Returns 0
+# with the file's patterns, or with the built-in defaults when the file is absent or parses to an empty set. Returns 1
+# when the path is present and is not a readable regular file -- a directory, a dangling symlink, a FIFO, a read
+# access(2) refuses -- with the defaults loaded all the same and AI_TOOLS_SECRET_PATTERNS_UNREADABLE naming the file,
+# so a caller that ignores the status classifies on the baseline and a helper that acts on a tree refuses. Idempotent.
 ai_tools_load_secret_patterns() {
     AI_TOOLS_SECRET_PATTERNS=()
-    local line
+    AI_TOOLS_SECRET_PATTERNS_UNREADABLE=""
+    local line status=0
     local file="${AI_TOOLS_SECRET_PATTERNS_FILE:-${PROJECTS_HOME:-}/.config/ai-tools/secret-patterns}"
-    if [[ -r "${file}" ]]; then
-        while IFS= read -r line || [[ -n "${line}" ]]; do
-            line="${line#"${line%%[![:space:]]*}"}"   # trim leading whitespace
-            line="${line%"${line##*[![:space:]]}"}"   # trim trailing whitespace
-            [[ -z "${line}" || "${line}" == '#'* ]] && continue
-            AI_TOOLS_SECRET_PATTERNS+=("${line}")
-        done < "${file}"
+    if [[ -e "${file}" || -L "${file}" ]]; then
+        # `-f` before the open: a FIFO at the path would block the open, and a directory or a dangling link is refused
+        # for what it is, with no read error to interpret.
+        if [[ -f "${file}" && -r "${file}" ]] && {
+                while IFS= read -r line || [[ -n "${line}" ]]; do
+                    line="${line#"${line%%[![:space:]]*}"}"   # trim leading whitespace
+                    line="${line%"${line##*[![:space:]]}"}"   # trim trailing whitespace
+                    [[ -z "${line}" || "${line}" == '#'* ]] && continue
+                    AI_TOOLS_SECRET_PATTERNS+=("${line}")
+                done < "${file}"
+            } 2>/dev/null; then
+            :
+        else
+            AI_TOOLS_SECRET_PATTERNS=()
+            AI_TOOLS_SECRET_PATTERNS_UNREADABLE="${file}"
+            status=1
+        fi
     fi
     [[ "${#AI_TOOLS_SECRET_PATTERNS[@]}" -gt 0 ]] \
         || AI_TOOLS_SECRET_PATTERNS=("${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}")
     _AI_TOOLS_PATTERNS_LOADED=1
+    if (( status )); then
+        _ai_tools_secret_patterns_error MSG-S4T9 "the secret-patterns file ${file} is present and cannot be read as a regular file -- the shipped baseline classifies instead, and a helper that changes a tree refuses; make it a readable file, or remove it to keep the baseline"
+    fi
+    return "${status}"
 }
 
 # ai_tools_secret_patterns_file: print the config path the loader reads for the operator resolved so far, whether or not
@@ -104,9 +132,16 @@ ai_tools_secret_patterns_file() {
 # quarantines.
 #
 # Compared as a SET (sorted, de-duplicated), so a reordered or repeated copy of the baseline reads as agreement. Each
-# list is capped, because the report is a prompt to re-read the file rather than a replacement for reading it.
+# list is capped, because the report is a prompt to re-read the file rather than a replacement for reading it. A file
+# that is present and cannot be read prints its own line and returns 0: the baseline is in force, which is not
+# what the operator wrote, and every helper that acts on that operator's trees is refusing until it is fixed.
 ai_tools_secret_patterns_drift() {
-    [[ -n "${_AI_TOOLS_PATTERNS_LOADED:-}" ]] || ai_tools_load_secret_patterns
+    [[ -n "${_AI_TOOLS_PATTERNS_LOADED:-}" ]] || ai_tools_load_secret_patterns 2>/dev/null || true
+    if [[ -n "${AI_TOOLS_SECRET_PATTERNS_UNREADABLE:-}" ]]; then
+        printf 'secret patterns: %s is present and cannot be read -- the shipped baseline is in force, and the claim, handback and lockdown helpers refuse until it is a readable file or removed\n' \
+            "${AI_TOOLS_SECRET_PATTERNS_UNREADABLE}"
+        return 0
+    fi
     local -a live baseline added dropped
     mapfile -t live < <(printf '%s\n' "${AI_TOOLS_SECRET_PATTERNS[@]}" | LC_ALL=C sort -u)
     mapfile -t baseline < <(printf '%s\n' "${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}" | LC_ALL=C sort -u)

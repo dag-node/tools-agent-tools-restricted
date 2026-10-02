@@ -236,7 +236,10 @@ _is_excluded "${target}" && die MSG-J3F9 "excluded in the allowlist: ${target}; 
 if ! source "${SECRET_PATTERNS_LIB}"; then
     die MSG-Q7C6 "cannot source ${SECRET_PATTERNS_LIB}"
 fi
-ai_tools_load_secret_patterns
+# The operator's file is read here, after the operator is bound. A present file the loader refuses to read refuses
+# the run (the library names it under its own code): a sweep on the baseline would skip the names that operator wrote,
+# and a `--gate` caller reads exit 0 as every secret locked.
+ai_tools_load_secret_patterns || die "the operator's secret-patterns file could not be read, so no path was scanned or locked"
 
 # _scan <list-file> <find-arg...>: run find into <list-file> with its stderr apart, and die when find does not exit 0
 # or writes to stderr. A walk that could not read part of the tree has not found every secret in it, and a scan read
