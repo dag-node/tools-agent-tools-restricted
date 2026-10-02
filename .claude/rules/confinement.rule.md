@@ -193,7 +193,15 @@ over it (no `add_name`/`remove_name` on a `lib_t` directory), nor repoint the `b
 would allow all three, since the account owns that tree. This is the layer that makes the exec root read-only
 to the agent, and it is why the launch-time entrypoint re-check in [launch](launch.rule.md) is a **DAC-only** concern.
 The residual is the unconfined `--user manager`: anything the agent persuades that manager to run executes outside
-`ai_tools_t`, which is why `~/.config/systemd/user` must stay root-owned.
+`ai_tools_t`, which is why both of that manager's unit search paths under the home must stay root-owned.
+
+#### The manager's unit search paths carry their own type
+
+`ai_tools.fc` gives `.local/share/systemd(/.*)?` the type `ai_tools_systemd_data_t`, which the domain reads and searches
+and does not write, create in, rename, or unlink; the manager keeps full access as an unconfined domain. Without it
+the subtree is `ai_tools_home_t`, which the domain manages. The type covers the timer stamp, which DAC cannot keep
+from the account. It does not stop a rename of `.local` or `.local/share`, which stay `ai_tools_home_t`: the root-owned
+modes on those parents do ([ownership-and-hooks](ownership-and-hooks.rule.md)). A write attempt stays audited.
 
 #### `AI_TOOLS_REQUIRE_SELINUX` — operator-declared fail-closed
 
