@@ -291,10 +291,7 @@ export XDG_RUNTIME_DIR="/run/user/${UID}"
 # failing that check is a misconfigured host. What the switch turns into a refusal: confinement.rule.md.
 require_selinux=no
 operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
-if ai_tools_conf_is_trusted "${operator_conf}" 2>/dev/null \
-        && ai_tools_conf_yes "${operator_conf}" AI_TOOLS_REQUIRE_SELINUX; then
-    require_selinux=yes
-fi
+ai_tools_confinement_selinux_required "${operator_conf}" && require_selinux=yes
 
 # Each probe that could not run is named here, so a require-unattested refusal says which reading is missing.
 unread_confinement_inputs=""

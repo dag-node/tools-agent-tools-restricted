@@ -141,6 +141,37 @@ ai_tools_confinement_parse_attestation_records() {
     printf '%s|%s\n' "${domain_permissive}" "${boolean_states}"
 }
 
+# ai_tools_confinement_selinux_required <operator-conf> -- return 0 when <operator-conf> sets AI_TOOLS_REQUIRE_SELINUX
+# to a yes value and passes ai_tools_conf_is_trusted, 1 otherwise. Needs conf.lib.sh loaded; without it,
+# and for an untrusted or absent file, it returns 1, the default posture (confinement.rule.md states why that direction
+# is the one read failure that does not narrow).
+ai_tools_confinement_selinux_required() {
+    if ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 || ! declare -F ai_tools_conf_yes >/dev/null 2>&1; then
+        return 1
+    fi
+    ai_tools_conf_is_trusted "$1" 2>/dev/null && ai_tools_conf_yes "$1" AI_TOOLS_REQUIRE_SELINUX
+}
+
+# ai_tools_confinement_attestation_report_rows -- read ai_tools_confinement_read_attestation_records' output on stdin
+# and print one tab-separated row per reading the status reports show, every table Boolean included, an unread one
+# as `unread`:
+#   domain<TAB><yes|no|unread>                                  whether ai_tools_t is a permissive domain
+#   boolean<TAB><name><TAB><on|off|unread><TAB><refused|reported><TAB><what it grants>
+ai_tools_confinement_attestation_report_rows() {
+    local domain_permissive boolean_states boolean_row boolean_name boolean_class boolean_grants boolean_state
+    IFS='|' read -r domain_permissive boolean_states < <(ai_tools_confinement_parse_attestation_records) || true
+    printf 'domain\t%s\n' "${domain_permissive:-unread}"
+    for boolean_row in "${AI_TOOLS_CONFINEMENT_BOOLEANS[@]}"; do
+        IFS='|' read -r boolean_name boolean_class boolean_grants <<< "${boolean_row}"
+        case " ${boolean_states} " in
+            *" ${boolean_name}=on "*)  boolean_state=on ;;
+            *" ${boolean_name}=off "*) boolean_state=off ;;
+            *)                         boolean_state=unread ;;
+        esac
+        printf 'boolean\t%s\t%s\t%s\t%s\n' "${boolean_name}" "${boolean_state}" "${boolean_class}" "${boolean_grants}"
+    done
+}
+
 # ai_tools_confinement_verdict <selinux-mode> <module-present> <expected-label> <actual-label> <manager-domain>
 #                              [require-selinux] [domain-permissive] [boolean-states]
 # Echo a verdict token and return 0 (launch) or 1 (refuse) from the probed inputs and one operator-declared switch:

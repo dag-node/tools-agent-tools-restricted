@@ -2301,6 +2301,7 @@ readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 readonly ENTRYPOINT_VERIFY_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
 readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
+readonly CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
 # AI_TOOLS_LAUNCHER_DIR is the hook the CLI and relabel.lib.sh read for the same directory,
 # so tests/unit/admin-status.sh drives this report against fixture links. It moves a report: this tool is reachable only
 # as root, sudo strips the name, and no access decision here reads it.
@@ -2703,6 +2704,62 @@ status_update_timer_stamp() {
     return 0
 }
 
+# status_selinux_attestation: the per-domain mode of ai_tools_t and the Booleans that widen it, read through the shim's
+# own reader (ai_tools_confinement_read_attestation_records) and judged by its verdict, so this report and the launch
+# cannot disagree. A finding counts only where AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch;
+# elsewhere it is reported as the posture it is. A host where SELinux is off reports n/a. <operator-conf> is a parameter
+# so a unit test drives the counting rule over a fixture.
+status_selinux_attestation() {
+    local operator_conf="${1:-${OPERATOR_CONF}}"
+    heading "SELinux attestation"
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/confinement.lib.sh
+    source "${CONFINEMENT_LIB}" 2>/dev/null || true
+    if ! declare -F ai_tools_confinement_read_attestation_records >/dev/null 2>&1 \
+            || ! declare -F ai_tools_confinement_attestation_report_rows >/dev/null 2>&1; then
+        st UNREADABLE "${CONFINEMENT_LIB} did not load its attestation readers -- reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
+    local selinux_mode
+    selinux_mode="$(getenforce 2>/dev/null || true)"
+    if [[ -z "${selinux_mode}" || "${selinux_mode}" == Disabled ]]; then
+        st "n/a" "SELinux is ${selinux_mode:-not readable here (getenforce)} -- there is no domain to attest"
+        return 0
+    fi
+    local selinux_required=no attestation_records attestation_verdict
+    ai_tools_confinement_selinux_required "${operator_conf}" && selinux_required=yes
+    attestation_records="$(ai_tools_confinement_read_attestation_records /sys/fs/selinux)"
+    local row_kind row_first_field row_second_field row_third_field row_fourth_field
+    while IFS=$'\t' read -r row_kind row_first_field row_second_field row_third_field row_fourth_field; do
+        case "${row_kind}:${row_first_field}" in
+            domain:no)     st enforcing "ai_tools_t is enforced as a domain" ;;
+            domain:yes)    st PERMISSIVE "ai_tools_t is a permissive domain -- its denials are logged and not enforced"
+                           detail "sudo semanage permissive -d ai_tools_t" ;;
+            domain:*)      st "?" "whether ai_tools_t is a permissive domain could not be read" ;;
+            boolean:*)
+                case "${row_second_field}:${row_third_field}" in
+                    on:refused) st ON "${row_first_field}  grants ${row_fourth_field}"
+                                detail "sudo setsebool -P ${row_first_field}=off" ;;
+                    on:*)       st on "${row_first_field}  grants ${row_fourth_field}" ;;
+                    off:*)      st off "${row_first_field}" ;;
+                    *)          st "?" "${row_first_field}  could not be read" ;;
+                esac ;;
+        esac
+    done < <(ai_tools_confinement_attestation_report_rows <<< "${attestation_records}")
+    attestation_verdict="$(ai_tools_confinement_parse_attestation_records <<< "${attestation_records}" \
+        | { IFS='|' read -r domain_permissive boolean_states
+            ai_tools_confinement_attestation_verdict "${domain_permissive}" "${boolean_states}"; })" || true
+    if [[ "${attestation_verdict}" != ok ]]; then
+        if [[ "${selinux_required}" == yes ]]; then
+            detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch refuses while this stands"
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        else
+            detail "AI_TOOLS_REQUIRE_SELINUX is not set, so launches are not refused for this"
+        fi
+    fi
+    return 0
+}
+
 # status_node_version: the Version section's Node line, from the same verdict the CLI renders
 # (ai_tools_node_version_verdict, toolchain.lib.sh): the active version read off the enabled agents' stable launcher
 # links, and the version the updater's last run recorded shown beside it only where the two differ. Root could read
@@ -2790,6 +2847,7 @@ status() {
     fi
     status_entrypoints
     status_unit_search_path "${CP_HOME:-/opt/ai-tools}"
+    status_selinux_attestation "${OPERATOR_CONF}"
 
     # Pointers, not duplication: the reports that own the detail this one deliberately does not.
     heading "More"
