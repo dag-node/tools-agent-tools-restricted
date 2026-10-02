@@ -668,4 +668,86 @@ else
     fi
 fi
 
+# ── The Persistent= TIMER stamp: a different record, and the one state that changes what systemd does ──────────
+# This stamp is systemd's own, in the sandbox account's XDG data home, and its MTIME is the whole datum: `Persistent=`
+# reads it at timer start to decide whether a window was missed. The account's manager must write it, so no mode keeps
+# a process of that account out and the record is reported rather than trusted -- which is why the verdict exists.
+#
+# `future` is the case worth the most here: a stamp dated ahead suppresses the catch-up run a missed window would get,
+# so the toolchain can stop advancing while every other reading looks healthy. It therefore outranks `absent`
+# and `overdue`, and `unreadable` outranks it in turn, since a stamp whose mtime could not be read does not support any
+# verdict. An unknown age never manufactures `overdue`, the same rule the last-run stamp follows.
+section "services: the Persistent= timer stamp's verdict (unit)"
+
+if ! declare -F ai_tools_timer_stamp_verdict >/dev/null 2>&1; then
+    skip "timer-stamp verdict" "the deployed library predates ai_tools_timer_stamp_verdict"
+else
+    # tsv <expected> <label> <state> <skew> <trigger_age> <max_age> <allowance>
+    tsv() {
+        local expected="$1" label="$2"; shift 2
+        local got; got="$(ai_tools_timer_stamp_verdict "$@")"
+        if [[ "${got}" == "${expected}" ]]; then
+            pass "${label}"
+        else
+            fail "${label}: expected '${expected}', got '${got}'"
+        fi
+    }
+
+    tsv ok "a stamp in the past, with the timer elapsing inside its grace window, reads ok" \
+        ok 0 60 172800 240
+    tsv future "a stamp dated past the timer's own tolerance reads future -- the state that suppresses a catch-up run" \
+        ok 600 60 172800 240
+    tsv ok "a stamp inside that tolerance is the schedule's own jitter, not a future date" \
+        ok 100 60 172800 240
+    tsv future "future outranks overdue: the suppression is the finding, not the age" \
+        ok 600 200000 172800 240
+    tsv future "future outranks absent too, since a date ahead is what systemd will read" \
+        absent 600 60 172800 240
+    tsv absent "no stamp reads absent -- the next manager start runs the catch-up" \
+        absent 0 60 172800 240
+    tsv overdue "a timer that has not elapsed inside its grace window reads overdue" \
+        ok 0 200000 172800 240
+    tsv unreadable "a stamp whose mtime could not be read supports no verdict and says so" \
+        unreadable "" "" 172800 240
+    tsv ok "an unknown trigger age never manufactures overdue out of an absence" \
+        ok 0 "" 172800 240
+    tsv ok "an unknown skew is not read as a future date" \
+        ok "" 60 172800 240
+    tsv ok "no grace window declines the overdue judgment rather than guessing one" \
+        ok 0 200000 "" 240
+    tsv future "a non-numeric allowance is read as no tolerance, which only makes the future test stricter" \
+        ok 10 60 172800 "not-a-number"
+
+    # The span parser the allowance is built from. systemd pretty-prints these properties and does not publish a numeric
+    # form, so adding a timer's accuracy to its randomized delay means reading what it prints. A value made only
+    # of tokens it cannot read prints NOTHING, so a caller treats it as unknown rather than as zero tolerance.
+    if ! declare -F ai_tools_service_timespan_seconds >/dev/null 2>&1; then
+        skip "timespan parser" "the deployed library predates ai_tools_service_timespan_seconds"
+    else
+        span() {
+            local got; got="$(ai_tools_service_timespan_seconds "$2")"
+            if [[ "${got}" == "$1" ]]; then
+                pass "a span of '$2' reads as ${1:-no value}"
+            else
+                fail "a span of '$2': expected '$1', got '${got}'"
+            fi
+        }
+        span 0 "0"
+        span 60 "1min"
+        span 180 "3min"
+        span 90 "1min 30s"
+        span 7200 "2h"
+        span 0 "500ms"
+        span "" ""
+        span "" "infinity"
+        # The library is sourced into scripts that set their own IFS, so the split is pinned: an inherited IFS without
+        # a space would read a two-token span as one unreadable token and silently drop the second half.
+        ( IFS=$'\n\t'
+          got="$(ai_tools_service_timespan_seconds "1min 30s")"
+          [[ "${got}" == 90 ]] ) \
+            && pass "the split is IFS-independent, so a two-token span still sums under the strict-mode IFS" \
+            || fail "a two-token span does not sum under IFS=\$'\\n\\t'"
+    fi
+fi
+
 finish

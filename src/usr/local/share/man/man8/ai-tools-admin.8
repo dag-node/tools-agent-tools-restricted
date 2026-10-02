@@ -585,9 +585,9 @@ The stream format, and the default.
 Report this host's health: the installed version, whether the toolchain is
 provisioned, each managed
 .BR systemd (1)
-unit, and \(em per enabled agent \(em both halves of the entrypoint
-reconciliation: whether the binary matches the checksum pinned for it,
-and what SELinux type its paths carry.
+unit, the sandbox account's own unit search path, and \(em per enabled agent
+\(em both halves of the entrypoint reconciliation: whether the binary matches
+the checksum pinned for it, and what SELinux type its paths carry.
 .RS
 .PP
 It is the same report
@@ -599,8 +599,33 @@ the sandbox account's own
 .B "systemd \-\-user"
 units, read live over the machine transport; the entrypoint pin, which sits in
 a state directory a non-operator cannot traverse; whether the installed binary
-still matches that pin, hashed inside a toolchain only root can enter; and the
-SELinux type each agent path carries there.
+still matches that pin, hashed inside a toolchain only root can enter; the
+SELinux type each agent path carries there; and that account's systemd unit
+search path, whose directories are root-owned without world bits.
+.PP
+The unit-search-path section names two things. The directories on the way to
+the account's
+.B "systemd \-\-user"
+data path are reported against the layout the control plane declares: one that
+exists at another owner or mode is
+.B DRIFTED
+and needs attention, since a session could place a unit there and that
+account's manager runs unconfined, while one not created yet is reported as
+.B n/a
+on a host the provisioning run has not reached. An entry under that data path
+that no ai\-tools step writes is
+.B UNEXPECTED
+and needs attention; it is left where it was found, for you to inspect and
+remove. The timer stamp
+.BR systemd (1)
+keeps on that path for
+.B Persistent=
+is reported from its own modification time, which is what decides whether
+a missed window gets a catch-up run. A stamp dated in the future needs
+attention, because it suppresses that run; an overdue timer is printed for
+reference and counted once, in the
+.B Services
+section. Nothing in this report writes or resets the stamp.
 Every verdict comes from the registry both reports read, so the two differ in
 what each is allowed to see and never in what either says about the same unit.
 .PP
