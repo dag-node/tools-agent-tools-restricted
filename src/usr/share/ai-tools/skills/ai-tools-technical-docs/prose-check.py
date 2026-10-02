@@ -1206,8 +1206,8 @@ PATH_CHECKS = [
 # `--config-header`: A CONFIG FILE'S HEADER IS READ IN A TERMINAL AND NEVER REFLOWED. An operator's config file --
 # a seeded header, a shipped template -- is read as-is, so its prose holds to a fixed width (72 columns, the RFC text
 # width, by default). Every line is measured, and a commented default (`#KEY=value`) is left alone, that being a setting
-# rather than prose.
-HEADER_DEFAULT = re.compile(r"^\s*#\s*[A-Za-z_][A-Za-z0-9_]*=")
+# rather than prose; so is a `# Default:` line, which states a value the grammar cannot wrap across lines.
+HEADER_DEFAULT = re.compile(r"^\s*#\s*[A-Za-z_][A-Za-z0-9_]*=|^\s*#\s*Default:\s")
 HEADER_WIDTH = 72
 
 

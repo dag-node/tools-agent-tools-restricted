@@ -994,7 +994,7 @@ skipped. These checks are opt-in, since a tree whose prose predates them reports
 A config header stays at **72** columns, the RFC text width, ragged right, and is kept to what the file is, the one rule
 a reader needs before writing a line, example lines and the file's man page, since an upgrade does not rewrite a header
 in an operator's file. `--config-header` reports an over-width line (`--width` overrides) and leaves a commented default
-(`#KEY=value`) alone:
+(`#KEY=value`) and a `# Default:` line alone, each stating a value that cannot wrap:
 
 ```bash
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --config-header <file>...
