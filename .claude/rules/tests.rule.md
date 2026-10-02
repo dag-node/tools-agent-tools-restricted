@@ -93,7 +93,10 @@ state (the updater's last-run stamp) reads it and asserts agreement instead. A s
 skipped rather than manufactured; the unit suites drive those against fixtures they own.
 
 The SELinux AVC bring-up tooling is **not** part of this suite: it lives with the policy it supports,
-under `selinux/avc/` (`run.sh` does not dispatch it).
+under `selinux/avc/` (`run.sh` does not dispatch it). `unit/avc-denials.sh` is the exception for the readers
+`avc-denials.sh` judges a run by, which it sources from the checkout: each is driven in the direction that would pass
+a run it should not — an unexercised attempt read as denied, a failed `seinfo` read as enforcing, a trail from another
+run or one without an exit status read as clean.
 
 ## What a test asserts about a message
 
