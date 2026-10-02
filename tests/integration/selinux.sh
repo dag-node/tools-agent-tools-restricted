@@ -432,4 +432,51 @@ else
     done
 fi
 
+# The launch attestation reads selinuxfs itself, and the one claim a fixture cannot prove is that the live kernel
+# answers: the access query carries ai_tools_t under unconfined_r, which the loaded policy must accept
+# (`role unconfined_r types ai_tools_t;` in ai_tools.te), and each gating Boolean file holds the value getsebool prints.
+# A policy that stopped accepting the context would turn every launch under AI_TOOLS_REQUIRE_SELINUX into an unattested
+# refusal with no unit test failing. Read-only.
+section "SELinux: the launch attestation reads the live selinuxfs"
+
+if ! module_loaded; then
+    skip "live attestation read" "the ai_tools module is not loaded"
+elif ! source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null \
+        || ! source /usr/local/lib/ai-tools/confinement.lib.sh 2>/dev/null \
+        || ! declare -F ai_tools_confinement_read_attestation_records >/dev/null 2>&1; then
+    skip "live attestation read" "confinement.lib.sh predates the attestation reader"
+else
+    live_records="$(ai_tools_confinement_read_attestation_records /sys/fs/selinux)"
+    live_permissive="$(awk -F'\t' '$1=="permissive"{print $2}' <<<"${live_records}")"
+    # Cross-checked where a tool can say: seinfo lists permissive types; semodule lists the module `semanage permissive
+    # -a` installs. Captured, not piped into grep -q, for the SIGPIPE reason module_loaded states.
+    expected_permissive=""
+    if command -v seinfo >/dev/null 2>&1; then
+        permissive_types="$(seinfo --permissive 2>/dev/null || true)"
+        if grep -qw ai_tools_t <<<"${permissive_types}"; then expected_permissive=yes; else expected_permissive=no; fi
+    elif command -v semodule >/dev/null 2>&1; then
+        loaded_modules="$(semodule -l 2>/dev/null || true)"
+        if grep -qx permissive_ai_tools_t <<<"${loaded_modules}"; then expected_permissive=yes; else expected_permissive=no; fi
+    fi
+    if [[ -z "${live_permissive}" ]]; then
+        fail "the access query for ai_tools_t went unanswered -- every launch under AI_TOOLS_REQUIRE_SELINUX refuses as unattested"
+    elif [[ -z "${expected_permissive}" ]]; then
+        pass "the kernel answers the per-domain mode for ai_tools_t: permissive=${live_permissive} (no seinfo or semodule to cross-check)"
+    elif [[ "${live_permissive}" == "${expected_permissive}" ]]; then
+        pass "the kernel answers the per-domain mode for ai_tools_t: permissive=${live_permissive}, as the policy tools say"
+    else
+        fail "the per-domain mode reads permissive=${live_permissive}; the policy tools say ${expected_permissive}"
+    fi
+    while IFS=$'\t' read -r boolean_name boolean_class _; do
+        [[ "${boolean_class}" == gating ]] || continue
+        live_value="$(awk -F'\t' -v n="${boolean_name}" '$1=="boolean" && $2==n {print $3}' <<<"${live_records}")"
+        getsebool_value="$(getsebool "${boolean_name}" 2>/dev/null | awk '{print $3}' || true)"
+        if [[ -n "${live_value}" && "${live_value}" == "${getsebool_value}" ]]; then
+            pass "${boolean_name} reads ${live_value}, the value getsebool prints"
+        else
+            fail "${boolean_name}: the reader says '${live_value:-unread}', getsebool says '${getsebool_value:-nothing}'"
+        fi
+    done < <(ai_tools_confinement_list_known_booleans)
+fi
+
 finish

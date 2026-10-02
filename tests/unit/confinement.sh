@@ -221,6 +221,25 @@ else
     fail "reader: a missing selinuxfs printed a record"
 fi
 
+# A further name becomes a path component under selinuxfs, so the reader opens one only in the pair grammar
+# (ai_tools_conf_pair_name_valid, conf.lib.sh beside the lib) and reads a registry name once however often it is
+# passed. The traversal fixture exists and holds a value, so this asserts the name was refused, not that it was absent.
+mkdir -p "${TESTDIR}/etc"; printf '1 0' > "${TESTDIR}/etc/shadow"
+printf '1 0' > "${fixture_selinuxfs}/booleans/ai_tools_test_extra"
+CONF_LIB_FOR_READER="$(dirname "${LIB}")/conf.lib.sh"
+if [[ -r "${CONF_LIB_FOR_READER}" ]] && source "${CONF_LIB_FOR_READER}" \
+        && declare -F ai_tools_conf_pair_name_valid >/dev/null 2>&1; then
+    further_records="$(ai_tools_confinement_read_attestation_records "${fixture_selinuxfs}" \
+        '../../etc/shadow' 'nis enabled' nis_enabled ai_tools_test_extra ai_tools_test_extra)"
+    if [[ "${further_records}" == "${expected_records}"$'\nboolean\tai_tools_test_extra\ton' ]]; then
+        pass "reader: a further name is read once and in the pair grammar alone -- a path and a name with a space are not opened"
+    else
+        fail "reader with further names printed: ${further_records//$'\n'/ | }"
+    fi
+else
+    skip "reader further names" "conf.lib.sh beside ${LIB} is not readable, or it predates ai_tools_conf_pair_name_valid"
+fi
+
 section "confinement: the Boolean values a launch requires (unit)"
 # A required value refuses at the other value, whichever way that runs: deny_ptrace declared on refuses while off.
 expect_verdict require-boolean 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no \
@@ -264,6 +283,42 @@ expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_
     "${CLEAN_BOOLEANS} deny_ptrace=on" \
     "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off deny_ptrace=on AI_TOOLS_SELINUX_BOOLEANS=malformed"
 
+section "confinement: unread inputs and report rows (unit)"
+# Each unread input is listed with its kind, so the shim prints the remedy that kind takes and not a package install
+# for a misspelled Boolean.
+unread_rows="$(ai_tools_confinement_list_unread_inputs \
+    "nis_enabled=off no_such_boolean=on AI_TOOLS_SELINUX_BOOLEANS=malformed" "nis_enabled=off" "")"
+expected_unread=$'selinuxfs\twhether ai_tools_t is a permissive domain (/sys/fs/selinux/access)\nboolean\tthe no_such_boolean Boolean\ndeclaration\tAI_TOOLS_SELINUX_BOOLEANS in operator.conf (an entry is not <boolean>=on or <boolean>=off)'
+if [[ "${unread_rows}" == "${expected_unread}" ]]; then
+    pass "unread inputs: the domain mode, a Boolean the reading lacks and the marker, each with its kind"
+else
+    fail "unread inputs -> ${unread_rows//$'\n'/ | }"
+fi
+full_reading_unread="$(ai_tools_confinement_list_unread_inputs "${CLEAN_BOOLEANS}" "${CLEAN_BOOLEANS}" no)"
+if [[ -z "${full_reading_unread}" ]]; then pass "unread inputs: a full reading lists none"
+else fail "unread inputs over a full reading: ${full_reading_unread//$'\n'/ | }"; fi
+
+# The report rows: the domain row and a differing Boolean carry the command that puts each right, a required Boolean
+# the registry does not hold is listed from the declaration, and the malformed marker is a row of its own.
+report_rows="$(ai_tools_confinement_list_attestation_rows yes "nis_enabled=on deny_ptrace=on" \
+    "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off my_extra=on AI_TOOLS_SELINUX_BOOLEANS=malformed" \
+    "my_extra=on")"
+expect_row() {  # <description> <expected row>
+    if grep -qxF -- "$2" <<<"${report_rows}"; then pass "report row: $1"
+    else fail "report row: $1 -- not in: ${report_rows//$'\n'/ | }"; fi
+}
+expect_row "a permissive domain carries its remedy" $'domain\tyes\tsudo semanage permissive -d ai_tools_t'
+expect_row "a differing Boolean carries its remedy" \
+    $'boolean\tnis_enabled\tdiffers\ton\toff\tbuilt-in\ton\tbind and connect on most port types\tsudo setsebool -P nis_enabled=off'
+expect_row "an unread required Boolean has no remedy" \
+    $'boolean\tdomain_can_mmap_files\tunread\tunread\toff\tbuilt-in\ton\tmap on every file type, the access the tmpmap group exists to add\t-'
+expect_row "an advisory false-branch Boolean read on is closed" \
+    $'boolean\tdeny_ptrace\tclosed\ton\t-\t-\toff\tptrace, which this Boolean denies while on\t-'
+expect_row "a declared Boolean outside the registry is listed from the declaration" \
+    $'boolean\tmy_extra\tunread\tunread\ton\toperator.conf\t-\tdeclared in AI_TOOLS_SELINUX_BOOLEANS\t-'
+expect_row "the malformed marker is a row of its own" \
+    $'boolean\tAI_TOOLS_SELINUX_BOOLEANS\tmalformed\tunread\tmalformed\toperator.conf\t-\tan entry that is not <boolean>=on or <boolean>=off\t-'
+
 # The declaration readers, over fixture files. The trust predicate has its own tests (conf.sh), so here it is stubbed
 # per path: the trusted fixtures pass and the untrusted one does not, which keeps the fail direction in view.
 CONF_LIB_FOR_READERS="$(dirname "${LIB}")/conf.lib.sh"
@@ -296,6 +351,23 @@ if [[ -r "${CONF_LIB_FOR_READERS}" ]] && source "${CONF_LIB_FOR_READERS}" \
         "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off" ""
     expect_required_reading "untrusted: the built-in pairs" "${untrusted_operator_conf}" absent \
         "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off" ""
+    # The one reading the shim and both reports share, over the valid declaration and the fixture selinuxfs: its five
+    # fields, then the report's closing verdict row, which says whether a token other than ok refuses a launch.
+    printf '1 0' > "${fixture_selinuxfs}/booleans/deny_ptrace"
+    attestation_inputs="$(ai_tools_confinement_read_attestation_inputs "${valid_operator_conf}" "${fixture_selinuxfs}")"
+    expected_inputs="present|nis_enabled=on deny_ptrace=on|nis_enabled=on deny_ptrace=on||nis_enabled=off domain_can_mmap_files=on kerberos_enabled=on deny_ptrace=on"
+    if [[ "${attestation_inputs}" == "${expected_inputs}" ]]; then
+        pass "attestation inputs: the declaration, every Boolean it names read beside the registry's, the domain mode unread"
+    else
+        fail "attestation inputs -> ${attestation_inputs}; expected ${expected_inputs}"
+    fi
+    expect_report_verdict() {  # <description> <operator-conf> <expected verdict row>
+        local report_tail; report_tail="$(ai_tools_confinement_list_attestation_report "$2" "${fixture_selinuxfs}" | tail -n1)"
+        if [[ "${report_tail}" == "$3" ]]; then pass "attestation report, $1 -> ${report_tail//$'\t'/ }"
+        else fail "attestation report, $1 -> ${report_tail//$'\t'/ }; expected ${3//$'\t'/ }"; fi
+    }
+    expect_report_verdict "a declaration a Boolean drifted from, not required" "${valid_operator_conf}" $'verdict\tboolean\tno'
+    expect_report_verdict "the built-in pairs with one open, required" "${absent_operator_conf}" $'verdict\tboolean\tyes'
     unset -f ai_tools_conf_is_trusted
 else
     skip "operator.conf readers" "conf.lib.sh beside ${LIB} is not readable, or the library predates the readers"

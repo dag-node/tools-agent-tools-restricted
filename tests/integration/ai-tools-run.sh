@@ -315,6 +315,44 @@ else
         pin_dir="$(mktemp -d)"
         _cleanup+=("${pin_dir}")
         chmod 0755 "${pin_dir}"
+        # (7b) Under AI_TOOLS_REQUIRE_SELINUX, a Boolean the declaration names and the loaded policy does not have is
+        # an input the launch cannot read: the shim refuses as unattested, names that Boolean, and prints the remedy
+        # for a Boolean rather than a package install. The conf is the host's own with the two keys replaced, root-owned
+        # and readable by the sandbox account, reached through AI_TOOLS_OPERATOR_CONF; a mismatching pin stays in place
+        # so a run that somehow passed the attestation still refuses before systemd-run. The attestation sits behind
+        # the mode check, so a host not Enforcing refuses on the mode first and skips here.
+        IFS=$'\t' read -r att_agent att_launcher <<<"${ready[0]}"
+        att_exec="$(readlink -- "/opt/ai-tools/bin/${att_launcher}" 2>/dev/null || true)"
+        if [[ "$(getenforce 2>/dev/null || true)" != Enforcing ]]; then
+            skip "ai-tools-run unattested refusal" "SELinux is not Enforcing here, so the requirement refuses on the mode first"
+        else
+            att_conf_dir="$(mktemp -d)"; _cleanup+=("${att_conf_dir}"); chmod 0755 "${att_conf_dir}"
+            grep -vE '^[[:space:]]*AI_TOOLS_(REQUIRE_SELINUX|SELINUX_BOOLEANS)=' /etc/ai-tools/operator.conf \
+                > "${att_conf_dir}/operator.conf" || true
+            printf 'AI_TOOLS_REQUIRE_SELINUX=yes\nAI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=off, domain_can_mmap_files=off, domain_can_write_kmsg=off, ai_tools_test_absent_boolean=off]\n' \
+                >> "${att_conf_dir}/operator.conf"
+            chmod 0644 "${att_conf_dir}/operator.conf"
+            printf 'AGENT=%s\nVERSION=0.0.0\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' "${att_agent}" 0 \
+                > "${pin_dir}/${att_agent}"
+            chmod 0644 "${pin_dir}/${att_agent}"
+            out="$(run_crun AI_TOOLS_AGENT_EXEC="${att_exec}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}" \
+                            AI_TOOLS_OPERATOR_CONF="${att_conf_dir}/operator.conf")" && rc=0 || rc=$?
+            if (( rc == 0 )); then
+                fail "the shim exited 0 under a requirement it could not attest: ${out}"
+            elif grep -q 'MSG-A7E7' <<<"${out}"; then
+                if grep -qF 'the ai_tools_test_absent_boolean Boolean' <<<"${out}" && grep -qF 'getsebool -a' <<<"${out}" \
+                        && ! grep -qF 'dnf install libselinux-utils' <<<"${out}"; then
+                    pass "ai-tools-run refuses a required launch over a Boolean the policy lacks, names it, and prints the Boolean remedy alone (${att_agent})"
+                else
+                    fail "the unattested refusal does not name the Boolean with its remedy: ${out}"
+                fi
+            elif grep -qE 'MSG-Z5M5|MSG-P3P8' <<<"${out}"; then
+                pass "ai-tools-run refuses the required launch on a definite attestation fault this host carries, which outranks the unread Boolean (${att_agent})"
+            else
+                fail "the required launch was refused ahead of the attestation: ${out}"
+            fi
+            rm -f -- "${pin_dir:?}/${att_agent}"
+        fi
         for entry in "${ready[@]}"; do
             IFS=$'\t' read -r pin_agent pin_launcher <<<"${entry}"
             pin_exec="$(readlink -- "/opt/ai-tools/bin/${pin_launcher}" 2>/dev/null || true)"

@@ -362,6 +362,18 @@ else
     else
         fail "attested host under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
+    # A declaration renders its origin, a Boolean outside the registry, and the malformed row, which is a fault under
+    # the requirement.
+    DECLARED_CONF="${TESTDIR}/operator-declared.conf"
+    printf 'AI_TOOLS_REQUIRE_SELINUX=yes\nAI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=on, ai_tools_test_extra=on, bad]\n' > "${DECLARED_CONF}"
+    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\ton\nboolean\tai_tools_test_extra\ton' \
+               "${DECLARED_CONF}")" || true
+    if grep -qx 'section-status=1' <<<"${out}" && grep -qF 'declared in operator.conf' <<<"${out}" \
+            && grep -qF 'ai_tools_test_extra' <<<"${out}" && grep -qF 'MALFORMED' <<<"${out}"; then
+        pass "a declaration renders its origin, a Boolean outside the registry, and the malformed row as a fault"
+    else
+        fail "declaration rendering: $(tr '\n' '|' <<<"${out}")"
+    fi
 fi
 
 finish

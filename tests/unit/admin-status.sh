@@ -220,6 +220,19 @@ else
     else
         fail "unread attestation under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
+    # A declaration: its Booleans are named as declared, a Boolean outside the registry gets a row, and a malformed
+    # entry is a row of its own that counts, since the launch refuses until the line is fixed.
+    DECLARED_CONF="${TESTDIR}/operator-declared.conf"
+    printf 'AI_TOOLS_REQUIRE_SELINUX=yes\nAI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=on, ai_tools_test_extra=on, bad]\n' > "${DECLARED_CONF}"
+    out="$(call_attestation_section Enforcing $'permissive\tno\nboolean\tnis_enabled\ton\nboolean\tai_tools_test_extra\ton' \
+               "${DECLARED_CONF}")" || true
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF 'nis_enabled  required on, declared in operator.conf' <<<"${out}" \
+            && grep -qF 'ai_tools_test_extra  required on, declared in operator.conf' <<<"${out}" \
+            && grep -qF '[MALFORMED]' <<<"${out}"; then
+        pass "a declaration names its Booleans as declared, lists one outside the registry, and its malformed entry counts"
+    else
+        fail "declaration rendering: $(tr '\n' '|' <<<"${out}")"
+    fi
     out="$(call_attestation_section Disabled "${CLEAN_ATTESTATION}" "${REQUIRED_CONF}")" || true
     if grep -qx 'problems=0' <<<"${out}" && grep -qF '[n/a]' <<<"${out}"; then
         pass "SELinux disabled reads n/a here; the launch refusal for it is the preflight's to report"
