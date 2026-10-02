@@ -4,9 +4,10 @@
 # Hermetic unit tests for the deployed ai-tools-chown helper: it acts only on agent (SANDBOX_USER)-owned paths, hands
 # ordinary ones back to <projects-user>:SANDBOX_GROUP with world bits stripped, quarantines secret-named ones
 # to <projects-user>:<projects-user> 600, honors '!' exclusions, refuses paths outside the allowlist, and is TOCTOU-safe
-# (pinned fd, refuses symlink redirection, takes the owner and mode from the pinned inode). Installed helper against a /tmp testdir with a dummy allowlist. This test
-# stays out of /var/log to keep its hermetic boundary; the audit-log FILE's ownership and mode are pinned in perms.sh
-# (the written log line itself is not asserted).
+# (pinned fd, refuses symlink redirection, takes the owner and mode from the pinned inode, also under a live
+# `renameat2(RENAME_EXCHANGE)` race). Installed helper against a /tmp testdir with a dummy allowlist. This test stays
+# out of /var/log to keep its hermetic boundary; the audit-log FILE's ownership and mode are pinned in perms.sh (the
+# written log line itself is not asserted).
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -261,6 +262,67 @@ if command -v python3 >/dev/null 2>&1; then
     fi
 else
     skip "pinned-owner check" "python3 not installed"
+fi
+
+# (14) The same check under a live rename exchange. The helper reads the identity, then the owner and mode,
+# through separate path lookups, and a racer swapping the path with a decoy can answer them from different inodes
+# before the pin. The decoy is an operator-owned 755 file, so a run that pinned it on the agent file's owner read would
+# hand the operator's file to the agent group, and a run that pinned the agent's 674 file on the decoy's mode read would
+# leave it 670 (the script plan) where its own reads give 660. Neither outcome may occur in any run. The window is a few
+# lookups wide, so this is a stress check that catches a regression with some probability per run; case (13) is
+# the deterministic one. A run that hands the agent file back is required, which proves the racer left the apply
+# reachable.
+# race_exchange <a> <b>: swap <a> and <b> with renameat2(RENAME_EXCHANGE) until killed.
+race_exchange() {
+    python3 -I - "$1" "$2" <<'PY'
+import ctypes, os, sys
+libc = ctypes.CDLL(None, use_errno=True)
+a, b = (os.fsencode(p) for p in sys.argv[1:3])
+while True:
+    if libc.renameat2(-100, a, -100, b, 2) != 0:
+        sys.exit("renameat2: " + os.strerror(ctypes.get_errno()))
+PY
+}
+if command -v python3 >/dev/null 2>&1; then
+    rp="${proj}/race.txt"; rq="${proj}/race-decoy.txt"
+    runs=150 handed=0 left=0 racer_errors=0 mixed=""
+    for (( n = 0; n < runs; n++ )); do
+        rm -f "${rp}" "${rq}"
+        : > "${rp}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${rp}"; chmod 0674 "${rp}"
+        : > "${rq}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${rq}"; chmod 0755 "${rq}"
+        agent_ino="$(stat -c %i "${rp}")"
+        race_exchange "${rp}" "${rq}" 2>"${TESTDIR}/racer.err" &
+        racer=$!
+        run "${rp}"
+        kill "${racer}" 2>/dev/null || true
+        wait "${racer}" 2>/dev/null || true
+        [[ -s "${TESTDIR}/racer.err" ]] && racer_errors=$(( racer_errors + 1 ))
+        # The racer stopped at an arbitrary point, so each inode is found by number rather than by name.
+        for f in "${rp}" "${rq}"; do
+            state="$(stat -c '%U:%G %a' "${f}")"
+            if [[ "$(stat -c %i "${f}")" == "${agent_ino}" ]]; then
+                case "${state}" in
+                    "${SANDBOX_USER}:${SANDBOX_GROUP} 674") left=$(( left + 1 )) ;;
+                    "${PROJECTS_USER}:${SANDBOX_GROUP} 660") handed=$(( handed + 1 )) ;;
+                    *) mixed+="run ${n}: agent file ${state}; " ;;
+                esac
+            elif [[ "${state}" != "${PROJECTS_USER}:${PROJECTS_GROUP} 755" ]]; then
+                mixed+="run ${n}: operator decoy ${state}; "
+            fi
+        done
+    done
+    rm -f "${rp}" "${rq}"
+    if (( racer_errors > 0 )); then
+        fail "rename-exchange race: the racer failed in ${racer_errors} run(s): $(head -n1 "${TESTDIR}/racer.err")"
+    elif [[ -n "${mixed}" ]]; then
+        fail "rename-exchange race: an apply mixed two inodes -- ${mixed}"
+    elif (( handed == 0 )); then
+        fail "rename-exchange race: no run handed the agent file back in ${runs}, so the apply was never reached"
+    else
+        pass "rename-exchange race: ${runs} runs, ${handed} handed back, ${left} refused, none acted on a mixed read"
+    fi
+else
+    skip "rename-exchange race" "python3 not installed"
 fi
 
 finish
