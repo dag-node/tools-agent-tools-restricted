@@ -1786,6 +1786,10 @@ WARNING.
 SELinux or the ai_tools module is not active \-\- no agent paths to label
 .SS install.sh
 .TP
+.B MSG-A2Y5
+WARNING.
+the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined \-\-user manager; settle each one and re\-run this installer:
+.TP
 .B MSG-A7X8
 WARNING.
 toolchain not provisioned \-\- the wrapper/handback/SELinux checks skip or fail

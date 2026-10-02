@@ -832,6 +832,20 @@ systemctl start ai-tools-handback.socket 2>/dev/null || :
 chmod 2750 /var/opt/ai-tools 2>/dev/null || :
 chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 
+# Converge the sandbox account's systemd unit search path (control-plane.lib.sh) on every transition: the home subtrees
+# are not rpm-owned, and an upgrade from a release that left them account-owned closes here. Every change narrows
+# access, so it runs unattended; under an explicit bash, since the library is bash and a scriptlet runs under /bin/sh.
+if [ -d /opt/ai-tools ] && command -v bash >/dev/null 2>&1; then
+    bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || exit 0
+             declare -F ai_tools_unit_path_converge >/dev/null 2>&1 || exit 0
+             ai_tools_unit_path_converge /opt/ai-tools ai-tools ai-tools | while read -r verdict rest; do
+                 [ "${verdict}" = error ] && echo "ai-tools-base: WARNING the sandbox systemd unit search path is not fully closed: ${rest}" >&2
+             done' || :
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -R /opt/ai-tools/.local >/dev/null 2>&1 || :
+    fi
+fi
+
 # Helper-layout migration (0.10.0): the root helper tree moved
 # /usr/local/sbin/ai-tools -> /usr/local/libexec/ai-tools so ONE layout serves EL and the
 # Fedora bin/sbin merge. rpm's own file handling completes the move (old helpers leave %files

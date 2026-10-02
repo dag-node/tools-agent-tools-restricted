@@ -248,6 +248,47 @@ for _d in /opt/ai-tools/.config/systemd/user /opt/ai-tools/.config/systemd/user/
     fi
 done
 
+# The manager's other unit search path, $XDG_DATA_HOME/systemd/user, behind the root-owned unit-path chain
+# (ownership-and-hooks.rule.md). Probed with create attempts; a rename of the live chain would break this host's update
+# timer if it succeeded, so unit/control-plane.sh drives the rename against a fixture.
+for _d in /opt/ai-tools/.local/share/systemd /opt/ai-tools/.local/share/systemd/user; do
+    _dataprobe="${_d}/$(ai_test_name dataunit).unit"
+    _cleanup+=("${_dataprobe}")
+    if [[ ! -d "${_d}" ]]; then
+        # The leaf is the one this layout removes: absent is the wanted state and is reported as such, not skipped.
+        if [[ "${_d}" == */user ]]; then
+            pass "${_d} does not exist, so the manager has no unit to read there"
+        else
+            skip "${_d}" "not present on this host (the control plane is not deployed or predates the chain)"
+        fi
+        continue
+    fi
+    runuser -u "${SANDBOX_USER}" -- touch "${_dataprobe}" 2>/dev/null || true
+    if [[ -e "${_dataprobe}" ]]; then
+        rm -f "${_dataprobe}"
+        fail "agent wrote ${_dataprobe} -- it could register a --user unit the unconfined manager runs (confinement escape)"
+    else
+        pass "cannot write ${_d}: confined session cannot place a --user unit on the account's XDG data search path"
+    fi
+done
+# The positive controls: the account keeps creating its own entries under .local and .local/share, which its toolchains
+# need, and writing the timer stamps.
+for _d in /opt/ai-tools/.local /opt/ai-tools/.local/share /opt/ai-tools/.local/share/systemd/timers; do
+    if [[ ! -d "${_d}" ]]; then
+        skip "${_d}" "not present on this host (the control plane is not deployed or predates the chain)"
+        continue
+    fi
+    _ownprobe="${_d}/$(ai_test_name ownentry)"
+    _cleanup+=("${_ownprobe}")
+    if runuser -u "${SANDBOX_USER}" -- touch "${_ownprobe}" 2>/dev/null && [[ -e "${_ownprobe}" ]]; then
+        runuser -u "${SANDBOX_USER}" -- rm -f "${_ownprobe}" 2>/dev/null || rm -f "${_ownprobe}"
+        pass "the account still creates and removes its own entry in ${_d}"
+    else
+        rm -f "${_ownprobe}" 2>/dev/null || true
+        fail "the account cannot write its own entry in ${_d} -- the chain's modes are closed too far, and its XDG state (and the timer stamp) break"
+    fi
+done
+
 # The same manager, reached over its bus rather than through its unit directory. `systemctl --user set-environment`
 # writes into the manager, and the manager hands its environment to every unit it starts -- nvm-update.service
 # among them, which reads AI_TOOLS_AGENTS_DIR and AI_TOOLS_OPERATOR_CONF as root-only test hooks. This vantage is

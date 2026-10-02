@@ -70,6 +70,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | v7m6 | [MSG-V7M6](../install.sh) | hook declarations not merged into ${deployed}: ${_ai_tools_conf_merge_reason} | install.sh |  | warn |
 | j8f2 | [MSG-J8F2](../install.sh) | the kept ${deployed} differs from this version's beyond its hooks: | install.sh |  | warn |
 | k2p8 | [MSG-K2P8](../install.sh) | the kept $1 runs these commands without asking, and each sends data off the host: | install.sh |  | warn |
+| a2y5 | [MSG-A2Y5](../install.sh) | the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined --user manager; settle each one and re-run this installer: | install.sh | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh | warn |
 | g6h3 | [MSG-G6H3](../install.sh) | systemctl --user $* failed by both the machine transport and the account's own | install.sh |  | warn |
 | v9c7 | [MSG-V9C7](../install.sh) | lockdown: failed to chown ${d} | install.sh |  | warn |
 | y3e5 | [MSG-Y3E5](../install.sh) | lockdown: failed to chmod 750 ${d} | install.sh |  | warn |

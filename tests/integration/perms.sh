@@ -284,7 +284,19 @@ if [[ -e /opt/ai-tools/orientation/AGENTS.md ]]; then
 else
     skip "/opt/ai-tools/orientation/AGENTS.md" "shipped orientation not seeded on this host"
 fi
+# The sandbox account's systemd unit search path, read from the library's own declaration
+# (ownership-and-hooks.rule.md).
 _cp_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
+# shellcheck source=/dev/null
+if source "${_cp_lib}" 2>/dev/null && [[ -n "${CP_UNIT_PATH_CHAIN[*]:-}" ]]; then
+    for _rel in "${CP_UNIT_PATH_CHAIN[@]}"; do
+        check_file "/opt/ai-tools/${_rel}" root "${SANDBOX_GROUP}" "${CP_UNIT_PATH_MODES[${_rel}]}"
+    done
+    check_file "/opt/ai-tools/${CP_TIMER_STAMP_DIR}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" 750
+else
+    skip "the sandbox unit search path" "${_cp_lib} does not declare the unit-path chain on this host"
+fi
+
 # shellcheck source=/dev/null
 if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/dev/null 2>&1; then
     _cfg_found=0; _codex_cfg_walked=0

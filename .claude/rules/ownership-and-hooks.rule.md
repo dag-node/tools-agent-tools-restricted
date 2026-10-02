@@ -264,10 +264,27 @@ or writing the directory. No sticky bit is needed because no path here is group-
 Repointing a launcher symlink at a new toolchain version is delegated to the `ai-tools-launcher-symlink` root helper
 (see [updater](updater.rule.md)).
 
+### The sandbox account's systemd unit search path
+
+`$XDG_DATA_HOME/systemd/user` is a unit search path of the account's own `systemd --user` manager, which runs
+unconfined, so a unit a session placed there would run without any property `ai-tools-run` sets on a session unit. Root
+owns every directory on the way to it (`CP_UNIT_PATH_CHAIN`, `CP_UNIT_PATH_MODES` in `control-plane.lib.sh`),
+the parents included: a same-directory rename needs write on the parent alone, so a root-owned leaf
+under an account-owned parent could be renamed aside and replaced. `.local` and `.local/share` take the setgid+sticky
+shape of an agent config directory, so the account keeps its own XDG entries there. The timer-stamp directory at the end
+stays the account's, because its manager writes the `Persistent=` stamps; DAC cannot close it, and the SELinux type
+on the path does ([confinement](confinement.rule.md)).
+
+`ai_tools_unit_path_converge` applies the layout from `install.sh`, the provisioning run, and the base package's
+`%posttrans`, so an upgraded host converges unattended; every change it makes narrows access. It works top-down,
+and a symlink or non-directory on the chain ends the descent, since carrying on would create a root-owned directory
+at its target. An unexpected entry under `.local/share/systemd` is reported as an `error` and left in place
+for the operator, and `ai-tools-admin status` names it ([cli](cli.rule.md)).
+
 The control-plane modes are single-sourced as constants in `/usr/local/lib/ai-tools/control-plane.lib.sh`
-(`CP_HOME_MODE`, `CP_DIR_MODES` for the base-owned `bin`, and `CP_AGENT_CONFIG_MODE` for every agent's config
-directory), which `install.sh` and the RPM `%files` both apply; cite the constants rather than re-stating the octal
-so the modes stay defined in one place.
+(`CP_HOME_MODE`, `CP_DIR_MODES` for the base-owned `bin`, `CP_AGENT_CONFIG_MODE` for every agent's config directory,
+and the unit-path chain's own), which `install.sh` and the RPM `%files` both apply; cite the constants rather than
+re-stating the octal so the modes stay defined in one place.
 
 **Which directory that is belongs to the agent, not the base.** Its name comes from the agent manifest's `config_dir`,
 its files (`settings.json`, the hooks) are shipped by that agent's package, and its SELinux label is applied

@@ -552,6 +552,26 @@ ensure_dir() {
     [[ "${before}" == absent || "${before}" == "${after}" ]] || log "  ${dir}: ${before} -> ${after}"
 }
 
+# converge_unit_path <home>: apply the unit-path chain under <home> (ai_tools_unit_path_converge) and render its report.
+# A path it could not close is a warning, and the install continues.
+converge_unit_path() {
+    local home="$1" line verdict path rest changed=0
+    local -a failed=()
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        verdict="${line%% *}"; rest="${line#* }"; path="${rest%% *}"
+        case "${verdict}" in
+            changed) changed=$(( changed + 1 )); log "  ${path}: ${rest#* }" ;;
+            error)   failed+=("${path}: ${rest#* }") ;;
+        esac
+    done < <(ai_tools_unit_path_converge "${home}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
+    log "systemd unit search path under ${home} (${changed} director(ies) changed)"
+    if (( ${#failed[@]} > 0 )); then
+        warn MSG-A2Y5 "the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined --user manager; settle each one and re-run this installer:"
+        for line in "${failed[@]}"; do warn "    ${line}"; done
+    fi
+}
+
 # Make sure `<home>/.config` exists and belongs to the account whose home it is, before the ai-tools config directory is
 # placed inside it. It is created here rather than as a parent of that directory because `install -d` gives a parent it
 # creates the DEFAULT attributes -- root-owned, `0755` -- applying `-o`/`-g`/`-m` to the last component alone,
@@ -2487,12 +2507,8 @@ do_install() {
     # repoint -> relabel chain races the operator's first launch, so the first claude refuses on a mislabelled
     # entrypoint. The toolchain is current at install time, so "last run = now" is truthful (mtime is all systemd
     # reads). Same fix as ai-tools-bootstrap; see .claude/rules/updater.rule.md. The home is root-owned, so root creates
-    # the account-owned XDG_DATA_HOME path the `--user manager` reads and later updates itself.
-    install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 \
-        /opt/ai-tools/.local \
-        /opt/ai-tools/.local/share \
-        /opt/ai-tools/.local/share/systemd \
-        /opt/ai-tools/.local/share/systemd/timers
+    # the stamp directory through the unit-path converge, which also closes the directories on the way to it.
+    converge_unit_path "/opt/ai-tools"
     install -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0644 /dev/null \
         /opt/ai-tools/.local/share/systemd/timers/stamp-nvm-update.timer
     if (( manager_ready )); then

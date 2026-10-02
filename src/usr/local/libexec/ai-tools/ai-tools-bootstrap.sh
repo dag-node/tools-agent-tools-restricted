@@ -594,8 +594,8 @@ report_shadowed_operators() {
         "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}")
 }
 
-# preflight_toolchain_ownership <home> <user> <group> -- report every path under the toolchain subtrees (.nvm, .npm,
-# .cache, .local under <home>) that <user>:<group> does not own, and return 1 when there is one. The subtrees are
+# preflight_toolchain_ownership <home> <user> <group> -- report every path under the toolchain subtrees (.nvm, .npm
+# and .cache under <home>) that <user>:<group> does not own, and return 1 when there is one. The subtrees are
 # the sandbox account's: nvm and npm write there as that account, and the install step sources nvm.sh as it, so a path
 # another owner holds -- a tree copied from another host as root -- ends that step on nvm's own "Permission denied"
 # with no line naming the cause. Read as root, which traverses the 0750 tree; a subtree that does not exist yet (a first
@@ -604,7 +604,7 @@ report_shadowed_operators() {
 preflight_toolchain_ownership() {
     local home="$1" user="$2" group="$3" sub count sample
     local -a foreign=()
-    for sub in .nvm .npm .cache .local; do
+    for sub in .nvm .npm .cache; do
         [[ -d "${home}/${sub}" ]] || continue
         count="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '.' 2>/dev/null | wc -c)"
         (( count > 0 )) || continue
@@ -630,6 +630,33 @@ preflight_network() {
     (( ${#unreachable[@]} == 0 )) && return 0
     warn MSG-S8B6 "network: no answer from ${unreachable[*]} -- this run applies what needs no download (the account and its home, the launcher links, the labels, the units, the managed assets) and skips the nvm, Node and npm install; connect this host and re-run to install or update the toolchain"
     return 1
+}
+
+# converge_unit_path_step -- apply the unit-path chain (ai_tools_unit_path_converge) before the stamp step writes
+# into it, and warn where it could not close a path; the run continues. Without control-plane.lib.sh (a bootstrap ahead
+# of the control-plane install) it creates `.local` account-owned, and the install that follows converges it.
+converge_unit_path_step() {
+    local line verdict path rest
+    local -a failed=()
+    if ! declare -F ai_tools_unit_path_converge >/dev/null 2>&1; then
+        install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${SANDBOX_HOME}/.local"
+        return 0
+    fi
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        verdict="${line%% *}"; rest="${line#* }"; path="${rest%% *}"
+        case "${verdict}" in
+            changed) log "unit search path: ${path} is now ${rest#* }" ;;
+            error)   failed+=("${path}: ${rest#* }") ;;
+        esac
+    done < <(ai_tools_unit_path_converge "${SANDBOX_HOME}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
+    if (( ${#failed[@]} > 0 )); then
+        # A twin of install.sh's warning, which defines the code (messaging.rule.md).
+        printf 'MSG-A2Y5\n' >&2
+        warn "the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined --user manager; settle each one and re-run: sudo ai-tools-admin system bootstrap"
+        for line in "${failed[@]}"; do warn "    ${line}"; done
+    fi
+    return 0
 }
 
 # Executed, this provisions a host and needs root. Sourced -- by tests/unit/bootstrap.sh, which drives
@@ -700,6 +727,12 @@ if ! declare -F ai_tools_as_sandbox >/dev/null 2>&1 || ! declare -F ai_tools_nvm
     die MSG-E2X2 "cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
 fi
 
+# The unit-path converge (control-plane.lib.sh), loaded best-effort: a bootstrap ahead of the control-plane install has
+# none, and converge_unit_path_step says what it does then.
+_control_plane_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
+source "${_control_plane_lib}" 2>/dev/null || true
+
 # Which agents this run provisions, decided and written before the first network step: a name given on the command line,
 # the line already in operator.conf, or the operator's answer to the menu. An unknown `--agents` name ends the run here,
 # with no package installed and no line written.
@@ -745,14 +778,17 @@ fi
 # Home root owned root:ai-tools, mode 2751: root owns the control plane and the agent reaches it through group ai-tools;
 # the o+x search bit lets an operator readlink the launcher. The agent cannot create entries in this dir,
 # so the agent-owned subtrees it must write are pre-created here, as root, and chowned to the account: .nvm holds
-# the toolchain, .cache the NODE_COMPILE_CACHE, .npm the npm cache, .local XDG state. nvm/npm then write only within
-# these, never the home root.
+# the toolchain, .cache the NODE_COMPILE_CACHE, .npm the npm cache. nvm/npm then write only within these, never the home
+# root.
 install -d "${SANDBOX_HOME}"
 chown "root:${SANDBOX_GROUP}" "${SANDBOX_HOME}"
 chmod 2751 "${SANDBOX_HOME}"
-for _sub in .nvm .cache .npm .local; do
+for _sub in .nvm .cache .npm; do
     install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${SANDBOX_HOME}/${_sub}"
 done
+
+# `.local` heads the unit-path chain, which root owns.
+converge_unit_path_step
 
 # Resolve the enabled agents -- read AFTER choose_agents, so the set is the one this run just wrote. Each enabled line
 # is "name<TAB>npm_package<TAB>launcher"; collect the packages (installed in step 2) and launchers (symlinked in step
