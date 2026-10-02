@@ -291,7 +291,7 @@ export XDG_RUNTIME_DIR="/run/user/${UID}"
 # failing that check is a misconfigured host. What the switch turns into a refusal: confinement.rule.md.
 require_selinux=no
 operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
-ai_tools_confinement_selinux_required "${operator_conf}" && require_selinux=yes
+ai_tools_confinement_is_selinux_required "${operator_conf}" && require_selinux=yes
 
 # Each probe that could not run is named here, so a require-unattested refusal says which reading is missing and prints
 # the remedy for that reading: a tool to install, a selinuxfs read, a Boolean the policy lacks, or a line to fix.
@@ -337,7 +337,7 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
     domain_permissive="" current_boolean_values="" required_boolean_values="" declaration_state=absent
     if [[ "${require_selinux}" == yes ]]; then
         { read -r declaration_state; IFS= read -r required_boolean_values; IFS= read -r _; } \
-            < <(ai_tools_confinement_read_required_boolean_values "${operator_conf}")
+            < <(ai_tools_confinement_read_boolean_requirement "${operator_conf}")
         declared_boolean_names=()
         if [[ "${declaration_state}" != absent ]]; then
             for required_entry in ${required_boolean_values}; do

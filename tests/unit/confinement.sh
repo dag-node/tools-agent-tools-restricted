@@ -4,7 +4,7 @@
 # Unit test for the SELinux launch-gate decision (confinement.lib.sh): the pure ai_tools_confinement_verdict
 # that ai-tools-run's fail-closed preflight dispatches on. Drives the truth table over the probed inputs -- getenforce,
 # module presence, the matchpathcon-expected label, the live label, the manager domain, the per-domain mode
-# and the refused Booleans -- and the operator's AI_TOOLS_REQUIRE_SELINUX switch, with no SELinux host required,
+# and the gating Booleans -- and the operator's AI_TOOLS_REQUIRE_SELINUX switch, with no SELinux host required,
 # so a regression in the gate (an inverted condition, a swallowed refusal, an unread input read as a clean one) fails
 # here rather than reaching production as an UNCONFINED launch. The attestation reader's record parser is driven too;
 # the live libselinux query is not, since the confined domain is denied it. Sources the deployed library; does not need
@@ -107,13 +107,13 @@ expect_verdict require-inactive      1 Enforcing  no  ""              lib_t init
 expect_verdict mislabel       1 Enforcing yes ai_tools_exec_t lib_t           init_t       yes no "${CLEAN_BOOLEANS}"
 expect_verdict unverifiable   1 Enforcing yes ""              lib_t           init_t       yes no "${CLEAN_BOOLEANS}"
 expect_verdict manager-domain 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t some_other_t yes no "${CLEAN_BOOLEANS}"
-# A verified transition with an enforced domain and the refused Booleans off launches.
+# A verified transition with an enforced domain and the gating Booleans off launches.
 expect_verdict ok 0 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t       yes no "${CLEAN_BOOLEANS}"
 expect_verdict ok 0 Enforcing yes ai_tools_exec_t ai_tools_exec_t unconfined_t yes no \
-    "${CLEAN_BOOLEANS} kerberos_enabled=on fips_mode=on"   # a reported Boolean does not gate
+    "${CLEAN_BOOLEANS} kerberos_enabled=on fips_mode=on"   # an advisory Boolean does not gate
 
 section "confinement: attestation under AI_TOOLS_REQUIRE_SELINUX (unit)"
-# A definite fault: a permissive domain, or a refused Boolean on.
+# A definite fault: a permissive domain, or a gating Boolean on.
 expect_verdict require-permissive 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes yes "${CLEAN_BOOLEANS}"
 expect_verdict require-boolean    1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no \
     "nis_enabled=on domain_can_mmap_files=off"
@@ -241,7 +241,7 @@ expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_
 # operator.conf replaces its default, and a malformed one keeps the built-in pairs, adds those it read, and carries
 # the marker no reading satisfies.
 expect_required_values() {  # <description> <expected> <declaration-state> <declared-boolean-values>
-    local required_values; required_values="$(ai_tools_confinement_get_required_boolean_values "$3" "$4")"
+    local required_values; required_values="$(ai_tools_confinement_resolve_required_boolean_values "$3" "$4")"
     if [[ "${required_values}" == "$2" ]]; then pass "required values, $1 -> [${required_values}]"
     else fail "required values, $1 -> [${required_values}]; expected [$2]"; fi
 }
@@ -253,7 +253,7 @@ expect_required_values "an empty declaration requires none" "" present ""
 expect_required_values "a malformed declaration keeps the built-in pairs and refuses" \
     "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off deny_ptrace=on AI_TOOLS_SELINUX_BOOLEANS=malformed" \
     malformed "deny_ptrace=on"
-required_values_cli_ifs="$(IFS=$'\n\t'; ai_tools_confinement_get_required_boolean_values present "nis_enabled=on deny_ptrace=on")"
+required_values_cli_ifs="$(IFS=$'\n\t'; ai_tools_confinement_resolve_required_boolean_values present "nis_enabled=on deny_ptrace=on")"
 if [[ "${required_values_cli_ifs}" == "nis_enabled=on deny_ptrace=on" ]]; then
     pass "required values read alike under ai-tools' IFS=\$'\\n\\t'"
 else
@@ -268,7 +268,7 @@ expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_
 # per path: the trusted fixtures pass and the untrusted one does not, which keeps the fail direction in view.
 CONF_LIB_FOR_READERS="$(dirname "${LIB}")/conf.lib.sh"
 if [[ -r "${CONF_LIB_FOR_READERS}" ]] && source "${CONF_LIB_FOR_READERS}" \
-        && declare -F ai_tools_confinement_read_required_boolean_values >/dev/null 2>&1; then
+        && declare -F ai_tools_confinement_read_boolean_requirement >/dev/null 2>&1; then
     valid_operator_conf="${TESTDIR}/operator-valid.conf"; malformed_operator_conf="${TESTDIR}/operator-malformed.conf"
     empty_operator_conf="${TESTDIR}/operator-empty.conf"; absent_operator_conf="${TESTDIR}/operator-absent.conf"
     untrusted_operator_conf="${TESTDIR}/operator-untrusted.conf"
@@ -279,7 +279,7 @@ if [[ -r "${CONF_LIB_FOR_READERS}" ]] && source "${CONF_LIB_FOR_READERS}" \
     cp "${valid_operator_conf}" "${untrusted_operator_conf}"
     ai_tools_conf_is_trusted() { [[ "$1" != "${untrusted_operator_conf}" ]]; }
     expect_required_reading() {  # <description> <operator-conf> <state> <required> <declared>
-        local reading; reading="$(ai_tools_confinement_read_required_boolean_values "$2" 2>/dev/null)"
+        local reading; reading="$(ai_tools_confinement_read_boolean_requirement "$2" 2>/dev/null)"
         # Built the way the reading is captured, so the trailing empty lines $(...) strips go from both.
         local expected_reading; expected_reading="$(printf '%s\n%s\n%s\n' "$3" "$4" "$5")"
         if [[ "${reading}" == "${expected_reading}" ]]; then pass "declaration, $1 -> ${reading//$'\n'/ | }"
@@ -303,7 +303,7 @@ fi
 
 # The reading a status row renders, over its whole table.
 expect_row_reading() {  # <expected> <state> <required value|-> <opening value|->
-    local row_reading; row_reading="$(ai_tools_confinement_get_boolean_row_reading "$2" "$3" "$4")"
+    local row_reading; row_reading="$(ai_tools_confinement_classify_boolean_row "$2" "$3" "$4")"
     if [[ "${row_reading}" == "$1" ]]; then pass "row reading $2/$3/$4 -> ${row_reading}"
     else fail "row reading $2/$3/$4 -> ${row_reading}; expected $1"; fi
 }

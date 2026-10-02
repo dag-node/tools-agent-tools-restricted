@@ -294,7 +294,7 @@ ai_tools_conf_pair_name_valid() {
 #   <name>=<value> pairs, `[nis_enabled=off, deny_ptrace=on]`. Sets the array to the valid items, as written, in order:
 #   a name ai_tools_conf_pair_name_valid accepts and one of the <value>s, matched exactly. An item that is not one is
 #   reported (MSG-F6D7) and left out; a name given again is reported (MSG-R8C6) and its first value kept. An invalid
-#   list sets the array empty, as ai_tools_conf_list_value does. _ai_tools_conf_pair_list_rejected is set to the number
+#   list sets the array empty, as ai_tools_conf_list_value does. _ai_tools_conf_pair_list_rejected_count is set to the number
 #   of items left out, and _ai_tools_conf_list_invalid to 1 for an invalid list, so a caller for whom a left-out item
 #   is not the safe reading can refuse on it. Returns 1, leaving the array untouched, for an absent key, so a caller's
 #   defaults stand.
@@ -305,7 +305,7 @@ ai_tools_conf_pair_list() {
     # Joined by hand: "$*" joins on the caller's IFS, which is a newline under ai-tools.
     for allowed_value in "$@"; do allowed_values_text+="${allowed_values_text:+, }${allowed_value}"; done
     local -a _ai_tools_conf_pair_list_raw=() _ai_tools_conf_pair_list_kept=()
-    _ai_tools_conf_pair_list_rejected=0
+    _ai_tools_conf_pair_list_rejected_count=0
     ai_tools_conf_list _ai_tools_conf_pair_list_raw "${file}" "${key}" || return 1
     local -n _ai_tools_conf_pair_list_out="${out_name}"
     for item in "${_ai_tools_conf_pair_list_raw[@]+"${_ai_tools_conf_pair_list_raw[@]}"}"; do
@@ -313,12 +313,12 @@ ai_tools_conf_pair_list() {
         for allowed_value in "$@"; do [[ "${pair_value}" == "${allowed_value}" ]] && value_allowed=1; done
         if [[ "${item}" != *=* ]] || ! ai_tools_conf_pair_name_valid "${pair_name}" || (( ! value_allowed )); then
             _ai_tools_conf_warn MSG-F6D7 "the pair list ${key} in ${file} has the item ${item}, which is not <name>=<value> with a value of ${allowed_values_text} -- ignored"
-            _ai_tools_conf_pair_list_rejected=$(( _ai_tools_conf_pair_list_rejected + 1 ))
+            _ai_tools_conf_pair_list_rejected_count=$(( _ai_tools_conf_pair_list_rejected_count + 1 ))
             continue
         fi
         if [[ "${kept_names}" == *" ${pair_name} "* ]]; then
             _ai_tools_conf_warn MSG-R8C6 "the pair list ${key} in ${file} gives ${pair_name} more than once -- the first value stands"
-            _ai_tools_conf_pair_list_rejected=$(( _ai_tools_conf_pair_list_rejected + 1 ))
+            _ai_tools_conf_pair_list_rejected_count=$(( _ai_tools_conf_pair_list_rejected_count + 1 ))
             continue
         fi
         kept_names+="${pair_name} "

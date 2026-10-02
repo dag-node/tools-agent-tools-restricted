@@ -230,7 +230,7 @@ show the session will run confined:
   under rules the host has not declared ([What the domain holds beyond the module's own
   rules](#what-the-domain-holds-beyond-the-modules-own-rules)).
 - `require-unattested` (`MSG-A7E7`) — an input could not be read: `getenforce` or `matchpathcon` missing, the manager's
-  domain unreadable, or the per-domain mode or a refused Boolean unread. The refusal names each input it lacked.
+  domain unreadable, or the per-domain mode or a gating Boolean unread. The refusal names each input it lacked.
 
 A definite fault outranks an unread input, so a refusal names what to change where one is known. Having the operator
 assert intent rather than the wrapper guess it closes the whole "thinks-enforcing" family, the staged-but-not-active
@@ -352,8 +352,8 @@ port types), `domain_can_mmap_files` (`map` on every file type), `authlogin_nssw
 a group does not take back what a Boolean grants — `domain_can_mmap_files` grants the `map` the `tmpmap` group exists
 to add. `AI_TOOLS_CONFINEMENT_BOOLEANS` in `confinement.lib.sh` is the registry, one row per Boolean with the value
 that opens its rules — `on` for a true branch, `off` for a false one, as `deny_ptrace` is.
-Under `AI_TOOLS_REQUIRE_SELINUX` a launch requires each refused row at its closed value: those are the Booleans
-the stock policy keeps closed, so opening one is a change on the host. The status reports name the reported rows,
+Under `AI_TOOLS_REQUIRE_SELINUX` a launch requires each gating row at its closed value: those are the Booleans
+the stock policy keeps closed, so opening one is a change on the host. The status reports name the advisory rows,
 which stay supported (`kerberos_enabled` among them). `AI_TOOLS_SELINUX_BOOLEANS` in `operator.conf` declares the values
 the host runs with, `<boolean>=on|off` as `getsebool` prints them, and replaces the built-in requirement as every list
 in that file replaces its default: a built-in pair it leaves out is no longer required, and `[]` requires none. A launch

@@ -4500,16 +4500,16 @@ status_selinux_attestation() {
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/confinement.lib.sh
     source "${CONFINEMENT_LIB}" 2>/dev/null || true
     if ! declare -F ai_tools_confinement_read_attestation_records >/dev/null 2>&1 \
-            || ! declare -F ai_tools_confinement_get_boolean_row_reading >/dev/null 2>&1; then
+            || ! declare -F ai_tools_confinement_classify_boolean_row >/dev/null 2>&1; then
         warn MSG-M9H2 "the confinement library ${CONFINEMENT_LIB} did not load its attestation readers -- reinstall the ai-tools package"
         return "${STATUS_UNREADABLE}"
     fi
     local selinux_required=no declaration_state declared_boolean_values required_boolean_values attestation_records
     local attestation_verdict declared_entry
     local -a declared_boolean_names=()
-    ai_tools_confinement_selinux_required "${operator_conf}" && selinux_required=yes
+    ai_tools_confinement_is_selinux_required "${operator_conf}" && selinux_required=yes
     { read -r declaration_state; IFS= read -r required_boolean_values; IFS= read -r declared_boolean_values; } \
-        < <(ai_tools_confinement_read_required_boolean_values "${operator_conf}")
+        < <(ai_tools_confinement_read_boolean_requirement "${operator_conf}")
     for declared_entry in ${declared_boolean_values}; do declared_boolean_names+=( "${declared_entry%%=*}" ); done
     attestation_records="$(ai_tools_confinement_read_attestation_records /sys/fs/selinux \
         "${declared_boolean_names[@]+"${declared_boolean_names[@]}"}")"
@@ -4531,7 +4531,7 @@ status_selinux_attestation() {
         origin_note=""
         [[ "${requirement_origin}" == operator.conf ]] && origin_note=", declared in operator.conf"
         [[ "${requirement_origin}" == built-in ]] && origin_note=", built in"
-        case "$(ai_tools_confinement_get_boolean_row_reading "${boolean_state}" "${required_value}" "${opening_value}")" in
+        case "$(ai_tools_confinement_classify_boolean_row "${boolean_state}" "${required_value}" "${opening_value}")" in
             matches) printf '  %-28s %s%s (required%s)%s\n' "${boolean_name}" "${C_DIM}" "${boolean_state}" \
                          "${origin_note}" "${C_RST}" ;;
             differs) printf '  %-28s %s%s%s %s(required %s%s -- opens %s)%s\n' "${boolean_name}" "${C_YEL}" \
@@ -4546,7 +4546,7 @@ status_selinux_attestation() {
                        say "      every launch refuses until it is fixed" ;;
             *)       printf '  %-28s %s? (could not be read)%s\n' "${boolean_name}" "${C_DIM}" "${C_RST}" ;;
         esac
-    done < <(ai_tools_confinement_attestation_report_rows "${required_boolean_values}" "${declared_boolean_values}" \
+    done < <(ai_tools_confinement_list_attestation_rows "${required_boolean_values}" "${declared_boolean_values}" \
                  <<< "${attestation_records}")
     attestation_verdict="$(ai_tools_confinement_parse_attestation_records <<< "${attestation_records}" \
         | { IFS='|' read -r domain_permissive current_boolean_values

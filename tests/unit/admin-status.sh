@@ -183,7 +183,7 @@ call_attestation_section() {
              source "${helper}" >/dev/null 2>&1 || exit 99
              declare -F status_selinux_attestation >/dev/null || exit 98
              source "${lib}" 2>/dev/null || exit 97
-             declare -F ai_tools_confinement_attestation_report_rows >/dev/null || exit 97
+             declare -F ai_tools_confinement_list_attestation_rows >/dev/null || exit 97
              getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
              ai_tools_confinement_read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
              STATUS_PROBLEMS=0; STATUS_UNREADABLE=0
@@ -196,7 +196,7 @@ if [[ "${rc}" -ge 97 ]]; then
     skip "admin status attestation" "the installed helper or confinement library predates the section (rc ${rc})"
 else
     if grep -qx 'problems=0' <<<"${out}" && grep -qF '[enforcing]' <<<"${out}"; then
-        pass "an enforced domain with the refused Booleans off is not counted, under the requirement"
+        pass "an enforced domain with the gating Booleans off is not counted, under the requirement"
     else
         fail "clean attestation under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
@@ -204,7 +204,7 @@ else
                "${REQUIRED_CONF}")" || true
     if grep -qx 'problems=1' <<<"${out}" && grep -qF '[PERMISSIVE]' <<<"${out}" && grep -qF '[ON]' <<<"${out}" \
             && grep -qF 'every launch refuses' <<<"${out}"; then
-        pass "a permissive domain and a refused Boolean on count once under the requirement, each named with its remedy"
+        pass "a permissive domain and a gating Boolean on count once under the requirement, each named with its remedy"
     else
         fail "faults under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
