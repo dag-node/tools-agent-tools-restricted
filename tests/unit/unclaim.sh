@@ -344,4 +344,23 @@ else
     fi
 fi
 
+# A secret-patterns file that is present and cannot be read refuses the reversal before its first write (exit 1,
+# under the library's code), where an absent file loads the baseline and reverses. Driven through the loader's file hook
+# at a directory, the one unreadable state root meets on any host; the tree keeps its claimed group.
+section "ai-tools-unclaim: an unreadable secret-patterns file refuses"
+proj2="${TESTDIR}/proj2"
+mkdir -p "${proj2}/sub"
+mk_allowlist "${proj2}"
+chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${proj2}"
+chmod 2770 "${proj2}" "${proj2}/sub"
+mkdir -p "${TESTDIR}/patterns-dir"
+rc=0
+err="$(AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir" setsid "${HELPER}" "${proj2}" "${PROJECTS_GROUP}" < /dev/null 2>&1 >/dev/null)" || rc=$?
+if (( rc == 1 )) && [[ "$(stat -c '%G' "${proj2}/sub")" == "${SANDBOX_GROUP}" ]]; then
+    pass "an unreadable secret-patterns file refuses the reversal (exit 1) and leaves the tree claimed"
+else
+    fail "an unreadable secret-patterns file: rc=${rc}, sub is $(stat -c '%G' "${proj2}/sub") (want 1, ${SANDBOX_GROUP})"
+fi
+assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
+
 finish

@@ -78,6 +78,20 @@ in the operator's `600` config, alongside the baseline entries they still want, 
 extends; a general one missing from the baseline goes upstream, since the library is rpm-owned and not `%config`,
 so an edit there is lost on upgrade.
 
+**A present file the loader refuses to read is told apart from an absent one.** `ai_tools_load_secret_patterns` reads
+a path that exists only while `-f` and `-r` both hold for it; a directory, a dangling symlink, a FIFO, or a read
+`access(2)` refuses loads the baseline all the same, names the file in `AI_TOOLS_SECRET_PATTERNS_UNREADABLE`, prints
+`MSG-S4T9`, and returns 1. So a caller that ignores the status classifies on the baseline and never on an empty set,
+and every helper that changes a tree reads the status and refuses before its first write: `ai-tools-chown` leaves
+the path sandbox-owned, `ai-tools-lockdown` does not lock any path, and the claim-side walks `ai-tools-setgid`,
+`ai-tools-setfacl` and `ai-tools-unclaim` exit without touching the project. The same three walks refuse
+when the library itself does not load (`MSG-B3F5`, `MSG-Q6N6`, `MSG-P5R2`), as `ai-tools-chown` and `ai-tools-lockdown`
+already did: a walk with no matcher would give the agent's group every path the operator named. An absent file stays
+the ordinary state and loads the baseline at status 0. The launch wrapper's drift line reports the unreadable file
+in the journal, since the baseline is then in force for the operator's sessions while their helpers refuse. The runtime
+half is `tests/unit/secret-patterns.sh` and one case per helper; the boundary half is the `700` config directory
+`tests/boundary/access.sh` probes, which keeps the sandbox account from putting the file into that state.
+
 **Replacing rather than extending has a cost the launch wrapper reports.** A config written once holds this host
 to the set it listed then, and every pattern added upstream since is absent from it — a narrowing no party is placed
 to notice, since the agent cannot read the file and a quarantine that did not happen writes no line to any log.

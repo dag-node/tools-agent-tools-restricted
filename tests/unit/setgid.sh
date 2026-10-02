@@ -188,4 +188,22 @@ else
     fail "the secret patterns are loaded at line ${load_line}, ahead of the owner resolve at ${resolve_line} -- the walk reads the baseline, never the operator's file"
 fi
 
+# A secret-patterns file that is present and cannot be read refuses the walk before its first write (exit 3,
+# under the library's code), where an absent file loads the baseline and walks. Driven through the loader's file hook
+# at a directory, the one unreadable state root meets on any host; the tree is read back untouched.
+proj2="${TESTDIR}/proj2"
+mkdir -p "${proj2}/sub"
+mk_allowlist "${proj}" "${proj2}"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj2}"
+chmod -R 0770 "${proj2}"
+mkdir -p "${TESTDIR}/patterns-dir"
+rc=0
+err="$(AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir" setsid "${HELPER}" "${proj2}" < /dev/null 2>&1 >/dev/null)" || rc=$?
+if (( rc == 3 )) && [[ "$(stat -c '%G' "${proj2}/sub")" == "${PROJECTS_GROUP}" ]]; then
+    pass "an unreadable secret-patterns file refuses the walk (exit 3) and leaves the tree as it was"
+else
+    fail "an unreadable secret-patterns file: rc=${rc}, sub is $(stat -c '%G' "${proj2}/sub") (want 3, ${PROJECTS_GROUP})"
+fi
+assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
+
 finish

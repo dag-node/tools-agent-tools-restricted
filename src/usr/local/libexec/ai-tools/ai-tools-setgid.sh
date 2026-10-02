@@ -111,17 +111,21 @@ readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
 # Secret-name matcher (defense in depth): the walk skips a dir whose basename looks like a secret (e.g. .env),
 # so a private dir is not exposed to the agent group when the operator did not '!'-exclude it. Loaded AFTER the owner
 # resolve, because the loader builds the file path from PROJECTS_HOME: a load ahead of the resolve reads the built-in
-# baseline and marks the set loaded, so the operator's own secret-patterns file is never read. Best-effort, unlike
-# ai-tools-chown's fail-closed load: the '!' exclusions are the authoritative control, so a matcher that will not load
-# leaves the exclusions as the only skip instead of stopping the claim.
+# baseline and marks the set loaded, so the operator's own secret-patterns file is never read. Fail-closed, like
+# ai-tools-chown's load: a walk with no matcher would give the agent's group every directory the operator named,
+# so a library that does not load refuses here, and an operator's file that is present and cannot be read refuses
+# through the loader's own status, under the code the library prints (secret-handling.rule.md).
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-_secret_loaded=false
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
-if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
-    _secret_loaded=true
+if ! source "${SECRET_PATTERNS_LIB}" 2>/dev/null || ! declare -F ai_tools_load_secret_patterns >/dev/null 2>&1; then
+    warn MSG-B3F5 "cannot load ${SECRET_PATTERNS_LIB}, which decides which directories are secrets -- no directory under ${canonical} was normalized; reinstall the ai-tools package"
+    exit 3
+fi
+if ! ai_tools_load_secret_patterns; then
+    warn "the operator's secret-patterns file could not be read, so no directory under ${canonical} was normalized"
+    exit 3
 fi
 _is_secret_name() {
-    ${_secret_loaded} || return 1
     ai_tools_is_secret_basename "$(basename -- "$1")"
 }
 

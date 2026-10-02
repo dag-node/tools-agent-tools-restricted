@@ -332,4 +332,19 @@ else
     skip "rename-exchange race" "python3 not installed"
 fi
 
+# A present secret-patterns file the loader refuses to read refuses the handback (exit 1, under the library's code):
+# the path stays sandbox-owned, where a classification on a set the operator did not write would hand it back. Driven
+# through the loader's file hook at a directory, the one unreadable state root meets on any host; case (2) is
+# the control, the same shape of path handed back when the file reads.
+unread="${proj}/unread.txt"; : > "${unread}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${unread}"; chmod 0644 "${unread}"
+mkdir -p "${TESTDIR}/patterns-dir"
+rc=0
+err="$(AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir" setsid "${HELPER}" "${unread}" < /dev/null 2>&1 >/dev/null)" || rc=$?
+if (( rc == 1 )) && [[ "$(stat -c '%U:%G' "${unread}")" == "${SANDBOX_USER}:${SANDBOX_GROUP}" ]]; then
+    pass "an unreadable secret-patterns file refuses the handback (exit 1) and leaves the path sandbox-owned"
+else
+    fail "an unreadable secret-patterns file: rc=${rc}, path is $(stat -c '%U:%G' "${unread}") (want 1, ${SANDBOX_USER}:${SANDBOX_GROUP})"
+fi
+assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
+
 finish
