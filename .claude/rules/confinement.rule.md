@@ -372,7 +372,11 @@ and an attempt that failed for another reason is reported as not exercised and m
 a missing tool or a refused connection says nothing about the policy. A socket check makes a real `connect(2)`,
 and the write checks open an existing file for append without writing or ask `access(2)` of a directory, so a probe run
 against a broken boundary does not change the host. The loaded groups and the enforcement state come from the root half,
-which prints them into the probe command, because the session can read neither.
+which prints them into the probe command, because the session can read neither; a failed module-store read stops
+the run, and enforcement is confirmed only from a `seinfo --permissive` query that succeeded and printed the listing it
+documents. The root half also prints a run id, which the probe writes into its trail with its start time and exit
+status, and the run passes only on the one trail carrying that id: the audit log cannot show a probe that never ran,
+or an access that succeeded.
 
 Both agent halves **abort unless the calling process is in `ai_tools_t`**: run unconfined they log no `ai_tools_t`
 denial at all, and that empty result reads as success. The procedure for running either is in `selinux/README.md` §2

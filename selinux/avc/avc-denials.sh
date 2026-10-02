@@ -45,8 +45,9 @@
 # Flow:
 #   1. (as <you>, root, in a terminal)            sudo selinux/avc/avc-denials.sh
 #        -> disables dontaudit, prints the probe command, WAITS. The command carries `--groups` (the loaded optional
-#           groups, read from the root-only module store) and `--enforcing-confirmed` (Enforcing, and ai_tools_t not
-#           permissive), the two facts the session cannot read for itself.
+#           groups, read from the root-only module store) and `--enforcing-confirmed` (Enforcing, and a successful,
+#           well-formed `seinfo --permissive` listing that omits ai_tools_t), the two facts the session cannot read
+#           for itself, plus `--run-id`, which the probe writes into its trail beside its start time and exit status.
 #   2. (in a confined claude, approved project) the printed `bash selinux/avc/avc-denials.sh probe ...`
 #        -> run it, let the turn finish.
 #
@@ -55,7 +56,10 @@
 # to the host: a write check opens an existing file for append without writing, and a create check is access(2) W_OK
 # on the directory -- which SELinux does not audit by default, so its outcome is read from the errno alone.
 #   3. (back in terminal 1)                     press Enter
-#        -> ausearch + classify, then dontaudit is restored.
+#        -> ausearch + classify, then the run result, then dontaudit is restored. The run exits 0 only when
+#           enforcement was confirmed, the window was searched, and the one trail carrying the run id started inside
+#           the window and records exit 0: the audit log alone does not show a probe that never ran or an access that
+#           succeeded.
 #
 # NB: `semodule -DB` is SYSTEM-WIDE -- it unsilences every domain's dontaudit'd denials for the window, not just
 # ai_tools_t. That is fine for a short controlled run (avc-analyze.sh filters to `-su ai_tools_t` anyway); the trap puts
@@ -76,13 +80,71 @@ usage() {
 usage:
   sudo ${BASH_SOURCE[0]##*/}                  # ROOT: -DB bracket + analyze (default)
   bash ${BASH_SOURCE[0]##*/} probe            # AGENT: trigger denials; output -> audits/
-  bash ${BASH_SOURCE[0]##*/} probe --groups <a,b|none> [--enforcing-confirmed]
-                                             # AGENT: as printed by the root half -- the loaded
-                                             # groups and the enforcement it verified
+  bash ${BASH_SOURCE[0]##*/} probe --run-id <id> --groups <a,b|none> [--enforcing-confirmed]
+                                             # AGENT: as printed by the root half -- its run, the
+                                             # loaded groups and the enforcement it verified
   bash ${BASH_SOURCE[0]##*/} probe --force    # skip the enforcing+module safety check
 exit status (probe): 0 clean, 1 a check FAILED, 2 aborted before any check, 3 a check was INCONCLUSIVE
+exit status (run):   0 when enforcement was confirmed, the window was searched, and the probe bound to the run
+                     exited 0; 1 otherwise
   bash ${BASH_SOURCE[0]##*/} --check-results  # display the latest probe audit trail
 EOF
+}
+
+# avc_attempt_reason <status> <stderr>: print `allowed` for status 0, `denied` when the stderr names EACCES/EPERM (the
+# shape every tool here prints for a refused open, exec, connect or syscall), `absent` for a missing path, and otherwise
+# `exit <status>: <first stderr line>` -- an absent tool, a malformed input or a refused connection, none
+# of which exercised the access the check names.
+avc_attempt_reason() {
+  local status="$1" stderr="$2" first
+  if [[ "${status}" -eq 0 ]]; then
+    echo allowed
+  elif grep -qiE 'permission denied|operation not permitted|EACCES|EPERM' <<<"${stderr}"; then
+    echo denied
+  elif grep -qiE '^ENOENT:|no such file or directory' <<<"${stderr}"; then
+    echo absent
+  else
+    first="$(head -n1 <<<"${stderr}")"
+    echo "exit ${status}: ${first:-no message}"
+  fi
+}
+
+# avc_permissive_state <seinfo-status> <seinfo-output>: read `seinfo --permissive` output and print `yes` when it lists
+# ai_tools_t, `no` when it is well formed and omits it, and `unknown` for a failed query or output without its
+# `Permissive Types: <n>` header or with a type count other than <n>. Only `no` lets the root half confirm enforcement.
+avc_permissive_state() {
+  local status="$1" output="$2" count listed
+  [[ "${status}" -eq 0 ]] || { echo unknown; return; }
+  count="$(sed -n 's/^Permissive Types: \([0-9][0-9]*\)$/\1/p' <<<"${output}")"
+  [[ "${count}" =~ ^[0-9]+$ ]] || { echo unknown; return; }
+  listed="$(grep -cE '^[[:space:]]+[A-Za-z0-9_]+$' <<<"${output}")"
+  [[ "${listed}" -eq "${count}" ]] || { echo unknown; return; }
+  if grep -qE "^[[:space:]]+${SUBJ}\$" <<<"${output}"; then echo yes; else echo no; fi
+}
+
+# avc_loaded_groups <semodule-list-output>: print the loaded `ai_tools_<name>` modules' <name> parts, comma-joined,
+# from `semodule -l` output (bare names on EL9, a version column on later releases). Prints nothing when only the core
+# is
+# loaded.
+avc_loaded_groups() {
+  awk '{print $1}' <<<"$1" | sed -n 's/^ai_tools_\([a-z0-9_][a-z0-9_]*\)$/\1/p' | paste -sd, -
+}
+
+# avc_probe_status <log> <run-id> <window-start-epoch>: print the exit status the probe recorded in <log> for <run-id>,
+# or print a reason on stderr and return 1 when the log does not carry exactly one record for that run, has no exit
+# status, or started before the window. The log is written by the session, so it is read as data and only the parsed
+# number is printed.
+avc_probe_status() {
+  local log="$1" run_id="$2" window_start="$3" started status
+  [[ -f "${log}" && ! -L "${log}" ]] || { echo "no regular probe log at ${log}" >&2; return 1; }
+  [[ "$(grep -c "^Run id      : ${run_id}\$" "${log}")" -eq 1 ]] \
+    || { echo "the probe log does not name run ${run_id} exactly once" >&2; return 1; }
+  started="$(sed -n 's/^Started     : \([0-9][0-9]*\)$/\1/p' "${log}")"
+  [[ "${started}" =~ ^[0-9]+$ && "${started}" -ge "${window_start}" ]] \
+    || { echo "the probe did not start inside the audit window" >&2; return 1; }
+  status="$(sed -n 's/^Exit status : \([0-9]\)$/\1/p' "${log}")"
+  [[ "${status}" =~ ^[0-9]$ ]] || { echo "the probe log has no exit status (the probe did not finish)" >&2; return 1; }
+  echo "${status}"
 }
 
 ########################################
@@ -166,9 +228,10 @@ do_probe() {
     _user="" _uid=""
   fi
 
-  local _ts _logfile
-  _ts="$(date '+%Y-%m-%d_%H-%M-%S')"
-  _logfile="${DIR}/audits/avc-denials-${_ts}.log"
+  local _ts _logfile _started
+  _started="$(date +%s)"
+  _ts="$(date -d "@${_started}" '+%Y-%m-%d_%H-%M-%S')"
+  _logfile="${DIR}/audits/avc-denials-${_ts}${RUN_ID:+-${RUN_ID}}.log"
   mkdir -p "${DIR}/audits"
 
   printf '\033[1;33m[avc-denials]\033[0m Console output is SUPPRESSED during probe execution.\n'
@@ -180,6 +243,10 @@ do_probe() {
   # All output after this line goes to the audit log file only; the summary at the end goes to the saved console.
   exec {_console}>&1
   exec >"${_logfile}" 2>&1
+  # The root half binds this log to its run by these two lines and the `Exit status` line in the footer
+  # (avc_probe_status). A probe run without `--run-id` is not bound to any root run.
+  printf 'Run id      : %s\n' "${RUN_ID:-none}"
+  printf 'Started     : %s\n' "${_started}"
 
   # ── Helper functions (output already redirected to log) ───────────────────
   # _R: mask real username/uid in display strings; actual paths used for access are unaffected.
@@ -192,22 +259,13 @@ do_probe() {
   _why="" _type="" _floor="" _group=""
   N_PASS=0 N_FAIL=0 N_INCONCLUSIVE=0 N_SKIP=0 N_FLOOR=0 N_REPORTED=0
 
-  # _attempt <cmd...>: run one access attempt with its output discarded and its stderr kept. Sets _rc and _reason:
-  # `denied` when the stderr names EACCES/EPERM (the shape every tool here prints for a refused open, exec, connect
-  # or syscall), `allowed` on exit 0, and otherwise the first stderr line, masked -- a missing file, an absent tool,
-  # a malformed input or a refused connection, none of which exercised the check the code names.
+  # _attempt <cmd...>: run one access attempt with its output discarded and its stderr kept. Sets _rc to the attempt's
+  # exit status and _reason to avc_attempt_reason's reading of it, masked.
   _attempt() {
     local _err
-    _err="$("$@" </dev/null 2>&1 >/dev/null)" && { _rc=0; _reason=allowed; return; }
-    _rc=1
-    if grep -qiE 'permission denied|operation not permitted|EACCES|EPERM' <<<"${_err}"; then
-      _reason=denied
-    elif grep -qiE '^ENOENT:|no such file or directory' <<<"${_err}"; then
-      _reason=absent
-    else
-      _reason="$(_R "$(head -n1 <<<"${_err}")")"
-      _reason="${_reason:-exit status without a message}"
-    fi
+    _err="$("$@" </dev/null 2>&1 >/dev/null)"
+    _rc=$?
+    _reason="$(_R "$(avc_attempt_reason "${_rc}" "${_err}")")"
   }
 
   # _result <verdict> <text>: print the result line and count it.
@@ -935,11 +993,12 @@ manipulate traffic. net_bind_service capability is the SELinux gate."
   printf '================================================================\n'
 
   # Exit status: 1 when a check FAILED, 3 when none failed and a check was INCONCLUSIVE, 0 otherwise. (2 is the abort
-  # before any check ran.)
+  # before any check ran.) The trail records it for the root half.
+  local _status=0
+  if (( N_FAIL > 0 )); then _status=1; elif (( N_INCONCLUSIVE > 0 )); then _status=3; fi
+  printf 'Exit status : %d\n' "${_status}"
   printf '[avc-denials] %s -- full trail: %s\n' "${_summary}" "${_logfile}" >&"${_console}"
-  (( N_FAIL == 0 )) || exit 1
-  (( N_INCONCLUSIVE == 0 )) || exit 3
-  exit 0
+  exit "${_status}"
 }
 
 ########################################
@@ -975,23 +1034,41 @@ do_run() {
     Permissive) note "system is Permissive -- denials will LOG but not BLOCK. Still a valid log test." ;;
     *) err "SELinux appears Disabled -- nothing to verify."; exit 1 ;;
   esac
+  # One read of the module store serves the core check and the group list. A failed read refuses the run: an empty list
+  # would tell the probe that no group is loaded, and every group check would then be judged against that.
+  local modules
+  modules="$(semodule -l 2>&1)" || { err "semodule -l failed; the loaded modules are unknown:"; err "${modules}"; exit 1; }
   # RHEL9 `semodule -l` prints the bare module name (no version column), so match the name at EOL or before whitespace
   # to cover both old and new output.
-  semodule -l 2>/dev/null | grep -qE '^ai_tools($|[[:space:]])' \
+  grep -qE '^ai_tools($|[[:space:]])' <<<"${modules}" \
     || { err "core ai_tools module not loaded (install-selinux.sh install)"; exit 1; }
-  local enforcing_confirmed=0 permissive=unknown groups
-  if command -v seinfo >/dev/null 2>&1; then
-    permissive=no
-    if seinfo --permissive -x 2>/dev/null | grep -qw "${SUBJ}"; then
-      permissive=yes
-      note "NOTE: ${SUBJ} is a PERMISSIVE domain -- its denials log but do not block."
-      note "      Flip to enforcing (remove 'permissive ai_tools_t;') for a true test."
-    fi
-  fi
-  [[ "$(getenforce 2>/dev/null)" == Enforcing && "${permissive}" == no ]] && enforcing_confirmed=1
   # The loaded optional groups, which the session cannot read (the module store is root-only). Passed to the probe
   # so its group checks assert the outcome this configuration should give.
-  groups="$(semodule -l 2>/dev/null | awk '{print $1}' | sed -n 's/^ai_tools_//p' | paste -sd, -)"
+  local groups
+  groups="$(avc_loaded_groups "${modules}")"
+
+  # Enforcement is confirmed only from a successful, well-formed seinfo query that omits ai_tools_t; an absent tool
+  # or a failed or malformed query leaves it unconfirmed, and the probe then warns before running.
+  local enforcing_confirmed=0 permissive=unknown seinfo_out seinfo_rc
+  if command -v seinfo >/dev/null 2>&1; then
+    seinfo_out="$(seinfo --permissive -x 2>&1)"; seinfo_rc=$?
+    permissive="$(avc_permissive_state "${seinfo_rc}" "${seinfo_out}")"
+    [[ "${permissive}" == unknown ]] \
+      && err "seinfo --permissive exited ${seinfo_rc} or printed an unexpected listing; ${SUBJ}'s mode is unknown."
+  else
+    err "seinfo not found (setools-console); ${SUBJ}'s permissive state cannot be read."
+  fi
+  if [[ "${permissive}" == yes ]]; then
+    note "NOTE: ${SUBJ} is a PERMISSIVE domain -- its denials log but do not block."
+    note "      Flip to enforcing (remove 'permissive ai_tools_t;') for a true test."
+  fi
+  [[ "$(getenforce 2>/dev/null)" == Enforcing && "${permissive}" == no ]] && enforcing_confirmed=1
+  note "enforcement: getenforce=$(getenforce 2>/dev/null || echo unknown) ${SUBJ}-permissive=${permissive}"
+  note "groups loaded: ${groups:-none}"
+  # The conditional Booleans that widen ai_tools_t without a module change (the confinement rule lists what each
+  # grants), recorded so the run states the policy it verified.
+  note "booleans: $(getsebool nis_enabled domain_can_mmap_files authlogin_nsswitch_use_ldap kerberos_enabled 2>&1 \
+    | tr '\n' ';' || true)"
 
   # auditd must be running; without it ausearch reports an empty result even when denials fire. The group-disabled exec
   # denials (systemctl, rpm, podman) are NOT dontaudit'd and should always appear -- an empty log for those is
@@ -1013,14 +1090,18 @@ do_run() {
   # Capture START before `semodule -DB`: the policy reload can trigger a log rotation at the exact same second, causing
   # `ausearch -ts <START>` to miss the new log file. Date and time are kept as two words, the form ausearch takes,
   # and the date in this locale's %x, the format its parser reads.
-  START_DATE="$(date '+%x')"
-  START_TIME="$(date '+%H:%M:%S')"
+  local start_epoch run_id
+  start_epoch="$(date +%s)"
+  START_DATE="$(date -d "@${start_epoch}" '+%x')"
+  START_TIME="$(date -d "@${start_epoch}" '+%H:%M:%S')"
+  run_id="$(od -An -tx1 -N8 /dev/urandom | tr -d ' \n')"
+  [[ "${run_id}" =~ ^[0-9a-f]{16}$ ]] || { err "could not draw a run id from /dev/urandom"; exit 1; }
   step "disabling dontaudit system-wide (semodule -DB) so boundary denials are logged"
   semodule -DB >/dev/null 2>&1 || { err "semodule -DB failed"; exit 1; }
   note "dontaudit disabled."
   echo
   step "ACTION REQUIRED -- in a CONFINED claude (approved project), run:"
-  local probe_flags=" --groups ${groups:-none}"
+  local probe_flags=" --run-id ${run_id} --groups ${groups:-none}"
   (( enforcing_confirmed )) && probe_flags+=" --enforcing-confirmed"
   printf '\n      bash %s/avc-denials.sh probe%s\n\n' "${DIR}" "${probe_flags}"
   note "Let the claude turn finish (so any Stop-sweep AVCs land too)."
@@ -1031,9 +1112,43 @@ do_run() {
   sleep 2
 
   step "analyzing ai_tools_t denials since ${START_DATE} ${START_TIME}"
+  local analyze_rc probe_status probe_logs
   "${DIR}/avc-analyze.sh" -ts "${START_DATE}" "${START_TIME}"
-  # trap restores dontaudit on return.
+  analyze_rc=$?
+
+  # The run passes only when the analysis searched the window and the probe bound to this run finished clean.
+  # avc-analyze.sh reads the audit log alone, which does not show whether the probe ran, ran inside the window, or found
+  # a FAIL: an access that succeeded leaves no AVC.
+  step "run result"
+  shopt -s nullglob
+  probe_logs=("${DIR}"/audits/avc-denials-*-"${run_id}".log)
+  shopt -u nullglob
+  if (( ${#probe_logs[@]} == 1 )); then
+    probe_status="$(avc_probe_status "${probe_logs[0]}" "${run_id}" "${start_epoch}")" || probe_status=""
+  else
+    err "found ${#probe_logs[@]} probe logs for run ${run_id}; expected one."
+    probe_status=""
+  fi
+  case "${probe_status}" in
+    0) note "probe: clean (run ${run_id})" ;;
+    1) err "probe: a check FAILED -- read the trail with --check-results" ;;
+    3) err "probe: a check was INCONCLUSIVE -- its access was not exercised" ;;
+    "") err "probe: no finished probe is bound to run ${run_id}" ;;
+    *) err "probe: exit status ${probe_status}" ;;
+  esac
+  if (( analyze_rc == 0 )); then
+    note "analysis: window searched; review the NEW bucket above"
+  else
+    err "analysis: avc-analyze.sh exited ${analyze_rc}"
+  fi
+  (( enforcing_confirmed )) || err "enforcement: not confirmed by this run"
+  # The EXIT trap restores dontaudit after the return.
+  [[ "${probe_status}" == 0 && "${analyze_rc}" -eq 0 ]] && (( enforcing_confirmed )) && return 0
+  return 1
 }
+
+# Sourced (tests/unit/avc-denials.sh), the file defines its functions and does not dispatch.
+[[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
 
 case "${1:-}" in
   --check-results) do_check_results ;;
@@ -1047,6 +1162,10 @@ case "${1:-}" in
       case "$1" in
         --force) FORCE=1; shift ;;
         --enforcing-confirmed) ENFORCING_CONFIRMED=1; shift ;;
+        --run-id)
+          [[ "${2:-}" =~ ^[0-9a-f]{16}$ ]] || { err "--run-id takes the 16 hex digits the root half printed"; exit 1; }
+          RUN_ID="$2"
+          shift 2 ;;
         --groups)
           [[ "${2:-}" =~ ^[a-z0-9_,]+$ ]] || { err "--groups takes a comma-separated list of group names (or 'none')"; exit 1; }
           GROUPS_LOADED="$2"; [[ "${GROUPS_LOADED}" == none ]] && GROUPS_LOADED=""
