@@ -4492,6 +4492,7 @@ status_entrypoint_pins() {
 # otherwise. The section is omitted where SELinux is off or getenforce cannot say.
 status_selinux_attestation() {
     local operator_conf="${1:-${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}}"
+    local IFS=$' \t\n'   # the refused spec splits on spaces; this CLI sets IFS to newline and tab
     local selinux_mode
     selinux_mode="$(getenforce 2>/dev/null || true)"
     [[ -n "${selinux_mode}" && "${selinux_mode}" != Disabled ]] || return 0
@@ -4499,37 +4500,58 @@ status_selinux_attestation() {
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/confinement.lib.sh
     source "${CONFINEMENT_LIB}" 2>/dev/null || true
     if ! declare -F ai_tools_confinement_read_attestation_records >/dev/null 2>&1 \
-            || ! declare -F ai_tools_confinement_attestation_report_rows >/dev/null 2>&1; then
+            || ! declare -F ai_tools_confinement_get_boolean_row_reading >/dev/null 2>&1; then
         warn MSG-M9H2 "the confinement library ${CONFINEMENT_LIB} did not load its attestation readers -- reinstall the ai-tools package"
         return "${STATUS_UNREADABLE}"
     fi
-    local selinux_required=no attestation_records attestation_verdict
+    local selinux_required=no declaration_state declared_boolean_values required_boolean_values attestation_records
+    local attestation_verdict declared_entry
+    local -a declared_boolean_names=()
     ai_tools_confinement_selinux_required "${operator_conf}" && selinux_required=yes
-    attestation_records="$(ai_tools_confinement_read_attestation_records /sys/fs/selinux)"
-    local row_kind row_first_field row_second_field row_third_field row_fourth_field
-    while IFS=$'\t' read -r row_kind row_first_field row_second_field row_third_field row_fourth_field; do
-        case "${row_kind}:${row_first_field}" in
-            domain:no)  printf '  %-28s %senforcing%s\n' "ai_tools_t" "${C_GRN}" "${C_RST}" ;;
-            domain:yes) printf '  %-28s %sPERMISSIVE%s %s(its denials are logged and not enforced)%s\n' \
-                            "ai_tools_t" "${C_YEL}" "${C_RST}" "${C_DIM}" "${C_RST}"
-                        say "      ${C_BOLD}sudo semanage permissive -d ai_tools_t${C_RST}" ;;
-            domain:*)   printf '  %-28s %s? (whether it is a permissive domain could not be read)%s\n' \
-                            "ai_tools_t" "${C_DIM}" "${C_RST}" ;;
-            boolean:*)
-                case "${row_second_field}:${row_third_field}" in
-                    on:refused) printf '  %-28s %sON%s %s(grants %s)%s\n' "${row_first_field}" "${C_YEL}" "${C_RST}" \
-                                    "${C_DIM}" "${row_fourth_field}" "${C_RST}"
-                                say "      ${C_BOLD}sudo setsebool -P ${row_first_field}=off${C_RST}" ;;
-                    on:*)       printf '  %-28s on %s(grants %s)%s\n' "${row_first_field}" "${C_DIM}" \
-                                    "${row_fourth_field}" "${C_RST}" ;;
-                    off:*)      printf '  %-28s %soff%s\n' "${row_first_field}" "${C_DIM}" "${C_RST}" ;;
-                    *)          printf '  %-28s %s? (could not be read)%s\n' "${row_first_field}" "${C_DIM}" "${C_RST}" ;;
-                esac ;;
+    { read -r declaration_state; IFS= read -r required_boolean_values; IFS= read -r declared_boolean_values; } \
+        < <(ai_tools_confinement_read_required_boolean_values "${operator_conf}")
+    for declared_entry in ${declared_boolean_values}; do declared_boolean_names+=( "${declared_entry%%=*}" ); done
+    attestation_records="$(ai_tools_confinement_read_attestation_records /sys/fs/selinux \
+        "${declared_boolean_names[@]+"${declared_boolean_names[@]}"}")"
+    local row_kind boolean_name boolean_state required_value requirement_origin opening_value boolean_grants
+    local origin_note
+    while IFS=$'\t' read -r row_kind boolean_name boolean_state required_value requirement_origin opening_value \
+            boolean_grants; do
+        if [[ "${row_kind}" == domain ]]; then
+            case "${boolean_name}" in
+                no)  printf '  %-28s %senforcing%s\n' "ai_tools_t" "${C_GRN}" "${C_RST}" ;;
+                yes) printf '  %-28s %sPERMISSIVE%s %s(its denials are logged and not enforced)%s\n' \
+                         "ai_tools_t" "${C_YEL}" "${C_RST}" "${C_DIM}" "${C_RST}"
+                     say "      ${C_BOLD}sudo semanage permissive -d ai_tools_t${C_RST}" ;;
+                *)   printf '  %-28s %s? (whether it is a permissive domain could not be read)%s\n' \
+                         "ai_tools_t" "${C_DIM}" "${C_RST}" ;;
+            esac
+            continue
+        fi
+        origin_note=""
+        [[ "${requirement_origin}" == operator.conf ]] && origin_note=", declared in operator.conf"
+        [[ "${requirement_origin}" == built-in ]] && origin_note=", built in"
+        case "$(ai_tools_confinement_get_boolean_row_reading "${boolean_state}" "${required_value}" "${opening_value}")" in
+            matches) printf '  %-28s %s%s (required%s)%s\n' "${boolean_name}" "${C_DIM}" "${boolean_state}" \
+                         "${origin_note}" "${C_RST}" ;;
+            differs) printf '  %-28s %s%s%s %s(required %s%s -- opens %s)%s\n' "${boolean_name}" "${C_YEL}" \
+                         "${boolean_state^^}" "${C_RST}" "${C_DIM}" "${required_value}" "${origin_note}" \
+                         "${boolean_grants}" "${C_RST}"
+                     say "      ${C_BOLD}sudo setsebool -P ${boolean_name}=${required_value}${C_RST}" ;;
+            open)    printf '  %-28s %s %s(opens %s)%s\n' "${boolean_name}" "${boolean_state}" "${C_DIM}" \
+                         "${boolean_grants}" "${C_RST}" ;;
+            closed)  printf '  %-28s %s%s%s\n' "${boolean_name}" "${C_DIM}" "${boolean_state}" "${C_RST}" ;;
+            malformed) printf '  %-28s %sMALFORMED%s %s(%s has %s)%s\n' "${boolean_name}" "${C_YEL}" "${C_RST}" \
+                           "${C_DIM}" "${operator_conf}" "${boolean_grants}" "${C_RST}"
+                       say "      every launch refuses until it is fixed" ;;
+            *)       printf '  %-28s %s? (could not be read)%s\n' "${boolean_name}" "${C_DIM}" "${C_RST}" ;;
         esac
-    done < <(ai_tools_confinement_attestation_report_rows <<< "${attestation_records}")
+    done < <(ai_tools_confinement_attestation_report_rows "${required_boolean_values}" "${declared_boolean_values}" \
+                 <<< "${attestation_records}")
     attestation_verdict="$(ai_tools_confinement_parse_attestation_records <<< "${attestation_records}" \
-        | { IFS='|' read -r domain_permissive boolean_states
-            ai_tools_confinement_attestation_verdict "${domain_permissive}" "${boolean_states}"; })" || true
+        | { IFS='|' read -r domain_permissive current_boolean_values
+            ai_tools_confinement_attestation_verdict "${domain_permissive}" "${current_boolean_values}" \
+                "${required_boolean_values}"; })" || true
     [[ "${attestation_verdict}" == ok ]] && return 0
     if [[ "${selinux_required}" == yes ]]; then
         say "  AI_TOOLS_REQUIRE_SELINUX is set, so every launch refuses while this stands"

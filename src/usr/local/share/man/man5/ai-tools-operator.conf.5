@@ -227,12 +227,18 @@ the module's file contexts not live
 .B ai_tools_t
 a permissive domain
 .RB ( require-permissive );
-the
-.B nis_enabled
-or
+an SELinux Boolean not at the value a launch requires, which would run
+.B ai_tools_t
+under rules the host has not declared
+.RB ( require-boolean ):
+by default
+.BR nis_enabled ,
 .B domain_can_mmap_files
-Boolean on, either of which widens what a session may do
-.RB ( require-boolean );
+or
+.B domain_can_write_kmsg
+on, and any Boolean
+.B AI_TOOLS_SELINUX_BOOLEANS
+declares at another value;
 and any of these, or the user manager's domain, not readable
 .RB ( require-unattested ).
 Other Booleans that reach the session, such as
@@ -251,6 +257,59 @@ offers to set this key and
 while neither is present; the offer defaults to yes, a run with no terminal
 takes it, and a declined offer writes
 .BR no .
+.TP
+.BI AI_TOOLS_SELINUX_BOOLEANS= "\fR[\fPBOOLEAN\fR=\fPVALUE\fR,\fP ...\fR]\fP"
+The SELinux Boolean values a launch requires while
+.B AI_TOOLS_REQUIRE_SELINUX
+is set, each
+.I VALUE
+.B on
+or
+.B off
+as
+.B getsebool \-a
+prints it; a Boolean at another value refuses the launch.
+The list is exactly the requirement, as every list in this file replaces
+its default: a built-in requirement is kept by listing it, and
+.B []
+requires no Boolean.
+No component of ai-tools changes a Boolean; the value is whatever the
+host sets.
+A host that also keeps ptrace denied appends it to the built-in list,
+on one line:
+.IP
+.EX
+AI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=off, domain_can_mmap_files=off,
+  domain_can_write_kmsg=off, deny_ptrace=on]
+.EE
+.IP
+Requiring
+.B deny_ptrace=on
+refuses every launch until the host sets it, and setting it denies
+ptrace to every process on the host, debuggers inside a session
+included, so it is a deliberate hardening step rather than a default.
+A host that runs NIS writes
+.B nis_enabled=on
+in that list instead.
+.B ai\-tools status
+lists each value a launch requires and whether it is built in or
+declared in this file.
+.IP
+.B Default:
+.BR [nis_enabled=off ,
+.BR domain_can_mmap_files=off ,
+.BR domain_can_write_kmsg=off] ,
+Booleans the SELinux policy ships off whose opening widens what a
+session may do.
+An entry that is not
+.IB BOOLEAN =on
+or
+.IB BOOLEAN =off
+with a name of letters, digits and underscores up to 64 characters, a
+Boolean listed twice, and a list that does not parse each refuse the
+launch until the line is fixed, and a Boolean the kernel does not have
+refuses it as an input that could not be read, so a wrong entry costs a
+launch, never confinement.
 .TP
 .B AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes
 Entrypoint-verification strictness. Each agent's entrypoint is verified against

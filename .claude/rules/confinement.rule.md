@@ -177,12 +177,13 @@ to two names on one inode and therefore one label, so that is counted by inode (
 the hardlink itself, and what else rests on it, are in [agent-claude-code](agent-claude-code.rule.md).
 
 Executability reaches past `bin_t`. `corecmd_exec_bin` also calls `files_exec_all_base_ro_files` (selinux-policy 42.1.18
-on EL10.2), which grants `execute`, `execute_no_trans` and `map` on every `base_ro_file_type`, `usr_t` among them, so a
-session runs a file anywhere under `/usr` directly; the compiled module shows it as an `allow` on `[base_ro_file_type]`
-(`sedismod` over `ai_tools.pp`). The grant does not widen the boundary, which rests on write and transition rather than
-on which files execute: the exec stays in `ai_tools_t` (`execute_no_trans`), `NoNewPrivileges` drops a setuid bit, the
-domain already reads those files and runs any of them through an interpreter it may execute, and it already executes
-what it writes under `ai_tools_home_t`; `ai_tools_t` does not hold write on `usr_t`.
+on EL10.2), which grants `execute`, `execute_no_trans` and `map` on every `base_ro_file_type`, `usr_t` among them,
+so a session runs a file anywhere under `/usr` directly; the compiled module shows it as an `allow`
+on `[base_ro_file_type]` (`sedismod` over `ai_tools.pp`). The grant does not widen the boundary, which rests on write
+and transition rather than on which files execute: the exec stays in `ai_tools_t` (`execute_no_trans`),
+`NoNewPrivileges` drops a setuid bit, the domain already reads those files and runs any of them through an interpreter
+it may execute, and it already executes what it writes under `ai_tools_home_t`; `ai_tools_t` does not hold write
+on `usr_t`.
 
 `ai_tools_home_t` is the one type the domain both writes and executes. `ai_tools.te` grants `execute execute_no_trans`
 on it for the hook scripts under the agent's config directory, interpreted shell the session runs without a transition,
@@ -225,8 +226,8 @@ show the session will run confined:
 - `require-not-enforcing` — SELinux is not `Enforcing`.
 - `require-inactive` — enforcing, but the module's file-contexts are not live.
 - `require-permissive` (`MSG-Z5M5`) — `ai_tools_t` is a permissive domain, which a global `Enforcing` does not reveal.
-- `require-boolean` (`MSG-P3P8`) — a Boolean the verdict refuses is on: one that widens `ai_tools_t`
-  through a base-policy conditional rule beyond what this project ships ([What the domain holds beyond the module's own
+- `require-boolean` (`MSG-P3P8`) — a Boolean is not at the value a launch requires, so `ai_tools_t` would run
+  under rules the host has not declared ([What the domain holds beyond the module's own
   rules](#what-the-domain-holds-beyond-the-modules-own-rules)).
 - `require-unattested` (`MSG-A7E7`) — an input could not be read: `getenforce` or `matchpathcon` missing, the manager's
   domain unreadable, or the per-domain mode or a refused Boolean unread. The refusal names each input it lacked.
@@ -349,11 +350,21 @@ Some of those rules are conditional on a Boolean the host sets: `nis_enabled` (`
 port types), `domain_can_mmap_files` (`map` on every file type), `authlogin_nsswitch_use_ldap` and `kerberos_enabled`
 (directory-service ports and sockets). A Boolean switched on widens the domain without any module change, and disabling
 a group does not take back what a Boolean grants — `domain_can_mmap_files` grants the `map` the `tmpmap` group exists
-to add. `AI_TOOLS_CONFINEMENT_BOOLEANS` in `confinement.lib.sh` is the registry: under `AI_TOOLS_REQUIRE_SELINUX`
-a launch refuses while `nis_enabled` or `domain_can_mmap_files` is on or unread, and the status reports name the rest,
-which stay supported (`kerberos_enabled` among them). No component of this project changes a Boolean.
-`sesearch -A -s ai_tools_t` prints a conditional rule with its expression, `[ nis_enabled ]:True` for the true branch,
-which is not the Boolean's current value; `getsebool` reads that.
+to add. `AI_TOOLS_CONFINEMENT_BOOLEANS` in `confinement.lib.sh` is the registry, one row per Boolean with the value
+that opens its rules — `on` for a true branch, `off` for a false one, as `deny_ptrace` is.
+Under `AI_TOOLS_REQUIRE_SELINUX` a launch requires each refused row at its closed value: those are the Booleans
+the stock policy keeps closed, so opening one is a change on the host. The status reports name the reported rows,
+which stay supported (`kerberos_enabled` among them). `AI_TOOLS_SELINUX_BOOLEANS` in `operator.conf` declares the values
+the host runs with, `<boolean>=on|off` as `getsebool` prints them, and replaces the built-in requirement as every list
+in that file replaces its default: a built-in pair it leaves out is no longer required, and `[]` requires none. A launch
+refuses while a declared Boolean is at the other value, so drift either way is caught. A wrong entry costs a launch,
+never a requirement: a malformed entry, a repeated Boolean, or a list that does not parse keeps the built-in pairs
+and adds a marker no reading satisfies, so the launch refuses as unattested until the line is fixed, and a Boolean
+the kernel does not have reads as unread. No component of this project changes a Boolean. The registry is written
+from one reading of the supported policy, so a Boolean a later policy or an optional group adds is neither required
+nor reported until a row or a declaration names it. `sesearch -A -s ai_tools_t` prints a conditional rule with its
+expression, `[ nis_enabled ]:True` for the true branch, which is not the Boolean's current value; `getsebool` reads
+that.
 
 ## Bring-up and enforce-verification (`selinux/avc/`)
 

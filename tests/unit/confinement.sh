@@ -25,7 +25,7 @@ if ! source "${LIB}" || ! declare -F ai_tools_confinement_verdict >/dev/null 2>&
 fi
 
 # expect_verdict <token> <rc> <selinux-mode> <module-present> <expected-label> <actual-label> <manager-domain>
-#                [require-selinux] [domain-permissive] [boolean-states]
+#                [require-selinux] [domain-permissive] [current-boolean-values]
 # Drive the verdict and assert BOTH the echoed token and the 0=launch/1=refuse return. The '|| verdict_status=$?' keeps
 # a refusal (rc 1) non-fatal under `set -e` and captures the status. Each optional input is passed only when given, so
 # a 5-argument call exercises the default a caller without the switch gets.
@@ -92,7 +92,7 @@ expect_module_present no  ""                  # no match -> not present (stays f
 # ── AI_TOOLS_REQUIRE_SELINUX: the operator's opt-in. It turns launches into refusals and does not turn any refusal
 # into a launch; every verdict without it is identical to the require=no path. ──
 section "confinement: AI_TOOLS_REQUIRE_SELINUX opt-in fail-closed (unit)"
-readonly CLEAN_BOOLEANS="nis_enabled=off domain_can_mmap_files=off"
+readonly CLEAN_BOOLEANS="nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off"
 # require=no reproduces the DAC-capable behaviour exactly (the explicit default is a no-op), and does not read
 # the attestation inputs: a permissive domain or an enabled Boolean launches there, as global permissive does.
 expect_verdict ok 0 Permissive yes ai_tools_exec_t lib_t init_t no
@@ -163,12 +163,12 @@ expect_parsed_inputs "a value outside the grammar is dropped" "|domain_can_mmap_
     'permissive\tmaybe\nboolean\tnis_enabled\t1\nboolean\tdomain_can_mmap_files\toff\njunk\n'
 expect_parsed_inputs "a name outside the charset is dropped" "no|" 'permissive\tno\nboolean\tnis enabled=on x\ton\n'
 # The parser's separator survives the empty first field the shim reads it with.
-IFS='|' read -r parsed_domain_permissive parsed_boolean_states \
+IFS='|' read -r parsed_domain_permissive parsed_current_boolean_values \
     < <(printf 'boolean\tnis_enabled\ton\n' | ai_tools_confinement_parse_attestation_records)
-if [[ -z "${parsed_domain_permissive}" && "${parsed_boolean_states}" == "nis_enabled=on" ]]; then
+if [[ -z "${parsed_domain_permissive}" && "${parsed_current_boolean_values}" == "nis_enabled=on" ]]; then
     pass "the shim's read keeps an empty domain mode empty"
 else
-    fail "the shim's read moved fields: permissive=[${parsed_domain_permissive}] booleans=[${parsed_boolean_states}]"
+    fail "the shim's read moved fields: permissive=[${parsed_domain_permissive}] booleans=[${parsed_current_boolean_values}]"
 fi
 
 section "confinement: selinuxfs reader (unit)"
@@ -220,5 +220,100 @@ if [[ -z "$(ai_tools_confinement_read_attestation_records "${TESTDIR}/absent")" 
 else
     fail "reader: a missing selinuxfs printed a record"
 fi
+
+section "confinement: the Boolean values a launch requires (unit)"
+# A required value refuses at the other value, whichever way that runs: deny_ptrace declared on refuses while off.
+expect_verdict require-boolean 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no \
+    "${CLEAN_BOOLEANS} deny_ptrace=off" "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off deny_ptrace=on"
+expect_verdict ok              0 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no \
+    "${CLEAN_BOOLEANS} deny_ptrace=on"  "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off deny_ptrace=on"
+# A host that declares nis_enabled on launches while it is on, and refuses once it drifts off.
+expect_verdict ok              0 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no \
+    "nis_enabled=on domain_can_mmap_files=off domain_can_write_kmsg=off" \
+    "nis_enabled=on domain_can_mmap_files=off domain_can_write_kmsg=off"
+expect_verdict require-boolean 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no \
+    "${CLEAN_BOOLEANS}" "nis_enabled=on domain_can_mmap_files=off domain_can_write_kmsg=off"
+# A declared Boolean the kernel does not have reads as unread.
+expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no \
+    "${CLEAN_BOOLEANS}" "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off no_such_boolean=on"
+
+# The required set: absent is the built-in requirement, a present declaration is exactly its pairs, as every list in
+# operator.conf replaces its default, and a malformed one keeps the built-in pairs, adds those it read, and carries
+# the marker no reading satisfies.
+expect_required_values() {  # <description> <expected> <declaration-state> <declared-boolean-values>
+    local required_values; required_values="$(ai_tools_confinement_get_required_boolean_values "$3" "$4")"
+    if [[ "${required_values}" == "$2" ]]; then pass "required values, $1 -> [${required_values}]"
+    else fail "required values, $1 -> [${required_values}]; expected [$2]"; fi
+}
+expect_required_values "no declaration" "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off" absent ""
+expect_required_values "no argument" "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off" "" ""
+expect_required_values "a declaration replaces the built-in pairs" "nis_enabled=on deny_ptrace=on" present \
+    "nis_enabled=on deny_ptrace=on"
+expect_required_values "an empty declaration requires none" "" present ""
+expect_required_values "a malformed declaration keeps the built-in pairs and refuses" \
+    "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off deny_ptrace=on AI_TOOLS_SELINUX_BOOLEANS=malformed" \
+    malformed "deny_ptrace=on"
+required_values_cli_ifs="$(IFS=$'\n\t'; ai_tools_confinement_get_required_boolean_values present "nis_enabled=on deny_ptrace=on")"
+if [[ "${required_values_cli_ifs}" == "nis_enabled=on deny_ptrace=on" ]]; then
+    pass "required values read alike under ai-tools' IFS=\$'\\n\\t'"
+else
+    fail "required values under IFS=\$'\\n\\t' -> ${required_values_cli_ifs}"
+fi
+# The marker refuses as an input that could not be read, whatever the Booleans read.
+expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no \
+    "${CLEAN_BOOLEANS} deny_ptrace=on" \
+    "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off deny_ptrace=on AI_TOOLS_SELINUX_BOOLEANS=malformed"
+
+# The declaration readers, over fixture files. The trust predicate has its own tests (conf.sh), so here it is stubbed
+# per path: the trusted fixtures pass and the untrusted one does not, which keeps the fail direction in view.
+CONF_LIB_FOR_READERS="$(dirname "${LIB}")/conf.lib.sh"
+if [[ -r "${CONF_LIB_FOR_READERS}" ]] && source "${CONF_LIB_FOR_READERS}" \
+        && declare -F ai_tools_confinement_read_required_boolean_values >/dev/null 2>&1; then
+    valid_operator_conf="${TESTDIR}/operator-valid.conf"; malformed_operator_conf="${TESTDIR}/operator-malformed.conf"
+    empty_operator_conf="${TESTDIR}/operator-empty.conf"; absent_operator_conf="${TESTDIR}/operator-absent.conf"
+    untrusted_operator_conf="${TESTDIR}/operator-untrusted.conf"
+    printf 'AI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=on, deny_ptrace=on]\n' > "${valid_operator_conf}"
+    printf 'AI_TOOLS_SELINUX_BOOLEANS=[deny_ptrace=on, nis_enabled=of, deny_ptrace=off]\n' > "${malformed_operator_conf}"
+    printf 'AI_TOOLS_SELINUX_BOOLEANS=[]\n' > "${empty_operator_conf}"
+    printf 'AI_TOOLS_REQUIRE_SELINUX=yes\n' > "${absent_operator_conf}"
+    cp "${valid_operator_conf}" "${untrusted_operator_conf}"
+    ai_tools_conf_is_trusted() { [[ "$1" != "${untrusted_operator_conf}" ]]; }
+    expect_required_reading() {  # <description> <operator-conf> <state> <required> <declared>
+        local reading; reading="$(ai_tools_confinement_read_required_boolean_values "$2" 2>/dev/null)"
+        # Built the way the reading is captured, so the trailing empty lines $(...) strips go from both.
+        local expected_reading; expected_reading="$(printf '%s\n%s\n%s\n' "$3" "$4" "$5")"
+        if [[ "${reading}" == "${expected_reading}" ]]; then pass "declaration, $1 -> ${reading//$'\n'/ | }"
+        else fail "declaration, $1 -> ${reading//$'\n'/ | }; expected ${expected_reading//$'\n'/ | }"; fi
+    }
+    expect_required_reading "valid: exactly its pairs" "${valid_operator_conf}" present \
+        "nis_enabled=on deny_ptrace=on" "nis_enabled=on deny_ptrace=on"
+    expect_required_reading "an entry malformed and a Boolean repeated: built-in pairs, the pair read, the marker" \
+        "${malformed_operator_conf}" malformed \
+        "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off deny_ptrace=on AI_TOOLS_SELINUX_BOOLEANS=malformed" \
+        "deny_ptrace=on"
+    expect_required_reading "empty: requires none" "${empty_operator_conf}" present "" ""
+    expect_required_reading "absent: the built-in pairs" "${absent_operator_conf}" absent \
+        "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off" ""
+    expect_required_reading "untrusted: the built-in pairs" "${untrusted_operator_conf}" absent \
+        "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off" ""
+    unset -f ai_tools_conf_is_trusted
+else
+    skip "operator.conf readers" "conf.lib.sh beside ${LIB} is not readable, or the library predates the readers"
+fi
+
+# The reading a status row renders, over its whole table.
+expect_row_reading() {  # <expected> <state> <required value|-> <opening value|->
+    local row_reading; row_reading="$(ai_tools_confinement_get_boolean_row_reading "$2" "$3" "$4")"
+    if [[ "${row_reading}" == "$1" ]]; then pass "row reading $2/$3/$4 -> ${row_reading}"
+    else fail "row reading $2/$3/$4 -> ${row_reading}; expected $1"; fi
+}
+expect_row_reading matches off    off on
+expect_row_reading differs on     off on
+expect_row_reading differs off    on  off     # deny_ptrace declared on, found off
+expect_row_reading open    on     -   on
+expect_row_reading closed  on     -   off
+expect_row_reading open    off    -   off     # a false-branch Boolean is open while off
+expect_row_reading unread  unread off on
+expect_row_reading malformed unread malformed -   # the marker row of a malformed declaration
 
 finish

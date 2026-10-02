@@ -323,25 +323,39 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
     [[ -n "${manager_domain}" ]] || unread_confinement_inputs+="${unread_confinement_inputs:+, }the user manager's domain"
 
     # The per-domain mode and the Booleans are read only where they decide anything: under require.
-    domain_permissive="" boolean_states=""
+    domain_permissive="" current_boolean_values="" required_boolean_values="" declaration_state=absent
     if [[ "${require_selinux}" == yes ]]; then
-        IFS='|' read -r domain_permissive boolean_states \
+        { read -r declaration_state; IFS= read -r required_boolean_values; IFS= read -r _; } \
+            < <(ai_tools_confinement_read_required_boolean_values "${operator_conf}")
+        declared_boolean_names=()
+        if [[ "${declaration_state}" != absent ]]; then
+            for required_entry in ${required_boolean_values}; do
+                [[ "${required_entry%%=*}" == AI_TOOLS_SELINUX_BOOLEANS ]] && continue
+                declared_boolean_names+=( "${required_entry%%=*}" )
+            done
+        fi
+        IFS='|' read -r domain_permissive current_boolean_values \
             < <(ai_tools_confinement_read_attestation_records /sys/fs/selinux \
+                    "${declared_boolean_names[@]+"${declared_boolean_names[@]}"}" \
                     | ai_tools_confinement_parse_attestation_records) \
             || true
         [[ -n "${domain_permissive}" ]] \
             || unread_confinement_inputs+="${unread_confinement_inputs:+, }whether ai_tools_t is a permissive domain (/sys/fs/selinux/access)"
-        while IFS= read -r refused_boolean_name; do
-            [[ " ${boolean_states} " == *" ${refused_boolean_name}="* ]] \
-                || unread_confinement_inputs+="${unread_confinement_inputs:+, }the ${refused_boolean_name} Boolean"
-        done < <(ai_tools_confinement_list_refused_booleans)
+        for required_entry in ${required_boolean_values}; do
+            if [[ "${required_entry}" == AI_TOOLS_SELINUX_BOOLEANS=malformed ]]; then
+                unread_confinement_inputs+="${unread_confinement_inputs:+, }AI_TOOLS_SELINUX_BOOLEANS in operator.conf (an entry is not <boolean>=on or <boolean>=off)"
+            elif [[ " ${current_boolean_values} " != *" ${required_entry%%=*}="* ]]; then
+                unread_confinement_inputs+="${unread_confinement_inputs:+, }the ${required_entry%%=*} Boolean"
+            fi
+        done
     fi
 
-    audit info "launch: agent=${agent_name} selinux=${selinux_mode:-unknown} module=${module_present:-unknown} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown} require=${require_selinux} permissive=${domain_permissive:-unread} booleans=${boolean_states:-unread}"
+    audit info "launch: agent=${agent_name} selinux=${selinux_mode:-unknown} module=${module_present:-unknown} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown} require=${require_selinux} permissive=${domain_permissive:-unread} booleans=${current_boolean_values:-unread} required=${required_boolean_values:-none}"
 
     case "$(ai_tools_confinement_verdict "${selinux_mode}" "${module_present}" \
                                          "${expected_label}" "${actual_label}" "${manager_domain}" \
-                                         "${require_selinux}" "${domain_permissive}" "${boolean_states}")" in
+                                         "${require_selinux}" "${domain_permissive}" "${current_boolean_values}" \
+                                         "${required_boolean_values}")" in
         ok)
             ;;
         mislabel)
@@ -387,15 +401,19 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
                    "On a source checkout instead, remove 'permissive ai_tools_t;' from selinux/policy/ai_tools.te, then:  sudo selinux/install-selinux.sh rebuild" \
                    "Or drop the requirement:  unset AI_TOOLS_REQUIRE_SELINUX in /etc/ai-tools/operator.conf" ;;
         require-boolean)
-            enabled_refused_booleans=""
-            while IFS= read -r refused_boolean_name; do
-                [[ " ${boolean_states} " == *" ${refused_boolean_name}=on "* ]] \
-                    && enabled_refused_booleans+="${enabled_refused_booleans:+ }${refused_boolean_name}"
-            done < <(ai_tools_confinement_list_refused_booleans)
-            audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but a Boolean that widens ai_tools_t is on: ${enabled_refused_booleans}"
-            refuse MSG-P3P8 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but the SELinux Boolean ${enabled_refused_booleans// /, } is on, which widens what ai_tools_t may do beyond the policy this project ships." \
-                   "Turn it off, persistently:  sudo setsebool -P ${enabled_refused_booleans// /=off }=off" \
-                   "Or drop the requirement:  unset AI_TOOLS_REQUIRE_SELINUX in /etc/ai-tools/operator.conf" ;;
+            differing_boolean_names="" required_assignments="" current_assignments=""
+            for required_entry in ${required_boolean_values}; do
+                [[ " ${current_boolean_values} " == *" ${required_entry%%=*}="* \
+                   && " ${current_boolean_values} " != *" ${required_entry} "* ]] || continue
+                differing_boolean_names+="${differing_boolean_names:+, }${required_entry%%=*}"
+                required_assignments+=" ${required_entry}"
+                if [[ "${required_entry#*=}" == on ]]; then current_assignments+="${current_assignments:+, }${required_entry%%=*}=off"
+                else current_assignments+="${current_assignments:+, }${required_entry%%=*}=on"; fi
+            done
+            audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but a Boolean differs from its required value: ${current_assignments}"
+            refuse MSG-P3P8 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but the SELinux Boolean ${differing_boolean_names} is not at the value a launch requires (now ${current_assignments}), so ai_tools_t would run under rules this host has not declared." \
+                   "Set it as required, persistently:  sudo setsebool -P${required_assignments}" \
+                   "Or, where the host runs with it, declare that value in /etc/ai-tools/operator.conf:  AI_TOOLS_SELINUX_BOOLEANS=[${current_assignments}]" ;;
         *)
             # A token this shim does not know -- the verdict's own unclassified, or one a newer library added -- is
             # a state nobody listed as a launch, so it refuses.

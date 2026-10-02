@@ -355,7 +355,7 @@ else
     else
         fail "permissive without the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
-    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff' \
+    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff' \
                "${REQUIRED_CONF}")" || true
     if grep -qx 'section-status=0' <<<"${out}"; then
         pass "an attested host under the requirement is not a fault"

@@ -1495,7 +1495,7 @@ AI_TOOLS_AGENT_EXEC contains parent\-directory references
 .TP
 .B MSG-P3P8
 ERROR.
-refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but the SELinux Boolean ${enabled_refused_booleans// /, } is on, which widens what ai_tools_t may do beyond the policy this project ships.
+refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but the SELinux Boolean ${differing_boolean_names} is not at the value a launch requires (now ${current_assignments}), so ai_tools_t would run under rules this host has not declared.
 .TP
 .B MSG-Z2J9
 ERROR.

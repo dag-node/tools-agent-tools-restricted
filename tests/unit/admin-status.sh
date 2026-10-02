@@ -174,7 +174,7 @@ CONFINEMENT_LIB_INSTALLED="/usr/local/lib/ai-tools/confinement.lib.sh"
 REQUIRED_CONF="${TESTDIR}/operator-required.conf"; NOT_REQUIRED_CONF="${TESTDIR}/operator-not-required.conf"
 printf 'AI_TOOLS_REQUIRE_SELINUX=yes\n' > "${REQUIRED_CONF}"
 printf 'AI_TOOLS_REQUIRE_SELINUX=no\n'  > "${NOT_REQUIRED_CONF}"
-readonly CLEAN_ATTESTATION=$'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff'
+readonly CLEAN_ATTESTATION=$'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff'
 
 # call_attestation_section <selinux-mode> <records> <operator-conf> : print the section, then `problems=<n>`.
 # shellcheck disable=SC2016  # the $1..$5 are for the inner `bash -c`, not this shell -- do not expand here
