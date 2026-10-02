@@ -159,7 +159,7 @@ relocated in place.
 ### The build-output type, and what scoping to it does and does not do
 
 `ai_tools_project_build_t` is a second project type the **base** declares, mirroring every grant it holds
-on `ai_tools_project_t` (`ai_tools_t` manage and `map`, `unconfined_t` manage and relabel, `ai_tools_handback_t`
+on `ai_tools_project_t` (`ai_tools_t` manage and `map`, the operator domains' manage and relabel, `ai_tools_handback_t`
 manage), so a build, an operator's own work, a claim relabel and the ownership handback treat the two types alike.
 The base names **no directory** for it — a base that named `bin/` would carry one toolchain's layout, which the provider
 seam exists to keep out of it — and declares it rather than the group because `semanage fcontext` refuses a type
@@ -181,11 +181,12 @@ whichever integrations a later session enables — validates each name to one pl
 per-project rule beside the project rule, `<dir>(/.*)?/(bin|obj|artifacts)(/.*)?`, so existing output at any depth takes
 the type at claim and at `install-selinux.sh relabel`. The same three names are literals in the layout module:
 `filetrans_pattern` rules in `ai_tools_dotnet.te` type a directory of that name at creation, for `ai_tools_t`
-and for `unconfined_t`, so a fresh build and an operator's own build both land on the type with no relabel, and a static
-rule in `ai_tools_dotnet.fc` covers sandbox clones, which take no per-project rule. The three MUST agree: a name known
-to the manifest alone is typed only at the next relabel, and one known to the policy alone only when it is created.
-The **precedence** of the build rule over the project rule, and the `matchpathcon` check that verifies it on a host, are
-stated in `ai_tools_project_build_pattern` (`relabel.lib.sh`); the same property holds between the two clone rules.
+and for the operator domains (`ai_tools_operator_domain`, see [confinement](confinement.rule.md)), so a fresh build
+and an operator's own build both land on the type with no relabel, and a static rule in `ai_tools_dotnet.fc` covers
+sandbox clones, which take no per-project rule. The three MUST agree: a name known to the manifest alone is typed only
+at the next relabel, and one known to the policy alone only when it is created. The **precedence** of the build rule
+over the project rule, and the `matchpathcon` check that verifies it on a host, are stated
+in `ai_tools_project_build_pattern` (`relabel.lib.sh`); the same property holds between the two clone rules.
 
 What follows from that placement:
 

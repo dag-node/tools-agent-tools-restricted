@@ -228,11 +228,17 @@ _shipped_modules() {
     bash "${POLICY_DIR}/shipped-modules.sh" || die MSG-E2A4 "could not derive the shipped module set (policy/shipped-modules.sh)"
 }
 
+# The interface file a site module calls (ipp_ai_tools_add_operator_domain, ai_tools.if). A compiled module carries
+# the rules an interface expanded to and not the interface itself, so the file is staged on the policy devel include
+# path, in the directory selinux-policy-devel reads third-party interfaces from; the RPM installs it at the same path.
+readonly AI_TOOLS_SELINUX_INTERFACE_PATH="/usr/share/selinux/devel/include/distributed/ai_tools.if"
+
 # stage_shipped_modules [reuse|build|force]: compile the shipped set -- every module with ensure_pp (`reuse`,
 # the default), with build_pp (`build`), or with build_pp's forced compile (`force`) -- and install each compiled module
-# 644 root:root under AI_TOOLS_SELINUX_PACKAGE_DIR, the directory the installed ai-tools-admin loads a group from. This
-# is the from-source counterpart of the RPM's %install, so a checkout host and an RPM host hold the same package
-# directory; a group staged here still stays OFF until enabled.
+# 644 root:root under AI_TOOLS_SELINUX_PACKAGE_DIR, the directory the installed ai-tools-admin loads a group from, then
+# the interface file at AI_TOOLS_SELINUX_INTERFACE_PATH. This is the from-source counterpart of the RPM's %install,
+# so a checkout host and an RPM host hold the same package directory and the same interface; a group staged here still
+# stays OFF until enabled.
 stage_shipped_modules() {
     local how="${1:-reuse}" module
     local -a modules=()
@@ -250,6 +256,8 @@ stage_shipped_modules() {
         install -o root -g root -m 644 "${POLICY_DIR}/${module}.pp" "${AI_TOOLS_SELINUX_PACKAGE_DIR}/${module}.pp"
     done
     ok "staged $(_list "${modules[@]}") under ${AI_TOOLS_SELINUX_PACKAGE_DIR}"
+    install -D -o root -g root -m 644 "${POLICY_DIR}/ai_tools.if" "${AI_TOOLS_SELINUX_INTERFACE_PATH}"
+    ok "staged the ai_tools.if interface at ${AI_TOOLS_SELINUX_INTERFACE_PATH}"
 }
 
 # _replace_former_group_modules: for every former module the registry records (AI_TOOLS_SELINUX_GROUP_FORMER_MODULES)

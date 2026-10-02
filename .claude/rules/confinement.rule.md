@@ -76,13 +76,19 @@ In `--pty` service mode the user manager performs the `exec`, so the SELinux tra
 so the transition fires regardless of which role the manager holds. The manager's domain also needs `search`
 on `ai_tools_project_t` for the `WorkingDirectory` chdir.
 
-The operator block in `ai_tools.te` grants the operator's access to the sandbox types to `unconfined_t` alone,
-and the pre-transition launch path (the sudo drop, `systemd-run --user`, the `/proc` read of the manager, the selinuxfs
-reads) is measured under that domain only. An operator logged in to a confined domain — `staff_t`, `user_t`, a site
-domain — therefore fails closed at the launch rather than running unconfined; EL's default login mapping is
-`unconfined_u`, so a stock host is unaffected. **Deferred:** an `ai_tools_operator_domain` attribute with `unconfined_t`
-as its shipped member, extended per host through an `ai-tools-admin selinux` verb loading a one-statement CIL module,
-so a site declares its login domains instead of writing rules that drift with each type this project adds.
+The operator's access to the project types is granted to the `ai_tools_operator_domain` attribute in `ai_tools.te`,
+whose shipped member is `unconfined_t`, EL's default login mapping; the account's home and systemd-data types stay
+granted to `unconfined_t` itself, so a member domain is not handed a write to the subtree the account's user manager
+loads units from. A host that confines its logins — `staff_t`, `user_t`, a site domain — adds the domain
+to the attribute, through the `ipp_ai_tools_add_operator_domain` interface — `ai_tools.if`, which the policy package
+and `install-selinux.sh build` both install on the policy devel include path, since a compiled module does not carry
+an interface — or a CIL `typeattributeset` statement, and the member gains that file access alone:
+the `domtrans_pattern` and `nnp_transition` grants stay on `unconfined_t` and `init_t`, so membership does not let
+a domain enter `ai_tools_t` by executing the entrypoint. The pre-transition launch path (the sudo drop,
+`systemd-run --user`, the `/proc` read of the manager, the selinuxfs reads) is measured under `unconfined_t` only,
+so a launch from a confined login is unvalidated: a read denied there refuses the launch rather than running the session
+unconfined. **Deferred:** `ai-tools-admin selinux operator-domains`, which loads the CIL statement for a declared
+domain, and the measurement of that path for a confined member.
 
 ### The operator config subtree is mode-gated, not policy-gated
 

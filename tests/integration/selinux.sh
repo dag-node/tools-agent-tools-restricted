@@ -251,10 +251,11 @@ fi
 # (8) The build-output type, where the dotnet layout module is loaded. Its static rule must win over the clone rule
 # for a path under one of the named directories and lose everywhere else -- the precedence the narrowing rests
 # on, decided by libselinux from the two rules' stems, which no unit test can read. matchpathcon reads the loaded file
-# contexts, so the paths need not exist; the live half creates a bin/ directory as unconfined_t in the sandbox area
-# and asserts the module's named transition put it on the build type without a restorecon. The ai_tools_t transition
-# and the execute grant need a session and are exercised by selinux/avc/avc-testsuite.sh. Skips when the layout module
-# is not loaded: the base carries the type, the module the mapping.
+# contexts, so the paths need not exist; the live half creates a bin/ directory in the sandbox area as root, which runs
+# in unconfined_t, the shipped operator domain, and asserts the module's named transition put it on the build type
+# without a restorecon. The ai_tools_t transition and the execute grant need a session and are exercised
+# by selinux/avc/avc-testsuite.sh. Skips when the layout module is not loaded: the base carries the type, the module
+# the mapping.
 section "SELinux: the dotnet layout module types build output and only build output"
 
 # type_of <path> : PRINT the SELinux type, or an empty string. Shared with the exec-chain section.
@@ -279,9 +280,9 @@ else
         mkdir "${tprobe}/bin" "${tprobe}/src" 2>/dev/null || true
         bt="$(type_of "${tprobe}/bin")"; st="$(type_of "${tprobe}/src")"
         if [[ "${bt}" == ai_tools_project_build_t && "${st}" == ai_tools_project_t ]]; then
-            pass "a bin/ directory created by unconfined_t is born ai_tools_project_build_t; a sibling stays ai_tools_project_t (named transition, no restorecon)"
+            pass "a bin/ directory created by an operator domain is born ai_tools_project_build_t; a sibling stays ai_tools_project_t (named transition, no restorecon)"
         else
-            fail "created bin/ is ${bt:-none} and src/ is ${st:-none} -- the layout module's unconfined_t transition did not fire"
+            fail "created bin/ is ${bt:-none} and src/ is ${st:-none} -- the layout module's operator-domain transition did not fire"
         fi
         rm -rf "${tprobe}" 2>/dev/null || true
     fi

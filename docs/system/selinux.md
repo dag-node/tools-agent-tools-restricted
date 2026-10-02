@@ -38,13 +38,16 @@ an explicit `no` turns it off. Every option is
 in [`ai-tools-operator.conf(5)`](../../src/usr/local/share/man/man5/ai-tools-operator.conf.5).
 
 The supported host runs the **targeted** policy on Enterprise Linux 9 or 10
-with operators logging in unconfined, the EL default. An operator confined
-to a login domain of their own — `staff_t`, `user_t`, or a site-written domain
-— is not supported yet: the policy grants the operator's access to the sandbox
-types to `unconfined_t` alone, so a launch from such a login fails closed
-instead of running the session unconfined. Support is planned
-as an operator-domain attribute group, so a host declares the login domains its
-operators use instead of writing policy rules by hand.
+with operators logging in unconfined, the EL default. The policy grants
+the operator's access to claimed projects through an attribute,
+`ai_tools_operator_domain`, with `unconfined_t` as its shipped member,
+so a host that confines its operators to a login domain of their own —
+`staff_t`, `user_t`, or a site-written domain — can add that domain
+to the attribute and give it the same file access. Launching a session
+from such a login is not validated yet: the launch path is measured
+for unconfined logins only, and a read denied there refuses the launch instead
+of running the session unconfined. An `ai-tools-admin selinux` command
+that declares the domain is planned.
 
 ## A stale label after a toolchain update
 
