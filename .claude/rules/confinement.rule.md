@@ -76,6 +76,14 @@ In `--pty` service mode the user manager performs the `exec`, so the SELinux tra
 so the transition fires regardless of which role the manager holds. The manager's domain also needs `search`
 on `ai_tools_project_t` for the `WorkingDirectory` chdir.
 
+The operator block in `ai_tools.te` grants the operator's access to the sandbox types to `unconfined_t` alone,
+and the pre-transition launch path (the sudo drop, `systemd-run --user`, the `/proc` read of the manager, the selinuxfs
+reads) is measured under that domain only. An operator logged in to a confined domain — `staff_t`, `user_t`, a site
+domain — therefore fails closed at the launch rather than running unconfined; EL's default login mapping is
+`unconfined_u`, so a stock host is unaffected. **Deferred:** an `ai_tools_operator_domain` attribute with `unconfined_t`
+as its shipped member, extended per host through an `ai-tools-admin selinux` verb loading a one-statement CIL module,
+so a site declares its login domains instead of writing rules that drift with each type this project adds.
+
 ### The operator config subtree is mode-gated, not policy-gated
 
 `~/.config/ai-tools` carries its own type, `ai_tools_conf_t`, applied with `semanage fcontext` because the operator's
@@ -381,7 +389,10 @@ or a declaration names it.
 Under `AI_TOOLS_REQUIRE_SELINUX` a launch requires each gating row at its closed value. `AI_TOOLS_SELINUX_BOOLEANS`
 in `operator.conf` replaces that requirement with exactly the pairs it lists, `<boolean>=on|off` as `setsebool` takes
 them, as every list in that file replaces its default, so `[]` requires none. A launch refuses while a required Boolean
-is at the other value, so drift either way is caught; no component of this project changes a Boolean.
+is at the other value, so drift either way is caught; no component of this project changes a Boolean. The shipped file
+writes the list with the built-in pairs, and the file is `%config(noreplace)`, so a release that adds a gating row
+leaves an upgraded host's requirement as its list states it: the new pair reaches that host as a line
+in `operator.conf.rpmnew`, which `system post-upgrade` shows and does not apply ([providers](providers.rule.md)).
 
 A declaration the reader cannot take whole — a malformed entry, a repeated Boolean, a list that does not parse — keeps
 the built-in pairs, adds the entries it read, and adds a marker no reading satisfies, so the launch refuses

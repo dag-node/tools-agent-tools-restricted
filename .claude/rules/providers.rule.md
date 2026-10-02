@@ -352,8 +352,12 @@ decides what `dnf update` does on a running host:
 `operator.conf` takes `%config(noreplace)`, so an upgrade enables only what the host asked for. A host that set
 `AI_TOOLS_FILTERS=` to turn filtering off still has it off afterwards; under `%config` that line would move to a file no
 resolver reads and filtering would come back on. A dormant option is recoverable at any time, and a silently reverted
-setting is not. `settings.json` takes the directive for the same reason, which is why a newly shipped hook is installed
-but stays uninvoked until its declaration is merged ([claude-settings](claude-settings.rule.md)).
+setting is not. The same holds for a key the shipped file writes set, `AI_TOOLS_SELINUX_BOOLEANS` among them: a release
+that adds a gating pair to that list's default leaves an upgraded host requiring exactly what its own line states,
+and the new pair reaches it as a line in the `.rpmnew`, which `system post-upgrade` shows and does not apply
+([confinement](confinement.rule.md)). `settings.json` takes the directive for the same reason, which is why a newly
+shipped hook is installed but stays uninvoked until its declaration is merged
+([claude-settings](claude-settings.rule.md)).
 
 The cost is that reconciling the `.rpmnew` is manual, so it is signposted: each package's `%post` prints the pointer
 whenever one is present, and `sudo ai-tools-admin system post-upgrade` — which reads the newest copy beside a file,
@@ -405,12 +409,17 @@ an upgraded host only as an `.rpmnew` the operator reconciles by hand. The per-o
 and `secret-patterns`, are seeded once, by `ai-tools-admin operators add` (the two `*_seed` functions in `conf.lib.sh`),
 and no upgrade rewrites them: the header an operator's file carries is the one that shipped on the day that account was
 enrolled, for as long as the account exists. A header written into any of the four therefore states what the file is,
-the one rule a reader needs before writing a line, example lines or one brief line per option beside its commented
-default, and the page that holds the reference — `ai-tools-operator.conf(5)`, `ai-tools-custom-claude-endpoint.conf(5)`,
-`ai-tools-allowed-projects(5)`, `ai-tools-secret-patterns(5)` — and the grammar, the semantics and the worked examples
-live in the page, which the package replaces on every upgrade. A commented default (`#KEY=`) stays in a template: it is
-a setting, and it is what `ai_tools_conf_keys` counts as *mentioned*, which keeps `system post-upgrade` from announcing
-every option as new.
+the one rule a reader needs before writing a line, example lines or one block per option, and the page that holds
+the reference — `ai-tools-operator.conf(5)`, `ai-tools-custom-claude-endpoint.conf(5)`, `ai-tools-allowed-projects(5)`,
+`ai-tools-secret-patterns(5)` — and the grammar, the semantics and the worked examples live in the page,
+which the package replaces on every upgrade. An option's block in a template is a brief description, then a `Values:`
+line and a `Default:` line of their own, then the option's line: a `Values:` or `Default:` line states one value, so it
+is written on one line however long, which the checker's `--config-header` mode does not measure and the comment filler
+does not join into the description it follows. The option's line is either the shipped setting (`KEY=value`,
+for the keys the file ships set) or a commented example (`#KEY=value`), and an example is a value an operator would
+write rather than the empty list, since a present `[]` is an explicit none and equals the default of a list key only
+by coincidence. Either form is what `ai_tools_conf_keys` counts as *mentioned*, which keeps `system post-upgrade`
+from announcing every option as new.
 
 A config header is read in a terminal, which does not reflow it, so it holds to 72 columns, ragged right, with no
 comment line ending on an article, a conjunction, a preposition, or a wh-word — the words `msg.lib.sh` carries
