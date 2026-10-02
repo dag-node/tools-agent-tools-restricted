@@ -76,8 +76,7 @@
 /opt/ai-tools/\.npm(/.*)?         gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.cache(/.*)?       gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.local(/.*)?       gen_context(system_u:object_r:ai_tools_home_t,s0)
-# The more specific rule wins: the systemd data directory holds a unit search path of the account's unconfined
-# `--user manager`, so it takes a type ai_tools_t reads and does not write (ai_tools.te).
+# The more specific rule wins: the systemd data directory takes ai_tools_systemd_data_t (ai_tools.te).
 /opt/ai-tools/\.local/share/systemd(/.*)?  gen_context(system_u:object_r:ai_tools_systemd_data_t,s0)
 /opt/ai-tools/\.config(/.*)?      gen_context(system_u:object_r:ai_tools_home_t,s0)
 /opt/ai-tools/\.gitconfig     --  gen_context(system_u:object_r:ai_tools_home_t,s0)

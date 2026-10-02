@@ -18,8 +18,9 @@ manifest — whether a verified checksum is on record for its binary
 and what the last relabel recorded for its paths. Each prints `?` where its
 caller cannot reach the answer, so running the second as root fills
 in the sandbox account's own `systemd --user` units, the entrypoint pin,
-whether the installed binary still matches that pin, and the SELinux label each
-path carries now. Both exit 4 when something needs attention and 5
+whether the installed binary still matches that pin, the SELinux label each
+path carries now, and whether the sandbox account's own systemd unit directory
+is still closed to the agent. Both exit 4 when something needs attention and 5
 when a reading could not be made, so either runs from `cron` or a monitor
 without its output being parsed. The exit codes are in `man ai-tools`
 and `man ai-tools-admin`.

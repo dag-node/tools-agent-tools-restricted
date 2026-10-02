@@ -355,7 +355,7 @@ ai_tools_service_parse_timespan_seconds() {
 # ai_tools_service_evaluate_timer_stamp <state> <skew> <allowance>  -- the pure decision about a `Persistent=` TIMER
 # STAMP: PRINT one of ok|future|absent|unreadable from readings already taken. No I/O, ALWAYS returns 0, so it is driven
 # over its truth table (tests/unit/services.sh). systemd compares the stamp's mtime at timer start to decide whether
-# a window was missed, and the sandbox account's manager must write it, so it is reported rather than trusted.
+# a window was missed.
 #
 #   <state>      ok | absent | unreadable, from the caller's stat of the file.
 #   <skew>       seconds the mtime is dated ahead of now, 0 when it is not, empty when it could not be computed.

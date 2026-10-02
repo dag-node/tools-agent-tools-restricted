@@ -832,9 +832,8 @@ systemctl start ai-tools-handback.socket 2>/dev/null || :
 chmod 2750 /var/opt/ai-tools 2>/dev/null || :
 chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 
-# Converge the sandbox account's systemd unit search path (control-plane.lib.sh) on every transition: the home subtrees
-# are not rpm-owned, and an upgrade from a release that left them account-owned closes here. Every change narrows
-# access, so it runs unattended; under an explicit bash, since the library is bash and a scriptlet runs under /bin/sh.
+# Close the sandbox account's systemd unit search path (control-plane.lib.sh) on every transition, since the home
+# subtrees are not rpm-owned. Under an explicit bash: the library is bash and a scriptlet runs under /bin/sh.
 if [ -d /opt/ai-tools ] && command -v bash >/dev/null 2>&1; then
     bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || exit 0
              declare -F ai_tools_ensure_unit_search_path_closed >/dev/null 2>&1 || exit 0

@@ -669,8 +669,7 @@ else
 fi
 
 # ── The Persistent= TIMER stamp's verdict ─────────────────────────────────────────────────────────────────────
-# systemd compares this stamp's mtime at timer start. `future` is the case worth the most: a stamp dated ahead
-# suppresses the catch-up run a missed window gets, so it outranks `absent`, and `unreadable` outranks it in turn.
+# The ranking the cases pin is ai_tools_service_evaluate_timer_stamp's header.
 section "services: the Persistent= timer stamp's verdict (unit)"
 
 if ! declare -F ai_tools_service_evaluate_timer_stamp >/dev/null 2>&1; then
@@ -697,9 +696,7 @@ else
     tsv future "a non-numeric allowance is read as no tolerance, which only makes the future test stricter" \
         ok 10 "not-a-number"
 
-    # The span parser the allowance is built from. systemd pretty-prints these properties and does not publish a numeric
-    # form, so adding a timer's accuracy to its randomized delay means reading what it prints. A value made only
-    # of tokens it cannot read prints NOTHING, so a caller treats it as unknown rather than as zero tolerance.
+    # The span parser the allowance is built from; its header states the contract the cases pin.
     if ! declare -F ai_tools_service_parse_timespan_seconds >/dev/null 2>&1; then
         skip "timespan parser" "the deployed library predates ai_tools_service_parse_timespan_seconds"
     else
@@ -719,8 +716,7 @@ else
         span 0 "500ms"
         span "" ""
         span "" "infinity"
-        # The library is sourced into scripts that set their own IFS, so the split is pinned: an inherited IFS without
-        # a space would read a two-token span as one unreadable token and silently drop the second half.
+        # Under an inherited IFS without a space, an unpinned split would drop the second token.
         ( IFS=$'\n\t'
           got="$(ai_tools_service_parse_timespan_seconds "1min 30s")"
           [[ "${got}" == 90 ]] ) \

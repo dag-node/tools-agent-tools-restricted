@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/control-plane.sh
-# Unit test for the unit search path chain in control-plane.lib.sh: the converge that closes the sandbox account's
-# systemd unit search path, and the readers `ai-tools-admin status` reports from (ownership-and-hooks.rule.md). Each
-# case asserts the converge moves toward less access and reports what it did and what it left: an unexpected entry stays
-# in place as an `error`, a non-root caller is refused, and the drift reader tells a clean chain from a failed reading.
+# Unit test for the unit search path chain in control-plane.lib.sh: the converge, the readers `ai-tools-admin status`
+# reports from, and the report parser both installers render from (tests.rule.md).
 #
 # Run as root via sudo: the converge chowns, and the fixture chains are account-owned. Every fixture is in the testdir.
 
@@ -115,7 +113,6 @@ else
 fi
 
 # ── An unexpected entry on the path is reported and left in place ───────────────────────────────────────────
-# It is evidence, so the converge does not move or delete it; the error and the non-zero status are what make it seen.
 HOME_B="${TESTDIR}/home-b"
 mkchain "${HOME_B}"
 install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${HOME_B}/.local/share/systemd/user"
@@ -157,9 +154,7 @@ if [[ -L "${HOME_D}/.local" && "$(readlink "${HOME_D}/.local")" == "${TESTDIR}/e
 else
     fail "the converge altered the symlink on the chain"
 fi
-# The descent must END there. Every deeper link resolves THROUGH the symlink, so a converge that carried on would create
-# the next directory at the symlink's target -- a root-owned directory written outside the home, at a path the operator
-# chose. This is the assertion that pins the stop.
+# The descent must end there (the converge's header states why); this pins it.
 if [[ ! -e "${TESTDIR}/elsewhere/share" ]]; then
     pass "no directory was created through the symlink, so the converge wrote nothing outside the home"
 else

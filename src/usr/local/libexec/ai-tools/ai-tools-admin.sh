@@ -2628,8 +2628,6 @@ status_unit_search_path() {
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
-    # The reader's status decides which of three things is said, so a reading that could not be made is never rendered
-    # as a closed path: 0 drift, 1 clean, anything else unreadable.
     local line path got wanted drift_out drift_rc=0 open=0
     drift_out="$(ai_tools_get_unit_search_path_drift "${home}" "${SANDBOX_GROUP}")" || drift_rc=$?
     case "${drift_rc}" in
@@ -2663,9 +2661,8 @@ status_unit_search_path() {
     return 0
 }
 
-# status_update_timer_stamp: the `Persistent=` stamp nvm-update.timer keeps, judged by its mtime
-# through ai_tools_service_evaluate_timer_stamp, with the tolerance read from the timer's own accuracy and randomized
-# delay. Whether the timer is overdue is the Services section's reading, from the updater's own record.
+# status_update_timer_stamp: the `Persistent=` stamp nvm-update.timer keeps (ai_tools_service_evaluate_timer_stamp).
+# Whether the timer is overdue is the Services section's reading.
 status_update_timer_stamp() {
     local home="${1:-${CP_HOME:-/opt/ai-tools}}"
     if ! declare -F ai_tools_service_evaluate_timer_stamp >/dev/null 2>&1 \
@@ -2689,8 +2686,7 @@ status_update_timer_stamp() {
             [[ "${mtime}" -gt "${now}" ]] && skew=$(( mtime - now ))
         fi
     fi
-    # The timer's own tolerances, summed: a stamp inside that window is the schedule's jitter rather than a future date.
-    # An unreadable property leaves its share at 0, which only makes the future test stricter.
+    # An unreadable property leaves its share of the allowance at 0, which only makes the future test stricter.
     accuracy="$(ai_tools_service_parse_timespan_seconds "$(ai_tools_service_unit_property nvm-update.timer AccuracyUSec sandbox-user)")"
     delay="$(ai_tools_service_parse_timespan_seconds "$(ai_tools_service_unit_property nvm-update.timer RandomizedDelayUSec sandbox-user)")"
     allowance=$(( ${accuracy:-0} + ${delay:-0} ))

@@ -14,8 +14,7 @@
 # That is what lets a second agent bring its own control-plane directory without the base layer naming it. The agent's
 # own subtrees (.nvm/.cache/.npm) stay agent-owned and .git is root-private 0700, so they are not described here.
 #
-# It also carries the UNIT-PATH CHAIN: the root-owned directories on the way to `.local/share/systemd/user`, a unit
-# search path of the account's unconfined `systemd --user` manager (ownership-and-hooks.rule.md).
+# It also carries the unit search path chain of the account's `systemd --user` manager (ownership-and-hooks.rule.md).
 
 # Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on the second
 # pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing

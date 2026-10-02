@@ -86,10 +86,8 @@ files_type(ai_tools_project_build_t)
 type ai_tools_home_t;
 files_type(ai_tools_home_t)
 
-# The sandbox account's systemd data directory (.local/share/systemd), which holds a unit search path of its unconfined
-# `systemd --user` manager and the Persistent= timer stamps. As ai_tools_home_t the domain could write a unit there
-# for the manager to load; this type is read-only to the domain. Renaming a parent is closed by DAC
-# (confinement.rule.md).
+# The sandbox account's systemd data directory (.local/share/systemd): a unit search path of its unconfined
+# `systemd --user` manager and the Persistent= timer stamps, read-only to the domain (confinement.rule.md).
 type ai_tools_systemd_data_t;
 files_type(ai_tools_systemd_data_t)
 
@@ -226,8 +224,8 @@ allow ai_tools_t ai_tools_project_t:file map;
 allow ai_tools_t ai_tools_project_build_t:file map;
 allow ai_tools_t ai_tools_home_t:file map;
 
-# The systemd data directory: read and search only, so a walk of .local/share is not denied. This module does not grant
-# add_name, remove_name, write, create, rename or unlink on the type anywhere; a write attempt stays audited.
+# Read and search only, so a walk of .local/share is not denied. This module does not grant add_name, remove_name,
+# write, create, rename or unlink on the type anywhere; a write attempt stays audited.
 allow ai_tools_t ai_tools_systemd_data_t:dir { getattr search open read ioctl lock };
 allow ai_tools_t ai_tools_systemd_data_t:file { getattr open read ioctl lock };
 
