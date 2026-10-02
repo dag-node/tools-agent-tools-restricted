@@ -45,6 +45,29 @@ A skill of your own, or one specific to a single agent, is a real directory
 there and the linker keeps it in place. The operator guide for them ships
 beside them, at `/usr/share/ai-tools/skills/README.md`.
 
+**A session is capped at 8 GB of memory and 1024 tasks.** Above 6 GB the kernel
+reclaims the session's memory before anyone else's, at 8 GB it ends
+the session's largest process, and the session does not swap, so a build
+or a browser that runs away is stopped where it is instead of slowing the whole
+host. A session that hits the cap sees its process killed or a thread it could
+not create; the kernel log names the cgroup. The cap is per session, so a host
+running several at once is bounded by their sum. To raise it for one agent's
+sessions, write a drop-in the sandbox account's systemd reads for every unit
+of that agent:
+
+```bash
+sudo install -D -m 644 /dev/stdin /etc/systemd/user/ai-tools-claude-code-.service.d/limits.conf <<'EOF'
+[Service]
+MemoryHigh=12G
+MemoryMax=16G
+EOF
+```
+
+The next session takes it; a running one keeps the values it started with.
+The daily toolchain update is capped the same way, at 2 GB and 256 tasks,
+and `sudo systemctl --user -M ai-tools@.host edit nvm-update.service` raises
+that one.
+
 **Command output is narrowed before the agent sees it**, by root-owned rule
 sets an operator selects with `AI_TOOLS_FILTERS`; narrowing what a command
 prints does not widen what it may do, because the agent's own permission

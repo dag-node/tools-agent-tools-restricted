@@ -762,6 +762,12 @@ fi
 # on the same inode this shim verified, with no link left for it to re-resolve. Run rather than exec: `--pty` implies
 # `--wait` and returns the payload's status, which a fast failure turns into an actionable breadcrumb.
 #
+# The four resource properties bound a session's memory, swap and task count inside the cgroup the account's manager
+# creates for the unit. They are a cap for a session that runs away, not a boundary: the account owns that cgroup
+# on a DAC-only host, so a session can raise its own value there, and only a ceiling root sets on the account slice
+# holds against it, which this project does not install. launch.rule.md states the profile and the drop-in that tunes
+# it.
+#
 # SYSTEMD_TINT_BACKGROUND=0: systemd 256+ tints the terminal background for the life of a `--pty`
 # run, picking the tint by querying the terminal for its background colour. The tint is decoration a full-screen TUI
 # paints over anyway, so it is turned off here, on the command, since sudo started this process with a reset
@@ -778,6 +784,10 @@ systemd-run --user --pty --quiet \
     --property=RestrictNamespaces=yes \
     --property=NoNewPrivileges=yes \
     --property=UMask=0007 \
+    --property=MemoryHigh=6G \
+    --property=MemoryMax=8G \
+    --property=MemorySwapMax=0 \
+    --property=TasksMax=1024 \
     -- "${session_exec_path}" "$@" || session_exit_status=$?
 
 if (( session_exit_status != 0 && SECONDS - session_start_seconds < 5 )); then
