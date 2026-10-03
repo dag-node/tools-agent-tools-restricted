@@ -260,7 +260,7 @@ drive_safe_setfacl() {
         source /usr/local/lib/ai-tools/owner-only.lib.sh
         # shellcheck source=/dev/null
         source /usr/local/lib/ai-tools/project-permissions.lib.sh
-        PROJECTS_UID="$(id -u "${PROJECTS_USER}")"; SANDBOX_UID="$(id -u "${SANDBOX_USER}")"; GROUP="${SANDBOX_GROUP}"
+        SANDBOX_UID="$(id -u "${SANDBOX_USER}")"; GROUP="${SANDBOX_GROUP}"
         ACL_SPEC=""
         ai_tools_project_permissions_build_acl_specification ACL_SPEC "${PROJECTS_USER}" "${GROUP}"
         eval "$(extract_function "${HELPER}" _safe_setfacl)"

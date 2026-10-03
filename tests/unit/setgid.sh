@@ -226,7 +226,7 @@ drive_safe_setgid() {
         # shellcheck source=/dev/null
         source /usr/local/lib/ai-tools/owner-only.lib.sh
         ai_tools_log_structured() { :; }
-        PROJECTS_UID="$(id -u "${PROJECTS_USER}")"; SANDBOX_UID="$(id -u "${SANDBOX_USER}")"; GROUP="${SANDBOX_GROUP}"
+        SANDBOX_UID="$(id -u "${SANDBOX_USER}")"; GROUP="${SANDBOX_GROUP}"
         eval "$(extract_function "${HELPER}" _safe_setgid)"
         _safe_setgid "$1"
     )

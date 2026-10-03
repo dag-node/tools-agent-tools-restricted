@@ -380,7 +380,7 @@ drive_safe_apply() {
         warn() { printf '%s\n' "$*" >&2; }
         ai_tools_log_structured() { :; }
         ai_tools_log_sanitize() { printf '%s' "$1"; }
-        PROJECTS_UID="$(id -u "${PROJECTS_USER}")"; OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"; GATE=false
+        OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"; GATE=false
         eval "$(extract_function "${HELPER}" _safe_apply)"
         _safe_apply "$1" 2>/dev/null
     )

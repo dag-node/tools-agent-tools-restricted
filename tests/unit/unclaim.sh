@@ -380,7 +380,7 @@ drive_safe_unclaim() {
         set -euo pipefail
         # shellcheck source=/dev/null
         source /usr/local/lib/ai-tools/safe-paths.lib.sh
-        PROJECTS_UID="$(id -u "${PROJECTS_USER}")"; SANDBOX_UID="$(id -u "${SANDBOX_USER}")"
+        SANDBOX_UID="$(id -u "${SANDBOX_USER}")"
         TARGET_GROUP="${PROJECTS_GROUP}"; UNLISTED=false
         eval "$(extract_function "${HELPER}" _safe_unclaim)"
         _safe_unclaim "$1"
