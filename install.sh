@@ -826,6 +826,7 @@ stage_selinux_modules() {
         return 0
     fi
     log "/usr/share/selinux/packages/ai-tools/*.pp"
+    log "/usr/share/selinux/devel/include/distributed/ai_tools.if"
     "${selinux_script}" build \
         || die MSG-K9P5 "the SELinux policy modules did not compile (see above); fix the cause and re-run"
 }

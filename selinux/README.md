@@ -38,11 +38,15 @@ launch until `AI_TOOLS_REQUIRE_SELINUX=no` in `operator.conf` declares it.
 The modules are written and tested against the **targeted** policy
 (`selinux-policy-targeted`) on Enterprise Linux 9 and 10, with operators
 logging in as `unconfined_u`, the default mapping. Another policy type, such
-as `selinux-policy-mls`, is not tested. An operator confined to a login domain
-(`staff_t`, `user_t`, a site-written domain) is not supported yet: the operator
-block in `ai_tools.te` grants `unconfined_t` alone, so a launch from such
-a login fails closed. An operator-domain attribute group, which a host extends
-with the login domains it confines operators to, is planned.
+as `selinux-policy-mls`, is not tested. The operator rules in `ai_tools.te` are
+written on the `ai_tools_operator_domain` attribute, with `unconfined_t` its
+shipped member; a host that confines its operators to a login domain
+(`staff_t`, `user_t`, a site-written domain) adds that domain
+with the `ipp_ai_tools_add_operator_domain` interface, which the package
+installs at `/usr/share/selinux/devel/include/distributed/ai_tools.if`.
+A launch from such a login is not validated yet and fails closed
+where the launch path is denied a read. An `ai-tools-admin selinux` command
+that declares the domain is planned.
 
 You cannot confine a complex app (Node + git + the Bash tool) correctly
 by guessing rules — the rule set must be *observed*. The policy here was

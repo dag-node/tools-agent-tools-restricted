@@ -119,6 +119,9 @@ if [[ -d "${_pkg_dir}" ]]; then
         while IFS= read -r _mod; do
             check_file "${_pkg_dir}/${_mod}.pp" root root 644
         done <<<"${_want}"
+        # The interface a site module calls (ipp_ai_tools_add_operator_domain) is staged beside the modules,
+        # on the policy devel include path: 644 root:root, read-only data a compiled module does not carry.
+        check_file /usr/share/selinux/devel/include/distributed/ai_tools.if root root 644
     else
         skip "staged policy module set" "shipped-modules.sh not in a checkout beside this suite"
     fi

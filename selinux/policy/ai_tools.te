@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-policy_module(ai_tools, 0.8.0)
+policy_module(ai_tools, 0.9.0)
 
 ########################################
 #
@@ -78,6 +78,15 @@ files_type(ai_tools_project_t)
 # and the per-project rule is written whether or not any group is loaded.
 type ai_tools_project_build_t;
 files_type(ai_tools_project_build_t)
+
+# The operator domains: the login domains an operator works on a claimed project from. The attribute carries the manage
+# and relabel grants on the two project types (the operator rules in this file) and the layout modules' creation
+# transitions (ai_tools_dotnet.te). The domtrans_pattern and nnp_transition grants stay on unconfined_t and init_t,
+# so a member domain does not enter ai_tools_t by executing the entrypoint. unconfined_t, EL's default login mapping, is
+# the shipped member. A host that confines its logins adds a domain with ipp_ai_tools_add_operator_domain (ai_tools.if)
+# or a CIL typeattributeset statement; the launch path from such a domain is unmeasured (confinement.rule.md).
+attribute ai_tools_operator_domain;
+typeattribute unconfined_t ai_tools_operator_domain;
 
 # The agent's own config/state -- /opt/ai-tools/.claude plus its HOME state trees (.npm, .cache, .local, .config; see
 # ai_tools.fc). A private writable area distinct from the read-only nvm/program tree (usr_t), so the policy need not
@@ -283,18 +292,24 @@ allow ai_tools_t ai_tools_log_t:dir { getattr search open add_name write };
 allow ai_tools_t ai_tools_log_t:file { create getattr setattr open append };
 logging_log_filetrans(ai_tools_t, ai_tools_log_t, file)
 
-# <you> (unconfined) keeps full access to, and can relabel (restorecon), the new file types -- relabelling a project
-# to ai_tools_project_t must never lock you out.
-manage_dirs_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
-manage_files_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
-manage_lnk_files_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
-relabel_dirs_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
-relabel_files_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
-manage_dirs_pattern(unconfined_t, ai_tools_project_build_t, ai_tools_project_build_t)
-manage_files_pattern(unconfined_t, ai_tools_project_build_t, ai_tools_project_build_t)
-manage_lnk_files_pattern(unconfined_t, ai_tools_project_build_t, ai_tools_project_build_t)
-relabel_dirs_pattern(unconfined_t, ai_tools_project_build_t, ai_tools_project_build_t)
-relabel_files_pattern(unconfined_t, ai_tools_project_build_t, ai_tools_project_build_t)
+# The operator domains keep full access to, and can relabel (restorecon), the project types -- relabelling a project
+# to ai_tools_project_t must not lock an operator out of their own tree.
+manage_dirs_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_t)
+manage_files_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_t)
+manage_lnk_files_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_t)
+relabel_dirs_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_t)
+relabel_files_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_t)
+relabel_lnk_files_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_t)
+manage_dirs_pattern(ai_tools_operator_domain, ai_tools_project_build_t, ai_tools_project_build_t)
+manage_files_pattern(ai_tools_operator_domain, ai_tools_project_build_t, ai_tools_project_build_t)
+manage_lnk_files_pattern(ai_tools_operator_domain, ai_tools_project_build_t, ai_tools_project_build_t)
+relabel_dirs_pattern(ai_tools_operator_domain, ai_tools_project_build_t, ai_tools_project_build_t)
+relabel_files_pattern(ai_tools_operator_domain, ai_tools_project_build_t, ai_tools_project_build_t)
+relabel_lnk_files_pattern(ai_tools_operator_domain, ai_tools_project_build_t, ai_tools_project_build_t)
+# The account's own types stay on unconfined_t rather than on the attribute. The systemd data type is the unit search
+# path of the account's user manager, which executes what it loads from there, so a member domain is not handed a write
+# to it; the home type is the account's own state, and what a member domain needs of it is decided when a member beyond
+# unconfined_t is measured.
 manage_dirs_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
 manage_files_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
 relabel_dirs_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)

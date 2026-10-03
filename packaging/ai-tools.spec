@@ -441,6 +441,13 @@ for pp in $(bash selinux/policy/shipped-modules.sh src/usr/local/lib/ai-tools/in
         %{buildroot}%{_datadir}/selinux/packages/ai-tools/${pp}.pp
     echo "%{_datadir}/selinux/packages/ai-tools/${pp}.pp" >> selinux-files.list
 done
+# The interface a site module calls to make a confined login domain an operator domain
+# (ipp_ai_tools_add_operator_domain). A compiled module carries the rules an interface expanded to and
+# not the interface, so the .if ships on the policy devel include path, in the directory
+# selinux-policy-devel reads third-party interfaces from; install-selinux.sh stages the same file.
+install -D -m 0644 selinux/policy/ai_tools.if \
+    %{buildroot}%{_datadir}/selinux/devel/include/distributed/ai_tools.if
+echo "%{_datadir}/selinux/devel/include/distributed/ai_tools.if" >> selinux-files.list
 
 # ── base: sandbox project workflow tree + operation-log dir ──────────────────
 install -d -m 2750 %{buildroot}/var/opt/ai-tools
