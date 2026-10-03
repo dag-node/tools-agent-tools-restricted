@@ -36,7 +36,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | f6z3 | MSG-F6Z3 | example | .claude/rules/messaging.rule.md |  |  |
 | y9z4 | [ref-section-y9z4](rules/ownership-and-hooks.rule.md#ref-section-y9z4) | Setgid normalization | .claude/rules/ownership-and-hooks.rule.md | .claude/rules/cli.rule.md |  |
 | b5v7 | [ref-table-b5v7](rules/ownership-and-hooks.rule.md#ref-table-b5v7) | A path's mode before, during and after a claim | .claude/rules/ownership-and-hooks.rule.md | .claude/rules/cli.rule.md, docs/projects/permissions.md |  |
-| u5h4 | [ref-section-u5h4](rules/safe-paths.rule.md#ref-section-u5h4) | `ai_tools_pinned_fd_at_path <fd> <path>` — the pinned inode is the one at the authorized path | .claude/rules/safe-paths.rule.md | .claude/rules/tests.rule.md |  |
+| u5h4 | [ref-section-u5h4](rules/safe-paths.rule.md#ref-section-u5h4) | `ai_tools_pinned_fd_matches_path <fd> <path>` — the pinned inode is the one at the authorized path | .claude/rules/safe-paths.rule.md | .claude/rules/tests.rule.md |  |
 | e3h3 | [ref-definition-e3h3](rules/secret-handling.rule.md#ref-definition-e3h3) | Owner-only seal | .claude/rules/secret-handling.rule.md | .claude/rules/cli.rule.md, .claude/rules/ownership-and-hooks.rule.md, docs/projects/lockdown.md |  |
 | h4j6 | [ref-section-h4j6](rules/secret-handling.rule.md#ref-section-h4j6) | Shared secret-pattern set (one source, one matcher) | .claude/rules/secret-handling.rule.md | .claude/rules/launch.rule.md, .claude/rules/shellcheck.rule.md, CLAUDE.md |  |
 | g6s6 | [ref-section-g6s6](rules/secret-handling.rule.md#ref-section-g6s6) | Proactive: `ai-tools-lockdown` | .claude/rules/secret-handling.rule.md | docs/projects/lockdown.md |  |

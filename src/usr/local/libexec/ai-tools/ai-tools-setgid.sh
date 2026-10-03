@@ -140,23 +140,23 @@ AI_TOOLS_LOG_PROJECT="${canonical}"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source /usr/local/lib/ai-tools/conf.lib.sh
 
-declare -a allowed=()
+declare -a allowed_directories=()
 # shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
-declare -a excluded=()
+declare -a exclusion_patterns=()
 # One shared read (conf.lib.sh): allow entries resolved; exclusions as written and, through symlinks the operator
 # or root owns, resolved beside them. A file that cannot be read, or whose exclusion meets a symlink another account
 # holds (refused under the library's own code), leaves both arrays empty, so the project is not allowed.
-ai_tools_conf_allowlist_load "${ALLOWLIST}" allowed excluded || true
+ai_tools_conf_allowlist_load "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 
-# _is_excluded <abs-path>: 0 if covered by a '!' rule (ai_tools_conf_path_excluded, conf.lib.sh -- the match every
+# _is_excluded <abs-path>: 0 if covered by a '!' rule (ai_tools_conf_is_path_excluded, conf.lib.sh -- the match every
 # reader of the allowlist makes).
-_is_excluded() { ai_tools_conf_path_excluded "$1" excluded; }
+_is_excluded() { ai_tools_conf_is_path_excluded "$1" exclusion_patterns; }
 
 # _is_allowed <abs-path>: 0 if at or under an allowed directory.
 _is_allowed() {
     local path="$1" d
-    [[ "${#allowed[@]}" -gt 0 ]] || return 1
-    for d in "${allowed[@]}"; do
+    [[ "${#allowed_directories[@]}" -gt 0 ]] || return 1
+    for d in "${allowed_directories[@]}"; do
         [[ "${path}" == "${d}" || "${path}" == "${d}/"* ]] && return 0
     done
     return 1
@@ -170,7 +170,7 @@ _is_allowed  "${canonical}" || exit 0
 # a group-writer on project dirs and could swap a subdir for a symlink between the find that enumerates it and the chmod
 # that acts on it; chmod/chgrp would then follow the symlink and act on an arbitrary directory as root. Pin the inode
 # with an open fd and operate through /proc/self/fd, re-checking it is still the same directory, at <dir>
-# (ai_tools_pinned_fd_at_path, safe-paths.lib.sh). Mirrors ai-tools-chown's pinned-fd apply.
+# (ai_tools_pinned_fd_matches_path, safe-paths.lib.sh). Mirrors ai-tools-chown's pinned-fd apply.
 _safe_setgid() {
     local dir="$1" expect_ident grp mode owner_uid fd got_ident got_ftype got_uid
     read -r expect_ident owner_uid grp mode \
@@ -196,7 +196,7 @@ _safe_setgid() {
         exec {fd}<&-
         return 1
     fi
-    ai_tools_pinned_fd_at_path "${fd}" "${dir}" || { exec {fd}<&-; return 1; }
+    ai_tools_pinned_fd_matches_path "${fd}" "${dir}" || { exec {fd}<&-; return 1; }
     # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's or the sandbox account's own dirs
     # are eligible; anything else is left untouched and reported (3, as for a refused path).
     if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then

@@ -97,18 +97,18 @@ _ai_tools_operator_allowlist() {
 
 # ai_tools_allowlist_covers <allowlist-file> <canonical-path>: succeed when the allowlist allows the path and no '!'
 # exclusion overrides it. The file is read and the exclusions matched by the one loader and matcher every reader shares
-# (ai_tools_conf_allowlist_load / ai_tools_conf_path_excluded, conf.lib.sh), so a line denotes the same paths here
+# (ai_tools_conf_allowlist_load / ai_tools_conf_is_path_excluded, conf.lib.sh), so a line denotes the same paths here
 # as in the launch gate and in the helpers' own walks; without the library no path is covered, and a read the loader
 # refuses -- an exclusion met a symlink another account holds -- covers none either. Exclusions are checked first
 # and win; a plain (non-glob) allow path also covers its contents.
 ai_tools_allowlist_covers() {
     local file="$1" path="$2" dir
     declare -F ai_tools_conf_allowlist_load >/dev/null 2>&1 || return 1
-    # shellcheck disable=SC2034  # excluded is filled and read through its name by the conf.lib.sh loader and matcher
-    local -a allowed=() excluded=()
-    ai_tools_conf_allowlist_load "${file}" allowed excluded || return 1
-    ai_tools_conf_path_excluded "${path}" excluded && return 1
-    for dir in "${allowed[@]}"; do
+    # shellcheck disable=SC2034  # exclusion_patterns is filled and read through its name by the conf.lib.sh loader and matcher
+    local -a allowed_directories=() exclusion_patterns=()
+    ai_tools_conf_allowlist_load "${file}" allowed_directories exclusion_patterns || return 1
+    ai_tools_conf_is_path_excluded "${path}" exclusion_patterns && return 1
+    for dir in "${allowed_directories[@]}"; do
         [[ "${path}" == "${dir}" || "${path}" == "${dir}/"* ]] && return 0
     done
     return 1

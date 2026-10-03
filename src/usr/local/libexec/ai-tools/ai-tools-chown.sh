@@ -164,21 +164,21 @@ if ai_tools_is_secret_basename "$(basename "${canonical}")"; then
     is_secret=true
 fi
 
-declare -a allowed=()
+declare -a allowed_directories=()
 # shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
-declare -a excluded=()
+declare -a exclusion_patterns=()
 # One shared read (conf.lib.sh): allow entries resolved; exclusions as written and, through symlinks the operator
 # or root owns, resolved beside them. A file that cannot be read, or whose exclusion meets a symlink another account
 # holds (refused under the library's own code), leaves both arrays empty, so the path is not in-project and is left
 # as it is.
-ai_tools_conf_allowlist_load "${ALLOWLIST}" allowed excluded || true
+ai_tools_conf_allowlist_load "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 
-# Exclusions are checked first and override allows (ai_tools_conf_path_excluded, conf.lib.sh).
-ai_tools_conf_path_excluded "${canonical}" excluded && exit 0   # excluded -- leave ownership intact
+# Exclusions are checked first and override allows (ai_tools_conf_is_path_excluded, conf.lib.sh).
+ai_tools_conf_is_path_excluded "${canonical}" exclusion_patterns && exit 0   # excluded -- leave ownership intact
 
 # Check if target falls under any allowed directory
-if [[ "${#allowed[@]}" -gt 0 ]]; then
-    for dir in "${allowed[@]}"; do
+if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
+    for dir in "${allowed_directories[@]}"; do
         if [[ "${canonical}" == "${dir}" || "${canonical}" == "${dir}/"* ]]; then
             AI_TOOLS_LOG_PROJECT="${dir}"
 
@@ -283,9 +283,9 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                 exec {fd}<&-
                 exit 0
             fi
-            # The pinned inode must also be the one at the canonical path (ai_tools_pinned_fd_at_path,
+            # The pinned inode must also be the one at the canonical path (ai_tools_pinned_fd_matches_path,
             # safe-paths.lib.sh).
-            ai_tools_pinned_fd_at_path "${fd}" "${canonical}" || { exec {fd}<&-; exit 0; }
+            ai_tools_pinned_fd_matches_path "${fd}" "${canonical}" || { exec {fd}<&-; exit 0; }
             # chown/chmod follow the /proc magic symlink to the pinned inode, so both act on the descriptor those checks
             # validated rather than on the name.
             /usr/bin/chown -- "${target_owner}" "/proc/self/fd/${fd}"

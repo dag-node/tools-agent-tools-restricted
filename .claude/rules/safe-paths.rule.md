@@ -71,7 +71,7 @@ world-readable. Which of those a host is has a one-line answer, so the prompt st
 by `AI_TOOLS_ASSUME_YES` or by a verb's `-y`, and a run with no terminal declines and prints the `setfacl` commands (see
 [cli](cli.rule.md), [messaging](messaging.rule.md)).
 
-### `ai_tools_pinned_fd_at_path <fd> <path>` — the pinned inode is the one at the authorized path <a id="ref-section-u5h4"></a>
+### `ai_tools_pinned_fd_matches_path <fd> <path>` — the pinned inode is the one at the authorized path <a id="ref-section-u5h4"></a>
 
 Every elevated helper that changes a path — `ai-tools-chown`, `-setgid`, `-setfacl`, `-lockdown` and `-unclaim` — pins
 the inode with an open descriptor, re-reads identity, owner and type from the descriptor, and mutates

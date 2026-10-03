@@ -737,7 +737,7 @@ _ai_tools_conf_write_line() {
 #   !/home/op/project/vendor      an exclusion; the `!` precedes the quotes: !"/a b"
 #
 # An entry is NOT resolved or validated by the line parser, which only decides what text the line denotes;
-# ai_tools_conf_allowlist_load is the one read that resolves entries and ai_tools_conf_path_excluded the one match.
+# ai_tools_conf_allowlist_load is the one read that resolves entries and ai_tools_conf_is_path_excluded the one match.
 
 # ai_tools_conf_path_entry <line> : set _ai_tools_conf_value to the entry <line> denotes and
 #   return 0; return 1 for a line that does not carry an entry (blank, or a whole-line comment), which
@@ -780,50 +780,51 @@ ai_tools_conf_path_entry() {
 # outcome of the read keeps or adds an exclusion, or withdraws every allow -- the direction every allowlist read fails
 # in.
 
-# ai_tools_conf_path_has_glob <path> : return 0 when <path> carries a glob character (`*`, `?` or `[`); such
+# ai_tools_conf_path_has_glob_characters <path> : return 0 when <path> carries a glob character (`*`, `?` or `[`); such
 #   an exclusion is matched as a pattern on the whole path and is never resolved.
-ai_tools_conf_path_has_glob() { [[ "${1-}" == *[*?[]* ]]; }
+ai_tools_conf_path_has_glob_characters() { [[ "${1-}" == *[*?[]* ]]; }
 
-# _ai_tools_conf_resolve_owned <abs-path> <uid> : set _ai_tools_conf_value to <abs-path> with every symlink
+# _ai_tools_conf_resolve_exclusion_path <abs-path> <uid> : set _ai_tools_conf_value to <abs-path> with every symlink
 #   on the way followed and `.`/`..` collapsed, as realpath -m does, and return 0 when each symlink met is owned
 #   by <uid> or by root. Return 1 for a relative path, and -- with _ai_tools_conf_resolve_refusal set to the reason,
 #   naming the link -- for a symlink held by any other account, a link `stat` or `readlink` does not return,
 #   or more than 40 links (a loop). A component that does not exist is kept as written. Results travel in globals
 #   rather than on stdout, so the caller reads them without a subshell.
-_ai_tools_conf_resolve_owned() {
-    local rest="${1-}" uid="${2-}" out="" component target owner hops=0 link
+_ai_tools_conf_resolve_exclusion_path() {
+    local remaining_path="${1-}" allowlist_owner_uid="${2-}" resolved_path="" component link symlink_target
+    local symlink_owner_uid symlink_count=0
     _ai_tools_conf_value=""; _ai_tools_conf_resolve_refusal=""
-    [[ "${rest}" == /* && -n "${uid}" ]] || return 1
-    rest="${rest#/}"
-    while [[ -n "${rest}" ]]; do
-        component="${rest%%/*}"
-        rest="${rest#"${component}"}"; rest="${rest#/}"
+    [[ "${remaining_path}" == /* && -n "${allowlist_owner_uid}" ]] || return 1
+    remaining_path="${remaining_path#/}"
+    while [[ -n "${remaining_path}" ]]; do
+        component="${remaining_path%%/*}"
+        remaining_path="${remaining_path#"${component}"}"; remaining_path="${remaining_path#/}"
         case "${component}" in
             ''|.) continue ;;
-            ..)   out="${out%/*}"; continue ;;
+            ..)   resolved_path="${resolved_path%/*}"; continue ;;
         esac
-        link="${out}/${component}"
+        link="${resolved_path}/${component}"
         if [[ -L "${link}" ]]; then
-            hops=$(( hops + 1 ))
-            if (( hops > 40 )); then
+            symlink_count=$(( symlink_count + 1 ))
+            if (( symlink_count > 40 )); then
                 _ai_tools_conf_resolve_refusal="more than 40 symbolic links are met on the way (a loop) at ${link}"; return 1
             fi
-            if ! owner="$(stat -c '%u' -- "${link}" 2>/dev/null)"; then
+            if ! symlink_owner_uid="$(stat -c '%u' -- "${link}" 2>/dev/null)"; then
                 _ai_tools_conf_resolve_refusal="${link} is a symbolic link whose owner cannot be read"; return 1
             fi
-            if [[ "${owner}" != "${uid}" && "${owner}" != 0 ]]; then
-                _ai_tools_conf_resolve_refusal="${link} is a symbolic link held by uid ${owner}, not by the file's owner (uid ${uid}) or root"; return 1
+            if [[ "${symlink_owner_uid}" != "${allowlist_owner_uid}" && "${symlink_owner_uid}" != 0 ]]; then
+                _ai_tools_conf_resolve_refusal="${link} is a symbolic link held by uid ${symlink_owner_uid}, not by the file's owner (uid ${allowlist_owner_uid}) or root"; return 1
             fi
-            if ! target="$(readlink -- "${link}" 2>/dev/null)" || [[ -z "${target}" ]]; then
+            if ! symlink_target="$(readlink -- "${link}" 2>/dev/null)" || [[ -z "${symlink_target}" ]]; then
                 _ai_tools_conf_resolve_refusal="${link} is a symbolic link that cannot be read"; return 1
             fi
-            if [[ "${target}" == /* ]]; then out=""; target="${target#/}"; fi
-            rest="${target}${rest:+/${rest}}"
+            if [[ "${symlink_target}" == /* ]]; then resolved_path=""; symlink_target="${symlink_target#/}"; fi
+            remaining_path="${symlink_target}${remaining_path:+/${remaining_path}}"
             continue
         fi
-        out="${link}"
+        resolved_path="${link}"
     done
-    _ai_tools_conf_value="${out:-/}"
+    _ai_tools_conf_value="${resolved_path:-/}"
 }
 
 # ai_tools_conf_allowlist_load <allowlist-file> <allowed-array> <excluded-array> : fill the two named arrays from
@@ -834,19 +835,19 @@ _ai_tools_conf_resolve_owned() {
 #   a glob-free absolute exclusion meets a symlink held by another account, one that cannot be read, or a loop.
 ai_tools_conf_allowlist_load() {
     local -n _ai_tools_conf_load_allowed="$2" _ai_tools_conf_load_excluded="$3"
-    local file="${1-}" owner line entry resolved
+    local file="${1-}" allowlist_owner_uid line entry resolved
     _ai_tools_conf_load_allowed=(); _ai_tools_conf_load_excluded=()
     [[ -f "${file}" && -r "${file}" ]] || return 1
-    owner="$(stat -c '%u' -- "${file}" 2>/dev/null)" || return 1
+    allowlist_owner_uid="$(stat -c '%u' -- "${file}" 2>/dev/null)" || return 1
     while IFS= read -r line || [[ -n "${line}" ]]; do
         ai_tools_conf_path_entry "${line}" || continue
         entry="${_ai_tools_conf_value}"
         if [[ "${entry}" == '!'* ]]; then
             entry="${entry:1}"
             _ai_tools_conf_load_excluded+=("${entry}")
-            ai_tools_conf_path_has_glob "${entry}" && continue
+            ai_tools_conf_path_has_glob_characters "${entry}" && continue
             [[ "${entry}" == /* ]] || continue
-            if ! _ai_tools_conf_resolve_owned "${entry}" "${owner}"; then
+            if ! _ai_tools_conf_resolve_exclusion_path "${entry}" "${allowlist_owner_uid}"; then
                 _ai_tools_conf_load_allowed=(); _ai_tools_conf_load_excluded=()
                 _ai_tools_conf_warn MSG-Y5N6 "exclusion !${entry} in ${file} cannot be resolved -- ${_ai_tools_conf_resolve_refusal}; no entry in this file allows a path until the link is removed or the entry is written as the real path"
                 return 2
@@ -860,10 +861,10 @@ ai_tools_conf_allowlist_load() {
     done < "${file}"
 }
 
-# ai_tools_conf_path_excluded <abs-path> <excluded-array> : return 0 when an entry of the named array covers
+# ai_tools_conf_is_path_excluded <abs-path> <excluded-array> : return 0 when an entry of the named array covers
 #   <abs-path>: equal to it, with a glob matched as a pattern against the whole path, or, for an entry without `*`,
 #   an ancestor of it; a trailing slash on an entry is ignored. Return 1 otherwise, and for an empty array.
-ai_tools_conf_path_excluded() {
+ai_tools_conf_is_path_excluded() {
     local -n _ai_tools_conf_match_excluded="$2"
     local path="${1-}" pat
     (( ${#_ai_tools_conf_match_excluded[@]} )) || return 1

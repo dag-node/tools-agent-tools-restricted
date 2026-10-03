@@ -775,7 +775,7 @@ else
     fail "has_exclusion did not isolate the exclusion entry"
 fi
 
-# --- The gate's read: ai_tools_conf_allowlist_load + ai_tools_conf_path_excluded ---------------
+# --- The gate's read: ai_tools_conf_allowlist_load + ai_tools_conf_is_path_excluded ---------------
 # The launch wrapper and every walking helper take their two arrays from this loader. Under test is the union rule
 # for an exclusion -- the written form always, the resolved form only through symlinks the file's owner or root holds --
 # since a reader resolving through any symlink would let a link the sandbox account plants decide what an exclusion
@@ -856,15 +856,15 @@ fi
 ld_ok=true
 for p in "${ld_root}/proj/private" "${ld_root}/proj/private/k" "${ld_root}/proj/sub" "${ld_root}/proj/sub/deep" \
          "${ld_root}/proj/x.log" "${ld_root}/proj/stale/y"; do
-    ai_tools_conf_path_excluded "${p}" ld_excluded || { fail "should be excluded: ${p}"; ld_ok=false; }
+    ai_tools_conf_is_path_excluded "${p}" ld_excluded || { fail "should be excluded: ${p}"; ld_ok=false; }
 done
 for p in "${ld_root}/proj/other" "${ld_root}/proj/x.log/y" "${ld_root}/proj/privateer"; do
-    ai_tools_conf_path_excluded "${p}" ld_excluded && { fail "should not be excluded: ${p}"; ld_ok=false; }
+    ai_tools_conf_is_path_excluded "${p}" ld_excluded && { fail "should not be excluded: ${p}"; ld_ok=false; }
 done
 ${ld_ok} && pass "the matcher covers a written path, its contents, a resolved path and a glob, and no sibling"
 # shellcheck disable=SC2034  # read through its name by the matcher
 declare -a ld_none=()
-if ! ai_tools_conf_path_excluded "${ld_root}/proj" ld_none; then
+if ! ai_tools_conf_is_path_excluded "${ld_root}/proj" ld_none; then
     pass "an empty exclusion array excludes no path"
 else
     fail "an empty exclusion array excluded a path"
@@ -878,10 +878,10 @@ else
 fi
 glob_ok=true
 for p in '/a/*.log' '/a/b?' '/a/[cd]'; do
-    ai_tools_conf_path_has_glob "${p}" || { fail "has_glob missed ${p}"; glob_ok=false; }
+    ai_tools_conf_path_has_glob_characters "${p}" || { fail "has_glob missed ${p}"; glob_ok=false; }
 done
 for p in '/a/plain' '/a/b]' ''; do
-    ai_tools_conf_path_has_glob "${p}" && { fail "has_glob matched '${p}'"; glob_ok=false; }
+    ai_tools_conf_path_has_glob_characters "${p}" && { fail "has_glob matched '${p}'"; glob_ok=false; }
 done
 ${glob_ok} && pass "has_glob reads *, ? and [ as glob characters and a lone ] or a plain path as none"
 
