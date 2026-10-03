@@ -1,7 +1,8 @@
 # ai-tools RPM test harness
 
-Build the ai-tools RPMs on Rocky Linux and run the whole admin → operator →
-agent workflow in a throwaway container.
+Build the ai-tools RPMs on each served distribution — Rocky 9, Rocky 10,
+Fedora 44 — and run the whole admin → operator → agent workflow
+in a throwaway container.
 
 ## Quick start
 
@@ -22,7 +23,8 @@ end to end — `ai-tools-admin system bootstrap`, `ai-tools-admin operators add`
 `ai-tools projects claim`, `tests/run.sh all`, and an auth-free confined
 `claude --version` session — then calls `systemctl exit` with the aggregate
 status, so the command exits non-zero if any phase fails. Use `rpmtest-rocky10`
-for Rocky 10.
+for Rocky 10 and `rpmtest-fedora44` for Fedora 44; the RPMs each one builds
+carry that distribution's dist tag (`.el9`, `.el10`, `.fc44`).
 
 ## Reading the result
 
@@ -49,15 +51,17 @@ without scraping the log.
 ## Run it by hand
 
 ```bash
-podman build -t ai-tools-rpmbase:el9 -f packaging/ELBase.Containerfile \
+podman build -t ai-tools-rpmbase:el9 -f packaging/RpmBase.Containerfile \
     --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9.8-minimal .
 podman build -t ai-tools-rpmtest:el9 -f packaging/Rocky9.Containerfile .
 podman run --rm -t --systemd=always ai-tools-rpmtest:el9
 ```
 
-`ELBase.Containerfile` is the shared EL recipe, parameterized by `BASE_IMAGE`;
-`Rocky9.Containerfile` is a thin pin (`FROM ai-tools-rpmbase:el9`) where any
-EL9-only tweak would go. `--systemd=always` tells Podman to run the image's
+`RpmBase.Containerfile` is the shared recipe, parameterized by `BASE_IMAGE`
+and, for a distribution that names a package differently, `EXTRA_PACKAGES`
+(Fedora's `util-linux-script`); `Rocky9.Containerfile` is a thin pin
+(`FROM ai-tools-rpmbase:el9`) where any EL9-only tweak would go.
+`--systemd=always` tells Podman to run the image's
 `/sbin/init` as PID 1, which the handback socket and the sandbox account's
 `systemd --user manager` need. Add `--privileged` if your runtime cannot mount
 cgroups for that user manager. To poke around instead of running the selftest,
@@ -70,8 +74,9 @@ and `podman exec -it <id> bash`.
 make -C packaging rpmtest-rocky10 OCI=docker EL10_BASE=quay.io/rockylinux/rockylinux:10-minimal
 ```
 
-`OCI` selects the build/run tool (default `podman`); `EL9_BASE`/`EL10_BASE`
-override the base image. The selftest itself reads `OPERATOR` (default
+`OCI` selects the build/run tool (default `podman`); `EL9_BASE`, `EL10_BASE`,
+and `FC44_BASE` override the base image, each pinned to the major release
+its dist tag names. The selftest itself reads `OPERATOR` (default
 `tester`), `PROJECT` (default `/home/tester/proj`), and `RUN_TESTS` (default
 `1`); because it runs from a `systemd` unit rather than the container's main
 process, change these in `ai-tools-selftest.service`'s `Environment=` or invoke
@@ -115,9 +120,9 @@ which the selftest re-checks.
 
 ## Files
 
-`ELBase.Containerfile` (shared EL recipe), `Rocky9.Containerfile` /
-`Rocky10.Containerfile` (per-distro pins), `FedoraLatestBase.Containerfile`
-(stub base for future Fedora CI), `container-selftest.sh` (the workflow),
+`RpmBase.Containerfile` (shared recipe), `Rocky9.Containerfile` /
+`Rocky10.Containerfile` / `Fedora44.Containerfile` (per-distro pins),
+`container-selftest.sh` (the workflow),
 `ai-tools-selftest.service` (the boot-time runner). The package itself is built
 by `make rpm` (see the `Makefile`); for the security model and the manual
 install flow read the repository [`README.md`](../README.md)
