@@ -1493,14 +1493,16 @@ fi
   lockdown, unclaim) refuse a path whose ancestor was swapped for a symbolic link while they ran.
   Before, the swap could persuade them to land a group change or an ACL on a directory you own
   outside the project. No configuration change is needed.
-- SECURITY: 'ai-tools projects remove' no longer runs 'git status' in the tree: the agent co-writes
-  .git and could set core.fsmonitor to a command of its own, which git would run as you. The report
-  still names unpushed commits and a missing upstream; check for uncommitted work yourself before
-  you confirm.
+- SECURITY: 'ai-tools projects remove' no longer runs git in the tree at all. The agent co-writes
+  .git, and git run as you executes what .git/config names: 'git status' runs core.fsmonitor, and in
+  a partial clone a missing object is fetched through core.sshCommand. The deletion warning now
+  tells you to check unpushed commits and uncommitted work yourself before you confirm; the clone
+  kind no longer counts unpushed commits either.
 - SECURITY: A '!' exclusion in allowed-projects spelled through a symbolic link now covers the
   directory it names, at the launch gate and in every helper, where before only the registry
-  reported it disabled. The link must be yours or root's; a link the agent plants is matched as
-  written alone.
+  reported it disabled. The link must be yours or root's: a link anyone else holds on the way stops
+  the whole file -- no session starts and no helper acts on any of its entries -- until you remove
+  the link or write the entry as the real path (MSG-Y5N6 names the link).
 
 * Fri Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.0-1
 - CHANGE: A launch requires SELinux unless operator.conf sets AI_TOOLS_REQUIRE_SELINUX=no, and under
