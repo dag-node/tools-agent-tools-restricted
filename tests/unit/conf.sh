@@ -777,12 +777,11 @@ fi
 
 # --- The gate's read: ai_tools_conf_allowlist_load + ai_tools_conf_is_path_excluded ---------------
 # The launch wrapper and every walking helper take their two arrays from this loader. Under test is the union rule
-# for an exclusion -- the written form always, the resolved form only through symlinks the file's owner or root holds --
-# since a reader resolving through any symlink would let a link the sandbox account plants decide what an exclusion
-# covers, and one never resolving misses an exclusion the operator spelled through a link. A link another account holds
-# refuses the whole read instead, since neither reading keeps the coverage the operator's own link gave.
+# for an exclusion -- the written form always, the resolved form only through a symlink the sandbox account can neither
+# remove nor replace -- and that any other link refuses the whole read (the section comment in conf.lib.sh states why).
 ld_root="${TESTDIR}/ld"
 mkdir -p "${ld_root}/proj/sub/deep" "${ld_root}/proj/private" "${ld_root}/proj/stale"
+chmod 755 "${ld_root}" "${ld_root}/proj"           # the owner's link below sits in a directory only the owner writes
 ln -s "${ld_root}/proj/sub" "${ld_root}/sub-link"          # the operator's spelling of a carve-out
 ld_al="${TESTDIR}/ld-allowed-projects"
 cat > "${ld_al}" <<EOF
@@ -824,35 +823,74 @@ if [[ "${ld_glob_forms}" == 1 ]]; then
 else
     fail "the glob exclusion appears ${ld_glob_forms} time(s)"
 fi
-# The link another account holds, aimed at the directory the carve-out covers: the state the sandbox account reaches
-# by replacing the operator's `alias -> private` link with its own. As root the fixture link is re-owned; without root,
-# `stat` -- the one read the resolver takes the owner from -- is shadowed for that one path, and the loader's own owner
-# read of the file passes through. Either way the read must refuse whole: rc 2, both arrays empty, the code and the link
-# on stderr; the control is the same file minus that line, which the first load of this section reads clean.
-ld_foreign_link="${ld_root}/proj/agent-link"
-ln -s "${ld_root}/proj/private" "${ld_foreign_link}"
+# The launch wrapper sources the library under IFS=$'\n\t', where a `read` of two space-separated `stat` fields into two
+# variables puts both in the first unless the read pins its own IFS; the same file must load to the same arrays.
+declare -a ld_ifs_allowed=() ld_ifs_excluded=()
+ld_ifs_rc=0; ld_saved_ifs="${IFS}"; IFS=$'\n\t'
+ai_tools_conf_allowlist_load "${ld_al}" ld_ifs_allowed ld_ifs_excluded 2>"${TESTDIR}/ld-ifs.err" || ld_ifs_rc=$?
+IFS="${ld_saved_ifs}"
+if [[ "${ld_ifs_rc}" -eq 0 && "${ld_ifs_allowed[*]}" == "${ld_allowed[*]}" \
+        && "${ld_ifs_excluded[*]}" == "${ld_excluded[*]}" ]]; then
+    pass "the loader reads the same arrays under the launch wrapper's IFS"
+else
+    fail "under the launch wrapper's IFS: rc ${ld_ifs_rc}, excluded=(${ld_ifs_excluded[*]:-}): $(cat "${TESTDIR}/ld-ifs.err")"
+fi
+# A link the sandbox account can change, aimed at the directory a carve-out covers: the owner's own link
+# in a group-writable directory (a claimed project's shape, whoever made the link), and -- as root, where the fixture
+# link can be re-owned -- a link another account holds in a directory it cannot write. Each must refuse the read whole:
+# rc 2, both arrays empty, the code, the link, the reason and the remedy on stderr; the control is the same file minus
+# that line, which the first load of this section reads clean.
+ld_refused() {   # ld_refused <what> <allowlist> <link> <reason-fragment>
+    local -a ld_fa=(x) ld_fe=(y)
+    local rc=0 err
+    ai_tools_conf_allowlist_load "$2" ld_fa ld_fe 2>"${TESTDIR}/ld-refused.err" || rc=$?
+    err="$(cat "${TESTDIR}/ld-refused.err")"
+    if [[ "${rc}" -eq 2 && "${#ld_fa[@]}" -eq 0 && "${#ld_fe[@]}" -eq 0 ]]; then
+        pass "$1 refuses the read: rc 2, both arrays empty"
+    else
+        fail "$1 did not refuse the read: rc ${rc}, allowed=(${ld_fa[*]:-}) excluded=(${ld_fe[*]:-})"
+    fi
+    assert_msg MSG-Y5N6 "${err}" "$1: the refusal carries its code"
+    if grep -qF -- "$3 is a symbolic link $4" <<<"${err}" && grep -qF -- "real path" <<<"${err}"; then
+        pass "$1: the refusal names the link, the reason and the remedy"
+    else
+        fail "$1: the refusal does not name the link, the reason or the remedy: ${err}"
+    fi
+}
+chmod 2770 "${ld_root}/proj"
+ln -s "${ld_root}/proj/private" "${ld_root}/proj/alias"
+cp "${ld_al}" "${ld_al}.writable"; printf '!%s\n' "${ld_root}/proj/alias" >> "${ld_al}.writable"
+ld_refused "an exclusion through the owner's own link in a group-writable directory" "${ld_al}.writable" \
+    "${ld_root}/proj/alias" "in ${ld_root}/proj, a directory with a group or other write bit"
 if [[ "${EUID}" -eq 0 ]] && id nobody >/dev/null 2>&1; then
-    chown -h nobody "${ld_foreign_link}"
+    mkdir -m 755 "${ld_root}/stable"; ln -s "${ld_root}/proj/private" "${ld_root}/stable/foreign"
+    chown -h nobody "${ld_root}/stable/foreign"
+    cp "${ld_al}" "${ld_al}.foreign"; printf '!%s\n' "${ld_root}/stable/foreign" >> "${ld_al}.foreign"
+    ld_refused "an exclusion through a link another account holds" "${ld_al}.foreign" \
+        "${ld_root}/stable/foreign" "held by uid"
 else
-    stat() { if [[ "${*: -1}" == "${ld_foreign_link}" ]]; then printf '65534\n'; else command stat "$@"; fi; }
+    skip "an exclusion through a link another account holds refuses the read" "needs root to re-own the fixture link"
 fi
-cp "${ld_al}" "${ld_al}.foreign"; printf '!%s\n' "${ld_foreign_link}" >> "${ld_al}.foreign"
-declare -a ld_fa=(x) ld_fe=(y)
-ld_frc=0
-ai_tools_conf_allowlist_load "${ld_al}.foreign" ld_fa ld_fe 2>"${TESTDIR}/ld-foreign.err" || ld_frc=$?
-unset -f stat 2>/dev/null || true
-ld_ferr="$(cat "${TESTDIR}/ld-foreign.err")"
-if [[ "${ld_frc}" -eq 2 && "${#ld_fa[@]}" -eq 0 && "${#ld_fe[@]}" -eq 0 ]]; then
-    pass "an exclusion through a symlink another account holds refuses the read: rc 2, both arrays empty"
-else
-    fail "a foreign-owned symlink did not refuse the read: rc ${ld_frc}, allowed=(${ld_fa[*]:-}) excluded=(${ld_fe[*]:-})"
-fi
-assert_msg MSG-Y5N6 "${ld_ferr}" "the refusal carries its code"
-if grep -qF -- "${ld_foreign_link} is a symbolic link held by uid" <<<"${ld_ferr}"; then
-    pass "and names the link and the uid that holds it"
-else
-    fail "the refusal does not name the link: ${ld_ferr}"
-fi
+# A carve-out written as the real path keeps covering it whatever happens to an alias beside it -- the link present,
+# unlinked, or a directory of its name put in its place -- since no entry depends on the link.
+cp "${ld_al}" "${ld_al}.canonical"
+ld_canonical_ok=true
+for ld_alias_state in link removed directory; do
+    case "${ld_alias_state}" in
+        removed)   rm -f "${ld_root}/proj/alias" ;;
+        directory) mkdir "${ld_root}/proj/alias" ;;
+    esac
+    # shellcheck disable=SC2034  # filled and read through their names by the loader and the matcher
+    declare -a ld_ca=() ld_ce=()
+    if ! ai_tools_conf_allowlist_load "${ld_al}.canonical" ld_ca ld_ce \
+            || ! ai_tools_conf_is_path_excluded "${ld_root}/proj/private" ld_ce \
+            || ! ai_tools_conf_is_path_excluded "${ld_root}/proj/private/k" ld_ce; then
+        fail "with the alias ${ld_alias_state}, the real-path carve-out stopped covering ${ld_root}/proj/private"
+        ld_canonical_ok=false
+    fi
+done
+${ld_canonical_ok} && pass "a real-path carve-out covers its directory with the alias present, removed, and replaced by a directory"
+rm -rf "${ld_root}/proj/alias"; chmod 755 "${ld_root}/proj"
 ld_ok=true
 for p in "${ld_root}/proj/private" "${ld_root}/proj/private/k" "${ld_root}/proj/sub" "${ld_root}/proj/sub/deep" \
          "${ld_root}/proj/x.log" "${ld_root}/proj/stale/y"; do

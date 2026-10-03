@@ -8,12 +8,12 @@ there, and how to reach the same result from a checkout.
 
 The target is Enterprise Linux 9 or 10 — RHEL and its rebuilds (Rocky,
 AlmaLinux, Oracle Linux/UEK) — or Fedora 44, with systemd, `sudo`,
-and a filesystem carrying POSIX ACLs on the projects you claim. Each one
-has its own package build (`.el9`, `.el10`, `.fc44`), smoke-tested per commit;
-Fedora takes the release package from the `fedora/` path of the repository
-(the front page carries the line). Other distributions are untested:
-the design assumes systemd user instances with lingering, `sudo`, and EL
-filesystem conventions. SELinux in enforcing mode with the targeted policy is
+and a filesystem carrying POSIX ACLs on the projects you claim. Each one has
+its own package build (`.el9`, `.el10`, `.fc44`), smoke-tested per commit;
+Fedora takes the release package from the `fedora/` path of the repository (the
+front page carries the line). Other distributions are untested: the design
+assumes systemd user instances with lingering, `sudo`, and EL filesystem
+conventions. SELinux in enforcing mode with the targeted policy is
 where the session's own domain applies; a host without it runs in a DAC-only
 posture instead, and says so at every launch until the operator declares it
 ([SELinux](../system/selinux.md)). The install itself needs the network once,
@@ -51,8 +51,8 @@ that signature at install time, so the key has to be on the host
 before the release package is installed — the package that would otherwise
 install the key has not run yet. Importing it by hand first satisfies
 the check. One repository serves EL 9, EL 10, and Fedora 44, and both
-the packages and the repository metadata are signature-verified. Verify the key's
-fingerprint out of band before you import it.
+the packages and the repository metadata are signature-verified. Verify
+the key's fingerprint out of band before you import it.
 
 `ai-tools` is a metapackage pulling the full stack — the agents,
 the integrations, and the toolchain. Name `ai-tools-selinux` on the same `dnf`

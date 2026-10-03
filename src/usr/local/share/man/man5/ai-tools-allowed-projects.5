@@ -62,10 +62,14 @@ Blank lines are ignored.
 An allow entry is resolved to its real path before it is compared, so an entry
 reached through a symbolic link or a trailing slash names the directory.
 An exclusion covers the path as written and, where every symbolic link on the
-way is yours or root's, its real path as well.
-A symbolic link on the way that belongs to anyone else stops the whole file:
-no session starts and no helper acts on any entry in it until the link is
-removed or the entry is written as the real path.
+way is one the sandbox account can neither remove nor replace, its real path
+as well: the link is yours or root's, in a directory that is yours or root's
+and not writable by group or other.
+Any other symbolic link on the way stops the whole file: no session starts
+and no helper acts on any entry in it until the entry is written as the real
+path, which the refusal names.
+A link inside a claimed project is always such a link, since the sandbox
+account writes the project.
 .SS Allow entries
 An allow entry is a literal directory and covers its contents.
 A glob in an allow line does not match any path, so it does not start a session;

@@ -466,9 +466,9 @@ if command -v runuser >/dev/null 2>&1; then
         fail "ai-tools.projects.remove.inplace acted without a terminal (rc=${rc}, dir gone or de-registered): $(brief "${out}")"
     fi
 
-    # The verb does not run git over the tree. .git/config is the agent's to write, and a ref read as the operator that meets
-    # a missing object fetches it from a promisor remote with the transport that file names -- so the fixture has
-    # the exploit's shape: a partial clone whose HEAD object is gone and whose core.sshCommand writes a marker.
+    # The verb does not run git over the tree. .git/config is the agent's to write, and a ref read as the operator
+    # that meets a missing object fetches it from a promisor remote with the transport that file names -- so the fixture
+    # has the exploit's shape: a partial clone whose HEAD object is gone and whose core.sshCommand writes a marker.
     # The control makes that read directly and shows the marker appear; the verb, run to its no-terminal decline, leaves
     # it absent. Runtime half alone: the agent writing .git/config is reachable by design (cli.rule.md, Remove).
     rmrepo="${rmwork}/rm-repo"; mkdir -p "${rmrepo}"

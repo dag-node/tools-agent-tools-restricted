@@ -946,11 +946,11 @@ file into the allowlist's own directory, which the operator may not be able to w
 an unclaim performs is not run over files about to be deleted.
 
 The verb does not run git over the tree, in either kind. The agent co-writes `.git`, so `.git/config` is the agent's
-to write, and git run as the operator over it executes what that file names: a ref read that meets a missing object
-fetches it from a promisor remote through `core.sshCommand`, and an index refresh runs `core.fsmonitor`. That is
-the invariant [ref-section-s9t9](updater.rule.md#ref-section-s9t9) states, applied to this verb, so unpushed commits
-and uncommitted changes are not counted, and the deletion warning names them as the operator's to check.
-`tests/integration/cli.sh` drives the verb over a partial clone whose missing `HEAD` object fetches
+to write, and git run as the operator executes the commands that file names: the invariant
+[ref-section-s9t9](updater.rule.md#ref-section-s9t9) states, applied to this verb. The comment at the point
+in `cmd_project_remove` where no read is made names the two commands a ref read and an index refresh would run. Unpushed
+commits and uncommitted changes are therefore not counted, and the deletion warning names them as the operator's
+to check. `tests/integration/cli.sh` drives the verb over a partial clone whose missing `HEAD` object fetches
 through a `core.sshCommand` that writes a marker, with a direct `git rev-list` as the control that the fixture arms it.
 
 It confirms twice — a default-no prompt, then `ai_tools_msg_challenge` for the project's name — and neither is answered

@@ -222,9 +222,8 @@ source /usr/local/lib/ai-tools/conf.lib.sh
 declare -a allowed_directories=()
 # shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
 declare -a exclusion_patterns=()
-# One shared read (conf.lib.sh): allow entries resolved; exclusions as written and, through symlinks the operator
-# or root owns, resolved beside them. A file that cannot be read, or whose exclusion meets a symlink another account
-# holds (refused under the library's own code), leaves both arrays empty, so the target is not listed.
+# The one read every reader of the allowlist makes (ai_tools_conf_allowlist_load, conf.lib.sh). A file that cannot be
+# read, or whose exclusion the loader refuses, leaves both arrays empty, so the target is not listed.
 ai_tools_conf_allowlist_load "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 
 # _is_excluded <abs-path>: 0 if covered by a '!' rule (ai_tools_conf_is_path_excluded, conf.lib.sh -- the match every
@@ -274,8 +273,7 @@ _is_residue() {
 
 # _safe_unclaim <path>: clear ACL, regroup, drop group write -- TOCTOU-safe via a pinned fd held at <path>
 # (ai_tools_pinned_fd_matches_path, safe-paths.lib.sh; see ai-tools-setfacl for the rationale). Owner-guarded
-# on the pinned
-# inode.
+# on the pinned inode.
 #
 # Returns 0 when the path was changed, 2 when it was refused as a hardlink (the caller counts and reports those), 1
 # for every other skip.
