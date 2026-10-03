@@ -945,11 +945,13 @@ by re-reading the file rather than trusting `sed`, and names the line to delete 
 file into the allowlist's own directory, which the operator may not be able to write). The filesystem hand-back
 an unclaim performs is not run over files about to be deleted.
 
-The git report before the confirmations runs as the operator over a `.git` the agent co-writes, so it makes only the ref
-reads that run no configured command — `rev-parse` and `rev-list`, for the upstream and the unpushed count — and does
-not count uncommitted changes: `git status` refreshes the index, which runs the `core.fsmonitor` command the agent can
-write into `.git/config`. That is the invariant [ref-section-s9t9](updater.rule.md#ref-section-s9t9) states, applied
-to this verb.
+The verb does not run git over the tree, in either kind. The agent co-writes `.git`, so `.git/config` is the agent's
+to write, and git run as the operator over it executes what that file names: a ref read that meets a missing object
+fetches it from a promisor remote through `core.sshCommand`, and an index refresh runs `core.fsmonitor`. That is
+the invariant [ref-section-s9t9](updater.rule.md#ref-section-s9t9) states, applied to this verb, so unpushed commits
+and uncommitted changes are not counted, and the deletion warning names them as the operator's to check.
+`tests/integration/cli.sh` drives the verb over a partial clone whose missing `HEAD` object fetches
+through a `core.sshCommand` that writes a marker, with a direct `git rev-list` as the control that the fixture arms it.
 
 It confirms twice — a default-no prompt, then `ai_tools_msg_challenge` for the project's name — and neither is answered
 by a run with no terminal or by `AI_TOOLS_ASSUME_YES`; with `-y` a `path` argument is required, so an unattended removal

@@ -3502,20 +3502,11 @@ cmd_project_remove() {
         die "project remove stopped -- the tree is not fully deletable by ${OWNER_USER}"
     fi
 
-    # ── Git safety report: what deleting this loses. Reported, never refused -- a scratch repository with uncommitted
-    # work is a legitimate thing to delete on purpose. The agent co-writes .git, so its config and hooks are the agent's
-    # to set, and this runs as the operator: only ref reads that run no configured command are made -- rev-parse
-    # and rev-list -- and uncommitted changes are not counted, since `git status` refreshes the index, which runs
-    # core.fsmonitor (cli.rule.md). ──
-    if git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        local upstream ahead
-        if upstream="$(git -C "${d}" rev-parse --abbrev-ref '@{u}' 2>/dev/null)"; then
-            ahead="$(git -C "${d}" rev-list --count "${upstream}..HEAD" 2>/dev/null || echo 0)"
-            (( ahead )) && warn "${ahead} commit(s) not pushed to ${upstream}"
-        else
-            warn "no upstream is configured -- every commit in this repository is local"
-        fi
-    fi
+    # ── No git read over the tree. The agent co-writes .git, so .git/config is the agent's to write, and this runs
+    # as the operator: a ref read that meets a missing object fetches it from a promisor remote through the transport
+    # that file names (core.sshCommand), and an index refresh runs core.fsmonitor -- each a command of the agent's
+    # choosing, run as the operator (cli.rule.md). What deleting loses -- unpushed commits, uncommitted changes -- is
+    # therefore not counted here; the deletion warning names it as the operator's to check. ──
 
     # A parked project gets its own notice and its own default-NO confirm, BEFORE the deletion warning: the operator
     # parked this tree deliberately, so "you disabled this on purpose" is a different question from "this deletes
@@ -3534,7 +3525,7 @@ cmd_project_remove() {
     # ── Confirmation: a default-NO confirm, then the typed name; this command's own `-y` is the one thing that answers
     # them ahead of time, and with no terminal each declines on its own (messaging.rule.md). ──
     headline_warn "WARNING: this deletes the project directory" \
-        "${d} and everything in it is deleted. This is NOT reversible: there is no undo, and the tree is not moved to a trash location. To release the project and keep the files, use ai-tools projects unclaim instead."
+        "${d} and everything in it is deleted. This is NOT reversible: there is no undo, and the tree is not moved to a trash location. Unpushed commits and uncommitted changes go with it, and this command does not read the repository to count them. To release the project and keep the files, use ai-tools projects unclaim instead."
     if ! ${assume_yes}; then
         confirm "Delete this project directory and everything in it?" n || die "aborted"
         ai_tools_msg_challenge "  Confirm the project to delete" "${d##*/}" \
@@ -3862,22 +3853,17 @@ cmd_project_push() {
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }
 
-# remove_clone <dir> <assume-yes>  -- the clone kind of `projects remove`: delete a sandbox clone and unregister it,
-# warning first about any unpushed commits. <assume-yes> true pre-answers the one default-NO confirm. The remote branch
-# is left intact.
+# remove_clone <dir> <assume-yes>  -- the clone kind of `projects remove`: delete a sandbox clone and unregister it.
+# <assume-yes> true pre-answers the one default-NO confirm. The remote branch is left intact. No git read is made
+# over the clone (cmd_project_remove states why), so a line ahead of the confirm states what an unpushed commit meets
+# instead of counting them.
 remove_clone() {
     local d="$1" assume_yes="$2"
     require_sandbox_clone "${d}"
     section "Remove sandbox project"
     say "  ${d}"
-
-    local n; n="$(git -C "${d}" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
-    if [[ "${n}" != "0" ]]; then
-        warn "${n} unpushed commit(s) will be lost (already-pushed work stays on the remote)"
-        ${assume_yes} || confirm "Discard ${n} unpushed commit(s) and remove ${d}?" n || die "aborted"
-    else
-        ${assume_yes} || confirm "Remove ${d} and unregister it?" n || die "aborted"
-    fi
+    say "  a commit not yet pushed is deleted with the clone; already-pushed work stays on the remote"
+    ${assume_yes} || confirm "Remove ${d} and unregister it?" n || die "aborted"
 
     # As the owner: a clone claimed for another operator belongs to that operator, and the run's `--for` is what names
     # them.
