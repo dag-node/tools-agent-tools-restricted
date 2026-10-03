@@ -28,7 +28,7 @@ the tag, so no other input could carry the decision.
              develop <--------------------------------------------.
                 |                                                 |
                 |  every push: shellcheck, typesafe-client,       |
-                |  rpm-selftest (EL9+10); snapshot RPMs,          |
+                |  rpm-selftest (el9, el10, fc44); snapshot RPMs, |
                 |  Release: 0.<run>.git<sha>                      |  fixes during
                 |  (workflow artifacts only, never published)     |  stabilization
                 |                                                 |
