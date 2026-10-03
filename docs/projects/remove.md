@@ -45,9 +45,9 @@ not stop partway and leave an unregistered fragment behind. The parent
 directory is checked as well, since the last step unlinks the project from it;
 where you cannot write the parent, the refusal names `projects unclaim`
 instead, the parent never having been the project's to hand back. The pass also
-reports uncommitted changes, unpushed commits and a repository with no
-upstream, and goes on, since deleting a scratch repository on purpose is
-legitimate.
+reports unpushed commits and a repository with no upstream, and goes on, since
+deleting a scratch repository on purpose is legitimate; uncommitted changes are
+not counted, so check the working tree yourself before you confirm.
 
 ## It confirms twice
 
