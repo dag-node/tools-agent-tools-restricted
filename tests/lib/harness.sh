@@ -301,6 +301,13 @@ trap _teardown EXIT
 _test_logdir=""; mk_fixture_dir _test_logdir /tmp "${TEST_STEM}-log"
 export AI_TOOLS_LOG_DIR="${_test_logdir}"
 
+# extract_function <file> <name>: print the definition of the shell function <name> from <file>, for a test that drives
+# one function of an installed helper with the globals it reads set and its collaborators sourced or stubbed. A helper's
+# top level runs its gates and its walk when sourced, so the function is read as text instead: the definition opens
+# with `<name>() {` at column 0 and closes at the first `}` at column 0 after it. The caller evals the result
+# in a subshell.
+extract_function() { sed -n "/^$2() {/,/^}/p" -- "$1"; }
+
 # mktestdir: create THE dedicated /tmp boundary for this test (named by the fixture rule, with the file's stem as its
 # thing) and register it for teardown. Mode 0755 so an `sudo -u ai-tools` boundary check can traverse in to a fixture
 # (the fixture's own mode is what the check exercises). Sets the global TESTDIR.

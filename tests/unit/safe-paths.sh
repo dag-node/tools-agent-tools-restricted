@@ -166,4 +166,56 @@ if ai_tools_traverse_grant_allowed "${owned}" ""; then
 fi
 ${closed_ok} && pass "a missing path, a non-directory, and an unnamed owner all refuse"
 
+# ── ai_tools_pinned_fd_at_path: the pinned inode is the one at the authorized path ────────────────────────────────
+# The control case shows the helpers' identity reads agreeing on a directory OUTSIDE the tree once an ancestor is
+# a symlink; without it a refusal here would not be evidence that the predicate is what refuses.
+section "protected-paths backstop: a pinned descriptor is held to its authorized path"
+pin_tree="${TESTDIR}/pin-tree"; pin_outside="${TESTDIR}/pin-outside"
+mkdir -p "${pin_tree}/real" "${pin_outside}/inside"
+ln -s "${pin_outside}" "${pin_tree}/link"
+exec {pin_fd}< "${pin_tree}/real"
+if ai_tools_pinned_fd_at_path "${pin_fd}" "${pin_tree}/real"; then
+    pass "a descriptor opened at a real path is at that path"
+else
+    fail "a real path read back as '$(readlink "/proc/self/fd/${pin_fd}")'"
+fi
+exec {pin_fd}<&-
+
+pin_before="$(stat -c '%d:%i' "${pin_tree}/link/inside")"
+exec {pin_fd}< "${pin_tree}/link/inside"
+pin_after="$(stat -L -c '%d:%i' "/proc/self/fd/${pin_fd}")"
+if [[ "${pin_before}" == "${pin_after}" ]]; then
+    pass "control: the identity read through a symlinked ancestor agrees with the pinned inode's"
+else
+    fail "control: the identities differ (${pin_before} vs ${pin_after}), so the inode check is what refuses below"
+fi
+if ! ai_tools_pinned_fd_at_path "${pin_fd}" "${pin_tree}/link/inside"; then
+    pass "a path reached through a symlinked ancestor is refused"
+else
+    fail "a path reached through a symlinked ancestor passed"
+fi
+exec {pin_fd}<&-
+
+exec {pin_fd}< "${pin_tree}/real"
+mv "${pin_tree}/real" "${pin_tree}/moved"
+if ! ai_tools_pinned_fd_at_path "${pin_fd}" "${pin_tree}/real"; then
+    pass "a directory renamed after the open is refused"
+else
+    fail "a directory renamed after the open passed"
+fi
+rmdir "${pin_tree}/moved"
+if ! ai_tools_pinned_fd_at_path "${pin_fd}" "${pin_tree}/real"; then
+    pass "a directory unlinked after the open is refused"
+else
+    fail "a directory unlinked after the open passed"
+fi
+exec {pin_fd}<&-
+if ! ai_tools_pinned_fd_at_path "${pin_fd}" "${pin_tree}/real" \
+        && ! ai_tools_pinned_fd_at_path "" "${pin_tree}" \
+        && ! ai_tools_pinned_fd_at_path 0 ""; then
+    pass "a closed descriptor and an empty argument each refuse"
+else
+    fail "a closed descriptor or an empty argument passed"
+fi
+
 finish

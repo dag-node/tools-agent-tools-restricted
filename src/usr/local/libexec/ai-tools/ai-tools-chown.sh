@@ -301,6 +301,9 @@ if [[ "${#allowed[@]}" -gt 0 ]]; then
                 exec {fd}<&-
                 exit 0
             fi
+            # The pinned inode must also be the one at the canonical path (ai_tools_pinned_fd_at_path,
+            # safe-paths.lib.sh).
+            ai_tools_pinned_fd_at_path "${fd}" "${canonical}" || { exec {fd}<&-; exit 0; }
             # chown/chmod follow the /proc magic symlink to the pinned inode, so both act on the descriptor those checks
             # validated rather than on the name.
             /usr/bin/chown -- "${target_owner}" "/proc/self/fd/${fd}"

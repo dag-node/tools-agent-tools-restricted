@@ -363,4 +363,41 @@ else
 fi
 assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
 
+# ── A pinned path whose ancestor is a symlink ────────────────────────────────
+# The state ai_tools_pinned_fd_at_path refuses (safe-paths.lib.sh), driven through _safe_unclaim read
+# out of the installed helper as text, since the walk never emits it. The directory outside keeps its group, mode
+# and setgid bit; the same function on a real path is the control that it still reverts.
+section "ai-tools-unclaim: a pinned path whose ancestor is a symlink"
+pin_proj="${TESTDIR}/pin-proj"; pin_outside="${TESTDIR}/pin-outside"
+mkdir -p "${pin_proj}/real" "${pin_outside}/inside"
+ln -s "${pin_outside}" "${pin_proj}/link"
+chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${pin_proj}" "${pin_outside}"
+chmod 2770 "${pin_proj}" "${pin_proj}/real" "${pin_outside}" "${pin_outside}/inside"
+# drive_safe_unclaim <dir> : _safe_unclaim from the installed helper, in a subshell holding the globals it reads.
+drive_safe_unclaim() {
+    # shellcheck disable=SC2034  # the extracted function reads the globals set here
+    (
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        source /usr/local/lib/ai-tools/safe-paths.lib.sh
+        PROJECTS_UID="$(id -u "${PROJECTS_USER}")"; SANDBOX_UID="$(id -u "${SANDBOX_USER}")"
+        TARGET_GROUP="${PROJECTS_GROUP}"; UNLISTED=false
+        eval "$(extract_function "${HELPER}" _safe_unclaim)"
+        _safe_unclaim "$1"
+    )
+}
+rc=0; drive_safe_unclaim "${pin_proj}/real" || rc=$?
+if (( rc == 0 )) && [[ "$(stat -c '%G' "${pin_proj}/real")" == "${PROJECTS_GROUP}" ]] \
+        && [[ "$(perm "${pin_proj}/real")" == 750 ]]; then
+    pass "control: the extracted function reverts a directory at its real path"
+else
+    fail "control: rc=${rc}, real is $(stat -c '%G %a' "${pin_proj}/real") -- the refusal below is not evidence"
+fi
+rc=0; drive_safe_unclaim "${pin_proj}/link/inside" || rc=$?
+if (( rc != 0 )) && [[ "$(stat -c '%G %a' "${pin_outside}/inside")" == "${SANDBOX_GROUP} 2770" ]]; then
+    pass "a directory reached through a symlinked ancestor is refused and left as it was"
+else
+    fail "symlinked ancestor: rc=${rc}, the directory outside is $(stat -c '%G %a' "${pin_outside}/inside") (want a refusal, ${SANDBOX_GROUP} 2770)"
+fi
+
 finish
